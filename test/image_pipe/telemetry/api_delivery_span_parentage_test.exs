@@ -1,20 +1,8 @@
 defmodule ImagePipe.Telemetry.APIDeliverySpanParentageTest do
   @moduledoc """
-  Pins that a real cache-miss, streamed `ImagePipe.API` request's
-  stage spans are semantic descendants of the `[:request]` root span — the
-  API counterpart of
-  `ImagePipe.Telemetry.DeliverySpanParentageBaselineTest`.
-
-  `ImagePipe.Delivery` spans work across two process hops (the coordinator
-  and the producer), neither of which inherits the caller's trace stack, so
-  the request's trace context has to be carried as data and adopted on the
-  far side. Both spans asserted here are emitted from a hop:
-  `transform.operation` from the producer, `cache.write` from the
-  coordinator.
-
-  Asserts SEMANTICS ONLY (trace membership + transitive parent-chain descent
-  to the request root), never mechanism: no PIDs, no span counts, no
-  process-hop structure — the same discipline as that baseline.
+  Checks that a real cache-miss, streamed Plug request's stage spans share
+  its trace and descend transitively from the request root, including spans
+  emitted by the delivery coordinator and producer.
   """
 
   use ExUnit.Case, async: false
@@ -45,17 +33,13 @@ defmodule ImagePipe.Telemetry.APIDeliverySpanParentageTest do
     :ok
   end
 
-  # Real, exact `@span_stages` names from `ImagePipe.Telemetry.Trace.Capture`
-  # that a cache-miss streamed API request actually exercises across the
-  # two `Delivery` process hops:
-  #
-  #   * `image_pipe.transform.operation` — emitted per plan operation from
-  #     INSIDE the producer process (hop B).
-  #   * `image_pipe.cache.write` — emitted at sink commit from INSIDE the
-  #     coordinator process (hop A).
   @descendant_span_names [
+    "image_pipe.source.fetch_decode",
+    "image_pipe.transform.execute",
     "image_pipe.transform.operation",
-    "image_pipe.cache.write"
+    "image_pipe.encode",
+    "image_pipe.cache.write",
+    "image_pipe.deliver"
   ]
 
   test "stage spans of a cache-miss streamed API request are semantic descendants of the request root" do

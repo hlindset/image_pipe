@@ -1,15 +1,8 @@
 defmodule ImagePipe.Delivery.TraceParentageTest do
   @moduledoc """
-  `ImagePipe.Delivery` spans a session across two processes, neither of which
-  inherits the calling process's trace stack. This pins the primitive's half
-  of the bargain: a calling dialect opens its request span and calls
-  `stream/5` from that process, and both hops' spans land in the same trace,
-  descended from it — the dialect passes no trace context and cannot forget
-  to.
-
-  Asserts semantics only (trace membership + transitive descent), never
-  mechanism — the same discipline as
-  `ImagePipe.Telemetry.DeliverySpanParentageBaselineTest`.
+  Checks that `ImagePipe.Delivery.stream/5` carries the caller's request
+  trace to its coordinator and producer, with both processes' spans
+  descending transitively from that request root.
   """
 
   use ExUnit.Case, async: false

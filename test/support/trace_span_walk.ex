@@ -6,10 +6,7 @@ defmodule ImagePipe.Test.Trace.SpanWalk do
 
   Shared by the delivery-primitive and API trace-parentage tests
   (`ImagePipe.Delivery.TraceParentageTest`,
-  `ImagePipe.Telemetry.APIDeliverySpanParentageTest`). The topology-gate
-  baseline (`ImagePipe.Telemetry.DeliverySpanParentageBaselineTest`)
-  deliberately keeps its own private copy rather than depending on this
-  module — it must not be able to change out from under that gate.
+  `ImagePipe.Telemetry.APIDeliverySpanParentageTest`).
   """
 
   alias ImagePipe.Telemetry.Trace.Span
