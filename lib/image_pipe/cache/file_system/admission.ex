@@ -457,17 +457,50 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     GenServer.call(server, {:admit, descriptor})
   end
 
-  @impl true
-  def handle_call({:admit, descriptor}, _from, state) do
+  def commit(server, prepared, body_filename) do
+    GenServer.call(server, {:commit, prepared, body_filename})
+  end
+
+  defp admit_descriptor(state, descriptor) do
     # Increment sighting first (commit is itself a sighting of the key)
     state = sighting(state, descriptor.key_hash)
 
-    {result, state} =
-      Telemetry.span(tel_opts(state), [:cache, :admission], %{pool: state.pool}, fn ->
-        {result, new_state} = decide_admission(state, descriptor)
-        {{result, new_state}, admission_meta(result)}
-      end)
+    Telemetry.span(tel_opts(state), [:cache, :admission], %{pool: state.pool}, fn ->
+      {result, new_state} = decide_admission(state, descriptor)
+      {{result, new_state}, admission_meta(result)}
+    end)
+  end
 
+  defp finish_commit({:admit, victims}, _descriptor, opts) do
+    FileSystem.delete_victims(victims, opts)
+    :ok
+  end
+
+  defp finish_commit({:reject, _reason, victims}, descriptor, opts) do
+    FileSystem.delete_victims([full_eviction_victim(descriptor) | victims], opts)
+    {:ok, :rejected}
+  end
+
+  defp finish_commit({:reject, reason}, descriptor, opts),
+    do: finish_commit({:reject, reason, []}, descriptor, opts)
+
+  @impl true
+  def handle_call({:commit, prepared, body_filename}, _from, state) do
+    # Publication, accounting and eviction share the same serialized owner.
+    # Failed publication leaves admission queues unchanged.
+    case FileSystem.publish_sink(prepared, body_filename) do
+      {:ok, descriptor} ->
+        {result, state} = admit_descriptor(state, descriptor)
+        opts = [root: state.root, path_prefix: state.path_prefix]
+        {:reply, finish_commit(result, descriptor, opts), state}
+
+      {:error, _reason} = error ->
+        {:reply, error, state}
+    end
+  end
+
+  def handle_call({:admit, descriptor}, _from, state) do
+    {result, state} = admit_descriptor(state, descriptor)
     {:reply, result, state}
   end
 
