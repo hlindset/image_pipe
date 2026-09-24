@@ -29,6 +29,34 @@ defmodule ImagePipe.URLWireTest do
     %{body: body, sources: sources}
   end
 
+  test "raw signed paths execute under a mount and reject tampering before fetching", %{
+    sources: sources
+  } do
+    config = IP.config(sources: sources, keys: [@key])
+    mount = IP.Plug.init(config)
+    signed = IP.sign_path("/w=30/format=png/src/photo%2ejpg", config)
+    refute_received :source_fetch
+    refute_received :cache_lookup
+
+    response =
+      conn(:get, "/artwork" <> signed)
+      |> Map.put(:script_name, ["artwork"])
+      |> IP.Plug.call(mount)
+
+    assert response.status == 200
+    assert get_resp_header(response, "content-type") == ["image/png"]
+    output = Image.from_binary!(response.resp_body)
+    assert {Image.width(output), Image.height(output)} == {30, 20}
+    assert_received :source_fetch
+
+    tampered = String.replace(signed, "%2e", ".")
+    mount = IP.Plug.init(config: config, cache: {CacheProbe, []})
+    assert conn(:get, tampered) |> IP.Plug.call(mount) |> Map.fetch!(:status) == 403
+    refute_received :source_fetch
+    refute_received :cache_lookup
+    refute_received :cache_put
+  end
+
   test "one shared config supplies encryption, signing, URL defaults, and processing", %{
     sources: sources
   } do

@@ -70,6 +70,23 @@ defmodule ImagePipe do
   def config(options \\ []), do: Config.new!(options)
 
   @doc """
+  Signs an existing mount-relative path with the first configured signing key.
+
+  Returns `"/sig=<signature>" <> path`, preserving the exact path bytes without
+  parsing, escaping, or normalizing them. Pass a config from `config/1`.
+  The path must start with `/` and exclude any signature prefix, query string,
+  or fragment. Source query parameters must already be escaped in the path.
+  Raises `ArgumentError` for an invalid path shape or missing signing keys.
+
+  Prepend the mount prefix or hostname to the result yourself; `:base_url`
+  is not applied. This function performs no source or cache I/O and does not
+  validate processing options or encrypt sources.
+  """
+  @spec sign_path(String.t(), Config.t()) :: String.t()
+  def sign_path(path, %Config{options: options}),
+    do: ImagePipe.API.sign_path(path, options)
+
+  @doc """
   Generates a stable URL using the builder's plan and shared configuration.
 
   The source is a UTF-8 string, including any source query parameters. Source

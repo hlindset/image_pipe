@@ -42,6 +42,9 @@ defmodule ImagePipe.API do
   @doc false
   defdelegate url(plan, source, config, options), to: ImagePipe.API.URL, as: :build
 
+  @doc false
+  defdelegate sign_path(path, config), to: ImagePipe.API.URL
+
   @doc """
   Encrypts a UTF-8 source using a validated mount configuration.
 
