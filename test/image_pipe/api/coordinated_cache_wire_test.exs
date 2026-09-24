@@ -149,6 +149,58 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
              Image.write!(Image.from_binary!(first.resp_body), :memory, suffix: ".png")
   end
 
+  test "adapter clock margins shorten freshness and response TTL without rebasing evidence",
+       ctx do
+    config = probe_config(ctx.shared, 10)
+    first = request(config, 12)
+    assert first.status == 200
+    assert Image.get_pixel!(Image.from_binary!(first.resp_body), 0, 0) == [255, 0, 0]
+    assert_receive {:origin, _, []}
+    [etag] = get_resp_header(first, "etag")
+    Agent.update(ctx.state, &%{&1 | now: 1_040})
+
+    hit = request(config, 12)
+    assert hit.resp_body == first.resp_body
+    assert get_resp_header(hit, "cache-control") == ["public, max-age=60"]
+    assert get_resp_header(hit, "age") == ["50"]
+    variant = request(config, 8)
+    assert variant.status == 200
+    assert get_resp_header(variant, "cache-control") == ["public, max-age=60"]
+    assert get_resp_header(variant, "age") == ["50"]
+    refute_received {:origin, _, _}
+
+    Agent.update(ctx.state, &%{&1 | now: 1_051, version: 2})
+    changed = request(config, 12, [{"if-none-match", etag}])
+    assert changed.status == 200
+    assert Image.get_pixel!(Image.from_binary!(changed.resp_body), 0, 0) == [0, 0, 255]
+    assert_receive {:origin, _, [~s("v1")]}
+  end
+
+  test "adapter clock margins also shorten stale-while-revalidate eligibility", ctx do
+    config = probe_config(ctx.shared, 2)
+    Agent.update(ctx.state, &%{&1 | control: "public, max-age=1, stale-while-revalidate=3"})
+    first = request(config, 12)
+    assert_receive {:origin, _, []}
+    Agent.update(ctx.state, &%{&1 | now: 1_003, version: 2})
+    changed = request(config, 12)
+    assert changed.status == 200
+    refute changed.resp_body == first.resp_body
+    assert Image.get_pixel!(Image.from_binary!(changed.resp_body), 0, 0) == [0, 0, 255]
+    assert_receive {:origin, _, [~s("v1")]}
+  end
+
+  test "a negative adapter clock margin bypasses evidence instead of extending freshness", ctx do
+    config = probe_config(ctx.shared, -10)
+    first = request(config, 12)
+    assert_receive {:origin, _, []}
+    Agent.update(ctx.state, &%{&1 | now: 1_001, version: 2})
+    changed = request(config, 12)
+    assert changed.status == 200
+    refute changed.resp_body == first.resp_body
+    assert Image.get_pixel!(Image.from_binary!(changed.resp_body), 0, 0) == [0, 0, 255]
+    assert_receive {:origin, _, []}
+  end
+
   test "native cache hits revalidate origin freshness and observe changed bytes", %{
     shared: shared,
     config: config,
@@ -706,4 +758,11 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
   end
 
   defp original_bodies(root), do: CacheEntry.original_bodies(root)
+
+  defp probe_config(shared, margin) do
+    {FileSystem, pool} = shared.raw[:input_cache]
+    pool = Keyword.merge(pool, owner: self(), age_margin: margin)
+    shared = IP.config(Keyword.put(shared.raw, :input_cache, {InputCacheProbe, pool}))
+    IP.Plug.init(config: shared, http_cache: [mode: :enabled])
+  end
 end

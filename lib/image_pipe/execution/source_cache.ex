@@ -34,13 +34,16 @@ defmodule ImagePipe.Execution.SourceCache do
 
   def status(nil, _source, _config), do: :requires_validation
 
-  def status(%Snapshot{record: record}, source, config), do: status(record, source, config)
+  def status(%Snapshot{record: nil}, _source, _config), do: :requires_validation
+
+  def status(%Snapshot{record: record, age_margin: margin}, source, config),
+    do: CacheState.status(Record.state(record, source.cache_semantics), now(config) + margin)
 
   def status(record, source, config),
     do: CacheState.status(Record.state(record, source.cache_semantics), now(config))
 
-  def acquisition(%Snapshot{record: record, revision: revision}),
-    do: %Acquisition{record: record, source_revision: revision}
+  def acquisition(%Snapshot{record: record, revision: revision, age_margin: margin}),
+    do: %Acquisition{record: record, source_revision: revision, age_margin: margin}
 
   def acquisition(record), do: %Acquisition{record: record}
 
@@ -180,8 +183,11 @@ defmodule ImagePipe.Execution.SourceCache do
         path = if acquisition.response, do: acquisition.response.path
 
         case publish_record(key, acquisition.record, path, cost, config) do
-          {:ok, %Snapshot{revision: revision}} -> %{acquisition | source_revision: revision}
-          _failed -> acquisition
+          {:ok, %Snapshot{revision: revision, age_margin: margin}} ->
+            %{acquisition | source_revision: revision, age_margin: margin}
+
+          _failed ->
+            acquisition
         end
 
       false ->

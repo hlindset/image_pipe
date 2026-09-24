@@ -93,6 +93,33 @@ necessitate an unconditional fetch. Late invalidation affects only its expected
 revision, never a newer local selection. Global immediate invalidation is outside
 this consistency contract.
 
+Retain source selections separately from disposable location hints, with LRU
+entry-count and encoded-payload byte limits. Publication, invalidation, and
+selection eviction advance a validation cutoff in a fixed-size hash-bucket table.
+A missing selection can discover evidence only when validation started strictly
+after its bucket's cutoff, allowing for clock skew. A delayed response's completion
+time is insufficient. Evidence without a validation-start timestamp requires local
+acquisition once a cutoff applies. Bucket collisions conservatively cause extra
+validation; they do not invalidate an existing selection. Cutoffs never expire or
+decrease within the local coordination scope, so evicting an invalidation marker
+cannot restore its rejected evidence. This bounds rejection memory without a
+growing tombstone set.
+
+The runtime preserves this state across worker restarts and disk-partition rotation.
+A full runtime restart creates a new independent selection scope, like a new node;
+it may discover still-eligible old evidence, with its original deadlines. It does
+not promise durable invalidation across runtime loss or global revocation.
+
+Configure a maximum pairwise clock-skew allowance for hosts sharing evidence.
+Discovered snapshots carry that allowance as an `age_margin`, evaluated in addition
+to current time for freshness, stale eligibility, and downstream Age headers.
+The allowance is not written into origin evidence or accumulated on adoption.
+Validation-start cutoffs subtract the allowance before comparison. Future evidence
+beyond the allowance and observed backward clock steps bypass discovery; retain a
+local clock high-water mark so rollback cannot lower a cutoff. Hosts unable to
+maintain the configured bound must bypass foreign source evidence. This is an
+operating assumption, not something filesystem liveness can prove.
+
 The existing pluggable input-cache foundation is reusable, but its documented
 single-authority/atomic-ownership contract needs explicit revision. Define
 coordination scope per adapter, preserve local same-key validation serialization

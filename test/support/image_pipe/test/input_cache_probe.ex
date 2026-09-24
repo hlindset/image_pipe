@@ -9,13 +9,19 @@ defmodule ImagePipe.Test.InputCacheProbe do
 
   @impl true
   def validate_input_options(opts) do
-    with {:ok, pool} <- FileSystem.validate_options(Keyword.delete(opts, :owner)) do
-      {:ok, Keyword.put(pool, :owner, Keyword.fetch!(opts, :owner))}
+    with {:ok, pool} <- FileSystem.validate_options(Keyword.drop(opts, [:owner, :age_margin])) do
+      {:ok, Keyword.merge(pool, Keyword.take(opts, [:owner, :age_margin]))}
     end
   end
 
   @impl true
-  def lookup_source(key, opts), do: invoke(:lookup_source, [key], opts)
+  def lookup_source(key, opts) do
+    case invoke(:lookup_source, [key], opts) do
+      {:hit, snapshot} -> {:hit, %{snapshot | age_margin: Keyword.get(opts, :age_margin, 0)}}
+      other -> other
+    end
+  end
+
   @impl true
   def acquire_source(key, opts), do: invoke(:acquire_source, [key], opts)
   @impl true
@@ -36,6 +42,6 @@ defmodule ImagePipe.Test.InputCacheProbe do
 
   defp invoke(operation, args, opts) do
     send(Keyword.fetch!(opts, :owner), {:input_adapter, operation})
-    apply(FileSystem, operation, args ++ [Keyword.delete(opts, :owner)])
+    apply(FileSystem, operation, args ++ [Keyword.drop(opts, [:owner, :age_margin])])
   end
 end

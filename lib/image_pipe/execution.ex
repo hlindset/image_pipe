@@ -377,7 +377,7 @@ defmodule ImagePipe.Execution do
 
   def source_state(context) do
     record = context.acquisition.record
-    now = SourceCache.now(context.config)
+    now = SourceCache.now(context.config) + context.acquisition.age_margin
 
     age =
       case record.origin do

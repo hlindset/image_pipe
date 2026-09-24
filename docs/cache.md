@@ -123,6 +123,12 @@ invalidation marker forces source acquisition rather than restoring old evidence
 Custom input adapters must hold original bytes safely until release and clean up
 their resource handles on caller termination.
 
+Source snapshots may include a nonnegative `age_margin` in seconds (default zero).
+It conservatively increases the age used for freshness, stale eligibility, and
+response cache headers, for example when reusing evidence from a host with bounded
+clock skew. Adapters preserve the original record and never accumulate this margin
+when copying it. Invalid margins cause cache bypass.
+
 ## Stale-while-revalidate
 
 An eligible stale output returns immediately while supervised work refreshes

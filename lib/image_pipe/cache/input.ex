@@ -78,8 +78,10 @@ defmodule ImagePipe.Cache.Input do
     :exit, _reason -> nil
   end
 
-  defp validated_snapshot({:hit, %Snapshot{revision: revision, record: record} = snapshot})
-       when not is_nil(revision) do
+  defp validated_snapshot(
+         {:hit, %Snapshot{revision: revision, record: record, age_margin: margin} = snapshot}
+       )
+       when not is_nil(revision) and is_integer(margin) and margin >= 0 do
     if is_nil(record) or Record.valid?(record), do: snapshot
   end
 
@@ -134,7 +136,8 @@ defmodule ImagePipe.Cache.Input do
 
   defp publish_adapter(adapter, key, lease, record, path, cost, pool) do
     case adapter.publish_source(key, lease, record, path, cost, pool) do
-      {:ok, %Snapshot{revision: revision, record: ^record}} = result when not is_nil(revision) ->
+      {:ok, %Snapshot{revision: revision, record: ^record, age_margin: margin}} = result
+      when not is_nil(revision) and is_integer(margin) and margin >= 0 ->
         result
 
       {:error, _} = error ->
