@@ -19,6 +19,7 @@ defmodule ImagePipe.Plan.Builder.Options do
 
   def request!(options) do
     validate!(options,
+      presets: [type: {:list, {:custom, Values, :cast, [:preset_name]}}],
       orient: [type: {:in, [:auto, :none]}],
       filename: [type: custom(:path_token)],
       attachment: [type: :boolean],

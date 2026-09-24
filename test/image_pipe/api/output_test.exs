@@ -2,13 +2,13 @@ defmodule ImagePipe.API.OutputTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.API
-  alias ImagePipe.API.Config
   alias ImagePipe.API.Errors
   alias ImagePipe.API.Parser
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.RequestPolicy, as: Output
   alias ImagePipe.Plan.Output, as: PlanOutput
   alias ImagePipe.Plan.Output.{JpegOptions, WebpOptions}
+  alias ImagePipe.Plug.Config
 
   defp seg(raw), do: {raw, {0, byte_size(raw)}}
 

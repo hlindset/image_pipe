@@ -3,12 +3,18 @@ defmodule ImagePipe.Config do
   Reusable host configuration shared by the Plug and the Elixir API.
 
   Construct with `ImagePipe.config/1`. Configuration owns sources, caches,
-  processing defaults, storage partitions, URL defaults, and signing/encryption
+  processing defaults, presets, storage partitions, URL defaults, and signing/encryption
   settings. Inspection excludes its values.
   """
   use Boundary,
     top_level?: true,
-    deps: [ImagePipe.Cache, ImagePipe.Processing, ImagePipe.Security, ImagePipe.Source],
+    deps: [
+      ImagePipe.API,
+      ImagePipe.Cache,
+      ImagePipe.Processing,
+      ImagePipe.Security,
+      ImagePipe.Source
+    ],
     exports: []
 
   alias ImagePipe.Cache
@@ -25,6 +31,7 @@ defmodule ImagePipe.Config do
   @schema NimbleOptions.new!(
             ProcessingConfig.schema() ++
               [
+                presets: [type: {:custom, ImagePipe.API, :compile_presets, []}, default: %{}],
                 cache: [type: :any],
                 input_cache: [type: :any],
                 storage_inputs: [

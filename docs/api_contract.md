@@ -22,8 +22,8 @@ directly from Elixir. Both entry points use `ImagePipe.Execution` for source
 freshness and caching, `Processing` for generation, and
 `ImagePipe.Transform.Executor` for group execution. Shared host configuration
 owns limits, source options, detector setup, output defaults, caches, storage
-partitions, signing/encryption keys, and URL defaults. Mount configuration adds
-HTTP delivery controls and parsing presets.
+partitions, presets, signing/encryption keys, and URL defaults. Mount configuration adds
+HTTP delivery controls.
 `ImagePipe.config/1` builds
 configuration for both the Plug mount and `ImagePipe.new(config)`. Configured
 source inputs share cache identity and freshness across native and HTTP calls;
@@ -517,7 +517,9 @@ BlurHash and LQIP CSS reject these URL options and ignore configured image outpu
 ### Presets and terminals
 
 Presets expand before validation and canonicalization. Precedence is default
-preset, named presets in listed order, then explicit URL values. Resolve
+preset, named presets in listed order, then explicit values. Shared configuration
+owns preset definitions; Plug and builder execution use the same expansion.
+URL generation preserves named references and explicit overrides. Resolve
 nested named presets at initialization and reject cycles/unknown names.
 Single-group presets contribute to the first group. A preset containing
 `-` supplies the complete group sequence and cannot combine with explicit

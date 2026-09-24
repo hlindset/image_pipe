@@ -2,7 +2,6 @@ defmodule ImagePipe.API.ParserTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias ImagePipe.API.Config
   alias ImagePipe.API.Diagnostic
   alias ImagePipe.API.DiagnosticRenderer
   alias ImagePipe.API.OptionSpec
@@ -11,6 +10,7 @@ defmodule ImagePipe.API.ParserTest do
   alias ImagePipe.Plan.Request
   alias ImagePipe.Plan.Request.Group
   alias ImagePipe.Plan.Request.Output
+  alias ImagePipe.Plug.Config
 
   # `parse/2` consumes Task 4's lexed map directly — never a conn — so
   # tests build that map by hand instead of going through `Path.extract/1`.

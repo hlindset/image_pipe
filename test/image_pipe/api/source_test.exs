@@ -1,10 +1,10 @@
 defmodule ImagePipe.API.SourceTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.API.Config
   alias ImagePipe.Plan.Source.Object
   alias ImagePipe.Plan.Source.Path
   alias ImagePipe.Plan.Source.URL
+  alias ImagePipe.Plug.Config
   alias ImagePipe.Source.Parser, as: Source
 
   @foobar_translator ImagePipe.SourceTest.FoobarTranslator

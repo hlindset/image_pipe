@@ -94,7 +94,7 @@ defmodule ImagePipe.API.PipelinePixelTest do
 
   defp request(options) do
     config =
-      API.validate_config!(sources: [path: {RootHTTPAdapter, root_url: "http://origin.test"}])
+      ImagePipe.Plug.init(sources: [path: {RootHTTPAdapter, root_url: "http://origin.test"}])
 
     {{:ok, request, _source}, _metadata} =
       API.parse(Plug.Test.conn(:get, "/#{options}/src/test"), config)

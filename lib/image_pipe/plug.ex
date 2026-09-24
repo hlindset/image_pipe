@@ -19,6 +19,7 @@ defmodule ImagePipe.Plug do
   use Boundary,
     deps: [
       ImagePipe.API,
+      ImagePipe.Config,
       ImagePipe.Error,
       ImagePipe.Execution,
       ImagePipe.Output,
@@ -31,11 +32,11 @@ defmodule ImagePipe.Plug do
 
   @behaviour Plug
 
-  alias ImagePipe.API
+  alias ImagePipe.Plug.Config
   alias ImagePipe.Plug.Runner
 
   @impl Plug
-  def init(opts), do: API.validate_config!(opts)
+  def init(opts), do: Config.validate!(opts)
 
   @impl Plug
   def call(%Plug.Conn{} = conn, opts) do

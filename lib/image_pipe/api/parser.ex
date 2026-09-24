@@ -21,8 +21,8 @@ defmodule ImagePipe.API.Parser do
 
   alias ImagePipe.API.Diagnostic
   alias ImagePipe.API.OptionSpec
-  alias ImagePipe.API.Presets
   alias ImagePipe.API.Value
+  alias ImagePipe.Plan.Presets
   alias ImagePipe.Plan.Request
 
   @intent_keys Map.new(for spec <- OptionSpec.all(), spec.name != nil, do: {spec.key, spec.name})
@@ -64,8 +64,11 @@ defmodule ImagePipe.API.Parser do
   @spec parse_preset(String.t()) :: {:ok, map()} | {:error, [Diagnostic.t()]}
   def parse_preset(fragment) do
     case fragment |> fragment_segments() |> parse_options() do
-      {parsed, _occurrences, []} -> {:ok, parsed}
-      {_parsed, _occurrences, errors} -> {:error, errors}
+      {parsed, _occurrences, []} ->
+        {:ok, %{groups: typed_group_maps(parsed.groups), request: typed_options(parsed.request)}}
+
+      {_parsed, _occurrences, errors} ->
+        {:error, errors}
     end
   end
 
@@ -311,7 +314,20 @@ defmodule ImagePipe.API.Parser do
     preset_span = request_occurrence_span(occurrences, "preset") || whole_path_span
 
     {groups, request, diagnostics} =
-      Presets.expand(clean_group_maps, clean_request_map, presets_config, preset_span)
+      case Presets.expand(
+             typed_group_maps(clean_group_maps),
+             typed_options(clean_request_map),
+             presets_config
+           ) do
+        {:ok, expanded} ->
+          groups = Map.new(expanded.groups, fn {i, opts} -> {i, url_options(opts)} end)
+          {groups, url_options(expanded.request), []}
+
+        {:error, issues} ->
+          diagnostics = Enum.map(issues, &preset_diagnostic(&1, preset_span))
+
+          {clean_group_maps, clean_request_map, diagnostics}
+      end
 
     # Explicit occurrences stay first, so diagnostics use the original URL
     # spans where possible. Preset contributions point to the preset name.
@@ -325,6 +341,12 @@ defmodule ImagePipe.API.Parser do
 
   defp preset_occurrence(index, key, span),
     do: occurrence(index, key, nil, span, span, span, {:ok, :from_preset})
+
+  defp preset_diagnostic(issue, span),
+    do: %Diagnostic{reason: issue.reason, message: preset_message(issue), spans: [span]}
+
+  defp preset_message(%{reason: :unknown_preset, detail: name}), do: "unknown preset: #{name}"
+  defp preset_message(issue), do: message_for(issue.reason)
 
   # -- semantic validation and URL diagnostics -----------------------------
 
@@ -400,10 +422,14 @@ defmodule ImagePipe.API.Parser do
   end
 
   defp typed_options(options) do
-    options
-    |> Map.delete("preset")
-    |> Map.new(fn {key, value} -> {Map.fetch!(@intent_keys, key), value} end)
+    Map.new(options, fn {key, value} -> {Map.fetch!(@intent_keys, key), value} end)
   end
+
+  defp typed_group_maps(groups),
+    do: Map.new(groups, fn {index, options} -> {index, typed_options(options)} end)
+
+  defp url_options(options),
+    do: Map.new(options, fn {key, value} -> {Map.fetch!(@url_keys, key), value} end)
 
   defp fragment_segments(fragment) do
     {_offset, segments_rev} =
@@ -425,8 +451,6 @@ defmodule ImagePipe.API.Parser do
   @doc """
   Returns shared diagnostic wording for `reason`.
 
-  Other producers, such as `ImagePipe.API.Presets`, use this table before
-  appending request-specific details such as an unknown preset's name.
   """
   @spec message_for(atom()) :: String.t()
   def message_for(:empty_pipeline_group), do: "empty pipeline group"
@@ -512,8 +536,6 @@ defmodule ImagePipe.API.Parser do
   def message_for(:invalid_preset_name),
     do: "invalid value: expected names matching [A-Za-z0-9._-]+"
 
-  # `Presets.expand/4` appends the offending name itself (request data this
-  # static table can't hold) to build the full message.
   def message_for(:unknown_preset), do: "unknown preset"
 
   def message_for(:conflicting_preset_pipeline),

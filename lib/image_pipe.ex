@@ -62,6 +62,10 @@ defmodule ImagePipe do
   uses the first key. Omit keys for unsigned URLs. Invalid configuration raises
   `ArgumentError` without including credentials in the message.
 
+  `:presets` maps names to URL option fragments. Nested references are resolved
+  at configuration time. Both Plug and direct execution apply the `default`
+  preset, selected named presets, and explicit options in that order.
+
   `:encrypt_source` defaults to `false`. Set it to `true` with independent
   `:source_encryption_keys` (ordered raw 32-byte binaries) to conceal the source.
   Signing keys are required. `:iv_mode` is `:deterministic` (default) or `:random`.
@@ -93,6 +97,12 @@ defmodule ImagePipe do
   bytes are escaped once and the signature covers the mount-relative path.
   Construction performs no source, image, or cache I/O. Files and binary input
   tuples accepted by `run/3` have no URL representation.
+
+  Preset names remain references in generated URLs. Explicit options, including
+  false and identity values, are retained as overrides. Names defined only on
+  the serving mount are allowed; that mount validates the combined request.
+  Empty encoder-option or format-quality overrides with presets return
+  `{:error, :unrepresentable_preset_override}` because they have no URL spelling.
 
   With encrypted configuration, per-call `:iv` accepts `:deterministic`,
   `:random`, or an explicit 16-byte binary. An explicit IV must be unpredictable
@@ -133,7 +143,8 @@ defmodule ImagePipe do
   `new(config)` reuses a value from `config/1`. Use `new(config, options)`
   to supply request controls as well. `new()` uses default configuration.
 
-  Accepts `:orient` (`:auto` or `:none`), `:filename`, `:attachment`,
+  Accepts `:presets` (an ordered list of names), `:orient` (`:auto` or `:none`),
+  `:filename`, `:attachment`,
   `:cachebuster`, `:expires` (positive Unix seconds), and `:debug`.
   Unknown, duplicate, or malformed options raise `ArgumentError`.
   """
@@ -181,7 +192,8 @@ defmodule ImagePipe do
   checked before normalization, including applicability to the selected output.
   """
   @spec validate(t()) :: :ok | {:error, [Issue.t()]}
-  def validate(%__MODULE__{plan: plan}), do: Plan.validate(plan)
+  def validate(%__MODULE__{plan: plan, config: config}),
+    do: Plan.validate(plan, config.options[:presets])
 
   @doc """
   Executes a plan and returns a fully consumed `ImagePipe.Result`.

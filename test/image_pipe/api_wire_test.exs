@@ -4,7 +4,6 @@ defmodule ImagePipe.APIWireTest do
   import Plug.Conn
   import Plug.Test
 
-  alias ImagePipe.API
   alias ImagePipe.API.Parser
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.Key
@@ -573,7 +572,7 @@ defmodule ImagePipe.APIWireTest do
 
     test "two keys configured, valid sig matching the second key: 200" do
       config = opts(keys: [@source_key_a, @source_key_b])
-      second_key_signs = API.validate_config!(keys: [@source_key_b, @source_key_a])
+      second_key_signs = ImagePipe.Plug.init(keys: [@source_key_b, @source_key_a])
       sig = ImagePipe.Security.sign("/w=64/src/images/cat.jpg", second_key_signs)
 
       conn = get("/sig=#{sig}/w=64/src/images/cat.jpg", config)

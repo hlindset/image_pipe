@@ -32,8 +32,10 @@ its values, including credentials. Store secrets in server-side configuration.
 
 Mount options can override shared configuration. Direct `run`/`write` host
 options override the builder's configuration. Explicit request output choices
-override host defaults. URL preset precedence is `default`, named presets in
-listed order, then explicit URL options. See [presets](urls.md#presets) for
+override host defaults. Preset precedence is `default`, named presets in
+listed order, then explicit options, for both Plug and builder execution.
+Configure `presets: %{"poster" => "w=320"}` in `ImagePipe.config/1` and select
+names with `ImagePipe.new(config, presets: ["poster"])`. See [presets](urls.md#presets) for
 related-option replacement rules.
 
 ## Sources, caches, and URL protection
@@ -157,7 +159,6 @@ Pass these alongside `config: config`, rather than to `ImagePipe.config/1`:
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `presets` | `%{}` | Map from name to processing option string; [preset guide](urls.md#presets) |
 | `allow_origin` | Omitted | Nonempty CORS origin string, e.g. `"https://app.example.com"` or `"*"` |
 | `allow_debug_headers` | `false` | Allow request `debug` to expose diagnostic headers |
 | `http_cache` | Disabled | `[mode: :enabled, visibility: :auto]`; visibility also accepts `:private` or `:public` |

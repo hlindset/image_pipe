@@ -3,10 +3,10 @@ defmodule ImagePipe.BuilderTest do
   use ExUnitProperties
 
   alias ImagePipe, as: IP
-  alias ImagePipe.API.Config
   alias ImagePipe.API.Parser
   alias ImagePipe.API.Path
   alias ImagePipe.Plan
+  alias ImagePipe.Plug.Config
 
   test "builds reusable, source-independent plans with explicit groups" do
     plan =

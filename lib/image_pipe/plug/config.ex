@@ -1,4 +1,4 @@
-defmodule ImagePipe.API.Config do
+defmodule ImagePipe.Plug.Config do
   @moduledoc """
   Validates and resolves the mount configuration.
 
@@ -6,8 +6,6 @@ defmodule ImagePipe.API.Config do
   used by direct Elixir execution.
   """
 
-  alias ImagePipe.API.OptionSpec
-  alias ImagePipe.API.Presets
   alias ImagePipe.Config, as: SharedConfig
 
   @options_schema NimbleOptions.new!(
@@ -15,10 +13,6 @@ defmodule ImagePipe.API.Config do
                       type: {:custom, __MODULE__, :validate_allow_origin, []}
                     ],
                     allow_debug_headers: [type: :boolean, default: false],
-                    presets: [
-                      type: {:custom, __MODULE__, :validate_presets, []},
-                      default: %{}
-                    ],
                     http_cache: [
                       type: :keyword_list,
                       keys: [
@@ -49,22 +43,6 @@ defmodule ImagePipe.API.Config do
 
   defp shared_config(_invalid, _options),
     do: raise(ArgumentError, "config must be built with ImagePipe.config/1")
-
-  @doc false
-  def validate_presets(value) when is_map(value) do
-    if Enum.all?(value, fn {name, fragment} ->
-         is_binary(name) and is_binary(fragment) and
-           OptionSpec.parse_preset_names(name) == {:ok, [name]}
-       end) do
-      Presets.validate_config(value)
-    else
-      {:error, "expected a map of preset name to option-fragment string, got: #{inspect(value)}"}
-    end
-  end
-
-  def validate_presets(value),
-    do:
-      {:error, "expected a map of preset name to option-fragment string, got: #{inspect(value)}"}
 
   @doc false
   def validate_allow_origin(value) when is_binary(value) and value != "" do

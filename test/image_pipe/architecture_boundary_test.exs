@@ -99,6 +99,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     assert_boundary_deps(plug, [
       ImagePipe.API,
+      ImagePipe.Config,
       ImagePipe.Error,
       ImagePipe.Execution,
       ImagePipe.Output,
@@ -115,7 +116,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     api = boundary_declaration(ImagePipe.API)
 
     assert_boundary_deps(api, [
-      ImagePipe.Config,
       ImagePipe.Format,
       ImagePipe.Output,
       ImagePipe.Plan,
@@ -151,6 +151,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     config = boundary_declaration(ImagePipe.Config)
 
     assert_boundary_deps(config, [
+      ImagePipe.API,
       ImagePipe.Cache,
       ImagePipe.Processing,
       ImagePipe.Security,
@@ -577,6 +578,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_deps(plan, [ImagePipe.Format])
 
     assert_boundary_exports(plan, [
+      ImagePipe.Plan.Presets,
       ImagePipe.Plan.Request,
       ImagePipe.Plan.Request.Group,
       ImagePipe.Plan.Request.Output,

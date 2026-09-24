@@ -1,9 +1,9 @@
-defmodule ImagePipe.API.ConfigTest do
+defmodule ImagePipe.Plug.ConfigTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias ImagePipe.API.Config
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
+  alias ImagePipe.Plug.Config
   alias ImagePipe.Security.SourceEncryption
 
   @source_key :binary.copy(<<42>>, 32)

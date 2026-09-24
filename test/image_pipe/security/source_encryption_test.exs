@@ -2,8 +2,8 @@ defmodule ImagePipe.Security.SourceEncryptionTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.API
-  alias ImagePipe.API.Config
   alias ImagePipe.API.Errors
+  alias ImagePipe.Plug.Config
   alias ImagePipe.Security.Signature
   alias ImagePipe.Security.SourceEncryption
 

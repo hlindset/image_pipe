@@ -577,7 +577,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "preset",
-        name: nil,
+        name: :presets,
         scope: :request,
         value: &__MODULE__.parse_preset_names/1,
         summary: "One or more configured preset names to expand",

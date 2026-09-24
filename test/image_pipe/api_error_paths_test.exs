@@ -215,7 +215,7 @@ defmodule ImagePipe.APIErrorPathsTest do
   ]
 
   # `output_capabilities`/`on_bracket_exit`/`image_module` are test-
-  # injection seams that `API.Config.validate!/1` would reject as unknown
+  # injection seams that `Plug.Config.validate!/1` would reject as unknown
   # options — appended AFTER `ImagePipe.Plug.init/1`, mirroring
   # `APIWireTest`'s `opts/1` convention exactly.
   @test_only_seam_keys [:output_capabilities, :on_bracket_exit, :image_module]

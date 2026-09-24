@@ -4,12 +4,12 @@ defmodule ImagePipe.API.IdentityTest do
   import Plug.Test
 
   alias ImagePipe.API
-  alias ImagePipe.API.Config
   alias ImagePipe.API.Parser
   alias ImagePipe.Execution.Identity
   alias ImagePipe.Execution.Inputs
   alias ImagePipe.Output.RequestPolicy, as: Output
   alias ImagePipe.Output.Terminal.Blurhash
+  alias ImagePipe.Plug.Config
   alias ImagePipe.Representation
 
   defmodule ClassIdentityDetector do

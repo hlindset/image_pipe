@@ -1,141 +1,77 @@
 defmodule ImagePipe.API.Serializer do
   @moduledoc false
 
+  alias ImagePipe.API.OptionSpec
   alias ImagePipe.API.OutputOptions
   alias ImagePipe.API.SerializedValue, as: Value
-  alias ImagePipe.Plan.Request
+  alias ImagePipe.Plan
 
-  @spec segments(Request.t()) :: [String.t()]
-  def segments(%Request{} = request) do
-    groups(request.groups) ++
-      entries([
-        {"orient", nondefault(request.orient, :auto)},
-        {"filename", request.filename},
-        {"attachment", request.attachment?},
-        {"cb", request.cachebuster},
-        {"expires", request.expires},
-        {"debug", request.debug?}
-      ]) ++ output(request.output)
+  @options OptionSpec.all()
+
+  def empty_overrides?(%Plan{options: options}) do
+    Enum.any?(options, fn
+      {:format_qualities, qualities} ->
+        map_size(qualities) == 0
+
+      {key, value} when key in [:jpeg_options, :png_options, :webp_options, :avif_options] ->
+        Enum.all?(Map.from_struct(value), fn {_field, value} -> is_nil(value) end)
+
+      _option ->
+        false
+    end)
   end
 
-  defp groups([group]), do: group(group)
+  @spec segments(Plan.t()) :: [String.t()]
+  def segments(%Plan{groups: groups, options: options}) do
+    presets(Map.get(options, :presets, [])) ++
+      groups(groups) ++ entries(Map.delete(options, :presets))
+  end
+
+  defp presets([]), do: []
+  defp presets(names), do: ["preset=" <> Enum.join(names, ",")]
 
   defp groups(groups) do
     groups
-    |> Enum.map(fn group ->
-      case group(group) do
-        [] -> ["dpr=1"]
-        segments -> segments
-      end
-    end)
+    |> Enum.map(&entries/1)
     |> Enum.intersperse(["-"])
     |> List.flatten()
   end
 
-  defp group(group) do
-    entries([
-      {"rotate", group.rotate},
-      {"flip", group.flip},
-      {"gray", group.gray},
-      {"bitonal", group.bitonal},
-      {"dpr", nondefault(group.dpr, 1.0)},
-      {"trim", group.trim},
-      {"trim-symmetry", group.trim_symmetry},
-      {"region", group.region},
-      {"crop", group.crop},
-      {"crop-ratio", group.crop_ratio},
-      {"crop-ratio-enlarge", group.crop_ratio_enlarge},
-      {"anchor-offset", group.anchor_offset}
-    ]) ++
-      guide(group.guide) ++
-      resize(group.resize) ++
-      canvas(group.canvas) ++
-      entries([
-        {"blur", group.blur},
-        {"progressive-blur", group.progressive_blur},
-        {"sharpen", group.sharpen},
-        {"pixelate", group.pixelate},
-        {"monochrome", group.monochrome},
-        {"duotone", group.duotone},
-        {"brightness", group.brightness},
-        {"contrast", group.contrast},
-        {"saturation", group.saturation},
-        {"colorize", group.colorize},
-        {"gradient", group.gradient},
-        {"pad", group.pad},
-        {"bg", group.bg}
-      ])
+  defp entries(options) do
+    for spec <- @options,
+        {:ok, value} <- [Map.fetch(options, spec.name)],
+        encoded = entry(spec.key, value),
+        encoded != nil,
+        do: encoded
   end
 
-  defp guide(nil), do: []
-  defp guide({:anchor, anchor}), do: entries([{"anchor", anchor}])
-  defp guide({:anchor_smart}), do: ["anchor=smart"]
-  defp guide({:smart, :face_assist}), do: ["anchor=smart-face"]
-  defp guide({:focus, x, y}), do: entries([{"focus", {x, y}}])
-  defp guide({:detect, detect}), do: entries([{"detect", detect}])
+  defp entry(key, true), do: key
+  defp entry("format-q", qualities) when map_size(qualities) == 0, do: nil
 
-  defp resize(nil), do: []
-
-  defp resize(resize) do
-    entries([
-      {"w", nondefault(resize.w, :auto)},
-      {"h", nondefault(resize.h, :auto)},
-      {"min-w", resize.min_w},
-      {"min-h", resize.min_h},
-      {"fit", nondefault(resize.fit, :contain)},
-      {"enlarge", resize.enlarge},
-      {"zoom", nondefault(resize.zoom, {1.0, 1.0})}
-    ])
-  end
-
-  defp canvas(nil), do: []
-
-  defp canvas(canvas) do
-    flag =
-      case canvas.mode do
-        :box -> "extend"
-        :ratio -> "extend-ratio"
+  defp entry(key, value)
+       when key in ["jpeg-options", "png-options", "webp-options", "avif-options"] do
+    format =
+      case key do
+        "jpeg-options" -> :jpeg
+        "png-options" -> :png
+        "webp-options" -> :webp
+        "avif-options" -> :avif
       end
 
-    [
-      flag
-      | entries([
-          {"extend-at", nondefault(canvas.at, :center)},
-          {"extend-offset", nondefault(canvas.offset, {{:px, 0}, {:px, 0}})}
-        ])
-    ]
+    case OutputOptions.serialize_encoder(value, format) do
+      "" -> nil
+      encoded -> key <> "=" <> encoded
+    end
   end
 
-  defp output(output) do
-    entries([
-      {"output", nondefault(output.terminal, :image)},
-      {"format", output.format},
-      {"q", output.quality},
-      {"meta", output.metadata},
-      {"profile", output.color_profile},
-      {"hdr", output.hdr},
-      {"format-q", nondefault(output.format_qualities, %{})},
-      {"autoquality", output.autoquality},
-      {"max-bytes", output.max_bytes}
-    ]) ++
-      Enum.map(Enum.sort(output.encoder_options), fn {format, options} ->
-        Value.scalar(format) <> "-options=" <> OutputOptions.serialize_encoder(options, format)
-      end)
-  end
+  defp entry(key, value), do: key <> "=" <> value(key, value)
 
-  defp entries(pairs) do
-    Enum.flat_map(pairs, fn
-      {_key, nil} -> []
-      {_key, false} -> []
-      {key, true} -> [key]
-      {key, value} -> [key <> "=" <> value(key, value)]
-    end)
-  end
-
+  defp value("trim", {color, nil}), do: Value.color(color)
   defp value("trim", {color, tolerance}), do: Value.csv([Value.color(color), tolerance])
   defp value("crop-ratio", {:ratio, numerator, denominator}), do: "#{numerator}:#{denominator}"
 
-  defp value("bg", {r, g, b, alpha}), do: Value.csv([Value.color({r, g, b}), alpha])
+  defp value("bg", {color, nil}), do: Value.color(color)
+  defp value("bg", {color, alpha}), do: Value.csv([Value.color(color), alpha])
 
   defp value("monochrome", effect),
     do: Value.csv([effect.intensity, Value.color(effect.color)])
@@ -165,22 +101,9 @@ defmodule ImagePipe.API.Serializer do
   defp value("progressive-blur", effect),
     do: Value.csv([effect.sigma, effect.angle, effect.start, effect.stop])
 
-  defp value("detect", {classes, weights}) do
-    classes =
-      case classes do
-        :all -> [:default | Enum.sort(Map.keys(Map.delete(weights, :default)))]
-        classes -> classes
-      end
-
-    Enum.map_join(classes, ",", fn class ->
-      name =
-        case class do
-          :default -> "all"
-          class -> class
-        end
-
-      weight = Map.get(weights, class, Map.get(weights, :default, 1.0))
-      name <> ":" <> Value.scalar(weight)
+  defp value("detect", pairs) do
+    Enum.map_join(pairs, ",", fn {class, weight} ->
+      Value.scalar(class) <> ":" <> Value.scalar(weight)
     end)
   end
 
@@ -216,7 +139,4 @@ defmodule ImagePipe.API.Serializer do
   end
 
   defp value(_key, value), do: Value.scalar(value)
-
-  defp nondefault(value, default) when value == default, do: nil
-  defp nondefault(value, _default), do: value
 end
