@@ -32,6 +32,7 @@ defmodule ImagePipe.Transform.Executor do
   alias ImagePipe.Transform.Operation.Monochrome
   alias ImagePipe.Transform.Operation.Padding
   alias ImagePipe.Transform.Operation.Pixelate
+  alias ImagePipe.Transform.Operation.ProgressiveBlur
   alias ImagePipe.Transform.Operation.Resize
   alias ImagePipe.Transform.Operation.Rotate
   alias ImagePipe.Transform.Operation.Saturation
@@ -149,6 +150,8 @@ defmodule ImagePipe.Transform.Executor do
          {:ok, state} <- execute_crop(state, group, opts),
          {:ok, state, dpr} <- execute_resize(state, group, opts),
          {:ok, state} <- run_optional(state, blur_op(group.blur), opts),
+         {:ok, state} <-
+           run_display_optional(state, progressive_blur_op(group.progressive_blur), opts),
          {:ok, state} <- run_optional(state, sharpen_op(group.sharpen), opts),
          {:ok, state} <- run_display_optional(state, pixelate_op(group.pixelate), opts),
          {:ok, state} <- run_optional(state, if(group.gray, do: %Gray{}), opts),
@@ -530,6 +533,9 @@ defmodule ImagePipe.Transform.Executor do
 
   defp blur_op(nil), do: nil
   defp blur_op(sigma), do: %Blur{sigma: sigma}
+
+  defp progressive_blur_op(nil), do: nil
+  defp progressive_blur_op(effect), do: struct!(ProgressiveBlur, effect)
   defp sharpen_op(nil), do: nil
   defp sharpen_op(sigma), do: %Sharpen{sigma: sigma}
   defp pixelate_op(nil), do: nil
@@ -703,6 +709,7 @@ defmodule ImagePipe.Transform.Executor do
           {group.region || group.crop, crop_name(group)},
           {group.resize, :resize},
           {group.blur, :blur},
+          {group.progressive_blur, :progressive_blur},
           {group.sharpen, :sharpen},
           {group.pixelate, :pixelate},
           {group.gray, :gray},

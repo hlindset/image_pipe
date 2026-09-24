@@ -31,6 +31,7 @@ defmodule ImagePipe.API.CanonicalPropertyTest do
     "anchor=top-left",
     "anchor-offset=10,-20pct",
     "blur=2.5",
+    "progressive-blur=4,left,0.25,0.75",
     "sharpen=1.5",
     "pixelate=8",
     "monochrome=0.5,red",

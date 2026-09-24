@@ -68,6 +68,7 @@ defmodule ImagePipe.API.SerializerTest do
       IP.new()
       |> IP.group(
         blur: 0.2,
+        progressive_blur: [sigma: 4, angle: -45, start: 0.2, stop: 0.8],
         sharpen: 1,
         pixelate: 2,
         brightness: -10,

@@ -39,6 +39,7 @@
   const effectsSummary = $derived(
     summary(
       "blur",
+      "progressive-blur",
       "sharpen",
       "pixelate",
       "monochrome",
@@ -739,6 +740,48 @@
           min={controlLimits.effects.blur.min}
           max={controlLimits.effects.blur.max}
           step={controlLimits.effects.blur.step}
+          inputStep="any"
+        />
+      {/if}
+
+      <label class="switch-field">
+        <Switch.Root class="switch-root" bind:checked={controlState.progressiveBlurEnabled}>
+          <Switch.Thumb class="switch-thumb" />
+        </Switch.Root>
+        <span>Progressive blur</span>
+      </label>
+      {#if controlState.progressiveBlurEnabled}
+        <RangeNumber
+          label="Maximum blur sigma"
+          bind:value={controlState.progressiveBlur}
+          min={0.1}
+          max={10}
+          step={0.1}
+          inputStep="any"
+        />
+        <label class="field">
+          <span>Direction</span>
+          <input
+            class="text-input"
+            type="text"
+            bind:value={controlState.progressiveBlurDirection}
+            placeholder="down / up / left / right or angle"
+          />
+        </label>
+        <RangeNumber
+          label="Start"
+          bind:value={controlState.progressiveBlurStart}
+          min={0}
+          max={1}
+          step={0.01}
+          inputStep="any"
+        />
+        <RangeNumber
+          label="Stop"
+          bind:value={controlState.progressiveBlurStop}
+          min={0}
+          max={1}
+          step={0.01}
           inputStep="any"
         />
       {/if}

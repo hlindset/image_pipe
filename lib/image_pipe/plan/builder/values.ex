@@ -135,7 +135,8 @@ defmodule ImagePipe.Plan.Builder.Values do
     end
   end
 
-  defp normalize(value, effect) when effect in [:monochrome, :duotone, :colorize, :gradient] do
+  defp normalize(value, effect)
+       when effect in [:monochrome, :duotone, :colorize, :gradient, :progressive_blur] do
     with {:ok, fields} <- Options.validate(value, effect_schema(effect)),
          do: {:ok, Map.new(fields)}
   end
@@ -200,6 +201,14 @@ defmodule ImagePipe.Plan.Builder.Values do
     do: [
       opacity: field(:fraction, required: true),
       color: field(:color, required: true),
+      angle: field(:angle, default: 0.0),
+      start: field(:fraction, default: 0.0),
+      stop: field(:fraction, default: 1.0)
+    ]
+
+  defp effect_schema(:progressive_blur),
+    do: [
+      sigma: field(:nonnegative, required: true),
       angle: field(:angle, default: 0.0),
       start: field(:fraction, default: 0.0),
       stop: field(:fraction, default: 1.0)

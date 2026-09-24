@@ -54,6 +54,7 @@ defmodule ImagePipe.Plan.Request.Group do
             resize: nil,
             canvas: nil,
             blur: nil,
+            progressive_blur: nil,
             sharpen: nil,
             pixelate: nil,
             monochrome: nil,
@@ -89,6 +90,8 @@ defmodule ImagePipe.Plan.Request.Group do
                 offset: {length(), length()}
               },
           blur: nil | float(),
+          progressive_blur:
+            nil | %{sigma: float(), angle: float(), start: float(), stop: float()},
           sharpen: nil | float(),
           pixelate: nil | pos_integer(),
           monochrome: nil | %{intensity: float(), color: color()},

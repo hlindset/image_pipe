@@ -52,6 +52,7 @@ defmodule ImagePipe.API.Serializer do
       canvas(group.canvas) ++
       entries([
         {"blur", group.blur},
+        {"progressive-blur", group.progressive_blur},
         {"sharpen", group.sharpen},
         {"pixelate", group.pixelate},
         {"monochrome", group.monochrome},
@@ -160,6 +161,9 @@ defmodule ImagePipe.API.Serializer do
         effect.start,
         effect.stop
       ])
+
+  defp value("progressive-blur", effect),
+    do: Value.csv([effect.sigma, effect.angle, effect.start, effect.stop])
 
   defp value("detect", {classes, weights}) do
     classes =

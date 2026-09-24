@@ -62,6 +62,7 @@ defmodule ImagePipe.Plan.Builder.Options do
       extend_at: [type: {:in, @anchors}],
       extend_offset: [type: custom(:offset)],
       blur: [type: custom(:nonnegative)],
+      progressive_blur: [type: custom(:progressive_blur)],
       sharpen: [type: custom(:nonnegative)],
       pixelate: [type: :pos_integer],
       brightness: [type: {:in, -255..255}],

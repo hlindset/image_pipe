@@ -77,6 +77,7 @@
     },
     { label: "Symmetric trim", options: "trim=auto/trim-symmetry=hv/w=600" },
     { label: "Blur", options: "w=800/blur=3" },
+    { label: "Progressive blur", options: "w=800/progressive-blur=6,down,0.2,0.8" },
     { label: "Sharpen", options: "w=800/sharpen=2" },
     { label: "Pixelate", options: "w=600/pixelate=12" },
     { label: "Monochrome", options: "w=600/monochrome=0.8,704214" },

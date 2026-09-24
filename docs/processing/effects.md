@@ -10,6 +10,7 @@ Effects work with or without resizing. Pass the Elixir options below to
 | URL example | Elixir example | Values / defaults |
 | --- | --- | --- |
 | `blur=2` | `blur: 2` | Nonnegative sigma; 0 disables |
+| `progressive-blur=4,down,0.2,0.8` | `progressive_blur: [sigma: 4, angle: 0, start: 0.2, stop: 0.8]` | Nonnegative maximum sigma; default direction down, start 0, stop 1; 0 sigma disables |
 | `sharpen=1.5` | `sharpen: 1.5` | Nonnegative sigma; 0 disables |
 | `pixelate=8` | `pixelate: 8` | Integer block size ≥ 1; 1 disables |
 | `gray` | `gray: true` | Grayscale; boolean |
@@ -34,7 +35,7 @@ the operation. Explicit identity values are still validated.
 
 Effects always run in this order within a group:
 
-`blur → sharpen → pixelate → gray → bitonal → monochrome → duotone → brightness → contrast → saturation → colorize → gradient`
+`blur → progressive-blur → sharpen → pixelate → gray → bitonal → monochrome → duotone → brightness → contrast → saturation → colorize → gradient`
 
 Use groups to change the order. These examples apply brightness after contrast:
 
@@ -59,3 +60,16 @@ modulo 360. Reversing start/stop reverses the ramp; equal values create a hard s
 
 See the [pixel-effect contract](../api_contract.md#pixel-effects) for identity
 and representation details.
+
+## Progressive blur
+
+`progressive-blur=sigma[,direction[,start[,stop]]]` transitions from unblurred
+at `start` to the maximum Gaussian sigma at `stop`. Direction and stops follow
+the gradient conventions above, including reversed ramps and hard steps.
+Stops range from 0 to 1. The effect addresses the display frame after resizing;
+sigma uses physical pixels, unaffected by DPR.
+
+The varying radius is approximated by interpolating eight Gaussian sigma
+intervals. Filtering and blending use premultiplied alpha to avoid colored
+fringes at transparent edges. Multiple blur kernels require a materialized
+input and cost more than a single uniform blur.

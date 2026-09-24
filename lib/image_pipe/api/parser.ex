@@ -456,6 +456,11 @@ defmodule ImagePipe.API.Parser do
   def message_for(:invalid_element), do: "invalid value: one or more elements are invalid"
   def message_for(:invalid_anchor), do: "invalid value: expected a named anchor position"
   def message_for(:invalid_blur), do: "invalid value: expected a non-negative number"
+
+  def message_for(:invalid_progressive_blur),
+    do:
+      "invalid value: expected sigma[,direction[,start[,stop]]] with non-negative sigma and stops from 0 to 1"
+
   def message_for(:invalid_sharpen), do: "invalid value: expected a non-negative finite number"
   def message_for(:invalid_pixelate), do: "invalid value: expected a positive integer"
 
