@@ -66,12 +66,13 @@ defmodule ImagePipe.API do
            {:ok, lexed} <- Path.extract(conn) |> normalize_lex_error(),
            {:ok, lexed} <- decrypt_source(lexed, config),
            {:ok, request} <- Parser.parse(lexed, config) do
-        {request, key_index}
+        {_marker, source, _span} = lexed.source
+        {request, source, key_index}
       end
 
     case result do
-      {%Request{} = request, key_index} ->
-        {{:ok, request}, %{result: :ok, sig_key_index: key_index}}
+      {%Request{} = request, source, key_index} ->
+        {{:ok, request, source}, %{result: :ok, sig_key_index: key_index}}
 
       {:error, _reason} = error ->
         # Deliberately NO error tag — preserving the chain's parse stop shape.
@@ -79,9 +80,9 @@ defmodule ImagePipe.API do
     end
   end
 
-  def prepare(%Request{} = request, config, accept_header) do
+  def prepare(%Request{} = request, source, config, accept_header) do
     with {:ok, policy} <- Processing.prepare(request, config, accept_header),
-         {:ok, plan_source} <- APISource.translate(request.source, config) do
+         {:ok, plan_source} <- APISource.translate(source, config) do
       {:ok, plan_source, policy}
     end
   end

@@ -98,7 +98,7 @@ defmodule ImagePipe.RunTest do
     shared = IP.config(owned_source(bytes))
     config = Keyword.put(shared.options, :image_module, LateFailureEncoder)
 
-    assert {:ok, request} = Plan.to_request(IP.output(IP.new(), format: :jpeg).plan, "")
+    assert {:ok, request} = Plan.to_request(IP.output(IP.new(), format: :jpeg).plan)
     assert {:ok, policy} = Processing.prepare(request, config, "")
     assert {:ok, source, config} = Source.from_input({:source, "photo.png"}, config)
     assert {:ok, context} = Execution.prepare(request, source, policy, Inputs.new!([]), config)

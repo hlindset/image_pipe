@@ -47,7 +47,7 @@ defmodule ImagePipe.URLTest do
     mount = IP.Plug.init(config)
 
     for path <- [first, second, explicit] do
-      assert {{:ok, %{source: ^source}}, _meta} =
+      assert {{:ok, _request, ^source}, _meta} =
                ImagePipe.API.parse(Plug.Test.conn(:get, path), mount)
     end
 
@@ -84,7 +84,7 @@ defmodule ImagePipe.URLTest do
     assert URI.parse(path).fragment == nil
     assert {:ok, lexed} = Path.extract(Plug.Test.conn(:get, path))
     assert {:ok, request} = Parser.parse(lexed, presets: %{})
-    assert {:ok, ^request} = Plan.to_request(plan.plan, source)
+    assert {:ok, ^request} = Plan.to_request(plan.plan)
   end
 
   test "signatures cover the mount-relative path with stable explicit expiry" do
@@ -167,7 +167,7 @@ defmodule ImagePipe.URLTest do
               iv <- binary(length: 16) do
       path = IP.url!(IP.new(config), source, iv: iv)
 
-      assert {{:ok, %{source: ^source}}, _meta} =
+      assert {{:ok, _request, ^source}, _meta} =
                ImagePipe.API.parse(Plug.Test.conn(:get, path), mount)
     end
   end

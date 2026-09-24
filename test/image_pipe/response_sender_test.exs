@@ -541,7 +541,7 @@ defmodule ImagePipe.Response.SenderTest do
   end
 
   defp request!(options \\ []) do
-    {:ok, request} = options |> ImagePipe.Plan.new() |> ImagePipe.Plan.to_request("")
+    {:ok, request} = options |> ImagePipe.Plan.new() |> ImagePipe.Plan.to_request()
     request
   end
 

@@ -42,8 +42,8 @@ defmodule ImagePipe.ShrinkThroughCropTest do
   # then run it through the API pipeline — the same seams the Plug drives.
   defp run(body, options) do
     opts = opts(body)
-    request = request(options, opts)
-    {:ok, source_request} = APISource.translate(request.source, opts)
+    {request, source_string} = request(options, opts)
+    {:ok, source_request} = APISource.translate(source_string, opts)
     {:ok, source} = Source.resolve(source_request, opts, [])
 
     Decode.with_image(
@@ -58,17 +58,17 @@ defmodule ImagePipe.ShrinkThroughCropTest do
   end
 
   defp request("", opts) do
-    assert {{:ok, %Request{} = request}, _metadata} =
+    assert {{:ok, %Request{} = request, source}, _metadata} =
              API.parse(Plug.Test.conn(:get, "/src/crop.img"), opts)
 
-    request
+    {request, source}
   end
 
   defp request(options, opts) do
-    assert {{:ok, %Request{} = request}, _metadata} =
+    assert {{:ok, %Request{} = request, source}, _metadata} =
              API.parse(Plug.Test.conn(:get, "/#{options}/src/crop.img"), opts)
 
-    request
+    {request, source}
   end
 
   # The realized load shrink, rounded back to the libjpeg block factor the
@@ -225,11 +225,11 @@ defmodule ImagePipe.ShrinkThroughCropTest do
     test "over-limit JPEG with crop+resize is rejected before decode" do
       body = structured(@src, @src, ".jpg")
       opts = opts(body)
-      request = request("region=0,0,1600,1600/w=400/h=400", opts)
+      {request, source_string} = request("region=0,0,1600,1600/w=400/h=400", opts)
 
       over_limit = Keyword.put(opts, :max_input_pixels, @src * @src - 1)
 
-      {:ok, source_request} = APISource.translate(request.source, over_limit)
+      {:ok, source_request} = APISource.translate(source_string, over_limit)
       {:ok, source} = Source.resolve(source_request, over_limit, [])
 
       assert {:error, {:input_limit, {:too_many_input_pixels, pixels, limit}}} =
@@ -417,8 +417,8 @@ defmodule ImagePipe.ShrinkThroughCropTest do
   # fail_on: :error over the source-response seekable input). No ops → no shrink.
   defp decode_streamed(body) do
     opts = opts(body)
-    request = request("", opts)
-    {:ok, source_request} = APISource.translate(request.source, opts)
+    {request, source_string} = request("", opts)
+    {:ok, source_request} = APISource.translate(source_string, opts)
     {:ok, source} = Source.resolve(source_request, opts, [])
 
     Decode.with_image(

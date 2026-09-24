@@ -47,7 +47,7 @@ defmodule ImagePipe.Run do
   end
 
   defp request(plan) do
-    case Plan.to_request(plan, "") do
+    case Plan.to_request(plan) do
       {:ok, request} -> {:ok, request}
       {:error, issues} -> {:error, {:invalid_request, issues}}
     end

@@ -8,7 +8,11 @@ defmodule ImagePipe.API.PresetCompositionTest do
   defp parse(path, presets) do
     config = ImagePipe.Plug.init(presets: presets)
     {result, _metadata} = API.parse(conn(:get, path <> "/src/images/cat.jpg"), config)
-    result
+
+    case result do
+      {:ok, request, _source} -> {:ok, request}
+      {:error, _} = error -> error
+    end
   end
 
   test "nested presets resolve with default, named and explicit precedence" do

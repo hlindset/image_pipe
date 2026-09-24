@@ -45,7 +45,6 @@ defmodule ImagePipe.API.ParserTest do
                  }
                ],
                output: %Output{terminal: :image, format: nil, quality: nil},
-               source: "images/cat.jpg",
                expires: nil
              }
     end
@@ -70,7 +69,6 @@ defmodule ImagePipe.API.ParserTest do
                  }
                ],
                output: %Output{terminal: :image, format: :webp, quality: nil},
-               source: "images/cat.jpg",
                expires: nil
              }
     end
@@ -95,7 +93,6 @@ defmodule ImagePipe.API.ParserTest do
                  }
                ],
                output: %Output{terminal: :image, format: nil, quality: nil},
-               source: "images/cat.jpg",
                expires: nil
              }
     end
@@ -119,7 +116,6 @@ defmodule ImagePipe.API.ParserTest do
                  %Group{trim: {{255, 255, 255}, 10}}
                ],
                output: %Output{terminal: :image, format: nil, quality: nil},
-               source: "images/cat.jpg",
                expires: nil
              }
     end
@@ -147,7 +143,6 @@ defmodule ImagePipe.API.ParserTest do
                  }
                ],
                output: %Output{terminal: :image, format: nil, quality: nil},
-               source: "images/cat.jpg",
                expires: nil
              }
     end
@@ -170,7 +165,6 @@ defmodule ImagePipe.API.ParserTest do
                  }
                ],
                output: %Output{terminal: :blurhash, format: nil, quality: nil},
-               source: "images/cat.jpg",
                expires: nil
              }
     end

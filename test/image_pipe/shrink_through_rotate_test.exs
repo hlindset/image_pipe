@@ -53,8 +53,8 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
   # then run it through the API pipeline — the same seams the Plug drives.
   defp run(body, options) do
     opts = opts(body)
-    request = request(options, opts)
-    {:ok, source_request} = APISource.translate(request.source, opts)
+    {request, source_string} = request(options, opts)
+    {:ok, source_request} = APISource.translate(source_string, opts)
     {:ok, source} = Source.resolve(source_request, opts, [])
 
     Decode.with_image(
@@ -69,10 +69,10 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
   end
 
   defp request(options, opts) do
-    assert {{:ok, %Request{} = request}, _metadata} =
+    assert {{:ok, %Request{} = request, source}, _metadata} =
              API.parse(Plug.Test.conn(:get, "/#{options}/src/rot.img"), opts)
 
-    request
+    {request, source}
   end
 
   # The realized load shrink, rounded back to the libjpeg block factor the
@@ -230,11 +230,11 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
     test "over-limit JPEG with rotate+resize is rejected before decode" do
       body = structured(@src, @src, ".jpg")
       opts = opts(body)
-      request = request("rotate=90/w=400/h=400", opts)
+      {request, source_string} = request("rotate=90/w=400/h=400", opts)
 
       over_limit = Keyword.put(opts, :max_input_pixels, @src * @src - 1)
 
-      {:ok, source_request} = APISource.translate(request.source, over_limit)
+      {:ok, source_request} = APISource.translate(source_string, over_limit)
       {:ok, source} = Source.resolve(source_request, over_limit, [])
 
       assert {:error, {:input_limit, {:too_many_input_pixels, pixels, limit}}} =

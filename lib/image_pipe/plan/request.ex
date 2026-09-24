@@ -3,7 +3,7 @@ defmodule ImagePipe.Plan.Request do
   Canonical request data shared by parsing and execution.
 
   Groups express fixed-order transform intent. Output holds sparse request
-  policy before format negotiation. `build/3` normalizes typed, validated
+  policy before format negotiation. `build/2` normalizes typed, validated
   intent supplied by request frontends. Delivery controls and request gates travel
   with this data without contributing to pixel identity.
   """
@@ -13,10 +13,9 @@ defmodule ImagePipe.Plan.Request do
   alias ImagePipe.Plan.Request.Output
   alias ImagePipe.Plan.Request.Validation
 
-  @enforce_keys [:groups, :output, :source]
+  @enforce_keys [:groups, :output]
   defstruct groups: [],
             output: nil,
-            source: nil,
             orient: :auto,
             filename: nil,
             attachment?: false,
@@ -27,7 +26,6 @@ defmodule ImagePipe.Plan.Request do
   @type t :: %__MODULE__{
           groups: [Group.t()],
           output: Output.t(),
-          source: String.t(),
           orient: :auto | :none,
           filename: String.t() | nil,
           attachment?: boolean(),
@@ -42,14 +40,13 @@ defmodule ImagePipe.Plan.Request do
     do: Validation.errors(groups, options, invalid)
 
   @doc false
-  @spec build([map()], map(), String.t()) :: t()
-  def build(groups, options, source) do
+  @spec build([map()], map()) :: t()
+  def build(groups, options) do
     groups = Enum.map(groups, &assemble_group/1)
 
     %__MODULE__{
       groups: groups,
       output: assemble_output(options),
-      source: source,
       orient: Map.get(options, :orient, :auto),
       filename: Map.get(options, :filename),
       attachment?: Map.get(options, :attachment, false),

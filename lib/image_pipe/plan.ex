@@ -69,10 +69,10 @@ defmodule ImagePipe.Plan do
   end
 
   @doc false
-  @spec to_request(t(), String.t()) :: {:ok, Request.t()} | {:error, [Issue.t()]}
-  def to_request(%__MODULE__{} = plan, source) do
+  @spec to_request(t()) :: {:ok, Request.t()} | {:error, [Issue.t()]}
+  def to_request(%__MODULE__{} = plan) do
     with :ok <- validate(plan) do
-      {:ok, Request.build(groups(plan), plan.options, source)}
+      {:ok, Request.build(groups(plan), plan.options)}
     end
   end
 

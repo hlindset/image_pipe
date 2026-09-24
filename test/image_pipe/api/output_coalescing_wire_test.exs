@@ -123,7 +123,7 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
       leader =
         async(context, fn ->
           builder = context.config |> ImagePipe.new() |> ImagePipe.output(format: :jpeg)
-          {:ok, request} = ImagePipe.Plan.to_request(builder.plan, "")
+          {:ok, request} = ImagePipe.Plan.to_request(builder.plan)
           config = builder.config.options
           {:ok, policy} = ImagePipe.Processing.prepare(request, config, "")
           {:ok, source, config} = ImagePipe.Source.from_input({:source, "blocked"}, config)

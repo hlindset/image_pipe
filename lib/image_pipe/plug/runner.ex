@@ -55,8 +55,8 @@ defmodule ImagePipe.Plug.Runner do
 
   defp route(%Plug.Conn{} = conn, config) do
     case parse(conn, config) do
-      {:ok, request} ->
-        handle_request(conn, request, config)
+      {:ok, request, source} ->
+        handle_request(conn, request, source, config)
 
       {:error, reason} ->
         send_error(conn, reason, config)
@@ -69,12 +69,12 @@ defmodule ImagePipe.Plug.Runner do
     end)
   end
 
-  defp handle_request(conn, request, config) do
+  defp handle_request(conn, request, source, config) do
     accept = conn |> Plug.Conn.get_req_header("accept") |> Enum.join(",")
     conn = Plug.Conn.fetch_cookies(conn)
     inputs = %Inputs{headers: conn.req_headers, cookies: conn.req_cookies}
 
-    with {:ok, plan_source, policy} <- API.prepare(request, config, accept),
+    with {:ok, plan_source, policy} <- API.prepare(request, source, config, accept),
          {:ok, source} <-
            ImageSource.resolve(plan_source, config, ImageSource.runtime_opts(config)),
          {:ok, context} <- Execution.prepare(request, source, policy, inputs, config) do

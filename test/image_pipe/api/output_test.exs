@@ -294,7 +294,7 @@ defmodule ImagePipe.API.OutputTest do
     config = Config.validate!(quality: 71)
     assert {:ok, request} = Parser.parse(lexed(["format=jpeg"]), config)
 
-    assert {:ok, _source, output} = API.prepare(request, config, "")
+    assert {:ok, _source, output} = API.prepare(request, "images/cat.jpg", config, "")
     assert output.default_quality == {:quality, 71}
   end
 
@@ -302,7 +302,7 @@ defmodule ImagePipe.API.OutputTest do
     config = Config.validate!(autoquality_method: :size)
     assert {:ok, request} = Parser.parse(lexed(["output=blurhash"]), config)
 
-    assert {:ok, _source, output} = API.prepare(request, config, "")
+    assert {:ok, _source, output} = API.prepare(request, "images/cat.jpg", config, "")
     assert output == nil
   end
 
@@ -315,7 +315,7 @@ defmodule ImagePipe.API.OutputTest do
                config
              )
 
-    assert {:ok, _source, output} = API.prepare(request, config, "")
+    assert {:ok, _source, output} = API.prepare(request, "images/cat.jpg", config, "")
 
     assert request.filename == "report"
     assert request.attachment?
@@ -328,7 +328,7 @@ defmodule ImagePipe.API.OutputTest do
     config = Config.validate!(clock: fn -> 101 end)
     assert {:ok, request} = Parser.parse(lexed(["expires=100"]), config)
 
-    assert API.prepare(request, config, "") == {:error, :expired}
+    assert API.prepare(request, "images/cat.jpg", config, "") == {:error, :expired}
   end
 
   test "rejects an explicit format's inverted URL and host autoquality bracket" do
@@ -341,7 +341,7 @@ defmodule ImagePipe.API.OutputTest do
              )
 
     assert {:error, {:invalid_output, {:inverted_autoquality_bracket, :jpeg}}} =
-             API.prepare(request, config, "")
+             API.prepare(request, "images/cat.jpg", config, "")
   end
 
   test "validates every quality-capable format that automatic negotiation may select" do
@@ -349,14 +349,14 @@ defmodule ImagePipe.API.OutputTest do
     assert {:ok, request} = Parser.parse(lexed(["autoquality=ssimulacra2,min:70"]), config)
 
     assert {:error, {:invalid_output, {:inverted_autoquality_bracket, :avif}}} =
-             API.prepare(request, config, "")
+             API.prepare(request, "images/cat.jpg", config, "")
   end
 
   test "does not validate a modern automatic format disabled by host configuration" do
     config = Config.validate!(auto_avif: false)
     assert {:ok, request} = Parser.parse(lexed(["autoquality=ssimulacra2,min:70"]), config)
 
-    assert {:ok, _source, _output} = API.prepare(request, config, "")
+    assert {:ok, _source, _output} = API.prepare(request, "images/cat.jpg", config, "")
   end
 
   test "renders resolved-output failures as a safe 400 plan error" do

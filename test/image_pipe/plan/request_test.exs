@@ -8,8 +8,7 @@ defmodule ImagePipe.Plan.RequestTest do
     request =
       Request.build(
         [%{width: 400, height: 300, fit: :cover, dpr: 2.0}, %{trim: :auto}],
-        %{format: :webp, quality: 82},
-        "photos/cat.jpg"
+        %{format: :webp, quality: 82}
       )
 
     assert [resize, trim] = request.groups
@@ -24,11 +23,10 @@ defmodule ImagePipe.Plan.RequestTest do
     assert trim.dpr == 1.0
     assert request.output.format == :webp
     assert request.output.quality == 82
-    assert request.source == "photos/cat.jpg"
   end
 
   test "keeps output policy sparse for host defaults to resolve later" do
-    request = Request.build([%{}], %{}, "photos/cat.jpg")
+    request = Request.build([%{}], %{})
 
     assert request.orient == :auto
     assert request.output.terminal == :image
@@ -62,8 +60,7 @@ defmodule ImagePipe.Plan.RequestTest do
             gradient: %{opacity: 0.0, color: {255, 0, 0}, angle: 0.0, start: 0.0, stop: 1.0}
           }
         ],
-        %{},
-        "photos/cat.jpg"
+        %{}
       )
 
     assert [group] = request.groups
@@ -101,8 +98,7 @@ defmodule ImagePipe.Plan.RequestTest do
             background: {{255, 255, 255}, nil}
           }
         ],
-        %{},
-        "photos/cat.jpg"
+        %{}
       )
 
     assert [group] = request.groups
@@ -122,8 +118,7 @@ defmodule ImagePipe.Plan.RequestTest do
           cachebuster: "revision-2",
           expires: 1_800_000_000,
           debug: true
-        },
-        "photos/cat.jpg"
+        }
       )
 
     assert request.orient == :none
@@ -136,13 +131,12 @@ defmodule ImagePipe.Plan.RequestTest do
 
   property "omitted and explicit resize defaults produce the same intent" do
     check all width <- integer(1..4000) do
-      implicit = Request.build([%{width: width}], %{}, "photos/cat.jpg")
+      implicit = Request.build([%{width: width}], %{})
 
       explicit =
         Request.build(
           [%{width: width, height: :auto, fit: :contain, enlarge: false, zoom: {1.0, 1.0}}],
-          %{},
-          "photos/cat.jpg"
+          %{}
         )
 
       assert implicit == explicit

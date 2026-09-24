@@ -173,8 +173,8 @@ defmodule ImagePipe.Security.SourceEncryptionTest do
       signature = Signature.sign(signed_path, config)
       conn = Plug.Test.conn(:get, "/sig=#{signature}#{signed_path}")
 
-      assert {{:ok, request}, %{result: :ok, sig_key_index: 0}} = API.parse(conn, config)
-      assert request.source == @source
+      assert {{:ok, _request, source}, %{result: :ok, sig_key_index: 0}} = API.parse(conn, config)
+      assert source == @source
     end
 
     test "signature validation precedes token validation", %{config: config} do
