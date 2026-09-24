@@ -111,6 +111,20 @@ server-side configuration. With keys configured, the mount requires a
 the signature. The router prefix and hostname are outside the signature.
 Without keys, unsigned requests are accepted.
 
+To sign an existing path without the builder, use the same shared config:
+
+```elixir
+path = "/w=400/src/photos/beach.jpg"
+url = "/images" <> ImagePipe.sign_path(path, config)
+```
+
+`sign_path/2` returns `/sig=<signature>` followed by the exact supplied path.
+It requires signing keys and a leading `/`, and rejects an existing signature
+prefix, query string, or fragment. Escape source query parameters into the path
+before signing. It preserves existing escaping and does not parse processing
+options or encrypt sources. Prepend the hostname and mount prefix yourself;
+the helper does not apply `:base_url`.
+
 The first key signs new URLs; keep previous keys in the list while their URLs
 remain valid. `expires` is a Unix timestamp in seconds. The exact expiry second
 is still valid; later requests return 404 before source/cache access. Expiry

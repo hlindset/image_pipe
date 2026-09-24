@@ -5,6 +5,20 @@ defmodule ImagePipe.API.URL do
   alias ImagePipe.Plan
   alias ImagePipe.Security
 
+  def sign_path("/" <> _ = path, config) do
+    if String.starts_with?(path, "/sig=") or String.contains?(path, ["?", "#"]) do
+      raise ArgumentError, "expected an unsigned mount-relative path without query or fragment"
+    end
+
+    case Security.sign(path, config) do
+      nil -> raise ArgumentError, "sign_path requires signing keys"
+      signature -> "/sig=" <> signature <> path
+    end
+  end
+
+  def sign_path(_path, _config),
+    do: raise(ArgumentError, "expected a mount-relative path starting with /")
+
   def build(plan, source, config, options) do
     with :ok <- source(source),
          {:ok, request} <- request(plan),
