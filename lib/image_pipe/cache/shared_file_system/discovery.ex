@@ -1,10 +1,9 @@
 defmodule ImagePipe.Cache.SharedFileSystem.Discovery do
   @moduledoc false
 
-  alias ImagePipe.Cache.SharedFileSystem.Partition
+  alias ImagePipe.Cache.SharedFileSystem.{Directory, Partition}
 
-  # Execute through the isolated I/O helper. Limits bound inspected names and
-  # returned candidates; File.ls still materializes the underlying directory.
+  # Execute through the isolated I/O helper.
   def partitions(root, limit) do
     with {:ok, names, status, _inspected} <- names(Path.join(root, "partitions"), limit) do
       partitions =
@@ -37,26 +36,12 @@ defmodule ImagePipe.Cache.SharedFileSystem.Discovery do
   end
 
   defp names(path, limit) do
-    case File.ls(path) do
-      {:ok, entries} ->
-        {selected, rest} = Enum.split(entries, limit)
-        names = selected |> Enum.filter(&identifier?/1) |> Enum.sort()
-
-        status =
-          case rest do
-            [] -> :complete
-            [_ | _] -> :limited
-          end
-
-        {:ok, names, status, length(selected)}
-
+    case Directory.list(path, limit) do
       {:error, reason} when reason in [:enoent, :enotdir] ->
         {:ok, [], :complete, 0}
 
-      {:error, reason} ->
-        {:error, reason}
+      result ->
+        result
     end
   end
-
-  defp identifier?(name), do: Regex.match?(~r/\A[0-9a-f]{32}\z/, name)
 end

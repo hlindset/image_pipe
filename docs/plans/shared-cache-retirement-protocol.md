@@ -174,7 +174,21 @@ names/candidates, and distinguishes complete results from a budget-limited searc
 Callers can refresh a cached partition list and retry after a miss. Generation
 publication and discovery share path construction, including original-key scoping.
 
-Its directory reads currently use `File.ls`, which materializes a whole directory
-inside the helper before applying the candidate limit. This does not yet satisfy
-the directory-enumeration memory bound. A bounded enumeration mechanism remains
-required before the discovery task or mount qualification can be completed.
+Directory enumeration uses an optional POSIX executable that streams `readdir`
+entries and stops after the configured name budget plus one lookahead. It retains
+no directory-wide name list; unusable names consume the same budget. The Elixir
+reader bounds the executable's output and waits for its exit inside the isolated
+I/O operation, so stalled enumeration keeps its operation reservation.
+
+Build this helper on the deployment target before assembling a shared-cache release:
+
+```sh
+mix image_pipe.shared_cache.build
+```
+
+The build uses `CC` (default `cc`) and only the platform C library. Its source is
+included in the Hex package; the generated executable is platform-specific and
+is built into the application's `priv/shared_cache` directory for release inclusion.
+The compiler is not needed at runtime, and local-cache-only deployments do not
+need this build step. A missing executable returns a cache error. POSIX helper
+portability and actual shared-mount behavior still require qualification.

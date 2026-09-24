@@ -4,6 +4,11 @@ defmodule ImagePipe.Cache.SharedFileSystem.DiscoveryTest do
   alias ImagePipe.Cache.SharedFileSystem.{Discovery, Generation, Partition}
   alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
 
+  setup_all do
+    Mix.Task.run("image_pipe.shared_cache.build")
+    :ok
+  end
+
   setup do
     root = Path.join(System.tmp_dir!(), "shared_discovery_#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(root) end)

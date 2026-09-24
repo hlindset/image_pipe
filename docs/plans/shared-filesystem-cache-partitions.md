@@ -177,8 +177,11 @@ timeout does not cancel kernel I/O. Failed reclamation must remain observable.
 Use the existing cache behaviours and narrow concrete internal modules. Supervise
 local index/admission state and bounded I/O/background workers; keep blocking mount
 I/O out of coordinator callbacks. Reuse existing sketch, scoring, serialization,
-and path helpers only where contracts match. No new dependency is required by
-this specification.
+and path helpers only where contracts match. No additional Hex dependency is
+required. Streaming directory enumeration uses a small optional POSIX
+helper built with `mix image_pipe.shared_cache.build` on the deployment target
+before release assembly. It requires a C compiler at build time and the platform
+C library at runtime; local-cache-only deployments do not need this step.
 
 Qualify concrete shared mount/client configurations for complete rename publication,
 visibility, unlink/read lifetime, hard-link behavior or copy fallback, crash/reconnect,

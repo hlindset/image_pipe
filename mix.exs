@@ -123,6 +123,7 @@ defmodule ImagePipe.MixProject do
       ],
       test_coverage: [tool: ExCoveralls],
       dialyzer: [
+        plt_add_apps: [:mix],
         plt_core_path: "priv/plts",
         plt_local_path: "priv/plts"
       ]
@@ -173,6 +174,7 @@ defmodule ImagePipe.MixProject do
           [
             "lib",
             "priv/icc",
+            "priv/shared_cache/list_directory.c",
             "docs/assets/demo-fiddle-desktop.png",
             "mix.exs"
           ],

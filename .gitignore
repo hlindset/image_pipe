@@ -4,6 +4,10 @@
 # Dialyzer PLT files
 /priv/plts/
 
+# Generated shared-cache directory helper
+/priv/shared_cache/list_directory
+/priv/shared_cache/list_directory.build-*
+
 # If you run "mix test --cover", coverage assets end up here.
 /cover/
 
