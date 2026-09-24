@@ -206,7 +206,7 @@ defmodule ImagePipe.Plug.Runner do
 
     conn =
       send_with_span(conn, context.config, :ok, fn ->
-        send_complete_body(conn, type, body, headers, meta)
+        Sender.send_complete_body(conn, type, body, headers, meta)
       end)
 
     {conn, %{result: :ok}}
@@ -273,28 +273,6 @@ defmodule ImagePipe.Plug.Runner do
 
   defp cache_key_hash(nil), do: nil
   defp cache_key_hash(%Cache.Key{hash: hash}), do: hash
-
-  defp send_complete_body(
-         conn,
-         content_type,
-         body,
-         %CacheHeaders{} = cache_headers,
-         %PlanResponse{} = response_meta
-       ) do
-    conn
-    |> put_resp_headers(cache_headers.representation_headers)
-    |> put_resp_headers(cache_headers.headers)
-    |> put_complete_body_disposition(response_meta, content_type)
-    |> Plug.Conn.put_resp_content_type(content_type)
-    |> Sender.send_body(body)
-  end
-
-  defp put_complete_body_disposition(conn, %PlanResponse{} = response_meta, content_type) do
-    {:ok, content_disposition} =
-      PlanResponse.content_disposition(response_meta, content_type)
-
-    Plug.Conn.put_resp_header(conn, "content-disposition", content_disposition)
-  end
 
   defp put_resp_headers(conn, headers) do
     Enum.reduce(headers, conn, fn {name, value}, acc ->

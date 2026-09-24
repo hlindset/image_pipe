@@ -143,6 +143,23 @@ defmodule ImagePipe.Response.Sender do
   end
 
   @doc false
+  def send_complete_body(
+        conn,
+        content_type,
+        body,
+        %CacheHeaders{} = prepared,
+        %Response{} = response
+      ) do
+    {:ok, disposition} = Response.content_disposition(response, content_type)
+    headers = merge_delivery_headers(conn, [{"content-disposition", disposition}], prepared)
+
+    conn
+    |> put_resp_headers(headers)
+    |> put_resp_content_type(content_type)
+    |> send_body(body)
+  end
+
+  @doc false
   def send_body(%Plug.Conn{method: "HEAD"} = conn, %ImagePipe.Cache.File{size: size}) do
     conn |> put_resp_header("content-length", Integer.to_string(size)) |> send_resp(200, "")
   end
