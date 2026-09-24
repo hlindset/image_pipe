@@ -4,6 +4,9 @@ Status: proposed implementation specification, 2026-09-24. Tracked by
 `image_plug-015`. This supersedes the [earlier shared-cache design](shared-filesystem-cache.md).
 No shared filesystem profile is qualified yet.
 
+The [retirement protocol spike](shared-cache-retirement-protocol.md) specifies the
+namespace rules and local interleaving evidence for publication, cleanup and adoption.
+
 ## Requirements and consistency
 
 Keep `ImagePipe.Cache.FileSystem` as the local, exclusively owned-root adapter.
@@ -161,13 +164,13 @@ An instance that detects reclamation rotates to a new incarnation; delayed work
 must not corrupt another incarnation or extend old evidence. A late complete
 immutable publication may be an extra reclaimable entry, not a correctness failure.
 
-The first implementation gate must specify retirement, ancestor recreation,
-heartbeat recreation, outstanding I/O, and repeated cleanup precisely. A marker
-check before writing is not fencing. Demonstrate safe outcomes even when the
-writer never observes a cleanup marker. Do not promise cancellation of a kernel
-filesystem operation merely because an Erlang caller timed out. Bound stuck
-workers/resources and use uncached bypass when saturated. Failure to reclaim space
-reduces caching availability and must be observable.
+Retire an incarnation by renaming it outside the discovery tree into `trash/`
+before recursive deletion. Never recreate a missing incarnation root or clean
+active staging by age. Owner eviction retires exact generation names similarly.
+Already-resolved operations may finish inside trash; retries never restore it.
+See the retirement protocol for race analysis and ambiguous-outcome handling.
+Bound stuck workers/resources and use uncached bypass when saturated. A caller
+timeout does not cancel kernel I/O. Failed reclamation must remain observable.
 
 ## Runtime and filesystem requirements
 
