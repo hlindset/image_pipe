@@ -23,6 +23,37 @@ defmodule ImagePipe.Telemetry.Trace.OtelReplayTest do
 
   @trace "0123456789abcdef0123456789abcdef"
 
+  test "rejects invalid startup options" do
+    for invalid <- [
+          [unknown: true],
+          [name: "replay"],
+          [ttl_ms: -1],
+          [ttl_ms: :infinity],
+          [sweep_interval_ms: 0],
+          [sweep_interval_ms: 1.5],
+          [max_traces: -1]
+        ] do
+      assert_raise RuntimeError, ~r/ArgumentError/, fn ->
+        start_supervised!({OtelReplay, Keyword.merge([name: nil], invalid)}, id: :invalid_replay)
+      end
+    end
+  end
+
+  test "supports registry names and custom replay limits" do
+    start_supervised!({Registry, keys: :unique, name: __MODULE__.Registry})
+    name = {:via, Registry, {__MODULE__.Registry, :replay}}
+
+    server =
+      start_supervised!(
+        {OtelReplay, name: name, ttl_ms: 0, sweep_interval_ms: 60_000, max_traces: 1},
+        id: :registry_replay
+      )
+
+    assert GenServer.whereis(name) == server
+    OtelReplay.add(name, span(root: true))
+    assert_receive {:span, _}
+  end
+
   defp span(overrides) do
     Map.merge(
       %Span{
