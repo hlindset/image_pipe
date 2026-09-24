@@ -42,6 +42,8 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
 
   def release(pool, lease, timeout), do: call(pool, {:release, lease}, timeout)
 
+  def close(pool, lease), do: GenServer.cast(pool, {:close, lease})
+
   def retry_cleanup(pool), do: GenServer.cast(pool, :retry_cleanup)
 
   defp call(pool, message, timeout) do
@@ -146,6 +148,13 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
 
   def handle_cast(:retry_cleanup, state) do
     {:noreply, cleanup(%{state | leases: Leases.retry(state.leases)})}
+  end
+
+  def handle_cast({:close, lease}, state) do
+    case Leases.close(state.leases, lease, nil) do
+      {:ok, leases} -> {:noreply, cleanup(%{state | leases: leases})}
+      {:error, _reason} -> {:noreply, state}
+    end
   end
 
   @impl true

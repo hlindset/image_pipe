@@ -29,23 +29,37 @@ defmodule ImagePipe.Cache.SharedFileSystem.Partition do
 
   def heartbeat(partition), do: File.touch(Path.join(partition.path, "heartbeat"))
 
-  def stage(partition, kind, key) do
+  def original_key(input_key, byte_identity) do
+    {input_key, byte_identity}
+    |> :erlang.term_to_binary()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+  end
+
+  # Plan in the caller, before reserving the staging resource and issuing I/O.
+  def plan(partition, kind, key) do
     namespace = Path.join(partition.path, Atom.to_string(kind))
     shard = Path.join(namespace, String.slice(key, 0, 2))
     parent = Path.join(shard, key)
     generation = identifier()
     staging = Path.join([partition.path, "staging", generation])
 
-    with :ok <- directory(shard),
-         :ok <- directory(parent),
-         :ok <- File.mkdir(staging) do
-      {:ok,
-       %{
-         generation: generation,
-         stage: staging,
-         destination: Path.join(parent, generation),
-         incarnation: partition.id
-       }}
+    %{
+      generation: generation,
+      stage: staging,
+      destination: Path.join(parent, generation),
+      shard: shard,
+      parent: parent,
+      kind: kind,
+      key: key,
+      incarnation: partition.id
+    }
+  end
+
+  def stage(plan) do
+    with :ok <- directory(plan.shard),
+         :ok <- directory(plan.parent) do
+      File.mkdir(plan.stage)
     end
   end
 

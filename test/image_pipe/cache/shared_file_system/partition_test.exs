@@ -28,15 +28,19 @@ defmodule ImagePipe.Cache.SharedFileSystem.PartitionTest do
     {:ok, partition} = call(ctx, :create, [ctx.root])
     {:ok, _retired} = call(ctx, :retire, [partition])
     key = String.duplicate("a", 64)
-    assert {:error, :enoent} = call(ctx, :stage, [partition, :outputs, key])
+    plan = Partition.plan(partition, :outputs, key)
+    assert {:error, :enoent} = call(ctx, :stage, [plan])
     refute File.exists?(partition.path)
   end
 
   test "concurrent generations have distinct staging and destination names", ctx do
     {:ok, partition} = call(ctx, :create, [ctx.root])
     key = String.duplicate("a", 64)
-    assert {:ok, first} = call(ctx, :stage, [partition, :outputs, key])
-    assert {:ok, second} = call(ctx, :stage, [partition, :outputs, key])
+    first = Partition.plan(partition, :outputs, key)
+    second = Partition.plan(partition, :outputs, key)
+    refute File.exists?(first.stage)
+    assert :ok = call(ctx, :stage, [first])
+    assert :ok = call(ctx, :stage, [second])
     refute first.stage == second.stage
     refute first.destination == second.destination
     assert File.dir?(first.stage)

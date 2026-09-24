@@ -142,9 +142,18 @@ alone does not release its persistent file budget. Cleanup consumes an ordinary
 operation slot, so resource cleanup cannot spawn an unbounded worker population.
 
 `SharedFileSystem.Partition` provides exclusive incarnation creation, nonrecursive
-staging ancestry, heartbeat, retirement and fresh-identity recovery, called through
-that executor. These are internal building blocks, not a usable cache adapter yet.
-Generation publication and reader acquisition must use the resource lease API;
-that integration is still required before `015.2` is complete. Helper startup in
-packaged releases and cross-process transfer costs need deployment/performance
-validation.
+staging ancestry, heartbeat, retirement and fresh-identity recovery. Pure generation
+planning allocates the exact cleanup path before resource reservation or I/O.
+`SharedFileSystem.Generation` reserves staging/reader bytes, applies one request
+deadline, and performs bounded body copies through the executor. Publication closes
+both files before renaming their directory; uncertain rename results are reconciled
+against the exact generation and body digest. Reads bound and validate the envelope,
+reject compressed terms, and verify size/digest before returning a local reader path.
+Original storage keys include both input identity and byte identity.
+
+These remain internal building blocks. Source/output payload validation, discovery,
+and public adapter integration are separate steps. Local reader paths survive helper
+failure, but reclamation after that failure still requires a lifecycle solution;
+the unavailable executor retains accounting and cannot perform cleanup. Helper
+startup in packaged releases and cross-process transfer costs also need
+deployment/performance validation.

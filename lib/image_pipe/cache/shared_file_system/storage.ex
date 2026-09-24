@@ -1,0 +1,114 @@
+defmodule ImagePipe.Cache.SharedFileSystem.Storage do
+  @moduledoc false
+
+  alias ImagePipe.Cache.SharedFileSystem.{Body, Partition}
+
+  # Run only in the isolated filesystem helper.
+  def publish(plan, source, metadata, limits) do
+    with :ok <- Partition.stage(plan),
+         {:ok, body} <- Body.copy(source, Path.join(plan.stage, "body"), limits.body),
+         envelope = %{
+           kind: plan.kind,
+           key: plan.key,
+           generation: plan.generation,
+           body: body,
+           metadata: metadata
+         },
+         {:ok, encoded} <- encode(envelope, limits.metadata),
+         :ok <- File.write(Path.join(plan.stage, "meta"), encoded, [:exclusive]) do
+      commit(plan, limits)
+    end
+  end
+
+  def commit(plan, limits) do
+    location = %{
+      path: plan.destination,
+      key: plan.key,
+      kind: plan.kind,
+      generation: plan.generation
+    }
+
+    case File.rename(plan.stage, plan.destination) do
+      :ok -> {:ok, location}
+      {:error, reason} -> reconcile(location, limits, reason)
+    end
+  end
+
+  defp reconcile(location, limits, rename_error) do
+    with {:ok, envelope} <- read_metadata(location, limits.metadata),
+         {:ok, body} <- Body.digest(Path.join(location.path, "body"), limits.body),
+         :ok <- verify_body(body, envelope.body) do
+      {:ok, location}
+    else
+      {:error, :enoent} -> {:error, rename_error}
+      error -> error
+    end
+  end
+
+  def acquire(location, directory, limits) do
+    with {:ok, envelope} <- read_metadata(location, limits.metadata),
+         :ok <- File.mkdir(directory),
+         path = Path.join(directory, "body"),
+         {:ok, body} <- Body.copy(Path.join(location.path, "body"), path, limits.body),
+         :ok <- verify_body(body, envelope.body) do
+      {:ok, %{path: path, metadata: envelope.metadata}}
+    end
+  end
+
+  defp read_metadata(location, limit) do
+    case File.open(Path.join(location.path, "meta"), [:read, :binary], &IO.binread(&1, limit + 1)) do
+      {:ok, encoded} when is_binary(encoded) and byte_size(encoded) <= limit ->
+        decode(encoded, location)
+
+      {:ok, encoded} when is_binary(encoded) ->
+        {:error, :metadata_too_large}
+
+      {:ok, :eof} ->
+        {:error, :corrupt}
+
+      {:ok, {:error, reason}} ->
+        {:error, reason}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp encode(envelope, limit) do
+    encoded = :erlang.term_to_binary(envelope)
+
+    case byte_size(encoded) <= limit do
+      true -> {:ok, encoded}
+      false -> {:error, :metadata_too_large}
+    end
+  end
+
+  defp decode(<<131, 80, _rest::binary>>, _location), do: {:error, :corrupt}
+
+  defp decode(encoded, location) do
+    case :erlang.binary_to_term(encoded, [:safe, :used]) do
+      {envelope, used} when used == byte_size(encoded) -> validate(envelope, location)
+      _trailing_bytes -> {:error, :corrupt}
+    end
+  rescue
+    ArgumentError -> {:error, :corrupt}
+  end
+
+  defp validate(
+         %{
+           key: key,
+           kind: kind,
+           generation: generation,
+           body: %{bytes: bytes, sha256: hash},
+           metadata: _metadata
+         } = envelope,
+         %{key: key, kind: kind, generation: generation}
+       )
+       when is_integer(bytes) and bytes >= 0 and is_binary(hash) and byte_size(hash) == 32,
+       do: {:ok, envelope}
+
+  defp validate(_envelope, _location), do: {:error, :corrupt}
+
+  defp verify_body(body, body), do: :ok
+  defp verify_body(_actual, _expected), do: {:error, :corrupt}
+end
