@@ -14,7 +14,10 @@ config = ImagePipe.config(
 )
 ```
 
-The identifier `photos/beach.jpg` selects `/srv/images/photos/beach.jpg`.
+The identifiers `photos/beach.jpg` and `/photos/beach.jpg` both select
+`/srv/images/photos/beach.jpg` and produce the same generated URL. The optional
+leading slash is normalized in Plug requests and `{:source, path}` execution.
+Repeated slashes and traversal segments remain subject to adapter validation.
 The adapter confines paths to the configured root. `root_id` identifies that
 source namespace. For immutable paths, `stable: :trusted` permits reuse based
 on that promise; changed content must get a new identifier. The default

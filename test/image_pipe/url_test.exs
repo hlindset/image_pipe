@@ -10,6 +10,32 @@ defmodule ImagePipe.URLTest do
   @signing_key Base.encode16(:binary.copy(<<31>>, 32))
   @source_key :binary.copy(<<42>>, 32)
 
+  property "root-relative paths have the same plain, signed, and encrypted URLs with a leading slash" do
+    check all segments <-
+                list_of(string(:alphanumeric, min_length: 1), min_length: 1, max_length: 4) do
+      source = Enum.join(segments, "/")
+
+      for config <- [IP.config(), IP.config(keys: [@signing_key]), encrypted_config()] do
+        builder = IP.new(config)
+        assert IP.url!(builder, "/" <> source) == IP.url!(builder, source)
+      end
+    end
+  end
+
+  test "normalizing paths does not reinterpret malformed paths as absolute URLs" do
+    for source <- [
+          "//photo.jpg",
+          "/https://origin.test/photo.jpg",
+          "https://origin.test//photo.jpg",
+          "s3://bucket//key"
+        ] do
+      url = IP.url!(IP.new(), source)
+      assert {:ok, %{source: {:src, ^source, _}}} = Path.extract(Plug.Test.conn(:get, url))
+    end
+
+    assert IP.url(IP.new(), "/") == {:error, :invalid_source}
+  end
+
   test "encrypted URLs are stable across configurations and processes" do
     plan = IP.new(encrypted_config(), expires: 2_000_000_000) |> IP.group(gray: true)
     source = "https://private.test/bucket/猫.jpg?secret=token"
@@ -154,6 +180,7 @@ defmodule ImagePipe.URLTest do
 
   property "arbitrary UTF-8 sources round trip without becoming URL syntax" do
     check all source <- string(:utf8, min_length: 1, max_length: 100) do
+      source = "asset-" <> source
       path = IP.url!(IP.new(), source)
 
       assert {:ok, %{source: {_marker, ^source, _span}}} =
@@ -168,6 +195,7 @@ defmodule ImagePipe.URLTest do
 
     check all source <- string(:utf8, min_length: 1, max_length: 100),
               iv <- binary(length: 16) do
+      source = "asset-" <> source
       path = IP.url!(IP.new(config), source, iv: iv)
 
       assert {{:ok, _request, ^source}, _meta} =

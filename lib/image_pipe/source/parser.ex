@@ -6,8 +6,8 @@ defmodule ImagePipe.Source.Parser do
   already decoded, and classifies it:
 
     * no `scheme://` prefix — a root-relative `%Plan.Source.Path{}`. The
-      decoded string is the source of truth: it is split into segments on
-      `/` with no further decoding.
+      decoded string is split into segments on `/` with no further decoding.
+      An optional leading slash is normalized for ordinary root-relative paths.
     * `http://` or `https://` — an absolute `%Plan.Source.URL{}`. Inner URL
       path escapes are decoded once here and re-encoded by the HTTP adapter.
     * `s3://` — an `%Plan.Source.Object{}` with the query carried as its
@@ -32,9 +32,25 @@ defmodule ImagePipe.Source.Parser do
 
   @spec translate(String.t(), keyword()) ::
           {:ok, ImagePipe.Plan.Source.t()} | {:error, {:invalid_source, term()}}
-  def translate("", _config), do: {:error, {:invalid_source, :empty_source}}
+  def translate(source, config) when is_binary(source),
+    do: source |> normalize() |> do_translate(config)
 
-  def translate(source, config) when is_binary(source) do
+  @doc false
+  def normalize("//" <> _ = source), do: source
+
+  def normalize("/" <> rest = source) do
+    # Removing the slash must not turn a path into a different source kind.
+    case Regex.match?(@scheme_prefix, rest) do
+      true -> source
+      false -> rest
+    end
+  end
+
+  def normalize(source), do: source
+
+  defp do_translate("", _config), do: {:error, {:invalid_source, :empty_source}}
+
+  defp do_translate(source, config) do
     case Regex.run(@scheme_prefix, source) do
       [_match, scheme] -> url_translate(String.downcase(scheme), source, config)
       nil -> {:ok, path_translate(source)}

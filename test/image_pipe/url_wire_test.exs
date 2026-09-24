@@ -12,6 +12,33 @@ defmodule ImagePipe.URLWireTest do
   @key Base.encode16(:binary.copy(<<71>>, 32))
   @encryption_key :binary.copy(<<72>>, 32)
 
+  test "file sources with a leading slash work through builder and raw Plug paths" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "image-pipe-leading-slash-#{System.unique_integer([:positive])}"
+      )
+
+    File.mkdir_p!(root)
+    on_exit(fn -> File.rm_rf!(root) end)
+    body = Image.new!(60, 40, color: [80, 120, 160]) |> Image.write!(:memory, suffix: ".png")
+    File.write!(Path.join(root, "photo.png"), body)
+    config = IP.config(sources: [path: {ImagePipe.Source.File, root: root, root_id: "photos"}])
+    builder = IP.new(config) |> IP.group(resize: [width: 30]) |> IP.output(format: :png)
+    assert {:ok, expected} = IP.run(builder, {:source, "photo.png"})
+    assert {:ok, ^expected} = IP.run(builder, {:source, "/photo.png"})
+
+    for url <- [IP.url!(builder, "/photo.png"), "/w=30/format=png/src/%2Fphoto.png"] do
+      response = conn(:get, url) |> IP.Plug.call(IP.Plug.init(config))
+      assert response.status == 200
+      assert response.resp_body == expected.data
+    end
+
+    for source <- ["//photo.png", "/../photo.png", "/nested//photo.png"] do
+      assert {:error, {:source, :denied_path}} = IP.run(builder, {:source, source})
+    end
+  end
+
   setup do
     image = Image.new!(60, 40, color: [80, 120, 160])
     body = Image.write!(image, :memory, suffix: ".png")

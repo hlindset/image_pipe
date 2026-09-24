@@ -95,6 +95,8 @@ defmodule ImagePipe do
 
   The source is a UTF-8 string, including any source query parameters. Source
   bytes are escaped once and the signature covers the mount-relative path.
+  Ordinary root-relative sources accept an optional leading `/`; it is removed
+  before escaping, encryption, and signing.
   Construction performs no source, image, or cache I/O. Files and binary input
   tuples accepted by `run/3` have no URL representation.
 
