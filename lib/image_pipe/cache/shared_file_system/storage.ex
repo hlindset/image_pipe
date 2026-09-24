@@ -6,7 +6,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Storage do
   # Run only in the isolated filesystem helper.
   def publish(plan, source, metadata, limits) do
     with :ok <- Partition.stage(plan),
-         {:ok, body} <- Body.copy(source, Path.join(plan.stage, "body"), limits.body),
+         {:ok, body} <- prepare_body(plan, source, limits.body),
          envelope = %{
            kind: plan.kind,
            key: plan.key,
@@ -20,6 +20,11 @@ defmodule ImagePipe.Cache.SharedFileSystem.Storage do
     end
   end
 
+  defp prepare_body(%{kind: :sources}, nil, _limit), do: {:ok, nil}
+
+  defp prepare_body(plan, source, limit),
+    do: Body.copy(source, Path.join(plan.stage, "body"), limit)
+
   def commit(plan, limits) do
     location = Partition.location(plan.parent, plan.kind, plan.key, plan.generation)
 
@@ -30,9 +35,8 @@ defmodule ImagePipe.Cache.SharedFileSystem.Storage do
   end
 
   defp reconcile(location, limits, rename_error) do
-    with {:ok, envelope} <- read_metadata(location, limits.metadata),
-         {:ok, body} <- Body.digest(Path.join(location.path, "body"), limits.body),
-         :ok <- verify_body(body, envelope.body) do
+    with {:ok, envelope} <- metadata(location, limits.metadata),
+         :ok <- verify_generation(location, envelope, limits) do
       {:ok, location}
     else
       {:error, :enoent} -> {:error, rename_error}
@@ -40,8 +44,16 @@ defmodule ImagePipe.Cache.SharedFileSystem.Storage do
     end
   end
 
+  defp verify_generation(_location, %{kind: :sources, body: nil}, _limits), do: :ok
+
+  defp verify_generation(location, envelope, limits) do
+    with {:ok, body} <- Body.digest(Path.join(location.path, "body"), limits.body) do
+      verify_body(body, envelope.body)
+    end
+  end
+
   def acquire(location, directory, limits) do
-    with {:ok, envelope} <- read_metadata(location, limits.metadata),
+    with {:ok, envelope} <- metadata(location, limits.metadata),
          :ok <- File.mkdir(directory),
          path = Path.join(directory, "body"),
          {:ok, body} <- Body.copy(Path.join(location.path, "body"), path, limits.body),
@@ -50,7 +62,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Storage do
     end
   end
 
-  defp read_metadata(location, limit) do
+  def metadata(location, limit) do
     case File.open(Path.join(location.path, "meta"), [:read, :binary], &IO.binread(&1, limit + 1)) do
       {:ok, encoded} when is_binary(encoded) and byte_size(encoded) <= limit ->
         decode(encoded, location)
@@ -86,8 +98,16 @@ defmodule ImagePipe.Cache.SharedFileSystem.Storage do
       _trailing_bytes -> {:error, :corrupt}
     end
   rescue
-    ArgumentError -> {:error, :corrupt}
+    ArgumentError ->
+      {:error, :corrupt}
   end
+
+  defp validate(
+         %{key: key, kind: :sources, generation: generation, body: nil, metadata: encoded} =
+           envelope,
+         %{key: key, kind: :sources, generation: generation}
+       )
+       when is_binary(encoded), do: {:ok, envelope}
 
   defp validate(
          %{
@@ -95,11 +115,13 @@ defmodule ImagePipe.Cache.SharedFileSystem.Storage do
            kind: kind,
            generation: generation,
            body: %{bytes: bytes, sha256: hash},
-           metadata: _metadata
+           metadata: encoded
          } = envelope,
          %{key: key, kind: kind, generation: generation}
        )
-       when is_integer(bytes) and bytes >= 0 and is_binary(hash) and byte_size(hash) == 32,
+       when kind in [:outputs, :originals] and is_binary(encoded) and is_integer(bytes) and
+              bytes >= 0 and
+              is_binary(hash) and byte_size(hash) == 32,
        do: {:ok, envelope}
 
   defp validate(_envelope, _location), do: {:error, :corrupt}

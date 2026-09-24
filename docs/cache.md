@@ -91,7 +91,8 @@ hits do not count as input demand. Original EXIF/ICC bytes are preserved.
 `pool: :input` labels the input supervisor's admission and maintenance telemetry;
 the default label is `:output`. The validated mount adds the input label automatically.
 Input adapters implement `ImagePipe.Cache.Input.Adapter`. The contract covers
-source-state lookup, exclusive validation ownership, publication, revision-aware
+source-state lookup, validation ownership within the adapter's coordination scope,
+publication, revision-aware
 invalidation, and opening/releasing original bytes. `FileSystem` implements both
 the input and output contracts. Host adapters validate their own options with
 `validate_input_options/1`; invalid configuration fails before source access.
@@ -108,8 +109,9 @@ the source is still downloading is tracked separately in `image_plug-yx6`.
 
 The input adapter owns source version/freshness records when configured. Without
 an input adapter, the output cache retains records without retaining originals.
-Each source has one authoritative record; lookup never falls back to another
-pool's older evidence. The local filesystem adapter stores records as separate,
+Within that owner's coordination scope, each source has one selected record;
+discovery must not undo a known invalidation or bypass required validation.
+The local filesystem adapter stores records as separate,
 charged entries in the owning pool, allowing them to survive original eviction.
 If that pool rejects or evicts the record too, the next request acquires or
 validates the source before selecting a mutable output, even if an output survives.

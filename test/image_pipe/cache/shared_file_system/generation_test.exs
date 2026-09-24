@@ -3,6 +3,8 @@ defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
 
   alias ImagePipe.Cache.SharedFileSystem.{Generation, Partition, Storage}
   alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
+  alias ImagePipe.Source
+  alias ImagePipe.Source.Record
 
   setup do
     root = Path.join(System.tmp_dir!(), "shared_generation_#{System.unique_integer([:positive])}")
@@ -104,6 +106,76 @@ defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
     second = Partition.original_key(String.duplicate("b", 64), "opaque revision")
     refute first == second
     assert first == Partition.original_key(ctx.plan.key, "opaque revision")
+  end
+
+  test "source evidence can be published and read without an original body", ctx do
+    plan = Partition.plan(ctx.partition, :sources, ctx.plan.key)
+    {:ok, source, _config} = Source.from_input({:binary, "image"}, sources: %{})
+    record = Record.new(source, :crypto.hash(:sha256, "image"), nil, 1_000)
+    assert {:ok, location} = Generation.publish(ctx.pool, plan, nil, record, limits(), 1_000)
+    assert File.ls!(location.path) == ["meta"]
+
+    assert {:ok, %{metadata: ^record, body: nil}} =
+             Generation.metadata(ctx.pool, location, limits(), 1_000)
+
+    assert {:ok, {:ok, ^location}} =
+             CacheIO.run(ctx.pool, {Storage, :commit, [plan, limits()]}, 1_000_000, 1_000)
+  end
+
+  test "serialized source evidence is validated at the storage boundary", ctx do
+    plan = Partition.plan(ctx.partition, :sources, ctx.plan.key)
+    {:ok, source, _config} = Source.from_input({:binary, "image"}, sources: %{})
+    record = Record.new(source, :crypto.hash(:sha256, "image"), nil, 1_000)
+    assert {:ok, location} = Generation.publish(ctx.pool, plan, nil, record, limits(), 1_000)
+    path = Path.join(location.path, "meta")
+    envelope = path |> File.read!() |> :erlang.binary_to_term()
+
+    File.write!(
+      path,
+      :erlang.term_to_binary(%{
+        envelope
+        | metadata: :erlang.term_to_binary(%{record | received_at: "bad"})
+      })
+    )
+
+    assert {:error, :corrupt} = Generation.metadata(ctx.pool, location, limits(), 1_000)
+
+    malformed = %{record | origin: %{__struct__: ImagePipe.Source.Origin}}
+
+    File.write!(
+      path,
+      :erlang.term_to_binary(%{envelope | metadata: :erlang.term_to_binary(malformed)})
+    )
+
+    assert {:error, :corrupt} = Generation.metadata(ctx.pool, location, limits(), 1_000)
+
+    compressed = :erlang.term_to_binary(String.duplicate("x", 10_000), [:compressed])
+    File.write!(path, :erlang.term_to_binary(%{envelope | metadata: compressed}))
+    assert {:error, :corrupt} = Generation.metadata(ctx.pool, location, limits(), 1_000)
+  end
+
+  test "record-only invalidation is distinct from a missing generation", ctx do
+    plan = Partition.plan(ctx.partition, :sources, ctx.plan.key)
+    assert {:ok, location} = Generation.publish(ctx.pool, plan, nil, nil, limits(), 1_000)
+
+    assert {:ok, %{metadata: nil, body: nil}} =
+             Generation.metadata(ctx.pool, location, limits(), 1_000)
+
+    File.rm_rf!(location.path)
+    assert {:error, :enoent} = Generation.metadata(ctx.pool, location, limits(), 1_000)
+  end
+
+  test "a cold independent helper can read another writer's source record", ctx do
+    plan = Partition.plan(ctx.partition, :sources, ctx.plan.key)
+    {:ok, source, _config} = Source.from_input({:binary, "image"}, sources: %{})
+    record = Record.new(source, :crypto.hash(:sha256, "image"), nil, 1_000)
+    assert {:ok, location} = Generation.publish(ctx.pool, plan, nil, record, limits(), 1_000)
+
+    other =
+      start_supervised!(Supervisor.child_spec(CacheIO, id: :independent_reader))
+      |> CacheIO.client()
+
+    assert {:ok, %{metadata: ^record}} = Generation.metadata(other, location, limits(), 1_000)
   end
 
   test "reader ownership survives executor shutdown", ctx do

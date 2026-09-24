@@ -2,13 +2,21 @@ defmodule ImagePipe.Cache.Input.Adapter do
   @moduledoc """
   Storage and coordination for source validation records and optional originals.
 
-  Source records have one authoritative owner. A snapshot with a nil record is
-  an invalidation marker, distinct from a miss. Revisions are opaque identities;
-  callers never order them. Adapters prevent an invalidation of an old revision
-  from removing a newer one.
+  Each adapter defines its coordination scope. Source selection and same-key
+  validation have one owner within that scope. The local filesystem adapter uses
+  its exclusively owned root; a shared filesystem adapter may use one writer
+  incarnation, allowing nodes to retain independently valid source evidence.
+  A snapshot describes the selection in that scope. A nil record is an
+  invalidation marker, distinct from a miss. Revisions are opaque identities;
+  callers never order them. An invalidation of an old revision must not remove
+  a newer selection, and discovery must not undo a known local invalidation or
+  evade validation already required by the selected record's policy.
 
   Acquire before reading source state for validation. Publication must verify
-  ownership atomically with its mutation, including after coordinator failure.
+  ownership atomically when installing the selected revision, including after
+  coordinator failure. A shared immutable disk write may finish after a timeout;
+  its late completion must not install a selection under lost ownership or reset
+  the origin-derived freshness of its evidence.
   Release ownership on completion; adapters also clean up when its owner dies.
   A nil path publishes only validation evidence, retaining matching originals
   when possible. Attempt to record evidence even if original admission fails.

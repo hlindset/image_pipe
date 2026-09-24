@@ -2,21 +2,35 @@ defmodule ImagePipe.Cache.SharedFileSystem.Generation do
   @moduledoc false
 
   alias ImagePipe.Cache.Resources
-  alias ImagePipe.Cache.SharedFileSystem.{Body, Storage, Transient}
+  alias ImagePipe.Cache.SharedFileSystem.{Body, Metadata, Storage, Transient}
   alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
 
   def publish(pool, plan, source, metadata, limits, timeout) do
     deadline = deadline(timeout)
     cleanup = {Transient, :remove, [plan.stage]}
 
-    with :ok <- metadata_size(metadata, limits.metadata),
+    with {:ok, encoded} <- Metadata.encode(metadata, limits.metadata),
          {:ok, lease} <-
-           CacheIO.reserve(pool, limits.body + limits.metadata, cleanup, remaining(deadline)) do
+           CacheIO.reserve(pool, staging_bytes(plan, limits), cleanup, remaining(deadline)) do
       result =
-        run(pool, {Storage, :publish, [plan, source, metadata, limits]}, limits, deadline, lease)
+        run(pool, {Storage, :publish, [plan, source, encoded, limits]}, limits, deadline, lease)
 
       CacheIO.close(pool, lease)
       result
+    end
+  end
+
+  def metadata(pool, location, limits, timeout) do
+    with {:ok, envelope} <-
+           run(
+             pool,
+             {Storage, :metadata, [location, limits.metadata]},
+             limits,
+             deadline(timeout),
+             nil
+           ),
+         {:ok, metadata} <- Metadata.decode(location.kind, envelope.metadata) do
+      {:ok, %{envelope | metadata: metadata}}
     end
   end
 
@@ -27,9 +41,22 @@ defmodule ImagePipe.Cache.SharedFileSystem.Generation do
     cleanup = {Transient, :remove, [directory]}
 
     with {:ok, lease} <- CacheIO.reserve(pool, limits.body, cleanup, remaining(deadline)) do
-      case run(pool, {Storage, :acquire, [location, directory, limits]}, limits, deadline, lease) do
-        {:ok, reader} ->
-          track_reader(pool, lease, reader, directory, remaining(deadline))
+      result =
+        with {:ok, reader} <-
+               run(
+                 pool,
+                 {Storage, :acquire, [location, directory, limits]},
+                 limits,
+                 deadline,
+                 lease
+               ),
+             {:ok, metadata} <- Metadata.decode(location.kind, reader.metadata) do
+          track_reader(lease, %{reader | metadata: metadata}, directory, remaining(deadline))
+        end
+
+      case result do
+        {:ok, _reader} ->
+          result
 
         error ->
           CacheIO.close(pool, lease)
@@ -45,10 +72,9 @@ defmodule ImagePipe.Cache.SharedFileSystem.Generation do
     end
   end
 
-  defp track_reader(pool, lease, reader, directory, timeout) do
+  defp track_reader(lease, reader, directory, timeout) do
     case Resources.track_directory(directory, timeout) do
       :unavailable ->
-        CacheIO.close(pool, lease)
         {:error, :unavailable}
 
       resource ->
@@ -72,10 +98,6 @@ defmodule ImagePipe.Cache.SharedFileSystem.Generation do
   defp deadline(timeout), do: System.monotonic_time(:millisecond) + timeout
   defp remaining(deadline), do: max(deadline - System.monotonic_time(:millisecond), 0)
 
-  defp metadata_size(metadata, limit) do
-    case :erlang.external_size(metadata) <= limit do
-      true -> :ok
-      false -> {:error, :metadata_too_large}
-    end
-  end
+  defp staging_bytes(%{kind: :sources}, limits), do: limits.metadata
+  defp staging_bytes(_plan, limits), do: limits.body + limits.metadata
 end

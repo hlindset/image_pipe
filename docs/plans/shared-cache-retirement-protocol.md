@@ -156,6 +156,15 @@ against the exact generation and body digest. Reads bound and validate the envel
 reject compressed terms, and verify size/digest before returning a local reader path.
 Original storage keys include both input identity and byte identity.
 
+Source generations can contain validation evidence or a nil-record marker without
+an original body. Record-only publication uses the same staging, rename and exact
+destination reconciliation, reserving metadata bytes only. The I/O helper validates
+the storage envelope and carries application metadata as a bounded encoded binary.
+The application VM safely decodes that payload with known schema atoms and validates
+source records; cold helper VMs therefore need no knowledge of host identity atoms.
+Neither layer accepts compressed terms or trailing serialized bytes. Reading or
+publishing evidence preserves its received time and origin headers.
+
 Completed reader directories are registered with the existing node-local resource
 tracker before acquisition returns. Explicit release or caller death can therefore
 remove them after helper or executor failure; tracker worker restarts preserve its
