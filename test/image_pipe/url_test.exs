@@ -117,6 +117,9 @@ defmodule ImagePipe.URLTest do
 
   test "base URL and credentials are validated without reflecting secret values" do
     for base <- [
+          nil,
+          42,
+          %{secret: "secret"},
           "https://user:secret@cdn.test/img",
           "//cdn.test/img",
           "/a b",
