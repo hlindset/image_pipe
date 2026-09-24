@@ -437,15 +437,25 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   defp on_hit_promote_or_synthesize(state, descriptor) do
     case locate(state, descriptor.key_hash) do
       nil ->
-        # Cold-boot hit synthesis: scan hasn't reached this entry yet,
-        # but the adapter has just read its meta and passed a full
-        # descriptor. Insert at probationary MRU.
-        {pos, state} = next_position(state)
-        :ets.insert(state.probationary, {{pos, descriptor.key_hash}, descriptor})
-        Map.update!(state, :probationary_bytes, &(&1 + descriptor.size_bytes))
+        case current_descriptor?(state, descriptor) do
+          true -> insert_scan_descriptor(state, descriptor)
+          false -> state
+        end
 
       _located ->
         promote_on_hit(state, descriptor.key_hash)
+    end
+  end
+
+  defp current_descriptor?(state, descriptor) do
+    opts = [root: state.root, path_prefix: state.path_prefix]
+    descriptor = Map.delete(descriptor, :mtime)
+
+    with {:ok, paths} <- FileSystem.paths_from_hash(descriptor.key_hash, opts),
+         {:ok, ^descriptor, _mtime} <- FileSystem.read_descriptor(paths.meta_path) do
+      true
+    else
+      _missing_or_changed -> false
     end
   end
 
@@ -520,10 +530,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   def handle_call({:apply_scan_batch, batch}, _from, state) do
     state =
       Enum.reduce(batch, state, fn entry, acc ->
-        if already_tracked?(acc, entry.key_hash) do
-          # Runtime traffic (hit synthesis, admit) has populated this
-          # key already. Its descriptor is fresher than what scan read
-          # from disk; skip.
+        if already_tracked?(acc, entry.key_hash) or not current_descriptor?(acc, entry) do
           acc
         else
           insert_scan_descriptor(acc, entry)
@@ -545,7 +552,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   defp apply_protected_hash(hash, state, descriptor_map) do
     case Map.fetch(descriptor_map, hash) do
       {:ok, entry} ->
-        if already_tracked?(state, hash) do
+        if already_tracked?(state, hash) or not current_descriptor?(state, entry) do
           state
         else
           # Drop the scan-only `:mtime` field so queued descriptors

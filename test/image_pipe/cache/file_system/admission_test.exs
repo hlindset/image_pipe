@@ -5,6 +5,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Admission
   alias ImagePipe.Cache.FileSystem.Sketch
+  alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.Key
 
   setup do
@@ -61,17 +62,20 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert Sketch.estimate(state.local_cms, "key-1") >= 1
   end
 
-  test "hit/2 on untracked key synthesizes a probationary entry from the descriptor",
+  test "hit/2 on an untracked persisted key restores its accounting",
        %{registry: registry, tmp_dir: tmp_dir} do
     opts = base_opts(registry: registry, tmp_dir: tmp_dir)
     pid = start_supervised!({Admission, opts})
-
-    descriptor = %{key_hash: "cold", size_bytes: 5_000, body_sha256: "s", cost_us: 1_000}
+    Admission.await_scan(pid)
+    hash = hex_hash("c")
+    put_disk_entry(tmp_dir, hash, "persisted body")
+    {:ok, paths} = FileSystem.paths_from_hash(hash, root: tmp_dir)
+    {:ok, descriptor, _} = FileSystem.read_descriptor(paths.meta_path)
     Admission.hit(pid, descriptor)
     state = :sys.get_state(pid)
 
-    assert in_queue?(state.probationary, "cold")
-    assert state.probationary_bytes == 5_000
+    assert in_queue?(state.probationary, hash)
+    assert state.probationary_bytes == byte_size("persisted body")
   end
 
   test "admit/2 inserts a candidate at window MRU when window has room",
@@ -533,6 +537,32 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     located = locate_descriptor(state, hash)
     assert located.size_bytes == 4_321
     assert located.body_sha256 == "runtime_sha"
+  end
+
+  for queue <- [:probationary, :protected] do
+    test "stale #{queue} scan snapshot does not restore deleted accounting", ctx do
+      opts = base_opts(registry: ctx.registry, tmp_dir: ctx.tmp_dir)
+      pid = start_supervised!({Admission, opts})
+      Admission.await_scan(pid)
+      hash = hex_hash("d")
+      put_disk_entry(ctx.tmp_dir, hash, "old body")
+      {:ok, paths} = FileSystem.paths_from_hash(hash, root: ctx.tmp_dir)
+      {:ok, descriptor, mtime} = FileSystem.read_descriptor(paths.meta_path)
+      entry = Map.put(descriptor, :mtime, mtime)
+      cache_key = %Key{hash: hash, data: []}
+      :ok = Store.delete(cache_key, root: ctx.tmp_dir)
+
+      message =
+        case unquote(queue) do
+          :probationary -> {:apply_scan_batch, [entry]}
+          :protected -> {:apply_protected_batch, [hash], %{hash => entry}}
+        end
+
+      assert :ok = GenServer.call(pid, message)
+      state = :sys.get_state(pid)
+      assert state.probationary_bytes + state.protected_bytes + state.window_bytes == 0
+      assert FileSystem.get(cache_key, root: ctx.tmp_dir) == :miss
+    end
   end
 
   test "protected entries are restored in LRU-to-MRU order from persisted state", %{

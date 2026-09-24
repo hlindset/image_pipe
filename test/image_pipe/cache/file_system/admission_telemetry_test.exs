@@ -135,19 +135,28 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
   end
 
   test "emits an eviction stop event when reconciliation evicts", ctx do
-    pid = start_supervised!({Admission, opts(ctx, max_size_bytes: 10_000, window_ratio: 0.0)})
-    attach(ctx.prefix, [[:cache, :eviction, :stop]])
+    alias ImagePipe.Cache.Entry
+    alias ImagePipe.Cache.FileSystem
+    alias ImagePipe.Cache.Key
 
-    # Hit synthesis inserts probationary entries without the admit gate, so
-    # three 5_000-byte entries push usage (15_000) past the 10_000 cap.
+    metadata = %Entry.Metadata{
+      content_type: "image/png",
+      headers: [],
+      created_at: DateTime.utc_now(),
+      output_format: :png
+    }
+
     for i <- 1..3 do
-      Admission.hit(pid, %{key_hash: "ev-#{i}", size_bytes: 5_000, body_sha256: "s", cost_us: 1})
+      key = %Key{hash: String.duplicate(Integer.to_string(i), 64), data: []}
+      pool = [root: ctx.tmp_dir]
+      {:ok, sink} = FileSystem.open_sink(key, metadata, pool)
+      {:ok, sink} = FileSystem.write_chunk(sink, String.duplicate("x", 5_000), pool)
+      assert :ok = FileSystem.commit_sink(sink, pool)
     end
 
-    # Flush the async hit casts, then drive a reconcile tick synchronously.
-    _ = :sys.get_state(pid)
-    send(pid, :reconcile)
-    _ = :sys.get_state(pid)
+    attach(ctx.prefix, [[:cache, :eviction, :stop]])
+    pid = start_supervised!({Admission, opts(ctx, max_size_bytes: 10_000, window_ratio: 0.0)})
+    Admission.await_scan(pid)
 
     stop_event = ctx.prefix ++ [:cache, :eviction, :stop]
 

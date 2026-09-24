@@ -9,11 +9,12 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
     root = Path.join(System.tmp_dir!(), "cache_commit_#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(root) end)
     opts = [root: root, node_id: "test", max_size_bytes: 1000, window_ratio: 1.0]
-    start_supervised!(FileSystem.child_spec(opts))
+    prefix = [:"cache_concurrent_#{System.unique_integer([:positive])}"]
+    start_supervised!(FileSystem.child_spec(Keyword.put(opts, :telemetry_prefix, prefix)))
     tasks = start_supervised!({Task.Supervisor, []})
     [{admission, _}] = Registry.lookup(FileSystem.registry_name(root), {root, "test"})
     key = %Key{hash: String.duplicate("a", 64), data: []}
-    %{root: root, opts: opts, tasks: tasks, admission: admission, key: key}
+    %{root: root, opts: opts, tasks: tasks, admission: admission, key: key, prefix: prefix}
   end
 
   test "overlapping A to B to A commits retain the final body", %{
@@ -74,6 +75,50 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
     assert Enum.sum(Enum.map(bodies, &File.stat!(&1).size)) == 400
     state = :sys.get_state(ctx.admission)
     assert state.window_bytes + state.probationary_bytes + state.protected_bytes == 400
+  end
+
+  test "a read racing eviction does not restore deleted entry accounting", ctx do
+    assert :ok = put_entry(ctx.key, String.duplicate("a", 500), ctx.opts)
+    parent = self()
+    handler = make_ref()
+    event = ctx.prefix ++ [:cache, :admission, :stop]
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        event,
+        fn _, _, _, _ ->
+          send(parent, :admitted)
+
+          receive do
+            :release -> :ok
+          end
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+    other = %Key{hash: String.duplicate("b", 64), data: []}
+
+    writer =
+      Task.Supervisor.async_nolink(ctx.tasks, fn ->
+        put_entry(other, String.duplicate("b", 800), ctx.opts)
+      end)
+
+    try do
+      assert_receive :admitted
+      :telemetry.detach(handler)
+      assert {:hit, %{body: body}} = FileSystem.get(ctx.key, ctx.opts)
+      assert byte_size(body) == 500
+    after
+      send(ctx.admission, :release)
+    end
+
+    assert Task.await(writer) == :ok
+    state = :sys.get_state(ctx.admission)
+    assert state.window_bytes + state.probationary_bytes + state.protected_bytes == 800
+    assert FileSystem.get(ctx.key, ctx.opts) == :miss
+    assert {:hit, _} = FileSystem.get(other, ctx.opts)
   end
 
   test "failed publication leaves admission accounting unchanged", ctx do
