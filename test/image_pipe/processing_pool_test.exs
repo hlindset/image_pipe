@@ -25,10 +25,10 @@ defmodule ImagePipe.ProcessingPoolTest do
     pool = pool(max_concurrency: 1)
     first = blocked(tasks, pool, :first)
     assert_receive {:started, :first, worker}
-    assert {:error, {:processing, :overloaded}} = ProcessingPool.run(pool, fn -> flunk() end)
+    assert {:error, {:processing, :overloaded}} = ProcessingPool.run(pool, fn -> flunk() end, [])
     send(worker, :continue)
     assert Task.await(first) == :ok
-    assert ProcessingPool.run(pool, fn -> :ok end) == :ok
+    assert ProcessingPool.run(pool, fn -> :ok end, []) == :ok
   end
 
   test "admits queued jobs in FIFO order", %{tasks: tasks} do
@@ -39,7 +39,7 @@ defmodule ImagePipe.ProcessingPoolTest do
     await_queued(pool, 1)
     third = blocked(tasks, pool, :third)
     await_queued(pool, 2)
-    assert {:error, {:processing, :overloaded}} = ProcessingPool.run(pool, fn -> flunk() end)
+    assert {:error, {:processing, :overloaded}} = ProcessingPool.run(pool, fn -> flunk() end, [])
 
     send(worker1, :continue)
     assert Task.await(first) == :ok
@@ -56,10 +56,13 @@ defmodule ImagePipe.ProcessingPoolTest do
     pool = pool(max_concurrency: 1, max_queue: 1, queue_timeout: 1_000)
     first = blocked(tasks, pool, :first)
     assert_receive {:started, :first, worker}
-    assert {:error, {:processing, :queue_timeout}} = ProcessingPool.run(pool, fn -> flunk() end)
+
+    assert {:error, {:processing, :queue_timeout}} =
+             ProcessingPool.run(pool, fn -> flunk() end, [])
+
     send(worker, :continue)
     assert Task.await(first) == :ok
-    assert ProcessingPool.run(pool, fn -> :ok end) == :ok
+    assert ProcessingPool.run(pool, fn -> :ok end, []) == :ok
   end
 
   test "processing deadline stops a worker and recovers its slot", %{tasks: tasks} do
@@ -69,7 +72,7 @@ defmodule ImagePipe.ProcessingPoolTest do
     ref = Process.monitor(worker)
     assert Task.await(job) == {:error, {:processing, :timeout}}
     assert_receive {:DOWN, ^ref, :process, ^worker, _}
-    assert ProcessingPool.run(pool, fn -> :ok end) == :ok
+    assert ProcessingPool.run(pool, fn -> :ok end, []) == :ok
   end
 
   test "owner death cancels active and queued work", %{tasks: tasks} do
@@ -83,7 +86,7 @@ defmodule ImagePipe.ProcessingPoolTest do
     assert_receive {:stop, %{result: :cancelled}}
     Task.shutdown(active, :brutal_kill)
     assert_receive {:DOWN, ^worker_ref, :process, ^worker, _}
-    assert ProcessingPool.run(pool, fn -> :ok end) == :ok
+    assert ProcessingPool.run(pool, fn -> :ok end, []) == :ok
     refute_received {:started, :waiting, _}
   end
 
@@ -91,13 +94,13 @@ defmodule ImagePipe.ProcessingPoolTest do
     pool = pool(max_concurrency: 1)
 
     assert_raise RuntimeError, "broken", fn ->
-      ProcessingPool.run(pool, fn -> raise "broken" end)
+      ProcessingPool.run(pool, fn -> raise "broken" end, [])
     end
 
-    assert ProcessingPool.run(pool, fn -> {:error, {:decode, :bad}} end) ==
+    assert ProcessingPool.run(pool, fn -> {:error, {:decode, :bad}} end, []) ==
              {:error, {:decode, :bad}}
 
-    assert ProcessingPool.run(pool, fn -> :ok end) == :ok
+    assert ProcessingPool.run(pool, fn -> :ok end, []) == :ok
   end
 
   test "worker death releases admission even without callback cleanup", %{tasks: tasks} do
@@ -106,7 +109,7 @@ defmodule ImagePipe.ProcessingPoolTest do
     assert_receive {:started, :dying, worker}
     Process.exit(worker, :kill)
     assert Task.await(job) == {:error, {:processing, :worker_down}}
-    assert ProcessingPool.run(pool, fn -> :ok end) == :ok
+    assert ProcessingPool.run(pool, fn -> :ok end, []) == :ok
   end
 
   test "pool shutdown terminates admitted and queued work", %{tasks: tasks} do

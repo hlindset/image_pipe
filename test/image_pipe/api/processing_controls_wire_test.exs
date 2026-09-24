@@ -97,7 +97,7 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
       assert timed.resp_body == "image processing timeout"
       assert_receive {^event, ^ref, _measurements, %{result: :timeout}}, 1_000
       assert %{active: 0, queued: 0} = ProcessingPool.stats(pool)
-      assert ProcessingPool.run(pool, fn -> :recovered end) == :recovered
+      assert ProcessingPool.run(pool, fn -> :recovered end, []) == :recovered
     end
   end
 
