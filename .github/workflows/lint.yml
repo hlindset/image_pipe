@@ -75,3 +75,7 @@ jobs:
         run: mise exec -- pnpm -C fiddle/assets run format:check
       - name: Fiddle lint
         run: mise exec -- pnpm -C fiddle/assets run lint
+      - name: Fiddle tests
+        run: mise exec -- pnpm -C fiddle/assets run test
+      - name: Build fiddle assets and service worker
+        run: mise exec -- pnpm -C fiddle/assets run build
