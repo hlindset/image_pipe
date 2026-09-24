@@ -23,7 +23,7 @@ async function handlePreview(event: FetchEvent, request: Request): Promise<Respo
   // stream still reaches the <img> untouched.
   const accept = request.headers.get("accept");
   const response = await fetch(request);
-  void reportMetadata(event.clientId, request.url, accept, response.clone());
+  event.waitUntil(reportMetadata(event.clientId, request.url, accept, response.clone()));
   return response;
 }
 
@@ -54,19 +54,9 @@ async function reportMetadata(
   }
 }
 
-// `event.clientId` is reliably populated for many subresource fetches, but Chromium
-// has historically left it empty for some `<img>` loads depending on version/timing.
-// When the specific client can't be resolved, broadcast to all window clients — the
-// PAGE guards every message by full-URL + request id, so a broadcast can never
-// mis-correlate metadata onto the wrong preview or the wrong tab.
 async function postToClient(clientId: string, message: PreviewMetaMessage): Promise<void> {
   const client = clientId ? await sw.clients.get(clientId) : undefined;
-  if (client !== undefined) {
-    client.postMessage(message);
-    return;
-  }
-  const windows = await sw.clients.matchAll({ type: "window" });
-  for (const windowClient of windows) windowClient.postMessage(message);
+  client?.postMessage(message);
 }
 
 function errorSnippet(response: Response, body: ArrayBuffer): string | null {
