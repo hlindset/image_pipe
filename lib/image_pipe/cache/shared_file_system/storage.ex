@@ -21,12 +21,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Storage do
   end
 
   def commit(plan, limits) do
-    location = %{
-      path: plan.destination,
-      key: plan.key,
-      kind: plan.kind,
-      generation: plan.generation
-    }
+    location = Partition.location(plan.parent, plan.kind, plan.key, plan.generation)
 
     case File.rename(plan.stage, plan.destination) do
       :ok -> {:ok, location}

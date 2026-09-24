@@ -163,7 +163,18 @@ ownership records. Shared operations whose completion is unknown retain their
 reservations and are never handed to this tracker for early deletion. Losing the
 call channel disables executor admission even if the helper remains alive.
 
-These remain internal building blocks. Source/output payload validation, discovery,
+These remain internal building blocks. Source/output payload validation, lookup integration,
 and public adapter integration are separate steps. Recovery of uncertain operations
 still needs work. Helper startup in packaged releases and cross-process transfer
 costs also need deployment/performance validation.
+
+`SharedFileSystem.Discovery` can enumerate current partitions and exact-key
+generation paths. It validates identifier-shaped directory names, limits inspected
+names/candidates, and distinguishes complete results from a budget-limited search.
+Callers can refresh a cached partition list and retry after a miss. Generation
+publication and discovery share path construction, including original-key scoping.
+
+Its directory reads currently use `File.ls`, which materializes a whole directory
+inside the helper before applying the candidate limit. This does not yet satisfy
+the directory-enumeration memory bound. A bounded enumeration mechanism remains
+required before the discovery task or mount qualification can be completed.

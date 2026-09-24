@@ -38,9 +38,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Partition do
 
   # Plan in the caller, before reserving the staging resource and issuing I/O.
   def plan(partition, kind, key) do
-    namespace = Path.join(partition.path, Atom.to_string(kind))
-    shard = Path.join(namespace, String.slice(key, 0, 2))
-    parent = Path.join(shard, key)
+    parent = key_directory(partition, kind, key)
     generation = identifier()
     staging = Path.join([partition.path, "staging", generation])
 
@@ -48,12 +46,20 @@ defmodule ImagePipe.Cache.SharedFileSystem.Partition do
       generation: generation,
       stage: staging,
       destination: Path.join(parent, generation),
-      shard: shard,
+      shard: Path.dirname(parent),
       parent: parent,
       kind: kind,
       key: key,
       incarnation: partition.id
     }
+  end
+
+  def key_directory(partition, kind, key) do
+    Path.join([partition.path, Atom.to_string(kind), String.slice(key, 0, 2), key])
+  end
+
+  def location(parent, kind, key, generation) do
+    %{path: Path.join(parent, generation), kind: kind, key: key, generation: generation}
   end
 
   def stage(plan) do
