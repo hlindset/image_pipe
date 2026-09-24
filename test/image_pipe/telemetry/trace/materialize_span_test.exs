@@ -15,10 +15,8 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
   #
   #   1. mid-chain, before a random-access op (e.g. a smart crop) -> parent is the
   #      [:transform, :operation] span (`Transform.run/3` materializes before execute);
-  #   2. a pipeline-boundary flush of a still-pending EXIF orientation, executed as
-  #      an explicit Flush operation by the executor -> parent is that Flush
-  #      op's [:transform, :operation] span, which itself nests under
-  #      [:transform, :execute];
+  #   2. a pipeline-boundary flush of a still-pending EXIF orientation -> parent
+  #      is [:transform, :execute];
   #   3. the delivery backstop (the runner's materialize-for-delivery step), which
   #      runs AFTER [:transform, :execute] has closed -> parent is the request root.
   #
@@ -119,11 +117,7 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
     assert Enum.sort(operations) == [:resize, :rotate]
   end
 
-  test "pipeline-boundary EXIF flush nests the materialize span under the Flush op span" do
-    # No-geometry request on an orientation-6 source: the deferred EXIF orientation is
-    # flushed at the pipeline boundary as an explicit Flush operation, so the
-    # materialize span nests under that Flush operation's [:transform, :operation]
-    # span, which itself sits inside the execute span.
+  test "pipeline-boundary EXIF materialization nests directly under execution" do
     conn = call("/format=jpeg/src/images/oriented.jpg", exif6_opts())
     assert conn.status == 200
 
@@ -133,28 +127,17 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
 
     parent = parent_of(spans, mat)
     assert parent, "materialize span must have a captured parent"
-    assert parent.name == "image_pipe.transform.operation"
-    assert parent.attributes.dims == {80, 40}
-
-    grandparent = parent_of(spans, parent)
-    assert grandparent, "the Flush operation span must have a captured parent"
-    assert grandparent.name == "image_pipe.transform.execute"
+    assert parent.name == "image_pipe.transform.execute"
   end
 
-  test "horizontal orientation materialization nests under its flush operation" do
+  test "horizontal orientation materialization nests directly under execution" do
     conn = call("/flip=h/w=120/format=png/src/images/beach.jpg", beach_opts())
     assert conn.status == 200
 
     spans = collect_spans()
     assert [mat] = Enum.filter(spans, &(&1.name == "image_pipe.transform.materialize"))
     assert mat.attributes.dims == {120, 80}
-    assert parent_of(spans, mat).name == "image_pipe.transform.operation"
-    assert parent_of(spans, mat).attributes.operation == :flush
-
-    assert Enum.any?(spans, fn span ->
-             span.name == "image_pipe.transform.operation" and
-               span.attributes[:operation] == :flush
-           end)
+    assert parent_of(spans, mat).name == "image_pipe.transform.execute"
   end
 
   test "delivery backstop flush nests the materialize span under the request root" do

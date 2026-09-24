@@ -4,7 +4,7 @@ defmodule ImagePipe.Transform.Materializer do
 
   `materialize/1` copies the image to RAM (`copy_memory`) and sets
   `materialized?: true`. It leaves pending orientation untouched. The executor
-  emits `ImagePipe.Transform.Operation.Flush` (via `flush/1`) before operations
+  calls `flush/1` before operations
   that need the display frame, including trim.
 
   `ImagePipe.Transform.run/3` materializes before the first operation requiring
@@ -44,7 +44,7 @@ defmodule ImagePipe.Transform.Materializer do
   end
 
   @doc "Applies pending orientation and buffers its display frame, with materialization telemetry."
-  @spec flush(State.t()) :: {:ok, State.t()} | {:error, {:materialize_error, term()}}
+  @spec flush(State.t()) :: {:ok, State.t()} | {:error, term()}
   def flush(%State{telemetry_opts: telemetry_opts} = state) do
     Telemetry.span(telemetry_opts, [:transform, :materialize], %{}, fn ->
       case OrientationFlush.flush(state) do
@@ -52,7 +52,7 @@ defmodule ImagePipe.Transform.Materializer do
           {{:ok, new_state}, ok_metadata(new_state)}
 
         {:error, reason} ->
-          {{:error, {:materialize_error, reason}}, %{result: :materialize_error}}
+          {{:error, reason}, %{result: :materialize_error}}
       end
     end)
   end
