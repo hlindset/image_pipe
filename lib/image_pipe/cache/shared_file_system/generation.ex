@@ -1,6 +1,7 @@
 defmodule ImagePipe.Cache.SharedFileSystem.Generation do
   @moduledoc false
 
+  alias ImagePipe.Cache.Resources
   alias ImagePipe.Cache.SharedFileSystem.{Body, Storage, Transient}
   alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
 
@@ -28,7 +29,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Generation do
     with {:ok, lease} <- CacheIO.reserve(pool, limits.body, cleanup, remaining(deadline)) do
       case run(pool, {Storage, :acquire, [location, directory, limits]}, limits, deadline, lease) do
         {:ok, reader} ->
-          {:ok, Map.put(reader, :lease, lease)}
+          track_reader(pool, lease, reader, directory, remaining(deadline))
 
         error ->
           CacheIO.close(pool, lease)
@@ -37,7 +38,23 @@ defmodule ImagePipe.Cache.SharedFileSystem.Generation do
     end
   end
 
-  def release(pool, reader, timeout), do: CacheIO.release(pool, reader.lease, timeout)
+  def release(pool, reader, timeout) do
+    with :ok <- Resources.release(reader.resource, timeout) do
+      CacheIO.close(pool, reader.lease)
+      :ok
+    end
+  end
+
+  defp track_reader(pool, lease, reader, directory, timeout) do
+    case Resources.track_directory(directory, timeout) do
+      :unavailable ->
+        CacheIO.close(pool, lease)
+        {:error, :unavailable}
+
+      resource ->
+        {:ok, Map.merge(reader, %{lease: lease, resource: resource})}
+    end
+  end
 
   defp run(pool, operation, limits, deadline, lease) do
     case CacheIO.run(

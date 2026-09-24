@@ -94,8 +94,9 @@ defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
     assert {:error, _reason} = CacheIO.run(ctx.pool, {:erlang, :halt, []}, 0, 1_000)
     File.rm_rf!(ctx.partition.path)
     assert File.read!(reader.path) == "encoded image"
-    assert {:error, :unavailable} = Generation.release(ctx.pool, reader, 1_000)
-    assert File.exists?(reader.path)
+    assert :ok = Generation.release(ctx.pool, reader, 1_000)
+    refute File.exists?(reader.path)
+    refute File.exists?(Path.dirname(reader.path))
   end
 
   test "original identities include the input identity", ctx do
@@ -103,6 +104,38 @@ defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
     second = Partition.original_key(String.duplicate("b", 64), "opaque revision")
     refute first == second
     assert first == Partition.original_key(ctx.plan.key, "opaque revision")
+  end
+
+  test "reader ownership survives executor shutdown", ctx do
+    assert {:ok, location} = publish(ctx, %{})
+    assert {:ok, reader} = acquire(ctx, location)
+    stop_supervised!(CacheIO)
+    assert File.read!(reader.path) == "encoded image"
+    assert :ok = Generation.release(ctx.pool, reader, 1_000)
+    refute File.exists?(Path.dirname(reader.path))
+  end
+
+  test "caller death cleans its reader after helper failure", ctx do
+    assert {:ok, location} = publish(ctx, %{})
+    parent = self()
+    tasks = start_supervised!(Task.Supervisor)
+
+    owner =
+      Task.Supervisor.async_nolink(tasks, fn ->
+        {:ok, reader} = acquire(ctx, location)
+        send(parent, {:reader, reader})
+
+        receive do
+          :finish -> :ok
+        end
+      end)
+
+    assert_receive {:reader, reader}, 1_000
+    assert {:error, _reason} = CacheIO.run(ctx.pool, {:erlang, :halt, []}, 0, 1_000)
+    assert File.read!(reader.path) == "encoded image"
+    Task.shutdown(owner, :brutal_kill)
+    _ = :sys.get_state(ImagePipe.Cache.Resources)
+    refute File.exists?(Path.dirname(reader.path))
   end
 
   defp publish(ctx, metadata) do

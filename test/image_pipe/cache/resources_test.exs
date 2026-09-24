@@ -56,6 +56,16 @@ defmodule ImagePipe.Cache.ResourcesTest do
     end
   end
 
+  test "completed reader directories are removed after tracker restart", %{path: path} do
+    File.mkdir!(path)
+    on_exit(fn -> File.rm_rf!(path) end)
+    File.write!(Path.join(path, "body"), "reader bytes")
+    lease = Resources.track_directory(path, 1_000)
+    restart_tracker()
+    assert :ok = Resources.release(lease)
+    refute File.exists?(path)
+  end
+
   defp restart_tracker do
     supervisor = tracker_supervisor()
     assert :ok = Supervisor.terminate_child(supervisor, Resources)

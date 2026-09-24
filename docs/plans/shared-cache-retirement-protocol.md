@@ -151,9 +151,14 @@ against the exact generation and body digest. Reads bound and validate the envel
 reject compressed terms, and verify size/digest before returning a local reader path.
 Original storage keys include both input identity and byte identity.
 
+Completed reader directories are registered with the existing node-local resource
+tracker before acquisition returns. Explicit release or caller death can therefore
+remove them after helper or executor failure; tracker worker restarts preserve its
+ownership records. Shared operations whose completion is unknown retain their
+reservations and are never handed to this tracker for early deletion. Losing the
+call channel disables executor admission even if the helper remains alive.
+
 These remain internal building blocks. Source/output payload validation, discovery,
-and public adapter integration are separate steps. Local reader paths survive helper
-failure, but reclamation after that failure still requires a lifecycle solution;
-the unavailable executor retains accounting and cannot perform cleanup. Helper
-startup in packaged releases and cross-process transfer costs also need
-deployment/performance validation.
+and public adapter integration are separate steps. Recovery of uncertain operations
+and admission bounds on queued payloads still need work. Helper startup in packaged
+releases and cross-process transfer costs also need deployment/performance validation.

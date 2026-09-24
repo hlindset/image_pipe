@@ -8,16 +8,21 @@ defmodule ImagePipe.Cache.Resources do
 
   def start_link(table), do: GenServer.start_link(__MODULE__, table, name: __MODULE__)
   def track(path), do: call({:track, self(), path})
-  def release(:unavailable), do: :ok
+  # Only completed node-local reader directories belong here. Active shared
+  # writes remain with their I/O lease until their completion is known.
+  def track_directory(path, timeout), do: call({:track, self(), {:directory, path}}, timeout)
+  def release(handle, timeout \\ 5_000)
+  def release(:unavailable, _timeout), do: :ok
 
-  def release({token, path}) do
-    File.rm(path)
-    call({:release, token})
-    :ok
+  def release({token, resource}, timeout) do
+    with :ok <- remove(resource) do
+      call({:release, token}, timeout)
+      :ok
+    end
   end
 
-  defp call(message) do
-    GenServer.call(__MODULE__, message, 5_000)
+  defp call(message, timeout \\ 5_000) do
+    GenServer.call(__MODULE__, message, timeout)
   catch
     :exit, _reason -> :unavailable
   end
@@ -49,13 +54,42 @@ defmodule ImagePipe.Cache.Resources do
   def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
     case Map.fetch(state.monitors, ref) do
       {:ok, token} ->
-        [{^token, _owner, path, _monitor}] = :ets.lookup(state.table, token)
-        File.rm(path)
-        {:noreply, forget(state, token)}
+        {:noreply, reclaim(state, token)}
 
       :error ->
         {:noreply, state}
     end
+  end
+
+  def handle_info({:retry_cleanup, token}, state), do: {:noreply, reclaim(state, token)}
+
+  defp reclaim(state, token) do
+    case :ets.lookup(state.table, token) do
+      [] ->
+        state
+
+      [{^token, _owner, resource, _monitor}] ->
+        case remove(resource) do
+          :ok ->
+            forget(state, token)
+
+          {:error, _reason} ->
+            Process.send_after(self(), {:retry_cleanup, token}, 5_000)
+            state
+        end
+    end
+  end
+
+  defp remove({:directory, path}) do
+    case File.rm_rf(path) do
+      {:ok, _removed} -> :ok
+      {:error, reason, _path} -> {:error, reason}
+    end
+  end
+
+  defp remove(path) do
+    File.rm(path)
+    :ok
   end
 
   defp forget(state, token) do
