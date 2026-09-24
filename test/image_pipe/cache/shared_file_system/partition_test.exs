@@ -1,5 +1,5 @@
 defmodule ImagePipe.Cache.SharedFileSystem.PartitionTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
   alias ImagePipe.Cache.SharedFileSystem.Partition

@@ -132,9 +132,19 @@ since lost control does not prove underlying OS work has finished. The executor
 child is temporary for the same reason. Subsequent adapter integration must expose
 this degraded state and keep normal uncached image delivery available.
 
+The executor also owns count- and byte-bounded persistent resource reservations.
+A reservation is acknowledged before use; an unacknowledged offer expires and is
+cleaned up. Every operation touching a reserved staging/reader directory carries
+its lease. Closing a lease rejects new operations, waits for already-issued ones,
+then executes cleanup in the helper. Caller death follows the same path. Failed
+cleanup remains charged and can be retried by maintenance. A successful operation
+alone does not release its persistent file budget. Cleanup consumes an ordinary
+operation slot, so resource cleanup cannot spawn an unbounded worker population.
+
 `SharedFileSystem.Partition` provides exclusive incarnation creation, nonrecursive
 staging ancestry, heartbeat, retirement and fresh-identity recovery, called through
 that executor. These are internal building blocks, not a usable cache adapter yet.
-Persistent staging/reader byte reservations, resource cleanup, and publication are
-still required before `015.2` is complete. Helper startup in packaged releases and
-the cost of cross-process transfers also need deployment/performance validation.
+Generation publication and reader acquisition must use the resource lease API;
+that integration is still required before `015.2` is complete. Helper startup in
+packaged releases and cross-process transfer costs need deployment/performance
+validation.

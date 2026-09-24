@@ -2,9 +2,13 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
   @moduledoc false
   use GenServer, restart: :temporary
 
+  alias ImagePipe.Cache.SharedFileSystem.IO.Leases
+
   @schema NimbleOptions.new!(
             max_operations: [type: :pos_integer, default: 4],
             max_bytes: [type: :pos_integer, default: 64 * 1024 * 1024],
+            max_resources: [type: :pos_integer, default: 32],
+            max_resource_bytes: [type: :pos_integer, default: 256 * 1024 * 1024],
             boot_timeout: [type: :pos_integer, default: 5_000]
           )
 
@@ -15,9 +19,33 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
 
   # bytes reserves the operation's worst-case working set, including its result.
   # Mount operations run in a separate VM; timing out never releases that budget.
-  def run(pool, operation, bytes, timeout) do
+  def run(pool, operation, bytes, timeout, lease \\ nil) do
     deadline = System.monotonic_time(:millisecond) + timeout
-    GenServer.call(pool, {:run, operation, bytes, deadline}, timeout)
+    GenServer.call(pool, {:run, operation, bytes, deadline, lease}, timeout)
+  catch
+    :exit, {:timeout, _call} -> {:error, :timeout}
+    :exit, _reason -> {:error, :unavailable}
+  end
+
+  def reserve(pool, bytes, cleanup, timeout) do
+    deadline = System.monotonic_time(:millisecond) + timeout
+
+    case call(pool, {:reserve, bytes, cleanup, deadline}, timeout) do
+      {:ok, token} = result ->
+        GenServer.cast(pool, {:accept, token})
+        result
+
+      error ->
+        error
+    end
+  end
+
+  def release(pool, lease, timeout), do: call(pool, {:release, lease}, timeout)
+
+  def retry_cleanup(pool), do: GenServer.cast(pool, :retry_cleanup)
+
+  defp call(pool, message, timeout) do
+    GenServer.call(pool, message, timeout)
   catch
     :exit, {:timeout, _call} -> {:error, :timeout}
     :exit, _reason -> {:error, :unavailable}
@@ -45,6 +73,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
          tasks: tasks,
          available?: true,
          jobs: %{},
+         leases: Leases.new(opts[:max_resources], opts[:max_resource_bytes]),
          bytes: 0,
          max_bytes: opts[:max_bytes],
          max_operations: opts[:max_operations]
@@ -55,16 +84,37 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
   end
 
   @impl true
-  def handle_call({:run, _operation, _bytes, _deadline}, _from, %{available?: false} = state) do
+  def handle_call(_request, _from, %{available?: false} = state) do
     {:reply, {:error, :unavailable}, state}
   end
 
-  def handle_call({:run, operation, bytes, deadline}, from, state) do
+  def handle_call({:reserve, bytes, cleanup, deadline}, from, state) do
+    case deadline - System.monotonic_time(:millisecond) do
+      remaining when remaining > 0 ->
+        {reply, leases} = Leases.reserve(state.leases, elem(from, 0), bytes, cleanup, remaining)
+        {:reply, reply, %{state | leases: leases}}
+
+      _expired ->
+        {:reply, {:error, :timeout}, state}
+    end
+  end
+
+  def handle_call({:release, lease}, from, state) do
+    case Leases.close(state.leases, lease, from) do
+      {:ok, leases} -> {:noreply, cleanup(%{state | leases: leases})}
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  def handle_call({:run, operation, bytes, deadline, lease}, from, state) do
     remaining = deadline - System.monotonic_time(:millisecond)
 
     cond do
       remaining <= 0 ->
         {:reply, {:error, :timeout}, state}
+
+      not Leases.open?(state.leases, lease) ->
+        {:reply, {:error, :released}, state}
 
       map_size(state.jobs) >= state.max_operations or state.bytes + bytes > state.max_bytes ->
         {:reply, {:error, :saturated}, state}
@@ -74,11 +124,28 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
         task = Task.Supervisor.async_nolink(state.tasks, fn -> invoke(peer, operation) end)
         timer = Process.send_after(self(), {:deadline, task.ref}, remaining)
         owner = Process.monitor(elem(from, 0))
-        job = %{from: from, timer: timer, owner: owner, bytes: bytes}
+
+        job = %{
+          from: from,
+          timer: timer,
+          owner: owner,
+          bytes: bytes,
+          lease: lease,
+          cleanup: false
+        }
 
         {:noreply,
          %{state | jobs: Map.put(state.jobs, task.ref, job), bytes: state.bytes + bytes}}
     end
+  end
+
+  @impl true
+  def handle_cast({:accept, token}, state) do
+    {:noreply, %{state | leases: Leases.accept(state.leases, token)}}
+  end
+
+  def handle_cast(:retry_cleanup, state) do
+    {:noreply, cleanup(%{state | leases: Leases.retry(state.leases)})}
   end
 
   @impl true
@@ -102,15 +169,18 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
 
       {job, jobs} ->
         Process.demonitor(ref, [:flush])
-        Process.demonitor(job.owner, [:flush])
-        Process.cancel_timer(job.timer)
-        reply(job.from, result)
-        {:noreply, %{state | jobs: jobs, bytes: state.bytes - job.bytes}}
+        finish_job(job, result)
+        leases = complete_cleanup(state.leases, job, result)
+        {:noreply, cleanup(%{state | jobs: jobs, bytes: state.bytes - job.bytes, leases: leases})}
     end
   end
 
   def handle_info({:deadline, ref}, state) do
     {:noreply, abandon(state, ref, {:error, :timeout})}
+  end
+
+  def handle_info({:offer_expired, token}, state) do
+    {:noreply, cleanup(%{state | leases: Leases.expire(state.leases, token)})}
   end
 
   def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
@@ -126,7 +196,8 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
             entry -> entry
           end)
 
-        {:noreply, %{state | jobs: jobs}}
+        leases = Leases.owner_down(state.leases, ref)
+        {:noreply, cleanup(%{state | jobs: jobs, leases: leases})}
     end
   end
 
@@ -168,7 +239,35 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
         {ref, %{job | from: nil}}
       end)
 
-    %{state | available?: false, jobs: jobs}
+    %{state | available?: false, jobs: jobs, leases: Leases.unavailable(state.leases)}
+  end
+
+  defp cleanup(%{available?: false} = state), do: state
+
+  defp cleanup(state) do
+    active = MapSet.new(state.jobs, fn {_ref, job} -> job.lease end)
+    capacity = state.max_operations - map_size(state.jobs)
+    {operations, leases} = Leases.ready(state.leases, active, capacity)
+
+    Enum.reduce(operations, %{state | leases: leases}, fn {lease, operation}, state ->
+      peer = state.peer
+      task = Task.Supervisor.async_nolink(state.tasks, fn -> invoke(peer, operation) end)
+      job = %{from: nil, bytes: 0, lease: lease, cleanup: true}
+      %{state | jobs: Map.put(state.jobs, task.ref, job)}
+    end)
+  end
+
+  defp complete_cleanup(leases, %{cleanup: false}, _result), do: leases
+
+  defp complete_cleanup(leases, %{lease: lease}, result),
+    do: Leases.complete(leases, lease, result)
+
+  defp finish_job(%{cleanup: true}, _result), do: :ok
+
+  defp finish_job(job, result) do
+    Process.demonitor(job.owner, [:flush])
+    Process.cancel_timer(job.timer)
+    reply(job.from, result)
   end
 
   defp reply(nil, _result), do: :ok
