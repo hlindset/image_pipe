@@ -16,8 +16,7 @@ export class PreviewMetadataTracker {
     debugHeaders: Record<string, string> | null;
   } | null = null;
 
-  // Start tracking a new preview. Returns the request id callers thread back into
-  // applyDimensions/applyMessage so stale async arrivals are dropped.
+  // Start tracking a new preview. Returns the request id for dimension updates.
   begin(url: string): number {
     this.#requestId += 1;
     this.#url = url;
@@ -34,8 +33,7 @@ export class PreviewMetadataTracker {
     this.#recompute();
   }
 
-  applyMessage(message: PreviewMetaMessage, requestId: number): void {
-    if (requestId !== this.#requestId) return;
+  applyMessage(message: PreviewMetaMessage): void {
     if (message.url !== this.#url) return;
 
     if (!message.ok) {

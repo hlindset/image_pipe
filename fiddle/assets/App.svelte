@@ -18,6 +18,7 @@
   import {
     debounce,
     debouncePreviewPath,
+    imagePreviewUrl,
     processedSizeLabel,
     type ProcessedImageMetadata,
   } from "./preview-metadata";
@@ -72,22 +73,24 @@
     const absolute = new URL(previewRequestPath, window.location.origin).href;
     // Dedupe on the RESOLVED url (not the raw path): a no-op must never flip
     // previewLoading=true without a following <img> load event, or the spinner
-    // would strand. This same absolute is the SW-message correlation key.
+    // would strand.
     if (absolute === lastPreviewAbsolute) return;
     lastPreviewAbsolute = absolute;
-    currentRequestId = previewMetadata.begin(absolute);
+    const text = isTextPreview(previewRequestPath);
+    const requestUrl = text ? absolute : imagePreviewUrl(absolute);
+    currentRequestId = previewMetadata.begin(requestUrl);
     previewLoading = true;
     previewError = null;
     processedMetadata = null;
     textPreview = null;
     textPreviewController?.abort();
-    if (isTextPreview(previewRequestPath)) {
+    if (text) {
       previewImageUrl = null;
       textPreviewController = new AbortController();
       void loadTextPreview(absolute, currentRequestId, textPreviewController.signal);
     } else {
       textPreviewController = null;
-      previewImageUrl = absolute;
+      previewImageUrl = requestUrl;
     }
   }, 150);
 
@@ -129,7 +132,7 @@
 
     void registerPreviewWorker((message) => {
       if (textPreviewController !== null) return;
-      previewMetadata.applyMessage(message, currentRequestId);
+      previewMetadata.applyMessage(message);
       // Reflect late-arriving bytes/contentType (and SW-reported errors) into the UI.
       if (previewMetadata.metadata !== null) processedMetadata = previewMetadata.metadata;
       if (previewMetadata.error !== null) {
