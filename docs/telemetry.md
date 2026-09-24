@@ -253,8 +253,6 @@ per-operation timing. Honest aggregate timing lives on `[:transform, :execute]`.
 Start metadata:
 
 - `:operation` — the executed operation name atom (e.g. `:resize`, `:crop`).
-  Includes the executor's orientation operation: `:flush`
-  (applies a pending orientation).
 - `:params` — the full operation struct (product-neutral, derived from the
   public request).
 
@@ -275,7 +273,7 @@ the **honest per-barrier timing the per-operation spans deliberately lack**:
 libvips defers and fuses pixel work until materialization, so a materialize
 span's duration measures pixel evaluation and copying, not construction time.
 
-The executor's `Flush` operation prepares random access before orientation that
+The executor's orientation boundary prepares random access before orientation that
 reorders rows, applies the orientation, and buffers its display frame. Each flush
 evaluates its result for downstream consumers, including horizontal-only flips
 and later rotation groups.
@@ -293,10 +291,8 @@ Parenting depends on where the materialization happens — there are three cases
   arbitrary-angle rotate, smart/object-detect crop), or inside resize when
   buffering a preceding lazy arbitrary rotation: nested under that
   operation's `[:transform, :operation]` span;
-- **orientation flush**, when the executor's `Flush` operation applies pending
-  orientation and buffers the display frame:
-  nested under that operation's `[:transform, :operation]` span,
-  inside `[:transform, :execute]`;
+- **orientation flush**, when the executor applies pending orientation and
+  buffers the display frame: nested directly under `[:transform, :execute]`;
 - **delivery backstop**, when the pipeline streamed without materializing
   and the late delivery copy runs after the transform pipeline has closed
   (after `[:transform, :execute]`): nested under the request root.

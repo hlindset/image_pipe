@@ -6,17 +6,15 @@ defmodule ImagePipe.Response.ErrorStatusTest do
   describe "resolve_status/1 — status axis" do
     test "transform bad_request details all map to 400 (open detail)" do
       assert {400, _} =
-               ErrorStatus.resolve_status(
-                 {:transform_error, {:bad_request, :region_out_of_bounds}}
-               )
+               ErrorStatus.resolve_status({:transform, {:bad_request, :region_out_of_bounds}})
 
       assert {400, _} =
-               ErrorStatus.resolve_status({:transform_error, {:bad_request, :some_future_detail}})
+               ErrorStatus.resolve_status({:transform, {:bad_request, :some_future_detail}})
     end
 
     test "generic transform and detector unavailability stay 422" do
-      assert {422, _} = ErrorStatus.resolve_status({:transform_error, {SomeMod, :boom}})
-      assert {422, _} = ErrorStatus.resolve_status({:detector_unavailable, :unavailable})
+      assert {422, _} = ErrorStatus.resolve_status({:transform, {SomeMod, :boom}})
+      assert {422, _} = ErrorStatus.resolve_status({:detector, :unavailable})
     end
 
     test "source transport reasons map to stable statuses" do
@@ -56,8 +54,8 @@ defmodule ImagePipe.Response.ErrorStatusTest do
   describe "resolve_status/1 — message axis" do
     test "messages are distinct across reasons and never embed a URL" do
       reasons = [
-        {:transform_error, {:bad_request, :region_out_of_bounds}},
-        {:transform_error, {SomeMod, :boom}},
+        {:transform, {:bad_request, :region_out_of_bounds}},
+        {:transform, {SomeMod, :boom}},
         {:source, :connect_error},
         {:source, :too_many_redirects},
         {:source, {:bad_status, 503}},

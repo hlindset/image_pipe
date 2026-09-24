@@ -85,7 +85,7 @@ defmodule ImagePipe.API.OrientationPolicyWireTest do
            ]
   end
 
-  test "orientation metadata cleanup preserves corrupt-tail decode classification" do
+  test "EXIF flush and metadata cleanup preserve corrupt-tail decode classification" do
     body =
       "priv/static/images/beach.jpg"
       |> Image.open!()
@@ -99,14 +99,12 @@ defmodule ImagePipe.API.OrientationPolicyWireTest do
       |> Plug.Conn.send_resp(200, body)
     end
 
-    response =
-      request(
-        "/orient=none/meta=keep/format=jpeg/src/images/x.jpg",
-        origin
-      )
+    for options <- ["orient=none/meta=keep", "orient=auto"] do
+      response = request("/#{options}/format=jpeg/src/images/x.jpg", origin)
 
-    assert response.status == 415
-    assert response.resp_body == "source response is not a supported image"
+      assert response.status == 415
+      assert response.resp_body == "source response is not a supported image"
+    end
   end
 
   test "orient=none trim=auto chooses the stored-frame top-left background" do

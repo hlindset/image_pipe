@@ -27,7 +27,6 @@ defmodule ImagePipe.Transform.Executor do
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.Duotone
   alias ImagePipe.Transform.Operation.ExtendCanvas
-  alias ImagePipe.Transform.Operation.Flush
   alias ImagePipe.Transform.Operation.Gradient
   alias ImagePipe.Transform.Operation.Gray
   alias ImagePipe.Transform.Operation.Monochrome
@@ -83,7 +82,7 @@ defmodule ImagePipe.Transform.Executor do
 
     with {:ok, state} <- condition_color(state, opts),
          {:ok, state} <- execute_groups(state, request.groups, opts),
-         {:ok, state} <- flush_display(state, opts) do
+         {:ok, state} <- flush_display(state) do
       normalize_output_orientation(state, request.output, opts)
     end
   end
@@ -175,7 +174,7 @@ defmodule ImagePipe.Transform.Executor do
   end
 
   defp execute_rotate(%State{} = state, angle, opts) do
-    with {:ok, state} <- flush_display(state, opts),
+    with {:ok, state} <- flush_display(state),
          {:ok, state} <- Transform.run(state, %Rotate{angle: angle}, opts) do
       {:ok, Geometry.clear_source_frame(state)}
     end
@@ -191,7 +190,7 @@ defmodule ImagePipe.Transform.Executor do
   defp execute_trim(state, %Group{trim: nil}, _opts), do: {:ok, state}
 
   defp execute_trim(state, %Group{} = group, opts) do
-    with {:ok, state} <- flush_display(state, opts),
+    with {:ok, state} <- flush_display(state),
          {:ok, state} <- Transform.run(state, trim_op(group.trim, group.trim_symmetry), opts) do
       {:ok, Geometry.clear_source_frame(state)}
     end
@@ -220,7 +219,7 @@ defmodule ImagePipe.Transform.Executor do
           {state, Geometry.rescale_crop(crop, state.decode_shrink)}
       end
 
-    with {:ok, state} <- maybe_flush_tagged(state, opts),
+    with {:ok, state} <- maybe_flush_tagged(state),
          {:ok, state} <- Transform.run(state, crop, opts) do
       {:ok, Geometry.clear_source_frame(state)}
     end
@@ -241,7 +240,7 @@ defmodule ImagePipe.Transform.Executor do
             Geometry.orient_decode_shrink(state.decode_shrink, pending)
           )
 
-        with {:ok, state} <- flush_display(state, opts),
+        with {:ok, state} <- flush_display(state),
              {:ok, state} <- Transform.run(state, crop, opts) do
           {:ok, Geometry.clear_source_frame(state)}
         end
@@ -280,8 +279,8 @@ defmodule ImagePipe.Transform.Executor do
     end
   end
 
-  defp maybe_flush_tagged({:flush, state}, opts), do: flush_display(state, opts)
-  defp maybe_flush_tagged(%State{} = state, _opts), do: {:ok, state}
+  defp maybe_flush_tagged({:flush, state}), do: flush_display(state)
+  defp maybe_flush_tagged(%State{} = state), do: {:ok, state}
 
   defp execute_resize(state, %Group{resize: nil, dpr: dpr}, _opts), do: {:ok, state, dpr}
 
@@ -304,7 +303,7 @@ defmodule ImagePipe.Transform.Executor do
 
         with {:ok, state} <- Transform.run(state, resize, opts),
              {:ok, state} <- run_optional(state, tail, opts),
-             {:ok, state} <- flush_display(state, opts) do
+             {:ok, state} <- flush_display(state) do
           {:ok, state, target.dpr}
         end
 
@@ -346,14 +345,14 @@ defmodule ImagePipe.Transform.Executor do
   defp run_display_optional(state, nil, _opts), do: {:ok, state}
 
   defp run_display_optional(state, operation, opts) do
-    with {:ok, state} <- flush_display(state, opts),
+    with {:ok, state} <- flush_display(state),
          do: Transform.run(state, operation, opts)
   end
 
   defp execute_canvas(state, %Group{canvas: nil}, _dpr, _opts), do: {:ok, state}
 
   defp execute_canvas(state, %Group{canvas: canvas, resize: resize}, dpr, opts) do
-    with {:ok, state} <- flush_display(state, opts) do
+    with {:ok, state} <- flush_display(state) do
       {width, height} = Geometry.live_dims(state)
       rule = canvas_rule(canvas.mode, resize, dpr)
 
@@ -387,13 +386,13 @@ defmodule ImagePipe.Transform.Executor do
       left: round_ties_to_even(left * dpr)
     }
 
-    with {:ok, state} <- flush_display(state, opts),
+    with {:ok, state} <- flush_display(state),
          {:ok, state} <- Transform.run(state, operation, opts) do
       {:ok, Geometry.clear_source_frame(state)}
     end
   end
 
-  defp flush_display(%State{} = state, opts) do
+  defp flush_display(%State{} = state) do
     case Geometry.pending_class(state) do
       :none ->
         {:ok, state}
@@ -404,8 +403,9 @@ defmodule ImagePipe.Transform.Executor do
       :pending ->
         pending = state.pending_orientation
 
-        with {:ok, state} <- Transform.run(state, %Flush{}, opts) do
-          {:ok, orient_source_frame(state, pending)}
+        case Materializer.flush(state) do
+          {:ok, state} -> {:ok, orient_source_frame(state, pending)}
+          {:error, reason} -> {:error, {:decode, reason}}
         end
     end
   end

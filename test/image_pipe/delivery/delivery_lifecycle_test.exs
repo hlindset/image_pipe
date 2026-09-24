@@ -6,7 +6,7 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
 
   These cases were ported from the retired supervised-session tests. Ownership
   is a `Process.monitor` on the conn owner now, so an owner-death case spawns a
-  process that calls `Delivery.stream/5` (which requires `self()` as owner) and
+  process that calls `Delivery.stream/4` (which requires `self()` as owner) and
   hands the `%PreparedStream{}` back — the `next`/`cancel` closures are plain
   `GenServer.call`s and work from any process.
   """
@@ -16,7 +16,6 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
   alias ImagePipe.Delivery
   alias ImagePipe.Delivery.Coordinator
   alias ImagePipe.Output.Resolved
-  alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.Test.Delivery.SessionProbe
 
   @event_target __MODULE__.StreamEvents
@@ -119,7 +118,7 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
 
     owner =
       spawn(fn ->
-        result = Delivery.stream(self(), build_fun, nil, %PlanResponse{}, [])
+        result = Delivery.stream(self(), build_fun, nil, [])
         send(parent, {:delivery, self(), result})
 
         receive do
@@ -134,7 +133,7 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
   describe "explicit cancel" do
     test "finalizes the suspended stream and stops the session" do
       assert {:ok, prepared} =
-               Delivery.stream(self(), build_fun(cleanup_stream()), nil, %PlanResponse{}, [])
+               Delivery.stream(self(), build_fun(cleanup_stream()), nil, [])
 
       assert prepared.first_chunk == "first chunk"
       assert :ok = prepared.cancel.()
@@ -143,7 +142,7 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
 
     test "is idempotent — a second cancel after the session is gone still returns" do
       assert {:ok, prepared} =
-               Delivery.stream(self(), build_fun(cleanup_stream()), nil, %PlanResponse{}, [])
+               Delivery.stream(self(), build_fun(cleanup_stream()), nil, [])
 
       assert :ok = prepared.cancel.()
       assert_receive {:stream_finalized, :second}
@@ -160,7 +159,6 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
                  self(),
                  build_fun(["first chunk", "second chunk"]),
                  nil,
-                 %PlanResponse{},
                  []
                )
 
@@ -178,12 +176,12 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
       build_fun = fn _pump -> {:error, {:decode, :not_an_image}} end
 
       assert {:error, {:decode, :not_an_image}} =
-               Delivery.stream(self(), build_fun, nil, %PlanResponse{}, [])
+               Delivery.stream(self(), build_fun, nil, [])
     end
 
     test "an empty encoder stream is a pre-response encode error" do
       assert {:error, {:encode, :empty_stream}} =
-               Delivery.stream(self(), build_fun([]), nil, %PlanResponse{}, [])
+               Delivery.stream(self(), build_fun([]), nil, [])
     end
 
     test "a caller-supplied timeout on a wedged prepare is a tagged session timeout" do
@@ -208,7 +206,7 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
       build_fun = fn _pump -> {:error, {:decode, :not_an_image}} end
 
       assert {:error, {:decode, :not_an_image}} =
-               Delivery.stream(self(), build_fun, nil, %PlanResponse{}, [])
+               Delivery.stream(self(), build_fun, nil, [])
 
       await_session_gone()
     end
@@ -217,7 +215,7 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
     # stop itself: the call gave up, but the coordinator and its wedged producer
     # are still alive. Nothing else reclaims them — the conn owner is the
     # connection process under Bandit, so a wedged encode would hold its
-    # producer for the rest of a keep-alive connection. `Delivery.stream/5`
+    # producer for the rest of a keep-alive connection. `Delivery.stream/4`
     # cancels on every prepare error for this case; this pins the cancel that
     # makes it work, including the force-kill backstop for a producer too wedged
     # to observe the graceful halt.
@@ -286,7 +284,6 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
                  self(),
                  build_fun(gated_second_chunk_stream()),
                  nil,
-                 %PlanResponse{},
                  []
                )
 
@@ -330,7 +327,6 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
                  self(),
                  bracketed_build_fun(cleanup_stream()),
                  nil,
-                 %PlanResponse{},
                  []
                )
 
@@ -348,7 +344,6 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
                  self(),
                  bracketed_build_fun(["first chunk", "second chunk"]),
                  nil,
-                 %PlanResponse{},
                  []
                )
 

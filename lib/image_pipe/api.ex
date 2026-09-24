@@ -24,8 +24,7 @@ defmodule ImagePipe.API do
       ImagePipe.Processing,
       ImagePipe.Response,
       ImagePipe.Security,
-      ImagePipe.Source,
-      ImagePipe.Telemetry
+      ImagePipe.Source
     ],
     exports: []
 
@@ -37,7 +36,6 @@ defmodule ImagePipe.API do
   alias ImagePipe.Processing
   alias ImagePipe.Security
   alias ImagePipe.Source.Parser, as: APISource
-  alias ImagePipe.Telemetry
 
   def validate_config!(opts), do: Config.validate!(opts)
 
@@ -68,12 +66,13 @@ defmodule ImagePipe.API do
            {:ok, lexed} <- Path.extract(conn) |> normalize_lex_error(),
            {:ok, lexed} <- decrypt_source(lexed, config),
            {:ok, request} <- Parser.parse(lexed, config) do
-        {request, key_index}
+        {_marker, source, _span} = lexed.source
+        {request, source, key_index}
       end
 
     case result do
-      {%Request{} = request, key_index} ->
-        {{:ok, request}, %{result: :ok, sig_key_index: key_index}}
+      {%Request{} = request, source, key_index} ->
+        {{:ok, request, source}, %{result: :ok, sig_key_index: key_index}}
 
       {:error, _reason} = error ->
         # Deliberately NO error tag — preserving the chain's parse stop shape.
@@ -81,41 +80,14 @@ defmodule ImagePipe.API do
     end
   end
 
-  def prepare(%Request{} = request, config, accept_header) do
+  def prepare(%Request{} = request, source, config, accept_header) do
     with {:ok, policy} <- Processing.prepare(request, config, accept_header),
-         {:ok, plan_source} <- APISource.translate(request.source, config) do
+         {:ok, plan_source} <- APISource.translate(source, config) do
       {:ok, plan_source, policy}
     end
   end
 
   def render_error(conn, reason), do: Errors.send(conn, reason)
-
-  # Client-reject reasons get the `:parser_error` client-error
-  # atom directly: the signature gate
-  # (`:missing_signature`/`:invalid_signature`/`:signature_without_keys`), the
-  # `expires` gate (`:expired`), and `Parser.parse/2`'s whole parse-failure
-  # bucket, which always wraps as the single `{:invalid_request, _diagnostics}`
-  # tag (`ImagePipe.API.Parser`).
-  #
-  # The strict detector capability gate and resolved output-policy failures are
-  # plan errors. Everything else —
-  # `APISource.translate/2`'s `{:invalid_source, _}` and the core-stage
-  # reasons (`:source`, `:decode`, `:input_limit`,
-  # `:unsupported_output_format`, `:encode`, `:session`, `:transform`) — defers
-  # to the shared classifier, `ImagePipe.Telemetry.request_result/1`. That
-  # classifier already resolves `{:source, _}` to `:source_error` for free;
-  # everything it does not specifically recognize (including
-  # `{:invalid_source, _}`) lands at its `:processing_error` default.
-  def classify_error(reason)
-      when reason in [:missing_signature, :invalid_signature, :signature_without_keys],
-      do: :parser_error
-
-  def classify_error({:invalid_request, _diagnostics}), do: :parser_error
-  def classify_error(:invalid_concealed_source), do: :parser_error
-  def classify_error(:expired), do: :parser_error
-  def classify_error({:detector, :unavailable}), do: :plan_error
-  def classify_error({:invalid_output, _reason}), do: :plan_error
-  def classify_error(reason), do: Telemetry.request_result({:error, reason})
 
   defp normalize_lex_error({:error, diagnostics}), do: {:error, {:invalid_request, diagnostics}}
   defp normalize_lex_error({:ok, _lexed} = ok), do: ok

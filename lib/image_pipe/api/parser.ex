@@ -13,7 +13,7 @@ defmodule ImagePipe.API.Parser do
        marking every occurrence. Then expand presets.
     4. Check conflicts, inert options, and output applicability using only valid,
        non-duplicate values, to avoid errors caused by earlier failures.
-    5. Translate into typed intent for `Plan.Request.build/3`, which removes
+    5. Translate into typed intent for `Plan.Request.build/2`, which removes
        identity values and resolves omitted fit/guide defaults.
 
   Diagnostics are `ImagePipe.API.Diagnostic` structs with stable `reason` atoms.
@@ -41,7 +41,7 @@ defmodule ImagePipe.API.Parser do
   """
   @spec parse(lexed(), keyword()) ::
           {:ok, Request.t()} | {:error, {:invalid_request, [Diagnostic.t()]}}
-  def parse(%{segments: segments, source: {_marker, decoded_source, source_span}}, config) do
+  def parse(%{segments: segments, source: {_marker, _source, source_span}}, config) do
     {parsed, occurrences, parse_errors} = parse_options(segments)
     whole_path_span = whole_path_span(source_span)
 
@@ -54,7 +54,7 @@ defmodule ImagePipe.API.Parser do
     errors = parse_errors ++ preset_errors ++ cross_errors
 
     if errors == [] do
-      {:ok, build_request(clean_group_maps, clean_request_map, decoded_source)}
+      {:ok, build_request(clean_group_maps, clean_request_map)}
     else
       {:error, {:invalid_request, errors}}
     end
@@ -390,8 +390,8 @@ defmodule ImagePipe.API.Parser do
   defp requirement_message(:quality_format), do: "a quality-bearing output format"
   defp requirement_message({:format, format}), do: "format=#{format}"
 
-  defp build_request(group_maps, request_map, source),
-    do: Request.build(typed_groups(group_maps), typed_options(request_map), source)
+  defp build_request(group_maps, request_map),
+    do: Request.build(typed_groups(group_maps), typed_options(request_map))
 
   defp typed_groups(group_maps) do
     group_maps

@@ -29,14 +29,21 @@ configuration for both the Plug mount and `ImagePipe.new(config)`. Configured
 source inputs share cache identity and freshness across native and HTTP calls;
 raw file and binary inputs bypass caches.
 
+`Delivery.PreparedStream` carries encoded chunks and representation metadata.
+`Response.Sender` applies HTTP disposition and debug headers from the current
+request on both generated responses and cache hits. Native execution buffers
+the shared output directly.
+
 Canonical request data lives in `ImagePipe.Plan.Request`, with explicit
 `Plan.Request.Group` transform intent and sparse `Plan.Request.Output` policy.
 The parser validates URL grammar and translates it into typed intent.
 The [Elixir builder API](elixir-api.md) constructs processing plans and validates native option values.
 Both use `Plan.Request.Validation` for cross-option rules; its typed issues
 are mapped to URL byte spans and messages by the parser.
-`Plan.Request.build/3` owns canonical construction, group defaults, and identity
+`Plan.Request.build/2` owns canonical construction, group defaults, and identity
 normalization. Both frontends share the resulting values with execution.
+URL parsing returns the decoded source separately from processing intent;
+both frontends resolve their source before handing it to shared execution.
 `Output.RequestPolicy` combines host defaults,
 request overrides, and Accept negotiation. `Output.Resolved` selects the concrete
 encoding settings after source-format and final-image inspection.

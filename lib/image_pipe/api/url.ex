@@ -7,7 +7,7 @@ defmodule ImagePipe.API.URL do
 
   def build(plan, source, config, options) do
     with :ok <- source(source),
-         {:ok, request} <- request(plan, source),
+         {:ok, request} <- request(plan),
          {:ok, segments} <- segments(request),
          {:ok, source_segments} <-
            source_segments(source, config, options, config[:encrypt_source]) do
@@ -43,8 +43,8 @@ defmodule ImagePipe.API.URL do
 
   defp source_segments(source), do: ["src", URI.encode(source, &URI.char_unreserved?/1)]
 
-  defp request(plan, source) do
-    case Plan.to_request(plan, source) do
+  defp request(plan) do
+    case Plan.to_request(plan) do
       {:ok, request} -> {:ok, request}
       {:error, issues} -> {:error, {:invalid_request, issues}}
     end

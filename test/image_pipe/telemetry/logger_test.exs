@@ -7,7 +7,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   alias ImagePipe.Test.FakeDetector
   alias ImagePipe.Transform
   alias ImagePipe.Transform.Detector.Composite
-  alias ImagePipe.Transform.Operation.Flush
+  alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.Operation.Resize
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.State
@@ -919,17 +919,16 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
     log =
       capture_log([level: :debug], fn ->
-        assert {:ok, %State{} = state} = Transform.run(state, %Flush{}, opts)
+        assert {:ok, %State{} = state} = Materializer.flush(state)
 
         pending =
           PendingOrientation.from_exif(1, false) |> PendingOrientation.fold_flip(:horizontal)
 
         assert {:ok, _state} =
-                 Transform.run(%State{state | pending_orientation: pending}, %Flush{}, opts)
+                 Materializer.flush(%State{state | pending_orientation: pending})
       end)
 
     assert length(Regex.scan(~r/transform materialize: ok/, log)) == 2
-    assert log =~ "transform: flush ok"
     assert log =~ "dims: {20, 40}"
     refute log =~ "[warning]"
   end

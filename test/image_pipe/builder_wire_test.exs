@@ -48,7 +48,7 @@ defmodule ImagePipe.BuilderWireTest do
           {effect, "brightness=20/colorize=0.3,red", {60, 40}},
           {grouped, "w=30/h=20/fit=stretch/dpr=2/-/region=5,3,10,8/pad=2/bg=white", {14, 12}}
         ] do
-      assert {:ok, request} = Plan.to_request(IP.output(plan, format: :png).plan, "photo.png")
+      assert {:ok, request} = Plan.to_request(IP.output(plan, format: :png).plan)
       assert {:ok, state} = Executor.execute(%State{image: context.image}, request, [])
 
       response = conn(:get, "/#{path}/format=png/src/photo.png") |> IP.Plug.call(context.config)

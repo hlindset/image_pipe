@@ -21,10 +21,6 @@ defmodule ImagePipe.Transform.MaterializerTest do
   end
 
   test "pending set: copy-only — orientation untouched, pending kept" do
-    # materialize/1 is orientation-agnostic: applying a pending orientation is
-    # the explicit Flush operation's job. The copy keeps
-    # the storage frame and leaves the pending in place (trim's storage-frame
-    # materialization is exactly this).
     base = Image.set_orientation!(Image.new!(40, 20, color: :red), 6)
     po = PendingOrientation.from_exif(6, true)
     state = %State{image: base, pending_orientation: po, materialized?: false}

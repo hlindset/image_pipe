@@ -13,7 +13,6 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.Duotone
   alias ImagePipe.Transform.Operation.ExtendCanvas
-  alias ImagePipe.Transform.Operation.Flush
   alias ImagePipe.Transform.Operation.Gradient
   alias ImagePipe.Transform.Operation.Gray
   alias ImagePipe.Transform.Operation.Monochrome
@@ -235,7 +234,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
     end
   end
 
-  test "Flush op (quarter-turn user rotation) streams on sequential source" do
+  test "Quarter-turn orientation flush streams on sequential source" do
     body = oriented_jpeg_body(1)
     pending = %PendingOrientation{user_angle: 90}
     assert_orientation_flush_sequential_matches_random(pending, body)
@@ -247,7 +246,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
     {:ok, sequential} = Image.open([body], access: :sequential, fail_on: :error)
 
     assert {:ok, %State{materialized?: true} = state} =
-             Transform.run(%State{image: sequential, pending_orientation: pending}, %Flush{})
+             Materializer.flush(%State{image: sequential, pending_orientation: pending})
 
     expected = Image.from_binary!(body) |> Image.flip!(:horizontal)
     assert VipsImage.write_to_binary(state.image) == VipsImage.write_to_binary(expected)
@@ -467,7 +466,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
        when access in [:random, :sequential] do
     with {:ok, image} <- Image.open([body], access: access, fail_on: :error),
          state = %State{image: image, pending_orientation: pending},
-         {:ok, %State{} = state} <- Transform.run(state, %Flush{}) do
+         {:ok, %State{} = state} <- Materializer.flush(state) do
       {:ok, state.image}
     end
   end

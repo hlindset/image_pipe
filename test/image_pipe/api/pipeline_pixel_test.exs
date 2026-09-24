@@ -96,7 +96,7 @@ defmodule ImagePipe.API.PipelinePixelTest do
     config =
       API.validate_config!(sources: [path: {RootHTTPAdapter, root_url: "http://origin.test"}])
 
-    {{:ok, request}, _metadata} =
+    {{:ok, request, _source}, _metadata} =
       API.parse(Plug.Test.conn(:get, "/#{options}/src/test"), config)
 
     request

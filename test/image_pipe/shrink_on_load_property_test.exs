@@ -82,8 +82,8 @@ defmodule ImagePipe.ShrinkOnLoadPropertyTest do
 
   defp decode_resize(body, options) do
     opts = opts(body)
-    request = request(options, opts)
-    {:ok, source_request} = APISource.translate(request.source, opts)
+    {request, source_string} = request(options, opts)
+    {:ok, source_request} = APISource.translate(source_string, opts)
     {:ok, source} = Source.resolve(source_request, opts, [])
 
     Decode.with_image(
@@ -101,10 +101,10 @@ defmodule ImagePipe.ShrinkOnLoadPropertyTest do
   defp request(options, opts) do
     path = "/#{options}/src/property.img"
 
-    assert {{:ok, %Request{} = request}, _metadata} =
+    assert {{:ok, %Request{} = request, source}, _metadata} =
              API.parse(Plug.Test.conn(:get, path), opts)
 
-    request
+    {request, source}
   end
 
   # The realized load shrink, rounded back to the libjpeg block factor the

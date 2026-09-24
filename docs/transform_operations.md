@@ -163,7 +163,7 @@ Both crop forms use `Transform.Operation.Crop`; canvas extension uses
 `Transform.Operation.ExtendCanvas`. A cover resize uses separate resize and
 crop operations with an image measurement between them.
 
-`Transform.Operation.Flush` applies surviving pending orientation at a safe
+`Transform.Materializer.flush/1` applies surviving pending orientation at a safe
 boundary. `AlphaPremultiply` is an internal helper used where an effect needs
 premultiplied alpha. Neither represents independent request syntax.
 

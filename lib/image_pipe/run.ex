@@ -47,7 +47,7 @@ defmodule ImagePipe.Run do
   end
 
   defp request(plan) do
-    case Plan.to_request(plan, "") do
+    case Plan.to_request(plan) do
       {:ok, request} -> {:ok, request}
       {:error, issues} -> {:error, {:invalid_request, issues}}
     end
@@ -116,11 +116,11 @@ defmodule ImagePipe.Run do
   end
 
   defp request_metadata({:ok, _result}), do: %{result: :ok}
-  defp request_metadata({:error, {:invalid_request, _issues}}), do: %{result: :parser_error}
-  defp request_metadata({:error, :expired}), do: %{result: :parser_error}
-  defp request_metadata({:error, {:invalid_output, _reason}}), do: %{result: :plan_error}
-  defp request_metadata({:error, {:detector, :unavailable}}), do: %{result: :plan_error}
 
-  defp request_metadata({:error, reason} = error),
-    do: %{result: Telemetry.request_result(error), error: Error.tag(reason)}
+  defp request_metadata({:error, reason} = error) do
+    case Telemetry.request_result(error) do
+      result when result in [:parser_error, :plan_error] -> %{result: result}
+      result -> %{result: result, error: Error.tag(reason)}
+    end
+  end
 end

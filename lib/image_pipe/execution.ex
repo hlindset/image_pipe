@@ -11,7 +11,6 @@ defmodule ImagePipe.Execution do
       ImagePipe.Processing,
       ImagePipe.ProcessingPool,
       ImagePipe.Representation,
-      ImagePipe.Response,
       ImagePipe.Source,
       ImagePipe.Telemetry,
       ImagePipe.Transform
@@ -22,8 +21,6 @@ defmodule ImagePipe.Execution do
   alias ImagePipe.Debug.Timing
   alias ImagePipe.Delivery
   alias ImagePipe.Execution.{Acquisition, Context, Identity, Output, SourceCache}
-  alias ImagePipe.Plan.Request
-  alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.Processing
   alias ImagePipe.Processing.DebugBuilder
   alias ImagePipe.Processing.Terminal
@@ -295,7 +292,7 @@ defmodule ImagePipe.Execution do
       end
 
     with {:ok, stream} <-
-           Delivery.stream(self(), build, key, response_meta(context.request), config) do
+           Delivery.stream(self(), build, key, config) do
       stream = %{stream | next: fn -> next(stream, context) end}
       {:ok, output(context, {:stream, stream}, :miss, nil)}
     end
@@ -425,13 +422,6 @@ defmodule ImagePipe.Execution do
       end
     end
   end
-
-  def response_meta(%Request{} = request),
-    do: %PlanResponse{
-      filename: request.filename,
-      disposition: if(request.attachment?, do: :attachment, else: :inline),
-      debug?: request.debug?
-    }
 
   defp detector_identity(request, config) do
     face? = Enum.any?(request.groups, &(&1.guide == {:smart, :face_assist}))

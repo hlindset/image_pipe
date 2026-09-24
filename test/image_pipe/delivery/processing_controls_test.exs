@@ -3,7 +3,6 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
 
   alias ImagePipe.Delivery
   alias ImagePipe.Output.Resolved
-  alias ImagePipe.Plan.Response
   alias ImagePipe.ProcessingPool
 
   setup %{test: test} do
@@ -36,7 +35,7 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
         end
       end
 
-      assert {:ok, stream} = Delivery.stream(self(), build, nil, %Response{}, config)
+      assert {:ok, stream} = Delivery.stream(self(), build, nil, config)
       assert %{active: 1} = ProcessingPool.stats(pool)
 
       assert {:error, {:processing, :overloaded}} =
@@ -60,7 +59,7 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
     pool = start_supervised!({ProcessingPool, max_concurrency: 1, processing_timeout: 40})
     config = [processing_pool: pool, telemetry_prefix: context.prefix]
     build = fn pump -> pump.(["one", "two"], "image/jpeg", resolved(), nil) end
-    assert {:ok, stream} = Delivery.stream(self(), build, nil, %Response{}, config)
+    assert {:ok, stream} = Delivery.stream(self(), build, nil, config)
     assert stream.first_chunk == "one"
     assert_receive {:processing_stopped, :timeout}
     assert stream.next.() == {:error, {:processing, :timeout}}
@@ -82,7 +81,7 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
           end
         end
 
-        {:ok, _stream} = Delivery.stream(self(), build, nil, %Response{}, config)
+        {:ok, _stream} = Delivery.stream(self(), build, nil, config)
         send(test, :prepared)
 
         receive do
@@ -108,7 +107,7 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
       end)
 
     build = fn pump -> pump.(source, "image/jpeg", resolved(), nil) end
-    assert {:ok, stream} = Delivery.stream(self(), build, nil, %Response{}, config)
+    assert {:ok, stream} = Delivery.stream(self(), build, nil, config)
     assert {:error, _} = stream.next.()
     assert_receive {:processing_stopped, :processing_error}
     assert %{active: 0} = ProcessingPool.stats(pool)

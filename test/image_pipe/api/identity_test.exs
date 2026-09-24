@@ -80,7 +80,7 @@ defmodule ImagePipe.API.IdentityTest do
       |> Keyword.merge(config_opts)
       |> Config.validate!()
 
-    assert {:ok, _source, policy} = API.prepare(request, config, "")
+    assert {:ok, _source, policy} = API.prepare(request, "images/cat.jpg", config, "")
     conn = conn(:get, "/")
 
     conn = Plug.Conn.fetch_cookies(conn)

@@ -479,8 +479,8 @@ defmodule ImagePipe.Delivery.VixStreamContinuationTest do
   defp producer_build_fun do
     config = runtime_config()
     conn = Plug.Test.conn(:get, "/format=jpeg/src/images/beach.jpg")
-    {{:ok, request}, _metadata} = API.parse(conn, config)
-    {:ok, source_request} = APISource.translate(request.source, config)
+    {{:ok, request, source_string}, _metadata} = API.parse(conn, config)
+    {:ok, source_request} = APISource.translate(source_string, config)
     {:ok, source} = Source.resolve(source_request, config, [])
 
     {:ok, policy} = APIOutput.resolve(request.output, config, "")

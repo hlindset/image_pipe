@@ -1,4 +1,4 @@
-defmodule ImagePipe.Response.PreparedStream do
+defmodule ImagePipe.Delivery.PreparedStream do
   @moduledoc false
 
   alias ImagePipe.Debug.Info

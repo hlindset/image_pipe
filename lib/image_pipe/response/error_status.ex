@@ -46,7 +46,7 @@ defmodule ImagePipe.Response.ErrorStatus do
   # --- classification -------------------------------------------------------
 
   @spec classify(term()) :: class()
-  def classify({:transform_error, inner}), do: class_lead(inner) || :unprocessable
+  def classify({:transform, inner}), do: class_lead(inner) || :unprocessable
   def classify({:source, inner}), do: class_lead(inner) || source_domain_class(inner)
   def classify({:decode, _}), do: :unsupported_media
   def classify(:source_format_required), do: :unsupported_media
@@ -54,7 +54,7 @@ defmodule ImagePipe.Response.ErrorStatus do
   def classify({:unsupported_output_format, _}), do: :unsupported_output
   def classify({:encode, _}), do: :server_error
   def classify({:encode, _, _}), do: :server_error
-  def classify({:detector_unavailable, _}), do: :unprocessable
+  def classify({:detector, :unavailable}), do: :unprocessable
   def classify({:processing, :timeout}), do: :gateway_timeout
 
   def classify({:processing, reason}) when reason in [:overloaded, :queue_timeout, :unavailable],
@@ -117,11 +117,11 @@ defmodule ImagePipe.Response.ErrorStatus do
   # --- message table (reason-keyed; specific, never embeds a URL) ------------
 
   @spec message_for(term()) :: String.t()
-  def message_for({:transform_error, {:bad_request, :region_out_of_bounds}}),
+  def message_for({:transform, {:bad_request, :region_out_of_bounds}}),
     do: "requested region is outside the image"
 
-  def message_for({:transform_error, {:bad_request, _}}), do: "bad request"
-  def message_for({:transform_error, _}), do: "invalid image transform"
+  def message_for({:transform, {:bad_request, _}}), do: "bad request"
+  def message_for({:transform, _}), do: "invalid image transform"
   def message_for({:source, {:bad_status, code}}), do: "upstream responded #{code}"
   def message_for({:source, :connect_error}), do: "source unreachable"
   def message_for({:source, :too_many_redirects}), do: "too many redirects"
@@ -163,7 +163,7 @@ defmodule ImagePipe.Response.ErrorStatus do
   def message_for({:encode, _}), do: "error encoding image"
   def message_for({:encode, _, _}), do: "error encoding image"
 
-  def message_for({:detector_unavailable, _}), do: "invalid image transform"
+  def message_for({:detector, :unavailable}), do: "invalid image transform"
   def message_for({:processing, :timeout}), do: "image processing timeout"
   def message_for({:processing, :queue_timeout}), do: "image processing queue timeout"
   def message_for({:processing, :overloaded}), do: "image processing overloaded"

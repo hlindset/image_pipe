@@ -5,7 +5,7 @@ defmodule ImagePipe.Delivery do
   ## Process ownership
 
     * **conn owner** — the process running the ImagePipe plug request
-      (`self()` when calling `stream/5`). It holds the prepared stream's
+      (`self()` when calling `stream/4`). It holds the prepared stream's
       `next`/`cancel` closures.
     * **coordinator** (`Delivery.Coordinator`) — monitors the owner and owns
       the cache sink. On owner `:DOWN`, it requests a graceful producer halt
@@ -33,27 +33,25 @@ defmodule ImagePipe.Delivery do
     deps: [
       ImagePipe.Cache,
       ImagePipe.Debug,
-      ImagePipe.Plan,
+      ImagePipe.Output,
       ImagePipe.ProcessingPool,
-      ImagePipe.Response,
       ImagePipe.Source,
       ImagePipe.Telemetry
     ],
     # The runner uses first_chunk/1 and resume/2 to keep the first pull inside
     # its encode span, then hand the chunk to pump.
-    exports: [StreamPull]
+    exports: [PreparedStream, StreamPull]
 
   alias ImagePipe.Cache.Key
   alias ImagePipe.Delivery.Coordinator
-  alias ImagePipe.Plan.Response, as: PlanResponse
-  alias ImagePipe.Response.PreparedStream
+  alias ImagePipe.Delivery.PreparedStream
   alias ImagePipe.Telemetry.Trace
 
   @type build_fun :: ImagePipe.Delivery.Producer.build_fun()
 
   @doc """
   Starts a delivery session, drives it through its first demand, and returns
-  a `%ImagePipe.Response.PreparedStream{}` once the first encoded chunk is
+  a `%ImagePipe.Delivery.PreparedStream{}` once the first encoded chunk is
   ready.
 
   `conn_owner_pid` must be `self()`, the process running the plug request.
@@ -69,39 +67,30 @@ defmodule ImagePipe.Delivery do
   includes this debug data in the prepared stream and staged cache entry,
   adding measured generation cost as the `:total` timing.
   """
-  @spec stream(pid(), build_fun(), Key.t() | nil, PlanResponse.t(), keyword()) ::
+  @spec stream(pid(), build_fun(), Key.t() | nil, keyword()) ::
           {:ok, PreparedStream.t()} | {:error, term()}
-  def stream(conn_owner_pid, build_fun, cache_key, %PlanResponse{} = response_meta, config)
+  def stream(conn_owner_pid, build_fun, cache_key, config)
       when is_pid(conn_owner_pid) and is_function(build_fun, 1) and is_list(config) do
     {:ok, coordinator} =
       Coordinator.start(build_fun, conn_owner_pid, cache_key, Trace.Stack.context(), config)
 
     case Coordinator.prepare(coordinator) do
-      {:ok, prepared} -> prepared_stream(coordinator, cache_key, response_meta, prepared)
+      {:ok, prepared} -> {:ok, prepared_stream(coordinator, cache_key, prepared)}
       {:error, reason} -> cancel_and_error(coordinator, reason)
     end
   end
 
-  defp prepared_stream(coordinator, cache_key, response_meta, prepared) do
-    case PlanResponse.content_disposition(response_meta, prepared.content_type) do
-      {:ok, content_disposition} ->
-        {:ok,
-         %PreparedStream{
-           first_chunk: prepared.first_chunk,
-           content_type: prepared.content_type,
-           headers:
-             prepared.resolved_output.response_headers ++
-               [{"content-disposition", content_disposition}],
-           next: fn -> Coordinator.next(coordinator) end,
-           cancel: fn -> Coordinator.cancel(coordinator) end,
-           resolved_output: prepared.resolved_output,
-           debug: prepared.debug,
-           cache_key: key_hash(cache_key)
-         }}
-
-      {:error, reason} ->
-        cancel_and_error(coordinator, reason)
-    end
+  defp prepared_stream(coordinator, cache_key, prepared) do
+    %PreparedStream{
+      first_chunk: prepared.first_chunk,
+      content_type: prepared.content_type,
+      headers: prepared.resolved_output.response_headers,
+      next: fn -> Coordinator.next(coordinator) end,
+      cancel: fn -> Coordinator.cancel(coordinator) end,
+      resolved_output: prepared.resolved_output,
+      debug: prepared.debug,
+      cache_key: key_hash(cache_key)
+    }
   end
 
   # Cancel on every error; this is a no-op if the session already stopped.
