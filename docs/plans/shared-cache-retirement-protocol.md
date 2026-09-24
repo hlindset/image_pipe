@@ -120,3 +120,21 @@ Local scheduling tests cover the protocol's critical boundaries and a deliberate
 unsafe-recreation counterexample. They are not exhaustive distributed-system proof.
 The local protocol is concrete enough for bounded-I/O and generation implementation;
 production request integration and real-mount evidence remain separate gates.
+
+## Executor implementation progress
+
+`SharedFileSystem.IO` runs bounded operations in a local OTP helper VM over
+standard I/O. It does not enable distributed Erlang. Call deadlines include time
+waiting in the coordinator mailbox; expired requests never start. Timed-out and
+orphaned operations retain their operation/working-set reservations until completion.
+Helper or call-proxy failure degrades the executor without automatic replacement,
+since lost control does not prove underlying OS work has finished. The executor
+child is temporary for the same reason. Subsequent adapter integration must expose
+this degraded state and keep normal uncached image delivery available.
+
+`SharedFileSystem.Partition` provides exclusive incarnation creation, nonrecursive
+staging ancestry, heartbeat, retirement and fresh-identity recovery, called through
+that executor. These are internal building blocks, not a usable cache adapter yet.
+Persistent staging/reader byte reservations, resource cleanup, and publication are
+still required before `015.2` is complete. Helper startup in packaged releases and
+the cost of cross-process transfers also need deployment/performance validation.
