@@ -1,9 +1,4 @@
 <script lang="ts">
-  // Shared click/drag/keyboard picker over an image: maps pointer position to a
-  // normalized 0..1 point and reports it via `onPick`. Consumers decide what the
-  // point means. Optional `overlay`
-  // snippet draws extra marks (e.g. a crop region) inside the image surface.
-  import type { Snippet } from "svelte";
   import { focalPointFromBounds } from "./api-controls";
 
   type Props = {
@@ -11,36 +6,12 @@
     markerX: number; // 0..1
     markerY: number; // 0..1
     onPick: (nx: number, ny: number) => void;
-    naturalWidth?: number; // [$bindable] natural px width once the image loads (0 until then)
-    naturalHeight?: number; // [$bindable]
-    ariaLabel?: string;
-    overlay?: Snippet;
-    keyStep?: number;
-    keyStepShift?: number;
+    ariaLabel: string;
   };
 
-  let {
-    src,
-    markerX,
-    markerY,
-    onPick,
-    naturalWidth = $bindable(0),
-    naturalHeight = $bindable(0),
-    ariaLabel = "Set point",
-    overlay,
-    keyStep = 0.01,
-    keyStepShift = 0.1,
-  }: Props = $props();
+  let { src, markerX, markerY, onPick, ariaLabel }: Props = $props();
 
   let surface: HTMLSpanElement | null = $state(null);
-
-  function onImageLoad(event: Event): void {
-    const img = event.currentTarget;
-    if (img instanceof HTMLImageElement) {
-      naturalWidth = img.naturalWidth;
-      naturalHeight = img.naturalHeight;
-    }
-  }
 
   function pickFromEvent(event: MouseEvent | PointerEvent): void {
     // Ignore the synthetic click a keyboard activation fires (detail === 0).
@@ -71,7 +42,7 @@
   }
 
   function moveKey(event: KeyboardEvent): void {
-    const step = event.shiftKey ? keyStepShift : keyStep;
+    const step = event.shiftKey ? 0.1 : 0.01;
 
     if (event.key === "ArrowLeft") {
       event.preventDefault();
@@ -102,8 +73,7 @@
   onpointermove={drag}
 >
   <span class="point-picker-surface" bind:this={surface}>
-    <img {src} alt="" draggable="false" onload={onImageLoad} />
-    {@render overlay?.()}
+    <img {src} alt="" draggable="false" />
     <span class="point-picker-marker" style={`left: ${markerX * 100}%; top: ${markerY * 100}%;`}
     ></span>
   </span>

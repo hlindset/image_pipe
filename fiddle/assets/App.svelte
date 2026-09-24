@@ -60,7 +60,6 @@
   let drawerCloseButton: HTMLButtonElement | null = $state(null);
   // Internal, non-reactive bookkeeping: request-id guards, timers, and the
   // preview-metadata tracker + service-worker handle. Nothing reactive reads these.
-  let previewPath = "";
   let copyLabelResetTimeout: number | null = null;
   const previewMetadata = new PreviewMetadataTracker();
   let previewWorker: PreviewWorker | null = null;
@@ -76,7 +75,6 @@
     // would strand. This same absolute is the SW-message correlation key.
     if (absolute === lastPreviewAbsolute) return;
     lastPreviewAbsolute = absolute;
-    previewPath = previewRequestPath;
     currentRequestId = previewMetadata.begin(absolute);
     previewLoading = true;
     previewError = null;
