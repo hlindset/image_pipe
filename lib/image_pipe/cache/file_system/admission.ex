@@ -129,8 +129,8 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
     state =
       Telemetry.span(tel_opts(state), [:cache, :warm_start], %{pool: state.pool}, fn ->
-        warmed = warm_start(state)
-        {warmed, warm_start_meta(state)}
+        {own_state, loaded?} = load_own_state(state)
+        {load_peer_state(own_state), warm_start_meta(state, loaded?)}
       end)
 
     {:ok, state, {:continue, :schedule_tickers}}
@@ -140,29 +140,19 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   # events fire under the prefix captured at init.
   defp tel_opts(state), do: [telemetry_prefix: state.telemetry_prefix]
 
-  # Low-cardinality boot summary: whether an own-state file existed and how
-  # many peer state files were present. No node ids, paths, or hashes.
-  defp warm_start_meta(state) do
+  defp warm_start_meta(state, own_loaded?) do
     own = "#{state.node_id}.state"
 
-    {own_loaded?, peer_count} =
+    peer_count =
       case File.ls(state.state_dir) do
         {:ok, files} ->
-          own_loaded? = Enum.member?(files, own)
-          peer_count = Enum.count(files, &(String.ends_with?(&1, ".state") and &1 != own))
-          {own_loaded?, peer_count}
+          Enum.count(files, &(String.ends_with?(&1, ".state") and &1 != own))
 
         {:error, _} ->
-          {false, 0}
+          0
       end
 
     %{own_state_loaded: own_loaded?, peer_state_files: peer_count}
-  end
-
-  defp warm_start(state) do
-    state
-    |> load_own_state()
-    |> load_peer_state()
   end
 
   defp load_own_state(state) do
@@ -172,7 +162,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       {:ok, binary} ->
         case decode_state_payload(binary, state) do
           {:ok, payload} ->
-            apply_own_state(state, payload)
+            {apply_own_state(state, payload), true}
 
           {:error, reason} ->
             require Logger
@@ -181,16 +171,16 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
               "cache: own state file decode failed: reason=#{inspect(reason)}; cold boot"
             )
 
-            state
+            {state, false}
         end
 
       {:error, :enoent} ->
-        state
+        {state, false}
 
       {:error, reason} ->
         require Logger
         Logger.warning("cache: own state file read failed: reason=#{inspect(reason)}; cold boot")
-        state
+        {state, false}
     end
   end
 

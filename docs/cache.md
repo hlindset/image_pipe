@@ -334,7 +334,8 @@ Bounded mode emits these additional events under the configured telemetry prefix
 (default `[:image_pipe]`):
 
 - `[..., :cache, :warm_start, :start | :stop]` — boot warm start, with
-  `own_state_loaded` and `peer_state_files` metadata on stop.
+  `own_state_loaded` indicating successful local-state restoration and
+  `peer_state_files` counting present peer state files on stop.
 - `[..., :cache, :admission, :stop]` — each admission decision, with `result`
   (`:admitted` / `:rejected`), `reason` on rejection, and `victim_count`.
 - `[..., :cache, :eviction, :stop]` — reconcile-driven eviction, with `count`

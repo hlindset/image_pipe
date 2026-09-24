@@ -6,6 +6,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Cache.FileSystem.Admission
+  alias ImagePipe.Cache.FileSystem.Sketch
 
   setup do
     registry = :"#{__MODULE__}.Registry.#{System.unique_integer([:positive])}"
@@ -72,6 +73,39 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
 
     assert_receive {:telemetry, ^stop_event, %{duration: _},
                     %{own_state_loaded: false, peer_state_files: 0, pool: :input}}
+  end
+
+  for {sketch_kind, loaded?} <- [{:valid, true}, {:invalid, false}] do
+    @tag capture_log: true
+    test "warm-start reports actual restoration for #{sketch_kind} state", ctx do
+      config = opts(ctx, [])
+      state_dir = Keyword.fetch!(config, :state_dir)
+      File.mkdir_p!(state_dir)
+
+      sketch =
+        case unquote(sketch_kind) do
+          :valid -> Sketch.new(depth: 4, width: 256) |> Sketch.serialize()
+          :invalid -> <<0, 1, 2>>
+        end
+
+      payload = %{
+        format_version: 1,
+        node_id: "tel-node",
+        written_at: System.system_time(:millisecond),
+        aging_epoch: 0,
+        increments_since_reset: 0,
+        sketch: sketch,
+        protected_hashes: []
+      }
+
+      File.write!(Path.join(state_dir, "tel-node.state"), :erlang.term_to_binary(payload))
+      attach(ctx.prefix, [[:cache, :warm_start, :stop]])
+      start_supervised!({Admission, config})
+      event = ctx.prefix ++ [:cache, :warm_start, :stop]
+
+      assert_receive {:telemetry, ^event, _,
+                      %{own_state_loaded: unquote(loaded?), peer_state_files: 0}}
+    end
   end
 
   test "emits an admission span with an admitted result", ctx do
