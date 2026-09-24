@@ -11,21 +11,49 @@ defmodule ImagePipe.Cache.Work do
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
   def run(key, fun, opts \\ []) do
-    case call({:lock, key}, :infinity) do
+    case acquire(key) do
       {:ok, ref, outcome} ->
         report(outcome, :source, opts)
         locked(ref, fun)
 
-      :busy ->
+      {:error, :busy} ->
         report(:busy, :source, opts)
         fun.(false)
+    end
+  end
+
+  def acquire(key) do
+    case call({:lock, key}, :infinity) do
+      {:ok, ref, outcome} ->
+        {:ok, ref, outcome}
+
+      :busy ->
+        {:error, :busy}
+    end
+  end
+
+  def release(ref) do
+    call({:unlock, ref}, 5_000)
+    :ok
+  end
+
+  def mutate(key, fun) do
+    with {:ok, lease, _outcome} <- acquire(key) do
+      try do
+        case publish(key, lease, fun) do
+          {:ok, result} -> result
+          _unavailable -> {:error, :ownership_lost}
+        end
+      after
+        release(lease)
+      end
     end
   end
 
   defp locked(ref, fun) do
     fun.(ref)
   after
-    call({:unlock, ref}, 5_000)
+    release(ref)
   end
 
   def refresh(key, fun, opts \\ []) do

@@ -20,7 +20,7 @@ defmodule ImagePipe.Execution do
   alias ImagePipe.Cache
   alias ImagePipe.Debug.Timing
   alias ImagePipe.Delivery
-  alias ImagePipe.Execution.{Acquisition, Context, Identity, Output, SourceCache}
+  alias ImagePipe.Execution.{Context, Identity, Output, SourceCache}
   alias ImagePipe.Processing
   alias ImagePipe.Processing.DebugBuilder
   alias ImagePipe.Processing.Terminal
@@ -70,18 +70,17 @@ defmodule ImagePipe.Execution do
           SourceCache.lookup(source, key, context.config)
 
       case SourceCache.status(record, source, context.config) do
-        :fresh -> {:ok, current(context, %Acquisition{record: record})}
-        :stale -> {:ok, %{current(context, %Acquisition{record: record}) | stale?: true}}
-        _ -> acquire(context, record)
+        :fresh -> {:ok, current(context, SourceCache.acquisition(record))}
+        :stale -> {:ok, %{current(context, SourceCache.acquisition(record)) | stale?: true}}
+        _ -> acquire(context)
       end
     end
   end
 
-  defp acquire(context, record) do
+  defp acquire(context) do
     case SourceCache.acquire(
            context.source,
            context.input_key,
-           record,
            {context.request, context.policy},
            context.config
          ) do
@@ -118,7 +117,7 @@ defmodule ImagePipe.Execution do
         {:ok, output}
 
       :miss ->
-        with {:ok, current} <- acquire(context, context.acquisition.record) do
+        with {:ok, current} <- acquire(context) do
           open_with_lease(current, current.acquisition.lease)
         end
     end
@@ -185,7 +184,7 @@ defmodule ImagePipe.Execution do
     case SourceCache.input(
            context.source,
            context.input_key,
-           context.acquisition.record,
+           context.acquisition,
            {context.request, context.policy},
            context.config
          ) do
@@ -357,10 +356,20 @@ defmodule ImagePipe.Execution do
   def finish(%Context{input_key: nil}, _result), do: :ok
 
   def finish(context, {:error, {:decode, _reason}}),
-    do: SourceCache.invalidate(context.input_key, context.config)
+    do:
+      SourceCache.invalidate(
+        context.input_key,
+        context.acquisition.source_revision,
+        context.config
+      )
 
   def finish(context, {:error, :source_format_required}),
-    do: SourceCache.invalidate(context.input_key, context.config)
+    do:
+      SourceCache.invalidate(
+        context.input_key,
+        context.acquisition.source_revision,
+        context.config
+      )
 
   def finish(_context, _result), do: :ok
 
@@ -408,7 +417,7 @@ defmodule ImagePipe.Execution do
   defp refresh_result({:error, _} = error), do: Telemetry.request_result(error)
 
   defp refresh_current(context) do
-    with {:ok, current} <- acquire(%{context | stale?: false}, context.acquisition.record) do
+    with {:ok, current} <- acquire(%{context | stale?: false}) do
       try do
         with {:ok, output} <- open(current) do
           try do

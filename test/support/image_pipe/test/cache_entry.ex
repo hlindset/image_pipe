@@ -6,6 +6,21 @@ defmodule ImagePipe.Test.CacheEntry do
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.Key
 
+  def original_bodies(root) do
+    root
+    |> Path.join("input/**/*.meta")
+    |> Path.wildcard()
+    |> Enum.flat_map(fn path ->
+      case path |> File.read!() |> :erlang.binary_to_term() do
+        %{source_record: %ImagePipe.Source.Record{}, body_filename: filename} ->
+          [Path.join(Path.dirname(path), filename)]
+
+        _record ->
+          []
+      end
+    end)
+  end
+
   def put(opts, body) do
     key = %Key{hash: Base.encode16(:crypto.hash(:sha256, body), case: :lower), data: []}
 

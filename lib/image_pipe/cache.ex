@@ -17,6 +17,8 @@ defmodule ImagePipe.Cache do
       Entry,
       File,
       Input,
+      Input.Adapter,
+      Input.Snapshot,
       Resources,
       Work,
       OutputWork,
@@ -87,36 +89,6 @@ defmodule ImagePipe.Cache do
 
   @doc false
   def shared_option_keys, do: @shared_cache_option_keys
-
-  @doc false
-  def source_record(input_key, opts) do
-    case lookup_entry(source_index_key(input_key), opts) do
-      {:hit, entry} ->
-        Entry.close(entry)
-        entry.source_record
-
-      _miss ->
-        nil
-    end
-  end
-
-  @doc false
-  def remember_source(input_key, record, opts) do
-    body = :erlang.term_to_binary(record, [:deterministic])
-
-    source_index_key(input_key)
-    |> open_sink(
-      {:complete_body, "application/vnd.imagepipe.source"},
-      Keyword.put(opts, :source_record, record)
-    )
-    |> write_chunk(body, opts)
-    |> commit_sink(opts)
-  end
-
-  defp source_index_key(%Key{hash: hash}) do
-    digest = :crypto.hash(:sha256, "source-record:" <> hash) |> Base.encode16(case: :lower)
-    %Key{hash: digest, data: []}
-  end
 
   @doc """
   Looks up `key` through the configured adapter, treating read errors as misses.

@@ -1,9 +1,8 @@
 defmodule ImagePipe.Execution.SourceCache do
   @moduledoc false
-  alias ImagePipe.Cache
   alias ImagePipe.Cache.Input
+  alias ImagePipe.Cache.Input.Snapshot
   alias ImagePipe.Cache.Resources
-  alias ImagePipe.Cache.Work
   alias ImagePipe.Execution.{Acquisition, Overlap}
   alias ImagePipe.Source
   alias ImagePipe.Source.CacheState
@@ -29,83 +28,100 @@ defmodule ImagePipe.Execution.SourceCache do
   def lookup(source, key, config) do
     case source.internal_cache do
       :disabled -> nil
-      :enabled -> Cache.source_record(key, config) || Input.metadata(key, config)
+      :enabled -> Input.lookup(key, config)
     end
   end
 
   def status(nil, _source, _config), do: :requires_validation
 
+  def status(%Snapshot{record: record}, source, config), do: status(record, source, config)
+
   def status(record, source, config),
     do: CacheState.status(Record.state(record, source.cache_semantics), now(config))
 
-  def acquire(source, key, previous, preparation, config) do
-    Work.run(
-      {:source, key.hash},
-      fn coordination ->
-        opts =
-          case coordination do
-            false -> Keyword.drop(config, [:cache, :input_cache])
-            ref -> Keyword.put(config, :source_lease, ref)
+  def acquisition(%Snapshot{record: record, revision: revision}),
+    do: %Acquisition{record: record, source_revision: revision}
+
+  def acquisition(record), do: %Acquisition{record: record}
+
+  def acquire(source, key, preparation, config) do
+    case Input.acquire(key, config) do
+      {:ok, lease} ->
+        try do
+          opts = Keyword.put(config, :source_lease, lease)
+          snapshot = lookup(source, key, opts)
+
+          case status(snapshot, source, opts) do
+            :fresh -> {:ok, acquisition(snapshot)}
+            _validate -> fetch(source, key, record(snapshot), preparation, opts)
           end
-
-        record = lookup(source, key, opts) || previous
-
-        case status(record, source, opts) do
-          :fresh -> {:ok, %Acquisition{record: record}}
-          _validate -> fetch(source, key, record, preparation, opts)
+        after
+          Input.release_source(lease)
         end
-      end,
-      Telemetry.telemetry_opts(config)
-    )
+
+      :bypass ->
+        fetch(source, key, nil, preparation, Keyword.drop(config, [:cache, :input_cache]))
+    end
   end
 
-  def input(source, key, record, preparation, config) do
-    case Input.open(key, record, config) do
+  def input(source, key, acquisition, preparation, config) do
+    case Input.open(key, acquisition.record, config) do
       {:ok, path, lease} ->
-        checked_input(record, path, lease, config)
+        checked_input(acquisition, path, lease, config)
 
       :miss ->
-        Work.run(
-          {:source, key.hash},
-          fn coordination ->
-            open_or_fetch(source, key, record, preparation, config, coordination)
-          end,
-          Telemetry.telemetry_opts(config)
-        )
+        open_or_fetch(source, key, preparation, config)
     end
   end
 
-  defp open_or_fetch(source, key, record, preparation, config, ref) when is_reference(ref) do
-    config = Keyword.put(config, :source_lease, ref)
+  defp open_or_fetch(source, key, preparation, config) do
+    case Input.acquire(key, config) do
+      {:ok, lease} ->
+        try do
+          opts = Keyword.put(config, :source_lease, lease)
+          snapshot = lookup(source, key, opts)
 
-    case Input.open(key, record, config) do
-      {:ok, path, lease} -> checked_input(record, path, lease, config)
-      :miss -> fetch(source, key, nil, preparation, config)
+          case {record(snapshot), status(snapshot, source, opts)} do
+            {%Record{} = current, :fresh} ->
+              case Input.open(key, current, opts) do
+                {:ok, path, handle} -> checked_input(acquisition(snapshot), path, handle, opts)
+                :miss -> fetch(source, key, nil, preparation, opts)
+              end
+
+            _validate ->
+              fetch(source, key, nil, preparation, opts)
+          end
+        after
+          Input.release_source(lease)
+        end
+
+      :bypass ->
+        fetch(source, key, nil, preparation, Keyword.drop(config, [:cache, :input_cache]))
     end
   end
 
-  defp open_or_fetch(source, key, _record, preparation, config, false),
-    do: fetch(source, key, nil, preparation, Keyword.drop(config, [:cache, :input_cache]))
+  defp record(nil), do: nil
+  defp record(%Snapshot{record: record}), do: record
 
-  defp checked_input(record, path, lease, config) do
+  defp checked_input(acquisition, path, lease, config) do
     limit = Keyword.fetch!(config, :max_body_bytes)
 
     case File.stat(path) do
       {:ok, %{size: size}} when size <= limit ->
         {:ok,
-         %Acquisition{
-           record: record,
-           response: %Response{path: path, origin: record.origin},
-           lease: lease,
-           source_bytes: size
+         %{
+           acquisition
+           | response: %Response{path: path, origin: acquisition.record.origin},
+             lease: lease,
+             source_bytes: size
          }}
 
       {:ok, _stat} ->
-        Resources.release(lease)
+        Input.release(lease)
         {:error, {:source, :body_too_large}}
 
       {:error, _reason} ->
-        Resources.release(lease)
+        Input.release(lease)
         {:error, {:source, :invalid_body}}
     end
   end
@@ -116,21 +132,9 @@ defmodule ImagePipe.Execution.SourceCache do
       preparation = if is_nil(previous), do: preparation
       result = fetch_response(source, previous, config, &stage(&1, source, preparation, config))
       cost = System.monotonic_time(:microsecond) - started
-      result = publish_coordinated(result, source, key, previous, cost, config)
+      result = publish(result, source, key, previous, cost, config)
       {result, %{result: outcome(result)}}
     end)
-  end
-
-  defp publish_coordinated(result, source, key, previous, cost, config) do
-    publish = fn -> publish(result, source, key, previous, cost, config) end
-
-    case Work.publish(key.hash, Keyword.get(config, :source_lease), publish) do
-      {:ok, result} ->
-        result
-
-      _unavailable ->
-        publish(result, source, key, previous, cost, Keyword.drop(config, [:cache, :input_cache]))
-    end
   end
 
   defp fetch_response(source, %Record{origin: %Source.Origin{} = origin}, config, fun),
@@ -141,28 +145,18 @@ defmodule ImagePipe.Execution.SourceCache do
 
   defp publish({:not_modified, origin}, source, key, previous, _cost, config) do
     record = Record.refresh(previous, origin)
-    remember(source, key, record, config)
-    {:ok, %Acquisition{record: record}}
+    {:ok, remember(%Acquisition{record: record}, source, key, 0, config)}
   end
 
   defp publish(
-         {:ok, %Acquisition{record: record, response: response}} = result,
+         {:ok, %Acquisition{} = acquisition},
          source,
          key,
          _previous,
          cost,
          config
        ) do
-    case storable?(record, source) do
-      true ->
-        if response.path, do: Input.put(key, response.path, record, cost, config)
-        Cache.remember_source(key, record, config)
-
-      false ->
-        invalidate(key, config)
-    end
-
-    result
+    {:ok, remember(acquisition, source, key, cost, config)}
   end
 
   defp publish(
@@ -174,34 +168,43 @@ defmodule ImagePipe.Execution.SourceCache do
          config
        )
        when status in [401, 403, 404, 410] do
-    invalidate(key, config)
+    publish_record(key, nil, nil, 0, config)
     error
   end
 
   defp publish(error, _source, _key, _previous, _cost, _config), do: error
 
-  defp remember(source, key, record, config) do
-    case storable?(record, source) do
+  defp remember(acquisition, source, key, cost, config) do
+    case storable?(acquisition.record, source) do
       true ->
-        Input.refresh(key, record, config)
-        Cache.remember_source(key, record, config)
+        path = if acquisition.response, do: acquisition.response.path
+
+        case publish_record(key, acquisition.record, path, cost, config) do
+          {:ok, %Snapshot{revision: revision}} -> %{acquisition | source_revision: revision}
+          _failed -> acquisition
+        end
 
       false ->
-        invalidate(key, config)
+        publish_record(key, nil, nil, 0, config)
+        acquisition
     end
   end
 
-  def invalidate(key, config) do
-    Input.discard(key, config)
-    Cache.remember_source(key, nil, config)
+  defp publish_record(key, record, path, cost, config) do
+    case Keyword.get(config, :source_lease) do
+      nil -> {:error, :uncoordinated}
+      lease -> Input.publish(key, lease, record, path, cost, config)
+    end
   end
+
+  def invalidate(key, revision, config), do: Input.invalidate(key, revision, config)
 
   def storable?(record, source),
     do:
       source.internal_cache == :enabled and Record.state(record, source.cache_semantics).storable?
 
   def release(nil), do: :ok
-  def release(lease), do: Resources.release(lease)
+  def release(lease), do: Input.release(lease)
 
   defp stage(response, source, preparation, config) do
     path = Input.temporary_path(System.tmp_dir!())

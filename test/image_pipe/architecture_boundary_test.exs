@@ -506,6 +506,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Cache.Entry,
       ImagePipe.Cache.File,
       ImagePipe.Cache.Input,
+      ImagePipe.Cache.Input.Adapter,
+      ImagePipe.Cache.Input.Snapshot,
       ImagePipe.Cache.Resources,
       ImagePipe.Cache.Work,
       ImagePipe.Cache.OutputWork,
@@ -525,7 +527,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
   end
 
-  test "bounded-mode FileSystem cache code stays within the cache boundary" do
+  test "filesystem cache depends on source records without fetching sources or delivering responses" do
     forbidden_terms = ["ImagePipe.Source", "ImagePipe.Response"]
 
     cache_filesystem_sources =
@@ -539,7 +541,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       for {file, source} <- cache_filesystem_sources,
           {line, number} <- source |> String.split("\n") |> Enum.with_index(1),
           term <- forbidden_terms,
-          String.contains?(line, term) do
+          String.contains?(line, term),
+          not String.contains?(line, "ImagePipe.Source.Record") do
         "#{file}:#{number} must not depend on #{term}; " <>
           "bounded-mode cache code stays within the ImagePipe.Cache boundary"
       end

@@ -12,9 +12,8 @@ defmodule ImagePipe.Cache.InputRefreshTest do
   setup do
     root = Path.join(System.tmp_dir!(), "input_refresh_#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(root) end)
-    pool = [root: root, node_id: "test", max_size_bytes: 100, window_ratio: 1.0]
+    pool = [root: root, node_id: "test", max_size_bytes: 100_000, window_ratio: 1.0]
     start_supervised!(FileSystem.child_spec(pool))
-    tasks = start_supervised!({Task.Supervisor, []})
     [{admission, _}] = Registry.lookup(FileSystem.registry_name(root), {root, "test"})
     assert :ok = Admission.await_scan(admission)
     File.mkdir_p!(root)
@@ -23,75 +22,67 @@ defmodule ImagePipe.Cache.InputRefreshTest do
     key = %Key{hash: String.duplicate("a", 64), data: []}
     config = [input_cache: {FileSystem, pool}]
     original = record("image", 1000)
-    assert :ok = Input.put(key, path, original, 25, config)
-
-    %{
-      pool: pool,
-      key: key,
-      config: config,
-      admission: admission,
-      tasks: tasks,
-      original: original
-    }
+    snapshot = publish(key, path, original, config)
+    %{pool: pool, key: key, config: config, original: original, snapshot: snapshot, path: path}
   end
 
-  test "refresh preserves stored bytes and cost while updating source evidence", ctx do
+  test "revalidation updates evidence without replacing original bytes or cost", ctx do
     {:ok, before} = Store.metadata(ctx.key, ctx.pool)
     refreshed = record("image", 1060)
-    assert :ok = Input.refresh(ctx.key, refreshed, ctx.config)
-    assert {:ok, metadata} = Store.metadata(ctx.key, ctx.pool)
-    assert metadata == %{before | source_record: refreshed}
+    snapshot = publish(ctx.key, nil, refreshed, ctx.config)
+    assert Input.lookup(ctx.key, ctx.config) == snapshot
+    assert snapshot.record == refreshed
+    refute snapshot.revision == ctx.snapshot.revision
+    assert Store.metadata(ctx.key, ctx.pool) == {:ok, before}
+    assert {:ok, path, handle} = Input.open(ctx.key, refreshed, ctx.config)
+    assert File.read!(path) == "image"
+    assert :ok = Input.release(handle)
+    refute File.exists?(path)
   end
 
-  test "refresh for different source bytes leaves the current record intact", ctx do
-    assert :ok = Input.refresh(ctx.key, record("different", 1060), ctx.config)
-    assert Input.metadata(ctx.key, ctx.config) == ctx.original
-  end
-
-  test "a refresh prepared before replacement cannot overwrite the new record", ctx do
-    previous = Input.metadata(ctx.key, ctx.config)
+  test "a delayed invalidation cannot remove a newer source revision", ctx do
     replacement = record("new image", 1060)
-    path = Path.join(Keyword.fetch!(ctx.pool, :root), "source")
-    File.write!(path, "new image")
-    assert :ok = Input.put(ctx.key, path, replacement, 25, ctx.config)
-
-    assert :ok =
-             Store.refresh_source_record(ctx.key, previous, record("image", 1060), ctx.pool)
-
-    assert Input.metadata(ctx.key, ctx.config) == replacement
+    File.write!(ctx.path, "new image")
+    snapshot = publish(ctx.key, ctx.path, replacement, ctx.config)
+    assert :ok = Input.invalidate(ctx.key, ctx.snapshot.revision, ctx.config)
+    assert Input.lookup(ctx.key, ctx.config) == snapshot
+    assert {:ok, path, handle} = Input.open(ctx.key, replacement, ctx.config)
+    assert File.read!(path) == "new image"
+    Input.release(handle)
   end
 
-  test "refresh queued after invalidation cannot restore deleted metadata", ctx do
-    parent = self()
-    target = ctx.admission
-    :sys.suspend(ctx.admission)
-
-    {deletion, refresh} =
-      try do
-        deletion = queued(ctx.tasks, parent, fn -> Input.discard(ctx.key, ctx.config) end)
-        assert_receive {:trace, _, :send, {:"$gen_call", _, _}, ^target}, 1000
-
-        refresh =
-          queued(ctx.tasks, parent, fn ->
-            Input.refresh(ctx.key, record("image", 1060), ctx.config)
-          end)
-
-        assert_receive {:trace, _, :send, {:"$gen_call", _, _}, ^target}, 1000
-        {deletion, refresh}
-      after
-        :sys.resume(ctx.admission)
-      end
-
-    assert Task.await_many([deletion, refresh]) == [:ok, :ok]
-    assert Store.metadata(ctx.key, ctx.pool) == :miss
-    assert :sys.get_state(ctx.admission).window_bytes == 0
+  test "invalidation leaves a marker and an active original stays readable", ctx do
+    assert {:ok, path, handle} = Input.open(ctx.key, ctx.original, ctx.config)
+    assert :ok = Input.invalidate(ctx.key, ctx.snapshot.revision, ctx.config)
+    assert %{record: nil} = Input.lookup(ctx.key, ctx.config)
+    assert Input.open(ctx.key, ctx.original, ctx.config) == :miss
+    assert File.read!(path) == "image"
+    Input.release(handle)
+    refute File.exists?(path)
   end
 
-  defp queued(tasks, parent, fun) do
-    Task.Supervisor.async_nolink(tasks, fn ->
-      :erlang.trace(self(), true, [:send, {:tracer, parent}])
-      fun.()
-    end)
+  test "original eviction retains authoritative source evidence", ctx do
+    assert :ok = Store.delete(ctx.key, ctx.pool)
+    assert Input.open(ctx.key, ctx.original, ctx.config) == :miss
+    assert Input.lookup(ctx.key, ctx.config) == ctx.snapshot
+  end
+
+  test "freshness and body selection stay separate when only a new record is stored", ctx do
+    next = record("different", 1060)
+    snapshot = publish(ctx.key, nil, next, ctx.config)
+    assert Input.lookup(ctx.key, ctx.config) == snapshot
+    assert Input.open(ctx.key, next, ctx.config) == :miss
+  end
+
+  defp publish(key, path, record, config) do
+    {:ok, lease} = Input.acquire(key, config)
+
+    try do
+      assert {:ok, snapshot} = Input.publish(key, lease, record, path, 25, config)
+      snapshot
+    after
+      Input.release_source(lease)
+    end
   end
 
   defp record(bytes, now) do

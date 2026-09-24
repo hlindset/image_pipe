@@ -90,8 +90,11 @@ Each owns its own byte budget, sketch, recency queues and maintenance. Output
 hits do not count as input demand. Original EXIF/ICC bytes are preserved.
 `pool: :input` labels the input supervisor's admission and maintenance telemetry;
 the default label is `:output`. The validated mount adds the input label automatically.
-The initial input adapter is filesystem storage; existing response-cache
-adapters continue to work and must preserve `Entry.Metadata.source_record`.
+Input adapters implement `ImagePipe.Cache.Input.Adapter`. The contract covers
+source-state lookup, exclusive validation ownership, publication, revision-aware
+invalidation, and opening/releasing original bytes. `FileSystem` implements both
+the input and output contracts. Host adapters validate their own options with
+`validate_input_options/1`; invalid configuration fails before source access.
 
 Downloads spool completely to a temporary file before libvips opens them.
 Current body/pixel limits apply when generating from input hits, while existing
@@ -103,11 +106,20 @@ Staging and pinned readers can temporarily exceed the retained pool budget;
 their lifetime is bounded by active requests and source limits. Decoding while
 the source is still downloading is tracked separately in `image_plug-yx6`.
 
-Source version/freshness records are also stored as charged entries in the
-output pool. This lets fresh outputs survive eviction of their input blobs.
-These records compete for the existing pool budget; there is no unbounded
-metadata cache. If all evidence is evicted, the next request acquires or
-validates the source before selecting a mutable output.
+The input adapter owns source version/freshness records when configured. Without
+an input adapter, the output cache retains records without retaining originals.
+Each source has one authoritative record; lookup never falls back to another
+pool's older evidence. The local filesystem adapter stores records as separate,
+charged entries in the owning pool, allowing them to survive original eviction.
+If that pool rejects or evicts the record too, the next request acquires or
+validates the source before selecting a mutable output, even if an output survives.
+There is no unbounded metadata cache.
+
+Source records carry opaque revisions. Revalidation publishes a new revision;
+late processing failures can invalidate only the revision they used. An
+invalidation marker forces source acquisition rather than restoring old evidence.
+Custom input adapters must hold original bytes safely until release and clean up
+their resource handles on caller termination.
 
 ## Stale-while-revalidate
 

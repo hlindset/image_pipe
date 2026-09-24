@@ -45,8 +45,13 @@ defmodule ImagePipe.Test.PlugFixture.CacheProbe do
   end
 
   @impl true
-  def write_chunk(state, chunk, _opts) do
-    {:ok, %{state | chunks: [chunk | state.chunks]}}
+  def write_chunk(state, chunk, opts) do
+    state = %{state | chunks: [chunk | state.chunks]}
+
+    case Keyword.get(opts, :write_error) do
+      nil -> {:ok, state}
+      reason -> {:error, reason, state}
+    end
   end
 
   @impl true
@@ -62,7 +67,10 @@ defmodule ImagePipe.Test.PlugFixture.CacheProbe do
   end
 
   @impl true
-  def abort_sink(_state, _opts), do: :ok
+  def abort_sink(state, _opts) do
+    send(message_target(), {:cache_abort, state.chunks})
+    :ok
+  end
 
   defp store_lookup(opts, key) do
     case Keyword.fetch(opts, :store) do

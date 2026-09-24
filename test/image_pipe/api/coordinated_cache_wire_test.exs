@@ -4,6 +4,8 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
   import Plug.Test
   alias ImagePipe, as: IP
   alias ImagePipe.Cache.FileSystem
+  alias ImagePipe.Test.CacheEntry
+  alias ImagePipe.Test.InputCacheProbe
 
   setup do
     root =
@@ -104,6 +106,47 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     assert {cached.width, cached.height} == {6, 4}
     refute_received :transformed
     refute_received {:origin, _, _}
+  end
+
+  test "a host input adapter owns records, original reuse, and refresh", %{
+    shared: shared,
+    state: state
+  } do
+    {FileSystem, pool} = shared.raw[:input_cache]
+
+    shared =
+      IP.config(
+        Keyword.put(
+          shared.raw,
+          :input_cache,
+          {InputCacheProbe, Keyword.put(pool, :owner, self())}
+        )
+      )
+
+    config = IP.Plug.init(config: shared, http_cache: [mode: :enabled])
+    first = request(config, 12)
+    assert first.status == 200
+    assert_receive {:origin, _, []}
+    assert_receive {:input_adapter, :acquire_source}
+    assert_receive {:input_adapter, :publish_source}
+    assert_receive {:input_adapter, :release_source}
+
+    assert request(config, 8).status == 200
+    assert_receive {:input_adapter, :open_input}
+    assert_receive {:input_adapter, :release_input}
+    refute_received {:origin, _, _}
+
+    Agent.update(state, &%{&1 | now: 1_061})
+    assert request(config, 12).resp_body == first.resp_body
+    assert_receive {:origin, _, [~s("v1")]}
+
+    Agent.update(state, &%{&1 | now: 1_122, version: 2})
+    changed = request(config, 12)
+    assert changed.status == 200
+    assert_receive {:origin, _, [~s("v1")]}
+
+    refute Image.write!(Image.from_binary!(changed.resp_body), :memory, suffix: ".png") ==
+             Image.write!(Image.from_binary!(first.resp_body), :memory, suffix: ".png")
   end
 
   test "native cache hits revalidate origin freshness and observe changed bytes", %{
@@ -442,7 +485,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
   test "input eviction leaves fresh output evidence available", %{config: config, root: root} do
     first = request(config, 12)
     assert_receive {:origin, _, []}
-    File.rm_rf!(Path.join(root, "input"))
+    for path <- original_bodies(root), do: File.rm!(path)
     assert request(config, 12).resp_body == first.resp_body
     refute_received {:origin, _, _}
     assert request(config, 8).status == 200
@@ -481,7 +524,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     assert_receive {:origin, _, []}
     assert Path.wildcard(Path.join(root, "input/**/*.body")) == []
     assert request(config, 12).resp_body == first.resp_body
-    refute_received {:origin, _, _}
+    assert_receive {:origin, _, []}
     assert request(config, 8).status == 200
     assert_receive {:origin, _, []}
   end
@@ -605,7 +648,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
   } do
     first = request(config, 12)
     assert_receive {:origin, _, []}
-    [body] = Path.wildcard(Path.join(root, "input/**/*.body"))
+    [body] = original_bodies(root)
     File.write!(body, String.duplicate("x", File.stat!(body).size))
     assert request(config, 12).resp_body == first.resp_body
     refute_received {:origin, _, _}
@@ -661,4 +704,6 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
 
     ImagePipe.Plug.call(conn, config)
   end
+
+  defp original_bodies(root), do: CacheEntry.original_bodies(root)
 end

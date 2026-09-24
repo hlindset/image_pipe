@@ -4,6 +4,7 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Source.HTTP
   alias ImagePipe.Source.Origin
+  alias ImagePipe.Test.CacheEntry
   alias ImagePipe.Test.PacedSourceOrigin
   alias ImagePipe.Test.ProcessingSource
   alias Vix.Vips.Image, as: VipsImage
@@ -65,7 +66,7 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
     assert response.status == 200
     assert {:ok, image} = Image.from_binary(response.resp_body)
     assert {Image.width(image), Image.height(image)} == {100, 150}
-    [original] = Path.wildcard(Path.join(context.root, "input/**/*.body"))
+    [original] = CacheEntry.original_bodies(context.root)
     assert File.read!(original) == context.body
 
     reference =
@@ -203,7 +204,7 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
     assert Path.wildcard(Path.join(context.root, "input/**/*.body")) == []
     send(origin, :continue)
     assert Task.await(task, 10_000).status == 200
-    [original] = Path.wildcard(Path.join(context.root, "input/**/*.body"))
+    [original] = CacheEntry.original_bodies(context.root)
     assert File.read!(original) == context.body
   end
 

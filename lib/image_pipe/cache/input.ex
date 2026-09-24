@@ -1,7 +1,7 @@
 defmodule ImagePipe.Cache.Input do
-  @moduledoc "Filesystem original-byte storage using the shared admission pool implementation."
-  alias ImagePipe.Cache.File, as: CacheFile
-  alias ImagePipe.Cache.FileSystem.Store
+  @moduledoc "Coordinates source-state adapters and optional original-byte storage."
+  alias ImagePipe.Cache.FileSystem
+  alias ImagePipe.Cache.Input.{Adapter, Output, Snapshot}
   alias ImagePipe.Cache.Resources
   alias ImagePipe.Source.Record
   alias ImagePipe.Telemetry
@@ -11,11 +11,15 @@ defmodule ImagePipe.Cache.Input do
       nil ->
         {:ok, opts}
 
-      {ImagePipe.Cache.FileSystem, pool} when is_list(pool) ->
-        with {:ok, pool} <- Store.validate_options(pool),
-             :ok <- separate_roots(pool, Keyword.get(opts, :cache)) do
-          pool = Keyword.put(pool, :pool, :input)
-          {:ok, Keyword.put(opts, :input_cache, {ImagePipe.Cache.FileSystem, pool})}
+      {adapter, pool} when is_atom(adapter) and is_list(pool) ->
+        with true <- Keyword.keyword?(pool),
+             :ok <- validate_adapter(adapter),
+             {:ok, pool} <- validate_options(adapter, pool),
+             :ok <- separate_roots(adapter, pool, Keyword.get(opts, :cache)) do
+          {:ok, Keyword.put(opts, :input_cache, {adapter, pool})}
+        else
+          false -> {:error, :invalid_input_cache}
+          {:error, _} = error -> error
         end
 
       _invalid ->
@@ -23,41 +27,166 @@ defmodule ImagePipe.Cache.Input do
     end
   end
 
-  defp separate_roots(input, {ImagePipe.Cache.FileSystem, output}) do
+  defp validate_options(adapter, pool) do
+    case adapter.validate_input_options(pool) do
+      {:ok, opts} when is_list(opts) ->
+        case Keyword.keyword?(opts) do
+          true -> {:ok, opts}
+          false -> {:error, :invalid_input_cache_options}
+        end
+
+      {:error, _} = error ->
+        error
+
+      _invalid ->
+        {:error, :invalid_input_cache_options}
+    end
+  end
+
+  defp validate_adapter(adapter) do
+    with {:module, _} <- Code.ensure_loaded(adapter),
+         true <-
+           Enum.all?(Adapter.behaviour_info(:callbacks), fn {name, arity} ->
+             function_exported?(adapter, name, arity)
+           end) do
+      :ok
+    else
+      _invalid -> {:error, :invalid_input_cache_adapter}
+    end
+  end
+
+  defp separate_roots(FileSystem, input, {FileSystem, output}) do
     case Keyword.fetch!(input, :root) == Path.expand(Keyword.fetch!(output, :root)) do
       true -> {:error, :cache_pools_require_separate_roots}
       false -> :ok
     end
   end
 
-  defp separate_roots(_input, _output), do: :ok
+  defp separate_roots(_adapter, _input, _output), do: :ok
 
-  def metadata(key, opts) do
-    case Keyword.get(opts, :input_cache) do
+  def lookup(key, opts) do
+    case owner(opts) do
       nil ->
         nil
 
-      {_adapter, pool} ->
-        case Store.metadata(key, pool) do
-          {:ok, %{source_record: record}} -> valid_record(record)
-          _miss -> nil
-        end
+      {adapter, pool} ->
+        validated_snapshot(adapter.lookup_source(key, pool))
     end
   rescue
     _exception -> nil
+  catch
+    :exit, _reason -> nil
   end
 
-  defp valid_record(record) do
-    case Record.valid?(record) do
-      true -> record
-      false -> nil
+  defp validated_snapshot({:hit, %Snapshot{revision: revision, record: record} = snapshot})
+       when not is_nil(revision) do
+    if is_nil(record) or Record.valid?(record), do: snapshot
+  end
+
+  defp validated_snapshot(_miss), do: nil
+
+  def acquire(key, opts) do
+    case owner(opts) do
+      nil ->
+        :bypass
+
+      {adapter, pool} ->
+        case adapter.acquire_source(key, pool) do
+          {:ok, lease, outcome} when outcome in [:acquired, :coalesced] ->
+            coordination(outcome, opts)
+            {:ok, {adapter, lease, pool}}
+
+          _unavailable ->
+            coordination(:busy, opts)
+            :bypass
+        end
     end
+  rescue
+    _exception -> :bypass
+  catch
+    :exit, _reason -> :bypass
+  end
+
+  def release_source({adapter, lease, pool}) do
+    adapter.release_source(lease, pool)
+  rescue
+    _exception -> :ok
+  catch
+    :exit, _reason -> :ok
+  end
+
+  defp coordination(outcome, opts) do
+    Telemetry.execute(Telemetry.telemetry_opts(opts), [:cache, :coordination], %{}, %{
+      pool: :input,
+      result: outcome,
+      operation: :source
+    })
+  end
+
+  def publish(key, {adapter, lease, pool}, record, path, cost, opts) do
+    path = if Keyword.has_key?(opts, :input_cache), do: path
+
+    Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], %{pool: :input}, fn ->
+      result = publish_adapter(adapter, key, lease, record, path, cost, pool)
+      {result, write_metadata(result)}
+    end)
+  end
+
+  defp publish_adapter(adapter, key, lease, record, path, cost, pool) do
+    case adapter.publish_source(key, lease, record, path, cost, pool) do
+      {:ok, %Snapshot{revision: revision, record: ^record}} = result when not is_nil(revision) ->
+        result
+
+      {:error, _} = error ->
+        error
+
+      _invalid ->
+        {:error, :invalid_adapter_result}
+    end
+  rescue
+    _exception -> {:error, :cache_write_failed}
+  catch
+    :exit, _reason -> {:error, :cache_write_failed}
+  end
+
+  defp write_metadata({:ok, %Snapshot{}}), do: %{result: :ok, cache: :write}
+  defp write_metadata(_error), do: %{result: :cache_error, cache: :write_error}
+
+  def invalidate(_key, nil, _opts), do: :ok
+
+  def invalidate(key, revision, opts) do
+    case owner(opts) do
+      nil -> :ok
+      {adapter, pool} -> adapter.invalidate_source(key, revision, pool)
+    end
+  rescue
+    _exception -> :ok
+  catch
+    :exit, _reason -> :ok
   end
 
   def open(key, record, opts) do
     Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :input], %{pool: :input}, fn ->
       key |> do_open(record, opts) |> open_result()
     end)
+  end
+
+  defp do_open(key, record, opts) do
+    case Keyword.get(opts, :input_cache) do
+      nil ->
+        :miss
+
+      {adapter, pool} ->
+        case adapter.open_input(key, record, pool) do
+          {:ok, path, handle} when is_binary(path) -> {:ok, path, {:input, adapter, handle, pool}}
+          :miss -> :miss
+          _error -> {:error, :cache_read_failed}
+        end
+    end
+  rescue
+    _exception -> {:error, :cache_read_failed}
+  catch
+    :exit, _reason -> {:error, :cache_read_failed}
   end
 
   defp open_result({:ok, path, _lease} = result) do
@@ -73,138 +202,31 @@ defmodule ImagePipe.Cache.Input do
   defp open_result(:miss), do: {:miss, %{result: :ok, cache: :miss}}
   defp open_result({:error, _reason}), do: {:miss, %{result: :cache_error, cache: :read_error}}
 
-  defp do_open(key, record, opts) do
-    case Keyword.get(opts, :input_cache) do
-      nil -> :miss
-      {_adapter, pool} -> open_pool(key, record, pool)
-    end
-  rescue
-    _exception -> {:error, :cache_read_failed}
-  end
-
-  defp open_pool(key, record, pool) do
-    case Store.get(key, pool) do
-      {:hit, file, %{source_record: stored}} ->
-        pin_matching(file, stored, record)
-
-      {:hit, file, _invalid} ->
-        CacheFile.close(file)
-        {:error, :invalid_metadata}
-
-      {:error, reason} ->
-        {:error, reason}
-
-      _miss ->
-        :miss
-    end
-  end
-
-  defp pin_matching(file, stored, record) do
-    case Record.valid?(stored) and stored.byte_identity == record.byte_identity do
-      true -> pin(file.path)
-      false -> :miss
-    end
-  after
-    CacheFile.close(file)
-  end
-
-  defp pin(path) do
-    pinned = temporary_path(Path.dirname(path))
-    ref = Resources.track(pinned)
-    pin(path, pinned, ref)
-  end
-
-  defp pin(_path, _pinned, :unavailable), do: :miss
-
-  defp pin(path, pinned, ref) do
-    case File.ln(path, pinned) do
-      :ok ->
-        {:ok, pinned, ref}
-
-      {:error, _reason} ->
-        Resources.release(ref)
-        :miss
-    end
-  end
-
-  def temporary_path(root) do
-    Path.join(
-      root,
-      ".image-pipe-#{Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)}.tmp"
-    )
-  end
-
-  def put(key, path, record, cost, opts) do
-    case Keyword.get(opts, :input_cache) do
-      nil ->
-        :ok
-
-      {_adapter, pool} ->
-        Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], %{pool: :input}, fn ->
-          result = store(key, path, record, cost, pool)
-
-          {result, write_metadata(result)}
-        end)
-    end
+  def release({:input, adapter, handle, pool}) do
+    adapter.release_input(handle, pool)
   rescue
     _exception -> :ok
+  catch
+    :exit, _reason -> :ok
   end
 
-  defp write_metadata({:error, _reason}), do: %{result: :cache_error, cache: :write_error}
-  defp write_metadata({:ok, :rejected}), do: %{result: :ok, cache: :stage_skipped}
-  defp write_metadata(:ok), do: %{result: :ok, cache: :write}
+  def release(handle), do: Resources.release(handle)
 
-  defp store(key, path, record, cost, pool) do
-    case Store.open_sink(key, %{source_record: record, cost_us: cost}, pool) do
-      {:ok, sink} -> write(sink, path, pool)
-      {:error, reason} -> {:error, reason}
-    end
-  end
+  def temporary_path(root),
+    do:
+      Path.join(
+        root,
+        ".image-pipe-#{Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)}.tmp"
+      )
 
-  defp write(sink, path, pool) do
-    result =
-      Enum.reduce_while(File.stream!(path, 65_536), {:ok, sink}, fn chunk, {:ok, state} ->
-        case Store.write_chunk(state, chunk, pool) do
-          {:ok, state} -> {:cont, {:ok, state}}
-          {:error, reason, state} -> {:halt, {:error, reason, state}}
-        end
-      end)
-
-    case result do
-      {:ok, state} ->
-        Store.commit_sink(state, pool)
-
-      {:error, reason, state} ->
-        Store.abort_sink(state, pool)
-        {:error, reason}
-    end
-  after
-    Store.abort_sink(sink, pool)
-  end
-
-  def discard(key, opts) do
+  defp owner(opts) do
     case Keyword.get(opts, :input_cache) do
-      nil ->
-        :ok
-
-      {_adapter, pool} ->
-        Store.delete(key, pool)
+      nil -> output_owner(Keyword.get(opts, :cache))
+      configured -> configured
     end
   end
 
-  def refresh(key, record, opts) do
-    case Keyword.get(opts, :input_cache) do
-      nil ->
-        :ok
-
-      {_adapter, pool} ->
-        case metadata(key, opts) do
-          %Record{byte_identity: identity} = previous when identity == record.byte_identity ->
-            Store.refresh_source_record(key, previous, record, pool)
-
-          _missing ->
-            :ok
-        end
-    end
-  end
+  defp output_owner(nil), do: nil
+  defp output_owner({FileSystem, _pool} = configured), do: configured
+  defp output_owner(configured), do: {Output, [cache: configured]}
 end

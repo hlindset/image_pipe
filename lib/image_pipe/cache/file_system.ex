@@ -1,9 +1,11 @@
 defmodule ImagePipe.Cache.FileSystem do
   @moduledoc "Filesystem response cache with independently supervised W-TinyLFU admission."
   @behaviour ImagePipe.Cache
+  @behaviour ImagePipe.Cache.Input.Adapter
   @dialyzer :no_match
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.File, as: CacheFile
+  alias ImagePipe.Cache.FileSystem.Input
   alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Debug.Info
   @metadata_version 1
@@ -30,11 +32,31 @@ defmodule ImagePipe.Cache.FileSystem do
   @impl true
   defdelegate validate_options(opts), to: Store
   @impl true
+  def validate_input_options(opts) do
+    Store.validate_options(Keyword.put(opts, :pool, :input))
+  end
+
+  @impl true
   defdelegate write_chunk(state, chunk, opts), to: Store
   @impl true
   defdelegate commit_sink(state, opts), to: Store
   @impl true
   defdelegate abort_sink(state, opts), to: Store
+
+  @impl true
+  defdelegate lookup_source(key, opts), to: Input
+  @impl true
+  defdelegate acquire_source(key, opts), to: Input
+  @impl true
+  defdelegate release_source(lease, opts), to: Input
+  @impl true
+  defdelegate publish_source(key, lease, record, path, cost, opts), to: Input
+  @impl true
+  defdelegate invalidate_source(key, revision, opts), to: Input
+  @impl true
+  defdelegate open_input(key, record, opts), to: Input
+  @impl true
+  defdelegate release_input(handle, opts), to: Input
 
   @impl true
   def open_sink(key, %Entry.Metadata{} = metadata, opts) do

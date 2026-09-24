@@ -5,6 +5,7 @@ defmodule ImagePipe.Cache.FileReadTest do
   alias ImagePipe.Cache.Entry.Metadata
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Admission
+  alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.Key
 
   setup do
@@ -42,7 +43,7 @@ defmodule ImagePipe.Cache.FileReadTest do
     key = put(root, "image", opts)
     assert :sys.get_state(admission).window_bytes == 5
 
-    assert :ok = Cache.Input.discard(key, input_cache: {FileSystem, opts})
+    assert :ok = Store.delete(key, opts)
     assert FileSystem.get(key, opts) == :miss
     state = :sys.get_state(admission)
     assert state.window_bytes + state.probationary_bytes + state.protected_bytes == 0
@@ -57,7 +58,7 @@ defmodule ImagePipe.Cache.FileReadTest do
     [body] = Path.wildcard(Path.join(root, "**/*.body"))
     File.rm!(body)
 
-    assert {:error, :enoent} = Cache.Input.discard(key, input_cache: {FileSystem, opts})
+    assert {:error, :enoent} = Store.delete(key, opts)
     assert :sys.get_state(admission).window_bytes == 0
     assert FileSystem.get(key, opts) == :miss
   end
@@ -72,7 +73,7 @@ defmodule ImagePipe.Cache.FileReadTest do
     File.rm!(paths.meta_path)
     File.mkdir!(paths.meta_path)
 
-    assert {:error, _} = Cache.Input.discard(key, input_cache: {FileSystem, opts})
+    assert {:error, _} = Store.delete(key, opts)
     assert :sys.get_state(admission).window_bytes == 5
     assert [body] = Path.wildcard(Path.join(root, "**/*.body"))
     assert File.read!(body) == "image"
@@ -107,7 +108,7 @@ defmodule ImagePipe.Cache.FileReadTest do
       :erlang.term_to_binary(%{metadata | body_filename: "../../unrelated"})
     )
 
-    assert {:error, _} = Cache.Input.discard(key, input_cache: {FileSystem, root: root})
+    assert {:error, _} = Store.delete(key, root: root)
     assert File.read!(outside) == "keep"
   end
 end

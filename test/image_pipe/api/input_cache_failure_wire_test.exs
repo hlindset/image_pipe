@@ -60,7 +60,7 @@ defmodule ImagePipe.API.InputCacheFailureWireTest do
   @tag capture_log: true
   test "input metadata refresh failure still delivers revalidated bytes", ctx do
     assert %{status: 200, resp_body: original} = request(ctx.config)
-    result = fail_admission(ctx, :refresh_source_record)
+    result = fail_admission(ctx, :commit)
     assert %Plug.Conn{status: 200, resp_body: ^original} = result
   end
 
@@ -68,7 +68,7 @@ defmodule ImagePipe.API.InputCacheFailureWireTest do
   test "invalidation failure preserves the origin error response", ctx do
     assert %{status: 200} = request(ctx.config)
     Agent.update(ctx.origin_status, fn _ -> 404 end)
-    assert %Plug.Conn{status: 404} = fail_admission(ctx, :delete)
+    assert %Plug.Conn{status: 404} = fail_admission(ctx, :commit)
   end
 
   defp fail_admission(ctx, operation) do
