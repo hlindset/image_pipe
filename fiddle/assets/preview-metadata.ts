@@ -15,22 +15,28 @@ export function imagePreviewUrl(url: string): string {
 export function debounce<Arguments extends unknown[]>(
   callback: (...args: Arguments) => void,
   delayMs: number,
-): (...args: Arguments) => void {
+): (...args: Arguments) => () => void {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
   return (...args: Arguments) => {
     if (timeoutId !== null) clearTimeout(timeoutId);
 
-    timeoutId = setTimeout(() => {
+    const pending = setTimeout(() => {
+      timeoutId = null;
       callback(...args);
     }, delayMs);
+    timeoutId = pending;
+    return () => {
+      clearTimeout(pending);
+      if (timeoutId === pending) timeoutId = null;
+    };
   };
 }
 
 export function debouncePreviewPath(
   callback: (path: string) => void,
   delayMs: number,
-): (path: string | null) => void {
+): (path: string | null) => () => void {
   return debounce((path: string | null) => {
     if (path !== null) callback(path);
   }, delayMs);
