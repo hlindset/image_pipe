@@ -129,17 +129,21 @@ defmodule ImagePipe.Cache.FileSystem.Sketch do
         }
         when is_list(counters) and length(counters) == expected_depth * expected_width and
                is_integer(epoch) and is_integer(increments) ->
-          counters_array = :array.from_list(counters, 0)
+          case valid_values?(counters, epoch, increments) do
+            true ->
+              {:ok,
+               %__MODULE__{
+                 depth: expected_depth,
+                 width: expected_width,
+                 sample_size: sample_size,
+                 counters: :array.from_list(counters, 0),
+                 aging_epoch: epoch,
+                 increments_since_reset: increments
+               }}
 
-          {:ok,
-           %__MODULE__{
-             depth: expected_depth,
-             width: expected_width,
-             sample_size: sample_size,
-             counters: counters_array,
-             aging_epoch: epoch,
-             increments_since_reset: increments
-           }}
+            false ->
+              {:error, :invalid_counters}
+          end
 
         _other ->
           {:error, :invalid_shape}
@@ -148,6 +152,11 @@ defmodule ImagePipe.Cache.FileSystem.Sketch do
       ArgumentError -> {:error, :decode_failed}
     end
   end
+
+  defp valid_values?(counters, epoch, increments),
+    do: epoch >= 0 and increments >= 0 and Enum.all?(counters, &valid_counter?/1)
+
+  defp valid_counter?(value), do: is_integer(value) and value >= 0 and value <= 255
 
   @spec sum(t(), t()) :: t()
   def sum(%__MODULE__{depth: d, width: w} = a, %__MODULE__{depth: d, width: w} = b) do

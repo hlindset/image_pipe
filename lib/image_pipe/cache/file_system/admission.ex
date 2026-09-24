@@ -226,14 +226,8 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     path = Path.join(state.state_dir, filename)
 
     with {:ok, binary} <- File.read(path),
-         {:ok, payload} <- decode_state_payload(binary, state),
-         {:ok, peer_sketch} <-
-           Sketch.deserialize(payload.sketch,
-             depth: state.sketch_depth,
-             width: state.sketch_width,
-             sample_size: state.aging_sample_size
-           ) do
-      %{state | boot_cms: Sketch.sum(state.boot_cms, peer_sketch)}
+         {:ok, payload} <- decode_state_payload(binary, state) do
+      %{state | boot_cms: Sketch.sum(state.boot_cms, payload.sketch)}
     else
       {:error, reason} ->
         require Logger
@@ -243,9 +237,18 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     end
   end
 
-  defp decode_state_payload(binary, _state) do
+  defp decode_state_payload(binary, state) do
     payload = :erlang.binary_to_term(binary, [:safe])
-    validate_state_payload(payload)
+
+    with {:ok, payload} <- validate_state_payload(payload),
+         {:ok, sketch} <-
+           Sketch.deserialize(payload.sketch,
+             depth: state.sketch_depth,
+             width: state.sketch_width,
+             sample_size: state.aging_sample_size
+           ) do
+      {:ok, %{payload | sketch: sketch}}
+    end
   rescue
     ArgumentError -> {:error, :decode_failed}
   end
@@ -278,18 +281,9 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   defp validate_state_payload(_other), do: {:error, :invalid_shape}
 
   defp apply_own_state(state, payload) do
-    {:ok, sketch} =
-      Sketch.deserialize(payload.sketch,
-        depth: state.sketch_depth,
-        width: state.sketch_width,
-        sample_size: state.aging_sample_size
-      )
-
-    persisted_protected = Map.get(payload, :protected_hashes, [])
-
     # Rebuild the doorkeeper from traffic. The directory scan restores protected
     # hashes into ETS.
-    %{state | local_cms: sketch, persisted_protected_hashes: persisted_protected}
+    %{state | local_cms: payload.sketch, persisted_protected_hashes: payload.protected_hashes}
   end
 
   @impl true
