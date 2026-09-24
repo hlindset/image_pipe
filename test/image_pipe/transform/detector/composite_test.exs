@@ -120,10 +120,23 @@ defmodule ImagePipe.Transform.Detector.CompositeTest do
   end
 
   test "best-effort: still succeeds when at least one routed child succeeds" do
+    prefix = [__MODULE__, :partial_success]
+    event = prefix ++ [:transform, :detect, :model, :stop]
+    ref = :telemetry_test.attach_event_handlers(self(), [event])
+    on_exit(fn -> :telemetry.detach(ref) end)
+
     # car routes to both ErroringChild (fails) and ObjectChild (succeeds)
     composite = Composite.new([ErroringChild, ObjectChild])
-    assert {:ok, regions} = Composite.detect(composite, :image, classes: ["car"])
+
+    assert {:ok, regions} =
+             Composite.detect(composite, :image,
+               classes: ["car"],
+               telemetry_opts: [telemetry_prefix: prefix]
+             )
+
     assert Enum.map(regions, & &1.label) == ["car"]
+    assert_received {^event, ^ref, _, %{detector: ErroringChild, result: :error, regions: 0}}
+    assert_received {^event, ^ref, _, %{detector: ObjectChild, result: :ok, regions: 1}}
   end
 
   test "supported_classes is the union of children" do

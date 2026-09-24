@@ -345,7 +345,8 @@ defmodule ImagePipe.Telemetry.Logger do
   end
 
   defp message([:transform, :detect, :model | _], _m, meta) do
-    "image_pipe transform detect model: #{meta[:regions]} regions (#{inspect(meta[:detector])})"
+    "image_pipe transform detect model: #{outcome(meta)} " <>
+      "(#{meta[:regions]} regions, #{inspect(meta[:detector])})"
   end
 
   defp message([:http_cache, :prepare | _], _m, meta) do

@@ -703,6 +703,8 @@ span. Stop metadata:
 - `:classes` - the class subset routed to this child for the request (a list of
   class name strings, or `:all`).
 - `:regions` - the number of regions this child returned.
+- `:result` - `:ok` or `:error`; failed children report zero regions. The raw
+  detector error is omitted.
 
 To determine the **effective detected class set** from per-model spans: take the
 union of all `:classes` values across all `:stop` events for a given request. A
@@ -713,10 +715,12 @@ all configured detectors and was silently dropped (best-effort).
 > secrets — it appears in these per-model spans, which fan out to every attached
 > handler including third-party exporters.
 
-The opt-in default Logger renders the per-model span at the base level, e.g.:
+The opt-in default Logger renders successful per-model spans at the base level
+and failed children at warning level. Trace capture marks failed children as
+error spans even when another child succeeds. For example:
 
 ```text
-image_pipe transform detect model: 2 regions (ImagePipe.Transform.Detector.ImageVision.Face)
+image_pipe transform detect model: ok (2 regions, ImagePipe.Transform.Detector.ImageVision.Face)
 ```
 
 When **no** detector is configured, no detection runs, so there is no span.
