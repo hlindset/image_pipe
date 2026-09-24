@@ -2,10 +2,20 @@ defmodule ImagePipe.Cache.SharedFileSystem.IOTest do
   use ExUnit.Case, async: false
 
   alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
+  alias ImagePipe.Cache.SharedFileSystem.IO.Admission
   alias ImagePipe.Test.SharedIOProbe
 
-  setup do
-    pool = start_supervised!({CacheIO, max_operations: 2, max_bytes: 8})
+  setup ctx do
+    pid =
+      start_supervised!(
+        {CacheIO,
+         max_operations: 2,
+         max_bytes: 8,
+         max_pending: Map.get(ctx, :max_pending, 2),
+         max_request_bytes: 256}
+      )
+
+    pool = CacheIO.client(pid)
     %{pool: pool}
   end
 
@@ -57,17 +67,66 @@ defmodule ImagePipe.Cache.SharedFileSystem.IOTest do
   end
 
   test "work whose deadline expired in the mailbox never starts", %{pool: pool} do
-    :ok = :sys.suspend(pool)
+    :ok = :sys.suspend(pool.pid)
 
     try do
       assert {:error, :timeout} =
                CacheIO.run(pool, {:persistent_term, :put, [:expired_work, true]}, 0, 10)
     after
-      :sys.resume(pool)
+      :sys.resume(pool.pid)
     end
 
     assert {:ok, false} =
              CacheIO.run(pool, {:persistent_term, :get, [:expired_work, false]}, 0, 1_000)
+  end
+
+  test "expired calls retain pending capacity until the mailbox consumes them", %{pool: pool} do
+    :ok = :sys.suspend(pool.pid)
+
+    try do
+      assert {:error, :timeout} = CacheIO.run(pool, {:os, :getpid, []}, 0, 10)
+      assert {:error, :timeout} = CacheIO.run(pool, {:os, :getpid, []}, 0, 10)
+      assert {:error, :saturated} = CacheIO.run(pool, {:os, :getpid, []}, 0, 10)
+      assert {:error, :saturated} = CacheIO.reserve(pool, 0, {File, :rm, ["unused"]}, 10)
+    after
+      :sys.resume(pool.pid)
+    end
+
+    _ = :sys.get_state(pool.pid)
+    assert {:ok, _pid} = CacheIO.run(pool, {:os, :getpid, []}, 0, 1_000)
+  end
+
+  test "oversized request payloads are rejected before enqueueing", %{pool: pool} do
+    :ok = :sys.suspend(pool.pid)
+
+    try do
+      assert {:error, :saturated} =
+               CacheIO.run(pool, {:erlang, :byte_size, [String.duplicate("x", 257)]}, 0, 10)
+    after
+      :sys.resume(pool.pid)
+    end
+  end
+
+  @tag max_pending: 1
+  test "caller death between admission and enqueueing does not leak a slot", %{pool: pool} do
+    tasks = start_supervised!(Task.Supervisor)
+    parent = self()
+
+    owner =
+      Task.Supervisor.async_nolink(tasks, fn ->
+        request = {:run, {:os, :getpid, []}, 0, System.monotonic_time(:millisecond) + 1_000, nil}
+        {:ok, _ticket} = Admission.claim(pool.admission, request)
+        send(parent, :admitted)
+
+        receive do
+          :enqueue -> :ok
+        end
+      end)
+
+    assert_receive :admitted
+    assert {:error, :saturated} = CacheIO.run(pool, {:os, :getpid, []}, 0, 1_000)
+    Task.shutdown(owner, :brutal_kill)
+    await_admission(pool, System.monotonic_time(:millisecond) + 3_000)
   end
 
   test "caller death keeps the running operation reserved", %{pool: pool} do
@@ -105,6 +164,19 @@ defmodule ImagePipe.Cache.SharedFileSystem.IOTest do
     case CacheIO.run(pool, {:erlang, :whereis, [name]}, 0, 1_000) do
       {:ok, :undefined} -> await_registration(pool, name, deadline)
       {:ok, pid} when is_pid(pid) -> :ok
+    end
+  end
+
+  defp await_admission(pool, deadline) do
+    assert System.monotonic_time(:millisecond) < deadline
+
+    case CacheIO.run(pool, {:os, :getpid, []}, 0, 1_000) do
+      {:error, :saturated} ->
+        _ = :sys.get_state(pool.pid)
+        await_admission(pool, deadline)
+
+      {:ok, _pid} ->
+        :ok
     end
   end
 end

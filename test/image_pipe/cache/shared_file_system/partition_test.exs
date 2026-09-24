@@ -7,7 +7,10 @@ defmodule ImagePipe.Cache.SharedFileSystem.PartitionTest do
   setup do
     root = Path.join(System.tmp_dir!(), "shared_partition_#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(root) end)
-    pool = start_supervised!({CacheIO, max_operations: 2, max_bytes: 1_000_000})
+
+    pool =
+      start_supervised!({CacheIO, max_operations: 2, max_bytes: 1_000_000}) |> CacheIO.client()
+
     %{pool: pool, root: root}
   end
 

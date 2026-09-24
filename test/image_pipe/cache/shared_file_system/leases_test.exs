@@ -12,6 +12,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.LeasesTest do
 
     pool =
       start_supervised!({CacheIO, max_operations: 2, max_resources: 2, max_resource_bytes: 8})
+      |> CacheIO.client()
 
     %{pool: pool, path: Path.join(root, "lease"), root: root}
   end
@@ -38,13 +39,13 @@ defmodule ImagePipe.Cache.SharedFileSystem.LeasesTest do
   end
 
   test "a reservation delayed beyond its request deadline is not allocated", ctx do
-    :ok = :sys.suspend(ctx.pool)
+    :ok = :sys.suspend(ctx.pool.pid)
 
     try do
       assert {:error, :timeout} =
                CacheIO.reserve(ctx.pool, 8, {Transient, :remove, [ctx.path]}, 10)
     after
-      :sys.resume(ctx.pool)
+      :sys.resume(ctx.pool.pid)
     end
 
     assert {:ok, lease} = CacheIO.reserve(ctx.pool, 8, {Transient, :remove, [ctx.path]}, 1_000)

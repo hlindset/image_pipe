@@ -127,6 +127,11 @@ production request integration and real-mount evidence remain separate gates.
 standard I/O. It does not enable distributed Erlang. Call deadlines include time
 waiting in the coordinator mailbox; expired requests never start. Timed-out and
 orphaned operations retain their operation/working-set reservations until completion.
+Adapter startup obtains a shared local client handle. Before enqueueing, callers
+claim a fixed admission slot and check the encoded request-size ceiling. Defaults
+allow 16 pending requests of at most 1 MiB each, separately from active-operation
+budgets. Timed-out calls keep their admission slots until consumed; the coordinator
+monitors abandoned claims so death between claiming and sending cannot leak a slot.
 Helper or call-proxy failure degrades the executor without automatic replacement,
 since lost control does not prove underlying OS work has finished. The executor
 child is temporary for the same reason. Subsequent adapter integration must expose
@@ -160,5 +165,5 @@ call channel disables executor admission even if the helper remains alive.
 
 These remain internal building blocks. Source/output payload validation, discovery,
 and public adapter integration are separate steps. Recovery of uncertain operations
-and admission bounds on queued payloads still need work. Helper startup in packaged
-releases and cross-process transfer costs also need deployment/performance validation.
+still needs work. Helper startup in packaged releases and cross-process transfer
+costs also need deployment/performance validation.

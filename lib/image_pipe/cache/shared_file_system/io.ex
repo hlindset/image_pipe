@@ -2,11 +2,16 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
   @moduledoc false
   use GenServer, restart: :temporary
 
-  alias ImagePipe.Cache.SharedFileSystem.IO.Leases
+  alias ImagePipe.Cache.SharedFileSystem.IO.{Admission, Leases}
+
+  @enforce_keys [:pid, :admission]
+  defstruct @enforce_keys
 
   @schema NimbleOptions.new!(
             max_operations: [type: :pos_integer, default: 4],
             max_bytes: [type: :pos_integer, default: 64 * 1024 * 1024],
+            max_pending: [type: :pos_integer, default: 16],
+            max_request_bytes: [type: :pos_integer, default: 1024 * 1024],
             max_resources: [type: :pos_integer, default: 32],
             max_resource_bytes: [type: :pos_integer, default: 256 * 1024 * 1024],
             boot_timeout: [type: :pos_integer, default: 5_000]
@@ -17,14 +22,14 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
     GenServer.start_link(__MODULE__, opts)
   end
 
+  # Obtain once during adapter startup, then share this local handle with callers.
+  def client(pid), do: GenServer.call(pid, :client)
+
   # bytes reserves the operation's worst-case working set, including its result.
   # Mount operations run in a separate VM; timing out never releases that budget.
   def run(pool, operation, bytes, timeout, lease \\ nil) do
     deadline = System.monotonic_time(:millisecond) + timeout
-    GenServer.call(pool, {:run, operation, bytes, deadline, lease}, timeout)
-  catch
-    :exit, {:timeout, _call} -> {:error, :timeout}
-    :exit, _reason -> {:error, :unavailable}
+    call(pool, {:run, operation, bytes, deadline, lease}, timeout)
   end
 
   def reserve(pool, bytes, cleanup, timeout) do
@@ -32,7 +37,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
 
     case call(pool, {:reserve, bytes, cleanup, deadline}, timeout) do
       {:ok, token} = result ->
-        GenServer.cast(pool, {:accept, token})
+        GenServer.cast(pool.pid, {:accept, token})
         result
 
       error ->
@@ -42,12 +47,16 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
 
   def release(pool, lease, timeout), do: call(pool, {:release, lease}, timeout)
 
-  def close(pool, lease), do: GenServer.cast(pool, {:close, lease})
+  def close(pool, lease), do: GenServer.cast(pool.pid, {:close, lease})
 
-  def retry_cleanup(pool), do: GenServer.cast(pool, :retry_cleanup)
+  def retry_cleanup(pool), do: GenServer.cast(pool.pid, :retry_cleanup)
 
   defp call(pool, message, timeout) do
-    GenServer.call(pool, message, timeout)
+    with {:ok, ticket} <- Admission.claim(pool.admission, message) do
+      # Only the receiver releases admission. A timeout may leave the payload
+      # in its mailbox, so the caller must not make that slot reusable.
+      GenServer.call(pool.pid, {:admitted, ticket, message}, timeout)
+    end
   catch
     :exit, {:timeout, _call} -> {:error, :timeout}
     :exit, _reason -> {:error, :unavailable}
@@ -69,8 +78,12 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
     with {:ok, peer, _node} <- :peer.start_link(peer_opts),
          {:ok, _apps} <- :peer.call(peer, :application, :ensure_all_started, [:elixir]),
          {:ok, tasks} <- Task.Supervisor.start_link() do
+      Process.send_after(self(), :watch_admission, 1_000)
+
       {:ok,
        %{
+         admission: Admission.new(opts[:max_pending], opts[:max_request_bytes]),
+         admission_monitors: %{},
          peer: peer,
          tasks: tasks,
          available?: true,
@@ -86,11 +99,21 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
   end
 
   @impl true
-  def handle_call(_request, _from, %{available?: false} = state) do
+  def handle_call(:client, _from, state) do
+    {:reply, %__MODULE__{pid: self(), admission: state.admission}, state}
+  end
+
+  def handle_call({:admitted, ticket, request}, from, state) do
+    Admission.release(state.admission, ticket)
+    monitors = Admission.forget(state.admission_monitors, ticket)
+    handle_request(request, from, %{state | admission_monitors: monitors})
+  end
+
+  defp handle_request(_request, _from, %{available?: false} = state) do
     {:reply, {:error, :unavailable}, state}
   end
 
-  def handle_call({:reserve, bytes, cleanup, deadline}, from, state) do
+  defp handle_request({:reserve, bytes, cleanup, deadline}, from, state) do
     case deadline - System.monotonic_time(:millisecond) do
       remaining when remaining > 0 ->
         {reply, leases} = Leases.reserve(state.leases, elem(from, 0), bytes, cleanup, remaining)
@@ -101,14 +124,14 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
     end
   end
 
-  def handle_call({:release, lease}, from, state) do
+  defp handle_request({:release, lease}, from, state) do
     case Leases.close(state.leases, lease, from) do
       {:ok, leases} -> {:noreply, cleanup(%{state | leases: leases})}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
 
-  def handle_call({:run, operation, bytes, deadline, lease}, from, state) do
+  defp handle_request({:run, operation, bytes, deadline, lease}, from, state) do
     remaining = deadline - System.monotonic_time(:millisecond)
 
     cond do
@@ -158,6 +181,14 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
   end
 
   @impl true
+  def handle_info(:watch_admission, state) do
+    # Catch callers killed between claiming a slot and sending their request.
+    # Their DOWN is handled after earlier local messages from that caller.
+    monitors = Admission.watch(state.admission, state.admission_monitors)
+    Process.send_after(self(), :watch_admission, 1_000)
+    {:noreply, %{state | admission_monitors: monitors}}
+  end
+
   def handle_info({ref, {:error, :unavailable}}, state) when is_reference(ref) do
     case Map.has_key?(state.jobs, ref) do
       true ->
@@ -193,20 +224,13 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
   end
 
   def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
-    case Map.has_key?(state.jobs, ref) do
-      true ->
-        # A lost call proxy is not evidence that its remote operation finished.
-        {:noreply, unavailable(state)}
+    case Map.pop(state.admission_monitors, ref) do
+      {nil, _monitors} ->
+        owner_down(state, ref)
 
-      false ->
-        jobs =
-          Map.new(state.jobs, fn
-            {key, %{owner: ^ref} = job} -> {key, %{job | from: nil}}
-            entry -> entry
-          end)
-
-        leases = Leases.owner_down(state.leases, ref)
-        {:noreply, cleanup(%{state | jobs: jobs, leases: leases})}
+      {ticket, monitors} ->
+        Admission.release(state.admission, ticket)
+        {:noreply, %{state | admission_monitors: monitors}}
     end
   end
 
@@ -230,6 +254,24 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
     kind, reason -> {:error, {:operation, kind, reason}}
   end
 
+  defp owner_down(state, ref) do
+    case Map.has_key?(state.jobs, ref) do
+      true ->
+        # A lost call proxy is not evidence that its remote operation finished.
+        {:noreply, unavailable(state)}
+
+      false ->
+        jobs =
+          Map.new(state.jobs, fn
+            {key, %{owner: ^ref} = job} -> {key, %{job | from: nil}}
+            entry -> entry
+          end)
+
+        leases = Leases.owner_down(state.leases, ref)
+        {:noreply, cleanup(%{state | jobs: jobs, leases: leases})}
+    end
+  end
+
   defp abandon(state, ref, result) do
     case Map.fetch(state.jobs, ref) do
       :error ->
@@ -242,6 +284,8 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
   end
 
   defp unavailable(state) do
+    Admission.disable(state.admission)
+
     jobs =
       Map.new(state.jobs, fn {ref, job} ->
         reply(job.from, {:error, :unavailable})

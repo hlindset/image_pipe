@@ -8,7 +8,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
     root = Path.join(System.tmp_dir!(), "shared_generation_#{System.unique_integer([:positive])}")
     File.mkdir_p!(root)
     on_exit(fn -> File.rm_rf!(root) end)
-    pool = start_supervised!({CacheIO, max_resource_bytes: 1_000_000})
+    pool = start_supervised!({CacheIO, max_resource_bytes: 1_000_000}) |> CacheIO.client()
 
     {:ok, {:ok, partition}} =
       CacheIO.run(pool, {Partition, :create, [Path.join(root, "shared")]}, 0, 1_000)
