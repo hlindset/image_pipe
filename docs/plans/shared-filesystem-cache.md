@@ -2,6 +2,11 @@
 
 Status: proposed. This describes the intended architecture, not current support.
 
+The input/source-state foundation is implemented. The
+[EFS ownership spike](efs-ownership-spike.md) records partial evidence, an
+unqualified locked-anchor candidate, and the outstanding recovery/cancellation
+decisions that gate shared-adapter implementation.
+
 ## Scope and guarantees
 
 Keep `ImagePipe.Cache.FileSystem` as a cache whose root is exclusively owned by
@@ -76,13 +81,9 @@ in-progress file is abandoned.
 
 ## One owner for source state; optional original bytes
 
-Currently `Cache.Input` accepts only `FileSystem` and calls its `Store` directly.
-Mutable source records also live in the output cache, and
-`Execution.SourceCache.lookup/3` prefers that copy. Shared storage requires one
-authoritative source-state owner instead of competing copies.
-
-Introduce a separate input/source-state behaviour, implemented by both filesystem
-adapters. Keep the output-cache behaviour separate. Its responsibilities are:
+`ImagePipe.Cache.Input.Adapter` provides the input/source-state behaviour,
+implemented by the local filesystem adapter and intended for the shared adapter.
+The output-cache behaviour is separate. Its responsibilities are:
 
 | Operation | Contract |
 | --- | --- |
@@ -93,16 +94,16 @@ adapters. Keep the output-cache behaviour separate. Its responsibilities are:
 | Invalidate | Invalidate an expected revision without removing a newer replacement. |
 | Release | Release update ownership or the caller's hold on original bytes. |
 
-Exact callbacks and types remain to be specified. Execution owns origin requests,
+Callbacks and types are defined in `Cache.Input.Adapter` and `Cache.Input.Snapshot`.
+Execution owns origin requests,
 freshness policy, limits, and response handling. Adapters own persistence,
 synchronization, and byte lifetimes. Validate host-implemented adapter results at
 this boundary.
 
-Output-only caching must continue retaining source records without storing
-originals. Prefer resolving a record-only owner from the configured storage
-adapter when no input cache is configured. When an input cache exists, it owns
-source state. Support for existing custom output adapters needs an explicit
-configuration/capability decision; do not silently restore dual authorities.
+Output-only caching retains source records without storing originals. When an
+input cache exists, it owns source state. The current fallback for custom output
+adapters uses node-local coordination; the shared adapter must explicitly resolve
+its own shared record-only owner rather than using that fallback.
 
 ## Source revision protocol
 
