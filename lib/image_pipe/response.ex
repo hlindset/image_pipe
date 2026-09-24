@@ -6,6 +6,7 @@ defmodule ImagePipe.Response do
     deps: [
       ImagePipe.Cache,
       ImagePipe.Debug,
+      ImagePipe.Delivery,
       ImagePipe.Error,
       ImagePipe.Output,
       ImagePipe.Plan,
@@ -19,7 +20,6 @@ defmodule ImagePipe.Response do
       Discard,
       CORS,
       ErrorStatus,
-      PreparedStream,
       Sender
     ]
 end

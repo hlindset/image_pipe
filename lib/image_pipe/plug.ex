@@ -18,8 +18,6 @@ defmodule ImagePipe.Plug do
 
   use Boundary,
     deps: [
-      ImagePipe.Cache,
-      ImagePipe.Debug,
       ImagePipe.API,
       ImagePipe.Error,
       ImagePipe.Execution,

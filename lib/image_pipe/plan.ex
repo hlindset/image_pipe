@@ -25,7 +25,6 @@ defmodule ImagePipe.Plan do
       Output.PngOptions,
       Output.WebpOptions,
       Output.AvifOptions,
-      Response,
       Color,
       Source,
       Source.Identity,

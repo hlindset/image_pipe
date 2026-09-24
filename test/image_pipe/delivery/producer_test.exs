@@ -5,7 +5,7 @@ defmodule ImagePipe.Delivery.ProducerTest do
   finalization, and post-first-chunk error tagging are decided.
 
   `ImagePipe.Delivery.ContractTest` covers the same producer through the
-  public `Delivery.stream/5` surface; these cases need the raw
+  public `Delivery.stream/4` surface; these cases need the raw
   `{:next, …}`/`{:halt, …}` protocol, so they use the test-support client.
   """
 

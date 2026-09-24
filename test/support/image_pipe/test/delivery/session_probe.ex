@@ -3,7 +3,7 @@ defmodule ImagePipe.Test.Delivery.SessionProbe do
   Finds the `ImagePipe.Delivery.Coordinator`s owned by the calling process, so
   a test can observe session liveness and teardown for itself.
 
-  `ImagePipe.Delivery.stream/5` requires `self()` as the conn owner, and the
+  `ImagePipe.Delivery.stream/4` requires `self()` as the conn owner, and the
   coordinator `Process.monitor/1`s that owner in `init/1`. So a live session is
   always visible to its owner through `:monitored_by`, identified by the
   `$initial_call` `:proc_lib` records for it — no cooperation from production

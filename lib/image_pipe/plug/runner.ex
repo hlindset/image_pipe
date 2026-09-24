@@ -3,15 +3,11 @@ defmodule ImagePipe.Plug.Runner do
   require Logger
 
   alias ImagePipe.API
-  alias ImagePipe.Cache
-  alias ImagePipe.Debug
-  alias ImagePipe.Debug.Info
   alias ImagePipe.Error
   alias ImagePipe.Execution
   alias ImagePipe.Execution.Inputs
   alias ImagePipe.Output.Policy
   alias ImagePipe.Plan.Request
-  alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.Response.CacheHeaders
   alias ImagePipe.Response.CachePolicy
   alias ImagePipe.Response.Conditional
@@ -161,7 +157,6 @@ defmodule ImagePipe.Plug.Runner do
 
   defp deliver(conn, output, headers) do
     context = output.context
-    meta = Execution.response_meta(context.request)
 
     conn =
       send_with_span(conn, context.config, :ok, fn ->
@@ -174,10 +169,10 @@ defmodule ImagePipe.Plug.Runner do
               cache_serve_us: output.cache_us
             }
 
-            Sender.send_cache_entry(conn, entry, meta, headers, debug, config)
+            Sender.send_cache_entry(conn, entry, context.request, headers, debug, config)
 
           {:stream, stream} ->
-            Sender.send_prepared_stream(conn, stream, meta, headers, config)
+            Sender.send_prepared_stream(conn, stream, context.request, headers, config)
         end
       end)
 
@@ -186,22 +181,23 @@ defmodule ImagePipe.Plug.Runner do
 
   defp deliver_body(conn, output, headers, type, body, debug) do
     context = output.context
-    meta = Execution.response_meta(context.request)
-
-    conn =
-      put_terminal_debug_headers(
-        conn,
-        meta,
-        debug,
-        output.cache,
-        context.representation.cache_key,
-        output.cache_us,
-        context.config
-      )
 
     conn =
       send_with_span(conn, context.config, :ok, fn ->
-        Sender.send_complete_body(conn, type, body, headers, meta)
+        Sender.send_complete_body(
+          conn,
+          type,
+          body,
+          headers,
+          context.request,
+          debug,
+          [
+            cache: output.cache,
+            cache_key: context.representation.cache_key.hash,
+            cache_serve_us: output.cache_us
+          ],
+          delivery_config(context.request, context.config)
+        )
       end)
 
     {conn, %{result: :ok}}
@@ -233,41 +229,6 @@ defmodule ImagePipe.Plug.Runner do
     if Keyword.has_key?(config, :http_cache), do: CachePolicy.conditional_matched(conn, config)
     :ok
   end
-
-  defp put_terminal_debug_headers(
-         conn,
-         %PlanResponse{} = response_meta,
-         debug,
-         cache,
-         cache_key,
-         cache_serve_us,
-         config
-       ) do
-    headers =
-      terminal_debug_headers(
-        debug,
-        cache,
-        cache_key,
-        cache_serve_us,
-        response_meta.debug? and Keyword.get(config, :allow_debug_headers, false)
-      )
-
-    put_resp_headers(conn, headers)
-  end
-
-  defp terminal_debug_headers(_debug, _cache, _cache_key, _cache_serve_us, false), do: []
-  defp terminal_debug_headers(nil, _cache, _cache_key, _cache_serve_us, true), do: []
-
-  defp terminal_debug_headers(%Info{} = debug, cache, cache_key, cache_serve_us, true) do
-    Debug.Headers.render(debug,
-      cache: cache,
-      cache_key: cache_key_hash(cache_key),
-      cache_serve_us: cache_serve_us
-    )
-  end
-
-  defp cache_key_hash(nil), do: nil
-  defp cache_key_hash(%Cache.Key{hash: hash}), do: hash
 
   defp put_resp_headers(conn, headers) do
     Enum.reduce(headers, conn, fn {name, value}, acc ->

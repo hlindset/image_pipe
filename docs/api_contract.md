@@ -29,6 +29,11 @@ configuration for both the Plug mount and `ImagePipe.new(config)`. Configured
 source inputs share cache identity and freshness across native and HTTP calls;
 raw file and binary inputs bypass caches.
 
+`Delivery.PreparedStream` carries encoded chunks and representation metadata.
+`Response.Sender` applies HTTP disposition and debug headers from the current
+request on both generated responses and cache hits. Native execution buffers
+the shared output directly.
+
 Canonical request data lives in `ImagePipe.Plan.Request`, with explicit
 `Plan.Request.Group` transform intent and sparse `Plan.Request.Output` policy.
 The parser validates URL grammar and translates it into typed intent.

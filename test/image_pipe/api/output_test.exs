@@ -9,7 +9,6 @@ defmodule ImagePipe.API.OutputTest do
   alias ImagePipe.Output.RequestPolicy, as: Output
   alias ImagePipe.Plan.Output, as: PlanOutput
   alias ImagePipe.Plan.Output.{JpegOptions, WebpOptions}
-  alias ImagePipe.Plan.Response
 
   defp seg(raw), do: {raw, {0, byte_size(raw)}}
 
@@ -307,7 +306,7 @@ defmodule ImagePipe.API.OutputTest do
     assert output == nil
   end
 
-  test "prepare maps info presentation and bypasses image policy" do
+  test "prepare preserves info presentation intent and bypasses image policy" do
     config = Config.validate!(autoquality_method: :size)
 
     assert {:ok, request} =
@@ -318,11 +317,9 @@ defmodule ImagePipe.API.OutputTest do
 
     assert {:ok, _source, output} = API.prepare(request, config, "")
 
-    assert ImagePipe.Execution.response_meta(request) == %Response{
-             filename: "report",
-             disposition: :attachment,
-             debug?: true
-           }
+    assert request.filename == "report"
+    assert request.attachment?
+    assert request.debug?
 
     assert output == nil
   end

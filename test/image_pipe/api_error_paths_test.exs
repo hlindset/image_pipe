@@ -20,7 +20,6 @@ defmodule ImagePipe.APIErrorPathsTest do
   alias ImagePipe.Delivery
   alias ImagePipe.Delivery.Coordinator
   alias ImagePipe.Output.Resolved
-  alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.Delivery.SessionProbe
   alias ImagePipe.Test.PlugFixture.OriginImage
@@ -291,7 +290,7 @@ defmodule ImagePipe.APIErrorPathsTest do
     end
 
     # A pre-delivery failure (a fetch error, discovered before
-    # `Delivery.stream/5` is ever called) must still stamp `:result` on the
+    # `Delivery.stream/4` is ever called) must still stamp `:result` on the
     # `[:request]` span's stop metadata — the bug this test guards is the
     # request span carrying only `:status`, which renders every failing
     # request as `ok` under the default Logger's `outcome/1` (AGENTS.md,
@@ -549,7 +548,7 @@ defmodule ImagePipe.APIErrorPathsTest do
       config = [cache: {ObservingCacheProbe, []}]
 
       assert {:ok, prepared} =
-               Delivery.stream(self(), build_fun, fake_cache_key(), %PlanResponse{}, config)
+               Delivery.stream(self(), build_fun, fake_cache_key(), config)
 
       assert prepared.first_chunk == "a"
       assert_received {:cache_open_sink, _key, _metadata}

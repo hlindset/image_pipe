@@ -1,6 +1,6 @@
 defmodule ImagePipe.Delivery.TraceParentageTest do
   @moduledoc """
-  Checks that `ImagePipe.Delivery.stream/5` carries the caller's request
+  Checks that `ImagePipe.Delivery.stream/4` carries the caller's request
   trace to its coordinator and producer, with both processes' spans
   descending transitively from that request root.
   """
@@ -10,7 +10,6 @@ defmodule ImagePipe.Delivery.TraceParentageTest do
   alias ImagePipe.Cache.Key
   alias ImagePipe.Delivery
   alias ImagePipe.Output.Resolved
-  alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.Trace.TestExporter
   alias ImagePipe.Test.Trace.SpanWalk
@@ -91,7 +90,6 @@ defmodule ImagePipe.Delivery.TraceParentageTest do
           self(),
           build_fun(config),
           %Key{hash: "k", data: []},
-          %PlanResponse{},
           config
         )
 

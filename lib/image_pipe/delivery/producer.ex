@@ -23,7 +23,7 @@ defmodule ImagePipe.Delivery.Producer do
   # values only this process sees (decoded dimensions, stage timings, encode
   # search metadata), and they are needed on the far side of the hop by both
   # the coordinator (which stores them on the cache entry) and the
-  # `%PreparedStream{}` (which renders them as headers).
+  # `%PreparedStream{}` for consumers to inspect or render.
 
   alias ImagePipe.Debug.Info
   alias ImagePipe.Delivery.StreamPull

@@ -14,7 +14,6 @@ defmodule ImagePipe.Delivery.ContractTest do
   alias ImagePipe.Debug.Info
   alias ImagePipe.Delivery
   alias ImagePipe.Output.Resolved
-  alias ImagePipe.Plan.Response, as: PlanResponse
 
   defmodule ObservingCacheProbe do
     @moduledoc false
@@ -62,7 +61,7 @@ defmodule ImagePipe.Delivery.ContractTest do
   end
 
   defp stream(cache_key, config, debug \\ nil) do
-    Delivery.stream(self(), build_fun(debug), cache_key, %PlanResponse{}, config)
+    Delivery.stream(self(), build_fun(debug), cache_key, config)
   end
 
   # ── the debug channel: producer → coordinator, on the first-chunk reply ──
@@ -75,6 +74,7 @@ defmodule ImagePipe.Delivery.ContractTest do
 
       assert prepared.debug.source_format == :png
       assert prepared.debug.output_format == :jpeg
+      assert prepared.headers == []
     end
 
     test "the %Info{} handed to pump reaches the cache entry's stored metadata" do
@@ -86,7 +86,7 @@ defmodule ImagePipe.Delivery.ContractTest do
       assert metadata.debug.source_format == :png
     end
 
-    test "a dialect that collects no debug info leaves both channels nil" do
+    test "generation without debug info leaves both channels nil" do
       assert {:ok, prepared} = stream(cache_key(), [cache: {ObservingCacheProbe, []}], nil)
 
       assert prepared.debug == nil

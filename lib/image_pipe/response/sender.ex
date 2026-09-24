@@ -16,11 +16,12 @@ defmodule ImagePipe.Response.Sender do
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Debug
   alias ImagePipe.Debug.Info
+  alias ImagePipe.Delivery.PreparedStream
   alias ImagePipe.Error
   alias ImagePipe.Output.Resolved
-  alias ImagePipe.Plan.Response
+  alias ImagePipe.Plan.Request
   alias ImagePipe.Response.CacheHeaders
-  alias ImagePipe.Response.PreparedStream
+  alias ImagePipe.Response.Disposition
   alias ImagePipe.Telemetry
 
   @not_modified_header_allowlist ~w(age cache-control date etag expires vary)
@@ -48,13 +49,13 @@ defmodule ImagePipe.Response.Sender do
   def send_cache_entry(
         %Plug.Conn{} = conn,
         %Entry{} = entry,
-        %Response{} = response,
+        %Request{} = request,
         %CacheHeaders{} = prepared,
         hit_debug,
         opts
       ) do
     with {:ok, entry_headers} <- Entry.cacheable_headers(entry.headers),
-         {:ok, content_disposition} <- Response.content_disposition(response, entry.content_type) do
+         {:ok, content_disposition} <- Disposition.render(request, entry.content_type) do
       delivery_headers =
         entry_headers ++
           [{"content-disposition", content_disposition}] ++
@@ -111,9 +112,14 @@ defmodule ImagePipe.Response.Sender do
         content_type,
         body,
         %CacheHeaders{} = prepared,
-        %Response{} = response
+        %Request{} = request,
+        debug,
+        cache_info,
+        opts
       ) do
-    {:ok, disposition} = Response.content_disposition(response, content_type)
+    {:ok, disposition} = Disposition.render(request, content_type)
+
+    conn = put_resp_headers(conn, debug_headers(debug, cache_info, opts))
     headers = merge_delivery_headers(conn, [{"content-disposition", disposition}], prepared)
 
     conn
@@ -150,11 +156,18 @@ defmodule ImagePipe.Response.Sender do
   def send_prepared_stream(
         %Plug.Conn{} = conn,
         %PreparedStream{} = prepared_stream,
-        %Response{},
+        %Request{} = request,
         %CacheHeaders{} = prepared,
         opts
       ) do
     telemetry_opts = Telemetry.telemetry_opts(opts)
+    {:ok, disposition} = Disposition.render(request, prepared_stream.content_type)
+
+    prepared_stream = %{
+      prepared_stream
+      | headers: prepared_stream.headers ++ [{"content-disposition", disposition}]
+    }
+
     prepared_stream = maybe_add_debug_headers(prepared_stream, conn, opts)
 
     Telemetry.span(
@@ -168,6 +181,12 @@ defmodule ImagePipe.Response.Sender do
         {conn, deliver_stop_metadata(outcome, conn, prepared_stream.resolved_output)}
       end
     )
+  end
+
+  defp debug_headers(nil, _cache_info, _opts), do: []
+
+  defp debug_headers(%Info{} = debug, cache_info, opts) do
+    if Keyword.get(opts, :debug?, false), do: Debug.Headers.render(debug, cache_info), else: []
   end
 
   defp do_send_prepared_stream(%Plug.Conn{} = conn, %PreparedStream{} = prepared_stream) do

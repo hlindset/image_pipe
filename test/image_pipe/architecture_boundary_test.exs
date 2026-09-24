@@ -98,8 +98,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     plug = boundary_declaration(ImagePipe.Plug)
 
     assert_boundary_deps(plug, [
-      ImagePipe.Cache,
-      ImagePipe.Debug,
       ImagePipe.API,
       ImagePipe.Error,
       ImagePipe.Execution,
@@ -144,13 +142,12 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Processing,
       ImagePipe.ProcessingPool,
       ImagePipe.Representation,
-      ImagePipe.Response,
       ImagePipe.Source,
       ImagePipe.Telemetry,
       ImagePipe.Transform
     ])
 
-    refute_boundary_deps(execution, [ImagePipe.API, ImagePipe.Plug])
+    refute_boundary_deps(execution, [ImagePipe.API, ImagePipe.Plug, ImagePipe.Response])
     config = boundary_declaration(ImagePipe.Config)
 
     assert_boundary_deps(config, [
@@ -224,14 +221,18 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_deps(delivery, [
       ImagePipe.Cache,
       ImagePipe.Debug,
-      ImagePipe.Plan,
+      ImagePipe.Output,
       ImagePipe.ProcessingPool,
-      ImagePipe.Response,
       ImagePipe.Source,
       ImagePipe.Telemetry
     ])
 
-    assert_boundary_exports(delivery, [ImagePipe.Delivery.StreamPull])
+    refute_boundary_deps(delivery, [ImagePipe.API, ImagePipe.Plug, ImagePipe.Response])
+
+    assert_boundary_exports(delivery, [
+      ImagePipe.Delivery.PreparedStream,
+      ImagePipe.Delivery.StreamPull
+    ])
   end
 
   test "processing admission is independent of image and HTTP implementation" do
@@ -313,6 +314,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_deps(response, [
       ImagePipe.Cache,
       ImagePipe.Debug,
+      ImagePipe.Delivery,
       ImagePipe.Error,
       ImagePipe.Output,
       ImagePipe.Plan,
@@ -329,14 +331,15 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Response.Conditional,
       ImagePipe.Response.Discard,
       ImagePipe.Response.ErrorStatus,
-      ImagePipe.Response.PreparedStream,
       ImagePipe.Response.Sender
     ])
   end
 
   test "response delivery stays unaware of delivery sessions and cache staging" do
     forbidden_terms = [
-      "ImagePipe.Delivery",
+      "Delivery.Coordinator",
+      "Delivery.Producer",
+      "Delivery.stream(",
       "ImagePipe.Cache.Sink",
       "Cache.open_sink",
       "Cache.write_chunk",
@@ -368,7 +371,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     violations =
       for {file, source} <- response_sources,
-          term <- ["ImagePipe.Delivery"],
+          term <- ["Delivery.Coordinator", "Delivery.Producer", "Delivery.stream("],
           String.contains?(source, term) do
         "#{file} must not reference #{term}; response delivery uses PreparedStream callbacks"
       end
@@ -588,7 +591,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Plan.Output.PngOptions,
       ImagePipe.Plan.Output.WebpOptions,
       ImagePipe.Plan.Output.AvifOptions,
-      ImagePipe.Plan.Response,
       ImagePipe.Plan.Color,
       ImagePipe.Plan.Source,
       ImagePipe.Plan.Source.Identity,
