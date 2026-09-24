@@ -12,10 +12,9 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     # Start the per-test Registry and a private tmp cache root. A single setup
     # callback supplies both keys so every test gets a consistent context;
     # there is no second tag-gated setup to race with.
-    registry_name = :"#{__MODULE__}.Registry"
-    start_supervised!({Registry, keys: :unique, name: registry_name})
-
     tmp_dir = Path.join(System.tmp_dir!(), "admission_test_#{System.unique_integer([:positive])}")
+    registry_name = FileSystem.registry_name(tmp_dir)
+    start_supervised!({Registry, keys: :unique, name: registry_name})
     File.mkdir_p!(tmp_dir)
     on_exit(fn -> File.rm_rf!(tmp_dir) end)
 
@@ -50,16 +49,16 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     opts = base_opts(registry: registry, tmp_dir: tmp_dir, sketch_width: 64)
     pid = start_supervised!({Admission, opts})
 
-    descriptor = %{key_hash: "key-1", size_bytes: 100, body_sha256: "s", cost_us: 1_000}
+    descriptor = persisted_descriptor(tmp_dir, "key-1")
 
     Admission.hit(pid, descriptor)
     state = :sys.get_state(pid)
-    assert Talan.BloomFilter.member?(state.doorkeeper, "key-1")
-    assert Sketch.estimate(state.local_cms, "key-1") == 0
+    assert Talan.BloomFilter.member?(state.doorkeeper, descriptor.key_hash)
+    assert Sketch.estimate(state.local_cms, descriptor.key_hash) == 0
 
     Admission.hit(pid, descriptor)
     state = :sys.get_state(pid)
-    assert Sketch.estimate(state.local_cms, "key-1") >= 1
+    assert Sketch.estimate(state.local_cms, descriptor.key_hash) >= 1
   end
 
   test "hit/2 on an untracked persisted key restores its accounting",
@@ -78,188 +77,6 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert state.probationary_bytes == byte_size("persisted body")
   end
 
-  test "admit/2 inserts a candidate at window MRU when window has room",
-       %{registry: registry, tmp_dir: tmp_dir} do
-    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
-    pid = start_supervised!({Admission, opts})
-
-    descriptor = %{
-      key_hash: "h1",
-      size_bytes: 5_000,
-      body_sha256: "sha1",
-      cost_us: 1_000
-    }
-
-    assert {:admit, []} = Admission.admit(pid, descriptor)
-
-    state = :sys.get_state(pid)
-    assert state.window_bytes == 5_000
-  end
-
-  test "admit/2 hard-rejects candidates larger than max_size_bytes",
-       %{registry: registry, tmp_dir: tmp_dir} do
-    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
-    pid = start_supervised!({Admission, opts})
-
-    descriptor = %{
-      key_hash: "huge",
-      # > 1_000_000 cap
-      size_bytes: 10_000_000,
-      body_sha256: "sha",
-      cost_us: 1_000
-    }
-
-    assert {:reject, :over_cap} = Admission.admit(pid, descriptor)
-  end
-
-  test "window overflow pushes LRU into main; with free main, evictee goes to probationary", %{
-    registry: registry,
-    tmp_dir: tmp_dir
-  } do
-    # Tiny window so we can force overflow quickly.
-    opts =
-      base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: 100_000, window_ratio: 0.1)
-
-    pid = start_supervised!({Admission, opts})
-
-    # window_budget = 10_000. Insert 3 × 5_000-byte entries; the third pushes the first out.
-    Admission.admit(pid, %{key_hash: "a", size_bytes: 5_000, body_sha256: "sa", cost_us: 1_000})
-    Admission.admit(pid, %{key_hash: "b", size_bytes: 5_000, body_sha256: "sb", cost_us: 1_000})
-
-    {:admit, victims} =
-      Admission.admit(pid, %{key_hash: "c", size_bytes: 5_000, body_sha256: "sc", cost_us: 1_000})
-
-    # No victims: main had room for "a".
-    assert victims == []
-
-    state = :sys.get_state(pid)
-    # "b" and "c"
-    assert state.window_bytes == 10_000
-    # "a" moved into main
-    assert state.probationary_bytes == 5_000
-  end
-
-  test "same-key re-commit returns body-only victim when body_sha256 differs", %{
-    registry: registry,
-    tmp_dir: tmp_dir
-  } do
-    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
-    pid = start_supervised!({Admission, opts})
-
-    {:admit, []} =
-      Admission.admit(pid, %{
-        key_hash: "k",
-        size_bytes: 1_000,
-        body_sha256: "sha_old",
-        cost_us: 1_000
-      })
-
-    {:admit, victims} =
-      Admission.admit(pid, %{
-        key_hash: "k",
-        size_bytes: 1_500,
-        body_sha256: "sha_new",
-        cost_us: 2_000
-      })
-
-    # The victim must point at the OLD body (for deletion) but NOT
-    # delete the meta — the meta path is identical for old and new
-    # entries, and the adapter has just renamed the new meta into
-    # place. Deleting the meta would destroy the new entry.
-    assert [
-             %{
-               key_hash: "k",
-               body_sha256: "sha_old",
-               delete_body?: true,
-               delete_meta?: false
-             }
-           ] = victims
-  end
-
-  test "same-key re-commit emits NO victim when body_sha256 matches", %{
-    registry: registry,
-    tmp_dir: tmp_dir
-  } do
-    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
-    pid = start_supervised!({Admission, opts})
-
-    {:admit, []} =
-      Admission.admit(pid, %{
-        key_hash: "k",
-        size_bytes: 1_000,
-        body_sha256: "same_sha",
-        cost_us: 1_000
-      })
-
-    {:admit, victims} =
-      Admission.admit(pid, %{
-        key_hash: "k",
-        size_bytes: 1_000,
-        body_sha256: "same_sha",
-        cost_us: 1_500
-      })
-
-    # Content-identical rewrite: nothing to delete (the body file path
-    # is the same as the just-renamed candidate body).
-    assert victims == []
-  end
-
-  test "same-key replacement rejected when new size exceeds max_size_bytes", %{
-    registry: registry,
-    tmp_dir: tmp_dir
-  } do
-    opts = base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: 10_000)
-    pid = start_supervised!({Admission, opts})
-
-    {:admit, []} =
-      Admission.admit(pid, %{key_hash: "k", size_bytes: 1_000, body_sha256: "sa", cost_us: 1_000})
-
-    assert {:reject, :over_cap, [%{body_sha256: "sa", delete_meta?: false}]} =
-             Admission.admit(pid, %{
-               key_hash: "k",
-               size_bytes: 20_000,
-               body_sha256: "sb",
-               cost_us: 1_000
-             })
-
-    state = :sys.get_state(pid)
-
-    refute in_queue?(state.window, "k") or in_queue?(state.probationary, "k") or
-             in_queue?(state.protected, "k")
-  end
-
-  test "hit on probationary promotes to protected", %{registry: registry, tmp_dir: tmp_dir} do
-    # Use small main budget so we can observe queue movement
-    opts = base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: 100_000)
-    pid = start_supervised!({Admission, opts})
-
-    descriptor = %{key_hash: "k", size_bytes: 5_000, body_sha256: "s", cost_us: 1_000}
-    {:admit, []} = Admission.admit(pid, descriptor)
-
-    # Force window→main by overflowing window
-    Admission.admit(pid, %{
-      key_hash: "filler",
-      size_bytes: 1_000,
-      body_sha256: "f",
-      cost_us: 1_000
-    })
-
-    # hit/2 takes a full descriptor (Task 13); on a tracked key the
-    # promote path uses the located descriptor and ignores these fields.
-    # Promotion probationary → protected is not frequency-gated, so the
-    # first hit already moves "k"; the second hit exercises the
-    # protected → protected MRU path. `_ = :sys.get_state(pid)` between
-    # casts ensures the first cast is processed before the second.
-    Admission.hit(pid, descriptor)
-    _ = :sys.get_state(pid)
-
-    Admission.hit(pid, descriptor)
-    state = :sys.get_state(pid)
-
-    assert in_queue?(state.protected, "k")
-    refute in_queue?(state.probationary, "k")
-  end
-
   test "aging triggers when local CMS sample threshold is hit", %{
     registry: registry,
     tmp_dir: tmp_dir
@@ -269,7 +86,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
 
     # Threshold = 4 * 10 = 40 sightings
     # First sighting goes to doorkeeper; subsequent 39+ go to CMS.
-    descriptor = %{key_hash: "k", size_bytes: 100, body_sha256: "s", cost_us: 1_000}
+    descriptor = persisted_descriptor(tmp_dir, "k")
     Enum.each(1..50, fn _ -> Admission.hit(pid, descriptor) end)
 
     # synchronize
@@ -284,7 +101,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     opts = base_opts(registry: registry, tmp_dir: tmp_dir, flush_interval_ms: 50)
     pid = start_supervised!({Admission, opts})
 
-    Admission.hit(pid, %{key_hash: "k1", size_bytes: 100, body_sha256: "s", cost_us: 1_000})
+    Admission.hit(pid, persisted_descriptor(tmp_dir, "k1"))
     send(pid, :flush)
     :sys.get_state(pid)
 
@@ -309,7 +126,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
 
     pid = start_supervised!({Admission, opts})
 
-    Admission.hit(pid, %{key_hash: "k1", size_bytes: 100, body_sha256: "s", cost_us: 1_000})
+    Admission.hit(pid, persisted_descriptor(tmp_dir, "k1"))
     send(pid, :flush)
     # process still alive
     assert :sys.get_state(pid)
@@ -319,7 +136,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     opts = base_opts(registry: registry, tmp_dir: tmp_dir)
     pid = start_supervised!({Admission, opts})
 
-    Admission.hit(pid, %{key_hash: "k1", size_bytes: 100, body_sha256: "s", cost_us: 1_000})
+    Admission.hit(pid, persisted_descriptor(tmp_dir, "k1"))
     # Ensure the hit cast (which marks state_dirty) is processed before stop.
     _ = :sys.get_state(pid)
 
@@ -476,14 +293,13 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     opts = base_opts(registry: registry, tmp_dir: tmp_dir, window_ratio: 0.0)
     pid = start_supervised!({Admission, opts})
 
-    descriptor = %{key_hash: "no-window", size_bytes: 5_000, body_sha256: "s", cost_us: 1_000}
-    assert {:admit, []} = Admission.admit(pid, descriptor)
+    alias ImagePipe.Test.CacheEntry
+
+    pool = [root: tmp_dir, node_id: "test-node", max_size_bytes: 1_000_000]
+    assert :ok = CacheEntry.put(pool, String.duplicate("x", 5_000))
 
     state = :sys.get_state(pid)
-    # window_budget == 0, so the candidate skips the window entirely and is
-    # admitted straight into probationary by the main gate.
     assert state.window_bytes == 0
-    assert in_queue?(state.probationary, "no-window")
     assert state.probationary_bytes == 5_000
   end
 
@@ -512,31 +328,25 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     hash = hex_hash("b")
     # Pre-place an entry on disk with one size.
     put_disk_entry(tmp_dir, hash, "old-on-disk-body")
+    {:ok, paths} = FileSystem.paths_from_hash(hash, root: tmp_dir)
+    {:ok, snapshot, mtime} = FileSystem.read_descriptor(paths.meta_path)
+    :ok = Store.delete(%Key{hash: hash, data: []}, root: tmp_dir)
 
     opts = base_opts(registry: registry, tmp_dir: tmp_dir)
     pid = start_supervised!({Admission, opts})
 
-    # Immediately admit a different descriptor for the same key. The admit
-    # call is processed before the scan's apply-batch call (both are
-    # GenServer.call, serialized by the mailbox), establishing runtime
-    # presence ahead of the scan reaching this key.
-    runtime_descriptor = %{
-      key_hash: hash,
-      size_bytes: 4_321,
-      body_sha256: "runtime_sha",
-      cost_us: 1_000
-    }
-
-    {:admit, _} = Admission.admit(pid, runtime_descriptor)
-
     Admission.await_scan(pid, 5_000)
+    put_disk_entry(tmp_dir, hash, String.duplicate("x", 4_321))
+    {:ok, runtime_descriptor, _} = FileSystem.read_descriptor(paths.meta_path)
+    Admission.hit(pid, runtime_descriptor)
+    assert :ok = GenServer.call(pid, {:apply_scan_batch, [Map.put(snapshot, :mtime, mtime)]})
 
     state = :sys.get_state(pid)
     # The runtime descriptor survives; the scan did not overwrite it with
     # the on-disk descriptor (which has a different size and body_sha256).
     located = locate_descriptor(state, hash)
     assert located.size_bytes == 4_321
-    assert located.body_sha256 == "runtime_sha"
+    assert located.body_sha256 == runtime_descriptor.body_sha256
   end
 
   for queue <- [:probationary, :protected] do
@@ -648,6 +458,14 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
   end
 
   defp hex_hash(seed), do: seed <> String.duplicate("0", 64 - byte_size(seed))
+
+  defp persisted_descriptor(root, seed) do
+    hash = :crypto.hash(:sha256, seed) |> Base.encode16(case: :lower)
+    put_disk_entry(root, hash, String.duplicate("x", 100))
+    {:ok, paths} = FileSystem.paths_from_hash(hash, root: root)
+    {:ok, descriptor, _mtime} = FileSystem.read_descriptor(paths.meta_path)
+    descriptor
+  end
 
   defp put_disk_entry(root, hash, body) do
     cache_key = %Key{

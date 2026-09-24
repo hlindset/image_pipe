@@ -459,14 +459,6 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     end
   end
 
-  @spec admit(pid() | GenServer.name(), map()) ::
-          {:admit, [map()]}
-          | {:reject, :over_cap | :score_too_low | :no_evictable_victims | :victim_limit_exceeded}
-          | {:reject, atom(), [map()]}
-  def admit(server, descriptor) do
-    GenServer.call(server, {:admit, descriptor})
-  end
-
   def commit(server, prepared, body_filename) do
     call(server, {:commit, prepared, body_filename})
   end
@@ -530,11 +522,6 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       {:error, _reason} = error ->
         {:reply, error, state}
     end
-  end
-
-  def handle_call({:admit, descriptor}, _from, state) do
-    {result, state} = admit_descriptor(state, descriptor)
-    {:reply, result, state}
   end
 
   def handle_call(:await_scan, from, state) do

@@ -1,7 +1,7 @@
 defmodule ImagePipe.Telemetry.Trace.AdmissionRootTest do
   # Positive coverage for spec §8.1: a [:cache, :admission] span emitted from the
   # long-lived Admission GenServer becomes its OWN trace root (parent_span_id == nil,
-  # fresh trace_id) EVEN WHEN the caller of Admission.admit/2 carries a request trace
+  # fresh trace_id) EVEN WHEN the cache writer carries a request trace
   # context on its stack. The GenServer process boundary severs the trace: the Capture
   # handler runs in the GenServer process (empty Stack), never the caller's.
   #
@@ -12,6 +12,7 @@ defmodule ImagePipe.Telemetry.Trace.AdmissionRootTest do
   alias ImagePipe.Cache.FileSystem.Admission
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.Trace.{Context, Span, Stack, TestExporter}
+  alias ImagePipe.Test.CacheEntry
 
   # A request context the CALLER carries on its stack. If admission inherited the
   # caller's context, the emitted span would reuse this trace_id / parent under it.
@@ -19,12 +20,14 @@ defmodule ImagePipe.Telemetry.Trace.AdmissionRootTest do
   @caller_span_id "1111111111111111"
 
   setup do
-    registry = :"#{__MODULE__}.Registry.#{System.unique_integer([:positive])}"
-    start_supervised!({Registry, keys: :unique, name: registry})
-
     tmp_dir = Path.join(System.tmp_dir!(), "admission_root_#{System.unique_integer([:positive])}")
     File.mkdir_p!(tmp_dir)
     on_exit(fn -> File.rm_rf!(tmp_dir) end)
+
+    alias ImagePipe.Cache.FileSystem
+
+    registry = FileSystem.registry_name(tmp_dir)
+    start_supervised!({Registry, keys: :unique, name: registry})
 
     # The Admission GenServer emits under this custom prefix; the Capture handler
     # subscribes per-prefix, so the tracer must be attached with the SAME prefix.
@@ -61,17 +64,17 @@ defmodule ImagePipe.Telemetry.Trace.AdmissionRootTest do
 
   test "cache.admission becomes its own trace root despite an adopted caller context (§8.1)",
        ctx do
-    pid = start_supervised!({Admission, opts(ctx)})
+    start_supervised!({Admission, opts(ctx)})
 
-    # The TEST process (the caller of admit/2) genuinely carries a request context.
+    # The cache writer carries a request context.
     Stack.adopt(%Context{
       trace_id: @caller_trace_id,
       span_id: @caller_span_id,
       trace_flags: 1
     })
 
-    descriptor = %{key_hash: "h1", size_bytes: 5_000, body_sha256: "s", cost_us: 1_000}
-    assert {:admit, []} = Admission.admit(pid, descriptor)
+    pool = Keyword.drop(opts(ctx), [:registry, :telemetry_prefix])
+    assert :ok = CacheEntry.put(pool, String.duplicate("x", 5_000))
 
     # Capture strips the configured prefix and re-roots the name under "image_pipe.",
     # so the [:cache, :admission] stage always surfaces as this name regardless of the
