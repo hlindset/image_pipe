@@ -6,8 +6,8 @@ defmodule ImagePipe.Cache.FileSystem.SketchTest do
   describe "new/1" do
     test "creates a sketch with the configured depth and width" do
       sketch = Sketch.new(depth: 4, width: 4096)
-      assert Sketch.depth(sketch) == 4
-      assert Sketch.width(sketch) == 4096
+      assert sketch.depth == 4
+      assert sketch.width == 4096
     end
 
     test "starts with all counters at zero" do
@@ -49,9 +49,9 @@ defmodule ImagePipe.Cache.FileSystem.SketchTest do
         |> Sketch.increment("alpha")
         |> Sketch.increment("alpha")
 
-      counters_before = Sketch.dump_counters(sketch)
+      counters_before = counters(sketch)
       sketch = Sketch.increment(sketch, "alpha")
-      counters_after = Sketch.dump_counters(sketch)
+      counters_after = counters(sketch)
 
       # Every changed counter must have been at the same (minimum) value
       # before the update — conservative update only increments positions
@@ -76,9 +76,9 @@ defmodule ImagePipe.Cache.FileSystem.SketchTest do
       sketch = Sketch.new(depth: 2, width: 4)
       sketch = Enum.reduce(1..10, sketch, fn _, s -> Sketch.increment(s, "k") end)
 
-      before = Sketch.dump_counters(sketch)
+      before = counters(sketch)
       sketch = Sketch.age(sketch)
-      after_ = Sketch.dump_counters(sketch)
+      after_ = counters(sketch)
 
       assert Enum.zip(before, after_) |> Enum.all?(fn {b, a} -> a == Bitwise.bsr(b + 1, 1) end)
     end
@@ -122,7 +122,7 @@ defmodule ImagePipe.Cache.FileSystem.SketchTest do
       binary = Sketch.serialize(sketch)
       {:ok, restored} = Sketch.deserialize(binary, depth: 2, width: 4)
 
-      assert Sketch.dump_counters(restored) == Sketch.dump_counters(sketch)
+      assert counters(restored) == counters(sketch)
       assert restored.aging_epoch == sketch.aging_epoch
       assert restored.increments_since_reset == sketch.increments_since_reset
     end
@@ -169,4 +169,6 @@ defmodule ImagePipe.Cache.FileSystem.SketchTest do
                Sketch.estimate(a, "k1") + Sketch.estimate(b, "k1") - 4
     end
   end
+
+  defp counters(sketch), do: :array.to_list(sketch.counters)
 end

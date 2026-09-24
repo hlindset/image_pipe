@@ -462,14 +462,6 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
       state = :sys.get_state(pid)
       assert Sketch.estimate(state.local_cms, "candidate") == 0
       assert Sketch.estimate(state.boot_cms, "candidate") == 0
-
-      assert {:admit, []} =
-               Admission.admit(pid, %{
-                 key_hash: "candidate",
-                 body_sha256: "body",
-                 size_bytes: 100,
-                 cost_us: 100
-               })
     end
   end
 

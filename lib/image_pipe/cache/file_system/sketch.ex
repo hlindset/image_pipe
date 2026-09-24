@@ -42,12 +42,6 @@ defmodule ImagePipe.Cache.FileSystem.Sketch do
     }
   end
 
-  @spec depth(t()) :: pos_integer()
-  def depth(%__MODULE__{depth: d}), do: d
-
-  @spec width(t()) :: pos_integer()
-  def width(%__MODULE__{width: w}), do: w
-
   @spec increment(t(), binary()) :: t()
   def increment(%__MODULE__{} = sketch, key) when is_binary(key) do
     positions = positions_for(sketch, key)
@@ -176,10 +170,6 @@ defmodule ImagePipe.Cache.FileSystem.Sketch do
       increments_since_reset: 0
     }
   end
-
-  @doc false
-  @spec dump_counters(t()) :: [non_neg_integer()]
-  def dump_counters(%__MODULE__{counters: counters}), do: :array.to_list(counters)
 
   defp positions_for(%__MODULE__{depth: depth, width: width}, key) do
     for row <- 0..(depth - 1) do
