@@ -7,6 +7,13 @@ defmodule ImagePipe.Security do
   alias ImagePipe.Security.Signature.Keys
   alias ImagePipe.Security.SourceEncryption
 
+  @options_schema NimbleOptions.new!(
+                    keys: [type: {:list, :string}, default: []],
+                    source_encryption_keys: [type: {:list, :string}, default: []],
+                    iv_mode: [type: {:in, [:deterministic, :random]}, default: :deterministic],
+                    encrypt_source: [type: :boolean, default: false]
+                  )
+
   defdelegate verify(signature, path, config), to: Signature
 
   def sign(path, config) do
@@ -23,11 +30,18 @@ defmodule ImagePipe.Security do
     do: SourceEncryption.decrypt(token, Keyword.fetch!(config, :source_encryption))
 
   def extract!(options) do
-    {keys, options} = Keyword.pop(options, :keys, [])
-    keys = Keys.new!(keys)
-    {source_keys, options} = Keyword.pop(options, :source_encryption_keys, [])
-    {iv_mode, options} = Keyword.pop(options, :iv_mode, :deterministic)
-    {encrypt_source, options} = Keyword.pop(options, :encrypt_source, false)
+    {security, options} = Keyword.split(options, Keyword.keys(@options_schema.schema))
+
+    security =
+      case NimbleOptions.validate(security, @options_schema) do
+        {:ok, validated} -> validated
+        {:error, error} -> raise ArgumentError, "invalid security option: #{error.key}"
+      end
+
+    keys = Keys.new!(Keyword.fetch!(security, :keys))
+    source_keys = Keyword.fetch!(security, :source_encryption_keys)
+    iv_mode = Keyword.fetch!(security, :iv_mode)
+    encrypt_source = Keyword.fetch!(security, :encrypt_source)
 
     case SourceEncryption.new(source_keys, iv_mode) do
       {:ok, encryption} ->
@@ -46,9 +60,6 @@ defmodule ImagePipe.Security do
   end
 
   defp validate_generation!(false, _encryption), do: :ok
-
-  defp validate_generation!(_value, _encryption),
-    do: raise(ArgumentError, "encrypt_source must be a boolean")
 
   defp validate!(keys, encryption) do
     cond do

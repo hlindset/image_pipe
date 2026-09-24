@@ -28,20 +28,23 @@ defmodule ImagePipe.Transform.Detector.Warmup do
   @backoff_base_ms 100
   @backoff_cap_ms 1_000
 
+  @options_schema NimbleOptions.new!(
+                    detector: [type: :atom, default: :default],
+                    classes: [type: {:or, [{:in, [:all]}, {:list, :string}]}, default: :all],
+                    opts: [type: :keyword_list, default: []],
+                    retries: [type: :non_neg_integer, default: 2]
+                  )
+
   @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+  def start_link(opts) do
+    case NimbleOptions.validate(opts, @options_schema) do
+      {:ok, opts} -> GenServer.start_link(__MODULE__, Map.new(opts))
+      {:error, error} -> raise ArgumentError, Exception.message(error)
+    end
+  end
 
   @impl true
-  def init(opts) do
-    state = %{
-      detector: Keyword.get(opts, :detector, :default),
-      classes: Keyword.get(opts, :classes, :all),
-      opts: Keyword.get(opts, :opts, []),
-      retries: Keyword.get(opts, :retries, 2)
-    }
-
-    {:ok, state, {:continue, :warm_then_stop}}
-  end
+  def init(state), do: {:ok, state, {:continue, :warm_then_stop}}
 
   @impl true
   def handle_continue(:warm_then_stop, state) do

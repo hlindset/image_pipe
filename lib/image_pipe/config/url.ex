@@ -1,12 +1,18 @@
 defmodule ImagePipe.Config.URL do
   @moduledoc false
 
+  @options_schema NimbleOptions.new!(base_url: [type: :string, default: ""])
+
   def extract!(options) do
-    {base_url, options} = Keyword.pop(options, :base_url, "")
-    {[base_url: base_url!(base_url)], options}
+    {url, options} = Keyword.split(options, Keyword.keys(@options_schema.schema))
+
+    case NimbleOptions.validate(url, @options_schema) do
+      {:ok, validated} -> {[base_url: base_url!(Keyword.fetch!(validated, :base_url))], options}
+      {:error, _error} -> invalid_base!()
+    end
   end
 
-  defp base_url!(value) when is_binary(value) do
+  defp base_url!(value) do
     with {:ok, uri} <- URI.new(value),
          true <- valid_authority?(uri),
          true <- is_nil(uri.query) and is_nil(uri.fragment) and is_nil(uri.userinfo),
@@ -17,8 +23,6 @@ defmodule ImagePipe.Config.URL do
       _invalid -> invalid_base!()
     end
   end
-
-  defp base_url!(_value), do: invalid_base!()
 
   defp valid_authority?(%URI{scheme: nil, host: nil, port: nil}), do: true
 

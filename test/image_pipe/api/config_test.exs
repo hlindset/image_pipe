@@ -320,6 +320,44 @@ defmodule ImagePipe.API.ConfigTest do
     end
   end
 
+  test "validates security option shapes without exposing secret values" do
+    secret = "private-configuration-value"
+
+    for invalid <- [
+          [keys: [%{secret: secret}]],
+          [source_encryption_keys: secret],
+          [source_encryption_keys: [%{secret: secret}]],
+          [iv_mode: secret],
+          [encrypt_source: secret]
+        ] do
+      error = assert_raise ArgumentError, fn -> ImagePipe.config(invalid) end
+      refute Exception.message(error) =~ secret
+    end
+  end
+
+  test "security defaults and valid overrides preserve unrelated configuration" do
+    defaults = Config.validate!([])
+    assert defaults[:encrypt_source] == false
+    assert defaults[:source_encryption].iv_mode == :deterministic
+
+    config =
+      Config.validate!(
+        keys: [@signing_key],
+        source_encryption_keys: [@source_key],
+        iv_mode: :random,
+        encrypt_source: true,
+        quality: 72,
+        base_url: "/images"
+      )
+
+    assert config[:encrypt_source] == true
+    assert config[:source_encryption].iv_mode == :random
+    assert config[:quality] == 72
+    assert config[:base_url] == "/images"
+    assert_raise ArgumentError, fn -> ImagePipe.config(encrypt_source: true) end
+    assert_raise ArgumentError, fn -> ImagePipe.config(encrypt_souce: true) end
+  end
+
   property "quality overrides preserve unrelated API defaults" do
     check all quality <- integer(1..100) do
       config = Config.validate!(quality: quality)

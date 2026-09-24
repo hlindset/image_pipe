@@ -16,19 +16,29 @@ defmodule ImagePipe.Source.S3.CredentialWarmup do
 
   alias ImagePipe.Source.S3.Credentials
 
+  @options_schema NimbleOptions.new!(
+                    provider: [type: :atom, required: true],
+                    scope: [type: :string, required: true],
+                    opts: [type: :keyword_list, default: []]
+                  )
+
   @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+  def start_link(opts) do
+    with {:ok, opts} <- NimbleOptions.validate(opts, @options_schema),
+         state = Map.new(opts),
+         {:ok, _credentials} <- Credentials.validate({:provider, state.provider, state.opts}) do
+      GenServer.start_link(__MODULE__, state)
+    else
+      {:error, %NimbleOptions.ValidationError{} = error} ->
+        raise ArgumentError, Exception.message(error)
+
+      {:error, _reason} ->
+        raise ArgumentError, "invalid credential provider configuration"
+    end
+  end
 
   @impl true
-  def init(opts) do
-    state = %{
-      provider: Keyword.fetch!(opts, :provider),
-      opts: Keyword.get(opts, :opts, []),
-      scope: Keyword.fetch!(opts, :scope)
-    }
-
-    {:ok, state, {:continue, :warm_then_stop}}
-  end
+  def init(state), do: {:ok, state, {:continue, :warm_then_stop}}
 
   @impl true
   def handle_continue(:warm_then_stop, state) do

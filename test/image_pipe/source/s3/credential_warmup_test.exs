@@ -23,6 +23,37 @@ defmodule ImagePipe.Source.S3.CredentialWarmupTest do
     end
   end
 
+  test "rejects invalid startup options before fetching credentials" do
+    valid = [provider: OnceProvider, scope: "warmup-config", opts: [test: self()]]
+
+    for opts <- [
+          Keyword.delete(valid, :provider),
+          Keyword.delete(valid, :scope),
+          Keyword.put(valid, :unknown, true),
+          Keyword.put(valid, :provider, "provider"),
+          Keyword.put(valid, :provider, nil),
+          Keyword.put(valid, :scope, :bucket),
+          Keyword.put(valid, :opts, %{test: self()})
+        ] do
+      assert_raise RuntimeError, ~r/ArgumentError/, fn ->
+        start_supervised!({CredentialWarmup, opts})
+      end
+
+      refute_received {:warmed, _}
+    end
+  end
+
+  test "delegates provider option validation before fetching credentials" do
+    assert_raise RuntimeError, ~r/ArgumentError/, fn ->
+      start_supervised!(
+        {CredentialWarmup,
+         provider: ImagePipe.Source.S3.InstanceRole,
+         scope: "warmup-invalid-provider",
+         opts: [unknown: true]}
+      )
+    end
+  end
+
   test "warms the cache entry at start so a later fetch does not re-fetch" do
     scope = "bucket-#{System.unique_integer([:positive])}"
     opts = [test: self()]

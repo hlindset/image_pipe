@@ -905,6 +905,25 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(debug: :yes) end
   end
 
+  test "invalid configuration leaves the existing logger attached" do
+    prefix = [__MODULE__, :invalid_configuration]
+    Telemetry.attach_default_logger(prefix: prefix, events: [:cache])
+
+    for opts <- [[prefix: []], [prefix: [:app, "images"]], [events: "cache"], [events: [nil]]] do
+      assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(opts) end
+    end
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(prefix ++ [:cache, :lookup, :stop], %{duration: 1}, %{
+          result: :ok,
+          cache: :hit
+        })
+      end)
+
+    assert log =~ "cache lookup: hit"
+  end
+
   test "orientation logs materialization of each display frame" do
     prefix = [__MODULE__, :orientation]
     opts = [telemetry_prefix: prefix]

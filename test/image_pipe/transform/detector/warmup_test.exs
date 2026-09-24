@@ -2,6 +2,24 @@ defmodule ImagePipe.Transform.Detector.WarmupTest do
   use ExUnit.Case, async: true
   alias ImagePipe.Transform.Detector.Warmup
 
+  test "rejects invalid startup options before invoking a detector" do
+    for invalid <- [
+          [unknown: true],
+          [detector: "default"],
+          [classes: "face"],
+          [classes: [:face]],
+          [opts: %{test_pid: self()}],
+          [retries: -1],
+          [retries: 1.5]
+        ] do
+      opts =
+        Keyword.merge([detector: __MODULE__.SignalDetector, opts: [test_pid: self()]], invalid)
+
+      assert_raise RuntimeError, ~r/ArgumentError/, fn -> start_supervised!({Warmup, opts}) end
+      refute_received {:warm_started, _, _}
+    end
+  end
+
   defmodule SignalDetector do
     @behaviour ImagePipe.Transform.Detector
     @impl true

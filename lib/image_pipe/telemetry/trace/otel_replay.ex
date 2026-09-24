@@ -51,16 +51,34 @@ defmodule ImagePipe.Telemetry.Trace.OtelReplay do
               :otel_propagator_trace_context
             ]}
 
-  @default_ttl_ms 10_000
-  @default_sweep_interval_ms 5_000
-  @default_max_traces 10_000
+  @options_schema NimbleOptions.new!(
+                    name: [
+                      type:
+                        {:or,
+                         [
+                           :atom,
+                           {:tuple, [{:in, [:global]}, :any]},
+                           {:tuple, [{:in, [:via]}, :atom, :any]}
+                         ]},
+                      default: __MODULE__
+                    ],
+                    ttl_ms: [type: :non_neg_integer, default: 10_000],
+                    sweep_interval_ms: [type: :pos_integer, default: 5_000],
+                    max_traces: [type: :non_neg_integer, default: 10_000]
+                  )
 
   # ---- client ----------------------------------------------------------------
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    {name, opts} = Keyword.pop(opts, :name, __MODULE__)
-    GenServer.start_link(__MODULE__, opts, name: name)
+    case NimbleOptions.validate(opts, @options_schema) do
+      {:ok, opts} ->
+        {name, opts} = Keyword.pop!(opts, :name)
+        GenServer.start_link(__MODULE__, Map.new(opts), name: name)
+
+      {:error, error} ->
+        raise ArgumentError, Exception.message(error)
+    end
   end
 
   @doc "Hand a finished span to the replay buffer. Fire-and-forget."
@@ -78,14 +96,8 @@ defmodule ImagePipe.Telemetry.Trace.OtelReplay do
   # ---- server ----------------------------------------------------------------
 
   @impl true
-  def init(opts) do
-    state = %{
-      traces: %{},
-      ttl_ms: Keyword.get(opts, :ttl_ms, @default_ttl_ms),
-      sweep_interval_ms: Keyword.get(opts, :sweep_interval_ms, @default_sweep_interval_ms),
-      max_traces: Keyword.get(opts, :max_traces, @default_max_traces)
-    }
-
+  def init(config) do
+    state = Map.put(config, :traces, %{})
     schedule_sweep(state)
     {:ok, state}
   end
