@@ -34,7 +34,7 @@ defmodule ImagePipe.Run do
   end
 
   defp execute(plan, input, config, accept, inputs) do
-    with {:ok, request} <- request(plan),
+    with {:ok, request} <- request(plan, config),
          {:ok, policy} <- Processing.prepare(request, config, accept),
          {:ok, source, config} <- Source.from_input(input, config),
          {:ok, context} <- Execution.prepare(request, source, policy, inputs, config) do
@@ -46,8 +46,8 @@ defmodule ImagePipe.Run do
     end
   end
 
-  defp request(plan) do
-    case Plan.to_request(plan) do
+  defp request(plan, config) do
+    case Plan.to_request(plan, config[:presets]) do
       {:ok, request} -> {:ok, request}
       {:error, issues} -> {:error, {:invalid_request, issues}}
     end

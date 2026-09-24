@@ -1,11 +1,11 @@
 defmodule ImagePipe.DecodeFactsTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.API.Config
   alias ImagePipe.API.Parser
   alias ImagePipe.Decode
   alias ImagePipe.Plan.Request
   alias ImagePipe.Plan.Source.Path
+  alias ImagePipe.Plug.Config
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.PlugFixture.OriginImage

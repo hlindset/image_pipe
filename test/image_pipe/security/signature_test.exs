@@ -2,7 +2,7 @@ defmodule ImagePipe.Security.SignatureTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias ImagePipe.API.Config
+  alias ImagePipe.Plug.Config
   alias ImagePipe.Security.Signature
 
   @key_a "00112233445566778899aabbccddeeff00112233445566778899aabbccddee"

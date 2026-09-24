@@ -68,6 +68,7 @@ defmodule ImagePipe.API.SerializerTest do
       IP.new()
       |> IP.group(
         blur: 0.2,
+        progressive_blur: [sigma: 4, angle: -45, start: 0.2, stop: 0.8],
         sharpen: 1,
         pixelate: 2,
         brightness: -10,
@@ -133,10 +134,15 @@ defmodule ImagePipe.API.SerializerTest do
     Enum.each(plans, &assert_round_trip/1)
   end
 
-  test "equivalent normalized choices serialize identically" do
+  test "explicit identity values survive serialization as preset overrides" do
     first = IP.new() |> IP.group(resize: [width: 50], blur: 0, rotate: 360)
     second = IP.new() |> IP.group(resize: [height: :auto, width: 50, fit: :contain])
-    assert segments(first) == segments(second)
+    assert "blur=0" in segments(first)
+    assert "rotate=0" in segments(first)
+    assert "h=auto" in segments(second)
+    assert "fit=contain" in segments(second)
+    assert_round_trip(first)
+    assert_round_trip(second)
   end
 
   property "geometry and decimal values survive canonical serialization" do
@@ -158,13 +164,12 @@ defmodule ImagePipe.API.SerializerTest do
   end
 
   defp segments(plan) do
-    {:ok, request} = Plan.to_request(plan.plan)
-    Serializer.segments(request)
+    Serializer.segments(plan.plan)
   end
 
   defp assert_round_trip(plan) do
     assert {:ok, expected} = Plan.to_request(plan.plan)
-    path = "/" <> Enum.join(Serializer.segments(expected) ++ ["src", "photo.jpg"], "/")
+    path = "/" <> Enum.join(Serializer.segments(plan.plan) ++ ["src", "photo.jpg"], "/")
     assert {:ok, lexed} = Path.extract(Plug.Test.conn(:get, path))
     assert {:ok, ^expected} = Parser.parse(lexed, presets: %{}), path
   end

@@ -32,8 +32,29 @@ defmodule ImagePipe.API.CacheContractTest do
     assert_storage_only(storage_only_case(base_opts()))
   end
 
+  test "each progressive blur parameter contributes to cache and response identity" do
+    config = build_config(base_opts())
+
+    identities =
+      for value <- ["2,down,0,1", "3,down,0,1", "2,left,0,1", "2,down,0.2,1", "2,down,0,0.8"] do
+        response = request("/w=32/progressive-blur=#{value}/src/images/cat.jpg", config, nil)
+        assert response.status == 200
+        assert [key] = Enum.uniq(CacheProbe.lookup_keys())
+        {key.hash, get_resp_header(response, "etag")}
+      end
+
+    assert length(Enum.uniq(Enum.map(identities, &elem(&1, 0)))) == 5
+    assert length(Enum.uniq(Enum.map(identities, &elem(&1, 1)))) == 5
+  end
+
   defp equivalent_requests(base_opts) do
     [
+      {[
+         "/w=32/progressive-blur=2,right/src/images/cat.jpg",
+         "/progressive-blur=2.0,-90,0,1/w=32/src/images/cat.jpg"
+       ], base_opts},
+      {["/w=32/src/images/cat.jpg", "/w=32/progressive-blur=0,left,0.2,0.8/src/images/cat.jpg"],
+       base_opts},
       # default `fit` (:contain) vs. its explicit spelling.
       {["/w=800/src/images/cat.jpg", "/fit=contain/w=800/src/images/cat.jpg"], base_opts},
       # default `anchor` (:center, once a guide consumer is present) vs. its

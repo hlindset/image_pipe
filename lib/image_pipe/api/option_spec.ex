@@ -304,6 +304,14 @@ defmodule ImagePipe.API.OptionSpec do
         examples: ["detect=all", "detect=car,face", "detect=all:1,face:3"]
       },
       %__MODULE__{
+        key: "progressive-blur",
+        name: :progressive_blur,
+        scope: :group,
+        value: &__MODULE__.parse_progressive_blur/1,
+        summary: "Progressive Gaussian blur sigma, direction, start, and stop",
+        examples: ["progressive-blur=4,down,0.25,0.75"]
+      },
+      %__MODULE__{
         key: "blur",
         name: :blur,
         scope: :group,
@@ -569,7 +577,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "preset",
-        name: nil,
+        name: :presets,
         scope: :request,
         value: &__MODULE__.parse_preset_names/1,
         summary: "One or more configured preset names to expand",
@@ -1062,6 +1070,29 @@ defmodule ImagePipe.API.OptionSpec do
       {:ok, value}
     else
       _invalid -> :error
+    end
+  end
+
+  @doc false
+  def parse_progressive_blur(string) do
+    result =
+      case String.split(string, ",", trim: false) do
+        [sigma] -> progressive_blur(sigma, "down", "0", "1")
+        [sigma, direction] -> progressive_blur(sigma, direction, "0", "1")
+        [sigma, direction, start] -> progressive_blur(sigma, direction, start, "1")
+        [sigma, direction, start, stop] -> progressive_blur(sigma, direction, start, stop)
+        _invalid -> :error
+      end
+
+    effect_result(result, :invalid_progressive_blur)
+  end
+
+  defp progressive_blur(sigma, direction, start, stop) do
+    with {:ok, sigma} <- nonnegative_float(sigma),
+         {:ok, angle} <- gradient_direction(direction),
+         {:ok, start} <- Value.fraction(start),
+         {:ok, stop} <- Value.fraction(stop) do
+      {:ok, %{sigma: sigma, angle: angle, start: start, stop: stop}}
     end
   end
 

@@ -13,6 +13,13 @@ defmodule ImagePipe.Plan.Builder.Values do
     end
   end
 
+  defp normalize(value, :preset_name) when is_binary(value) do
+    case Regex.match?(~r/\A[A-Za-z0-9._-]+\z/, value) do
+      true -> {:ok, value}
+      false -> :error
+    end
+  end
+
   defp normalize(value, :positive) when is_number(value) and value > 0, do: float(value)
   defp normalize(value, :nonnegative) when is_number(value) and value >= 0, do: float(value)
 
@@ -135,7 +142,8 @@ defmodule ImagePipe.Plan.Builder.Values do
     end
   end
 
-  defp normalize(value, effect) when effect in [:monochrome, :duotone, :colorize, :gradient] do
+  defp normalize(value, effect)
+       when effect in [:monochrome, :duotone, :colorize, :gradient, :progressive_blur] do
     with {:ok, fields} <- Options.validate(value, effect_schema(effect)),
          do: {:ok, Map.new(fields)}
   end
@@ -200,6 +208,14 @@ defmodule ImagePipe.Plan.Builder.Values do
     do: [
       opacity: field(:fraction, required: true),
       color: field(:color, required: true),
+      angle: field(:angle, default: 0.0),
+      start: field(:fraction, default: 0.0),
+      stop: field(:fraction, default: 1.0)
+    ]
+
+  defp effect_schema(:progressive_blur),
+    do: [
+      sigma: field(:nonnegative, required: true),
       angle: field(:angle, default: 0.0),
       start: field(:fraction, default: 0.0),
       stop: field(:fraction, default: 1.0)

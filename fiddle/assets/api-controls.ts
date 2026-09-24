@@ -186,6 +186,11 @@ export type ControlState = {
   backgroundAlpha: number;
   blurEnabled: boolean;
   blur: number;
+  progressiveBlurEnabled: boolean;
+  progressiveBlur: number;
+  progressiveBlurDirection: string;
+  progressiveBlurStart: number;
+  progressiveBlurStop: number;
   sharpenEnabled: boolean;
   sharpen: number;
   pixelateEnabled: boolean;
@@ -396,6 +401,11 @@ export const defaultControlState: ControlState = {
   backgroundAlpha: 1,
   blurEnabled: false,
   blur: 2,
+  progressiveBlurEnabled: false,
+  progressiveBlur: 4,
+  progressiveBlurDirection: "down",
+  progressiveBlurStart: 0,
+  progressiveBlurStop: 1,
   sharpenEnabled: false,
   sharpen: 1,
   pixelateEnabled: false,
@@ -603,6 +613,10 @@ export function controlOptionSegments(s: ControlState): string[] {
       `bg=${s.backgroundColor.replace(/^#/, "")}${s.backgroundAlpha < 1 ? `,${s.backgroundAlpha}` : ""}`,
     );
   if (s.blurEnabled) segments.push(`blur=${s.blur}`);
+  if (s.progressiveBlurEnabled)
+    segments.push(
+      `progressive-blur=${s.progressiveBlur},${s.progressiveBlurDirection},${s.progressiveBlurStart},${s.progressiveBlurStop}`,
+    );
   if (s.sharpenEnabled) segments.push(`sharpen=${s.sharpen}`);
   if (s.pixelateEnabled) segments.push(`pixelate=${s.pixelate}`);
   if (s.monochromeEnabled)
@@ -850,6 +864,13 @@ export function controlStateFromOptions(
       case "saturation":
         s[`${key}Enabled`] = true;
         s[key] = Number(value);
+        break;
+      case "progressive-blur":
+        s.progressiveBlurEnabled = true;
+        s.progressiveBlur = Number(parts[0]);
+        s.progressiveBlurDirection = parts[1] ?? "down";
+        s.progressiveBlurStart = Number(parts[2] ?? 0);
+        s.progressiveBlurStop = Number(parts[3] ?? 1);
         break;
       case "monochrome":
         s.monochromeEnabled = true;

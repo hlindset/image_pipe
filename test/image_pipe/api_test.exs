@@ -43,7 +43,7 @@ defmodule ImagePipe.APITest do
 
       assert Keyword.fetch!(opts, :presets) == %{
                "card" => %{
-                 groups: %{0 => %{"w" => 300, "h" => 200, "fit" => :cover}},
+                 groups: %{0 => %{width: 300, height: 200, fit: :cover}},
                  request: %{}
                }
              }

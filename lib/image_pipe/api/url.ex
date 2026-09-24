@@ -21,8 +21,8 @@ defmodule ImagePipe.API.URL do
 
   def build(plan, source, config, options) do
     with :ok <- source(source),
-         {:ok, request} <- request(plan),
-         {:ok, segments} <- segments(request),
+         :ok <- validate_plan(plan, config),
+         {:ok, segments} <- segments(plan),
          {:ok, source_segments} <-
            source_segments(source, config, options, config[:encrypt_source]) do
       path = "/" <> Enum.join(segments ++ source_segments, "/")
@@ -57,15 +57,33 @@ defmodule ImagePipe.API.URL do
 
   defp source_segments(source), do: ["src", URI.encode(source, &URI.char_unreserved?/1)]
 
-  defp request(plan) do
-    case Plan.to_request(plan) do
-      {:ok, request} -> {:ok, request}
+  defp validate_plan(plan, config) do
+    presets = config[:presets]
+    names = Map.get(plan.options, :presets, [])
+
+    inherited? = names != [] or Map.has_key?(presets, "default")
+
+    cond do
+      inherited? and Serializer.empty_overrides?(plan) ->
+        {:error, :unrepresentable_preset_override}
+
+      Enum.all?(names, &Map.has_key?(presets, &1)) ->
+        validate_known_plan(plan, presets)
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_known_plan(plan, presets) do
+    case Plan.validate(plan, presets) do
+      :ok -> :ok
       {:error, issues} -> {:error, {:invalid_request, issues}}
     end
   end
 
-  defp segments(request) do
-    segments = Serializer.segments(request)
+  defp segments(plan) do
+    segments = Serializer.segments(plan)
 
     case length(segments) <= Path.max_option_segments() do
       true -> {:ok, segments}

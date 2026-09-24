@@ -10,6 +10,30 @@ const source = "images/dog.jpg";
 const defaults = () => controlStateFromOptions("", source);
 
 describe("visual controls serialize API requests", () => {
+  it("edits progressive blur sigma, direction, and stops in the selected group", () => {
+    const options = "w=400/-/progressive-blur=2";
+    const before = controlStateFromOptions(options, source, 1);
+    expect(before).toMatchObject({
+      progressiveBlurEnabled: true,
+      progressiveBlur: 2,
+      progressiveBlurDirection: "down",
+      progressiveBlurStart: 0,
+      progressiveBlurStop: 1,
+    });
+    const after = {
+      ...before,
+      progressiveBlur: 6,
+      progressiveBlurDirection: "-45",
+      progressiveBlurStart: 0.2,
+      progressiveBlurStop: 0.8,
+    };
+    expect(updateControlOptions(options, 1, before, after)).toBe(
+      "w=400/-/progressive-blur=6,-45,0.2,0.8",
+    );
+    expect(
+      updateControlOptions(options, 1, before, { ...before, progressiveBlurEnabled: false }),
+    ).toBe("w=400");
+  });
   it("uses API resize modes and automatic dimensions", () => {
     const state = defaults();
     Object.assign(state, {
@@ -306,6 +330,8 @@ describe("deep links and edits", () => {
     "w=300/h=300/fit=cover/detect=all,face:3",
     "w=400/h=300/enlarge/extend/extend-at=left/pad=2,4/bg=fff,0.5",
     "blur=3/sharpen=2/pixelate=10/monochrome=0.5,red/duotone=1,black,white",
+    "progressive-blur=4,-45,0.2,0.8",
+    "progressive-blur=2",
     "brightness=-30/contrast=1.4/saturation=0.5/colorize=0.3,blue,keep-alpha/gradient=0.4,black,left,0.1,0.8",
     "autoquality=butteraugli,target:1/format=webp/meta=copyright/profile=preserve/hdr=preserve",
   ])("opening %s does not rewrite it", (options) => {

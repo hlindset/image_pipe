@@ -1,12 +1,12 @@
 defmodule ImagePipe.Output.QualitySearchConfigTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.API.Config
   alias ImagePipe.API.Parser
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.RequestPolicy, as: APIOutput
   alias ImagePipe.Plan.Output
+  alias ImagePipe.Plug.Config
 
   test "configured search iterations reach encoding and representation identity" do
     image = Image.open!("priv/static/images/beach.jpg") |> Image.thumbnail!(128)

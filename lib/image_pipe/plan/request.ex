@@ -76,6 +76,7 @@ defmodule ImagePipe.Plan.Request do
       resize: resize,
       canvas: assemble_canvas(group_map),
       blur: assemble_blur(Map.get(group_map, :blur)),
+      progressive_blur: assemble_progressive_blur(Map.get(group_map, :progressive_blur)),
       sharpen: assemble_zero_identity(Map.get(group_map, :sharpen)),
       pixelate: assemble_one_identity(Map.get(group_map, :pixelate)),
       monochrome: assemble_intensity_effect(Map.get(group_map, :monochrome)),
@@ -196,6 +197,9 @@ defmodule ImagePipe.Plan.Request do
   defp assemble_blur(nil), do: nil
   defp assemble_blur(sigma) when sigma == 0.0, do: nil
   defp assemble_blur(sigma), do: sigma
+
+  defp assemble_progressive_blur(%{sigma: sigma}) when sigma == 0.0, do: nil
+  defp assemble_progressive_blur(effect), do: effect
 
   defp assemble_zero_identity(nil), do: nil
   defp assemble_zero_identity(value) when value == 0, do: nil

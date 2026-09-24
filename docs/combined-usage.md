@@ -88,11 +88,12 @@ they are not forwarded to the source. See [Elixir request inputs](elixir-api.md#
 
 | Shared configuration | Plug-only behavior |
 | --- | --- |
-| Sources, caches, generation limits, output defaults, detector, signing/encryption keys, URL prefix | URL presets, CORS, debug-header permission, HTTP cache policy, conditional responses |
+| Sources, caches, generation limits, output defaults, presets, detector, signing/encryption keys, URL prefix | CORS, debug-header permission, HTTP cache policy, conditional responses |
 
-Plans contain explicit processing choices. URL presets—including a `default`
-preset—are expanded only by the Plug parser. For a reusable recipe shared by
-both entry points, use an ordinary function that builds a plan.
+Select shared presets with `ImagePipe.new(config, presets: ["poster-320"])`.
+Plug and direct execution expand the default preset, named presets in order,
+and explicit options using the same rules. Generated URLs retain the preset
+names for the serving mount to resolve.
 
 Use a shared [processing pool](processing-controls.md) to bound generation
 across HTTP requests, jobs, and cache refreshes. Direct results are fully

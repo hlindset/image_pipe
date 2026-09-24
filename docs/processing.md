@@ -13,7 +13,7 @@ constraints that affect the result.
 | [Orientation](processing/crop.md#orientation) | `orient`, `rotate`, `flip` |
 | [Trim and crop](processing/crop.md#trim-and-crop) | `trim`, `trim-symmetry`, `crop`, `crop-ratio`, `crop-ratio-enlarge`, `region` |
 | [Crop guides](processing/crop.md#crop-guides) | `anchor`, `focus`, `detect`, `anchor-offset` |
-| [Effects](processing/effects.md) | `blur`, `sharpen`, `pixelate`, `gray`, `bitonal`, `monochrome`, `duotone`, `brightness`, `contrast`, `saturation`, `colorize`, `gradient` |
+| [Effects](processing/effects.md) | `blur`, `progressive-blur`, `sharpen`, `pixelate`, `gray`, `bitonal`, `monochrome`, `duotone`, `brightness`, `contrast`, `saturation`, `colorize`, `gradient` |
 | [Formats and quality](processing/output.md) | `output`, `format`, `q`, `format-q`, `autoquality`, `max-bytes` |
 | [Encoders](processing/output.md#encoder-options) | `jpeg-options`, `png-options`, `webp-options`, `avif-options` |
 | [Metadata and color](processing/output.md#metadata-color-profiles-and-hdr) | `meta`, `profile`, `hdr` |

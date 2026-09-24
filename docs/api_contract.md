@@ -22,8 +22,8 @@ directly from Elixir. Both entry points use `ImagePipe.Execution` for source
 freshness and caching, `Processing` for generation, and
 `ImagePipe.Transform.Executor` for group execution. Shared host configuration
 owns limits, source options, detector setup, output defaults, caches, storage
-partitions, signing/encryption keys, and URL defaults. Mount configuration adds
-HTTP delivery controls and parsing presets.
+partitions, presets, signing/encryption keys, and URL defaults. Mount configuration adds
+HTTP delivery controls.
 `ImagePipe.config/1` builds
 configuration for both the Plug mount and `ImagePipe.new(config)`. Configured
 source inputs share cache identity and freshness across native and HTTP calls;
@@ -53,7 +53,7 @@ The API accepts these option keys:
 `orient`, `rotate`, `flip`, `w`, `h`, `fit`, `enlarge`, `min-w`, `min-h`, `dpr`,
 `zoom`, `crop`, `crop-ratio`, `crop-ratio-enlarge`, `region`, `trim-symmetry`,
 `anchor-offset`, `extend`, `extend-ratio`, `extend-at`, `extend-offset`,
-`anchor`, `focus`, `detect`, `blur`, `sharpen`, `pixelate`, `gray`, `bitonal`,
+`anchor`, `focus`, `detect`, `blur`, `progressive-blur`, `sharpen`, `pixelate`, `gray`, `bitonal`,
 `monochrome`, `duotone`, `brightness`, `contrast`, `saturation`, `colorize`,
 `gradient`, `trim`, `pad`, `bg`, `output`, `format`, `q`, `format-q`,
 `autoquality`, `max-bytes`, `jpeg-options`, `png-options`, `webp-options`,
@@ -101,7 +101,7 @@ set their mount defaults.
 
 The fixed stage order is rotate, flip, trim, source crop, resize/result
 crop, effects, canvas, padding, background. Within effects the order is
-blur, sharpen, pixelate, gray, bitonal, monochrome, duotone, brightness,
+blur, progressive blur, sharpen, pixelate, gray, bitonal, monochrome, duotone, brightness,
 contrast, saturation, colorize, gradient. Units are explicit and `-`
 groups are ordered. Rotate accepts arbitrary angles; `flip=h`, `flip=v`, and
 `flip=hv` reflect horizontally, vertically, or both after rotation.
@@ -371,6 +371,7 @@ brightness first.
 | Option | Values and defaults | Example |
 | --- | --- | --- |
 | `blur`, `sharpen` | Non-negative sigma; 0 disables the effect | `sharpen=1.5` |
+| `progressive-blur` | Non-negative maximum sigma, optional direction, start, stop; 0 sigma disables | `progressive-blur=4,down,0.2,0.8` |
 | `pixelate` | Integer block size at least 1; 1 disables the effect | `pixelate=8` |
 | `gray`, `bitonal` | Bare flag; `=false` disables it | `gray` |
 | `monochrome` | Intensity from 0 to 1, optional color (default `b3b3b3`) | `monochrome=0.8,704214` |
@@ -387,7 +388,7 @@ representation identity with the absent effect; all supplied values are
 still validated. Contrast and saturation retain their full positive factor
 range rather than a bounded percentage scale.
 
-Blur/sharpen sigma and pixelate block size are physical effect parameters,
+Blur/progressive-blur/sharpen sigma and pixelate block size are physical effect parameters,
 unaffected by DPR. Pixelate aligns its blocks with the current display axes.
 Gradient direction also uses the current display frame, after resizing:
 `down` (default) is 0°, `left` is 90°, `up` is 180°, and `right` is 270°.
@@ -396,6 +397,11 @@ Signed decimal angles wrap modulo 360. Start and stop are fractions from
 values produce a hard step. Gradient preserves source alpha. Colorize
 produces an opaque result unless `keep-alpha` preserves the source alpha;
 zero opacity skips the operation and preserves the source unchanged.
+
+Progressive blur shares gradient direction and stop semantics. It transitions
+from no blur at start to maximum sigma at stop, interpolating eight Gaussian
+sigma intervals with premultiplied alpha. It runs after uniform blur and before
+sharpen, in the current display frame. Zero sigma canonicalizes to absence.
 
 ### Metadata, color profiles, and HDR
 
@@ -511,7 +517,9 @@ BlurHash and LQIP CSS reject these URL options and ignore configured image outpu
 ### Presets and terminals
 
 Presets expand before validation and canonicalization. Precedence is default
-preset, named presets in listed order, then explicit URL values. Resolve
+preset, named presets in listed order, then explicit values. Shared configuration
+owns preset definitions; Plug and builder execution use the same expansion.
+URL generation preserves named references and explicit overrides. Resolve
 nested named presets at initialization and reject cycles/unknown names.
 Single-group presets contribute to the first group. A preset containing
 `-` supplies the complete group sequence and cannot combine with explicit

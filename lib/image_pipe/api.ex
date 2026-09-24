@@ -17,7 +17,6 @@ defmodule ImagePipe.API do
   use Boundary,
     top_level?: true,
     deps: [
-      ImagePipe.Config,
       ImagePipe.Format,
       ImagePipe.Output,
       ImagePipe.Plan,
@@ -28,7 +27,6 @@ defmodule ImagePipe.API do
     ],
     exports: []
 
-  alias ImagePipe.API.Config
   alias ImagePipe.API.Errors
   alias ImagePipe.API.Parser
   alias ImagePipe.API.Path
@@ -37,7 +35,8 @@ defmodule ImagePipe.API do
   alias ImagePipe.Security
   alias ImagePipe.Source.Parser, as: APISource
 
-  def validate_config!(opts), do: Config.validate!(opts)
+  @doc false
+  defdelegate compile_presets(presets), to: ImagePipe.API.Presets, as: :validate_config
 
   @doc false
   defdelegate url(plan, source, config, options), to: ImagePipe.API.URL, as: :build

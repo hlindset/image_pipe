@@ -49,16 +49,19 @@ pre-encode the entire string. Source filename extensions do not set output forma
 
 ## Presets
 
-Define URL recipes on the Plug mount:
+Define recipes in shared configuration:
 
 ```elixir
-mount = ImagePipe.Plug.init(
+config = ImagePipe.config(
   sources: [path: {ImagePipe.Source.File, root: "/srv/images", root_id: "media"}],
   presets: %{
     "card" => "w=400/h=300/fit=cover",
     "framed" => "preset=card/-/pad=20/bg=fff/format=webp"
   }
 )
+mount = ImagePipe.Plug.init(config)
+poster = ImagePipe.new(config, presets: ["card"])
+url = ImagePipe.url!(poster, "photos/beach.jpg")
 ```
 
 ```text
@@ -82,8 +85,9 @@ settings; `q` and `autoquality` form an override family. Canvas mode, placement,
 and offset are another family, so supply the intended canvas settings together.
 `extend=false` or `extend-ratio=false` disables inherited canvas settings.
 
-Presets share cache identity with equivalent explicit requests. Elixir plans
-do not expand mount presets; use reusable plan-building functions for
+Presets share cache identity with equivalent explicit requests. Plug and direct
+Elixir execution expand presets using the same rules. URL generation preserves
+named references so changing their definitions leaves URLs stable. See
 [combined usage](combined-usage.md).
 
 ## Signing and expiry

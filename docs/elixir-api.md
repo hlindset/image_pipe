@@ -70,8 +70,9 @@ Per-call host options remain available and override the builder's settings.
 
 Signing/encryption keys, IV policy, and `base_url` also belong in this shared
 configuration. The builder uses them automatically when generating URLs; the
-Plug uses the same keys to verify and decrypt them. HTTP controls such as CORS,
-presets, and `http_cache` belong on the Plug mount.
+Plug uses the same keys to verify and decrypt them. Preset definitions also
+belong in shared configuration. HTTP controls such as CORS and `http_cache`
+belong on the Plug mount.
 
 The file example assumes immutable source paths: `stable: :trusted` enables
 caching based on that promise. Give changed files a new identifier. With the
@@ -191,8 +192,35 @@ the source or credentials. Enabling encryption requires both key sets.
 
 The mount supplies source adapters, processing defaults, detector, and output
 negotiation. Match those settings and source contents with direct execution
-when you need equivalent output. Plans contain explicit options; they do
-not reference mount presets.
+when you need equivalent output.
+
+### Named presets
+
+```elixir
+config = IP.config(presets: %{
+  "default" => "format=webp",
+  "poster-320" => "w=320/h=480/fit=cover"
+})
+poster = IP.new(config, presets: ["poster-320"])
+url = IP.url!(poster, "photos/poster.jpg")
+# /preset=poster-320/src/photos%2Fposter.jpg
+{:ok, result} = IP.run(poster, {:file, "photos/poster.jpg"})
+```
+
+Plug and direct execution share expansion: `default` first, selected names in
+order, then explicit builder or URL options. Nested presets resolve when the
+config is built. Validation and execution reject unknown names and conflicting
+pipeline composition before source or cache access.
+
+URL generation preserves named references and explicit overrides, including
+false and identity values. Changing a preset definition leaves the URL stable;
+the serving mount resolves its current definition. URL generation can reference
+names defined only on that mount, which then validates the combined request.
+
+Empty encoder-option or per-format-quality overrides have no URL spelling.
+With named or default presets, `url/3` returns
+`{:error, :unrepresentable_preset_override}` for those overrides; direct
+execution can apply them.
 
 ## Direct execution
 
@@ -252,8 +280,7 @@ valid at its exact expiry timestamp.
 
 Matching source bytes, plans, host settings, detector behavior, and Accept
 preferences produce the same processing result through direct execution and
-HTTP. Mount presets apply only when interpreting URLs; incorporate those
-settings into a plan explicitly when comparing the two entry points.
+HTTP. Use the same preset definitions on both entry points.
 
 Configured `{:source, identifier}` inputs participate in the same input and
 output caches as HTTP. Either entry point can warm entries for the other.
@@ -356,7 +383,8 @@ Ordinary functions provide reusable plans. Every call returns a new value;
 its entire value, including nested encoder keywords or per-format quality
 settings. Omitted options keep their previous value. Host-dependent output
 defaults remain unspecified until execution or URL interpretation supplies
-configuration. Plan construction does not apply a mount's default preset.
+configuration. Validation and execution expand the shared default and named
+presets before checking the combined options.
 
 Unknown options, duplicate keys, invalid types, and out-of-range values raise
 `ArgumentError` during construction. `IP.validate/1` checks dependencies,
