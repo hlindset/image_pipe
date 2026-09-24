@@ -10,6 +10,13 @@ defmodule ImagePipe.API.SourceTest do
   @foobar_translator ImagePipe.SourceTest.FoobarTranslator
 
   describe "translate/2 — relative path sources" do
+    test "an optional leading slash resolves to the same root-relative path" do
+      assert Source.translate("/images/cat.jpg", []) == Source.translate("images/cat.jpg", [])
+      assert {:error, {:invalid_source, :empty_source}} = Source.translate("/", [])
+      assert {:ok, %Path{segments: ["", "", "cat.jpg"]}} = Source.translate("//cat.jpg", [])
+      assert {:ok, %Path{}} = Source.translate("/https://example.com/cat.jpg", [])
+    end
+
     test "single segment splits to one-element segment list" do
       assert {:ok, %Path{segments: ["cat.jpg"]}} = Source.translate("cat.jpg", [])
     end
