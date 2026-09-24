@@ -290,7 +290,8 @@ error → `415`); a raise inside the copy surfaces as a `[:transform, :materiali
 Parenting depends on where the materialization happens — there are three cases:
 
 - **during execution**, before an operation that needs random access (trim,
-  arbitrary-angle rotate, smart/object-detect crop): nested under that
+  arbitrary-angle rotate, smart/object-detect crop), or inside resize when
+  buffering a preceding lazy arbitrary rotation: nested under that
   operation's `[:transform, :operation]` span;
 - **orientation flush**, when the executor's `Flush` operation applies pending
   orientation and buffers the display frame:

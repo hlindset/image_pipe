@@ -97,21 +97,26 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
     ]
   end
 
-  test "mid-chain materializing op yields a materialize span nested under an operation" do
-    # An arbitrary (non-quarter-turn) rotation needs random pixel access, so the chain
-    # materializes mid-pipeline immediately before the rotate operation, inside its
-    # operation span.
+  test "rotation and resize buffers nest materialize spans under their operations" do
     conn = call("/rotate=45/w=120/format=jpeg/src/images/beach.jpg", beach_opts())
     assert conn.status == 200
 
     spans = collect_spans()
-    assert [mat] = Enum.filter(spans, &(&1.name == "image_pipe.transform.materialize"))
 
-    assert is_integer(mat.duration_native) and mat.duration_native >= 0
+    assert [_, _] =
+             materializations =
+             Enum.filter(spans, &(&1.name == "image_pipe.transform.materialize"))
 
-    parent = parent_of(spans, mat)
-    assert parent, "materialize span must have a captured parent"
-    assert parent.name == "image_pipe.transform.operation"
+    operations =
+      for mat <- materializations do
+        assert is_integer(mat.duration_native) and mat.duration_native >= 0
+        parent = parent_of(spans, mat)
+        assert parent, "materialize span must have a captured parent"
+        assert parent.name == "image_pipe.transform.operation"
+        parent.attributes.operation
+      end
+
+    assert Enum.sort(operations) == [:resize, :rotate]
   end
 
   test "pipeline-boundary EXIF flush nests the materialize span under the Flush op span" do

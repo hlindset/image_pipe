@@ -1,9 +1,37 @@
 defmodule ImagePipe.Transform.Operation.RotateTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
+  alias ImagePipe.Transform
+  alias ImagePipe.Transform.Operation.Resize
   alias ImagePipe.Transform.Operation.Rotate
   alias ImagePipe.Transform.State
+  alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
+
+  property "arbitrary rotation and resize match between streamed and random inputs" do
+    check all width <- integer(40..200),
+              height <- integer(40..200),
+              angle <- member_of([15, 30, 45, 75, 125, 225]),
+              alpha <- integer(40..255),
+              max_runs: 20 do
+      body =
+        Image.new!(width, height, color: [100, 150, 200, alpha], bands: 4)
+        |> Image.Draw.rect!(0, 0, div(width, 2), div(height, 2), color: [240, 20, 40, 255])
+        |> Image.write!(:memory, suffix: ".png")
+
+      pixels =
+        for access <- [:sequential, :random] do
+          {:ok, image} = Image.open([body], access: access, fail_on: :error)
+          {:ok, state} = Transform.run(%State{image: image}, %Rotate{angle: angle})
+          {:ok, state} = Transform.run(state, %Resize{width: 20, height: 20})
+          {:ok, pixels} = VipsImage.write_to_binary(state.image)
+          pixels
+        end
+
+      assert [same, same] = pixels
+    end
+  end
 
   defp state_for(image), do: %State{image: image, materialized?: true}
 
