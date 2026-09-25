@@ -198,6 +198,21 @@ names/candidates, and distinguishes complete results from a budget-limited searc
 Callers can refresh a cached partition list and retry after a miss. Generation
 publication and discovery share path construction, including original-key scoping.
 
+`SharedFileSystem.Index` bounds keys, encoded hint bytes, and candidates per key.
+Only confirmed reuse/publication establishes requested-entry recency; querying a
+hint does not. Inventory imports occupy a separately bounded fraction of keys and
+bytes, cannot displace requested entries, and are evicted before them.
+
+`SharedFileSystem.Inventory` publishes an atomically replaced, count/byte-bounded
+prefix of locations ranked by the retention owner. It uses leased staging and the
+same isolated I/O executor. Ambiguous replacement is acknowledged only when the
+destination matches the exact publication. Readers reject compressed/trailing,
+oversized, incompatible, stale, and malformed payloads, and reconstruct paths from
+validated namespace/key/generation identifiers under the advertised incarnation.
+Import provides disposable hints; generation validation remains mandatory.
+Periodic ranking/publication, asynchronous warmup scheduling, and request lookup
+orchestration still need integration with the retention owner and public adapter.
+
 Directory enumeration uses an optional POSIX executable that streams `readdir`
 entries and stops after the configured name budget plus one lookahead. It retains
 no directory-wide name list; unusable names consume the same budget. The Elixir
