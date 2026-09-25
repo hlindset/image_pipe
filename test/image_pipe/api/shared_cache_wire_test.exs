@@ -98,7 +98,7 @@ defmodule ImagePipe.API.SharedCacheWireTest do
     refute_received {:origin, _}
   end
 
-  test "admitted output survives removal of the original writer", ctx do
+  test "damaged adopted output is repaired and survives removal of the original writer", ctx do
     a = config(ctx, __MODULE__.A, false)
     b = config(ctx, __MODULE__.B, false)
     first = request(a, 12)
@@ -115,6 +115,17 @@ defmodule ImagePipe.API.SharedCacheWireTest do
     key = generation |> Path.dirname() |> Path.basename()
     assert {:ok, hints} = Locations.hints(adopter.locations, :outputs, key, 1_000)
     assert Enum.any?(hints, &(&1.path == generation))
+
+    File.rm!(body)
+    recovered = request(b, 12)
+    assert recovered.resp_body == first.resp_body
+    assert Image.get_pixel!(Image.from_binary!(recovered.resp_body), 0, 0) == [255, 0, 0]
+    settle(adopter.retainer)
+    assert request(b, 12).resp_body == first.resp_body
+    settle(adopter.retainer)
+    assert [replacement] = Path.wildcard(Path.join(adopter.partition.path, "outputs/*/*/*/body"))
+    refute replacement == body
+
     File.rm_rf!(owner.partition.path)
     assert request(b, 12).resp_body == first.resp_body
     refute_received {:origin, _}

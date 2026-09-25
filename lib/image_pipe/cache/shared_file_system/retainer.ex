@@ -226,8 +226,30 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
 
     case Retention.retained(state.policy, location.kind, location.key) do
       nil -> schedule(state, descriptor, locations)
-      _retained -> {:reply, :retained, state}
+      %{location: ^location} -> {:reply, :retained, state}
+      retained -> verify_retained(state, retained, locations)
     end
+  end
+
+  defp verify_retained(state, retained, locations) do
+    opts = state.opts
+
+    task =
+      Task.Supervisor.async_nolink(opts[:tasks], fn ->
+        Generation.verify(opts[:pool], retained.location, opts[:limits], opts[:timeout])
+      end)
+
+    {:reply, :scheduled,
+     %{
+       state
+       | job: %{
+           ref: task.ref,
+           phase: :verify,
+           candidate: retained,
+           locations: locations,
+           partition: opts[:partition]
+         }
+     }}
   end
 
   defp schedule(state, descriptor, locations) do
@@ -322,6 +344,19 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
   defp complete(%{job: %{phase: :reconcile}} = state, {:ok, candidate}),
     do: retain(%{state | job: %{state.job | candidate: candidate}}, candidate)
 
+  defp complete(%{job: %{phase: :verify}} = state, {:ok, candidate}) do
+    remember(state.job, candidate, state.opts[:timeout])
+    %{state | job: nil}
+  end
+
+  defp complete(%{job: %{phase: :verify, candidate: candidate}} = state, {:error, reason})
+       when reason in [:enoent, :corrupt, :body_too_large, :metadata_too_large] do
+    cleanup(%{state | policy: Retention.forget(state.policy, candidate)}, [candidate])
+  end
+
+  defp complete(%{job: %{phase: :verify}} = state, {:error, _reason}),
+    do: %{state | job: nil}
+
   defp complete(%{job: %{phase: phase}} = state, {:error, reason})
        when phase in [:adopt, :publish] and
               reason in [:enoent, :corrupt, :body_too_large, :metadata_too_large, :saturated],
@@ -409,6 +444,9 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
         debt: Enum.sum(Enum.map(victims, & &1.size_bytes))
     }
   end
+
+  defp failed_job(%{job: %{ref: ref, phase: :verify}} = state, ref, _reason),
+    do: %{state | job: nil}
 
   defp failed_job(%{job: %{ref: ref}} = state, ref, reason) do
     reply_publication(state.job, {:error, :unavailable})

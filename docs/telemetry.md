@@ -1152,7 +1152,7 @@ success of every preceding write. A confirmed pre-publication failure can leave
 the owner healthy; an uncertain write remains charged and degraded. Snapshots can
 overlap ongoing cleanup and do not imply physically reclaimed space.
 Worker-result snapshots also include `job_result: :ok | :error | :unknown | :not_started`.
-This describes the reported publication, adoption, reconciliation, or cleanup
+This describes the reported publication, adoption, verification, reconciliation, or cleanup
 operation separately from owner health. Completion receipts can establish that
 work never started or finished after a timeout; worker loss leaves an unknown
 outcome. A successful write still requires the final admission recheck. Periodic

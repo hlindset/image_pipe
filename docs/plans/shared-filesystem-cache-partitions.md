@@ -166,6 +166,13 @@ adopted local link. If source cleanup wins before adoption completes, retry anot
 candidate or abandon adoption; never publish incomplete metadata/body pairs.
 The current response need not wait for durable adoption once its reader is safe.
 
+When a foreign hit refers to a key already retained locally, verify the retained
+generation asynchronously and restore its local hint if valid. A confirmed missing
+or corrupt local generation is removed through accounted cleanup; later actual
+demand may admit a replacement. Inconclusive verification leaves retention charged
+and may be retried by later demand. Verification neither renews freshness nor
+counts as a request for admission.
+
 Charge full logical entry size to every adopting partition. This conservatively
 double-counts shared blocks but avoids distributed reference accounting. Deleting
 one hard link is not evidence of physical bytes reclaimed. Record logical retention

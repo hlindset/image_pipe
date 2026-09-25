@@ -156,6 +156,13 @@ defmodule ImagePipe.Cache.SharedFileSystem.Generation do
     end
   end
 
+  def verify(pool, location, limits, timeout) do
+    with {:ok, envelope} <-
+           run(pool, {Storage, :verify, [location, limits]}, limits, deadline(timeout), nil),
+         {:ok, metadata} <- Metadata.decode(location.kind, envelope.metadata),
+         do: {:ok, descriptor(location, %{envelope | metadata: metadata})}
+  end
+
   def acquire(pool, location, reader_root, limits, timeout) do
     deadline = deadline(timeout)
     id = Base.encode16(:crypto.strong_rand_bytes(16), case: :lower)

@@ -77,6 +77,12 @@ defmodule ImagePipe.Cache.SharedFileSystem.Storage do
     end
   end
 
+  def verify(location, limits) do
+    with {:ok, envelope} <- metadata(location, limits.metadata),
+         :ok <- verify_generation(location, envelope, limits),
+         do: {:ok, envelope}
+  end
+
   defp verify_generation(_location, %{kind: :sources, body: nil}, _limits), do: :ok
 
   defp verify_generation(location, envelope, limits) do

@@ -83,8 +83,59 @@ defmodule ImagePipe.Cache.SharedFileSystem.RetainerTest do
     assert stats.failure == nil
     refute File.exists?(old)
     assert File.exists?(cold.location.path)
-    assert [_adopted] = local_generations(ctx, hot)
-    assert :retained = Retainer.consider(client, hot, 1_000)
+    assert [adopted] = local_generations(ctx, hot)
+    assert :scheduled = Retainer.consider(client, hot, 1_000)
+    settle(client)
+    assert [^adopted] = local_generations(ctx, hot)
+  end
+
+  test "inconclusive retained verification preserves accounting and permits retry", ctx do
+    foreign = publish(ctx, "verification-timeout")
+    client = start_retainer(ctx, 10_000, timeout: 200)
+    demand(client, foreign, 2)
+    assert :scheduled = Retainer.consider(client, foreign, 1_000)
+    settle(client)
+    [local] = local_generations(ctx, foreign)
+    :ok = :sys.suspend(ctx.pool.pid)
+
+    try do
+      assert :scheduled = Retainer.consider(client, foreign, 1_000)
+      settle(client)
+      assert %{entries: 1, bytes: bytes, jobs: 0, failure: nil} = Retainer.stats(client, 1_000)
+      assert bytes == foreign.size_bytes
+    after
+      :sys.resume(ctx.pool.pid)
+    end
+
+    assert :scheduled = Retainer.consider(client, foreign, 1_000)
+    settle(client)
+    assert [^local] = local_generations(ctx, foreign)
+  end
+
+  test "foreign demand repairs a missing retained body without leaking its metadata charge",
+       ctx do
+    foreign = publish(ctx, "lost-local-body")
+    client = start_retainer(ctx, 10_000)
+    demand(client, foreign, 2)
+    assert :scheduled = Retainer.consider(client, foreign, 1_000)
+    settle(client)
+    [old] = local_generations(ctx, foreign)
+    File.rm!(Path.join(old, "body"))
+
+    assert :scheduled = Retainer.consider(client, foreign, 1_000)
+    settle(client)
+    assert %{entries: 0, bytes: 0, cleanup_bytes: 0, failure: nil} = Retainer.stats(client, 1_000)
+    refute File.exists?(old)
+
+    demand(client, foreign, 1)
+    assert :scheduled = Retainer.consider(client, foreign, 1_000)
+    settle(client)
+    [replacement] = local_generations(ctx, foreign)
+    refute replacement == old
+    File.rm_rf!(ctx.writer.path)
+    assert File.read!(Path.join(replacement, "body")) == String.duplicate("x", 400)
+    assert %{entries: 1, bytes: bytes, cleanup_bytes: 0} = Retainer.stats(client, 1_000)
+    assert bytes == foreign.size_bytes
   end
 
   test "duplicate jobs coalesce while demand remains responsive and other work is bounded", ctx do
@@ -306,7 +357,8 @@ defmodule ImagePipe.Cache.SharedFileSystem.RetainerTest do
     assert :scheduled = Retainer.retry(client, 1_000)
     settle(client)
     assert %{failure: nil, cleanup_bytes: 0, jobs: 0} = Retainer.stats(client, 1_000)
-    assert :retained = Retainer.consider(client, hot, 1_000)
+    assert :scheduled = Retainer.consider(client, hot, 1_000)
+    settle(client)
   end
 
   test "pressure cleanup reserves debt and preserves foreign links before recovery", ctx do

@@ -498,6 +498,11 @@ quota. Provision a storage-enforced ceiling separately where the provider suppor
 it, and monitor physical capacity/inodes independently. Unlink counts do not prove
 physical bytes were freed.
 
+Foreign hits for locally retained keys trigger bounded background verification.
+Valid local copies regain an index hint. Missing or corrupt copies are cleaned up
+before their charge is released; subsequent demand can admit a replacement.
+Timeouts during verification preserve the charge and permit later retries.
+
 Any instance can retire an inactive partition into `trash/` and reclaim it in
 bounded passes. Heartbeat age is an eviction hint, not proof of death: pauses or
 visibility delays can cost a live node its partition. It allocates a new identity
