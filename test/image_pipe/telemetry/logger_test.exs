@@ -3,6 +3,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
   import ExUnit.CaptureLog
 
+  alias ImagePipe.Cache.SharedFileSystem.MaintenanceTelemetry
   alias ImagePipe.Telemetry
   alias ImagePipe.Test.FakeDetector
   alias ImagePipe.Transform
@@ -121,6 +122,28 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
     assert log =~ "shared_lifecycle: rotated ok"
     assert log =~ "[warning] image_pipe cache shared_lifecycle: unavailable cache_error"
+  end
+
+  test "logs filesystem observations and warns when they are unavailable" do
+    prefix = [__MODULE__, :space]
+    Telemetry.attach_default_logger(prefix: prefix)
+
+    log =
+      capture_log(fn ->
+        MaintenanceTelemetry.run([telemetry_prefix: prefix], :space, fn ->
+          {:ok,
+           %{
+             filesystem_total_bytes: 1_000,
+             filesystem_free_bytes: 300,
+             filesystem_available_bytes: 200
+           }}
+        end)
+
+        MaintenanceTelemetry.run([telemetry_prefix: prefix], :space, fn -> {:error, :eacces} end)
+      end)
+
+    assert log =~ "shared_maintenance: space ok available=200 free=300 total=1000"
+    assert log =~ "[warning] image_pipe cache shared_maintenance: space cache_error"
   end
 
   test "logs admission rejection normally and retained uncertainty as a warning" do

@@ -83,6 +83,35 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
                     }}
   end
 
+  test "captures filesystem capacity without conflating it with logical retention" do
+    prefix = [__MODULE__, :space]
+    TestExporter.attach(self(), prefix: prefix)
+
+    stats = %{
+      filesystem_total_bytes: 1_000,
+      filesystem_free_bytes: 300,
+      filesystem_available_bytes: 200
+    }
+
+    MaintenanceTelemetry.run([telemetry_prefix: prefix], :space, fn -> {:ok, stats} end)
+
+    assert_receive {:span,
+                    %Span{name: "image_pipe.cache.shared_maintenance", attributes: attributes}}
+
+    assert Map.take(attributes, Map.keys(stats)) == stats
+    assert attributes.operation == :space
+    refute Map.has_key?(attributes, :logical_bytes)
+
+    MaintenanceTelemetry.run([telemetry_prefix: prefix], :space, fn -> {:error, :eacces} end)
+
+    assert_receive {:span,
+                    %Span{
+                      name: "image_pipe.cache.shared_maintenance",
+                      status: :error,
+                      attributes: %{operation: :space, result: :cache_error}
+                    }}
+  end
+
   defp emit_nested do
     Telemetry.span([], [:request], %{}, fn ->
       Telemetry.span([], [:transform, :execute], %{operation_count: 1}, fn ->

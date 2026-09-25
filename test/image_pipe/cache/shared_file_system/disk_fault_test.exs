@@ -7,6 +7,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.DiskFaultTest do
   alias ImagePipe.Cache.SharedFileSystem
 
   alias ImagePipe.Cache.SharedFileSystem.{
+    Directory,
     Generation,
     InventoryWorker,
     Partition,
@@ -229,6 +230,30 @@ defmodule ImagePipe.Cache.SharedFileSystem.DiskFaultTest do
     settle_retainer(context.retainer.pid)
     assert %{bytes: 0, cleanup_bytes: 0, failure: nil} = Retainer.stats(context.retainer, 1_000)
     refute File.exists?(location.path)
+  end
+
+  test "physical observations detect full storage and recovery", ctx do
+    assert {:ok, {:ok, before}} =
+             CacheIO.run(ctx.pool, {Directory, :space, [ctx.root]}, 4_096, 5_000)
+
+    assert before.filesystem_total_bytes <= 32 * 1024 * 1024
+    assert before.filesystem_available_bytes > 2 * 1024 * 1024
+    fill(ctx.root)
+
+    assert {:ok, {:ok, full}} =
+             CacheIO.run(ctx.pool, {Directory, :space, [ctx.root]}, 4_096, 5_000)
+
+    assert full.filesystem_total_bytes == before.filesystem_total_bytes
+    assert full.filesystem_available_bytes < before.filesystem_available_bytes
+    assert full.filesystem_available_bytes < 4_096
+
+    File.rm!(Path.join(ctx.root, "filler"))
+
+    assert {:ok, {:ok, recovered}} =
+             CacheIO.run(ctx.pool, {Directory, :space, [ctx.root]}, 4_096, 5_000)
+
+    assert recovered.filesystem_available_bytes >
+             full.filesystem_available_bytes + 2 * 1024 * 1024
   end
 
   defp settle_retainer(pid) do

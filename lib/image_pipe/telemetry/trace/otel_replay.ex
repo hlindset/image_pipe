@@ -367,6 +367,11 @@ defmodule ImagePipe.Telemetry.Trace.OtelReplay do
 
   defp coerce(nil), do: :__drop__
   defp coerce(v) when is_boolean(v), do: v
+
+  defp coerce(v)
+       when is_integer(v) and (v < -9_223_372_036_854_775_808 or v > 9_223_372_036_854_775_807),
+       do: Integer.to_string(v)
+
   defp coerce(v) when is_number(v) or is_binary(v), do: v
   defp coerce(v) when is_atom(v), do: Atom.to_string(v)
 

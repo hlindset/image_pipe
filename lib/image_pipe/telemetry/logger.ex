@@ -269,6 +269,12 @@ defmodule ImagePipe.Telemetry.Logger do
   defp message([:cache, stage | _], _m, meta) when stage in [:shared_lookup, :shared_discovery],
     do: "image_pipe cache #{stage}: #{meta[:pool]} #{outcome(meta)} #{meta[:reason]}"
 
+  defp message([:cache, :shared_maintenance | _], _m, %{operation: :space, result: :ok} = meta),
+    do:
+      "image_pipe cache shared_maintenance: space ok " <>
+        "available=#{meta.filesystem_available_bytes} free=#{meta.filesystem_free_bytes} " <>
+        "total=#{meta.filesystem_total_bytes}"
+
   defp message([:cache, :shared_maintenance | _], _m, meta),
     do: "image_pipe cache shared_maintenance: #{meta[:operation]} #{meta[:result]}"
 

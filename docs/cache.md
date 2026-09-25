@@ -538,12 +538,23 @@ durable local invalidation across runtime loss.
 
 Runtime maintenance emits `[:cache, :shared_maintenance, :start | :stop | :exception]`
 under its `telemetry_prefix`. Operations are `:warmup`, `:inventory`, `:usage`, `:pressure`,
-and `:reclamation`; stop outcomes distinguish `:ok`, `:partial`, and `:cache_error`.
+`:reclamation`, and `:space`; stop outcomes distinguish `:ok`, `:partial`, and `:cache_error`.
 See the [telemetry guide](telemetry.md#shared-filesystem-maintenance) for counters
 and the default Logger/tracer behavior.
 
-Inventory publication, usage publication, pressure evaluation, and reclamation
-each receive a separate `timeout` allowance. A cycle may therefore take up to
-four allowances plus scheduling overhead. Failed report writes remain observable
+Inventory publication, usage publication, pressure evaluation, reclamation, and
+capacity observation each receive a separate `timeout` allowance. A cycle may take up to
+five allowances plus scheduling overhead. Failed report writes remain observable
 but do not prevent eviction using existing reports. A failed usage refresh cannot
 increase retention capacity.
+
+The `:space` pass reports `filesystem_total_bytes`, `filesystem_free_bytes`, and
+`filesystem_available_bytes` using `fstatvfs` on the shared root. These describe
+the containing filesystem, including other applications' storage; available space
+excludes blocks reserved from unprivileged users. They are observations of the
+mount's reported capacity, which may be virtual or quota-dependent, rather than
+cache-attributed allocated bytes or a promise that a write will succeed.
+Logical retained sizes still count each adopted generation independently. Unlinking
+one hard link does not imply a corresponding increase in available space.
+Capacity probing runs after reclamation in the isolated helper. Failure is reported
+without suppressing maintenance, and the counters do not drive the soft-cap policy.

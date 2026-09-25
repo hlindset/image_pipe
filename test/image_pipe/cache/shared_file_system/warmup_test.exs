@@ -237,7 +237,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.WarmupTest do
 
     assert {:ok, _} = InventoryWorker.run(__MODULE__.Writer, opts, :publish)
 
-    for operation <- [:inventory, :usage, :pressure, :reclamation] do
+    for operation <- [:inventory, :usage, :pressure, :reclamation, :space] do
       assert_receive {:maintenance, %{duration: duration}, %{operation: ^operation, result: :ok}}
       assert duration >= 0
     end
@@ -258,6 +258,20 @@ defmodule ImagePipe.Cache.SharedFileSystem.WarmupTest do
     stop_supervised!({Runtime, __MODULE__.Writer})
     assert {:error, :unavailable} = InventoryWorker.run(__MODULE__.Writer, opts, :warmup)
     assert_receive {:maintenance, _, %{operation: :warmup, result: :cache_error}}
+  end
+
+  test "unavailable capacity observations do not suppress other maintenance", ctx do
+    moved = Path.join(ctx.root, "moved-shared")
+    File.rename!(ctx.writer.partition.root, moved)
+    File.ln_s!(moved, ctx.writer.partition.root)
+
+    assert {:error,
+            %{
+              inventory: :ok,
+              pressure: {:ok, _},
+              reclamation: {:ok, _},
+              space: {:error, _}
+            }} = InventoryWorker.run(__MODULE__.Writer, opts(), :publish)
   end
 
   defp opts,

@@ -1193,7 +1193,7 @@ The shared-cache runtime emits spans at `[:cache, :shared_maintenance]` with
 on the supervised runtime; background work has no request configuration to
 inherit. Events use the standard duration and span-context fields.
 
-Metadata always identifies `operation: :warmup | :inventory | :usage | :pressure | :reclamation`.
+Metadata always identifies `operation: :warmup | :inventory | :usage | :pressure | :reclamation | :space`.
 Stop metadata reports `result: :ok | :partial | :cache_error`. A bounded scan that
 cannot cover the population is partial; failed filesystem work is a cache error.
 Filling the permitted warm-index budget is ordinary success. Optional inventory
@@ -1207,6 +1207,7 @@ certify that all inventories were readable.
 | `:usage` | Outcome of publishing this runtime's usage report |
 | `:pressure` | `logical_bytes` reported across scanned partitions, `target_bytes` proposed for this runtime, `unavailable` reports; omitted when root pressure is disabled |
 | `:reclamation` | `checked` partitions, `removed` trash directory entries, `errors` counted during retirement/traversal |
+| `:space` | `filesystem_total_bytes`, `filesystem_free_bytes`, `filesystem_available_bytes` reported by the containing filesystem |
 
 These counters describe bounded observations, not global totals. `removed` counts
 names, not freed physical bytes. Failed cleanup retries also produce `:cache_error`
@@ -1218,6 +1219,20 @@ reading previous reports and reducing retention. Usage publication has its own
 span within pressure maintenance. A failed refresh also marks the pressure span
 as `:cache_error`, while preserving any observed totals and applied target. Failed
 refreshes cannot justify raising capacity.
+
+The `:space` pass runs after reclamation with its own bounded I/O allowance. Its
+three byte counters use the filesystem's `fstatvfs` block counts and fragment size;
+available bytes are those reported available to unprivileged users. See the
+[statvfs reference](https://www.man7.org/linux/man-pages/man3/statvfs.3.html).
+These may include unrelated workloads or provider-reported virtual capacity and
+are separate from logical cache accounting. They neither prove physical bytes
+reclaimed by a particular unlink nor guarantee quota headroom. Failed/unsupported
+observations emit `:cache_error` without byte counters and do not gate eviction.
+The default Logger prints all three counters on success and warns on failure;
+Trace Capture retains the same counters on the existing maintenance span.
+Raw telemetry and captured spans retain exact integers. At OTel replay, integers
+outside OTLP's signed 64-bit range become decimal strings rather than overflowing
+or losing precision.
 
 The default Logger's `:cache` group renders the operation and outcome, escalating
 partial and failed passes to warning. Trace Capture subscribes to the same span

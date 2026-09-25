@@ -3,10 +3,12 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <unistd.h>
 
 struct sweep {
@@ -82,6 +84,25 @@ static int identifier(const char *name) {
   return 1;
 }
 
+static int space(const char *path) {
+  struct statvfs stats;
+  int fd = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+  int error;
+  if (fd < 0) return failure(errno);
+  if (fstatvfs(fd, &stats) != 0) {
+    error = errno;
+    close(fd);
+    return failure(error);
+  }
+  if (close(fd) != 0) return failure(errno);
+  /* Emit counts without multiplying in C: large virtual filesystems can exceed
+     fixed-width byte arithmetic. The bounded Elixir decoder computes bytes. */
+  return printf("V %" PRIuMAX " %" PRIuMAX " %" PRIuMAX " %" PRIuMAX "\n",
+                (uintmax_t)stats.f_frsize, (uintmax_t)stats.f_blocks,
+                (uintmax_t)stats.f_bfree, (uintmax_t)stats.f_bavail) < 0 ||
+         fflush(stdout) != 0 ? 74 : 0;
+}
+
 int main(int argc, char **argv) {
   char *end;
   unsigned long long limit, inspected = 0;
@@ -90,6 +111,7 @@ int main(int argc, char **argv) {
   int error = 0, limited = 0, fd;
   struct sweep state;
 
+  if (argc == 3 && strcmp(argv[2], "--space") == 0) return space(argv[1]);
   if ((argc != 3 && argc != 4) || argv[2][0] < '0' || argv[2][0] > '9') return 64;
   errno = 0;
   limit = strtoull(argv[2], &end, 10);

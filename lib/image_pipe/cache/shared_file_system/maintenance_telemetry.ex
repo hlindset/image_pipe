@@ -54,5 +54,6 @@ defmodule ImagePipe.Cache.SharedFileSystem.MaintenanceTelemetry do
   end
 
   defp summary(operation, :ok) when operation in [:inventory, :usage], do: %{result: :ok}
+  defp summary(:space, {:ok, stats}), do: Map.put(stats, :result, :ok)
   defp summary(_operation, {:error, _reason}), do: %{result: :cache_error}
 end

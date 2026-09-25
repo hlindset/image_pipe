@@ -4,8 +4,8 @@ defmodule Mix.Tasks.ImagePipe.SharedCache.Build do
 
   @shortdoc "Build the optional POSIX shared-cache directory helper"
   @moduledoc """
-  Builds the streaming directory reader and bounded trash cleaner used by the
-  shared filesystem cache.
+  Builds the streaming directory reader, bounded trash cleaner, and filesystem
+  capacity observer used by the shared filesystem cache.
 
       mix image_pipe.shared_cache.build
 

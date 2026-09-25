@@ -342,12 +342,18 @@ to its retained bytes and the observed total, aiming at `root_low_watermark`
 (0.8) of the root target. It holds that capacity in the intervening band and may
 restore its configured maximum below the low watermark. Incomplete scans can
 reduce capacity but cannot expand it. Inventory publication, usage publication,
-pressure scanning/resize, and reclamation each have a separate bounded allowance
-off the request path. Failed inventory or usage writes do not gate pressure
+pressure scanning/resize, reclamation, and physical-capacity observation each have
+a separate bounded allowance off the request path. Failed inventory or usage writes do not gate pressure
 evaluation; previous reports may still justify reduction. A failed usage refresh
 prevents capacity expansion and is reported independently from eviction progress.
 
-These totals are logical reports, not physical capacity: hard links are counted
+After reclamation, a bounded `fstatvfs` probe in the isolated helper observes
+filesystem-wide total/free/available bytes. It has a separate deadline, bounded
+output, and no influence on policy or progress of earlier phases. Byte conversion
+uses Elixir integers to avoid native multiplication overflow. Invalid or unavailable
+figures are reported as an observation failure, with no fabricated zero values.
+
+Usage-report totals are logical reports, not physical capacity: hard links are counted
 per owner, reports can lag, and missing reports, control files and orphaned staging
 or trash can be unrepresented. External storage ceilings remain operator-provided.
 

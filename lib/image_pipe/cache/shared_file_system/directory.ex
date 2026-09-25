@@ -25,6 +25,33 @@ defmodule ImagePipe.Cache.SharedFileSystem.Directory do
     end
   end
 
+  def space(path) do
+    with {:ok, output} <- execute([path, "--space"], 128) do
+      decode_space(String.split(output))
+    end
+  end
+
+  defp decode_space(["V", unit, total, free, available]) do
+    with {unit, ""} when unit > 0 <- Integer.parse(unit),
+         {total, ""} when total >= 0 <- Integer.parse(total),
+         {free, ""} when free >= 0 and free <= total <- Integer.parse(free),
+         {available, ""} when available >= 0 and available <= free <- Integer.parse(available) do
+      {:ok,
+       %{
+         filesystem_total_bytes: unit * total,
+         filesystem_free_bytes: unit * free,
+         filesystem_available_bytes: unit * available
+       }}
+    else
+      _invalid -> {:error, :directory_helper_failed}
+    end
+  end
+
+  defp decode_space(["E", error]),
+    do: {:error, Map.get(@errors, error, :directory_helper_failed)}
+
+  defp decode_space(_invalid), do: {:error, :directory_helper_failed}
+
   defp execute(args, bytes) do
     executable = Path.join(to_string(:code.priv_dir(:image_pipe)), "shared_cache/list_directory")
     with {:ok, port} <- open(executable, args), do: collect(port, bytes, [])

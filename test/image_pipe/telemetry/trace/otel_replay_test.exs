@@ -84,6 +84,28 @@ defmodule ImagePipe.Telemetry.Trace.OtelReplayTest do
     assert otel_span(rec, :trace_id) == 0x0123456789ABCDEF0123456789ABCDEF
   end
 
+  test "large filesystem capacities remain exact at the OTLP integer boundary", %{server: server} do
+    OtelReplay.add(
+      server,
+      span(
+        root: true,
+        name: "image_pipe.cache.shared_maintenance",
+        attributes: %{
+          operation: :space,
+          filesystem_total_bytes: 9_223_372_036_854_775_808,
+          filesystem_free_bytes: 9_223_372_036_854_775_807,
+          filesystem_available_bytes: 100
+        }
+      )
+    )
+
+    assert_receive {:span, rec}, 1_000
+    attributes = :otel_attributes.map(otel_span(rec, :attributes))
+    assert attributes[:filesystem_total_bytes] == "9223372036854775808"
+    assert attributes[:filesystem_free_bytes] == 9_223_372_036_854_775_807
+    assert attributes[:filesystem_available_bytes] == 100
+  end
+
   test "a nil-parent span without the root flag buffers until swept (no false root)" do
     # The setup instance already occupies the default child id; override it.
     server =

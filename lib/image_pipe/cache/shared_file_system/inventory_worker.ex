@@ -3,6 +3,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.InventoryWorker do
   use GenServer
 
   alias ImagePipe.Cache.SharedFileSystem.{
+    Directory,
     Inventory,
     MaintenanceTelemetry,
     Pressure,
@@ -11,6 +12,8 @@ defmodule ImagePipe.Cache.SharedFileSystem.InventoryWorker do
     Runtime,
     Warmup
   }
+
+  alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
 
   def start_link(table, opts), do: GenServer.start_link(__MODULE__, {table, opts})
 
@@ -86,10 +89,27 @@ defmodule ImagePipe.Cache.SharedFileSystem.InventoryWorker do
         Reclamation.run(context, opts, opts[:timeout])
       end)
 
-    results = %{inventory: publication, pressure: pressure, reclamation: reclamation}
+    space =
+      MaintenanceTelemetry.run(opts, :space, fn ->
+        with {:ok, result} <-
+               CacheIO.run(
+                 context.pool,
+                 {Directory, :space, [context.partition.root]},
+                 4_096,
+                 opts[:timeout]
+               ),
+             do: result
+      end)
 
-    case {publication, pressure, reclamation} do
-      {:ok, {:ok, %{usage_publication: :ok}}, {:ok, _}} -> {:ok, results}
+    results = %{
+      inventory: publication,
+      pressure: pressure,
+      reclamation: reclamation,
+      space: space
+    }
+
+    case {publication, pressure, reclamation, space} do
+      {:ok, {:ok, %{usage_publication: :ok}}, {:ok, _}, {:ok, _}} -> {:ok, results}
       _failure -> {:error, results}
     end
   end

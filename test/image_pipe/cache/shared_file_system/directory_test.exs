@@ -40,6 +40,20 @@ defmodule ImagePipe.Cache.SharedFileSystem.DirectoryTest do
     assert {:error, :enotdir} = Directory.list(file, 10)
   end
 
+  test "reports filesystem capacity separately from directory contents", %{root: root} do
+    assert {:ok, stats} = Directory.space(root)
+    assert stats.filesystem_total_bytes > 0
+    assert stats.filesystem_free_bytes <= stats.filesystem_total_bytes
+    assert stats.filesystem_available_bytes <= stats.filesystem_free_bytes
+    assert stats.filesystem_available_bytes >= 0
+    assert File.ls!(root) == []
+    assert {:error, :enoent} = Directory.space(Path.join(root, "missing"))
+
+    file = Path.join(root, "file")
+    File.touch!(file)
+    assert {:error, :enotdir} = Directory.space(file)
+  end
+
   test "trash cleanup makes bounded progress and preserves symlink targets", %{root: root} do
     trash = Path.join(root, "trash")
     File.mkdir!(trash)
