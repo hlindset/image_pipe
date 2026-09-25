@@ -197,6 +197,15 @@ ownership records. Shared operations whose completion is unknown retain their
 reservations and are never handed to this tracker for early deletion. Losing the
 call channel disables executor admission even if the helper remains alive.
 
+Registration is a synchronous insertion into a supervisor-owned ETS table with
+1,024 fixed slots and an 8 KiB serialized-resource limit. Explicit release deletes
+the exact slot/token after local cleanup. Neither operation queues tracker calls;
+there are no late registration offers. A periodic one-second reconciliation prunes
+old monitors, monitors current owners, and retries failed owner-death cleanup.
+An owner that dies before reconciliation is detected when its monitor is installed.
+Slot reuse cannot make an old handle unregister a newer resource. These bounds
+apply across all cache runtimes and local input staging in the BEAM.
+
 These remain internal building blocks. Source/output payload validation, lookup integration,
 and public adapter integration are separate steps. Recovery of uncertain operations
 still needs work. Helper startup in packaged releases and cross-process transfer

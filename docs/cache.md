@@ -435,6 +435,14 @@ entry cannot truncate an acquired reader. Normal release and caller death reclai
 completed readers. Crash-orphaned local directories still need an operator cleanup
 policy that excludes live runtime readers.
 
+The node-wide temporary-resource registry holds at most 1,024 registrations, each
+with at most 8 KiB of serialized path data. This bound is shared with local input
+staging and pinned inputs. Saturation bypasses caching. Registration and explicit
+release use ETS directly; a stalled cleanup worker cannot accumulate registration
+or release messages. Owner monitoring is reconciled once per second, so cleanup
+after caller death can lag by that interval plus scheduling and local disk I/O.
+Tracker-worker restarts preserve registrations in the supervising process.
+
 Build the directory helper for the deployment OS/architecture with
 `mix image_pipe.shared_cache.build` before assembling the release. It uses a C
 compiler (`CC`, default `cc`) and writes the executable under the application's

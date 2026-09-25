@@ -1,6 +1,7 @@
 defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
   use ExUnit.Case, async: false
 
+  alias ImagePipe.Cache.Resources
   alias ImagePipe.Cache.SharedFileSystem.{Body, Generation, Partition, Sources, Storage}
   alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
   alias ImagePipe.Source
@@ -335,6 +336,28 @@ defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
     refute File.exists?(Path.dirname(reader.path))
   end
 
+  test "repeated acquisitions and releases do not queue behind a stalled tracker", ctx do
+    assert {:ok, location} = publish(ctx)
+    tracker = Process.whereis(Resources)
+    :erlang.trace(ctx.pool.pid, true, [:receive])
+    :ok = :sys.suspend(tracker)
+
+    try do
+      for _attempt <- 1..80 do
+        assert {:ok, reader} = acquire(ctx, location)
+        assert File.read!(reader.path) == "encoded image"
+        assert :ok = Generation.release(ctx.pool, reader, 1_000)
+        settle_io(ctx.pool.pid)
+        refute File.exists?(reader.path)
+      end
+
+      assert {:messages, messages} = Process.info(tracker, :messages)
+      refute Enum.any?(messages, &match?({:"$gen_call", _, _}, &1))
+    after
+      :ok = :sys.resume(tracker)
+    end
+  end
+
   test "caller death cleans its reader after helper failure", ctx do
     assert {:ok, location} = publish(ctx)
     parent = self()
@@ -353,8 +376,10 @@ defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
     assert_receive {:reader, reader}, 1_000
     assert {:error, _reason} = CacheIO.run(ctx.pool, {:erlang, :halt, []}, 0, 1_000)
     assert File.read!(reader.path) == "encoded image"
+    send(Resources, :reconcile)
+    _ = :sys.get_state(Resources)
     Task.shutdown(owner, :brutal_kill)
-    _ = :sys.get_state(ImagePipe.Cache.Resources)
+    _ = :sys.get_state(Resources)
     refute File.exists?(Path.dirname(reader.path))
   end
 
