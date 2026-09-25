@@ -41,7 +41,8 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     [:cache, :refresh],
     [:cache, :write],
     [:cache, :admission],
-    [:cache, :warm_start]
+    [:cache, :warm_start],
+    [:cache, :shared_maintenance]
   ]
 
   # One-shot (terminal) events — folded as annotations onto the current span.
@@ -159,7 +160,14 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     # cache admission / warm-start
     :victim_count,
     :own_state_loaded,
-    :peer_state_files
+    :peer_state_files,
+    :checked,
+    :imported,
+    :removed,
+    :errors,
+    :logical_bytes,
+    :target_bytes,
+    :unavailable
   ]
 
   @spec attach(map()) :: :ok

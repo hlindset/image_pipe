@@ -4,6 +4,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.InventoryWorker do
 
   alias ImagePipe.Cache.SharedFileSystem.{
     Inventory,
+    MaintenanceTelemetry,
     Pressure,
     Reclamation,
     Retainer,
@@ -47,27 +48,38 @@ defmodule ImagePipe.Cache.SharedFileSystem.InventoryWorker do
       clock_skew: opts[:clock_skew]
     }
 
-    with {:ok, context} <- Runtime.context(table) do
-      execute(phase, context, opts, limits)
+    case Runtime.context(table) do
+      {:ok, context} ->
+        execute(phase, context, opts, limits)
+
+      error ->
+        operation = if phase == :warmup, do: :warmup, else: :inventory
+        MaintenanceTelemetry.run(opts, operation, fn -> error end)
     end
   end
 
   defp execute(:warmup, context, opts, limits) do
-    Warmup.run(
-      context,
-      opts[:clock].(),
-      %{
-        inventory: limits,
-        partitions: opts[:warmup_max_partitions],
-        candidates: opts[:warmup_max_candidates]
-      },
-      opts[:warmup_timeout]
-    )
+    MaintenanceTelemetry.run(opts, :warmup, fn ->
+      Warmup.run(
+        context,
+        opts[:clock].(),
+        %{
+          inventory: limits,
+          partitions: opts[:warmup_max_partitions],
+          candidates: opts[:warmup_max_candidates]
+        },
+        opts[:warmup_timeout]
+      )
+    end)
   end
 
   defp execute(:publish, context, opts, limits) do
     publication = publish(context, opts, limits)
-    reclamation = Reclamation.run(context, opts, opts[:timeout])
+
+    reclamation =
+      MaintenanceTelemetry.run(opts, :reclamation, fn ->
+        Reclamation.run(context, opts, opts[:timeout])
+      end)
 
     case {publication, reclamation} do
       {{:ok, publication}, {:ok, reclamation}} ->
@@ -84,15 +96,19 @@ defmodule ImagePipe.Cache.SharedFileSystem.InventoryWorker do
     with {:ok, partition, locations} <-
            Retainer.inventory(context.retainer, limits.entries, remaining(deadline)),
          :ok <-
-           Inventory.publish(
-             context.pool,
-             partition,
-             locations,
-             opts[:clock].(),
-             limits,
-             remaining(deadline)
-           ) do
-      Pressure.run(context, opts, remaining(deadline))
+           MaintenanceTelemetry.run(opts, :inventory, fn ->
+             Inventory.publish(
+               context.pool,
+               partition,
+               locations,
+               opts[:clock].(),
+               limits,
+               remaining(deadline)
+             )
+           end) do
+      MaintenanceTelemetry.run(opts, :pressure, fn ->
+        Pressure.run(context, opts, remaining(deadline))
+      end)
     end
   end
 

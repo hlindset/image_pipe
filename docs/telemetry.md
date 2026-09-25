@@ -1106,3 +1106,35 @@ downstream OTel collector instead.
 `working_space` / `imported?` are on the capture allowlist, so they surface as
 OTel span attributes (all product-neutral geometry, a
 colorspace atom, and a boolean; no secrets).
+
+## Shared filesystem maintenance
+
+The shared-cache runtime emits spans at `[:cache, :shared_maintenance]` with
+`:start`, `:stop`, and `:exception` suffixes. Configure its `telemetry_prefix`
+on the supervised runtime; background work has no request configuration to
+inherit. Events use the standard duration and span-context fields.
+
+Metadata always identifies `operation: :warmup | :inventory | :pressure | :reclamation`.
+Stop metadata reports `result: :ok | :partial | :cache_error`. A bounded scan that
+cannot cover the population is partial; failed filesystem work is a cache error.
+Filling the permitted warm-index budget is ordinary success. Optional inventory
+files that cannot be used are skipped; an otherwise successful warmup does not
+certify that all inventories were readable.
+
+| Operation | Additional stop metadata |
+| --- | --- |
+| `:warmup` | `checked` candidates, `imported` hints |
+| `:inventory` | Outcome only |
+| `:pressure` | `logical_bytes` reported across scanned partitions, `target_bytes` proposed for this runtime, `unavailable` reports; omitted when root pressure is disabled |
+| `:reclamation` | `checked` partitions, `removed` trash directory entries, `errors` counted during retirement/traversal |
+
+These counters describe bounded observations, not global totals. `removed` counts
+names, not freed physical bytes. Failed cleanup retries also produce `:cache_error`
+even when the traversal's `errors` count is zero. No cache paths, source records,
+URLs, or raw filesystem error payloads are included in stop metadata.
+
+The default Logger's `:cache` group renders the operation and outcome, escalating
+partial and failed passes to warning. Trace Capture subscribes to the same span
+and retains all the listed counters as allowlisted attributes for the OTel exporter.
+Background spans are independent of request spans; use the host's telemetry
+handlers to aggregate rates and storage observations.

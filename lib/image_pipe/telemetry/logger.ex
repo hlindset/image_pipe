@@ -38,7 +38,8 @@ defmodule ImagePipe.Telemetry.Logger do
       [:cache, :warm_start],
       [:cache, :source],
       [:cache, :input],
-      [:cache, :refresh]
+      [:cache, :refresh],
+      [:cache, :shared_maintenance]
     ],
     output: [[:output, :negotiate], [:output, :terminal]],
     http_cache: [],
@@ -204,6 +205,7 @@ defmodule ImagePipe.Telemetry.Logger do
         :plan_error,
         :parser_error
       ] or
+      (suffix == [:cache, :shared_maintenance, :stop] and metadata[:result] == :partial) or
       encode_failure?(suffix, metadata) or
       color_management_failure?(suffix, metadata) or
       detect_fallback_warning?(suffix, metadata) or
@@ -245,6 +247,9 @@ defmodule ImagePipe.Telemetry.Logger do
   defp terminal_failure?(_suffix, _meta), do: false
 
   # --- message ---
+  defp message([:cache, :shared_maintenance | _], _m, meta),
+    do: "image_pipe cache shared_maintenance: #{meta[:operation]} #{meta[:result]}"
+
   defp message([:transform, :operation | _], _m, meta) do
     "image_pipe transform: #{meta[:operation]} #{outcome(meta)}"
   end

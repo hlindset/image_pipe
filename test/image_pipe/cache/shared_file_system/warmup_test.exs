@@ -217,6 +217,49 @@ defmodule ImagePipe.Cache.SharedFileSystem.WarmupTest do
     location
   end
 
+  test "maintenance reports successful passes and storage failure without paths", ctx do
+    prefix = [__MODULE__, :maintenance]
+    event = prefix ++ [:cache, :shared_maintenance, :stop]
+    id = {__MODULE__, make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        id,
+        event,
+        fn _, measurements, metadata, pid ->
+          send(pid, {:maintenance, measurements, metadata})
+        end,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(id) end)
+    opts = Keyword.put(opts(), :telemetry_prefix, prefix)
+
+    assert {:ok, _} = InventoryWorker.run(__MODULE__.Writer, opts, :publish)
+
+    for operation <- [:inventory, :pressure, :reclamation] do
+      assert_receive {:maintenance, %{duration: duration}, %{operation: ^operation, result: :ok}}
+      assert duration >= 0
+    end
+
+    limited = Keyword.put(opts, :reclaim_max_partitions, 1)
+    assert {:ok, _} = InventoryWorker.run(__MODULE__.Writer, limited, :publish)
+    assert_receive {:maintenance, _, %{operation: :inventory, result: :ok}}
+    assert_receive {:maintenance, _, %{operation: :pressure, result: :ok}}
+    assert_receive {:maintenance, _, %{operation: :reclamation, result: :partial}}
+
+    File.rm!(Path.join(ctx.writer.partition.path, "inventory"))
+    File.mkdir!(Path.join(ctx.writer.partition.path, "inventory"))
+    assert {:error, _} = InventoryWorker.run(__MODULE__.Writer, opts, :publish)
+    assert_receive {:maintenance, _, %{operation: :inventory, result: :cache_error} = metadata}
+    assert Map.keys(metadata) |> Enum.sort() == [:operation, :result, :telemetry_span_context]
+    assert_receive {:maintenance, _, %{operation: :reclamation}}
+
+    stop_supervised!({Runtime, __MODULE__.Writer})
+    assert {:error, :unavailable} = InventoryWorker.run(__MODULE__.Writer, opts, :warmup)
+    assert_receive {:maintenance, _, %{operation: :warmup, result: :cache_error}}
+  end
+
   defp opts,
     do: [
       inventory_max_entries: 16,

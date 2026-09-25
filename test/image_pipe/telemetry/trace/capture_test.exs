@@ -21,6 +21,31 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     :ok
   end
 
+  test "captures shared maintenance outcomes and logical accounting" do
+    prefix = [__MODULE__, :shared_maintenance]
+    TestExporter.attach(self(), prefix: prefix)
+
+    for result <- [:ok, :partial, :cache_error] do
+      Telemetry.span(
+        [telemetry_prefix: prefix],
+        [:cache, :shared_maintenance],
+        %{operation: :pressure},
+        fn ->
+          {:ok, %{result: result, logical_bytes: 100, target_bytes: 80, unavailable: 1}}
+        end
+      )
+
+      assert_receive {:span,
+                      %Span{name: "image_pipe.cache.shared_maintenance", attributes: attrs}}
+
+      assert attrs.result == result
+      assert attrs.operation == :pressure
+      assert attrs.logical_bytes == 100
+      assert attrs.target_bytes == 80
+      assert attrs.unavailable == 1
+    end
+  end
+
   defp emit_nested do
     Telemetry.span([], [:request], %{}, fn ->
       Telemetry.span([], [:transform, :execute], %{operation_count: 1}, fn ->

@@ -82,6 +82,29 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "cache lookup: hit"
   end
 
+  test "logs shared maintenance outcomes and warns for partial or failed work" do
+    prefix = [__MODULE__, :shared_maintenance]
+    Telemetry.attach_default_logger(prefix: prefix)
+
+    log =
+      capture_log(fn ->
+        for result <- [:ok, :partial, :cache_error] do
+          Telemetry.span(
+            [telemetry_prefix: prefix],
+            [:cache, :shared_maintenance],
+            %{operation: :reclamation},
+            fn ->
+              {:ok, %{result: result}}
+            end
+          )
+        end
+      end)
+
+    assert log =~ "shared_maintenance: reclamation ok"
+    assert log =~ "[warning] image_pipe cache shared_maintenance: reclamation partial"
+    assert log =~ "[warning] image_pipe cache shared_maintenance: reclamation cache_error"
+  end
+
   test "logs coordinated cache stages and escalates refresh failure" do
     prefix = [__MODULE__, :coordinated]
     Telemetry.attach_default_logger(prefix: prefix)

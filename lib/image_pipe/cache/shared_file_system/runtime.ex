@@ -36,6 +36,10 @@ defmodule ImagePipe.Cache.SharedFileSystem.Runtime do
             warmup_max_candidates: [type: :pos_integer, default: 128],
             warmup_timeout: [type: :pos_integer, default: 1_000],
             clock_skew: [type: :non_neg_integer, default: 5],
+            telemetry_prefix: [
+              type: {:custom, ImagePipe.Telemetry, :validate_logger_prefix, []},
+              default: [:image_pipe]
+            ],
             clock: [type: {:fun, 0}, default: &Sources.Supervisor.now/0]
           )
 

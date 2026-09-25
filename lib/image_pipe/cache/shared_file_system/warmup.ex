@@ -7,22 +7,28 @@ defmodule ImagePipe.Cache.SharedFileSystem.Warmup do
   def run(context, now, limits, timeout) do
     deadline = System.monotonic_time(:millisecond) + timeout
 
-    with {:ok, {:ok, partitions, status}} <-
-           CacheIO.run(
-             context.pool,
-             {Discovery, :partitions, [context.partition.root, limits.partitions]},
-             limits.partitions * 4_096,
-             remaining(deadline)
-           ) do
-      lists = inventories(context, partitions, now, limits.inventory, deadline)
-      {candidates, candidate_status} = interleave(lists, limits.candidates, [])
+    case CacheIO.run(
+           context.pool,
+           {Discovery, :partitions, [context.partition.root, limits.partitions]},
+           limits.partitions * 4_096,
+           remaining(deadline)
+         ) do
+      {:ok, {:ok, partitions, status}} ->
+        lists = inventories(context, partitions, now, limits.inventory, deadline)
+        {candidates, candidate_status} = interleave(lists, limits.candidates, [])
 
-      seed(context, candidates, deadline, %{
-        checked: 0,
-        imported: 0,
-        partitions: status,
-        candidates: candidate_status
-      })
+        seed(context, candidates, deadline, %{
+          checked: 0,
+          imported: 0,
+          partitions: status,
+          candidates: candidate_status
+        })
+
+      {:ok, error} ->
+        error
+
+      error ->
+        error
     end
   end
 
