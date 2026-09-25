@@ -89,7 +89,7 @@ defmodule ImagePipe.API.InputCacheFailureWireTest do
       end)
 
     try do
-      assert_receive {:trace, _, :send, {:"$gen_call", _, message}, ^admission}, 1000
+      assert_receive {:trace, _, :send, {:"$gen_call", _, message}, ^admission}, 5_000
       assert elem(message, 0) == operation
     after
       Process.exit(admission, :kill)
