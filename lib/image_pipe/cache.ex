@@ -23,7 +23,8 @@ defmodule ImagePipe.Cache do
       Work,
       OutputWork,
       Key,
-      FileSystem
+      FileSystem,
+      SharedFileSystem
     ]
 
   require Logger

@@ -512,7 +512,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Cache.Work,
       ImagePipe.Cache.OutputWork,
       ImagePipe.Cache.Key,
-      ImagePipe.Cache.FileSystem
+      ImagePipe.Cache.FileSystem,
+      ImagePipe.Cache.SharedFileSystem
     ])
   end
 

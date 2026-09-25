@@ -225,7 +225,31 @@ result. Output metadata is validated as response metadata, originals require
 valid source evidence and an exact expected byte identity, and bodies are copied
 and digest-checked before returning a reader. Source discovery installs evidence
 through `Sources` under the caller's existing lease. Only successful reads update
-the hint index. Public adapter wiring and request-boundary validation remain.
+the hint index.
+
+`ImagePipe.Cache.SharedFileSystem` now implements both public cache contracts.
+Its named runtime supervises the isolated executor, source coordinator, location
+index, and heartbeat/partition recovery. Request callers resolve current worker
+handles from supervisor-owned ETS. Location-worker replacement renews its handle;
+partition rotation preserves source coordination. The executor and source-scope
+supervisor are not automatically replaced after losing their ownership state.
+Their internal workers retain the recovery rules described above.
+
+Start the runtime with `name`, shared `root`, and node-local `local_root`, then use
+`{ImagePipe.Cache.SharedFileSystem, runtime: name}` for output and optionally input
+caching. Output-only mode uses this runtime as its explicit source-state owner.
+Validation occurs before startup I/O. Output writes use leased local staging and
+bounded append operations before immutable publication; acquired outputs are
+returned as bounded binaries. Sink callbacks share a decreasing I/O allowance;
+time spent producing chunks between callbacks does not consume that allowance.
+Original hits return stable reader handles. Local
+source selection is installed under its lease before best-effort disk publication;
+failure to store an original does not prevent recording new validation evidence.
+Wire tests cover two independent runtimes, cross-node output/original reuse,
+conditional requests, independent fresh pixels, missing originals, helper failure,
+location-worker replacement, and partition rotation. These use local disk and do
+not qualify a shared mount. Retention, adoption, warmup scheduling, expanded
+operational controls, and shared-mount qualification remain in progress.
 
 `SharedFileSystem.Inventory` publishes an atomically replaced, count/byte-bounded
 prefix of locations ranked by the retention owner. It uses leased staging and the

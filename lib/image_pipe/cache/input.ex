@@ -3,6 +3,7 @@ defmodule ImagePipe.Cache.Input do
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.Input.{Adapter, Output, Snapshot}
   alias ImagePipe.Cache.Resources
+  alias ImagePipe.Cache.SharedFileSystem
   alias ImagePipe.Source.Record
   alias ImagePipe.Telemetry
 
@@ -231,5 +232,6 @@ defmodule ImagePipe.Cache.Input do
 
   defp output_owner(nil), do: nil
   defp output_owner({FileSystem, _pool} = configured), do: configured
+  defp output_owner({SharedFileSystem, _pool} = configured), do: configured
   defp output_owner(configured), do: {Output, [cache: configured]}
 end
