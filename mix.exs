@@ -74,7 +74,7 @@ defmodule ImagePipe.MixProject do
   # These exact specs intentionally mention hidden runtime value types.
   @internal_typespec_references [
     "t:ImagePipe.Delivery.build_fun/0",
-    "ImagePipe.Delivery.stream/5",
+    "ImagePipe.Delivery.stream/4",
     "ImagePipe.Execution.Identity.material/5",
     "ImagePipe.Output.EncodeSearch.run/3",
     "t:ImagePipe.Transform.SourceGeometry.t/0",
