@@ -251,6 +251,16 @@ location-worker replacement, and partition rotation. These use local disk and do
 not qualify a shared mount. Retention, adoption, warmup scheduling, expanded
 operational controls, and shared-mount qualification remain in progress.
 
+`SharedFileSystem.Retention` supplies a pure W-TinyLFU policy using the existing
+frequency sketch and cost-per-byte scoring. Real requests increment the sketch
+and promote retained entries; offers and inventory ranking do not invent demand.
+The window and segmented main queues have byte and entry bounds. Admission walks
+a bounded victim prefix, returns exact generation descriptors, and leaves the
+prior state intact on rejection. Delayed forgetting cannot remove a replacement.
+Protected entries and scored known keys provide bounded inventory candidates.
+The policy needs an owner that coordinates publication/adoption, accounts pending
+work, and applies exact-generation eviction; it does not itself perform disk I/O.
+
 `SharedFileSystem.Inventory` publishes an atomically replaced, count/byte-bounded
 prefix of locations ranked by the retention owner. It uses leased staging and the
 same isolated I/O executor. Ambiguous replacement is acknowledged only when the
