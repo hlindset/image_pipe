@@ -24,7 +24,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
   end
 
   test "publishes an immutable pair and holds a reader independently of shared cleanup", ctx do
-    metadata = %{content_type: "image/png", created_at: ~U[2026-09-25 00:00:00Z]}
+    metadata = output_metadata()
     assert {:ok, location} = publish(ctx, metadata)
     assert location.path == ctx.plan.destination
     assert File.ls!(location.path) |> Enum.sort() == ["body", "meta"]
@@ -38,7 +38,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
 
   test "oversized bodies and metadata never publish", ctx do
     File.write!(ctx.source, String.duplicate("x", 33))
-    assert {:error, :body_too_large} = publish(ctx, %{})
+    assert {:error, :body_too_large} = publish(ctx)
     refute File.exists?(ctx.plan.destination)
     File.write!(ctx.source, "small")
     ctx = %{ctx | plan: Partition.plan(ctx.partition, :outputs, ctx.plan.key)}
@@ -48,12 +48,12 @@ defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
 
   test "a retired incarnation cannot be recreated by a pending publication", ctx do
     {:ok, {:ok, _trash}} = CacheIO.run(ctx.pool, {Partition, :retire, [ctx.partition]}, 0, 1_000)
-    assert {:error, :enoent} = publish(ctx, %{})
+    assert {:error, :enoent} = publish(ctx)
     refute File.exists?(ctx.partition.path)
   end
 
   test "corrupt or missing body is rejected before returning a reader", ctx do
-    assert {:ok, location} = publish(ctx, %{})
+    assert {:ok, location} = publish(ctx)
     body = Path.join(location.path, "body")
     File.write!(body, "corrupted")
     assert {:error, :corrupt} = acquire(ctx, location)
@@ -62,7 +62,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
   end
 
   test "metadata is bounded and rejects compressed terms before decoding", ctx do
-    assert {:ok, location} = publish(ctx, %{})
+    assert {:ok, location} = publish(ctx)
     meta = Path.join(location.path, "meta")
     File.write!(meta, :erlang.term_to_binary(String.duplicate("x", 10_000), [:compressed]))
     assert {:error, :corrupt} = acquire(ctx, location)
@@ -71,15 +71,15 @@ defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
   end
 
   test "a metadata file cannot substitute another generation", ctx do
-    assert {:ok, first} = publish(ctx, %{})
+    assert {:ok, first} = publish(ctx)
     other = %{ctx | plan: Partition.plan(ctx.partition, :outputs, ctx.plan.key)}
-    assert {:ok, second} = publish(other, %{})
+    assert {:ok, second} = publish(other)
     File.cp!(Path.join(first.path, "meta"), Path.join(second.path, "meta"))
     assert {:error, :corrupt} = acquire(ctx, second)
   end
 
   test "a successful publication can be reconciled after losing its acknowledgement", ctx do
-    assert {:ok, location} = publish(ctx, %{})
+    assert {:ok, location} = publish(ctx)
 
     assert {:ok, {:ok, ^location}} =
              CacheIO.run(ctx.pool, {Storage, :commit, [ctx.plan, limits()]}, 1_000_000, 1_000)
@@ -91,7 +91,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
   end
 
   test "acquired bytes survive helper failure", ctx do
-    assert {:ok, location} = publish(ctx, %{})
+    assert {:ok, location} = publish(ctx)
     assert {:ok, reader} = acquire(ctx, location)
     assert {:error, _reason} = CacheIO.run(ctx.pool, {:erlang, :halt, []}, 0, 1_000)
     File.rm_rf!(ctx.partition.path)
@@ -203,7 +203,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
   end
 
   test "reader ownership survives executor shutdown", ctx do
-    assert {:ok, location} = publish(ctx, %{})
+    assert {:ok, location} = publish(ctx)
     assert {:ok, reader} = acquire(ctx, location)
     stop_supervised!(CacheIO)
     assert File.read!(reader.path) == "encoded image"
@@ -212,7 +212,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
   end
 
   test "caller death cleans its reader after helper failure", ctx do
-    assert {:ok, location} = publish(ctx, %{})
+    assert {:ok, location} = publish(ctx)
     parent = self()
     tasks = start_supervised!(Task.Supervisor)
 
@@ -234,8 +234,18 @@ defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
     refute File.exists?(Path.dirname(reader.path))
   end
 
-  defp publish(ctx, metadata) do
+  defp publish(ctx, metadata \\ output_metadata()) do
     Generation.publish(ctx.pool, ctx.plan, ctx.source, metadata, limits(), 1_000)
+  end
+
+  defp output_metadata do
+    %ImagePipe.Cache.Entry.Metadata{
+      content_type: "image/png",
+      headers: [],
+      created_at: ~U[2026-09-25 00:00:00Z],
+      output_format: :png,
+      representation: {:image, :png}
+    }
   end
 
   defp acquire(ctx, location) do

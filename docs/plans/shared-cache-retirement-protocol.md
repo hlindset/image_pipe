@@ -215,6 +215,18 @@ by others. The isolated executor retains reservations for uncertain filesystem
 operations even after the search deadline. The coordinator remains responsive
 while searches run in supervised tasks.
 
+`SharedFileSystem.Lookup` tries indexed locations before coalesced discovery and
+refreshes once more when named candidates are unusable. One request deadline and
+attempt budget cover all phases; each exact location is attempted at most once.
+Missing/corrupt generations are forgotten, while executor saturation, timeout,
+unavailability, and lost source ownership abort the lookup. A complete exhausted
+search is a miss; truncated search or attempt exhaustion is a distinct limit
+result. Output metadata is validated as response metadata, originals require
+valid source evidence and an exact expected byte identity, and bodies are copied
+and digest-checked before returning a reader. Source discovery installs evidence
+through `Sources` under the caller's existing lease. Only successful reads update
+the hint index. Public adapter wiring and request-boundary validation remain.
+
 `SharedFileSystem.Inventory` publishes an atomically replaced, count/byte-bounded
 prefix of locations ranked by the retention owner. It uses leased staging and the
 same isolated I/O executor. Ambiguous replacement is acknowledged only when the
