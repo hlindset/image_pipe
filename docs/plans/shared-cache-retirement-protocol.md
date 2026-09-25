@@ -318,8 +318,33 @@ scanning and resize share one background deadline and run off the request path.
 
 These totals are logical reports, not physical capacity: hard links are counted
 per owner, reports can lag, and missing reports, control files and orphaned staging
-or trash can be unrepresented. Automatic abandoned-partition and trash reclamation
-remain to be connected. External storage ceilings remain operator-provided.
+or trash can be unrepresented. External storage ceilings remain operator-provided.
+
+The periodic worker runs reclamation even when publication or pressure fails,
+with a separate `timeout` allowance. It checks up to `reclaim_max_partitions`
+(128), skips its own incarnation and retires others after `inactivity_grace`
+(3,600 seconds) using filesystem heartbeat modification times and the system UTC
+clock. Missing heartbeat falls back to directory modification time, granting
+startup a grace period. A refreshed heartbeat racing the decision can still lose;
+retirement never claims that the writer is dead.
+
+Trash cleanup inspects at most `reclaim_max_entries` (256, minimum 32) names per
+pass. The native helper walks relative directory descriptors, opens directories
+without following symlinks, and unlinks symlinks themselves. Recursion is limited
+to eight child levels. Empty directories and both retired incarnations and exact
+generation victims are reclaimed; the trash root stays in place. Counts describe
+names inspected/unlinked and errors, never physical bytes freed. Another cleaner
+removing an entry is harmless; failed or over-deep trees remain for later repair
+and retry. Maintenance also retries closed I/O leases and failed exact-generation
+cleanup, preserving their charges until their owners acknowledge success.
+
+Progress requires responsive storage, eventual cessation of writes into retired
+trees and removable entries. Set the partition scan limit above the number of
+live/within-grace or otherwise ineligible partitions; a prefix filled entirely
+with those entries cannot reach the inactive backlog. Truncation is reported so
+operators can increase the bound. Under those conditions a finite inactive backlog
+is retired and incremental trash passes finish it. Sustained churn or persistent
+permission failures can outpace reclamation. These bounds do not enforce a quota.
 
 `SharedFileSystem.Inventory` publishes an atomically replaced, count/byte-bounded
 prefix of locations ranked by the retention owner. It uses leased staging and the

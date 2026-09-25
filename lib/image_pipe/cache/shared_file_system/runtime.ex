@@ -26,6 +26,9 @@ defmodule ImagePipe.Cache.SharedFileSystem.Runtime do
             root_max_bytes: [type: {:or, [nil, :pos_integer]}, default: nil],
             root_low_watermark: [type: :float, default: 0.8],
             usage_max_partitions: [type: :pos_integer, default: 128],
+            inactivity_grace: [type: :pos_integer, default: 3_600],
+            reclaim_max_partitions: [type: :pos_integer, default: 128],
+            reclaim_max_entries: [type: :pos_integer, default: 256],
             inventory_interval: [type: :pos_integer, default: 60_000],
             inventory_max_entries: [type: :pos_integer, default: 128],
             inventory_max_bytes: [type: :pos_integer, default: 65_536],
@@ -41,6 +44,9 @@ defmodule ImagePipe.Cache.SharedFileSystem.Runtime do
 
     if opts[:root_low_watermark] <= 0.0 or opts[:root_low_watermark] >= 1.0,
       do: raise(ArgumentError, "root_low_watermark must be between zero and one")
+
+    if opts[:reclaim_max_entries] < 32,
+      do: raise(ArgumentError, "reclaim_max_entries must be at least 32")
 
     opts =
       opts

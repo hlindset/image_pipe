@@ -22,7 +22,12 @@ defmodule ImagePipe.Cache.SharedFileSystem do
   `root_max_bytes` to enable approximate volume pressure; `root_low_watermark`
   (0.8) leaves headroom and `usage_max_partitions` (128) bounds each scan.
   Missing/stale reports permit overshoot; these settings do not enforce a quota.
-  Shared-volume reclamation and shared-mount qualification are still in progress.
+  Maintenance retires other incarnations after `inactivity_grace` seconds (3,600),
+  then incrementally unlinks trash. `reclaim_max_partitions` (128) and
+  `reclaim_max_entries` (256, minimum 32) bound each pass. Keep the partition limit
+  above the number of live or within-grace writers so inactive entries can be
+  reached. Heartbeats may be stale; eviction can cost cache hits on a live writer.
+  Shared-mount qualification is still in progress.
   """
   @behaviour ImagePipe.Cache
   @behaviour ImagePipe.Cache.Input.Adapter

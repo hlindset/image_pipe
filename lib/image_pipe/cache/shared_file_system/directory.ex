@@ -14,25 +14,54 @@ defmodule ImagePipe.Cache.SharedFileSystem.Directory do
   # Called only inside the isolated I/O helper. The outer operation deadline
   # retains its reservation while this process waits for the child to exit.
   def list(path, limit) do
-    executable = Path.join(to_string(:code.priv_dir(:image_pipe)), "shared_cache/list_directory")
-
-    with {:ok, port} <- open(executable, path, limit),
-         {:ok, output} <- collect(port, 33 * limit + 64, []) do
+    with {:ok, output} <- execute([path, Integer.to_string(limit)], 33 * limit + 64) do
       decode(output, limit)
     end
   end
 
-  defp open(executable, path, limit) do
+  def sweep(trash, limit) do
+    with {:ok, output} <- execute([trash, Integer.to_string(limit), "--sweep"], 128) do
+      decode_sweep(output, limit)
+    end
+  end
+
+  defp execute(args, bytes) do
+    executable = Path.join(to_string(:code.priv_dir(:image_pipe)), "shared_cache/list_directory")
+    with {:ok, port} <- open(executable, args), do: collect(port, bytes, [])
+  end
+
+  defp open(executable, args) do
     {:ok,
      Port.open({:spawn_executable, executable}, [
        :binary,
        :exit_status,
        :use_stdio,
        :stderr_to_stdout,
-       args: [path, Integer.to_string(limit)]
+       args: args
      ])}
   rescue
     ErlangError -> {:error, :directory_helper_unavailable}
+  end
+
+  defp decode_sweep(output, limit) do
+    case String.split(output) do
+      ["S", inspected, removed, errors, limited] when limited in ["0", "1"] ->
+        with {inspected, ""} when inspected >= 0 and inspected <= limit <-
+               Integer.parse(inspected),
+             {removed, ""} when removed >= 0 and removed <= inspected <- Integer.parse(removed),
+             {errors, ""} when errors >= 0 <- Integer.parse(errors) do
+          {:ok,
+           %{inspected: inspected, removed: removed, errors: errors, limited: limited == "1"}}
+        else
+          _invalid -> {:error, :directory_helper_failed}
+        end
+
+      ["E", error] ->
+        {:error, Map.get(@errors, error, :directory_helper_failed)}
+
+      _invalid ->
+        {:error, :directory_helper_failed}
+    end
   end
 
   defp collect(port, remaining, chunks) do

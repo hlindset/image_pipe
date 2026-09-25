@@ -188,6 +188,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
        when not is_nil(failure),
        do: {:reply, :scheduled, cleanup(%{state | failure: nil}, victims)}
 
+  defp dispatch(:retry_cleanup, %{failure: nil} = state), do: {:reply, :idle, state}
   defp dispatch(:retry_cleanup, state), do: {:reply, {:error, :unavailable}, state}
 
   defp dispatch({:consider, _descriptor}, %{failure: failure} = state) when not is_nil(failure),

@@ -39,4 +39,55 @@ defmodule ImagePipe.Cache.SharedFileSystem.DirectoryTest do
     File.touch!(file)
     assert {:error, :enotdir} = Directory.list(file, 10)
   end
+
+  test "trash cleanup makes bounded progress and preserves symlink targets", %{root: root} do
+    trash = Path.join(root, "trash")
+    File.mkdir!(trash)
+    outside = Path.join(root, "outside")
+    File.mkdir!(outside)
+    File.write!(Path.join(outside, "keep"), "untouched")
+    File.ln_s!(outside, Path.join(trash, "linked-directory"))
+
+    for n <- 1..30 do
+      directory = Path.join([trash, Integer.to_string(n), "nested"])
+      File.mkdir_p!(directory)
+      File.write!(Path.join(directory, "body"), "body")
+      File.write!(Path.join(directory, "meta"), "meta")
+    end
+
+    assert {:ok, %{inspected: 8, limited: true}} = Directory.sweep(trash, 8)
+
+    for _ <- 1..30 do
+      assert {:ok, %{inspected: inspected, errors: 0}} = Directory.sweep(trash, 8)
+      assert inspected <= 8
+    end
+
+    assert File.ls!(trash) == []
+    assert File.read!(Path.join(outside, "keep")) == "untouched"
+    assert {:ok, %{inspected: 0, removed: 0, limited: false}} = Directory.sweep(trash, 8)
+  end
+
+  test "overlapping trash passes tolerate files disappearing", %{root: root} do
+    for n <- 1..100, do: File.write!(Path.join(root, Integer.to_string(n)), "body")
+    tasks = start_supervised!(Task.Supervisor)
+
+    results =
+      for _ <- 1..2 do
+        Task.Supervisor.async_nolink(tasks, fn -> Directory.sweep(root, 200) end)
+      end
+      |> Enum.map(&Task.await/1)
+
+    assert Enum.all?(results, &match?({:ok, %{errors: 0}}, &1))
+    assert File.ls!(root) == []
+  end
+
+  test "a symlink cannot be used as the trash root", %{root: root} do
+    target = Path.join(root, "target")
+    File.mkdir!(target)
+    File.write!(Path.join(target, "keep"), "untouched")
+    link = Path.join(root, "link")
+    File.ln_s!(target, link)
+    assert {:error, _reason} = Directory.sweep(link, 100)
+    assert File.read!(Path.join(target, "keep")) == "untouched"
+  end
 end

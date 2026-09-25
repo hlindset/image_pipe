@@ -67,6 +67,21 @@ defmodule ImagePipe.Cache.SharedFileSystem.PressureTest do
     assert %{capacity: 100} = Retainer.stats(ctx.context.retainer, 1_000)
   end
 
+  test "periodic maintenance retires an inactive writer and reaps its staging", ctx do
+    {:ok, {:ok, abandoned}} =
+      CacheIO.run(ctx.context.pool, {Partition, :create, [ctx.context.partition.root]}, 0, 1_000)
+
+    stage = Path.join(abandoned.path, "staging/interrupted")
+    File.mkdir!(stage)
+    File.write!(Path.join(stage, "body"), "partial")
+    File.touch!(Path.join(abandoned.path, "heartbeat"), 0)
+    send(ctx.worker, :tick)
+    settle_worker(ctx.worker)
+    refute File.exists?(abandoned.path)
+    refute File.exists?(Path.join([abandoned.root, "trash", abandoned.id]))
+    assert File.dir?(ctx.context.partition.path)
+  end
+
   test "invalid watermarks fail before creating storage", ctx do
     path = Path.join(ctx.root, "invalid")
 
