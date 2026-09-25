@@ -2,8 +2,35 @@ defmodule ImagePipe.Cache.SharedFileSystem.Generation do
   @moduledoc false
 
   alias ImagePipe.Cache.Resources
-  alias ImagePipe.Cache.SharedFileSystem.{Body, Metadata, Storage, Transient}
+  alias ImagePipe.Cache.SharedFileSystem.{Body, Metadata, Retention, Storage, Transient}
   alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
+
+  def descriptor(location, %{body: body, metadata: metadata, metadata_bytes: bytes}) do
+    {body_bytes, digest} =
+      case body do
+        nil -> {0, nil}
+        %{bytes: size, sha256: hash} -> {size, hash}
+      end
+
+    cost =
+      case metadata do
+        %{cost_us: cost} -> cost
+        _source_record -> 0
+      end
+
+    Retention.descriptor(location, bytes + body_bytes, digest, cost)
+  end
+
+  def evict(pool, partition, locations, limits, timeout) do
+    deadline = deadline(timeout)
+
+    Enum.reduce_while(locations, :ok, fn location, :ok ->
+      case run(pool, {Storage, :evict, [partition, location]}, limits, deadline, nil) do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
 
   def adopt(pool, plan, location, limits, timeout) do
     deadline = deadline(timeout)

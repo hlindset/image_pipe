@@ -87,7 +87,9 @@ defmodule ImagePipe.Cache.SharedFileSystem.Storage do
   def metadata(location, limit) do
     case File.open(Path.join(location.path, "meta"), [:read, :binary], &IO.binread(&1, limit + 1)) do
       {:ok, encoded} when is_binary(encoded) and byte_size(encoded) <= limit ->
-        decode(encoded, location)
+        with {:ok, envelope} <- decode(encoded, location) do
+          {:ok, Map.put(envelope, :metadata_bytes, byte_size(encoded))}
+        end
 
       {:ok, encoded} when is_binary(encoded) ->
         {:error, :metadata_too_large}
@@ -100,6 +102,44 @@ defmodule ImagePipe.Cache.SharedFileSystem.Storage do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  def evict(partition, location) do
+    retired = Path.join([partition.root, "trash", partition.id <> "-" <> location.generation])
+
+    with :ok <- retire_generation(location.path, retired),
+         :ok <- remove_file(Path.join(retired, "body")),
+         :ok <- remove_file(Path.join(retired, "meta")) do
+      case File.rmdir(retired) do
+        :ok -> :ok
+        {:error, :enoent} -> :ok
+        error -> error
+      end
+    end
+  end
+
+  defp retire_generation(path, retired) do
+    case File.rename(path, retired) do
+      :ok ->
+        :ok
+
+      {:error, :enoent} ->
+        :ok
+
+      {:error, reason} ->
+        case File.stat(retired) do
+          {:ok, %File.Stat{type: :directory}} -> :ok
+          _uncertain -> {:error, reason}
+        end
+    end
+  end
+
+  defp remove_file(path) do
+    case File.rm(path) do
+      :ok -> :ok
+      {:error, :enoent} -> :ok
+      error -> error
     end
   end
 

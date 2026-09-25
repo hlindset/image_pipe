@@ -267,8 +267,21 @@ The window and segmented main queues have byte and entry bounds. Admission walks
 a bounded victim prefix, returns exact generation descriptors, and leaves the
 prior state intact on rejection. Delayed forgetting cannot remove a replacement.
 Protected entries and scored known keys provide bounded inventory candidates.
-The policy needs an owner that coordinates publication/adoption, accounts pending
-work, and applies exact-generation eviction; it does not itself perform disk I/O.
+
+`SharedFileSystem.Retainer` runs one supervised adoption transaction at a time.
+It accepts bounded requests before enqueueing, coalesces duplicate candidates,
+and keeps popularity updates responsive during mount I/O. It checks admission
+before adoption and again before committing the policy transition, so intervening
+requests cannot be overwritten by a stale policy snapshot. Logical charges include
+the full serialized metadata envelope and body, even for hard links. Exact local
+victims are renamed into trash before bounded member removal. Failed removal keeps
+its charge and supports an explicit retry; uncertain adoption retains its pending
+charge and stops further writes through that owner. Scheduling returns before
+background adoption completes. The worker is not yet connected to the runtime.
+
+Runtime integration still needs to route ordinary publication through admission,
+connect successful lookups to adoption, and preserve accounting across owner
+restart and partition rotation.
 
 `SharedFileSystem.Inventory` publishes an atomically replaced, count/byte-bounded
 prefix of locations ranked by the retention owner. It uses leased staging and the
