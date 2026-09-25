@@ -203,6 +203,18 @@ Only confirmed reuse/publication establishes requested-entry recency; querying a
 hint does not. Inventory imports occupy a separately bounded fraction of keys and
 bytes, cannot displace requested entries, and are evicted before them.
 
+`SharedFileSystem.Locations` owns the hint index and a count-bounded partition
+snapshot with a monotonic TTL. Same-key searches coalesce locally; active jobs,
+waiters, and pre-enqueue request payloads have independent limits. An empty
+cached-list search refreshes partitions within one search deadline. Readers can
+force refresh when named candidates prove unusable. Each search performs at most
+two bounded candidate scans, and truncated partition snapshots preserve their
+limited status. Discovery alone does not confirm a hint or record demand.
+Individual caller expiry/death releases its waiter without cancelling work used
+by others. The isolated executor retains reservations for uncertain filesystem
+operations even after the search deadline. The coordinator remains responsive
+while searches run in supervised tasks.
+
 `SharedFileSystem.Inventory` publishes an atomically replaced, count/byte-bounded
 prefix of locations ranked by the retention owner. It uses leased staging and the
 same isolated I/O executor. Ambiguous replacement is acknowledged only when the
