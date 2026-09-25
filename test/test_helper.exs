@@ -28,7 +28,8 @@ ExUnit.start(
   assert_receive_timeout: 2_000,
   exclude: [
     :image_vision,
-    :aws_integration
+    :aws_integration,
+    :shared_disk_fault
   ]
 )
 

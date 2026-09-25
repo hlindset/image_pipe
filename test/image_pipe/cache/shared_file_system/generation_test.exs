@@ -1,7 +1,7 @@
 defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
   use ExUnit.Case, async: false
 
-  alias ImagePipe.Cache.SharedFileSystem.{Generation, Partition, Sources, Storage}
+  alias ImagePipe.Cache.SharedFileSystem.{Body, Generation, Partition, Sources, Storage}
   alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
   alias ImagePipe.Source
   alias ImagePipe.Source.Record
@@ -74,6 +74,15 @@ defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
     plan = Partition.plan(ctx.partition, :outputs, ctx.plan.key)
     assert {:error, :corrupt} = Generation.adopt(ctx.pool, plan, original, limits(), 1_000)
     refute File.exists?(plan.destination)
+  end
+
+  test "a link error is reconciled against an already completed destination", ctx do
+    destination = Path.join(ctx.root, "completed-link")
+    assert {:ok, expected} = Body.adopt(ctx.source, destination, 32)
+    File.rm!(ctx.source)
+    assert {:error, :enoent} = File.ln(ctx.source, destination)
+    assert {:ok, ^expected} = Body.adopt(ctx.source, destination, 32)
+    assert File.read!(destination) == "encoded image"
   end
 
   test "adoption cannot recreate a retired receiving partition", ctx do
