@@ -5,6 +5,23 @@ defmodule ImagePipe.Cache.SharedFileSystem.Generation do
   alias ImagePipe.Cache.SharedFileSystem.{Body, Metadata, Storage, Transient}
   alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
 
+  def adopt(pool, plan, location, limits, timeout) do
+    deadline = deadline(timeout)
+    cleanup = {Transient, :remove, [plan.stage]}
+
+    with {:ok, envelope} <-
+           run(pool, {Storage, :metadata, [location, limits.metadata]}, limits, deadline, nil),
+         {:ok, _metadata} <- Metadata.decode(location.kind, envelope.metadata),
+         {:ok, lease} <-
+           CacheIO.reserve(pool, staging_bytes(plan, limits), cleanup, remaining(deadline)) do
+      result =
+        run(pool, {Storage, :adopt, [plan, location, envelope, limits]}, limits, deadline, lease)
+
+      CacheIO.close(pool, lease)
+      result
+    end
+  end
+
   def publish(pool, plan, source, metadata, limits, timeout) do
     deadline = deadline(timeout)
     cleanup = {Transient, :remove, [plan.stage]}

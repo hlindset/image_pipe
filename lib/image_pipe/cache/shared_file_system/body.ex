@@ -4,6 +4,26 @@ defmodule ImagePipe.Cache.SharedFileSystem.Body do
   @chunk 64 * 1024
   def working_bytes, do: 2 * @chunk
 
+  def adopt(source, destination, limit) do
+    case File.ln(source, destination) do
+      :ok -> digest(destination, limit)
+      {:error, reason} -> reconcile_link(source, destination, limit, reason)
+    end
+  end
+
+  defp reconcile_link(source, destination, limit, reason) do
+    case digest(destination, limit) do
+      {:error, :enoent} when reason in [:exdev, :enotsup, :eperm, :emlink] ->
+        copy(source, destination, limit)
+
+      {:error, :enoent} ->
+        {:error, reason}
+
+      result ->
+        result
+    end
+  end
+
   def copy(source, destination, limit) do
     with_file(source, [:read, :binary, :raw], fn input ->
       with_file(destination, [:write, :binary, :raw, :exclusive], fn output ->

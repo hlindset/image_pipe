@@ -97,6 +97,15 @@ retention charge; unlink does not imply physical block reclamation. A temporary
 reader copy/link is not durable admission and has a separate resource budget.
 No inventory import or peer hit without local admission creates retained ownership.
 
+`Generation.adopt` provides the leased storage operation: validate bounded metadata
+in the application VM, link and verify the staged body, then publish the immutable
+pair. It preserves serialized freshness evidence. Unsupported hard links fall back
+to bounded copying; an uncertain link result is reconciled against the destination.
+Local tests cover link survival, corruption, missing bodies, evidence preservation,
+and receiving-partition retirement. Cross-filesystem fallback and shared-mount
+failure injection still require qualification. Runtime admission scheduling remains
+separate from this storage primitive.
+
 ## Progress, resource bounds, and qualification
 
 The protocol guarantees safe outcomes under its filesystem assumptions, not a bound

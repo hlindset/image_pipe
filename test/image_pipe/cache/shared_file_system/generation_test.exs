@@ -46,6 +46,78 @@ defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
     refute File.exists?(ctx.plan.destination)
   end
 
+  test "adoption preserves metadata and survives deletion of the original partition", ctx do
+    metadata = output_metadata()
+    assert {:ok, original} = publish(ctx, metadata)
+
+    {:ok, {:ok, adopter}} =
+      CacheIO.run(ctx.pool, {Partition, :create, [ctx.partition.root]}, 0, 1_000)
+
+    plan = Partition.plan(adopter, :outputs, ctx.plan.key)
+
+    assert {:ok, adopted} =
+             Generation.adopt(ctx.pool, plan, original, limits(), 1_000)
+
+    assert File.stat!(Path.join(original.path, "body")).inode ==
+             File.stat!(Path.join(adopted.path, "body")).inode
+
+    File.rm_rf!(ctx.partition.path)
+    assert {:ok, reader} = acquire(ctx, adopted)
+    assert reader.metadata == metadata
+    assert File.read!(reader.path) == "encoded image"
+    assert :ok = Generation.release(ctx.pool, reader, 1_000)
+  end
+
+  test "adoption rejects corrupted bodies without publishing", ctx do
+    assert {:ok, original} = publish(ctx)
+    File.write!(Path.join(original.path, "body"), "corrupted")
+    plan = Partition.plan(ctx.partition, :outputs, ctx.plan.key)
+    assert {:error, :corrupt} = Generation.adopt(ctx.pool, plan, original, limits(), 1_000)
+    refute File.exists?(plan.destination)
+  end
+
+  test "adoption cannot recreate a retired receiving partition", ctx do
+    assert {:ok, original} = publish(ctx)
+
+    {:ok, {:ok, adopter}} =
+      CacheIO.run(ctx.pool, {Partition, :create, [ctx.partition.root]}, 0, 1_000)
+
+    plan = Partition.plan(adopter, :outputs, ctx.plan.key)
+    {:ok, {:ok, _trash}} = CacheIO.run(ctx.pool, {Partition, :retire, [adopter]}, 0, 1_000)
+    assert {:error, :enoent} = Generation.adopt(ctx.pool, plan, original, limits(), 1_000)
+    refute File.exists?(adopter.path)
+  end
+
+  test "adoption preserves original source evidence without refreshing it", ctx do
+    {:ok, source, _config} = Source.from_input({:binary, "image"}, sources: %{})
+    record = Record.new(source, :crypto.hash(:sha256, "image"), nil, 1_000)
+    source_plan = Partition.plan(ctx.partition, :sources, ctx.plan.key)
+
+    assert {:ok, original} =
+             Generation.publish(ctx.pool, source_plan, nil, record, limits(), 1_000)
+
+    plan = Partition.plan(ctx.partition, :sources, ctx.plan.key)
+    assert {:ok, adopted} = Generation.adopt(ctx.pool, plan, original, limits(), 1_000)
+
+    assert {:ok, %{metadata: ^record, body: nil}} =
+             Generation.metadata(ctx.pool, adopted, limits(), 1_000)
+  end
+
+  test "adoption rejects missing bodies and malformed serialized evidence", ctx do
+    assert {:ok, original} = publish(ctx)
+    File.rm!(Path.join(original.path, "body"))
+    plan = Partition.plan(ctx.partition, :outputs, ctx.plan.key)
+    assert {:error, :enoent} = Generation.adopt(ctx.pool, plan, original, limits(), 1_000)
+    refute File.exists?(plan.destination)
+
+    meta = Path.join(original.path, "meta")
+    envelope = meta |> File.read!() |> :erlang.binary_to_term()
+    File.write!(meta, :erlang.term_to_binary(%{envelope | metadata: <<131, 0>>}))
+    plan = Partition.plan(ctx.partition, :outputs, ctx.plan.key)
+    assert {:error, :corrupt} = Generation.adopt(ctx.pool, plan, original, limits(), 1_000)
+    refute File.exists?(plan.stage)
+  end
+
   test "a retired incarnation cannot be recreated by a pending publication", ctx do
     {:ok, {:ok, _trash}} = CacheIO.run(ctx.pool, {Partition, :retire, [ctx.partition]}, 0, 1_000)
     assert {:error, :enoent} = publish(ctx)

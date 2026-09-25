@@ -3,18 +3,40 @@ defmodule ImagePipe.Cache.SharedFileSystem.Storage do
 
   alias ImagePipe.Cache.SharedFileSystem.{Body, Partition}
 
+  def adopt(plan, location, envelope, limits) do
+    with :ok <- Partition.stage(plan),
+         :ok <- adopt_body(plan, location, envelope.body, limits.body) do
+      publish_metadata(plan, envelope.body, envelope.metadata, limits)
+    end
+  end
+
+  defp adopt_body(%{kind: :sources}, _location, nil, _limit), do: :ok
+
+  defp adopt_body(plan, location, expected, limit) do
+    with {:ok, body} <-
+           Body.adopt(Path.join(location.path, "body"), Path.join(plan.stage, "body"), limit) do
+      verify_body(body, expected)
+    end
+  end
+
   # Run only in the isolated filesystem helper.
   def publish(plan, source, metadata, limits) do
     with :ok <- Partition.stage(plan),
-         {:ok, body} <- prepare_body(plan, source, limits.body),
-         envelope = %{
-           kind: plan.kind,
-           key: plan.key,
-           generation: plan.generation,
-           body: body,
-           metadata: metadata
-         },
-         {:ok, encoded} <- encode(envelope, limits.metadata),
+         {:ok, body} <- prepare_body(plan, source, limits.body) do
+      publish_metadata(plan, body, metadata, limits)
+    end
+  end
+
+  defp publish_metadata(plan, body, metadata, limits) do
+    envelope = %{
+      kind: plan.kind,
+      key: plan.key,
+      generation: plan.generation,
+      body: body,
+      metadata: metadata
+    }
+
+    with {:ok, encoded} <- encode(envelope, limits.metadata),
          :ok <- File.write(Path.join(plan.stage, "meta"), encoded, [:exclusive]) do
       commit(plan, limits)
     end
