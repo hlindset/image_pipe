@@ -43,15 +43,40 @@ defmodule SharedCacheWarmupBench do
           entries: :integer,
           rounds: :integer,
           bytes: :integer,
+          concurrency: :integer,
+          io_operations: :integer,
+          hot_passes: :integer,
+          inventory_percent: :integer,
+          concurrent_warmup: :boolean,
           root: :string,
           output: :string
         ]
       )
 
-    opts = Keyword.merge([partitions: 8, entries: 64, rounds: 3, bytes: 16_384], opts)
+    opts =
+      Keyword.merge(
+        [
+          partitions: 8,
+          entries: 64,
+          rounds: 3,
+          bytes: 16_384,
+          concurrency: 1,
+          io_operations: 4,
+          hot_passes: 1,
+          inventory_percent: 100,
+          concurrent_warmup: false
+        ],
+        opts
+      )
 
-    if Enum.any?([:partitions, :entries, :rounds, :bytes], &(opts[&1] <= 0)),
-      do: raise(ArgumentError, "counts and body bytes must be positive")
+    if Enum.any?(
+         [:partitions, :entries, :rounds, :bytes, :concurrency, :hot_passes, :io_operations],
+         &(opts[&1] <= 0)
+       ),
+       do: raise(ArgumentError, "counts and body bytes must be positive")
+
+    if opts[:inventory_percent] not in 0..100,
+      do: raise(ArgumentError, "inventory percentage must be in 0..100")
 
     id = Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
     root = Path.join(opts[:root] || System.tmp_dir!(), "shared-bench-#{id}")
@@ -63,7 +88,7 @@ defmodule SharedCacheWarmupBench do
       keys = prepare(root, local, opts)
 
       samples =
-        for round <- 1..opts[:rounds], mode <- modes(round) do
+        for round <- 1..opts[:rounds], mode <- modes(round, opts) do
           trial(root, local, keys, opts, mode, round)
         end
 
@@ -76,9 +101,14 @@ defmodule SharedCacheWarmupBench do
         entries: opts[:entries],
         body_bytes: opts[:bytes],
         rounds: opts[:rounds],
-        concurrency: 1,
+        concurrency: opts[:concurrency],
+        hot_passes: opts[:hot_passes],
+        inventory_percent: opts[:inventory_percent],
+        inventoried_keys: inventoried_count(opts),
+        concurrent_warmup: opts[:concurrent_warmup],
+        io_max_operations: opts[:io_operations],
         scope:
-          "Cache lookup/verified reader acquisition; index-cold, OS-page-cache warm. No HTTP or transformation. Adoption disabled by a one-byte budget. All measured keys are inventoried. Traced counts are submitted isolated-I/O operations, not OS syscalls.",
+          "Cache lookup, verified local reader acquisition, extra body read/SHA-256 verification and release; index-cold, OS-page-cache warm. No HTTP or transformation. Adoption disabled by a one-byte budget. Closed-loop callers; no retries or origin fallback for bypasses. Latency includes all attempts; hit-only latency and outcomes reported separately. An untimed serial pass primes every key before repeated traffic. Traced counts are submitted isolated-I/O operations, not OS syscalls. Concurrent-mode first_operations includes warmup through completion.",
         samples: samples,
         summary: summarize(samples)
       }
@@ -128,7 +158,9 @@ defmodule SharedCacheWarmupBench do
           {owner, location}
         end
 
-      for {owner, entries} <- Enum.group_by(entries, &elem(&1, 0), &elem(&1, 1)) do
+      inventoried = Enum.take(entries, inventoried_count(opts))
+
+      for {owner, entries} <- Enum.group_by(inventoried, &elem(&1, 0), &elem(&1, 1)) do
         :ok = Inventory.publish(pool, owner, entries, 1_000, inventory_limits(opts), 10_000)
       end
 
@@ -140,7 +172,8 @@ defmodule SharedCacheWarmupBench do
 
   defp trial(root, local, keys, opts, mode, round) do
     {:ok, supervisor} =
-      Supervisor.start_link([CacheIO, Task.Supervisor, {__MODULE__, :trace}],
+      Supervisor.start_link(
+        [{CacheIO, max_operations: opts[:io_operations]}, Task.Supervisor, {__MODULE__, :trace}],
         strategy: :one_for_one
       )
 
@@ -181,29 +214,46 @@ defmodule SharedCacheWarmupBench do
 
     try do
       preload(pool)
-      [_preloaded] = traverse(context, Enum.take(keys, 1), opts[:bytes])
+
+      [%{result: :hit}] =
+        traverse(context, Enum.take(keys, 1), Keyword.put(opts, :concurrency, 1))
+
       :ok = Supervisor.terminate_child(supervisor, Locations)
       {:ok, fresh_locations} = Supervisor.restart_child(supervisor, Locations)
       context = %{context | locations: Locations.client(fresh_locations)}
       :erlang.trace(pool.pid, true, [:receive, {:tracer, tracer}])
-      {warmup_us, warmup} = :timer.tc(fn -> warm(mode, context, opts) end)
-      warmup_ops = counts(pool.pid, tracer)
-      {first_us, first_latencies} = :timer.tc(fn -> traverse(context, keys, opts[:bytes]) end)
+      warmup = start_warmup(mode, tasks, context, opts)
+      warmup_ops = if mode == :concurrent_inventory, do: nil, else: counts(pool.pid, tracer)
+      first_start = System.monotonic_time(:microsecond)
+      {first_us, first_results} = :timer.tc(fn -> traverse(context, keys, opts) end)
+      first_end = System.monotonic_time(:microsecond)
+      warmup = finish_warmup(warmup)
       first_ops = counts(pool.pid, tracer)
-      {hot_us, hot_latencies} = :timer.tc(fn -> traverse(context, keys, opts[:bytes]) end)
+      primed = traverse(context, keys, Keyword.put(opts, :concurrency, 1))
+
+      if Enum.any?(primed, &(&1.result != :hit)),
+        do: raise("steady-state priming did not hit every key")
+
+      _priming_ops = counts(pool.pid, tracer)
+      hot_keys = List.duplicate(keys, opts[:hot_passes]) |> List.flatten()
+      {hot_us, hot_results} = :timer.tc(fn -> traverse(context, hot_keys, opts) end)
       hot_ops = counts(pool.pid, tracer)
 
       %{
         mode: mode,
         round: round,
-        warmup_ms: warmup_us / 1_000,
-        warmup: warmup,
+        warmup_ms: warmup.elapsed / 1_000,
+        warmup: warmup.result,
+        warmup_request_overlap_ms:
+          max(0, min(first_end, warmup.finish) - max(first_start, warmup.start)) / 1_000,
         warmup_operations: warmup_ops,
         first_pass_ms: first_us / 1_000,
-        first_lookup_us: first_latencies,
+        first_lookup_us: Enum.map(first_results, & &1.elapsed_us),
+        first: workload_stats(first_results, first_us),
         first_operations: first_ops,
         hot_pass_ms: hot_us / 1_000,
-        hot_lookup_us: hot_latencies,
+        hot_lookup_us: Enum.map(hot_results, & &1.elapsed_us),
+        hot: workload_stats(hot_results, hot_us),
         hot_operations: hot_ops,
         index: Locations.stats(context.locations, 1_000)
       }
@@ -215,47 +265,89 @@ defmodule SharedCacheWarmupBench do
     end
   end
 
+  defp start_warmup(:concurrent_inventory, tasks, context, opts),
+    do: Task.Supervisor.async_nolink(tasks, fn -> timed_warmup(:inventory, context, opts) end)
+
+  defp start_warmup(mode, _tasks, context, opts), do: timed_warmup(mode, context, opts)
+
+  defp finish_warmup(%Task{} = task), do: Task.await(task, 15_000)
+  defp finish_warmup(result), do: result
+
+  defp timed_warmup(mode, context, opts) do
+    start = System.monotonic_time(:microsecond)
+    {elapsed, result} = :timer.tc(fn -> warm(mode, context, opts) end)
+    %{start: start, finish: System.monotonic_time(:microsecond), elapsed: elapsed, result: result}
+  end
+
   defp warm(:disk_first, _context, _opts), do: :disabled
 
   defp warm(:inventory, context, opts) do
-    {:ok, stats} =
-      Warmup.run(
-        context,
-        1_000,
-        %{
-          partitions: opts[:partitions] + 1,
-          candidates: opts[:entries],
-          inventory: inventory_limits(opts)
-        },
-        10_000
-      )
-
-    if stats.imported != opts[:entries], do: raise("warmup did not import every measured key")
-    stats
+    case Warmup.run(
+           context,
+           1_000,
+           %{
+             partitions: opts[:partitions] + 1,
+             candidates: opts[:entries],
+             inventory: inventory_limits(opts)
+           },
+           10_000
+         ) do
+      {:ok, stats} -> stats
+      {:error, reason} -> %{result: "error:#{inspect(reason)}"}
+    end
   end
 
-  defp traverse(context, keys, bytes) do
+  defp traverse(context, keys, opts) do
+    bytes = opts[:bytes]
     expected = :crypto.hash(:sha256, String.duplicate("x", bytes))
 
-    Enum.map(keys, fn key ->
-      {elapsed, :ok} =
-        :timer.tc(fn ->
-          {:hit, reader} = Lookup.output(context, key, 10_000)
+    lookup = fn key ->
+      {elapsed, result} = :timer.tc(fn -> read(context, key, bytes, expected) end)
+      %{elapsed_us: elapsed, result: result}
+    end
 
-          try do
-            body = File.read!(reader.path)
+    if opts[:concurrency] == 1 do
+      Enum.map(keys, lookup)
+    else
+      keys
+      |> Task.async_stream(lookup, max_concurrency: opts[:concurrency], timeout: :infinity)
+      |> Enum.map(fn {:ok, result} -> result end)
+    end
+  end
 
-            if byte_size(body) != bytes or :crypto.hash(:sha256, body) != expected,
-              do: raise("cached bytes differ")
+  defp read(context, key, bytes, expected) do
+    case Lookup.output(context, key, 10_000) do
+      {:hit, reader} ->
+        try do
+          body = File.read!(reader.path)
 
-            :ok
-          after
-            :ok = Generation.release(context.pool, reader, 10_000)
-          end
-        end)
+          if byte_size(body) != bytes or :crypto.hash(:sha256, body) != expected,
+            do: raise("cached bytes differ")
 
-      elapsed
-    end)
+          :hit
+        after
+          :ok = Generation.release(context.pool, reader, 10_000)
+        end
+
+      :miss ->
+        :miss
+
+      {:error, reason} ->
+        "bypass:#{inspect(reason)}"
+    end
+  end
+
+  defp workload_stats(results, elapsed) do
+    hits = Enum.filter(results, &(&1.result == :hit))
+    timings = Enum.map(hits, & &1.elapsed_us)
+
+    %{
+      outcomes: Enum.frequencies_by(results, & &1.result),
+      attempts_per_second: length(results) * 1_000_000 / max(elapsed, 1),
+      hits_per_second: length(hits) * 1_000_000 / max(elapsed, 1),
+      hit_median_us: percentile(timings, 0.5),
+      hit_p95_us: percentile(timings, 0.95)
+    }
   end
 
   defp counts(pid, tracer) do
@@ -299,17 +391,26 @@ defmodule SharedCacheWarmupBench do
          first_p95_us: percentile(first, 0.95),
          hot_median_us: percentile(hot, 0.5),
          hot_p95_us: percentile(hot, 0.95),
+         hot_hits_per_second: percentile(Enum.map(trials, & &1.hot.hits_per_second), 0.5),
          warmup_median_ms: percentile(Enum.map(trials, & &1.warmup_ms), 0.5),
          first_pass_median_ms: percentile(Enum.map(trials, & &1.first_pass_ms), 0.5)
        }}
     end)
   end
 
+  defp percentile([], _fraction), do: nil
+
   defp percentile(values, fraction),
     do: values |> Enum.sort() |> Enum.at(ceil(length(values) * fraction) - 1)
 
-  defp modes(round),
-    do: if(rem(round, 2) == 1, do: [:disk_first, :inventory], else: [:inventory, :disk_first])
+  defp modes(round, opts) do
+    modes = [:disk_first, :inventory]
+    modes = if opts[:concurrent_warmup], do: modes ++ [:concurrent_inventory], else: modes
+    {before, rest} = Enum.split(modes, rem(round - 1, length(modes)))
+    rest ++ before
+  end
+
+  defp inventoried_count(opts), do: div(opts[:entries] * opts[:inventory_percent], 100)
 
   defp inventory_limits(opts),
     do: %{entries: opts[:entries], bytes: 65_536, max_age: 300, clock_skew: 5}
