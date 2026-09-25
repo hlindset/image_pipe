@@ -98,6 +98,68 @@ defmodule ImagePipe.Cache.SharedFileSystem.RetentionTest do
     assert {:reject, :low_value, ^state} = Retention.offer(state, candidate)
   end
 
+  test "pressure sheds bounded batches before admitting more bytes and can recover" do
+    entries = for n <- 1..4, do: descriptor(Integer.to_string(n), 20)
+
+    state =
+      Enum.reduce(entries, new(max_victims: 1), fn entry, state ->
+        {:admit, next, []} = Retention.offer(state, entry)
+        next
+      end)
+
+    {state, [victim], :limited} = Retention.resize(state, 0)
+    assert victim in entries
+    assert Retention.stats(state).bytes == 60
+    assert {:reject, :pressure, ^state} = Retention.offer(state, descriptor("new", 1))
+
+    {state, [_victim], :limited} = Retention.resize(state, 0)
+    {state, [_victim], :limited} = Retention.resize(state, 0)
+    {state, [_victim], :complete} = Retention.resize(state, 0)
+    assert Retention.stats(state).bytes == 0
+    {state, [], :complete} = Retention.resize(state, 100)
+    assert {:admit, _state, []} = Retention.offer(state, descriptor("new", 40))
+  end
+
+  test "pressure keeps protected demand ahead of cold entries" do
+    hot = descriptor("hot", 30)
+    cold = descriptor("cold", 30)
+    {:admit, state, []} = Retention.offer(new(), hot)
+    {:admit, state, []} = Retention.offer(state, cold)
+    state = demand(state, hot, 2)
+    assert {state, [^cold], :complete} = Retention.resize(state, 40)
+    assert Retention.retained(state, :outputs, hot.location.key) == hot
+    assert Retention.stats(state).capacity == 40
+  end
+
+  property "resized budgets cannot admit bytes above the new capacity" do
+    check all capacity <- integer(0..100),
+              sizes <- list_of(integer(1..40), max_length: 12) do
+      state =
+        Enum.with_index(sizes)
+        |> Enum.reduce(new(), fn {size, key}, state ->
+          case Retention.offer(state, descriptor(Integer.to_string(key), size)) do
+            {:admit, next, _victims} -> next
+            {:reject, _reason, unchanged} -> unchanged
+          end
+        end)
+
+      {state, victims, _status} = Retention.resize(state, capacity)
+      assert length(victims) <= 8
+
+      Enum.reduce(sizes, state, fn size, state ->
+        case Retention.offer(state, descriptor("candidate", size)) do
+          {:admit, next, _victims} ->
+            assert Retention.stats(next).bytes <= capacity
+            next
+
+          {:reject, _reason, unchanged} ->
+            assert unchanged == state
+            state
+        end
+      end)
+    end
+  end
+
   property "mixed demand, admission and retirement stay within logical byte and entry budgets" do
     check all operations <-
                 list_of(

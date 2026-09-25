@@ -185,6 +185,38 @@ defmodule ImagePipe.Cache.SharedFileSystem.RetainerTest do
     assert :retained = Retainer.consider(client, hot, 1_000)
   end
 
+  test "pressure cleanup reserves debt and preserves foreign links before recovery", ctx do
+    entry = publish(ctx, "entry")
+    client = start_retainer(ctx, 10_000)
+    assert :scheduled = Retainer.consider(client, entry, 1_000)
+    settle(client)
+    [local] = local_generations(ctx, entry)
+    :sys.suspend(ctx.pool.pid)
+
+    try do
+      assert {:ok, :complete} = Retainer.resize(client, 0, 1_000)
+
+      assert %{bytes: 0, capacity: 0, cleanup_bytes: debt, jobs: 1} =
+               Retainer.stats(client, 1_000)
+
+      assert debt == entry.size_bytes
+      assert {:error, :saturated} = Retainer.consider(client, entry, 1_000)
+      assert {:error, :saturated} = Retainer.resize(client, 10_000, 1_000)
+    after
+      :sys.resume(ctx.pool.pid)
+    end
+
+    settle(client)
+    refute File.exists?(local)
+    assert File.read!(Path.join(entry.location.path, "body")) == String.duplicate("x", 400)
+    assert %{cleanup_bytes: 0, jobs: 0} = Retainer.stats(client, 1_000)
+    assert {:rejected, :over_cap} = Retainer.consider(client, entry, 1_000)
+    assert {:ok, :complete} = Retainer.resize(client, 10_000, 1_000)
+    assert :scheduled = Retainer.consider(client, entry, 1_000)
+    settle(client)
+    assert [_local] = local_generations(ctx, entry)
+  end
+
   defp start_retainer(ctx, bytes) do
     client =
       start_supervised!(

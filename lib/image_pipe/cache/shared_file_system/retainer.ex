@@ -31,6 +31,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
   def retry_cleanup(client, timeout), do: call(client, :retry_cleanup, timeout)
   def rotate(client, partition, timeout), do: call(client, {:rotate, partition}, timeout)
   def inventory(client, limit, timeout), do: call(client, {:inventory, limit}, timeout)
+  def resize(client, capacity, timeout), do: call(client, {:resize, capacity}, timeout)
 
   def publish(client, kind, key, path, metadata, size, timeout),
     do: call(client, {:publish, kind, key, path, metadata, size}, timeout)
@@ -155,6 +156,20 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
   defp dispatch({:request, kind, key}, state),
     do: {:reply, :ok, %{state | policy: Retention.request(state.policy, kind, key)}}
 
+  defp dispatch({:resize, capacity}, %{job: nil, failure: nil} = state) do
+    {policy, victims, status} =
+      Retention.resize(state.policy, min(capacity, state.opts[:max_bytes]))
+
+    state = %{state | policy: policy, job: %{partition: state.opts[:partition]}}
+    {:reply, {:ok, status}, cleanup(state, victims)}
+  end
+
+  defp dispatch({:resize, _capacity}, %{failure: nil} = state),
+    do: {:reply, {:error, :saturated}, state}
+
+  defp dispatch({:resize, _capacity}, state),
+    do: {:reply, {:error, :unavailable}, state}
+
   defp dispatch({:inventory, limit}, state) do
     locations = Enum.map(Retention.ranked(state.policy, limit), & &1.location)
     {:reply, {:ok, state.opts[:partition], locations}, state}
@@ -190,6 +205,9 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
 
     {:reply, result, state}
   end
+
+  defp dispatch({:consider, _descriptor}, %{job: job} = state) when not is_nil(job),
+    do: {:reply, {:error, :saturated}, state}
 
   defp dispatch({:consider, descriptor}, state) do
     location = descriptor.location

@@ -15,6 +15,8 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retention do
       bytes: %{window: 0, probationary: 0, protected: 0},
       sequence: 0,
       capacity: capacity,
+      window_ratio: Keyword.fetch!(opts, :window_ratio),
+      protected_ratio: Keyword.fetch!(opts, :protected_ratio),
       window: window,
       protected: trunc((capacity - window) * Keyword.fetch!(opts, :protected_ratio)),
       max_entries: Keyword.fetch!(opts, :max_entries),
@@ -63,6 +65,13 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retention do
   end
 
   def offer(state, descriptor) do
+    case total_bytes(state) > state.capacity or state.bytes.window > state.window do
+      true -> {:reject, :pressure, state}
+      false -> offer_available(state, descriptor)
+    end
+  end
+
+  defp offer_available(state, descriptor) do
     previous = Map.get(state.entries, descriptor.key_hash)
     available = remove(state, descriptor.key_hash)
 
@@ -79,6 +88,40 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retention do
 
       {:error, reason} ->
         {:reject, reason, state}
+    end
+  end
+
+  # Pressure retires only a bounded batch. Until later batches catch up, new
+  # publication stays disabled; removed bytes remain the owner's cleanup debt.
+  def resize(state, capacity) do
+    window = trunc(capacity * state.window_ratio)
+
+    state = %{
+      state
+      | capacity: capacity,
+        window: window,
+        protected: trunc((capacity - window) * state.protected_ratio)
+    }
+
+    shed(state, [], state.max_victims)
+  end
+
+  defp shed(state, victims, remaining) do
+    cond do
+      total_bytes(state) <= state.capacity and state.bytes.window <= state.window ->
+        {state, Enum.reverse(victims), :complete}
+
+      remaining == 0 ->
+        {state, Enum.reverse(victims), :limited}
+
+      true ->
+        queue =
+          Enum.find([:window, :probationary, :protected], fn queue ->
+            not :gb_trees.is_empty(state.queues[queue])
+          end)
+
+        victim = oldest(state, queue)
+        shed(remove(state, victim.key_hash), [victim | victims], remaining - 1)
     end
   end
 
@@ -119,7 +162,8 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retention do
   def stats(state),
     do: %{
       entries: map_size(state.entries),
-      bytes: Enum.sum(Map.values(state.bytes)),
+      bytes: total_bytes(state),
+      capacity: state.capacity,
       window_bytes: state.bytes.window,
       protected_bytes: state.bytes.protected
     }
@@ -134,7 +178,8 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retention do
 
   defp drain(state, victims, remaining) do
     cond do
-      state.bytes.window <= state.window and map_size(state.entries) <= state.max_entries ->
+      state.bytes.window <= state.window and total_bytes(state) <= state.capacity and
+          map_size(state.entries) <= state.max_entries ->
         {:ok, state, victims}
 
       remaining == 0 ->
@@ -258,4 +303,5 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retention do
   end
 
   defp identity(kind, key), do: :erlang.term_to_binary({kind, key})
+  defp total_bytes(state), do: Enum.sum(Map.values(state.bytes))
 end

@@ -292,6 +292,15 @@ demand and source selection. Uncertain jobs keep their pending/cleanup charges
 and failure state across rotation. Root maintenance still needs to reclaim retired
 partitions and account for their storage separately from the new active partition.
 
+The retention owner accepts a reduced byte target, capped by its configured local
+maximum. Each reduction selects at most the configured victim batch, preferring
+window and probationary entries before protected entries. Further passes finish
+large reductions; publication remains disabled while retained bytes exceed the
+target. Exact victims use the existing asynchronous retirement path, with cleanup
+debt held until removal succeeds. Raising the target permits admission again after
+cleanup settles. Root usage reports and automatic pressure scheduling are still
+required to drive this internal operation.
+
 `SharedFileSystem.Inventory` publishes an atomically replaced, count/byte-bounded
 prefix of locations ranked by the retention owner. It uses leased staging and the
 same isolated I/O executor. Ambiguous replacement is acknowledged only when the
@@ -311,7 +320,9 @@ candidate's metadata, and seeds the index without evicting earlier ranked import
 or requested keys. Body acquisition and source-freshness decisions remain on the
 request path. Warmup records no demand, installs no source selection, and schedules
 no adoption. Candidate/partition exhaustion and elapsed time remain distinguishable
-from a complete pass. Cold-start latency and I/O measurements remain outstanding.
+from a complete pass. Local cold-index measurements and their scope are recorded in
+[the warmup benchmark](../../bench/shared_cache_warmup.md); shared-mount measurements
+remain part of qualification.
 
 Directory enumeration uses an optional POSIX executable that streams `readdir`
 entries and stops after the configured name budget plus one lookahead. It retains
