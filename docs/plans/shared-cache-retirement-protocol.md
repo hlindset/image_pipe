@@ -283,6 +283,12 @@ admission before applying a completed write; exact metadata/body sizes establish
 the retained charge. Unverified commit outcomes and failed metadata reads after
 publication retain pending charges rather than assuming no generation exists.
 
+Successful admitted adoption offers the new local location to the lookup index.
+This notification uses bounded pre-enqueue admission and an expiry, and never
+waits for the index worker. Saturation, expiry, or an index restart may discard
+the hint; normal exact-key disk discovery still finds the adopted generation.
+Rejected candidates do not publish local hints.
+
 The isolated executor sends a completion receipt for observed writes even after
 their caller times out. A confirmed pre-publication failure releases the owner's
 pending charge; a confirmed publication triggers a bounded exact-generation

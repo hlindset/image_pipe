@@ -38,6 +38,15 @@ defmodule ImagePipe.Cache.SharedFileSystem.Locations do
   def client(pid), do: GenServer.call(pid, :client)
   def hints(client, kind, key, timeout), do: call(client, {:hints, kind, key}, timeout)
   def remember(client, location, timeout), do: call(client, {:remember, location}, timeout)
+
+  def remember_async(client, location, timeout) do
+    message = {:remember, location}
+
+    with {:ok, ticket} <- Admission.claim(client.gate, message) do
+      GenServer.cast(client.pid, {:remember, ticket, location, now() + timeout})
+    end
+  end
+
   def forget(client, location, timeout), do: call(client, {:forget, location}, timeout)
   def warm(client, location, timeout), do: call(client, {:warm, location}, timeout)
   def seed(client, locations, timeout), do: call(client, {:seed, locations}, timeout)
@@ -90,6 +99,14 @@ defmodule ImagePipe.Cache.SharedFileSystem.Locations do
       true -> dispatch(message, from, deadline, state)
       false -> {:reply, {:error, :timeout}, state}
     end
+  end
+
+  @impl true
+  def handle_cast({:remember, ticket, location, deadline}, state) do
+    Admission.release(state.gate, ticket)
+    monitors = Admission.forget(state.admission_monitors, ticket)
+    index = if deadline > now(), do: Index.remember(state.index, location), else: state.index
+    {:noreply, %{state | admission_monitors: monitors, index: index}}
   end
 
   defp dispatch({:hints, kind, key}, _from, _deadline, state),

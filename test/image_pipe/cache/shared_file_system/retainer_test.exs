@@ -2,7 +2,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.RetainerTest do
   use ExUnit.Case, async: false
 
   alias ImagePipe.Cache.Entry.Metadata
-  alias ImagePipe.Cache.SharedFileSystem.{Generation, Partition, Retainer}
+  alias ImagePipe.Cache.SharedFileSystem.{Generation, Locations, Partition, Retainer}
   alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
 
   setup do
@@ -22,6 +22,36 @@ defmodule ImagePipe.Cache.SharedFileSystem.RetainerTest do
       partition: partition,
       limits: %{body: 1_024, metadata: 2_048}
     }
+  end
+
+  test "admission publishes a local hint without waiting for the location index", ctx do
+    locations =
+      start_supervised!({Locations, pool: ctx.pool, root: ctx.root, tasks: ctx.tasks})
+      |> Locations.client()
+
+    foreign = publish(ctx, "adopted-hint")
+    client = start_retainer(ctx, 10_000)
+    demand(client, foreign, 2)
+    :ok = Locations.remember(locations, foreign.location, 1_000)
+    :ok = :sys.suspend(locations.pid)
+
+    try do
+      assert :scheduled = Retainer.consider(client, foreign, 1_000, locations)
+      settle(client)
+      assert %{entries: 1, jobs: 0} = Retainer.stats(client, 1_000)
+    after
+      :sys.resume(locations.pid)
+    end
+
+    assert {:ok, [local, original]} =
+             Locations.hints(locations, :outputs, foreign.location.key, 1_000)
+
+    assert original == foreign.location
+    assert [local.path] == local_generations(ctx, foreign)
+    File.rm_rf!(ctx.writer.path)
+    assert {:ok, reader} = Generation.acquire(ctx.pool, local, ctx.root, ctx.limits, 1_000)
+    assert File.read!(reader.path) == String.duplicate("x", 400)
+    assert :ok = Generation.release(ctx.pool, reader, 1_000)
   end
 
   test "real requests admit valuable entries and retire only the local victims", ctx do

@@ -121,7 +121,8 @@ defmodule ImagePipe.Cache.SharedFileSystem.Lookup do
           Retainer.consider(
             context.retainer,
             Generation.descriptor(location, envelope),
-            remaining(request)
+            remaining(request),
+            context.locations
           )
 
           hit
@@ -145,7 +146,13 @@ defmodule ImagePipe.Cache.SharedFileSystem.Lookup do
            ) do
       case accept_reader(request, reader) do
         {:hit, _reader} = hit ->
-          Retainer.consider(context.retainer, reader.descriptor, remaining(request))
+          Retainer.consider(
+            context.retainer,
+            reader.descriptor,
+            remaining(request),
+            context.locations
+          )
+
           hit
 
         error ->

@@ -38,6 +38,25 @@ defmodule ImagePipe.Cache.SharedFileSystem.LocationsTest do
     }
   end
 
+  @tag location_options: [max_pending: 1]
+  test "asynchronous hints are bounded and expired hints release admission", ctx do
+    location = publish(ctx, ctx.partition, ctx.key)
+    :ok = :sys.suspend(ctx.worker)
+
+    try do
+      assert :ok = Locations.remember_async(ctx.locations, location, 0)
+      assert {:error, :saturated} = Locations.remember_async(ctx.locations, location, 1_000)
+    after
+      :sys.resume(ctx.worker)
+    end
+
+    _ = :sys.get_state(ctx.worker)
+    assert {:ok, []} = Locations.hints(ctx.locations, :outputs, ctx.key, 1_000)
+    assert :ok = Locations.remember_async(ctx.locations, location, 1_000)
+    _ = :sys.get_state(ctx.worker)
+    assert {:ok, [^location]} = Locations.hints(ctx.locations, :outputs, ctx.key, 1_000)
+  end
+
   test "discovery is independent of disposable hints and confirmation updates the index", ctx do
     location = publish(ctx, ctx.partition, ctx.key)
     assert {:ok, []} = Locations.hints(ctx.locations, :outputs, ctx.key, 1_000)

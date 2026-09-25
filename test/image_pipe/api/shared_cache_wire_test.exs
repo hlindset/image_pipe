@@ -110,7 +110,11 @@ defmodule ImagePipe.API.SharedCacheWireTest do
     settle(adopter.retainer)
     assert request(b, 12).resp_body == first.resp_body
     settle(adopter.retainer)
-    assert [_body] = Path.wildcard(Path.join(adopter.partition.path, "outputs/*/*/*/body"))
+    assert [body] = Path.wildcard(Path.join(adopter.partition.path, "outputs/*/*/*/body"))
+    generation = Path.dirname(body)
+    key = generation |> Path.dirname() |> Path.basename()
+    assert {:ok, hints} = Locations.hints(adopter.locations, :outputs, key, 1_000)
+    assert Enum.any?(hints, &(&1.path == generation))
     File.rm_rf!(owner.partition.path)
     assert request(b, 12).resp_body == first.resp_body
     refute_received {:origin, _}

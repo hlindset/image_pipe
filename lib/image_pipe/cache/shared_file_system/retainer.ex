@@ -2,7 +2,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
   @moduledoc false
   use GenServer
 
-  alias ImagePipe.Cache.SharedFileSystem.{Generation, Partition, Retention}
+  alias ImagePipe.Cache.SharedFileSystem.{Generation, Locations, Partition, Retention}
   alias ImagePipe.Cache.SharedFileSystem.IO.Admission
 
   @enforce_keys [:pid, :gate]
@@ -26,7 +26,10 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
 
   def client(pid), do: GenServer.call(pid, :client)
   def request(client, kind, key, timeout), do: call(client, {:request, kind, key}, timeout)
-  def consider(client, descriptor, timeout), do: call(client, {:consider, descriptor}, timeout)
+
+  def consider(client, descriptor, timeout, locations \\ nil),
+    do: call(client, {:consider, descriptor, locations}, timeout)
+
   def stats(client, timeout), do: call(client, :stats, timeout)
   def usage(client, timeout), do: call(client, :usage, timeout)
   def retry(client, timeout), do: call(client, :retry, timeout)
@@ -200,29 +203,30 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
   defp dispatch(:retry, %{failure: nil} = state), do: {:reply, :idle, state}
   defp dispatch(:retry, state), do: {:reply, {:error, :unavailable}, state}
 
-  defp dispatch({:consider, _descriptor}, %{failure: failure} = state) when not is_nil(failure),
-    do: {:reply, {:error, :unavailable}, state}
+  defp dispatch({:consider, _descriptor, _locations}, %{failure: failure} = state)
+       when not is_nil(failure),
+       do: {:reply, {:error, :unavailable}, state}
 
-  defp dispatch({:consider, descriptor}, %{job: %{candidate: candidate}} = state) do
+  defp dispatch({:consider, descriptor, _locations}, %{job: %{candidate: candidate}} = state) do
     result =
       if descriptor.key_hash == candidate.key_hash, do: :coalesced, else: {:error, :saturated}
 
     {:reply, result, state}
   end
 
-  defp dispatch({:consider, _descriptor}, %{job: job} = state) when not is_nil(job),
+  defp dispatch({:consider, _descriptor, _locations}, %{job: job} = state) when not is_nil(job),
     do: {:reply, {:error, :saturated}, state}
 
-  defp dispatch({:consider, descriptor}, state) do
+  defp dispatch({:consider, descriptor, locations}, state) do
     location = descriptor.location
 
     case Retention.retained(state.policy, location.kind, location.key) do
-      nil -> schedule(state, descriptor)
+      nil -> schedule(state, descriptor, locations)
       _retained -> {:reply, :retained, state}
     end
   end
 
-  defp schedule(state, descriptor) do
+  defp schedule(state, descriptor, locations) do
     opts = state.opts
     source = descriptor.location
     plan = Partition.plan(opts[:partition], source.kind, source.key)
@@ -248,6 +252,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
            | job: %{
                ref: task.ref,
                phase: :adopt,
+               locations: locations,
                candidate: candidate,
                receipt: receipt,
                completion: nil,
@@ -357,10 +362,19 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
 
   defp retain(state, candidate) do
     case Retention.offer(state.policy, candidate) do
-      {:admit, policy, victims} -> cleanup(%{state | policy: policy}, victims)
-      {:reject, _reason, _unchanged} -> cleanup(state, [candidate])
+      {:admit, policy, victims} ->
+        remember(state.job, candidate, state.opts[:timeout])
+        cleanup(%{state | policy: policy}, victims)
+
+      {:reject, _reason, _unchanged} ->
+        cleanup(state, [candidate])
     end
   end
+
+  defp remember(%{locations: %Locations{} = locations}, candidate, timeout),
+    do: Locations.remember_async(locations, candidate.location, timeout)
+
+  defp remember(_job, _candidate, _timeout), do: :ok
 
   defp cleanup(state, []), do: %{state | job: nil}
 
