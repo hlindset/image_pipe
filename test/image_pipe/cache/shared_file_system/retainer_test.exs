@@ -55,15 +55,22 @@ defmodule ImagePipe.Cache.SharedFileSystem.RetainerTest do
   end
 
   test "real requests admit valuable entries and retire only the local victims", ctx do
+    prefix = [__MODULE__, :decisions]
+    observe_retention(prefix)
     cold = publish(ctx, "cold")
     hot = publish(ctx, "hot")
-    client = start_retainer(ctx, cold.size_bytes + 100)
+    client = start_retainer(ctx, cold.size_bytes + 100, telemetry_prefix: prefix)
     demand(client, cold, 1)
     assert :scheduled = Retainer.consider(client, cold, 1_000)
     settle(client)
+    assert_receive {:shared_admission, %{operation: :adopt, result: :admitted}}
+    assert_receive {:shared_admission, %{operation: :retain, result: :admitted}}
+    assert_receive {:shared_retention, %{logical_bytes: retained, pending_bytes: 0, entries: 1}}
+    assert retained == cold.size_bytes
     [old] = local_generations(ctx, cold)
 
     assert {:rejected, :low_value} = Retainer.consider(client, hot, 1_000)
+    assert_receive {:shared_admission, %{result: :rejected, reason: :low_value}}
     demand(client, hot, 2)
     assert :scheduled = Retainer.consider(client, hot, 1_000)
     settle(client)
@@ -184,17 +191,21 @@ defmodule ImagePipe.Cache.SharedFileSystem.RetainerTest do
 
   test "late confirmed publication recovers its charge and permits subsequent writes", ctx do
     _preload = publish(ctx, "preload")
-    client = start_retainer(ctx, 10_000, timeout: 200)
+    prefix = [__MODULE__, :late_write]
+    observe_retention(prefix)
+    client = start_retainer(ctx, 10_000, timeout: 200, telemetry_prefix: prefix)
     {file, receipt} = blocked_publication(ctx, client)
 
     try do
       assert %{pending_bytes: bytes, entries: 0} = Retainer.stats(client, 1_000)
       assert bytes > 400
+      assert_receive {:shared_retention, %{result: :cache_error, pending_bytes: ^bytes}}
       :ok = :file.write(file, String.duplicate("x", 400))
       :ok = :file.close(file)
       await_completion(client, receipt)
       settle(client)
       assert %{failure: nil, pending_bytes: 0, entries: 1} = Retainer.stats(client, 1_000)
+      assert_receive {:shared_retention, %{result: :ok, pending_bytes: 0, entries: 1}}
       foreign = publish(ctx, "next")
       assert :scheduled = Retainer.consider(client, foreign, 1_000)
       settle(client)
@@ -206,7 +217,9 @@ defmodule ImagePipe.Cache.SharedFileSystem.RetainerTest do
 
   test "a late precommit failure releases pending write accounting", ctx do
     _preload = publish(ctx, "preload")
-    client = start_retainer(ctx, 10_000, timeout: 200)
+    prefix = [__MODULE__, :late_failure]
+    observe_retention(prefix)
+    client = start_retainer(ctx, 10_000, timeout: 200, telemetry_prefix: prefix)
     {file, receipt} = blocked_publication(ctx, client)
 
     try do
@@ -215,6 +228,14 @@ defmodule ImagePipe.Cache.SharedFileSystem.RetainerTest do
       await_completion(client, receipt)
       settle(client)
       assert %{failure: nil, pending_bytes: 0, entries: 0} = Retainer.stats(client, 1_000)
+
+      assert_receive {:shared_retention,
+                      %{
+                        operation: :completion_receipt,
+                        result: :ok,
+                        job_result: :error,
+                        pending_bytes: 0
+                      }}
     after
       :file.close(file)
     end
@@ -419,5 +440,22 @@ defmodule ImagePipe.Cache.SharedFileSystem.RetainerTest do
       output_format: :png,
       representation: {:image, :png}
     }
+  end
+
+  defp observe_retention(prefix) do
+    id = {__MODULE__, make_ref()}
+    events = Enum.map([:shared_admission, :shared_retention], &(prefix ++ [:cache, &1, :stop]))
+
+    :ok =
+      :telemetry.attach_many(
+        id,
+        events,
+        fn event, _, metadata, pid ->
+          send(pid, {Enum.at(event, -2), metadata})
+        end,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(id) end)
   end
 end

@@ -45,7 +45,9 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     [:cache, :shared_maintenance],
     [:cache, :shared_lookup],
     [:cache, :shared_discovery],
-    [:cache, :shared_lifecycle]
+    [:cache, :shared_lifecycle],
+    [:cache, :shared_admission],
+    [:cache, :shared_retention]
   ]
 
   # One-shot (terminal) events — folded as annotations onto the current span.
@@ -172,7 +174,12 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     :target_bytes,
     :unavailable,
     :candidate_count,
-    :scan
+    :scan,
+    :pending_bytes,
+    :cleanup_bytes,
+    :entries,
+    :jobs,
+    :job_result
   ]
 
   @spec attach(map()) :: :ok
@@ -344,6 +351,9 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
   defp end_time(nil, _), do: nil
   defp end_time(start, %{duration: d}) when is_integer(d), do: start + d
   defp end_time(start, _), do: start
+
+  defp status_from(%{job_result: result}) when result in [:error, :unknown, :not_started],
+    do: :error
 
   defp status_from(meta) do
     case meta[:result] do

@@ -181,6 +181,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Runtime do
              limits: fetch(table, :limits),
              max_bytes: opts[:max_retained_bytes],
              max_entries: opts[:max_retained_entries],
+             telemetry_prefix: opts[:telemetry_prefix],
              timeout: opts[:timeout]
            ) do
       :ets.insert(table, {:retainer, Retainer.client(pid)})

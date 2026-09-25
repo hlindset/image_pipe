@@ -74,6 +74,71 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     end)
   end
 
+  test "captures admission decisions and conservative retention accounting" do
+    prefix = [__MODULE__, :shared_retention]
+    TestExporter.attach(self(), prefix: prefix)
+
+    Telemetry.span(
+      [telemetry_prefix: prefix],
+      [:cache, :shared_admission],
+      %{operation: :adopt, pool: :outputs},
+      fn ->
+        {:ok, %{result: :admitted, victim_count: 2}}
+      end
+    )
+
+    assert_receive {:span,
+                    %Span{
+                      name: "image_pipe.cache.shared_admission",
+                      attributes: %{victim_count: 2}
+                    }}
+
+    Telemetry.span(
+      [telemetry_prefix: prefix],
+      [:cache, :shared_retention],
+      %{operation: :publish},
+      fn ->
+        {:ok,
+         %{
+           result: :ok,
+           job_result: :error,
+           logical_bytes: 300,
+           pending_bytes: 400,
+           cleanup_bytes: 200,
+           target_bytes: 1000,
+           entries: 1,
+           jobs: 1
+         }}
+      end
+    )
+
+    assert_receive {:span,
+                    %Span{
+                      name: "image_pipe.cache.shared_retention",
+                      attributes: attrs,
+                      status: :error
+                    }}
+
+    assert attrs.job_result == :error
+
+    assert Map.take(attrs, [
+             :logical_bytes,
+             :pending_bytes,
+             :cleanup_bytes,
+             :target_bytes,
+             :entries,
+             :jobs
+           ]) ==
+             %{
+               logical_bytes: 300,
+               pending_bytes: 400,
+               cleanup_bytes: 200,
+               target_bytes: 1000,
+               entries: 1,
+               jobs: 1
+             }
+  end
+
   test "captures shared lookup and nested discovery with scan counts" do
     prefix = [__MODULE__, :shared_lookup]
     TestExporter.attach(self(), prefix: prefix)

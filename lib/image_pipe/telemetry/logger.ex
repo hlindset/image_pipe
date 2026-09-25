@@ -42,7 +42,9 @@ defmodule ImagePipe.Telemetry.Logger do
       [:cache, :shared_maintenance],
       [:cache, :shared_lookup],
       [:cache, :shared_discovery],
-      [:cache, :shared_lifecycle]
+      [:cache, :shared_lifecycle],
+      [:cache, :shared_admission],
+      [:cache, :shared_retention]
     ],
     output: [[:output, :negotiate], [:output, :terminal]],
     http_cache: [],
@@ -199,6 +201,10 @@ defmodule ImagePipe.Telemetry.Logger do
     if stage_warning?(suffix, metadata), do: :warning, else: base
   end
 
+  defp stage_warning?(_suffix, %{job_result: result})
+       when result in [:error, :unknown, :not_started],
+       do: true
+
   defp stage_warning?(suffix, metadata) do
     List.last(suffix) == :exception or
       metadata[:result] in [
@@ -251,6 +257,11 @@ defmodule ImagePipe.Telemetry.Logger do
   defp terminal_failure?(_suffix, _meta), do: false
 
   # --- message ---
+  defp message([:cache, stage | _], _m, meta)
+       when stage in [:shared_admission, :shared_retention],
+       do:
+         "image_pipe cache #{stage}: #{meta[:operation]} #{meta[:result]} #{meta[:reason]} #{meta[:job_result]}"
+
   defp message([:cache, :shared_lifecycle | _], _m, meta),
     do: "image_pipe cache shared_lifecycle: #{meta[:operation]} #{meta[:result]}"
 

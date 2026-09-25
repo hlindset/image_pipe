@@ -1136,6 +1136,33 @@ when the runtime and request use the same traced prefix.
 
 ## Shared filesystem maintenance
 
+`[:cache, :shared_admission]` spans the local W-TinyLFU decision. Metadata includes
+`pool`, `operation: :publish | :adopt | :retain`, `result: :admitted | :rejected`,
+`victim_count`, and a policy `reason` for rejection. `:publish`/`:adopt` are initial
+decisions; `:retain` rechecks demand after filesystem work. An initial admission is
+not evidence that publication completed or that the entry was ultimately retained.
+Logger treats policy rejection as a normal outcome.
+
+`[:cache, :shared_retention]` spans an accounting snapshot after a worker result,
+completion receipt, worker loss, or periodic usage request. Its duration measures
+snapshot construction, not filesystem work. Metadata contains `operation`,
+`logical_bytes`, `pending_bytes`, `cleanup_bytes`, `target_bytes`, `entries`, and
+`jobs`. `result: :ok | :cache_error` describes the owner's current health, not the
+success of every preceding write. A confirmed pre-publication failure can leave
+the owner healthy; an uncertain write remains charged and degraded. Snapshots can
+overlap ongoing cleanup and do not imply physically reclaimed space.
+Worker-result snapshots also include `job_result: :ok | :error | :unknown | :not_started`.
+This describes the reported publication, adoption, reconciliation, or cleanup
+operation separately from owner health. Completion receipts can establish that
+work never started or finished after a timeout; worker loss leaves an unknown
+outcome. A successful write still requires the final admission recheck. Periodic
+usage snapshots omit `job_result`.
+Logger warns on degraded owner health or failed/unknown/not-started work, even
+when the owner has recovered. Trace Capture preserves `job_result` and marks
+those failed-work spans as errors independently of the owner's current health.
+Trace Capture subscribes to both spans and
+preserves all listed counters; no descriptors, filenames, or raw errors are emitted.
+
 `[:cache, :shared_lifecycle, :start | :stop]` brackets one incarnation maintenance
 attempt, including its filesystem wait and retention-owner readiness check.
 Stop metadata reports `result: :ok` with `operation: :created | :heartbeat | :rotated`,

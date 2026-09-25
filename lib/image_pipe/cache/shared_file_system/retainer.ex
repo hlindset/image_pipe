@@ -4,6 +4,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
 
   alias ImagePipe.Cache.SharedFileSystem.{Generation, Locations, Partition, Retention}
   alias ImagePipe.Cache.SharedFileSystem.IO.Admission
+  alias ImagePipe.Telemetry
 
   @enforce_keys [:pid, :gate]
   defstruct @enforce_keys
@@ -18,7 +19,8 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
             max_victims: [type: :pos_integer, default: 16],
             max_pending: [type: :pos_integer, default: 32],
             max_request_bytes: [type: :pos_integer, default: 64 * 1024],
-            timeout: [type: :pos_integer, default: 1_000]
+            timeout: [type: :pos_integer, default: 1_000],
+            telemetry_prefix: [type: {:list, :atom}, default: [:image_pipe]]
           )
 
   def start_link(opts),
@@ -108,7 +110,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
   defp publish_candidate(state, candidate, plan, path, metadata, from, deadline) do
     opts = state.opts
 
-    case Retention.offer(state.policy, candidate) do
+    case offer(state, candidate, :publish) do
       {:reject, reason, _unchanged} ->
         {:reply, {:error, {:admission, reason}}, state}
 
@@ -187,8 +189,10 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
 
   defp dispatch(:stats, state), do: {:reply, usage_stats(state), state}
 
-  defp dispatch(:usage, state),
-    do: {:reply, {:ok, state.opts[:partition], usage_stats(state)}, state}
+  defp dispatch(:usage, state) do
+    report(state, :usage)
+    {:reply, {:ok, state.opts[:partition], usage_stats(state)}, state}
+  end
 
   defp dispatch(
          :retry,
@@ -233,7 +237,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
     location = Partition.location(plan.parent, plan.kind, plan.key, plan.generation)
     candidate = %{descriptor | location: location}
 
-    case Retention.offer(state.policy, candidate) do
+    case offer(state, candidate, :adopt) do
       {:reject, reason, _unchanged} ->
         {:reply, {:rejected, reason}, state}
 
@@ -266,7 +270,9 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
   def handle_info({ref, result}, %{job: %{ref: ref}} = state) do
     Process.demonitor(ref, [:flush])
     reply_publication(state.job, result)
-    {:noreply, state |> complete(result) |> recover_completion()}
+    next = state |> complete(result) |> recover_completion()
+    report(next, state.job.phase, job_result(result))
+    {:noreply, next}
   end
 
   def handle_info(
@@ -275,7 +281,9 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
       )
       when phase in [:publish, :adopt] do
     state = %{state | job: %{state.job | completion: result}}
-    {:noreply, recover_completion(state)}
+    next = recover_completion(state)
+    report(next, :completion_receipt, receipt_result(result))
+    {:noreply, next}
   end
 
   def handle_info({:shared_io_complete, _receipt, _result}, state), do: {:noreply, state}
@@ -283,7 +291,9 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
     case Map.pop(state.monitors, ref) do
       {nil, _monitors} ->
-        {:noreply, state |> failed_job(ref, reason) |> recover_completion()}
+        next = state |> failed_job(ref, reason) |> recover_completion()
+        if next != state, do: report(next, :worker_down, :unknown)
+        {:noreply, next}
 
       {ticket, monitors} ->
         Admission.release(state.gate, ticket)
@@ -361,7 +371,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
   end
 
   defp retain(state, candidate) do
-    case Retention.offer(state.policy, candidate) do
+    case offer(state, candidate, :retain) do
       {:admit, policy, victims} ->
         remember(state.job, candidate, state.opts[:timeout])
         cleanup(%{state | policy: policy}, victims)
@@ -423,6 +433,53 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
       })
 
   defp now, do: System.monotonic_time(:millisecond)
+
+  defp offer(state, candidate, operation) do
+    Telemetry.span(
+      state.opts,
+      [:cache, :shared_admission],
+      %{operation: operation, pool: candidate.location.kind},
+      fn ->
+        case Retention.offer(state.policy, candidate) do
+          {:admit, _policy, victims} = decision ->
+            {decision, %{result: :admitted, victim_count: length(victims)}}
+
+          {:reject, reason, _policy} = decision ->
+            {decision, %{result: :rejected, reason: reason, victim_count: 0}}
+        end
+      end
+    )
+  end
+
+  defp report(state, operation, job_result \\ nil) do
+    metadata =
+      if job_result,
+        do: %{operation: operation, job_result: job_result},
+        else: %{operation: operation}
+
+    Telemetry.span(state.opts, [:cache, :shared_retention], metadata, fn ->
+      stats = usage_stats(state)
+
+      {:ok,
+       %{
+         result: if(state.failure == nil, do: :ok, else: :cache_error),
+         logical_bytes: stats.bytes,
+         pending_bytes: stats.pending_bytes,
+         cleanup_bytes: stats.cleanup_bytes,
+         target_bytes: stats.capacity,
+         entries: stats.entries,
+         jobs: stats.jobs
+       }}
+    end)
+  end
+
+  defp job_result(:ok), do: :ok
+  defp job_result({:ok, _value}), do: :ok
+  defp job_result({:error, _reason}), do: :error
+
+  defp receipt_result({:not_started, _error}), do: :not_started
+  defp receipt_result({:finished, {:ok, result}}), do: job_result(result)
+  defp receipt_result({:finished, _uncertain}), do: :unknown
 
   @impl true
   def format_status(_status), do: %{state: :redacted}

@@ -122,6 +122,37 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "[warning] image_pipe cache shared_lifecycle: unavailable cache_error"
   end
 
+  test "logs admission rejection normally and retained uncertainty as a warning" do
+    prefix = [__MODULE__, :shared_retention]
+    Telemetry.attach_default_logger(prefix: prefix)
+
+    log =
+      capture_log(fn ->
+        Telemetry.span(
+          [telemetry_prefix: prefix],
+          [:cache, :shared_admission],
+          %{operation: :adopt},
+          fn ->
+            {:ok, %{result: :rejected, reason: :low_value}}
+          end
+        )
+
+        Telemetry.span(
+          [telemetry_prefix: prefix],
+          [:cache, :shared_retention],
+          %{operation: :publish},
+          fn ->
+            {:ok, %{result: :ok, job_result: :error, pending_bytes: 0}}
+          end
+        )
+      end)
+
+    assert log =~ "shared_admission: adopt rejected low_value"
+    refute log =~ "[warning] image_pipe cache shared_admission"
+    assert log =~ "[warning] image_pipe cache shared_retention: publish ok"
+    assert log =~ "error"
+  end
+
   test "logs shared lookup bypass reasons and incomplete discovery" do
     prefix = [__MODULE__, :shared_lookup]
     Telemetry.attach_default_logger(prefix: prefix)
