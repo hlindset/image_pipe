@@ -1193,7 +1193,7 @@ The shared-cache runtime emits spans at `[:cache, :shared_maintenance]` with
 on the supervised runtime; background work has no request configuration to
 inherit. Events use the standard duration and span-context fields.
 
-Metadata always identifies `operation: :warmup | :inventory | :pressure | :reclamation`.
+Metadata always identifies `operation: :warmup | :inventory | :usage | :pressure | :reclamation`.
 Stop metadata reports `result: :ok | :partial | :cache_error`. A bounded scan that
 cannot cover the population is partial; failed filesystem work is a cache error.
 Filling the permitted warm-index budget is ordinary success. Optional inventory
@@ -1204,6 +1204,7 @@ certify that all inventories were readable.
 | --- | --- |
 | `:warmup` | `checked` candidates, `imported` hints |
 | `:inventory` | Outcome only |
+| `:usage` | Outcome of publishing this runtime's usage report |
 | `:pressure` | `logical_bytes` reported across scanned partitions, `target_bytes` proposed for this runtime, `unavailable` reports; omitted when root pressure is disabled |
 | `:reclamation` | `checked` partitions, `removed` trash directory entries, `errors` counted during retirement/traversal |
 
@@ -1211,6 +1212,12 @@ These counters describe bounded observations, not global totals. `removed` count
 names, not freed physical bytes. Failed cleanup retries also produce `:cache_error`
 even when the traversal's `errors` count is zero. No cache paths, source records,
 URLs, or raw filesystem error payloads are included in stop metadata.
+
+Inventory and usage publication failures do not prevent pressure evaluation from
+reading previous reports and reducing retention. Usage publication has its own
+span within pressure maintenance. A failed refresh also marks the pressure span
+as `:cache_error`, while preserving any observed totals and applied target. Failed
+refreshes cannot justify raising capacity.
 
 The default Logger's `:cache` group renders the operation and outcome, escalating
 partial and failed passes to warning. Trace Capture subscribes to the same span

@@ -5,7 +5,16 @@ defmodule ImagePipe.Cache.SharedFileSystem.DiskFaultTest do
 
   alias ImagePipe.Cache.Entry.Metadata
   alias ImagePipe.Cache.SharedFileSystem
-  alias ImagePipe.Cache.SharedFileSystem.{Generation, Partition, Runtime}
+
+  alias ImagePipe.Cache.SharedFileSystem.{
+    Generation,
+    InventoryWorker,
+    Partition,
+    Retainer,
+    Runtime,
+    Usage
+  }
+
   alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
 
   @moduletag :shared_disk_fault
@@ -177,6 +186,63 @@ defmodule ImagePipe.Cache.SharedFileSystem.DiskFaultTest do
     assert {Image.width(image), Image.height(image)} == {12, 8}
     assert Image.get_pixel!(image, 0, 0) == [255, 0, 0]
     assert Path.wildcard(Path.join(ctx.root, "runtime/partitions/*/outputs/*/*/*/body")) == []
+  end
+
+  test "full storage still permits pressure eviction using prior usage", ctx do
+    supervisor =
+      start_supervised!(
+        {SharedFileSystem,
+         name: __MODULE__.Pressure,
+         root: Path.join(ctx.root, "pressure"),
+         local_root: Path.join(ctx.local, "pressure"),
+         root_max_bytes: 1_024,
+         max_retained_bytes: 8 * 1024 * 1024}
+      )
+
+    {:ok, context} = Runtime.context(__MODULE__.Pressure)
+    :erlang.trace(context.retainer.pid, true, [:receive])
+
+    assert {:ok, location} =
+             Retainer.publish(
+               context.retainer,
+               :outputs,
+               ctx.key,
+               ctx.source,
+               ctx.metadata,
+               2 * 1024 * 1024,
+               5_000
+             )
+
+    settle_retainer(context.retainer.pid)
+
+    {InventoryWorker, worker, _, _} =
+      List.keyfind(Supervisor.which_children(supervisor), InventoryWorker, 0)
+
+    opts = :sys.get_state(worker).opts
+    stats = Retainer.stats(context.retainer, 1_000)
+    assert :ok = Usage.publish(context.pool, context.partition, stats, opts[:clock].(), 5_000)
+    fill(ctx.root)
+
+    assert {:error, %{inventory: {:error, _}, pressure: {:ok, %{usage_publication: {:error, _}}}}} =
+             InventoryWorker.run(__MODULE__.Pressure, opts, :publish)
+
+    settle_retainer(context.retainer.pid)
+    assert %{bytes: 0, cleanup_bytes: 0, failure: nil} = Retainer.stats(context.retainer, 1_000)
+    refute File.exists?(location.path)
+  end
+
+  defp settle_retainer(pid) do
+    case :sys.get_state(pid) do
+      %{job: nil} ->
+        :ok
+
+      %{failure: nil, job: %{ref: ref}} ->
+        assert_receive {:trace, ^pid, :receive, {^ref, _result}}, 5_000
+        settle_retainer(pid)
+
+      %{failure: failure} ->
+        flunk("retention failed: #{inspect(failure)}")
+    end
   end
 
   @tag capture_log: true

@@ -333,7 +333,10 @@ to its retained bytes and the observed total, aiming at `root_low_watermark`
 (0.8) of the root target. It holds that capacity in the intervening band and may
 restore its configured maximum below the low watermark. Incomplete scans can
 reduce capacity but cannot expand it. Inventory publication, usage publication,
-scanning and resize share one background deadline and run off the request path.
+pressure scanning/resize, and reclamation each have a separate bounded allowance
+off the request path. Failed inventory or usage writes do not gate pressure
+evaluation; previous reports may still justify reduction. A failed usage refresh
+prevents capacity expansion and is reported independently from eviction progress.
 
 These totals are logical reports, not physical capacity: hard links are counted
 per owner, reports can lag, and missing reports, control files and orphaned staging

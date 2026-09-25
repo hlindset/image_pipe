@@ -3,7 +3,16 @@ defmodule ImagePipe.Cache.SharedFileSystem.PressureTest do
 
   alias ImagePipe.Cache.Entry.Metadata
   alias ImagePipe.Cache.SharedFileSystem
-  alias ImagePipe.Cache.SharedFileSystem.{InventoryWorker, Partition, Pressure, Retainer, Runtime}
+
+  alias ImagePipe.Cache.SharedFileSystem.{
+    InventoryWorker,
+    Partition,
+    Pressure,
+    Retainer,
+    Runtime,
+    Usage
+  }
+
   alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
 
   setup_all do
@@ -67,6 +76,47 @@ defmodule ImagePipe.Cache.SharedFileSystem.PressureTest do
     assert %{capacity: 100} = Retainer.stats(ctx.context.retainer, 1_000)
   end
 
+  test "failed report writes do not prevent pressure from using previous reports", ctx do
+    path = Path.join(ctx.root, "body")
+    File.write!(path, String.duplicate("x", 400))
+
+    metadata = %Metadata{
+      content_type: "image/png",
+      headers: [],
+      created_at: DateTime.utc_now(),
+      representation: {:image, :png},
+      output_format: :png
+    }
+
+    assert {:ok, location} =
+             Retainer.publish(
+               ctx.context.retainer,
+               :outputs,
+               String.duplicate("b", 64),
+               path,
+               metadata,
+               400,
+               1_000
+             )
+
+    settle_retainer(ctx.context.retainer.pid)
+    stats = Retainer.stats(ctx.context.retainer, 1_000)
+    assert :ok = Usage.publish(ctx.context.pool, ctx.context.partition, stats, 100, 1_000)
+    staging = Path.join(ctx.context.partition.path, "staging")
+    File.rm_rf!(staging)
+    File.write!(staging, "blocks new report writes")
+
+    send(ctx.worker, :tick)
+    settle_worker(ctx.worker)
+    settle_retainer(ctx.context.retainer.pid)
+
+    assert %{bytes: 0, cleanup_bytes: 0, capacity: capacity} =
+             Retainer.stats(ctx.context.retainer, 1_000)
+
+    assert capacity <= 400
+    refute File.exists?(location.path)
+  end
+
   test "periodic maintenance retires an inactive writer and reaps its staging", ctx do
     {:ok, {:ok, abandoned}} =
       CacheIO.run(ctx.context.pool, {Partition, :create, [ctx.context.partition.root]}, 0, 1_000)
@@ -80,6 +130,18 @@ defmodule ImagePipe.Cache.SharedFileSystem.PressureTest do
     refute File.exists?(abandoned.path)
     refute File.exists?(Path.join([abandoned.root, "trash", abandoned.id]))
     assert File.dir?(ctx.context.partition.path)
+  end
+
+  test "failed publication cannot use an old report to expand capacity", ctx do
+    assert {:ok, :complete} = Retainer.resize(ctx.context.retainer, 100, 1_000)
+    stats = Retainer.stats(ctx.context.retainer, 1_000)
+    assert :ok = Usage.publish(ctx.context.pool, ctx.context.partition, stats, 100, 1_000)
+    staging = Path.join(ctx.context.partition.path, "staging")
+    File.rm_rf!(staging)
+    File.write!(staging, "blocks publication")
+
+    assert {:ok, %{target: 100, usage_publication: {:error, _}}} =
+             Pressure.run(ctx.context, ctx.opts, 1_000)
   end
 
   test "invalid watermarks fail before creating storage", ctx do

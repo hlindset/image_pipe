@@ -88,11 +88,11 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
     log =
       capture_log(fn ->
-        for result <- [:ok, :partial, :cache_error] do
+        for operation <- [:reclamation, :usage], result <- [:ok, :partial, :cache_error] do
           Telemetry.span(
             [telemetry_prefix: prefix],
             [:cache, :shared_maintenance],
-            %{operation: :reclamation},
+            %{operation: operation},
             fn ->
               {:ok, %{result: result}}
             end
@@ -103,6 +103,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "shared_maintenance: reclamation ok"
     assert log =~ "[warning] image_pipe cache shared_maintenance: reclamation partial"
     assert log =~ "[warning] image_pipe cache shared_maintenance: reclamation cache_error"
+    assert log =~ "[warning] image_pipe cache shared_maintenance: usage cache_error"
   end
 
   test "logs shared incarnation state and warns on unavailable caching" do

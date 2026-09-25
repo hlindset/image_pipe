@@ -34,13 +34,16 @@ defmodule ImagePipe.Cache.SharedFileSystem.MaintenanceTelemetry do
     %{result: result, checked: partitions.checked, removed: trash.removed, errors: errors}
   end
 
-  defp summary(:pressure, {:ok, %{pressure: :disabled}}), do: %{result: :ok}
+  defp summary(:pressure, {:ok, %{pressure: :disabled, usage_publication: publication}}),
+    do: %{result: if(publication == :ok, do: :ok, else: :cache_error)}
 
   defp summary(:pressure, {:ok, stats}) do
     result =
-      if stats.scan == :complete and stats.result == :complete and stats.unavailable == 0,
-        do: :ok,
-        else: :partial
+      cond do
+        stats.usage_publication != :ok -> :cache_error
+        stats.scan == :complete and stats.result == :complete and stats.unavailable == 0 -> :ok
+        true -> :partial
+      end
 
     %{
       result: result,
@@ -50,6 +53,6 @@ defmodule ImagePipe.Cache.SharedFileSystem.MaintenanceTelemetry do
     }
   end
 
-  defp summary(:inventory, :ok), do: %{result: :ok}
+  defp summary(operation, :ok) when operation in [:inventory, :usage], do: %{result: :ok}
   defp summary(_operation, {:error, _reason}), do: %{result: :cache_error}
 end

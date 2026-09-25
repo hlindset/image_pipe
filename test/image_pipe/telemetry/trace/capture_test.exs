@@ -1,6 +1,7 @@
 defmodule ImagePipe.Telemetry.Trace.CaptureTest do
   use ExUnit.Case, async: false
   alias ImagePipe.Cache.OutputWork
+  alias ImagePipe.Cache.SharedFileSystem.MaintenanceTelemetry
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.Trace.{Context, Inbound, Span, TestExporter}
   alias ImagePipe.Test.FakeDetector
@@ -62,6 +63,24 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
 
     assert attributes.operation == :unavailable
     assert attributes.result == :cache_error
+  end
+
+  test "captures usage publication failures independently of pressure evaluation" do
+    prefix = [__MODULE__, :usage]
+    TestExporter.attach(self(), prefix: prefix)
+
+    MaintenanceTelemetry.run(
+      [telemetry_prefix: prefix],
+      :usage,
+      fn -> {:error, :enospc} end
+    )
+
+    assert_receive {:span,
+                    %Span{
+                      name: "image_pipe.cache.shared_maintenance",
+                      status: :error,
+                      attributes: %{operation: :usage, result: :cache_error}
+                    }}
   end
 
   defp emit_nested do

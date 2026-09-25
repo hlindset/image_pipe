@@ -237,7 +237,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.WarmupTest do
 
     assert {:ok, _} = InventoryWorker.run(__MODULE__.Writer, opts, :publish)
 
-    for operation <- [:inventory, :pressure, :reclamation] do
+    for operation <- [:inventory, :usage, :pressure, :reclamation] do
       assert_receive {:maintenance, %{duration: duration}, %{operation: ^operation, result: :ok}}
       assert duration >= 0
     end

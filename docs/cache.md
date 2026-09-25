@@ -529,7 +529,13 @@ source-selection scope; it preserves disk freshness evidence but does not promis
 durable local invalidation across runtime loss.
 
 Runtime maintenance emits `[:cache, :shared_maintenance, :start | :stop | :exception]`
-under its `telemetry_prefix`. Operations are `:warmup`, `:inventory`, `:pressure`,
+under its `telemetry_prefix`. Operations are `:warmup`, `:inventory`, `:usage`, `:pressure`,
 and `:reclamation`; stop outcomes distinguish `:ok`, `:partial`, and `:cache_error`.
 See the [telemetry guide](telemetry.md#shared-filesystem-maintenance) for counters
 and the default Logger/tracer behavior.
+
+Inventory publication, usage publication, pressure evaluation, and reclamation
+each receive a separate `timeout` allowance. A cycle may therefore take up to
+four allowances plus scheduling overhead. Failed report writes remain observable
+but do not prevent eviction using existing reports. A failed usage refresh cannot
+increase retention capacity.

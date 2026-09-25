@@ -34,11 +34,14 @@ Coverage:
   releases its resource reservation, and preserves the original body.
 - A full shared volume still permits a real Plug request to return the expected
   encoded image dimensions and pixels, without a published output entry.
+- Pressure eviction can use previous reports and free retained storage even when
+  a full volume prevents new inventory and usage publication.
 - Helper loss while a cross-device FIFO-backed copy is incomplete keeps the
   destination unpublished and preserves its uncertain resource charge.
 
-On 2026-09-25 all five passed on a local macOS FAT disk image. The four tests
-without same-filesystem link rejection also passed on HFS+. The ordinary generation
+On 2026-09-25 all six passed on a local macOS FAT disk image. The initial four tests
+for cross-device copying, full-storage fail-open delivery, failed adoption, and
+interrupted copying also passed on HFS+. The ordinary generation
 suite covers reconciliation when a link call returns an error but its completed
 destination exists, including loss of the original name. This proves those local
 error paths. It does not qualify NFS/SMB visibility, cross-machine operation,

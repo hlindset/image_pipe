@@ -76,40 +76,40 @@ defmodule ImagePipe.Cache.SharedFileSystem.InventoryWorker do
   defp execute(:publish, context, opts, limits) do
     publication = publish(context, opts, limits)
 
+    pressure =
+      MaintenanceTelemetry.run(opts, :pressure, fn ->
+        Pressure.run(context, opts, opts[:timeout])
+      end)
+
     reclamation =
       MaintenanceTelemetry.run(opts, :reclamation, fn ->
         Reclamation.run(context, opts, opts[:timeout])
       end)
 
-    case {publication, reclamation} do
-      {{:ok, publication}, {:ok, reclamation}} ->
-        {:ok, %{publication: publication, reclamation: reclamation}}
+    results = %{inventory: publication, pressure: pressure, reclamation: reclamation}
 
-      {publication, reclamation} ->
-        {:error, %{publication: publication, reclamation: reclamation}}
+    case {publication, pressure, reclamation} do
+      {:ok, {:ok, %{usage_publication: :ok}}, {:ok, _}} -> {:ok, results}
+      _failure -> {:error, results}
     end
   end
 
   defp publish(context, opts, limits) do
     deadline = System.monotonic_time(:millisecond) + opts[:timeout]
 
-    with {:ok, partition, locations} <-
-           Retainer.inventory(context.retainer, limits.entries, remaining(deadline)),
-         :ok <-
-           MaintenanceTelemetry.run(opts, :inventory, fn ->
-             Inventory.publish(
-               context.pool,
-               partition,
-               locations,
-               opts[:clock].(),
-               limits,
-               remaining(deadline)
-             )
-           end) do
-      MaintenanceTelemetry.run(opts, :pressure, fn ->
-        Pressure.run(context, opts, remaining(deadline))
-      end)
-    end
+    MaintenanceTelemetry.run(opts, :inventory, fn ->
+      with {:ok, partition, locations} <-
+             Retainer.inventory(context.retainer, limits.entries, remaining(deadline)) do
+        Inventory.publish(
+          context.pool,
+          partition,
+          locations,
+          opts[:clock].(),
+          limits,
+          remaining(deadline)
+        )
+      end
+    end)
   end
 
   defp schedule(state) do
