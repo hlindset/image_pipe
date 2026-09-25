@@ -28,18 +28,22 @@ defmodule ImagePipe.Cache.SharedFileSystem.Storage do
   end
 
   defp publish_metadata(plan, body, metadata, limits) do
-    envelope = %{
+    envelope = envelope(plan, body, metadata)
+
+    with {:ok, encoded} <- encode(envelope, limits.metadata),
+         :ok <- File.write(Path.join(plan.stage, "meta"), encoded, [:exclusive]) do
+      commit(plan, limits)
+    end
+  end
+
+  def envelope(plan, body, metadata) do
+    %{
       kind: plan.kind,
       key: plan.key,
       generation: plan.generation,
       body: body,
       metadata: metadata
     }
-
-    with {:ok, encoded} <- encode(envelope, limits.metadata),
-         :ok <- File.write(Path.join(plan.stage, "meta"), encoded, [:exclusive]) do
-      commit(plan, limits)
-    end
   end
 
   defp prepare_body(%{kind: :sources}, nil, _limit), do: {:ok, nil}
@@ -52,7 +56,14 @@ defmodule ImagePipe.Cache.SharedFileSystem.Storage do
 
     case File.rename(plan.stage, plan.destination) do
       :ok -> {:ok, location}
-      {:error, reason} -> reconcile(location, limits, reason)
+      {:error, reason} -> reconcile_commit(location, limits, reason)
+    end
+  end
+
+  defp reconcile_commit(location, limits, reason) do
+    case reconcile(location, limits, reason) do
+      {:ok, _location} = success -> success
+      {:error, error} -> {:error, {:commit, error}}
     end
   end
 
@@ -80,7 +91,13 @@ defmodule ImagePipe.Cache.SharedFileSystem.Storage do
          path = Path.join(directory, "body"),
          {:ok, body} <- Body.copy(Path.join(location.path, "body"), path, limits.body),
          :ok <- verify_body(body, envelope.body) do
-      {:ok, %{path: path, metadata: envelope.metadata}}
+      {:ok,
+       %{
+         path: path,
+         metadata: envelope.metadata,
+         body: envelope.body,
+         metadata_bytes: envelope.metadata_bytes
+       }}
     end
   end
 

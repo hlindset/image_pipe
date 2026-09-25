@@ -77,6 +77,69 @@ defmodule ImagePipe.Cache.SharedFileSystem.RetainerTest do
     assert local_generations(ctx, candidate) == []
   end
 
+  test "ordinary publication and foreign adoption compete for the same budget", ctx do
+    foreign = publish(ctx, "foreign")
+    client = start_retainer(ctx, foreign.size_bytes + 100)
+    {:ok, envelope} = Generation.metadata(ctx.pool, foreign.location, ctx.limits, 1_000)
+    key = Base.encode16(:crypto.hash(:sha256, "generated"), case: :lower)
+    assert :ok = Retainer.request(client, :outputs, key, 1_000)
+
+    assert {:ok, local} =
+             Retainer.publish(
+               client,
+               :outputs,
+               key,
+               Path.join(foreign.location.path, "body"),
+               envelope.metadata,
+               400,
+               1_000
+             )
+
+    assert File.exists?(local.path)
+    assert {:rejected, :low_value} = Retainer.consider(client, foreign, 1_000)
+    demand(client, foreign, 3)
+    assert :scheduled = Retainer.consider(client, foreign, 1_000)
+    settle(client)
+    refute File.exists?(local.path)
+    assert %{entries: 1, bytes: bytes} = Retainer.stats(client, 1_000)
+    assert bytes == foreign.size_bytes
+  end
+
+  test "demand arriving during adoption is preserved by the final admission decision", ctx do
+    cold = publish(ctx, "cold")
+    candidate = publish(ctx, "candidate")
+    client = start_retainer(ctx, cold.size_bytes + 100)
+    demand(client, cold, 1)
+    assert :scheduled = Retainer.consider(client, cold, 1_000)
+    settle(client)
+    demand(client, candidate, 2)
+    :ok = :sys.suspend(ctx.pool.pid)
+    assert :scheduled = Retainer.consider(client, candidate, 1_000)
+    demand(client, cold, 10)
+    :ok = :sys.resume(ctx.pool.pid)
+    settle(client)
+    assert [_retained] = local_generations(ctx, cold)
+    assert [] = local_generations(ctx, candidate)
+    assert %{entries: 1, cleanup_bytes: 0} = Retainer.stats(client, 1_000)
+  end
+
+  test "rotation waits for known work and starts a fresh retained set", ctx do
+    entry = publish(ctx, "entry")
+    client = start_retainer(ctx, 10_000)
+    :ok = :sys.suspend(ctx.pool.pid)
+    assert :scheduled = Retainer.consider(client, entry, 1_000)
+    assert {:error, :saturated} = Retainer.rotate(client, ctx.writer, 1_000)
+    :ok = :sys.resume(ctx.pool.pid)
+    settle(client)
+    {:ok, {:ok, _trash}} = CacheIO.run(ctx.pool, {Partition, :retire, [ctx.partition]}, 0, 1_000)
+    {:ok, {:ok, next}} = CacheIO.run(ctx.pool, {Partition, :create, [ctx.root]}, 0, 1_000)
+    assert :ok = Retainer.rotate(client, next, 1_000)
+    assert %{bytes: 0, entries: 0} = Retainer.stats(client, 1_000)
+    assert :scheduled = Retainer.consider(client, entry, 1_000)
+    settle(client)
+    assert [_local] = local_generations(%{ctx | partition: next}, entry)
+  end
+
   test "unknown adoption outcomes keep their charge and stop further writes", ctx do
     candidate = publish(ctx, "entry")
     client = start_retainer(ctx, 10_000)

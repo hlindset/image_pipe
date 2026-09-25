@@ -277,11 +277,21 @@ the full serialized metadata envelope and body, even for hard links. Exact local
 victims are renamed into trash before bounded member removal. Failed removal keeps
 its charge and supports an explicit retry; uncertain adoption retains its pending
 charge and stops further writes through that owner. Scheduling returns before
-background adoption completes. The worker is not yet connected to the runtime.
+background adoption completes. Ordinary original, source-record, and output
+publication now shares this owner and budget. Actual lookups update demand and
+offer successful foreign generations for background adoption. The owner rechecks
+admission before applying a completed write; exact metadata/body sizes establish
+the retained charge. Unverified commit outcomes and failed metadata reads after
+publication retain pending charges rather than assuming no generation exists.
 
-Runtime integration still needs to route ordinary publication through admission,
-connect successful lookups to adoption, and preserve accounting across owner
-restart and partition rotation.
+The runtime configures `max_retained_bytes` (128 MiB) and
+`max_retained_entries` (4,096). Retention-owner loss stops further writes through
+that runtime; it is not automatically replaced with empty accounting. A full
+runtime restart allocates a new incarnation. Normal partition rotation waits for
+known work to settle, then clears its retired entry set while preserving local
+demand and source selection. Uncertain jobs keep their pending/cleanup charges
+and failure state across rotation. Root maintenance still needs to reclaim retired
+partitions and account for their storage separately from the new active partition.
 
 `SharedFileSystem.Inventory` publishes an atomically replaced, count/byte-bounded
 prefix of locations ranked by the retention owner. It uses leased staging and the

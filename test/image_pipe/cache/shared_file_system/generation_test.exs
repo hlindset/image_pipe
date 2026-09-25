@@ -158,7 +158,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
 
     File.write!(Path.join(location.path, "body"), "corrupt")
 
-    assert {:ok, {:error, :corrupt}} =
+    assert {:ok, {:error, {:commit, :corrupt}}} =
              CacheIO.run(ctx.pool, {Storage, :commit, [ctx.plan, limits()]}, 1_000_000, 1_000)
   end
 

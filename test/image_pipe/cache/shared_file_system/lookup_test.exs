@@ -2,7 +2,16 @@ defmodule ImagePipe.Cache.SharedFileSystem.LookupTest do
   use ExUnit.Case, async: false
 
   alias ImagePipe.Cache.Entry
-  alias ImagePipe.Cache.SharedFileSystem.{Generation, Locations, Lookup, Partition, Sources}
+
+  alias ImagePipe.Cache.SharedFileSystem.{
+    Generation,
+    Locations,
+    Lookup,
+    Partition,
+    Retainer,
+    Sources
+  }
+
   alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
   alias ImagePipe.Source
   alias ImagePipe.Source.Record
@@ -31,8 +40,20 @@ defmodule ImagePipe.Cache.SharedFileSystem.LookupTest do
     body = Path.join(root, "body")
     File.write!(body, "encoded image")
 
+    retainer =
+      start_supervised!(
+        {Retainer,
+         pool: pool,
+         tasks: tasks,
+         partition: partition,
+         limits: %{body: 128, metadata: 4_096},
+         max_bytes: 1}
+      )
+      |> Retainer.client()
+
     context = %{
       pool: pool,
+      retainer: retainer,
       locations: locations,
       sources: sources,
       readers: readers,

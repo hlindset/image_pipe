@@ -32,6 +32,18 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retention do
       cost_us: cost
     }
 
+  def clear(state),
+    do: %{
+      state
+      | entries: %{},
+        queues:
+          Map.new(
+            [:window, :probationary, :protected],
+            &{&1, :gb_trees.empty()}
+          ),
+        bytes: %{window: 0, probationary: 0, protected: 0}
+    }
+
   # Call exactly once per real local demand, including misses. Inventory import
   # and speculative admission never advance the sketch or request recency.
   def request(state, kind, key) do

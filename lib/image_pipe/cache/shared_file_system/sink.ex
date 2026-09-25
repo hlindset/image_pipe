@@ -1,8 +1,8 @@
 defmodule ImagePipe.Cache.SharedFileSystem.Sink do
   @moduledoc false
 
-  alias ImagePipe.Cache.SharedFileSystem.{Generation, Locations, Partition, Runtime, Transient}
   alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
+  alias ImagePipe.Cache.SharedFileSystem.{Locations, Retainer, Runtime, Transient}
 
   def open(key, metadata, opts) do
     with {:ok, context} <- Runtime.context(opts[:runtime]) do
@@ -80,14 +80,14 @@ defmodule ImagePipe.Cache.SharedFileSystem.Sink do
   def commit(state, _opts) do
     deadline = System.monotonic_time(:millisecond) + state.budget
     context = state.context
-    plan = Partition.plan(context.partition, :outputs, state.key)
 
-    case Generation.publish(
-           context.pool,
-           plan,
+    case Retainer.publish(
+           context.retainer,
+           :outputs,
+           state.key,
            state.path,
            state.metadata,
-           context.limits,
+           state.size,
            remaining(deadline)
          ) do
       {:ok, location} ->

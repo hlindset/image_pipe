@@ -3,7 +3,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Lifecycle do
   use GenServer
 
   alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
-  alias ImagePipe.Cache.SharedFileSystem.{Partition, Runtime}
+  alias ImagePipe.Cache.SharedFileSystem.{Partition, Retainer, Runtime}
 
   def start_link(table, opts), do: GenServer.start_link(__MODULE__, {table, opts})
 
@@ -65,8 +65,16 @@ defmodule ImagePipe.Cache.SharedFileSystem.Lifecycle do
   end
 
   defp apply_result(state, {:ok, {:ok, partition}}) do
-    :ets.insert(state.table, {:state, {:ready, partition}})
-    %{state | partition: partition}
+    state = %{state | partition: partition}
+
+    case Retainer.rotate(Runtime.fetch(state.table, :retainer), partition, state.opts[:timeout]) do
+      :ok ->
+        :ets.insert(state.table, {:state, {:ready, partition}})
+        state
+
+      error ->
+        apply_result(state, error)
+    end
   end
 
   defp apply_result(state, _error) do

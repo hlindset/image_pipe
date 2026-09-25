@@ -5,7 +5,7 @@ defmodule ImagePipe.API.SharedCacheWireTest do
 
   alias ImagePipe.Cache.SharedFileSystem
   alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
-  alias ImagePipe.Cache.SharedFileSystem.{Lifecycle, Locations, Partition, Runtime}
+  alias ImagePipe.Cache.SharedFileSystem.{Lifecycle, Locations, Partition, Retainer, Runtime}
 
   setup_all do
     Mix.Task.run("image_pipe.shared_cache.build")
@@ -88,6 +88,58 @@ defmodule ImagePipe.API.SharedCacheWireTest do
     assert dimensions(second) == {6, 4}
     assert Image.get_pixel!(Image.from_binary!(second.resp_body), 0, 0) == [255, 0, 0]
     refute_received {:origin, _}
+  end
+
+  test "admitted output survives removal of the original writer", ctx do
+    a = config(ctx, __MODULE__.A, false)
+    b = config(ctx, __MODULE__.B, false)
+    first = request(a, 12)
+    assert_receive {:origin, []}
+    {:ok, owner} = Runtime.context(__MODULE__.A)
+    {:ok, adopter} = Runtime.context(__MODULE__.B)
+    :erlang.trace(adopter.retainer.pid, true, [:receive])
+    assert request(b, 12).resp_body == first.resp_body
+    settle(adopter.retainer)
+    assert request(b, 12).resp_body == first.resp_body
+    settle(adopter.retainer)
+    assert [_body] = Path.wildcard(Path.join(adopter.partition.path, "outputs/*/*/*/body"))
+    File.rm_rf!(owner.partition.path)
+    assert request(b, 12).resp_body == first.resp_body
+    refute_received {:origin, _}
+  end
+
+  test "a full logical budget bypasses storage and still delivers generated pixels", ctx do
+    start_supervised!(
+      {SharedFileSystem,
+       name: __MODULE__.Tiny,
+       root: Path.join(ctx.root, "tiny-shared"),
+       local_root: Path.join(ctx.root, "tiny-local"),
+       clock: ctx.clock,
+       max_retained_bytes: 1}
+    )
+
+    result = request(config(ctx, __MODULE__.Tiny), 12)
+    assert result.status == 200
+    assert Image.get_pixel!(Image.from_binary!(result.resp_body), 0, 0) == [255, 0, 0]
+    assert_receive {:origin, []}
+    {:ok, context} = Runtime.context(__MODULE__.Tiny)
+    assert %{entries: 0, bytes: 0, pending_bytes: 0} = Retainer.stats(context.retainer, 1_000)
+    assert Path.wildcard(Path.join(context.partition.path, "*/*/*/*/meta")) == []
+  end
+
+  test "retention owner loss bypasses writes without replacing its accounting", ctx do
+    assert request(config(ctx, __MODULE__.A), 12).status == 200
+    assert_receive {:origin, []}
+    {:ok, context} = Runtime.context(__MODULE__.A)
+    monitor = Process.monitor(context.retainer.pid)
+    :ok = Supervisor.terminate_child(__MODULE__.A, Retainer)
+    assert_receive {:DOWN, ^monitor, :process, _pid, :shutdown}
+    result = request(config(ctx, __MODULE__.A), 6)
+    assert result.status == 200
+    assert dimensions(result) == {6, 4}
+    assert Image.get_pixel!(Image.from_binary!(result.resp_body), 0, 0) == [255, 0, 0]
+    refute_received {:origin, _}
+    assert {:error, :unavailable} = Retainer.stats(context.retainer, 1_000)
   end
 
   test "expired evidence revalidates and missing originals cause an unconditional fetch", ctx do
@@ -199,6 +251,21 @@ defmodule ImagePipe.API.SharedCacheWireTest do
         else: opts
 
     ImagePipe.Plug.init(opts)
+  end
+
+  defp settle(client) do
+    case :sys.get_state(client.pid) do
+      %{job: nil} ->
+        :ok
+
+      %{failure: nil, job: %{ref: ref}} ->
+        pid = client.pid
+        assert_receive {:trace, ^pid, :receive, {^ref, _result}}, 2_000
+        settle(client)
+
+      %{failure: failure} ->
+        flunk("retention failed: #{inspect(failure)}")
+    end
   end
 
   defp request(config, width, headers \\ []) do

@@ -2,7 +2,16 @@ defmodule ImagePipe.Cache.SharedFileSystem.Generation do
   @moduledoc false
 
   alias ImagePipe.Cache.Resources
-  alias ImagePipe.Cache.SharedFileSystem.{Body, Metadata, Retention, Storage, Transient}
+
+  alias ImagePipe.Cache.SharedFileSystem.{
+    Body,
+    Metadata,
+    Partition,
+    Retention,
+    Storage,
+    Transient
+  }
+
   alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
 
   def descriptor(location, %{body: body, metadata: metadata, metadata_bytes: bytes}) do
@@ -19,6 +28,52 @@ defmodule ImagePipe.Cache.SharedFileSystem.Generation do
       end
 
     Retention.descriptor(location, bytes + body_bytes, digest, cost)
+  end
+
+  def planned_descriptor(plan, metadata, size, limits) do
+    body =
+      case plan.kind do
+        :sources -> nil
+        _body -> %{bytes: size, sha256: <<0::256>>}
+      end
+
+    with {:ok, encoded} <- Metadata.encode(metadata, limits.metadata) do
+      bytes = plan |> Storage.envelope(body, encoded) |> :erlang.external_size()
+
+      location =
+        Partition.location(
+          plan.parent,
+          plan.kind,
+          plan.key,
+          plan.generation
+        )
+
+      cond do
+        size > limits.body ->
+          {:error, :body_too_large}
+
+        bytes > limits.metadata ->
+          {:error, :metadata_too_large}
+
+        true ->
+          {:ok,
+           descriptor(
+             location,
+             %{body: body, metadata: metadata, metadata_bytes: bytes}
+           )}
+      end
+    end
+  end
+
+  def publish_retained(pool, plan, source, metadata, limits, timeout) do
+    deadline = deadline(timeout)
+
+    with {:ok, location} <- publish(pool, plan, source, metadata, limits, remaining(deadline)) do
+      case metadata(pool, location, limits, remaining(deadline)) do
+        {:ok, envelope} -> {:ok, descriptor(location, envelope)}
+        {:error, reason} -> {:error, {:published_metadata, reason}}
+      end
+    end
   end
 
   def evict(pool, partition, locations, limits, timeout) do
@@ -95,7 +150,9 @@ defmodule ImagePipe.Cache.SharedFileSystem.Generation do
                  lease
                ),
              {:ok, metadata} <- Metadata.decode(location.kind, reader.metadata) do
-          track_reader(lease, %{reader | metadata: metadata}, directory, remaining(deadline))
+          reader = %{reader | metadata: metadata}
+          reader = Map.put(reader, :descriptor, descriptor(location, reader))
+          track_reader(lease, reader, directory, remaining(deadline))
         end
 
       case result do

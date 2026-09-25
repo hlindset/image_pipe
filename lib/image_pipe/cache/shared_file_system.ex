@@ -10,8 +10,12 @@ defmodule ImagePipe.Cache.SharedFileSystem do
   still use this runtime for source validation state.
 
   `local_root` must be node-local storage outside the shared root. Acquired
-  originals remain stable until released. Runtime failures bypass caching.
-  Shared-mount qualification and retention integration are still in progress.
+  originals remain stable until released. `max_retained_bytes` (128 MiB by
+  default) and `max_retained_entries` (4,096) bound each runtime's retained
+  generations. Metadata and every hard-linked body count toward that budget.
+  Temporary readers, pending publication and failed cleanup have separate charges.
+  Admission or runtime failures bypass caching. Shared-volume reclamation,
+  inventory warmup and shared-mount qualification are still in progress.
   """
   @behaviour ImagePipe.Cache
   @behaviour ImagePipe.Cache.Input.Adapter
@@ -23,10 +27,13 @@ defmodule ImagePipe.Cache.SharedFileSystem do
     Locations,
     Lookup,
     Partition,
+    Retainer,
     Runtime,
     Sink,
     Sources
   }
+
+  alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
 
   @schema NimbleOptions.new!(
             runtime: [type: :atom, required: true],
@@ -77,8 +84,18 @@ defmodule ImagePipe.Cache.SharedFileSystem do
 
   @impl true
   def lookup_source(key, opts) do
-    with {:ok, context} <- Runtime.context(opts[:runtime]),
-         do: Sources.lookup(context.sources, key.hash, opts[:timeout])
+    deadline = System.monotonic_time(:millisecond) + opts[:timeout]
+
+    with {:ok, context} <- Runtime.context(opts[:runtime]) do
+      case Sources.lookup(context.sources, key.hash, remaining(deadline)) do
+        {:hit, _snapshot} = hit ->
+          Retainer.request(context.retainer, :sources, key.hash, remaining(deadline))
+          hit
+
+        result ->
+          result
+      end
+    end
   end
 
   @impl true
@@ -129,17 +146,31 @@ defmodule ImagePipe.Cache.SharedFileSystem do
   end
 
   defp publish(context, kind, key, path, metadata, deadline) do
-    plan = Partition.plan(context.partition, kind, key)
+    with {:ok, size} <- body_size(context, path, deadline),
+         true <- size <= context.limits.body,
+         {:ok, location} <-
+           Retainer.publish(
+             context.retainer,
+             kind,
+             key,
+             path,
+             metadata,
+             size,
+             remaining(deadline)
+           ) do
+      Locations.remember(context.locations, location, remaining(deadline))
+    else
+      false -> {:error, :body_too_large}
+      error -> error
+    end
+  end
 
-    case Generation.publish(
-           context.pool,
-           plan,
-           path,
-           metadata,
-           context.limits,
-           remaining(deadline)
-         ) do
-      {:ok, location} -> Locations.remember(context.locations, location, remaining(deadline))
+  defp body_size(_context, nil, _deadline), do: {:ok, 0}
+
+  defp body_size(context, path, deadline) do
+    case CacheIO.run(context.pool, {File, :stat, [path]}, 4_096, remaining(deadline)) do
+      {:ok, {:ok, stat}} -> {:ok, stat.size}
+      {:ok, error} -> error
       error -> error
     end
   end

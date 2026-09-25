@@ -2,7 +2,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Lookup do
   @moduledoc false
 
   alias ImagePipe.Cache.Input.Snapshot
-  alias ImagePipe.Cache.SharedFileSystem.{Generation, Locations, Partition, Sources}
+  alias ImagePipe.Cache.SharedFileSystem.{Generation, Locations, Partition, Retainer, Sources}
 
   # The caller owns acquired readers and source leases. Only enumeration is
   # coalesced: each request needs its own stable reader lifetime.
@@ -26,6 +26,8 @@ defmodule ImagePipe.Cache.SharedFileSystem.Lookup do
       seen: MapSet.new(),
       attempts: 0
     }
+
+    Retainer.request(context.retainer, kind, key, remaining(request))
 
     case Locations.hints(context.locations, kind, key, remaining(request)) do
       {:ok, hints} -> try_hints(request, hints)
@@ -110,10 +112,23 @@ defmodule ImagePipe.Cache.SharedFileSystem.Lookup do
   defp open(%{operation: {:source, lease}} = request, location) do
     context = request.context
 
-    with {:ok, %{metadata: record}} <-
+    with {:ok, %{metadata: record} = envelope} <-
            Generation.metadata(context.pool, location, context.limits, remaining(request)) do
       snapshot = %Snapshot{revision: {location.path, location.generation}, record: record}
-      Sources.discover(context.sources, request.key, lease, snapshot, remaining(request))
+
+      case Sources.discover(context.sources, request.key, lease, snapshot, remaining(request)) do
+        {:hit, _selected} = hit ->
+          Retainer.consider(
+            context.retainer,
+            Generation.descriptor(location, envelope),
+            remaining(request)
+          )
+
+          hit
+
+        result ->
+          result
+      end
     end
   end
 
@@ -128,7 +143,14 @@ defmodule ImagePipe.Cache.SharedFileSystem.Lookup do
              context.limits,
              remaining(request)
            ) do
-      accept_reader(request, reader)
+      case accept_reader(request, reader) do
+        {:hit, _reader} = hit ->
+          Retainer.consider(context.retainer, reader.descriptor, remaining(request))
+          hit
+
+        error ->
+          error
+      end
     end
   end
 

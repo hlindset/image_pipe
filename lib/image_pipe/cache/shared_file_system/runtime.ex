@@ -3,7 +3,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Runtime do
   use Supervisor
 
   alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
-  alias ImagePipe.Cache.SharedFileSystem.{Lifecycle, Locations, Sources}
+  alias ImagePipe.Cache.SharedFileSystem.{Lifecycle, Locations, Retainer, Sources}
 
   @schema NimbleOptions.new!(
             name: [type: :atom, required: true],
@@ -14,6 +14,8 @@ defmodule ImagePipe.Cache.SharedFileSystem.Runtime do
             max_body_bytes: [type: :pos_integer, default: 32 * 1024 * 1024],
             max_metadata_bytes: [type: :pos_integer, default: 65_536],
             max_attempts: [type: :pos_integer, default: 16],
+            max_retained_bytes: [type: :pos_integer, default: 128 * 1024 * 1024],
+            max_retained_entries: [type: :pos_integer, default: 4_096],
             clock_skew: [type: :non_neg_integer, default: 5],
             clock: [type: {:fun, 0}, default: &Sources.Supervisor.now/0]
           )
@@ -46,7 +48,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Runtime do
       [{:state, {:ready, partition}}] ->
         {:ok,
          Map.new(
-           [:pool, :locations, :sources, :readers, :limits, :max_attempts, :timeout],
+           [:pool, :locations, :sources, :retainer, :readers, :limits, :max_attempts, :timeout],
            fn key ->
              [{^key, value}] = :ets.lookup(name, key)
              {key, value}
@@ -86,6 +88,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Runtime do
         restart: :temporary
       },
       %{id: Locations, start: {__MODULE__, :start_locations, [table, opts]}},
+      %{id: Retainer, start: {__MODULE__, :start_retainer, [table, opts]}, restart: :temporary},
       %{id: Lifecycle, start: {Lifecycle, :start_link, [table, opts]}}
     ]
 
@@ -124,6 +127,22 @@ defmodule ImagePipe.Cache.SharedFileSystem.Runtime do
              tasks: fetch(table, :tasks)
            ) do
       :ets.insert(table, {:locations, Locations.client(pid)})
+      {:ok, pid}
+    end
+  end
+
+  def start_retainer(table, opts) do
+    with {:ok, pid} <-
+           Retainer.start_link(
+             pool: fetch(table, :pool),
+             tasks: fetch(table, :tasks),
+             partition: nil,
+             limits: fetch(table, :limits),
+             max_bytes: opts[:max_retained_bytes],
+             max_entries: opts[:max_retained_entries],
+             timeout: opts[:timeout]
+           ) do
+      :ets.insert(table, {:retainer, Retainer.client(pid)})
       {:ok, pid}
     end
   end
