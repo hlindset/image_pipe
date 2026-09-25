@@ -47,6 +47,31 @@ defmodule ImagePipe.Cache.SharedFileSystem.Index do
     end
   end
 
+  # Ranked imports preserve the useful prefix instead of cycling warm victims.
+  def seed(index, locations) do
+    Enum.reduce_while(locations, {index, 0, :complete}, fn location, {index, count, :complete} ->
+      key = {location.kind, location.key}
+
+      case Map.has_key?(index.entries, key) do
+        true -> {:cont, {index, count, :complete}}
+        false -> seed_entry(index, location, key, count)
+      end
+    end)
+  end
+
+  defp seed_entry(index, location, key, count) do
+    case fit_payload(key, [location], index.max_warm_bytes) do
+      {_locations, bytes} ->
+        case room?(index, bytes, :warm) do
+          true -> {:cont, {warm(index, location), count + 1, :complete}}
+          false -> {:halt, {index, count, :full}}
+        end
+
+      nil ->
+        {:halt, {index, count, :full}}
+    end
+  end
+
   def forget(index, location) do
     key = {location.kind, location.key}
 

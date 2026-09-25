@@ -4,6 +4,15 @@ defmodule ImagePipe.Cache.SharedFileSystem.IndexTest do
 
   alias ImagePipe.Cache.SharedFileSystem.{Index, Partition}
 
+  test "ranked warmup retains its highest-ranked prefix without evicting earlier imports" do
+    locations = Enum.map(["a", "b", "c"], &location/1)
+    assert {index, 2, :full} = Index.seed(new(max_keys: 4, warm_fraction: 0.5), locations)
+    [a, b, c] = locations
+    assert Index.lookup(index, a.kind, a.key) == [a]
+    assert Index.lookup(index, b.kind, b.key) == [b]
+    assert Index.lookup(index, c.kind, c.key) == []
+  end
+
   test "only successful reuse updates recency" do
     a = location("a")
     b = location("b")

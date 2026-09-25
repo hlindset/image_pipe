@@ -14,8 +14,11 @@ defmodule ImagePipe.Cache.SharedFileSystem do
   default) and `max_retained_entries` (4,096) bound each runtime's retained
   generations. Metadata and every hard-linked body count toward that budget.
   Temporary readers, pending publication and failed cleanup have separate charges.
-  Admission or runtime failures bypass caching. Shared-volume reclamation,
-  inventory warmup and shared-mount qualification are still in progress.
+  Admission or runtime failures bypass caching. Startup warms disposable hints
+  asynchronously from bounded inventories; `inventory_interval`,
+  `inventory_max_entries`, `inventory_max_bytes`, `warmup_max_partitions`,
+  `warmup_max_candidates`, and `warmup_timeout` control its work.
+  Shared-volume reclamation and shared-mount qualification are still in progress.
   """
   @behaviour ImagePipe.Cache
   @behaviour ImagePipe.Cache.Input.Adapter

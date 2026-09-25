@@ -30,6 +30,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
   def stats(client, timeout), do: call(client, :stats, timeout)
   def retry_cleanup(client, timeout), do: call(client, :retry_cleanup, timeout)
   def rotate(client, partition, timeout), do: call(client, {:rotate, partition}, timeout)
+  def inventory(client, limit, timeout), do: call(client, {:inventory, limit}, timeout)
 
   def publish(client, kind, key, path, metadata, size, timeout),
     do: call(client, {:publish, kind, key, path, metadata, size}, timeout)
@@ -153,6 +154,11 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
 
   defp dispatch({:request, kind, key}, state),
     do: {:reply, :ok, %{state | policy: Retention.request(state.policy, kind, key)}}
+
+  defp dispatch({:inventory, limit}, state) do
+    locations = Enum.map(Retention.ranked(state.policy, limit), & &1.location)
+    {:reply, {:ok, state.opts[:partition], locations}, state}
+  end
 
   defp dispatch(:stats, state) do
     stats =

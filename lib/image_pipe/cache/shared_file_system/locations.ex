@@ -40,6 +40,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Locations do
   def remember(client, location, timeout), do: call(client, {:remember, location}, timeout)
   def forget(client, location, timeout), do: call(client, {:forget, location}, timeout)
   def warm(client, location, timeout), do: call(client, {:warm, location}, timeout)
+  def seed(client, locations, timeout), do: call(client, {:seed, locations}, timeout)
   def stats(client, timeout), do: call(client, :stats, timeout)
 
   # :refresh is used when all candidates from a cached partition list were unusable.
@@ -105,6 +106,11 @@ defmodule ImagePipe.Cache.SharedFileSystem.Locations do
          jobs: map_size(state.jobs),
          waiters: map_size(state.waiters)
        }), state}
+
+  defp dispatch({:seed, locations}, _from, _deadline, state) do
+    {index, count, status} = Index.seed(state.index, locations)
+    {:reply, {:ok, count, status}, %{state | index: index}}
+  end
 
   defp dispatch({:discover, kind, key, mode}, from, deadline, state) do
     identity = {kind, key, mode}

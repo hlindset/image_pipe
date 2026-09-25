@@ -257,8 +257,7 @@ failure to store an original does not prevent recording new validation evidence.
 Wire tests cover two independent runtimes, cross-node output/original reuse,
 conditional requests, independent fresh pixels, missing originals, helper failure,
 location-worker replacement, and partition rotation. These use local disk and do
-not qualify a shared mount. Retention, adoption, warmup scheduling, expanded
-operational controls, and shared-mount qualification remain in progress.
+not qualify a shared mount.
 
 `SharedFileSystem.Retention` supplies a pure W-TinyLFU policy using the existing
 frequency sketch and cost-per-byte scoring. Real requests increment the sketch
@@ -300,8 +299,19 @@ destination matches the exact publication. Readers reject compressed/trailing,
 oversized, incompatible, stale, and malformed payloads, and reconstruct paths from
 validated namespace/key/generation identifiers under the advertised incarnation.
 Import provides disposable hints; generation validation remains mandatory.
-Periodic ranking/publication, asynchronous warmup scheduling, and request lookup
-orchestration still need integration with the retention owner and public adapter.
+`InventoryWorker` runs startup warmup asynchronously, then publishes the owner's
+ranked retained locations on a jittered interval. Only one worker task runs at a
+time. Defaults are a 60-second interval, 128 entries and 64 KiB per inventory;
+startup examines at most 32 partitions and 128 candidates within one second.
+Runtime options expose these bounds. Inventory age is limited to three publication
+intervals, with the configured clock-skew allowance.
+
+Warmup interleaves the useful prefixes from bounded inventories, validates each
+candidate's metadata, and seeds the index without evicting earlier ranked imports
+or requested keys. Body acquisition and source-freshness decisions remain on the
+request path. Warmup records no demand, installs no source selection, and schedules
+no adoption. Candidate/partition exhaustion and elapsed time remain distinguishable
+from a complete pass. Cold-start latency and I/O measurements remain outstanding.
 
 Directory enumeration uses an optional POSIX executable that streams `readdir`
 entries and stops after the configured name budget plus one lookahead. It retains

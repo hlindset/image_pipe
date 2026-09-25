@@ -3,7 +3,14 @@ defmodule ImagePipe.Cache.SharedFileSystem.Runtime do
   use Supervisor
 
   alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
-  alias ImagePipe.Cache.SharedFileSystem.{Lifecycle, Locations, Retainer, Sources}
+
+  alias ImagePipe.Cache.SharedFileSystem.{
+    InventoryWorker,
+    Lifecycle,
+    Locations,
+    Retainer,
+    Sources
+  }
 
   @schema NimbleOptions.new!(
             name: [type: :atom, required: true],
@@ -16,6 +23,12 @@ defmodule ImagePipe.Cache.SharedFileSystem.Runtime do
             max_attempts: [type: :pos_integer, default: 16],
             max_retained_bytes: [type: :pos_integer, default: 128 * 1024 * 1024],
             max_retained_entries: [type: :pos_integer, default: 4_096],
+            inventory_interval: [type: :pos_integer, default: 60_000],
+            inventory_max_entries: [type: :pos_integer, default: 128],
+            inventory_max_bytes: [type: :pos_integer, default: 65_536],
+            warmup_max_partitions: [type: :pos_integer, default: 32],
+            warmup_max_candidates: [type: :pos_integer, default: 128],
+            warmup_timeout: [type: :pos_integer, default: 1_000],
             clock_skew: [type: :non_neg_integer, default: 5],
             clock: [type: {:fun, 0}, default: &Sources.Supervisor.now/0]
           )
@@ -89,7 +102,8 @@ defmodule ImagePipe.Cache.SharedFileSystem.Runtime do
       },
       %{id: Locations, start: {__MODULE__, :start_locations, [table, opts]}},
       %{id: Retainer, start: {__MODULE__, :start_retainer, [table, opts]}, restart: :temporary},
-      %{id: Lifecycle, start: {Lifecycle, :start_link, [table, opts]}}
+      %{id: Lifecycle, start: {Lifecycle, :start_link, [table, opts]}},
+      %{id: InventoryWorker, start: {InventoryWorker, :start_link, [table, opts]}}
     ]
 
     Supervisor.init(children, strategy: :one_for_one)
