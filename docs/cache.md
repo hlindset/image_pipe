@@ -432,8 +432,37 @@ the shared runtime. The three entry namespaces share one retention budget.
 Keep `local_root` on node-local storage outside the shared root. It holds bounded
 temporary copies acquired before delivery or lazy decoding, so deleting a shared
 entry cannot truncate an acquired reader. Normal release and caller death reclaim
-completed readers. Crash-orphaned local directories still need an operator cleanup
-policy that excludes live runtime readers.
+completed readers. Assign `local_root` exclusively to one deployment's BEAM and
+helper process group; multiple cache runtimes inside that BEAM may share it.
+
+Preserve this directory during worker and cache-runtime restarts: completed readers
+can outlive their runtime. After a VM crash or full shutdown, the deployment
+supervisor must terminate and reap the entire process group, including filesystem
+helpers, before cleaning this directory or starting its successor. Neither age,
+heartbeat expiry, nor missing ETS state proves this shutdown has happened.
+
+Use the repository's deployment helper between those two supervisor steps:
+
+```sh
+# All previous BEAM/helper processes have exited; successor startup is held.
+sh scripts/shared-cache-clean-local.sh --stopped /var/cache/image_pipe/readers
+# Start the successor only after this command exits successfully.
+```
+
+`--stopped` asserts that the deployment supervisor established quiescence; the
+script does not detect live processes. It preflights the dedicated root, refuses
+unexpected top-level entries and symlink roots, then removes incarnation
+directories while preserving the root itself. Failures return nonzero and must
+remain visible; fix them before retrying startup. Never point it at the shared
+cache root or another deployment's local storage. Install the script alongside
+the deployment if the source checkout is absent.
+
+Discarding the deployment's ephemeral local volume after complete shutdown is
+equivalent. A container restart alone is insufficient if that volume persists.
+Set a node-local storage ceiling as well as runtime resource budgets. Eventual
+crash-orphan reclamation assumes the deployment can finish shutdown and complete
+this cleanup (or discard the volume); the adapter does not collect live local
+roots by inactivity.
 
 The node-wide temporary-resource registry holds at most 1,024 registrations, each
 with at most 8 KiB of serialized path data. This bound is shared with local input

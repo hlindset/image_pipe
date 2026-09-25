@@ -194,6 +194,17 @@ the last inventory remain readable. Restart allocates a fresh incarnation and
 warms from all suitable inventories, including its predecessor's. Useful entries
 survive old-directory cleanup only if admitted and adopted elsewhere.
 
+Node-local reader storage belongs exclusively to one deployment process group.
+Worker or cache-runtime restarts within its BEAM preserve this storage because
+completed readers may still be in use. After a whole-VM crash/shutdown, the
+deployment supervisor terminates and reaps the entire group, including helpers,
+then clears its dedicated local root before successor startup, or discards its
+ephemeral volume. Eventual local-orphan cleanup assumes these deployment steps
+complete; storage ceilings also cover leftover bytes when they cannot. The
+offline helper `scripts/shared-cache-clean-local.sh --stopped <local_root>`
+implements deletion after that externally established quiescence. It does not
+infer process death from timestamps, heartbeat expiry, or missing in-memory state.
+
 Heartbeat inactivity beyond a generous configured grace period makes a directory
 eligible for reclamation. It is not proof its writer is dead. The protocol must
 tolerate deletion racing readers, publication, adoption, and a resumed writer.
