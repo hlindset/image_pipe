@@ -105,7 +105,11 @@ decrease within the local coordination scope, so evicting an invalidation marker
 cannot restore its rejected evidence. This bounds rejection memory without a
 growing tombstone set.
 
-The runtime preserves this state across worker restarts and disk-partition rotation.
+The runtime preserves rejection knowledge across worker restarts and keeps selection
+state across disk-partition rotation. A supervisor-owned clock checkpoint survives
+coordinator failure. Restart revokes in-flight leases and replaces lost selections
+with a conservative global validation cutoff at the later of that checkpoint and
+restart time. Newly validated evidence can still be discovered after this cutoff.
 A full runtime restart creates a new independent selection scope, like a new node;
 it may discover still-eligible old evidence, with its original deadlines. It does
 not promise durable invalidation across runtime loss or global revocation.

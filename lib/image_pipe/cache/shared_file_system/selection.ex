@@ -5,7 +5,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Selection do
 
   # Owned by the adapter's node-local coordinator. Blocking I/O and ownership
   # checks happen outside this pure state machine; install only under a live lease.
-  def new(opts) do
+  def new(opts, now \\ nil) do
     %{
       entries: %{},
       recency: :gb_trees.empty(),
@@ -16,9 +16,12 @@ defmodule ImagePipe.Cache.SharedFileSystem.Selection do
       barrier_slots: Keyword.fetch!(opts, :barrier_slots),
       clock_skew: Keyword.fetch!(opts, :clock_skew),
       barriers: %{},
-      high_water: nil
+      high_water: now,
+      recovery_cutoff: nil
     }
   end
+
+  def recover(opts, cutoff), do: %{new(opts, cutoff) | recovery_cutoff: cutoff}
 
   def lookup(state, key, now) do
     state = advance_clock(state, now)
@@ -67,7 +70,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Selection do
 
   defp discover_missing(state, key, candidate, now) do
     {started, received} = validation_times(candidate.record)
-    cutoff = Map.get(state.barriers, bucket(state, key))
+    cutoff = cutoff(state, key)
 
     cond do
       (started != nil and started > received) or received > now + state.clock_skew ->
@@ -155,6 +158,14 @@ defmodule ImagePipe.Cache.SharedFileSystem.Selection do
     do: %{state | barriers: Map.put(state.barriers, bucket(state, key), state.high_water)}
 
   defp bucket(state, key), do: :erlang.phash2(key, state.barrier_slots)
+
+  defp cutoff(state, key) do
+    case {Map.get(state.barriers, bucket(state, key)), state.recovery_cutoff} do
+      {local, nil} -> local
+      {nil, recovery} -> recovery
+      {local, recovery} -> max(local, recovery)
+    end
+  end
 
   defp advance_clock(%{high_water: nil} = state, now), do: %{state | high_water: now}
   defp advance_clock(state, now), do: %{state | high_water: max(state.high_water, now)}

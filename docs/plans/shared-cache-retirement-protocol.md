@@ -165,6 +165,21 @@ source records; cold helper VMs therefore need no knowledge of host identity ato
 Neither layer accepts compressed terms or trailing serialized bytes. Reading or
 publishing evidence preserves its received time and origin headers.
 
+`SharedFileSystem.Sources` coordinates local selection and same-key acquisition.
+It reuses pre-enqueue count/payload admission, bounds owners and waiting callers,
+and checks absolute deadlines before selection mutations. Ownership offers require
+acknowledgement; waiting callers and unacknowledged offers expire. Caller death or
+release hands ownership to a live, unexpired waiter. Publication and discovery
+check both the caller and key under the coordinator's active lease.
+
+Its supervisor retains only a routing handle and clock high-water checkpoint.
+Coordinator restart revokes old leases and turns lost selection state into a
+global validation cutoff, preserving rejection knowledge without copying a full
+selection table on every read. Requests resolve the replacement coordinator through
+the same client handle. Local tests cover bounded admission, coalescing, caller
+death, restart during clock rollback, independent scopes, and a disk publication
+that completes after coordinator restart but cannot replace the newer selection.
+
 Completed reader directories are registered with the existing node-local resource
 tracker before acquisition returns. Explicit release or caller death can therefore
 remove them after helper or executor failure; tracker worker restarts preserve its

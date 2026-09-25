@@ -1,7 +1,7 @@
 defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
   use ExUnit.Case, async: false
 
-  alias ImagePipe.Cache.SharedFileSystem.{Generation, Partition, Storage}
+  alias ImagePipe.Cache.SharedFileSystem.{Generation, Partition, Sources, Storage}
   alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
   alias ImagePipe.Source
   alias ImagePipe.Source.Record
@@ -176,6 +176,30 @@ defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
       |> CacheIO.client()
 
     assert {:ok, %{metadata: ^record}} = Generation.metadata(other, location, limits(), 1_000)
+  end
+
+  test "late disk publication cannot replace selection after ownership is lost", ctx do
+    source_supervisor = start_supervised!({Sources.Supervisor, clock: fn -> 1_100 end})
+    sources = Sources.client(source_supervisor)
+    key = ctx.plan.key
+    {:ok, source, _config} = Source.from_input({:binary, "old"}, sources: %{})
+    old_record = Record.new(source, :crypto.hash(:sha256, "old"), nil, 1_000)
+    new_record = Record.new(source, :crypto.hash(:sha256, "new"), nil, 1_001)
+    plan = Partition.plan(ctx.partition, :sources, key)
+    {:ok, old_lease, _} = Sources.acquire(sources, key, 1_000)
+
+    :ok = Supervisor.terminate_child(source_supervisor, Sources)
+    {:ok, _} = Supervisor.restart_child(source_supervisor, Sources)
+    {:ok, lease, _} = Sources.acquire(sources, key, 1_000)
+    {:ok, selected} = Sources.publish(sources, key, lease, new_record, 1_000)
+
+    assert {:ok, location} = Generation.publish(ctx.pool, plan, nil, old_record, limits(), 1_000)
+
+    assert {:ok, %{metadata: ^old_record}} =
+             Generation.metadata(ctx.pool, location, limits(), 1_000)
+
+    assert {:error, :ownership_lost} = Sources.publish(sources, key, old_lease, old_record, 1_000)
+    assert {:hit, ^selected} = Sources.lookup(sources, key, 1_000)
   end
 
   test "reader ownership survives executor shutdown", ctx do
