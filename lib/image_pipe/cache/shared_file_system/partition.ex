@@ -69,6 +69,18 @@ defmodule ImagePipe.Cache.SharedFileSystem.Partition do
     end
   end
 
+  def prune(parent) do
+    with :ok <- remove_empty(parent), do: remove_empty(Path.dirname(parent))
+  end
+
+  defp remove_empty(path) do
+    case File.rmdir(path) do
+      :ok -> :ok
+      {:error, reason} when reason in [:enoent, :enotempty, :eexist] -> :ok
+      error -> error
+    end
+  end
+
   def retire(partition) do
     destination = Path.join([partition.root, "trash", partition.id])
 

@@ -162,6 +162,37 @@ defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
              CacheIO.run(ctx.pool, {Storage, :commit, [ctx.plan, limits()]}, 1_000_000, 1_000)
   end
 
+  test "eviction prunes empty key directories while preserving concurrent replacements", ctx do
+    assert {:ok, first} = publish(ctx)
+    replacement = %{ctx | plan: Partition.plan(ctx.partition, :outputs, ctx.plan.key)}
+    assert {:ok, second} = publish(replacement)
+    assert :ok = Generation.evict(ctx.pool, ctx.partition, [first], limits(), 1_000)
+    assert {:ok, reader} = acquire(ctx, second)
+    assert File.read!(reader.path) == "encoded image"
+    assert :ok = Generation.release(ctx.pool, reader, 1_000)
+    assert File.dir?(ctx.plan.parent)
+
+    assert :ok = Generation.evict(ctx.pool, ctx.partition, [second], limits(), 1_000)
+    refute File.exists?(ctx.plan.parent)
+    refute File.exists?(ctx.plan.shard)
+    assert File.dir?(Path.join(ctx.partition.path, "outputs"))
+    assert :ok = Generation.evict(ctx.pool, ctx.partition, [second], limits(), 1_000)
+
+    next = %{ctx | plan: Partition.plan(ctx.partition, :outputs, ctx.plan.key)}
+    assert {:ok, _location} = publish(next)
+  end
+
+  test "failed publication reclaims its empty key hierarchy after staging settles", ctx do
+    :erlang.trace(ctx.pool.pid, true, [:receive])
+    File.rm!(ctx.source)
+    assert {:error, :enoent} = publish(ctx)
+    settle_io(ctx.pool.pid)
+    refute File.exists?(ctx.plan.stage)
+    refute File.exists?(ctx.plan.parent)
+    refute File.exists?(ctx.plan.shard)
+    assert File.dir?(Path.join(ctx.partition.path, "outputs"))
+  end
+
   test "acquired bytes survive helper failure", ctx do
     assert {:ok, location} = publish(ctx)
     assert {:ok, reader} = acquire(ctx, location)
@@ -308,6 +339,17 @@ defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
 
   defp publish(ctx, metadata \\ output_metadata()) do
     Generation.publish(ctx.pool, ctx.plan, ctx.source, metadata, limits(), 1_000)
+  end
+
+  defp settle_io(pid) do
+    case Map.keys(:sys.get_state(pid).jobs) do
+      [] ->
+        :ok
+
+      [ref | _rest] ->
+        assert_receive {:trace, ^pid, :receive, {^ref, _result}}, 2_000
+        settle_io(pid)
+    end
   end
 
   defp output_metadata do

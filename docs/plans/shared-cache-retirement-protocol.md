@@ -338,6 +338,13 @@ removing an entry is harmless; failed or over-deep trees remain for later repair
 and retry. Maintenance also retries closed I/O leases and failed exact-generation
 cleanup, preserving their charges until their owners acknowledge success.
 
+Exact-generation eviction and completed staging cleanup also attempt to remove
+the empty key and shard directories they used. This prevents normal eviction and
+failed writes from accumulating empty directories in a long-lived incarnation.
+Only `rmdir` is used: nonempty directories containing replacements or other keys
+are preserved. A delayed publisher whose empty parent is removed may fail and
+bypass caching; no recursive deletion targets an active key hierarchy.
+
 Progress requires responsive storage, eventual cessation of writes into retired
 trees and removable entries. Set the partition scan limit above the number of
 live/within-grace or otherwise ineligible partitions; a prefix filled entirely

@@ -89,7 +89,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Generation do
 
   def adopt(pool, plan, location, limits, timeout) do
     deadline = deadline(timeout)
-    cleanup = {Transient, :remove, [plan.stage]}
+    cleanup = {Transient, :remove_stage, [plan.stage, plan.parent]}
 
     with {:ok, envelope} <-
            run(pool, {Storage, :metadata, [location, limits.metadata]}, limits, deadline, nil),
@@ -106,7 +106,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Generation do
 
   def publish(pool, plan, source, metadata, limits, timeout) do
     deadline = deadline(timeout)
-    cleanup = {Transient, :remove, [plan.stage]}
+    cleanup = {Transient, :remove_stage, [plan.stage, plan.parent]}
 
     with {:ok, encoded} <- Metadata.encode(metadata, limits.metadata),
          {:ok, lease} <-

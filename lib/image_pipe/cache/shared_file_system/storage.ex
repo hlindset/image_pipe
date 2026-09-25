@@ -126,6 +126,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Storage do
     retired = Path.join([partition.root, "trash", partition.id <> "-" <> location.generation])
 
     with :ok <- retire_generation(location.path, retired),
+         :ok <- Partition.prune(Path.dirname(location.path)),
          :ok <- remove_file(Path.join(retired, "body")),
          :ok <- remove_file(Path.join(retired, "meta")) do
       case File.rmdir(retired) do

@@ -1,9 +1,15 @@
 defmodule ImagePipe.Cache.SharedFileSystem.Transient do
   @moduledoc false
 
+  alias ImagePipe.Cache.SharedFileSystem.Partition
+
   # Directories are unique lease destinations; cleanup runs only after all of
   # that lease's issued operations complete. No operation recreates ancestors.
   def create(path), do: File.mkdir(path)
+
+  def remove_stage(path, parent) do
+    with :ok <- remove(path), do: Partition.prune(parent)
+  end
 
   def remove(path) do
     case File.rm_rf(path) do
