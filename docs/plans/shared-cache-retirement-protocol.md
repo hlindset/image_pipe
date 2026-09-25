@@ -283,14 +283,26 @@ admission before applying a completed write; exact metadata/body sizes establish
 the retained charge. Unverified commit outcomes and failed metadata reads after
 publication retain pending charges rather than assuming no generation exists.
 
+The isolated executor sends a completion receipt for observed writes even after
+their caller times out. A confirmed pre-publication failure releases the owner's
+pending charge; a confirmed publication triggers a bounded exact-generation
+metadata read and a fresh admission decision. Ambiguous commit results also enter
+reconciliation, but a missing or unreadable generation keeps its charge and is
+retried by maintenance. Preparation failures before a write was submitted need no
+pending-write charge. Executor operation and staging reservations remain separate
+and are released only under their own completion/cleanup rules. Helper or control
+channel loss supplies no completion evidence, so unresolved work remains charged.
+
 The runtime configures `max_retained_bytes` (128 MiB) and
 `max_retained_entries` (4,096). Retention-owner loss stops further writes through
 that runtime; it is not automatically replaced with empty accounting. A full
 runtime restart allocates a new incarnation. Normal partition rotation waits for
 known work to settle, then clears its retired entry set while preserving local
 demand and source selection. Uncertain jobs keep their pending/cleanup charges
-and failure state across rotation. Root maintenance still needs to reclaim retired
-partitions and account for their storage separately from the new active partition.
+and failure state across rotation. Confirmed late publications from an old
+incarnation are removed by exact generation identity, including after its directory
+has moved into partition trash; they never enter the new incarnation's retention
+policy. Root maintenance reclaims retired partitions separately.
 
 The retention owner accepts a reduced byte target, capped by its configured local
 maximum. Each reduction selects at most the configured victim batch, preferring

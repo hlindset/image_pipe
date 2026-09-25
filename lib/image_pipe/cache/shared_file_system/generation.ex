@@ -65,10 +65,11 @@ defmodule ImagePipe.Cache.SharedFileSystem.Generation do
     end
   end
 
-  def publish_retained(pool, plan, source, metadata, limits, timeout) do
+  def publish_retained(pool, plan, source, metadata, limits, timeout, observer) do
     deadline = deadline(timeout)
 
-    with {:ok, location} <- publish(pool, plan, source, metadata, limits, remaining(deadline)) do
+    with {:ok, location} <-
+           publish(pool, plan, source, metadata, limits, remaining(deadline), observer) do
       case metadata(pool, location, limits, remaining(deadline)) do
         {:ok, envelope} -> {:ok, descriptor(location, envelope)}
         {:error, reason} -> {:error, {:published_metadata, reason}}
@@ -87,7 +88,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Generation do
     end)
   end
 
-  def adopt(pool, plan, location, limits, timeout) do
+  def adopt(pool, plan, location, limits, timeout, observer \\ nil) do
     deadline = deadline(timeout)
     cleanup = {Transient, :remove_stage, [plan.stage, plan.parent]}
 
@@ -97,14 +98,25 @@ defmodule ImagePipe.Cache.SharedFileSystem.Generation do
          {:ok, lease} <-
            CacheIO.reserve(pool, staging_bytes(plan, limits), cleanup, remaining(deadline)) do
       result =
-        run(pool, {Storage, :adopt, [plan, location, envelope, limits]}, limits, deadline, lease)
+        run(
+          pool,
+          {Storage, :adopt, [plan, location, envelope, limits]},
+          limits,
+          deadline,
+          lease,
+          observer
+        )
 
       CacheIO.close(pool, lease)
       result
+    else
+      error ->
+        not_started(observer, error)
+        error
     end
   end
 
-  def publish(pool, plan, source, metadata, limits, timeout) do
+  def publish(pool, plan, source, metadata, limits, timeout, observer \\ nil) do
     deadline = deadline(timeout)
     cleanup = {Transient, :remove_stage, [plan.stage, plan.parent]}
 
@@ -112,10 +124,21 @@ defmodule ImagePipe.Cache.SharedFileSystem.Generation do
          {:ok, lease} <-
            CacheIO.reserve(pool, staging_bytes(plan, limits), cleanup, remaining(deadline)) do
       result =
-        run(pool, {Storage, :publish, [plan, source, encoded, limits]}, limits, deadline, lease)
+        run(
+          pool,
+          {Storage, :publish, [plan, source, encoded, limits]},
+          limits,
+          deadline,
+          lease,
+          observer
+        )
 
       CacheIO.close(pool, lease)
       result
+    else
+      error ->
+        not_started(observer, error)
+        error
     end
   end
 
@@ -183,18 +206,24 @@ defmodule ImagePipe.Cache.SharedFileSystem.Generation do
     end
   end
 
-  defp run(pool, operation, limits, deadline, lease) do
+  defp run(pool, operation, limits, deadline, lease, observer \\ nil) do
     case CacheIO.run(
            pool,
            operation,
            Body.working_bytes() + 64 * limits.metadata,
            remaining(deadline),
-           lease
+           lease,
+           observer
          ) do
       {:ok, result} -> result
       error -> error
     end
   end
+
+  defp not_started(nil, _error), do: :ok
+
+  defp not_started({pid, receipt}, error),
+    do: send(pid, {:shared_io_complete, receipt, {:not_started, error}})
 
   defp deadline(timeout), do: System.monotonic_time(:millisecond) + timeout
   defp remaining(deadline), do: max(deadline - System.monotonic_time(:millisecond), 0)

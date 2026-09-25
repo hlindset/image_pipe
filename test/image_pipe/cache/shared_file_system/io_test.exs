@@ -33,6 +33,34 @@ defmodule ImagePipe.Cache.SharedFileSystem.IOTest do
     assert {:ok, _} = CacheIO.run(pool, {:os, :getpid, []}, 0, 1_000)
   end
 
+  test "an observer receives actual completion after the caller has timed out", %{pool: pool} do
+    receipt = make_ref()
+
+    assert {:error, :timeout} =
+             CacheIO.run(pool, {SharedIOProbe, :wait, [:observed]}, 8, 50, nil, {self(), receipt})
+
+    refute_received {:shared_io_complete, ^receipt, _result}
+    assert {:ok, :release} = CacheIO.run(pool, {:erlang, :send, [:observed, :release]}, 0, 1_000)
+    assert_receive {:shared_io_complete, ^receipt, {:finished, {:ok, :released}}}
+    assert {:ok, _pid} = CacheIO.run(pool, {:os, :getpid, []}, 8, 1_000)
+  end
+
+  test "rejected work is distinguished from an uncertain helper loss", %{pool: pool} do
+    rejected = make_ref()
+
+    assert {:error, :saturated} =
+             CacheIO.run(pool, {:os, :getpid, []}, 9, 1_000, nil, {self(), rejected})
+
+    assert_receive {:shared_io_complete, ^rejected, {:not_started, {:error, :saturated}}}
+
+    lost = make_ref()
+
+    assert {:error, _reason} =
+             CacheIO.run(pool, {:erlang, :halt, []}, 0, 1_000, nil, {self(), lost})
+
+    refute_received {:shared_io_complete, ^lost, _result}
+  end
+
   test "timeout also retains operation slots", %{pool: pool} do
     assert {:error, :timeout} = CacheIO.run(pool, {SharedIOProbe, :wait, [:one]}, 0, 50)
     assert {:error, :timeout} = CacheIO.run(pool, {SharedIOProbe, :wait, [:two]}, 0, 50)

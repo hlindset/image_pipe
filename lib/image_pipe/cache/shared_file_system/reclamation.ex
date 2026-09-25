@@ -31,7 +31,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Reclamation do
              deadline
            ) do
       CacheIO.retry_cleanup(context.pool)
-      retry = Retainer.retry_cleanup(context.retainer, remaining(deadline))
+      retry = Retainer.retry(context.retainer, remaining(deadline))
       {:ok, %{partitions: retired, trash: swept, cleanup_retry: retry}}
     end
   end

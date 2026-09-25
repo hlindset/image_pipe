@@ -29,7 +29,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
   def consider(client, descriptor, timeout), do: call(client, {:consider, descriptor}, timeout)
   def stats(client, timeout), do: call(client, :stats, timeout)
   def usage(client, timeout), do: call(client, :usage, timeout)
-  def retry_cleanup(client, timeout), do: call(client, :retry_cleanup, timeout)
+  def retry(client, timeout), do: call(client, :retry, timeout)
   def rotate(client, partition, timeout), do: call(client, {:rotate, partition}, timeout)
   def inventory(client, limit, timeout), do: call(client, {:inventory, limit}, timeout)
   def resize(client, capacity, timeout), do: call(client, {:resize, capacity}, timeout)
@@ -110,6 +110,9 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
         {:reply, {:error, {:admission, reason}}, state}
 
       {:admit, _speculative, _victims} ->
+        receipt = make_ref()
+        observer = {self(), receipt}
+
         task =
           Task.Supervisor.async_nolink(opts[:tasks], fn ->
             Generation.publish_retained(
@@ -118,7 +121,8 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
               path,
               metadata,
               opts[:limits],
-              min(opts[:timeout], max(deadline - now(), 0))
+              min(opts[:timeout], max(deadline - now(), 0)),
+              observer
             )
           end)
 
@@ -130,6 +134,8 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
                phase: :publish,
                candidate: candidate,
                from: from,
+               receipt: receipt,
+               completion: nil,
                partition: opts[:partition]
              }
          }}
@@ -182,14 +188,17 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
     do: {:reply, {:ok, state.opts[:partition], usage_stats(state)}, state}
 
   defp dispatch(
-         :retry_cleanup,
+         :retry,
          %{failure: failure, job: %{phase: :cleanup, victims: victims}} = state
        )
        when not is_nil(failure),
        do: {:reply, :scheduled, cleanup(%{state | failure: nil}, victims)}
 
-  defp dispatch(:retry_cleanup, %{failure: nil} = state), do: {:reply, :idle, state}
-  defp dispatch(:retry_cleanup, state), do: {:reply, {:error, :unavailable}, state}
+  defp dispatch(:retry, %{failure: failure, job: %{phase: :reconcile}} = state)
+       when not is_nil(failure), do: {:reply, :scheduled, reconcile(state)}
+
+  defp dispatch(:retry, %{failure: nil} = state), do: {:reply, :idle, state}
+  defp dispatch(:retry, state), do: {:reply, {:error, :unavailable}, state}
 
   defp dispatch({:consider, _descriptor}, %{failure: failure} = state) when not is_nil(failure),
     do: {:reply, {:error, :unavailable}, state}
@@ -225,9 +234,12 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
         {:reply, {:rejected, reason}, state}
 
       {:admit, _speculative, _victims} ->
+        receipt = make_ref()
+        observer = {self(), receipt}
+
         task =
           Task.Supervisor.async_nolink(opts[:tasks], fn ->
-            Generation.adopt(opts[:pool], plan, source, opts[:limits], opts[:timeout])
+            Generation.adopt(opts[:pool], plan, source, opts[:limits], opts[:timeout], observer)
           end)
 
         {:reply, :scheduled,
@@ -237,6 +249,8 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
                ref: task.ref,
                phase: :adopt,
                candidate: candidate,
+               receipt: receipt,
+               completion: nil,
                partition: opts[:partition]
              }
          }}
@@ -247,13 +261,24 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
   def handle_info({ref, result}, %{job: %{ref: ref}} = state) do
     Process.demonitor(ref, [:flush])
     reply_publication(state.job, result)
-    {:noreply, complete(state, result)}
+    {:noreply, state |> complete(result) |> recover_completion()}
   end
+
+  def handle_info(
+        {:shared_io_complete, receipt, result},
+        %{job: %{receipt: receipt, phase: phase}} = state
+      )
+      when phase in [:publish, :adopt] do
+    state = %{state | job: %{state.job | completion: result}}
+    {:noreply, recover_completion(state)}
+  end
+
+  def handle_info({:shared_io_complete, _receipt, _result}, state), do: {:noreply, state}
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
     case Map.pop(state.monitors, ref) do
       {nil, _monitors} ->
-        {:noreply, failed_job(state, ref, reason)}
+        {:noreply, state |> failed_job(ref, reason) |> recover_completion()}
 
       {ticket, monitors} ->
         Admission.release(state.gate, ticket)
@@ -279,6 +304,9 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
   defp complete(%{job: %{phase: :adopt, candidate: candidate}} = state, {:ok, _location}),
     do: retain(state, candidate)
 
+  defp complete(%{job: %{phase: :reconcile}} = state, {:ok, candidate}),
+    do: retain(%{state | job: %{state.job | candidate: candidate}}, candidate)
+
   defp complete(%{job: %{phase: phase}} = state, {:error, reason})
        when phase in [:adopt, :publish] and
               reason in [:enoent, :corrupt, :body_too_large, :metadata_too_large, :saturated],
@@ -288,6 +316,44 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
     do: %{state | job: nil, debt: 0}
 
   defp complete(state, error), do: %{state | failure: error}
+
+  defp recover_completion(%{failure: nil} = state), do: state
+
+  defp recover_completion(%{job: %{phase: phase, completion: completion}} = state)
+       when phase in [:publish, :adopt] do
+    case completion do
+      {:not_started, _error} -> %{state | job: nil, failure: nil}
+      {:finished, {:ok, {:ok, _location}}} -> reconcile(state)
+      {:finished, {:ok, {:error, {:commit, _reason}}}} -> reconcile(state)
+      {:finished, {:ok, {:error, _precommit_failure}}} -> %{state | job: nil, failure: nil}
+      _uncertain -> state
+    end
+  end
+
+  defp recover_completion(state), do: state
+
+  defp reconcile(state) do
+    state = %{state | failure: nil}
+
+    case state.job.partition == state.opts[:partition] do
+      false -> cleanup(state, [state.job.candidate])
+      true -> reconcile_current(state)
+    end
+  end
+
+  defp reconcile_current(state) do
+    opts = state.opts
+    location = state.job.candidate.location
+
+    task =
+      Task.Supervisor.async_nolink(opts[:tasks], fn ->
+        with {:ok, envelope} <-
+               Generation.metadata(opts[:pool], location, opts[:limits], opts[:timeout]),
+             do: {:ok, Generation.descriptor(location, envelope)}
+      end)
+
+    %{state | job: %{state.job | ref: task.ref, phase: :reconcile}}
+  end
 
   defp retain(state, candidate) do
     case Retention.offer(state.policy, candidate) do
@@ -327,8 +393,9 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
 
   defp failed_job(state, _ref, _reason), do: state
 
-  defp pending_bytes(%{phase: phase, candidate: candidate}) when phase in [:adopt, :publish],
-    do: candidate.size_bytes
+  defp pending_bytes(%{phase: phase, candidate: candidate})
+       when phase in [:adopt, :publish, :reconcile],
+       do: candidate.size_bytes
 
   defp pending_bytes(_job), do: 0
 

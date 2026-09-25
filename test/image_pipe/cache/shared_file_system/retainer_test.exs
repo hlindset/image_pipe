@@ -140,7 +140,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.RetainerTest do
     assert [_local] = local_generations(%{ctx | partition: next}, entry)
   end
 
-  test "unknown adoption outcomes keep their charge and stop further writes", ctx do
+  test "an unavailable helper before adoption starts does not create pending writes", ctx do
     candidate = publish(ctx, "entry")
     client = start_retainer(ctx, 10_000)
     assert {:error, _reason} = CacheIO.run(ctx.pool, {:erlang, :halt, []}, 0, 1_000)
@@ -148,12 +148,85 @@ defmodule ImagePipe.Cache.SharedFileSystem.RetainerTest do
     assert :scheduled = Retainer.consider(client, candidate, 1_000)
     settle(client)
 
-    assert %{failure: {:error, :unavailable}, pending_bytes: bytes} =
-             Retainer.stats(client, 1_000)
-
-    assert bytes == candidate.size_bytes
-    assert {:error, :unavailable} = Retainer.consider(client, candidate, 1_000)
+    assert %{failure: nil, pending_bytes: 0, entries: 0} = Retainer.stats(client, 1_000)
     assert :ok = Retainer.request(client, :outputs, candidate.location.key, 1_000)
+  end
+
+  test "late confirmed publication recovers its charge and permits subsequent writes", ctx do
+    _preload = publish(ctx, "preload")
+    client = start_retainer(ctx, 10_000, timeout: 200)
+    {file, receipt} = blocked_publication(ctx, client)
+
+    try do
+      assert %{pending_bytes: bytes, entries: 0} = Retainer.stats(client, 1_000)
+      assert bytes > 400
+      :ok = :file.write(file, String.duplicate("x", 400))
+      :ok = :file.close(file)
+      await_completion(client, receipt)
+      settle(client)
+      assert %{failure: nil, pending_bytes: 0, entries: 1} = Retainer.stats(client, 1_000)
+      foreign = publish(ctx, "next")
+      assert :scheduled = Retainer.consider(client, foreign, 1_000)
+      settle(client)
+      assert %{entries: 2} = Retainer.stats(client, 1_000)
+    after
+      :file.close(file)
+    end
+  end
+
+  test "a late precommit failure releases pending write accounting", ctx do
+    _preload = publish(ctx, "preload")
+    client = start_retainer(ctx, 10_000, timeout: 200)
+    {file, receipt} = blocked_publication(ctx, client)
+
+    try do
+      :ok = :file.write(file, String.duplicate("x", 2_000))
+      :ok = :file.close(file)
+      await_completion(client, receipt)
+      settle(client)
+      assert %{failure: nil, pending_bytes: 0, entries: 0} = Retainer.stats(client, 1_000)
+    after
+      :file.close(file)
+    end
+  end
+
+  @tag capture_log: true
+  test "helper loss during a timed-out publication preserves its uncertain charge", ctx do
+    candidate = publish(ctx, "preload")
+    client = start_retainer(ctx, 10_000, timeout: 200)
+    {file, _receipt} = blocked_publication(ctx, client)
+
+    try do
+      assert {:error, _reason} = CacheIO.run(ctx.pool, {:erlang, :halt, []}, 0, 1_000)
+      assert %{failure: failure, pending_bytes: bytes} = Retainer.stats(client, 1_000)
+      assert failure != nil
+      assert bytes > 400
+      assert {:error, :unavailable} = Retainer.consider(client, candidate, 1_000)
+    after
+      :file.close(file)
+    end
+  end
+
+  test "a write completing after retirement never becomes owned by the new partition", ctx do
+    candidate = publish(ctx, "preload")
+    client = start_retainer(ctx, 10_000, timeout: 200)
+    {file, receipt} = blocked_publication(ctx, client)
+
+    try do
+      {:ok, _retired} = Partition.retire(ctx.partition)
+      {:ok, next} = Partition.create(ctx.root)
+      assert :ok = Retainer.rotate(client, next, 1_000)
+      :ok = :file.write(file, String.duplicate("x", 400))
+      :ok = :file.close(file)
+      await_completion(client, receipt)
+      settle(client)
+      assert %{failure: nil, pending_bytes: 0, entries: 0} = Retainer.stats(client, 1_000)
+      assert :scheduled = Retainer.consider(client, candidate, 1_000)
+      settle(client)
+      assert [_local] = local_generations(%{ctx | partition: next}, candidate)
+    after
+      :file.close(file)
+    end
   end
 
   test "failed removal remains charged and cannot enable unbounded replacement", ctx do
@@ -179,7 +252,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.RetainerTest do
 
     [unexpected] = Path.wildcard(Path.join([ctx.root, "trash", "*", "unexpected"]))
     File.rm!(unexpected)
-    assert :scheduled = Retainer.retry_cleanup(client, 1_000)
+    assert :scheduled = Retainer.retry(client, 1_000)
     settle(client)
     assert %{failure: nil, cleanup_bytes: 0, jobs: 0} = Retainer.stats(client, 1_000)
     assert :retained = Retainer.consider(client, hot, 1_000)
@@ -217,20 +290,51 @@ defmodule ImagePipe.Cache.SharedFileSystem.RetainerTest do
     assert [_local] = local_generations(ctx, entry)
   end
 
-  defp start_retainer(ctx, bytes) do
+  defp start_retainer(ctx, bytes, opts \\ []) do
     client =
       start_supervised!(
         {Retainer,
-         pool: ctx.pool,
-         tasks: ctx.tasks,
-         partition: ctx.partition,
-         limits: ctx.limits,
-         max_bytes: bytes}
+         Keyword.merge(
+           [
+             pool: ctx.pool,
+             tasks: ctx.tasks,
+             partition: ctx.partition,
+             limits: ctx.limits,
+             max_bytes: bytes
+           ],
+           opts
+         )}
       )
       |> Retainer.client()
 
     :erlang.trace(client.pid, true, [:receive])
     client
+  end
+
+  defp blocked_publication(ctx, client) do
+    path = Path.join(ctx.root, "blocked-input")
+    {_, 0} = System.cmd("mkfifo", [path])
+    key = Base.encode16(:crypto.hash(:sha256, "blocked"), case: :lower)
+
+    task =
+      Task.Supervisor.async_nolink(ctx.tasks, fn ->
+        Retainer.publish(client, :outputs, key, path, metadata(), 400, 1_000)
+      end)
+
+    # A write-only open returns only after the helper has opened the read end.
+    # Closing after timeout can then deliver EOF instead of stranding a late open.
+    {:ok, file} = :file.open(String.to_charlist(path), [:write, :raw, :binary])
+    assert {:error, :timeout} = Task.await(task, 2_000)
+
+    settle(client)
+    assert %{job: %{receipt: receipt}, failure: {:error, :timeout}} = :sys.get_state(client.pid)
+    {file, receipt}
+  end
+
+  defp await_completion(%{pid: pid}, receipt) do
+    assert_receive {:trace, ^pid, :receive,
+                    {:shared_io_complete, ^receipt, {:finished, _result}}},
+                   2_000
   end
 
   defp demand(client, descriptor, count) do
@@ -272,16 +376,18 @@ defmodule ImagePipe.Cache.SharedFileSystem.RetainerTest do
     source = Path.join(ctx.root, key)
     File.write!(source, String.duplicate("x", 400))
 
-    metadata = %Metadata{
+    {:ok, location} = Generation.publish(ctx.pool, plan, source, metadata(), ctx.limits, 1_000)
+    {:ok, envelope} = Generation.metadata(ctx.pool, location, ctx.limits, 1_000)
+    Generation.descriptor(location, envelope)
+  end
+
+  defp metadata do
+    %Metadata{
       content_type: "image/png",
       headers: [],
       created_at: ~U[2026-09-25 00:00:00Z],
       output_format: :png,
       representation: {:image, :png}
     }
-
-    {:ok, location} = Generation.publish(ctx.pool, plan, source, metadata, ctx.limits, 1_000)
-    {:ok, envelope} = Generation.metadata(ctx.pool, location, ctx.limits, 1_000)
-    Generation.descriptor(location, envelope)
   end
 end

@@ -27,9 +27,16 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
 
   # bytes reserves the operation's worst-case working set, including its result.
   # Mount operations run in a separate VM; timing out never releases that budget.
-  def run(pool, operation, bytes, timeout, lease \\ nil) do
+  def run(pool, operation, bytes, timeout, lease \\ nil, observer \\ nil) do
     deadline = System.monotonic_time(:millisecond) + timeout
-    call(pool, {:run, operation, bytes, deadline, lease}, timeout)
+
+    request =
+      case observer do
+        nil -> {:run, operation, bytes, deadline, lease}
+        observer -> {:observed_run, operation, bytes, deadline, lease, observer}
+      end
+
+    call(pool, request, timeout)
   end
 
   def reserve(pool, bytes, cleanup, timeout) do
@@ -132,6 +139,21 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
   end
 
   defp handle_request({:run, operation, bytes, deadline, lease}, from, state) do
+    start_operation(operation, bytes, deadline, lease, nil, from, state)
+  end
+
+  defp handle_request({:observed_run, operation, bytes, deadline, lease, observer}, from, state) do
+    case start_operation(operation, bytes, deadline, lease, observer, from, state) do
+      {:reply, error, state} ->
+        notify(observer, {:not_started, error})
+        {:reply, error, state}
+
+      accepted ->
+        accepted
+    end
+  end
+
+  defp start_operation(operation, bytes, deadline, lease, observer, from, state) do
     remaining = deadline - System.monotonic_time(:millisecond)
 
     cond do
@@ -156,6 +178,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
           owner: owner,
           bytes: bytes,
           lease: lease,
+          observer: observer,
           cleanup: false
         }
 
@@ -320,8 +343,12 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
   defp finish_job(job, result) do
     Process.demonitor(job.owner, [:flush])
     Process.cancel_timer(job.timer)
+    notify(job.observer, {:finished, result})
     reply(job.from, result)
   end
+
+  defp notify(nil, _result), do: :ok
+  defp notify({pid, receipt}, result), do: send(pid, {:shared_io_complete, receipt, result})
 
   defp reply(nil, _result), do: :ok
   defp reply(from, result), do: GenServer.reply(from, result)

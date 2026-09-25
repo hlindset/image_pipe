@@ -193,6 +193,18 @@ defmodule ImagePipe.Cache.SharedFileSystem.GenerationTest do
     assert File.dir?(Path.join(ctx.partition.path, "outputs"))
   end
 
+  test "exact eviction finds a generation after its whole partition was retired", ctx do
+    assert {:ok, location} = publish(ctx)
+    assert {:ok, reader} = acquire(ctx, location)
+    {:ok, {:ok, retired}} = CacheIO.run(ctx.pool, {Partition, :retire, [ctx.partition]}, 0, 1_000)
+    moved = Path.join(retired, Path.relative_to(location.path, ctx.partition.path))
+    assert File.dir?(moved)
+    assert :ok = Generation.evict(ctx.pool, ctx.partition, [location], limits(), 1_000)
+    refute File.exists?(moved)
+    assert File.read!(reader.path) == "encoded image"
+    assert :ok = Generation.release(ctx.pool, reader, 1_000)
+  end
+
   test "acquired bytes survive helper failure", ctx do
     assert {:ok, location} = publish(ctx)
     assert {:ok, reader} = acquire(ctx, location)

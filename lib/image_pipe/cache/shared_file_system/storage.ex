@@ -125,8 +125,18 @@ defmodule ImagePipe.Cache.SharedFileSystem.Storage do
   def evict(partition, location) do
     retired = Path.join([partition.root, "trash", partition.id <> "-" <> location.generation])
 
+    moved =
+      Path.join([
+        partition.root,
+        "trash",
+        partition.id,
+        Path.relative_to(location.path, partition.path)
+      ])
+
     with :ok <- retire_generation(location.path, retired),
+         :ok <- retire_generation(moved, retired),
          :ok <- Partition.prune(Path.dirname(location.path)),
+         :ok <- Partition.prune(Path.dirname(moved)),
          :ok <- remove_file(Path.join(retired, "body")),
          :ok <- remove_file(Path.join(retired, "meta")) do
       case File.rmdir(retired) do
