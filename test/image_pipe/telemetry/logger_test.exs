@@ -105,6 +105,23 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "[warning] image_pipe cache shared_maintenance: reclamation cache_error"
   end
 
+  test "logs shared incarnation state and warns on unavailable caching" do
+    prefix = [__MODULE__, :shared_lifecycle]
+    Telemetry.attach_default_logger(prefix: prefix)
+
+    log =
+      capture_log(fn ->
+        for {operation, result} <- [rotated: :ok, unavailable: :cache_error] do
+          Telemetry.span([telemetry_prefix: prefix], [:cache, :shared_lifecycle], %{}, fn ->
+            {:ok, %{operation: operation, result: result}}
+          end)
+        end
+      end)
+
+    assert log =~ "shared_lifecycle: rotated ok"
+    assert log =~ "[warning] image_pipe cache shared_lifecycle: unavailable cache_error"
+  end
+
   test "logs shared lookup bypass reasons and incomplete discovery" do
     prefix = [__MODULE__, :shared_lookup]
     Telemetry.attach_default_logger(prefix: prefix)

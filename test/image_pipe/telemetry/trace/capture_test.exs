@@ -46,6 +46,24 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     end
   end
 
+  test "captures shared lifecycle state without a parent request" do
+    prefix = [__MODULE__, :shared_lifecycle]
+    TestExporter.attach(self(), prefix: prefix)
+
+    handle = Telemetry.start_span([telemetry_prefix: prefix], [:cache, :shared_lifecycle], %{})
+    Telemetry.stop_span(handle, %{operation: :unavailable, result: :cache_error})
+
+    assert_receive {:span,
+                    %Span{
+                      name: "image_pipe.cache.shared_lifecycle",
+                      status: :error,
+                      attributes: attributes
+                    }}
+
+    assert attributes.operation == :unavailable
+    assert attributes.result == :cache_error
+  end
+
   defp emit_nested do
     Telemetry.span([], [:request], %{}, fn ->
       Telemetry.span([], [:transform, :execute], %{operation_count: 1}, fn ->

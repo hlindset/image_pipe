@@ -44,7 +44,8 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     [:cache, :warm_start],
     [:cache, :shared_maintenance],
     [:cache, :shared_lookup],
-    [:cache, :shared_discovery]
+    [:cache, :shared_discovery],
+    [:cache, :shared_lifecycle]
   ]
 
   # One-shot (terminal) events — folded as annotations onto the current span.

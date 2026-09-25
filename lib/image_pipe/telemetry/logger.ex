@@ -41,7 +41,8 @@ defmodule ImagePipe.Telemetry.Logger do
       [:cache, :refresh],
       [:cache, :shared_maintenance],
       [:cache, :shared_lookup],
-      [:cache, :shared_discovery]
+      [:cache, :shared_discovery],
+      [:cache, :shared_lifecycle]
     ],
     output: [[:output, :negotiate], [:output, :terminal]],
     http_cache: [],
@@ -250,6 +251,9 @@ defmodule ImagePipe.Telemetry.Logger do
   defp terminal_failure?(_suffix, _meta), do: false
 
   # --- message ---
+  defp message([:cache, :shared_lifecycle | _], _m, meta),
+    do: "image_pipe cache shared_lifecycle: #{meta[:operation]} #{meta[:result]}"
+
   defp message([:cache, stage | _], _m, meta) when stage in [:shared_lookup, :shared_discovery],
     do: "image_pipe cache #{stage}: #{meta[:pool]} #{outcome(meta)} #{meta[:reason]}"
 

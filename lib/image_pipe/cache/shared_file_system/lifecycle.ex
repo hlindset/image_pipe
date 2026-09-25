@@ -4,6 +4,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Lifecycle do
 
   alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
   alias ImagePipe.Cache.SharedFileSystem.{Partition, Retainer, Runtime}
+  alias ImagePipe.Telemetry
 
   def start_link(table, opts), do: GenServer.start_link(__MODULE__, {table, opts})
 
@@ -15,7 +16,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Lifecycle do
         _unavailable -> nil
       end
 
-    state = %{table: table, opts: opts, partition: previous, job: nil}
+    state = %{table: table, opts: opts, partition: previous, job: nil, span: start_span(opts)}
     state = apply_result(state, maintain(state))
     schedule(state)
     {:ok, state}
@@ -35,6 +36,8 @@ defmodule ImagePipe.Cache.SharedFileSystem.Lifecycle do
 
   @impl true
   def handle_info(:heartbeat, %{job: nil} = state) do
+    state = %{state | span: start_span(state.opts)}
+
     task =
       Task.Supervisor.async_nolink(Runtime.fetch(state.table, :tasks), fn -> maintain(state) end)
 
@@ -65,11 +68,13 @@ defmodule ImagePipe.Cache.SharedFileSystem.Lifecycle do
   end
 
   defp apply_result(state, {:ok, {:ok, partition}}) do
+    operation = operation(state.partition, partition)
     state = %{state | partition: partition}
 
     case Retainer.rotate(Runtime.fetch(state.table, :retainer), partition, state.opts[:timeout]) do
       :ok ->
         :ets.insert(state.table, {:state, {:ready, partition}})
+        emit(state, operation, :ok)
         state
 
       error ->
@@ -79,8 +84,22 @@ defmodule ImagePipe.Cache.SharedFileSystem.Lifecycle do
 
   defp apply_result(state, _error) do
     :ets.insert(state.table, {:state, :unavailable})
+    emit(state, :unavailable, :cache_error)
     state
   end
+
+  defp operation(nil, _partition), do: :created
+  defp operation(partition, partition), do: :heartbeat
+  defp operation(_previous, _partition), do: :rotated
+
+  defp emit(state, operation, result),
+    do:
+      Telemetry.stop_span(state.span, %{
+        operation: operation,
+        result: result
+      })
+
+  defp start_span(opts), do: Telemetry.start_span(opts, [:cache, :shared_lifecycle], %{})
 
   defp schedule(state),
     do: Process.send_after(self(), :heartbeat, state.opts[:heartbeat_interval])

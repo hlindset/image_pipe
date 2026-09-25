@@ -1136,6 +1136,16 @@ when the runtime and request use the same traced prefix.
 
 ## Shared filesystem maintenance
 
+`[:cache, :shared_lifecycle, :start | :stop]` brackets one incarnation maintenance
+attempt, including its filesystem wait and retention-owner readiness check.
+Stop metadata reports `result: :ok` with `operation: :created | :heartbeat | :rotated`,
+or `result: :cache_error, operation: :unavailable`. Readiness is reported only after
+the runtime installs that state. A failed attempt does not prove the writer is dead
+or its timed-out filesystem work was cancelled. No root path or raw error is emitted.
+The runtime prefix applies; Logger warns on unavailable caching, and Trace Capture
+exports these spans even without a parent request. Heartbeats report health on every
+completed attempt, not only when an incarnation changes.
+
 The shared-cache runtime emits spans at `[:cache, :shared_maintenance]` with
 `:start`, `:stop`, and `:exception` suffixes. Configure its `telemetry_prefix`
 on the supervised runtime; background work has no request configuration to
