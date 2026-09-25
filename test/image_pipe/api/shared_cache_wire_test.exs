@@ -182,6 +182,48 @@ defmodule ImagePipe.API.SharedCacheWireTest do
     assert %{bytes: 0} = Retainer.stats(context.retainer, 1_000)
   end
 
+  test "rediscovery after runtime restart preserves expiry and 304 byte identity", ctx do
+    a = config(ctx, __MODULE__.A)
+    b = config(ctx, __MODULE__.B)
+    original = request(a, 12)
+    assert original.status == 200
+    assert_receive {:origin, []}
+
+    Agent.update(ctx.state, &%{&1 | now: 1_050})
+    discovered = request(b, 12)
+    assert discovered.resp_body == original.resp_body
+    assert String.to_integer(hd(get_resp_header(discovered, "age"))) >= 50
+    refute_received {:origin, _}
+
+    {:ok, before_restart} = Runtime.context(__MODULE__.B)
+    :erlang.trace(before_restart.retainer.pid, true, [:receive])
+    settle(before_restart.retainer)
+    stop_supervised!({Runtime, __MODULE__.B})
+
+    start_supervised!(
+      {SharedFileSystem,
+       name: __MODULE__.B,
+       root: Path.join(ctx.root, "shared"),
+       local_root: Path.join(ctx.root, Atom.to_string(__MODULE__.B)),
+       clock: ctx.clock}
+    )
+
+    Agent.update(ctx.state, &%{&1 | now: 1_051})
+    restarted = request(b, 12)
+    assert restarted.resp_body == original.resp_body
+    assert String.to_integer(hd(get_resp_header(restarted, "age"))) >= 51
+    refute_received {:origin, _}
+
+    Agent.update(ctx.state, &%{&1 | now: 1_061})
+    refreshed = request(b, 12)
+    assert_receive {:origin, [~s("v1")]}
+    refute_received {:origin, []}
+    assert refreshed.status == 200
+    assert refreshed.resp_body == original.resp_body
+    assert get_resp_header(refreshed, "etag") == get_resp_header(original, "etag")
+    assert Image.get_pixel!(Image.from_binary!(refreshed.resp_body), 0, 0) == [255, 0, 0]
+  end
+
   test "expired evidence revalidates and missing originals cause an unconditional fetch", ctx do
     a = config(ctx, __MODULE__.A)
     assert request(a, 12).status == 200
