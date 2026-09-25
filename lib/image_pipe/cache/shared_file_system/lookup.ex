@@ -3,6 +3,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Lookup do
 
   alias ImagePipe.Cache.Input.Snapshot
   alias ImagePipe.Cache.SharedFileSystem.{Generation, Locations, Partition, Retainer, Sources}
+  alias ImagePipe.Telemetry
 
   # The caller owns acquired readers and source leases. Only enumeration is
   # coalesced: each request needs its own stable reader lifetime.
@@ -27,12 +28,14 @@ defmodule ImagePipe.Cache.SharedFileSystem.Lookup do
       attempts: 0
     }
 
-    Retainer.request(context.retainer, kind, key, remaining(request))
+    observe(context, :shared_lookup, %{pool: kind}, fn ->
+      Retainer.request(context.retainer, kind, key, remaining(request))
 
-    case Locations.hints(context.locations, kind, key, remaining(request)) do
-      {:ok, hints} -> try_hints(request, hints)
-      error -> error
-    end
+      case Locations.hints(context.locations, kind, key, remaining(request)) do
+        {:ok, hints} -> try_hints(request, hints)
+        error -> error
+      end
+    end)
   end
 
   defp try_hints(request, hints) do
@@ -45,13 +48,18 @@ defmodule ImagePipe.Cache.SharedFileSystem.Lookup do
   defp discover(request, mode) do
     context = request.context
 
-    case Locations.discover(
-           context.locations,
-           request.kind,
-           request.key,
-           mode,
-           remaining(request)
-         ) do
+    result =
+      observe(context, :shared_discovery, %{pool: request.kind, operation: mode}, fn ->
+        Locations.discover(
+          context.locations,
+          request.kind,
+          request.key,
+          mode,
+          remaining(request)
+        )
+      end)
+
+    case result do
       {:ok, [], :complete} ->
         :miss
 
@@ -176,4 +184,29 @@ defmodule ImagePipe.Cache.SharedFileSystem.Lookup do
 
   defp remaining(request),
     do: max(request.deadline - System.monotonic_time(:millisecond), 0)
+
+  defp observe(context, stage, metadata, fun) do
+    opts = [telemetry_prefix: Map.get(context, :telemetry_prefix, Telemetry.default_prefix())]
+
+    Telemetry.span(opts, [:cache, stage], metadata, fn ->
+      result = fun.()
+      {result, outcome(result)}
+    end)
+  end
+
+  defp outcome({:hit, _}), do: %{result: :ok, cache: :hit}
+  defp outcome(:miss), do: %{result: :ok, cache: :miss}
+
+  defp outcome({:ok, candidates, status}),
+    do: %{
+      result: if(status == :limited, do: :partial, else: :ok),
+      candidate_count: length(candidates),
+      scan: status
+    }
+
+  defp outcome({:error, reason})
+       when reason in [:timeout, :saturated, :unavailable, :ownership_lost, :search_limit],
+       do: %{result: :cache_error, cache: :bypass, reason: reason}
+
+  defp outcome({:error, _}), do: %{result: :cache_error, cache: :bypass, reason: :storage_error}
 end

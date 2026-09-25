@@ -483,7 +483,7 @@ intervals and timeouts below are milliseconds unless explicitly marked seconds.
 | `inventory_max_entries` / `inventory_max_bytes` | 128 / 64 KiB | Per-inventory limits. |
 | `warmup_max_partitions` / `warmup_max_candidates` | 32 / 128 | Startup inventory work limits. |
 | `warmup_timeout` | 1,000 | Startup warmup allowance. |
-| `telemetry_prefix` | `[:image_pipe]` | Prefix for runtime maintenance events; a nonempty list of atoms. |
+| `telemetry_prefix` | `[:image_pipe]` | Prefix for shared lookup, discovery, and maintenance events; a nonempty list of atoms. |
 
 Adapter options on `cache`/`input_cache` are `runtime`, `timeout` (default 1,000),
 and `max_body_bytes` (`nil` or a non-negative integer). The adapter timeout controls

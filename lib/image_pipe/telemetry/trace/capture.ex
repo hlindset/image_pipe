@@ -42,7 +42,9 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     [:cache, :write],
     [:cache, :admission],
     [:cache, :warm_start],
-    [:cache, :shared_maintenance]
+    [:cache, :shared_maintenance],
+    [:cache, :shared_lookup],
+    [:cache, :shared_discovery]
   ]
 
   # One-shot (terminal) events — folded as annotations onto the current span.
@@ -167,7 +169,9 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     :errors,
     :logical_bytes,
     :target_bytes,
-    :unavailable
+    :unavailable,
+    :candidate_count,
+    :scan
   ]
 
   @spec attach(map()) :: :ok

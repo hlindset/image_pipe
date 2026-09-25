@@ -105,6 +105,61 @@ defmodule ImagePipe.Cache.SharedFileSystem.LookupTest do
              Lookup.output(%{ctx.context | max_attempts: 1}, ctx.key, 1_000)
   end
 
+  test "telemetry distinguishes disk discovery, hinted hits, misses and bounded bypass", ctx do
+    prefix = [__MODULE__, :lookup_outcomes]
+    context = Map.put(ctx.context, :telemetry_prefix, prefix)
+    id = {__MODULE__, make_ref()}
+    events = Enum.map([:shared_lookup, :shared_discovery], &(prefix ++ [:cache, &1, :stop]))
+
+    :ok =
+      :telemetry.attach_many(
+        id,
+        events,
+        fn event, _, meta, pid ->
+          send(pid, {:lookup_event, event, meta})
+        end,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(id) end)
+    lookup = prefix ++ [:cache, :shared_lookup, :stop]
+    discovery = prefix ++ [:cache, :shared_discovery, :stop]
+
+    assert :miss = Lookup.output(context, ctx.key, 1_000)
+    assert_receive {:lookup_event, ^discovery, %{candidate_count: 0, result: :ok}}
+    assert_receive {:lookup_event, ^lookup, %{cache: :miss, result: :ok}}
+
+    location = publish(ctx, :outputs, ctx.key, output_metadata())
+    assert {:hit, first} = Lookup.output(context, ctx.key, 1_000)
+    assert_receive {:lookup_event, ^discovery, %{candidate_count: 1, result: :ok}}
+    assert_receive {:lookup_event, ^lookup, %{cache: :hit, result: :ok}}
+    Generation.release(context.pool, first, 1_000)
+    assert {:hit, second} = Lookup.output(context, ctx.key, 1_000)
+    assert_receive {:lookup_event, ^lookup, %{cache: :hit, result: :ok}}
+    refute_received {:lookup_event, ^discovery, _}
+    Generation.release(context.pool, second, 1_000)
+
+    assert {:error, :timeout} = Lookup.output(context, ctx.key, 0)
+
+    assert_receive {:lookup_event, ^lookup,
+                    %{cache: :bypass, result: :cache_error, reason: :timeout} = meta}
+
+    refute Map.has_key?(meta, :key)
+    refute Map.has_key?(meta, :path)
+
+    :ok = :sys.suspend(context.locations.pid)
+
+    try do
+      for _ <- 1..context.locations.gate.count,
+          do: assert(:ok = Locations.remember_async(context.locations, location, 1_000))
+
+      assert {:error, :saturated} = Lookup.output(context, ctx.key, 1_000)
+      assert_receive {:lookup_event, ^lookup, %{cache: :bypass, reason: :saturated}}
+    after
+      :sys.resume(context.locations.pid)
+    end
+  end
+
   test "original lookup checks stored byte identity and keeps evidence unchanged", ctx do
     expected = record("expected")
     other = record("other")

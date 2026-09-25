@@ -105,6 +105,35 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "[warning] image_pipe cache shared_maintenance: reclamation cache_error"
   end
 
+  test "logs shared lookup bypass reasons and incomplete discovery" do
+    prefix = [__MODULE__, :shared_lookup]
+    Telemetry.attach_default_logger(prefix: prefix)
+
+    log =
+      capture_log(fn ->
+        Telemetry.span(
+          [telemetry_prefix: prefix],
+          [:cache, :shared_lookup],
+          %{pool: :outputs},
+          fn ->
+            {:ok, %{result: :cache_error, cache: :bypass, reason: :search_limit}}
+          end
+        )
+
+        Telemetry.span(
+          [telemetry_prefix: prefix],
+          [:cache, :shared_discovery],
+          %{pool: :sources},
+          fn ->
+            {:ok, %{result: :partial}}
+          end
+        )
+      end)
+
+    assert log =~ "[warning] image_pipe cache shared_lookup: outputs bypass search_limit"
+    assert log =~ "[warning] image_pipe cache shared_discovery: sources partial"
+  end
+
   test "logs coordinated cache stages and escalates refresh failure" do
     prefix = [__MODULE__, :coordinated]
     Telemetry.attach_default_logger(prefix: prefix)

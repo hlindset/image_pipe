@@ -1107,6 +1107,33 @@ downstream OTel collector instead.
 OTel span attributes (all product-neutral geometry, a
 colorspace atom, and a boolean; no secrets).
 
+## Shared filesystem lookup
+
+The shared runtime's `telemetry_prefix` also controls these request-process spans:
+
+| Stage | Stop metadata |
+| --- | --- |
+| `[:cache, :shared_lookup]` | `pool: :outputs | :originals | :sources`, `cache: :hit | :miss | :bypass`, `result: :ok | :cache_error` |
+| `[:cache, :shared_discovery]` | `pool`, `operation: :cached | :refresh`, `candidate_count`, `scan: :complete | :limited`, `result: :ok | :partial | :cache_error` |
+
+Discovery measures the caller's bounded disk-enumeration wait, including locally
+coalesced work; the outer lookup includes metadata/body validation and stable
+reader acquisition. A usable hinted entry avoids discovery. A limited scan can
+still yield a hit, so its `:partial` outcome does not imply the outer lookup failed.
+Candidate counts describe returned locations, not filesystem RPCs or validated hits.
+
+Failures include a safe `reason`: `:timeout`, `:saturated`, `:unavailable`,
+`:ownership_lost`, `:search_limit`, or the generic `:storage_error`. They produce
+`cache: :bypass` rather than ordinary `:miss`. Raw error payloads, keys, paths,
+source evidence, and reader handles are excluded from stop metadata. If the
+runtime is unavailable before lookup starts, the existing cache-facade events
+report the failure; no shared lookup span is opened.
+
+Logger renders the pool, outcome, and bypass reason and warns on incomplete
+discovery or failure. Trace Capture subscribes to both stages and retains the
+listed metadata, including candidate counts. These can nest under request traces
+when the runtime and request use the same traced prefix.
+
 ## Shared filesystem maintenance
 
 The shared-cache runtime emits spans at `[:cache, :shared_maintenance]` with

@@ -77,7 +77,17 @@ defmodule ImagePipe.Cache.SharedFileSystem.Runtime do
       [{:state, {:ready, partition}}] ->
         {:ok,
          Map.new(
-           [:pool, :locations, :sources, :retainer, :readers, :limits, :max_attempts, :timeout],
+           [
+             :pool,
+             :locations,
+             :sources,
+             :retainer,
+             :readers,
+             :limits,
+             :max_attempts,
+             :timeout,
+             :telemetry_prefix
+           ],
            fn key ->
              [{^key, value}] = :ets.lookup(name, key)
              {key, value}
@@ -104,7 +114,8 @@ defmodule ImagePipe.Cache.SharedFileSystem.Runtime do
       {:readers, readers},
       {:limits, limits},
       {:max_attempts, opts[:max_attempts]},
-      {:timeout, opts[:timeout]}
+      {:timeout, opts[:timeout]},
+      {:telemetry_prefix, opts[:telemetry_prefix]}
     ])
 
     children = [

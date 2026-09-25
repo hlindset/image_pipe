@@ -56,6 +56,35 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     end)
   end
 
+  test "captures shared lookup and nested discovery with scan counts" do
+    prefix = [__MODULE__, :shared_lookup]
+    TestExporter.attach(self(), prefix: prefix)
+    opts = [telemetry_prefix: prefix]
+
+    Telemetry.span(opts, [:cache, :shared_lookup], %{pool: :outputs}, fn ->
+      Telemetry.span(opts, [:cache, :shared_discovery], %{operation: :refresh}, fn ->
+        {:ok, %{result: :partial, candidate_count: 16, scan: :limited}}
+      end)
+
+      {:ok, %{result: :cache_error, cache: :bypass, reason: :search_limit}}
+    end)
+
+    assert_receive {:span,
+                    %Span{name: "image_pipe.cache.shared_discovery", attributes: discovery} =
+                      child}
+
+    assert_receive {:span,
+                    %Span{name: "image_pipe.cache.shared_lookup", attributes: lookup} = parent}
+
+    assert child.parent_span_id == parent.span_id
+    assert discovery.candidate_count == 16
+    assert discovery.scan == :limited
+    assert discovery.operation == :refresh
+    assert lookup.reason == :search_limit
+    assert lookup.cache == :bypass
+    assert lookup.pool == :outputs
+  end
+
   test "one-shot events retain occurrence times with and without a timestamp measurement" do
     prefix = [__MODULE__, :event_time]
     TestExporter.attach(self(), prefix: prefix)
