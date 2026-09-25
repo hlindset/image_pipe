@@ -233,6 +233,11 @@ header names to lowercase and preserves duplicate allowed headers.
 segments, `.`, `..`, and `~`-prefixed path segments. Generated hashes determine
 cache paths, not request, source, header, or cookie data.
 
+Give each node exclusive ownership of its cache root. A distinct `:node_id`
+separates admission state; it does not coordinate concurrent writers and eviction
+against a shared body directory. For shared entries, use the
+[shared filesystem adapter](#shared-filesystem-adapter) with a separate root.
+
 Filesystem metadata has its own `metadata_version` and records the body
 filename, byte size, and SHA-256 digest. Bodies are content-addressed by digest.
 
@@ -348,6 +353,9 @@ inherits cluster-wide popularity information instead of cold-starting. The Bloom
 doorkeeper is per-node and is not persisted. Peer state files older than
 `:state_ttl` are removed during periodic cleanup.
 
+Sharing a `:state_dir` for these popularity hints does not make the cache roots
+safe for concurrent ownership. Keep the entry roots exclusive to each node.
+
 ### Telemetry
 
 Bounded mode emits these additional events under the configured telemetry prefix
@@ -372,3 +380,144 @@ Bounded mode emits these additional events under the configured telemetry prefix
   bodies are bounded by the cap rather than tracked individually.
 - Concurrent commits to the same key race on the body file; the last commit wins
   and the superseded body is deleted.
+
+## Shared filesystem adapter
+
+`ImagePipe.Cache.SharedFileSystem` stores encoded outputs, source validation
+records, and optional originals in independently owned directories on one shared
+volume. Nodes discover each other's entries through disk; distributed Erlang,
+gossip, and a leader are not required. Each runtime uses a fresh incarnation ID,
+including after a full restart. `ImagePipe.Cache.FileSystem` remains the local
+adapter.
+
+**Qualification status:** no shared-mount profile is qualified yet. Local tests
+exercise publication, retirement, adoption, stable readers, and failure recovery;
+they do not establish cross-machine visibility or recovery semantics for an
+arbitrary NFS, EFS, SMB, or Kubernetes storage driver. The source tree contains
+the implementation specification at `docs/plans/shared-filesystem-cache-partitions.md`
+and protocol evidence at `docs/plans/shared-cache-retirement-protocol.md`.
+
+The mount must expose the same directory tree to every participating machine and
+support complete-directory publication by atomic rename within that filesystem.
+All writers need compatible permissions to read entries, publish into their own
+partitions, and retire/delete inactive partitions. Treat the cache tree as trusted
+application storage; do not mix it with user-writable files or symlink-managed
+directories. Storage class names and access-mode labels alone do not establish
+these semantics. Qualify the actual server, client, mount options, and failure
+behavior together.
+
+Start the runtime before the endpoint:
+
+```elixir
+children = [
+  {ImagePipe.Cache.SharedFileSystem,
+   name: MyApp.SharedImageCache,
+   root: "/mnt/shared/image_pipe",
+   local_root: "/var/cache/image_pipe/readers",
+   max_retained_bytes: 512 * 1024 * 1024,
+   root_max_bytes: 8 * 1024 * 1024 * 1024},
+  {Bandit, plug: MyApp.Endpoint}
+]
+```
+
+Use the same runtime for both pools:
+
+```elixir
+cache: {ImagePipe.Cache.SharedFileSystem, runtime: MyApp.SharedImageCache},
+input_cache: {ImagePipe.Cache.SharedFileSystem, runtime: MyApp.SharedImageCache}
+```
+
+Omit `input_cache` for output-only caching; source validation records still use
+the shared runtime. The three entry namespaces share one retention budget.
+Keep `local_root` on node-local storage outside the shared root. It holds bounded
+temporary copies acquired before delivery or lazy decoding, so deleting a shared
+entry cannot truncate an acquired reader. Normal release and caller death reclaim
+completed readers. Crash-orphaned local directories still need an operator cleanup
+policy that excludes live runtime readers.
+
+Build the directory helper for the deployment OS/architecture with
+`mix image_pipe.shared_cache.build` before assembling the release. It uses a C
+compiler (`CC`, default `cc`) and writes the executable under the application's
+`priv/shared_cache/`. The runtime also launches a local helper BEAM via OTP `:peer`
+over standard I/O; the deployment must permit child processes. Include the helper
+executable and Erlang runtime in the deployment. No network node connection is
+needed for this isolation.
+
+### Freshness, lookup, and adoption
+
+Nodes may serve different source revisions while each remains fresh under its
+origin policy. A change observed on A does not revoke B's still-fresh selection.
+Discovery, inventory warmup, adoption, and restart preserve the original freshness
+evidence. Configure `clock_skew` as a maximum pairwise clock difference; discovered
+evidence loses that much freshness/SWR allowance. Keep host clocks synchronized.
+Untrusted clock evidence forces validation or cache bypass.
+
+Lookup validates bounded local location hints, then searches exact key paths on
+disk. A missing or evicted index entry does not prove the shared entry is absent.
+Startup inventories seed a limited, lower-priority portion of the index without
+creating request frequency. Real requests drive local W-TinyLFU admission.
+An admitted foreign entry is adopted into a new local generation; its immutable
+body is hard-linked when supported and copied with bounded resources otherwise.
+Hard links are not copy on write: never modify published bodies in place.
+Adoption runs in the background after the current reader is safe.
+
+### Budgets and maintenance
+
+Runtime options belong in the supervised child configuration. Sizes are bytes;
+intervals and timeouts below are milliseconds unless explicitly marked seconds.
+
+| Option | Default | Purpose |
+| --- | --- | --- |
+| `max_retained_bytes` / `max_retained_entries` | 128 MiB / 4,096 | Per-runtime logical retention limits. |
+| `max_body_bytes` / `max_metadata_bytes` | 32 MiB / 64 KiB | Per-generation body and serialized metadata limits. |
+| `timeout` | 1,000 | Runtime I/O and maintenance operation allowance. |
+| `max_attempts` | 16 | Maximum candidates opened by one lookup. |
+| `clock_skew` | 5 seconds | Pairwise allowance for shared time evidence. |
+| `root_max_bytes` | `nil` | Optional approximate root-wide logical target. |
+| `root_low_watermark` | `0.8` | Reduction target fraction; strictly between zero and one. |
+| `usage_max_partitions` | 128 | Usage reports inspected per pressure pass. |
+| `heartbeat_interval` | 5,000 | Incarnation activity updates. |
+| `inactivity_grace` | 3,600 seconds | Inactivity threshold for retirement. |
+| `reclaim_max_partitions` / `reclaim_max_entries` | 128 / 256 | Partition scan and trash traversal limits; entry limit must be at least 32. |
+| `inventory_interval` | 60,000 | Inventory, usage, and reclamation cycle, plus up to 10% jitter. |
+| `inventory_max_entries` / `inventory_max_bytes` | 128 / 64 KiB | Per-inventory limits. |
+| `warmup_max_partitions` / `warmup_max_candidates` | 32 / 128 | Startup inventory work limits. |
+| `warmup_timeout` | 1,000 | Startup warmup allowance. |
+
+Adapter options on `cache`/`input_cache` are `runtime`, `timeout` (default 1,000),
+and `max_body_bytes` (`nil` or a non-negative integer). The adapter timeout controls
+individual cache callbacks; it does not bound origin fetch or transformation.
+The runtime's body ceiling still applies when the adapter limit is `nil`.
+
+Every adopter pays the full logical body-plus-metadata charge even when hard links
+share physical blocks. Pending writes, failed cleanup, staging, and local readers
+also need space. Usage reports can be stale, missing, or truncated, and retired
+partitions can remain on disk; `root_max_bytes` is a soft target, not a filesystem
+quota. Provision a storage-enforced ceiling separately where the provider supports
+it, and monitor physical capacity/inodes independently. Unlink counts do not prove
+physical bytes were freed.
+
+Any instance can retire an inactive partition into `trash/` and reclaim it in
+bounded passes. Heartbeat age is an eviction hint, not proof of death: pauses or
+visibility delays can cost a live node its partition. It allocates a new identity
+when it detects retirement. Restart similarly creates a new identity and can
+reuse old entries through disk discovery; only admitted adoption preserves those
+entries beyond their original partition's removal. Choose a generous grace period.
+For cleanup progress, `reclaim_max_partitions` must exceed the live/within-grace
+population; a persistently truncated prefix can leave old partitions unreachable.
+
+### Failure behavior
+
+Cache failures fail open: successful source fetch and image generation still
+deliver the response when cache reads or writes fail, the volume is full, or
+admission rejects an entry. Source and processing failures retain their normal
+HTTP behavior. Saturated discovery may bypass an entry that exists on disk.
+
+A timeout does not cancel filesystem I/O. The runtime keeps outstanding work and
+resource reservations bounded until completion or proven cleanup. Confirmed late
+writes can be reconciled; unknown outcomes remain charged. Helper/control loss or
+retention-owner loss disables further affected work instead of starting unlimited
+replacement helpers or forgetting accounting. Restore the underlying service and
+restart the cache runtime when necessary. A full runtime restart creates a new
+source-selection scope; it preserves disk freshness evidence but does not promise
+durable local invalidation across runtime loss.

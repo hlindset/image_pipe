@@ -53,6 +53,7 @@ defmodule ImagePipe.Cache.SharedFileSystem do
             max_body_bytes: [type: {:or, [nil, :non_neg_integer]}, default: nil]
           )
 
+  @doc "Returns the shared cache runtime supervisor specification."
   defdelegate child_spec(opts), to: Runtime
 
   @impl true
