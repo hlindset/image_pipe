@@ -1163,6 +1163,21 @@ those failed-work spans as errors independently of the owner's current health.
 Trace Capture subscribes to both spans and
 preserves all listed counters; no descriptors, filenames, or raw errors are emitted.
 
+`[:cache, :shared_io, :start | :stop]` reports isolated I/O health on periodic
+admission maintenance (normally every second), operation timeouts, active-operation
+or resource saturation, and channel loss. `operation` is `:usage`, `:timeout`,
+`:saturated`, or `:unavailable`. The snapshot reports `jobs`, `outstanding_bytes`,
+`resources`, `resource_bytes`, and `failed_cleanups`. These are conservative
+reservations, not physical disk usage; timeouts and channel loss keep uncertain
+work charged. Cleanup failure retains its resource charge until confirmed cleanup.
+`result` is `:cache_error` on those failure transitions or while the channel is
+unavailable or cleanup has failed; otherwise it is `:ok`. An `:ok` usage snapshot
+does not prove every outstanding operation is progressing. Admission-mailbox
+saturation is observed through the enclosing cache operation, without entering
+the busy I/O coordinator. Snapshot duration measures reporting, not filesystem
+latency. Logger renders the operation and outcome; Trace Capture exports all
+listed counters without operation arguments, filenames, or raw errors.
+
 `[:cache, :shared_lifecycle, :start | :stop]` brackets one incarnation maintenance
 attempt, including its filesystem wait and retention-owner readiness check.
 Stop metadata reports `result: :ok` with `operation: :created | :heartbeat | :rotated`,

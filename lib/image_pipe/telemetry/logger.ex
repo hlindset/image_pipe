@@ -44,7 +44,8 @@ defmodule ImagePipe.Telemetry.Logger do
       [:cache, :shared_discovery],
       [:cache, :shared_lifecycle],
       [:cache, :shared_admission],
-      [:cache, :shared_retention]
+      [:cache, :shared_retention],
+      [:cache, :shared_io]
     ],
     output: [[:output, :negotiate], [:output, :terminal]],
     http_cache: [],
@@ -258,7 +259,7 @@ defmodule ImagePipe.Telemetry.Logger do
 
   # --- message ---
   defp message([:cache, stage | _], _m, meta)
-       when stage in [:shared_admission, :shared_retention],
+       when stage in [:shared_admission, :shared_retention, :shared_io],
        do:
          "image_pipe cache #{stage}: #{meta[:operation]} #{meta[:result]} #{meta[:reason]} #{meta[:job_result]}"
 

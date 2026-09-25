@@ -3,6 +3,8 @@ defmodule ImagePipe.Cache.SharedFileSystem.IOTest do
 
   alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
   alias ImagePipe.Cache.SharedFileSystem.IO.Admission
+  alias ImagePipe.Telemetry
+  alias ImagePipe.Telemetry.Trace.{Span, TestExporter}
   alias ImagePipe.Test.SharedIOProbe
 
   setup ctx do
@@ -12,7 +14,8 @@ defmodule ImagePipe.Cache.SharedFileSystem.IOTest do
          max_operations: 2,
          max_bytes: 8,
          max_pending: Map.get(ctx, :max_pending, 2),
-         max_request_bytes: 256}
+         max_request_bytes: 256,
+         telemetry_prefix: [__MODULE__, ctx.test]}
       )
 
     pool = CacheIO.client(pid)
@@ -23,6 +26,88 @@ defmodule ImagePipe.Cache.SharedFileSystem.IOTest do
     assert {:ok, pid} = CacheIO.run(pool, {:os, :getpid, []}, 0, 1_000)
     refute pid == :os.getpid()
     assert {:ok, :nonode@nohost} = CacheIO.run(pool, {:erlang, :node, []}, 0, 1_000)
+  end
+
+  @tag capture_log: true
+  test "reports retained IO budgets and channel loss through logging and tracing", ctx do
+    prefix = [__MODULE__, ctx.test]
+    TestExporter.set_receiver(self())
+    TestExporter.attach(self(), prefix: prefix)
+    Telemetry.attach_default_logger(prefix: prefix)
+
+    on_exit(fn ->
+      Telemetry.detach_tracer()
+      TestExporter.clear_receiver()
+      Telemetry.detach_default_logger()
+    end)
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        send(ctx.pool.pid, :watch_admission)
+
+        assert_receive {:span,
+                        %Span{
+                          name: "image_pipe.cache.shared_io",
+                          status: :ok,
+                          attributes: %{
+                            operation: :usage,
+                            jobs: 0,
+                            outstanding_bytes: 0,
+                            resources: 0,
+                            resource_bytes: 0,
+                            failed_cleanups: 0
+                          }
+                        }}
+
+        missing =
+          Path.join(System.tmp_dir!(), "shared-io-missing-#{System.unique_integer([:positive])}")
+
+        assert {:ok, lease} = CacheIO.reserve(ctx.pool, 3, {File, :rm, [missing]}, 1_000)
+        assert {:error, {:cleanup, _}} = CacheIO.release(ctx.pool, lease, 1_000)
+        send(ctx.pool.pid, :watch_admission)
+
+        assert_receive {:span,
+                        %Span{
+                          status: :error,
+                          attributes: %{
+                            operation: :usage,
+                            resources: 1,
+                            resource_bytes: 3,
+                            failed_cleanups: 1
+                          }
+                        }}
+
+        assert {:error, :timeout} =
+                 CacheIO.run(ctx.pool, {SharedIOProbe, :wait, [:health]}, 8, 50)
+
+        assert_receive {:span,
+                        %Span{
+                          name: "image_pipe.cache.shared_io",
+                          status: :error,
+                          attributes: %{operation: :timeout, jobs: 1, outstanding_bytes: 8}
+                        }}
+
+        assert {:error, :saturated} = CacheIO.run(ctx.pool, {:os, :getpid, []}, 1, 1_000)
+
+        assert_receive {:span,
+                        %Span{
+                          status: :error,
+                          attributes: %{operation: :saturated, outstanding_bytes: 8}
+                        }}
+
+        assert {:error, _} = CacheIO.run(ctx.pool, {:erlang, :halt, []}, 0, 1_000)
+
+        assert_receive {:span,
+                        %Span{
+                          name: "image_pipe.cache.shared_io",
+                          status: :error,
+                          attributes: %{operation: :unavailable, outstanding_bytes: 8}
+                        }}
+      end)
+
+    assert log =~ "shared_io: usage ok"
+    assert log =~ "[warning] image_pipe cache shared_io: timeout cache_error"
+    assert log =~ "[warning] image_pipe cache shared_io: unavailable cache_error"
   end
 
   test "timeout retains byte reservation until operation completes", %{pool: pool} do

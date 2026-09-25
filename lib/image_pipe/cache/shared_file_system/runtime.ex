@@ -139,7 +139,11 @@ defmodule ImagePipe.Cache.SharedFileSystem.Runtime do
   def start_io(table, opts) do
     bytes = max(256 * 1024 * 1024, opts[:max_body_bytes] * 4)
 
-    with {:ok, pid} <- CacheIO.start_link(max_resource_bytes: bytes) do
+    with {:ok, pid} <-
+           CacheIO.start_link(
+             max_resource_bytes: bytes,
+             telemetry_prefix: opts[:telemetry_prefix]
+           ) do
       :ets.insert(table, {:pool, CacheIO.client(pid)})
       {:ok, pid}
     end

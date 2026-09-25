@@ -3,6 +3,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
   use GenServer, restart: :temporary
 
   alias ImagePipe.Cache.SharedFileSystem.IO.{Admission, Leases}
+  alias ImagePipe.Telemetry
 
   @enforce_keys [:pid, :admission]
   defstruct @enforce_keys
@@ -14,7 +15,8 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
             max_request_bytes: [type: :pos_integer, default: 1024 * 1024],
             max_resources: [type: :pos_integer, default: 32],
             max_resource_bytes: [type: :pos_integer, default: 256 * 1024 * 1024],
-            boot_timeout: [type: :pos_integer, default: 5_000]
+            boot_timeout: [type: :pos_integer, default: 5_000],
+            telemetry_prefix: [type: {:list, :atom}, default: [:image_pipe]]
           )
 
   def start_link(opts) do
@@ -94,6 +96,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
          peer: peer,
          tasks: tasks,
          available?: true,
+         telemetry_prefix: opts[:telemetry_prefix],
          jobs: %{},
          leases: Leases.new(opts[:max_resources], opts[:max_resource_bytes]),
          bytes: 0,
@@ -124,6 +127,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
     case deadline - System.monotonic_time(:millisecond) do
       remaining when remaining > 0 ->
         {reply, leases} = Leases.reserve(state.leases, elem(from, 0), bytes, cleanup, remaining)
+        if reply == {:error, :saturated}, do: report(state, :saturated)
         {:reply, reply, %{state | leases: leases}}
 
       _expired ->
@@ -164,6 +168,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
         {:reply, {:error, :released}, state}
 
       map_size(state.jobs) >= state.max_operations or state.bytes + bytes > state.max_bytes ->
+        report(state, :saturated)
         {:reply, {:error, :saturated}, state}
 
       true ->
@@ -208,6 +213,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
     # Catch callers killed between claiming a slot and sending their request.
     # Their DOWN is handled after earlier local messages from that caller.
     monitors = Admission.watch(state.admission, state.admission_monitors)
+    report(state, :usage)
     Process.send_after(self(), :watch_admission, 1_000)
     {:noreply, %{state | admission_monitors: monitors}}
   end
@@ -302,7 +308,9 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
 
       {:ok, job} ->
         reply(job.from, result)
-        %{state | jobs: Map.put(state.jobs, ref, %{job | from: nil})}
+        next = %{state | jobs: Map.put(state.jobs, ref, %{job | from: nil})}
+        report(next, :timeout)
+        next
     end
   end
 
@@ -315,7 +323,35 @@ defmodule ImagePipe.Cache.SharedFileSystem.IO do
         {ref, %{job | from: nil}}
       end)
 
-    %{state | available?: false, jobs: jobs, leases: Leases.unavailable(state.leases)}
+    next = %{state | available?: false, jobs: jobs, leases: Leases.unavailable(state.leases)}
+    if state.available?, do: report(next, :unavailable)
+    next
+  end
+
+  defp report(state, operation) do
+    Telemetry.span(
+      [telemetry_prefix: state.telemetry_prefix],
+      [:cache, :shared_io],
+      %{operation: operation},
+      fn ->
+        failed =
+          Enum.count(state.leases.entries, fn {_token, entry} -> entry.status == :failed end)
+
+        {:ok,
+         %{
+           result:
+             if(state.available? and failed == 0 and operation not in [:timeout, :saturated],
+               do: :ok,
+               else: :cache_error
+             ),
+           jobs: map_size(state.jobs),
+           outstanding_bytes: state.bytes,
+           resources: map_size(state.leases.entries),
+           resource_bytes: state.leases.bytes,
+           failed_cleanups: failed
+         }}
+      end
+    )
   end
 
   defp cleanup(%{available?: false} = state), do: state
