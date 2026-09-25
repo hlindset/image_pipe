@@ -2,7 +2,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.InventoryWorker do
   @moduledoc false
   use GenServer
 
-  alias ImagePipe.Cache.SharedFileSystem.{Inventory, Retainer, Runtime, Warmup}
+  alias ImagePipe.Cache.SharedFileSystem.{Inventory, Pressure, Retainer, Runtime, Warmup}
 
   def start_link(table, opts), do: GenServer.start_link(__MODULE__, {table, opts})
 
@@ -62,15 +62,17 @@ defmodule ImagePipe.Cache.SharedFileSystem.InventoryWorker do
     deadline = System.monotonic_time(:millisecond) + opts[:timeout]
 
     with {:ok, partition, locations} <-
-           Retainer.inventory(context.retainer, limits.entries, remaining(deadline)) do
-      Inventory.publish(
-        context.pool,
-        partition,
-        locations,
-        opts[:clock].(),
-        limits,
-        remaining(deadline)
-      )
+           Retainer.inventory(context.retainer, limits.entries, remaining(deadline)),
+         :ok <-
+           Inventory.publish(
+             context.pool,
+             partition,
+             locations,
+             opts[:clock].(),
+             limits,
+             remaining(deadline)
+           ) do
+      Pressure.run(context, opts, remaining(deadline))
     end
   end
 

@@ -23,6 +23,9 @@ defmodule ImagePipe.Cache.SharedFileSystem.Runtime do
             max_attempts: [type: :pos_integer, default: 16],
             max_retained_bytes: [type: :pos_integer, default: 128 * 1024 * 1024],
             max_retained_entries: [type: :pos_integer, default: 4_096],
+            root_max_bytes: [type: {:or, [nil, :pos_integer]}, default: nil],
+            root_low_watermark: [type: :float, default: 0.8],
+            usage_max_partitions: [type: :pos_integer, default: 128],
             inventory_interval: [type: :pos_integer, default: 60_000],
             inventory_max_entries: [type: :pos_integer, default: 128],
             inventory_max_bytes: [type: :pos_integer, default: 65_536],
@@ -35,6 +38,9 @@ defmodule ImagePipe.Cache.SharedFileSystem.Runtime do
 
   def start_link(opts) do
     opts = NimbleOptions.validate!(opts, @schema)
+
+    if opts[:root_low_watermark] <= 0.0 or opts[:root_low_watermark] >= 1.0,
+      do: raise(ArgumentError, "root_low_watermark must be between zero and one")
 
     opts =
       opts

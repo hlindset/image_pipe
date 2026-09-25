@@ -298,8 +298,28 @@ window and probationary entries before protected entries. Further passes finish
 large reductions; publication remains disabled while retained bytes exceed the
 target. Exact victims use the existing asynchronous retirement path, with cleanup
 debt held until removal succeeds. Raising the target permits admission again after
-cleanup settles. Root usage reports and automatic pressure scheduling are still
-required to drive this internal operation.
+cleanup settles.
+
+Periodic inventory maintenance also atomically replaces a 4 KiB-bounded `usage`
+report per incarnation, using leased staging and exact-publication reconciliation.
+Reports carry retained bytes, pending writes and failed-cleanup debt. Readers
+reject incompatible, malformed, compressed, trailing, stale and implausibly future
+reports. A scan distinguishes reported partitions, unavailable reports, listing
+limits and elapsed deadlines. Each partition contributes at most once.
+
+`root_max_bytes` enables approximate pressure (disabled by default). Scans examine
+at most `usage_max_partitions` (128) and accept reports for three inventory
+intervals. Above the root target, each owner reduces its capacity proportionally
+to its retained bytes and the observed total, aiming at `root_low_watermark`
+(0.8) of the root target. It holds that capacity in the intervening band and may
+restore its configured maximum below the low watermark. Incomplete scans can
+reduce capacity but cannot expand it. Inventory publication, usage publication,
+scanning and resize share one background deadline and run off the request path.
+
+These totals are logical reports, not physical capacity: hard links are counted
+per owner, reports can lag, and missing reports, control files and orphaned staging
+or trash can be unrepresented. Automatic abandoned-partition and trash reclamation
+remain to be connected. External storage ceilings remain operator-provided.
 
 `SharedFileSystem.Inventory` publishes an atomically replaced, count/byte-bounded
 prefix of locations ranked by the retention owner. It uses leased staging and the

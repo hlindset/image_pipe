@@ -28,6 +28,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
   def request(client, kind, key, timeout), do: call(client, {:request, kind, key}, timeout)
   def consider(client, descriptor, timeout), do: call(client, {:consider, descriptor}, timeout)
   def stats(client, timeout), do: call(client, :stats, timeout)
+  def usage(client, timeout), do: call(client, :usage, timeout)
   def retry_cleanup(client, timeout), do: call(client, :retry_cleanup, timeout)
   def rotate(client, partition, timeout), do: call(client, {:rotate, partition}, timeout)
   def inventory(client, limit, timeout), do: call(client, {:inventory, limit}, timeout)
@@ -175,17 +176,10 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
     {:reply, {:ok, state.opts[:partition], locations}, state}
   end
 
-  defp dispatch(:stats, state) do
-    stats =
-      Map.merge(Retention.stats(state.policy), %{
-        jobs: if(state.job, do: 1, else: 0),
-        pending_bytes: pending_bytes(state.job),
-        cleanup_bytes: state.debt,
-        failure: state.failure
-      })
+  defp dispatch(:stats, state), do: {:reply, usage_stats(state), state}
 
-    {:reply, stats, state}
-  end
+  defp dispatch(:usage, state),
+    do: {:reply, {:ok, state.opts[:partition], usage_stats(state)}, state}
 
   defp dispatch(
          :retry_cleanup,
@@ -336,6 +330,16 @@ defmodule ImagePipe.Cache.SharedFileSystem.Retainer do
     do: candidate.size_bytes
 
   defp pending_bytes(_job), do: 0
+
+  defp usage_stats(state),
+    do:
+      Map.merge(Retention.stats(state.policy), %{
+        jobs: if(state.job, do: 1, else: 0),
+        pending_bytes: pending_bytes(state.job),
+        cleanup_bytes: state.debt,
+        failure: state.failure
+      })
+
   defp now, do: System.monotonic_time(:millisecond)
 
   @impl true

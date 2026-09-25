@@ -5,7 +5,15 @@ defmodule ImagePipe.API.SharedCacheWireTest do
 
   alias ImagePipe.Cache.SharedFileSystem
   alias ImagePipe.Cache.SharedFileSystem.IO, as: CacheIO
-  alias ImagePipe.Cache.SharedFileSystem.{Lifecycle, Locations, Partition, Retainer, Runtime}
+
+  alias ImagePipe.Cache.SharedFileSystem.{
+    Lifecycle,
+    Locations,
+    Partition,
+    Pressure,
+    Retainer,
+    Runtime
+  }
 
   setup_all do
     Mix.Task.run("image_pipe.shared_cache.build")
@@ -140,6 +148,34 @@ defmodule ImagePipe.API.SharedCacheWireTest do
     assert Image.get_pixel!(Image.from_binary!(result.resp_body), 0, 0) == [255, 0, 0]
     refute_received {:origin, _}
     assert {:error, :unavailable} = Retainer.stats(context.retainer, 1_000)
+  end
+
+  test "volume pressure eviction still delivers the same pixels on subsequent requests", ctx do
+    opts = [
+      root_max_bytes: 1,
+      root_low_watermark: 0.8,
+      usage_max_partitions: 16,
+      max_retained_bytes: 128 * 1024 * 1024,
+      inventory_interval: 60_000,
+      clock_skew: 5,
+      clock: ctx.clock
+    ]
+
+    config = config(ctx, __MODULE__.A)
+    first = request(config, 12)
+    assert first.status == 200
+    assert_receive {:origin, []}
+    {:ok, context} = Runtime.context(__MODULE__.A)
+    :erlang.trace(context.retainer.pid, true, [:receive])
+    settle(context.retainer)
+    assert {:ok, %{target: 0}} = Pressure.run(context, opts, 1_000)
+    settle(context.retainer)
+    assert %{bytes: 0, cleanup_bytes: 0} = Retainer.stats(context.retainer, 1_000)
+    second = request(config, 12)
+    assert second.status == 200
+    assert second.resp_body == first.resp_body
+    assert Image.get_pixel!(Image.from_binary!(second.resp_body), 0, 0) == [255, 0, 0]
+    assert %{bytes: 0} = Retainer.stats(context.retainer, 1_000)
   end
 
   test "expired evidence revalidates and missing originals cause an unconditional fetch", ctx do

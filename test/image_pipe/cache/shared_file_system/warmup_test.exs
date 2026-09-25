@@ -49,7 +49,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.WarmupTest do
   test "ranked inventories warm hints without synthetic demand or adoption", ctx do
     foreign = publish(ctx, ctx.writer, "foreign")
     _local = publish(ctx, ctx.reader, "local")
-    assert :ok = InventoryWorker.run(__MODULE__.Writer, opts(), :publish)
+    assert {:ok, _report} = InventoryWorker.run(__MODULE__.Writer, opts(), :publish)
 
     assert {:ok, [location]} =
              Inventory.read(
@@ -97,7 +97,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.WarmupTest do
     assert {:ok, %{imported: 0}} = Warmup.run(ctx.reader, 1_000, limits(), 1_000)
     File.write!(Path.join(ctx.writer.partition.path, "inventory"), "broken")
     assert {:ok, %{imported: 0}} = Warmup.run(ctx.reader, 1_000, limits(), 1_000)
-    assert :ok = InventoryWorker.run(__MODULE__.Writer, opts(), :publish)
+    assert {:ok, _report} = InventoryWorker.run(__MODULE__.Writer, opts(), :publish)
     File.write!(Path.join(foreign.path, "meta"), "broken")
     assert {:ok, %{checked: 1, imported: 0}} = Warmup.run(ctx.reader, 1_000, limits(), 1_000)
     assert %{keys: 0} = Locations.stats(ctx.reader.locations, 1_000)
@@ -105,7 +105,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.WarmupTest do
 
   test "startup warmup runs asynchronously and leaves retention empty", ctx do
     foreign = publish(ctx, ctx.writer, "foreign")
-    assert :ok = InventoryWorker.run(__MODULE__.Writer, opts(), :publish)
+    assert {:ok, _report} = InventoryWorker.run(__MODULE__.Writer, opts(), :publish)
     name = __MODULE__.NewReader
 
     pid =
@@ -156,7 +156,7 @@ defmodule ImagePipe.Cache.SharedFileSystem.WarmupTest do
 
   test "stalled warmup expires without blocking hints and later requests discover disk", ctx do
     foreign = publish(ctx, ctx.writer, "foreign")
-    assert :ok = InventoryWorker.run(__MODULE__.Writer, opts(), :publish)
+    assert {:ok, _report} = InventoryWorker.run(__MODULE__.Writer, opts(), :publish)
     tasks = start_supervised!(Task.Supervisor)
     :sys.suspend(ctx.reader.pool.pid)
 

@@ -2,9 +2,9 @@ defmodule ImagePipe.Cache.SharedFileSystem.Inventory.Storage do
   @moduledoc false
 
   # Execute only through the isolated filesystem helper.
-  def publish(partition, stage, encoded) do
-    temporary = Path.join(stage, "inventory")
-    destination = Path.join(partition, "inventory")
+  def publish(partition, stage, encoded, name \\ "inventory") do
+    temporary = Path.join(stage, name)
+    destination = Path.join(partition, name)
 
     with :ok <- File.mkdir(stage),
          :ok <- File.write(temporary, encoded, [:exclusive]) do

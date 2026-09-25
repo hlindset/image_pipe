@@ -18,6 +18,10 @@ defmodule ImagePipe.Cache.SharedFileSystem do
   asynchronously from bounded inventories; `inventory_interval`,
   `inventory_max_entries`, `inventory_max_bytes`, `warmup_max_partitions`,
   `warmup_max_candidates`, and `warmup_timeout` control its work.
+  Periodic maintenance also publishes bounded logical usage reports. Set
+  `root_max_bytes` to enable approximate volume pressure; `root_low_watermark`
+  (0.8) leaves headroom and `usage_max_partitions` (128) bounds each scan.
+  Missing/stale reports permit overshoot; these settings do not enforce a quota.
   Shared-volume reclamation and shared-mount qualification are still in progress.
   """
   @behaviour ImagePipe.Cache
