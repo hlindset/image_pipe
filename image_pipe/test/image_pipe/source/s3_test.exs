@@ -18,7 +18,7 @@ defmodule ImagePipe.Source.S3Test do
                ]
              )
 
-    source = %Object{adapter: :s3, scope: "bucket", key: "cat.jpg", revision: "v1"}
+    source = %Object{scheme: "s3", scope: "bucket", key: "cat.jpg", revision: "v1"}
 
     assert {:ok, resolved} = S3.resolve(source, opts, [])
 
@@ -40,7 +40,7 @@ defmodule ImagePipe.Source.S3Test do
                ]
              )
 
-    source = %Object{adapter: :s3, scope: "bucket", key: "cat.jpg", revision: nil}
+    source = %Object{scheme: "s3", scope: "bucket", key: "cat.jpg", revision: nil}
 
     assert {:ok, resolved} = S3.resolve(source, opts, [])
 
@@ -58,7 +58,7 @@ defmodule ImagePipe.Source.S3Test do
                ]
              )
 
-    source = %Object{adapter: :s3, scope: "bucket", key: "cat.jpg", revision: ""}
+    source = %Object{scheme: "s3", scope: "bucket", key: "cat.jpg", revision: ""}
 
     assert {:ok, resolved} = S3.resolve(source, opts, [])
 
@@ -83,7 +83,7 @@ defmodule ImagePipe.Source.S3Test do
                }
              )
 
-    source = %Object{adapter: :s3, scope: "tenant-a", key: "images/cat.jpg", revision: "abc"}
+    source = %Object{scheme: "s3", scope: "tenant-a", key: "images/cat.jpg", revision: "abc"}
 
     assert {:ok, %Resolved{} = resolved} = S3.resolve(source, opts, [])
     assert resolved.adapter == :s3
@@ -118,7 +118,7 @@ defmodule ImagePipe.Source.S3Test do
                }
              )
 
-    source = %Object{adapter: :s3, scope: "tenant-a", key: "images/cat.jpg"}
+    source = %Object{scheme: "s3", scope: "tenant-a", key: "images/cat.jpg"}
     assert {:ok, %Resolved{} = resolved} = S3.resolve(source, opts, [])
 
     assert Keyword.fetch!(resolved.fetch, :receive_timeout) == 500
@@ -147,7 +147,7 @@ defmodule ImagePipe.Source.S3Test do
                buckets: %{"tenant-a" => []}
              )
 
-    assert S3.resolve(%Object{adapter: :s3, scope: "tenant-b", key: "cat.jpg"}, opts, []) ==
+    assert S3.resolve(%Object{scheme: "s3", scope: "tenant-b", key: "cat.jpg"}, opts, []) ==
              {:error, {:source, :denied_bucket}}
   end
 
@@ -180,7 +180,7 @@ defmodule ImagePipe.Source.S3Test do
              )
 
     assert {:ok, resolved} =
-             S3.resolve(%Object{adapter: :s3, scope: tenant_b, key: "images/cat.jpg"}, opts, [])
+             S3.resolve(%Object{scheme: "s3", scope: tenant_b, key: "images/cat.jpg"}, opts, [])
 
     refute_received {:fetch_credentials, _, _, _}
 
@@ -277,7 +277,7 @@ defmodule ImagePipe.Source.S3Test do
                ]
              )
 
-    source = %Object{adapter: :s3, scope: tenant, key: "images/cat.jpg", revision: "abc"}
+    source = %Object{scheme: "s3", scope: tenant, key: "images/cat.jpg", revision: "abc"}
 
     assert {:ok, resolved} = S3.resolve(source, opts, [])
     assert resolved.identity[:endpoint] == "https://minio.test"
@@ -315,7 +315,7 @@ defmodule ImagePipe.Source.S3Test do
              )
 
     source = %Object{
-      adapter: :s3,
+      scheme: "s3",
       scope: "tenant-a",
       key: "images/cat#one%two space?.jpg",
       revision: "a&b=c"
@@ -378,7 +378,7 @@ defmodule ImagePipe.Source.S3Test do
                ]
              )
 
-    source = %Object{adapter: :s3, scope: "tenant-a", key: "images/cat.jpg"}
+    source = %Object{scheme: "s3", scope: "tenant-a", key: "images/cat.jpg"}
     assert {:ok, resolved} = S3.resolve(source, opts, [])
 
     assert {:ok, %Response{} = response} =
@@ -422,7 +422,7 @@ defmodule ImagePipe.Source.S3Test do
                ]
              )
 
-    source = %Object{adapter: :s3, scope: "tenant-a", key: "images/cat.jpg"}
+    source = %Object{scheme: "s3", scope: "tenant-a", key: "images/cat.jpg"}
     assert {:ok, resolved} = S3.resolve(source, opts, [])
 
     assert {:ok, %Response{} = response} =
@@ -454,7 +454,7 @@ defmodule ImagePipe.Source.S3Test do
                ]
              )
 
-    source = %Object{adapter: :s3, scope: "tenant-a", key: "images/cat.jpg"}
+    source = %Object{scheme: "s3", scope: "tenant-a", key: "images/cat.jpg"}
     assert {:ok, resolved} = S3.resolve(source, opts, [])
     assert S3.fetch(resolved, opts, []) == {:error, {:source, :credentials_unavailable}}
   end

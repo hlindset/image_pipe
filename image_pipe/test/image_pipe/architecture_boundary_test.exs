@@ -269,7 +269,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Source.Resolved,
       ImagePipe.Source.Response,
       ImagePipe.Source.Parser,
-      ImagePipe.Source.Scheme,
       ImagePipe.Source.StreamError,
       ImagePipe.Source.HTTP,
       ImagePipe.Source.File,

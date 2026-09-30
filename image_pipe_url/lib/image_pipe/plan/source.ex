@@ -5,7 +5,7 @@ defmodule ImagePipe.Plan.Source do
 
   alias ImagePipe.Plan.Source
 
-  @type t :: Source.Path.t() | Source.URL.t() | Source.Object.t() | Source.Reference.t()
+  @type t :: Source.Path.t() | Source.URL.t() | Source.Object.t()
 
   @scheme_prefix ~r/^([a-zA-Z][a-zA-Z0-9+.\-]*):\/\//
 

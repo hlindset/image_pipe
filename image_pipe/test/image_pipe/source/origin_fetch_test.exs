@@ -310,7 +310,7 @@ defmodule ImagePipe.Source.OriginFetchTest do
       )
 
     intent = %ImagePipe.Plan.Source.Object{
-      adapter: :s3,
+      scheme: "s3",
       scope: "bucket",
       key: "cat.jpg",
       revision: nil

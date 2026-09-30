@@ -223,9 +223,9 @@ defmodule ImagePipe.SourceTest do
   end
 
   test "resolved adapter must match the adapter key selected during resolution" do
-    assert {:ok, opts} = Source.validate_config(sources: [foobar: {AdapterMismatchAdapter, []}])
+    assert {:ok, opts} = Source.validate_config(sources: [https: {AdapterMismatchAdapter, []}])
 
-    source = %ImagePipe.Plan.Source.Object{adapter: :foobar, scope: "scope", key: "cat.jpg"}
+    source = %URL{scheme: :https, host: "example.com", path: ["cat.jpg"]}
 
     assert Source.resolve(source, opts, []) ==
              {:error, {:source, :invalid_adapter_result}}

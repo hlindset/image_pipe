@@ -76,7 +76,7 @@ defmodule ImagePipe.Source.S3 do
 
   @impl Source
   def resolve(
-        %Object{adapter: :s3, scope: bucket, key: key, revision: revision},
+        %Object{scheme: "s3", scope: bucket, key: key, revision: revision},
         opts,
         _runtime_opts
       )
@@ -124,7 +124,7 @@ defmodule ImagePipe.Source.S3 do
     end
   end
 
-  def resolve(%Object{adapter: :s3}, _opts, _runtime_opts),
+  def resolve(%Object{scheme: "s3"}, _opts, _runtime_opts),
     do: {:error, {:source, :invalid_object}}
 
   @impl Source

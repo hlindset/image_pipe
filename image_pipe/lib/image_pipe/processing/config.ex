@@ -78,10 +78,6 @@ defmodule ImagePipe.Processing.Config do
                     clock: [
                       type: {:custom, __MODULE__, :validate_clock, []}
                     ],
-                    source_schemes: [
-                      type: {:custom, __MODULE__, :validate_source_schemes, []},
-                      default: %{}
-                    ],
                     detector: [
                       type: {:or, [{:in, [:default, nil]}, :atom]},
                       default: :default
@@ -137,39 +133,6 @@ defmodule ImagePipe.Processing.Config do
       {:error, "expected formats from #{inspect(modern_formats)}, got: #{inspect(order)}"}
     end
   end
-
-  @doc false
-  def validate_source_schemes(%{} = schemes) do
-    if Enum.all?(schemes, &valid_source_scheme_entry?/1) do
-      {:ok, schemes}
-    else
-      {:error, "expected a map from canonical custom scheme names to {module, keyword_options}"}
-    end
-  end
-
-  def validate_source_schemes(_schemes) do
-    {:error, "expected a map from canonical custom scheme names to {module, keyword_options}"}
-  end
-
-  defp valid_source_scheme_entry?({scheme, {translator, translator_opts}}) do
-    valid_custom_scheme?(scheme) and valid_source_scheme_translator?(translator) and
-      Keyword.keyword?(translator_opts)
-  end
-
-  defp valid_source_scheme_entry?(_entry), do: false
-
-  defp valid_custom_scheme?(scheme) when is_binary(scheme) do
-    scheme not in ["http", "https", "s3"] and
-      String.match?(scheme, ~r/^[a-z][a-z0-9+.\-]*$/)
-  end
-
-  defp valid_custom_scheme?(_scheme), do: false
-
-  defp valid_source_scheme_translator?(translator) when is_atom(translator) do
-    Code.ensure_loaded?(translator) and function_exported?(translator, :translate, 2)
-  end
-
-  defp valid_source_scheme_translator?(_translator), do: false
 
   @doc false
   def resolve!(opts) do

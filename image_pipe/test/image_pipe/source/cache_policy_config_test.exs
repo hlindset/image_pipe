@@ -98,7 +98,7 @@ defmodule ImagePipe.Source.CachePolicyConfigTest do
       )
 
     intent = %ImagePipe.Plan.Source.Object{
-      adapter: :s3,
+      scheme: "s3",
       scope: "images",
       key: "cat.jpg",
       revision: nil

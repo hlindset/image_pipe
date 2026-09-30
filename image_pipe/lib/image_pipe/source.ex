@@ -24,7 +24,6 @@ defmodule ImagePipe.Source do
       Resolved,
       Response,
       Parser,
-      Scheme,
       StreamError,
       HTTP,
       File,
@@ -365,11 +364,8 @@ defmodule ImagePipe.Source do
   defp source_route(%PlanSource.URL{scheme: :http}), do: {:ok, :http, :url}
   defp source_route(%PlanSource.URL{scheme: :https}), do: {:ok, :https, :url}
 
-  defp source_route(%PlanSource.Object{adapter: adapter}) when is_atom(adapter),
-    do: {:ok, adapter, :object}
-
-  defp source_route(%PlanSource.Reference{adapter: adapter}) when is_atom(adapter),
-    do: {:ok, adapter, :reference}
+  defp source_route(%PlanSource.Object{scheme: "s3"}), do: {:ok, :s3, :object}
+  defp source_route(%ImagePipe.Source.Input{}), do: {:ok, :image_pipe_input, :reference}
 
   defp source_route(_source), do: {:error, {:source, :missing_adapter}}
 

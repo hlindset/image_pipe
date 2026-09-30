@@ -7,8 +7,6 @@ defmodule ImagePipe.API.SourceWireTest do
   alias ImagePipe.Source.HTTP
   alias ImagePipe.Source.S3
   alias ImagePipe.SourceTest.CredentialProvider
-  alias ImagePipe.SourceTest.FoobarTranslator
-  alias ImagePipe.SourceTest.PlugCustomAdapter
   alias ImagePipe.Test.PlugFixture.CacheProbe
 
   @image File.read!("priv/static/images/beach.jpg")
@@ -65,52 +63,6 @@ defmodule ImagePipe.API.SourceWireTest do
 
     assert response.status == 200
     assert_receive {:s3_request, "/bucket/images/my%20photo.jpg", "versionId=v1"}
-  end
-
-  test "a configured custom scheme reaches its translator and source adapter" do
-    config =
-      mount(
-        source_schemes: %{"foobar" => {FoobarTranslator, []}},
-        sources: [foobar: {PlugCustomAdapter, adapter: :foobar}]
-      )
-
-    source = "foobar://asset/cat%20one.jpg"
-    response = request("w=40/format=jpeg", source, config)
-
-    assert response.status == 200
-    assert_receive {:foobar_translate, ^source}
-    assert_receive {:custom_resolve, _source}
-    assert_receive {:custom_fetch, :cat}
-  end
-
-  test "a custom scheme keeps stable storage identity across real cache reuse" do
-    store = :ets.new(:api_custom_source_cache, [:set, :public])
-
-    config =
-      mount(
-        source_schemes: %{"foobar" => {FoobarTranslator, []}},
-        sources: [foobar: {PlugCustomAdapter, adapter: :foobar, stable: true}],
-        cache: {CacheProbe, store: store}
-      )
-
-    source = "foobar://asset/cat%20one.jpg"
-    first = request("w=40/format=jpeg", source, config)
-
-    assert first.status == 200
-    assert_receive {:foobar_translate, ^source}
-    assert_receive {:custom_resolve, _source}
-    assert_receive {:cache_lookup, _source_key}
-    assert_receive {:custom_fetch, :cat}
-    assert_receive {:cache_put, _key, _body}
-
-    second = request("w=40/format=jpeg", source, config)
-
-    assert second.status == 200
-    assert second.resp_body == first.resp_body
-    assert_receive {:foobar_translate, ^source}
-    assert_receive {:custom_resolve, _source}
-    assert_receive {:cache_lookup, _key}
-    refute_receive {:custom_fetch, _fetch}
   end
 
   test "an S3 cache hit does not fetch credentials or object bytes" do
