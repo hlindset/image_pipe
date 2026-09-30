@@ -180,7 +180,7 @@ defmodule ImagePipeServer.Config.ConvertTest do
           {:convert,
            fn value, path ->
              with {:ok, source} <- Convert.string(value, path), do: Regex.compile(source)
-           end}
+           end, "string"}
       ]
     ]
 

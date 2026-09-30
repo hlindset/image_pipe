@@ -84,25 +84,32 @@ defmodule ImagePipeServer.Config do
   @doc "Converts the configuration tree to per-section options."
   @spec options!(Tree.t()) :: keyword()
   def options!(tree) do
-    Convert.options!(tree, sections(), [])
+    Convert.options!(tree, schema(), [])
   end
 
-  defp sections do
+  @doc """
+  The schema the loader converts the tree with, one table per section.
+  `ImagePipeServer.Config.Reference` renders it as documentation.
+  """
+  @spec schema() :: keyword()
+  def schema do
     [
-      server: [type: {:convert, &Convert.options(&1, @server_schema, &2)}],
-      url: [type: {:convert, &Convert.options(&1, url_schema(), &2)}],
-      sources: [type: {:convert, &Sources.convert/2}],
-      cache: [type: {:convert, &cache/2}],
-      processing: [type: {:convert, &Convert.options(&1, processing_schema(), &2)}],
-      pool: [type: {:convert, &Convert.options(&1, pool_schema(), &2)}],
-      http: [type: {:convert, &Convert.options(&1, http_schema(), &2)}],
-      telemetry: [type: {:convert, &Convert.options(&1, @telemetry_schema, &2)}]
+      server: [type: Convert.table(@server_schema)],
+      url: [type: Convert.table(url_schema())],
+      sources: [type: {:convert, &Sources.convert/2, :sources}],
+      cache: [type: {:convert, &cache/2, cache_schema()}],
+      processing: [type: Convert.table(processing_schema())],
+      pool: [type: Convert.table(pool_schema())],
+      http: [type: Convert.table(http_schema())],
+      telemetry: [type: Convert.table(@telemetry_schema)]
     ]
   end
 
   defp url_schema do
     Keyword.merge(ImagePipe.Security.options_schema(),
-      source_encryption_keys: [type: {:list, {:convert, &encryption_key/2}}],
+      source_encryption_keys: [
+        type: {:list, {:convert, &encryption_key/2, "string with a `base64:` or `hex:` prefix"}}
+      ],
       presets: [type: {:map, :string, :string}]
     )
   end
@@ -124,14 +131,16 @@ defmodule ImagePipeServer.Config do
     end
   end
 
-  defp cache(value, path) do
-    schema = [
-      output: [type: {:convert, &file_system(&1, output_schema(), &2)}],
-      input: [type: {:convert, &file_system(&1, store_schema(), &2)}],
+  defp cache_schema do
+    [
+      output: [type: {:convert, &file_system(&1, output_schema(), &2), output_schema()}],
+      input: [type: {:convert, &file_system(&1, store_schema(), &2), store_schema()}],
       storage_inputs: [type: {:list, {:tuple, [{:in, [:header, :cookie]}, :string]}}]
     ]
+  end
 
-    with {:ok, options} <- Convert.options(value, schema, path) do
+  defp cache(value, path) do
+    with {:ok, options} <- Convert.options(value, cache_schema(), path) do
       {:ok,
        Enum.map(options, fn
          {:output, cache} -> {:cache, cache}
@@ -153,12 +162,22 @@ defmodule ImagePipeServer.Config do
 
   defp output_schema, do: store_schema() ++ ImagePipe.Cache.shared_options_schema()
 
+  # The library applies these defaults after validation, so its schema
+  # doesn't carry them; they are added here for the reference.
   defp processing_schema do
+    defaults = ImagePipe.Processing.Config.resolve!([])
+
     ImagePipe.Processing.Config.schema()
     |> Keyword.drop([:sources, :processing_pool])
     |> elixir_only([:clock, :telemetry_prefix])
+    |> Enum.map(fn {key, spec} ->
+      case Keyword.fetch(defaults, key) do
+        {:ok, default} -> {key, Keyword.put_new(spec, :default, default)}
+        :error -> {key, spec}
+      end
+    end)
     |> Keyword.merge(
-      source_cache_policy: [type: {:convert, &Sources.cache_policy/2}],
+      source_cache_policy: [type: Sources.cache_policy_type()],
       format_order: [type: {:list, {:in, ImagePipe.Format.modern_formats()}}],
       jpeg_options: [type: encoder(JpegOptions)],
       png_options: [type: encoder(PngOptions)],
@@ -172,7 +191,7 @@ defmodule ImagePipeServer.Config do
      fn value, path ->
        with {:ok, options} <- Convert.options(value, module.schema(), path),
             do: {:ok, struct!(module, options)}
-     end}
+     end, module.schema()}
   end
 
   defp pool_schema, do: Keyword.delete(ImagePipe.ProcessingPool.options_schema(), :name)

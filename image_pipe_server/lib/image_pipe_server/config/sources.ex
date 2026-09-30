@@ -40,6 +40,11 @@ defmodule ImagePipeServer.Config.Sources do
     "assume_role" => AssumeRole
   }
   @rules {:or, [{:list, :string}, :string]}
+  @static_credentials_schema [
+    access_key_id: [type: :string],
+    secret_access_key: [type: :string],
+    token: [type: :string]
+  ]
   @address_categories [
     :allow_loopback,
     :allow_unspecified,
@@ -67,7 +72,8 @@ defmodule ImagePipeServer.Config.Sources do
   @doc "Converts the `[sources]` table."
   @spec convert(term(), Convert.path()) :: Convert.result()
   def convert(%{} = table, path) do
-    with {:ok, mounts} <- Convert.value({:map, :string, {:convert, &mount/2}}, table, path) do
+    with {:ok, mounts} <-
+           Convert.value({:map, :string, {:convert, &mount/2, "table"}}, table, path) do
       # Mount names are the operator's own identifiers, fixed at boot.
       {:ok,
        mounts |> Enum.sort() |> Enum.map(fn {name, mount} -> {String.to_atom(name), mount} end)}
@@ -80,7 +86,7 @@ defmodule ImagePipeServer.Config.Sources do
     with {:ok, name} <- required(table, "adapter", path),
          {:ok, module} <- adapter(name, path ++ ["adapter"]),
          {:ok, match} <- required(table, "match", path),
-         {:ok, match} <- match(match, path ++ ["match"]),
+         {:ok, match} <- Convert.value(match_type(), match, path ++ ["match"]),
          {:ok, options} <- adapter_options(module, Map.drop(table, ["adapter", "match"]), path) do
       {:ok, [adapter: module, match: match, options: options]}
     end
@@ -104,21 +110,39 @@ defmodule ImagePipeServer.Config.Sources do
     end
   end
 
-  defp match(value, path) do
-    case Convert.string(value, path) do
-      {:ok, "path"} ->
-        {:ok, :path}
-
-      {:ok, _other} ->
-        {:error, path, ~s(expected "path" or a table of prefix and scheme rules)}
-
-      {:error, _path, _message} ->
-        Convert.options(value, [prefix: [type: @rules], scheme: [type: @rules]], path)
-    end
+  @doc false
+  @spec mount_schema() :: keyword()
+  def mount_schema do
+    [
+      adapter: [type: {:in, [:file, :http, :s3]}, required: true],
+      match: [type: match_type(), required: true]
+    ]
   end
 
-  defp adapter_options(FileSource, table, path),
-    do: Convert.options(table, with_cache_policy(FileSource.options_schema()), path)
+  defp match_type do
+    {:or, [{:in, [:path]}, Convert.table(prefix: [type: @rules], scheme: [type: @rules])]}
+  end
+
+  @doc false
+  @spec adapter_schemas() :: keyword()
+  def adapter_schemas do
+    [
+      file: file_schema(),
+      http: http_schema(),
+      s3: s3_schema() ++ [buckets: [type: {:map, :string, bucket_type("the S3 settings above")}]]
+    ]
+  end
+
+  @doc false
+  @spec credential_schemas() :: keyword()
+  def credential_schemas do
+    [static: @static_credentials_schema] ++
+      Enum.map(@providers, fn {name, module} ->
+        {String.to_atom(name), provider_schema(module)}
+      end)
+  end
+
+  defp adapter_options(FileSource, table, path), do: Convert.options(table, file_schema(), path)
 
   defp adapter_options(HTTP, table, path) do
     with {:ok, options} <- Convert.options(table, http_schema(), path) do
@@ -137,27 +161,33 @@ defmodule ImagePipeServer.Config.Sources do
 
   defp adapter_options(S3, table, path) do
     {buckets, table} = Map.pop(table, "buckets")
-    bucket = {:convert, &Convert.options(&1, s3_schema(), &2)}
 
     with {:ok, default} <- Convert.options(table, s3_schema(), path),
-         {:ok, buckets} <- s3_buckets(buckets, bucket, path ++ ["buckets"]) do
+         {:ok, buckets} <- s3_buckets(buckets, path ++ ["buckets"]) do
       {:ok, [default: default] ++ buckets}
     end
   end
 
-  defp s3_buckets(nil, _bucket, _path), do: {:ok, []}
+  defp s3_buckets(nil, _path), do: {:ok, []}
 
-  defp s3_buckets(buckets, bucket, path) do
-    with {:ok, buckets} <- Convert.value({:map, :string, bucket}, buckets, path),
+  defp s3_buckets(buckets, path) do
+    with {:ok, buckets} <- Convert.value({:map, :string, bucket_type()}, buckets, path),
          do: {:ok, [buckets: buckets]}
   end
+
+  # A bucket overrides the mount's S3 settings.
+  defp bucket_type(description \\ nil) do
+    {:convert, &Convert.options(&1, s3_schema(), &2), description || s3_schema()}
+  end
+
+  defp file_schema, do: with_cache_policy(FileSource.options_schema())
 
   defp http_schema do
     HTTP.options_schema()
     |> with_cache_policy()
     |> Keyword.merge(
-      path_pattern: [type: {:convert, &regex/2}],
-      address_policy: [type: {:convert, &address_policy/2}],
+      path_pattern: [type: {:convert, &regex/2, "string (regular expression)"}],
+      address_policy: [type: Convert.table(address_policy_schema())],
       request_headers: [type: {:map, :string, :string}],
       bearer_token: [type: :string]
     )
@@ -166,16 +196,20 @@ defmodule ImagePipeServer.Config.Sources do
   defp s3_schema do
     S3.config_schema()
     |> with_cache_policy()
-    |> Keyword.merge(credentials: [type: {:convert, &credentials/2}])
+    |> Keyword.merge(credentials: [type: credentials_type()])
+  end
+
+  defp credentials_type do
+    {:convert, &credentials/2, "`{ static = {...} }` or `{ provider = \"...\", ... }`"}
   end
 
   defp with_cache_policy(schema) do
-    Keyword.merge(schema, cache_policy: [type: {:convert, &cache_policy/2}])
+    Keyword.merge(schema, cache_policy: [type: cache_policy_type()])
   end
 
   @doc false
-  @spec cache_policy(term(), Convert.path()) :: Convert.result()
-  def cache_policy(value, path), do: Convert.options(value, CachePolicy.options_schema(), path)
+  @spec cache_policy_type() :: {:convert, function(), keyword()}
+  def cache_policy_type, do: Convert.table(CachePolicy.options_schema())
 
   defp regex(value, path) do
     with {:ok, source} <- Convert.string(value, path) do
@@ -186,22 +220,13 @@ defmodule ImagePipeServer.Config.Sources do
     end
   end
 
-  defp address_policy(value, path) do
-    schema =
-      [allow: [type: {:list, :string}]] ++
-        Enum.map(@address_categories, &{&1, [type: :boolean]})
-
-    Convert.options(value, schema, path)
+  defp address_policy_schema do
+    [allow: [type: {:list, :string}]] ++ Enum.map(@address_categories, &{&1, [type: :boolean]})
   end
 
   defp credentials(%{"static" => static} = table, path) when map_size(table) == 1 do
-    schema = [
-      access_key_id: [type: :string],
-      secret_access_key: [type: :string],
-      token: [type: :string]
-    ]
-
-    with {:ok, static} <- Convert.options(static, schema, path ++ ["static"]),
+    with {:ok, static} <-
+           Convert.options(static, @static_credentials_schema, path ++ ["static"]),
          do: {:ok, {:static, static}}
   end
 
@@ -231,7 +256,7 @@ defmodule ImagePipeServer.Config.Sources do
     schema = Keyword.delete(module.options_schema(), :plug)
 
     if Keyword.has_key?(schema, :base),
-      do: Keyword.put(schema, :base, type: {:convert, &credentials/2}),
+      do: Keyword.put(schema, :base, type: credentials_type()),
       else: schema
   end
 end

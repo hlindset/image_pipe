@@ -14,9 +14,11 @@ defmodule ImagePipeServer.Config.Convert do
   written, for the library's validator to check. Functions, modules, and
   untyped settings are not supported in the configuration file.
 
-  A schema may also use `{:convert, fun}` for an explicit conversion. `fun`
-  receives the value and its path and returns `{:ok, value}` or
-  `{:error, path, message}`.
+  A schema may also use `{:convert, fun, description}` for an explicit
+  conversion. `fun` receives the value and its path and returns
+  `{:ok, value}` or `{:error, path, message}`. `description` documents the
+  accepted value for `ImagePipeServer.Config.Reference`: a string, or the
+  schema of the table `fun` converts.
 
   Error messages name the setting, never its value.
   """
@@ -58,6 +60,10 @@ defmodule ImagePipeServer.Config.Convert do
 
   def options(_value, _schema, path), do: {:error, path, "expected a table"}
 
+  @doc "An explicit conversion of a table with `schema`."
+  @spec table(keyword()) :: {:convert, function(), keyword()}
+  def table(schema), do: {:convert, &options(&1, schema, &2), schema}
+
   @doc "Reads a string from a file or environment value."
   @spec string(term(), path()) :: result()
   def string({:env, value}, _path), do: {:ok, value}
@@ -66,7 +72,7 @@ defmodule ImagePipeServer.Config.Convert do
 
   @doc "Converts one value to `type`."
   @spec value(term(), term(), path()) :: result()
-  def value({:convert, fun}, value, path), do: fun.(value, path)
+  def value({:convert, fun, _description}, value, path), do: fun.(value, path)
 
   def value(:string, value, path), do: string(value, path)
 
@@ -145,7 +151,7 @@ defmodule ImagePipeServer.Config.Convert do
   # type alone doesn't carry, so `find_key/2` routes them here.
   defp keyword_spec(spec) do
     case Keyword.fetch(spec, :keys) do
-      {:ok, keys} -> Keyword.put(spec, :type, {:convert, &options(&1, keys, &2)})
+      {:ok, keys} -> Keyword.put(spec, :type, table(keys))
       :error -> spec
     end
   end
