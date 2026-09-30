@@ -722,6 +722,26 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "source fetch_decode: processing_error (detected svg)"
   end
 
+  test "renders the rejected loader on a loader-family mismatch" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :source, :fetch_decode, :stop],
+          %{duration: System.convert_time_unit(1, :millisecond, :native)},
+          %{
+            result: :processing_error,
+            error: :unsupported_source_format,
+            detected_source_format: :tiff,
+            source_loader: "dcrawload"
+          }
+        )
+      end)
+
+    assert log =~ "source fetch_decode: processing_error (detected tiff, loader dcrawload)"
+  end
+
   test "renders the frame count and the rejecting input limit on the fetch_decode span" do
     Telemetry.attach_default_logger(level: :info)
 

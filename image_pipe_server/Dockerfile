@@ -16,14 +16,16 @@ ARG RUNTIME_IMAGE=debian:trixie-20260918-slim
 FROM ${ELIXIR_IMAGE} AS build
 
 # libvips is built from source for JPEG XL decoding, which the libvips bundled
-# with the precompiled vix NIF lacks, and PNG palette quantization.
+# with the precompiled vix NIF lacks, and PNG palette quantization. Loaders for
+# families ImagePipe rejects are disabled explicitly, so a dependency appearing
+# in the base image can't add one.
 ARG VIPS_VERSION=8.18.7
 ARG VIPS_SHA256=5baaead3b0bb20ffdb9e9ff09aa9fda08620923df77b63b436654cb5e0b3bf94
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential meson ninja-build pkg-config curl ca-certificates git xz-utils \
       libglib2.0-dev libexpat1-dev libjpeg62-turbo-dev libpng-dev libwebp-dev \
-      libtiff-dev libgif-dev libheif-dev librsvg2-dev liborc-0.4-dev liblcms2-dev \
+      libtiff-dev libgif-dev libheif-dev liborc-0.4-dev liblcms2-dev \
       libjxl-dev libcgif-dev libexif-dev libimagequant-dev \
     && rm -rf /var/lib/apt/lists/*
 
@@ -34,10 +36,14 @@ RUN curl -fsSL -o /tmp/vips.tar.xz \
     && cd "/tmp/vips-${VIPS_VERSION}" \
     && meson setup build --prefix=/usr/local --libdir=lib --buildtype=release \
          -Dimagequant=enabled -Dmodules=disabled \
+         -Dmagick=disabled -Dpoppler=disabled -Dpdfium=disabled -Drsvg=disabled \
+         -Draw=disabled -Dopenslide=disabled -Dopenexr=disabled -Dcfitsio=disabled \
+         -Dmatio=disabled -Dnifti=disabled -Dppm=false -Danalyze=false -Dradiance=false \
     && meson compile -C build \
     && meson install -C build \
     && ldconfig \
     && vips -l | grep -q jxlload \
+    && ! vips -l | grep -Eq 'svgload|magickload|pdfload|dcrawload|ppmload' \
     && rm -rf /tmp/vips*
 
 # The Debian packages the runtime image needs for libvips' shared libraries.

@@ -70,13 +70,19 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
                     }}
   end
 
-  test "fetch/decode spans carry the source frame count and the rejecting input limit" do
+  test "fetch/decode spans carry the frame count, rejecting limit, and rejected loader" do
     prefix = [__MODULE__, :fetch_decode_frames]
     :ok = TestExporter.attach(self(), prefix: prefix)
 
     for metadata <- [
           %{result: :ok, source_frames: 3},
-          %{result: :processing_error, error: :input_limit, limit: :frames}
+          %{result: :processing_error, error: :input_limit, limit: :frames},
+          %{
+            result: :processing_error,
+            error: :unsupported_source_format,
+            detected_source_format: :tiff,
+            source_loader: "dcrawload"
+          }
         ] do
       Telemetry.span([telemetry_prefix: prefix], [:source, :fetch_decode], %{}, fn ->
         {:ok, metadata}

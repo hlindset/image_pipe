@@ -156,9 +156,8 @@ Success stop metadata:
 - `:detected_source_format` — the format the up-front detector returned from the
   header peek (`:jpeg`, `:png`, …, or `:unknown`). Product-neutral, non-sensitive.
 - `:source_format_resolution` — how the final `source_format` was decided:
-  `:detected` (authoritative magic), `:libvips_codec` (ISOBMFF avif-vs-heif split
-  from libvips), or `:libvips_fallback` (detector returned `:unknown`; libvips
-  classified).
+  `:detected` (the signature named the family) or `:libvips_codec` (the
+  AVIF-vs-HEIF split read from libvips).
 - `:source_frames` — the number of frames or pages the source declares (libvips
   `n-pages`, `1` for a still image). Only the first is decoded.
 
@@ -183,16 +182,23 @@ Failure stop metadata (one of two shapes, by failure mode):
   `:max_input_pixels` or declares more frames than `:max_input_frames`,
   `:decode` for an undecodable body). An `:input_limit` failure also carries
   `:limit`, `:pixels` or `:frames`, naming the limit that rejected the source.
-- Unsupported-format reject — a sub-case of `:processing_error` (before the
-  libvips open): also carries `:detected_source_format` set to the rejected family
-  atom (e.g. `:gif`, `:svg`), so an observer can distinguish a format gate from a
-  corrupt-body decode failure without parsing `:error`.
+- Unsupported-format reject — a sub-case of `:processing_error`; `:error` is
+  `:unsupported_source_format`. It also carries `:detected_source_format`, so an
+  observer can distinguish a format gate from a corrupt-body decode failure
+  without parsing `:error`. Two shapes:
+  - Rejected before any libvips call: `:detected_source_format` is the rejected
+    family (`:gif`, `:bmp`, `:ico`, `:svg`, `:avif_sequence`) or `:unknown` for
+    an unrecognised signature.
+  - Loader-family mismatch: the source has an accepted family's signature, but
+    libvips chose a loader outside that family. `:detected_source_format` is the
+    detected family and `:source_loader` names the loader (e.g. `"dcrawload"`).
 
-The default Logger appends the detected format, a frame count above one, and the
-rejecting limit, e.g. `source fetch_decode: ok (detected webp, 3 frames)` or
-`source fetch_decode: processing_error (frames limit)`. Input-limit rejections
+The default Logger appends the detected format, a rejected loader, a frame count
+above one, and the rejecting limit, e.g. `source fetch_decode: ok (detected webp,
+3 frames)`, `source fetch_decode: processing_error (detected tiff, loader
+dcrawload)`, or `source fetch_decode: processing_error (frames limit)`. Input-limit rejections
 log at the base level, like decode failures. The trace exporter keeps
-`:source_frames` and `:limit` as span attributes.
+`:source_frames`, `:limit`, and `:source_loader` as span attributes.
 
 An upstream `304` produces `result: :not_modified` on the source fetch span.
 The default Logger renders this outcome, and the trace exporter records it as
@@ -667,9 +673,10 @@ Representative stage → result mappings:
 
 - `[:source, :fetch_decode]` → `:ok`, `:source_error` (e.g. `error: :body_too_large`),
   or `:processing_error` (e.g. `error: :input_limit`, `:decode`). An
-  unsupported-format reject (gif/bmp/ico/svg, rejected before the libvips open)
-  reports `:result` `:processing_error` and carries `:detected_source_format` set
-  to the rejected family, so an observer sees why the request was rejected.
+  unsupported-format reject (a rejected or unrecognised family before any libvips
+  call, or a loader-family mismatch) reports `:result` `:processing_error` and
+  carries `:detected_source_format`, plus `:source_loader` for a mismatch, so an
+  observer sees why the request was rejected.
 - `[:transform, :execute]` → `:ok` or `:processing_error`.
 - `[:transform, :materialize]` → `:ok` or `:materialize_error`.
 - `[:output, :negotiate]` → `:ok` or a negotiation failure category.

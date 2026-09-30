@@ -2,8 +2,10 @@ defmodule ImagePipe.Decode do
   @moduledoc """
   Source fetch and image decode bracket.
 
-  `with_image/4` fetches through `ImagePipe.Source.with_fetched/3`, checks bounded
-  header dimensions when available, reads stored dimensions and EXIF orientation
+  `with_image/4` fetches through `ImagePipe.Source.with_fetched/3`, admits only
+  sources whose signature names an accepted family, checks bounded header
+  dimensions when available, verifies that libvips chose a loader of that family,
+  reads stored dimensions and EXIF orientation
   through libvips, then reopens sequentially with planned
   shrink-on-load options. It passes the resulting `ImagePipe.Transform.State`
   and `ImagePipe.Transform.SourceGeometry` to the caller.
@@ -37,11 +39,11 @@ defmodule ImagePipe.Decode do
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceGeometry
   alias ImagePipe.Transform.State
+  alias Vix.Vips.Foreign
   alias Vix.Vips.Image, as: VipsImage
 
   @peek_bytes 32 * 1024
-  @reject_families [:gif, :bmp, :ico, :svg]
-  @authoritative_formats [:jpeg, :png, :webp, :tiff, :jpeg2000, :jpeg_xl]
+  @reject_families [:gif, :bmp, :ico, :svg, :avif_sequence, :unknown]
 
   @type error() :: {:source, term()} | {:decode, term()} | {:input_limit, term()}
   @type input() :: Source.Resolved.t() | Source.Response.t() | {:download, pid(), binary()}
@@ -134,6 +136,7 @@ defmodule ImagePipe.Decode do
          :ok <- gate_detected(detected) |> wrap_decode_error(),
          :ok <- validate_header_pixels(peek, opts) |> wrap_input_limit_error(),
          :ok <- validate_container_frames(peek, input, opts),
+         :ok <- verify_file_loader(detected, input) |> wrap_decode_error(),
          {:ok, header_image} <-
            open_seekable_input(input, [access: :random, fail_on: :error], opts)
            |> wrap_decode_error(),
@@ -214,6 +217,15 @@ defmodule ImagePipe.Decode do
 
   defp error_stop_metadata({:input_limit, {:too_many_input_pixels, _count, _max}}),
     do: %{result: :processing_error, error: :input_limit, limit: :pixels}
+
+  defp error_stop_metadata({:decode, {:unsupported_source_format, family, loader} = inner}) do
+    %{
+      result: :processing_error,
+      error: Error.tag(inner),
+      detected_source_format: family,
+      source_loader: loader
+    }
+  end
 
   defp error_stop_metadata({:source, error}),
     do: %{result: :source_error, error: Error.tag(error)}
@@ -300,22 +312,30 @@ defmodule ImagePipe.Decode do
 
   defp gate_detected(_detected), do: :ok
 
-  defp resolve_source_format(detected, _header_image) when detected in @authoritative_formats,
-    do: {:ok, detected, :detected}
-
-  defp resolve_source_format(detected, header_image) when detected in [:avif, :heif] do
-    case SourceFormat.from_image(header_image) do
-      {:ok, source_format} -> {:ok, source_format, :libvips_codec}
-      {:error, _reason} -> {:ok, detected, :libvips_codec}
+  # Only a loader of the detected family may decode the source. libvips picks
+  # by sniffing, so a higher-priority loader for the same signature (such as a
+  # RAW loader for TIFF-signature files) would otherwise decode it.
+  defp resolve_source_format(detected, header_image) do
+    with {:ok, source_format} <- SourceFormat.verify(header_image, detected) do
+      {:ok, source_format, resolution(detected)}
     end
   end
 
-  defp resolve_source_format(:unknown, header_image) do
-    case SourceFormat.from_image(header_image) do
-      {:ok, source_format} -> {:ok, source_format, :libvips_fallback}
+  defp resolution(detected) when detected in [:avif, :heif], do: :libvips_codec
+  defp resolution(_detected), do: :detected
+
+  # libvips' file sniffing lets a RAW loader claim TIFF-signature files by name
+  # (`.dng`, `.nef`, ...), and that loader parses the file during the header
+  # open, before `resolve_source_format/2` could reject it.
+  defp verify_file_loader(:tiff, {:path, path}) do
+    case Foreign.find_load(path) do
+      {:ok, "VipsForeignLoadTiff" <> _suffix} -> :ok
+      {:ok, loader} -> {:error, {:unsupported_source_format, :tiff, loader}}
       {:error, _reason} = error -> error
     end
   end
+
+  defp verify_file_loader(_detected, _input), do: :ok
 
   defp open_seekable_input({:path, path}, decode_options, opts) do
     case Keyword.get(opts, :image_open_module) do
