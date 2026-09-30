@@ -1,4 +1,4 @@
-defmodule ImagePipe.Plan.Request.Group do
+defmodule ImagePipe.Plan.Spec.Group do
   @moduledoc """
   One group's transform intent.
 

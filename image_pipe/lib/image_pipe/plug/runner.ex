@@ -6,7 +6,7 @@ defmodule ImagePipe.Plug.Runner do
   alias ImagePipe.Execution
   alias ImagePipe.Execution.Inputs
   alias ImagePipe.Output.Policy
-  alias ImagePipe.Plan.Request
+  alias ImagePipe.Plan.Spec
   alias ImagePipe.Plug.Errors
   alias ImagePipe.Plug.Request, as: ParsedRequest
   alias ImagePipe.Response.CacheHeaders
@@ -242,7 +242,7 @@ defmodule ImagePipe.Plug.Runner do
 
   defp with_policy_headers(conn, nil), do: conn
 
-  defp delivery_config(%Request{} = request, config) do
+  defp delivery_config(%Spec{} = request, config) do
     Keyword.put(
       config,
       :debug?,

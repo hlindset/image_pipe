@@ -10,9 +10,9 @@ defmodule ImagePipe.Transform.Executor do
   import ImagePipe.Transform.Geometry, only: [round_ties_to_even: 1]
 
   alias ImagePipe.Plan.Color
-  alias ImagePipe.Plan.Request
-  alias ImagePipe.Plan.Request.Group
-  alias ImagePipe.Plan.Request.Output
+  alias ImagePipe.Plan.Spec
+  alias ImagePipe.Plan.Spec.Group
+  alias ImagePipe.Plan.Spec.Output
   alias ImagePipe.Transform
   alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.Executor.Geometry
@@ -48,14 +48,14 @@ defmodule ImagePipe.Transform.Executor do
   @default_trim_threshold 10.0
   @blurhash_terminal_reduction {32, 32}
 
-  @spec decode_request(Request.t(), SourceGeometry.t()) :: DecodePlanner.Request.t()
-  def decode_request(%Request{groups: [%Group{rotate: angle} | _]}, _geometry)
+  @spec decode_request(Spec.t(), SourceGeometry.t()) :: DecodePlanner.Request.t()
+  def decode_request(%Spec{groups: [%Group{rotate: angle} | _]}, _geometry)
       when angle != nil and angle not in [90, 180, 270] do
     %DecodePlanner.Request{}
   end
 
   def decode_request(
-        %Request{groups: [%Group{} = group | _]} = request,
+        %Spec{groups: [%Group{} = group | _]} = request,
         %SourceGeometry{} = geometry
       ) do
     {display_width, display_height} = geometry.display_dimensions
@@ -73,9 +73,9 @@ defmodule ImagePipe.Transform.Executor do
     }
   end
 
-  @spec execute(State.t(), Request.t(), keyword()) ::
+  @spec execute(State.t(), Spec.t(), keyword()) ::
           {:ok, State.t()} | {:error, {:transform, term()} | {:decode, term()}}
-  def execute(%State{} = state, %Request{} = request, opts) do
+  def execute(%State{} = state, %Spec{} = request, opts) do
     state = %State{
       state
       | detector: Transform.resolve_detector(Keyword.get(opts, :detector, :default))
@@ -130,8 +130,8 @@ defmodule ImagePipe.Transform.Executor do
   end
 
   @doc "The fixed-order operation names represented by a request."
-  @spec operation_names(Request.t()) :: [atom()]
-  def operation_names(%Request{groups: groups}),
+  @spec operation_names(Spec.t()) :: [atom()]
+  def operation_names(%Spec{groups: groups}),
     do: Enum.flat_map(groups, &group_operation_names/1)
 
   defp execute_groups(state, groups, opts) do
@@ -638,13 +638,13 @@ defmodule ImagePipe.Transform.Executor do
 
   defp decode_crop_extent(%Group{}, _display_dims), do: nil
 
-  defp decode_terminal_reduction(%Request{
+  defp decode_terminal_reduction(%Spec{
          groups: [_group],
          output: %Output{terminal: :blurhash}
        }),
        do: @blurhash_terminal_reduction
 
-  defp decode_terminal_reduction(%Request{}), do: nil
+  defp decode_terminal_reduction(%Spec{}), do: nil
 
   defp condition_color(%State{} = state, opts) do
     case InputColorManagement.condition(state,

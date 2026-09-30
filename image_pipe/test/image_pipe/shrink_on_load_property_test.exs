@@ -4,7 +4,7 @@ defmodule ImagePipe.ShrinkOnLoadPropertyTest do
   use ExUnitProperties
 
   alias ImagePipe.Decode
-  alias ImagePipe.Plan.Request
+  alias ImagePipe.Plan.Spec
   alias ImagePipe.Plug.Request, as: ParsedRequest
   alias ImagePipe.Source
   alias ImagePipe.Source.Parser, as: APISource
@@ -101,7 +101,7 @@ defmodule ImagePipe.ShrinkOnLoadPropertyTest do
   defp request(options, opts) do
     path = "/#{options}/src/property.img"
 
-    assert {{:ok, %Request{} = request, source}, _metadata} =
+    assert {{:ok, %Spec{} = request, source}, _metadata} =
              ParsedRequest.parse(Plug.Test.conn(:get, path), opts)
 
     {request, source}

@@ -12,7 +12,7 @@ defmodule ImagePipe.Plan.Presets do
   pipeline preset cannot be combined with it. Output options can override it.
   """
 
-  alias ImagePipe.Plan.Request.Issue
+  alias ImagePipe.Plan.Spec.Issue
 
   @guide_family [:anchor, :anchor_offset, :focus, :detect]
   @canvas_family [:extend, :extend_ratio, :extend_at, :extend_offset]

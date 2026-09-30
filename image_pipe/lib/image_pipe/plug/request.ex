@@ -3,7 +3,7 @@ defmodule ImagePipe.Plug.Request do
 
   alias ImagePipe.API.Parser
   alias ImagePipe.API.Path
-  alias ImagePipe.Plan.Request
+  alias ImagePipe.Plan.Spec
   alias ImagePipe.Processing
   alias ImagePipe.Security
   alias ImagePipe.Source.Parser, as: SourceParser
@@ -24,7 +24,7 @@ defmodule ImagePipe.Plug.Request do
       end
 
     case result do
-      {%Request{} = request, source, key_index} ->
+      {%Spec{} = request, source, key_index} ->
         {{:ok, request, source}, %{result: :ok, sig_key_index: key_index}}
 
       {:error, _reason} = error ->
@@ -33,7 +33,7 @@ defmodule ImagePipe.Plug.Request do
     end
   end
 
-  def prepare(%Request{} = request, source, config, accept_header) do
+  def prepare(%Spec{} = request, source, config, accept_header) do
     with {:ok, policy} <- Processing.prepare(request, config, accept_header),
          {:ok, plan_source} <- SourceParser.translate(source, config) do
       {:ok, plan_source, policy}

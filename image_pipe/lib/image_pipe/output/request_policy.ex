@@ -6,7 +6,7 @@ defmodule ImagePipe.Output.RequestPolicy do
   alias ImagePipe.Output.Policy
   alias ImagePipe.Plan.Output, as: PlanOutput
   alias ImagePipe.Plan.Output.QualitySearch
-  alias ImagePipe.Plan.Request.Output, as: RequestOutput
+  alias ImagePipe.Plan.Spec.Output, as: SpecOutput
 
   @encoder_option_config %{
     jpeg: :jpeg_options,
@@ -15,14 +15,14 @@ defmodule ImagePipe.Output.RequestPolicy do
     avif: :avif_options
   }
 
-  @spec resolve(RequestOutput.t(), keyword(), String.t()) ::
+  @spec resolve(SpecOutput.t(), keyword(), String.t()) ::
           {:ok, Policy.t() | nil} | {:error, {:invalid_output, term()}}
-  def resolve(%RequestOutput{terminal: terminal}, _config, _accept_header)
+  def resolve(%SpecOutput{terminal: terminal}, _config, _accept_header)
       when terminal in [:blurhash, :lqip_css, :info] do
     {:ok, nil}
   end
 
-  def resolve(%RequestOutput{} = request, config, accept_header) do
+  def resolve(%SpecOutput{} = request, config, accept_header) do
     with {:ok, quality_search} <- resolve_quality_search(request, config),
          output = policy(request, config, accept_header, quality_search),
          :ok <- validate_hdr_profile(output),
@@ -100,16 +100,16 @@ defmodule ImagePipe.Output.RequestPolicy do
   defp hdr_policy(true), do: :preserve
   defp hdr_policy(false), do: :tone_map
 
-  defp resolve_quality_search(%RequestOutput{quality: quality}, _config)
+  defp resolve_quality_search(%SpecOutput{quality: quality}, _config)
        when not is_nil(quality),
        do: {:ok, :none}
 
-  defp resolve_quality_search(%RequestOutput{autoquality: nil}, config),
+  defp resolve_quality_search(%SpecOutput{autoquality: nil}, config),
     do: QualitySearch.from_config(config)
 
-  defp resolve_quality_search(%RequestOutput{autoquality: :none}, _config), do: {:ok, :none}
+  defp resolve_quality_search(%SpecOutput{autoquality: :none}, _config), do: {:ok, :none}
 
-  defp resolve_quality_search(%RequestOutput{autoquality: {method, fields}}, config),
+  defp resolve_quality_search(%SpecOutput{autoquality: {method, fields}}, config),
     do: QualitySearch.build(method, fields, config)
 
   defp metadata_policy(nil, strip_metadata, keep_copyright),
@@ -137,7 +137,7 @@ defmodule ImagePipe.Output.RequestPolicy do
            mode: {:explicit, :webp},
            encoder_options: %{webp: %PlanOutput.WebpOptions{lossless: true}}
          },
-         %RequestOutput{autoquality: autoquality, max_bytes: max_bytes}
+         %SpecOutput{autoquality: autoquality, max_bytes: max_bytes}
        ) do
     if enabled_url_autoquality?(autoquality) or not is_nil(max_bytes) do
       {:error, :lossless_webp_quality_search}
@@ -146,7 +146,7 @@ defmodule ImagePipe.Output.RequestPolicy do
     end
   end
 
-  defp validate_lossless_webp_request(%Policy{}, %RequestOutput{}), do: :ok
+  defp validate_lossless_webp_request(%Policy{}, %SpecOutput{}), do: :ok
 
   defp enabled_url_autoquality?({_method, _fields}), do: true
 

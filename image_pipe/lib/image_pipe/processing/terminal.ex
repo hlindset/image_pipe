@@ -5,15 +5,15 @@ defmodule ImagePipe.Processing.Terminal do
   alias ImagePipe.Format
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Output.Terminal.LqipCss
-  alias ImagePipe.Plan.Request
+  alias ImagePipe.Plan.Spec
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.PendingOrientation
   alias Vix.Vips.Image, as: VipsImage
 
-  @spec render(Decode.input(), Request.t(), keyword()) ::
+  @spec render(Decode.input(), Spec.t(), keyword()) ::
           {:ok, String.t(), binary() | map()} | {:error, term()}
-  def render(source, %Request{} = request, config) do
+  def render(source, %Spec{} = request, config) do
     Telemetry.span(
       Telemetry.telemetry_opts(config),
       [:output, :terminal],
@@ -29,7 +29,7 @@ defmodule ImagePipe.Processing.Terminal do
     )
   end
 
-  defp render_body(state, _geometry, %Request{output: %{terminal: :blurhash}} = request, config) do
+  defp render_body(state, _geometry, %Spec{output: %{terminal: :blurhash}} = request, config) do
     with {:ok, state} <- Executor.execute(state, request, config),
          {:ok, state} <- Executor.reduce_terminal(state, request.output, config) do
       case Blurhash.compute(state.image) do
@@ -39,7 +39,7 @@ defmodule ImagePipe.Processing.Terminal do
     end
   end
 
-  defp render_body(state, geometry, %Request{output: %{terminal: :info}}, _config) do
+  defp render_body(state, geometry, %Spec{output: %{terminal: :info}}, _config) do
     orientation = exif_orientation(state.image)
 
     {width, height} =
@@ -61,7 +61,7 @@ defmodule ImagePipe.Processing.Terminal do
     {:ok, "application/json", body}
   end
 
-  defp render_body(state, _geometry, %Request{output: %{terminal: :lqip_css}} = request, config) do
+  defp render_body(state, _geometry, %Spec{output: %{terminal: :lqip_css}} = request, config) do
     with {:ok, state} <- Executor.execute(state, request, config),
          {:ok, state} <- Executor.reduce_terminal(state, request.output, config) do
       case LqipCss.compute(state.image) do

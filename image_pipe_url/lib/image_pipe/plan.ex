@@ -12,10 +12,10 @@ defmodule ImagePipe.Plan do
     deps: [ImagePipe.Format],
     exports: [
       Presets,
-      Request,
-      Request.Group,
-      Request.Output,
-      Request.Issue,
+      Spec,
+      Spec.Group,
+      Spec.Output,
+      Spec.Issue,
       Output,
       Output.QualitySearch,
       Output.QualitySearch.Metric,
@@ -36,8 +36,8 @@ defmodule ImagePipe.Plan do
 
   alias ImagePipe.Plan.Builder.Options
   alias ImagePipe.Plan.Presets
-  alias ImagePipe.Plan.Request
-  alias ImagePipe.Plan.Request.Issue
+  alias ImagePipe.Plan.Spec
+  alias ImagePipe.Plan.Spec.Issue
 
   defstruct groups: [], options: %{}
 
@@ -63,22 +63,22 @@ defmodule ImagePipe.Plan do
   @doc false
   @spec validate(t(), map()) :: :ok | {:error, [Issue.t()]}
   def validate(%__MODULE__{} = plan, presets \\ %{}) do
-    case to_request(plan, presets) do
+    case to_spec(plan, presets) do
       {:ok, _request} -> :ok
       {:error, _issues} = error -> error
     end
   end
 
   @doc false
-  @spec to_request(t(), map()) :: {:ok, Request.t()} | {:error, [Issue.t()]}
-  def to_request(%__MODULE__{} = plan, presets \\ %{}) do
+  @spec to_spec(t(), map()) :: {:ok, Spec.t()} | {:error, [Issue.t()]}
+  def to_spec(%__MODULE__{} = plan, presets \\ %{}) do
     indexed = plan |> groups() |> Enum.with_index() |> Map.new(fn {group, i} -> {i, group} end)
 
     with {:ok, expanded} <- Presets.expand(indexed, plan.options, presets) do
       groups = expanded.groups |> Enum.sort() |> Enum.map(&elem(&1, 1))
 
-      case Request.errors(groups, expanded.request) do
-        [] -> {:ok, Request.build(groups, expanded.request)}
+      case Spec.errors(groups, expanded.request) do
+        [] -> {:ok, Spec.build(groups, expanded.request)}
         issues -> {:error, issues}
       end
     end

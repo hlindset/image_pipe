@@ -9,7 +9,7 @@ defmodule ImagePipe.Transform.Executor.Geometry do
   alias ImagePipe.Transform.State
 
   @spec resize_target(
-          ImagePipe.Plan.Request.Group.resize(),
+          ImagePipe.Plan.Spec.Group.resize(),
           float(),
           {pos_integer(), pos_integer()}
         ) ::

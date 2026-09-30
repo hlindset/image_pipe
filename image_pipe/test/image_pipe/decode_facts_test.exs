@@ -3,8 +3,8 @@ defmodule ImagePipe.DecodeFactsTest do
 
   alias ImagePipe.API.Parser
   alias ImagePipe.Decode
-  alias ImagePipe.Plan.Request
   alias ImagePipe.Plan.Source.Path
+  alias ImagePipe.Plan.Spec
   alias ImagePipe.Plug.Config
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter
@@ -29,7 +29,7 @@ defmodule ImagePipe.DecodeFactsTest do
     {:ok, resolved} = Source.resolve(source, config, config)
     source_value = "images/beach.jpg"
 
-    assert {:ok, %Request{} = request} =
+    assert {:ok, %Spec{} = request} =
              Parser.parse(
                %{segments: [], source: {:src, source_value, {0, byte_size(source_value)}}},
                config

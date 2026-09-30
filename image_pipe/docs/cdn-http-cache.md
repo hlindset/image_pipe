@@ -305,7 +305,7 @@ Detector and model identity enter both values because changing either can change
 the rendition. A conditional GET cannot return `304` for a rendition made by a
 different detector.
 
-`Plan.Request.expires` is enforced before source resolution. It
+`Plan.Spec.expires` is enforced before source resolution. It
 doesn't change generated `Cache-Control`.
 
 ## Versioning

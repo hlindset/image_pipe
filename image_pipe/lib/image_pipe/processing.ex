@@ -25,7 +25,7 @@ defmodule ImagePipe.Processing do
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.RequestPolicy
   alias ImagePipe.Output.Resolved, as: ResolvedOutput
-  alias ImagePipe.Plan.Request
+  alias ImagePipe.Plan.Spec
   alias ImagePipe.Processing.DebugBuilder
   alias ImagePipe.Processing.Prepared
   alias ImagePipe.Telemetry
@@ -34,7 +34,7 @@ defmodule ImagePipe.Processing do
   alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.State
 
-  def prepare(%Request{} = request, config, accept) do
+  def prepare(%Spec{} = request, config, accept) do
     with :ok <- check_expires(request, Keyword.fetch!(config, :clock).()),
          {:ok, policy} <- RequestPolicy.resolve(request.output, config, accept),
          :ok <- ensure_output_capable(policy, config),
@@ -43,9 +43,9 @@ defmodule ImagePipe.Processing do
     end
   end
 
-  defp check_expires(%Request{expires: nil}, _now), do: :ok
-  defp check_expires(%Request{expires: expires}, now) when expires < now, do: {:error, :expired}
-  defp check_expires(%Request{}, _now), do: :ok
+  defp check_expires(%Spec{expires: nil}, _now), do: :ok
+  defp check_expires(%Spec{expires: expires}, now) when expires < now, do: {:error, :expired}
+  defp check_expires(%Spec{}, _now), do: :ok
 
   defp ensure_output_capable(nil, _config), do: :ok
   defp ensure_output_capable(policy, config), do: Policy.ensure_capable(policy, config)
@@ -68,7 +68,7 @@ defmodule ImagePipe.Processing do
     end
   end
 
-  def explicit_detector_classes(%Request{groups: groups}) do
+  def explicit_detector_classes(%Spec{groups: groups}) do
     groups
     |> Enum.reduce_while([], fn group, classes ->
       case group.guide do
@@ -112,7 +112,7 @@ defmodule ImagePipe.Processing do
     end
   end
 
-  def build_fun(%Request{} = request, source, policy, config) do
+  def build_fun(%Spec{} = request, source, policy, config) do
     on_bracket_exit = Keyword.get(config, :on_bracket_exit, fn -> :ok end)
 
     fn pump ->
@@ -216,7 +216,7 @@ defmodule ImagePipe.Processing do
     end
   end
 
-  defp run_transform(state, geometry, %Request{} = request, policy, config) do
+  defp run_transform(state, geometry, %Spec{} = request, policy, config) do
     operations = Executor.operation_names(request)
 
     Telemetry.span(

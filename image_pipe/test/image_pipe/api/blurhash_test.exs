@@ -6,8 +6,8 @@ defmodule ImagePipe.API.BlurhashTest do
   alias ImagePipe.API.Parser
   alias ImagePipe.Decode
   alias ImagePipe.Output.Terminal.Blurhash
-  alias ImagePipe.Plan.Request
   alias ImagePipe.Plan.Source.Path, as: SourcePath
+  alias ImagePipe.Plan.Spec
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Transform.Executor
@@ -67,7 +67,7 @@ defmodule ImagePipe.API.BlurhashTest do
     request
   end
 
-  defp run_reduced(origin, %Request{} = request, extra \\ []) do
+  defp run_reduced(origin, %Spec{} = request, extra \\ []) do
     opts = source_opts(origin, extra)
 
     Decode.with_image(

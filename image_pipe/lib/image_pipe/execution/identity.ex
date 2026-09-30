@@ -15,7 +15,7 @@ defmodule ImagePipe.Execution.Identity do
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Output.Terminal.LqipCss
-  alias ImagePipe.Plan.Request
+  alias ImagePipe.Plan.Spec
   alias ImagePipe.Representation.IdentityMaterial
 
   @doc """
@@ -23,10 +23,10 @@ defmodule ImagePipe.Execution.Identity do
   outcome, the normalized request inputs (consulted only for configured
   `storage_inputs`), and mount `config`.
   """
-  @spec material(Request.t(), Policy.t() | nil, Inputs.t(), keyword(), term() | nil) ::
+  @spec material(Spec.t(), Policy.t() | nil, Inputs.t(), keyword(), term() | nil) ::
           IdentityMaterial.t()
   def material(
-        %Request{} = request,
+        %Spec{} = request,
         policy,
         %Inputs{} = inputs,
         config,
@@ -55,7 +55,7 @@ defmodule ImagePipe.Execution.Identity do
   end
 
   defp representation_material(
-         %Request{output: %{terminal: :info}},
+         %Spec{output: %{terminal: :info}},
          nil,
          _detector_identity
        ) do
@@ -63,7 +63,7 @@ defmodule ImagePipe.Execution.Identity do
   end
 
   defp representation_material(
-         %Request{output: %{terminal: terminal}} = request,
+         %Spec{output: %{terminal: terminal}} = request,
          nil,
          detector_identity
        )

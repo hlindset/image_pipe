@@ -108,7 +108,7 @@ defmodule ImagePipe.URLTest do
     assert URI.parse(path).fragment == nil
     assert {:ok, lexed} = Path.extract(path, "")
     assert {:ok, request} = Parser.parse(lexed, presets: %{})
-    assert {:ok, ^request} = Plan.to_request(plan.plan)
+    assert {:ok, ^request} = Plan.to_spec(plan.plan)
   end
 
   test "signatures cover the mount-relative path with stable explicit expiry" do

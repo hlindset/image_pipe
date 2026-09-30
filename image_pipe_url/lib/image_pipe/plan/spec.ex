@@ -1,4 +1,4 @@
-defmodule ImagePipe.Plan.Request do
+defmodule ImagePipe.Plan.Spec do
   @moduledoc """
   Canonical request data shared by parsing and execution.
 
@@ -8,10 +8,10 @@ defmodule ImagePipe.Plan.Request do
   with this data without contributing to pixel identity.
   """
 
-  alias ImagePipe.Plan.Request.Group
-  alias ImagePipe.Plan.Request.Issue
-  alias ImagePipe.Plan.Request.Output
-  alias ImagePipe.Plan.Request.Validation
+  alias ImagePipe.Plan.Spec.Group
+  alias ImagePipe.Plan.Spec.Issue
+  alias ImagePipe.Plan.Spec.Output
+  alias ImagePipe.Plan.Spec.Validation
 
   @enforce_keys [:groups, :output]
   defstruct groups: [],

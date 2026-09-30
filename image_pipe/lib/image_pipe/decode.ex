@@ -27,8 +27,8 @@ defmodule ImagePipe.Decode do
   alias ImagePipe.Decode.Streaming
   alias ImagePipe.Error
   alias ImagePipe.Format.Detector
-  alias ImagePipe.Plan.Request
-  alias ImagePipe.Plan.Request.Output
+  alias ImagePipe.Plan.Spec
+  alias ImagePipe.Plan.Spec.Output
   alias ImagePipe.Source
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.DecodePlanner
@@ -75,12 +75,12 @@ defmodule ImagePipe.Decode do
   """
   @spec with_image(
           input(),
-          Request.t(),
+          Spec.t(),
           keyword(),
           (State.t(), SourceGeometry.t() -> result)
         ) :: result | {:error, error()}
         when result: var
-  def with_image(source, %Request{} = request, opts, fun)
+  def with_image(source, %Spec{} = request, opts, fun)
       when is_function(fun, 2) do
     auto_rotate? = auto_rotate?(request)
     span = Telemetry.start_span(Telemetry.telemetry_opts(opts), [:source, :fetch_decode], %{})
@@ -164,9 +164,9 @@ defmodule ImagePipe.Decode do
     end
   end
 
-  defp auto_rotate?(%Request{output: %Output{terminal: :info}}), do: false
-  defp auto_rotate?(%Request{orient: :auto}), do: true
-  defp auto_rotate?(%Request{orient: :none}), do: false
+  defp auto_rotate?(%Spec{output: %Output{terminal: :info}}), do: false
+  defp auto_rotate?(%Spec{orient: :auto}), do: true
+  defp auto_rotate?(%Spec{orient: :none}), do: false
 
   defp ok_stop_metadata(image, decode_options, storage_dimensions, detected, resolution) do
     load_option =

@@ -3,7 +3,7 @@ defmodule ImagePipe.ShrinkThroughCropTest do
   use ExUnit.Case, async: false
 
   alias ImagePipe.Decode
-  alias ImagePipe.Plan.Request
+  alias ImagePipe.Plan.Spec
   alias ImagePipe.Plug.Request, as: ParsedRequest
   alias ImagePipe.Source
   alias ImagePipe.Source.Parser, as: APISource
@@ -58,14 +58,14 @@ defmodule ImagePipe.ShrinkThroughCropTest do
   end
 
   defp request("", opts) do
-    assert {{:ok, %Request{} = request, source}, _metadata} =
+    assert {{:ok, %Spec{} = request, source}, _metadata} =
              ParsedRequest.parse(Plug.Test.conn(:get, "/src/crop.img"), opts)
 
     {request, source}
   end
 
   defp request(options, opts) do
-    assert {{:ok, %Request{} = request, source}, _metadata} =
+    assert {{:ok, %Spec{} = request, source}, _metadata} =
              ParsedRequest.parse(Plug.Test.conn(:get, "/#{options}/src/crop.img"), opts)
 
     {request, source}
