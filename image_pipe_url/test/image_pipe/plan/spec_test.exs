@@ -1,12 +1,12 @@
-defmodule ImagePipe.Plan.RequestTest do
+defmodule ImagePipe.Plan.SpecTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias ImagePipe.Plan.Request
+  alias ImagePipe.Plan.Spec
 
   test "builds ordered groups from typed intent with independent defaults" do
     request =
-      Request.build(
+      Spec.build(
         [%{width: 400, height: 300, fit: :cover, dpr: 2.0}, %{trim: :auto}],
         %{format: :webp, quality: 82}
       )
@@ -26,7 +26,7 @@ defmodule ImagePipe.Plan.RequestTest do
   end
 
   test "keeps output policy sparse for host defaults to resolve later" do
-    request = Request.build([%{}], %{})
+    request = Spec.build([%{}], %{})
 
     assert request.orient == :auto
     assert request.output.terminal == :image
@@ -41,7 +41,7 @@ defmodule ImagePipe.Plan.RequestTest do
 
   test "normalizes identity effects and offsets" do
     request =
-      Request.build(
+      Spec.build(
         [
           %{
             crop: {{:pct, 50}, {:pct, 100}},
@@ -87,7 +87,7 @@ defmodule ImagePipe.Plan.RequestTest do
 
   test "resolves trim, canvas, and background defaults" do
     request =
-      Request.build(
+      Spec.build(
         [
           %{
             width: 200,
@@ -109,7 +109,7 @@ defmodule ImagePipe.Plan.RequestTest do
 
   test "preserves request controls separately from image groups" do
     request =
-      Request.build(
+      Spec.build(
         [%{}],
         %{
           orient: :none,
@@ -131,10 +131,10 @@ defmodule ImagePipe.Plan.RequestTest do
 
   property "omitted and explicit resize defaults produce the same intent" do
     check all width <- integer(1..4000) do
-      implicit = Request.build([%{width: width}], %{})
+      implicit = Spec.build([%{width: width}], %{})
 
       explicit =
-        Request.build(
+        Spec.build(
           [%{width: width, height: :auto, fit: :contain, enlarge: false, zoom: {1.0, 1.0}}],
           %{}
         )

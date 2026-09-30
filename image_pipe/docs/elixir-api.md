@@ -528,7 +528,7 @@ named presets before checking the combined options.
 Unknown options, duplicate keys, invalid types, and out-of-range values raise
 `ArgumentError` during construction. `ImagePipe.URL.validate/1` checks
 dependencies, conflicts, and terminal applicability, returning `:ok` or
-`{:error, issues}`. Each `ImagePipe.Plan.Request.Issue` has a `reason`,
+`{:error, issues}`. Each `ImagePipe.Plan.Spec.Issue` has a `reason`,
 `detail`, and `locations`: `{:group, zero_based_index, option_name}` or
 `{:request, option_name}`. Resize locations use the individual names such as
 `:width` and `:fit`.

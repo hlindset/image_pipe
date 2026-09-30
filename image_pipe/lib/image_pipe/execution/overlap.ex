@@ -1,6 +1,6 @@
 defmodule ImagePipe.Execution.Overlap do
   @moduledoc false
-  alias ImagePipe.Plan.Request
+  alias ImagePipe.Plan.Spec
   alias ImagePipe.Processing
   alias ImagePipe.ProcessingPool
   alias ImagePipe.Source.{Download, Origin, Response}
@@ -102,7 +102,7 @@ defmodule ImagePipe.Execution.Overlap do
 
   defp candidate(
          %Response{path: nil, origin: %Origin{headers: headers}},
-         {%Request{output: %{terminal: :image}} = request, policy},
+         {%Spec{output: %{terminal: :image}} = request, policy},
          config
        ) do
     limit = Keyword.fetch!(config, :max_body_bytes)

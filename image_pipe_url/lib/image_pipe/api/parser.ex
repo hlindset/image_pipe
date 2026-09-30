@@ -1,6 +1,6 @@
 defmodule ImagePipe.API.Parser do
   @moduledoc """
-  Parses URL segments into a validated, canonical `%Request{}`.
+  Parses URL segments into a validated, canonical `%Spec{}`.
 
   `parse/2` consumes the lexed map from `ImagePipe.API.Path.extract/2`.
   `Path` owns raw-path and HTTP handling.
@@ -13,7 +13,7 @@ defmodule ImagePipe.API.Parser do
        marking every occurrence. Then expand presets.
     4. Check conflicts, inert options, and output applicability using only valid,
        non-duplicate values, to avoid errors caused by earlier failures.
-    5. Translate into typed intent for `Plan.Request.build/2`, which removes
+    5. Translate into typed intent for `Plan.Spec.build/2`, which removes
        identity values and resolves omitted fit/guide defaults.
 
   Diagnostics are `ImagePipe.API.Diagnostic` structs with stable `reason` atoms.
@@ -23,7 +23,7 @@ defmodule ImagePipe.API.Parser do
   alias ImagePipe.API.OptionSpec
   alias ImagePipe.API.Value
   alias ImagePipe.Plan.Presets
-  alias ImagePipe.Plan.Request
+  alias ImagePipe.Plan.Spec
 
   @intent_keys Map.new(for spec <- OptionSpec.all(), spec.name != nil, do: {spec.key, spec.name})
 
@@ -37,10 +37,10 @@ defmodule ImagePipe.API.Parser do
 
   @doc """
   Parses a fully lexed request path (`ImagePipe.API.Path.extract/2`'s
-  success value) into a canonical `%Request{}`.
+  success value) into a canonical `%Spec{}`.
   """
   @spec parse(lexed(), keyword()) ::
-          {:ok, Request.t()} | {:error, {:invalid_request, [Diagnostic.t()]}}
+          {:ok, Spec.t()} | {:error, {:invalid_request, [Diagnostic.t()]}}
   def parse(%{segments: segments, source: {_marker, _source, source_span}}, config) do
     {parsed, occurrences, parse_errors} = parse_options(segments)
     whole_path_span = whole_path_span(source_span)
@@ -359,7 +359,7 @@ defmodule ImagePipe.API.Parser do
 
     group_maps
     |> typed_groups()
-    |> Request.errors(typed_options(request_map), invalid)
+    |> Spec.errors(typed_options(request_map), invalid)
     |> Enum.map(&semantic_diagnostic(&1, occurrences))
   end
 
@@ -413,7 +413,7 @@ defmodule ImagePipe.API.Parser do
   defp requirement_message({:format, format}), do: "format=#{format}"
 
   defp build_request(group_maps, request_map),
-    do: Request.build(typed_groups(group_maps), typed_options(request_map))
+    do: Spec.build(typed_groups(group_maps), typed_options(request_map))
 
   defp typed_groups(group_maps) do
     group_maps

@@ -1,4 +1,4 @@
-defmodule ImagePipe.Plan.Request.Output do
+defmodule ImagePipe.Plan.Spec.Output do
   @moduledoc """
   Terminal selection and sparse output intent from a request.
 

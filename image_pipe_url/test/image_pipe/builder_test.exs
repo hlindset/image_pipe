@@ -15,7 +15,7 @@ defmodule ImagePipe.BuilderTest do
       |> IP.URL.output(format: :webp, quality: 82)
 
     assert :ok = IP.URL.validate(plan)
-    assert {:ok, first} = Plan.to_request(plan.plan)
+    assert {:ok, first} = Plan.to_spec(plan.plan)
     assert first.orient == :none
     assert first.output.format == :webp
     assert first.output.quality == 82
@@ -32,8 +32,8 @@ defmodule ImagePipe.BuilderTest do
   test "output overrides leave the original plan reusable and defaults sparse" do
     base = IP.URL.new() |> IP.URL.output(format: :webp, quality: 80)
     changed = IP.URL.output(base, quality: 60)
-    assert {:ok, original} = Plan.to_request(base.plan)
-    assert {:ok, updated} = Plan.to_request(changed.plan)
+    assert {:ok, original} = Plan.to_spec(base.plan)
+    assert {:ok, updated} = Plan.to_spec(changed.plan)
     assert original.output.quality == 80
     assert updated.output.quality == 60
     assert updated.output.format == :webp
@@ -169,7 +169,7 @@ defmodule ImagePipe.BuilderTest do
       ] do
     test "native and URL #{name} produce the same canonical intent" do
       plan = IP.URL.new() |> IP.URL.group(unquote(Macro.escape(options)))
-      assert {:ok, request} = Plan.to_request(plan.plan)
+      assert {:ok, request} = Plan.to_spec(plan.plan)
       assert {:ok, ^request} = parse(unquote(path))
     end
   end
@@ -226,7 +226,7 @@ defmodule ImagePipe.BuilderTest do
       ] do
     test "native and URL #{name} output settings produce the same sparse policy" do
       plan = IP.URL.new() |> IP.URL.output(unquote(Macro.escape(options)))
-      assert {:ok, request} = Plan.to_request(plan.plan)
+      assert {:ok, request} = Plan.to_spec(plan.plan)
       assert {:ok, ^request} = parse(unquote(path))
     end
   end
@@ -246,7 +246,7 @@ defmodule ImagePipe.BuilderTest do
     end
 
     plan = IP.URL.new() |> IP.URL.output(jpeg_options: [interlace: false, quant_table: 0])
-    assert {:ok, request} = Plan.to_request(plan.plan)
+    assert {:ok, request} = Plan.to_spec(plan.plan)
     assert {:ok, ^request} = parse("jpeg-options=progressive:false,quant-table:00")
   end
 
@@ -263,7 +263,7 @@ defmodule ImagePipe.BuilderTest do
       |> IP.URL.output(webp_options: [lossless: true, effort: 6])
       |> IP.URL.output(webp_options: [effort: 4])
 
-    assert {:ok, request} = Plan.to_request(plan.plan)
+    assert {:ok, request} = Plan.to_spec(plan.plan)
 
     assert {:ok, ^request} =
              parse(
@@ -301,7 +301,7 @@ defmodule ImagePipe.BuilderTest do
     assert Enum.any?(issues, &(&1.reason == :mutually_exclusive_options))
     assert Enum.any?(issues, &(&1.reason == :inert_option))
     assert Enum.any?(issues, &({:group, 0, :anchor} in &1.locations))
-    assert {:error, ^issues} = Plan.to_request(plan.plan)
+    assert {:error, ^issues} = Plan.to_spec(plan.plan)
   end
 
   test "terminal applicability is checked before no-op normalization" do
@@ -342,7 +342,7 @@ defmodule ImagePipe.BuilderTest do
 
       for {selection, url} <- selections do
         plan = IP.URL.new() |> IP.URL.group(crop: {100, 100}, detect: selection)
-        assert {:ok, native} = Plan.to_request(plan.plan)
+        assert {:ok, native} = Plan.to_spec(plan.plan)
         assert {:ok, request} = parse("crop=100,100/detect=" <> url)
 
         for canonical <- [native, request] do
@@ -358,7 +358,7 @@ defmodule ImagePipe.BuilderTest do
       options = [resize: [width: width], trim: :auto, blur: sigma]
       left = IP.URL.new() |> IP.URL.group(options)
       right = IP.URL.new() |> IP.URL.group(Enum.reverse(options))
-      assert Plan.to_request(left.plan) == Plan.to_request(right.plan)
+      assert Plan.to_spec(left.plan) == Plan.to_spec(right.plan)
     end
   end
 

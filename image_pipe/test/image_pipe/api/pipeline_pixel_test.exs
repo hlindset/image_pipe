@@ -4,8 +4,8 @@ defmodule ImagePipe.API.PipelinePixelTest do
   use ExUnit.Case, async: false
 
   alias ImagePipe.Decode
-  alias ImagePipe.Plan.Request
   alias ImagePipe.Plan.Source.Path, as: SourcePath
+  alias ImagePipe.Plan.Spec
   alias ImagePipe.Plug.Request, as: ParsedRequest
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter
@@ -114,7 +114,7 @@ defmodule ImagePipe.API.PipelinePixelTest do
     request
   end
 
-  defp run_api(origin, %Request{} = request, extra \\ []) do
+  defp run_api(origin, %Spec{} = request, extra \\ []) do
     opts = source_opts(origin, extra)
 
     Decode.with_image(

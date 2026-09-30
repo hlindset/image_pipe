@@ -156,7 +156,7 @@ defmodule ImagePipe.PresetsTest do
     url = IP.URL.url!(builder, source)
     assert url =~ "/preset=poster/enc/"
     refute url =~ "secret"
-    assert {:ok, request} = ImagePipe.Plan.to_request(builder.plan, config.options[:presets])
+    assert {:ok, request} = ImagePipe.Plan.to_spec(builder.plan, config.options[:presets])
 
     assert {{:ok, ^request, ^source}, _} =
              ParsedRequest.parse(Plug.Test.conn(:get, url), IP.Plug.init(config))
@@ -208,7 +208,7 @@ defmodule ImagePipe.PresetsTest do
         |> IP.URL.group(resize: [width: width, height: height])
 
       url = IP.URL.url!(builder, "photo.jpg")
-      assert {:ok, request} = ImagePipe.Plan.to_request(builder.plan, config.options[:presets])
+      assert {:ok, request} = ImagePipe.Plan.to_spec(builder.plan, config.options[:presets])
 
       assert {{:ok, ^request, "photo.jpg"}, _} =
                ParsedRequest.parse(Plug.Test.conn(:get, url), IP.Plug.init(config))

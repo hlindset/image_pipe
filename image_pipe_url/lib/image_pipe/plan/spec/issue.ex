@@ -1,4 +1,4 @@
-defmodule ImagePipe.Plan.Request.Issue do
+defmodule ImagePipe.Plan.Spec.Issue do
   @moduledoc """
   A semantic request error, located by typed option names.
 

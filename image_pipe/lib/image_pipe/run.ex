@@ -47,7 +47,7 @@ defmodule ImagePipe.Run do
   end
 
   defp request(plan, config) do
-    case Plan.to_request(plan, config[:presets]) do
+    case Plan.to_spec(plan, config[:presets]) do
       {:ok, request} -> {:ok, request}
       {:error, issues} -> {:error, {:invalid_request, issues}}
     end

@@ -30,7 +30,7 @@ defmodule ImagePipe.URL do
 
   alias ImagePipe.API.URL, as: Generator
   alias ImagePipe.Plan
-  alias ImagePipe.Plan.Request.Issue
+  alias ImagePipe.Plan.Spec.Issue
   alias ImagePipe.Security
   alias ImagePipe.URL.Config
 

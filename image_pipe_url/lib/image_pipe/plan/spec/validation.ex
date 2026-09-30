@@ -1,7 +1,7 @@
-defmodule ImagePipe.Plan.Request.Validation do
+defmodule ImagePipe.Plan.Spec.Validation do
   @moduledoc false
 
-  alias ImagePipe.Plan.Request.Issue
+  alias ImagePipe.Plan.Spec.Issue
 
   @dimensions [:width, :height, :min_width, :min_height]
   @image_options [

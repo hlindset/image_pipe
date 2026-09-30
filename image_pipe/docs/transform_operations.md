@@ -2,17 +2,17 @@
 
 ## Overview
 
-ImagePipe's URL parser produces an `ImagePipe.Plan.Request` containing
+ImagePipe's URL parser produces an `ImagePipe.Plan.Spec` containing
 ordered groups and an output policy. `ImagePipe.Transform.Executor` executes those
 groups against a decoded image.
 
-`ImagePipe.Plan.Request.Group` holds validated options. The executor resolves
+`ImagePipe.Plan.Spec.Group` holds validated options. The executor resolves
 their source-dependent geometry in fixed stage order and constructs
 `ImagePipe.Transform.Operation.*` structs over `ImagePipe.Transform.State`.
 `ImagePipe.Transform.run/3` runs each operation with telemetry, materialization,
 and error handling. The executor owns stage and group order.
 
-`Plan.Request` describes request intent; operation structs hold the parameters
+`Plan.Spec` describes request intent; operation structs hold the parameters
 resolved for a particular image. For example, crop coordinates change with
 decode shrink and orientation, while resize dimensions are final pixel sizes.
 The executor constructs each operation when its inputs are known and runs it
@@ -22,7 +22,7 @@ immediately.
 
 For an image response, the Plug lifecycle is:
 
-1. Parse and validate the path into an `ImagePipe.Plan.Request`.
+1. Parse and validate the path into an `ImagePipe.Plan.Spec`.
 2. Apply expiry and source-translation gates.
 3. Resolve source identity, output negotiation, representation identity, and
    conditional/cache decisions.

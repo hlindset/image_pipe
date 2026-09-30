@@ -7,9 +7,9 @@ defmodule ImagePipe.API.ParserTest do
   alias ImagePipe.API.OptionSpec
   alias ImagePipe.API.Parser
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
-  alias ImagePipe.Plan.Request
-  alias ImagePipe.Plan.Request.Group
-  alias ImagePipe.Plan.Request.Output
+  alias ImagePipe.Plan.Spec
+  alias ImagePipe.Plan.Spec.Group
+  alias ImagePipe.Plan.Spec.Output
 
   # `parse/2` consumes Task 4's lexed map directly — never a conn — so
   # tests build that map by hand instead of going through `Path.extract/2`.
@@ -31,7 +31,7 @@ defmodule ImagePipe.API.ParserTest do
     test "srcset workhorse: /w=800/src/images/cat.jpg" do
       assert {:ok, request} = parse(["w=800"])
 
-      assert request == %Request{
+      assert request == %Spec{
                groups: [
                  %Group{
                    resize: %{
@@ -54,7 +54,7 @@ defmodule ImagePipe.API.ParserTest do
       assert {:ok, request} =
                parse(["fit=cover", "w=300", "h=400", "focus=0.25,0.75", "format=webp"])
 
-      assert request == %Request{
+      assert request == %Spec{
                groups: [
                  %Group{
                    resize: %{
@@ -77,7 +77,7 @@ defmodule ImagePipe.API.ParserTest do
     test "explicit smart crop, then resize down" do
       assert {:ok, request} = parse(["crop=600,400", "anchor=smart", "w=300"])
 
-      assert request == %Request{
+      assert request == %Spec{
                groups: [
                  %Group{
                    crop: {{:px, 600}, {:px, 400}},
@@ -101,7 +101,7 @@ defmodule ImagePipe.API.ParserTest do
     test "cheap trim: resize first, trim the small image" do
       assert {:ok, request} = parse(["w=500", "-", "trim=fff"])
 
-      assert request == %Request{
+      assert request == %Spec{
                groups: [
                  %Group{
                    resize: %{
@@ -136,7 +136,7 @@ defmodule ImagePipe.API.ParserTest do
     test "relative crop with explicit units" do
       assert {:ok, request} = parse(["crop=80pct,60pct"])
 
-      assert request == %Request{
+      assert request == %Spec{
                groups: [
                  %Group{
                    crop: {{:pct, 80}, {:pct, 60}},
@@ -151,7 +151,7 @@ defmodule ImagePipe.API.ParserTest do
     test "blurhash placeholder terminal (no format/quality)" do
       assert {:ok, request} = parse(["w=32", "output=blurhash"])
 
-      assert request == %Request{
+      assert request == %Spec{
                groups: [
                  %Group{
                    resize: %{
@@ -173,30 +173,30 @@ defmodule ImagePipe.API.ParserTest do
 
   describe "happy path per option" do
     test "dpr is group-scoped and does not require resize intent" do
-      assert {:ok, %Request{groups: [%Group{dpr: 2.0, resize: nil}]}} = parse(["dpr=2"])
+      assert {:ok, %Spec{groups: [%Group{dpr: 2.0, resize: nil}]}} = parse(["dpr=2"])
     end
 
     test "w alone builds a resize with h defaulted to auto" do
-      assert {:ok, %Request{groups: [%Group{resize: %{w: 800, h: :auto}}]}} = parse(["w=800"])
+      assert {:ok, %Spec{groups: [%Group{resize: %{w: 800, h: :auto}}]}} = parse(["w=800"])
     end
 
     test "h alone builds a resize with w defaulted to auto" do
-      assert {:ok, %Request{groups: [%Group{resize: %{w: :auto, h: 600}}]}} = parse(["h=600"])
+      assert {:ok, %Spec{groups: [%Group{resize: %{w: :auto, h: 600}}]}} = parse(["h=600"])
     end
 
     test "fit with a resize intent" do
-      assert {:ok, %Request{groups: [%Group{resize: %{fit: :stretch}}]}} =
+      assert {:ok, %Spec{groups: [%Group{resize: %{fit: :stretch}}]}} =
                parse(["w=800", "fit=stretch"])
     end
 
     test "enlarge with a resize intent" do
-      assert {:ok, %Request{groups: [%Group{resize: %{enlarge: true}}]}} =
+      assert {:ok, %Spec{groups: [%Group{resize: %{enlarge: true}}]}} =
                parse(["w=800", "enlarge"])
     end
 
     test "minimum dimensions create resize intent without w or h" do
       assert {:ok,
-              %Request{
+              %Spec{
                 groups: [
                   %Group{resize: %{w: :auto, h: :auto, min_w: 320, min_h: 240}}
                 ]
@@ -204,16 +204,16 @@ defmodule ImagePipe.API.ParserTest do
     end
 
     test "zoom scalar and pair values are canonical resize data" do
-      assert {:ok, %Request{groups: [%Group{resize: %{zoom: {2.0, 2.0}}}]}} =
+      assert {:ok, %Spec{groups: [%Group{resize: %{zoom: {2.0, 2.0}}}]}} =
                parse(["w=800", "zoom=2"])
 
-      assert {:ok, %Request{groups: [%Group{resize: %{zoom: {1.25, 0.75}}}]}} =
+      assert {:ok, %Spec{groups: [%Group{resize: %{zoom: {1.25, 0.75}}}]}} =
                parse(["min-w=320", "zoom=1.25,0.75"])
     end
 
     test "box and ratio canvas carry placement while resize keeps raw dimensions" do
       assert {:ok,
-              %Request{
+              %Spec{
                 groups: [
                   %Group{
                     resize: %{w: 300, h: 200},
@@ -227,7 +227,7 @@ defmodule ImagePipe.API.ParserTest do
               }} = parse(["w=300", "h=200", "extend"])
 
       assert {:ok,
-              %Request{
+              %Spec{
                 groups: [
                   %Group{
                     resize: %{w: 300, h: 200},
@@ -255,7 +255,7 @@ defmodule ImagePipe.API.ParserTest do
 
     test "crop alone defaults its guide to anchor=center" do
       assert {:ok,
-              %Request{
+              %Spec{
                 groups: [%Group{crop: {{:px, 600}, {:px, 400}}, guide: {:anchor, :center}}]
               }} =
                parse(["crop=600,400"])
@@ -263,7 +263,7 @@ defmodule ImagePipe.API.ParserTest do
 
     test "crop ratio and enlargement are canonical crop data" do
       assert {:ok,
-              %Request{
+              %Spec{
                 groups: [
                   %Group{
                     crop_ratio: {:ratio, 3, 2},
@@ -275,20 +275,20 @@ defmodule ImagePipe.API.ParserTest do
 
     test "region needs no guide" do
       assert {:ok,
-              %Request{
+              %Spec{
                 groups: [%Group{region: {{:px, 0}, {:px, 0}, {:px, 600}, {:px, 400}}, guide: nil}]
               }} =
                parse(["region=0,0,600,400"])
     end
 
     test "anchor with a crop consumer" do
-      assert {:ok, %Request{groups: [%Group{guide: {:anchor, :top_left}}]}} =
+      assert {:ok, %Spec{groups: [%Group{guide: {:anchor, :top_left}}]}} =
                parse(["crop=600,400", "anchor=top-left"])
     end
 
     test "anchor offset is separate canonical guide placement data" do
       assert {:ok,
-              %Request{
+              %Spec{
                 groups: [
                   %Group{
                     guide: {:anchor, :top_left},
@@ -299,37 +299,37 @@ defmodule ImagePipe.API.ParserTest do
     end
 
     test "focus with a cover-fit resize consumer" do
-      assert {:ok, %Request{groups: [%Group{guide: {:focus, 0.1, 0.2}}]}} =
+      assert {:ok, %Spec{groups: [%Group{guide: {:focus, 0.1, 0.2}}]}} =
                parse(["w=300", "fit=cover", "focus=0.1,0.2"])
     end
 
     test "detection guides carry canonical class selection and sparse weights" do
-      assert {:ok, %Request{groups: [%Group{guide: {:detect, {:all, %{}}}}]}} =
+      assert {:ok, %Spec{groups: [%Group{guide: {:detect, {:all, %{}}}}]}} =
                parse(["crop=600,400", "detect=all"])
 
       assert {:ok,
-              %Request{
+              %Spec{
                 groups: [
                   %Group{guide: {:detect, {["car", "face"], %{"face" => 3.0}}}}
                 ]
               }} = parse(["crop=600,400", "detect=face:3,car"])
 
-      assert {:ok, %Request{groups: [%Group{guide: {:detect, {:all, %{"face" => 3.0}}}}]}} =
+      assert {:ok, %Spec{groups: [%Group{guide: {:detect, {:all, %{"face" => 3.0}}}}]}} =
                parse(["w=300", "fit=cover", "detect=all:1,face:3"])
     end
 
     test "smart-face is explicit face-assisted attention" do
-      assert {:ok, %Request{groups: [%Group{guide: {:smart, :face_assist}}]}} =
+      assert {:ok, %Spec{groups: [%Group{guide: {:smart, :face_assist}}]}} =
                parse(["crop=600,400", "anchor=smart-face"])
     end
 
     test "blur with a non-zero sigma" do
-      assert {:ok, %Request{groups: [%Group{blur: 3.0}]}} = parse(["blur=3"])
+      assert {:ok, %Spec{groups: [%Group{blur: 3.0}]}} = parse(["blur=3"])
     end
 
     test "retained effects assemble complete canonical group data" do
       assert {:ok,
-              %Request{
+              %Spec{
                 groups: [
                   %Group{
                     sharpen: 1.5,
@@ -384,11 +384,11 @@ defmodule ImagePipe.API.ParserTest do
     end
 
     test "trim=auto" do
-      assert {:ok, %Request{groups: [%Group{trim: :auto}]}} = parse(["trim=auto"])
+      assert {:ok, %Spec{groups: [%Group{trim: :auto}]}} = parse(["trim=auto"])
     end
 
     test "trim symmetry is canonical group data" do
-      assert {:ok, %Request{groups: [%Group{trim_symmetry: :both}]}} =
+      assert {:ok, %Spec{groups: [%Group{trim_symmetry: :both}]}} =
                parse(["trim=auto", "trim-symmetry=hv"])
     end
 
@@ -406,21 +406,21 @@ defmodule ImagePipe.API.ParserTest do
     end
 
     test "pad shorthand" do
-      assert {:ok, %Request{groups: [%Group{pad: {10, 20, 10, 20}}]}} = parse(["pad=10,20"])
+      assert {:ok, %Spec{groups: [%Group{pad: {10, 20, 10, 20}}]}} = parse(["pad=10,20"])
     end
 
     test "bg with alpha" do
-      assert {:ok, %Request{groups: [%Group{bg: {255, 255, 255, 0.5}}]}} =
+      assert {:ok, %Spec{groups: [%Group{bg: {255, 255, 255, 0.5}}]}} =
                parse(["bg=fff,0.5"])
     end
 
     test "output=image is the identity default, stated explicitly" do
-      assert {:ok, %Request{output: %Output{terminal: :image}}} = parse(["output=image"])
+      assert {:ok, %Spec{output: %Output{terminal: :image}}} = parse(["output=image"])
     end
 
     test "info terminal carries delivery and storage controls as typed request data" do
       assert {:ok,
-              %Request{
+              %Spec{
                 output: %Output{terminal: :info},
                 filename: "Card_v2.small-1",
                 attachment?: true,
@@ -443,16 +443,16 @@ defmodule ImagePipe.API.ParserTest do
     end
 
     test "format alone (negotiated output)" do
-      assert {:ok, %Request{output: %Output{format: :avif}}} = parse(["format=avif"])
+      assert {:ok, %Spec{output: %Output{format: :avif}}} = parse(["format=avif"])
     end
 
     test "q alone" do
-      assert {:ok, %Request{output: %Output{quality: 80}}} = parse(["q=80"])
+      assert {:ok, %Spec{output: %Output{quality: 80}}} = parse(["q=80"])
     end
 
     test "metadata, color profile, and HDR policies stay sparse and typed" do
       assert {:ok,
-              %Request{
+              %Spec{
                 output: %Output{
                   metadata: :copyright,
                   color_profile: {:convert, :display_p3},
@@ -461,7 +461,7 @@ defmodule ImagePipe.API.ParserTest do
               }} = parse(["meta=copyright", "profile=display-p3", "hdr=preserve"])
 
       assert {:ok,
-              %Request{
+              %Spec{
                 output: %Output{
                   metadata: :strip,
                   color_profile: :preserve_source,
@@ -474,7 +474,7 @@ defmodule ImagePipe.API.ParserTest do
       config = [presets: %{"print" => "meta=keep/profile=adobe-rgb/hdr=preserve"}]
 
       assert {:ok,
-              %Request{
+              %Spec{
                 output: %Output{
                   metadata: :copyright,
                   color_profile: {:convert, :srgb},
@@ -500,7 +500,7 @@ defmodule ImagePipe.API.ParserTest do
       ]
 
       assert {:ok,
-              %Request{
+              %Spec{
                 output: %Output{
                   format_qualities: %{
                     webp: {:quality, 70},
@@ -522,19 +522,19 @@ defmodule ImagePipe.API.ParserTest do
 
     test "q retains precedence intent beside format qualities" do
       assert {:ok,
-              %Request{
+              %Spec{
                 output: %Output{quality: 80, format_qualities: %{webp: {:quality, 70}}}
               }} =
                parse(["q=80", "format-q=webp:70"])
     end
 
     test "q may explicitly disable inherited autoquality" do
-      assert {:ok, %Request{output: %Output{quality: 80, autoquality: :none}}} =
+      assert {:ok, %Spec{output: %Output{quality: 80, autoquality: :none}}} =
                parse(["q=80", "autoquality=none"])
     end
 
     test "expires as a gate field" do
-      assert {:ok, %Request{expires: 1_999_999_999}} = parse(["expires=1999999999"])
+      assert {:ok, %Spec{expires: 1_999_999_999}} = parse(["expires=1999999999"])
     end
 
     test "an overridden-away preset is grammar-validated but never reaches the canonical request" do
@@ -655,7 +655,7 @@ defmodule ImagePipe.API.ParserTest do
         assert Enum.any?(diagnostics, &(&1.reason == :invalid_offset))
       end
 
-      assert {:ok, %Request{groups: [%Group{anchor_offset: {{:pct, _large}, {:px, 0}}}]}} =
+      assert {:ok, %Spec{groups: [%Group{anchor_offset: {{:pct, _large}, {:px, 0}}}]}} =
                parse([
                  "crop=10,10",
                  "anchor=left",
@@ -747,7 +747,7 @@ defmodule ImagePipe.API.ParserTest do
 
       assert Enum.any?(diagnostics, &(&1.reason == :mutually_exclusive_options))
 
-      assert {:ok, %Request{groups: [%Group{canvas: %{mode: :box}}]}} =
+      assert {:ok, %Spec{groups: [%Group{canvas: %{mode: :box}}]}} =
                parse(["w=300", "h=200", "extend", "extend-ratio=false"])
     end
   end
@@ -769,7 +769,7 @@ defmodule ImagePipe.API.ParserTest do
     end
 
     test "minimum dimensions satisfy fit and enlarge resize intent" do
-      assert {:ok, %Request{groups: [%Group{resize: %{fit: :cover, enlarge: true}}]}} =
+      assert {:ok, %Spec{groups: [%Group{resize: %{fit: :cover, enlarge: true}}]}} =
                parse(["min-w=320", "fit=cover", "enlarge"])
     end
 
@@ -856,7 +856,7 @@ defmodule ImagePipe.API.ParserTest do
     end
 
     test "fit=auto counts as a valid guide consumer at parse time" do
-      assert {:ok, %Request{groups: [%Group{guide: {:anchor, :center}}]}} =
+      assert {:ok, %Spec{groups: [%Group{guide: {:anchor, :center}}]}} =
                parse(["w=800", "fit=auto"])
     end
 
@@ -928,7 +928,7 @@ defmodule ImagePipe.API.ParserTest do
     end
 
     test "info accepts its complete request-control allowlist" do
-      assert {:ok, %Request{output: %Output{terminal: :info}}} =
+      assert {:ok, %Spec{output: %Output{terminal: :info}}} =
                parse([
                  "output=info",
                  "filename=info.json",
@@ -947,7 +947,7 @@ defmodule ImagePipe.API.ParserTest do
     end
 
     test "negotiated output accepts options for multiple codecs" do
-      assert {:ok, %Request{output: %Output{encoder_options: options}}} =
+      assert {:ok, %Spec{output: %Output{encoder_options: options}}} =
                parse(["jpeg-options=progressive", "webp-options=lossless"])
 
       assert Map.keys(options) |> Enum.sort() == [:jpeg, :webp]
@@ -959,7 +959,7 @@ defmodule ImagePipe.API.ParserTest do
         assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
       end
 
-      assert {:ok, %Request{output: %Output{format: :png, autoquality: :none}}} =
+      assert {:ok, %Spec{output: %Output{format: :png, autoquality: :none}}} =
                parse(["format=png", "autoquality=none"])
     end
 
@@ -1100,7 +1100,7 @@ defmodule ImagePipe.API.ParserTest do
     end
 
     test "no separator at all is a single, legitimately-empty group and is not an error" do
-      assert {:ok, %Request{groups: [%Group{}]}} = parse([])
+      assert {:ok, %Spec{groups: [%Group{}]}} = parse([])
     end
   end
 
@@ -1110,7 +1110,7 @@ defmodule ImagePipe.API.ParserTest do
 
       assert {:ok, request} = parse(["preset=card"], "images/cat.jpg", config)
 
-      assert %Request{
+      assert %Spec{
                groups: [
                  %Group{resize: %{w: 300, h: :auto, fit: :cover, enlarge: false}}
                ]
@@ -1120,7 +1120,7 @@ defmodule ImagePipe.API.ParserTest do
     test "the default preset applies with no preset= segment in the URL at all" do
       config = [presets: %{"default" => "blur=2.5"}]
 
-      assert {:ok, %Request{groups: [%Group{blur: 2.5}]}} =
+      assert {:ok, %Spec{groups: [%Group{blur: 2.5}]}} =
                parse(["w=800"], "images/cat.jpg", config)
     end
 
@@ -1138,7 +1138,7 @@ defmodule ImagePipe.API.ParserTest do
       # preset wins); trim survives from "a" since nothing displaces it.
       assert {:ok, request} = parse(["preset=a,b", "w=800"], "images/cat.jpg", config)
 
-      assert %Request{
+      assert %Spec{
                groups: [
                  %Group{
                    resize: %{w: 800, h: :auto, fit: :contain, enlarge: false},
@@ -1153,7 +1153,7 @@ defmodule ImagePipe.API.ParserTest do
       config = [presets: %{"default" => "w=100", "card" => "w=300"}]
 
       assert {:ok, request} = parse(["preset=card", "w=800"], "images/cat.jpg", config)
-      assert %Request{groups: [%Group{resize: %{w: 800}}]} = request
+      assert %Spec{groups: [%Group{resize: %{w: 800}}]} = request
     end
 
     test "an unknown preset name is a 400" do
@@ -1178,7 +1178,7 @@ defmodule ImagePipe.API.ParserTest do
     test "a preset combined with an explicit dimension satisfies its own inertness prerequisite" do
       config = [presets: %{"cover" => "fit=cover"}]
 
-      assert {:ok, %Request{groups: [%Group{resize: %{fit: :cover}}]}} =
+      assert {:ok, %Spec{groups: [%Group{resize: %{fit: :cover}}]}} =
                parse(["preset=cover", "w=800"], "images/cat.jpg", config)
     end
 
@@ -1216,7 +1216,7 @@ defmodule ImagePipe.API.ParserTest do
       assert applied_once == applied_explicitly
     end
 
-    property "an overridden-away preset never changes the canonical %Request{}" do
+    property "an overridden-away preset never changes the canonical %Spec{}" do
       check all preset_w <- StreamData.integer(1..4000),
                 url_w <- StreamData.integer(1..4000) do
         config = [presets: %{"card" => "w=#{preset_w}"}]

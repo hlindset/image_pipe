@@ -19,7 +19,7 @@ defmodule ImagePipe.Response.Sender do
   alias ImagePipe.Delivery.PreparedStream
   alias ImagePipe.Error
   alias ImagePipe.Output.Resolved
-  alias ImagePipe.Plan.Request
+  alias ImagePipe.Plan.Spec
   alias ImagePipe.Response.CacheHeaders
   alias ImagePipe.Response.Disposition
   alias ImagePipe.Telemetry
@@ -49,7 +49,7 @@ defmodule ImagePipe.Response.Sender do
   def send_cache_entry(
         %Plug.Conn{} = conn,
         %Entry{} = entry,
-        %Request{} = request,
+        %Spec{} = request,
         %CacheHeaders{} = prepared,
         hit_debug,
         opts
@@ -112,7 +112,7 @@ defmodule ImagePipe.Response.Sender do
         content_type,
         body,
         %CacheHeaders{} = prepared,
-        %Request{} = request,
+        %Spec{} = request,
         debug,
         cache_info,
         opts
@@ -156,7 +156,7 @@ defmodule ImagePipe.Response.Sender do
   def send_prepared_stream(
         %Plug.Conn{} = conn,
         %PreparedStream{} = prepared_stream,
-        %Request{} = request,
+        %Spec{} = request,
         %CacheHeaders{} = prepared,
         opts
       ) do

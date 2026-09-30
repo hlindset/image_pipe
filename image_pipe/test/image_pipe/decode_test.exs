@@ -4,8 +4,8 @@ defmodule ImagePipe.DecodeTest do
 
   alias ImagePipe.API.Parser
   alias ImagePipe.Decode
-  alias ImagePipe.Plan.Request
   alias ImagePipe.Plan.Source.Path, as: SourcePath
+  alias ImagePipe.Plan.Spec
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Transform
@@ -117,7 +117,7 @@ defmodule ImagePipe.DecodeTest do
       source: {:src, source, {0, byte_size(source)}}
     }
 
-    assert {:ok, %Request{} = request} = Parser.parse(lexed, [])
+    assert {:ok, %Spec{} = request} = Parser.parse(lexed, [])
     request
   end
 
