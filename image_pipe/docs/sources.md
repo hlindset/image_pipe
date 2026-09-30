@@ -183,9 +183,18 @@ adapter and [S3 credential setup](operational_notes.md#s3-credentials) for
 instance roles, container credentials, and STS providers. A `buckets` map,
 when supplied, is an allowlist; each entry overrides `default` settings.
 
-Identifiers use `s3://bucket/key?revision`. The optional query is the entire
-immutable revision value, not a `versionId=` parameter. Use the original
-identifier with `{:source, identifier}` or the URL builder. Region, endpoint,
+Identifiers use `s3://bucket/key` or `s3://bucket/key?revision`. The optional
+revision is an S3 version ID, written as the entire query (`?3HL4kqtJlcpX`, not
+`?versionId=3HL4kqtJlcpX`). The adapter requests that version, and the object
+is then treated as immutable: it is cached without a freshness limit, though
+storage still needs the origin's or your cache policy's permission. The store
+must confirm the version with an `x-amz-version-id` response header; stores
+that ignore version IDs fail the fetch with a 502 rather than serving the
+current object as that version. A revision is not a cache-busting token: an
+arbitrary string names a version that doesn't exist. Without a revision, the
+object's `Cache-Control`, `ETag`, and `Last-Modified` govern caching as for
+HTTP sources. Use the original identifier with `{:source, identifier}` or the
+URL builder. Region, endpoint,
 credentials, timeouts, and cache policy belong to the adapter.
 
 ## Custom adapters

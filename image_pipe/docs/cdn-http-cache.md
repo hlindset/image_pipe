@@ -68,7 +68,8 @@ Credential changes also partition trusted immutable validators. Secrets are
 hashed before entering storage keys and are never emitted in telemetry.
 
 For `ImagePipe.Source.S3`, objects with a revision are stable under
-`stable: :auto` because the fetch includes the object version. S3 objects
+`stable: :auto`: the revision is an S3 version ID, the fetch requests that
+version, and the store must confirm it with `x-amz-version-id`. S3 objects
 without a revision need `stable: :trusted` if the bucket or key policy is
 write-once.
 
