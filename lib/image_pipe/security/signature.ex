@@ -9,7 +9,7 @@ defmodule ImagePipe.Security.Signature do
   duplicate slashes affect the signature and may be rejected later by parsing.
 
   Configuration validation decodes and redacts the ordered signing keys. `sign/2` uses the
-  first; verification tries each with `Plug.Crypto.secure_compare/2` and
+  first; verification tries each with `:crypto.hash_equals/2` and
   returns the matching index, exposed as `:sig_key_index` telemetry for key rotation.
   """
 
@@ -82,7 +82,7 @@ defmodule ImagePipe.Security.Signature do
     |> Enum.find_value(fn {key, index} ->
       expected = mac_for(key, signed_path)
 
-      if Plug.Crypto.secure_compare(decoded_signature, expected) do
+      if :crypto.hash_equals(decoded_signature, expected) do
         index
       end
     end)

@@ -10,7 +10,7 @@ defmodule ImagePipe.Security.SourceEncryption.CBC do
   end
 
   def decrypt(ciphertext, tag, <<mac_key::binary-size(32), enc_key::binary-size(32)>>, iv, aad) do
-    case Plug.Crypto.secure_compare(tag, tag(mac_key, aad, iv, ciphertext)) do
+    case :crypto.hash_equals(tag, tag(mac_key, aad, iv, ciphertext)) do
       true ->
         :aes_256_cbc
         |> :crypto.crypto_one_time(enc_key, iv, ciphertext, false)
