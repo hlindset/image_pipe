@@ -119,7 +119,7 @@ defmodule ImagePipe.API.MultiFrameWireTest do
     body = MultiFrameSources.encode(:webp, 3)
     response = request("format=png", mount(body, max_body_bytes: byte_size(body) - 1))
 
-    assert response.status == 422
+    assert response.status == 413
     refute_received {:loader_open, _}
     assert_received {:fetch_decode, %{result: :source_error, error: :body_too_large}}
   end

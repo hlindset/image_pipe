@@ -32,7 +32,7 @@ defmodule ImagePipe.API.SourceTransportWireTest do
       )
 
     conn = Plug.Test.conn(:get, "/format=png/src/#{url}/private.jpg") |> ImagePipe.Plug.call(opts)
-    assert conn.status == 404
+    assert conn.status == 502
     assert_receive {^event, ^ref, _, %{result: :source_error, error: :connect_error} = metadata}
     refute inspect(metadata) =~ "private.jpg"
   end
@@ -43,7 +43,7 @@ defmodule ImagePipe.API.SourceTransportWireTest do
         {:timeout, "HTTP/1.1 200 OK\r\ncontent-length: 100\r\n\r\n", :stall, 504,
          :receive_timeout},
         {:framing, "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\nnot-hex\r\n", :close,
-         422, :invalid_body}
+         502, :invalid_body}
       ] do
     test "#{name} origin failure retains its status and safe telemetry" do
       origin =

@@ -559,7 +559,7 @@ defmodule ImagePipe.TelemetryTest do
         conn(:get, "/format=jpeg/src/images/beach.jpg"),
         base_opts(sources: []),
         :source_error,
-        422
+        404
       },
       processing: {
         conn(:get, "/format=jpeg/src/images/beach.jpg"),
@@ -614,7 +614,7 @@ defmodule ImagePipe.TelemetryTest do
       |> conn("/format=jpeg/src/images/beach.jpg")
       |> ImagePipe.Plug.call(base_opts(sources: []))
 
-    assert source.status == 422
+    assert source.status == 404
 
     assert_event(telemetry_events(), @prefix ++ [:request, :stop], fn _measurements, metadata ->
       assert metadata.error == :source
@@ -711,7 +711,7 @@ defmodule ImagePipe.TelemetryTest do
       |> conn("/format=jpeg/src/images/source.tiff")
       |> ImagePipe.Plug.call(opts)
 
-    assert conn.status == 422
+    assert conn.status == 413
     events = telemetry_events()
 
     assert_event(events, @prefix ++ [:source, :fetch_decode, :stop], fn _measurements, metadata ->

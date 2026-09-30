@@ -21,6 +21,6 @@ defmodule ImagePipe.ForwardRouterTest do
       |> Plug.Test.conn("/images/expires=1/src/small.png")
       |> ForwardRouter.call(ForwardRouter.init([]))
 
-    assert conn.status == 404
+    assert conn.status == 410
   end
 end

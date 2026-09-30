@@ -198,7 +198,7 @@ defmodule ImagePipe.API.InfoWireTest do
 
   test "source safety limits and decode errors also apply to info", %{body: body} do
     assert request("output=info", mount(body, max_input_pixels: 100)).status == 413
-    assert request("output=info", mount(body, max_body_bytes: 10)).status == 422
+    assert request("output=info", mount(body, max_body_bytes: 10)).status == 413
     corrupt = "not an image \xFF\xFE\x00"
     assert request("output=info", mount(corrupt)).status == 415
   end
@@ -215,7 +215,7 @@ defmodule ImagePipe.API.InfoWireTest do
 
   test "expiry uses the host clock and rejects before side effects", %{body: body} do
     config = mount(body, clock: fn -> 100 end, cache: {CacheProbe, []})
-    assert request("output=info/expires=99", config).status == 404
+    assert request("output=info/expires=99", config).status == 410
     refute_received :origin_fetch
     refute_received {:cache_lookup, _}
     assert request("output=info/expires=100", config).status == 200

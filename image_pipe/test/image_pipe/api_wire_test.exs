@@ -615,12 +615,12 @@ defmodule ImagePipe.APIWireTest do
   # ── expires gate ─────────────────────────────────────────────────────────
 
   describe "expires gate" do
-    test "past expires: 404 before any source fetch" do
+    test "past expires: 410 before any source fetch" do
       config = opts(sources: counting_sources())
       past = System.os_time(:second) - 3600
       conn = get("/expires=#{past}/w=64/src/images/cat.jpg", config)
 
-      assert conn.status == 404
+      assert conn.status == 410
       refute_received :origin_fetch
     end
   end

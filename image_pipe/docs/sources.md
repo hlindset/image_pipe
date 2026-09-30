@@ -146,7 +146,7 @@ freshness, and caching work as for a URL source. `allowed_hosts` defaults to
 the base URL's host; list more hosts only to allow redirects to them.
 
 The optional `path_pattern` regex must match the whole path the mount
-receives, with segments joined by `/`; other paths return `422` before any
+receives, with segments joined by `/`; other paths return `404` before any
 request to the origin. Without a pattern, any path below the base URL is
 allowed. Match `:path` instead of a prefix to serve every bare path from the
 origin.
@@ -208,7 +208,8 @@ the resolved cache fields, as the built-in adapters do. A custom
 adapter that resolves paths can be mounted under a prefix, a custom scheme, or
 both, so `asset://catalog/photo-123` and `assets/catalog/photo-123` can reach
 the same adapter. See the [source contract](api_contract.md#sources) and the
-behaviour reference.
+behaviour reference. [Error responses](errors.md#custom-source-adapters)
+describes how an adapter's error reasons become HTTP statuses.
 
 ## Direct files and uploads
 

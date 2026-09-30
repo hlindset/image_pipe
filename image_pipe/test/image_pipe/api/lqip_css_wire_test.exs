@@ -207,7 +207,7 @@ defmodule ImagePipe.API.LqipCssWireTest do
 
   test "source limits and decode failures remain enforced", %{body: body} do
     assert request("output=lqip-css", mount(body, max_input_pixels: 100)).status == 413
-    assert request("output=lqip-css", mount(body, max_body_bytes: 10)).status == 422
+    assert request("output=lqip-css", mount(body, max_body_bytes: 10)).status == 413
     assert request("output=lqip-css", mount("invalid image")).status == 415
   end
 

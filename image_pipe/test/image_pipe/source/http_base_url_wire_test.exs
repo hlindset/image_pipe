@@ -52,7 +52,7 @@ defmodule ImagePipe.Source.HTTPBaseURLWireTest do
     for path <- ["/src/Beach.png", "/src/dir/beach.png", "/src/../beach.png"] do
       conn = conn(:get, path) |> ImagePipe.Plug.call(mount)
 
-      assert conn.status == 422, path
+      assert conn.status == 404, path
       refute_received {:origin, _host, _path}
     end
   end

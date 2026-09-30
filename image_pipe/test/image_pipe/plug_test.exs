@@ -1520,7 +1520,7 @@ defmodule ImagePipe.PlugTest do
         origin_req_options: [plug: LargeBodyOrigin]
       )
 
-    assert conn.status == 422
+    assert conn.status == 413
     assert conn.resp_body == "source response exceeds the size limit"
   end
 
@@ -1585,7 +1585,7 @@ defmodule ImagePipe.PlugTest do
         origin_req_options: [plug: OriginImage]
       )
 
-    assert conn.status == 422
+    assert conn.status == 413
     assert conn.resp_body == "source response exceeds the size limit"
   end
 
@@ -1600,7 +1600,7 @@ defmodule ImagePipe.PlugTest do
         origin_req_options: [plug: OriginImage]
       )
 
-    assert conn.status == 422
+    assert conn.status == 413
     assert conn.resp_body == "source response exceeds the size limit"
   end
 
@@ -1637,7 +1637,7 @@ defmodule ImagePipe.PlugTest do
         origin_req_options: [plug: ChunkedOriginImage]
       )
 
-    assert conn.status == 422
+    assert conn.status == 413
     assert conn.state == :sent
     assert conn.resp_body == "source response exceeds the size limit"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]

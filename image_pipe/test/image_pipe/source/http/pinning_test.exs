@@ -348,7 +348,7 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
         ]
       )
 
-    assert (Plug.Test.conn(:get, path) |> ImagePipe.Plug.call(denied)).status == 422
+    assert (Plug.Test.conn(:get, path) |> ImagePipe.Plug.call(denied)).status == 404
     refute_received :fetched
   end
 

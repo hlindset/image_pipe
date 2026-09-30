@@ -110,7 +110,7 @@ defmodule ImagePipe.Delivery.StreamPull do
   Runs `fun` (a pull) under the shared throw -> tagged-error taxonomy.
 
   A `ImagePipe.Source.StreamError` escaping a pumped stream is a SOURCE
-  failure and must keep the source's domain status (422/404/502) rather than
+  failure and must keep the source's domain status (such as 502 or 413) rather than
   degrading to the 500 an `{:encode, _}` tag would produce
   (`ImagePipe.Response.ErrorStatus`). Any other throw is a fault in the calling
   runner's encode/stream and receives an encode tag.

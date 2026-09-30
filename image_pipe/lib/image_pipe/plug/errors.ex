@@ -50,7 +50,7 @@ defmodule ImagePipe.Plug.Errors do
   def send(%Plug.Conn{} = conn, :expired) do
     conn
     |> put_resp_content_type("text/plain")
-    |> send_resp(404, "not found")
+    |> send_resp(410, "expired")
   end
 
   def send(%Plug.Conn{} = conn, :invalid_concealed_source) do

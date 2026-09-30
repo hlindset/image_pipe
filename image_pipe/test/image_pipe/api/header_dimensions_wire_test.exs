@@ -80,7 +80,7 @@ defmodule ImagePipe.API.HeaderDimensionsWireTest do
   end
 
   test "body limits still apply before header dimension checks" do
-    assert request("format=png", mount(encoded(".png"), max_body_bytes: 10)).status == 422
+    assert request("format=png", mount(encoded(".png"), max_body_bytes: 10)).status == 413
     refute_received {:loader_open, _}
   end
 

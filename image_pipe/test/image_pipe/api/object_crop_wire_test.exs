@@ -65,7 +65,7 @@ defmodule ImagePipe.API.ObjectCropWireTest do
         telemetry_prefix: prefix
       )
 
-    assert response("crop=20,20/detect=face", opts).status == 422
+    assert response("crop=20,20/detect=face", opts).status == 501
     refute_received {:source_event, ^event}
     refute_received :origin_fetch
     refute_received {:cache_lookup, _key}
@@ -87,7 +87,7 @@ defmodule ImagePipe.API.ObjectCropWireTest do
     assert_received :origin_fetch
     assert response("crop=50,50/detect=unicorn", opts).status == 200
     assert_received :origin_fetch
-    assert response("crop=50,50/detect=car", opts).status == 422
+    assert response("crop=50,50/detect=car", opts).status == 501
     refute_received :origin_fetch
   end
 
