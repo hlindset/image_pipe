@@ -6,7 +6,8 @@ defmodule ImagePipeServer.Config do
   variables (see `ImagePipeServer.Config.Tree`). Each section converts to the
   options the library already validates:
 
-    * `[server]` - `port`, `bind`, and `mount_path`.
+    * `[server]` - `port`, `bind`, `mount_path`, and `shutdown_timeout`, the
+      milliseconds in-flight requests get to finish at shutdown.
     * `[url]` - `ImagePipe.URL.config/1`. Source-encryption keys take a
       `base64:` or `hex:` prefix. `base_url` only affects URL generation and
       is not accepted.
@@ -15,7 +16,8 @@ defmodule ImagePipeServer.Config do
     * `[cache]` - `output` and `input` `ImagePipe.Cache.FileSystem` caches, and
       `storage_inputs` as `[{ header = "..." }, { cookie = "..." }]`.
     * `[processing]` - the processing options of `ImagePipe.config/1`.
-    * `[pool]` - `ImagePipe.ProcessingPool` options.
+    * `[pool]` - `ImagePipe.ProcessingPool` options. Without it, requests are
+      unbounded.
     * `[http]` - the delivery options of `ImagePipe.Plug.init/1`.
     * `[telemetry]` - `log_level` attaches the default Logger.
 
@@ -31,20 +33,44 @@ defmodule ImagePipeServer.Config do
   alias ImagePipeServer.Config.Tree
   alias ImagePipeServer.ConfigError
 
-  @enforce_keys [:server, :image_pipe, :pool, :telemetry]
+  @enforce_keys [
+    :server,
+    :image_pipe,
+    :pool,
+    :telemetry,
+    :detector_warmup,
+    :credential_warmups
+  ]
   defstruct @enforce_keys
 
+  @typedoc """
+  The validated configuration.
+
+    * `:server` - `:port`, `:ip`, `:mount_path`, and `:shutdown_timeout`.
+    * `:image_pipe` - mount options from `ImagePipe.Plug.init/1`.
+    * `:pool` - `ImagePipe.ProcessingPool` options with the pool's name, or `nil`.
+    * `:telemetry` - default Logger options, or `nil`.
+    * `:detector_warmup` - `ImagePipe.Transform.Detector.Warmup` options when
+      the build has the configured detector, or `nil`.
+    * `:credential_warmups` - `ImagePipe.Source.S3.CredentialWarmup` options,
+      one per named S3 bucket whose credentials come from a provider.
+  """
   @type t :: %__MODULE__{
           server: keyword(),
           image_pipe: keyword(),
           pool: keyword() | nil,
-          telemetry: keyword() | nil
+          telemetry: keyword() | nil,
+          detector_warmup: keyword() | nil,
+          credential_warmups: [keyword()]
         }
+
+  @pool ImagePipeServer.ProcessingPool
 
   @server_schema [
     port: [type: :non_neg_integer, default: 8080],
     bind: [type: :string, default: "0.0.0.0"],
-    mount_path: [type: :string, default: "/"]
+    mount_path: [type: :string, default: "/"],
+    shutdown_timeout: [type: :non_neg_integer, default: 15_000]
   ]
 
   @telemetry_schema [log_level: [type: {:in, Logger.levels()}]]
@@ -160,11 +186,16 @@ defmodule ImagePipeServer.Config do
   @doc "Validates converted options with the library and builds the server configuration."
   @spec build!(keyword()) :: t()
   def build!(sections) do
+    pool = pool!(Keyword.get(sections, :pool))
+    image_pipe = image_pipe!(sections, pool)
+
     %__MODULE__{
       server: server!(Keyword.get(sections, :server, [])),
-      image_pipe: image_pipe!(sections),
-      pool: pool!(Keyword.get(sections, :pool)),
-      telemetry: telemetry(Keyword.get(sections, :telemetry, []))
+      image_pipe: image_pipe,
+      pool: pool,
+      telemetry: telemetry(Keyword.get(sections, :telemetry, [])),
+      detector_warmup: detector_warmup!(image_pipe),
+      credential_warmups: credential_warmups(Keyword.get(sections, :sources, []))
     }
   end
 
@@ -174,7 +205,8 @@ defmodule ImagePipeServer.Config do
     [
       port: Keyword.fetch!(options, :port),
       ip: ip!(Keyword.fetch!(options, :bind)),
-      mount_path: mount_path!(Keyword.fetch!(options, :mount_path))
+      mount_path: mount_path!(Keyword.fetch!(options, :mount_path)),
+      shutdown_timeout: Keyword.fetch!(options, :shutdown_timeout)
     ]
   end
 
@@ -197,7 +229,7 @@ defmodule ImagePipeServer.Config do
         "invalid configuration: server.mount_path: expected a path starting with /"
       )
 
-  defp image_pipe!(sections) do
+  defp image_pipe!(sections, pool) do
     library!(fn ->
       url = ImagePipe.URL.config(Keyword.get(sections, :url, []))
 
@@ -205,7 +237,8 @@ defmodule ImagePipeServer.Config do
         [url: url] ++
           Keyword.get(sections, :processing, []) ++
           Keyword.get(sections, :cache, []) ++
-          sources(Keyword.get(sections, :sources))
+          sources(Keyword.get(sections, :sources)) ++
+          processing_pool(pool)
 
       ImagePipe.Plug.init([config: ImagePipe.config(shared)] ++ Keyword.get(sections, :http, []))
     end)
@@ -213,6 +246,9 @@ defmodule ImagePipeServer.Config do
 
   defp sources(nil), do: []
   defp sources(sources), do: [sources: sources]
+
+  defp processing_pool(nil), do: []
+  defp processing_pool(pool), do: [processing_pool: Keyword.fetch!(pool, :name)]
 
   # The library names the setting in its errors and keeps secret values out.
   defp library!(fun) do
@@ -222,7 +258,39 @@ defmodule ImagePipeServer.Config do
   end
 
   defp pool!(nil), do: nil
-  defp pool!(options), do: validate!(options, ImagePipe.ProcessingPool.options_schema(), "pool")
+
+  defp pool!(options) do
+    validate!([name: @pool] ++ options, ImagePipe.ProcessingPool.options_schema(), "pool")
+  end
+
+  defp detector_warmup!(image_pipe) do
+    detector = Keyword.fetch!(image_pipe, :detector)
+
+    cond do
+      ImagePipe.Transform.detector_available?(detector, classes: :all) ->
+        [detector: detector]
+
+      Keyword.fetch!(image_pipe, :detector_required) ->
+        raise ConfigError,
+              "invalid configuration: processing.detector_required: " <>
+                "the detector is not available in this build"
+
+      true ->
+        nil
+    end
+  end
+
+  # Credentials are scoped by bucket, so only named buckets can be warmed.
+  defp credential_warmups(sources) do
+    for {_name, mount} <- sources,
+        Keyword.fetch!(mount, :adapter) == ImagePipe.Source.S3,
+        options = Keyword.fetch!(mount, :options),
+        default = Keyword.fetch!(options, :default),
+        {bucket, overrides} <- Enum.sort(Keyword.get(options, :buckets, %{})),
+        {:provider, provider, opts} <-
+          [Keyword.get(overrides, :credentials, default[:credentials])],
+        do: [provider: provider, opts: opts, scope: bucket]
+  end
 
   defp telemetry(options) do
     case Keyword.fetch(options, :log_level) do

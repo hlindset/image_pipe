@@ -96,15 +96,24 @@ defmodule ImagePipeServer.ConfigTest do
     test "fills server defaults" do
       config = Config.build!(Config.options!(%{}))
 
-      assert config.server == [port: 8080, ip: {0, 0, 0, 0}, mount_path: "/"]
+      assert config.server == [
+               port: 8080,
+               ip: {0, 0, 0, 0},
+               mount_path: "/",
+               shutdown_timeout: 15_000
+             ]
+
       assert config.pool == nil
+      assert config.image_pipe[:processing_pool] == nil
       assert config.telemetry == nil
     end
 
     test "parses the bind address and checks the mount path" do
       server = %{"port" => {:env, "9000"}, "bind" => "::1", "mount_path" => "/images"}
       config = Config.build!(Config.options!(%{"server" => server}))
-      assert config.server == [port: 9000, ip: {0, 0, 0, 0, 0, 0, 0, 1}, mount_path: "/images"]
+      assert config.server[:port] == 9000
+      assert config.server[:ip] == {0, 0, 0, 0, 0, 0, 0, 1}
+      assert config.server[:mount_path] == "/images"
 
       assert error(fn -> Config.build!(Config.options!(%{"server" => %{"bind" => "host"}})) end) =~
                "server.bind: expected an IP address"
@@ -124,6 +133,7 @@ defmodule ImagePipeServer.ConfigTest do
         )
 
       assert config.pool[:max_concurrency] == 4
+      assert config.image_pipe[:processing_pool] == config.pool[:name]
       assert config.telemetry == [level: :debug]
 
       assert error(fn -> Config.build!(Config.options!(%{"pool" => %{"max_queue" => 1}})) end) =~
@@ -149,6 +159,60 @@ defmodule ImagePipeServer.ConfigTest do
                Config.build!(Config.options!(%{"processing" => %{"quality" => 500}}))
              end) =~
                "quality"
+    end
+
+    test "takes the shutdown grace period from [server]" do
+      config = Config.build!(Config.options!(%{"server" => %{"shutdown_timeout" => 30_000}}))
+      assert config.server[:shutdown_timeout] == 30_000
+    end
+
+    test "warms the detector only when the build has it" do
+      assert Config.build!([]).detector_warmup == nil
+
+      available = ImagePipeServer.Test.AvailableDetector
+      config = Config.build!(processing: [detector: available])
+      assert config.detector_warmup == [detector: available]
+    end
+
+    test "rejects a required detector the build doesn't have" do
+      assert error(fn ->
+               Config.build!(Config.options!(%{"processing" => %{"detector_required" => true}}))
+             end) =~ "processing.detector_required: the detector is not available in this build"
+    end
+
+    test "warms S3 credential providers for each named bucket" do
+      provider = %{"provider" => "instance_role", "ttl_seconds" => 300}
+
+      config =
+        Config.build!(
+          Config.options!(%{
+            "sources" => %{
+              "media" => %{
+                "adapter" => "s3",
+                "match" => %{"scheme" => "s3"},
+                "region" => "us-east-1",
+                "endpoint" => "https://s3.example.com",
+                "credentials" => provider,
+                "buckets" => %{
+                  "inherits" => %{},
+                  "static" => %{
+                    "credentials" => %{
+                      "static" => %{"access_key_id" => "a", "secret_access_key" => "b"}
+                    }
+                  }
+                }
+              }
+            }
+          })
+        )
+
+      assert config.credential_warmups == [
+               [
+                 provider: ImagePipe.Source.S3.InstanceRole,
+                 opts: [ttl_seconds: 300],
+                 scope: "inherits"
+               ]
+             ]
     end
 
     test "never echoes invalid signing keys" do

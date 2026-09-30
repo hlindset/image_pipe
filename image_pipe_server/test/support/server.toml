@@ -9,3 +9,6 @@ adapter = "file"
 match = "path"
 root = "test/support/images"
 root_id = "static"
+
+[telemetry]
+log_level = "debug"
