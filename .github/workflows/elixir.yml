@@ -4,12 +4,12 @@ on:
   push:
     branches: ["main"]
     paths: &elixir_paths
-      - "lib/**"
-      - "test/**"
-      - "priv/**"
-      - "config/**"
-      - "mix.exs"
-      - "mix.lock"
+      - "image_pipe/lib/**"
+      - "image_pipe/test/**"
+      - "image_pipe/priv/**"
+      - "image_pipe/config/**"
+      - "image_pipe/mix.exs"
+      - "image_pipe/mix.lock"
       - "mise.toml"
       - ".github/workflows/elixir.yml"
   pull_request:
@@ -105,12 +105,15 @@ jobs:
       - name: Install Rebar
         run: mise exec -- mix local.rebar --force
       - name: Install dependencies
+        working-directory: image_pipe
         run: mise exec -- mix deps.get
       - name: Compile
+        working-directory: image_pipe
         run: mise exec -- mix compile --warnings-as-errors
         env:
           MIX_ENV: test
       - name: Run tests
+        working-directory: image_pipe
         run: mise exec -- mix test --no-compile
         env:
           MIX_ENV: test

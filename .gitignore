@@ -1,20 +1,20 @@
 # The directory Mix will write compiled artifacts to.
-/_build/
+/image_pipe/_build/
 
 # Dialyzer PLT files
-/priv/plts/
+/image_pipe/priv/plts/
 
 # If you run "mix test --cover", coverage assets end up here.
-/cover/
+/image_pipe/cover/
 
 # The directory Mix downloads your dependencies sources to.
-/deps/
+/image_pipe/deps/
 
 # Where 3rd-party dependencies like ExDoc output generated docs.
-/doc/
+/image_pipe/doc/
 
 # Ignore .fetch files in case you like to edit your project deps locally.
-/.fetch
+/image_pipe/.fetch
 
 # If the VM crashes, it generates a dump, let's ignore it too.
 erl_crash.dump
@@ -30,8 +30,8 @@ image_pipe-*.tar
 .idea
 
 # per-user configs
-config/*.dev.exs
-config/*.test.exs
+image_pipe/config/*.dev.exs
+image_pipe/config/*.test.exs
 
 # ignore .DS_Store files
 .DS_Store
@@ -56,11 +56,11 @@ mise.local.toml
 .mise.local.toml
 
 # Generated benchmark output
-bench/results/
+image_pipe/bench/results/
 tmp/
 
 # Generated imgproxy differential visual-diff report (regenerate on demand)
-test/support/image_pipe/test/imgproxy_differential/report.html
+image_pipe/test/support/image_pipe/test/imgproxy_differential/report.html
 
 # Beads / Dolt files (added by bd init)
 .beads.gate.lock

@@ -40,7 +40,7 @@ defmodule ImagePipeFiddle.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
-      {:image_pipe, path: ".."},
+      {:image_pipe, path: "../image_pipe"},
       {:image_vision, "~> 0.4"},
       {:ortex, "~> 0.1"},
       {:phoenix, "~> 1.8.7"},

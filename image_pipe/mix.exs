@@ -97,6 +97,7 @@ defmodule ImagePipe.MixProject do
         main: "overview",
         source_ref: "v#{@version}",
         source_url: @source_url,
+        source_url_pattern: "#{@source_url}/blob/v#{@version}/image_pipe/%{path}#L%{line}",
         skip_code_autolink_to: @internal_doc_references,
         skip_undefined_reference_warnings_on: @internal_typespec_references,
         assets: %{"docs/assets" => "docs/assets"},
@@ -179,7 +180,7 @@ defmodule ImagePipe.MixProject do
       licenses: ["Apache-2.0"],
       links: %{
         "GitHub" => @source_url,
-        "Changelog" => "#{@source_url}/blob/main/CHANGELOG.md"
+        "Changelog" => "#{@source_url}/blob/main/image_pipe/CHANGELOG.md"
       },
       maintainers: ["Håvard Lindset"]
     ]

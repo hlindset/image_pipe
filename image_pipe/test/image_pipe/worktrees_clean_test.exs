@@ -5,7 +5,7 @@ defmodule ImagePipe.WorktreesCleanTest do
 
   @bases [".worktrees", ".claude/worktrees"]
   @regenerable ~w(
-    deps _build
+    image_pipe/deps image_pipe/_build
     fiddle/deps fiddle/_build fiddle/node_modules fiddle/assets/node_modules
     .dexter .expert
   )
@@ -32,8 +32,8 @@ defmodule ImagePipe.WorktreesCleanTest do
       wt = Path.join([root, base, name])
       for target <- @regenerable, do: populate_dir(Path.join(wt, target))
       # Source files that must survive.
-      populate_dir(Path.join(wt, "lib"))
-      File.write!(Path.join(wt, "mix.exs"), "x")
+      populate_dir(Path.join(wt, "image_pipe/lib"))
+      File.write!(Path.join(wt, "image_pipe/mix.exs"), "x")
     end
 
     %{removed: removed, skipped: skipped} = Clean.clean(root, max_age_hours: 0)
@@ -49,32 +49,32 @@ defmodule ImagePipe.WorktreesCleanTest do
       assert File.dir?(Path.join(wt, "fiddle"))
       assert File.dir?(Path.join(wt, "fiddle/assets"))
       # Sources untouched.
-      assert File.dir?(Path.join(wt, "lib"))
-      assert File.exists?(Path.join(wt, "mix.exs"))
+      assert File.dir?(Path.join(wt, "image_pipe/lib"))
+      assert File.exists?(Path.join(wt, "image_pipe/mix.exs"))
     end
   end
 
   test "ignores a base directory that does not exist", %{root: root} do
     wt = Path.join([root, ".claude/worktrees", "only"])
-    populate_dir(Path.join(wt, "deps"))
+    populate_dir(Path.join(wt, "image_pipe/deps"))
 
     # `.worktrees` is absent; the task must just skip it, not crash.
     %{removed: removed} = Clean.clean(root, max_age_hours: 0)
 
-    assert removed == [Path.join(wt, "deps")]
-    refute File.exists?(Path.join(wt, "deps"))
+    assert removed == [Path.join(wt, "image_pipe/deps")]
+    refute File.exists?(Path.join(wt, "image_pipe/deps"))
   end
 
   test "does not delete content reached through a worktree symlink that escapes the root",
        %{root: root} do
     # An intermediate symlink: <root>/.claude/worktrees/escape -> <outside>/realwt,
-    # whose `deps` lives entirely outside the git root.
+    # whose `image_pipe/deps` lives entirely outside the git root.
     outside =
       Path.join(System.tmp_dir!(), "wtclean_outside_#{System.unique_integer([:positive])}")
 
     on_exit(fn -> File.rm_rf!(outside) end)
     real_wt = Path.join(outside, "realwt")
-    populate_dir(Path.join(real_wt, "deps"))
+    populate_dir(Path.join(real_wt, "image_pipe/deps"))
 
     link = Path.join([root, ".claude/worktrees", "escape"])
     File.mkdir_p!(Path.dirname(link))
@@ -83,9 +83,9 @@ defmodule ImagePipe.WorktreesCleanTest do
     %{removed: removed, skipped: skipped} = Clean.clean(root, max_age_hours: 0)
 
     assert removed == []
-    assert Path.join(link, "deps") in skipped
+    assert Path.join(link, "image_pipe/deps") in skipped
     # The real content outside the root is untouched.
-    assert File.exists?(Path.join([real_wt, "deps", ".keep"]))
+    assert File.exists?(Path.join([real_wt, "image_pipe/deps", ".keep"]))
   end
 
   test "does not delete a sibling worktree's sources via a target symlink that stays inside the root",
@@ -95,14 +95,15 @@ defmodule ImagePipe.WorktreesCleanTest do
     populate_dir(bar_lib)
 
     foo = Path.join([root, base, "foo"])
-    File.mkdir_p!(foo)
-    # foo/deps -> ../bar/lib: inside the git root, but escapes foo's own worktree.
-    File.ln_s!("../bar/lib", Path.join(foo, "deps"))
+    File.mkdir_p!(Path.join(foo, "image_pipe"))
+    # foo/image_pipe/deps -> ../../bar/lib: inside the git root, but escapes foo's
+    # own worktree.
+    File.ln_s!("../../bar/lib", Path.join(foo, "image_pipe/deps"))
 
     %{removed: removed, skipped: skipped} = Clean.clean(root, max_age_hours: 0)
 
     assert removed == []
-    assert Path.join(foo, "deps") in skipped
+    assert Path.join(foo, "image_pipe/deps") in skipped
     # The sibling worktree's sources survive.
     assert File.exists?(Path.join(bar_lib, ".keep"))
   end
@@ -118,52 +119,52 @@ defmodule ImagePipe.WorktreesCleanTest do
 
     test "keeps regenerable dirs in a worktree edited within the window", %{root: root} do
       wt = Path.join([root, ".claude/worktrees", "active"])
-      populate_dir(Path.join(wt, "deps"))
+      populate_dir(Path.join(wt, "image_pipe/deps"))
       # Edited "just now" — well within the 48h window.
-      write_source(Path.join(wt, "lib/foo.ex"), 0)
+      write_source(Path.join(wt, "image_pipe/lib/foo.ex"), 0)
 
       %{removed: removed, fresh: fresh} = Clean.clean(root, max_age_hours: 48)
 
       assert removed == []
       assert wt in fresh
-      assert File.exists?(Path.join(wt, "deps"))
+      assert File.exists?(Path.join(wt, "image_pipe/deps"))
     end
 
     test "removes regenerable dirs in a worktree idle past the window", %{root: root} do
       wt = Path.join([root, ".claude/worktrees", "stale"])
-      populate_dir(Path.join(wt, "deps"))
-      write_source(Path.join(wt, "lib/foo.ex"), 100 * 3600)
+      populate_dir(Path.join(wt, "image_pipe/deps"))
+      write_source(Path.join(wt, "image_pipe/lib/foo.ex"), 100 * 3600)
 
       %{removed: removed, fresh: fresh} = Clean.clean(root, max_age_hours: 48)
 
-      assert removed == [Path.join(wt, "deps")]
+      assert removed == [Path.join(wt, "image_pipe/deps")]
       assert fresh == []
-      refute File.exists?(Path.join(wt, "deps"))
+      refute File.exists?(Path.join(wt, "image_pipe/deps"))
     end
 
     test "build churn inside regenerable dirs does not count as activity", %{root: root} do
       wt = Path.join([root, ".claude/worktrees", "built"])
       # Source last edited days ago...
-      write_source(Path.join(wt, "lib/foo.ex"), 100 * 3600)
+      write_source(Path.join(wt, "image_pipe/lib/foo.ex"), 100 * 3600)
       # ...but a build wrote into _build and deps moments ago (fresh mtimes).
-      populate_dir(Path.join(wt, "_build"))
-      populate_dir(Path.join(wt, "deps"))
+      populate_dir(Path.join(wt, "image_pipe/_build"))
+      populate_dir(Path.join(wt, "image_pipe/deps"))
 
       %{removed: removed, fresh: fresh} = Clean.clean(root, max_age_hours: 48)
 
       # The fresh build output must not keep the tree alive — only source mtime gates.
       assert fresh == []
-      assert Path.join(wt, "deps") in removed
-      assert Path.join(wt, "_build") in removed
+      assert Path.join(wt, "image_pipe/deps") in removed
+      assert Path.join(wt, "image_pipe/_build") in removed
     end
 
     test "a worktree with no surviving source counts as stale", %{root: root} do
       wt = Path.join([root, ".claude/worktrees", "onlybuild"])
-      populate_dir(Path.join(wt, "deps"))
+      populate_dir(Path.join(wt, "image_pipe/deps"))
 
       %{removed: removed, fresh: fresh} = Clean.clean(root, max_age_hours: 48)
 
-      assert removed == [Path.join(wt, "deps")]
+      assert removed == [Path.join(wt, "image_pipe/deps")]
       assert fresh == []
     end
   end
