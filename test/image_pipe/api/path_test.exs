@@ -2,29 +2,7 @@ defmodule ImagePipe.API.PathTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  import Plug.Test
-
   alias ImagePipe.API.Path
-
-  defp conn_for(path) do
-    conn(:get, path)
-  end
-
-  # Plug.Test's conn/2 runs the path through URI.parse/1, which gives a
-  # leading "//" authority semantics and treats a literal "?" as a query
-  # delimiter — both wrong for exercising split_signature/1's and
-  # extract/1's raw byte handling of pathological/garbage input. This sets
-  # conn.request_path (and optionally query_string) directly, bypassing
-  # URI parsing entirely.
-  defp conn_with_raw_path(path, query \\ "") do
-    conn(:get, "/")
-    |> Map.put(:request_path, path)
-    |> Map.put(:query_string, query)
-  end
-
-  defp with_script_name(conn, script_name) do
-    %{conn | script_name: script_name}
-  end
 
   # Percent-encodes every byte not permitted in an RFC 3986 path, leaving `/`
   # as source data — mirrors the client rule in [API §Sources].
@@ -52,193 +30,140 @@ defmodule ImagePipe.API.PathTest do
 
   describe "split_signature/1" do
     test "returns {nil, path} when there is no sig segment" do
-      conn = conn_for("/w=800/src/images/cat.jpg")
+      path = "/w=800/src/images/cat.jpg"
 
-      assert Path.split_signature(conn) == {nil, "/w=800/src/images/cat.jpg"}
+      assert Path.split_signature(path) == {nil, "/w=800/src/images/cat.jpg"}
     end
 
     test "extracts the sig value and returns the raw remainder" do
-      conn = conn_for("/sig=AfrOrF3gWeDA6VOlDG4TzxMv39O7MXnF4CXpKUwGqRM/w=800/src/x")
+      path = "/sig=AfrOrF3gWeDA6VOlDG4TzxMv39O7MXnF4CXpKUwGqRM/w=800/src/x"
 
-      assert Path.split_signature(conn) ==
+      assert Path.split_signature(path) ==
                {"AfrOrF3gWeDA6VOlDG4TzxMv39O7MXnF4CXpKUwGqRM", "/w=800/src/x"}
     end
 
     test "returns an empty signed_path when the sig segment is the entire path" do
-      conn = conn_for("/sig=ABCDEF")
+      path = "/sig=ABCDEF"
 
-      assert Path.split_signature(conn) == {"ABCDEF", ""}
+      assert Path.split_signature(path) == {"ABCDEF", ""}
     end
 
     test "returns an empty sig value for a bare sig= segment" do
-      conn = conn_for("/sig=/w=800")
+      path = "/sig=/w=800"
 
-      assert Path.split_signature(conn) == {"", "/w=800"}
+      assert Path.split_signature(path) == {"", "/w=800"}
     end
 
     test "never errors on duplicate slashes" do
-      conn = conn_with_raw_path("//w=800/src/x")
+      path = "//w=800/src/x"
 
-      assert Path.split_signature(conn) == {nil, "//w=800/src/x"}
+      assert Path.split_signature(path) == {nil, "//w=800/src/x"}
     end
 
     test "never errors on malformed percent escapes" do
-      conn = conn_for("/src/%zz")
+      path = "/src/%zz"
 
-      assert Path.split_signature(conn) == {nil, "/src/%zz"}
+      assert Path.split_signature(path) == {nil, "/src/%zz"}
     end
 
     test "never errors on dot segments" do
-      conn = conn_for("/../w=800/src/x")
+      path = "/../w=800/src/x"
 
-      assert Path.split_signature(conn) == {nil, "/../w=800/src/x"}
+      assert Path.split_signature(path) == {nil, "/../w=800/src/x"}
     end
 
     test "never errors on completely garbage paths" do
-      conn = conn_with_raw_path("/%%%///???sig=not-really")
+      path = "/%%%///???sig=not-really"
 
-      assert Path.split_signature(conn) == {nil, "/%%%///???sig=not-really"}
+      assert Path.split_signature(path) == {nil, "/%%%///???sig=not-really"}
     end
 
     test "a sig= segment that is not first is left untouched in signed_path" do
-      conn = conn_for("/w=800/sig=ABC/src/x")
+      path = "/w=800/sig=ABC/src/x"
 
-      assert Path.split_signature(conn) == {nil, "/w=800/sig=ABC/src/x"}
+      assert Path.split_signature(path) == {nil, "/w=800/sig=ABC/src/x"}
     end
 
     test "handles an empty mount-relative path" do
-      conn =
-        conn_for("/mount")
-        |> with_script_name(["mount"])
-
-      assert Path.split_signature(conn) == {nil, ""}
-    end
-
-    test "strips a multi-segment mount prefix as a raw string prefix" do
-      conn =
-        conn_for("/api/v2/w=800/src/x")
-        |> with_script_name(["api", "v2"])
-
-      assert Path.split_signature(conn) == {nil, "/w=800/src/x"}
-    end
-
-    test "raises when a script_name segment is not canonical unescaped ASCII" do
-      conn =
-        conn_for("/a%20b/w=800/src/x")
-        |> with_script_name(["a b"])
-
-      assert_raise ArgumentError, fn -> Path.split_signature(conn) end
-    end
-
-    test "raises when a script_name segment contains a percent sign" do
-      conn =
-        conn_for("/50%25/w=800/src/x")
-        |> with_script_name(["50%"])
-
-      assert_raise ArgumentError, fn -> Path.split_signature(conn) end
-    end
-
-    test "raises when request_path does not actually start with the reconstructed prefix" do
-      conn =
-        conn_for("/other/w=800/src/x")
-        |> with_script_name(["mount"])
-
-      assert_raise ArgumentError, fn -> Path.split_signature(conn) end
+      assert Path.split_signature("") == {nil, ""}
     end
   end
 
-  describe "extract/1 happy paths" do
+  describe "extract/2 happy paths" do
     test "lexes option segments and a src source, with byte-exact spans" do
-      conn = conn_for("/w=800/src/images/cat.jpg")
+      path = "/w=800/src/images/cat.jpg"
 
       assert {:ok,
               %{
                 segments: [{"w=800", {1, 5}}],
                 source: {:src, "images/cat.jpg", {11, 14}}
-              }} = Path.extract(conn)
+              }} = Path.extract(path, "")
     end
 
     test "lexes a src64 source" do
       encoded = Base.url_encode64("images/cat.jpg", padding: false)
-      conn = conn_for("/w=800/src64/#{encoded}")
+      path = "/w=800/src64/#{encoded}"
 
       assert {:ok,
               %{
                 segments: [{"w=800", {1, 5}}],
                 source: {:src64, "images/cat.jpg", {_offset, _len}}
-              }} = Path.extract(conn)
+              }} = Path.extract(path, "")
     end
 
     test "skips a leading sig segment internally and never returns it" do
-      conn = conn_for("/sig=AfrOrF3gWeDA6VOlDG4TzxMv39O7MXnF4CXpKUwGqRM/w=800/src/x")
+      path = "/sig=AfrOrF3gWeDA6VOlDG4TzxMv39O7MXnF4CXpKUwGqRM/w=800/src/x"
 
       assert {:ok, %{segments: [{"w=800", _span}], source: {:src, "x", _source_span}}} =
-               Path.extract(conn)
+               Path.extract(path, "")
     end
 
     test "lexes an encrypted source token without decoding it" do
-      conn = conn_for("/w=800/enc/AQAB-c_d")
+      path = "/w=800/enc/AQAB-c_d"
 
       assert {:ok,
               %{
                 segments: [{"w=800", {1, 5}}],
                 source: {:enc, "AQAB-c_d", {11, 8}}
-              }} = Path.extract(conn)
+              }} = Path.extract(path, "")
     end
 
     test "leaves malformed encrypted token shapes for the fixed concealment failure" do
-      assert {:ok, %{source: {:enc, "", {4, 0}}}} = Path.extract(conn_for("/enc"))
-      assert {:ok, %{source: {:enc, "", {5, 0}}}} = Path.extract(conn_for("/enc/"))
+      assert {:ok, %{source: {:enc, "", {4, 0}}}} = Path.extract("/enc", "")
+      assert {:ok, %{source: {:enc, "", {5, 0}}}} = Path.extract("/enc/", "")
 
       assert {:ok, %{source: {:enc, "bad/token", {5, 9}}}} =
-               Path.extract(conn_for("/enc/bad/token"))
+               Path.extract("/enc/bad/token", "")
     end
 
     test "spans are computed against the full mount-relative raw path, sig segment included" do
-      conn = conn_for("/sig=ABCDEFG/w=800/src/x")
+      path = "/sig=ABCDEFG/w=800/src/x"
 
       assert {:ok, %{segments: [{"w=800", {13, 5}}], source: {:src, "x", {23, 1}}}} =
-               Path.extract(conn)
-    end
-
-    test "strips the mount prefix before lexing" do
-      conn =
-        conn_for("/api/w=800/src/x")
-        |> with_script_name(["api"])
-
-      assert {:ok, %{segments: [{"w=800", {1, 5}}], source: {:src, "x", {11, 1}}}} =
-               Path.extract(conn)
+               Path.extract(path, "")
     end
 
     test "supports multiple option segments in original order" do
-      conn = conn_for("/w=800/h=600/fit=cover/src/x")
+      path = "/w=800/h=600/fit=cover/src/x"
 
       assert {:ok,
               %{
                 segments: [{"w=800", _}, {"h=600", _}, {"fit=cover", _}],
                 source: {:src, "x", _}
-              }} = Path.extract(conn)
+              }} = Path.extract(path, "")
     end
 
     test "flag and separator segments pass through as raw segments" do
-      conn = conn_for("/extend/-/w=800/src/x")
+      path = "/extend/-/w=800/src/x"
 
-      assert {:ok, %{segments: [{"extend", _}, {"-", _}, {"w=800", _}]}} = Path.extract(conn)
-    end
-
-    test "raises when a script_name segment is not canonical unescaped ASCII" do
-      conn =
-        conn_for("/a%20b/w=800/src/x")
-        |> with_script_name(["a b"])
-
-      assert_raise ArgumentError, fn -> Path.extract(conn) end
+      assert {:ok, %{segments: [{"extend", _}, {"-", _}, {"w=800", _}]}} = Path.extract(path, "")
     end
   end
 
   describe "diagnostic_path/1" do
     test "masks an encrypted token without changing diagnostic byte offsets" do
       raw_path = "/sig=ABC/w=bad/enc/private/token"
-      redacted = Path.diagnostic_path(conn_for(raw_path))
+      redacted = Path.diagnostic_path(raw_path)
 
       assert redacted == "/sig=***/w=bad/enc/*************"
       assert byte_size(redacted) == byte_size(raw_path)
@@ -249,7 +174,7 @@ defmodule ImagePipe.API.PathTest do
 
     test "masks a leading signature on ordinary-source diagnostics" do
       raw_path = "/sig=private-signature/w=bad/src/images/cat.jpg"
-      redacted = Path.diagnostic_path(conn_for(raw_path))
+      redacted = Path.diagnostic_path(raw_path)
 
       assert byte_size(redacted) == byte_size(raw_path)
       refute redacted =~ "private-signature"
@@ -258,7 +183,7 @@ defmodule ImagePipe.API.PathTest do
 
     test "masks a misplaced signature segment before the source marker" do
       raw_path = "/w=bad/sig=private-signature/src/images/cat.jpg"
-      redacted = Path.diagnostic_path(conn_for(raw_path))
+      redacted = Path.diagnostic_path(raw_path)
 
       assert byte_size(redacted) == byte_size(raw_path)
       refute redacted =~ "private-signature"
@@ -267,125 +192,125 @@ defmodule ImagePipe.API.PathTest do
 
     test "does not treat enc text inside an ordinary source as a concealed token" do
       raw_path = "/w=bad/src/images/enc/private.jpg"
-      assert Path.diagnostic_path(conn_for(raw_path)) == raw_path
+      assert Path.diagnostic_path(raw_path) == raw_path
     end
   end
 
-  describe "extract/1 rules" do
+  describe "extract/2 rules" do
     test "a non-empty query string is an error" do
-      conn = conn_for("/w=800/src/x?v=2")
+      path = "/w=800/src/x"
 
-      assert {:error, errors} = Path.extract(conn)
+      assert {:error, errors} = Path.extract(path, "v=2")
       assert Enum.any?(errors, &(&1.reason == :non_empty_query_string))
     end
 
     test "a sig= segment that is not first is an error" do
-      conn = conn_for("/w=800/sig=ABC/src/x")
+      path = "/w=800/sig=ABC/src/x"
 
-      assert {:error, errors} = Path.extract(conn)
+      assert {:error, errors} = Path.extract(path, "")
       assert Enum.any?(errors, &(&1.reason == :sig_only_valid_first))
     end
 
     test "missing a source marker entirely is an error" do
-      conn = conn_for("/w=800/h=600")
+      path = "/w=800/h=600"
 
-      assert {:error, [%{reason: :missing_source_marker}]} = Path.extract(conn)
+      assert {:error, [%{reason: :missing_source_marker}]} = Path.extract(path, "")
     end
 
     test "src with nothing after it (no trailing slash) is an error" do
-      conn = conn_for("/w=800/src")
+      path = "/w=800/src"
 
-      assert {:error, [%{reason: :missing_source}]} = Path.extract(conn)
+      assert {:error, [%{reason: :missing_source}]} = Path.extract(path, "")
     end
 
     test "src with an empty tail (trailing slash, nothing after) is an error" do
-      conn = conn_for("/w=800/src/")
+      path = "/w=800/src/"
 
-      assert {:error, [%{reason: :missing_source}]} = Path.extract(conn)
+      assert {:error, [%{reason: :missing_source}]} = Path.extract(path, "")
     end
 
     test "src64 with nothing after it is an error" do
-      conn = conn_for("/w=800/src64")
+      path = "/w=800/src64"
 
-      assert {:error, [%{reason: :missing_source}]} = Path.extract(conn)
+      assert {:error, [%{reason: :missing_source}]} = Path.extract(path, "")
     end
 
     test "a malformed percent escape in the src tail is an error, never a source guess" do
-      conn = conn_for("/src/%zz")
+      path = "/src/%zz"
 
-      assert {:error, [%{reason: :malformed_percent_escape}]} = Path.extract(conn)
+      assert {:error, [%{reason: :malformed_percent_escape}]} = Path.extract(path, "")
     end
 
     test "a malformed percent escape at the end of the src tail is an error" do
-      conn = conn_for("/src/abc%2")
+      path = "/src/abc%2"
 
-      assert {:error, [%{reason: :malformed_percent_escape}]} = Path.extract(conn)
+      assert {:error, [%{reason: :malformed_percent_escape}]} = Path.extract(path, "")
     end
 
     test "the src tail is percent-decoded exactly once" do
       # %2534 decodes once to "%34", NOT twice to "4"
-      conn = conn_for("/src/%2534")
+      path = "/src/%2534"
 
-      assert {:ok, %{source: {:src, "%34", _span}}} = Path.extract(conn)
+      assert {:ok, %{source: {:src, "%34", _span}}} = Path.extract(path, "")
     end
 
     test "an embedded slash in a src64 tail is an error" do
-      conn = conn_for("/src64/abc/def")
+      path = "/src64/abc/def"
 
-      assert {:error, [%{reason: :src64_embedded_slash}]} = Path.extract(conn)
+      assert {:error, [%{reason: :src64_embedded_slash}]} = Path.extract(path, "")
     end
 
     test "padding in a src64 tail is an error" do
       encoded = Base.url_encode64("images/cat.jpg", padding: true)
-      conn = conn_for("/src64/#{encoded}")
+      path = "/src64/#{encoded}"
 
-      assert {:error, [%{reason: :src64_padding}]} = Path.extract(conn)
+      assert {:error, [%{reason: :src64_padding}]} = Path.extract(path, "")
     end
 
     test "an invalid base64 alphabet character in a src64 tail is an error" do
-      conn = conn_for("/src64/not!valid")
+      path = "/src64/not!valid"
 
-      assert {:error, [%{reason: :invalid_base64}]} = Path.extract(conn)
+      assert {:error, [%{reason: :invalid_base64}]} = Path.extract(path, "")
     end
 
     test "a percent escape in an option segment is an error" do
-      conn = conn_for("/w=%38%30%30/src/x")
+      path = "/w=%38%30%30/src/x"
 
-      assert {:error, errors} = Path.extract(conn)
+      assert {:error, errors} = Path.extract(path, "")
       assert Enum.any?(errors, &(&1.reason == :percent_in_option_segment))
     end
 
     test "an empty segment from duplicate slashes is an error" do
-      conn = conn_for("/w=800//h=600/src/x")
+      path = "/w=800//h=600/src/x"
 
-      assert {:error, errors} = Path.extract(conn)
+      assert {:error, errors} = Path.extract(path, "")
       assert Enum.any?(errors, &(&1.reason == :empty_segment))
     end
 
     test "a leading duplicate slash produces an empty segment error" do
-      conn = conn_with_raw_path("//w=800/src/x")
+      path = "//w=800/src/x"
 
-      assert {:error, [%{reason: :empty_segment} | _]} = Path.extract(conn)
+      assert {:error, [%{reason: :empty_segment} | _]} = Path.extract(path, "")
     end
 
     test "a single-dot segment is an error" do
-      conn = conn_for("/./w=800/src/x")
+      path = "/./w=800/src/x"
 
-      assert {:error, errors} = Path.extract(conn)
+      assert {:error, errors} = Path.extract(path, "")
       assert Enum.any?(errors, &(&1.reason == :dot_segment))
     end
 
     test "a double-dot segment is an error" do
-      conn = conn_for("/../w=800/src/x")
+      path = "/../w=800/src/x"
 
-      assert {:error, errors} = Path.extract(conn)
+      assert {:error, errors} = Path.extract(path, "")
       assert Enum.any?(errors, &(&1.reason == :dot_segment))
     end
 
     test "independent errors accumulate in one pass" do
-      conn = conn_for("/w=%38%30%30/./sig=ABC/src/x")
+      path = "/w=%38%30%30/./sig=ABC/src/x"
 
-      assert {:error, errors} = Path.extract(conn)
+      assert {:error, errors} = Path.extract(path, "")
       reasons = Enum.map(errors, & &1.reason)
 
       assert :percent_in_option_segment in reasons
@@ -394,36 +319,37 @@ defmodule ImagePipe.API.PathTest do
     end
   end
 
-  describe "extract/1 span precision" do
+  describe "extract/2 span precision" do
     test "an unknown/invalid option segment's span covers just that segment" do
-      conn = conn_for("/w=800/bogus%20value/src/x")
+      path = "/w=800/bogus%20value/src/x"
 
       assert {:error, [%{reason: :percent_in_option_segment, spans: [{7, 13}]}]} =
-               Path.extract(conn)
+               Path.extract(path, "")
     end
 
     test "the missing-source-marker span points at the end of the path" do
-      conn = conn_for("/w=800")
+      path = "/w=800"
 
-      assert {:error, [%{reason: :missing_source_marker, spans: [{6, 0}]}]} = Path.extract(conn)
+      assert {:error, [%{reason: :missing_source_marker, spans: [{6, 0}]}]} =
+               Path.extract(path, "")
     end
 
     test "the non-empty-query-string span points at the end of the path" do
-      conn = conn_for("/w=800/src/x?v=2")
+      path = "/w=800/src/x"
 
-      assert {:error, errors} = Path.extract(conn)
+      assert {:error, errors} = Path.extract(path, "v=2")
       assert %{reason: :non_empty_query_string, spans: [{12, 0}]} = hd(errors)
     end
   end
 
-  describe "extract/1 properties" do
+  describe "extract/2 properties" do
     property "src percent-encode -> extract -> decode round-trips" do
       check all source <- StreamData.binary(min_length: 1, max_length: 64),
                 max_runs: 100 do
         encoded = percent_encode_source(source)
-        conn = conn_for("/src/#{encoded}")
+        path = "/src/#{encoded}"
 
-        assert {:ok, %{source: {:src, ^source, _span}}} = Path.extract(conn)
+        assert {:ok, %{source: {:src, ^source, _span}}} = Path.extract(path, "")
       end
     end
 
@@ -431,9 +357,9 @@ defmodule ImagePipe.API.PathTest do
       check all source <- StreamData.binary(min_length: 1, max_length: 64),
                 max_runs: 100 do
         encoded = Base.url_encode64(source, padding: false)
-        conn = conn_for("/src64/#{encoded}")
+        path = "/src64/#{encoded}"
 
-        assert {:ok, %{source: {:src64, ^source, _span}}} = Path.extract(conn)
+        assert {:ok, %{source: {:src64, ^source, _span}}} = Path.extract(path, "")
       end
     end
   end

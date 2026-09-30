@@ -1,16 +1,10 @@
 defmodule ImagePipe.API.DiagnosticTest do
   use ExUnit.Case, async: true
 
-  import Plug.Test
-
   alias ImagePipe.API.Diagnostic
   alias ImagePipe.API.DiagnosticRenderer
   alias ImagePipe.API.Parser
   alias ImagePipe.API.Path
-
-  defp conn_for(path) do
-    conn(:get, path)
-  end
 
   defp seg(raw), do: {raw, {0, byte_size(raw)}}
 
@@ -22,13 +16,13 @@ defmodule ImagePipe.API.DiagnosticTest do
     Parser.parse(lexed(segments), [])
   end
 
-  # -- migration: Path.extract/1 emits %Diagnostic{} structs -------------
+  # -- migration: Path.extract/2 emits %Diagnostic{} structs -------------
 
-  describe "Path.extract/1 emits %Diagnostic{} structs" do
+  describe "Path.extract/2 emits %Diagnostic{} structs" do
     test "every error is a %Diagnostic{} with a non-empty message and a non-empty spans list" do
-      conn = conn_for("/w=%38%30%30/./sig=ABC/src/x")
+      path = "/w=%38%30%30/./sig=ABC/src/x"
 
-      assert {:error, diagnostics} = Path.extract(conn)
+      assert {:error, diagnostics} = Path.extract(path, "")
       assert diagnostics != []
 
       for diagnostic <- diagnostics do
@@ -55,9 +49,9 @@ defmodule ImagePipe.API.DiagnosticTest do
 
     for {path, reason} <- @path_reasons do
       test "#{reason} carries a real message (#{path})" do
-        conn = conn_for(unquote(path))
+        [path | query] = String.split(unquote(path), "?", parts: 2)
 
-        assert {:error, diagnostics} = Path.extract(conn)
+        assert {:error, diagnostics} = Path.extract(path, Enum.join(query))
         diagnostic = Enum.find(diagnostics, &(&1.reason == unquote(reason)))
 
         assert %Diagnostic{message: message} = diagnostic
@@ -66,22 +60,22 @@ defmodule ImagePipe.API.DiagnosticTest do
     end
   end
 
-  describe "Path.extract/1 bound: max option segments per request (64)" do
+  describe "Path.extract/2 bound: max option segments per request (64)" do
     defp segments_path(count) do
       "/" <> Enum.map_join(1..count, "/", fn _ -> "w=1" end) <> "/src/x"
     end
 
     test "exactly 64 option segments succeeds" do
-      conn = conn_for(segments_path(64))
+      path = segments_path(64)
 
-      assert {:ok, %{segments: segments}} = Path.extract(conn)
+      assert {:ok, %{segments: segments}} = Path.extract(path, "")
       assert length(segments) == 64
     end
 
     test "65 option segments is a bounded :too_many_segments error, not a slow scan" do
-      conn = conn_for(segments_path(65))
+      path = segments_path(65)
 
-      assert {:error, diagnostics} = Path.extract(conn)
+      assert {:error, diagnostics} = Path.extract(path, "")
       assert Enum.any?(diagnostics, &(&1.reason == :too_many_segments))
     end
   end

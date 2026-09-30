@@ -78,7 +78,7 @@ defmodule ImagePipe.API.CropRatioTrimWireTest do
       source_format: :jpeg
     }
 
-    {:ok, lexed} = conn(:get, "/crop=200,200/crop-ratio=2/h=25/src/image.jpg") |> Path.extract()
+    {:ok, lexed} = Path.extract("/crop=200,200/crop-ratio=2/h=25/src/image.jpg", "")
     {:ok, request} = Parser.parse(lexed, [])
     decode_request = Executor.decode_request(request, geometry)
 

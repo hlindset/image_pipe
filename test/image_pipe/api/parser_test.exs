@@ -13,7 +13,7 @@ defmodule ImagePipe.API.ParserTest do
   alias ImagePipe.Plug.Config
 
   # `parse/2` consumes Task 4's lexed map directly — never a conn — so
-  # tests build that map by hand instead of going through `Path.extract/1`.
+  # tests build that map by hand instead of going through `Path.extract/2`.
   # Span *values* only matter for diagnostic assertions; success-path
   # assertions don't depend on them.
   defp seg(raw), do: {raw, {0, byte_size(raw)}}

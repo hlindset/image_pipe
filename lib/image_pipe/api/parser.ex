@@ -2,7 +2,7 @@ defmodule ImagePipe.API.Parser do
   @moduledoc """
   Parses URL segments into a validated, canonical `%Request{}`.
 
-  `parse/2` consumes the lexed map from `ImagePipe.API.Path.extract/1`.
+  `parse/2` consumes the lexed map from `ImagePipe.API.Path.extract/2`.
   `Path` owns raw-path and HTTP handling.
 
   Validation accumulates diagnostics in five passes:
@@ -36,7 +36,7 @@ defmodule ImagePipe.API.Parser do
         }
 
   @doc """
-  Parses a fully lexed request path (`ImagePipe.API.Path.extract/1`'s
+  Parses a fully lexed request path (`ImagePipe.API.Path.extract/2`'s
   success value) into a canonical `%Request{}`.
   """
   @spec parse(lexed(), keyword()) ::
@@ -304,7 +304,7 @@ defmodule ImagePipe.API.Parser do
 
   # The mount-relative raw path's own span, `{0, byte_size(raw_path)}`,
   # derived from the lexed source's span — `src`/`src64` is always the
-  # terminal segment (`ImagePipe.API.Path.extract/1`), so its
+  # terminal segment (`ImagePipe.API.Path.extract/2`), so its
   # offset plus its (pre-decode) length equals the whole raw path's byte
   # length.
   defp whole_path_span({source_offset, source_len}), do: {0, source_offset + source_len}

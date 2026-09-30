@@ -13,12 +13,13 @@ defmodule ImagePipe.Plug.Errors do
   alias ImagePipe.API.Diagnostic
   alias ImagePipe.API.DiagnosticRenderer
   alias ImagePipe.API.Path
+  alias ImagePipe.Plug.Request
   alias ImagePipe.Response.ErrorStatus
 
   @spec send(Plug.Conn.t(), term()) :: Plug.Conn.t()
   def send(%Plug.Conn{} = conn, {:invalid_request, diagnostics})
       when is_list(diagnostics) do
-    body = DiagnosticRenderer.render(Path.diagnostic_path(conn), diagnostics)
+    body = DiagnosticRenderer.render(diagnostic_path(conn), diagnostics)
 
     conn
     |> put_resp_content_type("text/plain")
@@ -39,7 +40,7 @@ defmodule ImagePipe.Plug.Errors do
       spans: [sig_span(conn)]
     }
 
-    body = DiagnosticRenderer.render(Path.diagnostic_path(conn), [diagnostic])
+    body = DiagnosticRenderer.render(diagnostic_path(conn), [diagnostic])
 
     conn
     |> put_resp_content_type("text/plain")
@@ -78,8 +79,10 @@ defmodule ImagePipe.Plug.Errors do
     |> send_resp(status, message)
   end
 
+  defp diagnostic_path(conn), do: conn |> Request.mount_relative_path!() |> Path.diagnostic_path()
+
   defp sig_span(conn) do
-    {sig, _signed_path} = Path.split_signature(conn)
+    {sig, _signed_path} = conn |> Request.mount_relative_path!() |> Path.split_signature()
     {1, byte_size("sig=" <> sig)}
   end
 end

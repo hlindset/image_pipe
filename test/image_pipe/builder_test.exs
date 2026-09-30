@@ -373,7 +373,7 @@ defmodule ImagePipe.BuilderTest do
   end
 
   defp parse(options) do
-    conn = Plug.Test.conn(:get, "/" <> options <> "/src/photo.jpg")
-    with {:ok, path} <- Path.extract(conn), do: Parser.parse(path, Config.validate!([]))
+    with {:ok, lexed} <- Path.extract("/" <> options <> "/src/photo.jpg", ""),
+         do: Parser.parse(lexed, Config.validate!([]))
   end
 end

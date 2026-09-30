@@ -123,7 +123,7 @@ defmodule ImagePipe.Transform.ExecutorTest do
 
   defp request!(options) do
     path = "/" <> options <> if(options == "", do: "", else: "/") <> "src/test"
-    {:ok, lexed} = Plug.Test.conn(:get, path) |> Path.extract()
+    {:ok, lexed} = Path.extract(path, "")
     {:ok, request} = Parser.parse(lexed, [])
     request
   end

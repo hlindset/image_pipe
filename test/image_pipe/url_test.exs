@@ -31,7 +31,7 @@ defmodule ImagePipe.URLTest do
           "s3://bucket//key"
         ] do
       url = IP.url!(IP.new(), source)
-      assert {:ok, %{source: {:src, ^source, _}}} = Path.extract(Plug.Test.conn(:get, url))
+      assert {:ok, %{source: {:src, ^source, _}}} = Path.extract(url, "")
     end
 
     assert IP.url(IP.new(), "/") == {:error, :invalid_source}
@@ -109,7 +109,7 @@ defmodule ImagePipe.URLTest do
     assert String.starts_with?(path, "/w=40/format=png/src/")
     assert URI.parse(path).query == nil
     assert URI.parse(path).fragment == nil
-    assert {:ok, lexed} = Path.extract(Plug.Test.conn(:get, path))
+    assert {:ok, lexed} = Path.extract(path, "")
     assert {:ok, request} = Parser.parse(lexed, presets: %{})
     assert {:ok, ^request} = Plan.to_request(plan.plan)
   end
@@ -123,7 +123,7 @@ defmodule ImagePipe.URLTest do
 
       prefix = String.trim_trailing(base, "/")
       relative = String.replace_prefix(path, prefix, "")
-      {signature, signed_path} = Path.split_signature(Plug.Test.conn(:get, relative))
+      {signature, signed_path} = Path.split_signature(relative)
       mount = IP.Plug.init(config)
       assert {:ok, 0} = Signature.verify(signature, signed_path, mount)
       assert signed_path == "/gray/expires=2000000000/src/photo.jpg"
@@ -175,7 +175,7 @@ defmodule ImagePipe.URLTest do
     for source <- [".", ".."] do
       path = IP.url!(IP.new(), source)
       assert String.starts_with?(path, "/src64/")
-      assert {:ok, %{source: {:src64, ^source, _span}}} = Path.extract(Plug.Test.conn(:get, path))
+      assert {:ok, %{source: {:src64, ^source, _span}}} = Path.extract(path, "")
     end
   end
 
@@ -185,7 +185,7 @@ defmodule ImagePipe.URLTest do
       path = IP.url!(IP.new(), source)
 
       assert {:ok, %{source: {_marker, ^source, _span}}} =
-               Path.extract(Plug.Test.conn(:get, path))
+               Path.extract(path, "")
     end
   end
 

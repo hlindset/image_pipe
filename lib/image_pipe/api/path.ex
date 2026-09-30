@@ -4,16 +4,15 @@ defmodule ImagePipe.API.Path do
 
   Signature verification must precede parsing:
 
-    * `split_signature/1` strips the mount prefix and returns
-      `{sig, signed_path}` using raw byte inspection only. It does not validate
-      segments, decode escapes, or allocate diagnostics.
-    * `extract/1` lexes and decodes only after `Signature.verify/3` succeeds
-      against the same connection's `split_signature/1` output. It skips the
+    * `split_signature/1` returns `{sig, signed_path}` using raw byte
+      inspection only. It does not validate segments, decode escapes, or
+      allocate diagnostics.
+    * `extract/2` lexes and decodes only after `Signature.verify/3` succeeds
+      against the same path's `split_signature/1` output. It skips the
       leading signature segment and returns no signature data.
 
-  Both strip `conn.script_name` from `conn.request_path` as a raw prefix.
-  Because Plug decodes `script_name`, the mount must use canonical unescaped
-  ASCII. Other mount paths raise; see `ImagePipe.API` for the caveat.
+  Both take the raw mount-relative path: `""` or a string starting with `/`,
+  with the mount prefix and query string already removed.
 
   Spans are `{byte_offset, byte_length}` into the mount-relative raw path,
   including the skipped signature segment in their offsets.
@@ -35,19 +34,15 @@ defmodule ImagePipe.API.Path do
   @malformed_percent ~r/%($|[^0-9A-Fa-f]|[0-9A-Fa-f]$|[0-9A-Fa-f][^0-9A-Fa-f])/
 
   @doc """
-  Raw byte inspection only: strips the mount prefix from `conn.request_path`
-  and, if the first mount-relative segment starts with `sig=`, returns its
-  value and the raw remainder from the following `/` to end of path. Else
-  returns `{nil, whole_mount_relative_path}`.
+  Raw byte inspection only: if the first segment of the mount-relative
+  `path` starts with `sig=`, returns its value and the raw remainder from the
+  following `/` to end of path. Else returns `{nil, path}`.
 
   Runs before verification without segment validation, percent-decoding,
-  error tuples, or diagnostics. A noncanonical mount prefix raises as host
-  misconfiguration (a 500-class error).
+  error tuples, or diagnostics.
   """
-  @spec split_signature(Plug.Conn.t()) :: {sig :: String.t() | nil, signed_path :: String.t()}
-  def split_signature(%Plug.Conn{} = conn) do
-    path = mount_relative_path!(conn)
-
+  @spec split_signature(String.t()) :: {sig :: String.t() | nil, signed_path :: String.t()}
+  def split_signature(path) when is_binary(path) do
     case split_first_segment(path) do
       {nil, _offset, _remainder} ->
         {nil, path}
@@ -62,14 +57,13 @@ defmodule ImagePipe.API.Path do
   end
 
   @doc false
-  @spec diagnostic_path(Plug.Conn.t()) :: String.t()
-  def diagnostic_path(%Plug.Conn{} = conn) do
-    path = mount_relative_path!(conn)
+  @spec diagnostic_path(String.t()) :: String.t()
+  def diagnostic_path(path) when is_binary(path) do
     redact_secrets(path, path, path)
   end
 
   @doc """
-  Full lexing of the mount-relative raw path into option/flag/separator segments
+  Full lexing of the mount-relative raw path and its query string into option/flag/separator segments
   plus a terminal source, called only after `Signature.verify/3` has
   succeeded. Skips a leading `sig=` segment internally (without validating
   it) but never returns signature data — `split_signature/1` is the raw
@@ -83,82 +77,22 @@ defmodule ImagePipe.API.Path do
   On failure returns `{:error, [Diagnostic.t()]}` — errors accumulate
   across independent rule violations in a single pass.
   """
-  @spec extract(Plug.Conn.t()) ::
+  @spec extract(String.t(), String.t()) ::
           {:ok,
            %{
              segments: [{raw :: String.t(), span()}],
              source: {:src | :src64 | :enc, decoded_tail :: String.t(), span()}
            }}
           | {:error, [Diagnostic.t()]}
-  def extract(%Plug.Conn{} = conn) do
-    path = mount_relative_path!(conn)
-
+  def extract(path, query_string) when is_binary(path) and is_binary(query_string) do
     query_errors =
-      if conn.query_string != "" do
+      if query_string != "" do
         [diagnostic(:non_empty_query_string, {byte_size(path), 0})]
       else
         []
       end
 
     lex_segments(path, lex_start(path), [], query_errors, 0)
-  end
-
-  # -- mount-prefix stripping -------------------------------------------
-
-  defp mount_relative_path!(%Plug.Conn{request_path: request_path, script_name: script_name}) do
-    prefix = mount_prefix!(script_name)
-
-    case strip_prefix(request_path, prefix) do
-      {:ok, rest} ->
-        rest
-
-      :error ->
-        raise ArgumentError,
-              "ImagePipe.API: request_path #{inspect(request_path)} does not " <>
-                "start with the mount prefix #{inspect(prefix)} derived from script_name " <>
-                "#{inspect(script_name)}"
-    end
-  end
-
-  defp mount_prefix!([]), do: ""
-
-  defp mount_prefix!(segments) do
-    Enum.map_join(segments, "", fn segment ->
-      if canonical_mount_segment?(segment) do
-        "/" <> segment
-      else
-        raise ArgumentError,
-              "ImagePipe.API: mount path segment #{inspect(segment)} is not " <>
-                "canonical unescaped ASCII (non-canonical/escaped mount paths are " <>
-                "unsupported in v1; a config-supplied raw mount prefix is a future " <>
-                "escape hatch)"
-      end
-    end)
-  end
-
-  # A segment built only from RFC 3986 unreserved characters is guaranteed
-  # byte-identical between conn.request_path (raw) and conn.script_name
-  # (decoded) — those characters are never percent-encoded by a canonical
-  # client. Anything else (including "%" itself) makes the round trip
-  # through percent-encoding ambiguous, so it's rejected.
-  defp canonical_mount_segment?(segment) do
-    segment != "" and
-      segment
-      |> :binary.bin_to_list()
-      |> Enum.all?(&mount_unreserved_byte?/1)
-  end
-
-  defp mount_unreserved_byte?(byte) do
-    byte in ?a..?z or byte in ?A..?Z or byte in ?0..?9 or byte in [?-, ?., ?_, ?~]
-  end
-
-  defp strip_prefix(request_path, prefix) do
-    if String.starts_with?(request_path, prefix) do
-      {:ok,
-       binary_part(request_path, byte_size(prefix), byte_size(request_path) - byte_size(prefix))}
-    else
-      :error
-    end
   end
 
   # -- shared raw segment splitting --------------------------------------
@@ -177,7 +111,7 @@ defmodule ImagePipe.API.Path do
     end
   end
 
-  # -- sig-segment skip (extract/1 only) ---------------------------------
+  # -- sig-segment skip (extract/2 only) ---------------------------------
 
   defp lex_start(path) do
     case split_first_segment(path) do

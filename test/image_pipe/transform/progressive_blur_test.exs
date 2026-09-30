@@ -21,8 +21,7 @@ defmodule ImagePipe.Transform.ProgressiveBlurTest do
         |> Image.write!(:memory, suffix: ".png")
 
       assert {:ok, lexed} =
-               Plug.Test.conn(:get, "/progressive-blur=#{sigma},#{angle},#{stops}/src/image.png")
-               |> Path.extract()
+               Path.extract("/progressive-blur=#{sigma},#{angle},#{stops}/src/image.png", "")
 
       assert {:ok, request} = Parser.parse(lexed, [])
       assert {:ok, sequential} = Image.open([body], access: :sequential, fail_on: :error)
