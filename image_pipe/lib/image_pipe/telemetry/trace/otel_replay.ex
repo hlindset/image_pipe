@@ -13,12 +13,18 @@ defmodule ImagePipe.Telemetry.Trace.OtelReplay do
   # per-sender-FIFO-only guarantee of casts suffices), and the OTel calls are
   # in-memory handoffs to the SDK's processor (the SDK batches the real I/O).
   #
-  # ImagePipe's trace_id is forced onto the trace via a synthetic W3C
-  # traceparent remote parent on the root span only; children inherit it
-  # through their parent contexts. Upstream consequence (new_span_ctx/2 copies
-  # the parent ctx wholesale): every replayed span carries is_remote=true
-  # inherited from the root's remote-extracted parent — benign (parent linkage
-  # and sampling stay correct), just visible in exported records.
+  # ImagePipe's trace_id is forced onto every span that starts a trace;
+  # children inherit it through their parent contexts:
+  #   * a span continuing an inbound traceparent starts under that real remote
+  #     parent;
+  #   * a parentless span starts as a true root, with OtelIdGenerator handing
+  #     the SDK ImagePipe's trace_id — when the host configured it;
+  #   * otherwise (generator not configured, or the parent's ctx is not
+  #     available) it starts under a synthetic W3C remote parent: its recorded
+  #     parent id, or its own id as a dangling self-parent.
+  # The SDK copies a parent ctx wholesale into its child's, is_remote included,
+  # so each stored ctx is marked local — only spans directly under a remote
+  # parent report parent_span_is_remote.
   #
   # Degradations (all best-effort by design):
   #   * a trace whose root never arrives is flushed flat by the periodic sweep
@@ -36,7 +42,7 @@ defmodule ImagePipe.Telemetry.Trace.OtelReplay do
 
   use GenServer
 
-  alias ImagePipe.Telemetry.Trace.Span
+  alias ImagePipe.Telemetry.Trace.{OtelIdGenerator, Span}
 
   # All OTel references are runtime-only and only reachable via the guarded
   # exporter; suppress undefined-module warnings when the optional API is absent.
@@ -252,24 +258,42 @@ defmodule ImagePipe.Telemetry.Trace.OtelReplay do
   # and never aborts the surrounding tree replay — same never-crash contract as
   # add_span, localized so one bad span can't take out its siblings.
   defp replay_one(%Span{} = span, ctx_map) do
-    parent_otel_ctx =
+    tracer = :opentelemetry.get_application_tracer(__MODULE__)
+
+    span_ctx =
       case Map.get(ctx_map, span.parent_span_id) do
-        nil -> traceparent_ctx(span)
-        parent_span_ctx -> :otel_tracer.set_current_span(:otel_ctx.new(), parent_span_ctx)
+        nil ->
+          replay_unparented(span, tracer)
+
+        parent_span_ctx ->
+          parent_otel_ctx = :otel_tracer.set_current_span(:otel_ctx.new(), parent_span_ctx)
+          replay_span(span, tracer, parent_otel_ctx)
       end
 
-    span_ctx = replay_span(span, parent_otel_ctx)
-    {span_ctx, Map.put(ctx_map, span.span_id, span_ctx)}
+    {span_ctx, Map.put(ctx_map, span.span_id, local_span_ctx(span_ctx))}
   rescue
     _ -> {nil, ctx_map}
   end
 
-  defp replay_span(%Span{} = span, parent_otel_ctx) do
+  # A parentless span starts a true root when the generator can hand the SDK
+  # our trace_id; anything else needs the synthetic parent to force it.
+  defp replay_unparented(%Span{parent_span_id: nil} = span, tracer) do
+    if OtelIdGenerator.configured?(tracer) do
+      OtelIdGenerator.with_trace_id(span.trace_id, fn ->
+        replay_span(span, tracer, :otel_ctx.new())
+      end)
+    else
+      replay_span(span, tracer, traceparent_ctx(span))
+    end
+  end
+
+  defp replay_unparented(%Span{} = span, tracer),
+    do: replay_span(span, tracer, traceparent_ctx(span))
+
+  defp replay_span(%Span{} = span, tracer, parent_otel_ctx) do
     offset = :erlang.time_offset()
     native_start = (span.start_time || 0) - offset
     native_end = native_start + (span.duration_native || 0)
-
-    tracer = :opentelemetry.get_application_tracer(__MODULE__)
 
     # Erlang API: the Elixir `OpenTelemetry.Tracer.start_span` is a macro, which
     # would need `require OpenTelemetry.Tracer` — impossible to do conditionally
@@ -293,9 +317,8 @@ defmodule ImagePipe.Telemetry.Trace.OtelReplay do
     span_ctx
   end
 
-  # Force OUR trace_id via a synthetic remote parent: the root (and any span
-  # whose parent ctx is unavailable) carries its recorded parent id, or its own
-  # span_id as a dangling self-parent. -01 sampled flag is mandatory.
+  # Synthetic remote parent forcing OUR trace_id: the span's recorded parent id,
+  # or its own span_id as a dangling self-parent. -01 sampled flag is mandatory.
   defp traceparent_ctx(%Span{trace_id: trace, parent_span_id: parent, span_id: own}) do
     parent_hex = parent || own
     traceparent = "00-#{trace}-#{parent_hex}-01"
@@ -306,6 +329,22 @@ defmodule ImagePipe.Telemetry.Trace.OtelReplay do
       :otel_propagator_trace_context,
       [{"traceparent", traceparent}]
     )
+  end
+
+  # The API's #span_ctx{} record is only readable when the optional API is
+  # compiled in; without it no span_ctx is ever minted.
+  if Code.ensure_loaded?(:otel_tracer) do
+    require Record
+
+    Record.defrecordp(
+      :span_ctx,
+      Record.extract(:span_ctx, from_lib: "opentelemetry_api/include/opentelemetry.hrl")
+    )
+
+    defp local_span_ctx(span_ctx() = ctx), do: span_ctx(ctx, is_remote: false)
+    defp local_span_ctx(ctx), do: ctx
+  else
+    defp local_span_ctx(ctx), do: ctx
   end
 
   defp kind(k) when k in [:internal, :server, :client], do: k

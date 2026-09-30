@@ -43,7 +43,9 @@ config :opentelemetry,
   traces_exporter: :otlp,
   # the Jaeger "service" name (otherwise a default like "Erlang/OTP"); ImagePipe
   # itself only sets the `image_pipe` instrumentation scope, not the resource
-  resource: [service: %{name: "my_app"}]
+  resource: [service: %{name: "my_app"}],
+  # export untraced requests as true root spans that keep ImagePipe's trace_id
+  id_generator: ImagePipe.Telemetry.Trace.OtelIdGenerator
 
 config :opentelemetry_exporter,
   otlp_protocol: :http_protobuf,
@@ -72,10 +74,12 @@ batch flush, Jaeger shows an `image_pipe.request` trace with descendants such as
 `image_pipe.send`, its nested `image_pipe.deliver`, `image_pipe.encode`,
 `image_pipe.transform.execute`, and `image_pipe.transform.operation`.
 
-When ImagePipe starts the trace, Jaeger may show a missing parent on the root.
-The synthetic remote parent forces ImagePipe's `trace_id` onto the OTel trace.
-Behind a traced caller, `extract_inbound: true` instead makes the root a real
-child of the inbound span.
+When ImagePipe starts the trace, the root is a true root span carrying
+ImagePipe's `trace_id`, so log lines and Jaeger traces share one trace ID.
+Without the `id_generator` setting, the exporter forces that trace ID through a
+synthetic remote parent instead, and Jaeger warns about an invalid parent span
+ID on the root. Behind a traced caller, `extract_inbound: true` makes the root a
+real child of the inbound span.
 
 ## Troubleshooting: no traces appear
 

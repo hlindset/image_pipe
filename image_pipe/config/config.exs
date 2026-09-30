@@ -7,5 +7,6 @@ if config_env() == :test do
   # per-test via :otel_simple_processor.set_exporter/2.
   config :opentelemetry,
     span_processor: :simple,
-    traces_exporter: :none
+    traces_exporter: :none,
+    id_generator: ImagePipe.Telemetry.Trace.OtelIdGenerator
 end

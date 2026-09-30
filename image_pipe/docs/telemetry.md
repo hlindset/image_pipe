@@ -1082,6 +1082,10 @@ adds `:opentelemetry` (+ an OTLP exporter) and starts the SDK.
 
 ```elixir
 # host deps: {:opentelemetry, "~> 1.7"}, {:opentelemetry_exporter, "~> 1.8"}
+# config/config.exs
+config :opentelemetry, id_generator: ImagePipe.Telemetry.Trace.OtelIdGenerator
+
+# at startup
 ImagePipe.Telemetry.attach_tracer(
   exporter: ImagePipe.Telemetry.Trace.OpenTelemetryExporter,
   extract_inbound: true
@@ -1095,10 +1099,14 @@ traces, and overload sheds new traces. Logs and OTel spans share `trace_id`, but
 OTel mints different span IDs.
 
 With inbound extraction, the request root is a real child of the caller. When
-ImagePipe originates a trace, a synthetic remote parent forces its trace ID into
-OTel. The SDK propagates that remote-parent flag to replayed descendants, so a
-`parent_based` sampler must use the same policy for its remote and local parent
-branches. Roots that never finish are flushed flat after about 10 seconds.
+ImagePipe originates a trace, the root is exported as a true root span carrying
+ImagePipe's trace ID, provided the SDK uses
+`ImagePipe.Telemetry.Trace.OtelIdGenerator` (configured above; it mints random
+IDs for everything else). Without it, a synthetic remote parent forces the trace
+ID into OTel, and backends report the root's parent as missing (Jaeger: invalid
+parent span ID; Tempo: root span not yet received). Only a span whose parent is
+actually remote is marked so; replayed descendants have local parents.
+Roots that never finish are flushed flat after about 10 seconds.
 Cross-process spans finishing shortly after the root retain parentage when their
 parent is already known; otherwise they may have a dangling parent.
 
@@ -1106,9 +1114,11 @@ If `:opentelemetry_api` is absent, `attach_tracer/1` raises. If the API is prese
 but the SDK is not running, the noop tracer drops spans. See the
 [Jaeger cookbook](cookbook/opentelemetry-jaeger.md).
 
-**Forced sampled flag:** the OTel exporter always emits spans with the W3C `-01`
-sampled flag set — trace-level correlation requires every span to reach the SDK.
-Host-side `trace_flags` sampling does not apply on this path; do sampling in your
+**Forced sampled flag:** the OTel exporter starts a root under a remote parent
+(inbound or synthetic) with the W3C `-01` sampled flag set — trace-level
+correlation requires every span to reach the SDK — so the inbound `trace_flags`
+do not apply on this path. A true root goes through the SDK's root sampler
+(`always_on` by default), and its descendants follow it. Do sampling in your
 downstream OTel collector instead.
 
 **Span attributes:** the `[:output, :clamp]` one-shot's `source_dimensions` /

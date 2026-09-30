@@ -69,6 +69,16 @@ defmodule ImagePipe.Telemetry.Trace.OtelReplayTest do
     )
   end
 
+  # The SDK fixes a tracer's id generator at startup; swap the cached tracer the
+  # replay resolves for one using `generator`, restoring it on exit.
+  defp swap_id_generator(generator) do
+    tracer = :opentelemetry.get_application_tracer(OtelReplay)
+    key = {:opentelemetry, :global, :tracer, :opentelemetry.get_application(OtelReplay)}
+    {module, record} = tracer
+    :persistent_term.put(key, {module, put_elem(record, 5, generator)})
+    on_exit(fn -> :persistent_term.put(key, tracer) end)
+  end
+
   defp drain do
     receive do
       {:span, rec} -> [rec | drain()]
@@ -143,14 +153,50 @@ defmodule ImagePipe.Telemetry.Trace.OtelReplayTest do
       assert otel_span(rec, :trace_id) == 0x0123456789ABCDEF0123456789ABCDEF
     end
 
-    # The root's parent is the synthetic remote parent (its own internal id).
-    assert otel_span(root_rec, :parent_span_id) == 0xAAAAAAAAAAAAAAAA
+    # An untraced root is a true root; nothing in the trace claims a remote parent.
+    assert otel_span(root_rec, :parent_span_id) == :undefined
+    assert otel_span(root_rec, :parent_span_is_remote) == :undefined
+    assert otel_span(child_rec, :parent_span_is_remote) == false
+    assert otel_span(grandchild_rec, :parent_span_is_remote) == false
   end
 
   test "an inbound-continued root uses the real upstream parent", %{server: server} do
-    OtelReplay.add(server, span(root: true, parent_span_id: "fedcba9876543210"))
+    OtelReplay.add(
+      server,
+      span(span_id: "aaaaaaaaaaaaaaaa", root: true, parent_span_id: "fedcba9876543210")
+    )
+
+    OtelReplay.add(
+      server,
+      span(
+        span_id: "bbbbbbbbbbbbbbbb",
+        parent_span_id: "aaaaaaaaaaaaaaaa",
+        name: "image_pipe.cache.write"
+      )
+    )
+
+    by_name = Map.new(drain(), &{otel_span(&1, :name), &1})
+    root_rec = by_name["image_pipe.request"]
+    child_rec = by_name["image_pipe.cache.write"]
+
+    assert otel_span(root_rec, :parent_span_id) == 0xFEDCBA9876543210
+    assert otel_span(root_rec, :parent_span_is_remote) == true
+    assert otel_span(root_rec, :trace_id) == 0x0123456789ABCDEF0123456789ABCDEF
+    assert otel_span(child_rec, :parent_span_id) == otel_span(root_rec, :span_id)
+    assert otel_span(child_rec, :parent_span_is_remote) == false
+  end
+
+  test "without the ImagePipe id generator an untraced root keeps a synthetic parent", %{
+    server: server
+  } do
+    swap_id_generator(:otel_id_generator)
+
+    OtelReplay.add(server, span(span_id: "aaaaaaaaaaaaaaaa", root: true))
     assert_receive {:span, rec}, 1_000
-    assert otel_span(rec, :parent_span_id) == 0xFEDCBA9876543210
+
+    # The synthetic parent is the only way to force ImagePipe's trace_id.
+    assert otel_span(rec, :trace_id) == 0x0123456789ABCDEF0123456789ABCDEF
+    assert otel_span(rec, :parent_span_id) == 0xAAAAAAAAAAAAAAAA
   end
 
   test "a late arrival after the flush parents correctly", %{server: server} do

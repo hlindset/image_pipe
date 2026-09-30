@@ -248,8 +248,7 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
   # Pre-fix, every exported span referenced an internal (never-exported) parent id,
   # so Jaeger flagged all spans as missing their parent and rendered the trace flat.
   # Post-fix, every non-root span must point at another exported span's OTel-minted
-  # id; only the request root keeps a synthetic out-of-trace parent (it forces
-  # ImagePipe's trace_id).
+  # id, and the untraced request root has no parent at all.
 
   test "every non-root span parents onto another exported span" do
     attach_otel_tracer()
@@ -280,6 +279,7 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
         MapSet.member?(minted, otel_span(rec, :parent_span_id))
       end)
 
+    assert otel_span(req, :parent_span_id) == :undefined
     assert dangling == [req]
   end
 
