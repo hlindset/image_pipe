@@ -96,8 +96,10 @@ encoder limits. These are generation limits, not cache identity: successful
 cached responses may still be served after a limit changes.
 
 Multi-frame and multi-page sources (animated WebP, JPEG XL, and GIF, multi-page
-TIFF, HEIF/AVIF image collections) decode their first frame or page only, so
-`max_input_pixels` applies to one frame. `max_input_frames` rejects a source
+TIFF, HEIF/AVIF image collections) decode one image: their default image (the
+first frame or page, or a HEIF collection's primary image) unless the request
+selects another with `page=N`. `max_input_pixels` applies to that one image, or
+to `N + 1` frames when a request selects frame N of an animation. `max_input_frames` rejects a source
 that declares more frames than the limit with `413`, even though only one is
 decoded: the loader visits every frame while reading the header, and for
 animated WebP that cost grows quadratically. APNG sources decode their default

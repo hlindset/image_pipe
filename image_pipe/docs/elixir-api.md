@@ -456,7 +456,7 @@ Every successful call returns `{:ok, %ImagePipe.Result{}}`:
 | Terminal | `data` | Additional result fields |
 | --- | --- | --- |
 | `:image` | Complete encoded binary | `format`, `content_type`, `width`, `height` |
-| `:info` | Map with string keys: format, MIME type, displayed width/height, EXIF orientation, and available source size | `content_type: "application/json"` |
+| `:info` | Map with string keys: format, MIME type, displayed width/height, EXIF orientation, page count, and available source size | `content_type: "application/json"` |
 | `:blurhash` | BlurHash string | `content_type: "text/plain"` |
 | `:lqip_css` | Packed CSS color string | `content_type: "text/plain"` |
 
@@ -554,6 +554,7 @@ terminal lifecycle.
 | Option | Value |
 | --- | --- |
 | `orient` | `:auto` (default) or `:none` |
+| `page` | Non-negative integer: decode that page or frame, 0-based, instead of the source's default image |
 | `filename`, `cachebuster` | Nonempty strings containing letters, digits, `.`, `_`, or `-` |
 | `attachment`, `debug` | Boolean |
 | `expires` | Positive Unix timestamp in seconds |

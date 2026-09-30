@@ -149,7 +149,7 @@ defmodule ImagePipe.URL do
   to supply request controls as well. `new()` uses default configuration.
 
   Accepts `:presets` (an ordered list of names), `:orient` (`:auto` or `:none`),
-  `:filename`, `:attachment`,
+  `:page` (a 0-based page or frame), `:filename`, `:attachment`,
   `:cachebuster`, `:expires` (positive Unix seconds), and `:debug`.
   Unknown, duplicate, or malformed options raise `ArgumentError`.
   """

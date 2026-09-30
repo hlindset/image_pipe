@@ -51,7 +51,7 @@ encoding settings after source-format and final-image inspection.
 
 The API accepts these option keys:
 
-`orient`, `rotate`, `flip`, `w`, `h`, `fit`, `enlarge`, `min-w`, `min-h`, `dpr`,
+`orient`, `page`, `rotate`, `flip`, `w`, `h`, `fit`, `enlarge`, `min-w`, `min-h`, `dpr`,
 `zoom`, `crop`, `crop-ratio`, `crop-ratio-enlarge`, `region`, `trim-symmetry`,
 `anchor-offset`, `extend`, `extend-ratio`, `extend-at`, `extend-offset`,
 `anchor`, `focus`, `detect`, `blur`, `progressive-blur`, `sharpen`, `pixelate`, `gray`, `bitonal`,
@@ -124,6 +124,19 @@ Automatic trim samples the displayed top-left corner. Pending orientation is
 applied before trim so that both background sampling and trim axes follow this
 frame. The request-wide `orient` value also applies to BlurHash and LQIP CSS. A default
 preset can set `orient=none`; an explicit URL value overrides that preset.
+
+### Pages and frames
+
+A multi-page or animated source (a TIFF, a HEIF/AVIF collection, an animated
+WebP, JPEG XL, or GIF) decodes one image. Without `page`, that is the source's
+default image: the primary image of a HEIF collection, the default image of an
+APNG, and the first page or frame otherwise. `page=N` selects page or frame N,
+0-based in file order, so `page=0` can differ from the default for HEIF. A still
+image has one page. A page past the last fails with `422` before decoding.
+Selecting frame N of an animation composites the frames before it, so the input
+pixel limit counts `N + 1` frames; a selected page of a TIFF or HEIF collection
+counts its own dimensions. `page` applies to every output, including info, and
+is part of the request's cache identity.
 
 Crop and region percentages use their operation's input dimensions, after
 rotation, flip, and trim. Trimming a 1000px-wide input to 800px and then
@@ -539,8 +552,9 @@ The value is used as `style="--lqip: #22333091"` with the shared stylesheet in
 placeholder responses use the usual cache and pre-fetch conditional-request path.
 
 `output=info` describes the source with JSON fields
-`format`, `mime_type`, display `width`/`height`, EXIF `orientation`, and
-optional byte `size`. It rejects all group options, explicit `orient` values, and
+`format`, `mime_type`, display `width`/`height`, EXIF `orientation`, `pages`
+(the number of pages or frames the source declares), and optional byte
+`size`. With `page=N`, the dimensions and orientation describe page N. It rejects all group options, explicit `orient` values, and
 image output options, including metadata, profile, and HDR controls,
 uses fixed `application/json`, and does not set `Vary: Accept`. Info retains
 source safety limits and can use header inspection without transforming or

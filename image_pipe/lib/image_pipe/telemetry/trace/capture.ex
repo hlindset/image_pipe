@@ -149,6 +149,8 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     :limit,
     # the libvips loader name a family check rejected (e.g. "dcrawload")
     :source_loader,
+    # the requested page or frame of a multi-frame source (a small integer)
+    :page,
     # realized post-op/post-materialize dimensions ({width, height}); a tuple,
     # coerced the same as :params by the OTel exporter's generic non-primitive
     # fallback (OtelReplay.coerce/1)

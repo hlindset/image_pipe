@@ -30,7 +30,7 @@
         .join("/") || "Off"
     );
   }
-  const orientationSummary = $derived(summary("orient", "rotate", "flip"));
+  const orientationSummary = $derived(summary("orient", "page", "rotate", "flip"));
   const trimSummary = $derived(summary("trim", "trim-symmetry"));
   const resizeSummary = $derived(summary("w", "h", "fit", "extend"));
   const aspectCanvasSummary = $derived(summary("extend-ratio", "extend-at"));
@@ -545,6 +545,20 @@
         </Switch.Root>
         <span>Auto rotate from EXIF</span>
       </label>
+
+      <label class="switch-field">
+        <Switch.Root class="switch-root" bind:checked={controlState.pageEnabled}>
+          <Switch.Thumb class="switch-thumb" />
+        </Switch.Root>
+        <span>Select page or frame</span>
+      </label>
+
+      {#if controlState.pageEnabled}
+        <label class="field">
+          <span>Page (0-based)</span>
+          <input class="text-input" type="number" min="0" step="1" bind:value={controlState.page} />
+        </label>
+      {/if}
 
       <label class="field">
         <span>Flip</span>

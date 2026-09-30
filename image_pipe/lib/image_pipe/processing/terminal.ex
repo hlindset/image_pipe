@@ -54,7 +54,8 @@ defmodule ImagePipe.Processing.Terminal do
         "mime_type" => Format.mime_type!(geometry.source_format),
         "width" => width,
         "height" => height,
-        "orientation" => orientation
+        "orientation" => orientation,
+        "pages" => geometry.pages
       }
       |> put_size(Map.get(geometry.debug_facts, :source_bytes))
 

@@ -4,7 +4,7 @@ defmodule ImagePipe.API.OptionSpecTest do
   alias ImagePipe.API.OptionSpec
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
 
-  @api_keys ~w(rotate flip gray bitonal dpr w h min-w min-h fit enlarge zoom extend extend-ratio extend-at extend-offset crop crop-ratio crop-ratio-enlarge region anchor anchor-offset focus detect blur progressive-blur sharpen pixelate monochrome duotone brightness contrast saturation colorize gradient trim trim-symmetry pad bg orient output format q format-q meta profile hdr autoquality max-bytes jpeg-options png-options webp-options avif-options filename attachment cb debug expires preset)
+  @api_keys ~w(rotate flip gray bitonal dpr w h min-w min-h fit enlarge zoom extend extend-ratio extend-at extend-offset crop crop-ratio crop-ratio-enlarge region anchor anchor-offset focus detect blur progressive-blur sharpen pixelate monochrome duotone brightness contrast saturation colorize gradient trim trim-symmetry pad bg orient page output format q format-q meta profile hdr autoquality max-bytes jpeg-options png-options webp-options avif-options filename attachment cb debug expires preset)
 
   describe "all/0" do
     test "declares API options, one entry per key" do
@@ -367,6 +367,15 @@ defmodule ImagePipe.API.OptionSpecTest do
       assert OptionSpec.parse_orientation("auto") == {:ok, :auto}
       assert OptionSpec.parse_orientation("none") == {:ok, :none}
       assert OptionSpec.parse_orientation("sideways") == {:error, :invalid_orientation}
+    end
+
+    test "parse_page accepts non-negative integers only" do
+      assert OptionSpec.parse_page("0") == {:ok, 0}
+      assert OptionSpec.parse_page("12") == {:ok, 12}
+
+      for value <- ["-1", "1.5", "", "two", "1e2"] do
+        assert OptionSpec.parse_page(value) == {:error, :invalid_page}
+      end
     end
 
     test "parse_format accepts supported output formats" do

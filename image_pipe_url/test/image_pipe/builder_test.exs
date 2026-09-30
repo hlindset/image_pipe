@@ -61,6 +61,7 @@ defmodule ImagePipe.BuilderTest do
 
     assert_raise ArgumentError, fn -> IP.URL.output(IP.URL.new(), quality: 101) end
     assert_raise ArgumentError, fn -> IP.URL.new(orient: :sideways) end
+    assert_raise ArgumentError, fn -> IP.URL.new(page: -1) end
   end
 
   test "rejects empty groups, malformed nested values, and duplicate nested settings" do
@@ -254,6 +255,7 @@ defmodule ImagePipe.BuilderTest do
     plan =
       IP.URL.new(
         orient: :none,
+        page: 2,
         filename: "thumb",
         attachment: true,
         cachebuster: "v2",
@@ -267,7 +269,7 @@ defmodule ImagePipe.BuilderTest do
 
     assert {:ok, ^request} =
              parse(
-               "orient=none/filename=thumb/attachment/cb=v2/expires=2000000000/debug/webp-options=effort:4"
+               "orient=none/page=2/filename=thumb/attachment/cb=v2/expires=2000000000/debug/webp-options=effort:4"
              )
   end
 

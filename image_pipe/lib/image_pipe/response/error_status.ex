@@ -51,6 +51,7 @@ defmodule ImagePipe.Response.ErrorStatus do
   def classify({:decode, _}), do: :unsupported_media
   def classify(:source_format_required), do: :unsupported_media
   def classify({:input_limit, _}), do: :payload_too_large
+  def classify({:page_out_of_range, _page, _pages}), do: :unprocessable
   def classify({:unsupported_output_format, _}), do: :unsupported_output
   def classify({:encode, _}), do: :server_error
   def classify({:encode, _, _}), do: :server_error
@@ -156,6 +157,9 @@ defmodule ImagePipe.Response.ErrorStatus do
   def message_for({:decode, _}), do: "source response is not a supported image"
   def message_for(:source_format_required), do: "source response is not a supported image"
   def message_for({:input_limit, _}), do: "source image is too large"
+
+  def message_for({:page_out_of_range, _page, _pages}),
+    do: "requested page does not exist in the source image"
 
   def message_for({:unsupported_output_format, _}),
     do: "requested output format is not supported by this server"

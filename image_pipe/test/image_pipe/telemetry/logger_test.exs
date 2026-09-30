@@ -742,6 +742,21 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "source fetch_decode: processing_error (detected tiff, loader dcrawload)"
   end
 
+  test "renders the selected page and the page count" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :source, :fetch_decode, :stop],
+          %{duration: System.convert_time_unit(1, :millisecond, :native)},
+          %{result: :processing_error, error: :page_out_of_range, page: 3, source_frames: 3}
+        )
+      end)
+
+    assert log =~ "source fetch_decode: processing_error (page 3, 3 frames)"
+  end
+
   test "renders the frame count and the rejecting input limit on the fetch_decode span" do
     Telemetry.attach_default_logger(level: :info)
 

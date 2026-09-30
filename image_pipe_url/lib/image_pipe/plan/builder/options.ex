@@ -21,6 +21,7 @@ defmodule ImagePipe.Plan.Builder.Options do
     validate!(options,
       presets: [type: {:list, {:custom, Values, :cast, [:preset_name]}}],
       orient: [type: {:in, [:auto, :none]}],
+      page: [type: :non_neg_integer],
       filename: [type: custom(:path_token)],
       attachment: [type: :boolean],
       cachebuster: [type: custom(:path_token)],

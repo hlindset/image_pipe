@@ -45,6 +45,70 @@ defmodule ImagePipe.Test.MultiFrameSources do
   defp solid(color), do: Image.new!(@width, @height, color: color)
 
   @doc """
+  An AVIF image collection of `frames` frames whose primary image is frame
+  `primary`, made by pointing its `pitm` box at that frame's item.
+  """
+  def avif_with_primary(frames, primary) do
+    body = encode(:avif, frames)
+    [{pitm, _length}] = :binary.matches(body, "pitm")
+
+    images =
+      for {infe, _length} <- :binary.matches(body, "infe"),
+          <<_::binary-size(^infe + 8), item::16, _protection::16, "av01", _::binary>> <- [body],
+          do: item
+
+    item = Enum.at(images, primary)
+    split = pitm + 8
+    <<before::binary-size(^split), _primary::16, rest::binary>> = body
+    <<before::binary, item::16, rest::binary>>
+  end
+
+  @doc """
+  An uncompressed RGB TIFF with one page per `{width, height, color}`. libvips
+  writes only equal-sized pages, so this assembles the IFD chain itself.
+  """
+  def tiff_pages(pages) do
+    entry_count = 10
+    ifd_size = 2 + entry_count * 12 + 4
+
+    {blocks, _offset} =
+      pages
+      |> Enum.with_index()
+      |> Enum.map_reduce(8, fn {{width, height, [r, g, b]}, index}, offset ->
+        bits_offset = offset + ifd_size
+        pixels_offset = bits_offset + 6
+        pixels = :binary.copy(<<r, g, b>>, width * height)
+        next = if index == length(pages) - 1, do: 0, else: pixels_offset + byte_size(pixels)
+
+        entries = [
+          {256, 4, 1, <<width::little-32>>},
+          {257, 4, 1, <<height::little-32>>},
+          {258, 3, 3, <<bits_offset::little-32>>},
+          {259, 3, 1, <<1::little-16, 0::16>>},
+          {262, 3, 1, <<2::little-16, 0::16>>},
+          {273, 4, 1, <<pixels_offset::little-32>>},
+          {277, 3, 1, <<3::little-16, 0::16>>},
+          {278, 4, 1, <<height::little-32>>},
+          {279, 4, 1, <<byte_size(pixels)::little-32>>},
+          {284, 3, 1, <<1::little-16, 0::16>>}
+        ]
+
+        ifd =
+          for {tag, type, count, value} <- entries,
+              into: <<entry_count::little-16>>,
+              do: <<tag::little-16, type::little-16, count::little-32, value::binary>>
+
+        block =
+          ifd <> <<next::little-32>> <> <<8::little-16, 8::little-16, 8::little-16>> <> pixels
+
+        {block, offset + byte_size(block)}
+      end)
+
+    <<"II", 42::little-16, 8::little-32>> <> IO.iodata_to_binary(blocks)
+  end
+
+  @doc """
+  A two-frame APNG  @doc \"""
   A two-frame APNG whose default image is frame 0's colour and whose second
   frame is frame 1's colour. libvips has no APNG saver, so the animation chunks
   are assembled around a PNG it encodes.

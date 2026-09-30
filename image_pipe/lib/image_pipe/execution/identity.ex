@@ -55,11 +55,11 @@ defmodule ImagePipe.Execution.Identity do
   end
 
   defp representation_material(
-         %Spec{output: %{terminal: :info}},
+         %Spec{output: %{terminal: :info}} = request,
          nil,
          _detector_identity
        ) do
-    [terminal: {:info, 1}]
+    [terminal: {:info, 1}] ++ page_material(request.page)
   end
 
   defp representation_material(
@@ -68,20 +68,28 @@ defmodule ImagePipe.Execution.Identity do
          detector_identity
        )
        when terminal in [:blurhash, :lqip_css] do
-    [orient: request.orient, groups: canonical_groups(request.groups)] ++
+    [orient: request.orient] ++
+      page_material(request.page) ++
+      [groups: canonical_groups(request.groups)] ++
       [terminal: terminal_identity(terminal), output_policy: []] ++
       detector_material(detector_identity)
   end
 
   defp representation_material(request, %Policy{} = policy, detector_identity) do
-    [
-      orient: request.orient,
-      groups: canonical_groups(request.groups),
-      terminal: :image,
-      selection: {:image, selected_format(policy)},
-      output_policy: Policy.identity_material(policy)
-    ] ++ detector_material(detector_identity)
+    [orient: request.orient] ++
+      page_material(request.page) ++
+      [
+        groups: canonical_groups(request.groups),
+        terminal: :image,
+        selection: {:image, selected_format(policy)},
+        output_policy: Policy.identity_material(policy)
+      ] ++ detector_material(detector_identity)
   end
+
+  # Absent selects the source's default image, which differs from page 0 for
+  # HEIF (its primary image), so only a selected page adds material.
+  defp page_material(nil), do: []
+  defp page_material(page), do: [page: page]
 
   defp cachebuster_material(nil), do: []
   defp cachebuster_material(cachebuster), do: [cachebuster: cachebuster]

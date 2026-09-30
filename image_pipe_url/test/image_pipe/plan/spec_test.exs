@@ -29,6 +29,7 @@ defmodule ImagePipe.Plan.SpecTest do
     request = Spec.build([%{}], %{})
 
     assert request.orient == :auto
+    assert request.page == nil
     assert request.output.terminal == :image
     assert request.output.format == nil
     assert request.output.quality == nil
@@ -113,6 +114,7 @@ defmodule ImagePipe.Plan.SpecTest do
         [%{}],
         %{
           orient: :none,
+          page: 3,
           filename: "portrait",
           attachment: true,
           cachebuster: "revision-2",
@@ -122,6 +124,7 @@ defmodule ImagePipe.Plan.SpecTest do
       )
 
     assert request.orient == :none
+    assert request.page == 3
     assert request.filename == "portrait"
     assert request.attachment?
     assert request.cachebuster == "revision-2"

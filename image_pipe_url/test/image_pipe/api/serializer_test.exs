@@ -19,6 +19,7 @@ defmodule ImagePipe.API.SerializerTest do
       IP.URL.new() |> IP.URL.output(jpeg_options: [], webp_options: []),
       IP.URL.new(
         orient: :none,
+        page: 0,
         attachment: true,
         filename: "photo",
         cachebuster: "v2",
