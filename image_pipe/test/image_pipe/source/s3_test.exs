@@ -274,7 +274,10 @@ defmodule ImagePipe.Source.S3Test do
   test "fetch signs only after cache miss and sends versioned object request" do
     plug = fn conn ->
       send(self(), {:s3_request, conn.req_headers, conn.request_path, conn.query_string})
-      Plug.Conn.send_resp(conn, 200, "image bytes")
+
+      conn
+      |> Plug.Conn.put_resp_header("x-amz-version-id", "abc")
+      |> Plug.Conn.send_resp(200, "image bytes")
     end
 
     # unique bucket name — the credential RefreshCache is application-global and
@@ -324,10 +327,50 @@ defmodule ImagePipe.Source.S3Test do
              List.keyfind(headers, "x-amz-security-token", 0)
   end
 
+  test "a versioned fetch fails unless the store confirms the requested version" do
+    for version_header <- [nil, "other"] do
+      plug = fn conn ->
+        conn =
+          if version_header,
+            do: Plug.Conn.put_resp_header(conn, "x-amz-version-id", version_header),
+            else: conn
+
+        Plug.Conn.send_resp(conn, 200, "current bytes")
+      end
+
+      config =
+        Source.validate_config!(
+          sources: [
+            s3: [
+              adapter: S3,
+              match: [scheme: "s3"],
+              options: [
+                default: [
+                  region: "us-east-1",
+                  endpoint: "https://minio.test",
+                  credentials: {:static, access_key_id: "A", secret_access_key: "S"},
+                  req_options: [plug: plug]
+                ]
+              ]
+            ]
+          ]
+        )
+
+      source = %Object{scheme: "s3", scope: "bucket", key: "cat.jpg", revision: "abc"}
+      assert {:ok, resolved} = Source.resolve(source, config, [])
+
+      assert Source.fetch(resolved, config, max_body_bytes: 20) ==
+               {:error, {:source, :version_mismatch}}
+    end
+  end
+
   test "fetch percent-encodes decoded object keys and revisions once" do
     plug = fn conn ->
       send(self(), {:s3_request, conn.req_headers, conn.request_path, conn.query_string})
-      Plug.Conn.send_resp(conn, 200, "image bytes")
+
+      conn
+      |> Plug.Conn.put_resp_header("x-amz-version-id", "a&b=c")
+      |> Plug.Conn.send_resp(200, "image bytes")
     end
 
     config =

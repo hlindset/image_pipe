@@ -142,9 +142,24 @@ defmodule ImagePipe.Source.S3 do
         fetch
         |> Keyword.take(@timeout_keys)
         |> Keyword.merge(runtime_opts)
+        |> put_version_check(fetch[:revision])
 
       ReqStream.open(req_options, stream_options)
     end
+  end
+
+  # A pinned revision is treated as immutable, so a store that ignores
+  # versionId and returns the current object must not be cached as that version.
+  defp put_version_check(stream_options, revision) when revision in [nil, ""],
+    do: stream_options
+
+  defp put_version_check(stream_options, revision) do
+    Keyword.put(stream_options, :validate_response, fn response ->
+      case Req.Response.get_header(response, "x-amz-version-id") do
+        [^revision] -> :ok
+        _other -> {:error, :version_mismatch}
+      end
+    end)
   end
 
   defp validate_options_schema(opts) do

@@ -103,12 +103,21 @@ defmodule ImagePipe.Source.ReqStream do
 
     case request(request) do
       {:ok, %Req.Response{status: status} = response} when status in 200..299 ->
-        %{
-          response: response,
-          origin: Origin.from_response(response, {requested_at, clock.()}),
-          receive_timeout:
-            option(req_options, runtime_opts, :receive_timeout, @default_receive_timeout)
-        }
+        validate_response = Keyword.get(runtime_opts, :validate_response, fn _response -> :ok end)
+
+        case validate_response.(response) do
+          :ok ->
+            %{
+              response: response,
+              origin: Origin.from_response(response, {requested_at, clock.()}),
+              receive_timeout:
+                option(req_options, runtime_opts, :receive_timeout, @default_receive_timeout)
+            }
+
+          {:error, reason} ->
+            cancel_response(response)
+            {:error, reason}
+        end
 
       {:ok, %Req.Response{status: 304} = response} ->
         cancel_response(response)

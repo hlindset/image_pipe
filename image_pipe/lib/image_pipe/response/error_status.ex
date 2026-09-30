@@ -76,7 +76,7 @@ defmodule ImagePipe.Response.ErrorStatus do
   defp source_domain_class(:receive_timeout), do: :gateway_timeout
 
   defp source_domain_class(reason)
-       when reason in [:unexpected_not_modified, :invalid_not_modified],
+       when reason in [:unexpected_not_modified, :invalid_not_modified, :version_mismatch],
        do: :bad_gateway
 
   defp source_domain_class(reason)

@@ -46,7 +46,11 @@ defmodule ImagePipe.API.SourceWireTest do
 
     origin = fn conn ->
       send(pid, {:s3_request, conn.request_path, conn.query_string})
-      conn |> put_resp_content_type("image/jpeg") |> send_resp(200, @image)
+
+      conn
+      |> put_resp_header("x-amz-version-id", "v1")
+      |> put_resp_content_type("image/jpeg")
+      |> send_resp(200, @image)
     end
 
     config =
@@ -81,6 +85,7 @@ defmodule ImagePipe.API.SourceWireTest do
       send(owner, :object_fetch)
 
       conn
+      |> put_resp_header("x-amz-version-id", "v1")
       |> put_resp_header("cache-control", "public, max-age=60")
       |> put_resp_content_type("image/jpeg")
       |> send_resp(200, @image)
