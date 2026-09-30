@@ -23,8 +23,7 @@ defmodule ImagePipe.Source.HTTP do
   alias ImagePipe.Plan.Source.URL
   alias ImagePipe.Source
   alias ImagePipe.Source.Auth
-  alias ImagePipe.Source.CachePolicy
-  alias ImagePipe.Source.CacheSemantics
+  alias ImagePipe.Source.CacheSettings
   alias ImagePipe.Source.HTTP.AddressPolicy
   alias ImagePipe.Source.HTTP.TargetGuard
   alias ImagePipe.Source.ReqSanitizer
@@ -49,24 +48,23 @@ defmodule ImagePipe.Source.HTTP do
   @base_url_schemes %{"http" => :http, "https" => :https}
 
   @options_schema NimbleOptions.new!(
-                    allowed_hosts: [type: {:list, :string}],
-                    base_url: [type: :string],
-                    path_pattern: [type: {:struct, Regex}],
-                    req_options: [type: :keyword_list, default: []],
-                    receive_timeout: [type: :non_neg_integer],
-                    connect_timeout: [type: :non_neg_integer],
-                    pool_timeout: [type: :non_neg_integer],
-                    max_redirects: [type: :non_neg_integer, default: 0],
-                    stable: [type: {:in, [:auto, :trusted]}, default: :auto],
-                    cache_policy: [type: {:custom, CachePolicy, :validate, []}, default: []],
-                    internal_cache: [type: {:in, [:auto, :enabled, :disabled]}, default: :auto],
-                    http_cache: [type: {:in, [:inherit, :disabled, :enabled]}, default: :inherit],
-                    address_policy: [
-                      type:
-                        {:or, [{:fun, 2}, {:custom, __MODULE__, :validate_address_policy_kw, []}]},
-                      default: []
-                    ],
-                    address_resolver: [type: {:fun, 1}]
+                    [
+                      allowed_hosts: [type: {:list, :string}],
+                      base_url: [type: :string],
+                      path_pattern: [type: {:struct, Regex}],
+                      req_options: [type: :keyword_list, default: []],
+                      receive_timeout: [type: :non_neg_integer],
+                      connect_timeout: [type: :non_neg_integer],
+                      pool_timeout: [type: :non_neg_integer],
+                      max_redirects: [type: :non_neg_integer, default: 0],
+                      address_policy: [
+                        type:
+                          {:or,
+                           [{:fun, 2}, {:custom, __MODULE__, :validate_address_policy_kw, []}]},
+                        default: []
+                      ],
+                      address_resolver: [type: {:fun, 1}]
+                    ] ++ CacheSettings.schema()
                   )
 
   @impl Source
@@ -79,7 +77,7 @@ defmodule ImagePipe.Source.HTTP do
       validated
       |> Keyword.update!(:allowed_hosts, fn hosts -> Enum.map(hosts, &String.downcase/1) end)
       |> Keyword.put(:telemetry_kind, :http)
-      |> CachePolicy.validate_source()
+      |> CacheSettings.validate()
     end
   end
 
@@ -224,21 +222,27 @@ defmodule ImagePipe.Source.HTTP do
         query: source.query
       ]
 
-      stable? = Keyword.fetch!(opts, :stable) == :trusted
-      internal_cache = internal_cache_mode(opts, stable?)
+      stable? = CacheSettings.trusted?(opts)
+
+      cache =
+        CacheSettings.fields(opts,
+          stable?: stable?,
+          seed: redacted_http_identity(identity),
+          auto: :enabled
+        )
 
       {:ok,
-       %Resolved{
-         source_kind: :url,
-         identity: identity,
-         internal_cache: internal_cache,
-         http_cache: Keyword.fetch!(opts, :http_cache),
-         cache_semantics: cache_semantics(opts, stable?, identity),
-         fetch: [
-           url: build_url(%{source | host: host, port: port}),
-           strip_byte_headers: stable? or internal_cache == :enabled
-         ]
-       }}
+       struct!(
+         Resolved,
+         [
+           source_kind: :url,
+           identity: identity,
+           fetch: [
+             url: build_url(%{source | host: host, port: port}),
+             strip_byte_headers: stable? or cache[:internal_cache] == :enabled
+           ]
+         ] ++ cache
+       )}
     else
       {:error, {:source, :denied_host}}
     end
@@ -304,29 +308,6 @@ defmodule ImagePipe.Source.HTTP do
     resolver = Keyword.get(opts, :address_resolver, &TargetGuard.default_resolver/1)
 
     fn url -> TargetGuard.validate(url, allowed_hosts, predicate, resolver) end
-  end
-
-  defp internal_cache_mode(opts, _stable?) do
-    case Keyword.fetch!(opts, :internal_cache) do
-      :enabled -> :enabled
-      :disabled -> :disabled
-      :auto -> :enabled
-    end
-  end
-
-  defp cache_semantics(opts, stable?, identity) do
-    byte_identity =
-      if stable? do
-        {:strong, redacted_http_identity(identity)}
-      else
-        :none
-      end
-
-    %CacheSemantics{
-      byte_identity: byte_identity,
-      stable?: stable?,
-      policy: Keyword.fetch!(opts, :cache_policy)
-    }
   end
 
   defp redacted_http_identity(identity) do

@@ -261,6 +261,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     assert_boundary_exports(source, [
       ImagePipe.Source.CachePolicy,
+      ImagePipe.Source.CacheSettings,
       ImagePipe.Source.CacheState,
       ImagePipe.Source.Download,
       ImagePipe.Source.Origin,

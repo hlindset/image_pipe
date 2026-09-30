@@ -37,6 +37,7 @@ defmodule ImagePipe.Source do
     deps: [ImagePipe.Error, ImagePipe.MaterialDigest, ImagePipe.Plan, ImagePipe.Telemetry],
     exports: [
       CachePolicy,
+      CacheSettings,
       CacheState,
       CacheSemantics,
       Download,

@@ -192,7 +192,10 @@ credentials, timeouts, and cache policy belong to the adapter.
 
 Implement `ImagePipe.Source` when you need a new fetching/identity boundary.
 The adapter declares the kinds of source it resolves with `source_kinds/0`,
-and owns source access, cleanup, credentials, and source identity. A custom
+and owns source access, cleanup, credentials, and source identity.
+`ImagePipe.Source.CacheSettings` provides the standard `stable`,
+`cache_policy`, `internal_cache`, and `http_cache` options and turns them into
+the resolved cache fields, as the built-in adapters do. A custom
 adapter that resolves paths can be mounted under a prefix, a custom scheme, or
 both, so `asset://catalog/photo-123` and `assets/catalog/photo-123` can reach
 the same adapter. See the [source contract](api_contract.md#sources) and the
