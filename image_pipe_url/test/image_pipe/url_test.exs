@@ -5,7 +5,7 @@ defmodule ImagePipe.URLTest do
   alias ImagePipe, as: IP
   alias ImagePipe.API.{Parser, Path}
   alias ImagePipe.Plan
-  alias ImagePipe.Plug.Request, as: ParsedRequest
+  alias ImagePipe.Security
   alias ImagePipe.Security.Signature
 
   @signing_key Base.encode16(:binary.copy(<<31>>, 32))
@@ -71,11 +71,8 @@ defmodule ImagePipe.URLTest do
     assert <<1, ^iv::binary-size(16), _rest::binary>> =
              Base.url_decode64!(encrypted_token(explicit), padding: false)
 
-    mount = IP.Plug.init(url: config)
-
     for path <- [first, second, explicit] do
-      assert {{:ok, _request, ^source}, _meta} =
-               ParsedRequest.parse(Plug.Test.conn(:get, path), mount)
+      assert decode(path, config) == {:ok, source}
     end
 
     random_client = IP.URL.new(encrypted_config(iv_mode: :random))
@@ -116,19 +113,16 @@ defmodule ImagePipe.URLTest do
 
   test "signatures cover the mount-relative path with stable explicit expiry" do
     for base <- ["", "/images", "images", "https://cdn.test/images/"] do
-      url_config = IP.URL.config(base_url: base, keys: [@signing_key])
-      config = IP.config(url: url_config)
-      plan = IP.URL.new(url_config, expires: 2_000_000_000) |> IP.URL.group(gray: true)
+      config = IP.URL.config(base_url: base, keys: [@signing_key])
+      plan = IP.URL.new(config, expires: 2_000_000_000) |> IP.URL.group(gray: true)
       path = IP.URL.url!(plan, "photo.jpg")
       assert path == IP.URL.url!(plan, "photo.jpg")
 
       prefix = String.trim_trailing(base, "/")
       relative = String.replace_prefix(path, prefix, "")
       {signature, signed_path} = Path.split_signature(relative)
-      mount = IP.Plug.init(config)
-      assert {:ok, 0} = Signature.verify(signature, signed_path, mount)
+      assert {:ok, 0} = Signature.verify(signature, signed_path, config.options)
       assert signed_path == "/gray/expires=2000000000/src/photo.jpg"
-      refute inspect(url_config) =~ @signing_key
       refute inspect(config) =~ @signing_key
     end
   end
@@ -194,15 +188,12 @@ defmodule ImagePipe.URLTest do
   property "UTF-8 encrypted sources round trip across CBC block boundaries" do
     config = encrypted_config()
 
-    mount = IP.Plug.init(url: config)
-
     check all source <- string(:utf8, min_length: 1, max_length: 100),
               iv <- binary(length: 16) do
       source = "asset-" <> source
       path = IP.URL.url!(IP.URL.new(config), source, iv: iv)
 
-      assert {{:ok, _request, ^source}, _meta} =
-               ParsedRequest.parse(Plug.Test.conn(:get, path), mount)
+      assert decode(path, config) == {:ok, source}
     end
   end
 
@@ -210,6 +201,14 @@ defmodule ImagePipe.URLTest do
     [keys: [@signing_key], source_encryption_keys: [@source_key], encrypt_source: true]
     |> Keyword.merge(options)
     |> IP.URL.config()
+  end
+
+  # Verifies and decrypts a generated path the way the serving mount does.
+  defp decode(path, config) do
+    {signature, signed_path} = Path.split_signature(path)
+    {:ok, _key_index} = Signature.verify(signature, signed_path, config.options)
+    {:ok, %{source: {:enc, token, _span}}} = Path.extract(path, "")
+    Security.decrypt_source(token, config.options)
   end
 
   defp encrypted_token(path), do: path |> String.split("/enc/") |> List.last()

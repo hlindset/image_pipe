@@ -2,7 +2,7 @@
 
 - Always commit work in logical chunks as each coherent change is completed and validated; do not wait for a separate request to commit. Keep implementation, its tests, and directly related documentation together, and commit unrelated changes separately. Commit only your own work using GitButler, and push or open pull requests only when asked.
 - `CLAUDE.md` is a symlink to this file — `AGENTS.md` and `CLAUDE.md` are the same file. Edit `AGENTS.md`. (If an editor tool reports `CLAUDE.md` as "not read yet" when you try to edit it after it was loaded as context, that's the symlink — read/edit `AGENTS.md` instead.)
-- The repository holds sibling Mix projects with no root project: `image_pipe/` (the library and Plug: `lib/`, `test/`, `docs/`, `bench/`, `priv/`, `config/`) and `fiddle/` (the demo app). Run `mix` commands from inside the project directory. Library paths in this file are relative to `image_pipe/`.
+- The repository holds sibling Mix projects with no root project: `image_pipe/` (the library and Plug: `lib/`, `test/`, `docs/`, `bench/`, `priv/`, `config/`), `image_pipe_url/` (the URL builder, grammar, and plan model that `image_pipe` depends on), and `fiddle/` (the demo app). Run `mix` commands from inside the project directory. Library paths in this file are relative to `image_pipe/`.
 - Use `mise exec -- ...` to run things in this repo with the correct versions of things
 - Prefer the mise tasks for whole-repo workflows over invoking each tool by hand:
   - `mise run setup` installs the library and fiddle dependencies (`mix deps.get` for both, then `pnpm -C fiddle install --frozen-lockfile`).
@@ -68,7 +68,7 @@
 
 - Keep canonical request data under `ImagePipe.Plan.*`, with explicit groups and output policy.
 - Keep URL parsing and request configuration together; parsing produces concrete data and validates static request constraints before side effects.
-- Keep URL building (`ImagePipe.URL` with `ImagePipe.URL.Config`, plus `ImagePipe.API`, `ImagePipe.Plan`, `ImagePipe.Security`, `ImagePipe.Format`) free of server code: it may call only `nimble_options`, `color`, `mime`, `crypto`, and stdlib/OTP, so it can ship as its own package. `test/image_pipe/url_closure_test.exs` enforces this. `Plug.Conn` handling, request parsing, and error rendering belong under `ImagePipe.Plug`.
+- URL building (`ImagePipe.URL`, `ImagePipe.API`, `ImagePipe.Plan`, `ImagePipe.Security`, `ImagePipe.Format`) lives in the sibling `image_pipe_url/` project, which `image_pipe` depends on. Keep it free of server code: its only runtime dependencies are `nimble_options`, `color`, and `mime`. `Plug.Conn` handling, request parsing, and error rendering belong under `ImagePipe.Plug` in `image_pipe`.
 - Keep the mount interface and request orchestration under `ImagePipe.Plug`. Its lifecycle is parse, validate, source resolve, representation, conditional gate, cache, execution, and delivery.
 - Keep source side effects and source identity under `ImagePipe.Source.*`.
 - Keep response delivery under `ImagePipe.Response.*`.

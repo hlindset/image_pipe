@@ -6,7 +6,6 @@ defmodule ImagePipe.BuilderTest do
   alias ImagePipe.API.Parser
   alias ImagePipe.API.Path
   alias ImagePipe.Plan
-  alias ImagePipe.Plug.Config
 
   test "builds reusable, source-independent plans with explicit groups" do
     plan =
@@ -233,22 +232,14 @@ defmodule ImagePipe.BuilderTest do
   end
 
   test "encoder input boundaries reject malformed fields and preserve sparse false overrides" do
-    for {key, module, field, invalid, url} <- [
-          {:jpeg_options, ImagePipe.Plan.Output.JpegOptions, :interlace, "false",
-           "jpeg-options=progressive:true"},
-          {:png_options, ImagePipe.Plan.Output.PngOptions, :bitdepth, 3,
-           "png-options=bitdepth:3"},
-          {:webp_options, ImagePipe.Plan.Output.WebpOptions, :effort, 6.0,
-           "webp-options=effort:6.0"},
-          {:avif_options, ImagePipe.Plan.Output.AvifOptions, :effort, 10,
-           "avif-options=effort:10"}
+    for {key, field, invalid, url} <- [
+          {:jpeg_options, :interlace, "false", "jpeg-options=progressive:true"},
+          {:png_options, :bitdepth, 3, "png-options=bitdepth:3"},
+          {:webp_options, :effort, 6.0, "webp-options=effort:6.0"},
+          {:avif_options, :effort, 10, "avif-options=effort:10"}
         ] do
       assert_raise ArgumentError, fn ->
         IP.URL.new() |> IP.URL.output([{key, [{field, invalid}]}])
-      end
-
-      assert_raise ArgumentError, fn ->
-        Config.validate!([{key, struct!(module, [{field, invalid}])}])
       end
 
       assert {:error, {:invalid_request, [_ | _]}} = parse(url)
@@ -257,13 +248,6 @@ defmodule ImagePipe.BuilderTest do
     plan = IP.URL.new() |> IP.URL.output(jpeg_options: [interlace: false, quant_table: 0])
     assert {:ok, request} = Plan.to_request(plan.plan)
     assert {:ok, ^request} = parse("jpeg-options=progressive:false,quant-table:00")
-
-    configured =
-      Config.validate!(
-        jpeg_options: %ImagePipe.Plan.Output.JpegOptions{interlace: false, quant_table: 0}
-      )
-
-    assert configured[:jpeg_options] == request.output.encoder_options.jpeg
   end
 
   test "request controls and output overrides retain their scope" do
@@ -380,6 +364,6 @@ defmodule ImagePipe.BuilderTest do
 
   defp parse(options) do
     with {:ok, lexed} <- Path.extract("/" <> options <> "/src/photo.jpg", ""),
-         do: Parser.parse(lexed, Config.validate!([]))
+         do: Parser.parse(lexed, IP.URL.config().options)
   end
 end

@@ -10,7 +10,6 @@ defmodule ImagePipe.API.ParserTest do
   alias ImagePipe.Plan.Request
   alias ImagePipe.Plan.Request.Group
   alias ImagePipe.Plan.Request.Output
-  alias ImagePipe.Plug.Config
 
   # `parse/2` consumes Task 4's lexed map directly — never a conn — so
   # tests build that map by hand instead of going through `Path.extract/2`.
@@ -26,10 +25,7 @@ defmodule ImagePipe.API.ParserTest do
     Parser.parse(lexed(segments, source), mount(config))
   end
 
-  defp mount(options) do
-    {url_options, options} = Keyword.split(options, [:presets])
-    Config.validate!([url: ImagePipe.URL.config(url_options)] ++ options)
-  end
+  defp mount(options), do: ImagePipe.URL.config(options).options
 
   describe "worked examples [API §Examples]" do
     test "srcset workhorse: /w=800/src/images/cat.jpg" do

@@ -23,9 +23,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     "lib/image_pipe/response.ex",
     "lib/image_pipe/response/**/*.ex",
     "lib/image_pipe/cache.ex",
-    "lib/image_pipe/cache/**/*.ex",
-    "lib/image_pipe/plan.ex",
-    "lib/image_pipe/plan/**/*.ex"
+    "lib/image_pipe/cache/**/*.ex"
   ]
   @core_surface_globs [
     "lib/image_pipe/plug.ex",
@@ -36,9 +34,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     "lib/image_pipe/cache.ex",
     "lib/image_pipe/cache/**/*.ex",
     "lib/image_pipe/output.ex",
-    "lib/image_pipe/output/**/*.ex",
-    "lib/image_pipe/plan.ex",
-    "lib/image_pipe/plan/**/*.ex"
+    "lib/image_pipe/output/**/*.ex"
   ]
   @transform_globs [
     "lib/image_pipe/transform.ex",
@@ -65,21 +61,16 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Debug => "lib/image_pipe/debug.ex",
     ImagePipe.Decode => "lib/image_pipe/decode.ex",
     ImagePipe.Delivery => "lib/image_pipe/delivery.ex",
-    ImagePipe.API => "lib/image_pipe/api.ex",
     ImagePipe.Error => "lib/image_pipe/error.ex",
-    ImagePipe.Format => "lib/image_pipe/format.ex",
     ImagePipe.Output => "lib/image_pipe/output.ex",
-    ImagePipe.Plan => "lib/image_pipe/plan.ex",
     ImagePipe.Processing => "lib/image_pipe/processing.ex",
     ImagePipe.ProcessingPool => "lib/image_pipe/processing_pool.ex",
     ImagePipe.Plug => "lib/image_pipe/plug.ex",
     ImagePipe.Representation => "lib/image_pipe/representation.ex",
     ImagePipe.Response => "lib/image_pipe/response.ex",
-    ImagePipe.Security => "lib/image_pipe/security.ex",
     ImagePipe.Source => "lib/image_pipe/source.ex",
     ImagePipe.Telemetry => "lib/image_pipe/telemetry.ex",
-    ImagePipe.Transform => "lib/image_pipe/transform.ex",
-    ImagePipe.URL => "lib/image_pipe/url.ex"
+    ImagePipe.Transform => "lib/image_pipe/transform.ex"
   }
   @concrete_transform_names [
     :Scale,
@@ -115,35 +106,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_exports(plug, [])
   end
 
-  test "URL grammar does not depend on request processing or delivery" do
-    api = boundary_declaration(ImagePipe.API)
-
-    assert_boundary_deps(api, [ImagePipe.Format, ImagePipe.Plan, ImagePipe.Security])
-
-    refute_boundary_deps(api, [
-      ImagePipe.Decode,
-      ImagePipe.Delivery,
-      ImagePipe.Output,
-      ImagePipe.Plug,
-      ImagePipe.Processing,
-      ImagePipe.Response,
-      ImagePipe.Source
-    ])
-
-    assert_boundary_exports(api, [
-      ImagePipe.API.Diagnostic,
-      ImagePipe.API.DiagnosticRenderer,
-      ImagePipe.API.Parser,
-      ImagePipe.API.Path,
-      ImagePipe.API.Presets,
-      ImagePipe.API.URL
-    ])
-
-    url = boundary_declaration(ImagePipe.URL)
-    assert_boundary_deps(url, [ImagePipe.API, ImagePipe.Plan, ImagePipe.Security])
-    assert_boundary_exports(url, [ImagePipe.URL.Config])
-  end
-
   test "shared execution owns caching without depending on HTTP adapters" do
     execution = boundary_declaration(ImagePipe.Execution)
 
@@ -170,10 +132,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Source,
       ImagePipe.URL
     ])
-
-    security = boundary_declaration(ImagePipe.Security)
-    assert_boundary_deps(security, [])
-    assert_boundary_exports(security, [])
   end
 
   test "processing shares generation without depending on HTTP orchestration" do
@@ -456,13 +414,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
   end
 
-  test "format boundary remains dependency-free" do
-    format = boundary_declaration(ImagePipe.Format)
-
-    assert_boundary_deps(format, [])
-    assert_boundary_exports(format, [ImagePipe.Format.Detector])
-  end
-
   test "output boundary depends only on format and plan data" do
     output = boundary_declaration(ImagePipe.Output)
 
@@ -585,43 +536,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
   end
 
-  test "plan boundary exports canonical modules and depends only on formats" do
-    plan = boundary_declaration(ImagePipe.Plan)
-
-    assert_boundary_deps(plan, [ImagePipe.Format])
-
-    assert_boundary_exports(plan, [
-      ImagePipe.Plan.Presets,
-      ImagePipe.Plan.Request,
-      ImagePipe.Plan.Request.Group,
-      ImagePipe.Plan.Request.Output,
-      ImagePipe.Plan.Request.Issue,
-      ImagePipe.Plan.Output,
-      ImagePipe.Plan.Output.QualitySearch,
-      ImagePipe.Plan.Output.QualitySearch.Metric,
-      ImagePipe.Plan.Output.QualitySearch.Size,
-      ImagePipe.Plan.Output.QualitySearch.Ssimulacra2,
-      ImagePipe.Plan.Output.QualitySearch.Butteraugli,
-      ImagePipe.Plan.Output.JpegOptions,
-      ImagePipe.Plan.Output.PngOptions,
-      ImagePipe.Plan.Output.WebpOptions,
-      ImagePipe.Plan.Output.AvifOptions,
-      ImagePipe.Plan.Color,
-      ImagePipe.Plan.Source,
-      ImagePipe.Plan.Source.Identity,
-      ImagePipe.Plan.Source.Path,
-      ImagePipe.Plan.Source.URL,
-      ImagePipe.Plan.Source.Object,
-      ImagePipe.Plan.Source.Reference
-    ])
-  end
-
   test "external color dependency stays behind the Plan color module" do
-    allowed_files = MapSet.new(["lib/image_pipe/plan/color.ex"])
-
     violations =
       for file <- Path.wildcard("lib/**/*.ex"),
-          not MapSet.member?(allowed_files, file),
           line <- file |> File.read!() |> String.split("\n") |> Enum.with_index(1),
           external_color_reference?(line) do
         {text, number} = line

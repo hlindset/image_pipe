@@ -117,8 +117,6 @@ defmodule ImagePipe.MixProject do
             ~r/ImagePipe\.Telemetry\..*/
           ],
           "Transform API": [ImagePipe.Transform, ~r/ImagePipe\.Transform\..*/],
-          "Plan Model": [ImagePipe.Plan, ~r/ImagePipe\.Plan\..*/],
-          "URL API": [ImagePipe.API, ~r/ImagePipe\.API\..*/],
           "Runtime internals": [~r/.*/]
         ]
       ],
@@ -188,6 +186,7 @@ defmodule ImagePipe.MixProject do
 
   defp deps do
     base = [
+      image_pipe_url_dep(),
       {:plug, "~> 1.18"},
       {:telemetry, "~> 1.0"},
       # Opt-in OpenTelemetry export. Compile against the lightweight API only
@@ -201,7 +200,6 @@ defmodule ImagePipe.MixProject do
       {:ssimulacra2, "~> 0.1.0"},
       {:butteraugli, "~> 0.1.0"},
       {:vix, "~> 0.41"},
-      {:color, "~> 0.13"},
       {:req, "~> 0.8.0-rc.0"},
       {:stream_data, "~> 1.0", only: [:test, :dev]},
       {:boundary, "~> 0.10", runtime: false},
@@ -243,6 +241,17 @@ defmodule ImagePipe.MixProject do
       end
 
     base ++ ml_test_deps ++ testcontainers_deps
+  end
+
+  # Development and CI use the sibling project. Set IMAGE_PIPE_PUBLISH=1 when
+  # publishing: Hex packages cannot carry path deps, and the two packages are
+  # released in lockstep.
+  defp image_pipe_url_dep do
+    if System.get_env("IMAGE_PIPE_PUBLISH") in ["1", "true"] do
+      {:image_pipe_url, "== #{@version}"}
+    else
+      {:image_pipe_url, path: "../image_pipe_url"}
+    end
   end
 
   defp aliases do
