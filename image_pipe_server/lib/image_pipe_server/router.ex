@@ -3,7 +3,8 @@ defmodule ImagePipeServer.Router do
   Routes requests to `GET /health` or to the ImagePipe mount.
 
   `/health` stays at the root whatever the mount path. Requests outside the
-  mount path answer 404.
+  mount path answer 404. `:image_pipe` takes options already initialized with
+  `ImagePipe.Plug.init/1`.
   """
 
   @behaviour Plug
@@ -14,7 +15,7 @@ defmodule ImagePipeServer.Router do
   def init(opts) do
     %{
       mount: Plug.Router.Utils.split(Keyword.fetch!(opts, :mount_path)),
-      image_pipe: ImagePipe.Plug.init(Keyword.fetch!(opts, :image_pipe))
+      image_pipe: Keyword.fetch!(opts, :image_pipe)
     }
   end
 

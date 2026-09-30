@@ -7,18 +7,22 @@ defmodule ImagePipeServer.Application do
 
   @impl Application
   def start(_type, _args) do
-    env = Application.get_all_env(:image_pipe_server)
+    config =
+      ImagePipeServer.Config.load!(
+        System.get_env(),
+        Application.fetch_env!(:image_pipe_server, :default_config_path)
+      )
 
     router_opts = [
-      mount_path: Keyword.fetch!(env, :mount_path),
-      image_pipe: Keyword.fetch!(env, :image_pipe)
+      mount_path: Keyword.fetch!(config.server, :mount_path),
+      image_pipe: config.image_pipe
     ]
 
     children = [
       {Bandit,
        plug: {ImagePipeServer.Router, router_opts},
-       port: Keyword.fetch!(env, :port),
-       ip: parse_ip!(Keyword.fetch!(env, :bind)),
+       port: Keyword.fetch!(config.server, :port),
+       ip: Keyword.fetch!(config.server, :ip),
        thousand_island_options: [supervisor_options: [name: @listener]]}
     ]
 
@@ -27,11 +31,4 @@ defmodule ImagePipeServer.Application do
 
   @doc false
   def listener, do: @listener
-
-  defp parse_ip!(bind) do
-    case :inet.parse_address(String.to_charlist(bind)) do
-      {:ok, ip} -> ip
-      {:error, :einval} -> raise ArgumentError, "invalid bind address: #{inspect(bind)}"
-    end
-  end
 end

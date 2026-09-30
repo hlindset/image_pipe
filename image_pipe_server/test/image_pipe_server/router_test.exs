@@ -10,15 +10,16 @@ defmodule ImagePipeServer.RouterTest do
   setup %{tmp_dir: root} do
     Image.new!(4, 4, color: :red) |> Image.write!(Path.join(root, "pic.png"))
 
-    image_pipe = [
-      sources: [
-        static: [
-          adapter: ImagePipe.Source.File,
-          match: :path,
-          options: [root: root, root_id: "static"]
+    image_pipe =
+      ImagePipe.Plug.init(
+        sources: [
+          static: [
+            adapter: ImagePipe.Source.File,
+            match: :path,
+            options: [root: root, root_id: "static"]
+          ]
         ]
-      ]
-    ]
+      )
 
     %{image_pipe: image_pipe}
   end

@@ -1,0 +1,11 @@
+# Configuration the test run boots the application with.
+
+[server]
+port = 0
+bind = "127.0.0.1"
+
+[sources.static]
+adapter = "file"
+match = "path"
+root = "test/support/images"
+root_id = "static"

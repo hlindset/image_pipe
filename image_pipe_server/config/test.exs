@@ -1,5 +1,4 @@
 import Config
 
 config :image_pipe_server,
-  port: 0,
-  bind: "127.0.0.1"
+  default_config_path: Path.expand("../test/support/server.toml", __DIR__)

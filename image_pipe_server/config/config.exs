@@ -1,9 +1,5 @@
 import Config
 
-config :image_pipe_server,
-  port: 8080,
-  bind: "0.0.0.0",
-  mount_path: "/",
-  image_pipe: []
+config :image_pipe_server, default_config_path: "/etc/image_pipe/config.toml"
 
 import_config "#{config_env()}.exs"
