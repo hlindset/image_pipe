@@ -1,0 +1,7 @@
+# Configuration for the container smoke test (test/container/smoke.sh).
+
+[sources.static]
+adapter = "file"
+match = "path"
+root = "/data/images"
+root_id = "static"

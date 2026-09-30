@@ -29,7 +29,15 @@ defmodule ImagePipeServer.MixProject do
       {:bandit, "~> 1.5"},
       {:plug, "~> 1.18"},
       {:toml, "~> 0.7.0"}
-    ]
+    ] ++ vision_deps()
+  end
+
+  # The -vision image builds with IMAGE_VISION=1 to bundle the default
+  # detector: `image_vision` with its ONNX backend `ortex` (a Rust NIF).
+  defp vision_deps do
+    if System.get_env("IMAGE_VISION") in ["1", "true"],
+      do: [{:image_vision, "~> 0.4"}, {:ortex, "~> 0.1"}],
+      else: []
   end
 
   defp releases do
