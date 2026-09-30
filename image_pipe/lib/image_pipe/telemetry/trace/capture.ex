@@ -88,6 +88,7 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     :output_mode,
     :source_kind,
     :source_adapter_kind,
+    :source_mount,
     :detector,
     :model,
     :classes,

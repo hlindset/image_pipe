@@ -191,7 +191,7 @@ defmodule ImagePipe.Source do
   end
 
   defp resolve_with(module, adapter_opts, name, source_kind, source, runtime_opts, policy) do
-    source_metadata = source_metadata(source_kind, adapter_opts)
+    source_metadata = source_metadata(source_kind, adapter_opts, name)
     telemetry_opts = Telemetry.telemetry_opts(runtime_opts)
 
     Telemetry.span(telemetry_opts, [:source, :resolve], source_metadata, fn ->
@@ -247,7 +247,7 @@ defmodule ImagePipe.Source do
           {:ok, Response.t()} | {:not_modified, Origin.t()} | {:error, error()}
   def fetch(%Resolved{} = resolved, opts, runtime_opts) do
     with {:ok, module, adapter_opts} <- mount_config(resolved, opts) do
-      source_metadata = source_metadata(resolved.source_kind, adapter_opts)
+      source_metadata = source_metadata(resolved.source_kind, adapter_opts, resolved.mount)
 
       telemetry_opts = Telemetry.telemetry_opts(runtime_opts)
 
@@ -384,8 +384,9 @@ defmodule ImagePipe.Source do
 
   defp valid_cache_semantics?(_cache_semantics), do: false
 
-  defp source_metadata(source_kind, adapter_opts) do
+  defp source_metadata(source_kind, adapter_opts, mount) do
     %{
+      source_mount: mount,
       source_kind: source_kind,
       source_adapter_kind: Keyword.get(adapter_opts, :telemetry_kind, :custom)
     }

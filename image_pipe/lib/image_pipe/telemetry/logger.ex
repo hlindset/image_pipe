@@ -359,13 +359,18 @@ defmodule ImagePipe.Telemetry.Logger do
   end
 
   defp message([:http_cache, :fallback, :no_store | _], _m, meta) do
-    "image_pipe http_cache fallback no_store: #{meta[:reason]} (#{meta[:source_kind]})"
+    "image_pipe http_cache fallback no_store: #{meta[:reason]} (#{meta[:source_kind]}" <>
+      "#{mount_note(meta)})"
   end
 
   defp message([:http_cache, :cache_hit, :headers | _], _m, meta) do
     "image_pipe http_cache cache_hit headers: etag #{meta[:etag]} " <>
       "(generated #{meta[:generated_cache_headers]}, representation #{meta[:representation_headers]})"
   end
+
+  defp message([:source, stage | _], _m, %{source_mount: mount} = meta)
+       when stage in [:resolve, :fetch] and not is_nil(mount),
+       do: "image_pipe source #{stage}: #{outcome(meta)} (mount #{mount})"
 
   defp message([:source, :fetch_decode | _], _m, meta) do
     case meta[:detected_source_format] do
@@ -392,6 +397,9 @@ defmodule ImagePipe.Telemetry.Logger do
   end
 
   defp outcome(meta), do: meta[:cache] || meta[:result] || :ok
+
+  defp mount_note(%{source_mount: mount}) when not is_nil(mount), do: ", mount #{mount}"
+  defp mount_note(_meta), do: ""
 
   defp resolution_note(meta) do
     case meta[:source_format_resolution] do

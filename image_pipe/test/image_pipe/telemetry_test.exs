@@ -273,8 +273,9 @@ defmodule ImagePipe.TelemetryTest do
     for stage <- [[:source, :resolve], [:source, :fetch]] do
       assert_event(events, @prefix ++ stage ++ [:start], fn measurements, metadata ->
         assert is_integer(measurements.system_time)
-        assert metadata.source_kind in [:path, :url, :object, :reference]
+        assert metadata.source_kind in [:path, :url, :object, :input]
         assert metadata.source_adapter_kind in [:file, :http, :s3, :custom]
+        assert metadata.source_mount == :path
         refute Map.has_key?(metadata, :source_adapter)
         refute inspect(metadata) =~ "images/beach.jpg"
         refute inspect(metadata) =~ "origin.test"
@@ -283,8 +284,9 @@ defmodule ImagePipe.TelemetryTest do
       assert_event(events, @prefix ++ stage ++ [:stop], fn measurements, metadata ->
         assert is_integer(measurements.duration)
         assert metadata.result == :ok
-        assert metadata.source_kind in [:path, :url, :object, :reference]
+        assert metadata.source_kind in [:path, :url, :object, :input]
         assert metadata.source_adapter_kind in [:file, :http, :s3, :custom]
+        assert metadata.source_mount == :path
         refute Map.has_key?(metadata, :source_adapter)
         refute inspect(metadata) =~ "images/beach.jpg"
         refute inspect(metadata) =~ "origin.test"
