@@ -128,7 +128,7 @@ TOML types; defaults are the library's.
 
 ### `[server]`
 
-The HTTP listener.
+The HTTP listener. Times are in milliseconds. `read_timeout` closes connections that send nothing for that long, idle keep-alive connections included. `max_connections` rounds up to a multiple of 100 above 100 connections. With `auth_token`, requests other than `/health` must send `Authorization: Bearer <token>`.
 
 | Key | Type | Default |
 | --- | --- | --- |
@@ -136,6 +136,9 @@ The HTTP listener.
 | `bind` | string | `"0.0.0.0"` |
 | `mount_path` | string | `"/"` |
 | `shutdown_timeout` | integer ≥ 0 | `15000` |
+| `read_timeout` | integer > 0 | `10000` |
+| `max_connections` | integer > 0 | `2048` |
+| `auth_token` | string |  |
 
 ### `[url]`
 

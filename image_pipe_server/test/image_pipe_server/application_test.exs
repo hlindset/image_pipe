@@ -25,6 +25,23 @@ defmodule ImagePipeServer.ApplicationTest do
       assert {Image.width(image), Image.height(image)} == {4, 3}
     end
 
+    test "doesn't negotiate content encoding for images", %{base: base} do
+      assert {:ok, response} =
+               Req.get(base <> "/w=4/format=png/src/pic.png",
+                 headers: [{"accept-encoding", "gzip"}],
+                 retry: false,
+                 decode_body: false,
+                 compressed: false
+               )
+
+      assert response.status == 200
+      assert Req.Response.get_header(response, "content-encoding") == []
+
+      refute "accept-encoding" in (response
+                                   |> Req.Response.get_header("vary")
+                                   |> Enum.flat_map(&String.split(&1, ", ")))
+    end
+
     test "attaches the default Logger from [telemetry]" do
       assert Enum.any?(
                :telemetry.list_handlers([:image_pipe]),
@@ -57,6 +74,44 @@ defmodule ImagePipeServer.ApplicationTest do
 
     test "starts only the listener by default" do
       assert [{Bandit, _opts}] = App.children(Config.build!([]))
+    end
+  end
+
+  describe "http_child/2" do
+    test "caps connections across acceptors and sets the read timeout" do
+      config = Config.build!(server: [max_connections: 2048, read_timeout: 5_000])
+      {Bandit, opts} = App.http_child(config, {ImagePipeServer.Router, []})
+      island = opts[:thousand_island_options]
+
+      assert island[:num_acceptors] == 100
+      assert island[:num_connections] == 21
+      assert island[:read_timeout] == 5_000
+      assert opts[:http_options][:compress] == false
+    end
+
+    test "uses fewer acceptors than connections for small caps" do
+      config = Config.build!(server: [max_connections: 10])
+      {Bandit, opts} = App.http_child(config, {ImagePipeServer.Router, []})
+
+      assert opts[:thousand_island_options][:num_acceptors] == 10
+      assert opts[:thousand_island_options][:num_connections] == 1
+    end
+  end
+
+  describe "read timeout" do
+    @tag :capture_log
+    test "closes connections that stay silent" do
+      config = Config.build!(server: [port: 0, bind: "127.0.0.1", read_timeout: 100])
+      router = [mount_path: "/", image_pipe: config.image_pipe]
+      {Bandit, opts} = App.http_child(config, {ImagePipeServer.Router, router})
+      name = :"listener_#{System.unique_integer([:positive])}"
+      opts = put_in(opts, [:thousand_island_options, :supervisor_options], name: name)
+      start_supervised!(Supervisor.child_spec({Bandit, opts}, id: :idle_listener))
+      {:ok, {_ip, port}} = ThousandIsland.listener_info(name)
+
+      {:ok, socket} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, active: false])
+      assert {:ok, "HTTP/1.0 408 Request Timeout" <> _rest} = :gen_tcp.recv(socket, 0, 2_000)
+      assert {:error, :closed} = :gen_tcp.recv(socket, 0, 2_000)
     end
   end
 

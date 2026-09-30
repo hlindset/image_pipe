@@ -41,7 +41,8 @@ defmodule ImagePipeServer.Application do
   def children(%Config{} = config) do
     router_opts = [
       mount_path: Keyword.fetch!(config.server, :mount_path),
-      image_pipe: config.image_pipe
+      image_pipe: config.image_pipe,
+      auth_token_hash: Keyword.fetch!(config.server, :auth_token_hash)
     ]
 
     pool(config.pool) ++
@@ -51,14 +52,27 @@ defmodule ImagePipeServer.Application do
       [http_child(config, {ImagePipeServer.Router, router_opts})]
   end
 
+  # ThousandIsland caps connections per acceptor, so the cap is spread over
+  # the acceptors and rounds up to a multiple of their count.
+  @max_acceptors 100
+
+  # Images are already compressed, and negotiating content encoding would add
+  # `Vary: Accept-Encoding` to every response.
   @doc false
   @spec http_child(Config.t(), {module(), term()}) :: {module(), keyword()}
   def http_child(%Config{server: server}, plug) do
+    max_connections = Keyword.fetch!(server, :max_connections)
+    acceptors = min(@max_acceptors, max_connections)
+
     {Bandit,
      plug: plug,
      port: Keyword.fetch!(server, :port),
      ip: Keyword.fetch!(server, :ip),
+     http_options: [compress: false],
      thousand_island_options: [
+       num_acceptors: acceptors,
+       num_connections: ceil(max_connections / acceptors),
+       read_timeout: Keyword.fetch!(server, :read_timeout),
        shutdown_timeout: Keyword.fetch!(server, :shutdown_timeout),
        supervisor_options: [name: @listener]
      ]}

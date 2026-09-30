@@ -69,6 +69,21 @@ volumes:
   image-cache:
 ```
 
+## HTTP
+
+The server speaks plain HTTP. Terminate TLS at a load balancer, ingress, or
+CDN in front of it.
+
+- `[server] read_timeout` (10 seconds) closes connections that send nothing
+  for that long, including idle keep-alive connections. A connection that
+  hasn't finished sending a request gets a `408` first.
+- `[server] max_connections` (2048) caps concurrent connections. Beyond it,
+  new connections wait up to five seconds for room, then are closed.
+- `[server] auth_token` requires `Authorization: Bearer <token>` on every
+  request except `/health`, answering `401` otherwise. Use it when a trusted
+  edge adds the header, for example with unsigned URLs. Pass it as a secret:
+  `IPS_SERVER__AUTH_TOKEN_FILE=/run/secrets/auth_token`.
+
 ## Health and shutdown
 
 `GET /health` answers `200 ok` once the configuration was accepted and the

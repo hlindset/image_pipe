@@ -6,8 +6,9 @@ defmodule ImagePipeServer.Config do
   variables (see `ImagePipeServer.Config.Tree`). Each section converts to the
   options the library already validates:
 
-    * `[server]` - `port`, `bind`, `mount_path`, and `shutdown_timeout`, the
-      milliseconds in-flight requests get to finish at shutdown.
+    * `[server]` - the listener: `port`, `bind`, `mount_path`,
+      `shutdown_timeout`, `read_timeout`, `max_connections`, and an optional
+      `auth_token` that image requests must send as a bearer token.
     * `[url]` - `ImagePipe.URL.config/1`. Source-encryption keys take a
       `base64:` or `hex:` prefix. `base_url` only affects URL generation and
       is not accepted.
@@ -46,7 +47,9 @@ defmodule ImagePipeServer.Config do
   @typedoc """
   The validated configuration.
 
-    * `:server` - `:port`, `:ip`, `:mount_path`, and `:shutdown_timeout`.
+    * `:server` - `:port`, `:ip`, `:mount_path`, `:shutdown_timeout`,
+      `:read_timeout`, `:max_connections`, and `:auth_token_hash`, the SHA-256
+      of the auth token (or `nil`). The token itself isn't kept.
     * `:image_pipe` - mount options from `ImagePipe.Plug.init/1`.
     * `:pool` - `ImagePipe.ProcessingPool` options with the pool's name, or `nil`.
     * `:telemetry` - default Logger options, or `nil`.
@@ -70,7 +73,10 @@ defmodule ImagePipeServer.Config do
     port: [type: :non_neg_integer, default: 8080],
     bind: [type: :string, default: "0.0.0.0"],
     mount_path: [type: :string, default: "/"],
-    shutdown_timeout: [type: :non_neg_integer, default: 15_000]
+    shutdown_timeout: [type: :non_neg_integer, default: 15_000],
+    read_timeout: [type: :pos_integer, default: 10_000],
+    max_connections: [type: :pos_integer, default: 2048],
+    auth_token: [type: :string]
   ]
 
   @telemetry_schema [log_level: [type: {:in, Logger.levels()}]]
@@ -219,15 +225,28 @@ defmodule ImagePipeServer.Config do
   end
 
   defp server!(options) do
-    options = validate!(options, @server_schema, "server")
+    # Validated apart from the schema, whose errors would quote the token.
+    {auth_token, options} = Keyword.pop(options, :auth_token)
+    options = validate!(options, Keyword.delete(@server_schema, :auth_token), "server")
 
     [
       port: Keyword.fetch!(options, :port),
       ip: ip!(Keyword.fetch!(options, :bind)),
       mount_path: mount_path!(Keyword.fetch!(options, :mount_path)),
-      shutdown_timeout: Keyword.fetch!(options, :shutdown_timeout)
+      shutdown_timeout: Keyword.fetch!(options, :shutdown_timeout),
+      read_timeout: Keyword.fetch!(options, :read_timeout),
+      max_connections: Keyword.fetch!(options, :max_connections),
+      auth_token_hash: auth_token_hash!(auth_token)
     ]
   end
+
+  defp auth_token_hash!(nil), do: nil
+
+  defp auth_token_hash!(""),
+    do:
+      raise(ConfigError, "invalid configuration: server.auth_token: expected a non-empty string")
+
+  defp auth_token_hash!(token), do: :crypto.hash(:sha256, token)
 
   defp ip!(bind) do
     case :inet.parse_address(String.to_charlist(bind)) do

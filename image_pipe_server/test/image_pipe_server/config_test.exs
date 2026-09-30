@@ -100,7 +100,10 @@ defmodule ImagePipeServer.ConfigTest do
                port: 8080,
                ip: {0, 0, 0, 0},
                mount_path: "/",
-               shutdown_timeout: 15_000
+               shutdown_timeout: 15_000,
+               read_timeout: 10_000,
+               max_connections: 2048,
+               auth_token_hash: nil
              ]
 
       assert config.pool == nil
@@ -159,6 +162,18 @@ defmodule ImagePipeServer.ConfigTest do
                Config.build!(Config.options!(%{"processing" => %{"quality" => 500}}))
              end) =~
                "quality"
+    end
+
+    test "keeps only a hash of the auth token" do
+      config = Config.build!(Config.options!(%{"server" => %{"auth_token" => {:env, "sekrit"}}}))
+
+      assert config.server[:auth_token_hash] == :crypto.hash(:sha256, "sekrit")
+      refute inspect(config) =~ "sekrit"
+    end
+
+    test "rejects an empty auth token" do
+      assert error(fn -> Config.build!(Config.options!(%{"server" => %{"auth_token" => ""}})) end) =~
+               "server.auth_token"
     end
 
     test "takes the shutdown grace period from [server]" do

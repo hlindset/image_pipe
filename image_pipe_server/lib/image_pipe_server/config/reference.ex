@@ -15,7 +15,12 @@ defmodule ImagePipeServer.Config.Reference do
   @finish "<!-- reference:end -->"
 
   @intros [
-    server: "The HTTP listener.",
+    server:
+      "The HTTP listener. Times are in milliseconds. `read_timeout` closes connections " <>
+        "that send nothing for that long, idle keep-alive connections included. " <>
+        "`max_connections` rounds up to a multiple of 100 above 100 connections. " <>
+        "With `auth_token`, requests other than `/health` must send " <>
+        "`Authorization: Bearer <token>`.",
     url: "URL verification settings, converted with `ImagePipe.URL.config/1`.",
     sources: nil,
     cache:
