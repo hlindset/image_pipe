@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Split URL building into the `image_pipe_url` package, which `image_pipe`
+  depends on and releases in lockstep. Build plans and URLs with
+  `ImagePipe.URL` and its `ImagePipe.URL.config/1`; the server configuration
+  takes that value as `url:`, and `ImagePipe.run/4` and `ImagePipe.write/5`
+  take the server configuration first.
+
 - Updated Elixir/OTP tooling and the library and Fiddle dependencies. Migrated
   Image background options and Req connection settings, and replaced Vix Git
   pins with the upstream release containing the required fixes.

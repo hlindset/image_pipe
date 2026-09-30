@@ -242,7 +242,9 @@ execution can apply them.
 ### Split deployments
 
 An application that only builds URLs can send them to a separate image
-service. The URL carries preset names and signatures, not their definitions
+service. It can depend on the `image_pipe_url` package alone, which provides
+`ImagePipe.URL` without the processing runtime (see
+[installation](installation.md)). The URL carries preset names and signatures, not their definitions
 or keys, so:
 
 - Both sides must use identical signing keys, source-encryption keys, and
