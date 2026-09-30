@@ -1,0 +1,12 @@
+defmodule ImagePipe.API do
+  @moduledoc """
+  ImagePipe's URL grammar: lexing, parsing, presets, canonical serialization,
+  and URL generation. `ImagePipe.URL` builds URLs and `ImagePipe.Plug`
+  verifies, parses, and serves requests through this module set.
+  """
+
+  use Boundary,
+    top_level?: true,
+    deps: [ImagePipe.Format, ImagePipe.Plan, ImagePipe.Security],
+    exports: [Diagnostic, DiagnosticRenderer, Parser, Path, Presets, URL]
+end

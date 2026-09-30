@@ -4,13 +4,20 @@ on:
   push:
     branches: ["main"]
     paths: &lint_paths
-      - "lib/**"
-      - "test/**"
-      - "config/**"
+      - "image_pipe_url/lib/**"
+      - "image_pipe_url/test/**"
+      - "image_pipe_url/.formatter.exs"
+      - "image_pipe_url/.credo.exs"
+      - "image_pipe_url/mix.exs"
+      - "image_pipe_url/mix.lock"
+      - "image_pipe/lib/**"
+      - "image_pipe/test/**"
+      - "image_pipe/config/**"
       - "fiddle/**"
-      - ".formatter.exs"
-      - "mix.exs"
-      - "mix.lock"
+      - "image_pipe/.formatter.exs"
+      - "image_pipe/.credo.exs"
+      - "image_pipe/mix.exs"
+      - "image_pipe/mix.lock"
       - "mise.toml"
       - ".github/workflows/lint.yml"
   pull_request:
@@ -40,30 +47,63 @@ jobs:
         run: mise exec -- mix local.hex --force
       - name: Install Rebar
         run: mise exec -- mix local.rebar --force
+      - name: Install image_pipe_url dependencies
+        working-directory: image_pipe_url
+        run: mise exec -- mix deps.get
       - name: Install library dependencies
+        working-directory: image_pipe
         run: mise exec -- mix deps.get
       - name: Install fiddle Elixir dependencies
         run: cd fiddle && mise exec -- mix deps.get
       - name: Install fiddle JS dependencies
         run: mise exec -- pnpm -C fiddle install --frozen-lockfile
+      - name: Check image_pipe_url formatting
+        working-directory: image_pipe_url
+        run: mise exec -- mix format --check-formatted
+      - name: Run image_pipe_url Credo
+        working-directory: image_pipe_url
+        run: mise exec -- mix credo --strict
+      - name: Restore image_pipe_url PLT cache
+        id: url-plt-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: image_pipe_url/priv/plts
+          key: url-plt-dev-erlang29.1-elixir1.20.4-otp29-${{ hashFiles('image_pipe_url/mix.lock') }}
+          restore-keys: |
+            url-plt-dev-erlang29.1-elixir1.20.4-otp29-
+      - name: Create image_pipe_url PLTs
+        if: steps.url-plt-cache.outputs.cache-hit != 'true'
+        working-directory: image_pipe_url
+        run: mise exec -- mix dialyzer --plt
+        env:
+          MIX_ENV: dev
+      - name: Run image_pipe_url Dialyzer
+        working-directory: image_pipe_url
+        run: mise exec -- mix dialyzer
+        env:
+          MIX_ENV: dev
       - name: Check library formatting
+        working-directory: image_pipe
         run: mise exec -- mix format --check-formatted
       - name: Run Credo
+        working-directory: image_pipe
         run: mise exec -- mix credo --strict
       - name: Restore PLT cache
         id: plt-cache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          path: priv/plts
-          key: plt-dev-erlang29.1-elixir1.20.4-otp29-${{ hashFiles('mix.lock') }}
+          path: image_pipe/priv/plts
+          key: plt-dev-erlang29.1-elixir1.20.4-otp29-${{ hashFiles('image_pipe/mix.lock') }}
           restore-keys: |
             plt-dev-erlang29.1-elixir1.20.4-otp29-
       - name: Create PLTs
         if: steps.plt-cache.outputs.cache-hit != 'true'
+        working-directory: image_pipe
         run: mise exec -- mix dialyzer --plt
         env:
           MIX_ENV: dev
       - name: Run Dialyzer
+        working-directory: image_pipe
         run: mise exec -- mix dialyzer
         env:
           MIX_ENV: dev

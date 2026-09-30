@@ -4,12 +4,16 @@ on:
   push:
     branches: ["main"]
     paths: &elixir_paths
-      - "lib/**"
-      - "test/**"
-      - "priv/**"
-      - "config/**"
-      - "mix.exs"
-      - "mix.lock"
+      - "image_pipe_url/lib/**"
+      - "image_pipe_url/test/**"
+      - "image_pipe_url/mix.exs"
+      - "image_pipe_url/mix.lock"
+      - "image_pipe/lib/**"
+      - "image_pipe/test/**"
+      - "image_pipe/priv/**"
+      - "image_pipe/config/**"
+      - "image_pipe/mix.exs"
+      - "image_pipe/mix.lock"
       - "mise.toml"
       - ".github/workflows/elixir.yml"
   pull_request:
@@ -20,6 +24,48 @@ permissions:
   contents: read
 
 jobs:
+  url:
+    name: image_pipe_url / Elixir ${{ matrix.elixir }} / OTP ${{ matrix.erlang }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - elixir: 1.18.5-otp-27
+            erlang: 27
+          - elixir: 1.18.5-otp-27
+            erlang: 28
+          - elixir: 1.19.6-otp-27
+            erlang: 27
+          - elixir: 1.19.6-otp-28
+            erlang: 28
+          - elixir: 1.20.4-otp-27
+            erlang: 27
+          - elixir: 1.20.4-otp-28
+            erlang: 28
+          - elixir: 1.20.4-otp-29
+            erlang: "29.1"
+    env:
+      MISE_ERLANG_VERSION: ${{ matrix.erlang }}
+      MISE_ELIXIR_VERSION: ${{ matrix.elixir }}
+      MIX_ENV: test
+    defaults:
+      run:
+        working-directory: image_pipe_url
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+      - name: Install Hex
+        run: mise exec -- mix local.hex --force
+      - name: Install Rebar
+        run: mise exec -- mix local.rebar --force
+      - name: Install dependencies
+        run: mise exec -- mix deps.get
+      - name: Compile
+        run: mise exec -- mix compile --warnings-as-errors
+      - name: Run tests
+        run: mise exec -- mix test --no-compile
+
   build:
     name: Elixir ${{ matrix.elixir }} / OTP ${{ matrix.erlang }}
     runs-on: ubuntu-latest
@@ -105,12 +151,15 @@ jobs:
       - name: Install Rebar
         run: mise exec -- mix local.rebar --force
       - name: Install dependencies
+        working-directory: image_pipe
         run: mise exec -- mix deps.get
       - name: Compile
+        working-directory: image_pipe
         run: mise exec -- mix compile --warnings-as-errors
         env:
           MIX_ENV: test
       - name: Run tests
+        working-directory: image_pipe
         run: mise exec -- mix test --no-compile
         env:
           MIX_ENV: test
