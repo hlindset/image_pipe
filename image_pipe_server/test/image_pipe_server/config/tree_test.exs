@@ -96,11 +96,12 @@ defmodule ImagePipeServer.Config.TreeTest do
            }
   end
 
-  test "a _FILE variable reads the value from that file", %{tmp_dir: dir} do
-    secret = write!(dir, "keys", "0123abcd\n")
+  # Conversion decides whether it names a secret file or a `*_file` setting.
+  test "a _FILE variable is kept as a reference without reading the file", %{tmp_dir: dir} do
+    missing = Path.join(dir, "missing")
 
-    assert read!(%{"IPS_URL__KEYS_FILE" => secret}, dir) == %{
-             "url" => %{"keys" => {:env, "0123abcd"}}
+    assert read!(%{"IPS_URL__KEYS_FILE" => missing}, dir) == %{
+             "url" => %{"keys" => {:env_file, "IPS_URL__KEYS_FILE", missing}}
            }
   end
 
@@ -109,12 +110,6 @@ defmodule ImagePipeServer.Config.TreeTest do
 
     assert_raise ConfigError, ~r/IPS_URL__KEYS.*IPS_URL__KEYS_FILE/, fn ->
       read!(%{"IPS_URL__KEYS" => "a", "IPS_URL__KEYS_FILE" => secret}, dir)
-    end
-  end
-
-  test "an unreadable _FILE is an error naming the variable", %{tmp_dir: dir} do
-    assert_raise ConfigError, ~r/IPS_URL__KEYS_FILE/, fn ->
-      read!(%{"IPS_URL__KEYS_FILE" => Path.join(dir, "missing")}, dir)
     end
   end
 

@@ -168,6 +168,45 @@ defmodule ImagePipeServer.Config.ConvertTest do
     end
   end
 
+  describe "_FILE variables" do
+    @describetag :tmp_dir
+
+    test "read a known setting from the file, without trailing whitespace", %{tmp_dir: dir} do
+      path = Path.join(dir, "keys")
+      File.write!(path, "aa,bb\n")
+      file = {:env_file, "IPS_URL__KEYS_FILE", path}
+
+      assert convert(%{"keys" => file}, keys: [type: {:list, :string}]) == [keys: ["aa", "bb"]]
+      assert Convert.value({:list, :string}, file, ["keys"]) == {:ok, ["aa", "bb"]}
+    end
+
+    test "name the variable, not the file's contents or path, when unreadable", %{tmp_dir: dir} do
+      missing = Path.join(dir, "sekrit-dir/keys")
+      file = {:env_file, "IPS_URL__KEYS_FILE", missing}
+      message = error(%{"keys" => file}, keys: [type: :string])
+
+      assert message =~ "section.keys: cannot read IPS_URL__KEYS_FILE"
+      refute message =~ "sekrit"
+    end
+
+    test "set a *_file setting to the variable's value" do
+      file = {:env_file, "IPS_X__TOKEN_FILE", "/var/run/token"}
+      schema = [token_file: [type: :string]]
+
+      assert convert(%{"token" => file}, schema) == [token_file: "/var/run/token"]
+
+      assert convert(%{"token" => file, "token_file" => "/other"}, schema) ==
+               [token_file: "/var/run/token"]
+    end
+
+    test "are unknown when the schema has neither setting" do
+      file = {:env_file, "IPS_X__NOPE_FILE", "/tmp/x"}
+
+      assert error(%{"nope" => file}, token_file: [type: :string]) =~
+               "section.nope: unknown setting"
+    end
+  end
+
   test "unknown settings are errors" do
     assert error(%{"qualty" => 80}, quality: [type: :pos_integer]) =~
              "section.qualty: unknown setting"

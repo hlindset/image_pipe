@@ -5,7 +5,11 @@ defmodule ImagePipeServer.Config.Convert do
 
   File values keep their TOML types; environment values arrive as
   `{:env, string}` and are parsed to the target type. Lists in the environment
-  are comma-separated.
+  are comma-separated. A `_FILE` variable arrives as
+  `{:env_file, variable, path}`: for a setting the schema knows, its value is
+  the file's contents without trailing whitespace; otherwise, when the schema
+  has `<name>_file` (such as `token_file`), the variable sets that setting to
+  `path` itself.
 
   Settings the schema types as simple values convert here: strings, integers,
   floats, booleans, enumerated atoms, lists, keyword lists with known keys,
@@ -46,7 +50,10 @@ defmodule ImagePipeServer.Config.Convert do
   @doc "Converts a table to a keyword list with `schema`."
   @spec options(term(), keyword(), path()) :: {:ok, keyword()} | {:error, path(), String.t()}
   def options(%{} = table, schema, path) do
-    map_ok(Enum.sort(table), fn {key, value} ->
+    table
+    |> file_settings(schema)
+    |> Enum.sort()
+    |> map_ok(fn {key, value} ->
       case find_key(schema, key) do
         {:ok, name, spec} ->
           with {:ok, value} <- value(Keyword.get(spec, :type, :any), value, path ++ [key]),
@@ -66,12 +73,20 @@ defmodule ImagePipeServer.Config.Convert do
 
   @doc "Reads a string from a file or environment value."
   @spec string(term(), path()) :: result()
+  def string({:env_file, _variable, _file} = value, path) do
+    with {:ok, contents} <- read_file(value, path), do: string(contents, path)
+  end
+
   def string({:env, value}, _path), do: {:ok, value}
   def string(value, _path) when is_binary(value), do: {:ok, value}
   def string(_value, path), do: {:error, path, "expected a string"}
 
   @doc "Converts one value to `type`."
   @spec value(term(), term(), path()) :: result()
+  def value(type, {:env_file, _variable, _file} = value, path) do
+    with {:ok, contents} <- read_file(value, path), do: value(type, contents, path)
+  end
+
   def value({:convert, fun, _description}, value, path), do: fun.(value, path)
 
   def value(:string, value, path), do: string(value, path)
@@ -146,6 +161,30 @@ defmodule ImagePipeServer.Config.Convert do
   end
 
   def value(_type, _value, path), do: {:error, path, @unsupported}
+
+  # A `_FILE` variable for an unknown `name` sets `name_file` when the schema
+  # has it, overriding that setting from the file.
+  defp file_settings(table, schema) do
+    Enum.reduce(table, table, fn
+      {key, {:env_file, _variable, file}}, acc ->
+        file_key = key <> "_file"
+
+        if find_key(schema, key) == :error and find_key(schema, file_key) != :error,
+          do: acc |> Map.delete(key) |> Map.put(file_key, {:env, file}),
+          else: acc
+
+      _entry, acc ->
+        acc
+    end)
+  end
+
+  # The error names the variable; the file's path and contents may be secret.
+  defp read_file({:env_file, variable, file}, path) do
+    case File.read(file) do
+      {:ok, contents} -> {:ok, {:env, String.trim_trailing(contents)}}
+      {:error, reason} -> {:error, path, "cannot read #{variable}: #{:file.format_error(reason)}"}
+    end
+  end
 
   # Keyword lists come through `value/3` with their `keys:` spec, which the
   # type alone doesn't carry, so `find_key/2` routes them here.

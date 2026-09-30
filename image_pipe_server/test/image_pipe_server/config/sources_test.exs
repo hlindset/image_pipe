@@ -200,6 +200,28 @@ defmodule ImagePipeServer.Config.SourcesTest do
       assert options[:base] == {:provider, InstanceRole, [ttl_seconds: 300]}
     end
 
+    test "take web_identity's token_file from a _FILE variable" do
+      [media: mount] =
+        convert(%{
+          "media" => %{
+            "adapter" => "s3",
+            "match" => %{"scheme" => "s3"},
+            "credentials" => %{
+              "provider" => {:env, "web_identity"},
+              "role_arn" => "arn:aws:iam::1:role/r",
+              "region" => "us-east-1",
+              "token" =>
+                {:env_file, "IPS_SOURCES__MEDIA__CREDENTIALS__TOKEN_FILE", "/var/run/token"}
+            }
+          }
+        })
+
+      assert {:provider, ImagePipe.Source.S3.WebIdentity, options} =
+               mount[:options][:default][:credentials]
+
+      assert options[:token_file] == "/var/run/token"
+    end
+
     test "reject unknown credential providers without echoing credentials" do
       message =
         error(%{

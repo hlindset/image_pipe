@@ -69,6 +69,9 @@ IPS_PROCESSING__QUALITY=82
   trailing whitespace, for Docker and Kubernetes secrets:
   `IPS_URL__KEYS_FILE=/run/secrets/signing_keys`. Setting both `IPS_URL__KEYS`
   and `IPS_URL__KEYS_FILE` is an error.
+- Settings whose own name ends in `_file`, such as the `web_identity`
+  provider's `token_file`, take the variable's value as the path instead:
+  `IPS_SOURCES__MEDIA__CREDENTIALS__TOKEN_FILE=/var/run/secrets/eks.amazonaws.com/serviceaccount/token`.
 - Settings that are awkward as variables, such as S3 `buckets`,
   `address_policy`, or `storage_inputs`, belong in the file.
 

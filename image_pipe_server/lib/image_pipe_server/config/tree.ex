@@ -5,11 +5,13 @@ defmodule ImagePipeServer.Config.Tree do
   The file is named by `IPS_CONFIG`, or the default path, which may be absent.
   Environment variables flatten the same tree: `IPS_` followed by the levels
   joined with `__`, lowercased. A variable overrides the matching leaf in the
-  file. A variable ending in `_FILE` reads its value from that file, without
-  trailing whitespace.
+  file.
 
   File values keep their TOML types. Environment values are strings, tagged
-  `{:env, string}` so conversion can parse them.
+  `{:env, string}` so conversion can parse them. A variable ending in `_FILE`
+  becomes `{:env_file, variable, path}` under the name without the suffix;
+  `ImagePipeServer.Config.Convert` reads the file, or treats the variable as
+  a `*_file` setting such as `token_file`.
   """
 
   alias ImagePipeServer.Config.TomlError
@@ -69,7 +71,7 @@ defmodule ImagePipeServer.Config.Tree do
     path = Enum.map(levels, &String.downcase/1)
 
     case String.split(name, ~r/_FILE\z/) do
-      [plain, ""] -> {file_path!(path), {:env, read_secret!(name, plain, value, env)}}
+      [plain, ""] -> {file_path!(path), file_reference!(name, plain, value, env)}
       [_name] -> {path, {:env, value}}
     end
   end
@@ -78,14 +80,11 @@ defmodule ImagePipeServer.Config.Tree do
     List.update_at(path, -1, &String.replace_suffix(&1, "_file", ""))
   end
 
-  defp read_secret!(name, plain, path, env) do
+  defp file_reference!(name, plain, path, env) do
     if Map.has_key?(env, plain),
       do: raise(ConfigError, "both #{plain} and #{name} are set")
 
-    case File.read(path) do
-      {:ok, contents} -> String.trim_trailing(contents)
-      {:error, reason} -> raise ConfigError, "cannot read #{name}: #{:file.format_error(reason)}"
-    end
+    {:env_file, name, path}
   end
 
   defp put_leaf!(tree, [key], value, parents) do
