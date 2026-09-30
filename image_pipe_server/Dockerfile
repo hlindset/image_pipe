@@ -17,8 +17,8 @@ FROM ${ELIXIR_IMAGE} AS build
 
 # libvips is built from source for JPEG XL decoding, which the libvips bundled
 # with the precompiled vix NIF lacks, and PNG palette quantization.
-ARG VIPS_VERSION=8.18.2
-ARG VIPS_SHA256=a30d4aede16f1c2899c1a2241870f8a7409feafa38484bcdcdac113d6d6f8ff5
+ARG VIPS_VERSION=8.18.7
+ARG VIPS_SHA256=5baaead3b0bb20ffdb9e9ff09aa9fda08620923df77b63b436654cb5e0b3bf94
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential meson ninja-build pkg-config curl ca-certificates git xz-utils \

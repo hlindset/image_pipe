@@ -94,9 +94,9 @@ jobs:
       MISE_ERLANG_VERSION: ${{ matrix.erlang }}
       MISE_ELIXIR_VERSION: ${{ matrix.elixir }}
       VIX_COMPILATION_MODE: PLATFORM_PROVIDED_LIBVIPS
-      VIPS_VERSION: "8.18.2"
+      VIPS_VERSION: "8.18.7"
       # Upstream SHA256 of vips-${VIPS_VERSION}.tar.xz (release .sha256sum asset).
-      VIPS_SHA256: "a30d4aede16f1c2899c1a2241870f8a7409feafa38484bcdcdac113d6d6f8ff5"
+      VIPS_SHA256: "5baaead3b0bb20ffdb9e9ff09aa9fda08620923df77b63b436654cb5e0b3bf94"
       # Runner-writable prefix: install runs as the runner user (no sudo), so the
       # cached tree isn't root-owned and restores cleanly. LD_LIBRARY_PATH below
       # makes the loader find libvips without ldconfig.
