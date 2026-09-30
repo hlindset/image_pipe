@@ -208,11 +208,18 @@ load hint. Cache hits skip decoding and transforms entirely.
 
 ## libvips format support
 
-ImagePipe accepts source families only when the deployed libvips build can read
-them. The test suite exercises SVG rejection and source-only TIFF fallback with
-real libvips loaders. Development and CI builds should include SVG load support
-and TIFF load/save support so missing loader support can't hide format support
-drift.
+ImagePipe decides a source's family from its signature before libvips sees it.
+Sources with an unrecognised signature, and rejected families such as GIF, SVG,
+and AVIF image sequences, fail with `415` without any libvips call. For accepted
+families, the loader libvips chooses must belong to the detected family: JPEG
+(including UltraHDR), PNG, WebP, TIFF, HEIF/AVIF, JPEG XL, or JPEG 2000. Other
+loaders compiled into the host's libvips, such as ImageMagick, PDF, SVG, or
+camera RAW loaders, therefore never decode a source. TIFF-signature files from
+a file source are also checked before opening, because libvips lets a RAW
+loader claim them by file name.
+
+An accepted family still needs its loader in the deployed libvips build. A
+missing loader fails the request with `415`.
 
 ## Automatic output
 

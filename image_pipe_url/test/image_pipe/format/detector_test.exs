@@ -59,6 +59,15 @@ defmodule ImagePipe.Format.DetectorTest do
       assert Detector.detect(<<"MM", 0x00, 0x2A, 0, 0>>) == :tiff
     end
 
+    test "BigTIFF little-endian and big-endian" do
+      assert Detector.detect(<<"II", 0x2B, 0x00, 0x08, 0x00, 0, 0>>) == :tiff
+      assert Detector.detect(<<"MM", 0x00, 0x2B, 0x00, 0x08, 0, 0>>) == :tiff
+    end
+
+    test "an AVIF image sequence brand is its own family" do
+      assert Detector.detect(<<0, 0, 0, 0x20, "ftypavis", "more">>) == :avif_sequence
+    end
+
     test "unrecognized and truncated inputs are :unknown" do
       assert Detector.detect(<<"not an image at all">>) == :unknown
       assert Detector.detect(<<0xFF>>) == :unknown

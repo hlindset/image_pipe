@@ -12,6 +12,7 @@ defmodule ImagePipe.Format.Detector do
           | :tiff
           | :heif
           | :avif
+          | :avif_sequence
           | :jpeg_xl
           | :jpeg2000
           | :unknown
@@ -40,16 +41,24 @@ defmodule ImagePipe.Format.Detector do
        [0xFF, 0x4F, 0xFF, 0x51]
      ]},
     {:avif, [@ftyp_prefix ++ ~c"avif"]},
+    {:avif_sequence, [@ftyp_prefix ++ ~c"avis"]},
     {:heif, Enum.map(@heif_brands, &(@ftyp_prefix ++ &1))},
-    {:tiff, [[?I, ?I, 0x2A, 0x00], [?M, ?M, 0x00, 0x2A]]}
+    {:tiff,
+     [
+       [?I, ?I, 0x2A, 0x00],
+       [?M, ?M, 0x00, 0x2A],
+       [?I, ?I, 0x2B, 0x00],
+       [?M, ?M, 0x00, 0x2B]
+     ]}
   ]
 
   @doc """
   Classify the source image format from a bounded header peek.
 
   Magic-byte detection first (first match wins); if no signature matches, a
-  lightweight SVG structural scan; otherwise `:unknown`. Detection is advisory
-  for gating and authoritative-where-confident — never a full decode.
+  lightweight SVG structural scan; otherwise `:unknown`. Decode admits only the
+  accepted families, so `:unknown` input never reaches libvips. Never a full
+  decode.
   """
   @spec detect(binary()) :: detected()
   def detect(peek) when is_binary(peek) do
@@ -80,9 +89,8 @@ defmodule ImagePipe.Format.Detector do
   # Bounded, not a full XML parser. Skip a UTF-8 BOM, leading whitespace, and the
   # XML prolog (declarations / comments / DOCTYPE incl. a `[ ... ]` internal
   # subset), then test for an `<svg>` root element (optionally namespace-prefixed).
-  # Biases toward catching real SVGs so libvips' svgload never parses attacker
-  # XML; punts to a non-match (=> :unknown) on anything ambiguous. A non-match is
-  # harmless: it falls through to libvips, which still rejects SVG.
+  # Names SVG so rejections report it; punts to a non-match (=> :unknown) on
+  # anything ambiguous, which Decode rejects before libvips as well.
 
   defp svg?(peek) do
     peek
