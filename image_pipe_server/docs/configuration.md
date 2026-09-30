@@ -1,0 +1,420 @@
+# Configuring image_pipe_server
+
+The server reads its configuration once at boot, from a TOML file and from
+environment variables. It has no Elixir configuration of its own: every
+setting converts to an option that `ImagePipe.URL.config/1`,
+`ImagePipe.config/1`, or `ImagePipe.Plug.init/1` already validates, so the
+[library guides](../../image_pipe/docs/configuration.md) describe what each
+setting does. This page covers how to write them and lists every key.
+
+## Sources and precedence
+
+1. The library's defaults.
+2. The TOML file named by `IPS_CONFIG`, or `/etc/image_pipe/config.toml`. The
+   default file is optional, so a deployment can use only environment
+   variables. A missing file named by `IPS_CONFIG` stops the server.
+3. Environment variables, which override single settings in the file.
+
+A small file:
+
+```toml
+[url]
+keys = ["0123abcd…"]
+
+[sources.static]
+adapter = "file"
+match = "path"
+root = "/data/images"
+root_id = "static"
+
+[sources.tmdb]
+adapter = "http"
+match = { prefix = "tmdb" }
+base_url = "https://image.tmdb.org/t/p/original"
+path_pattern = '[a-zA-Z0-9_-]+\.(jpg|jpeg|png|webp)'
+stable = "trusted"
+cache_policy = { storage = "allow" }
+
+[cache.output]
+root = "/var/cache/image_pipe/output"
+max_size_bytes = 10_000_000_000
+node_id = "node-0"
+
+[processing]
+quality = 82
+
+[pool]
+max_concurrency = 8
+max_queue = 64
+```
+
+## Environment variables
+
+A variable names a setting by its path in the file: `IPS_`, then the levels
+joined with `__` and written in upper case. Single underscores stay part of a
+name.
+
+```sh
+IPS_URL__KEYS=0123abcd…
+IPS_SOURCES__TMDB__ADAPTER=http
+IPS_SOURCES__TMDB__MATCH__PREFIX=tmdb
+IPS_SOURCES__TMDB__BASE_URL=https://image.tmdb.org/t/p/original
+IPS_PROCESSING__QUALITY=82
+```
+
+- Levels are lowercased, so a mount written as `[sources.TMDB]` in the file
+  can't be overridden from the environment. Use lowercase mount names.
+- Lists are comma-separated: `IPS_URL__KEYS=0123abcd…,4567ef01…`.
+- A variable ending in `_FILE` reads the value from that file, without
+  trailing whitespace, for Docker and Kubernetes secrets:
+  `IPS_URL__KEYS_FILE=/run/secrets/signing_keys`. Setting both `IPS_URL__KEYS`
+  and `IPS_URL__KEYS_FILE` is an error.
+- Settings whose own name ends in `_file`, such as the `web_identity`
+  provider's `token_file`, take the variable's value as the path instead:
+  `IPS_SOURCES__MEDIA__CREDENTIALS__TOKEN_FILE=/var/run/secrets/eks.amazonaws.com/serviceaccount/token`.
+- Settings that are awkward as variables, such as S3 `buckets`,
+  `address_policy`, or `storage_inputs`, belong in the file.
+
+## Values
+
+TOML strings, numbers, booleans, arrays, and tables map onto the library's
+options:
+
+- Named values are strings: `stable = "trusted"`, `http_cache = { mode = "enabled" }`.
+- Tagged values are tables with one entry: `freshness = { fallback = 60 }`.
+- Tables with library-defined keys, such as `format_quality = { webp = 80 }`,
+  accept only keys the library knows.
+- `adapter` names a built-in source adapter: `"file"`, `"http"`, or `"s3"`.
+- `match` is `"path"` or a table of `prefix` and `scheme` rules, each a string
+  or an array.
+- `path_pattern` is a regular expression, anchored by the adapter.
+- `source_encryption_keys` are 32-byte keys with a `base64:` or `hex:` prefix.
+- HTTP mounts take `request_headers` (a table of header names to values) and
+  `bearer_token` for origins behind an API key or a static token. Both can
+  come from `_FILE` variables.
+- S3 `credentials` are `{ static = { access_key_id = "…", secret_access_key = "…" } }`
+  or a provider: `{ provider = "instance_role" }`, `"container_credentials"`,
+  `"web_identity"`, or `"assume_role"`, with the provider's options in the same
+  table.
+
+Some settings exist only in Elixir: functions (`address_resolver`, the
+function form of `address_policy`, `clock`), `req_options`, custom source
+adapters, caches, detectors, and credential providers. The reference marks
+them. Hosts that need them build their own release on top of `image_pipe`.
+
+## Errors
+
+Invalid configuration stops the server at boot with a message that names the
+setting. Errors about the file's shape and types never quote a value; the
+library's own checks may quote a non-secret value, such as an out-of-range
+`quality` or a cache root, but never a key, credential, token, or the
+contents of a `_FILE`:
+
+```text
+invalid configuration: url.source_encryption_keys[0]: expected a base64: or hex: prefix
+invalid configuration: processing.qualty: unknown setting
+```
+
+A file that isn't valid TOML is reported with its position and key, with the
+values on the quoted line redacted:
+
+```text
+invalid TOML: unexpected newline in single-quoted string in /etc/image_pipe/config.toml on line 2, column 14:
+
+    keys = <redacted value>
+           ^
+```
+
+## Reference
+
+Every key the server accepts, generated from the loader's schemas. Types are
+TOML types; defaults are the library's.
+
+<!-- reference:start (generated by mix image_pipe_server.gen.reference) -->
+
+### `[server]`
+
+The HTTP listener. Times are in milliseconds. `read_timeout` closes connections that send nothing for that long, idle keep-alive connections included. `max_connections` rounds up to a multiple of 100 above 100 connections. With `auth_token`, requests other than `/health` must send `Authorization: Bearer <token>`.
+
+| Key | Type | Default |
+| --- | --- | --- |
+| `port` | integer ≥ 0 | `8080` |
+| `bind` | string | `"0.0.0.0"` |
+| `mount_path` | string | `"/"` |
+| `shutdown_timeout` | integer ≥ 0 | `15000` |
+| `read_timeout` | integer > 0 | `10000` |
+| `max_connections` | integer > 0 | `2048` |
+| `auth_token` | string |  |
+
+### `[url]`
+
+URL verification settings, converted with `ImagePipe.URL.config/1`.
+
+| Key | Type | Default |
+| --- | --- | --- |
+| `keys` | array of string | `[]` |
+| `iv_mode` | `"deterministic"` or `"random"` | `"deterministic"` |
+| `encrypt_source` | boolean | `false` |
+| `source_encryption_keys` | array of string with a `base64:` or `hex:` prefix |  |
+| `presets` | table of string |  |
+
+### `[sources.<name>]`
+
+One table per named source mount. The table name is the mount name. Besides
+`adapter` and `match`, a mount takes its adapter's options.
+
+| Key | Type | Default |
+| --- | --- | --- |
+| `adapter` | `"file"` or `"http"` or `"s3"` |  |
+| `match` | `"path"` or table |  |
+| `match.prefix` | array of string or string |  |
+| `match.scheme` | array of string or string |  |
+
+#### `adapter = "file"`
+
+| Key | Type | Default |
+| --- | --- | --- |
+| `root` | string |  |
+| `root_id` | string |  |
+| `stable` | `"auto"` or `"trusted"` | `"auto"` |
+| `internal_cache` | `"auto"` or `"enabled"` or `"disabled"` | `"auto"` |
+| `http_cache` | `"inherit"` or `"disabled"` or `"enabled"` | `"inherit"` |
+| `cache_policy.storage` | `"origin"` or `"allow"` or `"deny"` |  |
+| `cache_policy.freshness` | `"origin"` or `{ fallback = … }` or `{ force = … }` (integer ≥ 0) |  |
+| `cache_policy.stale_while_revalidate` | `"origin"` or `"disabled"` or `{ force = … }` (integer ≥ 0) |  |
+
+#### `adapter = "http"`
+
+| Key | Type | Default |
+| --- | --- | --- |
+| `allowed_hosts` | array of string |  |
+| `base_url` | string |  |
+| `receive_timeout` | integer ≥ 0 |  |
+| `connect_timeout` | integer ≥ 0 |  |
+| `pool_timeout` | integer ≥ 0 |  |
+| `max_redirects` | integer ≥ 0 | `0` |
+| `stable` | `"auto"` or `"trusted"` | `"auto"` |
+| `internal_cache` | `"auto"` or `"enabled"` or `"disabled"` | `"auto"` |
+| `http_cache` | `"inherit"` or `"disabled"` or `"enabled"` | `"inherit"` |
+| `cache_policy.storage` | `"origin"` or `"allow"` or `"deny"` |  |
+| `cache_policy.freshness` | `"origin"` or `{ fallback = … }` or `{ force = … }` (integer ≥ 0) |  |
+| `cache_policy.stale_while_revalidate` | `"origin"` or `"disabled"` or `{ force = … }` (integer ≥ 0) |  |
+| `path_pattern` | string (regular expression) |  |
+| `address_policy.allow` | array of string |  |
+| `address_policy.allow_loopback` | boolean |  |
+| `address_policy.allow_unspecified` | boolean |  |
+| `address_policy.allow_link_local` | boolean |  |
+| `address_policy.allow_private` | boolean |  |
+| `address_policy.allow_unique_local` | boolean |  |
+| `address_policy.allow_multicast` | boolean |  |
+| `address_policy.allow_broadcast` | boolean |  |
+| `address_policy.allow_cgnat` | boolean |  |
+| `address_policy.allow_reserved` | boolean |  |
+| `request_headers` | table of string |  |
+| `bearer_token` | string |  |
+
+Elixir only: `req_options`, `address_resolver`.
+
+#### `adapter = "s3"`
+
+| Key | Type | Default |
+| --- | --- | --- |
+| `region` | string |  |
+| `endpoint` | string |  |
+| `receive_timeout` | integer ≥ 0 |  |
+| `connect_timeout` | integer ≥ 0 |  |
+| `pool_timeout` | integer ≥ 0 |  |
+| `stable` | `"auto"` or `"trusted"` | `"auto"` |
+| `internal_cache` | `"auto"` or `"enabled"` or `"disabled"` | `"auto"` |
+| `http_cache` | `"inherit"` or `"disabled"` or `"enabled"` | `"inherit"` |
+| `cache_policy.storage` | `"origin"` or `"allow"` or `"deny"` |  |
+| `cache_policy.freshness` | `"origin"` or `{ fallback = … }` or `{ force = … }` (integer ≥ 0) |  |
+| `cache_policy.stale_while_revalidate` | `"origin"` or `"disabled"` or `{ force = … }` (integer ≥ 0) |  |
+| `credentials` | `{ static = {...} }` or `{ provider = "...", ... }` |  |
+| `buckets` | table of the S3 settings above |  |
+
+Elixir only: `req_options`.
+
+#### S3 `credentials`
+
+Static credentials:
+
+| Key | Type | Default |
+| --- | --- | --- |
+| `static.access_key_id` | string |  |
+| `static.secret_access_key` | string |  |
+| `static.token` | string |  |
+
+Or a credential `provider` and its options. `assume_role` takes `base`
+credentials in the same forms.
+
+`provider = "assume_role"`:
+
+| Key | Type | Default |
+| --- | --- | --- |
+| `base` | `{ static = {...} }` or `{ provider = "...", ... }` |  |
+| `role_arn` | string |  |
+| `region` | string |  |
+| `external_id` | string |  |
+| `role_session_name` | string |  |
+| `receive_timeout` | integer ≥ 0 |  |
+| `connect_timeout` | integer ≥ 0 |  |
+
+`provider = "container_credentials"`:
+
+| Key | Type | Default |
+| --- | --- | --- |
+| `base_url` | string |  |
+| `full_uri` | string |  |
+| `relative_uri` | string |  |
+| `auth_token` | string |  |
+| `receive_timeout` | integer ≥ 0 |  |
+| `connect_timeout` | integer ≥ 0 |  |
+
+`provider = "instance_role"`:
+
+| Key | Type | Default |
+| --- | --- | --- |
+| `base_url` | string |  |
+| `ttl_seconds` | integer > 0 |  |
+| `receive_timeout` | integer ≥ 0 |  |
+| `connect_timeout` | integer ≥ 0 |  |
+
+`provider = "web_identity"`:
+
+| Key | Type | Default |
+| --- | --- | --- |
+| `token_file` | string |  |
+| `role_arn` | string |  |
+| `region` | string |  |
+| `role_session_name` | string |  |
+| `receive_timeout` | integer ≥ 0 |  |
+| `connect_timeout` | integer ≥ 0 |  |
+
+### `[cache]`
+
+`output` and `input` configure `ImagePipe.Cache.FileSystem` caches. Setting `max_size_bytes` bounds a cache and requires `node_id`.
+
+| Key | Type | Default |
+| --- | --- | --- |
+| `output.root` | string |  |
+| `output.path_prefix` | string | `""` |
+| `output.max_size_bytes` | integer > 0 |  |
+| `output.node_id` | string |  |
+| `output.state_dir` | string |  |
+| `output.sketch_depth` | integer > 0 |  |
+| `output.sketch_width` | integer > 0 |  |
+| `output.aging_sample_size` | integer > 0 |  |
+| `output.doorkeeper_cardinality` | integer > 0 |  |
+| `output.eviction_victim_limit` | integer > 0 |  |
+| `output.flush_interval` | integer > 0 |  |
+| `output.cleanup_interval` | integer > 0 |  |
+| `output.reconcile_interval` | integer > 0 |  |
+| `output.state_ttl` | integer > 0 |  |
+| `output.window_ratio` | number |  |
+| `output.doorkeeper_fpr` | number |  |
+| `output.max_body_bytes` | integer ≥ 0 |  |
+| `input.root` | string |  |
+| `input.path_prefix` | string | `""` |
+| `input.max_size_bytes` | integer > 0 |  |
+| `input.node_id` | string |  |
+| `input.state_dir` | string |  |
+| `input.sketch_depth` | integer > 0 |  |
+| `input.sketch_width` | integer > 0 |  |
+| `input.aging_sample_size` | integer > 0 |  |
+| `input.doorkeeper_cardinality` | integer > 0 |  |
+| `input.eviction_victim_limit` | integer > 0 |  |
+| `input.flush_interval` | integer > 0 |  |
+| `input.cleanup_interval` | integer > 0 |  |
+| `input.reconcile_interval` | integer > 0 |  |
+| `input.state_ttl` | integer > 0 |  |
+| `input.window_ratio` | number |  |
+| `input.doorkeeper_fpr` | number |  |
+| `storage_inputs` | array of `{ header = … }` or `{ cookie = … }` (string) |  |
+
+### `[processing]`
+
+Processing defaults and limits of `ImagePipe.config/1`.
+
+| Key | Type | Default |
+| --- | --- | --- |
+| `max_body_bytes` | integer > 0 | `10000000` |
+| `max_input_pixels` | integer > 0 | `40000000` |
+| `auto_avif` | boolean | `true` |
+| `auto_webp` | boolean | `true` |
+| `output_capabilities` | table of boolean |  |
+| `max_result_width` | integer > 0 | `8192` |
+| `max_result_height` | integer > 0 | `8192` |
+| `max_result_pixels` | integer > 0 | `40000000` |
+| `strip_metadata` | boolean | `true` |
+| `keep_copyright` | boolean | `true` |
+| `quality` | integer > 0 | `80` |
+| `format_quality` | table of integer > 0 | `{ avif = 63, webp = 79 }` |
+| `strip_color_profile` | boolean | `true` |
+| `preserve_hdr` | boolean | `false` |
+| `autoquality_method` | `"none"` or `"size"` or `"ssimulacra2"` or `"butteraugli"` | `"none"` |
+| `autoquality_target` | table of integer or number | `{ butteraugli = 1.0, ssimulacra2 = 78 }` |
+| `autoquality_min_quality` | integer > 0 | `70` |
+| `autoquality_max_quality` | integer > 0 | `80` |
+| `autoquality_allowed_error` | table of integer or number | `{ butteraugli = 0.1, ssimulacra2 = 1.0 }` |
+| `autoquality_format_min_quality` | table of integer > 0 | `{ avif = 60 }` |
+| `autoquality_format_max_quality` | table of integer > 0 | `{ avif = 65 }` |
+| `autoquality_max_resolution` | integer ≥ 0 | `0` |
+| `autoquality_max_iterations` | integer > 0 | `6` |
+| `detector` | `"default"` | `"default"` |
+| `detector_required` | boolean | `false` |
+| `source_cache_policy.storage` | `"origin"` or `"allow"` or `"deny"` |  |
+| `source_cache_policy.freshness` | `"origin"` or `{ fallback = … }` or `{ force = … }` (integer ≥ 0) |  |
+| `source_cache_policy.stale_while_revalidate` | `"origin"` or `"disabled"` or `{ force = … }` (integer ≥ 0) |  |
+| `format_order` | array of `"avif"` or `"webp"` |  |
+| `jpeg_options.interlace` | boolean |  |
+| `jpeg_options.subsample_mode` | `"auto"` or `"on"` or `"off"` |  |
+| `jpeg_options.trellis_quant` | boolean |  |
+| `jpeg_options.overshoot_deringing` | boolean |  |
+| `jpeg_options.optimize_scans` | boolean |  |
+| `jpeg_options.quant_table` | integer 0–8 |  |
+| `png_options.interlace` | boolean |  |
+| `png_options.palette` | boolean |  |
+| `png_options.bitdepth` | `1` or `2` or `4` or `8` or `16` |  |
+| `png_options.filter` | `"none"` or `"sub"` or `"up"` or `"avg"` or `"paeth"` or `"all"` |  |
+| `webp_options.lossless` | boolean |  |
+| `webp_options.near_lossless` | boolean |  |
+| `webp_options.smart_subsample` | boolean |  |
+| `webp_options.preset` | `"default"` or `"photo"` or `"picture"` or `"drawing"` or `"icon"` or `"text"` |  |
+| `webp_options.effort` | integer 0–6 |  |
+| `avif_options.subsample_mode` | `"auto"` or `"on"` or `"off"` |  |
+| `avif_options.effort` | integer 0–9 |  |
+
+Elixir only: `telemetry_prefix`, `clock`.
+
+### `[pool]`
+
+An `ImagePipe.ProcessingPool`. Without this section, requests are unbounded.
+
+| Key | Type | Default |
+| --- | --- | --- |
+| `max_concurrency` | integer > 0 |  |
+| `max_queue` | integer ≥ 0 | `0` |
+| `queue_timeout` | integer > 0 | `1000` |
+| `processing_timeout` | integer > 0 | `30000` |
+
+### `[http]`
+
+Delivery options of `ImagePipe.Plug.init/1`.
+
+| Key | Type | Default |
+| --- | --- | --- |
+| `allow_origin` | string |  |
+| `allow_debug_headers` | boolean | `false` |
+| `http_cache.mode` | `"disabled"` or `"enabled"` | `"disabled"` |
+| `http_cache.visibility` | `"auto"` or `"private"` or `"public"` | `"auto"` |
+
+### `[telemetry]`
+
+`log_level` attaches the default Logger (`ImagePipe.Telemetry.attach_default_logger/1`).
+
+| Key | Type | Default |
+| --- | --- | --- |
+| `log_level` | `"error"` or `"info"` or `"debug"` or `"emergency"` or `"alert"` or `"critical"` or `"warning"` or `"notice"` |  |
+
+<!-- reference:end -->

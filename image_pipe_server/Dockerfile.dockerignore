@@ -1,0 +1,13 @@
+# The build context is the repository root; send only what the build copies.
+*
+!image_pipe_url/mix.exs
+!image_pipe_url/mix.lock
+!image_pipe_url/lib
+!image_pipe/mix.exs
+!image_pipe/mix.lock
+!image_pipe/lib
+!image_pipe/priv/icc
+!image_pipe_server/mix.exs
+!image_pipe_server/mix.lock
+!image_pipe_server/config
+!image_pipe_server/lib

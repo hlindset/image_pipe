@@ -45,6 +45,9 @@ defmodule ImagePipe.Source.S3.AssumeRole do
                  plug: [type: :any]
                )
 
+  @doc false
+  def options_schema, do: @opts_schema.schema
+
   @impl true
   def validate_options(opts) do
     with {:ok, validated} <- schema_validate(opts),

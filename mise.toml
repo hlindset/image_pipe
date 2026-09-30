@@ -14,10 +14,11 @@ uv = "0.11.23"
 python.precompiled_flavor = "install_only"
 
 [tasks.setup]
-description = "Install library and fiddle dependencies"
+description = "Install library, server, and fiddle dependencies"
 run = [
   "cd image_pipe_url && mix deps.get",
   "cd image_pipe && mix deps.get",
+  "cd image_pipe_server && mix deps.get",
   "cd fiddle && mix deps.get",
   "pnpm -C fiddle install --frozen-lockfile",
   "pnpm -C fiddle/assets run build",
@@ -50,6 +51,30 @@ run = [
   "mix image_pipe.ex_dna",
   "mix test",
 ]
+
+[tasks."precommit:server"]
+description = "Library checks plus the image_pipe_server checks: format, compile (warnings as errors), test"
+depends = ["precommit"]
+dir = "image_pipe_server"
+run = [
+  "mix format --check-formatted",
+  "mix compile --warnings-as-errors",
+  "mix test",
+]
+
+[tasks."server:image"]
+description = "Build the image_pipe_server Docker image and run the container smoke test. Pass `vision` for the detection variant."
+run = """
+variant="{{arg(name='variant', var=true, required=false)}}"
+vision=0
+tag=image_pipe_server:dev
+if [ "$variant" = "vision" ]; then
+  vision=1
+  tag=image_pipe_server:dev-vision
+fi
+docker build -f image_pipe_server/Dockerfile --build-arg IMAGE_VISION=$vision -t $tag .
+image_pipe_server/test/container/smoke.sh $tag ${variant:-base}
+"""
 
 [tasks."precommit:fiddle"]
 description = "Library checks plus the fiddle verify suite"

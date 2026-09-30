@@ -1,0 +1,262 @@
+defmodule ImagePipeServer.Config.Sources do
+  @moduledoc """
+  Converts `[sources.<name>]` tables to named source mounts.
+
+  Each table names a built-in `adapter` (`"file"`, `"http"`, or `"s3"`) and a
+  `match` (`"path"`, or a table of `prefix` and `scheme` rules). Its other
+  keys are the adapter's options, converted with the adapter's schema. The
+  table name becomes the mount name.
+
+  Explicit conversions:
+
+    * HTTP `path_pattern` compiles to a `Regex`.
+    * HTTP `request_headers` and `bearer_token` become `req_options` headers
+      and bearer auth; `req_options` itself stays Elixir-only.
+    * HTTP `address_policy` takes its keyword form as a table.
+    * `cache_policy` converts with `ImagePipe.Source.CachePolicy`'s schema.
+    * S3 settings outside `buckets` form the `:default` configuration, and
+      each `buckets` table overrides it for one bucket.
+    * S3 `credentials` is `{ static = { access_key_id, secret_access_key,
+      token } }` or `{ provider = "<name>", ...options }`, where the provider
+      is `instance_role`, `container_credentials`, `web_identity`, or
+      `assume_role`. `assume_role` takes its `base` credentials the same way.
+  """
+
+  alias ImagePipe.Source.CachePolicy
+  alias ImagePipe.Source.File, as: FileSource
+  alias ImagePipe.Source.HTTP
+  alias ImagePipe.Source.S3
+  alias ImagePipe.Source.S3.AssumeRole
+  alias ImagePipe.Source.S3.ContainerCredentials
+  alias ImagePipe.Source.S3.InstanceRole
+  alias ImagePipe.Source.S3.WebIdentity
+  alias ImagePipeServer.Config.Convert
+
+  @adapters %{"file" => FileSource, "http" => HTTP, "s3" => S3}
+  @providers %{
+    "instance_role" => InstanceRole,
+    "container_credentials" => ContainerCredentials,
+    "web_identity" => WebIdentity,
+    "assume_role" => AssumeRole
+  }
+  @rules {:or, [{:list, :string}, :string]}
+  @static_credentials_schema [
+    access_key_id: [type: :string],
+    secret_access_key: [type: :string],
+    token: [type: :string]
+  ]
+  @address_categories [
+    :allow_loopback,
+    :allow_unspecified,
+    :allow_link_local,
+    :allow_private,
+    :allow_unique_local,
+    :allow_multicast,
+    :allow_broadcast,
+    :allow_cgnat,
+    :allow_reserved
+  ]
+
+  @doc "Converts the `[sources]` table, raising `ImagePipeServer.ConfigError`."
+  @spec options!(term()) :: keyword()
+  def options!(table) do
+    case convert(table, ["sources"]) do
+      {:ok, sources} ->
+        sources
+
+      {:error, path, message} ->
+        raise ImagePipeServer.ConfigError, Convert.error_message(path, message)
+    end
+  end
+
+  @doc "Converts the `[sources]` table."
+  @spec convert(term(), Convert.path()) :: Convert.result()
+  def convert(%{} = table, path) do
+    with {:ok, mounts} <-
+           Convert.value({:map, :string, {:convert, &mount/2, "table"}}, table, path) do
+      # Mount names are the operator's own identifiers, fixed at boot.
+      {:ok,
+       mounts |> Enum.sort() |> Enum.map(fn {name, mount} -> {String.to_atom(name), mount} end)}
+    end
+  end
+
+  def convert(_value, path), do: {:error, path, "expected a table"}
+
+  defp mount(%{} = table, path) do
+    with {:ok, name} <- required(table, "adapter", path),
+         {:ok, module} <- adapter(name, path ++ ["adapter"]),
+         {:ok, match} <- required(table, "match", path),
+         {:ok, match} <- Convert.value(match_type(), match, path ++ ["match"]),
+         {:ok, options} <- adapter_options(module, Map.drop(table, ["adapter", "match"]), path) do
+      {:ok, [adapter: module, match: match, options: options]}
+    end
+  end
+
+  defp mount(_value, path), do: {:error, path, "expected a table"}
+
+  defp required(table, key, path) do
+    case Map.fetch(table, key) do
+      {:ok, value} -> {:ok, value}
+      :error -> {:error, path ++ [key], "required"}
+    end
+  end
+
+  defp adapter(value, path) do
+    with {:ok, name} <- Convert.string(value, path) do
+      case Map.fetch(@adapters, name) do
+        {:ok, module} -> {:ok, module}
+        :error -> {:error, path, "expected one of file, http, s3"}
+      end
+    end
+  end
+
+  @doc false
+  @spec mount_schema() :: keyword()
+  def mount_schema do
+    [
+      adapter: [type: {:in, [:file, :http, :s3]}, required: true],
+      match: [type: match_type(), required: true]
+    ]
+  end
+
+  defp match_type do
+    {:or, [{:in, [:path]}, Convert.table(prefix: [type: @rules], scheme: [type: @rules])]}
+  end
+
+  @doc false
+  @spec adapter_schemas() :: keyword()
+  def adapter_schemas do
+    [
+      file: file_schema(),
+      http: http_schema(),
+      s3: s3_schema() ++ [buckets: [type: {:map, :string, bucket_type("the S3 settings above")}]]
+    ]
+  end
+
+  @doc false
+  @spec credential_schemas() :: keyword()
+  def credential_schemas do
+    [static: @static_credentials_schema] ++
+      Enum.map(@providers, fn {name, module} ->
+        {String.to_atom(name), provider_schema(module)}
+      end)
+  end
+
+  defp adapter_options(FileSource, table, path), do: Convert.options(table, file_schema(), path)
+
+  defp adapter_options(HTTP, table, path) do
+    with {:ok, options} <- Convert.options(table, http_schema(), path) do
+      {headers, options} = Keyword.pop(options, :request_headers)
+      {token, options} = Keyword.pop(options, :bearer_token)
+
+      req_options =
+        Enum.reject(
+          [headers: headers && Enum.to_list(headers), auth: token && {:bearer, token}],
+          fn {_key, value} -> is_nil(value) end
+        )
+
+      {:ok, if(req_options == [], do: options, else: options ++ [req_options: req_options])}
+    end
+  end
+
+  defp adapter_options(S3, table, path) do
+    {buckets, table} = Map.pop(table, "buckets")
+
+    with {:ok, default} <- Convert.options(table, s3_schema(), path),
+         {:ok, buckets} <- s3_buckets(buckets, path ++ ["buckets"]) do
+      {:ok, [default: default] ++ buckets}
+    end
+  end
+
+  defp s3_buckets(nil, _path), do: {:ok, []}
+
+  defp s3_buckets(buckets, path) do
+    with {:ok, buckets} <- Convert.value({:map, :string, bucket_type()}, buckets, path),
+         do: {:ok, [buckets: buckets]}
+  end
+
+  # A bucket overrides the mount's S3 settings.
+  defp bucket_type(description \\ nil) do
+    {:convert, &Convert.options(&1, s3_schema(), &2), description || s3_schema()}
+  end
+
+  defp file_schema, do: with_cache_policy(FileSource.options_schema())
+
+  defp http_schema do
+    HTTP.options_schema()
+    |> with_cache_policy()
+    |> Keyword.merge(
+      path_pattern: [type: {:convert, &regex/2, "string (regular expression)"}],
+      address_policy: [type: Convert.table(address_policy_schema())],
+      request_headers: [type: {:map, :string, :string}],
+      bearer_token: [type: :string]
+    )
+  end
+
+  defp s3_schema do
+    S3.config_schema()
+    |> with_cache_policy()
+    |> Keyword.merge(credentials: [type: credentials_type()])
+  end
+
+  defp credentials_type do
+    {:convert, &credentials/2, "`{ static = {...} }` or `{ provider = \"...\", ... }`"}
+  end
+
+  defp with_cache_policy(schema) do
+    Keyword.merge(schema, cache_policy: [type: cache_policy_type()])
+  end
+
+  @doc false
+  @spec cache_policy_type() :: {:convert, function(), keyword()}
+  def cache_policy_type, do: Convert.table(CachePolicy.options_schema())
+
+  defp regex(value, path) do
+    with {:ok, source} <- Convert.string(value, path) do
+      case Regex.compile(source) do
+        {:ok, regex} -> {:ok, regex}
+        {:error, _reason} -> {:error, path, "invalid regular expression"}
+      end
+    end
+  end
+
+  defp address_policy_schema do
+    [allow: [type: {:list, :string}]] ++ Enum.map(@address_categories, &{&1, [type: :boolean]})
+  end
+
+  defp credentials(%{"static" => static} = table, path) when map_size(table) == 1 do
+    with {:ok, static} <-
+           Convert.options(static, @static_credentials_schema, path ++ ["static"]),
+         do: {:ok, {:static, static}}
+  end
+
+  defp credentials(%{"provider" => provider} = table, path) do
+    with {:ok, name} <- Convert.string(provider, path ++ ["provider"]),
+         {:ok, module} <- provider(name, path ++ ["provider"]),
+         {:ok, options} <-
+           Convert.options(Map.delete(table, "provider"), provider_schema(module), path),
+         do: {:ok, {:provider, module, options}}
+  end
+
+  defp credentials(_value, path),
+    do: {:error, path, "expected { static = {...} } or { provider = \"...\" }"}
+
+  defp provider(name, path) do
+    case Map.fetch(@providers, name) do
+      {:ok, module} ->
+        {:ok, module}
+
+      :error ->
+        {:error, path, "expected one of #{@providers |> Map.keys() |> Enum.join(", ")}"}
+    end
+  end
+
+  # `plug` is a test hook for the metadata request.
+  defp provider_schema(module) do
+    schema = Keyword.delete(module.options_schema(), :plug)
+
+    if Keyword.has_key?(schema, :base),
+      do: Keyword.put(schema, :base, type: credentials_type()),
+      else: schema
+  end
+end

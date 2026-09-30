@@ -200,7 +200,7 @@ defmodule ImagePipe.MixProject do
       {:image, "~> 0.72"},
       {:ssimulacra2, "~> 0.1.0"},
       {:butteraugli, "~> 0.1.0"},
-      {:vix, "~> 0.41"},
+      {:vix, "~> 0.42"},
       {:req, "~> 0.8.0-rc.0"},
       {:stream_data, "~> 1.0", only: [:test, :dev]},
       {:boundary, "~> 0.10", runtime: false},

@@ -14,6 +14,9 @@ defmodule ImagePipe.Security do
                     encrypt_source: [type: :boolean, default: false]
                   )
 
+  @doc false
+  def options_schema, do: @options_schema.schema
+
   defdelegate verify(signature, path, config), to: Signature
 
   def sign(path, config) do

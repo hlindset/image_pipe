@@ -22,6 +22,9 @@ defmodule ImagePipe.Source.File do
                     ] ++ CacheSettings.schema()
                   )
 
+  @doc false
+  def options_schema, do: @options_schema.schema
+
   @impl Source
   def source_kinds, do: [:path]
 
