@@ -12,10 +12,10 @@ defmodule ImagePipe.RunWireTest do
 
   test "binary, file, configured source and HTTP share oriented grouped pixels" do
     plan =
-      IP.new()
-      |> IP.group(resize: [width: 40, height: 30, fit: :cover], anchor: :top_left, dpr: 2)
-      |> IP.group(region: {5, 3, 20, 15}, brightness: 20, padding: 2, background: "white")
-      |> IP.output(format: :png, color_profile: {:convert, :srgb})
+      IP.URL.new()
+      |> IP.URL.group(resize: [width: 40, height: 30, fit: :cover], anchor: :top_left, dpr: 2)
+      |> IP.URL.group(region: {5, 3, 20, 15}, brightness: 20, padding: 2, background: "white")
+      |> IP.URL.output(format: :png, color_profile: {:convert, :srgb})
 
     path =
       "w=40/h=30/fit=cover/anchor=top-left/dpr=2/-/region=5,3,20,15/brightness=20/pad=2/bg=white/format=png/profile=srgb"
@@ -29,7 +29,7 @@ defmodule ImagePipe.RunWireTest do
       expected = Image.from_binary!(response.resp_body)
 
       for source <- [{:binary, File.read!(input)}, {:file, input}, {:source, name}] do
-        assert {:ok, result} = IP.run(plan, source, @source_config)
+        assert {:ok, result} = IP.run(IP.config(), plan, source, @source_config)
         actual = Image.from_binary!(result.data)
         assert {result.width, result.height} == {24, 19}
         assert VipsImage.write_to_binary(actual) == VipsImage.write_to_binary(expected)
@@ -42,9 +42,17 @@ defmodule ImagePipe.RunWireTest do
     source = {:file, Path.join(@root, "exif_6.jpg")}
 
     for orient <- [:auto, :none] do
-      plan = IP.new(orient: orient) |> IP.group(brightness: 40) |> IP.output(format: :png)
-      assert {:ok, actual} = IP.run(plan, source)
-      assert {:ok, baseline} = IP.run(IP.new(orient: orient) |> IP.output(format: :png), source)
+      plan =
+        IP.URL.new(orient: orient) |> IP.URL.group(brightness: 40) |> IP.URL.output(format: :png)
+
+      assert {:ok, actual} = IP.run(IP.config(), plan, source)
+
+      assert {:ok, baseline} =
+               IP.run(
+                 IP.config(),
+                 IP.URL.new(orient: orient) |> IP.URL.output(format: :png),
+                 source
+               )
 
       response =
         conn(:get, "/orient=#{orient}/brightness=40/format=png/src/exif_6.jpg")
@@ -60,8 +68,8 @@ defmodule ImagePipe.RunWireTest do
     config = IP.Plug.init(@source_config)
 
     for {terminal, token} <- [info: "info", blurhash: "blurhash", lqip_css: "lqip-css"] do
-      plan = IP.new() |> IP.output(terminal: terminal)
-      assert {:ok, result} = IP.run(plan, {:source, "exif_6.jpg"}, @source_config)
+      plan = IP.URL.new() |> IP.URL.output(terminal: terminal)
+      assert {:ok, result} = IP.run(IP.config(), plan, {:source, "exif_6.jpg"}, @source_config)
       response = conn(:get, "/output=#{token}/src/exif_6.jpg") |> IP.Plug.call(config)
       assert response.status == 200
 
@@ -75,10 +83,15 @@ defmodule ImagePipe.RunWireTest do
   test "matching host defaults, negotiation and result limits produce matching output" do
     options = @source_config ++ [quality: 65, max_result_width: 30, max_result_height: 30]
     config = IP.Plug.init(options)
-    plan = IP.new() |> IP.group(resize: [width: 200])
+    plan = IP.URL.new() |> IP.URL.group(resize: [width: 200])
 
     assert {:ok, result} =
-             IP.run(plan, {:source, "small.png"}, Keyword.put(options, :accept, "image/webp"))
+             IP.run(
+               IP.config(),
+               plan,
+               {:source, "small.png"},
+               Keyword.put(options, :accept, "image/webp")
+             )
 
     response =
       conn(:get, "/w=200/src/small.png")

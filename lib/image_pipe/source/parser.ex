@@ -21,6 +21,7 @@ defmodule ImagePipe.Source.Parser do
   unchanged.
   """
 
+  alias ImagePipe.Plan.Source, as: PlanSource
   alias ImagePipe.Plan.Source.Object
   alias ImagePipe.Plan.Source.Path
   alias ImagePipe.Plan.Source.Reference
@@ -33,20 +34,7 @@ defmodule ImagePipe.Source.Parser do
   @spec translate(String.t(), keyword()) ::
           {:ok, ImagePipe.Plan.Source.t()} | {:error, {:invalid_source, term()}}
   def translate(source, config) when is_binary(source),
-    do: source |> normalize() |> do_translate(config)
-
-  @doc false
-  def normalize("//" <> _ = source), do: source
-
-  def normalize("/" <> rest = source) do
-    # Removing the slash must not turn a path into a different source kind.
-    case Regex.match?(@scheme_prefix, rest) do
-      true -> source
-      false -> rest
-    end
-  end
-
-  def normalize(source), do: source
+    do: source |> PlanSource.normalize() |> do_translate(config)
 
   defp do_translate("", _config), do: {:error, {:invalid_source, :empty_source}}
 

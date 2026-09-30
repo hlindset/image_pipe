@@ -121,7 +121,11 @@ defmodule ImagePipe.API.LqipCssWireTest do
   end
 
   test "image-only options reject before source or cache access", %{body: body} do
-    config = mount(body, cache: {CacheProbe, []}, presets: %{"encoded" => "q=70"})
+    config =
+      mount(body,
+        cache: {CacheProbe, []},
+        url: ImagePipe.URL.config(presets: %{"encoded" => "q=70"})
+      )
 
     for option <- [
           "format=png",

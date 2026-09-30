@@ -35,9 +35,9 @@ defmodule ImagePipe.API.RequestSafetyTest do
       # Signature verification (§Signing) runs before any parsing, on a
       # keyed instance: missing sig= and an invalid sig= both reject with
       # 403 before the source or cache are ever touched.
-      {"/w=64/src/images/cat.jpg", 403, [keys: [@signing_key]]},
+      {"/w=64/src/images/cat.jpg", 403, [url: ImagePipe.URL.config(keys: [@signing_key])]},
       {"/sig=" <> String.duplicate("A", 43) <> "/w=64/src/images/cat.jpg", 403,
-       [keys: [@signing_key]]},
+       [url: ImagePipe.URL.config(keys: [@signing_key])]},
       # The `expires` gate (§Signing) runs before source resolve: a past
       # timestamp rejects with 404 before the source or cache are touched.
       {"/expires=#{System.os_time(:second) - 3600}/w=64/src/images/cat.jpg", 404}

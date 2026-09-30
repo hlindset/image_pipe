@@ -6,7 +6,7 @@ defmodule ImagePipe.API.PresetCompositionTest do
   alias ImagePipe.Plug.Request, as: ParsedRequest
 
   defp parse(path, presets) do
-    config = ImagePipe.Plug.init(presets: presets)
+    config = ImagePipe.Plug.init(url: ImagePipe.URL.config(presets: presets))
     {result, _metadata} = ParsedRequest.parse(conn(:get, path <> "/src/images/cat.jpg"), config)
 
     case result do
@@ -233,7 +233,7 @@ defmodule ImagePipe.API.PresetCompositionTest do
   test "configured preset names must be selectable by the URL grammar" do
     for name <- ["", "bad/name", "two,names", "has space", "bad\n"] do
       assert_raise ArgumentError, fn ->
-        ImagePipe.Plug.init(presets: %{name => "w=100"})
+        ImagePipe.Plug.init(url: ImagePipe.URL.config(presets: %{name => "w=100"}))
       end
     end
 
@@ -284,7 +284,9 @@ defmodule ImagePipe.API.PresetCompositionTest do
           %{"a" => "sig=abc/w=100"},
           %{"a" => "w=200/-/w=100", "b" => "preset=a/w=50"}
         ] do
-      assert_raise ArgumentError, fn -> ImagePipe.Plug.init(presets: presets) end
+      assert_raise ArgumentError, fn ->
+        ImagePipe.Plug.init(url: ImagePipe.URL.config(presets: presets))
+      end
     end
   end
 

@@ -152,17 +152,19 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     prefix = [__MODULE__, :native_accept]
     shared = IP.config(Keyword.merge(shared.raw, auto_webp: true, telemetry_prefix: prefix))
     observe_transforms(prefix)
-    client = IP.new(shared) |> IP.group(resize: [width: 12])
+    client = IP.URL.new() |> IP.URL.group(resize: [width: 12])
 
     assert {:ok, result} =
-             IP.run(client, {:source, "https://origin.test/image.png"}, accept: "image/webp")
+             IP.run(shared, client, {:source, "https://origin.test/image.png"},
+               accept: "image/webp"
+             )
 
     assert result.format == :webp
     assert_receive :transformed
     assert_receive {:origin, _, []}
 
     conn =
-      conn(:get, IP.url!(client, "https://origin.test/image.png"))
+      conn(:get, IP.URL.url!(client, "https://origin.test/image.png"))
       |> put_req_header("accept", "image/webp")
 
     http = IP.Plug.call(conn, IP.Plug.init(shared))
@@ -175,17 +177,22 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
 
   test "all native terminals share successful encoded output with HTTP", %{shared: shared} do
     for terminal <- [:info, :blurhash, :lqip_css] do
-      client = IP.new(shared) |> IP.output(terminal: terminal)
-      assert {:ok, native} = IP.run(client, {:source, "https://origin.test/image.png"})
+      client = IP.URL.new() |> IP.URL.output(terminal: terminal)
+
+      assert {:ok, native} =
+               IP.run(shared, client, {:source, "https://origin.test/image.png"})
 
       http =
         IP.Plug.call(
-          conn(:get, IP.url!(client, "https://origin.test/image.png")),
+          conn(:get, IP.URL.url!(client, "https://origin.test/image.png")),
           IP.Plug.init(shared)
         )
 
       assert http.status == 200
-      assert {:ok, again} = IP.run(client, {:source, "https://origin.test/image.png"})
+
+      assert {:ok, again} =
+               IP.run(shared, client, {:source, "https://origin.test/image.png"})
+
       assert again == native
 
       case terminal do
@@ -205,8 +212,8 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     file = "test/support/image_pipe/test/sources/small.png"
 
     for input <- [{:file, file}, {:binary, File.read!(file)}] do
-      assert {:ok, _} = IP.run(IP.new(shared), input)
-      assert {:ok, _} = IP.run(IP.new(shared), input)
+      assert {:ok, _} = IP.run(shared, IP.URL.new(), input)
+      assert {:ok, _} = IP.run(shared, IP.URL.new(), input)
     end
 
     refute File.exists?(root)
@@ -229,7 +236,11 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     root: root
   } do
     assert {:error, :expired} =
-             IP.run(IP.new(shared, expires: 999), {:source, "https://origin.test/image.png"})
+             IP.run(
+               shared,
+               IP.URL.new(expires: 999),
+               {:source, "https://origin.test/image.png"}
+             )
 
     refute_received {:origin, _, _}
     refute File.exists?(root)
@@ -242,10 +253,8 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
   end
 
   defp native(shared, width, options \\ []) do
-    IP.new(shared)
-    |> IP.group(resize: [width: width])
-    |> IP.output(format: :png)
-    |> IP.run({:source, "https://origin.test/image.png"}, options)
+    builder = IP.URL.new() |> IP.URL.group(resize: [width: width]) |> IP.URL.output(format: :png)
+    IP.run(shared, builder, {:source, "https://origin.test/image.png"}, options)
   end
 
   defp observe_transforms(prefix) do

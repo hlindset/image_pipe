@@ -17,8 +17,8 @@ defmodule ImagePipe.RunTest do
   end
 
   test "runs a plan against bytes without a connection or URL", %{bytes: bytes} do
-    plan = IP.new() |> IP.group(resize: [width: 30]) |> IP.output(format: :png)
-    assert {:ok, result} = IP.run(plan, {:binary, bytes})
+    plan = IP.URL.new() |> IP.URL.group(resize: [width: 30]) |> IP.URL.output(format: :png)
+    assert {:ok, result} = IP.run(IP.config(), plan, {:binary, bytes})
     assert result.terminal == :image
     assert result.format == :png
     assert result.content_type == "image/png"
@@ -33,20 +33,28 @@ defmodule ImagePipe.RunTest do
     input = Path.join(dir, "input.png")
     output = Path.join(dir, "output.webp")
     File.write!(input, bytes)
-    plan = IP.new() |> IP.output(format: :webp)
-    assert {:ok, result} = IP.write(plan, {:file, input}, output)
+    plan = IP.URL.new() |> IP.URL.output(format: :webp)
+    assert {:ok, result} = IP.write(IP.config(), plan, {:file, input}, output)
     assert File.read!(output) == result.data
     assert result.format == :webp
   end
 
   test "returns structured info and direct placeholder values", %{bytes: bytes} do
-    assert {:ok, info} = IP.run(IP.output(IP.new(), terminal: :info), {:binary, bytes})
+    assert {:ok, info} =
+             IP.run(IP.config(), IP.URL.output(IP.URL.new(), terminal: :info), {:binary, bytes})
+
     assert info.data["width"] == 60
     assert info.data["height"] == 40
     assert info.data["size"] == byte_size(bytes)
 
     for terminal <- [:blurhash, :lqip_css] do
-      assert {:ok, result} = IP.run(IP.output(IP.new(), terminal: terminal), {:binary, bytes})
+      assert {:ok, result} =
+               IP.run(
+                 IP.config(),
+                 IP.URL.output(IP.URL.new(), terminal: terminal),
+                 {:binary, bytes}
+               )
+
       assert result.terminal == terminal
       assert is_binary(result.data)
       assert byte_size(result.data) > 0
@@ -54,41 +62,53 @@ defmodule ImagePipe.RunTest do
   end
 
   test "rejects invalid plans before reading a file" do
-    plan = IP.new() |> IP.group(extend: true)
-    assert {:error, {:invalid_request, [_issue]}} = IP.run(plan, {:file, "/missing/photo.png"})
+    plan = IP.URL.new() |> IP.URL.group(extend: true)
+
+    assert {:error, {:invalid_request, [_issue]}} =
+             IP.run(IP.config(), plan, {:file, "/missing/photo.png"})
   end
 
   test "validates configuration separately from runtime failures", %{bytes: bytes} do
-    assert_raise ArgumentError, fn -> IP.run(IP.new(), {:binary, bytes}, unknown: true) end
-    assert_raise ArgumentError, fn -> IP.run(IP.new(), {:binary, bytes}, cache: nil) end
+    assert_raise ArgumentError, fn ->
+      IP.run(IP.config(), IP.URL.new(), {:binary, bytes}, unknown: true)
+    end
+
+    assert_raise ArgumentError, fn ->
+      IP.run(IP.config(), IP.URL.new(), {:binary, bytes}, cache: nil)
+    end
 
     assert {:error, {:source, :body_too_large}} =
-             IP.run(IP.new(), {:binary, bytes}, max_body_bytes: 10)
+             IP.run(IP.config(), IP.URL.new(), {:binary, bytes}, max_body_bytes: 10)
 
     assert {:error, {:input_limit, _reason}} =
-             IP.run(IP.new(), {:binary, bytes}, max_input_pixels: 10)
+             IP.run(IP.config(), IP.URL.new(), {:binary, bytes}, max_input_pixels: 10)
 
-    assert {:error, {:decode, _reason}} = IP.run(IP.new(), {:binary, "not an image"})
+    assert {:error, {:decode, _reason}} =
+             IP.run(IP.config(), IP.URL.new(), {:binary, "not an image"})
   end
 
   test "configured adapters close resources on success, decode, transform, and destination errors",
        %{bytes: bytes} do
     options = owned_source(bytes)
     input = {:source, "private/photo.png"}
-    assert {:ok, _result} = IP.run(IP.new(), input, options)
+    assert {:ok, _result} = IP.run(IP.config(), IP.URL.new(), input, options)
     assert_closed()
 
-    assert {:error, {:decode, _reason}} = IP.run(IP.new(), input, owned_source("corrupt"))
+    assert {:error, {:decode, _reason}} =
+             IP.run(IP.config(), IP.URL.new(), input, owned_source("corrupt"))
+
     assert_closed()
 
-    invalid_region = IP.new() |> IP.group(region: {1000, 1000, 10, 10})
-    assert {:error, {:transform, _reason}} = IP.run(invalid_region, input, options)
+    invalid_region = IP.URL.new() |> IP.URL.group(region: {1000, 1000, 10, 10})
+    assert {:error, {:transform, _reason}} = IP.run(IP.config(), invalid_region, input, options)
     assert_closed()
 
     destination =
       Path.join(System.tmp_dir!(), "missing-#{System.unique_integer([:positive])}/out.png")
 
-    assert {:error, {:destination, :enoent}} = IP.write(IP.new(), input, destination, options)
+    assert {:error, {:destination, :enoent}} =
+             IP.write(IP.config(), IP.URL.new(), input, destination, options)
+
     assert_closed()
   end
 
@@ -98,7 +118,7 @@ defmodule ImagePipe.RunTest do
     shared = IP.config(owned_source(bytes))
     config = Keyword.put(shared.options, :image_module, LateFailureEncoder)
 
-    assert {:ok, request} = Plan.to_request(IP.output(IP.new(), format: :jpeg).plan)
+    assert {:ok, request} = Plan.to_request(IP.URL.output(IP.URL.new(), format: :jpeg).plan)
     assert {:ok, policy} = Processing.prepare(request, config, "")
     assert {:ok, source, config} = Source.from_input({:source, "photo.png"}, config)
     assert {:ok, context} = Execution.prepare(request, source, policy, Inputs.new!([]), config)
@@ -124,17 +144,25 @@ defmodule ImagePipe.RunTest do
     options = owned_source(bytes)
 
     assert {:error, {:invalid_request, _}} =
-             IP.run(IP.group(IP.new(), extend: true), input, options)
+             IP.run(IP.config(), IP.URL.group(IP.URL.new(), extend: true), input, options)
 
-    invalid_output = IP.new() |> IP.output(hdr: :preserve, color_profile: {:convert, :srgb})
-    assert {:error, {:invalid_output, _}} = IP.run(invalid_output, input, options)
+    invalid_output =
+      IP.URL.new() |> IP.URL.output(hdr: :preserve, color_profile: {:convert, :srgb})
+
+    assert {:error, {:invalid_output, _}} = IP.run(IP.config(), invalid_output, input, options)
 
     assert {:error, :expired} =
-             IP.run(IP.new(expires: 999), input, Keyword.put(options, :clock, fn -> 1000 end))
+             IP.run(
+               IP.config(),
+               IP.URL.new(expires: 999),
+               input,
+               Keyword.put(options, :clock, fn -> 1000 end)
+             )
 
     assert {:error, {:unsupported_output_format, :webp}} =
              IP.run(
-               IP.output(IP.new(), format: :webp),
+               IP.config(),
+               IP.URL.output(IP.URL.new(), format: :webp),
                input,
                Keyword.put(options, :output_capabilities, %{webp: false})
              )
@@ -145,7 +173,10 @@ defmodule ImagePipe.RunTest do
   end
 
   test "expiry is valid at the exact timestamp", %{bytes: bytes} do
-    assert {:ok, _result} = IP.run(IP.new(expires: 1000), {:binary, bytes}, clock: fn -> 1000 end)
+    assert {:ok, _result} =
+             IP.run(IP.config(), IP.URL.new(expires: 1000), {:binary, bytes},
+               clock: fn -> 1000 end
+             )
   end
 
   test "request failures retain native telemetry outcomes", %{bytes: bytes} do
@@ -166,19 +197,20 @@ defmodule ImagePipe.RunTest do
     on_exit(fn -> :telemetry.detach(id) end)
 
     cases = [
-      {IP.group(IP.new(), extend: true), {:binary, bytes}, [], %{result: :parser_error}},
-      {IP.new(expires: 999), {:binary, bytes}, [clock: fn -> 1000 end], %{result: :parser_error}},
-      {IP.output(IP.new(), hdr: :preserve, color_profile: {:convert, :srgb}), {:binary, bytes},
-       [], %{result: :plan_error}},
-      {IP.group(IP.new(), crop: {10, 10}, detect: ["face"]), {:binary, bytes},
+      {IP.URL.group(IP.URL.new(), extend: true), {:binary, bytes}, [], %{result: :parser_error}},
+      {IP.URL.new(expires: 999), {:binary, bytes}, [clock: fn -> 1000 end],
+       %{result: :parser_error}},
+      {IP.URL.output(IP.URL.new(), hdr: :preserve, color_profile: {:convert, :srgb}),
+       {:binary, bytes}, [], %{result: :plan_error}},
+      {IP.URL.group(IP.URL.new(), crop: {10, 10}, detect: ["face"]), {:binary, bytes},
        [detector: nil, detector_required: true], %{result: :plan_error}},
-      {IP.new(), {:file, "/missing/image.png"}, [], %{result: :source_error, error: :source}},
-      {IP.new(), {:binary, "invalid image"}, [], %{result: :processing_error, error: :decode}}
+      {IP.URL.new(), {:file, "/missing/image.png"}, [], %{result: :source_error, error: :source}},
+      {IP.URL.new(), {:binary, "invalid image"}, [], %{result: :processing_error, error: :decode}}
     ]
 
     for {plan, input, options, expected} <- cases do
       assert {:error, _reason} =
-               IP.run(plan, input, Keyword.put(options, :telemetry_prefix, prefix))
+               IP.run(IP.config(), plan, input, Keyword.put(options, :telemetry_prefix, prefix))
 
       assert_receive {:request_stop, metadata}
       assert Map.take(metadata, [:result, :error]) == expected
@@ -186,14 +218,21 @@ defmodule ImagePipe.RunTest do
   end
 
   test "file and input boundaries reject malformed or oversized sources", %{bytes: bytes} do
-    assert {:error, {:invalid_source, :invalid_input}} = IP.run(IP.new(), bytes)
-    assert {:error, {:invalid_source, :invalid_encoding}} = IP.run(IP.new(), {:source, <<255>>})
-    assert {:error, {:source, :enoent}} = IP.run(IP.new(), {:file, "/missing/image.png"})
-    assert {:error, {:source, :not_regular_file}} = IP.run(IP.new(), {:file, System.tmp_dir!()})
+    assert {:error, {:invalid_source, :invalid_input}} = IP.run(IP.config(), IP.URL.new(), bytes)
+
+    assert {:error, {:invalid_source, :invalid_encoding}} =
+             IP.run(IP.config(), IP.URL.new(), {:source, <<255>>})
+
+    assert {:error, {:source, :enoent}} =
+             IP.run(IP.config(), IP.URL.new(), {:file, "/missing/image.png"})
+
+    assert {:error, {:source, :not_regular_file}} =
+             IP.run(IP.config(), IP.URL.new(), {:file, System.tmp_dir!()})
+
     path = "test/support/image_pipe/test/sources/small.png"
 
     assert {:error, {:source, :body_too_large}} =
-             IP.run(IP.new(), {:file, path}, max_body_bytes: 1)
+             IP.run(IP.config(), IP.URL.new(), {:file, path}, max_body_bytes: 1)
   end
 
   test "request and stage telemetry include outcomes without source contents", %{bytes: bytes} do
@@ -214,7 +253,8 @@ defmodule ImagePipe.RunTest do
 
     on_exit(fn -> :telemetry.detach(id) end)
 
-    assert {:ok, _result} = IP.run(IP.new(), {:binary, bytes}, telemetry_prefix: prefix)
+    assert {:ok, _result} =
+             IP.run(IP.config(), IP.URL.new(), {:binary, bytes}, telemetry_prefix: prefix)
 
     for event <- events do
       assert_receive {:stage, ^event, %{result: :ok} = metadata}

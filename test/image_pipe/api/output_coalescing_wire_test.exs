@@ -49,9 +49,11 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
       assert_receive {:coordination, %{pool: :output, result: :waiting}}
 
       builder =
-        context.config |> ImagePipe.new() |> ImagePipe.output(output_options(terminal))
+        ImagePipe.URL.new() |> ImagePipe.URL.output(output_options(terminal))
 
-      elixir = async(context, fn -> ImagePipe.run(builder, {:source, "blocked"}) end)
+      elixir =
+        async(context, fn -> ImagePipe.run(context.config, builder, {:source, "blocked"}) end)
+
       assert_receive {:coordination, %{pool: :output, result: :waiting}}
 
       assert %{active: 1, queued: 0} = ProcessingPool.stats(context.pool)
@@ -122,9 +124,9 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
 
       leader =
         async(context, fn ->
-          builder = context.config |> ImagePipe.new() |> ImagePipe.output(format: :jpeg)
+          builder = ImagePipe.URL.new() |> ImagePipe.URL.output(format: :jpeg)
           {:ok, request} = ImagePipe.Plan.to_request(builder.plan)
-          config = builder.config.options
+          config = context.config.options
           {:ok, policy} = ImagePipe.Processing.prepare(request, config, "")
           {:ok, source, config} = ImagePipe.Source.from_input({:source, "blocked"}, config)
 

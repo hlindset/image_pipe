@@ -26,7 +26,7 @@ defmodule ImagePipe.API.CropFrameWireTest do
       assert response.status == 400
 
       assert_raise ArgumentError, fn ->
-        ImagePipe.new() |> ImagePipe.group(crop: {20, 20}, focus: {x, y})
+        ImagePipe.URL.new() |> ImagePipe.URL.group(crop: {20, 20}, focus: {x, y})
       end
     end
   end

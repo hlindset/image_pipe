@@ -37,18 +37,18 @@ defmodule ImagePipe.BuilderWireTest do
   end
 
   test "plans execute the same pixels as HTTP, with and without geometry", context do
-    effect = IP.new() |> IP.group(brightness: 20, colorize: [opacity: 0.3, color: "red"])
+    effect = IP.URL.new() |> IP.URL.group(brightness: 20, colorize: [opacity: 0.3, color: "red"])
 
     grouped =
-      IP.new()
-      |> IP.group(resize: [width: 30, height: 20, fit: :stretch], dpr: 2)
-      |> IP.group(region: {5, 3, 10, 8}, padding: 2, background: "white")
+      IP.URL.new()
+      |> IP.URL.group(resize: [width: 30, height: 20, fit: :stretch], dpr: 2)
+      |> IP.URL.group(region: {5, 3, 10, 8}, padding: 2, background: "white")
 
     for {plan, path, dimensions} <- [
           {effect, "brightness=20/colorize=0.3,red", {60, 40}},
           {grouped, "w=30/h=20/fit=stretch/dpr=2/-/region=5,3,10,8/pad=2/bg=white", {14, 12}}
         ] do
-      assert {:ok, request} = Plan.to_request(IP.output(plan, format: :png).plan)
+      assert {:ok, request} = Plan.to_request(IP.URL.output(plan, format: :png).plan)
       assert {:ok, state} = Executor.execute(%State{image: context.image}, request, [])
 
       response = conn(:get, "/#{path}/format=png/src/photo.png") |> IP.Plug.call(context.config)

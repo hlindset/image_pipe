@@ -1,7 +1,6 @@
 defmodule ImagePipe.Security.SourceEncryptionTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.API
   alias ImagePipe.Plug.Config
   alias ImagePipe.Plug.Errors
   alias ImagePipe.Plug.Request, as: ParsedRequest
@@ -157,19 +156,17 @@ defmodule ImagePipe.Security.SourceEncryptionTest do
 
   describe "API lifecycle" do
     setup do
-      config =
-        Config.validate!(
-          keys: [String.duplicate("a1", 32)],
-          source_encryption_keys: [@key_a]
-        )
+      url_config =
+        ImagePipe.URL.config(keys: [String.duplicate("a1", 32)], source_encryption_keys: [@key_a])
 
-      %{config: config}
+      %{config: Config.validate!(url: url_config), url_config: url_config}
     end
 
     test "the public helper returns a token that parse authenticates into plaintext", %{
-      config: config
+      config: config,
+      url_config: url_config
     } do
-      assert {:ok, token} = API.encrypt_source(@source, config)
+      assert {:ok, token} = ImagePipe.URL.encrypt_source(@source, url_config)
       signed_path = "/w=12/enc/#{token}"
       signature = Signature.sign(signed_path, config)
       conn = Plug.Test.conn(:get, "/sig=#{signature}#{signed_path}")
@@ -194,14 +191,14 @@ defmodule ImagePipe.Security.SourceEncryptionTest do
                ParsedRequest.parse(signed_conn, config)
     end
 
-    test "the public helper rejects disabled, empty, and invalid UTF-8 sources", %{config: config} do
-      disabled = Config.validate!([])
-
-      assert API.encrypt_source(@source, disabled) ==
+    test "the public helper rejects disabled, empty, and invalid UTF-8 sources", %{
+      url_config: url_config
+    } do
+      assert ImagePipe.URL.encrypt_source(@source, ImagePipe.URL.config()) ==
                {:error, :source_encryption_disabled}
 
-      assert API.encrypt_source("", config) == {:error, :invalid_source}
-      assert API.encrypt_source(<<255>>, config) == {:error, :invalid_source}
+      assert ImagePipe.URL.encrypt_source("", url_config) == {:error, :invalid_source}
+      assert ImagePipe.URL.encrypt_source(<<255>>, url_config) == {:error, :invalid_source}
     end
 
     test "concealment failures render and classify as a fixed parser-side 404" do

@@ -207,7 +207,12 @@ defmodule ImagePipe.DebugHeadersWireTest do
   end
 
   test "signatures cover the debug disclosure trigger" do
-    opts = base_opts(allow_debug_headers: true, keys: [Base.encode16("debug-signing-key")])
+    opts =
+      base_opts(
+        allow_debug_headers: true,
+        url: ImagePipe.URL.config(keys: [Base.encode16("debug-signing-key")])
+      )
+
     config = ImagePipe.Plug.init(opts)
     plain_path = request_path()
     debug_path = with_debug(plain_path)

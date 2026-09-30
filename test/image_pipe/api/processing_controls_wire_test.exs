@@ -30,8 +30,10 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
       assert overloaded.status == 503
       assert overloaded.resp_body == "image processing overloaded"
 
-      builder = config |> ImagePipe.new() |> ImagePipe.output(terminal: terminal)
-      assert {:error, {:processing, :overloaded}} = ImagePipe.run(builder, {:binary, @image})
+      builder = ImagePipe.URL.new() |> ImagePipe.URL.output(terminal: terminal)
+
+      assert {:error, {:processing, :overloaded}} =
+               ImagePipe.run(config, builder, {:binary, @image})
     end
 
     refute_received {:fetch, ["ready"], _}

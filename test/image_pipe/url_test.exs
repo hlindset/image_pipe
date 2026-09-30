@@ -16,9 +16,9 @@ defmodule ImagePipe.URLTest do
                 list_of(string(:alphanumeric, min_length: 1), min_length: 1, max_length: 4) do
       source = Enum.join(segments, "/")
 
-      for config <- [IP.config(), IP.config(keys: [@signing_key]), encrypted_config()] do
-        builder = IP.new(config)
-        assert IP.url!(builder, "/" <> source) == IP.url!(builder, source)
+      for config <- [IP.URL.config(), IP.URL.config(keys: [@signing_key]), encrypted_config()] do
+        builder = IP.URL.new(config)
+        assert IP.URL.url!(builder, "/" <> source) == IP.URL.url!(builder, source)
       end
     end
   end
@@ -30,70 +30,70 @@ defmodule ImagePipe.URLTest do
           "https://origin.test//photo.jpg",
           "s3://bucket//key"
         ] do
-      url = IP.url!(IP.new(), source)
+      url = IP.URL.url!(IP.URL.new(), source)
       assert {:ok, %{source: {:src, ^source, _}}} = Path.extract(url, "")
     end
 
-    assert IP.url(IP.new(), "/") == {:error, :invalid_source}
+    assert IP.URL.url(IP.URL.new(), "/") == {:error, :invalid_source}
   end
 
   test "encrypted URLs are stable across configurations and processes" do
-    plan = IP.new(encrypted_config(), expires: 2_000_000_000) |> IP.group(gray: true)
+    plan = IP.URL.new(encrypted_config(), expires: 2_000_000_000) |> IP.URL.group(gray: true)
     source = "https://private.test/bucket/猫.jpg?secret=token"
-    expected = IP.url!(plan, source)
+    expected = IP.URL.url!(plan, source)
     supervisor = start_supervised!(Task.Supervisor)
 
     task =
       Task.Supervisor.async_nolink(supervisor, fn ->
-        IP.new(encrypted_config(), expires: 2_000_000_000)
-        |> IP.group(gray: true)
-        |> IP.url!(source)
+        IP.URL.new(encrypted_config(), expires: 2_000_000_000)
+        |> IP.URL.group(gray: true)
+        |> IP.URL.url!(source)
       end)
 
     assert Task.await(task) == expected
     refute expected =~ "private.test"
 
     assert encrypted_token(expected) ==
-             encrypted_token(IP.url!(IP.new(encrypted_config()), source))
+             encrypted_token(IP.URL.url!(IP.URL.new(encrypted_config()), source))
   end
 
   test "random and explicit IVs override the generation default and share decoding" do
     source = "private.jpg"
     config = encrypted_config()
-    client = IP.new(config)
-    first = IP.url!(client, source, iv: :random)
-    second = IP.url!(client, source, iv: :random)
+    client = IP.URL.new(config)
+    first = IP.URL.url!(client, source, iv: :random)
+    second = IP.URL.url!(client, source, iv: :random)
     refute first == second
     iv = :binary.copy(<<7>>, 16)
-    explicit = IP.url!(client, source, iv: iv)
-    assert explicit == IP.url!(client, source, iv: iv)
+    explicit = IP.URL.url!(client, source, iv: iv)
+    assert explicit == IP.URL.url!(client, source, iv: iv)
 
     assert <<1, ^iv::binary-size(16), _rest::binary>> =
              Base.url_decode64!(encrypted_token(explicit), padding: false)
 
-    mount = IP.Plug.init(config)
+    mount = IP.Plug.init(url: config)
 
     for path <- [first, second, explicit] do
       assert {{:ok, _request, ^source}, _meta} =
                ParsedRequest.parse(Plug.Test.conn(:get, path), mount)
     end
 
-    random_client = IP.new(encrypted_config(iv_mode: :random))
-    refute IP.url!(random_client, source) == IP.url!(random_client, source)
+    random_client = IP.URL.new(encrypted_config(iv_mode: :random))
+    refute IP.URL.url!(random_client, source) == IP.URL.url!(random_client, source)
 
-    assert IP.url!(random_client, source, iv: :deterministic) == IP.url!(client, source)
+    assert IP.URL.url!(random_client, source, iv: :deterministic) == IP.URL.url!(client, source)
   end
 
   test "encryption configuration and per-call overrides reject mistakes without secrets" do
     for options <- [[iv: <<0::120>>], [iv: <<0::136>>], [iv: nil], [unknown: "private"]] do
-      assert IP.url(IP.new(encrypted_config()), "secret-source", options) ==
+      assert IP.URL.url(IP.URL.new(encrypted_config()), "secret-source", options) ==
                {:error, :invalid_encryption_options}
     end
 
-    assert IP.url(IP.new(), "secret-source", iv: :random) ==
+    assert IP.URL.url(IP.URL.new(), "secret-source", iv: :random) ==
              {:error, :source_encryption_disabled}
 
-    assert_raise ArgumentError, fn -> IP.config(encrypt_source: true) end
+    assert_raise ArgumentError, fn -> IP.URL.config(encrypt_source: true) end
     assert_raise ArgumentError, fn -> encrypted_config(iv_mode: <<0::128>>) end
     assert_raise ArgumentError, fn -> encrypted_config(keys: []) end
     assert_raise ArgumentError, fn -> encrypted_config(keys: [Base.encode16(@source_key)]) end
@@ -103,9 +103,9 @@ defmodule ImagePipe.URLTest do
 
   test "plain URLs need no configuration and preserve escaped source bytes" do
     source = "https://origin.test/a b/猫.jpg?token=a+b%2Fc&n=1#frame"
-    plan = IP.new() |> IP.group(resize: [width: 40]) |> IP.output(format: :png)
-    assert {:ok, path} = IP.url(plan, source)
-    assert path == IP.url!(plan, source)
+    plan = IP.URL.new() |> IP.URL.group(resize: [width: 40]) |> IP.URL.output(format: :png)
+    assert {:ok, path} = IP.URL.url(plan, source)
+    assert path == IP.URL.url!(plan, source)
     assert String.starts_with?(path, "/w=40/format=png/src/")
     assert URI.parse(path).query == nil
     assert URI.parse(path).fragment == nil
@@ -116,10 +116,11 @@ defmodule ImagePipe.URLTest do
 
   test "signatures cover the mount-relative path with stable explicit expiry" do
     for base <- ["", "/images", "images", "https://cdn.test/images/"] do
-      config = IP.config(base_url: base, keys: [@signing_key])
-      plan = IP.new(config, expires: 2_000_000_000) |> IP.group(gray: true)
-      path = IP.url!(plan, "photo.jpg")
-      assert path == IP.url!(plan, "photo.jpg")
+      url_config = IP.URL.config(base_url: base, keys: [@signing_key])
+      config = IP.config(url: url_config)
+      plan = IP.URL.new(url_config, expires: 2_000_000_000) |> IP.URL.group(gray: true)
+      path = IP.URL.url!(plan, "photo.jpg")
+      assert path == IP.URL.url!(plan, "photo.jpg")
 
       prefix = String.trim_trailing(base, "/")
       relative = String.replace_prefix(path, prefix, "")
@@ -127,19 +128,20 @@ defmodule ImagePipe.URLTest do
       mount = IP.Plug.init(config)
       assert {:ok, 0} = Signature.verify(signature, signed_path, mount)
       assert signed_path == "/gray/expires=2000000000/src/photo.jpg"
+      refute inspect(url_config) =~ @signing_key
       refute inspect(config) =~ @signing_key
     end
   end
 
   test "invalid sources and semantic failures return tagged errors without their content" do
     for source <- ["", <<255>>, {:binary, "private-bytes"}, {:file, "private-path"}] do
-      assert IP.url(IP.new(), source) == {:error, :invalid_source}
+      assert IP.URL.url(IP.URL.new(), source) == {:error, :invalid_source}
     end
 
-    invalid = IP.new() |> IP.group(extend: true)
-    assert {:error, {:invalid_request, [_issue]}} = IP.url(invalid, "photo.jpg")
-    assert_raise ArgumentError, fn -> IP.url!(invalid, "private-source") end
-    assert_raise ArgumentError, fn -> IP.url!(IP.new(), {:binary, "private-source"}) end
+    invalid = IP.URL.new() |> IP.URL.group(extend: true)
+    assert {:error, {:invalid_request, [_issue]}} = IP.URL.url(invalid, "photo.jpg")
+    assert_raise ArgumentError, fn -> IP.URL.url!(invalid, "private-source") end
+    assert_raise ArgumentError, fn -> IP.URL.url!(IP.URL.new(), {:binary, "private-source"}) end
   end
 
   test "base URL and credentials are validated without reflecting secret values" do
@@ -157,23 +159,23 @@ defmodule ImagePipe.URLTest do
           "/img#fragment",
           "ftp://cdn.test/img"
         ] do
-      error = assert_raise ArgumentError, fn -> IP.config(base_url: base) end
+      error = assert_raise ArgumentError, fn -> IP.URL.config(base_url: base) end
       refute Exception.message(error) =~ "secret"
     end
 
-    error = assert_raise ArgumentError, fn -> IP.config(keys: ["secret!"]) end
+    error = assert_raise ArgumentError, fn -> IP.URL.config(keys: ["secret!"]) end
     refute Exception.message(error) =~ "secret!"
-    assert_raise ArgumentError, fn -> IP.config(unknown: true) end
+    assert_raise ArgumentError, fn -> IP.URL.config(unknown: true) end
   end
 
   test "option count is limited to paths the HTTP parser accepts" do
-    plan = Enum.reduce(1..33, IP.new(), fn _, plan -> IP.group(plan, gray: true) end)
-    assert IP.url(plan, "photo.jpg") == {:error, :too_many_options}
+    plan = Enum.reduce(1..33, IP.URL.new(), fn _, plan -> IP.URL.group(plan, gray: true) end)
+    assert IP.URL.url(plan, "photo.jpg") == {:error, :too_many_options}
   end
 
   test "dot source identifiers cannot become browser path traversal" do
     for source <- [".", ".."] do
-      path = IP.url!(IP.new(), source)
+      path = IP.URL.url!(IP.URL.new(), source)
       assert String.starts_with?(path, "/src64/")
       assert {:ok, %{source: {:src64, ^source, _span}}} = Path.extract(path, "")
     end
@@ -182,7 +184,7 @@ defmodule ImagePipe.URLTest do
   property "arbitrary UTF-8 sources round trip without becoming URL syntax" do
     check all source <- string(:utf8, min_length: 1, max_length: 100) do
       source = "asset-" <> source
-      path = IP.url!(IP.new(), source)
+      path = IP.URL.url!(IP.URL.new(), source)
 
       assert {:ok, %{source: {_marker, ^source, _span}}} =
                Path.extract(path, "")
@@ -192,12 +194,12 @@ defmodule ImagePipe.URLTest do
   property "UTF-8 encrypted sources round trip across CBC block boundaries" do
     config = encrypted_config()
 
-    mount = IP.Plug.init(config)
+    mount = IP.Plug.init(url: config)
 
     check all source <- string(:utf8, min_length: 1, max_length: 100),
               iv <- binary(length: 16) do
       source = "asset-" <> source
-      path = IP.url!(IP.new(config), source, iv: iv)
+      path = IP.URL.url!(IP.URL.new(config), source, iv: iv)
 
       assert {{:ok, _request, ^source}, _meta} =
                ParsedRequest.parse(Plug.Test.conn(:get, path), mount)
@@ -207,7 +209,7 @@ defmodule ImagePipe.URLTest do
   defp encrypted_config(options \\ []) do
     [keys: [@signing_key], source_encryption_keys: [@source_key], encrypt_source: true]
     |> Keyword.merge(options)
-    |> IP.config()
+    |> IP.URL.config()
   end
 
   defp encrypted_token(path), do: path |> String.split("/enc/") |> List.last()

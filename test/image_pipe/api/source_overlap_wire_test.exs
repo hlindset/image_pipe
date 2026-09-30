@@ -68,14 +68,12 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
     [original] = Path.wildcard(Path.join(context.root, "input/**/*.body"))
     assert File.read!(original) == context.body
 
-    reference =
-      ImagePipe.config(max_body_bytes: 20_000_000, max_input_pixels: 60_000_000)
-      |> ImagePipe.new()
-      |> ImagePipe.group(resize: [width: 100])
-      |> ImagePipe.output(format: :png)
-      |> ImagePipe.run({:binary, context.body})
+    builder =
+      ImagePipe.URL.new()
+      |> ImagePipe.URL.group(resize: [width: 100])
+      |> ImagePipe.URL.output(format: :png)
 
-    assert {:ok, reference} = reference
+    assert {:ok, reference} = ImagePipe.run(reference_config(), builder, {:binary, context.body})
 
     assert VipsImage.write_to_binary(image) ==
              VipsImage.write_to_binary(Image.from_binary!(reference.data))
@@ -226,21 +224,24 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
     response
   end
 
+  defp reference_config,
+    do: ImagePipe.config(max_body_bytes: 20_000_000, max_input_pixels: 60_000_000)
+
   defp assert_pixels(response, context, operations) do
-    assert {:ok, reference} =
-             ImagePipe.config(max_body_bytes: 20_000_000, max_input_pixels: 60_000_000)
-             |> ImagePipe.new()
-             |> ImagePipe.group(resize: [width: 100])
-             |> append_group(operations)
-             |> ImagePipe.output(format: :png)
-             |> ImagePipe.run({:binary, context.body})
+    builder =
+      ImagePipe.URL.new()
+      |> ImagePipe.URL.group(resize: [width: 100])
+      |> append_group(operations)
+      |> ImagePipe.URL.output(format: :png)
+
+    assert {:ok, reference} = ImagePipe.run(reference_config(), builder, {:binary, context.body})
 
     assert VipsImage.write_to_binary(Image.from_binary!(response.resp_body)) ==
              VipsImage.write_to_binary(Image.from_binary!(reference.data))
   end
 
   defp append_group(builder, []), do: builder
-  defp append_group(builder, operations), do: ImagePipe.group(builder, operations)
+  defp append_group(builder, operations), do: ImagePipe.URL.group(builder, operations)
 
   defp request(context, options \\ "w=100") do
     Plug.Test.conn(:get, "/#{options}/format=png/src/#{context.url}/image")

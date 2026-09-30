@@ -13,7 +13,7 @@ defmodule ImagePipe.Run do
   alias ImagePipe.Source
   alias ImagePipe.Telemetry
 
-  def run(%ImagePipe{plan: plan, config: shared}, input, options) do
+  def run(%Config{} = shared, %ImagePipe.URL{plan: plan}, input, options) do
     {accept, options} = Keyword.pop(options, :accept, "")
     unless is_binary(accept), do: raise(ArgumentError, "accept must be a string")
     {request_inputs, options} = Keyword.pop(options, :request_inputs, [])
@@ -26,8 +26,8 @@ defmodule ImagePipe.Run do
     end)
   end
 
-  def write(plan, input, destination, options) do
-    with {:ok, result} <- run(plan, input, options),
+  def write(config, builder, input, destination, options) do
+    with {:ok, result} <- run(config, builder, input, options),
          :ok <- write_result(result, destination) do
       {:ok, result}
     end

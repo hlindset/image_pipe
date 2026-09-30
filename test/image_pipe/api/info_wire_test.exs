@@ -127,7 +127,11 @@ defmodule ImagePipe.API.InfoWireTest do
   test "inert image options and inherited transforms fail before source or cache access", %{
     body: body
   } do
-    config = mount(body, cache: {CacheProbe, []}, presets: %{"card" => "w=10"})
+    config =
+      mount(body,
+        cache: {CacheProbe, []},
+        url: ImagePipe.URL.config(presets: %{"card" => "w=10"})
+      )
 
     for option <- [
           "w=10",

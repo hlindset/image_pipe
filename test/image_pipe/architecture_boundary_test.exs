@@ -78,7 +78,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Security => "lib/image_pipe/security.ex",
     ImagePipe.Source => "lib/image_pipe/source.ex",
     ImagePipe.Telemetry => "lib/image_pipe/telemetry.ex",
-    ImagePipe.Transform => "lib/image_pipe/transform.ex"
+    ImagePipe.Transform => "lib/image_pipe/transform.ex",
+    ImagePipe.URL => "lib/image_pipe/url.ex"
   }
   @concrete_transform_names [
     :Scale,
@@ -117,12 +118,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   test "URL grammar does not depend on request processing or delivery" do
     api = boundary_declaration(ImagePipe.API)
 
-    assert_boundary_deps(api, [
-      ImagePipe.Format,
-      ImagePipe.Plan,
-      ImagePipe.Security,
-      ImagePipe.Source
-    ])
+    assert_boundary_deps(api, [ImagePipe.Format, ImagePipe.Plan, ImagePipe.Security])
 
     refute_boundary_deps(api, [
       ImagePipe.Decode,
@@ -130,15 +126,22 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Output,
       ImagePipe.Plug,
       ImagePipe.Processing,
-      ImagePipe.Response
+      ImagePipe.Response,
+      ImagePipe.Source
     ])
 
     assert_boundary_exports(api, [
       ImagePipe.API.Diagnostic,
       ImagePipe.API.DiagnosticRenderer,
       ImagePipe.API.Parser,
-      ImagePipe.API.Path
+      ImagePipe.API.Path,
+      ImagePipe.API.Presets,
+      ImagePipe.API.URL
     ])
+
+    url = boundary_declaration(ImagePipe.URL)
+    assert_boundary_deps(url, [ImagePipe.API, ImagePipe.Plan, ImagePipe.Security])
+    assert_boundary_exports(url, [ImagePipe.URL.Config])
   end
 
   test "shared execution owns caching without depending on HTTP adapters" do
@@ -162,11 +165,10 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     config = boundary_declaration(ImagePipe.Config)
 
     assert_boundary_deps(config, [
-      ImagePipe.API,
       ImagePipe.Cache,
       ImagePipe.Processing,
-      ImagePipe.Security,
-      ImagePipe.Source
+      ImagePipe.Source,
+      ImagePipe.URL
     ])
 
     security = boundary_declaration(ImagePipe.Security)

@@ -56,12 +56,12 @@ defmodule SourceOverlapRequestBench do
     try do
       started = System.monotonic_time(:microsecond)
 
-      {:ok, result} =
-        config
-        |> ImagePipe.new()
-        |> ImagePipe.group(resize: [width: 366])
-        |> ImagePipe.output(format: :png)
-        |> ImagePipe.run({:source, "http://127.0.0.1:#{port}/image"})
+      builder =
+        ImagePipe.URL.new()
+        |> ImagePipe.URL.group(resize: [width: 366])
+        |> ImagePipe.URL.output(format: :png)
+
+      {:ok, result} = ImagePipe.run(config, builder, {:source, "http://127.0.0.1:#{port}/image"})
 
       elapsed = System.monotonic_time(:microsecond) - started
       Task.await(server)

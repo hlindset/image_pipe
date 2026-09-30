@@ -4,7 +4,7 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
   import Plug.Conn
   import Plug.Test
 
-  alias ImagePipe.API
+  alias ImagePipe.Security
   alias ImagePipe.Security.Signature
   alias ImagePipe.Security.SourceEncryption.{CBC, HKDF}
   alias ImagePipe.SourceTest.RootHTTPAdapter
@@ -27,7 +27,7 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
 
     tokens =
       for options <- [[], [iv: :random], [iv: :random], [iv: <<7::128>>]] do
-        assert {:ok, token} = API.encrypt_source(@source, config, options)
+        assert {:ok, token} = Security.encrypt_source(@source, config, options)
         token
       end
 
@@ -214,7 +214,7 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
   defp signed(path, config), do: "/sig=#{Signature.sign(path, config)}#{path}"
 
   defp encrypt_source(source, config) do
-    assert {:ok, token} = API.encrypt_source(source, config)
+    assert {:ok, token} = Security.encrypt_source(source, config, [])
     token
   end
 
@@ -228,9 +228,15 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
       conn |> put_resp_content_type("image/png") |> send_resp(200, body)
     end
 
+    {url_options, overrides} = Keyword.split(overrides, [:keys, :source_encryption_keys])
+
+    url =
+      [keys: [@signing_key], source_encryption_keys: [@encryption_key]]
+      |> Keyword.merge(url_options)
+      |> ImagePipe.URL.config()
+
     [
-      keys: [@signing_key],
-      source_encryption_keys: [@encryption_key],
+      url: url,
       sources: [
         path:
           {RootHTTPAdapter,

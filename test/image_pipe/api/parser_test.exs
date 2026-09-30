@@ -23,7 +23,12 @@ defmodule ImagePipe.API.ParserTest do
   end
 
   defp parse(segments, source \\ "images/cat.jpg", config \\ []) do
-    Parser.parse(lexed(segments, source), Config.validate!(config))
+    Parser.parse(lexed(segments, source), mount(config))
+  end
+
+  defp mount(options) do
+    {url_options, options} = Keyword.split(options, [:presets])
+    Config.validate!([url: ImagePipe.URL.config(url_options)] ++ options)
   end
 
   describe "worked examples [API §Examples]" do
@@ -1191,7 +1196,7 @@ defmodule ImagePipe.API.ParserTest do
       lexed = %{segments: [], source: {:src, "images/cat.jpg", {5, 14}}}
 
       assert {:error, {:invalid_request, diagnostics}} =
-               Parser.parse(lexed, Config.validate!(config))
+               Parser.parse(lexed, mount(config))
 
       assert [%Diagnostic{reason: :inert_option, spans: [{0, 19}]}] = diagnostics
       assert byte_size(raw_path) == 19

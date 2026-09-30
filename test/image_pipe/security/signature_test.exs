@@ -8,7 +8,7 @@ defmodule ImagePipe.Security.SignatureTest do
   @key_a "00112233445566778899aabbccddeeff00112233445566778899aabbccddee"
   @key_b "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100"
 
-  defp config(keys), do: Config.validate!(keys: keys)
+  defp config(keys), do: Config.validate!(url: ImagePipe.URL.config(keys: keys))
 
   describe "verify/3 — no keys configured" do
     test "no sig segment → {:ok, nil} (legitimately unsigned)" do

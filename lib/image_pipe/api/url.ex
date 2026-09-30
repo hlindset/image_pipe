@@ -3,8 +3,8 @@ defmodule ImagePipe.API.URL do
 
   alias ImagePipe.API.{Path, Serializer}
   alias ImagePipe.Plan
+  alias ImagePipe.Plan.Source, as: PlanSource
   alias ImagePipe.Security
-  alias ImagePipe.Source.Parser, as: SourceParser
 
   def sign_path("/" <> _ = path, config) do
     if String.starts_with?(path, "/sig=") or String.contains?(path, ["?", "#"]) do
@@ -32,7 +32,7 @@ defmodule ImagePipe.API.URL do
   end
 
   defp source(source) when is_binary(source) and source != "" do
-    source = SourceParser.normalize(source)
+    source = PlanSource.normalize(source)
 
     case source != "" and String.valid?(source) do
       true -> {:ok, source}

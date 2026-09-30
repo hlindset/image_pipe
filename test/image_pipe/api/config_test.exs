@@ -254,8 +254,7 @@ defmodule ImagePipe.Plug.ConfigTest do
   test "normalizes exact 32-byte source encryption keys into a redacted keyring" do
     config =
       Config.validate!(
-        keys: [@signing_key],
-        source_encryption_keys: [@source_key]
+        url: ImagePipe.URL.config(keys: [@signing_key], source_encryption_keys: [@source_key])
       )
 
     assert %SourceEncryption{} = config[:source_encryption]
@@ -275,15 +274,18 @@ defmodule ImagePipe.Plug.ConfigTest do
 
   test "requires signing keys and independent encryption key material" do
     assert_raise ArgumentError, "source encryption requires signing keys", fn ->
-      Config.validate!(source_encryption_keys: [@source_key])
+      Config.validate!(url: ImagePipe.URL.config(source_encryption_keys: [@source_key]))
     end
 
     shared_key = :binary.copy(<<7>>, 32)
 
     assert_raise ArgumentError, "signing and source encryption keys must be independent", fn ->
       Config.validate!(
-        keys: [Base.encode16(shared_key)],
-        source_encryption_keys: [shared_key]
+        url:
+          ImagePipe.URL.config(
+            keys: [Base.encode16(shared_key)],
+            source_encryption_keys: [shared_key]
+          )
       )
     end
   end
@@ -294,8 +296,11 @@ defmodule ImagePipe.Plug.ConfigTest do
     source_error =
       assert_raise ArgumentError, fn ->
         Config.validate!(
-          keys: [@signing_key],
-          source_encryption_keys: [malformed_source_key]
+          url:
+            ImagePipe.URL.config(
+              keys: [@signing_key],
+              source_encryption_keys: [malformed_source_key]
+            )
         )
       end
 
@@ -305,7 +310,7 @@ defmodule ImagePipe.Plug.ConfigTest do
 
     signing_error =
       assert_raise ArgumentError, fn ->
-        Config.validate!(keys: [malformed_signing_key])
+        Config.validate!(url: ImagePipe.URL.config(keys: [malformed_signing_key]))
       end
 
     refute Exception.message(signing_error) =~ malformed_signing_key
@@ -313,7 +318,7 @@ defmodule ImagePipe.Plug.ConfigTest do
     for malformed_keys <- [malformed_signing_key, %{secret: malformed_signing_key}] do
       container_error =
         assert_raise ArgumentError, fn ->
-          Config.validate!(keys: malformed_keys)
+          Config.validate!(url: ImagePipe.URL.config(keys: malformed_keys))
         end
 
       refute Exception.message(container_error) =~ malformed_signing_key
@@ -342,19 +347,26 @@ defmodule ImagePipe.Plug.ConfigTest do
 
     config =
       Config.validate!(
-        keys: [@signing_key],
-        source_encryption_keys: [@source_key],
-        iv_mode: :random,
-        encrypt_source: true,
-        quality: 72,
-        base_url: "/images"
+        url:
+          ImagePipe.URL.config(
+            keys: [@signing_key],
+            source_encryption_keys: [@source_key],
+            iv_mode: :random,
+            encrypt_source: true,
+            base_url: "/images"
+          ),
+        quality: 72
       )
 
     assert config[:encrypt_source] == true
     assert config[:source_encryption].iv_mode == :random
     assert config[:quality] == 72
     assert config[:base_url] == "/images"
-    assert_raise ArgumentError, fn -> ImagePipe.config(encrypt_source: true) end
+
+    assert_raise ArgumentError, fn ->
+      ImagePipe.config(url: ImagePipe.URL.config(encrypt_source: true))
+    end
+
     assert_raise ArgumentError, fn -> ImagePipe.config(encrypt_souce: true) end
   end
 

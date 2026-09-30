@@ -26,12 +26,12 @@ defmodule ImagePipe.APITest do
 
     test "raises on a non-hex key" do
       assert_raise ArgumentError, fn ->
-        ImagePipe.Plug.init(keys: ["not-hex"])
+        ImagePipe.Plug.init(url: ImagePipe.URL.config(keys: ["not-hex"]))
       end
     end
 
     test "accepts valid hex keys" do
-      opts = ImagePipe.Plug.init(keys: ["deadbeef"])
+      opts = ImagePipe.Plug.init(url: ImagePipe.URL.config(keys: ["deadbeef"]))
 
       signature = Signature.sign("/src/a.jpg", opts)
       assert Signature.verify(signature, "/src/a.jpg", opts) == {:ok, 0}
@@ -39,7 +39,10 @@ defmodule ImagePipe.APITest do
     end
 
     test "compiles preset options at initialization" do
-      opts = ImagePipe.Plug.init(presets: %{"card" => "w=300/h=200/fit=cover"})
+      opts =
+        ImagePipe.Plug.init(
+          url: ImagePipe.URL.config(presets: %{"card" => "w=300/h=200/fit=cover"})
+        )
 
       assert Keyword.fetch!(opts, :presets) == %{
                "card" => %{
@@ -51,13 +54,13 @@ defmodule ImagePipe.APITest do
 
     test "raises on a preset fragment with an unknown option" do
       assert_raise ArgumentError, fn ->
-        ImagePipe.Plug.init(presets: %{"bad" => "bogus=1"})
+        ImagePipe.Plug.init(url: ImagePipe.URL.config(presets: %{"bad" => "bogus=1"}))
       end
     end
 
     test "raises on a presets value that is not a map of strings" do
       assert_raise ArgumentError, fn ->
-        ImagePipe.Plug.init(presets: %{"bad" => 123})
+        ImagePipe.Plug.init(url: ImagePipe.URL.config(presets: %{"bad" => 123}))
       end
     end
   end

@@ -10,12 +10,12 @@ defmodule ImagePipe.BuilderTest do
 
   test "builds reusable, source-independent plans with explicit groups" do
     plan =
-      IP.new(orient: :none)
-      |> IP.group(resize: [width: 400, height: 300, fit: :cover], anchor: :smart, dpr: 2)
-      |> IP.group(trim: :auto, padding: 20, background: "#ffffff")
-      |> IP.output(format: :webp, quality: 82)
+      IP.URL.new(orient: :none)
+      |> IP.URL.group(resize: [width: 400, height: 300, fit: :cover], anchor: :smart, dpr: 2)
+      |> IP.URL.group(trim: :auto, padding: 20, background: "#ffffff")
+      |> IP.URL.output(format: :webp, quality: 82)
 
-    assert :ok = IP.validate(plan)
+    assert :ok = IP.URL.validate(plan)
     assert {:ok, first} = Plan.to_request(plan.plan)
     assert first.orient == :none
     assert first.output.format == :webp
@@ -31,8 +31,8 @@ defmodule ImagePipe.BuilderTest do
   end
 
   test "output overrides leave the original plan reusable and defaults sparse" do
-    base = IP.new() |> IP.output(format: :webp, quality: 80)
-    changed = IP.output(base, quality: 60)
+    base = IP.URL.new() |> IP.URL.output(format: :webp, quality: 80)
+    changed = IP.URL.output(base, quality: 60)
     assert {:ok, original} = Plan.to_request(base.plan)
     assert {:ok, updated} = Plan.to_request(changed.plan)
     assert original.output.quality == 80
@@ -57,11 +57,11 @@ defmodule ImagePipe.BuilderTest do
           [blur: 1, blur: 2],
           [resize: [width: 2, width: 3]]
         ] do
-      assert_raise ArgumentError, fn -> IP.group(IP.new(), options) end
+      assert_raise ArgumentError, fn -> IP.URL.group(IP.URL.new(), options) end
     end
 
-    assert_raise ArgumentError, fn -> IP.output(IP.new(), quality: 101) end
-    assert_raise ArgumentError, fn -> IP.new(orient: :sideways) end
+    assert_raise ArgumentError, fn -> IP.URL.output(IP.URL.new(), quality: 101) end
+    assert_raise ArgumentError, fn -> IP.URL.new(orient: :sideways) end
   end
 
   test "rejects empty groups, malformed nested values, and duplicate nested settings" do
@@ -77,7 +77,7 @@ defmodule ImagePipe.BuilderTest do
           [dpr: Integer.pow(10, 400)],
           [crop_ratio: {1, Integer.pow(10, 400)}]
         ] do
-      assert_raise ArgumentError, fn -> IP.group(IP.new(), options) end
+      assert_raise ArgumentError, fn -> IP.URL.group(IP.URL.new(), options) end
     end
 
     for options <- [
@@ -95,7 +95,7 @@ defmodule ImagePipe.BuilderTest do
           [autoquality: {:ssimulacra2, min_quality: 90, max_quality: 20}],
           [autoquality: {:size, target: 100, target: 200}]
         ] do
-      assert_raise ArgumentError, fn -> IP.output(IP.new(), options) end
+      assert_raise ArgumentError, fn -> IP.URL.output(IP.URL.new(), options) end
     end
   end
 
@@ -169,7 +169,7 @@ defmodule ImagePipe.BuilderTest do
          "monochrome=0.2/duotone=0.5,red,blue/colorize=0.4,green,keep-alpha/gradient=0.7,black,270,0.2,0.8"}
       ] do
     test "native and URL #{name} produce the same canonical intent" do
-      plan = IP.new() |> IP.group(unquote(Macro.escape(options)))
+      plan = IP.URL.new() |> IP.URL.group(unquote(Macro.escape(options)))
       assert {:ok, request} = Plan.to_request(plan.plan)
       assert {:ok, ^request} = parse(unquote(path))
     end
@@ -226,7 +226,7 @@ defmodule ImagePipe.BuilderTest do
          "format=avif/avif-options=subsample:on,effort:8"}
       ] do
     test "native and URL #{name} output settings produce the same sparse policy" do
-      plan = IP.new() |> IP.output(unquote(Macro.escape(options)))
+      plan = IP.URL.new() |> IP.URL.output(unquote(Macro.escape(options)))
       assert {:ok, request} = Plan.to_request(plan.plan)
       assert {:ok, ^request} = parse(unquote(path))
     end
@@ -243,7 +243,9 @@ defmodule ImagePipe.BuilderTest do
           {:avif_options, ImagePipe.Plan.Output.AvifOptions, :effort, 10,
            "avif-options=effort:10"}
         ] do
-      assert_raise ArgumentError, fn -> IP.new() |> IP.output([{key, [{field, invalid}]}]) end
+      assert_raise ArgumentError, fn ->
+        IP.URL.new() |> IP.URL.output([{key, [{field, invalid}]}])
+      end
 
       assert_raise ArgumentError, fn ->
         Config.validate!([{key, struct!(module, [{field, invalid}])}])
@@ -252,7 +254,7 @@ defmodule ImagePipe.BuilderTest do
       assert {:error, {:invalid_request, [_ | _]}} = parse(url)
     end
 
-    plan = IP.new() |> IP.output(jpeg_options: [interlace: false, quant_table: 0])
+    plan = IP.URL.new() |> IP.URL.output(jpeg_options: [interlace: false, quant_table: 0])
     assert {:ok, request} = Plan.to_request(plan.plan)
     assert {:ok, ^request} = parse("jpeg-options=progressive:false,quant-table:00")
 
@@ -266,7 +268,7 @@ defmodule ImagePipe.BuilderTest do
 
   test "request controls and output overrides retain their scope" do
     plan =
-      IP.new(
+      IP.URL.new(
         orient: :none,
         filename: "thumb",
         attachment: true,
@@ -274,8 +276,8 @@ defmodule ImagePipe.BuilderTest do
         expires: 2_000_000_000,
         debug: true
       )
-      |> IP.output(webp_options: [lossless: true, effort: 6])
-      |> IP.output(webp_options: [effort: 4])
+      |> IP.URL.output(webp_options: [lossless: true, effort: 6])
+      |> IP.URL.output(webp_options: [effort: 4])
 
     assert {:ok, request} = Plan.to_request(plan.plan)
 
@@ -300,8 +302,8 @@ defmodule ImagePipe.BuilderTest do
           {[blur: 1], [format: :webp, jpeg_options: [interlace: true]],
            "blur=1/format=webp/jpeg-options=progressive"}
         ] do
-      plan = IP.new() |> IP.group(group) |> IP.output(output)
-      assert {:error, issues} = IP.validate(plan)
+      plan = IP.URL.new() |> IP.URL.group(group) |> IP.URL.output(output)
+      assert {:error, issues} = IP.URL.validate(plan)
       assert {:error, {:invalid_request, diagnostics}} = parse(path)
 
       assert Enum.sort(Enum.map(issues, & &1.reason)) ==
@@ -310,8 +312,8 @@ defmodule ImagePipe.BuilderTest do
   end
 
   test "reports conflicts and missing consumers using typed option locations" do
-    plan = IP.new() |> IP.group(anchor: :top, focus: {0.5, 0.5})
-    assert {:error, issues} = IP.validate(plan)
+    plan = IP.URL.new() |> IP.URL.group(anchor: :top, focus: {0.5, 0.5})
+    assert {:error, issues} = IP.URL.validate(plan)
     assert Enum.any?(issues, &(&1.reason == :mutually_exclusive_options))
     assert Enum.any?(issues, &(&1.reason == :inert_option))
     assert Enum.any?(issues, &({:group, 0, :anchor} in &1.locations))
@@ -319,18 +321,22 @@ defmodule ImagePipe.BuilderTest do
   end
 
   test "terminal applicability is checked before no-op normalization" do
-    plan = IP.new() |> IP.group(blur: 0) |> IP.output(terminal: :info)
-    assert {:error, [issue]} = IP.validate(plan)
+    plan = IP.URL.new() |> IP.URL.group(blur: 0) |> IP.URL.output(terminal: :info)
+    assert {:error, [issue]} = IP.URL.validate(plan)
     assert issue.reason == :inert_option
     assert issue.locations == [{:group, 0, :blur}]
   end
 
   test "checks output conflicts across merged output calls" do
-    plan = IP.new() |> IP.output(quality: 80) |> IP.output(autoquality: {:size, target: 12_000})
-    assert {:error, [issue]} = IP.validate(plan)
+    plan =
+      IP.URL.new()
+      |> IP.URL.output(quality: 80)
+      |> IP.URL.output(autoquality: {:size, target: 12_000})
+
+    assert {:error, [issue]} = IP.URL.validate(plan)
     assert issue.reason == :mutually_exclusive_options
 
-    assert :ok = plan |> IP.output(autoquality: :none) |> IP.validate()
+    assert :ok = plan |> IP.URL.output(autoquality: :none) |> IP.URL.validate()
   end
 
   property "detection defaults and redundant class weights share canonical intent" do
@@ -351,7 +357,7 @@ defmodule ImagePipe.BuilderTest do
         end)
 
       for {selection, url} <- selections do
-        plan = IP.new() |> IP.group(crop: {100, 100}, detect: selection)
+        plan = IP.URL.new() |> IP.URL.group(crop: {100, 100}, detect: selection)
         assert {:ok, native} = Plan.to_request(plan.plan)
         assert {:ok, request} = parse("crop=100,100/detect=" <> url)
 
@@ -366,8 +372,8 @@ defmodule ImagePipe.BuilderTest do
   property "group keyword order does not change processing intent" do
     check all width <- integer(1..4000), sigma <- integer(0..10) do
       options = [resize: [width: width], trim: :auto, blur: sigma]
-      left = IP.new() |> IP.group(options)
-      right = IP.new() |> IP.group(Enum.reverse(options))
+      left = IP.URL.new() |> IP.URL.group(options)
+      right = IP.URL.new() |> IP.URL.group(Enum.reverse(options))
       assert Plan.to_request(left.plan) == Plan.to_request(right.plan)
     end
   end

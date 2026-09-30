@@ -4,11 +4,12 @@ defmodule ImagePipe.Plug do
 
       plug ImagePipe.Plug, sources: [...]
 
-  Reuse host configuration with the Elixir API:
+  Share URL settings with a builder and host configuration with direct execution:
 
-      config = ImagePipe.config(sources: [...], quality: 82)
-      client = ImagePipe.new(config)
+      url_config = ImagePipe.URL.config(keys: [signing_key], presets: presets)
+      config = ImagePipe.config(url: url_config, sources: [...], quality: 82)
       mount = ImagePipe.Plug.init(config: config, http_cache: [mode: :enabled])
+      url = ImagePipe.URL.new(url_config) |> ImagePipe.URL.url!("images/cat.jpg")
 
   ImagePipe URLs use options such as `/w=300/format=webp/src/images/photo.jpg`.
   Options within a group have a fixed processing order; `-` starts the

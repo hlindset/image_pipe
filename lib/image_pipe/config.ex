@@ -1,27 +1,21 @@
 defmodule ImagePipe.Config do
   @moduledoc """
-  Reusable host configuration shared by the Plug and the Elixir API.
+  Reusable host configuration shared by the Plug and direct execution.
 
   Construct with `ImagePipe.config/1`. Configuration owns sources, caches,
-  processing defaults, presets, storage partitions, URL defaults, and signing/encryption
-  settings. Inspection excludes its values.
+  processing defaults, and storage partitions, and takes URL settings (signing,
+  source encryption, presets) as an `ImagePipe.URL.Config` value. Inspection
+  excludes its values.
   """
   use Boundary,
     top_level?: true,
-    deps: [
-      ImagePipe.API,
-      ImagePipe.Cache,
-      ImagePipe.Processing,
-      ImagePipe.Security,
-      ImagePipe.Source
-    ],
+    deps: [ImagePipe.Cache, ImagePipe.Processing, ImagePipe.Source, ImagePipe.URL],
     exports: []
 
   alias ImagePipe.Cache
-  alias ImagePipe.Config.URL
   alias ImagePipe.Processing.Config, as: ProcessingConfig
-  alias ImagePipe.Security
   alias ImagePipe.Source
+  alias ImagePipe.URL.Config, as: URLConfig
 
   @enforce_keys [:options, :raw]
   @derive {Inspect, except: [:options, :raw]}
@@ -31,7 +25,6 @@ defmodule ImagePipe.Config do
   @schema NimbleOptions.new!(
             ProcessingConfig.schema() ++
               [
-                presets: [type: {:custom, ImagePipe.API, :compile_presets, []}, default: %{}],
                 cache: [type: :any],
                 input_cache: [type: :any],
                 storage_inputs: [
@@ -44,8 +37,8 @@ defmodule ImagePipe.Config do
   @doc false
   @spec new!(keyword()) :: t()
   def new!(options) do
-    {security, remaining} = Security.extract!(options)
-    {url, remaining} = URL.extract!(remaining)
+    {url, remaining} = Keyword.pop_lazy(options, :url, fn -> URLConfig.new!([]) end)
+    url = url_config!(url)
     resolved = remaining |> Cache.validate_config!() |> Source.validate_config!()
 
     case NimbleOptions.validate(resolved, @schema) do
@@ -55,8 +48,7 @@ defmodule ImagePipe.Config do
         resolved =
           validated
           |> ProcessingConfig.resolve!()
-          |> Keyword.merge(security)
-          |> Keyword.merge(url)
+          |> Keyword.merge(url.options)
 
         %__MODULE__{options: resolved, raw: options}
 
@@ -64,6 +56,11 @@ defmodule ImagePipe.Config do
         raise ArgumentError, "invalid ImagePipe configuration: #{Exception.message(error)}"
     end
   end
+
+  defp url_config!(%URLConfig{} = url), do: url
+
+  defp url_config!(_url),
+    do: raise(ArgumentError, "url must be built with ImagePipe.URL.config/1")
 
   @doc false
   @spec override(t(), keyword()) :: t()

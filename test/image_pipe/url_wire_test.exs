@@ -24,18 +24,18 @@ defmodule ImagePipe.URLWireTest do
     body = Image.new!(60, 40, color: [80, 120, 160]) |> Image.write!(:memory, suffix: ".png")
     File.write!(Path.join(root, "photo.png"), body)
     config = IP.config(sources: [path: {ImagePipe.Source.File, root: root, root_id: "photos"}])
-    builder = IP.new(config) |> IP.group(resize: [width: 30]) |> IP.output(format: :png)
-    assert {:ok, expected} = IP.run(builder, {:source, "photo.png"})
-    assert {:ok, ^expected} = IP.run(builder, {:source, "/photo.png"})
+    builder = IP.URL.new() |> IP.URL.group(resize: [width: 30]) |> IP.URL.output(format: :png)
+    assert {:ok, expected} = IP.run(config, builder, {:source, "photo.png"})
+    assert {:ok, ^expected} = IP.run(config, builder, {:source, "/photo.png"})
 
-    for url <- [IP.url!(builder, "/photo.png"), "/w=30/format=png/src/%2Fphoto.png"] do
+    for url <- [IP.URL.url!(builder, "/photo.png"), "/w=30/format=png/src/%2Fphoto.png"] do
       response = conn(:get, url) |> IP.Plug.call(IP.Plug.init(config))
       assert response.status == 200
       assert response.resp_body == expected.data
     end
 
     for source <- ["//photo.png", "/../photo.png", "/nested//photo.png"] do
-      assert {:error, {:source, :denied_path}} = IP.run(builder, {:source, source})
+      assert {:error, {:source, :denied_path}} = IP.run(config, builder, {:source, source})
     end
   end
 
@@ -59,9 +59,10 @@ defmodule ImagePipe.URLWireTest do
   test "raw signed paths execute under a mount and reject tampering before fetching", %{
     sources: sources
   } do
-    config = IP.config(sources: sources, keys: [@key])
+    url_config = IP.URL.config(keys: [@key])
+    config = IP.config(url: url_config, sources: sources)
     mount = IP.Plug.init(config)
-    signed = IP.sign_path("/w=30/format=png/src/photo%2ejpg", config)
+    signed = IP.URL.sign_path("/w=30/format=png/src/photo%2ejpg", url_config)
     refute_received :source_fetch
     refute_received :cache_lookup
 
@@ -87,20 +88,22 @@ defmodule ImagePipe.URLWireTest do
   test "one shared config supplies encryption, signing, URL defaults, and processing", %{
     sources: sources
   } do
-    config =
-      IP.config(
-        sources: sources,
+    url_config =
+      IP.URL.config(
         base_url: "https://cdn.test/images",
         keys: [@key],
         source_encryption_keys: [@encryption_key],
         encrypt_source: true,
-        iv_mode: :deterministic,
-        quality: 71
+        iv_mode: :deterministic
       )
 
-    client = IP.new(config) |> IP.group(resize: [width: 30]) |> IP.output(format: :png)
-    url = IP.url!(client, "photo.jpg")
-    assert url == IP.url!(client, "photo.jpg")
+    config = IP.config(url: url_config, sources: sources, quality: 71)
+
+    client =
+      IP.URL.new(url_config) |> IP.URL.group(resize: [width: 30]) |> IP.URL.output(format: :png)
+
+    url = IP.URL.url!(client, "photo.jpg")
+    assert url == IP.URL.url!(client, "photo.jpg")
     assert String.starts_with?(url, "https://cdn.test/images/sig=")
     assert url =~ "/enc/"
     refute url =~ "photo.jpg"
@@ -113,12 +116,12 @@ defmodule ImagePipe.URLWireTest do
 
     assert response.status == 200
     assert_receive :source_fetch
-    assert {:ok, native} = IP.run(client, {:source, "photo.jpg"})
+    assert {:ok, native} = IP.run(config, client, {:source, "photo.jpg"})
     assert native.data == response.resp_body
     assert_receive :source_fetch
-    random = IP.url!(client, "photo.jpg", iv: :random)
+    random = IP.URL.url!(client, "photo.jpg", iv: :random)
     refute random == url
-    assert IP.url!(client, "photo.jpg") == url
+    assert IP.URL.url!(client, "photo.jpg") == url
 
     response =
       conn(:get, random)
@@ -138,24 +141,25 @@ defmodule ImagePipe.URLWireTest do
           {true, [iv: :random]},
           {true, [iv: <<7::128>>]}
         ] do
-      config =
-        IP.config(
-          sources: sources,
+      url_config =
+        IP.URL.config(
           base_url: "https://cdn.test/images",
           keys: [@key],
           source_encryption_keys: [@encryption_key],
           encrypt_source: encrypt?
         )
 
-      plan =
-        IP.new(config, expires: 2_000_000_000)
-        |> IP.group(resize: [width: 30, height: 20], brightness: 10)
-        |> IP.group(padding: 2, background: "white")
-        |> IP.output(format: :png)
+      config = IP.config(url: url_config, sources: sources)
 
-      assert {:ok, result} = IP.run(plan, {:binary, body})
+      plan =
+        IP.URL.new(url_config, expires: 2_000_000_000)
+        |> IP.URL.group(resize: [width: 30, height: 20], brightness: 10)
+        |> IP.URL.group(padding: 2, background: "white")
+        |> IP.URL.output(format: :png)
+
+      assert {:ok, result} = IP.run(config, plan, {:binary, body})
       mount = IP.Plug.init(config)
-      url = IP.url!(plan, "photo.jpg", options)
+      url = IP.URL.url!(plan, "photo.jpg", options)
       refute_received :source_fetch
       response = conn(:get, url) |> Map.put(:script_name, ["images"]) |> IP.Plug.call(mount)
       assert response.status == 200
@@ -170,21 +174,17 @@ defmodule ImagePipe.URLWireTest do
   end
 
   test "tampering and expiry fail before source or cache access", %{sources: sources} do
+    url_config =
+      IP.URL.config(keys: [@key], source_encryption_keys: [@encryption_key], encrypt_source: true)
+
     config =
-      IP.config(
-        sources: sources,
-        keys: [@key],
-        source_encryption_keys: [@encryption_key],
-        encrypt_source: true,
-        cache: {CacheProbe, []},
-        clock: fn -> 100 end
-      )
+      IP.config(url: url_config, sources: sources, cache: {CacheProbe, []}, clock: fn -> 100 end)
 
     mount = IP.Plug.init(config)
-    expired = IP.url!(IP.new(config, expires: 99), "photo.jpg")
+    expired = IP.URL.url!(IP.URL.new(url_config, expires: 99), "photo.jpg")
 
     tampered =
-      IP.url!(IP.new(config) |> IP.group(gray: true), "photo.jpg")
+      IP.URL.url!(IP.URL.new(url_config) |> IP.URL.group(gray: true), "photo.jpg")
       |> String.replace("/gray/", "/bitonal/")
 
     for {path, status} <- [{expired, 404}, {tampered, 403}] do

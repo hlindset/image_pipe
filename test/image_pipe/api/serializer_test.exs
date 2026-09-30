@@ -7,7 +7,7 @@ defmodule ImagePipe.API.SerializerTest do
   alias ImagePipe.Plan
 
   test "ordered groups serialize with a hyphen separator" do
-    plan = IP.new() |> IP.group(gray: true) |> IP.group(blur: 1)
+    plan = IP.URL.new() |> IP.URL.group(gray: true) |> IP.URL.group(blur: 1)
 
     assert segments(plan) == ["gray", "-", "blur=1"]
     assert_round_trip(plan)
@@ -15,9 +15,9 @@ defmodule ImagePipe.API.SerializerTest do
 
   test "canonical requests round trip through every option family" do
     plans = [
-      IP.new(),
-      IP.new() |> IP.output(jpeg_options: [], webp_options: []),
-      IP.new(
+      IP.URL.new(),
+      IP.URL.new() |> IP.URL.output(jpeg_options: [], webp_options: []),
+      IP.URL.new(
         orient: :none,
         attachment: true,
         filename: "photo",
@@ -25,24 +25,28 @@ defmodule ImagePipe.API.SerializerTest do
         expires: 123,
         debug: true
       ),
-      IP.new() |> IP.group(rotate: 90, flip: :both, gray: true, bitonal: true, dpr: 2),
-      IP.new()
-      |> IP.group(
+      IP.URL.new() |> IP.URL.group(rotate: 90, flip: :both, gray: true, bitonal: true, dpr: 2),
+      IP.URL.new()
+      |> IP.URL.group(
         trim: {"white", 12},
         trim_symmetry: :horizontal,
         region: {-1, 2, {:pct, 80}, 20}
       ),
-      IP.new()
-      |> IP.group(crop: {20, {:pct, 40}}, anchor: :bottom_right, anchor_offset: {2, {:pct, -3}}),
-      IP.new()
-      |> IP.group(
+      IP.URL.new()
+      |> IP.URL.group(
+        crop: {20, {:pct, 40}},
+        anchor: :bottom_right,
+        anchor_offset: {2, {:pct, -3}}
+      ),
+      IP.URL.new()
+      |> IP.URL.group(
         crop: {20, 20},
         crop_ratio: {16, 9},
         crop_ratio_enlarge: true,
         focus: {0.1, 0.9}
       ),
-      IP.new()
-      |> IP.group(
+      IP.URL.new()
+      |> IP.URL.group(
         resize: [
           width: 80,
           height: 60,
@@ -54,19 +58,19 @@ defmodule ImagePipe.API.SerializerTest do
         ],
         anchor: :smart_face
       ),
-      IP.new()
-      |> IP.group(
+      IP.URL.new()
+      |> IP.URL.group(
         resize: [width: 80, height: 60],
         extend: true,
         extend_at: :top_left,
         extend_offset: {2, {:pct, 5}}
       ),
-      IP.new() |> IP.group(resize: [width: 80, height: 60], extend_ratio: true),
-      IP.new() |> IP.group(crop: {20, 20}, detect: [:all, {"face", 2}]),
-      IP.new() |> IP.group(crop: {20, 20}, detect: ["face", {"dog", 0.5}]),
-      IP.new() |> IP.group(crop: {20, 20}, anchor: :smart),
-      IP.new()
-      |> IP.group(
+      IP.URL.new() |> IP.URL.group(resize: [width: 80, height: 60], extend_ratio: true),
+      IP.URL.new() |> IP.URL.group(crop: {20, 20}, detect: [:all, {"face", 2}]),
+      IP.URL.new() |> IP.URL.group(crop: {20, 20}, detect: ["face", {"dog", 0.5}]),
+      IP.URL.new() |> IP.URL.group(crop: {20, 20}, anchor: :smart),
+      IP.URL.new()
+      |> IP.URL.group(
         blur: 0.2,
         progressive_blur: [sigma: 4, angle: -45, start: 0.2, stop: 0.8],
         sharpen: 1,
@@ -75,36 +79,40 @@ defmodule ImagePipe.API.SerializerTest do
         contrast: 1.5,
         saturation: 0.7
       ),
-      IP.new()
-      |> IP.group(
+      IP.URL.new()
+      |> IP.URL.group(
         monochrome: [intensity: 0.5, color: "red"],
         duotone: [intensity: 0.3, shadow: "blue", highlight: "white"]
       ),
-      IP.new()
-      |> IP.group(
+      IP.URL.new()
+      |> IP.URL.group(
         colorize: [opacity: 0.2, color: "green", keep_alpha: true],
         gradient: [opacity: 0.3, color: "black", angle: 35, start: 0.1, stop: 0.8]
       ),
-      IP.new() |> IP.group(padding: {1, 2, 3, 4}, background: {"white", 0.5}),
-      IP.new() |> IP.group(blur: 0) |> IP.group(rotate: 360) |> IP.group(gray: true),
-      IP.new()
-      |> IP.output(
+      IP.URL.new() |> IP.URL.group(padding: {1, 2, 3, 4}, background: {"white", 0.5}),
+      IP.URL.new()
+      |> IP.URL.group(blur: 0)
+      |> IP.URL.group(rotate: 360)
+      |> IP.URL.group(gray: true),
+      IP.URL.new()
+      |> IP.URL.output(
         format: :avif,
         quality: 85,
         metadata: :copyright,
         color_profile: {:convert, :display_p3},
         hdr: :tone_map
       ),
-      IP.new()
-      |> IP.output(
+      IP.URL.new()
+      |> IP.URL.output(
         format_qualities: [jpeg: 70, png: 90],
         autoquality:
           {:ssimulacra2, [target: 85, min_quality: 20, max_quality: 90, allowed_error: 0.3]},
         max_bytes: 50_000
       ),
-      IP.new() |> IP.output(autoquality: :none, color_profile: :preserve_source, hdr: :preserve),
-      IP.new()
-      |> IP.output(
+      IP.URL.new()
+      |> IP.URL.output(autoquality: :none, color_profile: :preserve_source, hdr: :preserve),
+      IP.URL.new()
+      |> IP.URL.output(
         jpeg_options: [
           interlace: true,
           subsample_mode: :off,
@@ -115,8 +123,8 @@ defmodule ImagePipe.API.SerializerTest do
         ],
         png_options: [interlace: false, palette: true, bitdepth: 8, filter: :paeth]
       ),
-      IP.new()
-      |> IP.output(
+      IP.URL.new()
+      |> IP.URL.output(
         webp_options: [
           lossless: false,
           near_lossless: true,
@@ -126,17 +134,17 @@ defmodule ImagePipe.API.SerializerTest do
         ],
         avif_options: [subsample_mode: :on, effort: 7]
       ),
-      IP.new() |> IP.output(terminal: :info),
-      IP.new() |> IP.output(terminal: :blurhash),
-      IP.new() |> IP.output(terminal: :lqip_css)
+      IP.URL.new() |> IP.URL.output(terminal: :info),
+      IP.URL.new() |> IP.URL.output(terminal: :blurhash),
+      IP.URL.new() |> IP.URL.output(terminal: :lqip_css)
     ]
 
     Enum.each(plans, &assert_round_trip/1)
   end
 
   test "explicit identity values survive serialization as preset overrides" do
-    first = IP.new() |> IP.group(resize: [width: 50], blur: 0, rotate: 360)
-    second = IP.new() |> IP.group(resize: [height: :auto, width: 50, fit: :contain])
+    first = IP.URL.new() |> IP.URL.group(resize: [width: 50], blur: 0, rotate: 360)
+    second = IP.URL.new() |> IP.URL.group(resize: [height: :auto, width: 50, fit: :contain])
     assert "blur=0" in segments(first)
     assert "rotate=0" in segments(first)
     assert "h=auto" in segments(second)
@@ -150,16 +158,16 @@ defmodule ImagePipe.API.SerializerTest do
               height <- integer(1..4000),
               dpr <- float(min: 0.01, max: 8.0),
               opacity <- float(min: 0.0, max: 1.0) do
-      IP.new()
-      |> IP.group(resize: [width: width, height: height], dpr: dpr)
-      |> IP.group(colorize: [opacity: opacity, color: "red"])
+      IP.URL.new()
+      |> IP.URL.group(resize: [width: width, height: height], dpr: dpr)
+      |> IP.URL.group(colorize: [opacity: opacity, color: "red"])
       |> assert_round_trip()
     end
   end
 
   test "tiny and large decimals retain their value without exponent notation" do
     for value <- [1.0e-30, 1.0e30, 0.000001, 1.2345678901234567] do
-      IP.new() |> IP.group(blur: value) |> assert_round_trip()
+      IP.URL.new() |> IP.URL.group(blur: value) |> assert_round_trip()
     end
   end
 
