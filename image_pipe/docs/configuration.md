@@ -95,8 +95,8 @@ Size limits are positive integers. Output limits clamp generation along with
 encoder limits. These are generation limits, not cache identity: successful
 cached responses may still be served after a limit changes.
 
-Multi-frame and multi-page sources (animated WebP and JPEG XL, multi-page TIFF,
-HEIF/AVIF image collections) decode their first frame or page only, so
+Multi-frame and multi-page sources (animated WebP, JPEG XL, and GIF, multi-page
+TIFF, HEIF/AVIF image collections) decode their first frame or page only, so
 `max_input_pixels` applies to one frame. `max_input_frames` rejects a source
 that declares more frames than the limit with `413`, even though only one is
 decoded: the loader visits every frame while reading the header, and for

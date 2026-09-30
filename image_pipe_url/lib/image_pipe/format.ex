@@ -2,8 +2,8 @@ defmodule ImagePipe.Format do
   @moduledoc """
   Canonical image format names and capabilities used by output policy.
 
-  Output formats are AVIF, WebP, JPEG, and PNG. JPEG XL, HEIF, TIFF, and JPEG
-  2000 are accepted as source formats but are not output formats.
+  Output formats are AVIF, WebP, JPEG, and PNG. JPEG XL, HEIF, TIFF, JPEG 2000,
+  and GIF are accepted as source formats but are not output formats.
   """
 
   use Boundary,
@@ -19,7 +19,7 @@ defmodule ImagePipe.Format do
   @color_profile_formats [:avif, :webp, :jpeg, :png]
   @alpha_formats [:avif, :webp, :png]
   @hdr_formats [:avif, :png]
-  @source_only_formats [:jpeg_xl, :heif, :tiff, :jpeg2000]
+  @source_only_formats [:jpeg_xl, :heif, :tiff, :jpeg2000, :gif]
   @source_formats @output_formats ++ @source_only_formats
   @mime_types %{
     jpeg_xl: "image/jxl",
@@ -29,12 +29,13 @@ defmodule ImagePipe.Format do
     png: "image/png",
     heif: "image/heif",
     tiff: "image/tiff",
-    jpeg2000: "image/jp2"
+    jpeg2000: "image/jp2",
+    gif: "image/gif"
   }
   @output_mime_types Enum.map(@output_formats, &{&1, Map.fetch!(@mime_types, &1)})
 
   @type output_format() :: :avif | :webp | :jpeg | :png
-  @type source_only_format() :: :jpeg_xl | :heif | :tiff | :jpeg2000
+  @type source_only_format() :: :jpeg_xl | :heif | :tiff | :jpeg2000 | :gif
   @type source_format() :: output_format() | source_only_format()
 
   @spec output_formats() :: [output_format()]

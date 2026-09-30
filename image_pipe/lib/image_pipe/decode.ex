@@ -43,7 +43,7 @@ defmodule ImagePipe.Decode do
   alias Vix.Vips.Image, as: VipsImage
 
   @peek_bytes 32 * 1024
-  @reject_families [:gif, :bmp, :ico, :svg, :avif_sequence, :unknown]
+  @reject_families [:bmp, :ico, :svg, :avif_sequence, :unknown]
 
   @type error() :: {:source, term()} | {:decode, term()} | {:input_limit, term()}
   @type input() :: Source.Resolved.t() | Source.Response.t() | {:download, pid(), binary()}

@@ -187,7 +187,7 @@ Failure stop metadata (one of two shapes, by failure mode):
   observer can distinguish a format gate from a corrupt-body decode failure
   without parsing `:error`. Two shapes:
   - Rejected before any libvips call: `:detected_source_format` is the rejected
-    family (`:gif`, `:bmp`, `:ico`, `:svg`, `:avif_sequence`) or `:unknown` for
+    family (`:bmp`, `:ico`, `:svg`, `:avif_sequence`) or `:unknown` for
     an unrecognised signature.
   - Loader-family mismatch: the source has an accepted family's signature, but
     libvips chose a loader outside that family. `:detected_source_format` is the

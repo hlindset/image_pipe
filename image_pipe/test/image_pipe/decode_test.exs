@@ -41,16 +41,13 @@ defmodule ImagePipe.DecodeTest do
     end
   end
 
-  defmodule GifOrigin do
+  defmodule BmpOrigin do
     @moduledoc false
-    # A minimal valid 1x1 GIF89a — header-detectable as :gif, so it exercises
-    # the gate_detected/1 rejection branch (not a corrupt/unopenable body).
-    @gif_1x1 Base.decode64!("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBTAA7")
-
+    # A BMP signature, detected as :bmp and rejected before any libvips call.
     def call(conn, _opts) do
       conn
-      |> Plug.Conn.put_resp_content_type("image/gif")
-      |> Plug.Conn.send_resp(200, @gif_1x1)
+      |> Plug.Conn.put_resp_content_type("image/bmp")
+      |> Plug.Conn.send_resp(200, "BM" <> :binary.copy(<<0>>, 64))
     end
   end
 
@@ -173,8 +170,8 @@ defmodule ImagePipe.DecodeTest do
     assert {:error, {:decode, _reason}} = result
   end
 
-  test "an unsupported source format (gif) normalizes to {:error, {:decode, _}}, not a bare :unsupported_source_format tag" do
-    opts = source_opts(GifOrigin)
+  test "an unsupported source format (bmp) normalizes to {:error, {:decode, _}}, not a bare :unsupported_source_format tag" do
+    opts = source_opts(BmpOrigin)
     request = request()
 
     result =
@@ -182,7 +179,7 @@ defmodule ImagePipe.DecodeTest do
         flunk("fun must not run on a rejected source format")
       end)
 
-    assert {:error, {:decode, {:unsupported_source_format, :gif}}} = result
+    assert {:error, {:decode, {:unsupported_source_format, :bmp}}} = result
   end
 
   test "a source fetch failure normalizes to {:error, {:source, _}}" do
