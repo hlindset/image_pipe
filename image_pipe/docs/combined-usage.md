@@ -10,11 +10,9 @@ Construct configuration at application startup and make it available to the
 mount and callers. Here is a complete example that can also be run in IEx:
 
 ```elixir
-alias ImagePipe, as: IP
+url_config = ImagePipe.URL.config(base_url: "/images")
 
-url_config = IP.URL.config(base_url: "/images")
-
-config = IP.config(
+config = ImagePipe.config(
   url: url_config,
   sources: [
     path: {ImagePipe.Source.File,
@@ -24,16 +22,17 @@ config = IP.config(
   quality: 82
 )
 
-mount = IP.Plug.init(config: config, http_cache: [mode: :enabled])
+mount = ImagePipe.Plug.init(config: config, http_cache: [mode: :enabled])
 
 thumbnail =
-  IP.URL.new(url_config)
-  |> IP.URL.group(resize: [width: 400, height: 300, fit: :cover])
-  |> IP.URL.output(format: :webp)
+  ImagePipe.URL.new(url_config)
+  |> ImagePipe.URL.group(resize: [width: 400, height: 300, fit: :cover])
+  |> ImagePipe.URL.output(format: :webp)
 
-url = IP.URL.url!(thumbnail, "photos/beach-v1.jpg")
-{:ok, result} = IP.run(config, thumbnail, {:source, "photos/beach-v1.jpg"})
-{:ok, _result} = IP.write(config, thumbnail, {:source, "photos/beach-v1.jpg"}, "thumbnail.webp")
+url = ImagePipe.URL.url!(thumbnail, "photos/beach-v1.jpg")
+{:ok, result} = ImagePipe.run(config, thumbnail, {:source, "photos/beach-v1.jpg"})
+{:ok, _result} =
+  ImagePipe.write(config, thumbnail, {:source, "photos/beach-v1.jpg"}, "thumbnail.webp")
 ```
 
 `stable: :trusted` promises immutable source identifiers. Give changed files a
@@ -53,7 +52,7 @@ For example, this simulates the forwarded HTTP request for the generated URL:
 ```elixir
 path = String.replace_prefix(url, "/images", "")
 conn = Plug.Test.conn(:get, path)
-conn = IP.Plug.call(conn, mount)
+conn = ImagePipe.Plug.call(conn, mount)
 200 = conn.status
 true = conn.resp_body == result.data
 ```
@@ -77,7 +76,7 @@ to direct execution. If `storage_inputs` partitions storage, pass the matching
 `request_inputs:` too:
 
 ```elixir
-IP.run(config, thumbnail, {:source, "photos/beach-v1.jpg"},
+ImagePipe.run(config, thumbnail, {:source, "photos/beach-v1.jpg"},
   accept: "image/webp",
   request_inputs: [headers: [{"x-tenant", "one"}]]
 )
@@ -92,12 +91,12 @@ they are not forwarded to the source. See [Elixir request inputs](elixir-api.md#
 | --- | --- | --- |
 | Presets, signing/encryption keys, URL prefix | Sources, caches, generation limits, output defaults, detector | CORS, debug-header permission, HTTP cache policy, conditional responses |
 
-Select shared presets with `ImagePipe.URL.new(url_config, presets: ["poster-320"])`.
-Plug and direct execution expand the default preset, named presets in order,
-and explicit options using the same rules. Generated URLs retain the preset
-names for the serving mount to resolve. If URLs are built in a different
-application from the one that serves them, see
-[split deployments](elixir-api.md#split-deployments).
+Select shared presets with
+`ImagePipe.URL.new(url_config, presets: ["poster-320"])`. Plug and direct
+execution expand the default preset, named presets in order, and explicit
+options using the same rules. Generated URLs retain the preset names for the
+serving mount to resolve. If URLs are built in a different application from the
+one that serves them, see [split deployments](elixir-api.md#split-deployments).
 
 Use a shared [processing pool](processing-controls.md) to bound generation
 across HTTP requests, jobs, and cache refreshes. Direct results are fully

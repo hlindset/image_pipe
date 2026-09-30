@@ -336,9 +336,7 @@ inspection. Clients receive only the completed signed URL.
 Generate complete URLs from the same plans used for direct execution:
 
 ```elixir
-alias ImagePipe, as: IP
-
-url_config = IP.URL.config(
+url_config = ImagePipe.URL.config(
   base_url: "/images",
   keys: [signing_key_hex],
   source_encryption_keys: [encryption_key],
@@ -346,11 +344,12 @@ url_config = IP.URL.config(
   iv_mode: :deterministic
 )
 
-plan = IP.URL.new(url_config) |> IP.URL.group(resize: [width: 400])
-mount = IP.Plug.init(url: url_config, sources: sources)
-url = IP.URL.url!(plan, "photos/cat.jpg")
-random_url = IP.URL.url!(plan, "photos/cat.jpg", iv: :random)
-explicit_url = IP.URL.url!(plan, "photos/cat.jpg", iv: :crypto.strong_rand_bytes(16))
+plan = ImagePipe.URL.new(url_config) |> ImagePipe.URL.group(resize: [width: 400])
+mount = ImagePipe.Plug.init(url: url_config, sources: sources)
+url = ImagePipe.URL.url!(plan, "photos/cat.jpg")
+random_url = ImagePipe.URL.url!(plan, "photos/cat.jpg", iv: :random)
+iv = :crypto.strong_rand_bytes(16)
+explicit_url = ImagePipe.URL.url!(plan, "photos/cat.jpg", iv: iv)
 ```
 
 The shared URL configuration supplies the mount's `keys` and `source_encryption_keys`.

@@ -13,24 +13,24 @@ The Elixir API has two parts:
   defaults) and executes plans in-process with `run/4` and `write/5`.
 
 ```elixir
-alias ImagePipe, as: IP
-
 thumbnail =
-  IP.URL.new()
-  |> IP.URL.group(resize: [width: 400, height: 300, fit: :cover], anchor: :smart)
-  |> IP.URL.output(format: :webp, quality: 82)
+  ImagePipe.URL.new()
+  |> ImagePipe.URL.group(resize: [width: 400, height: 300, fit: :cover], anchor: :smart)
+  |> ImagePipe.URL.output(format: :webp, quality: 82)
 
-:ok = IP.URL.validate(thumbnail)
+:ok = ImagePipe.URL.validate(thumbnail)
 ```
 
-The builder is reusable across sources. Execute it directly with `IP.run/4`,
-or write its result with `IP.write/5`. Generate an equivalent API URL with
-`IP.URL.url/3` or `IP.URL.url!/3`.
+The builder is reusable across sources. Execute it directly with
+`ImagePipe.run/4`, or write its result with `ImagePipe.write/5`. Generate an
+equivalent API URL with `ImagePipe.URL.url/3` or `ImagePipe.URL.url!/3`.
 
 For a first local result, run:
 
 ```elixir
-{:ok, result} = IP.write(IP.config(), thumbnail, {:file, "photos/original.jpg"}, "thumbnail.webp")
+config = ImagePipe.config()
+input = {:file, "photos/original.jpg"}
+{:ok, result} = ImagePipe.write(config, thumbnail, input, "thumbnail.webp")
 ```
 
 The input is an existing file relative to your working directory. The output
@@ -38,16 +38,16 @@ format comes from the plan; `write` overwrites an existing destination.
 
 ## Shared configuration
 
-URL settings and server settings are separate values. `IP.URL.config/1` holds
-signing keys, source encryption, presets, and the URL prefix. `IP.config/1`
-holds sources, caches, processing defaults, limits, and storage partitions,
-and takes the URL configuration as `:url`. Build both once and share them
-between the Plug mount and direct Elixir calls:
+URL settings and server settings are separate values. `ImagePipe.URL.config/1`
+holds signing keys, source encryption, presets, and the URL prefix.
+`ImagePipe.config/1` holds sources, caches, processing defaults, limits, and
+storage partitions, and takes the URL configuration as `:url`. Build both once
+and share them between the Plug mount and direct Elixir calls:
 
 ```elixir
-url_config = IP.URL.config(presets: %{"card" => "w=400/h=400/fit=cover"})
+url_config = ImagePipe.URL.config(presets: %{"card" => "w=400/h=400/fit=cover"})
 
-config = IP.config(
+config = ImagePipe.config(
   url: url_config,
   sources: [path: {ImagePipe.Source.File, root: "/srv/images", root_id: "media", stable: :trusted}],
   cache: {ImagePipe.Cache.FileSystem, root: "/var/cache/image-pipe/output"},
@@ -56,29 +56,30 @@ config = IP.config(
   storage_inputs: [{:header, "x-tenant"}]
 )
 
-ip_client = IP.URL.new(url_config)
+ip_client = ImagePipe.URL.new(url_config)
 
 thumbnail =
   ip_client
-  |> IP.URL.group(resize: [width: 400])
-  |> IP.URL.output(format: :webp)
+  |> ImagePipe.URL.group(resize: [width: 400])
+  |> ImagePipe.URL.output(format: :webp)
 
 {:ok, result} =
-  IP.run(config, thumbnail, {:source, "photos/original-v1.jpg"},
+  ImagePipe.run(config, thumbnail, {:source, "photos/original-v1.jpg"},
     request_inputs: [headers: [{"x-tenant", "one"}]]
   )
 
-mount = IP.Plug.init(config: config, http_cache: [mode: :enabled])
-# Pass mount to IP.Plug.call(conn, mount), or configure the router with:
+mount = ImagePipe.Plug.init(config: config, http_cache: [mode: :enabled])
+# Pass mount to ImagePipe.Plug.call(conn, mount), or configure the router with:
 # plug ImagePipe.Plug, config: config, http_cache: [mode: :enabled]
 ```
 
-`IP.URL.new()` uses default URL configuration.
-`IP.URL.new(url_config, expires: unix_seconds)` combines reusable configuration
-with request controls. Builder calls return new values, so `ip_client` stays
-empty and reusable. Both configurations are validated when constructed and
-hidden by `Inspect`; neither performs source or cache I/O. Per-call host
-options passed to `run` and `write` override the server configuration.
+`ImagePipe.URL.new()` uses default URL configuration.
+`ImagePipe.URL.new(url_config, expires: unix_seconds)` combines reusable
+configuration with request controls. Builder calls return new values, so
+`ip_client` stays empty and reusable. Both configurations are validated when
+constructed and hidden by `Inspect`; neither performs source or cache I/O.
+Per-call host options passed to `run` and `write` override the server
+configuration.
 
 The builder uses its URL configuration when generating URLs. The Plug and
 direct execution use the URL configuration inside the server configuration:
@@ -94,11 +95,11 @@ explicitly enabled. HTTP sources use origin freshness and validators.
 ## URL generation
 
 ```elixir
-url_config = IP.URL.config(base_url: "/images")
-thumbnail = IP.URL.new(url_config) |> IP.URL.group(resize: [width: 400])
-url = IP.URL.url!(thumbnail, "photos/original.jpg")
+url_config = ImagePipe.URL.config(base_url: "/images")
+thumbnail = ImagePipe.URL.new(url_config) |> ImagePipe.URL.group(resize: [width: 400])
+url = ImagePipe.URL.url!(thumbnail, "photos/original.jpg")
 
-{:ok, url} = IP.URL.url(thumbnail, "photos/original.jpg")
+{:ok, url} = ImagePipe.URL.url(thumbnail, "photos/original.jpg")
 ```
 
 The source is the mount's source identifier, supplied separately from the
@@ -119,14 +120,14 @@ Configure signing keys once for the builder and mount. They are hex strings;
 the first key signs new URLs and the mount can retain older keys for rotation.
 
 ```elixir
-url_config = IP.URL.config(
+url_config = ImagePipe.URL.config(
   base_url: "https://cdn.example.com/images",
   keys: [System.fetch_env!("IMAGE_PIPE_SIGNING_KEY")]
 )
 
-thumbnail = IP.URL.new(url_config) |> IP.URL.group(resize: [width: 400])
-url = IP.URL.url!(thumbnail, "photos/original.jpg")
-mount = IP.Plug.init(url: url_config, sources: sources)
+thumbnail = ImagePipe.URL.new(url_config) |> ImagePipe.URL.group(resize: [width: 400])
+url = ImagePipe.URL.url!(thumbnail, "photos/original.jpg")
+mount = ImagePipe.Plug.init(url: url_config, sources: sources)
 ```
 
 Only the mount-relative path is signed. The base URL and mount prefix are
@@ -137,18 +138,19 @@ server-side; in a Phoenix template, render only the generated URL:
 <img src={ImagePipe.URL.url!(@thumbnail, @photo.source)} />
 ```
 
-Equivalent normalized plans, source bytes, and configuration produce the
-same URL. Option order does not affect serialization; explicit groups remain
-separate. Set expiry explicitly with `IP.URL.new(url_config, expires: unix_seconds)` when
-needed. Reusing that timestamp preserves the URL; calculating a fresh
-`now + duration` changes it. URL generation does not check the current time
-or perform source, cache, or image I/O.
+Equivalent normalized plans, source bytes, and configuration produce the same
+URL. Option order does not affect serialization; explicit groups remain
+separate. Set expiry explicitly with
+`ImagePipe.URL.new(url_config, expires: unix_seconds)` when needed. Reusing that
+timestamp preserves the URL; calculating a fresh `now + duration` changes it.
+URL generation does not check the current time or perform source, cache, or
+image I/O.
 
 `url/3` returns `{:ok, url}`, `{:error, {:invalid_request, issues}}`,
 `{:error, :invalid_source}`, or `{:error, :too_many_options}`. The last error
 means the plan exceeds the HTTP parser's 64 option/separator limit.
 `url!/3` raises `ArgumentError` on failure without including the source or
-credentials. Malformed URL configuration raises during `IP.URL.config/1`.
+credentials. Malformed URL configuration raises during `ImagePipe.URL.config/1`.
 
 ### Encrypted sources
 
@@ -159,7 +161,7 @@ configuration. The first encryption key generates tokens; the mount accepts
 older keys in the list during rotation.
 
 ```elixir
-url_config = IP.URL.config(
+url_config = ImagePipe.URL.config(
   base_url: "/images",
   keys: [signing_key_hex],
   source_encryption_keys: [encryption_key],
@@ -167,13 +169,13 @@ url_config = IP.URL.config(
   iv_mode: :deterministic
 )
 
-thumbnail = IP.URL.new(url_config) |> IP.URL.group(resize: [width: 400])
-mount = IP.Plug.init(url: url_config, sources: sources)
-url = IP.URL.url!(thumbnail, "photos/original.jpg")
-random_url = IP.URL.url!(thumbnail, "photos/original.jpg", iv: :random)
+thumbnail = ImagePipe.URL.new(url_config) |> ImagePipe.URL.group(resize: [width: 400])
+mount = ImagePipe.Plug.init(url: url_config, sources: sources)
+url = ImagePipe.URL.url!(thumbnail, "photos/original.jpg")
+random_url = ImagePipe.URL.url!(thumbnail, "photos/original.jpg", iv: :random)
 
 iv = :crypto.strong_rand_bytes(16)
-explicit_url = IP.URL.url!(thumbnail, "photos/original.jpg", iv: iv)
+explicit_url = ImagePipe.URL.url!(thumbnail, "photos/original.jpg", iv: iv)
 ```
 
 `:deterministic` is the default. Identical source bytes and active key produce
@@ -197,8 +199,8 @@ an arbitrary-source encryption endpoint permits guessing by token comparison.
 The [source concealment contract](api_contract.md#source-concealment) specifies
 the authenticated CBC construction, key derivation, and token format.
 
-`IP.URL.encrypt_source/3` returns the token alone, for hosts that assemble and
-sign paths themselves with `IP.URL.sign_path/2`.
+`ImagePipe.URL.encrypt_source/3` returns the token alone, for hosts that
+assemble and sign paths themselves with `ImagePipe.URL.sign_path/2`.
 
 `url/3` returns `{:error, :invalid_encryption_options}` for malformed or unknown
 IV options. Passing IV options to a configuration with `encrypt_source: false`
@@ -212,16 +214,16 @@ when you need equivalent output.
 ### Named presets
 
 ```elixir
-url_config = IP.URL.config(presets: %{
+url_config = ImagePipe.URL.config(presets: %{
   "default" => "format=webp",
   "poster-320" => "w=320/h=480/fit=cover"
 })
-config = IP.config(url: url_config)
+config = ImagePipe.config(url: url_config)
 
-poster = IP.URL.new(url_config, presets: ["poster-320"])
-url = IP.URL.url!(poster, "photos/poster.jpg")
+poster = ImagePipe.URL.new(url_config, presets: ["poster-320"])
+url = ImagePipe.URL.url!(poster, "photos/poster.jpg")
 # /preset=poster-320/src/photos%2Fposter.jpg
-{:ok, result} = IP.run(config, poster, {:file, "photos/poster.jpg"})
+{:ok, result} = ImagePipe.run(config, poster, {:file, "photos/poster.jpg"})
 ```
 
 Plug and direct execution share expansion: `default` first, selected names in
@@ -317,7 +319,11 @@ receives whatever body the service returns, so remove it when the status isn't
 200:
 
 ```elixir
-case Req.get(url, decode_body: false, receive_timeout: 60_000, into: File.stream!(path)) do
+case Req.get(url,
+       decode_body: false,
+       receive_timeout: 60_000,
+       into: File.stream!(path)
+     ) do
   {:ok, %Req.Response{status: 200}} ->
     :ok
 
@@ -353,13 +359,14 @@ before 0.8 lack `Req.stream/4`; pass the same logic as an `into:` function.
 ## Direct execution
 
 ```elixir
-{:ok, result} = IP.run(config, thumbnail, {:file, "photos/original.jpg"})
+{:ok, result} = ImagePipe.run(config, thumbnail, {:file, "photos/original.jpg"})
 result.content_type # "image/webp"
 result.width        # 400, when the source is large enough
 result.data         # complete encoded bytes
 
-{:ok, result} = IP.run(config, thumbnail, {:binary, uploaded_bytes})
-{:ok, result} = IP.write(config, thumbnail, {:file, "photos/original.jpg"}, "thumb.webp")
+{:ok, result} = ImagePipe.run(config, thumbnail, {:binary, uploaded_bytes})
+{:ok, result} =
+  ImagePipe.write(config, thumbnail, {:file, "photos/original.jpg"}, "thumb.webp")
 ```
 
 `{:file, path}` reads an explicit local path, relative to the current working
@@ -374,12 +381,12 @@ encoding:
 
 ```elixir
 {:ok, result} =
-  IP.run(config, thumbnail, {:source, "photos/original.jpg"},
+  ImagePipe.run(config, thumbnail, {:source, "photos/original.jpg"},
     sources: [path: {ImagePipe.Source.File, root: "/srv/images", root_id: "media"}]
   )
 
 {:ok, result} =
-  IP.run(config, thumbnail, {:source, "https://assets.example.com/original.jpg"},
+  ImagePipe.run(config, thumbnail, {:source, "https://assets.example.com/original.jpg"},
     sources: [url: {ImagePipe.Source.HTTP, allowed_hosts: ["assets.example.com"]}]
   )
 ```
@@ -420,7 +427,7 @@ use their adapter's identity for output caching. Raw `{:file, path}` and
 `request_inputs` supplies the values named by `storage_inputs`:
 
 ```elixir
-IP.run(config, thumbnail, {:source, "photos/original.jpg"},
+ImagePipe.run(config, thumbnail, {:source, "photos/original.jpg"},
   accept: "image/webp",
   request_inputs: [
     headers: [{"x-tenant", "one"}],
@@ -484,45 +491,52 @@ No public stream ownership protocol is involved.
 
 ## Builder API: composition and validation
 
-`IP.URL.group/2` appends a complete group. All options in that call follow the
-[fixed stage order](api_contract.md#processing-semantics), regardless of keyword
-order. A second call starts a new group over the first group's result, just
-like `-` in a URL. DPR, zoom, and other group settings start fresh.
+`ImagePipe.URL.group/2` appends a complete group. All options in that call
+follow the [fixed stage order](api_contract.md#processing-semantics), regardless
+of keyword order. A second call starts a new group over the first group's
+result, just like `-` in a URL. DPR, zoom, and other group settings start fresh.
 An empty plan is valid; an explicitly appended group must contain an option.
 
 ```elixir
 def thumbnail(plan) do
-  IP.URL.group(plan, resize: [width: 400, height: 300, fit: :cover], anchor: :smart)
+  ImagePipe.URL.group(plan,
+    resize: [width: 400, height: 300, fit: :cover],
+    anchor: :smart
+  )
 end
 
 plan =
-  IP.URL.new()
+  ImagePipe.URL.new()
   |> thumbnail()
-  |> IP.URL.group(padding: 12, background: "white")
-  |> IP.URL.output(format: :webp)
+  |> ImagePipe.URL.group(padding: 12, background: "white")
+  |> ImagePipe.URL.output(format: :webp)
 
-lower_quality = IP.URL.output(plan, quality: 60)
+lower_quality = ImagePipe.URL.output(plan, quality: 60)
 ```
 
 Ordinary functions provide reusable plans. Every call returns a new value;
 `plan` remains reusable after deriving `lower_quality`.
 
-`IP.URL.output/2` merges explicitly supplied options. Repeating an option replaces
-its entire value, including nested encoder keywords or per-format quality
-settings. Omitted options keep their previous value. Host-dependent output
-defaults remain unspecified until execution or URL interpretation supplies
-configuration. Validation and execution expand the shared default and named
-presets before checking the combined options.
+`ImagePipe.URL.output/2` merges explicitly supplied options. Repeating an option
+replaces its entire value, including nested encoder keywords or per-format
+quality settings. Omitted options keep their previous value. Host-dependent
+output defaults remain unspecified until execution or URL interpretation
+supplies configuration. Validation and execution expand the shared default and
+named presets before checking the combined options.
 
 Unknown options, duplicate keys, invalid types, and out-of-range values raise
-`ArgumentError` during construction. `IP.URL.validate/1` checks dependencies,
-conflicts, and terminal applicability, returning `:ok` or `{:error, issues}`.
-Each `ImagePipe.Plan.Request.Issue` has a `reason`, `detail`, and `locations`:
-`{:group, zero_based_index, option_name}` or `{:request, option_name}`. Resize
-locations use the individual names such as `:width` and `:fit`.
+`ArgumentError` during construction. `ImagePipe.URL.validate/1` checks
+dependencies, conflicts, and terminal applicability, returning `:ok` or
+`{:error, issues}`. Each `ImagePipe.Plan.Request.Issue` has a `reason`,
+`detail`, and `locations`: `{:group, zero_based_index, option_name}` or
+`{:request, option_name}`. Resize locations use the individual names such as
+`:width` and `:fit`.
 
 ```elixir
-{:error, issues} = IP.URL.new() |> IP.URL.group(resize: [fit: :cover]) |> IP.URL.validate()
+{:error, issues} =
+  ImagePipe.URL.new()
+  |> ImagePipe.URL.group(resize: [fit: :cover])
+  |> ImagePipe.URL.validate()
 # fit requires a concrete resize dimension
 ```
 
@@ -534,7 +548,7 @@ terminal lifecycle.
 
 ## Request controls
 
-`IP.URL.new/1` accepts these optional controls:
+`ImagePipe.URL.new/1` accepts these optional controls:
 
 | Option | Value |
 | --- | --- |
@@ -565,9 +579,9 @@ encoder fields, metadata, profiles, HDR, placeholders, and source information.
 `ImagePipe.URL.output/2` takes typed keyword options, for example:
 
 ```elixir
-IP.URL.new()
-|> IP.URL.group(resize: [width: 400])
-|> IP.URL.output(
+ImagePipe.URL.new()
+|> ImagePipe.URL.group(resize: [width: 400])
+|> ImagePipe.URL.output(
   format: :jpeg,
   quality: 82,
   jpeg_options: [interlace: true],
