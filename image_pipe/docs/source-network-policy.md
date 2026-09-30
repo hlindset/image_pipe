@@ -46,13 +46,17 @@ function.
 
 ```elixir
 sources: [
-  url: {ImagePipe.Source.HTTP,
-    allowed_hosts: ["assets.internal"],
-    address_policy: [
-      allow_private: true,         # opens ALL RFC1918 ranges
-      allow: ["10.0.5.0/24"]       # OR open exactly one range, precisely
+  internal: [
+    adapter: ImagePipe.Source.HTTP,
+    match: [scheme: ["http", "https"]],
+    options: [
+      allowed_hosts: ["assets.internal"],
+      address_policy: [
+        allow_private: true,         # opens ALL RFC1918 ranges
+        allow: ["10.0.5.0/24"]       # OR open exactly one range, precisely
+      ]
     ]
-  }
+  ]
 ]
 ```
 

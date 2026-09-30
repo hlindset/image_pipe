@@ -13,7 +13,11 @@ forward "/",
   to: ImagePipe.Plug,
   init_opts: [
     sources: [
-      path: {ImagePipe.Source.File, root: "/srv/images", root_id: "primary"}
+      images: [
+        adapter: ImagePipe.Source.File,
+        match: :path,
+        options: [root: "/srv/images", root_id: "primary"]
+      ]
     ],
     telemetry_prefix: [:my_app, :image_pipe]
   ]

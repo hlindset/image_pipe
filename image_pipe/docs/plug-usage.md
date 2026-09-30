@@ -12,7 +12,11 @@ authentication redirects, or CSRF tokens for image requests:
 ```elixir
 forward "/images", ImagePipe.Plug,
   sources: [
-    path: {ImagePipe.Source.File, root: "/srv/images", root_id: "media"}
+    media: [
+      adapter: ImagePipe.Source.File,
+      match: :path,
+      options: [root: "/srv/images", root_id: "media"]
+    ]
   ]
 ```
 
@@ -33,7 +37,11 @@ defmodule MyApp.ImageRouter do
     to: ImagePipe.Plug,
     init_opts: [
       sources: [
-        path: {ImagePipe.Source.File, root: "/srv/images", root_id: "media"}
+        media: [
+          adapter: ImagePipe.Source.File,
+          match: :path,
+          options: [root: "/srv/images", root_id: "media"]
+        ]
       ]
     ]
 end

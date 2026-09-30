@@ -60,7 +60,13 @@ url_config = ImagePipe.URL.config(
 )
 mount = ImagePipe.Plug.init(
   url: url_config,
-  sources: [path: {ImagePipe.Source.File, root: "/srv/images", root_id: "media"}]
+  sources: [
+    media: [
+      adapter: ImagePipe.Source.File,
+      match: :path,
+      options: [root: "/srv/images", root_id: "media"]
+    ]
+  ]
 )
 poster = ImagePipe.URL.new(url_config, presets: ["card"])
 url = ImagePipe.URL.url!(poster, "photos/beach.jpg")

@@ -21,7 +21,13 @@ Select that pool in shared configuration:
 ```elixir
 config = ImagePipe.config(
   processing_pool: MyApp.Images,
-  sources: [path: {ImagePipe.Source.File, root: "/srv/images", root_id: "images"}]
+  sources: [
+    images: [
+      adapter: ImagePipe.Source.File,
+      match: :path,
+      options: [root: "/srv/images", root_id: "images"]
+    ]
+  ]
 )
 
 # In a Plug pipeline:

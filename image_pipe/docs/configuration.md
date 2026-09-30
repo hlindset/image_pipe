@@ -10,7 +10,13 @@ url_config = ImagePipe.URL.config(base_url: "/images", presets: %{"card" => "w=4
 
 config = ImagePipe.config(
   url: url_config,
-  sources: [path: {ImagePipe.Source.File, root: "/srv/images", root_id: "media"}],
+  sources: [
+    media: [
+      adapter: ImagePipe.Source.File,
+      match: :path,
+      options: [root: "/srv/images", root_id: "media"]
+    ]
+  ],
   max_body_bytes: 10_000_000,
   max_input_pixels: 40_000_000,
   quality: 82
@@ -31,7 +37,7 @@ Store secrets in server-side configuration.
 | --- | --- | --- |
 | URL configuration | Signing and encryption keys, presets, URL prefix | `ImagePipe.URL.config/1`, passed to the server as `url:` |
 | Server configuration | Sources, limits, output defaults, caches | `ImagePipe.config/1` |
-| Source adapter | Root directory, allowed hosts, network timeouts, S3 credentials | Options inside the `sources` adapter tuple |
+| Source mount | Routing rule, root directory, allowed hosts, network timeouts, S3 credentials | A named mount under `sources`: `:match` plus the adapter's `:options` |
 | Plug mount | CORS, HTTP cache policy, debug permission | `ImagePipe.Plug.init(options)` or router mount options |
 | Processing request | Width, crop, effects, format, quality | URL options or `ImagePipe.URL.group/2` and `ImagePipe.URL.output/2` |
 | Direct call context | Accept header, storage partition values | `accept:` and `request_inputs:` on `run`/`write` |
@@ -50,8 +56,7 @@ expand presets from the server configuration's `url:` value. See
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `sources` | No configured adapters | Keyword list of source name to `{module, options}`; see [sources](sources.md) |
-| `source_schemes` | `%{}` | Custom scheme names to `{translator, options}` |
+| `sources` | No mounts | Named mounts: `name: [adapter: module, match: rule, options: [...]]`; see [sources](sources.md#mounts-and-routing) |
 | `cache` | Disabled | Output cache adapter; see [caching](cache.md) |
 | `input_cache` | Disabled | Independent source-body cache adapter |
 | `source_cache_policy` | Built-in policy | Freshness/revalidation policy; see [caching](cache.md) |

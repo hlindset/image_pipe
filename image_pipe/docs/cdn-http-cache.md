@@ -12,11 +12,11 @@ forward "/images",
   init_opts: [
     http_cache: [mode: :enabled],
     sources: [
-      path:
-        {ImagePipe.Source.File,
-         root: "/srv/images",
-         root_id: "primary",
-         stable: :trusted}
+      images: [
+        adapter: ImagePipe.Source.File,
+        match: :path,
+        options: [root: "/srv/images", root_id: "primary", stable: :trusted]
+      ]
     ]
   ]
 ```

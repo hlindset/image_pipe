@@ -242,37 +242,37 @@ configuration, weighting, and warmup.
 
 ### Sources
 
-All source forms use the same configured source adapters. `src/<source>`
-percent-decodes its tail once; `src64/<source>` decodes unpadded base64url.
-After this outer decoding:
+All source forms route through the configured source mounts (see
+[sources](sources.md#mounts-and-routing)). `src/<source>` percent-decodes its
+tail once; `src64/<source>` decodes unpadded base64url. After this outer
+decoding:
 
-- A relative path selects the `:path` adapter. Its path segments are not
-  percent-decoded again.
-- An HTTP(S) URL selects the `:http` or `:https` adapter. Its path components
+- A relative path goes to the mount whose `prefix` is its first segment, which
+  receives the remaining segments, or else to the `:path` mount. Its path
+  segments are not percent-decoded again.
+- An HTTP(S) URL goes to the mount matching its scheme. Its path components
   are decoded once as URL components and encoded by the adapter when fetching.
   The query stays an opaque encoded string. Userinfo, fragments, malformed
   escapes, and ports outside `1..65535` are rejected.
-- `s3://bucket/key?revision` selects the `:s3` adapter with bucket, object key,
-  and optional immutable revision. Key and revision are percent-decoded once.
-  The entire query is the revision value; it is not a `versionId=` parameter.
-  Empty keys, userinfo, fragments, and ports are rejected.
+- `s3://bucket/key?revision` goes to the mount matching `s3`, with bucket,
+  object key, and optional immutable revision. Key and revision are
+  percent-decoded once. The entire query is the revision value; it is not a
+  `versionId=` parameter. Empty keys, userinfo, fragments, and ports are
+  rejected.
+- Any other `scheme://rest` goes to the mount matching that scheme as the path
+  `rest`, split on `/` with no further decoding. A scheme no mount matches is
+  rejected as an invalid source before any source access.
+
+Paths with nothing after their prefix or scheme, or with empty, `.`, or `..`
+segments, are rejected before the adapter runs.
 
 For example, an HTTP source whose filename contains `#` is
 `https://images.example/cat%23one.jpg`. Its `src` spelling includes
 `cat%2523one.jpg`, preserving the source URL's own escape through the outer
 decoding layer. `src64` avoids this extra layer.
 
-Configure custom schemes with
-`source_schemes: %{"asset" => {MyApp.AssetSource, options}}`. The module implements
-`ImagePipe.Source.Scheme`. Its
-`translate(source, options)` callback receives the decoded source string and
-returns `{:ok, plan_source}` using `ImagePipe.Plan.Source.Path`, `.URL`,
-`.Object`, or `.Reference`. It may return `{:error, reason}` to reject the
-source. Failures produce a fixed client error without exposing callback
-details. Scheme names must be lowercase URI schemes; built-in `http`,
-`https`, and `s3` cannot be replaced. Source adapters remain responsible for
-filesystem confinement, allowed origins, redirect and body limits, and object
-credentials.
+Source adapters remain responsible for filesystem confinement, allowed
+origins, redirect and body limits, and object credentials.
 
 ### Source concealment
 

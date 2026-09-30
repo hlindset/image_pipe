@@ -1,15 +1,74 @@
 # Image sources
 
-Configure adapters once and use their identifiers in URLs or in
-`ImagePipe.run(config, plan, {:source, identifier})`. Only configured source types are
-available. Raw Elixir file/binary inputs are also supported; see below.
+Configure source mounts once and use their identifiers in URLs or in
+`ImagePipe.run(config, plan, {:source, identifier})`. Only sources a mount
+serves are available. Raw Elixir file/binary inputs are also supported; see
+below.
+
+## Mounts and routing
+
+Each entry under `sources:` is a named mount: an adapter, the sources it
+serves, and the adapter's options.
+
+```elixir
+config = ImagePipe.config(
+  sources: [
+    media: [
+      adapter: ImagePipe.Source.File,
+      match: [prefix: "media"],
+      options: [root: "/srv/images", root_id: "media"]
+    ],
+    static: [
+      adapter: ImagePipe.Source.File,
+      match: :path,
+      options: [root: "/srv/static", root_id: "static"]
+    ],
+    web: [
+      adapter: ImagePipe.Source.HTTP,
+      match: [scheme: ["http", "https"]],
+      options: [allowed_hosts: ["assets.example.com"]]
+    ]
+  ]
+)
+```
+
+`match` decides which sources reach the mount:
+
+| Rule | Serves | Example source |
+| --- | --- | --- |
+| `[prefix: "media"]` | Paths whose first segment is `media`; the adapter sees the rest | `media/photos/beach.jpg` |
+| `:path` | Paths no prefix matches | `photos/beach.jpg` |
+| `[scheme: ["http", "https"]]` | HTTP(S) URL sources | `https://assets.example.com/beach.jpg` |
+| `[scheme: "s3"]` | S3 object sources | `s3://bucket/beach.jpg` |
+| `[scheme: "asset"]` | A custom scheme, served as a path | `asset://photos/beach.jpg` |
+
+`prefix` and `scheme` each take a string or a list, and one mount can use
+both. A prefix is a single path segment. A custom scheme is another spelling of
+a prefix: `asset://photos/beach.jpg` reaches its mount as the path
+`photos/beach.jpg`. Only `http`, `https`, and `s3` produce URL and object
+sources.
+
+Configuration fails when two mounts claim the same prefix or scheme, when more
+than one mount matches `:path`, or when a rule would send an adapter a kind of
+source it doesn't resolve (for example a File mount matching `https`). A prefix
+always wins, so the `:path` mount can't serve a top-level folder named like a
+prefix.
+
+Paths with nothing after their prefix or scheme, or with empty, `.`, or `..`
+segments, are rejected. A path no mount serves returns the same response as a
+missing source. The mount name appears in [telemetry](telemetry.md) as
+`:source_mount`, and each mount has its own cache entries.
 
 ## Local files
 
 ```elixir
 config = ImagePipe.config(
   sources: [
-    path: {ImagePipe.Source.File, root: "/srv/images", root_id: "media"}
+    media: [
+      adapter: ImagePipe.Source.File,
+      match: :path,
+      options: [root: "/srv/images", root_id: "media"]
+    ]
   ]
 )
 ```
@@ -17,7 +76,6 @@ config = ImagePipe.config(
 The identifiers `photos/beach.jpg` and `/photos/beach.jpg` both select
 `/srv/images/photos/beach.jpg` and produce the same generated URL. The optional
 leading slash is normalized in Plug requests and `{:source, path}` execution.
-Repeated slashes and traversal segments remain subject to adapter validation.
 The adapter confines paths to the configured root. `root_id` identifies that
 source namespace. For immutable paths, `stable: :trusted` permits reuse based
 on that promise; changed content must get a new identifier. The default
@@ -34,7 +92,11 @@ See `ImagePipe.Source.File` and [cache policy](cache.md) for adapter options.
 ```elixir
 config = ImagePipe.config(
   sources: [
-    url: {ImagePipe.Source.HTTP, allowed_hosts: ["assets.example.com"]}
+    web: [
+      adapter: ImagePipe.Source.HTTP,
+      match: [scheme: ["http", "https"]],
+      options: [allowed_hosts: ["assets.example.com"]]
+    ]
   ]
 )
 
@@ -42,9 +104,9 @@ plan = ImagePipe.URL.new() |> ImagePipe.URL.group(resize: [width: 400])
 {:ok, result} = ImagePipe.run(config, plan, {:source, "https://assets.example.com/beach.jpg"})
 ```
 
-`:url` enables both schemes. Configure `:http` or `:https` separately when
-only one is wanted or their settings differ. The adapter rejects non-public
-addresses by default and rechecks redirects. See [source network policy](source-network-policy.md)
+Match only `https` when plain HTTP isn't wanted, or use two mounts when the
+schemes need different settings. The adapter rejects non-public addresses by
+default and rechecks redirects. See [source network policy](source-network-policy.md)
 for private origins, DNS, and connection pinning.
 
 Generate remote-source URLs with `ImagePipe.URL.url!/3` so the source URL's own
@@ -53,23 +115,28 @@ freshness and validators govern [remote caching](cache.md).
 
 ### Serve paths from a base URL
 
-Mount the HTTP adapter under `path:` with a `base_url` to serve plain paths from
-one origin, keeping the origin out of your image URLs:
+Give an HTTP mount a `base_url` to serve paths from one origin, keeping the
+origin out of your image URLs:
 
 ```elixir
 config = ImagePipe.config(
   sources: [
-    path:
-      {ImagePipe.Source.HTTP,
-       base_url: "https://images.example.com/originals",
-       path_pattern: ~r/[a-zA-Z0-9_-]+\.(jpg|jpeg|png|webp)/,
-       stable: :trusted}
+    originals: [
+      adapter: ImagePipe.Source.HTTP,
+      match: [prefix: "originals", scheme: "originals"],
+      options: [
+        base_url: "https://images.example.com/originals",
+        path_pattern: ~r/[a-zA-Z0-9_-]+\.(jpg|jpeg|png|webp)/,
+        stable: :trusted
+      ]
+    ]
   ]
 )
 ```
 
 ```text
-/w=400/src/beach.jpg  →  https://images.example.com/originals/beach.jpg
+/w=400/src/originals/beach.jpg          →  https://images.example.com/originals/beach.jpg
+/w=400/src/originals%3A%2F%2Fbeach.jpg  →  https://images.example.com/originals/beach.jpg
 ```
 
 Each path segment is percent-encoded and appended to the base URL, which must
@@ -78,10 +145,11 @@ there the request is an ordinary HTTP fetch: the network policy, redirects,
 freshness, and caching work as for a URL source. `allowed_hosts` defaults to
 the base URL's host; list more hosts only to allow redirects to them.
 
-Paths with empty, `.`, or `..` segments are rejected. The optional
-`path_pattern` regex must match the whole relative path, with segments joined
-by `/`; other paths return `422` before any request to the origin. Without a
-pattern, any path below the base URL is allowed.
+The optional `path_pattern` regex must match the whole path the mount
+receives, with segments joined by `/`; other paths return `422` before any
+request to the origin. Without a pattern, any path below the base URL is
+allowed. Match `:path` instead of a prefix to serve every bare path from the
+origin.
 
 ## S3-compatible storage
 
@@ -90,14 +158,19 @@ Configure the shared bucket defaults and, optionally, per-bucket overrides:
 ```elixir
 config = ImagePipe.config(
   sources: [
-    s3: {ImagePipe.Source.S3,
-         default: [
-           region: "us-east-1",
-           endpoint: "https://s3.us-east-1.amazonaws.com",
-           credentials: {:static,
-             access_key_id: System.fetch_env!("AWS_ACCESS_KEY_ID"),
-             secret_access_key: System.fetch_env!("AWS_SECRET_ACCESS_KEY")}
-         ]}
+    buckets: [
+      adapter: ImagePipe.Source.S3,
+      match: [scheme: "s3"],
+      options: [
+        default: [
+          region: "us-east-1",
+          endpoint: "https://s3.us-east-1.amazonaws.com",
+          credentials: {:static,
+            access_key_id: System.fetch_env!("AWS_ACCESS_KEY_ID"),
+            secret_access_key: System.fetch_env!("AWS_SECRET_ACCESS_KEY")}
+        ]
+      ]
+    ]
   ]
 )
 ```
@@ -115,17 +188,15 @@ immutable revision value, not a `versionId=` parameter. Use the original
 identifier with `{:source, identifier}` or the URL builder. Region, endpoint,
 credentials, timeouts, and cache policy belong to the adapter.
 
-## Application identifiers and custom adapters
-
-Use `source_schemes: %{"asset" => {MyApp.AssetSource, options}}` to translate an
-application scheme such as `asset://catalog/photo-123`. Implement
-`ImagePipe.Source.Scheme` to translate the decoded identifier into one of the
-canonical source values. Built-in `http`, `https`, and `s3` cannot be replaced
-by scheme translators.
+## Custom adapters
 
 Implement `ImagePipe.Source` when you need a new fetching/identity boundary.
-The adapter owns source access, cleanup, credentials, and source identity.
-See the [source contract](api_contract.md#sources) and the behaviour reference.
+The adapter declares the kinds of source it resolves with `source_kinds/0`,
+and owns source access, cleanup, credentials, and source identity. A custom
+adapter that resolves paths can be mounted under a prefix, a custom scheme, or
+both, so `asset://catalog/photo-123` and `assets/catalog/photo-123` can reach
+the same adapter. See the [source contract](api_contract.md#sources) and the
+behaviour reference.
 
 ## Direct files and uploads
 
@@ -135,10 +206,10 @@ plan = ImagePipe.URL.new() |> ImagePipe.URL.group(resize: [width: 400])
 {:ok, result} = ImagePipe.run(config, plan, {:binary, uploaded_bytes})
 ```
 
-These inputs need no adapter and bypass input/output caches. Direct files
+These inputs need no mount and bypass input/output caches. Direct files
 follow symlinks and resolve relative paths from the working directory; use
-the configured file adapter for root confinement. Both inputs obey source
-body and decoded-pixel limits. Store uploads in an addressable source before
+a File mount for root confinement. Both inputs obey source body and
+decoded-pixel limits. Store uploads in an addressable source before
 generating URLs for them.
 
 Next: [URL source encoding](urls.md#source-encoding), [shared usage](combined-usage.md),
