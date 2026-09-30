@@ -9,7 +9,7 @@ Elixir examples. This contract specifies exact semantics and implementation inva
 ImagePipe has one declarative processing model, one request lifecycle, and one
 executor. URL requests and typed Elixir plans share that model: options within
 a group have a fixed processing order, and explicit group boundaries sequence
-processing (`-` in URLs, `ImagePipe.group/2` in Elixir).
+processing (`-` in URLs, `ImagePipe.URL.group/2` in Elixir).
 Imgproxy supplies selected test references for shared behavior; ImagePipe semantics
 govern differences. Sources, caches, detectors, and telemetry exporters are host
 extension points.
@@ -17,15 +17,16 @@ extension points.
 ## Current implementation
 
 `ImagePipe.Plug` mounts the API. `ImagePipe.Plug.Runner` owns the
-HTTP request lifecycle. `ImagePipe.run/3` and `ImagePipe.write/4` execute plans
+HTTP request lifecycle. `ImagePipe.run/4` and `ImagePipe.write/5` execute plans
 directly from Elixir. Both entry points use `ImagePipe.Execution` for source
 freshness and caching, `Processing` for generation, and
-`ImagePipe.Transform.Executor` for group execution. Shared host configuration
-owns limits, source options, detector setup, output defaults, caches, storage
-partitions, presets, signing/encryption keys, and URL defaults. Mount configuration adds
-HTTP delivery controls.
-`ImagePipe.config/1` builds
-configuration for both the Plug mount and `ImagePipe.new(config)`. Configured
+`ImagePipe.Transform.Executor` for group execution. URL configuration
+(`ImagePipe.URL.config/1`) owns presets, signing/encryption keys, and URL
+defaults. Server configuration (`ImagePipe.config/1`) owns limits, source
+options, detector setup, output defaults, caches, and storage partitions, and
+takes the URL configuration as `:url`. Mount configuration adds HTTP delivery
+controls. The builder (`ImagePipe.URL.new/1`) takes the URL configuration; the
+Plug mount and `run`/`write` take the server configuration. Configured
 source inputs share cache identity and freshness across native and HTTP calls;
 raw file and binary inputs bypass caches.
 
@@ -337,7 +338,7 @@ Generate complete URLs from the same plans used for direct execution:
 ```elixir
 alias ImagePipe, as: IP
 
-config = IP.config(
+url_config = IP.URL.config(
   base_url: "/images",
   keys: [signing_key_hex],
   source_encryption_keys: [encryption_key],
@@ -345,18 +346,19 @@ config = IP.config(
   iv_mode: :deterministic
 )
 
-plan = IP.new(config) |> IP.group(resize: [width: 400])
-mount = IP.Plug.init(config: config)
-url = IP.url!(plan, "photos/cat.jpg")
-random_url = IP.url!(plan, "photos/cat.jpg", iv: :random)
-explicit_url = IP.url!(plan, "photos/cat.jpg", iv: :crypto.strong_rand_bytes(16))
+plan = IP.URL.new(url_config) |> IP.URL.group(resize: [width: 400])
+mount = IP.Plug.init(url: url_config, sources: sources)
+url = IP.URL.url!(plan, "photos/cat.jpg")
+random_url = IP.URL.url!(plan, "photos/cat.jpg", iv: :random)
+explicit_url = IP.URL.url!(plan, "photos/cat.jpg", iv: :crypto.strong_rand_bytes(16))
 ```
 
-The shared configuration supplies the mount's `keys` and `source_encryption_keys`.
+The shared URL configuration supplies the mount's `keys` and `source_encryption_keys`.
 Its generation mode does not restrict decryption. The `/images` prefix is outside
-the signed path. For lower-level integration, `ImagePipe.API.encrypt_source(source,
-validated_mount_config, options)` returns only `{:ok, token}`; the caller must
-place it after `enc/` and sign the complete mount-relative path. Invalid source,
+the signed path. For lower-level integration, `ImagePipe.URL.encrypt_source(source,
+url_config, options)` returns only `{:ok, token}`; the caller must place it
+after `enc/` and sign the complete mount-relative path, for example with
+`ImagePipe.URL.sign_path/2`. Invalid source,
 disabled encryption, and invalid IV overrides return tagged errors without
 reflecting their values.
 

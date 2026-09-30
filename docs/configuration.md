@@ -1,42 +1,50 @@
 # Configuration
 
 ImagePipe separates host policy from individual image requests. Build reusable
-host configuration with `ImagePipe.config/1`, then use it in both entry points:
+URL configuration with `ImagePipe.URL.config/1` and server configuration with
+`ImagePipe.config/1`. The server configuration takes the URL configuration as
+`:url`:
 
 ```elixir
+url_config = ImagePipe.URL.config(base_url: "/images", presets: %{"card" => "w=400"})
+
 config = ImagePipe.config(
+  url: url_config,
   sources: [path: {ImagePipe.Source.File, root: "/srv/images", root_id: "media"}],
   max_body_bytes: 10_000_000,
   max_input_pixels: 40_000_000,
-  quality: 82,
-  base_url: "/images"
+  quality: 82
 )
 
-plan = ImagePipe.new(config)
+plan = ImagePipe.URL.new(url_config)
 mount = ImagePipe.Plug.init(config: config, allow_origin: "*")
 ```
 
-Configuration is validated on construction without source/cache I/O. Unknown
-options and invalid values raise `ArgumentError`. Configuration inspection hides
-its values, including credentials. Store secrets in server-side configuration.
+Both are validated on construction without source/cache I/O. Unknown options
+and invalid values raise `ArgumentError`, including URL options passed directly
+to `ImagePipe.config/1`. Inspection hides their values, including credentials.
+Store secrets in server-side configuration.
 
 ## Where settings belong
 
 | Layer | Examples | How to supply it |
 | --- | --- | --- |
-| Shared host configuration | Sources, limits, output defaults, caches, keys | `ImagePipe.config/1` |
+| URL configuration | Signing and encryption keys, presets, URL prefix | `ImagePipe.URL.config/1`, passed to the server as `url:` |
+| Server configuration | Sources, limits, output defaults, caches | `ImagePipe.config/1` |
 | Source adapter | Root directory, allowed hosts, network timeouts, S3 credentials | Options inside the `sources` adapter tuple |
-| Plug mount | Presets, CORS, HTTP cache policy, debug permission | `ImagePipe.Plug.init(options)` or router mount options |
-| Processing request | Width, crop, effects, format, quality | URL options or `ImagePipe.group/2` and `ImagePipe.output/2` |
+| Plug mount | CORS, HTTP cache policy, debug permission | `ImagePipe.Plug.init(options)` or router mount options |
+| Processing request | Width, crop, effects, format, quality | URL options or `ImagePipe.URL.group/2` and `ImagePipe.URL.output/2` |
 | Direct call context | Accept header, storage partition values | `accept:` and `request_inputs:` on `run`/`write` |
 
-Mount options can override shared configuration. Direct `run`/`write` host
-options override the builder's configuration. Explicit request output choices
-override host defaults. Preset precedence is `default`, named presets in
-listed order, then explicit options, for both Plug and builder execution.
-Configure `presets: %{"poster" => "w=320"}` in `ImagePipe.config/1` and select
-names with `ImagePipe.new(config, presets: ["poster"])`. See [presets](urls.md#presets) for
-related-option replacement rules.
+Mount options can override server configuration. Direct `run`/`write` host
+options override the server configuration passed to them. Explicit request
+output choices override host defaults. Preset precedence is `default`, named
+presets in listed order, then explicit options, for both Plug and direct
+execution. Configure `presets: %{"poster" => "w=320"}` in
+`ImagePipe.URL.config/1` and select names with
+`ImagePipe.URL.new(url_config, presets: ["poster"])`. The mount and `run`
+expand presets from the server configuration's `url:` value. See
+[presets](urls.md#presets) for related-option replacement rules.
 
 ## Sources, caches, and URL protection
 
@@ -48,12 +56,19 @@ related-option replacement rules.
 | `input_cache` | Disabled | Independent source-body cache adapter |
 | `source_cache_policy` | Built-in policy | Freshness/revalidation policy; see [caching](cache.md) |
 | `storage_inputs` | `[]` | Header/cookie names that partition cache storage, e.g. `[{:header, "x-tenant"}]` |
+| `url` | Unsigned, no presets | An `ImagePipe.URL.Config` from `ImagePipe.URL.config/1` |
+| `clock` | Current Unix seconds | Zero-argument function used for request expiry |
+
+`ImagePipe.URL.config/1` accepts:
+
+| Option | Default | Purpose |
+| --- | --- | --- |
 | `base_url` | `""` | URL-generation prefix, e.g. `"/images"` or `"https://cdn.example.com/images"` |
 | `keys` | `[]` | Ordered hex signing keys; first signs, all verify |
 | `source_encryption_keys` | `[]` | Ordered raw 32-byte encryption keys, separate from signing keys |
 | `encrypt_source` | `false` | Generate concealed sources in URLs; requires both key sets |
 | `iv_mode` | `:deterministic` | Source-encryption IV generation; also accepts `:random` |
-| `clock` | Current Unix seconds | Zero-argument function used for request expiry |
+| `presets` | `%{}` | Preset name to URL option fragment; see [presets](urls.md#presets) |
 
 Signing, encryption, and source encoding are covered in [URLs and presets](urls.md).
 `storage_inputs` changes storage identity without changing a byte-identical
@@ -127,8 +142,8 @@ config = ImagePipe.config(
 )
 
 plan =
-  ImagePipe.new(config)
-  |> ImagePipe.output(format: :jpeg, jpeg_options: [interlace: false])
+  ImagePipe.URL.new()
+  |> ImagePipe.URL.output(format: :jpeg, jpeg_options: [interlace: false])
 ```
 
 | Host key | Struct |

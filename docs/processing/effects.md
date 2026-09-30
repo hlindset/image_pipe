@@ -3,7 +3,7 @@
 [All processing options](../processing.md)
 
 Effects work with or without resizing. Pass the Elixir options below to
-`ImagePipe.group/2`. All effects start disabled in each group.
+`ImagePipe.URL.group/2`. All effects start disabled in each group.
 
 ## Option reference
 
@@ -44,9 +44,9 @@ Use groups to change the order. These examples apply brightness after contrast:
 ```
 
 ```elixir
-ImagePipe.new()
-|> ImagePipe.group(contrast: 2)
-|> ImagePipe.group(brightness: 30)
+ImagePipe.URL.new()
+|> ImagePipe.URL.group(contrast: 2)
+|> ImagePipe.URL.group(brightness: 30)
 ```
 
 ## Alpha and gradients

@@ -34,16 +34,16 @@ EXIF auto-orientation applies once, then each group runs:
 
 Output encoding or a placeholder/info terminal finishes the request. Moving
 options within a group does not change execution order. Use `-` in a URL
-or another `ImagePipe.group/2` call to process an intermediate result:
+or another `ImagePipe.URL.group/2` call to process an intermediate result:
 
 ```text
 /w=500/-/trim=fff/src/photos/beach.jpg
 ```
 
 ```elixir
-ImagePipe.new()
-|> ImagePipe.group(resize: [width: 500])
-|> ImagePipe.group(trim: "fff")
+ImagePipe.URL.new()
+|> ImagePipe.URL.group(resize: [width: 500])
+|> ImagePipe.URL.group(trim: "fff")
 ```
 
 Each group starts with fresh settings, including DPR, zoom, guide, and effects.

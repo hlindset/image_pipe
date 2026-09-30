@@ -67,6 +67,7 @@
 
 - Keep canonical request data under `ImagePipe.Plan.*`, with explicit groups and output policy.
 - Keep URL parsing and request configuration together; parsing produces concrete data and validates static request constraints before side effects.
+- Keep URL building (`ImagePipe.URL` with `ImagePipe.URL.Config`, plus `ImagePipe.API`, `ImagePipe.Plan`, `ImagePipe.Security`, `ImagePipe.Format`) free of server code: it may call only `nimble_options`, `color`, `mime`, `crypto`, and stdlib/OTP, so it can ship as its own package. `test/image_pipe/url_closure_test.exs` enforces this. `Plug.Conn` handling, request parsing, and error rendering belong under `ImagePipe.Plug`.
 - Keep the mount interface and request orchestration under `ImagePipe.Plug`. Its lifecycle is parse, validate, source resolve, representation, conditional gate, cache, execution, and delivery.
 - Keep source side effects and source identity under `ImagePipe.Source.*`.
 - Keep response delivery under `ImagePipe.Response.*`.

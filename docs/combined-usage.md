@@ -12,8 +12,10 @@ mount and callers. Here is a complete example that can also be run in IEx:
 ```elixir
 alias ImagePipe, as: IP
 
+url_config = IP.URL.config(base_url: "/images")
+
 config = IP.config(
-  base_url: "/images",
+  url: url_config,
   sources: [
     path: {ImagePipe.Source.File,
            root: "/srv/images", root_id: "media", stable: :trusted}
@@ -25,13 +27,13 @@ config = IP.config(
 mount = IP.Plug.init(config: config, http_cache: [mode: :enabled])
 
 thumbnail =
-  IP.new(config)
-  |> IP.group(resize: [width: 400, height: 300, fit: :cover])
-  |> IP.output(format: :webp)
+  IP.URL.new(url_config)
+  |> IP.URL.group(resize: [width: 400, height: 300, fit: :cover])
+  |> IP.URL.output(format: :webp)
 
-url = IP.url!(thumbnail, "photos/beach-v1.jpg")
-{:ok, result} = IP.run(thumbnail, {:source, "photos/beach-v1.jpg"})
-{:ok, _result} = IP.write(thumbnail, {:source, "photos/beach-v1.jpg"}, "thumbnail.webp")
+url = IP.URL.url!(thumbnail, "photos/beach-v1.jpg")
+{:ok, result} = IP.run(config, thumbnail, {:source, "photos/beach-v1.jpg"})
+{:ok, _result} = IP.write(config, thumbnail, {:source, "photos/beach-v1.jpg"}, "thumbnail.webp")
 ```
 
 `stable: :trusted` promises immutable source identifiers. Give changed files a
@@ -59,7 +61,7 @@ true = conn.resp_body == result.data
 Keep configuration server-side. In a template, expose the generated URL:
 
 ```heex
-<img src={ImagePipe.url!(@thumbnail, @photo.source)} alt={@photo.description} />
+<img src={ImagePipe.URL.url!(@thumbnail, @photo.source)} alt={@photo.description} />
 ```
 
 ## Share cache entries
@@ -75,7 +77,7 @@ to direct execution. If `storage_inputs` partitions storage, pass the matching
 `request_inputs:` too:
 
 ```elixir
-IP.run(thumbnail, {:source, "photos/beach-v1.jpg"},
+IP.run(config, thumbnail, {:source, "photos/beach-v1.jpg"},
   accept: "image/webp",
   request_inputs: [headers: [{"x-tenant", "one"}]]
 )
@@ -86,14 +88,16 @@ they are not forwarded to the source. See [Elixir request inputs](elixir-api.md#
 
 ## Know which settings are shared
 
-| Shared configuration | Plug-only behavior |
-| --- | --- |
-| Sources, caches, generation limits, output defaults, presets, detector, signing/encryption keys, URL prefix | CORS, debug-header permission, HTTP cache policy, conditional responses |
+| URL configuration | Server configuration | Plug-only behavior |
+| --- | --- | --- |
+| Presets, signing/encryption keys, URL prefix | Sources, caches, generation limits, output defaults, detector | CORS, debug-header permission, HTTP cache policy, conditional responses |
 
-Select shared presets with `ImagePipe.new(config, presets: ["poster-320"])`.
+Select shared presets with `ImagePipe.URL.new(url_config, presets: ["poster-320"])`.
 Plug and direct execution expand the default preset, named presets in order,
 and explicit options using the same rules. Generated URLs retain the preset
-names for the serving mount to resolve.
+names for the serving mount to resolve. If URLs are built in a different
+application from the one that serves them, see
+[split deployments](elixir-api.md#split-deployments).
 
 Use a shared [processing pool](processing-controls.md) to bound generation
 across HTTP requests, jobs, and cache refreshes. Direct results are fully

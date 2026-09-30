@@ -2,7 +2,7 @@
 
 [All processing options](../processing.md) · [Orientation and cropping](crop.md)
 
-Pass these options to `ImagePipe.group/2`; the `resize` fields go inside its
+Pass these options to `ImagePipe.URL.group/2`; the `resize` fields go inside its
 `resize: [...]` keyword list.
 
 ## Resize
@@ -29,8 +29,8 @@ Pass these options to `ImagePipe.group/2`; the `resize` fields go inside its
 ```
 
 ```elixir
-ImagePipe.new()
-|> ImagePipe.group(resize: [width: 400, height: 300, fit: :cover], dpr: 2)
+ImagePipe.URL.new()
+|> ImagePipe.URL.group(resize: [width: 400, height: 300, fit: :cover], dpr: 2)
 ```
 
 Without enlargement, small sources can produce smaller results. Zoom scales
@@ -59,8 +59,8 @@ Added space is transparent until a background is supplied.
 ```
 
 ```elixir
-ImagePipe.new()
-|> ImagePipe.group(
+ImagePipe.URL.new()
+|> ImagePipe.URL.group(
   resize: [width: 400, height: 400],
   extend: true,
   padding: 12,

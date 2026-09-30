@@ -69,13 +69,13 @@ Use the builder to escape sources and serialize options, especially when
 signing URLs or using remote sources:
 
 ```elixir
-config = ImagePipe.config(base_url: "/images")
+url_config = ImagePipe.URL.config(base_url: "/images")
 
 thumbnail =
-  ImagePipe.new(config)
-  |> ImagePipe.group(resize: [width: 400, height: 300, fit: :cover])
+  ImagePipe.URL.new(url_config)
+  |> ImagePipe.URL.group(resize: [width: 400, height: 300, fit: :cover])
 
-url = ImagePipe.url!(thumbnail, "photos/beach.jpg")
+url = ImagePipe.URL.url!(thumbnail, "photos/beach.jpg")
 ```
 
 [Combined usage](combined-usage.md) shows how to share the actual source,

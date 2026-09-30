@@ -23,7 +23,7 @@ Invalid requests return before source or cache access; invalid signatures return
 
 Direct Elixir calls using `{:source, identifier}` share these pools and policies
 with the Plug. Build configuration once with `ImagePipe.config/1`, pass it to
-`ImagePipe.new/1` and the mount's `:config` option, and supply matching
+`ImagePipe.run/4` and the mount's `:config` option, and supply matching
 `accept` and `request_inputs` when needed. See [shared configuration](elixir-api.md#shared-configuration).
 Raw `{:file, path}` and `{:binary, bytes}` inputs bypass both pools.
 

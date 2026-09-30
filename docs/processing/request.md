@@ -3,7 +3,7 @@
 [All processing options](../processing.md) · [URLs and presets](../urls.md)
 
 Request controls apply to the whole request. In Elixir, pass them to
-`ImagePipe.new/1` or `ImagePipe.new(config, options)`.
+`ImagePipe.URL.new/1` or `ImagePipe.URL.new(url_config, options)`.
 
 | URL | Elixir | Purpose |
 | --- | --- | --- |
@@ -27,7 +27,7 @@ receives `.json`. Delivery settings apply on cache hits too and leave stored
 bytes and ETags unchanged. A 304 response omits `Content-Disposition`.
 
 For direct Elixir calls, `filename`, `attachment`, and `debug` do not affect
-the result. `ImagePipe.write/4` uses its explicit destination path and does
+the result. `ImagePipe.write/5` uses its explicit destination path and does
 not infer output format from its extension.
 
 ## Expiry and storage identity

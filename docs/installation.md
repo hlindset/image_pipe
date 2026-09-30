@@ -20,8 +20,8 @@ codecs depend on the native build; see [output formats](processing/output.md#for
 | Entry point | Setup | Result |
 | --- | --- | --- |
 | [Plug](plug-usage.md) | Mount `ImagePipe.Plug` and configure source adapters | HTTP image, placeholder, or JSON response |
-| [Elixir](elixir-api.md) | Build a plan with `ImagePipe.new/0` | Buffered `ImagePipe.Result` or a written file |
-| [Combined](combined-usage.md) | Share `ImagePipe.config/1` between both | Matching processing, URL generation, and shared caches |
+| [Elixir](elixir-api.md) | Build a plan with `ImagePipe.URL.new/0` | Buffered `ImagePipe.Result` or a written file |
+| [Combined](combined-usage.md) | Share `ImagePipe.URL.config/1` and `ImagePipe.config/1` between both | Matching processing, URL generation, and shared caches |
 
 Your application supplies the HTTP server when using Plug. An existing Phoenix
 endpoint is sufficient. Direct Elixir calls need no web server.

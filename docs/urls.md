@@ -38,9 +38,9 @@ For a source URL containing `cat%23one.jpg`, the outer `src` form needs
 `cat%2523one.jpg`. Generate URLs instead of hand-escaping them:
 
 ```elixir
-config = ImagePipe.config(base_url: "/images")
-plan = ImagePipe.new(config) |> ImagePipe.group(resize: [width: 400])
-url = ImagePipe.url!(plan, "https://assets.example.com/cat%23one.jpg")
+url_config = ImagePipe.URL.config(base_url: "/images")
+plan = ImagePipe.URL.new(url_config) |> ImagePipe.URL.group(resize: [width: 400])
+url = ImagePipe.URL.url!(plan, "https://assets.example.com/cat%23one.jpg")
 ```
 
 The mount must configure the corresponding [source adapter](sources.md).
@@ -49,19 +49,21 @@ pre-encode the entire string. Source filename extensions do not set output forma
 
 ## Presets
 
-Define recipes in shared configuration:
+Define recipes in the URL configuration and give the same value to the mount:
 
 ```elixir
-config = ImagePipe.config(
-  sources: [path: {ImagePipe.Source.File, root: "/srv/images", root_id: "media"}],
+url_config = ImagePipe.URL.config(
   presets: %{
     "card" => "w=400/h=300/fit=cover",
     "framed" => "preset=card/-/pad=20/bg=fff/format=webp"
   }
 )
-mount = ImagePipe.Plug.init(config)
-poster = ImagePipe.new(config, presets: ["card"])
-url = ImagePipe.url!(poster, "photos/beach.jpg")
+mount = ImagePipe.Plug.init(
+  url: url_config,
+  sources: [path: {ImagePipe.Source.File, root: "/srv/images", root_id: "media"}]
+)
+poster = ImagePipe.URL.new(url_config, presets: ["card"])
+url = ImagePipe.URL.url!(poster, "photos/beach.jpg")
 ```
 
 ```text
@@ -87,7 +89,9 @@ and offset are another family, so supply the intended canvas settings together.
 
 Presets share cache identity with equivalent explicit requests. Plug and direct
 Elixir execution expand presets using the same rules. URL generation preserves
-named references so changing their definitions leaves URLs stable. See
+named references so changing their definitions leaves URLs stable. When the
+builder and the mount run in different applications, both must use the same
+preset map; see [split deployments](elixir-api.md#split-deployments) and
 [combined usage](combined-usage.md).
 
 ## Signing and expiry
@@ -95,17 +99,17 @@ named references so changing their definitions leaves URLs stable. See
 Configure the same signing keys in the URL builder and mount:
 
 ```elixir
-config = ImagePipe.config(
+url_config = ImagePipe.URL.config(
   base_url: "/images",
   keys: [System.fetch_env!("IMAGE_PIPE_SIGNING_KEY")]
 )
 
 plan =
-  ImagePipe.new(config, expires: System.os_time(:second) + 3600)
-  |> ImagePipe.group(resize: [width: 400])
+  ImagePipe.URL.new(url_config, expires: System.os_time(:second) + 3600)
+  |> ImagePipe.URL.group(resize: [width: 400])
 
-url = ImagePipe.url!(plan, "photos/beach.jpg")
-mount = ImagePipe.Plug.init(config: config)
+url = ImagePipe.URL.url!(plan, "photos/beach.jpg")
+mount = ImagePipe.Plug.init(url: url_config, sources: sources)
 ```
 
 Keys are hex strings. Generate a key once, for example with
@@ -115,11 +119,11 @@ server-side configuration. With keys configured, the mount requires a
 the signature. The router prefix and hostname are outside the signature.
 Without keys, unsigned requests are accepted.
 
-To sign an existing path without the builder, use the same shared config:
+To sign an existing path without the builder, use the same URL configuration:
 
 ```elixir
 path = "/w=400/src/photos/beach.jpg"
-url = "/images" <> ImagePipe.sign_path(path, config)
+url = "/images" <> ImagePipe.URL.sign_path(path, url_config)
 ```
 
 `sign_path/2` returns `/sig=<signature>` followed by the exact supplied path.
@@ -136,7 +140,7 @@ should be signed so clients cannot extend it.
 
 ## Conceal the source
 
-Add `encrypt_source: true` and independent `source_encryption_keys` to shared
+Add `encrypt_source: true` and independent `source_encryption_keys` to the URL
 configuration. Signing keys use hex strings; encryption keys use raw 32-byte
 binaries. The builder emits a signed `enc/<token>` path.
 

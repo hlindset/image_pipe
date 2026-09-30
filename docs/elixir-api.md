@@ -4,28 +4,33 @@ Start with [installation](installation.md) if ImagePipe is not in your applicati
 For a shared HTTP endpoint and background jobs, see [combined usage](combined-usage.md).
 The [processing reference](processing.md) pairs URL and Elixir options by task.
 
-Use the `ImagePipe` builder API to construct an immutable processing plan with
-typed Elixir values. The resulting builder is reusable across sources and keeps
-its plan separate from host configuration:
+The Elixir API has two parts:
+
+- `ImagePipe.URL` builds immutable processing plans with typed Elixir values
+  and turns them into signed URLs. It performs no I/O and needs no image
+  libraries.
+- `ImagePipe` holds the server configuration (sources, caches, processing
+  defaults) and executes plans in-process with `run/4` and `write/5`.
 
 ```elixir
 alias ImagePipe, as: IP
 
 thumbnail =
-  IP.new()
-  |> IP.group(resize: [width: 400, height: 300, fit: :cover], anchor: :smart)
-  |> IP.output(format: :webp, quality: 82)
+  IP.URL.new()
+  |> IP.URL.group(resize: [width: 400, height: 300, fit: :cover], anchor: :smart)
+  |> IP.URL.output(format: :webp, quality: 82)
 
-:ok = IP.validate(thumbnail)
+:ok = IP.URL.validate(thumbnail)
 ```
 
-Execute the plan directly with `IP.run/3`, or write its result with
-`IP.write/4`. Generate an equivalent API URL with `IP.url/3` or `IP.url!/3`.
+The builder is reusable across sources. Execute it directly with `IP.run/4`,
+or write its result with `IP.write/5`. Generate an equivalent API URL with
+`IP.URL.url/3` or `IP.URL.url!/3`.
 
 For a first local result, run:
 
 ```elixir
-{:ok, result} = IP.write(thumbnail, {:file, "photos/original.jpg"}, "thumbnail.webp")
+{:ok, result} = IP.write(IP.config(), thumbnail, {:file, "photos/original.jpg"}, "thumbnail.webp")
 ```
 
 The input is an existing file relative to your working directory. The output
@@ -33,11 +38,17 @@ format comes from the plan; `write` overwrites an existing destination.
 
 ## Shared configuration
 
-Configure sources, caches, processing defaults, limits, and storage partitions
-once for both the Plug mount and direct Elixir calls:
+URL settings and server settings are separate values. `IP.URL.config/1` holds
+signing keys, source encryption, presets, and the URL prefix. `IP.config/1`
+holds sources, caches, processing defaults, limits, and storage partitions,
+and takes the URL configuration as `:url`. Build both once and share them
+between the Plug mount and direct Elixir calls:
 
 ```elixir
+url_config = IP.URL.config(presets: %{"card" => "w=400/h=400/fit=cover"})
+
 config = IP.config(
+  url: url_config,
   sources: [path: {ImagePipe.Source.File, root: "/srv/images", root_id: "media", stable: :trusted}],
   cache: {ImagePipe.Cache.FileSystem, root: "/var/cache/image-pipe/output"},
   input_cache: {ImagePipe.Cache.FileSystem, root: "/var/cache/image-pipe/input"},
@@ -45,15 +56,15 @@ config = IP.config(
   storage_inputs: [{:header, "x-tenant"}]
 )
 
-ip_client = IP.new(config)
+ip_client = IP.URL.new(url_config)
 
 thumbnail =
   ip_client
-  |> IP.group(resize: [width: 400])
-  |> IP.output(format: :webp)
+  |> IP.URL.group(resize: [width: 400])
+  |> IP.URL.output(format: :webp)
 
 {:ok, result} =
-  IP.run(thumbnail, {:source, "photos/original-v1.jpg"},
+  IP.run(config, thumbnail, {:source, "photos/original-v1.jpg"},
     request_inputs: [headers: [{"x-tenant", "one"}]]
   )
 
@@ -62,17 +73,18 @@ mount = IP.Plug.init(config: config, http_cache: [mode: :enabled])
 # plug ImagePipe.Plug, config: config, http_cache: [mode: :enabled]
 ```
 
-`IP.new()` uses default configuration. `IP.new(config, expires: unix_seconds)`
-combines reusable configuration with request controls. Builder calls return
-new values, so `ip_client` stays empty and reusable. Configuration is validated
-when constructed and hidden by `Inspect`; it performs no source or cache I/O.
-Per-call host options remain available and override the builder's settings.
+`IP.URL.new()` uses default URL configuration.
+`IP.URL.new(url_config, expires: unix_seconds)` combines reusable configuration
+with request controls. Builder calls return new values, so `ip_client` stays
+empty and reusable. Both configurations are validated when constructed and
+hidden by `Inspect`; neither performs source or cache I/O. Per-call host
+options passed to `run` and `write` override the server configuration.
 
-Signing/encryption keys, IV policy, and `base_url` also belong in this shared
-configuration. The builder uses them automatically when generating URLs; the
-Plug uses the same keys to verify and decrypt them. Preset definitions also
-belong in shared configuration. HTTP controls such as CORS and `http_cache`
-belong on the Plug mount.
+The builder uses its URL configuration when generating URLs. The Plug and
+direct execution use the URL configuration inside the server configuration:
+its keys verify and decrypt URLs, and its presets expand plans. `run` resolves
+presets from the server configuration, not from the builder. HTTP controls
+such as CORS and `http_cache` belong on the Plug mount.
 
 The file example assumes immutable source paths: `stable: :trusted` enables
 caching based on that promise. Give changed files a new identifier. With the
@@ -82,11 +94,11 @@ explicitly enabled. HTTP sources use origin freshness and validators.
 ## URL generation
 
 ```elixir
-config = IP.config(base_url: "/images")
-thumbnail = IP.new(config) |> IP.group(resize: [width: 400])
-url = IP.url!(thumbnail, "photos/original.jpg")
+url_config = IP.URL.config(base_url: "/images")
+thumbnail = IP.URL.new(url_config) |> IP.URL.group(resize: [width: 400])
+url = IP.URL.url!(thumbnail, "photos/original.jpg")
 
-{:ok, url} = IP.url(thumbnail, "photos/original.jpg")
+{:ok, url} = IP.URL.url(thumbnail, "photos/original.jpg")
 ```
 
 The source is the mount's source identifier, supplied separately from the
@@ -107,14 +119,14 @@ Configure signing keys once for the builder and mount. They are hex strings;
 the first key signs new URLs and the mount can retain older keys for rotation.
 
 ```elixir
-config = IP.config(
+url_config = IP.URL.config(
   base_url: "https://cdn.example.com/images",
   keys: [System.fetch_env!("IMAGE_PIPE_SIGNING_KEY")]
 )
 
-thumbnail = IP.new(config) |> IP.group(resize: [width: 400])
-url = IP.url!(thumbnail, "photos/original.jpg")
-mount = IP.Plug.init(config: config)
+thumbnail = IP.URL.new(url_config) |> IP.URL.group(resize: [width: 400])
+url = IP.URL.url!(thumbnail, "photos/original.jpg")
+mount = IP.Plug.init(url: url_config, sources: sources)
 ```
 
 Only the mount-relative path is signed. The base URL and mount prefix are
@@ -122,12 +134,12 @@ prepended afterward. Configuration inspection excludes credentials. Keep it
 server-side; in a Phoenix template, render only the generated URL:
 
 ```heex
-<img src={ImagePipe.url!(@thumbnail, @photo.source)} />
+<img src={ImagePipe.URL.url!(@thumbnail, @photo.source)} />
 ```
 
 Equivalent normalized plans, source bytes, and configuration produce the
 same URL. Option order does not affect serialization; explicit groups remain
-separate. Set expiry explicitly with `IP.new(config, expires: unix_seconds)` when
+separate. Set expiry explicitly with `IP.URL.new(url_config, expires: unix_seconds)` when
 needed. Reusing that timestamp preserves the URL; calculating a fresh
 `now + duration` changes it. URL generation does not check the current time
 or perform source, cache, or image I/O.
@@ -136,18 +148,18 @@ or perform source, cache, or image I/O.
 `{:error, :invalid_source}`, or `{:error, :too_many_options}`. The last error
 means the plan exceeds the HTTP parser's 64 option/separator limit.
 `url!/3` raises `ArgumentError` on failure without including the source or
-credentials. Malformed URL configuration raises during `config/1`.
+credentials. Malformed URL configuration raises during `IP.URL.config/1`.
 
 ### Encrypted sources
 
-Put independent signing and source-encryption keys in shared configuration.
+Put independent signing and source-encryption keys in the URL configuration.
 Encryption keys are raw 32-byte binaries; signing
 keys are hex strings. Generate secrets once and store them in server-side
 configuration. The first encryption key generates tokens; the mount accepts
 older keys in the list during rotation.
 
 ```elixir
-config = IP.config(
+url_config = IP.URL.config(
   base_url: "/images",
   keys: [signing_key_hex],
   source_encryption_keys: [encryption_key],
@@ -155,13 +167,13 @@ config = IP.config(
   iv_mode: :deterministic
 )
 
-thumbnail = IP.new(config) |> IP.group(resize: [width: 400])
-mount = IP.Plug.init(config: config)
-url = IP.url!(thumbnail, "photos/original.jpg")
-random_url = IP.url!(thumbnail, "photos/original.jpg", iv: :random)
+thumbnail = IP.URL.new(url_config) |> IP.URL.group(resize: [width: 400])
+mount = IP.Plug.init(url: url_config, sources: sources)
+url = IP.URL.url!(thumbnail, "photos/original.jpg")
+random_url = IP.URL.url!(thumbnail, "photos/original.jpg", iv: :random)
 
 iv = :crypto.strong_rand_bytes(16)
-explicit_url = IP.url!(thumbnail, "photos/original.jpg", iv: iv)
+explicit_url = IP.URL.url!(thumbnail, "photos/original.jpg", iv: iv)
 ```
 
 `:deterministic` is the default. Identical source bytes and active key produce
@@ -185,6 +197,9 @@ an arbitrary-source encryption endpoint permits guessing by token comparison.
 The [source concealment contract](api_contract.md#source-concealment) specifies
 the authenticated CBC construction, key derivation, and token format.
 
+`IP.URL.encrypt_source/3` returns the token alone, for hosts that assemble and
+sign paths themselves with `IP.URL.sign_path/2`.
+
 `url/3` returns `{:error, :invalid_encryption_options}` for malformed or unknown
 IV options. Passing IV options to a configuration with `encrypt_source: false`
 returns `{:error, :source_encryption_disabled}`. `url!/3` raises without echoing
@@ -197,14 +212,16 @@ when you need equivalent output.
 ### Named presets
 
 ```elixir
-config = IP.config(presets: %{
+url_config = IP.URL.config(presets: %{
   "default" => "format=webp",
   "poster-320" => "w=320/h=480/fit=cover"
 })
-poster = IP.new(config, presets: ["poster-320"])
-url = IP.url!(poster, "photos/poster.jpg")
+config = IP.config(url: url_config)
+
+poster = IP.URL.new(url_config, presets: ["poster-320"])
+url = IP.URL.url!(poster, "photos/poster.jpg")
 # /preset=poster-320/src/photos%2Fposter.jpg
-{:ok, result} = IP.run(poster, {:file, "photos/poster.jpg"})
+{:ok, result} = IP.run(config, poster, {:file, "photos/poster.jpg"})
 ```
 
 Plug and direct execution share expansion: `default` first, selected names in
@@ -222,16 +239,45 @@ With named or default presets, `url/3` returns
 `{:error, :unrepresentable_preset_override}` for those overrides; direct
 execution can apply them.
 
+### Split deployments
+
+An application that only builds URLs can send them to a separate image
+service. The URL carries preset names and signatures, not their definitions
+or keys, so:
+
+- Both sides must use identical signing keys, source-encryption keys, and
+  preset maps. Build both from one shared module or file. ImagePipe does not
+  detect drift between them.
+- Deploy the image service first. It must always run an ImagePipe version at
+  least as new as the builder's, so it can parse every URL the builder emits.
+- Adding or changing a preset is safe once the service has it. To remove one,
+  stop emitting it from the builder first.
+
+To use a result on the builder side, fetch the signed URL from the service
+with any HTTP client. Handle non-200 statuses, and send an explicit `Accept`
+header (or select an explicit output format) when the format matters, since
+responses vary on `Accept`. The signature covers only the mount-relative path,
+so a second URL configuration with the same keys and presets and an internal
+`base_url` can address the service directly:
+
+```elixir
+{:ok, %Req.Response{status: 200, body: body}} =
+  Req.get(ImagePipe.URL.url!(builder, source),
+    decode_body: false,
+    headers: [accept: "image/avif,image/webp"]
+  )
+```
+
 ## Direct execution
 
 ```elixir
-{:ok, result} = IP.run(thumbnail, {:file, "photos/original.jpg"})
+{:ok, result} = IP.run(config, thumbnail, {:file, "photos/original.jpg"})
 result.content_type # "image/webp"
 result.width        # 400, when the source is large enough
 result.data         # complete encoded bytes
 
-{:ok, result} = IP.run(thumbnail, {:binary, uploaded_bytes})
-{:ok, result} = IP.write(thumbnail, {:file, "photos/original.jpg"}, "thumb.webp")
+{:ok, result} = IP.run(config, thumbnail, {:binary, uploaded_bytes})
+{:ok, result} = IP.write(config, thumbnail, {:file, "photos/original.jpg"}, "thumb.webp")
 ```
 
 `{:file, path}` reads an explicit local path, relative to the current working
@@ -246,12 +292,12 @@ encoding:
 
 ```elixir
 {:ok, result} =
-  IP.run(thumbnail, {:source, "photos/original.jpg"},
+  IP.run(config, thumbnail, {:source, "photos/original.jpg"},
     sources: [path: {ImagePipe.Source.File, root: "/srv/images", root_id: "media"}]
   )
 
 {:ok, result} =
-  IP.run(thumbnail, {:source, "https://assets.example.com/original.jpg"},
+  IP.run(config, thumbnail, {:source, "https://assets.example.com/original.jpg"},
     sources: [url: {ImagePipe.Source.HTTP, allowed_hosts: ["assets.example.com"]}]
   )
 ```
@@ -292,7 +338,7 @@ use their adapter's identity for output caching. Raw `{:file, path}` and
 `request_inputs` supplies the values named by `storage_inputs`:
 
 ```elixir
-IP.run(thumbnail, {:source, "photos/original.jpg"},
+IP.run(config, thumbnail, {:source, "photos/original.jpg"},
   accept: "image/webp",
   request_inputs: [
     headers: [{"x-tenant", "one"}],
@@ -356,7 +402,7 @@ No public stream ownership protocol is involved.
 
 ## Builder API: composition and validation
 
-`IP.group/2` appends a complete group. All options in that call follow the
+`IP.URL.group/2` appends a complete group. All options in that call follow the
 [fixed stage order](api_contract.md#processing-semantics), regardless of keyword
 order. A second call starts a new group over the first group's result, just
 like `-` in a URL. DPR, zoom, and other group settings start fresh.
@@ -364,22 +410,22 @@ An empty plan is valid; an explicitly appended group must contain an option.
 
 ```elixir
 def thumbnail(plan) do
-  IP.group(plan, resize: [width: 400, height: 300, fit: :cover], anchor: :smart)
+  IP.URL.group(plan, resize: [width: 400, height: 300, fit: :cover], anchor: :smart)
 end
 
 plan =
-  IP.new()
+  IP.URL.new()
   |> thumbnail()
-  |> IP.group(padding: 12, background: "white")
-  |> IP.output(format: :webp)
+  |> IP.URL.group(padding: 12, background: "white")
+  |> IP.URL.output(format: :webp)
 
-lower_quality = IP.output(plan, quality: 60)
+lower_quality = IP.URL.output(plan, quality: 60)
 ```
 
 Ordinary functions provide reusable plans. Every call returns a new value;
 `plan` remains reusable after deriving `lower_quality`.
 
-`IP.output/2` merges explicitly supplied options. Repeating an option replaces
+`IP.URL.output/2` merges explicitly supplied options. Repeating an option replaces
 its entire value, including nested encoder keywords or per-format quality
 settings. Omitted options keep their previous value. Host-dependent output
 defaults remain unspecified until execution or URL interpretation supplies
@@ -387,14 +433,14 @@ configuration. Validation and execution expand the shared default and named
 presets before checking the combined options.
 
 Unknown options, duplicate keys, invalid types, and out-of-range values raise
-`ArgumentError` during construction. `IP.validate/1` checks dependencies,
+`ArgumentError` during construction. `IP.URL.validate/1` checks dependencies,
 conflicts, and terminal applicability, returning `:ok` or `{:error, issues}`.
 Each `ImagePipe.Plan.Request.Issue` has a `reason`, `detail`, and `locations`:
 `{:group, zero_based_index, option_name}` or `{:request, option_name}`. Resize
 locations use the individual names such as `:width` and `:fit`.
 
 ```elixir
-{:error, issues} = IP.new() |> IP.group(resize: [fit: :cover]) |> IP.validate()
+{:error, issues} = IP.URL.new() |> IP.URL.group(resize: [fit: :cover]) |> IP.URL.validate()
 # fit requires a concrete resize dimension
 ```
 
@@ -406,7 +452,7 @@ terminal lifecycle.
 
 ## Request controls
 
-`IP.new/1` accepts these optional controls:
+`IP.URL.new/1` accepts these optional controls:
 
 | Option | Value |
 | --- | --- |
@@ -424,7 +470,7 @@ constraints, and equivalent URL syntax:
 - [Orientation and cropping](processing/crop.md): rotation, trim, regions, guides, and offsets.
 - [Effects](processing/effects.md): filters, color adjustments, and overlays.
 
-`ImagePipe.group/2` appends a complete group in the fixed processing order.
+`ImagePipe.URL.group/2` appends a complete group in the fixed processing order.
 Coordinates accept numbers for pixels, `{:px, number}`, or `{:pct, percentage}`.
 Named options use atoms such as `:cover_down` and `:top_left`.
 Colors accept RGB tuples, CSS names, or three/six-digit hex strings.
@@ -434,12 +480,12 @@ Colors accept RGB tuples, CSS names, or three/six-digit hex strings.
 [Output and encoding](processing/output.md) covers formats, quality/search,
 encoder fields, metadata, profiles, HDR, placeholders, and source information.
 
-`ImagePipe.output/2` takes typed keyword options, for example:
+`ImagePipe.URL.output/2` takes typed keyword options, for example:
 
 ```elixir
-IP.new()
-|> IP.group(resize: [width: 400])
-|> IP.output(
+IP.URL.new()
+|> IP.URL.group(resize: [width: 400])
+|> IP.URL.output(
   format: :jpeg,
   quality: 82,
   jpeg_options: [interlace: true],

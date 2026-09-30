@@ -1,7 +1,7 @@
 # Image sources
 
 Configure adapters once and use their identifiers in URLs or in
-`ImagePipe.run(plan, {:source, identifier})`. Only configured source types are
+`ImagePipe.run(config, plan, {:source, identifier})`. Only configured source types are
 available. Raw Elixir file/binary inputs are also supported; see below.
 
 ## Local files
@@ -38,8 +38,8 @@ config = ImagePipe.config(
   ]
 )
 
-plan = ImagePipe.new(config) |> ImagePipe.group(resize: [width: 400])
-{:ok, result} = ImagePipe.run(plan, {:source, "https://assets.example.com/beach.jpg"})
+plan = ImagePipe.URL.new() |> ImagePipe.URL.group(resize: [width: 400])
+{:ok, result} = ImagePipe.run(config, plan, {:source, "https://assets.example.com/beach.jpg"})
 ```
 
 `:url` enables both schemes. Configure `:http` or `:https` separately when
@@ -47,7 +47,7 @@ only one is wanted or their settings differ. The adapter rejects non-public
 addresses by default and rechecks redirects. See [source network policy](source-network-policy.md)
 for private origins, DNS, and connection pinning.
 
-Generate remote-source URLs with `ImagePipe.url!/2` so the source URL's own
+Generate remote-source URLs with `ImagePipe.URL.url!/3` so the source URL's own
 escaping and query parameters survive the outer path encoding. Origin
 freshness and validators govern [remote caching](cache.md).
 
@@ -98,9 +98,9 @@ See the [source contract](api_contract.md#sources) and the behaviour reference.
 ## Direct files and uploads
 
 ```elixir
-plan = ImagePipe.new() |> ImagePipe.group(resize: [width: 400])
-{:ok, result} = ImagePipe.run(plan, {:file, "/tmp/upload.jpg"})
-{:ok, result} = ImagePipe.run(plan, {:binary, uploaded_bytes})
+plan = ImagePipe.URL.new() |> ImagePipe.URL.group(resize: [width: 400])
+{:ok, result} = ImagePipe.run(config, plan, {:file, "/tmp/upload.jpg"})
+{:ok, result} = ImagePipe.run(config, plan, {:binary, uploaded_bytes})
 ```
 
 These inputs need no adapter and bypass input/output caches. Direct files

@@ -9,9 +9,9 @@ orientation happens first, then rotation, flip, trim, crop, and resize.
 
 | URL | Elixir | Values / default |
 | --- | --- | --- |
-| `orient=auto` | `ImagePipe.new(orient: :auto)` | Request-wide `auto` or `none`; default auto |
-| `rotate=90` | `ImagePipe.group(plan, rotate: 90)` | Clockwise degrees from 0 through 360; default 0 |
-| `flip=h` | `ImagePipe.group(plan, flip: :horizontal)` | `h`, `v`, `hv` → `:horizontal`, `:vertical`, `:both` |
+| `orient=auto` | `ImagePipe.URL.new(orient: :auto)` | Request-wide `auto` or `none`; default auto |
+| `rotate=90` | `ImagePipe.URL.group(plan, rotate: 90)` | Clockwise degrees from 0 through 360; default 0 |
+| `flip=h` | `ImagePipe.URL.group(plan, flip: :horizontal)` | `h`, `v`, `hv` → `:horizontal`, `:vertical`, `:both` |
 
 `orient=none` retains the stored pixel axes; user rotation and flips still
 apply. EXIF is applied once per request, not once per group. Output orientation
@@ -19,7 +19,7 @@ metadata describes the delivered pixels, including under `meta=keep`.
 
 ## Trim and crop
 
-Except for `orient`, pass this page's Elixir options to `ImagePipe.group/2`.
+Except for `orient`, pass this page's Elixir options to `ImagePipe.URL.group/2`.
 
 | URL | Elixir | Values / behavior |
 | --- | --- | --- |
@@ -40,8 +40,8 @@ and trim; there is no hidden offset back into the original image.
 ```
 
 ```elixir
-ImagePipe.new()
-|> ImagePipe.group(
+ImagePipe.URL.new()
+|> ImagePipe.URL.group(
   crop: {{:pct, 50}, {:pct, 100}},
   anchor: :left,
   resize: [width: 300]

@@ -100,10 +100,10 @@ failure, and processing errors to `:warning`.
 
 The `[:image_pipe, :request]` span wraps the whole request, opened by
 `ImagePipe.Plug.Runner` before parsing. Its **start metadata is empty**.
-Direct `ImagePipe.run/3` calls also emit this span, enclosing plan preflight
+Direct `ImagePipe.run/4` calls also emit this span, enclosing plan preflight
 and the shared source/decode/transform/output stages. Their stop metadata has
 the same outcome categories, with no HTTP `:status`. Direct calls emit no
-parse, cache, send, or HTTP delivery stages. `ImagePipe.write/4` performs its
+parse, cache, send, or HTTP delivery stages. `ImagePipe.write/5` performs its
 destination write after the processing request span and source cleanup.
 
 Stop metadata:
@@ -119,7 +119,8 @@ When a committed `200` fails mid-stream, the stop `:result` agrees with the
 
 ### Parse span (`[:parse]`)
 
-The `[:image_pipe, :parse]` span wraps `ImagePipe.API.parse/2`. Its
+The `[:image_pipe, :parse]` span wraps the Plug's signature verification,
+source decryption, and URL parsing. Its
 **start metadata is empty**. Stop metadata contains `:result` (`:ok` or
 `:error`); successful parsing also includes `:sig_key_index`, or `nil` for
 an unsigned request. Rejection reasons appear on the enclosing request span.

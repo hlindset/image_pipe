@@ -3,7 +3,7 @@
 [All processing options](../processing.md)
 
 Output settings apply once to the final result. Pass the Elixir options in
-this page to `ImagePipe.output/2`.
+this page to `ImagePipe.URL.output/2`.
 
 ## Formats
 
@@ -55,9 +55,9 @@ encode multiple candidates; configure its [iteration and resolution limits](../c
 ```
 
 ```elixir
-ImagePipe.new()
-|> ImagePipe.group(resize: [width: 800])
-|> ImagePipe.output(format: :webp, quality: 82, max_bytes: 60_000)
+ImagePipe.URL.new()
+|> ImagePipe.URL.group(resize: [width: 800])
+|> ImagePipe.URL.output(format: :webp, quality: 82, max_bytes: 60_000)
 ```
 
 ## Encoder options
@@ -78,8 +78,8 @@ under the corresponding output option.
 ```
 
 ```elixir
-ImagePipe.new()
-|> ImagePipe.output(format: :jpeg, jpeg_options: [interlace: true, quant_table: 3])
+ImagePipe.URL.new()
+|> ImagePipe.URL.output(format: :jpeg, jpeg_options: [interlace: true, quant_table: 3])
 ```
 
 An explicit format rejects settings for another encoder. With negotiation,
@@ -126,8 +126,8 @@ and available byte size. It rejects processing options, explicit orientation,
 and image output policy, including options inherited from presets:
 
 ```elixir
-plan = ImagePipe.new() |> ImagePipe.output(terminal: :info)
-{:ok, result} = ImagePipe.run(plan, {:file, "photos/beach.jpg"})
+plan = ImagePipe.URL.new() |> ImagePipe.URL.output(terminal: :info)
+{:ok, result} = ImagePipe.run(ImagePipe.config(), plan, {:file, "photos/beach.jpg"})
 result.data # a map with string keys
 ```
 

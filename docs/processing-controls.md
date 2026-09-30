@@ -28,8 +28,8 @@ config = ImagePipe.config(
 plug ImagePipe.Plug, config: config
 
 # In an Elixir caller:
-plan = config |> ImagePipe.new() |> ImagePipe.group(resize: [width: 400])
-ImagePipe.run(plan, {:file, "/srv/images/photo.jpg"})
+plan = ImagePipe.URL.new() |> ImagePipe.URL.group(resize: [width: 400])
+ImagePipe.run(config, plan, {:file, "/srv/images/photo.jpg"})
 ```
 
 The pool is node-local. Use the same registered name or PID to share capacity;

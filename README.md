@@ -17,11 +17,11 @@ before release.
 
 ```elixir
 plan =
-  ImagePipe.new()
-  |> ImagePipe.group(resize: [width: 400, height: 300, fit: :cover])
-  |> ImagePipe.output(format: :webp, quality: 82)
+  ImagePipe.URL.new()
+  |> ImagePipe.URL.group(resize: [width: 400, height: 300, fit: :cover])
+  |> ImagePipe.URL.output(format: :webp, quality: 82)
 
-{:ok, result} = ImagePipe.run(plan, {:file, "photos/original.jpg"})
+{:ok, result} = ImagePipe.run(ImagePipe.config(), plan, {:file, "photos/original.jpg"})
 File.write!("thumbnail.webp", result.data)
 ```
 

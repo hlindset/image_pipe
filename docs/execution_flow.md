@@ -4,7 +4,7 @@
 
 `ImagePipe.Plug` validates mount configuration and delegates the request to
 `ImagePipe.Plug.Runner`, which handles parsing, conditional responses, and HTTP
-delivery. `ImagePipe.run/3` validates the builder's plan and host configuration,
+delivery. `ImagePipe.run/4` validates the builder's plan against the server configuration,
 resolves its input, and returns a fully consumed result. Both use
 `ImagePipe.Execution` for source freshness, cache lookup, and generation.
 
