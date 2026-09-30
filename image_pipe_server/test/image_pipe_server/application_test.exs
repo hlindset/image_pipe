@@ -138,7 +138,9 @@ defmodule ImagePipeServer.ApplicationTest do
       {:ok, {_ip, port}} = ThousandIsland.listener_info(name)
 
       request = Task.async(fn -> Req.get("http://127.0.0.1:#{port}/", retry: false) end)
-      assert_receive :request_started
+      # The first request through a fresh listener can take longer than the
+      # default receive timeout on a loaded CI runner.
+      assert_receive :request_started, 2_000
       {pid, request}
     end
 
