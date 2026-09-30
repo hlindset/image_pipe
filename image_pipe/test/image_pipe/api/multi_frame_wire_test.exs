@@ -10,7 +10,7 @@ defmodule ImagePipe.API.MultiFrameWireTest do
   alias Vix.Vips.Image, as: VipsImage
 
   @prefix [:multi_frame_wire]
-  @families [:webp, :tiff, :avif, :jxl]
+  @families [:webp, :tiff, :avif, :jxl, :gif]
   @terminals ["format=png", "output=info"]
 
   @moduletag :tmp_dir
@@ -49,7 +49,7 @@ defmodule ImagePipe.API.MultiFrameWireTest do
   end
 
   test "sources declaring more frames than max_input_frames are rejected after one loader open" do
-    for family <- [:tiff, :avif, :jxl], terminal <- @terminals do
+    for family <- [:tiff, :avif, :jxl, :gif], terminal <- @terminals do
       flush_mailbox()
       body = MultiFrameSources.encode(family, 3)
       response = request(terminal, mount(body, max_input_frames: 2, cache: {CacheProbe, []}))

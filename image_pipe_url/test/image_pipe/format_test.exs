@@ -5,7 +5,7 @@ defmodule ImagePipe.FormatTest do
 
   test "defines canonical source and output format families" do
     assert Format.output_formats() == [:avif, :webp, :jpeg, :png]
-    assert Format.source_only_formats() == [:jpeg_xl, :heif, :tiff, :jpeg2000]
+    assert Format.source_only_formats() == [:jpeg_xl, :heif, :tiff, :jpeg2000, :gif]
 
     assert Format.source_formats() == [
              :avif,
@@ -15,7 +15,8 @@ defmodule ImagePipe.FormatTest do
              :jpeg_xl,
              :heif,
              :tiff,
-             :jpeg2000
+             :jpeg2000,
+             :gif
            ]
   end
 
@@ -70,7 +71,7 @@ defmodule ImagePipe.FormatTest do
     assert Format.mime_type(:heif) == {:ok, "image/heif"}
     assert Format.mime_type(:tiff) == {:ok, "image/tiff"}
     assert Format.mime_type(:jpeg2000) == {:ok, "image/jp2"}
-    assert Format.mime_type(:gif) == :error
+    assert Format.mime_type(:gif) == {:ok, "image/gif"}
   end
 
   test "supports_color_profile?/1 mirrors imgproxy SupportsColourProfile" do

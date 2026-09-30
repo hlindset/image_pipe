@@ -8,7 +8,7 @@ defmodule ImagePipe.Decode.SourceFormat do
   @heif_family [:avif, :heif]
 
   @type source_format() :: ImagePipe.Format.source_format()
-  @type unsupported_family() :: :gif | :bmp | :ico | :svg | :unknown
+  @type unsupported_family() :: :bmp | :ico | :svg | :unknown
   @type error() :: {:unsupported_source_format, unsupported_family()}
 
   @doc """
@@ -51,6 +51,7 @@ defmodule ImagePipe.Decode.SourceFormat do
   def classify_loader("tiffload" <> _suffix, _metadata), do: {:ok, :tiff}
   def classify_loader("jp2kload" <> _suffix, _metadata), do: {:ok, :jpeg2000}
   def classify_loader("jxlload" <> _suffix, _metadata), do: {:ok, :jpeg_xl}
+  def classify_loader("gifload" <> _suffix, _metadata), do: {:ok, :gif}
   def classify_loader("heifload" <> _suffix, metadata), do: heif_format(metadata)
   def classify_loader("svgload" <> _suffix, _metadata), do: unsupported(:svg)
   def classify_loader(loader, _metadata) when is_binary(loader), do: unsupported(:unknown)

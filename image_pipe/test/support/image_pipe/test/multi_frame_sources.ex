@@ -16,7 +16,7 @@ defmodule ImagePipe.Test.MultiFrameSources do
   def frame_size, do: {@width, @height}
   def frame_color(index), do: Enum.at(@colors, index)
 
-  @doc "An `n`-frame source of `family` (`:webp`, `:tiff`, `:avif`, `:jxl`)."
+  @doc "An `n`-frame source of `family` (`:webp`, `:tiff`, `:avif`, `:jxl`, `:gif`)."
   def encode(family, frames) do
     {:ok, body} = VipsImage.write_to_buffer(strip(frames), saver(family))
     body
@@ -26,6 +26,7 @@ defmodule ImagePipe.Test.MultiFrameSources do
   defp saver(:tiff), do: ".tif"
   defp saver(:avif), do: ".avif[compression=av1]"
   defp saver(:jxl), do: ".jxl[lossless=true]"
+  defp saver(:gif), do: ".gif"
 
   defp strip(frames) do
     images = for index <- 0..(frames - 1), do: solid(frame_color(index))
@@ -104,6 +105,20 @@ defmodule ImagePipe.Test.MultiFrameSources do
       riff_chunk("VP8X", <<0x02, 0::24, 0::little-24, 0::little-24>>) <>
         riff_chunk("ANIM", <<0::32, 0::little-16>>) <> :binary.copy(frame, frames)
     )
+  end
+
+  @doc """
+  An animated GIF of `frames` 1×1 frames, each a graphic control extension, an
+  image descriptor, and a minimal LZW stream: 23 bytes per frame.
+  """
+  def repeated_frame_gif(frames) do
+    header = "GIF89a" <> <<1::little-16, 1::little-16, 0x80, 0, 0, 0, 0, 0, 255, 255, 255>>
+    loop = <<0x21, 0xFF, 0x0B, "NETSCAPE2.0", 3, 1, 0::little-16, 0>>
+    control = <<0x21, 0xF9, 4, 0, 10::little-16, 0, 0>>
+    descriptor = <<0x2C, 0::little-16, 0::little-16, 1::little-16, 1::little-16, 0>>
+    pixels = <<2, 2, 0x4C, 0x01, 0>>
+
+    header <> loop <> :binary.copy(control <> descriptor <> pixels, frames) <> <<0x3B>>
   end
 
   def riff_webp(chunks), do: <<"RIFF", byte_size(chunks) + 4::little-32, "WEBP", chunks::binary>>
