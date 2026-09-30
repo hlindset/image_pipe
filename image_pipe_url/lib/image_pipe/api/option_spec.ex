@@ -432,6 +432,15 @@ defmodule ImagePipe.API.OptionSpec do
         examples: ["orient=auto", "orient=none"]
       },
       %__MODULE__{
+        key: "page",
+        name: :page,
+        scope: :request,
+        value: &__MODULE__.parse_page/1,
+        summary:
+          "Decode this page or frame (0-based, in file order) instead of the default image",
+        examples: ["page=0", "page=2"]
+      },
+      %__MODULE__{
         key: "output",
         name: :terminal,
         scope: :request,
@@ -1193,6 +1202,14 @@ defmodule ImagePipe.API.OptionSpec do
       {:ok, [color, alpha]} -> {:ok, {color, alpha}}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  @doc false
+  @spec parse_page(String.t()) :: {:ok, non_neg_integer()} | {:error, :invalid_page}
+  def parse_page(string) do
+    if Regex.match?(@unsigned_integer_pattern, string),
+      do: {:ok, String.to_integer(string)},
+      else: {:error, :invalid_page}
   end
 
   @doc false

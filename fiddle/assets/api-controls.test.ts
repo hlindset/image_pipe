@@ -132,6 +132,17 @@ describe("visual controls serialize API requests", () => {
     ]);
   });
 
+  it("maps a selected page and reads it back from the options", () => {
+    const state = defaults();
+    Object.assign(state, { pageEnabled: true, page: 2 });
+    expect(controlOptionSegments(state)).toEqual(["page=2"]);
+
+    const parsed = controlStateFromOptions("page=2/w=600", state.source);
+    expect(parsed.pageEnabled).toBe(true);
+    expect(parsed.page).toBe(2);
+    expect(controlStateFromOptions("w=600", state.source).pageEnabled).toBe(false);
+  });
+
   it("serializes codec options with named fields and explicit false values", () => {
     const state = defaults();
     state.jpegOptions = { progressive: false, no_subsample: true, quant_table: 3 };

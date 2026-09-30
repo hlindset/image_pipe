@@ -159,7 +159,9 @@ Success stop metadata:
   `:detected` (the signature named the family) or `:libvips_codec` (the
   AVIF-vs-HEIF split read from libvips).
 - `:source_frames` — the number of frames or pages the source declares (libvips
-  `n-pages`, `1` for a still image). Only the first is decoded.
+  `n-pages`, `1` for a still image). Only one is decoded.
+- `:page` — the page or frame the request selected with `page=N`; absent when
+  the request decodes the source's default image.
 
 Failure stop metadata (one of two shapes, by failure mode):
 
@@ -182,6 +184,9 @@ Failure stop metadata (one of two shapes, by failure mode):
   `:max_input_pixels` or declares more frames than `:max_input_frames`,
   `:decode` for an undecodable body). An `:input_limit` failure also carries
   `:limit`, `:pixels` or `:frames`, naming the limit that rejected the source.
+- Page out of range — `:result` is `:processing_error`; `:error` is
+  `:page_out_of_range`. It carries the requested `:page` and the source's
+  `:source_frames`. The response status is `422`.
 - Unsupported-format reject — a sub-case of `:processing_error`; `:error` is
   `:unsupported_source_format`. It also carries `:detected_source_format`, so an
   observer can distinguish a format gate from a corrupt-body decode failure
@@ -193,12 +198,14 @@ Failure stop metadata (one of two shapes, by failure mode):
     libvips chose a loader outside that family. `:detected_source_format` is the
     detected family and `:source_loader` names the loader (e.g. `"dcrawload"`).
 
-The default Logger appends the detected format, a rejected loader, a frame count
-above one, and the rejecting limit, e.g. `source fetch_decode: ok (detected webp,
-3 frames)`, `source fetch_decode: processing_error (detected tiff, loader
-dcrawload)`, or `source fetch_decode: processing_error (frames limit)`. Input-limit rejections
-log at the base level, like decode failures. The trace exporter keeps
-`:source_frames`, `:limit`, and `:source_loader` as span attributes.
+The default Logger appends the detected format, a rejected loader, a selected
+page, a frame count above one, and the rejecting limit, e.g. `source
+fetch_decode: ok (detected webp, 3 frames)`, `source fetch_decode:
+processing_error (detected tiff, loader dcrawload)`, `source fetch_decode:
+processing_error (page 3, 3 frames)`, or `source fetch_decode: processing_error
+(frames limit)`. Input-limit and page rejections log at the base level, like
+decode failures. The trace exporter keeps `:source_frames`, `:page`, `:limit`,
+and `:source_loader` as span attributes.
 
 An upstream `304` produces `result: :not_modified` on the source fetch span.
 The default Logger renders this outcome, and the trace exporter records it as

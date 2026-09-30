@@ -912,6 +912,11 @@ defmodule ImagePipe.API.ParserTest do
       assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
     end
 
+    test "info accepts a page selection" do
+      assert {:ok, request} = parse(["output=info", "page=2"])
+      assert request.page == 2
+    end
+
     test "info rejects every image-only output policy as inert" do
       for key <-
             ~w(format q format-q meta profile hdr autoquality max-bytes jpeg-options png-options webp-options avif-options),

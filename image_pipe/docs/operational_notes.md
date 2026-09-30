@@ -67,8 +67,9 @@ encoding. `:max_result_width` and `:max_result_height` default to `8_192`;
 uniformly downscaled to fit. By contrast, `:max_input_pixels` is a hard `413`
 image-bomb gate after decode.
 
-Multi-frame sources decode their first frame or page only, so
-`:max_input_pixels` applies per frame. `:max_input_frames` (default `1_000`) is
+Multi-frame sources decode one frame or page (their default image, or the one
+a request selects with `page`), so `:max_input_pixels` applies per frame;
+selecting frame N of an animation counts the `N + 1` frames it composites. `:max_input_frames` (default `1_000`) is
 a hard `413` on the number of frames or pages a source declares. libvips'
 loaders visit every frame while reading the header, and for animated WebP that
 work grows quadratically: a crafted 9.4 MB file with 180,000 one-pixel frames

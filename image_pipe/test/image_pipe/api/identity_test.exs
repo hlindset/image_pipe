@@ -110,6 +110,21 @@ defmodule ImagePipe.API.IdentityTest do
                material(none_request, neg).representation
     end
 
+    test "a selected page changes identity and differs from the default image" do
+      neg = policy()
+
+      representations =
+        for segments <- [["w=300"], ["page=0", "w=300"], ["page=1", "w=300"]],
+            do: material(request!(segments), neg).representation
+
+      assert Enum.uniq(representations) == representations
+
+      for terminal <- ["output=info", "output=blurhash"] do
+        assert material(request!([terminal]), nil).representation !=
+                 material(request!([terminal, "page=0"]), nil).representation
+      end
+    end
+
     test "geometry scale defaults canonicalize while effective values change identity" do
       default_request = request!(["w=300"])
       explicit_defaults = request!(["w=300", "dpr=1", "zoom=1"])

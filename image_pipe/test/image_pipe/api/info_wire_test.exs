@@ -36,6 +36,7 @@ defmodule ImagePipe.API.InfoWireTest do
              "width" => 16,
              "height" => 24,
              "orientation" => 6,
+             "pages" => 1,
              "size" => byte_size(body)
            }
   end
@@ -71,6 +72,7 @@ defmodule ImagePipe.API.InfoWireTest do
              "width" => 24,
              "height" => 16,
              "orientation" => 1,
+             "pages" => 1,
              "size" => byte_size(body)
            }
   end

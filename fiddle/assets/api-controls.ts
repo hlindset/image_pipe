@@ -151,6 +151,8 @@ export type AvifOptionsState = {
 export type ControlState = {
   source: SourceImage;
   autoRotateEnabled: boolean;
+  pageEnabled: boolean;
+  page: number;
   flip: Flip;
   rotate: Rotate;
   trimEnabled: boolean;
@@ -366,6 +368,8 @@ export function resetCropPixelsToSource(currentState: ControlState): ControlStat
 export const defaultControlState: ControlState = {
   source: "images/dog.jpg",
   autoRotateEnabled: true,
+  pageEnabled: false,
+  page: 0,
   flip: "none",
   rotate: 0,
   trimEnabled: false,
@@ -503,6 +507,7 @@ function roundedUnit(value: number): number {
 
 const requestKeys = new Set([
   "orient",
+  "page",
   "format",
   "q",
   "autoquality",
@@ -541,6 +546,7 @@ function codecSegment(
 export function controlOptionSegments(s: ControlState): string[] {
   const segments: (string | null)[] = [];
   if (!s.autoRotateEnabled) segments.push("orient=none");
+  if (s.pageEnabled && Number.isInteger(s.page) && s.page >= 0) segments.push(`page=${s.page}`);
   if (s.rotate !== 0) segments.push(`rotate=${s.rotate}`);
   if (s.flip !== "none")
     segments.push(`flip=${{ horizontal: "h", vertical: "v", both: "hv" }[s.flip]}`);
@@ -724,6 +730,10 @@ export function controlStateFromOptions(
     switch (key) {
       case "orient":
         s.autoRotateEnabled = value !== "none";
+        break;
+      case "page":
+        s.pageEnabled = true;
+        s.page = Number(value);
         break;
       case "rotate":
         s.rotate = Number(value);

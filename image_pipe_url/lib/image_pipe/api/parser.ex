@@ -514,6 +514,7 @@ defmodule ImagePipe.API.Parser do
     do: "invalid value: expected image, blurhash, lqip-css, or info"
 
   def message_for(:invalid_orientation), do: "invalid value: expected auto or none"
+  def message_for(:invalid_page), do: "invalid value: expected a non-negative integer"
   def message_for(:invalid_filename), do: "invalid value: expected [A-Za-z0-9._-]+"
   def message_for(:invalid_cachebuster), do: "invalid value: expected [A-Za-z0-9._-]+"
 

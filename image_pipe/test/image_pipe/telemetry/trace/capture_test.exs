@@ -82,7 +82,8 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
             error: :unsupported_source_format,
             detected_source_format: :tiff,
             source_loader: "dcrawload"
-          }
+          },
+          %{result: :processing_error, error: :page_out_of_range, page: 3, source_frames: 3}
         ] do
       Telemetry.span([telemetry_prefix: prefix], [:source, :fetch_decode], %{}, fn ->
         {:ok, metadata}

@@ -375,7 +375,13 @@ defmodule ImagePipe.Telemetry.Logger do
   defp message([:source, :fetch_decode | _], _m, meta) do
     notes =
       Enum.reject(
-        [detected_note(meta), loader_note(meta), frames_note(meta), limit_note(meta)],
+        [
+          detected_note(meta),
+          loader_note(meta),
+          page_note(meta),
+          frames_note(meta),
+          limit_note(meta)
+        ],
         &is_nil/1
       )
 
@@ -411,6 +417,9 @@ defmodule ImagePipe.Telemetry.Logger do
 
   defp loader_note(%{source_loader: loader}) when not is_nil(loader), do: "loader #{loader}"
   defp loader_note(_meta), do: nil
+
+  defp page_note(%{page: page}) when is_integer(page), do: "page #{page}"
+  defp page_note(_meta), do: nil
 
   defp frames_note(%{source_frames: frames}) when is_integer(frames) and frames > 1,
     do: "#{frames} frames"

@@ -45,7 +45,11 @@ defmodule ImagePipe.Decode do
   @peek_bytes 32 * 1024
   @reject_families [:bmp, :ico, :svg, :avif_sequence, :unknown]
 
-  @type error() :: {:source, term()} | {:decode, term()} | {:input_limit, term()}
+  @type error() ::
+          {:source, term()}
+          | {:decode, term()}
+          | {:input_limit, term()}
+          | {:page_out_of_range, non_neg_integer(), pos_integer()}
   @type input() :: Source.Resolved.t() | Source.Response.t() | {:download, pid(), binary()}
 
   @doc "Returns whether a JPEG or PNG prefix opens successfully with the matching decoder."
@@ -144,10 +148,13 @@ defmodule ImagePipe.Decode do
          :ok <- validate_frames(frames, opts) |> wrap_input_limit_error(),
          {:ok, source_format, resolution} <-
            resolve_source_format(detected, header_image) |> wrap_decode_error(),
-         storage_dimensions = {Image.width(header_image), Image.height(header_image)},
-         :ok <- validate_pixels(storage_dimensions, opts) |> wrap_input_limit_error(),
+         {:ok, page_image} <- select_page(header_image, request.page, frames, input, opts),
+         storage_dimensions = {Image.width(page_image), Image.height(page_image)},
+         :ok <-
+           validate_pixels(storage_dimensions, frames_decoded(request.page, header_image), opts)
+           |> wrap_input_limit_error(),
          pending_orientation =
-           PendingOrientation.from_exif(exif_orientation(header_image), auto_rotate?),
+           PendingOrientation.from_exif(exif_orientation(page_image), auto_rotate?),
          display_dimensions =
            PendingOrientation.display_dims(storage_dimensions, pending_orientation),
          geometry = %SourceGeometry{
@@ -155,7 +162,8 @@ defmodule ImagePipe.Decode do
            display_dimensions: display_dimensions,
            pending_orientation: pending_orientation,
            source_format: source_format,
-           debug_facts: debug_facts(input, header_image, opts)
+           pages: frames,
+           debug_facts: debug_facts(input, page_image, opts)
          },
          decode_request = Executor.decode_request(request, geometry),
          decode_options =
@@ -163,9 +171,9 @@ defmodule ImagePipe.Decode do
              decode_request,
              source_format,
              storage_dimensions,
-             exif_quarter_turn?(header_image),
+             exif_quarter_turn?(page_image),
              auto_rotate?
-           ),
+           ) ++ page_option(request.page),
          {:ok, image} <-
            open_seekable_input(input, decode_options, opts)
            |> wrap_decode_error() do
@@ -173,7 +181,8 @@ defmodule ImagePipe.Decode do
 
       {:ok, state, geometry,
        ok_stop_metadata(image, decode_options, storage_dimensions, detected, resolution)
-       |> Map.put(:source_frames, frames)}
+       |> Map.put(:source_frames, frames)
+       |> put_page(request.page)}
     end
   end
 
@@ -225,6 +234,10 @@ defmodule ImagePipe.Decode do
       detected_source_format: family,
       source_loader: loader
     }
+  end
+
+  defp error_stop_metadata({:page_out_of_range, page, pages}) do
+    %{result: :processing_error, error: :page_out_of_range, page: page, source_frames: pages}
   end
 
   defp error_stop_metadata({:source, error}),
@@ -382,7 +395,7 @@ defmodule ImagePipe.Decode do
 
   defp validate_header_pixels(peek, opts) do
     case HeaderDimensions.read(peek) do
-      {:ok, dimensions} -> validate_pixels(dimensions, opts)
+      {:ok, dimensions} -> validate_pixels(dimensions, 1, opts)
       :unknown -> :ok
     end
   end
@@ -417,9 +430,41 @@ defmodule ImagePipe.Decode do
     end
   end
 
-  defp validate_pixels({w, h}, opts) do
+  # Without a page, libvips decodes the source's default image (the primary
+  # image for HEIF), which can differ from page 0. A selected page gets its own
+  # header open so its dimensions and orientation apply.
+  defp select_page(header_image, nil, _pages, _input, _opts), do: {:ok, header_image}
+
+  defp select_page(_header_image, page, pages, _input, _opts) when page >= pages,
+    do: {:error, {:page_out_of_range, page, pages}}
+
+  defp select_page(_header_image, page, _pages, input, opts) do
+    input
+    |> open_seekable_input([access: :random, fail_on: :error, page: page], opts)
+    |> wrap_decode_error()
+  end
+
+  defp page_option(nil), do: []
+  defp page_option(page), do: [page: page]
+
+  defp put_page(metadata, nil), do: metadata
+  defp put_page(metadata, page), do: Map.put(metadata, :page, page)
+
+  # Timed frames (animations carry `delay`) are composited onto the frames
+  # before them, so decoding frame N decodes N + 1 canvases. Pages of a TIFF or
+  # HEIF collection decode independently.
+  defp frames_decoded(nil, _header_image), do: 1
+
+  defp frames_decoded(page, header_image) do
+    case VipsImage.header_value(header_image, "delay") do
+      {:ok, _delays} -> page + 1
+      _still -> 1
+    end
+  end
+
+  defp validate_pixels({w, h}, frames, opts) do
     max_input_pixels = Keyword.fetch!(opts, :max_input_pixels)
-    pixel_count = w * h
+    pixel_count = w * h * frames
 
     if pixel_count <= max_input_pixels do
       :ok

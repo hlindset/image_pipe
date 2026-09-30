@@ -6,7 +6,8 @@ defmodule ImagePipe.Transform.SourceGeometry do
   executor planning, output negotiation, and source reporting. Current image
   geometry and realized decode scaling belong to `ImagePipe.Transform.State`.
 
-  `debug_facts` carries best-effort, non-sensitive source facts collected by
+  `pages` is the number of pages or frames the source declares (1 for a still
+  image). `debug_facts` carries best-effort, non-sensitive source facts collected by
   `ImagePipe.Decode` for the debug headers; `%{}` when collection failed or
   the geometry was built elsewhere.
   """
@@ -20,6 +21,7 @@ defmodule ImagePipe.Transform.SourceGeometry do
     :display_dimensions,
     :pending_orientation,
     :source_format,
+    pages: 1,
     debug_facts: %{}
   ]
 
@@ -28,6 +30,7 @@ defmodule ImagePipe.Transform.SourceGeometry do
           display_dimensions: {pos_integer(), pos_integer()},
           pending_orientation: PendingOrientation.t(),
           source_format: Format.source_format(),
+          pages: pos_integer(),
           debug_facts: map()
         }
 end
