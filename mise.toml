@@ -14,10 +14,11 @@ uv = "0.11.23"
 python.precompiled_flavor = "install_only"
 
 [tasks.setup]
-description = "Install library and fiddle dependencies"
+description = "Install library, server, and fiddle dependencies"
 run = [
   "cd image_pipe_url && mix deps.get",
   "cd image_pipe && mix deps.get",
+  "cd image_pipe_server && mix deps.get",
   "cd fiddle && mix deps.get",
   "pnpm -C fiddle install --frozen-lockfile",
   "pnpm -C fiddle/assets run build",
@@ -48,6 +49,16 @@ run = [
   # Both this standalone gate and ExDNA.Credo consume the authoritative options
   # from ImagePipe.MixProject.ex_dna_options/0.
   "mix image_pipe.ex_dna",
+  "mix test",
+]
+
+[tasks."precommit:server"]
+description = "Library checks plus the image_pipe_server checks: format, compile (warnings as errors), test"
+depends = ["precommit"]
+dir = "image_pipe_server"
+run = [
+  "mix format --check-formatted",
+  "mix compile --warnings-as-errors",
   "mix test",
 ]
 
