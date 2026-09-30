@@ -85,27 +85,27 @@ defmodule ImagePipe.URLWireTest do
     refute_received :cache_put
   end
 
-  test "one shared config supplies encryption, signing, URL defaults, and processing", %{
-    sources: sources
-  } do
+  test "URLs built with ImagePipe.URL round trip through the Plug with signing, encryption, and presets",
+       %{
+         sources: sources
+       } do
     url_config =
       IP.URL.config(
         base_url: "https://cdn.test/images",
         keys: [@key],
         source_encryption_keys: [@encryption_key],
         encrypt_source: true,
-        iv_mode: :deterministic
+        iv_mode: :deterministic,
+        presets: %{"thumb" => "w=30/format=png"}
       )
 
     config = IP.config(url: url_config, sources: sources, quality: 71)
-
-    client =
-      IP.URL.new(url_config) |> IP.URL.group(resize: [width: 30]) |> IP.URL.output(format: :png)
+    client = IP.URL.new(url_config, presets: ["thumb"])
 
     url = IP.URL.url!(client, "photo.jpg")
     assert url == IP.URL.url!(client, "photo.jpg")
     assert String.starts_with?(url, "https://cdn.test/images/sig=")
-    assert url =~ "/enc/"
+    assert url =~ "/preset=thumb/enc/"
     refute url =~ "photo.jpg"
     refute_received :source_fetch
 
@@ -115,6 +115,7 @@ defmodule ImagePipe.URLWireTest do
       |> IP.Plug.call(IP.Plug.init(config: config, allow_debug_headers: true))
 
     assert response.status == 200
+    assert Image.width(Image.from_binary!(response.resp_body)) == 30
     assert_receive :source_fetch
     assert {:ok, native} = IP.run(config, client, {:source, "photo.jpg"})
     assert native.data == response.resp_body
