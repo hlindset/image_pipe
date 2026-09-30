@@ -49,11 +49,15 @@ defmodule ImagePipe.API.RequestSafetyTest do
   defp base_opts do
     [
       sources: [
-        path:
-          {RootHTTPAdapter,
-           root_url: "http://contract-kit-request-safety.test",
-           byte_identity: :strong,
-           req_options: [plug: {CountingOriginImage, test_pid: self()}]}
+        path: [
+          adapter: RootHTTPAdapter,
+          match: :path,
+          options: [
+            root_url: "http://contract-kit-request-safety.test",
+            byte_identity: :strong,
+            req_options: [plug: {CountingOriginImage, test_pid: self()}]
+          ]
+        ]
       ]
     ]
   end
@@ -67,11 +71,15 @@ defmodule ImagePipe.API.RequestSafetyTest do
 
   defp no_fetch_config(opts) do
     no_fetch_sources = [
-      path:
-        {RootHTTPAdapter,
-         root_url: "http://contract-kit-request-safety.test",
-         byte_identity: :strong,
-         req_options: [plug: OriginShouldNotFetch]}
+      path: [
+        adapter: RootHTTPAdapter,
+        match: :path,
+        options: [
+          root_url: "http://contract-kit-request-safety.test",
+          byte_identity: :strong,
+          req_options: [plug: OriginShouldNotFetch]
+        ]
+      ]
     ]
 
     build_config(Keyword.put(opts, :sources, no_fetch_sources))

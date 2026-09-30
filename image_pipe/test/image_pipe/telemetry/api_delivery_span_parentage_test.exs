@@ -46,8 +46,11 @@ defmodule ImagePipe.Telemetry.APIDeliverySpanParentageTest do
     config =
       ImagePipe.Plug.init(
         sources: [
-          path:
-            {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
+          path: [
+            adapter: RootHTTPAdapter,
+            match: :path,
+            options: [root_url: "http://origin.test", req_options: [plug: OriginImage]]
+          ]
         ],
         cache: {CacheProbe, result: :miss}
       )

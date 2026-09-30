@@ -11,19 +11,19 @@ defmodule ImagePipe.Source.File do
 
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Source
-  alias ImagePipe.Source.CachePolicy
-  alias ImagePipe.Source.CacheSemantics
+  alias ImagePipe.Source.CacheSettings
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
 
   @options_schema NimbleOptions.new!(
-                    root: [type: :string, required: true],
-                    root_id: [type: :string, required: true],
-                    stable: [type: {:in, [:auto, :trusted]}, default: :auto],
-                    cache_policy: [type: {:custom, CachePolicy, :validate, []}, default: []],
-                    internal_cache: [type: {:in, [:auto, :enabled, :disabled]}, default: :auto],
-                    http_cache: [type: {:in, [:inherit, :disabled, :enabled]}, default: :inherit]
+                    [
+                      root: [type: :string, required: true],
+                      root_id: [type: :string, required: true]
+                    ] ++ CacheSettings.schema()
                   )
+
+  @impl Source
+  def source_kinds, do: [:path]
 
   @impl Source
   def validate_options(opts) do
@@ -34,7 +34,7 @@ defmodule ImagePipe.Source.File do
           |> Keyword.update!(:root, &Path.expand/1)
           |> Keyword.put(:telemetry_kind, :file)
 
-        CachePolicy.validate_source(validated)
+        CacheSettings.validate(validated)
 
       {:error, error} ->
         {:error, {:invalid_source_config, Exception.message(error)}}
@@ -52,18 +52,22 @@ defmodule ImagePipe.Source.File do
         path: segments
       ]
 
-      stable? = Keyword.fetch!(opts, :stable) == :trusted
+      cache =
+        CacheSettings.fields(opts,
+          stable?: CacheSettings.trusted?(opts),
+          seed: identity,
+          auto: :when_stable
+        )
 
       {:ok,
-       %Resolved{
-         adapter: :path,
-         source_kind: :path,
-         identity: identity,
-         internal_cache: internal_cache_mode(opts, stable?),
-         http_cache: Keyword.fetch!(opts, :http_cache),
-         cache_semantics: cache_semantics(opts, stable?, identity),
-         fetch: [path: path, root: Keyword.fetch!(opts, :root), segments: segments]
-       }}
+       struct!(
+         Resolved,
+         [
+           source_kind: :path,
+           identity: identity,
+           fetch: [path: path, root: Keyword.fetch!(opts, :root), segments: segments]
+         ] ++ cache
+       )}
     end
   end
 
@@ -113,28 +117,5 @@ defmodule ImagePipe.Source.File do
       {:error, :eacces} -> {:error, {:source, :unreadable}}
       {:error, _reason} -> {:error, {:source, :unreadable}}
     end
-  end
-
-  defp internal_cache_mode(opts, stable?) do
-    case Keyword.fetch!(opts, :internal_cache) do
-      :enabled -> :enabled
-      :disabled -> :disabled
-      :auto -> if stable?, do: :enabled, else: :disabled
-    end
-  end
-
-  defp cache_semantics(opts, stable?, identity) do
-    byte_identity =
-      if stable? do
-        {:strong, identity}
-      else
-        :none
-      end
-
-    %CacheSemantics{
-      byte_identity: byte_identity,
-      stable?: stable?,
-      policy: Keyword.fetch!(opts, :cache_policy)
-    }
   end
 end

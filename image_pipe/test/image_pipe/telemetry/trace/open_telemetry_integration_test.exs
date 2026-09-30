@@ -45,6 +45,9 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
     @moduledoc false
     @behaviour ImagePipe.Source
 
+    @impl true
+    def source_kinds, do: [:path, :url, :object]
+
     alias ImagePipe.Source.Resolved
 
     @impl true
@@ -89,10 +92,14 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
   defp miss_opts do
     [
       sources: [
-        path:
-          {RootHTTPAdapter,
-           root_url: "http://origin.test",
-           req_options: [plug: ImagePipe.Test.PlugFixture.OriginImage]}
+        path: [
+          adapter: RootHTTPAdapter,
+          match: :path,
+          options: [
+            root_url: "http://origin.test",
+            req_options: [plug: ImagePipe.Test.PlugFixture.OriginImage]
+          ]
+        ]
       ],
       cache: {CacheProbe, result: :miss}
     ]
@@ -101,9 +108,11 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
   defp signed_miss_opts do
     [
       sources: [
-        path:
-          {SignedRootHTTPAdapter,
-           root_url: "http://origin.test", req_options: [plug: SignedOriginImage]}
+        path: [
+          adapter: SignedRootHTTPAdapter,
+          match: :path,
+          options: [root_url: "http://origin.test", req_options: [plug: SignedOriginImage]]
+        ]
       ],
       cache: {CacheProbe, result: :miss}
     ]

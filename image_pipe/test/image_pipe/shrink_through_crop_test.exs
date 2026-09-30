@@ -85,9 +85,11 @@ defmodule ImagePipe.ShrinkThroughCropTest do
   defp mount_options(body) do
     [
       sources: [
-        path:
-          {RootHTTPAdapter,
-           root_url: "http://origin.test", req_options: [plug: origin_plug(body)]}
+        path: [
+          adapter: RootHTTPAdapter,
+          match: :path,
+          options: [root_url: "http://origin.test", req_options: [plug: origin_plug(body)]]
+        ]
       ],
       max_input_pixels: 100_000_000,
       max_result_width: 100_000,

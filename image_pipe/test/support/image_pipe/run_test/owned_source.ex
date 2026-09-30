@@ -2,6 +2,9 @@ defmodule ImagePipe.RunTest.OwnedSource do
   @moduledoc false
   @behaviour ImagePipe.Source
 
+  @impl true
+  def source_kinds, do: [:path, :url, :object]
+
   alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
@@ -16,7 +19,6 @@ defmodule ImagePipe.RunTest.OwnedSource do
 
     {:ok,
      %Resolved{
-       adapter: :path,
        source_kind: :path,
        identity: [kind: :test],
        internal_cache: :disabled,

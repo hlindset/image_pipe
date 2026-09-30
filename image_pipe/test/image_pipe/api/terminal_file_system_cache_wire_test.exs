@@ -76,12 +76,16 @@ defmodule ImagePipe.API.TerminalFileSystemCacheWireTest do
 
     ImagePipe.Plug.init(
       sources: [
-        path:
-          {RootHTTPAdapter,
-           root_url: "http://origin.test",
-           byte_identity: byte_identity,
-           internal_cache: :enabled,
-           req_options: [plug: origin]}
+        path: [
+          adapter: RootHTTPAdapter,
+          match: :path,
+          options: [
+            root_url: "http://origin.test",
+            byte_identity: byte_identity,
+            internal_cache: :enabled,
+            req_options: [plug: origin]
+          ]
+        ]
       ],
       cache: {FileSystem, root: root},
       http_cache: [mode: :enabled],

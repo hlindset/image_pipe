@@ -49,7 +49,13 @@ url_config = ImagePipe.URL.config(presets: %{"card" => "w=400/h=400/fit=cover"})
 
 config = ImagePipe.config(
   url: url_config,
-  sources: [path: {ImagePipe.Source.File, root: "/srv/images", root_id: "media", stable: :trusted}],
+  sources: [
+    media: [
+      adapter: ImagePipe.Source.File,
+      match: :path,
+      options: [root: "/srv/images", root_id: "media", stable: :trusted]
+    ]
+  ],
   cache: {ImagePipe.Cache.FileSystem, root: "/var/cache/image-pipe/output"},
   input_cache: {ImagePipe.Cache.FileSystem, root: "/var/cache/image-pipe/input"},
   quality: 82,
@@ -375,24 +381,19 @@ configured `Source.File` input when a path needs confinement to a root.
 `{:binary, bytes}` takes encoded image bytes, such as an upload.
 Both obey `max_body_bytes` and `max_input_pixels`.
 
-`{:source, string}` uses the same source translation and configured adapters as
-HTTP. Supply the source string directly, without a `src` marker or outer URL
+`{:source, string}` routes through the configuration's
+[source mounts](sources.md#mounts-and-routing), the same way HTTP requests do.
+Supply the source string directly, without a `src` marker or outer URL
 encoding:
 
 ```elixir
-{:ok, result} =
-  ImagePipe.run(config, thumbnail, {:source, "photos/original.jpg"},
-    sources: [path: {ImagePipe.Source.File, root: "/srv/images", root_id: "media"}]
-  )
+{:ok, result} = ImagePipe.run(config, thumbnail, {:source, "photos/original.jpg"})
 
 {:ok, result} =
-  ImagePipe.run(config, thumbnail, {:source, "https://assets.example.com/original.jpg"},
-    sources: [url: {ImagePipe.Source.HTTP, allowed_hosts: ["assets.example.com"]}]
-  )
+  ImagePipe.run(config, thumbnail, {:source, "https://assets.example.com/original.jpg"})
 ```
 
-S3 adapters and custom `ImagePipe.Source.Scheme` translators work through this
-same input. Adapter-specific network, redirect, timeout, and content-type
+Prefix, custom-scheme, and S3 mounts work through this same input. Adapter-specific network, redirect, timeout, and content-type
 policies remain in effect. Configured path responses keep their adapter's file
 policy; stream responses have a bounded body read.
 
@@ -403,7 +404,7 @@ the mount's validated defaults for output quality, per-format quality,
 metadata, color profiles, HDR, quality search, encoder options, detector,
 `max_body_bytes`, `max_input_pixels`, `max_result_width`, `max_result_height`,
 `max_result_pixels`, and `telemetry_prefix`. Source configuration uses the
-same `sources` and `source_schemes` options. Output limits clamp dimensions
+same `sources` option. Output limits clamp dimensions
 using the same encoder limits as HTTP.
 
 `accept: "image/webp"` supplies optional format preferences when the plan

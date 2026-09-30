@@ -136,7 +136,13 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
         [
           processing_pool: pool,
           telemetry_prefix: prefix,
-          sources: [path: {ProcessingSource, test: self(), bytes: @image}]
+          sources: [
+            path: [
+              adapter: ProcessingSource,
+              match: :path,
+              options: [test: self(), bytes: @image]
+            ]
+          ]
         ],
         extra
       )

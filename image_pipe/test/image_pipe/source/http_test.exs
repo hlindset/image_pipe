@@ -1,6 +1,7 @@
 defmodule ImagePipe.Source.HTTPTest do
   use ExUnit.Case, async: false
 
+  alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Plan.Source.URL
   alias ImagePipe.Source
   alias ImagePipe.Source.HTTP
@@ -21,10 +22,18 @@ defmodule ImagePipe.Source.HTTPTest do
   end
 
   defp fetch_response(opts_kw, source) do
-    {:ok, opts} = HTTP.validate_options(opts_kw)
-    {:ok, resolved} = HTTP.resolve(source, opts, [])
+    config =
+      Source.validate_config!(
+        sources: [https: [adapter: HTTP, match: [scheme: "https"], options: opts_kw]]
+      )
 
-    Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 64)
+    {:ok, resolved} = Source.resolve(source, config, [])
+
+    Source.fetch(
+      resolved,
+      config,
+      max_body_bytes: 64
+    )
   end
 
   defp ok_plug do
@@ -69,7 +78,6 @@ defmodule ImagePipe.Source.HTTPTest do
     }
 
     assert {:ok, %Resolved{} = resolved} = HTTP.resolve(source, opts, [])
-    assert resolved.adapter == :https
     assert resolved.source_kind == :url
 
     assert resolved.identity == [
@@ -146,17 +154,29 @@ defmodule ImagePipe.Source.HTTPTest do
       query: nil
     }
 
-    assert {:ok, opts} =
-             HTTP.validate_options(
-               allowed_hosts: ["assets.example.com"],
-               address_resolver: stub_resolver(),
-               req_options: [plug: plug]
-             )
+    config =
+      Source.validate_config!(
+        sources: [
+          https: [
+            adapter: HTTP,
+            match: [scheme: "https"],
+            options: [
+              allowed_hosts: ["assets.example.com"],
+              address_resolver: stub_resolver(),
+              req_options: [plug: plug]
+            ]
+          ]
+        ]
+      )
 
-    assert {:ok, resolved} = HTTP.resolve(source, opts, [])
+    assert {:ok, resolved} = Source.resolve(source, config, [])
 
     assert {:ok, %Response{} = response} =
-             Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 20)
+             Source.fetch(
+               resolved,
+               config,
+               max_body_bytes: 20
+             )
 
     assert Enum.join(response.stream) == "image bytes"
   end
@@ -181,34 +201,46 @@ defmodule ImagePipe.Source.HTTPTest do
       query: nil
     }
 
-    assert {:ok, opts} =
-             HTTP.validate_options(
-               allowed_hosts: ["assets.example.com"],
-               internal_cache: :enabled,
-               address_resolver: stub_resolver(),
-               req_options: [
-                 plug: plug,
-                 url: "https://evil.example/other.jpg",
-                 base_url: "https://evil.example",
-                 method: :post,
-                 body: "not image",
-                 params: [v: "evil"],
-                 headers: [
-                   {"Host", "evil.example"},
-                   {"Range", "bytes=0-1"},
-                   {"Accept", "application/json"},
-                   {"x-extra", "kept"}
-                 ],
-                 into: :self,
-                 retry: true,
-                 max_redirects: 10
-               ]
-             )
+    config =
+      Source.validate_config!(
+        sources: [
+          https: [
+            adapter: HTTP,
+            match: [scheme: "https"],
+            options: [
+              allowed_hosts: ["assets.example.com"],
+              internal_cache: :enabled,
+              address_resolver: stub_resolver(),
+              req_options: [
+                plug: plug,
+                url: "https://evil.example/other.jpg",
+                base_url: "https://evil.example",
+                method: :post,
+                body: "not image",
+                params: [v: "evil"],
+                headers: [
+                  {"Host", "evil.example"},
+                  {"Range", "bytes=0-1"},
+                  {"Accept", "application/json"},
+                  {"x-extra", "kept"}
+                ],
+                into: :self,
+                retry: true,
+                max_redirects: 10
+              ]
+            ]
+          ]
+        ]
+      )
 
-    assert {:ok, resolved} = HTTP.resolve(source, opts, [])
+    assert {:ok, resolved} = Source.resolve(source, config, [])
 
     assert {:ok, %Response{} = response} =
-             Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 20)
+             Source.fetch(
+               resolved,
+               config,
+               max_body_bytes: 20
+             )
 
     assert Enum.join(response.stream) == "image bytes"
     assert_receive {:http_request, "GET", headers, "/cat.jpg", "", ""}
@@ -236,27 +268,39 @@ defmodule ImagePipe.Source.HTTPTest do
       query: nil
     }
 
-    assert {:ok, opts} =
-             HTTP.validate_options(
-               allowed_hosts: ["assets.example.com"],
-               stable: :trusted,
-               internal_cache: :disabled,
-               address_resolver: stub_resolver(),
-               req_options: [
-                 plug: plug,
-                 headers: [
-                   {"Range", "bytes=0-1"},
-                   {"Accept", "application/json"},
-                   {"Accept-Encoding", "gzip"},
-                   {"x-extra", "kept"}
-                 ]
-               ]
-             )
+    config =
+      Source.validate_config!(
+        sources: [
+          https: [
+            adapter: HTTP,
+            match: [scheme: "https"],
+            options: [
+              allowed_hosts: ["assets.example.com"],
+              stable: :trusted,
+              internal_cache: :disabled,
+              address_resolver: stub_resolver(),
+              req_options: [
+                plug: plug,
+                headers: [
+                  {"Range", "bytes=0-1"},
+                  {"Accept", "application/json"},
+                  {"Accept-Encoding", "gzip"},
+                  {"x-extra", "kept"}
+                ]
+              ]
+            ]
+          ]
+        ]
+      )
 
-    assert {:ok, resolved} = HTTP.resolve(source, opts, [])
+    assert {:ok, resolved} = Source.resolve(source, config, [])
 
     assert {:ok, %Response{} = response} =
-             Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 20)
+             Source.fetch(
+               resolved,
+               config,
+               max_body_bytes: 20
+             )
 
     assert Enum.join(response.stream) == "image bytes"
     assert_receive {:http_request, headers}
@@ -289,18 +333,30 @@ defmodule ImagePipe.Source.HTTPTest do
       query: nil
     }
 
-    assert {:ok, opts} =
-             HTTP.validate_options(
-               allowed_hosts: ["assets.example.com"],
-               max_redirects: 1,
-               address_resolver: stub_resolver(),
-               req_options: [plug: plug]
-             )
+    config =
+      Source.validate_config!(
+        sources: [
+          https: [
+            adapter: HTTP,
+            match: [scheme: "https"],
+            options: [
+              allowed_hosts: ["assets.example.com"],
+              max_redirects: 1,
+              address_resolver: stub_resolver(),
+              req_options: [plug: plug]
+            ]
+          ]
+        ]
+      )
 
-    assert {:ok, resolved} = HTTP.resolve(source, opts, [])
+    assert {:ok, resolved} = Source.resolve(source, config, [])
 
     assert {:ok, %Response{} = response} =
-             Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 20)
+             Source.fetch(
+               resolved,
+               config,
+               max_body_bytes: 20
+             )
 
     assert Enum.join(response.stream) == "image bytes"
     assert_receive {:http_request, "/other.jpg"}
@@ -321,17 +377,29 @@ defmodule ImagePipe.Source.HTTPTest do
       query: nil
     }
 
-    assert {:ok, opts} =
-             HTTP.validate_options(
-               allowed_hosts: ["assets.example.com"],
-               address_resolver: stub_resolver(),
-               req_options: [plug: plug, max_redirects: 10]
-             )
+    config =
+      Source.validate_config!(
+        sources: [
+          https: [
+            adapter: HTTP,
+            match: [scheme: "https"],
+            options: [
+              allowed_hosts: ["assets.example.com"],
+              address_resolver: stub_resolver(),
+              req_options: [plug: plug, max_redirects: 10]
+            ]
+          ]
+        ]
+      )
 
-    assert {:ok, resolved} = HTTP.resolve(source, opts, [])
+    assert {:ok, resolved} = Source.resolve(source, config, [])
 
     assert {:error, {:source, :redirect_not_followed}} =
-             Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 20)
+             Source.fetch(
+               resolved,
+               config,
+               max_body_bytes: 20
+             )
   end
 
   test "fetch percent-encodes decoded path segments when building the request URL" do
@@ -348,17 +416,29 @@ defmodule ImagePipe.Source.HTTPTest do
       query: "v=a%26b%3Dc"
     }
 
-    assert {:ok, opts} =
-             HTTP.validate_options(
-               allowed_hosts: ["assets.example.com"],
-               address_resolver: stub_resolver(),
-               req_options: [plug: plug]
-             )
+    config =
+      Source.validate_config!(
+        sources: [
+          https: [
+            adapter: HTTP,
+            match: [scheme: "https"],
+            options: [
+              allowed_hosts: ["assets.example.com"],
+              address_resolver: stub_resolver(),
+              req_options: [plug: plug]
+            ]
+          ]
+        ]
+      )
 
-    assert {:ok, resolved} = HTTP.resolve(source, opts, [])
+    assert {:ok, resolved} = Source.resolve(source, config, [])
 
     assert {:ok, %Response{} = response} =
-             Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 20)
+             Source.fetch(
+               resolved,
+               config,
+               max_body_bytes: 20
+             )
 
     assert Enum.join(response.stream) == "image bytes"
     assert_receive {:http_request, "/images/cat%23one%25two%20space%3F.jpg", "v=a%26b%3Dc"}
@@ -378,19 +458,31 @@ defmodule ImagePipe.Source.HTTPTest do
       query: "v=1"
     }
 
-    assert {:ok, opts} =
-             HTTP.validate_options(
-               allowed_hosts: ["::1"],
-               address_policy: [allow_loopback: true],
-               req_options: [plug: plug]
-             )
+    config =
+      Source.validate_config!(
+        sources: [
+          http: [
+            adapter: HTTP,
+            match: [scheme: "http"],
+            options: [
+              allowed_hosts: ["::1"],
+              address_policy: [allow_loopback: true],
+              req_options: [plug: plug]
+            ]
+          ]
+        ]
+      )
 
-    assert {:ok, resolved} = HTTP.resolve(source, opts, [])
+    assert {:ok, resolved} = Source.resolve(source, config, [])
 
     assert resolved.fetch[:url] == "http://[::1]:8080/cat.jpg?v=1"
 
     assert {:ok, %Response{} = response} =
-             Source.fetch(resolved, [sources: %{http: {HTTP, opts}}], max_body_bytes: 20)
+             Source.fetch(
+               resolved,
+               config,
+               max_body_bytes: 20
+             )
 
     assert Enum.join(response.stream) == "image bytes"
     assert_receive {:http_request, "::1", "/cat.jpg", "v=1"}
@@ -407,17 +499,29 @@ defmodule ImagePipe.Source.HTTPTest do
       query: nil
     }
 
-    assert {:ok, opts} =
-             HTTP.validate_options(
-               allowed_hosts: ["assets.example.com"],
-               address_resolver: stub_resolver(),
-               req_options: [plug: plug]
-             )
+    config =
+      Source.validate_config!(
+        sources: [
+          https: [
+            adapter: HTTP,
+            match: [scheme: "https"],
+            options: [
+              allowed_hosts: ["assets.example.com"],
+              address_resolver: stub_resolver(),
+              req_options: [plug: plug]
+            ]
+          ]
+        ]
+      )
 
-    assert {:ok, resolved} = HTTP.resolve(source, opts, [])
+    assert {:ok, resolved} = Source.resolve(source, config, [])
 
     assert {:error, {:source, {:bad_status, 404}}} =
-             Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 20)
+             Source.fetch(
+               resolved,
+               config,
+               max_body_bytes: 20
+             )
   end
 
   test "an enabled redirect to an off-allowlist host is denied" do
@@ -439,18 +543,30 @@ defmodule ImagePipe.Source.HTTPTest do
       query: nil
     }
 
-    assert {:ok, opts} =
-             HTTP.validate_options(
-               allowed_hosts: ["assets.example.com"],
-               max_redirects: 1,
-               address_resolver: stub_resolver(),
-               req_options: [plug: plug]
-             )
+    config =
+      Source.validate_config!(
+        sources: [
+          https: [
+            adapter: HTTP,
+            match: [scheme: "https"],
+            options: [
+              allowed_hosts: ["assets.example.com"],
+              max_redirects: 1,
+              address_resolver: stub_resolver(),
+              req_options: [plug: plug]
+            ]
+          ]
+        ]
+      )
 
-    assert {:ok, resolved} = HTTP.resolve(source, opts, [])
+    assert {:ok, resolved} = Source.resolve(source, config, [])
 
     assert {:error, {:source, :denied_host}} =
-             Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 20)
+             Source.fetch(
+               resolved,
+               config,
+               max_body_bytes: 20
+             )
   end
 
   describe "address_policy validation" do
@@ -481,7 +597,13 @@ defmodule ImagePipe.Source.HTTPTest do
 
       assert_raise ArgumentError, fn ->
         ImagePipe.Plug.init(
-          sources: [url: {HTTP, allowed_hosts: ["x"], address_policy: [allow_private: "false"]}]
+          sources: [
+            url: [
+              adapter: HTTP,
+              match: [scheme: ["http", "https"]],
+              options: [allowed_hosts: ["x"], address_policy: [allow_private: "false"]]
+            ]
+          ]
         )
       end
     end
@@ -708,6 +830,188 @@ defmodule ImagePipe.Source.HTTPTest do
         )
 
       assert blocked == {:error, {:source, :denied_address}}
+    end
+  end
+
+  describe "base_url mode" do
+    defp base_opts(extra \\ []) do
+      {:ok, opts} =
+        HTTP.validate_options(
+          Keyword.merge([base_url: "https://assets.example.com/t/p/original"], extra)
+        )
+
+      opts
+    end
+
+    test "allowed_hosts defaults to the base URL host" do
+      assert base_opts()[:allowed_hosts] == ["assets.example.com"]
+
+      assert {:ok, opts} =
+               HTTP.validate_options(
+                 base_url: "https://Assets.Example.com/t",
+                 allowed_hosts: ["assets.example.com", "cdn.example.com"]
+               )
+
+      assert opts[:allowed_hosts] == ["assets.example.com", "cdn.example.com"]
+    end
+
+    test "rejects a base URL outside the allowed hosts or with non-path parts" do
+      for base_url <- [
+            "ftp://assets.example.com/t",
+            "https:///t",
+            "/t/p",
+            "https://assets.example.com/t?v=1",
+            "https://assets.example.com/t#frag",
+            "https://user:secret@assets.example.com/t"
+          ] do
+        assert {:error, {:invalid_source_config, message}} =
+                 HTTP.validate_options(base_url: base_url)
+
+        refute message =~ "secret"
+      end
+
+      assert {:error, {:invalid_source_config, _message}} =
+               HTTP.validate_options(
+                 base_url: "https://assets.example.com/t",
+                 allowed_hosts: ["cdn.example.com"]
+               )
+    end
+
+    test "requires allowed_hosts without a base URL and a Regex path_pattern" do
+      assert {:error, {:invalid_source_config, _}} = HTTP.validate_options([])
+
+      assert {:error, {:invalid_source_config, _}} =
+               HTTP.validate_options(allowed_hosts: ["assets.example.com"], path_pattern: ~r/a/)
+
+      assert {:error, {:invalid_source_config, _}} =
+               HTTP.validate_options(
+                 base_url: "https://assets.example.com",
+                 path_pattern: "[a-z]+"
+               )
+    end
+
+    test "resolves a path source to the same URL resolution as a direct request" do
+      opts = base_opts()
+      path = %SourcePath{segments: ["cat one.jpg"]}
+
+      direct = %URL{
+        scheme: :https,
+        host: "assets.example.com",
+        path: ["t", "p", "original", "cat one.jpg"]
+      }
+
+      assert {:ok, via_path} = HTTP.resolve(path, opts, [])
+      assert {:ok, via_url} = HTTP.resolve(direct, opts, [])
+
+      assert via_path.source_kind == :url
+      assert via_path.identity == via_url.identity
+      assert via_path.cache_semantics == via_url.cache_semantics
+      assert via_path.fetch == via_url.fetch
+      assert via_path.fetch[:url] == "https://assets.example.com/t/p/original/cat%20one.jpg"
+    end
+
+    test "a base URL without a path or with a trailing slash maps segments below the root" do
+      for base_url <- ["https://assets.example.com", "https://assets.example.com/t/"] do
+        opts = base_opts(base_url: base_url)
+        assert {:ok, resolved} = HTTP.resolve(%SourcePath{segments: ["a", "b.jpg"]}, opts, [])
+        assert resolved.fetch[:url] =~ ~r{\Ahttps://assets\.example\.com(/t)?/a/b\.jpg\z}
+      end
+    end
+
+    test "rejects empty and dot segments" do
+      opts = base_opts()
+
+      for segments <- [["..", "secret.jpg"], [".", "a.jpg"], ["a", "", "b.jpg"], [""]] do
+        assert HTTP.resolve(%SourcePath{segments: segments}, opts, []) ==
+                 {:error, {:source, :denied_path}}
+      end
+    end
+
+    test "path_pattern must match the whole relative path" do
+      opts = base_opts(path_pattern: ~r/[a-z]+\.jpg/)
+
+      assert {:ok, _resolved} = HTTP.resolve(%SourcePath{segments: ["cat.jpg"]}, opts, [])
+
+      for segments <- [["cat.jpg.png"], ["dir", "cat.jpg"], ["CAT.jpg"]] do
+        assert HTTP.resolve(%SourcePath{segments: segments}, opts, []) ==
+                 {:error, {:source, :denied_path}}
+      end
+
+      alternation = base_opts(path_pattern: ~r/a|ab/)
+      assert {:ok, _resolved} = HTTP.resolve(%SourcePath{segments: ["ab"]}, alternation, [])
+
+      nested = base_opts(path_pattern: ~r{[a-z]+/[a-z]+\.jpg})
+
+      assert {:ok, _resolved} =
+               HTTP.resolve(%SourcePath{segments: ["dir", "cat.jpg"]}, nested, [])
+    end
+
+    test "cache identity is stable across independently built configurations" do
+      identity = fn ->
+        config =
+          Source.validate_config!(
+            sources: [
+              path: [
+                adapter: HTTP,
+                match: :path,
+                options: [
+                  base_url: "https://assets.example.com/t",
+                  path_pattern: ~r/[a-z]+\.jpg/,
+                  stable: :trusted
+                ]
+              ]
+            ]
+          )
+
+        {:ok, resolved} = Source.resolve(%SourcePath{segments: ["cat.jpg"]}, config, [])
+        {:ok, prepared, _context} = Source.prepare_cache_context(resolved, config)
+        prepared.cache_semantics.byte_identity
+      end
+
+      assert {:strong, _seed} = identity.()
+      assert identity.() == identity.()
+    end
+
+    test "path sources need a base URL" do
+      {:ok, opts} = HTTP.validate_options(allowed_hosts: ["assets.example.com"])
+
+      assert HTTP.resolve(%SourcePath{segments: ["cat.jpg"]}, opts, []) ==
+               {:error, {:source, :missing_adapter}}
+    end
+
+    test "fetches the mapped URL through a prefix mount" do
+      plug = fn conn ->
+        send(self(), {:http_request, conn.host, conn.request_path})
+        Plug.Conn.send_resp(conn, 200, "image bytes")
+      end
+
+      config =
+        Source.validate_config!(
+          sources: [
+            tmdb: [
+              adapter: HTTP,
+              match: [prefix: "tmdb"],
+              options: [
+                base_url: "https://assets.example.com/t/p/original",
+                address_resolver: stub_resolver(),
+                req_options: [plug: plug]
+              ]
+            ]
+          ]
+        )
+
+      assert {:ok, resolved} =
+               Source.resolve(%SourcePath{segments: ["tmdb", "a b.jpg"]}, config, [])
+
+      assert {:ok, %Response{} = response} =
+               Source.fetch(
+                 resolved,
+                 config,
+                 max_body_bytes: 20
+               )
+
+      assert Enum.join(response.stream) == "image bytes"
+      assert_receive {:http_request, "assets.example.com", "/t/p/original/a%20b.jpg"}
     end
   end
 end

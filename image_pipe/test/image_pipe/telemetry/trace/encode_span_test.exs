@@ -50,10 +50,14 @@ defmodule ImagePipe.Telemetry.Trace.EncodeSpanTest do
   defp beach_opts do
     [
       sources: [
-        path:
-          {RootHTTPAdapter,
-           root_url: "http://origin.test",
-           req_options: [plug: ImagePipe.Test.PlugFixture.OriginImage]}
+        path: [
+          adapter: RootHTTPAdapter,
+          match: :path,
+          options: [
+            root_url: "http://origin.test",
+            req_options: [plug: ImagePipe.Test.PlugFixture.OriginImage]
+          ]
+        ]
       ]
     ]
   end

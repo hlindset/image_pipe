@@ -262,7 +262,10 @@ defmodule ImagePipe.RunTest do
     end
   end
 
-  defp owned_source(bytes), do: [sources: [path: {OwnedSource, pid: self(), bytes: bytes}]]
+  defp owned_source(bytes),
+    do: [
+      sources: [path: [adapter: OwnedSource, match: :path, options: [pid: self(), bytes: bytes]]]
+    ]
 
   defp assert_closed do
     assert_received :source_resolved

@@ -32,7 +32,11 @@ defmodule ImagePipe.PresetsTest do
       IP.config(
         url: url_config,
         sources: [
-          path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin]}
+          path: [
+            adapter: RootHTTPAdapter,
+            match: :path,
+            options: [root_url: "http://origin.test", req_options: [plug: origin]]
+          ]
         ]
       )
 
@@ -168,13 +172,17 @@ defmodule ImagePipe.PresetsTest do
         url: url_config,
         cache: {ImagePipe.Test.PlugFixture.CacheProbe, store: table},
         sources: [
-          path:
-            {RootHTTPAdapter,
-             root_url: "http://origin.test",
-             byte_identity: :strong,
-             req_options: [
-               plug: {ImagePipe.Test.PlugFixture.CountingOriginImage, test_pid: self()}
-             ]}
+          path: [
+            adapter: RootHTTPAdapter,
+            match: :path,
+            options: [
+              root_url: "http://origin.test",
+              byte_identity: :strong,
+              req_options: [
+                plug: {ImagePipe.Test.PlugFixture.CountingOriginImage, test_pid: self()}
+              ]
+            ]
+          ]
         ]
       )
 

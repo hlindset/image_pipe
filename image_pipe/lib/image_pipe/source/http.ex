@@ -2,21 +2,28 @@ defmodule ImagePipe.Source.HTTP do
   @moduledoc """
   Built-in HTTP source adapter with destination and response-size controls.
 
-  `:allowed_hosts` is required. Redirects are disabled by default and every
-  redirect target is checked against the same host and network-address policy.
-  The default transport connects to validated addresses while preserving the
-  original hostname for HTTP and TLS.
+  `:allowed_hosts` is required unless `:base_url` is set. Redirects are disabled
+  by default and every redirect target is checked against the same host and
+  network-address policy. The default transport connects to validated addresses
+  while preserving the original hostname for HTTP and TLS.
   Transport settings may be supplied through the documented timeout and
   `:req_options` fields in the mount configuration.
+
+  Mounted under `path:` with `:base_url`, the adapter serves path sources from
+  that origin: each path segment is percent-encoded and appended to the base
+  URL, which then resolves exactly like a direct request for the full URL.
+  `:allowed_hosts` defaults to the base URL's host. Paths with empty, `.`, or
+  `..` segments are rejected, and an optional `:path_pattern` regex must match
+  the whole relative path (segments joined with `/`).
   """
 
   @behaviour ImagePipe.Source
 
+  alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Plan.Source.URL
   alias ImagePipe.Source
   alias ImagePipe.Source.Auth
-  alias ImagePipe.Source.CachePolicy
-  alias ImagePipe.Source.CacheSemantics
+  alias ImagePipe.Source.CacheSettings
   alias ImagePipe.Source.HTTP.AddressPolicy
   alias ImagePipe.Source.HTTP.TargetGuard
   alias ImagePipe.Source.ReqSanitizer
@@ -38,40 +45,118 @@ defmodule ImagePipe.Source.HTTP do
   ]
   @host_header_names ["host"]
   @default_ports %{http: 80, https: 443}
+  @base_url_schemes %{"http" => :http, "https" => :https}
 
   @options_schema NimbleOptions.new!(
-                    allowed_hosts: [type: {:list, :string}, required: true],
-                    req_options: [type: :keyword_list, default: []],
-                    receive_timeout: [type: :non_neg_integer],
-                    connect_timeout: [type: :non_neg_integer],
-                    pool_timeout: [type: :non_neg_integer],
-                    max_redirects: [type: :non_neg_integer, default: 0],
-                    stable: [type: {:in, [:auto, :trusted]}, default: :auto],
-                    cache_policy: [type: {:custom, CachePolicy, :validate, []}, default: []],
-                    internal_cache: [type: {:in, [:auto, :enabled, :disabled]}, default: :auto],
-                    http_cache: [type: {:in, [:inherit, :disabled, :enabled]}, default: :inherit],
-                    address_policy: [
-                      type:
-                        {:or, [{:fun, 2}, {:custom, __MODULE__, :validate_address_policy_kw, []}]},
-                      default: []
-                    ],
-                    address_resolver: [type: {:fun, 1}]
+                    [
+                      allowed_hosts: [type: {:list, :string}],
+                      base_url: [type: :string],
+                      path_pattern: [type: {:struct, Regex}],
+                      req_options: [type: :keyword_list, default: []],
+                      receive_timeout: [type: :non_neg_integer],
+                      connect_timeout: [type: :non_neg_integer],
+                      pool_timeout: [type: :non_neg_integer],
+                      max_redirects: [type: :non_neg_integer, default: 0],
+                      address_policy: [
+                        type:
+                          {:or,
+                           [{:fun, 2}, {:custom, __MODULE__, :validate_address_policy_kw, []}]},
+                        default: []
+                      ],
+                      address_resolver: [type: {:fun, 1}]
+                    ] ++ CacheSettings.schema()
                   )
 
   @impl Source
+  def source_kinds, do: [:path, :url]
+
+  @impl Source
   def validate_options(opts) do
-    case NimbleOptions.validate(opts, @options_schema) do
-      {:ok, validated} ->
-        normalized =
-          validated
-          |> Keyword.update!(:allowed_hosts, fn hosts -> Enum.map(hosts, &String.downcase/1) end)
-          |> Keyword.put(:telemetry_kind, :http)
-
-        CachePolicy.validate_source(normalized)
-
-      {:error, error} ->
-        {:error, {:invalid_source_config, Exception.message(error)}}
+    with {:ok, validated} <- validate_schema(opts),
+         {:ok, validated} <- validate_base_url(validated) do
+      validated
+      |> Keyword.update!(:allowed_hosts, fn hosts -> Enum.map(hosts, &String.downcase/1) end)
+      |> Keyword.put(:telemetry_kind, :http)
+      |> CacheSettings.validate()
     end
+  end
+
+  defp validate_schema(opts) do
+    case NimbleOptions.validate(opts, @options_schema) do
+      {:ok, validated} -> {:ok, validated}
+      {:error, error} -> {:error, {:invalid_source_config, Exception.message(error)}}
+    end
+  end
+
+  defp validate_base_url(opts) do
+    case Keyword.fetch(opts, :base_url) do
+      :error ->
+        cond do
+          not Keyword.has_key?(opts, :allowed_hosts) ->
+            {:error, {:invalid_source_config, "required :allowed_hosts option not found"}}
+
+          Keyword.has_key?(opts, :path_pattern) ->
+            {:error, {:invalid_source_config, "path_pattern requires base_url"}}
+
+          true ->
+            {:ok, opts}
+        end
+
+      {:ok, base_url} ->
+        with {:ok, base} <- parse_base_url(base_url),
+             {:ok, hosts} <- base_allowed_hosts(opts, base.host),
+             {:ok, opts} <- anchor_path_pattern(opts) do
+          {:ok, opts |> Keyword.put(:base_url, base) |> Keyword.put(:allowed_hosts, hosts)}
+        end
+    end
+  end
+
+  # path_pattern must match the whole path, so anchor it once here.
+  defp anchor_path_pattern(opts) do
+    case Keyword.fetch(opts, :path_pattern) do
+      :error ->
+        {:ok, opts}
+
+      {:ok, pattern} ->
+        options = Regex.opts(pattern)
+        close = if :extended in options, do: "\n)\\z", else: ")\\z"
+
+        case Regex.compile("\\A(?:" <> Regex.source(pattern) <> close, options) do
+          {:ok, anchored} -> {:ok, Keyword.put(opts, :path_pattern, anchored)}
+          {:error, _reason} -> {:error, {:invalid_source_config, "invalid path_pattern"}}
+        end
+    end
+  end
+
+  defp parse_base_url(base_url) do
+    with {:ok, %URI{scheme: scheme, host: host} = uri} when is_map_key(@base_url_schemes, scheme) <-
+           URI.new(base_url),
+         true <- is_binary(host) and host != "",
+         true <- is_nil(uri.query) and is_nil(uri.fragment) and is_nil(uri.userinfo) do
+      segments =
+        uri.path |> Kernel.||("") |> String.split("/", trim: true) |> Enum.map(&URI.decode/1)
+
+      {:ok,
+       %{
+         scheme: Map.fetch!(@base_url_schemes, scheme),
+         host: String.downcase(host),
+         port: uri.port,
+         path: segments
+       }}
+    else
+      _invalid ->
+        {:error,
+         {:invalid_source_config,
+          "base_url must be an http(s) URL with a host and no query, fragment, or credentials"}}
+    end
+  end
+
+  defp base_allowed_hosts(opts, base_host) do
+    hosts = opts |> Keyword.get(:allowed_hosts, [base_host]) |> Enum.map(&String.downcase/1)
+
+    if base_host in hosts,
+      do: {:ok, hosts},
+      else: {:error, {:invalid_source_config, "allowed_hosts must include the base_url host"}}
   end
 
   @doc false
@@ -113,6 +198,13 @@ defmodule ImagePipe.Source.HTTP do
   def validate_address_policy_kw(_value), do: {:error, "address_policy keyword list expected"}
 
   @impl Source
+  def resolve(%SourcePath{segments: segments}, opts, runtime_opts) do
+    with {:ok, base} <- fetch_base_url(opts),
+         :ok <- validate_path(segments, opts) do
+      resolve(base_source(base, segments), opts, runtime_opts)
+    end
+  end
+
   def resolve(%URL{scheme: scheme} = source, opts, _runtime_opts)
       when scheme in [:http, :https] do
     host = String.downcase(source.host)
@@ -130,26 +222,58 @@ defmodule ImagePipe.Source.HTTP do
         query: source.query
       ]
 
-      stable? = Keyword.fetch!(opts, :stable) == :trusted
-      internal_cache = internal_cache_mode(opts, stable?)
+      stable? = CacheSettings.trusted?(opts)
+
+      cache =
+        CacheSettings.fields(opts,
+          stable?: stable?,
+          seed: redacted_http_identity(identity),
+          auto: :enabled
+        )
 
       {:ok,
-       %Resolved{
-         adapter: scheme,
-         source_kind: :url,
-         identity: identity,
-         internal_cache: internal_cache,
-         http_cache: Keyword.fetch!(opts, :http_cache),
-         cache_semantics: cache_semantics(opts, stable?, identity),
-         fetch: [
-           url: build_url(%{source | host: host, port: port}),
-           strip_byte_headers: stable? or internal_cache == :enabled
-         ]
-       }}
+       struct!(
+         Resolved,
+         [
+           source_kind: :url,
+           identity: identity,
+           fetch: [
+             url: build_url(%{source | host: host, port: port}),
+             strip_byte_headers: stable? or cache[:internal_cache] == :enabled
+           ]
+         ] ++ cache
+       )}
     else
       {:error, {:source, :denied_host}}
     end
   end
+
+  defp fetch_base_url(opts) do
+    case Keyword.fetch(opts, :base_url) do
+      {:ok, base} -> {:ok, base}
+      :error -> {:error, {:source, :missing_adapter}}
+    end
+  end
+
+  # Origins may normalize dot segments, which would escape the base path.
+  defp validate_path(segments, opts) do
+    cond do
+      Enum.any?(segments, &(&1 in ["", ".", ".."])) ->
+        {:error, {:source, :denied_path}}
+
+      not path_allowed?(Enum.join(segments, "/"), opts[:path_pattern]) ->
+        {:error, {:source, :denied_path}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp path_allowed?(_path, nil), do: true
+  defp path_allowed?(path, pattern), do: Regex.match?(pattern, path)
+
+  defp base_source(base, segments),
+    do: %URL{scheme: base.scheme, host: base.host, port: base.port, path: base.path ++ segments}
 
   @impl Source
   def fetch(%Resolved{fetch: fetch}, opts, runtime_opts) do
@@ -184,29 +308,6 @@ defmodule ImagePipe.Source.HTTP do
     resolver = Keyword.get(opts, :address_resolver, &TargetGuard.default_resolver/1)
 
     fn url -> TargetGuard.validate(url, allowed_hosts, predicate, resolver) end
-  end
-
-  defp internal_cache_mode(opts, _stable?) do
-    case Keyword.fetch!(opts, :internal_cache) do
-      :enabled -> :enabled
-      :disabled -> :disabled
-      :auto -> :enabled
-    end
-  end
-
-  defp cache_semantics(opts, stable?, identity) do
-    byte_identity =
-      if stable? do
-        {:strong, redacted_http_identity(identity)}
-      else
-        :none
-      end
-
-    %CacheSemantics{
-      byte_identity: byte_identity,
-      stable?: stable?,
-      policy: Keyword.fetch!(opts, :cache_policy)
-    }
   end
 
   defp redacted_http_identity(identity) do

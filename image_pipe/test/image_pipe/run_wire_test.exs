@@ -8,7 +8,15 @@ defmodule ImagePipe.RunWireTest do
   alias Vix.Vips.Image, as: VipsImage
 
   @root "test/support/image_pipe/test/sources"
-  @source_config [sources: [path: {ImagePipe.Source.File, root: @root, root_id: "fixtures"}]]
+  @source_config [
+    sources: [
+      path: [
+        adapter: ImagePipe.Source.File,
+        match: :path,
+        options: [root: @root, root_id: "fixtures"]
+      ]
+    ]
+  ]
 
   test "binary, file, configured source and HTTP share oriented grouped pixels" do
     plan =

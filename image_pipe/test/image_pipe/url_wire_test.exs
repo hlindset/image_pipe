@@ -23,7 +23,18 @@ defmodule ImagePipe.URLWireTest do
     on_exit(fn -> File.rm_rf!(root) end)
     body = Image.new!(60, 40, color: [80, 120, 160]) |> Image.write!(:memory, suffix: ".png")
     File.write!(Path.join(root, "photo.png"), body)
-    config = IP.config(sources: [path: {ImagePipe.Source.File, root: root, root_id: "photos"}])
+
+    config =
+      IP.config(
+        sources: [
+          path: [
+            adapter: ImagePipe.Source.File,
+            match: :path,
+            options: [root: root, root_id: "photos"]
+          ]
+        ]
+      )
+
     builder = IP.URL.new() |> IP.URL.group(resize: [width: 30]) |> IP.URL.output(format: :png)
     assert {:ok, expected} = IP.run(config, builder, {:source, "photo.png"})
     assert {:ok, ^expected} = IP.run(config, builder, {:source, "/photo.png"})
@@ -50,7 +61,11 @@ defmodule ImagePipe.URLWireTest do
     end
 
     sources = [
-      path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin]}
+      path: [
+        adapter: RootHTTPAdapter,
+        match: :path,
+        options: [root_url: "http://origin.test", req_options: [plug: origin]]
+      ]
     ]
 
     %{body: body, sources: sources}

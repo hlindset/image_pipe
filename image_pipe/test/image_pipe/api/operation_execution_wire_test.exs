@@ -24,7 +24,13 @@ defmodule ImagePipe.API.OperationExecutionWireTest do
     config =
       ImagePipe.Plug.init(
         telemetry_prefix: prefix,
-        sources: [path: {ImagePipe.Source.File, root: "priv/static", root_id: "operations"}]
+        sources: [
+          path: [
+            adapter: ImagePipe.Source.File,
+            match: :path,
+            options: [root: "priv/static", root_id: "operations"]
+          ]
+        ]
       )
 
     %{config: config, prefix: prefix}
@@ -79,9 +85,11 @@ defmodule ImagePipe.API.OperationExecutionWireTest do
       ImagePipe.Plug.init(
         telemetry_prefix: prefix,
         sources: [
-          path:
-            {ImagePipe.SourceTest.RootHTTPAdapter,
-             root_url: "http://origin.test", req_options: [plug: origin]}
+          path: [
+            adapter: ImagePipe.SourceTest.RootHTTPAdapter,
+            match: :path,
+            options: [root_url: "http://origin.test", req_options: [plug: origin]]
+          ]
         ]
       )
 

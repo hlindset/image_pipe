@@ -4,10 +4,7 @@ defmodule ImagePipe.API.SourceTest do
   alias ImagePipe.Plan.Source.Object
   alias ImagePipe.Plan.Source.Path
   alias ImagePipe.Plan.Source.URL
-  alias ImagePipe.Plug.Config
   alias ImagePipe.Source.Parser, as: Source
-
-  @foobar_translator ImagePipe.SourceTest.FoobarTranslator
 
   describe "translate/2 — relative path sources" do
     test "an optional leading slash resolves to the same root-relative path" do
@@ -113,7 +110,7 @@ defmodule ImagePipe.API.SourceTest do
     test "maps the bucket, opaque key, and decoded revision to an object source" do
       assert {:ok,
               %Object{
-                adapter: :s3,
+                scheme: "s3",
                 scope: "bucket",
                 key: "images/my photo#1%done.jpg",
                 revision: "version=a&b=c"
@@ -147,66 +144,36 @@ defmodule ImagePipe.API.SourceTest do
     end
   end
 
-  describe "translate/2 — configured source schemes" do
-    test "routes an exact decoded source string through a configured translator" do
-      source = "foobar://asset/cat%20one.jpg"
+  describe "translate/2 — custom schemes" do
+    setup do
+      config =
+        ImagePipe.Source.validate_config!(
+          sources: [
+            assets: [
+              adapter: ImagePipe.Source.File,
+              match: [scheme: "asset"],
+              options: [root: "/srv/assets", root_id: "assets"]
+            ]
+          ]
+        )
 
-      assert {:ok, %Object{adapter: :foobar, key: ^source}} =
-               Source.translate(source,
-                 source_schemes: %{"foobar" => {@foobar_translator, color: "blue"}}
-               )
-
-      assert_receive {:foobar_translate, ^source}
+      %{config: config}
     end
 
-    test "normalizes callback failures without exposing callback reasons" do
-      source = "broken://asset/cat.jpg"
+    test "a scheme a mount matches becomes a scheme-tagged path", %{config: config} do
+      assert Source.translate("asset://catalog/42 a.jpg", config) ==
+               {:ok, %Path{scheme: "asset", segments: ["catalog", "42 a.jpg"]}}
 
-      assert Source.translate(source,
-               source_schemes: %{"broken" => {ImagePipe.Source.Parser, []}}
-             ) == {:error, {:invalid_source, {:source_scheme_error, "broken"}}}
+      assert Source.translate("Asset://catalog/42", config) ==
+               {:ok, %Path{scheme: "asset", segments: ["catalog", "42"]}}
     end
 
-    test "built-in source schemes cannot be replaced by configured translators" do
-      config = %{"https" => {@foobar_translator, []}, "s3" => {@foobar_translator, []}}
+    test "a custom scheme no mount matches is unsupported", %{config: config} do
+      assert Source.translate("other://catalog/42", config) ==
+               {:error, {:invalid_source, {:unsupported_scheme, "other"}}}
 
-      assert {:ok, %URL{}} =
-               Source.translate("https://example.com/cat.jpg", source_schemes: config)
-
-      assert {:ok, %Object{adapter: :s3}} =
-               Source.translate("s3://bucket/cat.jpg", source_schemes: config)
-
-      refute_received {:foobar_translate, _source}
-    end
-  end
-
-  describe "source_schemes configuration" do
-    test "accepts canonical custom schemes and supplies an empty default" do
-      assert Config.validate!([])[:source_schemes] == %{}
-
-      schemes = %{"ipfs+gateway" => {@foobar_translator, color: "blue"}}
-      assert Config.validate!(source_schemes: schemes)[:source_schemes] == schemes
-    end
-
-    test "rejects built-in and non-canonical scheme names" do
-      for scheme <- ["http", "https", "s3", "Foobar", "1foobar", "foo bar", ""] do
-        assert_raise ArgumentError, fn ->
-          Config.validate!(source_schemes: %{scheme => {@foobar_translator, []}})
-        end
-      end
-    end
-
-    test "rejects translators that are not callable with keyword options" do
-      for source_schemes <- [
-            %{"foobar" => {NotAModule, []}},
-            %{"foobar" => {@foobar_translator, %{color: "blue"}}},
-            %{"foobar" => :not_a_translator},
-            [{"foobar", {@foobar_translator, []}}]
-          ] do
-        assert_raise ArgumentError, fn ->
-          Config.validate!(source_schemes: source_schemes)
-        end
-      end
+      assert Source.translate("asset://catalog/42", []) ==
+               {:error, {:invalid_source, {:unsupported_scheme, "asset"}}}
     end
   end
 

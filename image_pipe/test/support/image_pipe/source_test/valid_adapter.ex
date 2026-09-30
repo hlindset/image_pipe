@@ -3,6 +3,9 @@ defmodule ImagePipe.SourceTest.ValidAdapter do
 
   @behaviour ImagePipe.Source
 
+  @impl true
+  def source_kinds, do: [:path, :url, :object]
+
   @impl ImagePipe.Source
   def validate_options(opts), do: {:ok, opts}
 
@@ -13,7 +16,6 @@ defmodule ImagePipe.SourceTest.ValidAdapter do
 
     {:ok,
      %ImagePipe.Source.Resolved{
-       adapter: Keyword.get(opts, :adapter, :path),
        source_kind: :path,
        identity: [kind: :path, root: "test", path: ["images", "cat.jpg"]],
        internal_cache: Keyword.get(opts, :internal_cache, :enabled),

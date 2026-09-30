@@ -64,11 +64,15 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     shared =
       IP.config(
         sources: [
-          url:
-            {ImagePipe.Source.HTTP,
-             allowed_hosts: ["origin.test"],
-             address_resolver: fn _ -> {:ok, [{93, 184, 216, 34}]} end,
-             req_options: [plug: plug]}
+          url: [
+            adapter: ImagePipe.Source.HTTP,
+            match: [scheme: ["http", "https"]],
+            options: [
+              allowed_hosts: ["origin.test"],
+              address_resolver: fn _ -> {:ok, [{93, 184, 216, 34}]} end,
+              req_options: [plug: plug]
+            ]
+          ]
         ],
         cache: {FileSystem, root: Path.join(root, "output")},
         input_cache: {FileSystem, root: Path.join(root, "input")},
@@ -434,10 +438,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     config: config,
     state: state
   } do
-    {module, opts} = config[:sources][:https]
-
-    config =
-      Keyword.put(config, :sources, %{https: {module, Keyword.put(opts, :stable, :trusted)}})
+    config = update_url_mount(config, &Keyword.put(&1, :stable, :trusted))
 
     first = request(config, 12)
     assert first.status == 200
@@ -560,7 +561,6 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     config: config,
     state: state
   } do
-    {module, opts} = config[:sources][:https]
     test_pid = self()
 
     auth = fn ->
@@ -569,8 +569,11 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
       {:bearer, token}
     end
 
-    opts = Keyword.update!(opts, :req_options, &Keyword.put(&1, :auth, auth))
-    config = Keyword.put(config, :sources, %{https: {module, opts}})
+    config =
+      update_url_mount(config, fn opts ->
+        Keyword.update!(opts, :req_options, &Keyword.put(&1, :auth, auth))
+      end)
+
     first = request(config, 12)
     assert first.status == 200
     assert_receive {:auth_resolved, "principal-1"}
@@ -589,11 +592,9 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     config: config,
     root: root
   } do
-    {module, opts} = config[:sources][:https]
-
     config =
       config
-      |> Keyword.put(:sources, %{https: {module, Keyword.put(opts, :stable, :trusted)}})
+      |> update_url_mount(&Keyword.put(&1, :stable, :trusted))
       |> Keyword.put(:source_cache_policy, storage: :allow)
 
     first = request(config, 12)
@@ -669,5 +670,12 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
       Enum.reduce(headers, conn, fn {name, value}, conn -> put_req_header(conn, name, value) end)
 
     ImagePipe.Plug.call(conn, config)
+  end
+
+  # Changes the validated options of the `url` mount in place.
+  defp update_url_mount(config, fun) do
+    update_in(config, [:sources, Access.key!(:mounts), :url], fn {module, opts} ->
+      {module, fun.(opts)}
+    end)
   end
 end

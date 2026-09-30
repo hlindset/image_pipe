@@ -44,7 +44,11 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
         max_body_bytes: 20_000_000,
         max_input_pixels: 60_000_000,
         sources: [
-          url: {HTTP, allowed_hosts: ["127.0.0.1"], address_policy: [allow_loopback: true]}
+          url: [
+            adapter: HTTP,
+            match: [scheme: ["http", "https"]],
+            options: [allowed_hosts: ["127.0.0.1"], address_policy: [allow_loopback: true]]
+          ]
         ],
         cache: {FileSystem, root: Path.join(root, "output")},
         input_cache: {FileSystem, root: Path.join(root, "input")},
@@ -124,9 +128,17 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
     config =
       ImagePipe.Plug.init(
         sources: [
-          path:
-            {ProcessingSource,
-             test: self(), bytes: context.body, stream: stream, origin: origin, source_kind: :url}
+          path: [
+            adapter: ProcessingSource,
+            match: :path,
+            options: [
+              test: self(),
+              bytes: context.body,
+              stream: stream,
+              origin: origin,
+              source_kind: :url
+            ]
+          ]
         ],
         cache: {FileSystem, root: Path.join(context.root, "output")},
         input_cache: {FileSystem, root: Path.join(context.root, "input")},

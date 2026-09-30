@@ -23,7 +23,14 @@ defmodule ImagePipe.ConfiguredBuilderTest do
 
   test "configuration validates host options and keeps credentials out of inspection" do
     secret = "source-credential-value"
-    config = IP.config(sources: [path: {ImagePipe.RunTest.OwnedSource, secret: secret}])
+
+    config =
+      IP.config(
+        sources: [
+          path: [adapter: ImagePipe.RunTest.OwnedSource, match: :path, options: [secret: secret]]
+        ]
+      )
+
     refute inspect(config) =~ secret
     assert_raise ArgumentError, fn -> IP.config(unknown: secret) end
     assert_raise ArgumentError, fn -> IP.config(allow_origin: "*") end
@@ -43,11 +50,15 @@ defmodule ImagePipe.ConfiguredBuilderTest do
     config =
       IP.config(
         sources: [
-          path:
-            {ImagePipe.Source.File,
-             root: Path.expand("test/support/image_pipe/test/sources"),
-             root_id: "test-images",
-             stable: :trusted}
+          path: [
+            adapter: ImagePipe.Source.File,
+            match: :path,
+            options: [
+              root: Path.expand("test/support/image_pipe/test/sources"),
+              root_id: "test-images",
+              stable: :trusted
+            ]
+          ]
         ],
         cache: {ImagePipe.Cache.FileSystem, root: root}
       )

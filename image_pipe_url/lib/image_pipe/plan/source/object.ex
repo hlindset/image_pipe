@@ -1,13 +1,13 @@
 defmodule ImagePipe.Plan.Source.Object do
   @moduledoc """
-  Product-neutral bucket or container object source.
+  Product-neutral bucket or container object source, such as `s3://bucket/key`.
   """
 
-  @enforce_keys [:adapter, :scope, :key]
-  defstruct [:adapter, :scope, :key, :revision]
+  @enforce_keys [:scheme, :scope, :key]
+  defstruct [:scheme, :scope, :key, :revision]
 
   @type t :: %__MODULE__{
-          adapter: atom(),
+          scheme: String.t(),
           scope: String.t(),
           key: String.t(),
           revision: String.t() | nil

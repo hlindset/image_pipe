@@ -55,7 +55,13 @@ defmodule ImagePipe.API.SourceIdentityWireTest do
     {:ok, bytes} = Image.write(image, :memory, suffix: ".png")
 
     ImagePipe.Plug.init(
-      sources: [path: {IdentitySource, seed: seed, bytes: bytes, owner: self()}],
+      sources: [
+        path: [
+          adapter: IdentitySource,
+          match: :path,
+          options: [seed: seed, bytes: bytes, owner: self()]
+        ]
+      ],
       cache: {CacheProbe, store: store}
     )
   end

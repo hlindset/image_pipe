@@ -18,7 +18,7 @@ defmodule ImagePipe.Source.S3Test do
                ]
              )
 
-    source = %Object{adapter: :s3, scope: "bucket", key: "cat.jpg", revision: "v1"}
+    source = %Object{scheme: "s3", scope: "bucket", key: "cat.jpg", revision: "v1"}
 
     assert {:ok, resolved} = S3.resolve(source, opts, [])
 
@@ -40,7 +40,7 @@ defmodule ImagePipe.Source.S3Test do
                ]
              )
 
-    source = %Object{adapter: :s3, scope: "bucket", key: "cat.jpg", revision: nil}
+    source = %Object{scheme: "s3", scope: "bucket", key: "cat.jpg", revision: nil}
 
     assert {:ok, resolved} = S3.resolve(source, opts, [])
 
@@ -58,7 +58,7 @@ defmodule ImagePipe.Source.S3Test do
                ]
              )
 
-    source = %Object{adapter: :s3, scope: "bucket", key: "cat.jpg", revision: ""}
+    source = %Object{scheme: "s3", scope: "bucket", key: "cat.jpg", revision: ""}
 
     assert {:ok, resolved} = S3.resolve(source, opts, [])
 
@@ -83,10 +83,9 @@ defmodule ImagePipe.Source.S3Test do
                }
              )
 
-    source = %Object{adapter: :s3, scope: "tenant-a", key: "images/cat.jpg", revision: "abc"}
+    source = %Object{scheme: "s3", scope: "tenant-a", key: "images/cat.jpg", revision: "abc"}
 
     assert {:ok, %Resolved{} = resolved} = S3.resolve(source, opts, [])
-    assert resolved.adapter == :s3
     assert resolved.source_kind == :object
 
     assert resolved.identity == [
@@ -118,7 +117,7 @@ defmodule ImagePipe.Source.S3Test do
                }
              )
 
-    source = %Object{adapter: :s3, scope: "tenant-a", key: "images/cat.jpg"}
+    source = %Object{scheme: "s3", scope: "tenant-a", key: "images/cat.jpg"}
     assert {:ok, %Resolved{} = resolved} = S3.resolve(source, opts, [])
 
     assert Keyword.fetch!(resolved.fetch, :receive_timeout) == 500
@@ -147,7 +146,7 @@ defmodule ImagePipe.Source.S3Test do
                buckets: %{"tenant-a" => []}
              )
 
-    assert S3.resolve(%Object{adapter: :s3, scope: "tenant-b", key: "cat.jpg"}, opts, []) ==
+    assert S3.resolve(%Object{scheme: "s3", scope: "tenant-b", key: "cat.jpg"}, opts, []) ==
              {:error, {:source, :denied_bucket}}
   end
 
@@ -160,32 +159,48 @@ defmodule ImagePipe.Source.S3Test do
     tenant_a = "tenant-a-#{System.unique_integer([:positive])}"
     tenant_b = "tenant-b-#{System.unique_integer([:positive])}"
 
-    assert {:ok, opts} =
-             S3.validate_options(
-               default: [
-                 region: "us-east-1",
-                 endpoint: "https://minio.test",
-                 req_options: [plug: plug]
-               ],
-               buckets: %{
-                 tenant_a => [
-                   credentials:
-                     {:provider, CredentialProvider, role: "tenant-a", report_to: self()}
-                 ],
-                 tenant_b => [
-                   credentials:
-                     {:provider, CredentialProvider, role: "tenant-b", report_to: self()}
-                 ]
-               }
-             )
+    config =
+      Source.validate_config!(
+        sources: [
+          s3: [
+            adapter: S3,
+            match: [scheme: "s3"],
+            options: [
+              default: [
+                region: "us-east-1",
+                endpoint: "https://minio.test",
+                req_options: [plug: plug]
+              ],
+              buckets: %{
+                tenant_a => [
+                  credentials:
+                    {:provider, CredentialProvider, role: "tenant-a", report_to: self()}
+                ],
+                tenant_b => [
+                  credentials:
+                    {:provider, CredentialProvider, role: "tenant-b", report_to: self()}
+                ]
+              }
+            ]
+          ]
+        ]
+      )
 
     assert {:ok, resolved} =
-             S3.resolve(%Object{adapter: :s3, scope: tenant_b, key: "images/cat.jpg"}, opts, [])
+             Source.resolve(
+               %Object{scheme: "s3", scope: tenant_b, key: "images/cat.jpg"},
+               config,
+               []
+             )
 
     refute_received {:fetch_credentials, _, _, _}
 
     assert {:ok, %Response{} = response} =
-             Source.fetch(resolved, [sources: %{s3: {S3, opts}}], max_body_bytes: 20)
+             Source.fetch(
+               resolved,
+               config,
+               max_body_bytes: 20
+             )
 
     assert Enum.join(response.stream) == "image bytes"
     assert_receive {:fetch_credentials, ^tenant_b, [role: "tenant-b"], []}
@@ -259,32 +274,46 @@ defmodule ImagePipe.Source.S3Test do
   test "fetch signs only after cache miss and sends versioned object request" do
     plug = fn conn ->
       send(self(), {:s3_request, conn.req_headers, conn.request_path, conn.query_string})
-      Plug.Conn.send_resp(conn, 200, "image bytes")
+
+      conn
+      |> Plug.Conn.put_resp_header("x-amz-version-id", "abc")
+      |> Plug.Conn.send_resp(200, "image bytes")
     end
 
     # unique bucket name — the credential RefreshCache is application-global and
     # this suite is async, so a shared scope could pre-warm the entry elsewhere.
     tenant = "tenant-a-#{System.unique_integer([:positive])}"
 
-    assert {:ok, opts} =
-             S3.validate_options(
-               default: [
-                 region: "us-east-1",
-                 endpoint: "https://minio.test/",
-                 credentials:
-                   {:provider, CredentialProvider, role: "tenant-a", report_to: self()},
-                 req_options: [plug: plug]
-               ]
-             )
+    config =
+      Source.validate_config!(
+        sources: [
+          s3: [
+            adapter: S3,
+            match: [scheme: "s3"],
+            options: [
+              default: [
+                region: "us-east-1",
+                endpoint: "https://minio.test/",
+                credentials: {:provider, CredentialProvider, role: "tenant-a", report_to: self()},
+                req_options: [plug: plug]
+              ]
+            ]
+          ]
+        ]
+      )
 
-    source = %Object{adapter: :s3, scope: tenant, key: "images/cat.jpg", revision: "abc"}
+    source = %Object{scheme: "s3", scope: tenant, key: "images/cat.jpg", revision: "abc"}
 
-    assert {:ok, resolved} = S3.resolve(source, opts, [])
+    assert {:ok, resolved} = Source.resolve(source, config, [])
     assert resolved.identity[:endpoint] == "https://minio.test"
     refute_received {:fetch_credentials, _, _, _}
 
     assert {:ok, %Response{} = response} =
-             Source.fetch(resolved, [sources: %{s3: {S3, opts}}], max_body_bytes: 20)
+             Source.fetch(
+               resolved,
+               config,
+               max_body_bytes: 20
+             )
 
     assert Enum.join(response.stream) == "image bytes"
     assert_receive {:fetch_credentials, ^tenant, [role: "tenant-a"], []}
@@ -298,33 +327,85 @@ defmodule ImagePipe.Source.S3Test do
              List.keyfind(headers, "x-amz-security-token", 0)
   end
 
+  test "a versioned fetch fails unless the store confirms the requested version" do
+    for version_header <- [nil, "other"] do
+      plug = fn conn ->
+        conn =
+          if version_header,
+            do: Plug.Conn.put_resp_header(conn, "x-amz-version-id", version_header),
+            else: conn
+
+        Plug.Conn.send_resp(conn, 200, "current bytes")
+      end
+
+      config =
+        Source.validate_config!(
+          sources: [
+            s3: [
+              adapter: S3,
+              match: [scheme: "s3"],
+              options: [
+                default: [
+                  region: "us-east-1",
+                  endpoint: "https://minio.test",
+                  credentials: {:static, access_key_id: "A", secret_access_key: "S"},
+                  req_options: [plug: plug]
+                ]
+              ]
+            ]
+          ]
+        )
+
+      source = %Object{scheme: "s3", scope: "bucket", key: "cat.jpg", revision: "abc"}
+      assert {:ok, resolved} = Source.resolve(source, config, [])
+
+      assert Source.fetch(resolved, config, max_body_bytes: 20) ==
+               {:error, {:source, :version_mismatch}}
+    end
+  end
+
   test "fetch percent-encodes decoded object keys and revisions once" do
     plug = fn conn ->
       send(self(), {:s3_request, conn.req_headers, conn.request_path, conn.query_string})
-      Plug.Conn.send_resp(conn, 200, "image bytes")
+
+      conn
+      |> Plug.Conn.put_resp_header("x-amz-version-id", "a&b=c")
+      |> Plug.Conn.send_resp(200, "image bytes")
     end
 
-    assert {:ok, opts} =
-             S3.validate_options(
-               default: [
-                 region: "us-east-1",
-                 endpoint: "https://minio.test",
-                 credentials: {:static, access_key_id: "A", secret_access_key: "S"},
-                 req_options: [plug: plug]
-               ]
-             )
+    config =
+      Source.validate_config!(
+        sources: [
+          s3: [
+            adapter: S3,
+            match: [scheme: "s3"],
+            options: [
+              default: [
+                region: "us-east-1",
+                endpoint: "https://minio.test",
+                credentials: {:static, access_key_id: "A", secret_access_key: "S"},
+                req_options: [plug: plug]
+              ]
+            ]
+          ]
+        ]
+      )
 
     source = %Object{
-      adapter: :s3,
+      scheme: "s3",
       scope: "tenant-a",
       key: "images/cat#one%two space?.jpg",
       revision: "a&b=c"
     }
 
-    assert {:ok, resolved} = S3.resolve(source, opts, [])
+    assert {:ok, resolved} = Source.resolve(source, config, [])
 
     assert {:ok, %Response{} = response} =
-             Source.fetch(resolved, [sources: %{s3: {S3, opts}}], max_body_bytes: 20)
+             Source.fetch(
+               resolved,
+               config,
+               max_body_bytes: 20
+             )
 
     assert Enum.join(response.stream) == "image bytes"
 
@@ -347,42 +428,54 @@ defmodule ImagePipe.Source.S3Test do
       Plug.Conn.send_resp(conn, 200, "image bytes")
     end
 
-    assert {:ok, opts} =
-             S3.validate_options(
-               default: [
-                 region: "us-east-1",
-                 endpoint: "https://minio.test",
-                 credentials: {:static, access_key_id: "A", secret_access_key: "S"},
-                 req_options: [
-                   plug: plug,
-                   url: "https://evil.example/other",
-                   base_url: "https://evil.example",
-                   method: :post,
-                   body: "not image",
-                   params: [versionId: "evil"],
-                   into: :self,
-                   retry: true,
-                   max_redirects: 10,
-                   auth: {:bearer, "evil"},
-                   headers: [
-                     {"Authorization", "Bearer evil"},
-                     {"X-Amz-Security-Token", "evil-token"},
-                     {"Host", "evil.example"},
-                     {"X-Amz-Content-Sha256", "evil-sha"},
-                     {"Range", "bytes=0-1"},
-                     {"Accept", "application/json"},
-                     {"x-extra", "kept"}
-                   ],
-                   aws_sigv4: [service: :execute_api, region: "us-east-1"]
-                 ]
-               ]
-             )
+    config =
+      Source.validate_config!(
+        sources: [
+          s3: [
+            adapter: S3,
+            match: [scheme: "s3"],
+            options: [
+              default: [
+                region: "us-east-1",
+                endpoint: "https://minio.test",
+                credentials: {:static, access_key_id: "A", secret_access_key: "S"},
+                req_options: [
+                  plug: plug,
+                  url: "https://evil.example/other",
+                  base_url: "https://evil.example",
+                  method: :post,
+                  body: "not image",
+                  params: [versionId: "evil"],
+                  into: :self,
+                  retry: true,
+                  max_redirects: 10,
+                  auth: {:bearer, "evil"},
+                  headers: [
+                    {"Authorization", "Bearer evil"},
+                    {"X-Amz-Security-Token", "evil-token"},
+                    {"Host", "evil.example"},
+                    {"X-Amz-Content-Sha256", "evil-sha"},
+                    {"Range", "bytes=0-1"},
+                    {"Accept", "application/json"},
+                    {"x-extra", "kept"}
+                  ],
+                  aws_sigv4: [service: :execute_api, region: "us-east-1"]
+                ]
+              ]
+            ]
+          ]
+        ]
+      )
 
-    source = %Object{adapter: :s3, scope: "tenant-a", key: "images/cat.jpg"}
-    assert {:ok, resolved} = S3.resolve(source, opts, [])
+    source = %Object{scheme: "s3", scope: "tenant-a", key: "images/cat.jpg"}
+    assert {:ok, resolved} = Source.resolve(source, config, [])
 
     assert {:ok, %Response{} = response} =
-             Source.fetch(resolved, [sources: %{s3: {S3, opts}}], max_body_bytes: 20)
+             Source.fetch(
+               resolved,
+               config,
+               max_body_bytes: 20
+             )
 
     assert Enum.join(response.stream) == "image bytes"
 
@@ -402,31 +495,43 @@ defmodule ImagePipe.Source.S3Test do
       Plug.Conn.send_resp(conn, 200, "image bytes")
     end
 
-    assert {:ok, opts} =
-             S3.validate_options(
-               default: [
-                 region: "us-east-1",
-                 endpoint: "https://minio.test",
-                 stable: :trusted,
-                 internal_cache: :disabled,
-                 credentials: {:static, access_key_id: "A", secret_access_key: "S"},
-                 req_options: [
-                   plug: plug,
-                   headers: [
-                     {"Range", "bytes=0-1"},
-                     {"Accept", "application/json"},
-                     {"Accept-Encoding", "gzip"},
-                     {"x-extra", "kept"}
-                   ]
-                 ]
-               ]
-             )
+    config =
+      Source.validate_config!(
+        sources: [
+          s3: [
+            adapter: S3,
+            match: [scheme: "s3"],
+            options: [
+              default: [
+                region: "us-east-1",
+                endpoint: "https://minio.test",
+                stable: :trusted,
+                internal_cache: :disabled,
+                credentials: {:static, access_key_id: "A", secret_access_key: "S"},
+                req_options: [
+                  plug: plug,
+                  headers: [
+                    {"Range", "bytes=0-1"},
+                    {"Accept", "application/json"},
+                    {"Accept-Encoding", "gzip"},
+                    {"x-extra", "kept"}
+                  ]
+                ]
+              ]
+            ]
+          ]
+        ]
+      )
 
-    source = %Object{adapter: :s3, scope: "tenant-a", key: "images/cat.jpg"}
-    assert {:ok, resolved} = S3.resolve(source, opts, [])
+    source = %Object{scheme: "s3", scope: "tenant-a", key: "images/cat.jpg"}
+    assert {:ok, resolved} = Source.resolve(source, config, [])
 
     assert {:ok, %Response{} = response} =
-             Source.fetch(resolved, [sources: %{s3: {S3, opts}}], max_body_bytes: 20)
+             Source.fetch(
+               resolved,
+               config,
+               max_body_bytes: 20
+             )
 
     assert Enum.join(response.stream) == "image bytes"
     assert_receive {:s3_request, headers}
@@ -454,7 +559,7 @@ defmodule ImagePipe.Source.S3Test do
                ]
              )
 
-    source = %Object{adapter: :s3, scope: "tenant-a", key: "images/cat.jpg"}
+    source = %Object{scheme: "s3", scope: "tenant-a", key: "images/cat.jpg"}
     assert {:ok, resolved} = S3.resolve(source, opts, [])
     assert S3.fetch(resolved, opts, []) == {:error, {:source, :credentials_unavailable}}
   end

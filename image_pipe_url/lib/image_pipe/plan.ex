@@ -31,8 +31,7 @@ defmodule ImagePipe.Plan do
       Source.Identity,
       Source.Path,
       Source.URL,
-      Source.Object,
-      Source.Reference
+      Source.Object
     ]
 
   alias ImagePipe.Plan.Builder.Options

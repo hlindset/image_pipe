@@ -9,8 +9,11 @@ defmodule ImagePipe.Test.ForwardRouter do
     to: ImagePipe.Plug,
     init_opts: [
       sources: [
-        path:
-          {ImagePipe.Source.File, root: Path.expand("sources", __DIR__), root_id: "forward-test"}
+        path: [
+          adapter: ImagePipe.Source.File,
+          match: :path,
+          options: [root: Path.expand("sources", __DIR__), root_id: "forward-test"]
+        ]
       ]
     ]
 end

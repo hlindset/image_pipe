@@ -21,6 +21,7 @@ defmodule ImagePipe.Response.ErrorStatusTest do
       assert {404, _} = ErrorStatus.resolve_status({:source, :connect_error})
       assert {404, _} = ErrorStatus.resolve_status({:source, :too_many_redirects})
       assert {502, _} = ErrorStatus.resolve_status({:source, {:bad_status, 503}})
+      assert {502, _} = ErrorStatus.resolve_status({:source, :version_mismatch})
       assert {451, _} = ErrorStatus.resolve_status({:source, {:bad_status, 451}})
       assert {404, _} = ErrorStatus.resolve_status({:source, {:bad_status, 199}})
       assert {504, _} = ErrorStatus.resolve_status({:source, :receive_timeout})

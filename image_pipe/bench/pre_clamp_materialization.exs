@@ -151,7 +151,7 @@ defmodule PreClampMaterializationBench do
     config =
       ImagePipe.Plug.init(
         [
-          sources: [path: {ImagePipe.Source.File, root: root, root_id: "fd8"}],
+          sources: [path: [adapter: ImagePipe.Source.File, match: :path, options: [root: root, root_id: "fd8"]]],
           telemetry_prefix: @prefix
         ] ++ limits(cap)
       )

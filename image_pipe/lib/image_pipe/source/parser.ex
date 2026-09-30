@@ -12,8 +12,8 @@ defmodule ImagePipe.Source.Parser do
       path escapes are decoded once here and re-encoded by the HTTP adapter.
     * `s3://` — an `%Plan.Source.Object{}` with the query carried as its
       immutable revision.
-    * configured schemes — a host translator returning a concrete
-      `Plan.Source` value.
+    * a custom scheme a mount matches — a `%Plan.Source.Path{}` tagged with
+      that scheme, holding the part after `scheme://` split on `/`.
     * anything else (an unknown scheme, an empty source, or a malformed
       authority) — `{:error, {:invalid_source, reason}}`.
 
@@ -24,8 +24,8 @@ defmodule ImagePipe.Source.Parser do
   alias ImagePipe.Plan.Source, as: PlanSource
   alias ImagePipe.Plan.Source.Object
   alias ImagePipe.Plan.Source.Path
-  alias ImagePipe.Plan.Source.Reference
   alias ImagePipe.Plan.Source.URL
+  alias ImagePipe.Source.Mounts
 
   @http_schemes %{"http" => :http, "https" => :https}
   @scheme_prefix ~r/^([a-zA-Z][a-zA-Z0-9+.\-]*):\/\//
@@ -58,7 +58,12 @@ defmodule ImagePipe.Source.Parser do
   end
 
   defp url_translate(scheme, source, config) do
-    custom_source(scheme, source, Keyword.get(config, :source_schemes, %{}))
+    if scheme in Mounts.custom_schemes(Keyword.get(config, :sources, %Mounts{})) do
+      rest = binary_part(source, byte_size(scheme) + 3, byte_size(source) - byte_size(scheme) - 3)
+      {:ok, %Path{scheme: scheme, segments: String.split(rest, "/")}}
+    else
+      {:error, {:invalid_source, {:unsupported_scheme, scheme}}}
+    end
   end
 
   defp build_url(scheme, source, %URI{} = uri) do
@@ -86,7 +91,7 @@ defmodule ImagePipe.Source.Parser do
          {:ok, revision} <- decode_optional(uri.query) do
       {:ok,
        %Object{
-         adapter: :s3,
+         scheme: "s3",
          scope: uri.host,
          key: key,
          revision: revision
@@ -118,85 +123,6 @@ defmodule ImagePipe.Source.Parser do
       result -> result
     end
   end
-
-  defp custom_source(scheme, source, source_schemes) do
-    case source_schemes do
-      %{^scheme => {translator, translator_opts}} ->
-        call_source_translator(scheme, source, translator, translator_opts)
-
-      _source_schemes ->
-        {:error, {:invalid_source, {:unsupported_scheme, scheme}}}
-    end
-  end
-
-  defp call_source_translator(scheme, source, translator, translator_opts) do
-    case translator.translate(source, translator_opts) do
-      {:ok, translated} -> validate_translated_source(translated, scheme)
-      _other -> {:error, {:invalid_source, {:source_scheme_error, scheme}}}
-    end
-  rescue
-    _error -> {:error, {:invalid_source, {:source_scheme_error, scheme}}}
-  catch
-    _kind, _reason -> {:error, {:invalid_source, {:source_scheme_error, scheme}}}
-  end
-
-  defp validate_translated_source(%Path{segments: segments} = source, source_scheme)
-       when is_list(segments) do
-    if Enum.all?(segments, &is_binary/1),
-      do: {:ok, source},
-      else: invalid_translation(source_scheme)
-  end
-
-  defp validate_translated_source(%URL{} = source, source_scheme) do
-    if valid_url_source?(source), do: {:ok, source}, else: invalid_translation(source_scheme)
-  end
-
-  defp validate_translated_source(
-         %Object{adapter: adapter, scope: scope, key: key, revision: revision} = source,
-         _scheme
-       )
-       when is_atom(adapter) and is_binary(scope) and is_binary(key) and
-              (is_nil(revision) or is_binary(revision)),
-       do: {:ok, source}
-
-  defp validate_translated_source(
-         %Reference{
-           adapter: adapter,
-           id: id,
-           revision: revision,
-           metadata: metadata
-         } = source,
-         scheme
-       )
-       when is_atom(adapter) and is_binary(id) and (is_nil(revision) or is_binary(revision)) do
-    if Keyword.keyword?(metadata), do: {:ok, source}, else: invalid_translation(scheme)
-  end
-
-  defp validate_translated_source(_source, scheme), do: invalid_translation(scheme)
-
-  defp invalid_translation(scheme),
-    do: {:error, {:invalid_source, {:source_scheme_error, scheme}}}
-
-  defp valid_url_source?(%URL{} = source) do
-    valid_url_origin?(source) and valid_url_path?(source.path) and
-      optional_binary?(source.query)
-  end
-
-  defp valid_url_origin?(%URL{scheme: scheme, host: host, port: port})
-       when scheme in [:http, :https] and is_binary(host) and host != "",
-       do: valid_port?(port)
-
-  defp valid_url_origin?(%URL{}), do: false
-
-  defp valid_url_path?(path) when is_list(path), do: Enum.all?(path, &is_binary/1)
-  defp valid_url_path?(_path), do: false
-
-  defp valid_port?(nil), do: true
-  defp valid_port?(port) when is_integer(port), do: port in 1..65_535
-  defp valid_port?(_port), do: false
-
-  defp optional_binary?(nil), do: true
-  defp optional_binary?(value), do: is_binary(value)
 
   defp reject_object_port(source) do
     case source_port(source) do

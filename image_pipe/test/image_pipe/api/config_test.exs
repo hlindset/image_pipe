@@ -104,7 +104,11 @@ defmodule ImagePipe.Plug.ConfigTest do
     assert_raise ArgumentError, fn -> Config.validate!(cache: :not_a_cache_config) end
 
     assert_raise ArgumentError, fn ->
-      Config.validate!(sources: [path: {ImagePipe.SourceTest.CustomAdapter, :not_options}])
+      Config.validate!(
+        sources: [
+          path: [adapter: ImagePipe.SourceTest.CustomAdapter, match: :path, options: :not_options]
+        ]
+      )
     end
   end
 

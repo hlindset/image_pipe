@@ -175,12 +175,16 @@ defmodule ImagePipe.API.ObjectCropWireTest do
 
     [
       sources: [
-        path:
-          {RootHTTPAdapter,
-           root_url: "http://origin.test",
-           byte_identity: :strong,
-           internal_cache: :enabled,
-           req_options: [plug: origin]}
+        path: [
+          adapter: RootHTTPAdapter,
+          match: :path,
+          options: [
+            root_url: "http://origin.test",
+            byte_identity: :strong,
+            internal_cache: :enabled,
+            req_options: [plug: origin]
+          ]
+        ]
       ],
       http_cache: [mode: :enabled],
       max_body_bytes: 10_000_000,

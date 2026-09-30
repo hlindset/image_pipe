@@ -77,6 +77,7 @@ defmodule ImagePipe.MixProject do
     "ImagePipe.Delivery.stream/5",
     "ImagePipe.Execution.Identity.material/5",
     "ImagePipe.Output.EncodeSearch.run/3",
+    "ImagePipe.Source.resolve/3",
     "t:ImagePipe.Transform.SourceGeometry.t/0",
     "t:ImagePipe.Transform.State.t/0"
   ]

@@ -329,9 +329,15 @@ defmodule ImagePipe.API.PixelEffectsWireTest do
   defp mount(origin) do
     ImagePipe.Plug.init(
       sources: [
-        path:
-          {RootHTTPAdapter,
-           root_url: "http://origin.test", byte_identity: :strong, req_options: [plug: origin]}
+        path: [
+          adapter: RootHTTPAdapter,
+          match: :path,
+          options: [
+            root_url: "http://origin.test",
+            byte_identity: :strong,
+            req_options: [plug: origin]
+          ]
+        ]
       ],
       http_cache: [mode: :enabled]
     )

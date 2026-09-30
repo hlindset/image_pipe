@@ -15,8 +15,11 @@ url_config = ImagePipe.URL.config(base_url: "/images")
 config = ImagePipe.config(
   url: url_config,
   sources: [
-    path: {ImagePipe.Source.File,
-           root: "/srv/images", root_id: "media", stable: :trusted}
+    media: [
+      adapter: ImagePipe.Source.File,
+      match: :path,
+      options: [root: "/srv/images", root_id: "media", stable: :trusted]
+    ]
   ],
   cache: {ImagePipe.Cache.FileSystem, root: "/var/cache/image-pipe/output"},
   quality: 82

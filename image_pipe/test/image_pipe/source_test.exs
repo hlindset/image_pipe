@@ -6,10 +6,8 @@ defmodule ImagePipe.SourceTest do
   alias ImagePipe.Plan.Source.URL
   alias ImagePipe.Source
   alias ImagePipe.Source.CacheSemantics
-  alias ImagePipe.Source.HTTP
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
-  alias ImagePipe.SourceTest.AdapterMismatchAdapter
   alias ImagePipe.SourceTest.CustomAdapter
   alias ImagePipe.SourceTest.InvalidAdapter
   alias ImagePipe.SourceTest.InvalidConfigAdapter
@@ -21,12 +19,13 @@ defmodule ImagePipe.SourceTest do
     defmodule MissingSemanticsSource do
       @behaviour ImagePipe.Source
 
+      def source_kinds, do: [:path, :url, :object]
+
       def validate_options(opts), do: {:ok, opts}
 
       def resolve(%SourcePath{}, _opts, _runtime_opts) do
         {:ok,
          %Resolved{
-           adapter: :path,
            source_kind: :path,
            identity: [kind: :path, adapter: :path, root: "test", path: ["cat.jpg"]],
            internal_cache: :disabled,
@@ -40,7 +39,9 @@ defmodule ImagePipe.SourceTest do
     end
 
     assert {:ok, opts} =
-             Source.validate_config(sources: [path: {MissingSemanticsSource, []}])
+             Source.validate_config(
+               sources: [path: [adapter: MissingSemanticsSource, match: :path, options: []]]
+             )
 
     source = %SourcePath{segments: ["cat.jpg"]}
 
@@ -51,12 +52,13 @@ defmodule ImagePipe.SourceTest do
     defmodule ContradictorySemanticsSource do
       @behaviour ImagePipe.Source
 
+      def source_kinds, do: [:path, :url, :object]
+
       def validate_options(opts), do: {:ok, opts}
 
       def resolve(%SourcePath{}, _opts, _runtime_opts) do
         {:ok,
          %Resolved{
-           adapter: :path,
            source_kind: :path,
            identity: [kind: :path, adapter: :path, root: "test", path: ["cat.jpg"]],
            internal_cache: :disabled,
@@ -73,126 +75,197 @@ defmodule ImagePipe.SourceTest do
     end
 
     assert {:ok, opts} =
-             Source.validate_config(sources: [path: {ContradictorySemanticsSource, []}])
+             Source.validate_config(
+               sources: [path: [adapter: ContradictorySemanticsSource, match: :path, options: []]]
+             )
 
     source = %SourcePath{segments: ["cat.jpg"]}
 
     assert {:error, {:source, :invalid_adapter_result}} = Source.resolve(source, opts, [])
   end
 
-  test "validate_config calls adapter validation during init-time option normalization" do
-    assert {:ok, opts} =
-             Source.validate_config(
-               sources: [
-                 path: {CustomAdapter, adapter: :path, label: "root"}
-               ]
-             )
+  describe "named mounts" do
+    defmodule PathOnlyAdapter do
+      @behaviour ImagePipe.Source
 
-    assert_receive {:validate_options, [adapter: :path, label: "root"]}
+      def source_kinds, do: [:path]
+      def validate_options(opts), do: {:ok, opts}
+      def resolve(_source, _opts, _runtime_opts), do: raise("not used")
+      def fetch(_resolved, _opts, _runtime_opts), do: raise("not used")
+    end
 
-    assert opts[:sources][:path] ==
-             {CustomAdapter, [adapter: :path, label: "root", validated: true]}
+    defp mount(name, match, options \\ []),
+      do: {name, [adapter: CustomAdapter, match: match, options: options]}
+
+    defp mounted(mounts) do
+      assert {:ok, config} = Source.validate_config(sources: mounts)
+      config
+    end
+
+    test "validates each mount's options with its adapter, keeping the host's order" do
+      config = mounted([mount(:media, [prefix: "media"], label: "root", depth: 1)])
+
+      assert_receive {:validate_options, [label: "root", depth: 1]}
+      assert {:ok, resolved} = Source.resolve(%Path{segments: ["media", "cat.jpg"]}, config, [])
+      assert_receive {:resolve, _source, [label: "root", depth: 1, validated: true], []}
+      assert resolved.mount == :media
+    end
+
+    test "routes bare paths by prefix, stripping it, and the rest to the :path mount" do
+      config = mounted([mount(:media, prefix: "media"), mount(:static, :path)])
+
+      assert {:ok, media} = Source.resolve(%Path{segments: ["media", "a", "cat.jpg"]}, config, [])
+      assert_receive {:resolve, %Path{segments: ["a", "cat.jpg"]}, _opts, []}
+      assert media.mount == :media
+
+      assert {:ok, static} = Source.resolve(%Path{segments: ["other", "cat.jpg"]}, config, [])
+      assert_receive {:resolve, %Path{segments: ["other", "cat.jpg"]}, _opts, []}
+      assert static.mount == :static
+    end
+
+    test "custom schemes reach their mount as plain paths" do
+      config = mounted([mount(:assets, scheme: "asset", prefix: "assets")])
+
+      for source <- [
+            %Path{scheme: "asset", segments: ["catalog", "42"]},
+            %Path{segments: ["assets", "catalog", "42"]}
+          ] do
+        assert {:ok, resolved} = Source.resolve(source, config, [])
+        assert_receive {:resolve, %Path{scheme: nil, segments: ["catalog", "42"]}, _opts, []}
+        assert resolved.mount == :assets
+      end
+    end
+
+    test "URL and object sources route by scheme" do
+      config =
+        mounted([
+          mount(:web, scheme: ["http", "https"]),
+          mount(:buckets, scheme: "s3")
+        ])
+
+      for scheme <- [:http, :https] do
+        source = %URL{scheme: scheme, host: "example.com", path: ["cat.jpg"]}
+        assert {:ok, %Resolved{mount: :web}} = Source.resolve(source, config, [])
+      end
+
+      object = %ImagePipe.Plan.Source.Object{scheme: "s3", scope: "bucket", key: "cat.jpg"}
+      assert {:ok, %Resolved{mount: :buckets}} = Source.resolve(object, config, [])
+    end
+
+    test "each mount contributes its name to the source identity" do
+      config = mounted([mount(:a, prefix: "a"), mount(:b, prefix: "b")])
+
+      identities =
+        for segments <- [["a", "cat.jpg"], ["b", "cat.jpg"]] do
+          {:ok, resolved} = Source.resolve(%Path{segments: segments}, config, [])
+          resolved.identity
+        end
+
+      assert [[_ | _] = a, [_ | _] = b] = identities
+      assert a[:mount] == :a
+      assert b[:mount] == :b
+    end
+
+    test "fetch and cache preparation dispatch through the resolving mount" do
+      config = mounted([mount(:a, [prefix: "a"], name: :a), mount(:b, [prefix: "b"], name: :b)])
+
+      assert {:ok, resolved} = Source.resolve(%Path{segments: ["b", "cat.jpg"]}, config, [])
+      assert {:ok, %Response{} = response} = Source.fetch(resolved, config, max_body_bytes: 20)
+      assert Enum.to_list(response.stream) == ["image", " bytes"]
+      assert_receive {:fetch, ^resolved, fetch_opts, [max_body_bytes: 20]}
+      assert fetch_opts[:name] == :b
+
+      assert {:ok, _prepared, {CustomAdapter, context_opts, _fetch}} =
+               Source.prepare_cache_context(resolved, config)
+
+      assert context_opts[:name] == :b
+    end
+
+    test "rejects paths with nothing after the prefix or with empty or dot segments" do
+      config = mounted([mount(:media, prefix: "media"), mount(:static, :path)])
+
+      for segments <- [["media"], ["media", ".."], ["a", "", "b"], [".", "cat.jpg"]] do
+        assert Source.resolve(%Path{segments: segments}, config, []) ==
+                 {:error, {:source, :denied_path}}
+      end
+
+      refute_received {:resolve, _source, _opts, _runtime}
+    end
+
+    test "unmatched sources fail before any adapter runs" do
+      config = mounted([mount(:media, prefix: "media")])
+
+      assert Source.resolve(%Path{segments: ["other", "cat.jpg"]}, config, []) ==
+               {:error, {:source, :not_found}}
+
+      assert Source.resolve(%URL{scheme: :https, host: "example.com", path: []}, config, []) ==
+               {:error, {:source, :missing_adapter}}
+
+      assert {:ok, empty} = Source.validate_config(sources: [])
+
+      assert Source.resolve(%Path{segments: ["cat.jpg"]}, empty, []) ==
+               {:error, {:source, :not_found}}
+
+      refute_received {:resolve, _source, _opts, _runtime}
+    end
+
+    test "rejects malformed mounts, overlapping rules, and unsupported source kinds" do
+      for sources <- [
+            [media: {CustomAdapter, []}],
+            [media: [adapter: CustomAdapter, options: []]],
+            [media: [adapter: CustomAdapter, match: :path, extra: true]],
+            [media: [adapter: CustomAdapter, match: []]],
+            [media: [adapter: CustomAdapter, match: [prefix: ""]]],
+            [media: [adapter: CustomAdapter, match: [prefix: "a/b"]]],
+            [media: [adapter: CustomAdapter, match: [prefix: ".."]]],
+            [media: [adapter: CustomAdapter, match: [scheme: "Bad Scheme"]]],
+            [media: [adapter: CustomAdapter, match: [host: "example.com"]]],
+            [mount(:a, prefix: "x"), mount(:b, prefix: "x")],
+            [mount(:a, scheme: "asset"), mount(:b, scheme: "asset")],
+            [mount(:a, :path), mount(:b, :path)],
+            [mount(:a, :path), mount(:a, prefix: "x")],
+            [local: [adapter: PathOnlyAdapter, match: [scheme: "https"]]],
+            [local: [adapter: PathOnlyAdapter, match: [scheme: "s3"]]],
+            %{media: [adapter: CustomAdapter, match: :path]}
+          ] do
+        assert {:error, {:source, _reason}} = Source.validate_config(sources: sources),
+               inspect(sources)
+      end
+
+      assert {:ok, _config} =
+               Source.validate_config(
+                 sources: [
+                   local: [adapter: PathOnlyAdapter, match: [prefix: "x", scheme: "local"]]
+                 ]
+               )
+    end
   end
 
   test "validate_config preserves adapter validation error context" do
-    assert Source.validate_config(sources: [path: {InvalidConfigAdapter, []}]) ==
+    assert Source.validate_config(
+             sources: [path: [adapter: InvalidConfigAdapter, match: :path, options: []]]
+           ) ==
              {:error, {:source, {:invalid_source_config, :bad_option}}}
   end
 
-  test "resolve dispatches by source shape and configured adapter key" do
-    assert {:ok, opts} =
-             Source.validate_config(
-               sources: [
-                 path: {CustomAdapter, adapter: :path}
-               ]
-             )
-
-    source = %Path{segments: ["images", "cat.jpg"]}
-
-    assert {:ok, %Resolved{} = resolved} = Source.resolve(source, opts, request_id: "r1")
-    assert resolved.adapter == :path
-    assert resolved.source_kind == :path
-    assert resolved.identity == [kind: :path, root: "test", path: ["images", "cat.jpg"]]
-    assert resolved.internal_cache == :enabled
-
-    assert_receive {:resolve, ^source, adapter_opts, [request_id: "r1"]}
-    assert adapter_opts[:validated]
-  end
-
-  test "missing configured adapter fails before cache or fetch" do
-    assert {:ok, opts} = Source.validate_config(sources: [])
-
-    assert Source.resolve(%Path{segments: ["images", "cat.jpg"]}, opts, []) ==
-             {:error, {:source, :missing_adapter}}
-  end
-
-  test "url source config enables both HTTP and HTTPS adapters" do
-    plug = fn conn -> Plug.Conn.send_resp(conn, 200, "image bytes") end
-
-    assert {:ok, opts} =
-             Source.validate_config(
-               sources: [
-                 url:
-                   {HTTP,
-                    allowed_hosts: ["assets.example.com"],
-                    req_options: [plug: plug],
-                    address_resolver: fn _host -> {:ok, [{93, 184, 216, 34}]} end}
-               ]
-             )
-
-    source = %URL{
-      scheme: :https,
-      host: "assets.example.com",
-      port: nil,
-      path: ["images", "cat.jpg"],
-      query: nil
-    }
-
-    assert {:ok, %Resolved{} = resolved} = Source.resolve(source, opts, [])
-    assert resolved.adapter == :https
-    assert resolved.identity[:adapter] == :https
-
-    assert {:ok, %Response{} = response} = Source.fetch(resolved, opts, max_body_bytes: 20)
-    assert Enum.join(response.stream) == "image bytes"
-
-    assert Map.has_key?(opts[:sources], :http)
-    assert Map.has_key?(opts[:sources], :https)
-    refute Map.has_key?(opts[:sources], :url)
-  end
-
-  test "scheme-specific source config overrides url source config" do
-    assert {:ok, opts} =
-             Source.validate_config(
-               sources: [
-                 url: {HTTP, allowed_hosts: ["assets.example.com"]},
-                 https: {HTTP, allowed_hosts: ["assets.example.com"], internal_cache: :disabled}
-               ]
-             )
-
-    source = %URL{
-      scheme: :https,
-      host: "assets.example.com",
-      port: nil,
-      path: ["images", "cat.jpg"],
-      query: nil
-    }
-
-    assert {:ok, %Resolved{} = resolved} = Source.resolve(source, opts, [])
-    assert resolved.internal_cache == :disabled
-  end
-
   test "malformed adapter callback results become source errors" do
-    assert {:ok, opts} = Source.validate_config(sources: [path: {InvalidAdapter, []}])
+    assert {:ok, opts} =
+             Source.validate_config(
+               sources: [path: [adapter: InvalidAdapter, match: :path, options: []]]
+             )
 
     assert Source.resolve(%Path{segments: ["images", "cat.jpg"]}, opts, []) ==
              {:error, {:source, :invalid_adapter_result}}
   end
 
   test "malformed fetch callback results become source errors" do
-    assert {:ok, opts} = Source.validate_config(sources: [path: {InvalidAdapter, []}])
+    assert {:ok, opts} =
+             Source.validate_config(
+               sources: [path: [adapter: InvalidAdapter, match: :path, options: []]]
+             )
 
     resolved = %Resolved{
-      adapter: :path,
+      mount: :path,
       source_kind: :path,
       identity: [kind: :path, root: "test", path: ["images", "cat.jpg"]],
       internal_cache: :enabled,
@@ -214,7 +287,13 @@ defmodule ImagePipe.SourceTest do
         ] do
       assert {:ok, opts} =
                Source.validate_config(
-                 sources: [path: {InvalidIdentityAdapter, identity: identity}]
+                 sources: [
+                   path: [
+                     adapter: InvalidIdentityAdapter,
+                     match: :path,
+                     options: [identity: identity]
+                   ]
+                 ]
                )
 
       assert Source.resolve(%Path{segments: ["images", "cat.jpg"]}, opts, []) ==
@@ -222,17 +301,12 @@ defmodule ImagePipe.SourceTest do
     end
   end
 
-  test "resolved adapter must match the adapter key selected during resolution" do
-    assert {:ok, opts} = Source.validate_config(sources: [foobar: {AdapterMismatchAdapter, []}])
-
-    source = %ImagePipe.Plan.Source.Object{adapter: :foobar, scope: "scope", key: "cat.jpg"}
-
-    assert Source.resolve(source, opts, []) ==
-             {:error, {:source, :invalid_adapter_result}}
-  end
-
   test "fetch dispatches through resolved adapter and wraps binary stream chunks" do
-    assert {:ok, opts} = Source.validate_config(sources: [path: {CustomAdapter, adapter: :path}])
+    assert {:ok, opts} =
+             Source.validate_config(
+               sources: [path: [adapter: CustomAdapter, match: :path, options: [adapter: :path]]]
+             )
+
     assert {:ok, resolved} = Source.resolve(%Path{segments: ["images", "cat.jpg"]}, opts, [])
     assert {:ok, %Response{} = response} = Source.fetch(resolved, opts, max_body_bytes: 20)
 
@@ -304,7 +378,10 @@ defmodule ImagePipe.SourceTest do
   end
 
   test "resolve surfaces unexpected adapter exceptions" do
-    assert {:ok, opts} = Source.validate_config(sources: [path: {RaisingAdapter, []}])
+    assert {:ok, opts} =
+             Source.validate_config(
+               sources: [path: [adapter: RaisingAdapter, match: :path, options: []]]
+             )
 
     assert_raise RuntimeError, "raw resolve failure", fn ->
       Source.resolve(%Path{segments: ["images", "cat.jpg"]}, opts, [])
@@ -312,10 +389,13 @@ defmodule ImagePipe.SourceTest do
   end
 
   test "fetch surfaces unexpected adapter exceptions" do
-    assert {:ok, opts} = Source.validate_config(sources: [path: {RaisingAdapter, []}])
+    assert {:ok, opts} =
+             Source.validate_config(
+               sources: [path: [adapter: RaisingAdapter, match: :path, options: []]]
+             )
 
     resolved = %Resolved{
-      adapter: :path,
+      mount: :path,
       source_kind: :path,
       identity: [kind: :path, root: "test", path: ["images", "cat.jpg"]],
       internal_cache: :enabled,
@@ -331,7 +411,9 @@ defmodule ImagePipe.SourceTest do
 
   test "validate_config! raises for invalid source adapter config" do
     assert_raise ArgumentError, fn ->
-      Source.validate_config!(sources: [path: {CustomAdapter, :not_options}])
+      Source.validate_config!(
+        sources: [path: [adapter: CustomAdapter, match: :path, options: :not_options]]
+      )
     end
   end
 

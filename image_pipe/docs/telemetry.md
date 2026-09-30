@@ -13,7 +13,11 @@ forward "/",
   to: ImagePipe.Plug,
   init_opts: [
     sources: [
-      path: {ImagePipe.Source.File, root: "/srv/images", root_id: "primary"}
+      images: [
+        adapter: ImagePipe.Source.File,
+        match: :path,
+        options: [root: "/srv/images", root_id: "primary"]
+      ]
     ],
     telemetry_prefix: [:my_app, :image_pipe]
   ]
@@ -607,7 +611,11 @@ which emitted fields become metrics tags. Common fields are:
 - `:output_mode` - `:automatic` or `:explicit` when known.
 - `:output_format` - the resolved output format when known.
 - `:terminal` - the complete-body terminal name (`:info`, `:blurhash`, or `:lqip_css`).
-- `:source_kind` - `:path`, `:url`, `:object`, or `:reference` on source spans.
+- `:source_mount` - the name of the source mount that served the source, on
+  source spans; `nil` for direct `{:file, _}` and `{:binary, _}` inputs. The
+  default Logger adds it to source resolve and fetch lines, for example
+  `image_pipe source fetch: ok (mount media)`.
+- `:source_kind` - `:path`, `:url`, `:object`, or `:input` on source spans.
 - `:source_adapter_kind` - `:file`, `:http`, `:s3`, or `:custom` on source spans.
 - `:error` - a stable error category when known.
 - `:sig_key_index` - the matched signing-key index (`ImagePipe.Security.verify/3`'s
@@ -827,7 +835,7 @@ the mount includes an explicit `:http_cache` option:
   `:byte_identity`, and `:etag`.
 - `[:image_pipe, :http_cache, :conditional, :match]` with `method: :get` or
   `method: :head`.
-- `[:image_pipe, :http_cache, :fallback, :no_store]` with `:adapter`,
+- `[:image_pipe, :http_cache, :fallback, :no_store]` with `:source_mount`,
   `:source_kind`, and `:reason`.
 
 The fourth is emitted by `ImagePipe.Response.Sender` on every mount:
@@ -845,7 +853,7 @@ The opt-in default Logger renders all four at the base level under its own
 ```text
 image_pipe http_cache prepare: generate (byte_identity strong, etag true)
 image_pipe http_cache conditional match: get
-image_pipe http_cache fallback no_store: missing_byte_identity (url)
+image_pipe http_cache fallback no_store: missing_byte_identity (url, mount web)
 image_pipe http_cache cache_hit headers: etag true (generated true, representation false)
 ```
 

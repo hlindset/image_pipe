@@ -46,7 +46,13 @@ defmodule ImagePipe.APIImgproxyReferenceTest do
   defp render(source, options) do
     config =
       ImagePipe.Plug.init(
-        sources: [path: {ImagePipe.Source.File, root: @sources, root_id: "imgproxy-reference"}]
+        sources: [
+          path: [
+            adapter: ImagePipe.Source.File,
+            match: :path,
+            options: [root: @sources, root_id: "imgproxy-reference"]
+          ]
+        ]
       )
 
     response =

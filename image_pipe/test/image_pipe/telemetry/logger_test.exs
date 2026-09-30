@@ -67,6 +67,30 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "[warning]"
   end
 
+  test "names the source mount on resolve and fetch lines" do
+    prefix = [__MODULE__, :source_mount]
+    Telemetry.attach_default_logger(prefix: prefix)
+
+    log =
+      capture_log(fn ->
+        for stage <- [:resolve, :fetch] do
+          :telemetry.execute(prefix ++ [:source, stage, :stop], %{duration: 1000}, %{
+            result: :ok,
+            source_mount: :media
+          })
+        end
+
+        :telemetry.execute(prefix ++ [:source, :resolve, :stop], %{duration: 1000}, %{
+          result: :source_error,
+          source_mount: nil
+        })
+      end)
+
+    assert log =~ "source resolve: ok (mount media)"
+    assert log =~ "source fetch: ok (mount media)"
+    assert log =~ "source resolve: source_error\n"
+  end
+
   test "logs a cache lookup hit at the configured level" do
     Telemetry.attach_default_logger(level: :info)
 

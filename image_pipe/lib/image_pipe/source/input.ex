@@ -1,13 +1,19 @@
 defmodule ImagePipe.Source.Input do
   @moduledoc false
-  @behaviour ImagePipe.Source
 
-  alias ImagePipe.Plan.Source.Reference
+  # Direct `{:file, path}` and `{:binary, bytes}` inputs. `ImagePipe.Source`
+  # resolves and fetches them here without a mount.
+
   alias ImagePipe.Source
   alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Parser
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
+
+  @enforce_keys [:kind, :value]
+  defstruct @enforce_keys
+
+  @type t :: %__MODULE__{kind: :file | :binary, value: binary()}
 
   def prepare({:source, value}, config) when is_binary(value) do
     with true <- String.valid?(value),
@@ -21,14 +27,7 @@ defmodule ImagePipe.Source.Input do
   end
 
   def prepare({kind, value}, config) when kind in [:file, :binary] and is_binary(value) do
-    source = %Reference{
-      adapter: :image_pipe_input,
-      id: Atom.to_string(kind),
-      metadata: [value: value]
-    }
-
-    sources = Map.put(Keyword.fetch!(config, :sources), :image_pipe_input, {__MODULE__, []})
-    config = Keyword.put(config, :sources, sources)
+    source = %__MODULE__{kind: kind, value: value}
 
     with {:ok, resolved} <- Source.resolve(source, config, Source.runtime_opts(config)) do
       {:ok, resolved, config}
@@ -37,28 +36,22 @@ defmodule ImagePipe.Source.Input do
 
   def prepare(_input, _config), do: {:error, {:invalid_source, :invalid_input}}
 
-  @impl true
-  def validate_options(options), do: {:ok, options}
-
-  @impl true
-  def resolve(%Reference{id: kind, metadata: metadata}, _opts, _runtime) do
+  def resolve(%__MODULE__{kind: kind, value: value}, _opts, _runtime) do
     {:ok,
      %Resolved{
-       adapter: :image_pipe_input,
-       source_kind: :reference,
+       source_kind: :input,
        identity: [kind: :local_input],
        internal_cache: :disabled,
        http_cache: :disabled,
        cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
-       fetch: {kind, Keyword.fetch!(metadata, :value)}
+       fetch: {kind, value}
      }}
   end
 
-  @impl true
-  def fetch(%Resolved{fetch: {"binary", bytes}}, _opts, _runtime),
+  def fetch(%Resolved{fetch: {:binary, bytes}}, _opts, _runtime),
     do: {:ok, %Response{stream: [bytes]}}
 
-  def fetch(%Resolved{fetch: {"file", path}}, _opts, runtime) do
+  def fetch(%Resolved{fetch: {:file, path}}, _opts, runtime) do
     limit = Keyword.fetch!(runtime, :max_body_bytes)
 
     case File.stat(path) do

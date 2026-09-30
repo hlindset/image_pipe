@@ -31,6 +31,9 @@ defmodule ImagePipe.DebugHeadersWireTest do
 
     @behaviour ImagePipe.Source
 
+    @impl true
+    def source_kinds, do: [:path, :url, :object]
+
     alias ImagePipe.Source.CacheSemantics
     alias ImagePipe.Source.Resolved
     alias ImagePipe.Source.Response
@@ -45,7 +48,6 @@ defmodule ImagePipe.DebugHeadersWireTest do
 
       {:ok,
        %Resolved{
-         adapter: :path,
          source_kind: :path,
          identity: [kind: :path, adapter: :debug_wire_test, root: "wire", path: path],
          internal_cache: :enabled,
@@ -112,7 +114,11 @@ defmodule ImagePipe.DebugHeadersWireTest do
   defp base_opts(overrides) do
     [
       sources: [
-        path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
+        path: [
+          adapter: RootHTTPAdapter,
+          match: :path,
+          options: [root_url: "http://origin.test", req_options: [plug: OriginImage]]
+        ]
       ]
     ]
     |> Keyword.merge(overrides)
@@ -122,7 +128,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
   # (requires byte-identity in the resolved source). Used by G2 tests.
   defp stable_opts(overrides) do
     [
-      sources: [path: {StableOrigin, []}],
+      sources: [path: [adapter: StableOrigin, match: :path, options: []]],
       http_cache: [mode: :enabled]
     ]
     |> Keyword.merge(overrides)
@@ -132,9 +138,11 @@ defmodule ImagePipe.DebugHeadersWireTest do
   defp large_ssim2_opts(overrides) do
     [
       sources: [
-        path:
-          {RootHTTPAdapter,
-           root_url: "http://origin.test", req_options: [plug: LargeSsim2OriginImage]}
+        path: [
+          adapter: RootHTTPAdapter,
+          match: :path,
+          options: [root_url: "http://origin.test", req_options: [plug: LargeSsim2OriginImage]]
+        ]
       ]
     ]
     |> Keyword.merge(overrides)
@@ -158,10 +166,14 @@ defmodule ImagePipe.DebugHeadersWireTest do
     opts =
       [
         sources: [
-          path:
-            {RootHTTPAdapter,
-             root_url: "http://origin.test",
-             req_options: [plug: {CountingDebugOrigin, test_pid: self()}]}
+          path: [
+            adapter: RootHTTPAdapter,
+            match: :path,
+            options: [
+              root_url: "http://origin.test",
+              req_options: [plug: {CountingDebugOrigin, test_pid: self()}]
+            ]
+          ]
         ],
         cache:
           {ImagePipe.Cache.FileSystem,

@@ -7,8 +7,6 @@ defmodule ImagePipe.API.SourceWireTest do
   alias ImagePipe.Source.HTTP
   alias ImagePipe.Source.S3
   alias ImagePipe.SourceTest.CredentialProvider
-  alias ImagePipe.SourceTest.FoobarTranslator
-  alias ImagePipe.SourceTest.PlugCustomAdapter
   alias ImagePipe.Test.PlugFixture.CacheProbe
 
   @image File.read!("priv/static/images/beach.jpg")
@@ -24,11 +22,15 @@ defmodule ImagePipe.API.SourceWireTest do
     config =
       mount(
         sources: [
-          https:
-            {HTTP,
-             allowed_hosts: ["assets.example.com"],
-             address_resolver: public_resolver(),
-             req_options: [plug: origin]}
+          https: [
+            adapter: HTTP,
+            match: [scheme: "https"],
+            options: [
+              allowed_hosts: ["assets.example.com"],
+              address_resolver: public_resolver(),
+              req_options: [plug: origin]
+            ]
+          ]
         ]
       )
 
@@ -44,20 +46,28 @@ defmodule ImagePipe.API.SourceWireTest do
 
     origin = fn conn ->
       send(pid, {:s3_request, conn.request_path, conn.query_string})
-      conn |> put_resp_content_type("image/jpeg") |> send_resp(200, @image)
+
+      conn
+      |> put_resp_header("x-amz-version-id", "v1")
+      |> put_resp_content_type("image/jpeg")
+      |> send_resp(200, @image)
     end
 
     config =
       mount(
         sources: [
-          s3:
-            {S3,
-             default: [
-               endpoint: "https://objects.example.com",
-               region: "eu-west-1",
-               credentials: {:static, access_key_id: "A", secret_access_key: "S"},
-               req_options: [plug: origin]
-             ]}
+          s3: [
+            adapter: S3,
+            match: [scheme: "s3"],
+            options: [
+              default: [
+                endpoint: "https://objects.example.com",
+                region: "eu-west-1",
+                credentials: {:static, access_key_id: "A", secret_access_key: "S"},
+                req_options: [plug: origin]
+              ]
+            ]
+          ]
         ]
       )
 
@@ -65,52 +75,6 @@ defmodule ImagePipe.API.SourceWireTest do
 
     assert response.status == 200
     assert_receive {:s3_request, "/bucket/images/my%20photo.jpg", "versionId=v1"}
-  end
-
-  test "a configured custom scheme reaches its translator and source adapter" do
-    config =
-      mount(
-        source_schemes: %{"foobar" => {FoobarTranslator, []}},
-        sources: [foobar: {PlugCustomAdapter, adapter: :foobar}]
-      )
-
-    source = "foobar://asset/cat%20one.jpg"
-    response = request("w=40/format=jpeg", source, config)
-
-    assert response.status == 200
-    assert_receive {:foobar_translate, ^source}
-    assert_receive {:custom_resolve, _source}
-    assert_receive {:custom_fetch, :cat}
-  end
-
-  test "a custom scheme keeps stable storage identity across real cache reuse" do
-    store = :ets.new(:api_custom_source_cache, [:set, :public])
-
-    config =
-      mount(
-        source_schemes: %{"foobar" => {FoobarTranslator, []}},
-        sources: [foobar: {PlugCustomAdapter, adapter: :foobar, stable: true}],
-        cache: {CacheProbe, store: store}
-      )
-
-    source = "foobar://asset/cat%20one.jpg"
-    first = request("w=40/format=jpeg", source, config)
-
-    assert first.status == 200
-    assert_receive {:foobar_translate, ^source}
-    assert_receive {:custom_resolve, _source}
-    assert_receive {:cache_lookup, _source_key}
-    assert_receive {:custom_fetch, :cat}
-    assert_receive {:cache_put, _key, _body}
-
-    second = request("w=40/format=jpeg", source, config)
-
-    assert second.status == 200
-    assert second.resp_body == first.resp_body
-    assert_receive {:foobar_translate, ^source}
-    assert_receive {:custom_resolve, _source}
-    assert_receive {:cache_lookup, _key}
-    refute_receive {:custom_fetch, _fetch}
   end
 
   test "an S3 cache hit does not fetch credentials or object bytes" do
@@ -121,6 +85,7 @@ defmodule ImagePipe.API.SourceWireTest do
       send(owner, :object_fetch)
 
       conn
+      |> put_resp_header("x-amz-version-id", "v1")
       |> put_resp_header("cache-control", "public, max-age=60")
       |> put_resp_content_type("image/jpeg")
       |> send_resp(200, @image)
@@ -129,14 +94,18 @@ defmodule ImagePipe.API.SourceWireTest do
     config =
       mount(
         sources: [
-          s3:
-            {S3,
-             default: [
-               endpoint: "https://objects.example.com",
-               region: "eu-west-1",
-               credentials: {:provider, CredentialProvider, report_to: self()},
-               req_options: [plug: origin]
-             ]}
+          s3: [
+            adapter: S3,
+            match: [scheme: "s3"],
+            options: [
+              default: [
+                endpoint: "https://objects.example.com",
+                region: "eu-west-1",
+                credentials: {:provider, CredentialProvider, report_to: self()},
+                req_options: [plug: origin]
+              ]
+            ]
+          ]
         ],
         cache: {CacheProbe, store: store}
       )
@@ -158,11 +127,15 @@ defmodule ImagePipe.API.SourceWireTest do
     config =
       mount(
         sources: [
-          https:
-            {HTTP,
-             allowed_hosts: ["assets.example.com"],
-             address_resolver: public_resolver(),
-             req_options: [plug: fn _conn -> flunk("invalid URL fetched its source") end]}
+          https: [
+            adapter: HTTP,
+            match: [scheme: "https"],
+            options: [
+              allowed_hosts: ["assets.example.com"],
+              address_resolver: public_resolver(),
+              req_options: [plug: fn _conn -> flunk("invalid URL fetched its source") end]
+            ]
+          ]
         ],
         cache: {CacheProbe, []}
       )

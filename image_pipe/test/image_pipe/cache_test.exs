@@ -170,7 +170,13 @@ defmodule ImagePipe.CacheTest do
   # Every init case below differs only in `cache:`.
   defp mount(extra) do
     [
-      sources: [path: {ImagePipe.Source.File, root: "priv/static", root_id: "static"}]
+      sources: [
+        path: [
+          adapter: ImagePipe.Source.File,
+          match: :path,
+          options: [root: "priv/static", root_id: "static"]
+        ]
+      ]
     ] ++ extra
   end
 

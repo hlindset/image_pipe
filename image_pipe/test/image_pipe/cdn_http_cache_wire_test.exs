@@ -21,6 +21,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   defmodule StableSource do
     @behaviour ImagePipe.Source
 
+    def source_kinds, do: [:path, :url, :object]
+
     def validate_options(opts), do: {:ok, Keyword.put_new(opts, :telemetry_kind, :stable_test)}
 
     def resolve(source, _opts, _runtime_opts) do
@@ -28,7 +30,6 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
       {:ok,
        %Resolved{
-         adapter: :path,
          source_kind: :path,
          identity: [kind: :path, adapter: :path, root: "wire", path: path],
          internal_cache: :enabled,
@@ -102,6 +103,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   defmodule EtaglessCachedSource do
     @behaviour ImagePipe.Source
 
+    def source_kinds, do: [:path, :url, :object]
+
     def validate_options(opts), do: {:ok, Keyword.put_new(opts, :telemetry_kind, :etagless_test)}
 
     def resolve(source, _opts, _runtime_opts) do
@@ -109,7 +112,6 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
       {:ok,
        %Resolved{
-         adapter: :path,
          source_kind: :path,
          identity: [kind: :path, adapter: :path, root: "wire-etagless", path: path],
          internal_cache: :enabled,
@@ -130,6 +132,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   # overridden by the source's own `:enabled`.
   defmodule InheritingSource do
     @behaviour ImagePipe.Source
+
+    def source_kinds, do: [:path, :url, :object]
 
     def validate_options(opts), do: {:ok, Keyword.put_new(opts, :telemetry_kind, :inherit_test)}
 
@@ -158,7 +162,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     init(
       Keyword.merge(
         [
-          sources: [path: {StableSource, test_pid: self()}],
+          sources: [path: [adapter: StableSource, match: :path, options: [test_pid: self()]]],
           cache: {CacheProbe, test_pid: self()},
           http_cache: [mode: :enabled]
         ],
@@ -541,7 +545,9 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     opts =
       mount(
-        sources: [path: {EtaglessCachedSource, test_pid: self()}],
+        sources: [
+          path: [adapter: EtaglessCachedSource, match: :path, options: [test_pid: self()]]
+        ],
         cache: {CacheHitProbe, test_pid: self(), entry: entry}
       )
 
@@ -653,7 +659,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
         init(
           detector: ImagePipe.Test.FakeDetector,
           http_cache: [mode: :enabled],
-          sources: [path: {StableSource, test_pid: self()}],
+          sources: [path: [adapter: StableSource, match: :path, options: [test_pid: self()]]],
           cache: {CacheProbe, test_pid: self()},
           identity: identity
         )
@@ -759,7 +765,9 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     test "a byte-identity-less source falls back to no-store", %{prefix: prefix} do
       opts =
         mount(
-          sources: [path: {EtaglessCachedSource, test_pid: self()}],
+          sources: [
+            path: [adapter: EtaglessCachedSource, match: :path, options: [test_pid: self()]]
+          ],
           telemetry_prefix: prefix
         )
 
@@ -796,7 +804,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
          %{prefix: prefix} do
       opts =
         mount(
-          sources: [path: {InheritingSource, test_pid: self()}],
+          sources: [path: [adapter: InheritingSource, match: :path, options: [test_pid: self()]]],
           http_cache: [mode: :disabled],
           telemetry_prefix: prefix
         )

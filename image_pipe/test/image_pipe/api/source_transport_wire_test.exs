@@ -19,11 +19,15 @@ defmodule ImagePipe.API.SourceTransportWireTest do
       ImagePipe.Plug.init(
         telemetry_prefix: prefix,
         sources: [
-          url:
-            {HTTP,
-             allowed_hosts: ["127.0.0.1"],
-             address_policy: [allow_loopback: true],
-             req_options: [connect_options: [protocols: [:http2], timeout: 200]]}
+          url: [
+            adapter: HTTP,
+            match: [scheme: ["http", "https"]],
+            options: [
+              allowed_hosts: ["127.0.0.1"],
+              address_policy: [allow_loopback: true],
+              req_options: [connect_options: [protocols: [:http2], timeout: 200]]
+            ]
+          ]
         ]
       )
 
@@ -67,11 +71,15 @@ defmodule ImagePipe.API.SourceTransportWireTest do
         ImagePipe.Plug.init(
           telemetry_prefix: prefix,
           sources: [
-            url:
-              {HTTP,
-               allowed_hosts: ["127.0.0.1"],
-               address_policy: [allow_loopback: true],
-               receive_timeout: if(unquote(finish) == :stall, do: 100, else: 5_000)}
+            url: [
+              adapter: HTTP,
+              match: [scheme: ["http", "https"]],
+              options: [
+                allowed_hosts: ["127.0.0.1"],
+                address_policy: [allow_loopback: true],
+                receive_timeout: if(unquote(finish) == :stall, do: 100, else: 5_000)
+              ]
+            ]
           ]
         )
 

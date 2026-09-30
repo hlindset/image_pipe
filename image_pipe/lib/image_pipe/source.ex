@@ -4,8 +4,29 @@ defmodule ImagePipe.Source do
 
   A source adapter validates its mount options, resolves canonical
   `ImagePipe.Plan.Source` values into a `ImagePipe.Source.Resolved` value, and
-  fetches that value as an `ImagePipe.Source.Response`. Configure adapters
-  under the mount's `:sources` option.
+  fetches that value as an `ImagePipe.Source.Response`.
+
+  Configure adapters as named mounts under `:sources`. Each mount names its
+  adapter, the sources it serves, and the adapter's options:
+
+      sources: [
+        media: [
+          adapter: ImagePipe.Source.File,
+          match: [prefix: "media"],
+          options: [root: "/srv/images", root_id: "media"]
+        ],
+        web: [
+          adapter: ImagePipe.Source.HTTP,
+          match: [scheme: ["http", "https"]],
+          options: [allowed_hosts: ["assets.example.com"]]
+        ]
+      ]
+
+  `:match` is `:path` (bare paths no prefix matches) or a keyword list of
+  `:prefix` (a single leading path segment) and `:scheme` values, each a string
+  or a list. `http`, `https`, and `s3` route URL and object sources; any other
+  scheme is another spelling of a path prefix, so `asset://catalog/42` reaches
+  its mount as the path `catalog/42`.
 
   Adapter callbacks receive their own validated options and a projected set
   of runtime limits. They never receive the complete mount configuration.
@@ -16,6 +37,7 @@ defmodule ImagePipe.Source do
     deps: [ImagePipe.Error, ImagePipe.MaterialDigest, ImagePipe.Plan, ImagePipe.Telemetry],
     exports: [
       CachePolicy,
+      CacheSettings,
       CacheState,
       CacheSemantics,
       Download,
@@ -24,7 +46,6 @@ defmodule ImagePipe.Source do
       Resolved,
       Response,
       Parser,
-      Scheme,
       StreamError,
       HTTP,
       File,
@@ -40,6 +61,7 @@ defmodule ImagePipe.Source do
   alias ImagePipe.Source.CachePolicy
   alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Input
+  alias ImagePipe.Source.Mounts
   alias ImagePipe.Source.Origin
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
@@ -54,6 +76,13 @@ defmodule ImagePipe.Source do
 
   @type error :: {:source, atom() | tuple()}
 
+  @doc """
+  The kinds of plan source the adapter resolves: `:path` for
+  `ImagePipe.Plan.Source.Path`, `:url` for `ImagePipe.Plan.Source.URL`, and
+  `:object` for `ImagePipe.Plan.Source.Object`. A mount whose match rules would
+  route another kind to the adapter fails configuration.
+  """
+  @callback source_kinds() :: [:path | :url | :object]
   @callback validate_options(keyword()) :: {:ok, keyword()} | {:error, term()}
   @callback resolve(PlanSource.t(), keyword(), keyword()) ::
               {:ok, Resolved.t()} | {:error, error()}
@@ -65,7 +94,7 @@ defmodule ImagePipe.Source do
   @callback fetch(Resolved.t(), keyword(), keyword()) ::
               {:ok, Response.t()} | {:not_modified, Origin.t()} | {:error, error()}
 
-  @source_kinds [:path, :url, :object, :reference]
+  @source_kinds [:path, :url, :object, :input]
   @internal_cache_policies [:enabled, :disabled]
   @http_cache_policies [:inherit, :enabled, :disabled]
 
@@ -94,11 +123,14 @@ defmodule ImagePipe.Source do
 
   @doc "Freezes dynamic origin credentials before partitioning a cached request."
   def prepare_cache_context(source, config) do
-    {module, opts} = Map.fetch!(Keyword.fetch!(config, :sources), source.adapter)
+    {:ok, module, opts} = mount_config(source, config)
 
     with {:ok, prepared} <- prepare_cache_source(module, source, opts, runtime_opts(config)) do
+      # Cache and admission settings don't change fetched bytes. path_pattern
+      # is also a compiled regex, which has no stable serialization.
       context =
-        {module, Keyword.drop(opts, [:cache_policy, :stable, :internal_cache, :http_cache]),
+        {module,
+         Keyword.drop(opts, [:cache_policy, :stable, :internal_cache, :http_cache, :path_pattern]),
          prepared.fetch}
 
       identity =
@@ -123,7 +155,7 @@ defmodule ImagePipe.Source do
   @spec validate_config(keyword()) :: {:ok, keyword()} | {:error, error()}
   def validate_config(opts) when is_list(opts) do
     with {:ok, policy} <- CachePolicy.validate(Keyword.get(opts, :source_cache_policy, [])),
-         {:ok, sources} <- validate_sources(Keyword.get(opts, :sources, [])) do
+         {:ok, sources} <- Mounts.validate(Keyword.get(opts, :sources, [])) do
       {:ok, opts |> Keyword.put(:sources, sources) |> Keyword.put(:source_cache_policy, policy)}
     end
   end
@@ -139,24 +171,54 @@ defmodule ImagePipe.Source do
     end
   end
 
-  @spec resolve(PlanSource.t(), keyword(), keyword()) :: {:ok, Resolved.t()} | {:error, error()}
+  @spec resolve(PlanSource.t() | Input.t(), keyword(), keyword()) ::
+          {:ok, Resolved.t()} | {:error, error()}
+  def resolve(%Input{} = source, _opts, runtime_opts),
+    do: resolve_with(Input, [], nil, :input, source, runtime_opts, [])
+
   def resolve(source, opts, runtime_opts) do
-    with {:ok, adapter, source_kind} <- source_route(source),
-         {:ok, module, adapter_opts} <- fetch_adapter_config(adapter, opts) do
-      source_metadata = source_metadata(source_kind, adapter_opts)
-
-      telemetry_opts = Telemetry.telemetry_opts(runtime_opts)
-
-      Telemetry.span(telemetry_opts, [:source, :resolve], source_metadata, fn ->
-        result =
-          module
-          |> run_resolve(source, adapter_opts, runtime_opts, adapter)
-          |> apply_cache_policy(Keyword.get(opts, :source_cache_policy, []))
-
-        {result, result_metadata(result)}
-      end)
+    with {:ok, name, source_kind, source} <- Mounts.route(source, mounts(opts)),
+         {:ok, module, adapter_opts} <- Mounts.fetch(mounts(opts), name) do
+      resolve_with(
+        module,
+        adapter_opts,
+        name,
+        source_kind,
+        source,
+        runtime_opts,
+        Keyword.get(opts, :source_cache_policy, [])
+      )
     end
   end
+
+  defp resolve_with(module, adapter_opts, name, source_kind, source, runtime_opts, policy) do
+    source_metadata = source_metadata(source_kind, adapter_opts, name)
+    telemetry_opts = Telemetry.telemetry_opts(runtime_opts)
+
+    Telemetry.span(telemetry_opts, [:source, :resolve], source_metadata, fn ->
+      result =
+        module
+        |> run_resolve(source, adapter_opts, runtime_opts)
+        |> put_mount(name)
+        |> apply_cache_policy(policy)
+
+      {result, result_metadata(result)}
+    end)
+  end
+
+  defp mounts(opts), do: Keyword.get(opts, :sources, %Mounts{})
+
+  # Mounts never share cache entries, even when their adapters build the same
+  # identity for the path they receive.
+  defp put_mount({:ok, resolved}, nil), do: {:ok, resolved}
+
+  defp put_mount({:ok, resolved}, name),
+    do: {:ok, %{resolved | mount: name, identity: resolved.identity ++ [mount: name]}}
+
+  defp put_mount(error, _name), do: error
+
+  defp mount_config(%Resolved{source_kind: :input}, _opts), do: {:ok, Input, []}
+  defp mount_config(%Resolved{mount: name}, opts), do: Mounts.fetch(mounts(opts), name)
 
   defp apply_cache_policy({:ok, resolved}, defaults) do
     semantics = resolved.cache_semantics
@@ -174,9 +236,9 @@ defmodule ImagePipe.Source do
 
   defp apply_cache_policy({:error, _reason} = error, _defaults), do: error
 
-  defp run_resolve(module, source, adapter_opts, runtime_opts, adapter) do
+  defp run_resolve(module, source, adapter_opts, runtime_opts) do
     case module.resolve(source, adapter_opts, runtime_opts) do
-      {:ok, %Resolved{} = resolved} -> validate_resolved(resolved, adapter)
+      {:ok, %Resolved{} = resolved} -> validate_resolved(resolved)
       {:error, {:source, _reason}} = error -> error
       _other -> {:error, {:source, :invalid_adapter_result}}
     end
@@ -185,8 +247,8 @@ defmodule ImagePipe.Source do
   @spec fetch(Resolved.t(), keyword(), keyword()) ::
           {:ok, Response.t()} | {:not_modified, Origin.t()} | {:error, error()}
   def fetch(%Resolved{} = resolved, opts, runtime_opts) do
-    with {:ok, module, adapter_opts} <- fetch_adapter_config(resolved.adapter, opts) do
-      source_metadata = source_metadata(resolved.source_kind, adapter_opts)
+    with {:ok, module, adapter_opts} <- mount_config(resolved, opts) do
+      source_metadata = source_metadata(resolved.source_kind, adapter_opts, resolved.mount)
 
       telemetry_opts = Telemetry.telemetry_opts(runtime_opts)
 
@@ -293,97 +355,11 @@ defmodule ImagePipe.Source do
     {:error, {:source, :invalid_adapter_result}}
   end
 
-  defp validate_sources(sources) when is_list(sources) do
-    with {:ok, source_configs} <- source_configs(sources) do
-      {:ok, expand_url_source_config(source_configs)}
-    end
-  end
-
-  defp validate_sources(_sources), do: {:error, {:source, :invalid_adapter_config}}
-
-  defp source_configs(sources) do
-    Enum.reduce_while(sources, {:ok, %{}}, fn entry, {:ok, source_configs} ->
-      case source_config(entry) do
-        {:ok, adapter, config} -> {:cont, {:ok, Map.put(source_configs, adapter, config)}}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-  end
-
-  defp source_config({adapter, {module, adapter_opts}})
-       when is_atom(adapter) and is_atom(module) and is_list(adapter_opts) do
-    case module.validate_options(adapter_opts) do
-      {:ok, validated_opts} when is_list(validated_opts) ->
-        config = {module, order_validated_options(adapter_opts, validated_opts)}
-        {:ok, adapter, config}
-
-      {:error, {:source, _reason}} = error ->
-        error
-
-      {:error, reason} ->
-        {:error, {:source, reason}}
-
-      _other ->
-        {:error, {:source, :invalid_adapter_config}}
-    end
-  end
-
-  defp source_config(_entry), do: {:error, {:source, :invalid_adapter_config}}
-
-  defp expand_url_source_config(%{url: url_config} = source_configs) do
-    source_configs
-    |> Map.delete(:url)
-    |> Map.put_new(:http, url_config)
-    |> Map.put_new(:https, url_config)
-  end
-
-  defp expand_url_source_config(source_configs), do: source_configs
-
-  defp order_validated_options(input_opts, validated_opts) do
-    input_keys = Keyword.keys(input_opts)
-
-    ordered_input_values =
-      Enum.flat_map(input_keys, fn key ->
-        case Keyword.fetch(validated_opts, key) do
-          {:ok, value} -> [{key, value}]
-          :error -> []
-        end
-      end)
-
-    extra_values =
-      Enum.reject(validated_opts, fn {key, _value} ->
-        key in input_keys
-      end)
-
-    ordered_input_values ++ extra_values
-  end
-
-  defp source_route(%PlanSource.Path{}), do: {:ok, :path, :path}
-  defp source_route(%PlanSource.URL{scheme: :http}), do: {:ok, :http, :url}
-  defp source_route(%PlanSource.URL{scheme: :https}), do: {:ok, :https, :url}
-
-  defp source_route(%PlanSource.Object{adapter: adapter}) when is_atom(adapter),
-    do: {:ok, adapter, :object}
-
-  defp source_route(%PlanSource.Reference{adapter: adapter}) when is_atom(adapter),
-    do: {:ok, adapter, :reference}
-
-  defp source_route(_source), do: {:error, {:source, :missing_adapter}}
-
-  defp fetch_adapter_config(adapter, opts) do
-    case opts[:sources] do
-      %{^adapter => {module, adapter_opts}} -> {:ok, module, adapter_opts}
-      _sources -> {:error, {:source, :missing_adapter}}
-    end
-  end
-
-  defp validate_resolved(%Resolved{adapter: adapter} = resolved, adapter) do
+  defp validate_resolved(%Resolved{} = resolved) do
     if valid_resolved?(resolved),
       do: {:ok, resolved},
       else: {:error, {:source, :invalid_adapter_result}}
   end
-
-  defp validate_resolved(%Resolved{}, _adapter), do: {:error, {:source, :invalid_adapter_result}}
 
   defp valid_resolved?(%Resolved{} = resolved) do
     resolved.source_kind in @source_kinds and
@@ -409,8 +385,9 @@ defmodule ImagePipe.Source do
 
   defp valid_cache_semantics?(_cache_semantics), do: false
 
-  defp source_metadata(source_kind, adapter_opts) do
+  defp source_metadata(source_kind, adapter_opts, mount) do
     %{
+      source_mount: mount,
       source_kind: source_kind,
       source_adapter_kind: Keyword.get(adapter_opts, :telemetry_kind, :custom)
     }

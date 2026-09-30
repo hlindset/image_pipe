@@ -43,8 +43,7 @@ defmodule ImagePipe.URL.ArchitectureBoundaryTest do
         ImagePipe.Plan.Source.Identity,
         ImagePipe.Plan.Source.Path,
         ImagePipe.Plan.Source.URL,
-        ImagePipe.Plan.Source.Object,
-        ImagePipe.Plan.Source.Reference
+        ImagePipe.Plan.Source.Object
       ]
     },
     ImagePipe.Security => {[], []},
