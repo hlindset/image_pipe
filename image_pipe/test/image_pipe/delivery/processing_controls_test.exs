@@ -56,11 +56,17 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
   end
 
   test "an idle prepared stream retains the processing timeout for its next pull", context do
-    pool = start_supervised!({ProcessingPool, max_concurrency: 1, processing_timeout: 40})
+    pool = start_supervised!({ProcessingPool, max_concurrency: 1})
     config = [processing_pool: pool, telemetry_prefix: context.prefix]
     build = fn pump -> pump.(["one", "two"], "image/jpeg", resolved(), nil) end
     assert {:ok, stream} = Delivery.stream(self(), build, nil, config)
     assert stream.first_chunk == "one"
+
+    # Expire the idle stream's budget now instead of racing a short timeout
+    # against stream preparation.
+    [{token, %{deadline: deadline}}] = Map.to_list(:sys.get_state(pool).jobs)
+    send(pool, {:deadline, token, :active, deadline})
+
     assert_receive {:processing_stopped, :timeout}
     assert stream.next.() == {:error, {:processing, :timeout}}
     assert %{active: 0} = ProcessingPool.stats(pool)
