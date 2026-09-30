@@ -379,7 +379,7 @@ result.data         # complete encoded bytes
 directory or absolute. It follows symlinks and requires a regular file. Use
 configured `Source.File` input when a path needs confinement to a root.
 `{:binary, bytes}` takes encoded image bytes, such as an upload.
-Both obey `max_body_bytes` and `max_input_pixels`.
+Both obey `max_body_bytes`, `max_input_pixels`, and `max_input_frames`.
 
 `{:source, string}` routes through the configuration's
 [source mounts](sources.md#mounts-and-routing), the same way HTTP requests do.
@@ -402,8 +402,8 @@ policy; stream responses have a bounded body read.
 Pass processing options as the last argument to `run` or `write`. They share
 the mount's validated defaults for output quality, per-format quality,
 metadata, color profiles, HDR, quality search, encoder options, detector,
-`max_body_bytes`, `max_input_pixels`, `max_result_width`, `max_result_height`,
-`max_result_pixels`, and `telemetry_prefix`. Source configuration uses the
+`max_body_bytes`, `max_input_pixels`, `max_input_frames`, `max_result_width`,
+`max_result_height`, `max_result_pixels`, and `telemetry_prefix`. Source configuration uses the
 same `sources` option. Output limits clamp dimensions
 using the same encoder limits as HTTP.
 

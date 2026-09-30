@@ -144,6 +144,9 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     :achieved_shrink,
     :detected_source_format,
     :source_format_resolution,
+    # declared frame/page count, and which input limit rejected the source
+    :source_frames,
+    :limit,
     # realized post-op/post-materialize dimensions ({width, height}); a tuple,
     # coerced the same as :params by the OTel exporter's generic non-primitive
     # fallback (OtelReplay.coerce/1)

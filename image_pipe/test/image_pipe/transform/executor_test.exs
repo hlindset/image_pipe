@@ -105,7 +105,8 @@ defmodule ImagePipe.Transform.ExecutorTest do
           ]
         ],
         max_body_bytes: 10_000_000,
-        max_input_pixels: 10_000_000
+        max_input_pixels: 10_000_000,
+        max_input_frames: 1_000
       )
 
     {:ok, resolved} = Source.resolve(%SourcePath{segments: ["image"]}, opts, [])

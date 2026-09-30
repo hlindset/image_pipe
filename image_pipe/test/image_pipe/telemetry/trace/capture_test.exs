@@ -70,6 +70,25 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
                     }}
   end
 
+  test "fetch/decode spans carry the source frame count and the rejecting input limit" do
+    prefix = [__MODULE__, :fetch_decode_frames]
+    :ok = TestExporter.attach(self(), prefix: prefix)
+
+    for metadata <- [
+          %{result: :ok, source_frames: 3},
+          %{result: :processing_error, error: :input_limit, limit: :frames}
+        ] do
+      Telemetry.span([telemetry_prefix: prefix], [:source, :fetch_decode], %{}, fn ->
+        {:ok, metadata}
+      end)
+
+      assert_receive {:span,
+                      %Span{name: "image_pipe.source.fetch_decode", attributes: attributes}}
+
+      assert attributes == metadata
+    end
+  end
+
   test "composite model failures are error spans without leaking detector reasons" do
     prefix = [__MODULE__, :model_result]
     TestExporter.attach(self(), prefix: prefix)

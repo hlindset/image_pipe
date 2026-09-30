@@ -373,12 +373,15 @@ defmodule ImagePipe.Telemetry.Logger do
        do: "image_pipe source #{stage}: #{outcome(meta)} (mount #{mount})"
 
   defp message([:source, :fetch_decode | _], _m, meta) do
-    case meta[:detected_source_format] do
-      nil ->
-        "image_pipe source fetch_decode: #{outcome(meta)}"
+    notes =
+      Enum.reject(
+        [detected_note(meta), frames_note(meta), limit_note(meta)],
+        &is_nil/1
+      )
 
-      detected ->
-        "image_pipe source fetch_decode: #{outcome(meta)} (detected #{detected}#{resolution_note(meta)})"
+    case notes do
+      [] -> "image_pipe source fetch_decode: #{outcome(meta)}"
+      notes -> "image_pipe source fetch_decode: #{outcome(meta)} (#{Enum.join(notes, ", ")})"
     end
   end
 
@@ -400,6 +403,19 @@ defmodule ImagePipe.Telemetry.Logger do
 
   defp mount_note(%{source_mount: mount}) when not is_nil(mount), do: ", mount #{mount}"
   defp mount_note(_meta), do: ""
+
+  defp detected_note(%{detected_source_format: detected} = meta) when not is_nil(detected),
+    do: "detected #{detected}#{resolution_note(meta)}"
+
+  defp detected_note(_meta), do: nil
+
+  defp frames_note(%{source_frames: frames}) when is_integer(frames) and frames > 1,
+    do: "#{frames} frames"
+
+  defp frames_note(_meta), do: nil
+
+  defp limit_note(%{limit: limit}) when not is_nil(limit), do: "#{limit} limit"
+  defp limit_note(_meta), do: nil
 
   defp resolution_note(meta) do
     case meta[:source_format_resolution] do

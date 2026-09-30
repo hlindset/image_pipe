@@ -132,7 +132,7 @@ an unsigned request. Rejection reasons appear on the enclosing request span.
 ### Source fetch + decode (`[:source, :fetch_decode]`)
 
 `[:image_pipe, :source, :fetch_decode]` wraps source fetch, image decode, the
-input-pixel guard, and the source body-size limit.
+input-pixel and input-frame guards, and the source body-size limit.
 
 It is emitted from the `ImagePipe.Decode.with_image/4` bracket. The span closes
 immediately after the decoded state is
@@ -159,6 +159,8 @@ Success stop metadata:
   `:detected` (authoritative magic), `:libvips_codec` (ISOBMFF avif-vs-heif split
   from libvips), or `:libvips_fallback` (detector returned `:unknown`; libvips
   classified).
+- `:source_frames` — the number of frames or pages the source declares (libvips
+  `n-pages`, `1` for a still image). Only the first is decoded.
 
 Failure stop metadata (one of two shapes, by failure mode):
 
@@ -178,11 +180,19 @@ Failure stop metadata (one of two shapes, by failure mode):
 
 - Decode / input-validation failure — `:result` is `:processing_error`; `:error`
   is a stable category atom (e.g. `:input_limit` when the decoded image exceeds
-  `:max_input_pixels`, `:decode` for an undecodable body).
+  `:max_input_pixels` or declares more frames than `:max_input_frames`,
+  `:decode` for an undecodable body). An `:input_limit` failure also carries
+  `:limit`, `:pixels` or `:frames`, naming the limit that rejected the source.
 - Unsupported-format reject — a sub-case of `:processing_error` (before the
   libvips open): also carries `:detected_source_format` set to the rejected family
   atom (e.g. `:gif`, `:svg`), so an observer can distinguish a format gate from a
   corrupt-body decode failure without parsing `:error`.
+
+The default Logger appends the detected format, a frame count above one, and the
+rejecting limit, e.g. `source fetch_decode: ok (detected webp, 3 frames)` or
+`source fetch_decode: processing_error (frames limit)`. Input-limit rejections
+log at the base level, like decode failures. The trace exporter keeps
+`:source_frames` and `:limit` as span attributes.
 
 An upstream `304` produces `result: :not_modified` on the source fetch span.
 The default Logger renders this outcome, and the trace exporter records it as

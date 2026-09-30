@@ -340,6 +340,7 @@ Processing defaults and limits of `ImagePipe.config/1`.
 | --- | --- | --- |
 | `max_body_bytes` | integer > 0 | `10000000` |
 | `max_input_pixels` | integer > 0 | `40000000` |
+| `max_input_frames` | integer > 0 | `1000` |
 | `auto_avif` | boolean | `true` |
 | `auto_webp` | boolean | `true` |
 | `output_capabilities` | table of boolean |  |
