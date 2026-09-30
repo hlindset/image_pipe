@@ -3,9 +3,9 @@ defmodule ImagePipe.ShrinkOnLoadPropertyTest do
   use ExUnit.Case, async: false
   use ExUnitProperties
 
-  alias ImagePipe.API
   alias ImagePipe.Decode
   alias ImagePipe.Plan.Request
+  alias ImagePipe.Plug.Request, as: ParsedRequest
   alias ImagePipe.Source
   alias ImagePipe.Source.Parser, as: APISource
   alias ImagePipe.SourceTest.RootHTTPAdapter
@@ -102,7 +102,7 @@ defmodule ImagePipe.ShrinkOnLoadPropertyTest do
     path = "/#{options}/src/property.img"
 
     assert {{:ok, %Request{} = request, source}, _metadata} =
-             API.parse(Plug.Test.conn(:get, path), opts)
+             ParsedRequest.parse(Plug.Test.conn(:get, path), opts)
 
     {request, source}
   end

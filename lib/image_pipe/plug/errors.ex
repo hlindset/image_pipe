@@ -1,4 +1,4 @@
-defmodule ImagePipe.API.Errors do
+defmodule ImagePipe.Plug.Errors do
   @moduledoc """
   Maps request errors to HTTP responses.
 

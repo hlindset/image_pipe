@@ -2,8 +2,9 @@ defmodule ImagePipe.Security.SourceEncryptionTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.API
-  alias ImagePipe.API.Errors
   alias ImagePipe.Plug.Config
+  alias ImagePipe.Plug.Errors
+  alias ImagePipe.Plug.Request, as: ParsedRequest
   alias ImagePipe.Security.Signature
   alias ImagePipe.Security.SourceEncryption
 
@@ -173,7 +174,9 @@ defmodule ImagePipe.Security.SourceEncryptionTest do
       signature = Signature.sign(signed_path, config)
       conn = Plug.Test.conn(:get, "/sig=#{signature}#{signed_path}")
 
-      assert {{:ok, _request, source}, %{result: :ok, sig_key_index: 0}} = API.parse(conn, config)
+      assert {{:ok, _request, source}, %{result: :ok, sig_key_index: 0}} =
+               ParsedRequest.parse(conn, config)
+
       assert source == @source
     end
 
@@ -181,14 +184,14 @@ defmodule ImagePipe.Security.SourceEncryptionTest do
       invalid_conn = Plug.Test.conn(:get, "/sig=invalid/w=12/enc/not/a/token")
 
       assert {{:error, :invalid_signature}, %{result: :error}} =
-               API.parse(invalid_conn, config)
+               ParsedRequest.parse(invalid_conn, config)
 
       signed_path = "/w=12/enc/not/a/token"
       signature = Signature.sign(signed_path, config)
       signed_conn = Plug.Test.conn(:get, "/sig=#{signature}#{signed_path}")
 
       assert {{:error, :invalid_concealed_source}, %{result: :error}} =
-               API.parse(signed_conn, config)
+               ParsedRequest.parse(signed_conn, config)
     end
 
     test "the public helper rejects disabled, empty, and invalid UTF-8 sources", %{config: config} do

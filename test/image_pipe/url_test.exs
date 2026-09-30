@@ -5,6 +5,7 @@ defmodule ImagePipe.URLTest do
   alias ImagePipe, as: IP
   alias ImagePipe.API.{Parser, Path}
   alias ImagePipe.Plan
+  alias ImagePipe.Plug.Request, as: ParsedRequest
   alias ImagePipe.Security.Signature
 
   @signing_key Base.encode16(:binary.copy(<<31>>, 32))
@@ -74,7 +75,7 @@ defmodule ImagePipe.URLTest do
 
     for path <- [first, second, explicit] do
       assert {{:ok, _request, ^source}, _meta} =
-               ImagePipe.API.parse(Plug.Test.conn(:get, path), mount)
+               ParsedRequest.parse(Plug.Test.conn(:get, path), mount)
     end
 
     random_client = IP.new(encrypted_config(iv_mode: :random))
@@ -199,7 +200,7 @@ defmodule ImagePipe.URLTest do
       path = IP.url!(IP.new(config), source, iv: iv)
 
       assert {{:ok, _request, ^source}, _meta} =
-               ImagePipe.API.parse(Plug.Test.conn(:get, path), mount)
+               ParsedRequest.parse(Plug.Test.conn(:get, path), mount)
     end
   end
 

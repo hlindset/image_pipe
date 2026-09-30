@@ -2,9 +2,9 @@ defmodule ImagePipe.ShrinkThroughCropTest do
   # Real image encode/decode per case — keep it serial.
   use ExUnit.Case, async: false
 
-  alias ImagePipe.API
   alias ImagePipe.Decode
   alias ImagePipe.Plan.Request
+  alias ImagePipe.Plug.Request, as: ParsedRequest
   alias ImagePipe.Source
   alias ImagePipe.Source.Parser, as: APISource
   alias ImagePipe.SourceTest.RootHTTPAdapter
@@ -59,14 +59,14 @@ defmodule ImagePipe.ShrinkThroughCropTest do
 
   defp request("", opts) do
     assert {{:ok, %Request{} = request, source}, _metadata} =
-             API.parse(Plug.Test.conn(:get, "/src/crop.img"), opts)
+             ParsedRequest.parse(Plug.Test.conn(:get, "/src/crop.img"), opts)
 
     {request, source}
   end
 
   defp request(options, opts) do
     assert {{:ok, %Request{} = request, source}, _metadata} =
-             API.parse(Plug.Test.conn(:get, "/#{options}/src/crop.img"), opts)
+             ParsedRequest.parse(Plug.Test.conn(:get, "/#{options}/src/crop.img"), opts)
 
     {request, source}
   end

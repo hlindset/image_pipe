@@ -2,12 +2,13 @@ defmodule ImagePipe.Plug.Runner do
   @moduledoc false
   require Logger
 
-  alias ImagePipe.API
   alias ImagePipe.Error
   alias ImagePipe.Execution
   alias ImagePipe.Execution.Inputs
   alias ImagePipe.Output.Policy
   alias ImagePipe.Plan.Request
+  alias ImagePipe.Plug.Errors
+  alias ImagePipe.Plug.Request, as: ParsedRequest
   alias ImagePipe.Response.CacheHeaders
   alias ImagePipe.Response.CachePolicy
   alias ImagePipe.Response.Conditional
@@ -65,7 +66,7 @@ defmodule ImagePipe.Plug.Runner do
 
   defp parse(%Plug.Conn{} = conn, config) do
     Telemetry.span(Telemetry.telemetry_opts(config), [:parse], %{}, fn ->
-      API.parse(conn, config)
+      ParsedRequest.parse(conn, config)
     end)
   end
 
@@ -74,7 +75,7 @@ defmodule ImagePipe.Plug.Runner do
     conn = Plug.Conn.fetch_cookies(conn)
     inputs = %Inputs{headers: conn.req_headers, cookies: conn.req_cookies}
 
-    with {:ok, plan_source, policy} <- API.prepare(request, source, config, accept),
+    with {:ok, plan_source, policy} <- ParsedRequest.prepare(request, source, config, accept),
          {:ok, source} <-
            ImageSource.resolve(plan_source, config, ImageSource.runtime_opts(config)),
          {:ok, context} <- Execution.prepare(request, source, policy, inputs, config) do
@@ -278,7 +279,7 @@ defmodule ImagePipe.Plug.Runner do
 
     conn =
       send_with_span(conn, config, metadata.result, fn ->
-        API.render_error(conn, reason)
+        Errors.send(conn, reason)
       end)
 
     {conn, metadata}

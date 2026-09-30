@@ -3,11 +3,11 @@ defmodule ImagePipe.API.PresetCompositionTest do
 
   import Plug.Test
 
-  alias ImagePipe.API
+  alias ImagePipe.Plug.Request, as: ParsedRequest
 
   defp parse(path, presets) do
     config = ImagePipe.Plug.init(presets: presets)
-    {result, _metadata} = API.parse(conn(:get, path <> "/src/images/cat.jpg"), config)
+    {result, _metadata} = ParsedRequest.parse(conn(:get, path <> "/src/images/cat.jpg"), config)
 
     case result do
       {:ok, request, _source} -> {:ok, request}

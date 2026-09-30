@@ -24,7 +24,9 @@ defmodule ImagePipe.Plug do
       ImagePipe.Execution,
       ImagePipe.Output,
       ImagePipe.Plan,
+      ImagePipe.Processing,
       ImagePipe.Response,
+      ImagePipe.Security,
       ImagePipe.Source,
       ImagePipe.Telemetry
     ],

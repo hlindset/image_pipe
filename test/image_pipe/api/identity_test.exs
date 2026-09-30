@@ -3,13 +3,13 @@ defmodule ImagePipe.API.IdentityTest do
 
   import Plug.Test
 
-  alias ImagePipe.API
   alias ImagePipe.API.Parser
   alias ImagePipe.Execution.Identity
   alias ImagePipe.Execution.Inputs
   alias ImagePipe.Output.RequestPolicy, as: Output
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Plug.Config
+  alias ImagePipe.Plug.Request, as: ParsedRequest
   alias ImagePipe.Representation
 
   defmodule ClassIdentityDetector do
@@ -80,7 +80,7 @@ defmodule ImagePipe.API.IdentityTest do
       |> Keyword.merge(config_opts)
       |> Config.validate!()
 
-    assert {:ok, _source, policy} = API.prepare(request, "images/cat.jpg", config, "")
+    assert {:ok, _source, policy} = ParsedRequest.prepare(request, "images/cat.jpg", config, "")
     conn = conn(:get, "/")
 
     conn = Plug.Conn.fetch_cookies(conn)

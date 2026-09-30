@@ -3,6 +3,7 @@ defmodule ImagePipe.PresetsTest do
   use ExUnitProperties
 
   alias ImagePipe, as: IP
+  alias ImagePipe.Plug.Request, as: ParsedRequest
   alias ImagePipe.RequestSafetyTest.CacheProbe
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias Vix.Vips.Image, as: VipsImage
@@ -127,7 +128,7 @@ defmodule ImagePipe.PresetsTest do
     assert {:ok, request} = ImagePipe.Plan.to_request(builder.plan, config.options[:presets])
 
     assert {{:ok, ^request, ^source}, _} =
-             ImagePipe.API.parse(Plug.Test.conn(:get, url), IP.Plug.init(config))
+             ParsedRequest.parse(Plug.Test.conn(:get, url), IP.Plug.init(config))
   end
 
   test "a builder pipeline preset warms the cache for equivalent Plug requests" do
@@ -171,7 +172,7 @@ defmodule ImagePipe.PresetsTest do
       assert {:ok, request} = ImagePipe.Plan.to_request(builder.plan, config.options[:presets])
 
       assert {{:ok, ^request, "photo.jpg"}, _} =
-               ImagePipe.API.parse(Plug.Test.conn(:get, url), IP.Plug.init(config))
+               ParsedRequest.parse(Plug.Test.conn(:get, url), IP.Plug.init(config))
     end
   end
 end

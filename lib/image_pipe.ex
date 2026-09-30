@@ -33,6 +33,7 @@ defmodule ImagePipe do
       ImagePipe.Processing,
       ImagePipe.Representation,
       ImagePipe.Response,
+      ImagePipe.Security,
       ImagePipe.Source,
       ImagePipe.Telemetry,
       ImagePipe.Transform

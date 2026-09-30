@@ -3,10 +3,10 @@ defmodule ImagePipe.API.PipelinePixelTest do
   # mirroring test/image_pipe/decode_test.exs.
   use ExUnit.Case, async: false
 
-  alias ImagePipe.API
   alias ImagePipe.Decode
   alias ImagePipe.Plan.Request
   alias ImagePipe.Plan.Source.Path, as: SourcePath
+  alias ImagePipe.Plug.Request, as: ParsedRequest
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.OrientedFrameOrigin
@@ -97,7 +97,7 @@ defmodule ImagePipe.API.PipelinePixelTest do
       ImagePipe.Plug.init(sources: [path: {RootHTTPAdapter, root_url: "http://origin.test"}])
 
     {{:ok, request, _source}, _metadata} =
-      API.parse(Plug.Test.conn(:get, "/#{options}/src/test"), config)
+      ParsedRequest.parse(Plug.Test.conn(:get, "/#{options}/src/test"), config)
 
     request
   end

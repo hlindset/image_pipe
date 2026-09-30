@@ -2,9 +2,9 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
   # Real image encode/decode per case — keep it serial.
   use ExUnit.Case, async: false
 
-  alias ImagePipe.API
   alias ImagePipe.Decode
   alias ImagePipe.Plan.Request
+  alias ImagePipe.Plug.Request, as: ParsedRequest
   alias ImagePipe.Source
   alias ImagePipe.Source.Parser, as: APISource
   alias ImagePipe.SourceTest.RootHTTPAdapter
@@ -70,7 +70,7 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
 
   defp request(options, opts) do
     assert {{:ok, %Request{} = request, source}, _metadata} =
-             API.parse(Plug.Test.conn(:get, "/#{options}/src/rot.img"), opts)
+             ParsedRequest.parse(Plug.Test.conn(:get, "/#{options}/src/rot.img"), opts)
 
     {request, source}
   end

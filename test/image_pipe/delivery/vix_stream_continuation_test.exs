@@ -1,12 +1,12 @@
 defmodule ImagePipe.Delivery.VixStreamContinuationTest do
   use ExUnit.Case, async: false
 
-  alias ImagePipe.API
   alias ImagePipe.Decode
   alias ImagePipe.Delivery.Producer
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.RequestPolicy, as: APIOutput
+  alias ImagePipe.Plug.Request, as: ParsedRequest
   alias ImagePipe.Source
   alias ImagePipe.Source.Parser, as: APISource
   alias ImagePipe.SourceTest.RootHTTPAdapter
@@ -479,7 +479,7 @@ defmodule ImagePipe.Delivery.VixStreamContinuationTest do
   defp producer_build_fun do
     config = runtime_config()
     conn = Plug.Test.conn(:get, "/format=jpeg/src/images/beach.jpg")
-    {{:ok, request, source_string}, _metadata} = API.parse(conn, config)
+    {{:ok, request, source_string}, _metadata} = ParsedRequest.parse(conn, config)
     {:ok, source_request} = APISource.translate(source_string, config)
     {:ok, source} = Source.resolve(source_request, config, [])
 

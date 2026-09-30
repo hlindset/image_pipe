@@ -104,7 +104,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Execution,
       ImagePipe.Output,
       ImagePipe.Plan,
+      ImagePipe.Processing,
       ImagePipe.Response,
+      ImagePipe.Security,
       ImagePipe.Source,
       ImagePipe.Telemetry
     ])
@@ -112,22 +114,31 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_exports(plug, [])
   end
 
-  test "API parsing and configuration depend on runtime facades" do
+  test "URL grammar does not depend on request processing or delivery" do
     api = boundary_declaration(ImagePipe.API)
 
     assert_boundary_deps(api, [
       ImagePipe.Format,
-      ImagePipe.Output,
       ImagePipe.Plan,
-      ImagePipe.Processing,
-      ImagePipe.Response,
       ImagePipe.Security,
       ImagePipe.Source
     ])
 
-    refute_boundary_deps(api, [ImagePipe.Decode, ImagePipe.Delivery, ImagePipe.Plug])
+    refute_boundary_deps(api, [
+      ImagePipe.Decode,
+      ImagePipe.Delivery,
+      ImagePipe.Output,
+      ImagePipe.Plug,
+      ImagePipe.Processing,
+      ImagePipe.Response
+    ])
 
-    assert_boundary_exports(api, [])
+    assert_boundary_exports(api, [
+      ImagePipe.API.Diagnostic,
+      ImagePipe.API.DiagnosticRenderer,
+      ImagePipe.API.Parser,
+      ImagePipe.API.Path
+    ])
   end
 
   test "shared execution owns caching without depending on HTTP adapters" do
