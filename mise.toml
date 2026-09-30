@@ -16,16 +16,31 @@ python.precompiled_flavor = "install_only"
 [tasks.setup]
 description = "Install library and fiddle dependencies"
 run = [
+  "cd image_pipe_url && mix deps.get",
   "cd image_pipe && mix deps.get",
   "cd fiddle && mix deps.get",
   "pnpm -C fiddle install --frozen-lockfile",
   "pnpm -C fiddle/assets run build",
 ]
 
+[tasks."precommit:url"]
+description = "image_pipe_url checks: format, compile (warnings as errors), credo, dialyzer, test"
+dir = "image_pipe_url"
+run = [
+  "mix format --check-formatted",
+  "mix compile --warnings-as-errors",
+  "mix credo --strict",
+  "mix dialyzer",
+  "mix test",
+]
+
 [tasks.precommit]
-description = "Elixir library checks: format, compile (warnings as errors), credo, dialyzer, duplication, test"
+description = "Elixir checks for image_pipe_url and the library: format, compile (warnings as errors), credo, dialyzer, duplication, test"
+depends = ["precommit:url"]
 dir = "image_pipe"
 run = [
+  # The packages release in lockstep; image_pipe pins image_pipe_url with ==.
+  "test \"$(grep -m1 '@version \"' mix.exs)\" = \"$(grep -m1 '@version \"' ../image_pipe_url/mix.exs)\" || { echo 'image_pipe and image_pipe_url versions differ'; exit 1; }",
   "mix format --check-formatted",
   "mix compile --warnings-as-errors",
   "mix credo --strict",
@@ -54,7 +69,7 @@ run = [
 # symlink-safety logic) lives in the `mix worktrees.clean` task, which selects
 # MIX_ENV=test itself via mix.exs `preferred_envs`.
 [tasks."worktrees:clean"]
-description = "Remove regenerable dirs (image_pipe and fiddle deps/_build, node_modules, .dexter, .expert) from every worktree (→ mix worktrees.clean)"
+description = "Remove regenerable dirs (image_pipe, image_pipe_url and fiddle deps/_build, node_modules, .dexter, .expert) from every worktree (→ mix worktrees.clean)"
 dir = "image_pipe"
 run = "mix worktrees.clean"
 

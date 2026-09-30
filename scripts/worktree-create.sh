@@ -8,12 +8,12 @@
 #
 # What this does for image_plug:
 #   - Creates/attaches the git worktree
-#   - APFS copy-on-write clones deps/ and _build/ (image_pipe + fiddle) so Elixir
+#   - APFS copy-on-write clones deps/ and _build/ (image_pipe, image_pipe_url, fiddle) so Elixir
 #     doesn't recompile from scratch. pnpm is skipped — its global content store
 #     makes `pnpm install` near-instant, and node_modules symlinks don't clone
 #     cleanly.
 #   - Trusts mise in the new worktree (otherwise every `mise exec` prompts)
-#   - Runs `mix deps.get` in image_pipe and fiddle to reconcile the cloned deps/
+#   - Runs `mix deps.get` in each project to reconcile the cloned deps/
 set -euo pipefail
 
 INPUT=$(cat)
@@ -56,7 +56,7 @@ fi
 # Skips the full recompile/refetch on a fresh worktree. clone_dir() picks the
 # CoW mechanism for the OS (see above) and falls back to a plain copy.
 log "  Cloning deps/ and _build/ (copy-on-write)..."
-COW_DIRS=("image_pipe/deps" "image_pipe/_build" "fiddle/deps" "fiddle/_build")
+COW_DIRS=("image_pipe/deps" "image_pipe/_build" "image_pipe_url/deps" "image_pipe_url/_build" "fiddle/deps" "fiddle/_build")
 for d in "${COW_DIRS[@]}"; do
   if [ -d "${REPO_PATH}/$d" ] && [ ! -e "${WORKTREE_PATH}/$d" ]; then
     clone_dir "${REPO_PATH}/$d" "${WORKTREE_PATH}/$d"
@@ -65,8 +65,8 @@ done
 
 # --- Reconcile dependencies ---
 # A fresh worktree's mise.toml is untrusted; trust it so `mise run` won't prompt.
-# `mise run setup` then reconciles the cloned deps/ against mix.lock for image_pipe +
-# fiddle, installs pnpm packages, and builds the fiddle assets (needed before the
+# `mise run setup` then reconciles the cloned deps/ against each project's mix.lock,
+# installs pnpm packages, and builds the fiddle assets (needed before the
 # fiddle's mix tests can find the Vite manifest).
 LOGFILE="${WORKTREE_PATH}/.worktree-setup.log"
 SETUP_ERRORS=()

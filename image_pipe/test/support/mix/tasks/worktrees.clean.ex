@@ -1,5 +1,5 @@
 defmodule Mix.Tasks.Worktrees.Clean do
-  @shortdoc "Remove regenerable dirs (image_pipe and fiddle deps/_build, node_modules, .dexter, .expert) from idle worktrees"
+  @shortdoc "Remove regenerable dirs (project deps/_build, fiddle node_modules, .dexter, .expert) from idle worktrees"
 
   @moduledoc """
   Reclaims disk by deleting the regenerable build/dependency directories from
@@ -47,6 +47,7 @@ defmodule Mix.Tasks.Worktrees.Clean do
 
   @regenerable ~w(
     image_pipe/deps image_pipe/_build
+    image_pipe_url/deps image_pipe_url/_build
     fiddle/deps fiddle/_build fiddle/node_modules fiddle/assets/node_modules
     .dexter .expert
   )

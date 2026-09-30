@@ -6,6 +6,7 @@ defmodule ImagePipe.WorktreesCleanTest do
   @bases [".worktrees", ".claude/worktrees"]
   @regenerable ~w(
     image_pipe/deps image_pipe/_build
+    image_pipe_url/deps image_pipe_url/_build
     fiddle/deps fiddle/_build fiddle/node_modules fiddle/assets/node_modules
     .dexter .expert
   )
@@ -39,8 +40,8 @@ defmodule ImagePipe.WorktreesCleanTest do
     %{removed: removed, skipped: skipped} = Clean.clean(root, max_age_hours: 0)
 
     assert skipped == []
-    # 8 regenerable targets × 2 worktree names × 2 bases.
-    assert length(removed) == 32
+    # 10 regenerable targets × 2 worktree names × 2 bases.
+    assert length(removed) == 40
 
     for base <- @bases, name <- ~w(a b) do
       wt = Path.join([root, base, name])
