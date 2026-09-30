@@ -366,7 +366,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     # receives captured spans (Trace.Span) — that is the public exporter contract.
     # Trace.OpenTelemetryExporter is the built-in opt-in exporter a host names directly
     # in attach_tracer/1, so it is a public entry point (it uses only the public
-    # OpenTelemetry API; the boundary stays dependency-free).
+    # OpenTelemetry API; the boundary stays dependency-free). Trace.OtelIdGenerator is the
+    # id generator a host names in its :opentelemetry config for that exporter.
     # Trace.OtelReplay is exported solely so ImagePipe.Application can supervise it; it is
     # exported-but-internal (@moduledoc false), the same posture as Trace.Stack.
     assert_boundary_exports(telemetry, [
@@ -377,6 +378,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Telemetry.Trace.Exporter,
       ImagePipe.Telemetry.Trace.ReqStep,
       ImagePipe.Telemetry.Trace.OpenTelemetryExporter,
+      ImagePipe.Telemetry.Trace.OtelIdGenerator,
       ImagePipe.Telemetry.Trace.OtelReplay
     ])
   end

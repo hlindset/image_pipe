@@ -18,6 +18,7 @@ defmodule ImagePipe.Telemetry do
       Trace.Exporter,
       Trace.ReqStep,
       Trace.OpenTelemetryExporter,
+      Trace.OtelIdGenerator,
       Trace.OtelReplay
     ]
 

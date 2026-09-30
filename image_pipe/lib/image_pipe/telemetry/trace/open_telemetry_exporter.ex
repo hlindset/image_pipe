@@ -6,9 +6,13 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporter do
   Spans are buffered per trace and replayed top-down when the trace's root span
   finishes, so children are parented onto their parent's real OTel-minted span
   context and the full hierarchy survives into Jaeger/Tempo. Correlation with
-  logs (`LogExporter`) is trace-level: both share the `trace_id` (forced onto
-  the OTel trace via a synthetic W3C remote parent on the root span); OTel
-  mints its own span ids, so `span=` ids in log lines do not match OTel span ids.
+  logs (`LogExporter`) is trace-level: both share the `trace_id`; OTel mints its
+  own span ids, so `span=` ids in log lines do not match OTel span ids.
+
+  Configure `ImagePipe.Telemetry.Trace.OtelIdGenerator` as the SDK's
+  `id_generator` so untraced requests export as true root spans. Without it,
+  the `trace_id` is forced through a synthetic W3C remote parent on the root,
+  which backends report as a missing parent.
 
   Optional dependency `:opentelemetry_api` (compile); the host brings the SDK
   (`:opentelemetry`) and starts it. When the API is absent, `ready?/0` is `false`
