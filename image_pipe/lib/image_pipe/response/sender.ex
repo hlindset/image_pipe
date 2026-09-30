@@ -54,30 +54,28 @@ defmodule ImagePipe.Response.Sender do
         hit_debug,
         opts
       ) do
-    with {:ok, entry_headers} <- Entry.cacheable_headers(entry.headers),
-         {:ok, content_disposition} <- Disposition.render(request, entry.content_type) do
-      delivery_headers =
-        entry_headers ++
-          [{"content-disposition", content_disposition}] ++
-          hit_debug_headers(entry, conn, hit_debug, opts)
+    {:ok, entry_headers} = Entry.cacheable_headers(entry.headers)
+    {:ok, content_disposition} = Disposition.render(request, entry.content_type)
 
-      merged = merge_delivery_headers(conn, delivery_headers, prepared)
+    delivery_headers =
+      entry_headers ++
+        [{"content-disposition", content_disposition}] ++
+        hit_debug_headers(entry, conn, hit_debug, opts)
 
-      Telemetry.execute(
-        Telemetry.telemetry_opts(opts),
-        [:http_cache, :cache_hit, :headers],
-        %{},
-        %{
-          etag: prepared.etag != nil,
-          generated_cache_headers: prepared.headers != [],
-          representation_headers: prepared.representation_headers != []
-        }
-      )
+    merged = merge_delivery_headers(conn, delivery_headers, prepared)
 
-      send_normalized_cache_entry(conn, entry, merged)
-    else
-      {:error, error} -> send_cache_error(conn, error)
-    end
+    Telemetry.execute(
+      Telemetry.telemetry_opts(opts),
+      [:http_cache, :cache_hit, :headers],
+      %{},
+      %{
+        etag: prepared.etag != nil,
+        generated_cache_headers: prepared.headers != [],
+        representation_headers: prepared.representation_headers != []
+      }
+    )
+
+    send_normalized_cache_entry(conn, entry, merged)
   end
 
   defp hit_debug_headers(%Entry{debug: nil}, _conn, _hit_debug, _opts), do: []
@@ -270,14 +268,6 @@ defmodule ImagePipe.Response.Sender do
       {:error, reason} ->
         {:error, conn, {:client_closed, reason}}
     end
-  end
-
-  defp send_cache_error(%Plug.Conn{} = conn, error) do
-    Logger.error("cache_error: #{inspect(error)}")
-
-    conn
-    |> put_resp_content_type("text/plain")
-    |> send_resp(500, "cache error")
   end
 
   defp mark_send_processing_error(%Plug.Conn{} = conn),
