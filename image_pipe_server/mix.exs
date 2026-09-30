@@ -23,7 +23,8 @@ defmodule ImagePipeServer.MixProject do
     [
       {:image_pipe, path: "../image_pipe"},
       {:bandit, "~> 1.5"},
-      {:plug, "~> 1.18"}
+      {:plug, "~> 1.18"},
+      {:toml, "~> 0.7.0"}
     ]
   end
 
