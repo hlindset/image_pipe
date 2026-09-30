@@ -1,0 +1,64 @@
+name: Server CI
+
+on:
+  push:
+    branches: ["main"]
+    paths: &server_paths
+      - "image_pipe_url/lib/**"
+      - "image_pipe_url/mix.exs"
+      - "image_pipe_url/mix.lock"
+      - "image_pipe/lib/**"
+      - "image_pipe/priv/icc/**"
+      - "image_pipe/mix.exs"
+      - "image_pipe/mix.lock"
+      - "image_pipe_server/**"
+      - "mise.toml"
+      - ".github/workflows/server.yml"
+  pull_request:
+    branches: ["main"]
+    paths: *server_paths
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: image_pipe_server tests
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: test
+    defaults:
+      run:
+        working-directory: image_pipe_server
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+      - name: Install Hex
+        run: mise exec -- mix local.hex --force
+      - name: Install Rebar
+        run: mise exec -- mix local.rebar --force
+      - name: Install dependencies
+        run: mise exec -- mix deps.get
+      - name: Check formatting
+        run: mise exec -- mix format --check-formatted
+      - name: Compile
+        run: mise exec -- mix compile --warnings-as-errors
+      - name: Run tests
+        run: mise exec -- mix test --no-compile
+
+  image:
+    name: Docker image (${{ matrix.variant }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [base, vision]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Build image
+        run: |
+          docker build -f image_pipe_server/Dockerfile \
+            --build-arg IMAGE_VISION=${{ matrix.variant == 'vision' && '1' || '0' }} \
+            -t image_pipe_server:ci .
+      - name: Smoke test
+        run: image_pipe_server/test/container/smoke.sh image_pipe_server:ci ${{ matrix.variant }}
