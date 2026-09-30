@@ -244,8 +244,8 @@ execution can apply them.
 An application that only builds URLs can send them to a separate image
 service. It can depend on the `image_pipe_url` package alone, which provides
 `ImagePipe.URL` without the processing runtime (see
-[installation](installation.md)). The URL carries preset names and signatures, not their definitions
-or keys, so:
+[installation](installation.md)). The URL carries preset names and signatures,
+not their definitions or keys, so:
 
 - Both sides must use identical signing keys, source-encryption keys, and
   preset maps. Build both from one shared module or file. ImagePipe does not
@@ -255,20 +255,100 @@ or keys, so:
 - Adding or changing a preset is safe once the service has it. To remove one,
   stop emitting it from the builder first.
 
-To use a result on the builder side, fetch the signed URL from the service
-with any HTTP client. Handle non-200 statuses, and send an explicit `Accept`
-header (or select an explicit output format) when the format matters, since
-responses vary on `Accept`. The signature covers only the mount-relative path,
-so a second URL configuration with the same keys and presets and an internal
-`base_url` can address the service directly:
+#### Fetching results from the service
+
+`image_pipe_url` has no fetch function; the signed URL is the interface. To use
+a result on the builder side, request that URL from the service with any HTTP
+client. Only sources the service can resolve work this way: `{:file, path}` and
+`{:binary, bytes}` inputs need the processing runtime, and the service has no
+upload endpoint.
+
+The signature covers only the mount-relative path, so server-side fetches can
+skip the CDN. Build a second URL configuration with the same keys and presets
+and the service's internal address as `base_url`:
 
 ```elixir
-{:ok, %Req.Response{status: 200, body: body}} =
-  Req.get(ImagePipe.URL.url!(builder, source),
-    decode_body: false,
-    headers: [accept: "image/avif,image/webp"]
-  )
+internal = ImagePipe.URL.config(
+  base_url: "http://image-service:4000/images",
+  keys: signing_keys,
+  presets: presets
+)
+
+url =
+  ImagePipe.URL.new(internal)
+  |> ImagePipe.URL.output(terminal: :lqip_css)
+  |> ImagePipe.URL.url!(source)
 ```
+
+The examples below use [Req](https://hexdocs.pm/req). `decode_body: false`
+keeps every body as raw bytes, including info JSON. Req returns non-2xx
+responses as `{:ok, response}`, so check the status: 4xx means the request was
+rejected (an invalid option, a bad signature, an expired URL, or a missing
+source) and retrying won't help. Req retries transient failures such as 503
+by default. Set `receive_timeout` above your slowest first render; cached
+results return quickly.
+
+Responses vary on `Accept` when the plan doesn't select a format. Send the
+formats you can use, or set `format:` in the plan, so the result's format is
+predictable.
+
+Buffer small results such as placeholders, info JSON, and thumbnails:
+
+```elixir
+case Req.get(url,
+       decode_body: false,
+       receive_timeout: 30_000,
+       headers: [accept: "image/avif,image/webp"]
+     ) do
+  {:ok, %Req.Response{status: 200, body: body} = response} ->
+    [content_type] = Req.Response.get_header(response, "content-type")
+    {:ok, body, content_type}
+
+  {:ok, %Req.Response{status: status}} ->
+    {:error, {:http_status, status}}
+
+  {:error, exception} ->
+    {:error, exception}
+end
+```
+
+Stream large results to a file instead of holding them in memory. The file
+receives whatever body the service returns, so remove it when the status isn't
+200:
+
+```elixir
+case Req.get(url, decode_body: false, receive_timeout: 60_000, into: File.stream!(path)) do
+  {:ok, %Req.Response{status: 200}} ->
+    :ok
+
+  {:ok, %Req.Response{status: status}} ->
+    File.rm(path)
+    {:error, {:http_status, status}}
+
+  {:error, exception} ->
+    File.rm(path)
+    {:error, exception}
+end
+```
+
+To pass chunks onward as they arrive, for example to a `Plug.Conn` already
+switched to a chunked response, use `Req.stream/4`. Its function sees the
+status before the first chunk, so it can stop without forwarding an error body:
+
+```elixir
+{:ok, response, conn} =
+  Req.stream(url, conn, fn
+    chunk, %Req.Response{status: 200}, conn ->
+      {:ok, conn} = Plug.Conn.chunk(conn, chunk)
+      {:cont, conn}
+
+    _chunk, _response, conn ->
+      {:halt, conn}
+  end, decode_body: false)
+```
+
+Check `response.status` afterwards as in the examples above. Req versions
+before 0.8 lack `Req.stream/4`; pass the same logic as an `into:` function.
 
 ## Direct execution
 
