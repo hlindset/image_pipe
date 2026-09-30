@@ -71,7 +71,11 @@ defmodule ImagePipe.API.GeometryCompositionWireTest do
     config =
       ImagePipe.Plug.init(
         sources: [
-          path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin]}
+          path: [
+            adapter: RootHTTPAdapter,
+            match: :path,
+            options: [root_url: "http://origin.test", req_options: [plug: origin]]
+          ]
         ],
         max_body_bytes: 10_000_000,
         max_input_pixels: 40_000_000

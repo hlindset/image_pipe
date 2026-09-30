@@ -77,10 +77,14 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
   defp beach_opts do
     [
       sources: [
-        path:
-          {RootHTTPAdapter,
-           root_url: "http://origin.test",
-           req_options: [plug: ImagePipe.Test.PlugFixture.OriginImage]}
+        path: [
+          adapter: RootHTTPAdapter,
+          match: :path,
+          options: [
+            root_url: "http://origin.test",
+            req_options: [plug: ImagePipe.Test.PlugFixture.OriginImage]
+          ]
+        ]
       ]
     ]
   end
@@ -88,9 +92,11 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
   defp exif6_opts do
     [
       sources: [
-        path:
-          {RootHTTPAdapter,
-           root_url: "http://origin.test", req_options: [plug: ExifOrientation6Origin]}
+        path: [
+          adapter: RootHTTPAdapter,
+          match: :path,
+          options: [root_url: "http://origin.test", req_options: [plug: ExifOrientation6Origin]]
+        ]
       ]
     ]
   end

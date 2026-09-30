@@ -49,7 +49,13 @@ defmodule ImagePipe.API.ColorManagementWireTest do
 
     config =
       ImagePipe.Plug.init(
-        sources: [path: {ImagePipe.Source.File, root: @sources, root_id: "wide-gamut"}]
+        sources: [
+          path: [
+            adapter: ImagePipe.Source.File,
+            match: :path,
+            options: [root: @sources, root_id: "wide-gamut"]
+          ]
+        ]
       )
 
     conn =
@@ -186,7 +192,11 @@ defmodule ImagePipe.API.ColorManagementWireTest do
 
     guarded = [
       sources: [
-        path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin]}
+        path: [
+          adapter: RootHTTPAdapter,
+          match: :path,
+          options: [root_url: "http://origin.test", req_options: [plug: origin]]
+        ]
       ],
       cache: {CacheProbe, []}
     ]
@@ -238,7 +248,11 @@ defmodule ImagePipe.API.ColorManagementWireTest do
     config =
       ImagePipe.Plug.init(
         sources: [
-          path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin]}
+          path: [
+            adapter: RootHTTPAdapter,
+            match: :path,
+            options: [root_url: "http://origin.test", req_options: [plug: origin]]
+          ]
         ],
         telemetry_prefix: prefix
       )
@@ -262,7 +276,11 @@ defmodule ImagePipe.API.ColorManagementWireTest do
 
     [
       sources: [
-        path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin]}
+        path: [
+          adapter: RootHTTPAdapter,
+          match: :path,
+          options: [root_url: "http://origin.test", req_options: [plug: origin]]
+        ]
       ]
     ]
   end
@@ -271,7 +289,11 @@ defmodule ImagePipe.API.ColorManagementWireTest do
     config =
       [
         sources: [
-          path: {ImagePipe.Source.File, root: @sources, root_id: "api-color", stable: :trusted}
+          path: [
+            adapter: ImagePipe.Source.File,
+            match: :path,
+            options: [root: @sources, root_id: "api-color", stable: :trusted]
+          ]
         ],
         http_cache: [mode: :enabled]
       ]

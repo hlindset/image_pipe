@@ -21,28 +21,42 @@ defmodule ImagePipe.APIWireTest do
   @source_key_b "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
   @default_sources [
-    path:
-      {RootHTTPAdapter,
-       root_url: "http://origin.test", byte_identity: :strong, req_options: [plug: OriginImage]}
+    path: [
+      adapter: RootHTTPAdapter,
+      match: :path,
+      options: [
+        root_url: "http://origin.test",
+        byte_identity: :strong,
+        req_options: [plug: OriginImage]
+      ]
+    ]
   ]
 
   defp counting_sources do
     [
-      path:
-        {RootHTTPAdapter,
-         root_url: "http://origin.test",
-         byte_identity: :strong,
-         req_options: [plug: {CountingOriginImage, test_pid: self()}]}
+      path: [
+        adapter: RootHTTPAdapter,
+        match: :path,
+        options: [
+          root_url: "http://origin.test",
+          byte_identity: :strong,
+          req_options: [plug: {CountingOriginImage, test_pid: self()}]
+        ]
+      ]
     ]
   end
 
   defp should_not_fetch_sources do
     [
-      path:
-        {RootHTTPAdapter,
-         root_url: "http://origin.test",
-         byte_identity: :strong,
-         req_options: [plug: OriginShouldNotFetch]}
+      path: [
+        adapter: RootHTTPAdapter,
+        match: :path,
+        options: [
+          root_url: "http://origin.test",
+          byte_identity: :strong,
+          req_options: [plug: OriginShouldNotFetch]
+        ]
+      ]
     ]
   end
 
@@ -775,12 +789,16 @@ defmodule ImagePipe.APIWireTest do
       config =
         opts(
           sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test",
-               byte_identity: :strong,
-               req_options: [plug: {CountingOriginImage, test_pid: self()}],
-               internal_cache: :disabled}
+            path: [
+              adapter: RootHTTPAdapter,
+              match: :path,
+              options: [
+                root_url: "http://origin.test",
+                byte_identity: :strong,
+                req_options: [plug: {CountingOriginImage, test_pid: self()}],
+                internal_cache: :disabled
+              ]
+            ]
           ],
           cache: stateful_cache_probe()
         )

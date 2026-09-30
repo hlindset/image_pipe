@@ -211,7 +211,11 @@ defmodule ImagePipe.APIErrorPathsTest do
   end
 
   @default_sources [
-    path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
+    path: [
+      adapter: RootHTTPAdapter,
+      match: :path,
+      options: [root_url: "http://origin.test", req_options: [plug: OriginImage]]
+    ]
   ]
 
   # `output_capabilities`/`on_bracket_exit`/`image_module` are test-
@@ -273,10 +277,14 @@ defmodule ImagePipe.APIErrorPathsTest do
       config =
         opts(
           sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test",
-               req_options: [plug: {Origin503, test_pid: test_pid}]}
+            path: [
+              adapter: RootHTTPAdapter,
+              match: :path,
+              options: [
+                root_url: "http://origin.test",
+                req_options: [plug: {Origin503, test_pid: test_pid}]
+              ]
+            ]
           ],
           cache: {ObservingCacheProbe, []}
         )
@@ -303,10 +311,14 @@ defmodule ImagePipe.APIErrorPathsTest do
         opts(
           telemetry_prefix: prefix,
           sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test",
-               req_options: [plug: {Origin503, test_pid: test_pid}]}
+            path: [
+              adapter: RootHTTPAdapter,
+              match: :path,
+              options: [
+                root_url: "http://origin.test",
+                req_options: [plug: {Origin503, test_pid: test_pid}]
+              ]
+            ]
           ],
           cache: {ObservingCacheProbe, []}
         )
@@ -402,10 +414,14 @@ defmodule ImagePipe.APIErrorPathsTest do
       config =
         opts(
           sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test",
-               req_options: [plug: {CorruptImageOrigin, test_pid: test_pid}]}
+            path: [
+              adapter: RootHTTPAdapter,
+              match: :path,
+              options: [
+                root_url: "http://origin.test",
+                req_options: [plug: {CorruptImageOrigin, test_pid: test_pid}]
+              ]
+            ]
           ],
           cache: {ObservingCacheProbe, []}
         )

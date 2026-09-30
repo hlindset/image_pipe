@@ -70,6 +70,9 @@ defmodule ImagePipe.Source.HTTP do
                   )
 
   @impl Source
+  def source_kinds, do: [:path, :url]
+
+  @impl Source
   def validate_options(opts) do
     with {:ok, validated} <- validate_schema(opts),
          {:ok, validated} <- validate_base_url(validated) do
@@ -199,9 +202,8 @@ defmodule ImagePipe.Source.HTTP do
   @impl Source
   def resolve(%SourcePath{segments: segments}, opts, runtime_opts) do
     with {:ok, base} <- fetch_base_url(opts),
-         :ok <- validate_path(segments, opts),
-         {:ok, resolved} <- resolve(base_source(base, segments), opts, runtime_opts) do
-      {:ok, %{resolved | adapter: :path}}
+         :ok <- validate_path(segments, opts) do
+      resolve(base_source(base, segments), opts, runtime_opts)
     end
   end
 
@@ -227,7 +229,6 @@ defmodule ImagePipe.Source.HTTP do
 
       {:ok,
        %Resolved{
-         adapter: scheme,
          source_kind: :url,
          identity: identity,
          internal_cache: internal_cache,

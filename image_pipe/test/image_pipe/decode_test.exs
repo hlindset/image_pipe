@@ -90,7 +90,11 @@ defmodule ImagePipe.DecodeTest do
       Keyword.merge(
         [
           sources: [
-            path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin]}
+            path: [
+              adapter: RootHTTPAdapter,
+              match: :path,
+              options: [root_url: "http://origin.test", req_options: [plug: origin]]
+            ]
           ],
           max_body_bytes: 10_000_000,
           max_input_pixels: 40_000_000

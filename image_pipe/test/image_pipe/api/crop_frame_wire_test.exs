@@ -11,10 +11,14 @@ defmodule ImagePipe.API.CropFrameWireTest do
     config =
       ImagePipe.Plug.init(
         sources: [
-          path:
-            {RootHTTPAdapter,
-             root_url: "http://origin.test",
-             req_options: [plug: fn _conn -> flunk("invalid focus fetched a source") end]}
+          path: [
+            adapter: RootHTTPAdapter,
+            match: :path,
+            options: [
+              root_url: "http://origin.test",
+              req_options: [plug: fn _conn -> flunk("invalid focus fetched a source") end]
+            ]
+          ]
         ]
       )
 
@@ -46,7 +50,11 @@ defmodule ImagePipe.API.CropFrameWireTest do
     config =
       ImagePipe.Plug.init(
         sources: [
-          path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin]}
+          path: [
+            adapter: RootHTTPAdapter,
+            match: :path,
+            options: [root_url: "http://origin.test", req_options: [plug: origin]]
+          ]
         ]
       )
 

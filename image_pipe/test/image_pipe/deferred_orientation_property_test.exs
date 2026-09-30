@@ -150,10 +150,14 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
   defp opts(origin, base_bytes, orientation) do
     [
       sources: [
-        path:
-          {RootHTTPAdapter,
-           root_url: "http://origin.test",
-           req_options: [plug: {origin, {base_bytes, orientation}}]}
+        path: [
+          adapter: RootHTTPAdapter,
+          match: :path,
+          options: [
+            root_url: "http://origin.test",
+            req_options: [plug: {origin, {base_bytes, orientation}}]
+          ]
+        ]
       ]
     ]
   end

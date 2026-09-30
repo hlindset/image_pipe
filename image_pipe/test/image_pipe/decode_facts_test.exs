@@ -12,9 +12,15 @@ defmodule ImagePipe.DecodeFactsTest do
   alias ImagePipe.Transform.SourceGeometry
 
   @sources [
-    path:
-      {RootHTTPAdapter,
-       root_url: "http://origin.test", byte_identity: :strong, req_options: [plug: OriginImage]}
+    path: [
+      adapter: RootHTTPAdapter,
+      match: :path,
+      options: [
+        root_url: "http://origin.test",
+        byte_identity: :strong,
+        req_options: [plug: OriginImage]
+      ]
+    ]
   ]
 
   test "with_image geometry carries the six source debug facts" do

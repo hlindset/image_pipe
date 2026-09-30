@@ -22,12 +22,16 @@ defmodule ImagePipe.Source.HTTPBaseURLWireTest do
     mount =
       ImagePipe.Plug.init(
         sources: [
-          path:
-            {HTTP,
-             base_url: "https://images.example.com/t/p/original",
-             path_pattern: ~r/[a-z_]+\.png/,
-             address_resolver: fn _host -> {:ok, [@public_ip]} end,
-             req_options: [plug: origin]}
+          path: [
+            adapter: HTTP,
+            match: :path,
+            options: [
+              base_url: "https://images.example.com/t/p/original",
+              path_pattern: ~r/[a-z_]+\.png/,
+              address_resolver: fn _host -> {:ok, [@public_ip]} end,
+              req_options: [plug: origin]
+            ]
+          ]
         ]
       )
 

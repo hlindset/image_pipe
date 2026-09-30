@@ -25,7 +25,9 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
       processing_pool: pool,
       telemetry_prefix: prefix,
       cache: {CacheProbe, store: :ets.new(:outputs, [:set, :public])},
-      sources: [path: {ProcessingSource, test: self(), bytes: @image}]
+      sources: [
+        path: [adapter: ProcessingSource, match: :path, options: [test: self(), bytes: @image]]
+      ]
     ]
 
     %{tasks: tasks, pool: pool, config: ImagePipe.config(options), options: options}

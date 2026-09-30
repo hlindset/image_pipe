@@ -11,6 +11,9 @@ defmodule ImagePipe.Source.WithFetchedTest do
     @moduledoc false
     @behaviour ImagePipe.Source
 
+    @impl true
+    def source_kinds, do: [:path, :url, :object]
+
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}
 
@@ -27,6 +30,9 @@ defmodule ImagePipe.Source.WithFetchedTest do
     @moduledoc false
     @behaviour ImagePipe.Source
 
+    @impl true
+    def source_kinds, do: [:path, :url, :object]
+
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}
 
@@ -40,6 +46,9 @@ defmodule ImagePipe.Source.WithFetchedTest do
   defmodule CleanupStreamAdapter do
     @moduledoc false
     @behaviour ImagePipe.Source
+
+    @impl true
+    def source_kinds, do: [:path, :url, :object]
 
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}
@@ -55,7 +64,7 @@ defmodule ImagePipe.Source.WithFetchedTest do
 
   defp resolved(adapter, fetch) do
     %Resolved{
-      adapter: adapter,
+      mount: adapter,
       source_kind: :path,
       identity: [kind: :path, root: "test", path: ["images", "cat.jpg"]],
       internal_cache: :enabled,
@@ -66,7 +75,9 @@ defmodule ImagePipe.Source.WithFetchedTest do
   end
 
   defp opts(adapter, module) do
-    [sources: %{adapter => {module, []}}, max_body_bytes: 10_000_000]
+    [{adapter, [adapter: module, match: [prefix: Atom.to_string(adapter)], options: []]}]
+    |> then(&Source.validate_config!(sources: &1))
+    |> Keyword.put(:max_body_bytes, 10_000_000)
   end
 
   test "invokes fun with the fetched response and returns fun's result unchanged" do

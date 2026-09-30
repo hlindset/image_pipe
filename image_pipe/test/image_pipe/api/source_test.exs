@@ -144,6 +144,39 @@ defmodule ImagePipe.API.SourceTest do
     end
   end
 
+  describe "translate/2 — custom schemes" do
+    setup do
+      config =
+        ImagePipe.Source.validate_config!(
+          sources: [
+            assets: [
+              adapter: ImagePipe.Source.File,
+              match: [scheme: "asset"],
+              options: [root: "/srv/assets", root_id: "assets"]
+            ]
+          ]
+        )
+
+      %{config: config}
+    end
+
+    test "a scheme a mount matches becomes a scheme-tagged path", %{config: config} do
+      assert Source.translate("asset://catalog/42 a.jpg", config) ==
+               {:ok, %Path{scheme: "asset", segments: ["catalog", "42 a.jpg"]}}
+
+      assert Source.translate("Asset://catalog/42", config) ==
+               {:ok, %Path{scheme: "asset", segments: ["catalog", "42"]}}
+    end
+
+    test "a custom scheme no mount matches is unsupported", %{config: config} do
+      assert Source.translate("other://catalog/42", config) ==
+               {:error, {:invalid_source, {:unsupported_scheme, "other"}}}
+
+      assert Source.translate("asset://catalog/42", []) ==
+               {:error, {:invalid_source, {:unsupported_scheme, "asset"}}}
+    end
+  end
+
   describe "translate/2 — errors" do
     test "empty source is rejected" do
       assert {:error, {:invalid_source, _reason}} = Source.translate("", [])

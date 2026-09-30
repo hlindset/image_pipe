@@ -63,6 +63,9 @@ defmodule ImagePipe.Source.S3 do
                   )
 
   @impl Source
+  def source_kinds, do: [:object]
+
+  @impl Source
   def validate_options(opts) when is_list(opts) do
     with {:ok, validated} <- validate_options_schema(opts),
          {:ok, default} <- validate_config(Keyword.fetch!(validated, :default)),
@@ -99,7 +102,6 @@ defmodule ImagePipe.Source.S3 do
 
       {:ok,
        %Resolved{
-         adapter: :s3,
          source_kind: :object,
          identity: identity,
          internal_cache: internal_cache,

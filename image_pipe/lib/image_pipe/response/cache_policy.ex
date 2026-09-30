@@ -37,8 +37,8 @@ defmodule ImagePipe.Response.CachePolicy do
           http_cache: :inherit | :enabled | :disabled,
           byte_identity: {:strong, term()} | :none,
           stable?: boolean(),
-          adapter: module(),
-          source_kind: :path | :url | :object | :reference
+          source_mount: atom() | nil,
+          source_kind: :path | :url | :object | :input
         }
 
   @spec generate(Plug.Conn.t(), Representation.t(), source_facts(), keyword()) :: CacheHeaders.t()
@@ -342,7 +342,7 @@ defmodule ImagePipe.Response.CachePolicy do
       [:http_cache, :fallback, :no_store],
       %{},
       %{
-        adapter: source_facts.adapter,
+        source_mount: source_facts.source_mount,
         source_kind: source_facts.source_kind,
         reason: reason
       }

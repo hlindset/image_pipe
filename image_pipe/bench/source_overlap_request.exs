@@ -44,8 +44,7 @@ defmodule SourceOverlapRequestBench do
         max_input_pixels: 60_000_000,
         sources: [
           url:
-            {ImagePipe.Source.HTTP,
-             allowed_hosts: ["127.0.0.1"], address_policy: [allow_loopback: true]}
+            [adapter: ImagePipe.Source.HTTP, match: [scheme: ["http", "https"]], options: [allowed_hosts: ["127.0.0.1"], address_policy: [allow_loopback: true]]]
         ],
         cache: {ImagePipe.Cache.FileSystem, root: Path.join(root, "output")},
         input_cache: {ImagePipe.Cache.FileSystem, root: Path.join(root, "input")}

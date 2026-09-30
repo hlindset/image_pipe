@@ -8,6 +8,9 @@ defmodule ImagePipe.RequestSafetyTest do
   defmodule DenyingSourceAdapter do
     @behaviour ImagePipe.Source
 
+    @impl true
+    def source_kinds, do: [:path, :url, :object]
+
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}
 
@@ -26,6 +29,9 @@ defmodule ImagePipe.RequestSafetyTest do
   defmodule FetchErrorSourceAdapter do
     @behaviour ImagePipe.Source
 
+    @impl true
+    def source_kinds, do: [:path, :url, :object]
+
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}
 
@@ -33,7 +39,6 @@ defmodule ImagePipe.RequestSafetyTest do
     def resolve(_source, _opts, _runtime_opts) do
       {:ok,
        %ImagePipe.Source.Resolved{
-         adapter: :path,
          source_kind: :path,
          identity: [kind: :path, root: "test", path: ["missing.jpg"]],
          internal_cache: :enabled,
@@ -50,6 +55,9 @@ defmodule ImagePipe.RequestSafetyTest do
   defmodule StreamErrorSourceAdapter do
     @behaviour ImagePipe.Source
 
+    @impl true
+    def source_kinds, do: [:path, :url, :object]
+
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}
 
@@ -57,7 +65,6 @@ defmodule ImagePipe.RequestSafetyTest do
     def resolve(_source, _opts, _runtime_opts) do
       {:ok,
        %ImagePipe.Source.Resolved{
-         adapter: :path,
          source_kind: :path,
          identity: [kind: :path, root: "test", path: ["stream-fails.jpg"]],
          internal_cache: :disabled,
@@ -77,6 +84,9 @@ defmodule ImagePipe.RequestSafetyTest do
   defmodule CacheableStreamErrorSourceAdapter do
     @behaviour ImagePipe.Source
 
+    @impl true
+    def source_kinds, do: [:path, :url, :object]
+
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}
 
@@ -84,7 +94,6 @@ defmodule ImagePipe.RequestSafetyTest do
     def resolve(_source, _opts, _runtime_opts) do
       {:ok,
        %ImagePipe.Source.Resolved{
-         adapter: :path,
          source_kind: :path,
          identity: [kind: :path, root: "test", path: ["cacheable-stream-fails.jpg"]],
          internal_cache: :enabled,
@@ -105,7 +114,7 @@ defmodule ImagePipe.RequestSafetyTest do
     conn =
       ImagePipe.Plug.call(
         conn(:get, "/rotate=370/format=jpeg/src/images/cat.jpg"),
-        ImagePipe.Plug.init(sources: [path: {ValidAdapter, []}])
+        ImagePipe.Plug.init(sources: [path: [adapter: ValidAdapter, match: :path, options: []]])
       )
 
     assert conn.status == 400
@@ -121,7 +130,7 @@ defmodule ImagePipe.RequestSafetyTest do
         ImagePipe.Plug.call(
           conn(:get, path),
           ImagePipe.Plug.init(
-            sources: [path: {ValidAdapter, []}],
+            sources: [path: [adapter: ValidAdapter, match: :path, options: []]],
             cache: {CacheProbe, []}
           )
         )
@@ -145,7 +154,7 @@ defmodule ImagePipe.RequestSafetyTest do
         ImagePipe.Plug.call(
           conn(:get, path),
           ImagePipe.Plug.init(
-            sources: [path: {DenyingSourceAdapter, []}],
+            sources: [path: [adapter: DenyingSourceAdapter, match: :path, options: []]],
             cache: {CacheProbe, []}
           )
         )
@@ -162,7 +171,7 @@ defmodule ImagePipe.RequestSafetyTest do
       ImagePipe.Plug.call(
         conn(:get, "/w=0/format=jpeg/src/images/cat.jpg"),
         ImagePipe.Plug.init(
-          sources: [path: {ValidAdapter, []}],
+          sources: [path: [adapter: ValidAdapter, match: :path, options: []]],
           cache: {CacheProbe, []}
         )
       )
@@ -175,7 +184,7 @@ defmodule ImagePipe.RequestSafetyTest do
   test "source resolution failures return before cache lookup and fetch" do
     opts =
       ImagePipe.Plug.init(
-        sources: [path: {DenyingSourceAdapter, []}],
+        sources: [path: [adapter: DenyingSourceAdapter, match: :path, options: []]],
         cache: {CacheProbe, []}
       )
 
@@ -192,7 +201,7 @@ defmodule ImagePipe.RequestSafetyTest do
   test "source runtime options pass body limits and runtime metadata without adapter or cache config" do
     opts =
       ImagePipe.Plug.init(
-        sources: [path: {ValidAdapter, []}],
+        sources: [path: [adapter: ValidAdapter, match: :path, options: []]],
         cache: {CacheProbe, []},
         max_body_bytes: 1_000_000
       )
@@ -217,7 +226,7 @@ defmodule ImagePipe.RequestSafetyTest do
   test "source fetch errors return source response errors" do
     opts =
       ImagePipe.Plug.init(
-        sources: [path: {FetchErrorSourceAdapter, []}],
+        sources: [path: [adapter: FetchErrorSourceAdapter, match: :path, options: []]],
         cache: {CacheProbe, []}
       )
 
@@ -231,7 +240,7 @@ defmodule ImagePipe.RequestSafetyTest do
   test "deferred source stream errors return source response errors" do
     opts =
       ImagePipe.Plug.init(
-        sources: [path: {StreamErrorSourceAdapter, []}],
+        sources: [path: [adapter: StreamErrorSourceAdapter, match: :path, options: []]],
         cache: {CacheProbe, []}
       )
 
@@ -245,7 +254,7 @@ defmodule ImagePipe.RequestSafetyTest do
   test "cache miss does not write after deferred source stream errors" do
     opts =
       ImagePipe.Plug.init(
-        sources: [path: {CacheableStreamErrorSourceAdapter, []}],
+        sources: [path: [adapter: CacheableStreamErrorSourceAdapter, match: :path, options: []]],
         cache: {CacheProbe, []}
       )
 

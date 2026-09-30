@@ -12,6 +12,8 @@ defmodule ImagePipe.Source.Parser do
       path escapes are decoded once here and re-encoded by the HTTP adapter.
     * `s3://` — an `%Plan.Source.Object{}` with the query carried as its
       immutable revision.
+    * a custom scheme a mount matches — a `%Plan.Source.Path{}` tagged with
+      that scheme, holding the part after `scheme://` split on `/`.
     * anything else (an unknown scheme, an empty source, or a malformed
       authority) — `{:error, {:invalid_source, reason}}`.
 
@@ -23,6 +25,7 @@ defmodule ImagePipe.Source.Parser do
   alias ImagePipe.Plan.Source.Object
   alias ImagePipe.Plan.Source.Path
   alias ImagePipe.Plan.Source.URL
+  alias ImagePipe.Source.Mounts
 
   @http_schemes %{"http" => :http, "https" => :https}
   @scheme_prefix ~r/^([a-zA-Z][a-zA-Z0-9+.\-]*):\/\//
@@ -54,8 +57,14 @@ defmodule ImagePipe.Source.Parser do
     build_s3(source, URI.parse(source))
   end
 
-  defp url_translate(scheme, _source, _config),
-    do: {:error, {:invalid_source, {:unsupported_scheme, scheme}}}
+  defp url_translate(scheme, source, config) do
+    if scheme in Mounts.custom_schemes(Keyword.get(config, :sources, %Mounts{})) do
+      rest = binary_part(source, byte_size(scheme) + 3, byte_size(source) - byte_size(scheme) - 3)
+      {:ok, %Path{scheme: scheme, segments: String.split(rest, "/")}}
+    else
+      {:error, {:invalid_source, {:unsupported_scheme, scheme}}}
+    end
+  end
 
   defp build_url(scheme, source, %URI{} = uri) do
     with :ok <- validate_uri_authority(uri),

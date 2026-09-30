@@ -63,28 +63,41 @@ defmodule ImagePipeFiddle.Application do
     s3 = Application.fetch_env!(:image_pipe_fiddle, :s3_source)
 
     mounts = [
-      path: {ImagePipe.Source.File, root: static_root, root_id: "static", stable: :trusted},
-      s3:
-        {ImagePipe.Source.S3,
-         default: [
-           region: Keyword.fetch!(s3, :region),
-           endpoint: Keyword.fetch!(s3, :endpoint),
-           credentials:
-             {:static,
-              [
-                access_key_id: Keyword.fetch!(s3, :access_key_id),
-                secret_access_key: Keyword.fetch!(s3, :secret_access_key)
-              ]}
-         ],
-         buckets: %{"sources" => []}}
+      path: [
+        adapter: ImagePipe.Source.File,
+        match: :path,
+        options: [root: static_root, root_id: "static", stable: :trusted]
+      ],
+      s3: [
+        adapter: ImagePipe.Source.S3,
+        match: [scheme: "s3"],
+        options: [
+          default: [
+            region: Keyword.fetch!(s3, :region),
+            endpoint: Keyword.fetch!(s3, :endpoint),
+            credentials:
+              {:static,
+               [
+                 access_key_id: Keyword.fetch!(s3, :access_key_id),
+                 secret_access_key: Keyword.fetch!(s3, :secret_access_key)
+               ]}
+          ],
+          buckets: %{"sources" => []}
+        ]
+      ]
     ]
 
     if Application.fetch_env!(:image_pipe_fiddle, :loopback_http_source) do
       mounts ++
         [
-          url:
-            {ImagePipe.Source.HTTP,
-             allowed_hosts: ["localhost", "127.0.0.1"], address_policy: [allow_loopback: true]}
+          url: [
+            adapter: ImagePipe.Source.HTTP,
+            match: [scheme: ["http", "https"]],
+            options: [
+              allowed_hosts: ["localhost", "127.0.0.1"],
+              address_policy: [allow_loopback: true]
+            ]
+          ]
         ]
     else
       mounts

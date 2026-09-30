@@ -37,11 +37,15 @@ defmodule ImagePipe.API.InputCacheFailureWireTest do
     config =
       ImagePipe.Plug.init(
         sources: [
-          url:
-            {ImagePipe.Source.HTTP,
-             allowed_hosts: ["origin.test"],
-             address_resolver: fn _ -> {:ok, [{93, 184, 216, 34}]} end,
-             req_options: [plug: origin]}
+          url: [
+            adapter: ImagePipe.Source.HTTP,
+            match: [scheme: ["http", "https"]],
+            options: [
+              allowed_hosts: ["origin.test"],
+              address_resolver: fn _ -> {:ok, [{93, 184, 216, 34}]} end,
+              req_options: [plug: origin]
+            ]
+          ]
         ],
         input_cache: {FileSystem, pool}
       )

@@ -3,6 +3,9 @@ defmodule ImagePipe.SourceTest.RootHTTPAdapter do
 
   @behaviour ImagePipe.Source
 
+  @impl true
+  def source_kinds, do: [:path, :url, :object]
+
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Source
   alias ImagePipe.Source.CacheSemantics
@@ -42,7 +45,6 @@ defmodule ImagePipe.SourceTest.RootHTTPAdapter do
 
     {:ok,
      %Resolved{
-       adapter: :path,
        source_kind: :path,
        identity: identity,
        internal_cache: Keyword.fetch!(opts, :internal_cache),

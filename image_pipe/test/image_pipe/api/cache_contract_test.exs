@@ -109,11 +109,15 @@ defmodule ImagePipe.API.CacheContractTest do
   defp base_opts do
     [
       sources: [
-        path:
-          {RootHTTPAdapter,
-           root_url: "http://contract-kit-cache-key.test",
-           byte_identity: :strong,
-           req_options: [plug: OriginImage]}
+        path: [
+          adapter: RootHTTPAdapter,
+          match: :path,
+          options: [
+            root_url: "http://contract-kit-cache-key.test",
+            byte_identity: :strong,
+            req_options: [plug: OriginImage]
+          ]
+        ]
       ]
     ]
   end

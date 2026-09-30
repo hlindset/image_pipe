@@ -9,7 +9,13 @@ defmodule ImagePipe.Source.CachePolicyConfigTest do
     opts =
       ImagePipe.Plug.init(
         source_cache_policy: [storage: :deny, freshness: {:fallback, 60}],
-        sources: [url: {HTTP, allowed_hosts: ["example.com"], cache_policy: [storage: :allow]}]
+        sources: [
+          url: [
+            adapter: HTTP,
+            match: [scheme: ["http", "https"]],
+            options: [allowed_hosts: ["example.com"], cache_policy: [storage: :allow]]
+          ]
+        ]
       )
 
     assert {:ok, source} = Source.resolve(url(), opts, Source.runtime_opts(opts))
@@ -27,7 +33,13 @@ defmodule ImagePipe.Source.CachePolicyConfigTest do
     opts =
       ImagePipe.Plug.init(
         source_cache_policy: [storage: :deny],
-        sources: [url: {HTTP, allowed_hosts: ["example.com"], stable: :trusted}]
+        sources: [
+          url: [
+            adapter: HTTP,
+            match: [scheme: ["http", "https"]],
+            options: [allowed_hosts: ["example.com"], stable: :trusted]
+          ]
+        ]
       )
 
     assert {:ok, source} = Source.resolve(url(), opts, Source.runtime_opts(opts))
@@ -41,7 +53,13 @@ defmodule ImagePipe.Source.CachePolicyConfigTest do
 
       assert_raise ArgumentError, fn ->
         ImagePipe.Plug.init(
-          sources: [url: {HTTP, allowed_hosts: ["example.com"], cache_policy: policy}]
+          sources: [
+            url: [
+              adapter: HTTP,
+              match: [scheme: ["http", "https"]],
+              options: [allowed_hosts: ["example.com"], cache_policy: policy]
+            ]
+          ]
         )
       end
     end
@@ -51,11 +69,15 @@ defmodule ImagePipe.Source.CachePolicyConfigTest do
     assert_raise ArgumentError, fn ->
       ImagePipe.Plug.init(
         sources: [
-          url:
-            {HTTP,
-             allowed_hosts: ["example.com"],
-             stable: :trusted,
-             cache_policy: [freshness: {:force, 60}]}
+          url: [
+            adapter: HTTP,
+            match: [scheme: ["http", "https"]],
+            options: [
+              allowed_hosts: ["example.com"],
+              stable: :trusted,
+              cache_policy: [freshness: {:force, 60}]
+            ]
+          ]
         ]
       )
     end
@@ -65,7 +87,13 @@ defmodule ImagePipe.Source.CachePolicyConfigTest do
     opts =
       ImagePipe.Plug.init(
         source_cache_policy: [storage: :allow, freshness: {:fallback, 60}],
-        sources: [url: {HTTP, allowed_hosts: ["example.com"], stable: :trusted}]
+        sources: [
+          url: [
+            adapter: HTTP,
+            match: [scheme: ["http", "https"]],
+            options: [allowed_hosts: ["example.com"], stable: :trusted]
+          ]
+        ]
       )
 
     assert {:ok, source} = Source.resolve(url(), opts, Source.runtime_opts(opts))
@@ -85,15 +113,19 @@ defmodule ImagePipe.Source.CachePolicyConfigTest do
     opts =
       ImagePipe.Plug.init(
         sources: [
-          s3:
-            {Source.S3,
-             default: [
-               region: "us-east-1",
-               endpoint: "https://s3.example.com",
-               credentials: {:static, access_key_id: "A", secret_access_key: "S"},
-               cache_policy: [storage: :deny, freshness: {:fallback, 60}]
-             ],
-             buckets: %{"images" => [stable: :trusted, cache_policy: [storage: :allow]]}}
+          s3: [
+            adapter: Source.S3,
+            match: [scheme: "s3"],
+            options: [
+              default: [
+                region: "us-east-1",
+                endpoint: "https://s3.example.com",
+                credentials: {:static, access_key_id: "A", secret_access_key: "S"},
+                cache_policy: [storage: :deny, freshness: {:fallback, 60}]
+              ],
+              buckets: %{"images" => [stable: :trusted, cache_policy: [storage: :allow]]}
+            ]
+          ]
         ]
       )
 

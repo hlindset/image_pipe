@@ -2,6 +2,9 @@ defmodule ImagePipe.Test.ProcessingSource do
   @moduledoc false
   @behaviour ImagePipe.Source
 
+  @impl true
+  def source_kinds, do: [:path, :url, :object]
+
   alias ImagePipe.Source.{CacheSemantics, Resolved, Response}
 
   @impl true
@@ -11,7 +14,6 @@ defmodule ImagePipe.Test.ProcessingSource do
   def resolve(source, options, _runtime) do
     {:ok,
      %Resolved{
-       adapter: :path,
        source_kind: Keyword.get(options, :source_kind, :path),
        identity: [path: source.segments],
        internal_cache: :enabled,

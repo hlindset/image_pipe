@@ -89,7 +89,13 @@ defmodule ImagePipe.API.HeaderDimensionsWireTest do
 
     config =
       ImagePipe.Plug.init(
-        sources: [path: {ImagePipe.Source.File, root: dir, root_id: "header-dimensions-test"}],
+        sources: [
+          path: [
+            adapter: ImagePipe.Source.File,
+            match: :path,
+            options: [root: dir, root_id: "header-dimensions-test"]
+          ]
+        ],
         max_input_pixels: 100
       )
 
@@ -126,7 +132,11 @@ defmodule ImagePipe.API.HeaderDimensionsWireTest do
     config =
       [
         sources: [
-          path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin]}
+          path: [
+            adapter: RootHTTPAdapter,
+            match: :path,
+            options: [root_url: "http://origin.test", req_options: [plug: origin]]
+          ]
         ],
         telemetry_prefix: @prefix
       ]

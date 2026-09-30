@@ -6,13 +6,15 @@ defmodule ImagePipe.SourceTest.IdentitySource do
   @behaviour ImagePipe.Source
 
   @impl true
+  def source_kinds, do: [:path, :url, :object]
+
+  @impl true
   def validate_options(opts), do: {:ok, opts}
 
   @impl true
   def resolve(source, opts, _runtime) do
     {:ok,
      %Resolved{
-       adapter: :path,
        source_kind: :path,
        identity: [path: source.segments],
        internal_cache: :enabled,

@@ -36,7 +36,7 @@ defmodule ImagePipe.Processing.Config do
   @map_keys Keyword.keys(@map_defaults)
 
   @options_schema NimbleOptions.new!(
-                    sources: [type: :map],
+                    sources: [type: :any],
                     source_cache_policy: [type: :keyword_list],
                     processing_pool: [type: {:or, [:atom, :pid]}],
                     max_body_bytes: [type: :pos_integer, default: @default_max_body_bytes],

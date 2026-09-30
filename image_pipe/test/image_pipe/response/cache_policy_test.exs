@@ -29,7 +29,7 @@ defmodule ImagePipe.Response.CachePolicyTest do
       http_cache: :inherit,
       byte_identity: {:strong, "seed"},
       stable?: true,
-      adapter: ImagePipe.Source.HTTP,
+      source_mount: :web,
       source_kind: :url
     })
   end
@@ -145,7 +145,7 @@ defmodule ImagePipe.Response.CachePolicyTest do
     assert metadata == %{effective_mode: :enabled, byte_identity: :strong, etag: true}
   end
 
-  test "no-store fallback telemetry fires with adapter, source_kind, and reason" do
+  test "no-store fallback telemetry fires with source_mount, source_kind, and reason" do
     attach_telemetry([[:cache_policy_test, :http_cache, :fallback, :no_store]])
 
     CachePolicy.generate(
@@ -159,7 +159,7 @@ defmodule ImagePipe.Response.CachePolicyTest do
                     %{}, metadata}
 
     assert metadata == %{
-             adapter: ImagePipe.Source.HTTP,
+             source_mount: :web,
              source_kind: :url,
              reason: :missing_byte_identity
            }

@@ -17,6 +17,9 @@ defmodule ImagePipe.TelemetryTest do
   defmodule InvalidSourceAdapter do
     @behaviour ImagePipe.Source
 
+    @impl true
+    def source_kinds, do: [:path, :url, :object]
+
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}
 
@@ -24,7 +27,6 @@ defmodule ImagePipe.TelemetryTest do
     def resolve(_source, _opts, _runtime_opts) do
       {:ok,
        %ImagePipe.Source.Resolved{
-         adapter: :path,
          source_kind: :path,
          identity: [kind: :path, root: "invalid", path: ["images", "beach.jpg"]],
          internal_cache: :enabled,
@@ -94,6 +96,9 @@ defmodule ImagePipe.TelemetryTest do
   defmodule SourceBytes do
     @behaviour ImagePipe.Source
 
+    @impl true
+    def source_kinds, do: [:path, :url, :object]
+
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}
 
@@ -101,7 +106,6 @@ defmodule ImagePipe.TelemetryTest do
     def resolve(_source, opts, _runtime_opts) do
       {:ok,
        %ImagePipe.Source.Resolved{
-         adapter: :path,
          source_kind: :path,
          identity: [kind: :path, root: "test", path: ["images", "source.tiff"]],
          internal_cache: :enabled,
@@ -120,6 +124,9 @@ defmodule ImagePipe.TelemetryTest do
   defmodule DeniedSourceAdapter do
     @behaviour ImagePipe.Source
 
+    @impl true
+    def source_kinds, do: [:path, :url, :object]
+
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}
 
@@ -132,6 +139,9 @@ defmodule ImagePipe.TelemetryTest do
 
   defmodule RaisingSourceAdapter do
     @behaviour ImagePipe.Source
+
+    @impl true
+    def source_kinds, do: [:path, :url, :object]
 
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}
@@ -283,7 +293,7 @@ defmodule ImagePipe.TelemetryTest do
   end
 
   test "source resolve stop metadata reports source error reason" do
-    opts = init_opts(sources: [path: {DeniedSourceAdapter, []}])
+    opts = init_opts(sources: [path: [adapter: DeniedSourceAdapter, match: :path, options: []]])
 
     # The runner projects the mount config down to the adapter's runtime opts;
     # the telemetry prefix rides that projection.
@@ -444,7 +454,13 @@ defmodule ImagePipe.TelemetryTest do
     conn =
       :get
       |> conn("/src/images/source.tiff")
-      |> ImagePipe.Plug.call(base_opts(sources: [path: {SourceBytes, body: tiff_body(:white)}]))
+      |> ImagePipe.Plug.call(
+        base_opts(
+          sources: [
+            path: [adapter: SourceBytes, match: :path, options: [body: tiff_body(:white)]]
+          ]
+        )
+      )
 
     assert conn.status == 200
     events = telemetry_events()
@@ -541,11 +557,11 @@ defmodule ImagePipe.TelemetryTest do
         conn(:get, "/format=jpeg/src/images/beach.jpg"),
         base_opts(sources: []),
         :source_error,
-        500
+        422
       },
       processing: {
         conn(:get, "/format=jpeg/src/images/beach.jpg"),
-        base_opts(sources: [path: {InvalidSourceAdapter, []}]),
+        base_opts(sources: [path: [adapter: InvalidSourceAdapter, match: :path, options: []]]),
         :processing_error,
         415
       }
@@ -596,7 +612,7 @@ defmodule ImagePipe.TelemetryTest do
       |> conn("/format=jpeg/src/images/beach.jpg")
       |> ImagePipe.Plug.call(base_opts(sources: []))
 
-    assert source.status == 500
+    assert source.status == 422
 
     assert_event(telemetry_events(), @prefix ++ [:request, :stop], fn _measurements, metadata ->
       assert metadata.error == :source
@@ -607,7 +623,7 @@ defmodule ImagePipe.TelemetryTest do
     assert_raise RuntimeError, "forced source failure", fn ->
       ImagePipe.Plug.call(
         conn(:get, "/format=jpeg/src/images/beach.jpg"),
-        base_opts(sources: [path: {RaisingSourceAdapter, []}])
+        base_opts(sources: [path: [adapter: RaisingSourceAdapter, match: :path, options: []]])
       )
     end
 
@@ -683,7 +699,7 @@ defmodule ImagePipe.TelemetryTest do
 
     opts =
       base_opts(
-        sources: [path: {SourceBytes, body: big_body}],
+        sources: [path: [adapter: SourceBytes, match: :path, options: [body: big_body]]],
         max_body_bytes: 1_000
       )
 
@@ -795,7 +811,11 @@ defmodule ImagePipe.TelemetryTest do
       [
         telemetry_prefix: @prefix,
         sources: [
-          path: {ImagePipe.Source.File, root: "priv/static", root_id: "static", stable: :trusted}
+          path: [
+            adapter: ImagePipe.Source.File,
+            match: :path,
+            options: [root: "priv/static", root_id: "static", stable: :trusted]
+          ]
         ]
       ],
       overrides

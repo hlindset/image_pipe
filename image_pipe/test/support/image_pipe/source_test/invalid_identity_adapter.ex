@@ -9,6 +9,9 @@ defmodule ImagePipe.SourceTest.InvalidIdentityAdapter do
 
   @behaviour Source
 
+  @impl true
+  def source_kinds, do: [:path, :url, :object]
+
   @impl Source
   def validate_options(opts), do: {:ok, opts}
 
@@ -16,7 +19,6 @@ defmodule ImagePipe.SourceTest.InvalidIdentityAdapter do
   def resolve(_source, opts, _runtime_opts) do
     {:ok,
      %Resolved{
-       adapter: :path,
        source_kind: :path,
        identity: Keyword.get(opts, :identity, kind: :path, client: self()),
        internal_cache: :disabled,

@@ -516,7 +516,11 @@ defmodule ImagePipe.Delivery.VixStreamContinuationTest do
   defp runtime_config do
     ImagePipe.Plug.init(
       sources: [
-        path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
+        path: [
+          adapter: RootHTTPAdapter,
+          match: :path,
+          options: [root_url: "http://origin.test", req_options: [plug: OriginImage]]
+        ]
       ],
       max_body_bytes: 10_000_000,
       max_input_pixels: 40_000_000,

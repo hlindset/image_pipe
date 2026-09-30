@@ -12,18 +12,16 @@ defmodule ImagePipeFiddle.SourceMountsTest do
   end
 
   test "source mounts configure the API endpoint" do
-    opts = ImagePipe.Plug.init(sources: ImagePipeFiddle.Application.source_mounts())
-    sources = Keyword.fetch!(opts, :sources)
-    assert Map.has_key?(sources, :path)
-    assert Map.has_key?(sources, :s3)
-    assert Map.has_key?(sources, :http)
+    mounts = ImagePipeFiddle.Application.source_mounts()
+    assert ImagePipe.Plug.init(sources: mounts)
+    assert Keyword.keys(mounts) == [:path, :s3, :url]
   end
 
   test "loopback HTTP source is absent when its local-development flag is disabled" do
     Application.put_env(:image_pipe_fiddle, :loopback_http_source, false)
 
-    opts = ImagePipe.Plug.init(sources: ImagePipeFiddle.Application.source_mounts())
-
-    refute Map.has_key?(Keyword.fetch!(opts, :sources), :http)
+    mounts = ImagePipeFiddle.Application.source_mounts()
+    assert ImagePipe.Plug.init(sources: mounts)
+    refute Keyword.has_key?(mounts, :url)
   end
 end

@@ -39,10 +39,14 @@ defmodule ImagePipe.Telemetry.Trace.CrossProcessTest do
   defp miss_opts do
     [
       sources: [
-        path:
-          {RootHTTPAdapter,
-           root_url: "http://origin.test",
-           req_options: [plug: ImagePipe.Test.PlugFixture.OriginImage]}
+        path: [
+          adapter: RootHTTPAdapter,
+          match: :path,
+          options: [
+            root_url: "http://origin.test",
+            req_options: [plug: ImagePipe.Test.PlugFixture.OriginImage]
+          ]
+        ]
       ],
       cache: {CacheProbe, result: :miss}
     ]

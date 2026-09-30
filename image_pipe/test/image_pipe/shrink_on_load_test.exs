@@ -116,16 +116,24 @@ defmodule ImagePipe.ShrinkOnLoadTest do
 
   defp file_source_opts do
     [
-      sources: [path: {ImagePipe.Source.File, root: "priv/static", root_id: "static"}]
+      sources: [
+        path: [
+          adapter: ImagePipe.Source.File,
+          match: :path,
+          options: [root: "priv/static", root_id: "static"]
+        ]
+      ]
     ]
   end
 
   defp http_source_opts(origin_plug) do
     [
       sources: [
-        path:
-          {ImagePipe.SourceTest.RootHTTPAdapter,
-           root_url: "http://origin.test", req_options: [plug: origin_plug]}
+        path: [
+          adapter: ImagePipe.SourceTest.RootHTTPAdapter,
+          match: :path,
+          options: [root_url: "http://origin.test", req_options: [plug: origin_plug]]
+        ]
       ]
     ]
   end

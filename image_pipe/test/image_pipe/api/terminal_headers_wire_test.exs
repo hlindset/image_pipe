@@ -19,12 +19,16 @@ defmodule ImagePipe.API.TerminalHeadersWireTest do
     config =
       ImagePipe.Plug.init(
         sources: [
-          path:
-            {RootHTTPAdapter,
-             root_url: "http://origin.test",
-             byte_identity: :strong,
-             internal_cache: :enabled,
-             req_options: [plug: origin]}
+          path: [
+            adapter: RootHTTPAdapter,
+            match: :path,
+            options: [
+              root_url: "http://origin.test",
+              byte_identity: :strong,
+              internal_cache: :enabled,
+              req_options: [plug: origin]
+            ]
+          ]
         ],
         cache: {CacheProbe, store: :ets.new(:terminal_headers, [:set, :public])},
         http_cache: [mode: :enabled]

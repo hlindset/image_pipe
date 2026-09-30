@@ -22,11 +22,15 @@ defmodule ImagePipe.API.SourceWireTest do
     config =
       mount(
         sources: [
-          https:
-            {HTTP,
-             allowed_hosts: ["assets.example.com"],
-             address_resolver: public_resolver(),
-             req_options: [plug: origin]}
+          https: [
+            adapter: HTTP,
+            match: [scheme: "https"],
+            options: [
+              allowed_hosts: ["assets.example.com"],
+              address_resolver: public_resolver(),
+              req_options: [plug: origin]
+            ]
+          ]
         ]
       )
 
@@ -48,14 +52,18 @@ defmodule ImagePipe.API.SourceWireTest do
     config =
       mount(
         sources: [
-          s3:
-            {S3,
-             default: [
-               endpoint: "https://objects.example.com",
-               region: "eu-west-1",
-               credentials: {:static, access_key_id: "A", secret_access_key: "S"},
-               req_options: [plug: origin]
-             ]}
+          s3: [
+            adapter: S3,
+            match: [scheme: "s3"],
+            options: [
+              default: [
+                endpoint: "https://objects.example.com",
+                region: "eu-west-1",
+                credentials: {:static, access_key_id: "A", secret_access_key: "S"},
+                req_options: [plug: origin]
+              ]
+            ]
+          ]
         ]
       )
 
@@ -81,14 +89,18 @@ defmodule ImagePipe.API.SourceWireTest do
     config =
       mount(
         sources: [
-          s3:
-            {S3,
-             default: [
-               endpoint: "https://objects.example.com",
-               region: "eu-west-1",
-               credentials: {:provider, CredentialProvider, report_to: self()},
-               req_options: [plug: origin]
-             ]}
+          s3: [
+            adapter: S3,
+            match: [scheme: "s3"],
+            options: [
+              default: [
+                endpoint: "https://objects.example.com",
+                region: "eu-west-1",
+                credentials: {:provider, CredentialProvider, report_to: self()},
+                req_options: [plug: origin]
+              ]
+            ]
+          ]
         ],
         cache: {CacheProbe, store: store}
       )
@@ -110,11 +122,15 @@ defmodule ImagePipe.API.SourceWireTest do
     config =
       mount(
         sources: [
-          https:
-            {HTTP,
-             allowed_hosts: ["assets.example.com"],
-             address_resolver: public_resolver(),
-             req_options: [plug: fn _conn -> flunk("invalid URL fetched its source") end]}
+          https: [
+            adapter: HTTP,
+            match: [scheme: "https"],
+            options: [
+              allowed_hosts: ["assets.example.com"],
+              address_resolver: public_resolver(),
+              req_options: [plug: fn _conn -> flunk("invalid URL fetched its source") end]
+            ]
+          ]
         ],
         cache: {CacheProbe, []}
       )

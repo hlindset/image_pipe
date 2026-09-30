@@ -221,7 +221,7 @@ defmodule ImagePipe.Plug.Runner do
       byte_identity: source.cache_semantics.byte_identity,
       stable?: source.cache_semantics.stable?,
       storage: Keyword.get(source.cache_semantics.policy, :storage, :origin),
-      adapter: source.adapter,
+      source_mount: source.mount,
       source_kind: source.source_kind
     }
   end

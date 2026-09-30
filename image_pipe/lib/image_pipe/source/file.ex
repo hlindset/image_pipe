@@ -26,6 +26,9 @@ defmodule ImagePipe.Source.File do
                   )
 
   @impl Source
+  def source_kinds, do: [:path]
+
+  @impl Source
   def validate_options(opts) do
     case NimbleOptions.validate(opts, @options_schema) do
       {:ok, validated} ->
@@ -56,7 +59,6 @@ defmodule ImagePipe.Source.File do
 
       {:ok,
        %Resolved{
-         adapter: :path,
          source_kind: :path,
          identity: identity,
          internal_cache: internal_cache_mode(opts, stable?),

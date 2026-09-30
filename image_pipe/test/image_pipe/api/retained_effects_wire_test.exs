@@ -26,7 +26,11 @@ defmodule ImagePipe.API.RetainedEffectsWireTest do
     config =
       ImagePipe.Plug.init(
         sources: [
-          path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin]}
+          path: [
+            adapter: RootHTTPAdapter,
+            match: :path,
+            options: [root_url: "http://origin.test", req_options: [plug: origin]]
+          ]
         ]
       )
 

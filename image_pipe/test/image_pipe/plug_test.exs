@@ -298,7 +298,11 @@ defmodule ImagePipe.PlugTest do
 
       root_url ->
         Keyword.put_new(opts, :sources,
-          path: {RootHTTPAdapter, root_url: root_url, req_options: origin_req_options}
+          path: [
+            adapter: RootHTTPAdapter,
+            match: :path,
+            options: [root_url: root_url, req_options: origin_req_options]
+          ]
         )
     end
   end
@@ -568,7 +572,13 @@ defmodule ImagePipe.PlugTest do
       :get
       |> conn("/format=jpeg/src/images/beach.jpg")
       |> call_image_pipe(
-        sources: [path: {ImagePipe.Source.File, root: "priv/static", root_id: "static"}]
+        sources: [
+          path: [
+            adapter: ImagePipe.Source.File,
+            match: :path,
+            options: [root: "priv/static", root_id: "static"]
+          ]
+        ]
       )
 
     assert conn.status == 200
@@ -735,7 +745,8 @@ defmodule ImagePipe.PlugTest do
              kind: :path,
              adapter: :test_http_root,
              root: "http://origin.test",
-             path: ["images", "beach.jpg"]
+             path: ["images", "beach.jpg"],
+             mount: :path
            ]
 
     refute_received :origin_was_called

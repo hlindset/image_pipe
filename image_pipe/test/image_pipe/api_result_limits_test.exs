@@ -14,9 +14,15 @@ defmodule ImagePipe.APIResultLimitsTest do
   alias ImagePipe.Test.PlugFixture.OriginImage
 
   @default_sources [
-    path:
-      {RootHTTPAdapter,
-       root_url: "http://origin.test", byte_identity: :strong, req_options: [plug: OriginImage]}
+    path: [
+      adapter: RootHTTPAdapter,
+      match: :path,
+      options: [
+        root_url: "http://origin.test",
+        byte_identity: :strong,
+        req_options: [plug: OriginImage]
+      ]
+    ]
   ]
 
   # `output_capabilities` is an internal test-injection seam appended AFTER
@@ -78,7 +84,11 @@ defmodule ImagePipe.APIResultLimitsTest do
     config =
       opts(
         sources: [
-          path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin]}
+          path: [
+            adapter: RootHTTPAdapter,
+            match: :path,
+            options: [root_url: "http://origin.test", req_options: [plug: origin]]
+          ]
         ],
         max_result_width: 7000,
         max_result_height: 100,

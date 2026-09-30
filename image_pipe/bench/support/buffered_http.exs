@@ -1,6 +1,9 @@
 defmodule CoordinatedCacheBench.BufferedHTTP do
   @moduledoc false
   @behaviour ImagePipe.Source
+
+  @impl true
+  def source_kinds, do: [:path, :url, :object]
   alias ImagePipe.Source.HTTP
   alias ImagePipe.Source.Response
 

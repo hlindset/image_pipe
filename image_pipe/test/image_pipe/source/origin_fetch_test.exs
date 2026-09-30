@@ -10,11 +10,15 @@ defmodule ImagePipe.Source.OriginFetchTest do
   defp config(plug) do
     ImagePipe.Plug.init(
       sources: [
-        url:
-          {HTTP,
-           allowed_hosts: ["origin.test"],
-           address_resolver: fn _ -> {:ok, [{93, 184, 216, 34}]} end,
-           req_options: [plug: plug]}
+        url: [
+          adapter: HTTP,
+          match: [scheme: ["http", "https"]],
+          options: [
+            allowed_hosts: ["origin.test"],
+            address_resolver: fn _ -> {:ok, [{93, 184, 216, 34}]} end,
+            req_options: [plug: plug]
+          ]
+        ]
       ]
     )
   end
@@ -145,7 +149,11 @@ defmodule ImagePipe.Source.OriginFetchTest do
     opts =
       ImagePipe.Plug.init(
         sources: [
-          url: {HTTP, allowed_hosts: ["127.0.0.1"], address_policy: [allow_loopback: true]}
+          url: [
+            adapter: HTTP,
+            match: [scheme: ["http", "https"]],
+            options: [allowed_hosts: ["127.0.0.1"], address_policy: [allow_loopback: true]]
+          ]
         ]
       )
 
@@ -176,9 +184,10 @@ defmodule ImagePipe.Source.OriginFetchTest do
         |> Plug.Conn.send_resp(200, "bytes")
       end)
 
-    {module, http} = opts[:sources][:https]
-    http = Keyword.update!(http, :req_options, &Keyword.put(&1, :auth, {:bearer, "secret"}))
-    opts = Keyword.put(opts, :sources, %{https: {module, http}})
+    opts =
+      update_url_mount(opts, fn http ->
+        Keyword.update!(http, :req_options, &Keyword.put(&1, :auth, {:bearer, "secret"}))
+      end)
 
     Source.with_fetched(resolve(opts), opts, fn response ->
       origin = response.origin
@@ -298,14 +307,18 @@ defmodule ImagePipe.Source.OriginFetchTest do
     opts =
       ImagePipe.Plug.init(
         sources: [
-          s3:
-            {Source.S3,
-             default: [
-               region: "us-east-1",
-               endpoint: "https://s3.test",
-               credentials: {:static, access_key_id: "A", secret_access_key: "S"},
-               req_options: [plug: plug]
-             ]}
+          s3: [
+            adapter: Source.S3,
+            match: [scheme: "s3"],
+            options: [
+              default: [
+                region: "us-east-1",
+                endpoint: "https://s3.test",
+                credentials: {:static, access_key_id: "A", secret_access_key: "S"},
+                req_options: [plug: plug]
+              ]
+            ]
+          ]
         ]
       )
 
@@ -351,9 +364,7 @@ defmodule ImagePipe.Source.OriginFetchTest do
       end
     end
 
-    opts = config(plug)
-    {module, http} = opts[:sources][:https]
-    opts = Keyword.put(opts, :sources, %{https: {module, Keyword.put(http, :max_redirects, 1)}})
+    opts = plug |> config() |> update_url_mount(&Keyword.put(&1, :max_redirects, 1))
     source = resolve(opts)
     previous = Source.with_fetched(source, opts, & &1.origin)
 
@@ -433,9 +444,16 @@ defmodule ImagePipe.Source.OriginFetchTest do
   end
 
   defp with_headers(opts, headers) do
-    {module, http} = opts[:sources][:https]
-    http = Keyword.update!(http, :req_options, &Keyword.put(&1, :headers, headers))
-    Keyword.put(opts, :sources, %{https: {module, http}})
+    update_url_mount(opts, fn http ->
+      Keyword.update!(http, :req_options, &Keyword.put(&1, :headers, headers))
+    end)
+  end
+
+  # Changes the validated options of the `url` mount in place.
+  defp update_url_mount(config, fun) do
+    update_in(config, [:sources, Access.key!(:mounts), :url], fn {module, opts} ->
+      {module, fun.(opts)}
+    end)
   end
 
   test "Vary star forbids storage" do

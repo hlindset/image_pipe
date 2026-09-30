@@ -324,7 +324,13 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
 
     config =
       ImagePipe.Plug.init(
-        sources: [url: {HTTP, source_options ++ [address_policy: [allow_loopback: true]]}]
+        sources: [
+          url: [
+            adapter: HTTP,
+            match: [scheme: ["http", "https"]],
+            options: source_options ++ [address_policy: [allow_loopback: true]]
+          ]
+        ]
       )
 
     path = "/w=6/format=png/src/https://origin.test:#{port}/image"
@@ -335,7 +341,13 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
     assert {6, 4, 3} == response.resp_body |> Image.from_binary!() |> Image.shape()
     assert_receive :fetched
 
-    denied = ImagePipe.Plug.init(sources: [url: {HTTP, source_options}])
+    denied =
+      ImagePipe.Plug.init(
+        sources: [
+          url: [adapter: HTTP, match: [scheme: ["http", "https"]], options: source_options]
+        ]
+      )
+
     assert (Plug.Test.conn(:get, path) |> ImagePipe.Plug.call(denied)).status == 422
     refute_received :fetched
   end
