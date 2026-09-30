@@ -65,7 +65,17 @@ Static result limits run after transforms and before output resolution or
 encoding. `:max_result_width` and `:max_result_height` default to `8_192`;
 `:max_result_pixels` defaults to `40_000_000`. Oversize static results are
 uniformly downscaled to fit. By contrast, `:max_input_pixels` is a hard `413`
-image-bomb gate after decode. Animation frame limits are not implemented.
+image-bomb gate after decode.
+
+Multi-frame sources decode their first frame or page only, so
+`:max_input_pixels` applies per frame. `:max_input_frames` (default `1_000`) is
+a hard `413` on the number of frames or pages a source declares. libvips'
+loaders visit every frame while reading the header, and for animated WebP that
+work grows quadratically: a crafted 9.4 MB file with 180,000 one-pixel frames
+takes about 22 s in the header read alone. ImagePipe therefore counts animated
+WebP frames from the container before any libvips open, and checks other
+families' page count before the decoding re-open. Raising the limit re-admits
+that cost.
 
 These limits gate response generation. They don't change cache identity.
 ImagePipe can serve a successful cached response even when the current request

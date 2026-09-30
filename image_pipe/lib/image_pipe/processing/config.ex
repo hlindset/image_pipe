@@ -7,6 +7,7 @@ defmodule ImagePipe.Processing.Config do
 
   @default_max_body_bytes 10_000_000
   @default_max_input_pixels 40_000_000
+  @default_max_input_frames 1_000
 
   @scalar_defaults [
     strip_metadata: true,
@@ -41,6 +42,7 @@ defmodule ImagePipe.Processing.Config do
                     processing_pool: [type: {:or, [:atom, :pid]}],
                     max_body_bytes: [type: :pos_integer, default: @default_max_body_bytes],
                     max_input_pixels: [type: :pos_integer, default: @default_max_input_pixels],
+                    max_input_frames: [type: :pos_integer, default: @default_max_input_frames],
                     telemetry_prefix: [
                       type: {:custom, __MODULE__, :validate_telemetry_prefix, []},
                       default: Telemetry.default_prefix()

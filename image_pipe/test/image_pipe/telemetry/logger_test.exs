@@ -722,6 +722,28 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "source fetch_decode: processing_error (detected svg)"
   end
 
+  test "renders the frame count and the rejecting input limit on the fetch_decode span" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :source, :fetch_decode, :stop],
+          %{duration: System.convert_time_unit(2, :millisecond, :native)},
+          %{result: :ok, detected_source_format: :webp, source_frames: 3}
+        )
+
+        :telemetry.execute(
+          [:image_pipe, :source, :fetch_decode, :stop],
+          %{duration: System.convert_time_unit(1, :millisecond, :native)},
+          %{result: :processing_error, error: :input_limit, limit: :frames}
+        )
+      end)
+
+    assert log =~ "source fetch_decode: ok (detected webp, 3 frames)"
+    assert log =~ "source fetch_decode: processing_error (frames limit)"
+  end
+
   test "renders the output negotiate span with its outcome and format" do
     Telemetry.attach_default_logger(level: :info)
 

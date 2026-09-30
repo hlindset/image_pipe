@@ -25,6 +25,7 @@ defmodule ImagePipe.Decode do
   alias ImagePipe.Decode.HeaderDimensions
   alias ImagePipe.Decode.SourceFormat
   alias ImagePipe.Decode.Streaming
+  alias ImagePipe.Decode.WebpFrames
   alias ImagePipe.Error
   alias ImagePipe.Format.Detector
   alias ImagePipe.Plan.Spec
@@ -61,7 +62,12 @@ defmodule ImagePipe.Decode do
 
   Returns errors tagged `{:source, _}` for fetch failures, `{:decode, _}` for
   corrupt/unsupported bodies or libvips open failures, and `{:input_limit, _}`
-  when stored dimensions exceed `opts[:max_input_pixels]`. These tags map to
+  when stored dimensions exceed `opts[:max_input_pixels]` or the source declares
+  more frames or pages than `opts[:max_input_frames]`. Only the first frame or
+  page is decoded, so the pixel limit applies per frame. The frame limit guards
+  the loader's own walk over every frame: an animated WebP is counted from its
+  container before any libvips open, and other families are checked against
+  libvips' `n-pages` before the decoding re-open. These tags map to
   HTTP statuses in `Response.ErrorStatus`. `fun`'s return value passes through
   unchanged, including errors.
 
@@ -127,9 +133,12 @@ defmodule ImagePipe.Decode do
          detected = Detector.detect(peek),
          :ok <- gate_detected(detected) |> wrap_decode_error(),
          :ok <- validate_header_pixels(peek, opts) |> wrap_input_limit_error(),
+         :ok <- validate_container_frames(peek, input, opts),
          {:ok, header_image} <-
            open_seekable_input(input, [access: :random, fail_on: :error], opts)
            |> wrap_decode_error(),
+         frames = page_count(header_image),
+         :ok <- validate_frames(frames, opts) |> wrap_input_limit_error(),
          {:ok, source_format, resolution} <-
            resolve_source_format(detected, header_image) |> wrap_decode_error(),
          storage_dimensions = {Image.width(header_image), Image.height(header_image)},
@@ -160,7 +169,8 @@ defmodule ImagePipe.Decode do
       state = seed_state(image, storage_dimensions, decode_options, pending_orientation, opts)
 
       {:ok, state, geometry,
-       ok_stop_metadata(image, decode_options, storage_dimensions, detected, resolution)}
+       ok_stop_metadata(image, decode_options, storage_dimensions, detected, resolution)
+       |> Map.put(:source_frames, frames)}
     end
   end
 
@@ -198,6 +208,12 @@ defmodule ImagePipe.Decode do
   # `{:input_limit, _}`) is `:processing_error` with its taxonomy tag.
   defp error_stop_metadata({:decode, {:unsupported_source_format, family} = inner}),
     do: %{result: :processing_error, error: Error.tag(inner), detected_source_format: family}
+
+  defp error_stop_metadata({:input_limit, {:too_many_input_frames, _count, _max}}),
+    do: %{result: :processing_error, error: :input_limit, limit: :frames}
+
+  defp error_stop_metadata({:input_limit, {:too_many_input_pixels, _count, _max}}),
+    do: %{result: :processing_error, error: :input_limit, limit: :pixels}
 
   defp error_stop_metadata({:source, error}),
     do: %{result: :source_error, error: Error.tag(error)}
@@ -348,6 +364,36 @@ defmodule ImagePipe.Decode do
     case HeaderDimensions.read(peek) do
       {:ok, dimensions} -> validate_pixels(dimensions, opts)
       :unknown -> :ok
+    end
+  end
+
+  defp validate_container_frames(peek, input, opts) do
+    if WebpFrames.animated?(peek) do
+      max_input_frames = Keyword.fetch!(opts, :max_input_frames)
+
+      case WebpFrames.count(input, max_input_frames) do
+        {:ok, frames} -> validate_frames(frames, opts) |> wrap_input_limit_error()
+        {:error, _reason} = error -> wrap_decode_error(error)
+      end
+    else
+      :ok
+    end
+  end
+
+  defp page_count(image) do
+    case VipsImage.header_value(image, "n-pages") do
+      {:ok, pages} when is_integer(pages) and pages > 0 -> pages
+      _ -> 1
+    end
+  end
+
+  defp validate_frames(frames, opts) do
+    max_input_frames = Keyword.fetch!(opts, :max_input_frames)
+
+    if frames <= max_input_frames do
+      :ok
+    else
+      {:error, {:too_many_input_frames, frames, max_input_frames}}
     end
   end
 

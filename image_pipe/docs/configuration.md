@@ -84,7 +84,8 @@ representation's ETag; it does not forward those inputs to the source.
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `max_body_bytes` | `10_000_000` | Maximum encoded source body size |
-| `max_input_pixels` | `40_000_000` | Maximum decoded input pixel count |
+| `max_input_pixels` | `40_000_000` | Maximum decoded input pixel count, per frame |
+| `max_input_frames` | `1_000` | Maximum frames or pages a source may declare |
 | `max_result_width` | `8_192` | Maximum output width |
 | `max_result_height` | `8_192` | Maximum output height |
 | `max_result_pixels` | `40_000_000` | Maximum output pixel count |
@@ -93,6 +94,14 @@ representation's ETag; it does not forward those inputs to the source.
 Size limits are positive integers. Output limits clamp generation along with
 encoder limits. These are generation limits, not cache identity: successful
 cached responses may still be served after a limit changes.
+
+Multi-frame and multi-page sources (animated WebP and JPEG XL, multi-page TIFF,
+HEIF/AVIF image collections) decode their first frame or page only, so
+`max_input_pixels` applies to one frame. `max_input_frames` rejects a source
+that declares more frames than the limit with `413`, even though only one is
+decoded: the loader visits every frame while reading the header, and for
+animated WebP that cost grows quadratically. APNG sources decode their default
+image and their frames aren't counted.
 
 Pool capacity, queue length, and deadlines belong on the pool's child spec;
 see [processing controls](processing-controls.md). Source network timeouts and
