@@ -50,6 +50,9 @@ defmodule ImagePipe.Cache do
                                 ]
                               )
 
+  @doc false
+  def shared_options_schema, do: @shared_cache_option_schema.schema
+
   @callback get(Key.t(), keyword()) :: {:hit, Entry.t()} | :miss | {:error, term()}
   @callback open_sink(Key.t(), Entry.Metadata.t(), keyword()) ::
               {:ok, state()} | {:error, term()}

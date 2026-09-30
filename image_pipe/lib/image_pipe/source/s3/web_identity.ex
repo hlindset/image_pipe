@@ -74,4 +74,7 @@ defmodule ImagePipe.Source.S3.WebIdentity do
         {:error, :web_identity_token_unreadable}
     end
   end
+
+  @doc false
+  def options_schema, do: @opts_schema.schema
 end

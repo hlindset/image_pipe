@@ -31,6 +31,9 @@ defmodule ImagePipe.Source.S3.ContainerCredentials do
                  connect_timeout: [type: :non_neg_integer]
                )
 
+  @doc false
+  def options_schema, do: @opts_schema.schema
+
   @impl true
   def validate_options(opts) do
     case schema_validate(opts) do

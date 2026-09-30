@@ -125,4 +125,7 @@ defmodule ImagePipe.Source.S3.InstanceRole do
 
   defp base_url(opts), do: Keyword.get(opts, :base_url, @base_url)
   defp ttl(opts), do: Keyword.get(opts, :ttl_seconds, @ttl_seconds)
+
+  @doc false
+  def options_schema, do: @opts_schema.schema
 end

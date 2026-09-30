@@ -39,6 +39,9 @@ defmodule ImagePipe.ProcessingPool do
             processing_timeout: [type: :pos_integer, default: 30_000]
           )
 
+  @doc false
+  def options_schema, do: @schema.schema
+
   @doc "Starts a pool with validated admission and timeout options."
   def start_link(opts) do
     case NimbleOptions.validate(opts, @schema) do

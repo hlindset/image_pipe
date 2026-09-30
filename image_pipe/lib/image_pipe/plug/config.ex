@@ -23,6 +23,9 @@ defmodule ImagePipe.Plug.Config do
                   )
 
   @doc false
+  def options_schema, do: @options_schema.schema
+
+  @doc false
   @spec validate!(keyword() | SharedConfig.t()) :: keyword()
   def validate!(opts) when is_list(opts) do
     {shared, opts} = Keyword.pop(opts, :config)

@@ -37,6 +37,9 @@ defmodule ImagePipe.Source.CachePolicy do
             ]
           )
 
+  @doc false
+  def options_schema, do: @schema.schema
+
   @spec validate(term()) :: {:ok, t()} | {:error, String.t()}
   def validate(opts) when is_list(opts) do
     case NimbleOptions.validate(opts, @schema) do

@@ -52,6 +52,10 @@ defmodule ImagePipe.Source.S3 do
                      pool_timeout: [type: :non_neg_integer]
                    ] ++ CacheSettings.schema()
                  )
+
+  @doc false
+  def config_schema, do: @config_schema.schema
+
   @options_schema NimbleOptions.new!(
                     default: [type: :keyword_list, default: []],
                     buckets: [
