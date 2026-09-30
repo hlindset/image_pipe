@@ -51,6 +51,38 @@ Generate remote-source URLs with `ImagePipe.URL.url!/3` so the source URL's own
 escaping and query parameters survive the outer path encoding. Origin
 freshness and validators govern [remote caching](cache.md).
 
+### Serve paths from a base URL
+
+Mount the HTTP adapter under `path:` with a `base_url` to serve plain paths from
+one origin, keeping the origin out of your image URLs:
+
+```elixir
+config = ImagePipe.config(
+  sources: [
+    path:
+      {ImagePipe.Source.HTTP,
+       base_url: "https://images.example.com/originals",
+       path_pattern: ~r/[a-zA-Z0-9_-]+\.(jpg|jpeg|png|webp)/,
+       stable: :trusted}
+  ]
+)
+```
+
+```text
+/w=400/src/beach.jpg  →  https://images.example.com/originals/beach.jpg
+```
+
+Each path segment is percent-encoded and appended to the base URL, which must
+be an HTTP(S) URL with a host and no query, fragment, or credentials. From
+there the request is an ordinary HTTP fetch: the network policy, redirects,
+freshness, and caching work as for a URL source. `allowed_hosts` defaults to
+the base URL's host; list more hosts only to allow redirects to them.
+
+Paths with empty, `.`, or `..` segments are rejected. The optional
+`path_pattern` regex must match the whole relative path, with segments joined
+by `/`; other paths return `422` before any request to the origin. Without a
+pattern, any path below the base URL is allowed.
+
 ## S3-compatible storage
 
 Configure the shared bucket defaults and, optionally, per-bucket overrides:

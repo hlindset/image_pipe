@@ -97,8 +97,11 @@ defmodule ImagePipe.Source do
     {module, opts} = Map.fetch!(Keyword.fetch!(config, :sources), source.adapter)
 
     with {:ok, prepared} <- prepare_cache_source(module, source, opts, runtime_opts(config)) do
+      # Cache and admission settings don't change fetched bytes. path_pattern
+      # is also a compiled regex, which has no stable serialization.
       context =
-        {module, Keyword.drop(opts, [:cache_policy, :stable, :internal_cache, :http_cache]),
+        {module,
+         Keyword.drop(opts, [:cache_policy, :stable, :internal_cache, :http_cache, :path_pattern]),
          prepared.fetch}
 
       identity =
