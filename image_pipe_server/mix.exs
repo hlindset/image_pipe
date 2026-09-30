@@ -28,7 +28,11 @@ defmodule ImagePipeServer.MixProject do
       {:image_pipe, path: "../image_pipe"},
       {:bandit, "~> 1.5"},
       {:plug, "~> 1.18"},
-      {:toml, "~> 0.7.0"}
+      {:toml, "~> 0.7.0"},
+      # OpenTelemetry SDK for OTEL_* trace export; the exporter app is listed
+      # first so it starts before the SDK's span processor.
+      {:opentelemetry_exporter, "~> 1.8"},
+      {:opentelemetry, "~> 1.7"}
     ] ++ vision_deps()
   end
 

@@ -150,6 +150,27 @@ image then refuses to start, which catches deploying the wrong variant. See
 `[telemetry] log_level` attaches the library's default Logger, which logs
 each request stage at that level. See [telemetry](../../image_pipe/docs/telemetry.md).
 
+## Tracing
+
+The server exports ImagePipe's request and stage spans with OpenTelemetry,
+configured by the standard `OTEL_*` variables. Export is off until an OTLP
+endpoint or an exporter is set:
+
+```bash
+docker run -e OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318 -e OTEL_SERVICE_NAME=images image_pipe_server
+```
+
+- `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` turns
+  on OTLP export (HTTP/protobuf by default).
+- `OTEL_TRACES_EXPORTER=none` or `OTEL_SDK_DISABLED=true` turns it off.
+- The service name defaults to `image_pipe_server`. The SDK reads the other
+  variables itself, such as `OTEL_EXPORTER_OTLP_HEADERS`,
+  `OTEL_EXPORTER_OTLP_PROTOCOL`, and `OTEL_TRACES_SAMPLER`.
+- An incoming W3C `traceparent` header continues the caller's trace.
+
+See the library's [telemetry guide](../../image_pipe/docs/telemetry.md) for
+the spans and their attributes.
+
 ## Without Docker
 
 Build a release from `image_pipe_server/`:

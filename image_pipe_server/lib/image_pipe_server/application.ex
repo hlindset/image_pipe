@@ -18,6 +18,13 @@ defmodule ImagePipeServer.Application do
 
     if config.telemetry, do: ImagePipe.Telemetry.attach_default_logger(config.telemetry)
 
+    if Application.fetch_env!(:image_pipe_server, :tracing) do
+      ImagePipe.Telemetry.attach_tracer(
+        exporter: ImagePipe.Telemetry.Trace.OpenTelemetryExporter,
+        extract_inbound: true
+      )
+    end
+
     Supervisor.start_link(children(config),
       strategy: :one_for_one,
       name: ImagePipeServer.Supervisor
