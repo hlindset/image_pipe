@@ -22,8 +22,8 @@ defmodule ImagePipeServer.Config do
     * `[http]` - the delivery options of `ImagePipe.Plug.init/1`.
     * `[telemetry]` - `log_level` attaches the default Logger.
 
-  Invalid configuration raises `ImagePipeServer.ConfigError`, naming the
-  setting but never its value.
+  Invalid configuration raises `ImagePipeServer.ConfigError` (see there for
+  which values a message may quote).
   """
 
   alias ImagePipe.Cache.FileSystem
