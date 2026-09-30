@@ -7,11 +7,16 @@ defmodule ImagePipeFiddle.Application do
 
   @demo_signing_key String.duplicate("a1", 32)
   @demo_source_encryption_key :binary.copy(<<42, 73>>, 16)
+  @presets %{
+    "card" => "w=400/h=400/fit=cover",
+    "framed" => "preset=card/-/pad=20/bg=fff/format=webp"
+  }
 
   @impl true
   def start(_type, _args) do
     :persistent_term.put({__MODULE__, :api_opts}, build_api_opts())
     :persistent_term.put({__MODULE__, :api_signed_opts}, build_api_signed_opts())
+    :persistent_term.put({__MODULE__, :signed_url_config}, signed_url_config())
     ImagePipe.Telemetry.attach_default_logger(events: :all, level: :debug, debug: true)
     maybe_attach_tracer()
 
@@ -87,29 +92,27 @@ defmodule ImagePipeFiddle.Application do
   end
 
   defp build_api_opts do
-    api_opts()
+    [url: ImagePipe.URL.config(presets: @presets)]
+    |> Keyword.merge(api_opts())
     |> ImagePipe.Plug.init()
   end
 
   defp build_api_signed_opts do
-    api_opts()
-    |> Keyword.merge(
-      keys: [@demo_signing_key],
-      source_encryption_keys: [@demo_source_encryption_key]
-    )
+    [url: signed_url_config()]
+    |> Keyword.merge(api_opts())
     |> ImagePipe.Plug.init()
   end
 
+  defp signed_url_config do
+    ImagePipe.URL.config(
+      keys: [@demo_signing_key],
+      source_encryption_keys: [@demo_source_encryption_key],
+      presets: @presets
+    )
+  end
+
   defp api_opts do
-    [
-      allow_origin: "*",
-      allow_debug_headers: true,
-      presets: %{
-        "card" => "w=400/h=400/fit=cover",
-        "framed" => "preset=card/-/pad=20/bg=fff/format=webp"
-      },
-      sources: source_mounts()
-    ]
+    [allow_origin: "*", allow_debug_headers: true, sources: source_mounts()]
     |> maybe_put_cache(Application.get_env(:image_pipe_fiddle, :cache))
   end
 

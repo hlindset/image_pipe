@@ -1,12 +1,10 @@
 defmodule ImagePipeFiddle.APIPath do
   @moduledoc false
 
-  alias ImagePipe.API
-  alias ImagePipe.Security
-
   @signed_prefix "/image-signed"
 
-  @spec protect(term(), term(), keyword()) :: {:ok, String.t()} | {:error, :invalid_request}
+  @spec protect(term(), term(), ImagePipe.URL.Config.t()) ::
+          {:ok, String.t()} | {:error, :invalid_request}
   def protect(tail, "signed", config) when is_binary(tail) do
     with {:ok, path} <- request_path(tail) do
       {:ok, signed_url(path, config)}
@@ -18,7 +16,8 @@ defmodule ImagePipeFiddle.APIPath do
     with {:ok, path} <- request_path(tail),
          {:ok, prefix, source} <- split_source(path),
          {:ok, decoded_source} <- decode_source(source),
-         {:ok, token} <- API.encrypt_source(decoded_source, config, iv: iv_mode(protection)) do
+         {:ok, token} <-
+           ImagePipe.URL.encrypt_source(decoded_source, config, iv: iv_mode(protection)) do
       {:ok, signed_url([prefix, "/enc/", token] |> IO.iodata_to_binary(), config)}
     else
       _error -> {:error, :invalid_request}
@@ -54,8 +53,5 @@ defmodule ImagePipeFiddle.APIPath do
     ArgumentError -> {:error, :invalid_request}
   end
 
-  defp signed_url(path, config) do
-    signature = Security.sign(path, config)
-    IO.iodata_to_binary([@signed_prefix, "/sig=", signature, path])
-  end
+  defp signed_url(path, config), do: @signed_prefix <> ImagePipe.URL.sign_path(path, config)
 end
