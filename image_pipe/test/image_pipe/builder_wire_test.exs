@@ -65,7 +65,12 @@ defmodule ImagePipe.BuilderWireTest do
   end
 
   test "shared semantic failures stop HTTP before source or cache access", %{config: config} do
-    for path <- ["extend", "fit=cover", "output=info/blur=0", "q=80/autoquality=size"] do
+    for path <- [
+          "extend",
+          "fit=cover",
+          "output=info/format=png/max-bytes=1000",
+          "q=80/autoquality=size"
+        ] do
       response = conn(:get, "/#{path}/src/photo.png") |> IP.Plug.call(config)
       assert response.status == 400
       refute_received :source_fetch

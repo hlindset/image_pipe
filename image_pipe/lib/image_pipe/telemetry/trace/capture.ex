@@ -80,6 +80,8 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     :operation_count,
     :operations,
     :terminal,
+    # info's included placeholder names (:blurhash, :lqip_css)
+    :placeholders,
     :result,
     # matched signing-key index on the parser's [:parse] stop
     # metadata (nil when the request is legitimately unsigned) — a small

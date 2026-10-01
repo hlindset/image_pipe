@@ -298,14 +298,19 @@ defmodule ImagePipe.API.IdentityTest do
   end
 
   describe "info terminal" do
-    test "uses only the versioned info computation as representation material" do
-      request = request!(["output=info"])
-      negotiation = nil
-
-      mat = material(request, negotiation)
-
-      assert mat.representation == [terminal: {:info, 1}]
+    test "carries groups, orientation, and placeholders, without negotiation" do
+      mat = material(request!(["output=info"]), nil)
+      assert Keyword.fetch!(mat.representation, :terminal) == {:info, []}
       assert mat.vary_header_names == []
+
+      for segments <- [["w=10", "output=info"], ["orient=none", "output=info"]] do
+        refute material(request!(segments), nil).representation == mat.representation
+      end
+
+      placeholders = material(request!(["output=info,lqip-css,blurhash"]), nil)
+
+      assert Keyword.fetch!(placeholders.representation, :terminal) ==
+               {:info, [{:blurhash, 1}, {:lqip_css, 1}]}
     end
 
     test "filename and attachment stay outside representation and storage identity" do

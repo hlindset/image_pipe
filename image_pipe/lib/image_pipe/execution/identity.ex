@@ -2,8 +2,8 @@ defmodule ImagePipe.Execution.Identity do
   @moduledoc """
   Builds representation identity from canonical request data and the
   resolved output policy. Byte-affecting groups, terminal, output selection,
-  and detector identity enter both the cache key and ETag. Source info carries
-  only its terminal identity.
+  and detector identity enter both the cache key and ETag. Info identity also
+  carries the placeholders it includes.
 
   The cachebuster and configured request-header/cookie storage inputs partition
   cache storage without changing the ETag. Expiry, signatures, filenames,
@@ -19,6 +19,7 @@ defmodule ImagePipe.Execution.Identity do
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Output.Terminal.LqipCss
   alias ImagePipe.Plan.Spec
+  alias ImagePipe.Plan.Spec.Output
   alias ImagePipe.Representation.IdentityMaterial
 
   @doc """
@@ -63,24 +64,11 @@ defmodule ImagePipe.Execution.Identity do
     }
   end
 
-  defp representation_material(
-         %Spec{output: %{terminal: :info}} = request,
-         nil,
-         _detector_identity
-       ) do
-    [terminal: {:info, 1}] ++ page_material(request.page)
-  end
-
-  defp representation_material(
-         %Spec{output: %{terminal: terminal}} = request,
-         nil,
-         detector_identity
-       )
-       when terminal in [:blurhash, :lqip_css] do
+  defp representation_material(%Spec{output: output} = request, nil, detector_identity) do
     [orient: request.orient] ++
       page_material(request.page) ++
       [groups: request.groups] ++
-      [terminal: terminal_identity(terminal), output_policy: []] ++
+      [terminal: terminal_identity(output), output_policy: []] ++
       detector_material(detector_identity)
   end
 
@@ -103,8 +91,13 @@ defmodule ImagePipe.Execution.Identity do
   defp cachebuster_material(nil), do: []
   defp cachebuster_material(cachebuster), do: [cachebuster: cachebuster]
 
-  defp terminal_identity(:blurhash), do: Blurhash.identity()
-  defp terminal_identity(:lqip_css), do: LqipCss.identity()
+  defp terminal_identity(%Output{terminal: :info, placeholders: placeholders}),
+    do: {:info, Enum.map(placeholders, &placeholder_identity/1)}
+
+  defp terminal_identity(%Output{terminal: terminal}), do: placeholder_identity(terminal)
+
+  defp placeholder_identity(:blurhash), do: Blurhash.identity()
+  defp placeholder_identity(:lqip_css), do: LqipCss.identity()
 
   defp selected_format(policy) do
     case Policy.identity_selection(policy) do

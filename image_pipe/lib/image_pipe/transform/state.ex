@@ -29,6 +29,8 @@ defmodule ImagePipe.Transform.State do
     decode dimensions can yield different factors per axis. Factors follow the
     current image axes: gravity crops swap them for a pending quarter turn, then
     map crop dimensions back to the image frame.
+  - `dpr`: the effective DPR of the most recently executed group, after the
+    enlargement clamp; 1.0 before any group runs.
   - `source_color_profile` and `color_imported?`: input-color-management results
     passed to the encoder. The profile holds raw source ICC bytes or `nil`; the
     flag records whether `icc_import` ran. Never emit these in telemetry metadata.
@@ -43,6 +45,7 @@ defmodule ImagePipe.Transform.State do
             pending_orientation: nil,
             materialized?: false,
             buffer_before_resize?: false,
+            dpr: 1.0,
             source_color_profile: nil,
             color_imported?: false
 
@@ -56,6 +59,7 @@ defmodule ImagePipe.Transform.State do
           pending_orientation: ImagePipe.Transform.PendingOrientation.t() | nil,
           materialized?: boolean(),
           buffer_before_resize?: boolean(),
+          dpr: float(),
           source_color_profile: binary() | nil,
           color_imported?: boolean()
         }

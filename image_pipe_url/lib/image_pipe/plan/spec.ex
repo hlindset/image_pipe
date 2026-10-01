@@ -273,6 +273,7 @@ defmodule ImagePipe.Plan.Spec do
   defp assemble_output(options) do
     case Map.get(options, :terminal, :image) do
       :image -> assemble_image_output(options)
+      {:info, placeholders} -> %Output{terminal: :info, placeholders: Enum.sort(placeholders)}
       terminal -> %Output{terminal: terminal}
     end
   end

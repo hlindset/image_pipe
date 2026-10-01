@@ -4,6 +4,10 @@ import { isTextPreview, readTextPreview } from "./text-preview";
 describe("text terminal preview", () => {
   it("recognizes API terminals only before the source separator", () => {
     expect(isTextPreview("/image/output=info/src/images/dog.jpg")).toBe(true);
+    expect(isTextPreview("/image/w=20/output=info,blurhash,lqip-css/src/images/dog.jpg")).toBe(
+      true,
+    );
+    expect(isTextPreview("/image/output=image/src/images/dog.jpg")).toBe(false);
     expect(isTextPreview("/image/w=20/output=blurhash/src/images/dog.jpg")).toBe(true);
     expect(isTextPreview("/image/output=lqip-css/src/images/dog.jpg")).toBe(true);
     expect(isTextPreview("/image/src/output=lqip-css/dog.jpg")).toBe(false);

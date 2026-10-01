@@ -141,6 +141,11 @@ built, *before* the transform/encode continuation runs (even though that
 continuation stays inside the source bracket), so a transform or encode failure
 is never misattributed to fetch/decode.
 
+`output=info` with the `blurhash` flag decodes the fetched source twice: once for
+the result facts and once with BlurHash's own decode plan. It emits two
+`[:source, :fetch_decode]` spans inside one source fetch; the second wraps decode
+only.
+
 libvips is lazy, so a separate decode span would time loader construction rather
 than pixel work. Decode and guard outcomes therefore appear on this span's stop
 metadata; real pixel work is timed by materialization and encode spans.
@@ -375,17 +380,25 @@ Stop metadata:
 
 ### Output terminal span (`[:output, :terminal]`)
 
-The `[:image_pipe, :output, :terminal]` span wraps source info JSON, BlurHash, and LQIP CSS
+The `[:image_pipe, :output, :terminal]` span wraps info JSON, BlurHash, and LQIP CSS
 generation. A complete-body cache hit and a conditional `304` perform
 no terminal computation and therefore emit no terminal span.
 
-Start metadata: `:terminal` — `:info`, `:blurhash`, or `:lqip_css`.
+Start metadata:
+
+- `:terminal` — `:info`, `:blurhash`, or `:lqip_css`.
+- `:placeholders` — for `:info` only, the sorted placeholders the response
+  includes (`:blurhash`, `:lqip_css`), possibly empty.
 
 Stop metadata:
 
 - `:result` — `:ok` on success, or the request outcome category for a decode or
   transform failure.
-- `:terminal` — repeated from start metadata.
+- `:terminal` and `:placeholders` — repeated from start metadata.
+
+The default Logger renders the terminal and any placeholders, e.g.
+`output terminal: ok (info with blurhash, lqip_css)`. The OpenTelemetry exporter
+copies both keys onto the span.
 
 ### Output encode span (`[:encode]`)
 

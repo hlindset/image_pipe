@@ -43,7 +43,7 @@ defmodule ImagePipe.Plan.Spec.Validation do
         group_errors(group, index, invalid) ++ watermark_errors(group, index, watermarks)
       end)
 
-    group_errors ++ terminal_errors(groups, options) ++ output_errors(options)
+    group_errors ++ output_errors(options)
   end
 
   defp watermark_errors(_group, _index, nil), do: []
@@ -196,23 +196,6 @@ defmodule ImagePipe.Plan.Spec.Validation do
     true
   rescue
     ArithmeticError -> false
-  end
-
-  defp terminal_errors(groups, options) do
-    terminal = Map.get(options, :terminal, :image)
-
-    group_errors =
-      for {group, index} <- Enum.with_index(groups),
-          key <- Map.keys(group),
-          terminal == :info,
-          do: issue(:inert_option, index, [key], {:terminal, terminal})
-
-    request_errors =
-      for key <- Map.keys(options),
-          key == :orient and terminal == :info,
-          do: issue(:inert_option, :request, [key], {:terminal, terminal})
-
-    group_errors ++ request_errors
   end
 
   defp output_errors(options) do

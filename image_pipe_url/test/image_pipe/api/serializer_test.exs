@@ -137,7 +137,8 @@ defmodule ImagePipe.API.SerializerTest do
       ),
       IP.URL.new() |> IP.URL.output(terminal: :info),
       IP.URL.new() |> IP.URL.output(terminal: :blurhash),
-      IP.URL.new() |> IP.URL.output(terminal: :lqip_css)
+      IP.URL.new() |> IP.URL.output(terminal: :lqip_css),
+      IP.URL.new() |> IP.URL.output(terminal: {:info, [:lqip_css, :blurhash]})
     ]
 
     Enum.each(plans, &assert_round_trip/1)

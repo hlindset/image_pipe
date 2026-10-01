@@ -411,11 +411,6 @@ defmodule ImagePipe.API.Parser do
   defp semantic_message(%{detail: :watermark_source_disabled}),
     do: message_for(:watermark_source_disabled)
 
-  defp semantic_message(%{detail: {:terminal, terminal}, locations: [location]}) do
-    terminal = terminal |> Atom.to_string() |> String.replace("_", "-")
-    "#{location_key(location)} is inert for output=#{terminal}"
-  end
-
   defp semantic_message(%{detail: {:requires, requirement}, locations: [location]}),
     do: "#{location_key(location)} requires #{requirement_message(requirement)}"
 
@@ -556,7 +551,8 @@ defmodule ImagePipe.API.Parser do
     do: "invalid value: expected 1-4 comma-separated px values"
 
   def message_for(:invalid_output),
-    do: "invalid value: expected image, blurhash, lqip-css, or info"
+    do:
+      "invalid value: expected image, blurhash, lqip-css, or info optionally followed by blurhash and lqip-css flags"
 
   def message_for(:invalid_orientation), do: "invalid value: expected auto or none"
   def message_for(:invalid_page), do: "invalid value: expected a non-negative integer"

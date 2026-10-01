@@ -345,6 +345,16 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
       assert span.status == :ok
       assert span.attributes[:terminal] == terminal
     end
+
+    Telemetry.span(
+      [telemetry_prefix: prefix],
+      [:output, :terminal],
+      %{terminal: :info, placeholders: [:blurhash]},
+      fn -> {:ok, %{result: :ok}} end
+    )
+
+    assert_receive {:span, %Span{name: "image_pipe.output.terminal"} = span}
+    assert span.attributes[:placeholders] == [:blurhash]
   end
 
   test "captures the content-class classify span with its allowlisted attributes" do

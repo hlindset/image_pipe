@@ -6,6 +6,7 @@ defmodule ImagePipe.Processing.Terminal do
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Output.Terminal.LqipCss
   alias ImagePipe.Plan.Spec
+  alias ImagePipe.Plan.Spec.Output
   alias ImagePipe.Processing
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.Executor
@@ -18,32 +19,48 @@ defmodule ImagePipe.Processing.Terminal do
     Telemetry.span(
       Telemetry.telemetry_opts(config),
       [:output, :terminal],
-      %{terminal: request.output.terminal},
+      start_metadata(request.output),
       fn ->
-        result = Processing.with_watermarks(config, &render_decoded(source, request, &1))
+        result = Processing.with_watermarks(config, &render_terminal(source, request, &1))
         {result, %{result: terminal_result(result)}}
       end
     )
   end
 
-  defp render_decoded(source, request, config) do
-    Decode.with_image(source, request, config, fn state, geometry ->
-      render_body(state, geometry, request, config)
+  defp start_metadata(%Output{terminal: :info, placeholders: placeholders}),
+    do: %{terminal: :info, placeholders: placeholders}
+
+  defp start_metadata(%Output{terminal: terminal}), do: %{terminal: terminal}
+
+  defp render_terminal(source, %Spec{output: %{terminal: :info}} = request, config) do
+    Decode.with_seekable(source, config, &render_info(&1, request, config))
+  end
+
+  defp render_terminal(source, %Spec{output: %{terminal: terminal}} = request, config) do
+    Decode.with_image(source, request, config, fn state, _geometry ->
+      with {:ok, config} <- Processing.watermark_opts(config),
+           {:ok, value} <- placeholder(terminal, state, request, config) do
+        {:ok, "text/plain", value}
+      end
     end)
   end
 
-  defp render_body(state, _geometry, %Spec{output: %{terminal: :blurhash}} = request, config) do
+  defp render_info(input, request, config) do
     with {:ok, config} <- Processing.watermark_opts(config),
-         {:ok, state} <- Executor.execute(state, request, config),
-         {:ok, state} <- Executor.reduce_terminal(state, request.output, config) do
-      case Blurhash.compute(state.image) do
-        {:ok, hash} -> {:ok, "text/plain", hash}
-        {:error, reason} -> {:error, {:transform, {:blurhash_encode, reason}}}
-      end
+         {:ok, body} <-
+           Decode.with_image(input, request, config, &describe(&1, &2, request, config)),
+         {:ok, body} <- put_blurhash(body, input, request, config) do
+      {:ok, "application/json", body}
     end
   end
 
-  defp render_body(state, geometry, %Spec{output: %{terminal: :info}}, _config) do
+  defp describe(state, geometry, request, config) do
+    with {:ok, result} <- result_facts(state, geometry, request, config) do
+      {:ok, %{"source" => source_facts(state, geometry), "result" => result}}
+    end
+  end
+
+  defp source_facts(state, geometry) do
     orientation = exif_orientation(state.image)
 
     {width, height} =
@@ -52,28 +69,93 @@ defmodule ImagePipe.Processing.Terminal do
         PendingOrientation.from_exif(orientation, true)
       )
 
-    body =
-      %{
-        "format" => Atom.to_string(geometry.source_format),
-        "mime_type" => Format.mime_type!(geometry.source_format),
-        "width" => width,
-        "height" => height,
-        "orientation" => orientation,
-        "pages" => geometry.pages
-      }
-      |> put_size(Map.get(geometry.debug_facts, :source_bytes))
-
-    {:ok, "application/json", body}
+    %{
+      "format" => Atom.to_string(geometry.source_format),
+      "mime_type" => Format.mime_type!(geometry.source_format),
+      "width" => width,
+      "height" => height,
+      "orientation" => orientation,
+      "pages" => geometry.pages
+    }
+    |> put_size(Map.get(geometry.debug_facts, :source_bytes))
   end
 
-  defp render_body(state, _geometry, %Spec{output: %{terminal: :lqip_css}} = request, config) do
-    with {:ok, config} <- Processing.watermark_opts(config),
-         {:ok, state} <- Executor.execute(state, request, config),
-         {:ok, state} <- Executor.reduce_terminal(state, request.output, config) do
-      case LqipCss.compute(state.image) do
-        {:ok, value} -> {:ok, "text/plain", value}
-        {:error, reason} -> {:error, {:transform, {:lqip_css_encode, reason}}}
-      end
+  # Without operations or a placeholder drawn from this decode, the result is
+  # the source in the request's orientation, known from the header alone.
+  defp result_facts(state, geometry, request, config) do
+    if header_only?(request) do
+      {width, height} = geometry.display_dimensions
+      {:ok, %{"width" => width, "height" => height, "dpr" => List.last(request.groups).dpr}}
+    else
+      executed_facts(state, request, config)
+    end
+  end
+
+  defp header_only?(%Spec{output: %{placeholders: placeholders}} = request),
+    do: :lqip_css not in placeholders and Executor.operation_names(request) == []
+
+  defp executed_facts(state, request, config) do
+    with {:ok, state} <- Executor.execute(state, request, config) do
+      result = %{
+        "width" => VipsImage.width(state.image),
+        "height" => VipsImage.height(state.image),
+        "dpr" => state.dpr
+      }
+
+      put_lqip_css(result, state, request, config)
+    end
+  end
+
+  defp put_lqip_css(result, state, %Spec{output: output} = request, config) do
+    if :lqip_css in output.placeholders do
+      with {:ok, value} <- placeholder(:lqip_css, state, request, config, :executed),
+           do: {:ok, Map.put(result, "lqip_css", value)}
+    else
+      {:ok, result}
+    end
+  end
+
+  # BlurHash decodes again with its own plan, so its decode hint applies and the
+  # hash equals the standalone output for the same URL.
+  defp put_blurhash(body, input, %Spec{output: output} = request, config) do
+    if :blurhash in output.placeholders do
+      with {:ok, hash} <- standalone_blurhash(input, request, config),
+           do: {:ok, put_in(body, ["result", "blurhash"], hash)}
+    else
+      {:ok, body}
+    end
+  end
+
+  defp standalone_blurhash(input, %Spec{} = request, config) do
+    request = %Spec{request | output: %Output{terminal: :blurhash}}
+
+    Decode.with_image(input, request, config, fn state, _geometry ->
+      placeholder(:blurhash, state, request, config)
+    end)
+  end
+
+  defp placeholder(terminal, state, request, config) do
+    with {:ok, state} <- Executor.execute(state, request, config),
+         do: placeholder(terminal, state, request, config, :executed)
+  end
+
+  defp placeholder(terminal, state, _request, config, :executed) do
+    with {:ok, state} <- Executor.reduce_terminal(state, %Output{terminal: terminal}, config) do
+      compute(terminal, state.image)
+    end
+  end
+
+  defp compute(:blurhash, image) do
+    case Blurhash.compute(image) do
+      {:ok, hash} -> {:ok, hash}
+      {:error, reason} -> {:error, {:transform, {:blurhash_encode, reason}}}
+    end
+  end
+
+  defp compute(:lqip_css, image) do
+    case LqipCss.compute(image) do
+      {:ok, value} -> {:ok, value}
+      {:error, reason} -> {:error, {:transform, {:lqip_css_encode, reason}}}
     end
   end
 

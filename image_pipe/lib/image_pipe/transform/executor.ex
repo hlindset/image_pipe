@@ -158,6 +158,7 @@ defmodule ImagePipe.Transform.Executor do
          {:ok, state} <- execute_trim(state, group, opts),
          {:ok, state} <- execute_crop(state, group, opts),
          {:ok, state, dpr} <- execute_resize(state, group, opts),
+         state = %{state | dpr: dpr},
          {:ok, state} <- run_optional(state, blur_op(group.blur), opts),
          {:ok, state} <-
            run_display_optional(state, progressive_blur_op(group.progressive_blur), opts),

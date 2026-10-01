@@ -31,7 +31,6 @@ defmodule ImagePipe.Decode do
   alias ImagePipe.Error
   alias ImagePipe.Format.Detector
   alias ImagePipe.Plan.Spec
-  alias ImagePipe.Plan.Spec.Output
   alias ImagePipe.Source
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.DecodePlanner
@@ -51,7 +50,11 @@ defmodule ImagePipe.Decode do
           | {:decode, term()}
           | {:input_limit, term()}
           | {:page_out_of_range, non_neg_integer(), pos_integer()}
-  @type input() :: Source.Resolved.t() | Source.Response.t() | {:download, pid(), binary()}
+  @type input() ::
+          Source.Resolved.t() | Source.Response.t() | {:download, pid(), binary()} | seekable()
+
+  @typedoc "A fetched source body that every decode can reopen."
+  @type seekable() :: {:path, Path.t()} | {:buffer, binary()}
 
   @doc "Returns whether a JPEG or PNG prefix opens successfully with the matching decoder."
   defdelegate streamable_source?(prefix), to: Streaming, as: :eligible?
@@ -64,8 +67,7 @@ defmodule ImagePipe.Decode do
   After the header open, the bracket passes the request and resulting
   `SourceGeometry` to `ImagePipe.Transform.Executor.decode_request/2`, then
   feeds that plan to `DecodePlanner.open_options_for/5` to compute the
-  shrink-on-load options for the sequential re-open. The info terminal reads
-  source facts without applying EXIF orientation.
+  shrink-on-load options for the sequential re-open.
 
   Returns errors tagged `{:source, _}` for fetch failures, `{:decode, _}` for
   corrupt/unsupported bodies or libvips open failures, and `{:input_limit, _}`
@@ -137,6 +139,22 @@ defmodule ImagePipe.Decode do
         Telemetry.exception_span(span, kind, reason, stacktrace)
         :erlang.raise(kind, reason, stacktrace)
     end
+  end
+
+  @doc """
+  Fetches `source` once and calls `fun` with a seekable body, which
+  `with_image/5` can decode any number of times, each with its own plan.
+
+  Returns `fun`'s result, or the `{:source, _}` error from fetching or
+  draining the body.
+  """
+  @spec with_seekable(Source.Resolved.t() | Source.Response.t(), keyword(), (seekable() -> r)) ::
+          r | {:error, error()}
+        when r: var
+  def with_seekable(source, opts, fun) when is_function(fun, 1) do
+    with_source_response(source, opts, fn response ->
+      with {:ok, input} <- input(response), do: fun.(input)
+    end)
   end
 
   @doc """
@@ -264,7 +282,6 @@ defmodule ImagePipe.Decode do
     end)
   end
 
-  defp auto_rotate?(%Spec{output: %Output{terminal: :info}}), do: false
   defp auto_rotate?(%Spec{orient: :auto}), do: true
   defp auto_rotate?(%Spec{orient: :none}), do: false
 
@@ -356,6 +373,7 @@ defmodule ImagePipe.Decode do
   end
 
   defp input({:download, _pid, _prefix} = input), do: {:ok, input}
+  defp input({kind, _body} = input) when kind in [:path, :buffer], do: {:ok, input}
   defp input(%Source.Response{} = response), do: seekable_input(response)
 
   defp seekable_input(%Source.Response{path: path, stream: nil}) when is_binary(path),

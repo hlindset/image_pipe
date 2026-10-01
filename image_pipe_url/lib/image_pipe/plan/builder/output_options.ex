@@ -11,7 +11,7 @@ defmodule ImagePipe.Plan.Builder.OutputOptions do
 
   def schema do
     [
-      terminal: [type: {:in, [:image, :info, :blurhash, :lqip_css]}],
+      terminal: [type: {:custom, __MODULE__, :terminal, []}],
       format: [type: {:in, @formats}],
       quality: @quality,
       metadata: [type: {:in, [:strip, :copyright, :keep]}],
@@ -37,6 +37,23 @@ defmodule ImagePipe.Plan.Builder.OutputOptions do
       avif_options: [type: {:custom, __MODULE__, :encoder, [:avif]}]
     ]
   end
+
+  def terminal(terminal) when terminal in [:image, :info, :blurhash, :lqip_css],
+    do: {:ok, terminal}
+
+  def terminal({:info, [_ | _] = placeholders} = terminal) do
+    if Enum.all?(placeholders, &(&1 in [:blurhash, :lqip_css])) and
+         placeholders == Enum.uniq(placeholders),
+       do: {:ok, terminal},
+       else: terminal_error()
+  end
+
+  def terminal(_value), do: terminal_error()
+
+  defp terminal_error,
+    do:
+      {:error,
+       "expected :image, :blurhash, :lqip_css, :info, or {:info, placeholders} with distinct :blurhash/:lqip_css"}
 
   def format_qualities(values) do
     schema = Enum.map(@formats, &{&1, @quality})

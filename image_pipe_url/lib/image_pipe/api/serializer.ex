@@ -132,6 +132,9 @@ defmodule ImagePipe.API.Serializer do
     Enum.join([Atom.to_string(method) | fields], ",")
   end
 
+  defp value("output", {:info, placeholders}),
+    do: Enum.map_join(["info" | Enum.sort(placeholders)], ",", &Value.scalar/1)
+
   defp value("profile", value), do: Value.scalar(value)
   defp value("wm-src64", source), do: Base.url_encode64(source, padding: false)
 

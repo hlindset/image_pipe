@@ -72,9 +72,10 @@ defmodule ImagePipe.RunTest do
     assert {:ok, info} =
              IP.run(IP.config(), IP.URL.output(IP.URL.new(), terminal: :info), {:binary, bytes})
 
-    assert info.data["width"] == 60
-    assert info.data["height"] == 40
-    assert info.data["size"] == byte_size(bytes)
+    assert info.data["source"]["width"] == 60
+    assert info.data["source"]["height"] == 40
+    assert info.data["source"]["size"] == byte_size(bytes)
+    assert info.data["result"] == %{"width" => 60, "height" => 40, "dpr" => 1.0}
 
     for terminal <- [:blurhash, :lqip_css] do
       assert {:ok, result} =

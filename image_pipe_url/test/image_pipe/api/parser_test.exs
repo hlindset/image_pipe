@@ -887,22 +887,23 @@ defmodule ImagePipe.API.ParserTest do
       end
     end
 
-    test "info rejects every transform option and orientation as inert" do
-      for spec <- OptionSpec.all(), spec.scope == :group do
-        assert {:error, {:invalid_request, diagnostics}} =
-                 parse(["output=info", hd(spec.examples)])
-
-        assert Enum.any?(diagnostics, fn diagnostic ->
-                 diagnostic.reason == :inert_option and
-                   String.starts_with?(diagnostic.message, "#{spec.key} ")
-               end),
-               spec.key
+    test "info accepts the groups and orientation of the matching image request" do
+      for segments <- [["w=600", "crop=200,100"], ["rotate=90", "-", "pad=10"], ["orient=none"]] do
+        assert {:ok, image} = parse(segments)
+        assert {:ok, info} = parse(segments ++ ["output=info"])
+        assert {info.groups, info.orient} == {image.groups, image.orient}
       end
+    end
 
-      assert {:error, {:invalid_request, diagnostics}} =
-               parse(["output=info", "orient=auto"])
+    test "info placeholder flags canonicalize into the output" do
+      assert {:ok,
+              %Spec{output: %Output{terminal: :info, placeholders: [:blurhash, :lqip_css]}} =
+                request} = parse(["output=info,lqip-css,blurhash"])
 
-      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+      assert {:ok, ^request} = parse(["output=info,blurhash,lqip-css"])
+
+      assert {:ok, %Spec{output: %Output{terminal: :info, placeholders: []}}} =
+               parse(["output=info"])
     end
 
     test "info accepts a page selection" do

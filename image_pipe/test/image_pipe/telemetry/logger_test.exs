@@ -241,6 +241,17 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "output terminal: ok (info)"
     assert log =~ "output terminal: ok (blurhash)"
     assert log =~ "output terminal: ok (lqip_css)"
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          prefix ++ [:output, :terminal, :stop],
+          %{duration: System.convert_time_unit(2, :millisecond, :native)},
+          %{terminal: :info, placeholders: [:blurhash, :lqip_css], result: :ok}
+        )
+      end)
+
+    assert log =~ "output terminal: ok (info with blurhash, lqip_css)"
   end
 
   test "escalates an output terminal computation failure" do
