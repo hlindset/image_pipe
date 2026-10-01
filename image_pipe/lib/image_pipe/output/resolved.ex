@@ -17,6 +17,7 @@ defmodule ImagePipe.Output.Resolved do
                 quality_search: :none,
                 quality_search_max_iterations: 6,
                 max_bytes: nil,
+                dpi: nil,
                 encoder_options: nil
               ]
 
@@ -37,6 +38,7 @@ defmodule ImagePipe.Output.Resolved do
             | ImagePipe.Output.ResolvedQualitySearch.Butteraugli.t(),
           quality_search_max_iterations: pos_integer(),
           max_bytes: nil | pos_integer(),
+          dpi: nil | 1..65_535,
           encoder_options:
             nil
             | ImagePipe.Plan.Output.JpegOptions.t()

@@ -93,6 +93,14 @@ defmodule ImagePipe.API.OutputOptions do
   @spec parse_max_bytes(String.t()) :: {:ok, pos_integer()} | :error
   def parse_max_bytes(string), do: positive_integer(string)
 
+  @spec parse_dpi(String.t()) :: {:ok, 1..65_535} | :error
+  def parse_dpi(string) do
+    case positive_integer(string) do
+      {:ok, dpi} when dpi <= 65_535 -> {:ok, dpi}
+      _invalid -> :error
+    end
+  end
+
   @spec parse_jpeg_options(String.t()) :: {:ok, JpegOptions.t()} | :error
   def parse_jpeg_options(string), do: parse_codec(string, :jpeg)
 

@@ -8,6 +8,7 @@ defmodule ImagePipe.API.MetadataWireTest do
   alias ImagePipe.Test.PlugFixture.CacheProbe
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.MutableImage, as: VipsMutableImage
+  alias Vix.Vips.Operation
 
   @moduletag timeout: 180_000
 
@@ -84,13 +85,66 @@ defmodule ImagePipe.API.MetadataWireTest do
     assert etag(cached) == etag(kept)
   end
 
+  describe "output density" do
+    test "stripping writes the host density and keep preserves the source density" do
+      config = mount()
+
+      assert_density(response("format=jpeg", config), :jpeg, 72)
+      assert_density(response("format=jpeg/meta=strip", config), :jpeg, 72)
+      assert_density(response("w=50/format=jpeg/meta=keep", config), :jpeg, 300)
+
+      host = mount(stripped_dpi: 96)
+      assert_density(response("format=jpeg", host), :jpeg, 96)
+      assert_density(response("format=jpeg/meta=keep", host), :jpeg, 300)
+    end
+
+    test "dpi replaces the density under every metadata policy and format" do
+      config = mount()
+
+      for meta <- ["strip", "copyright", "keep"] do
+        assert_density(response("format=jpeg/meta=#{meta}/dpi=150", config), :jpeg, 150)
+      end
+
+      assert_density(response("w=50/format=png/dpi=150", config), :png, 150)
+      assert_density(response("format=webp/dpi=150", config), :webp, 150)
+      assert_density(response("format=avif/dpi=150", config), :avif, 150)
+    end
+
+    test "density leaves pixels and dimensions unchanged" do
+      config = mount()
+      plain = Image.from_binary!(response("w=50/format=png", config).resp_body)
+      dense = Image.from_binary!(response("w=50/format=png/dpi=600", config).resp_body)
+
+      assert {Image.width(dense), Image.height(dense)} == {50, 50}
+      assert VipsImage.write_to_binary(dense) == VipsImage.write_to_binary(plain)
+    end
+
+    test "different densities have different cache keys and ETags" do
+      config = mount(cache: stateful_cache_probe())
+
+      implicit = response("format=jpeg", config)
+      assert [implicit_key] = Enum.uniq(CacheProbe.lookup_keys())
+
+      explicit = response("format=jpeg/dpi=72", config)
+      assert [explicit_key] = Enum.uniq(CacheProbe.lookup_keys())
+      assert explicit_key.hash == implicit_key.hash
+      assert etag(explicit) == etag(implicit)
+
+      other = response("format=jpeg/dpi=300", config)
+      assert [other_key] = Enum.uniq(CacheProbe.lookup_keys())
+      refute other_key.hash == implicit_key.hash
+      refute etag(other) == etag(implicit)
+    end
+  end
+
   test "image-only URL output policies reject BlurHash before source or cache access" do
     config = mount(cache: {CacheProbe, []})
 
     for options <- [
           "output=blurhash/meta=strip",
           "output=blurhash/profile=srgb",
-          "output=blurhash/hdr=preserve"
+          "output=blurhash/hdr=preserve",
+          "output=blurhash/dpi=300"
         ] do
       assert response(options, config).status == 400, options
       refute_received :origin_fetch
@@ -159,6 +213,26 @@ defmodule ImagePipe.API.MetadataWireTest do
     end
   end
 
+  # JFIF stores integer DPI; PNG stores pixels per metre and EXIF a
+  # three-decimal rational, so compare to the nearest inch. `Image.exif/1`
+  # cannot parse PNG's eXIf chunk, so PNG is checked through pHYs alone.
+  defp assert_density(response, format, dpi) do
+    assert response.status == 200
+    assert get_resp_header(response, "content-type") == ["image/#{format}"]
+    image = Image.from_binary!(response.resp_body)
+
+    if format in [:jpeg, :png] do
+      assert round(VipsImage.xres(image) * 25.4) == dpi
+      assert round(VipsImage.yres(image) * 25.4) == dpi
+    end
+
+    if format != :png do
+      {:ok, exif} = Image.exif(image)
+      assert round(exif[:x_resolution]) == dpi
+      assert round(exif[:y_resolution]) == dpi
+    end
+  end
+
   defp etag(response) do
     assert [etag] = get_resp_header(response, "etag")
     etag
@@ -200,7 +274,11 @@ defmodule ImagePipe.API.MetadataWireTest do
   end
 
   defp metadata_jpeg do
-    image = Image.new!(100, 100, color: :white)
+    {:ok, image} =
+      Operation.copy(Image.new!(100, 100, color: :white),
+        xres: 300 / 25.4,
+        yres: 300 / 25.4
+      )
 
     {:ok, with_metadata} =
       VipsImage.mutate(image, fn mutable ->

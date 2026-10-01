@@ -263,6 +263,8 @@ export type ControlState = {
   maxBytes: number;
   stripMetadata: boolean;
   keepCopyright: boolean;
+  dpiEnabled: boolean;
+  dpi: number;
   stripColorProfile: boolean;
   colorProfile: ColorProfile;
   preserveHdr: boolean;
@@ -323,6 +325,7 @@ export const controlLimits = {
     allowedError: { min: 0, max: 100, step: 0.1 },
   },
   maxBytes: { min: 1, max: 5_000_000, step: 1 },
+  dpi: { min: 1, max: 65_535, step: 1 },
 } satisfies {
   resize: Record<ImageDimensionAxis, NumericControlLimit>;
   crop: { percent: NumericControlLimit };
@@ -341,6 +344,7 @@ export const controlLimits = {
     NumericControlLimit
   >;
   maxBytes: NumericControlLimit;
+  dpi: NumericControlLimit;
 };
 
 export { sampleImages };
@@ -475,6 +479,8 @@ export const defaultControlState: ControlState = {
   maxBytes: 50000,
   stripMetadata: true,
   keepCopyright: true,
+  dpiEnabled: false,
+  dpi: 300,
   stripColorProfile: true,
   colorProfile: "none",
   preserveHdr: false,
@@ -513,6 +519,7 @@ const requestKeys = new Set([
   "autoquality",
   "max-bytes",
   "meta",
+  "dpi",
   "profile",
   "hdr",
   "jpeg-options",
@@ -658,6 +665,7 @@ export function controlOptionSegments(s: ControlState): string[] {
   if (s.maxBytesEnabled) segments.push(`max-bytes=${s.maxBytes}`);
   if (!s.stripMetadata) segments.push("meta=keep");
   else if (!s.keepCopyright) segments.push("meta=strip");
+  if (s.dpiEnabled) segments.push(`dpi=${s.dpi}`);
   if (s.colorProfile !== "none") segments.push(`profile=${s.colorProfile}`);
   else if (!s.stripColorProfile) segments.push("profile=preserve");
   if (s.preserveHdr) segments.push("hdr=preserve");
@@ -922,6 +930,10 @@ export function controlStateFromOptions(
       case "meta":
         s.stripMetadata = value !== "keep";
         s.keepCopyright = value === "copyright";
+        break;
+      case "dpi":
+        s.dpiEnabled = true;
+        s.dpi = Number(value);
         break;
       case "profile":
         s.stripColorProfile = value !== "preserve";

@@ -217,8 +217,9 @@ defmodule ImagePipe.Output.Encoder do
   defp finalize(image, %Resolved{} = resolved, source_profile) do
     case VixImage.copy_memory(image) do
       {:ok, mem} ->
-        with {:ok, flattened} <- flatten_for_format(mem, resolved) do
-          color_result(flattened, resolved, source_profile)
+        with {:ok, flattened} <- flatten_for_format(mem, resolved),
+             {:ok, image} <- color_result(flattened, resolved, source_profile) do
+          {:ok, set_density(image, resolved)}
         end
 
       {:error, reason} ->
@@ -398,6 +399,15 @@ defmodule ImagePipe.Output.Encoder do
       end
 
     restore_icc(minimized, icc)
+  end
+
+  # libvips writes xres/yres (pixels per millimetre) into JFIF, PNG pHYs, and
+  # the EXIF block it rebuilds on save, which is WebP's and AVIF's only carrier.
+  defp set_density(image, %Resolved{dpi: nil}), do: image
+
+  defp set_density(image, %Resolved{dpi: dpi}) do
+    {:ok, image} = Operation.copy(image, xres: dpi / 25.4, yres: dpi / 25.4)
+    image
   end
 
   defp icc_fields(%Resolved{color_profile: :strip}), do: ["icc-profile-data"]

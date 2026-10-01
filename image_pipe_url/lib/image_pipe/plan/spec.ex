@@ -235,6 +235,7 @@ defmodule ImagePipe.Plan.Spec do
       format_qualities: Map.get(options, :format_qualities, %{}),
       autoquality: Map.get(options, :autoquality),
       max_bytes: Map.get(options, :max_bytes),
+      dpi: Map.get(options, :dpi),
       encoder_options: assemble_encoder_options(options)
     }
   end

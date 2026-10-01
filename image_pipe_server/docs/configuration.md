@@ -349,6 +349,7 @@ Processing defaults and limits of `ImagePipe.config/1`.
 | `max_result_pixels` | integer > 0 | `40000000` |
 | `strip_metadata` | boolean | `true` |
 | `keep_copyright` | boolean | `true` |
+| `stripped_dpi` | integer 1–65535 | `72` |
 | `quality` | integer > 0 | `80` |
 | `format_quality` | table of integer > 0 | `{ avif = 63, webp = 79 }` |
 | `strip_color_profile` | boolean | `true` |

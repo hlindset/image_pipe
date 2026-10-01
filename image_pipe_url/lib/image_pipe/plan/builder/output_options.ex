@@ -30,6 +30,7 @@ defmodule ImagePipe.Plan.Builder.OutputOptions do
       format_qualities: [type: {:custom, __MODULE__, :format_qualities, []}],
       autoquality: [type: {:custom, __MODULE__, :autoquality, []}],
       max_bytes: [type: :pos_integer],
+      dpi: [type: {:in, 1..65_535}],
       jpeg_options: [type: {:custom, __MODULE__, :encoder, [:jpeg]}],
       png_options: [type: {:custom, __MODULE__, :encoder, [:png]}],
       webp_options: [type: {:custom, __MODULE__, :encoder, [:webp]}],

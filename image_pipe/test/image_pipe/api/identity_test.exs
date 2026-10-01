@@ -336,6 +336,24 @@ defmodule ImagePipe.API.IdentityTest do
       assert Keyword.fetch!(output_policy, :hdr) == :preserve
     end
 
+    test "density resolves from dpi, then the host strip density, then the source" do
+      dpi = fn segments, config ->
+        prepared_material!(segments, config).representation
+        |> Keyword.fetch!(:output_policy)
+        |> Keyword.fetch!(:dpi)
+      end
+
+      assert dpi.([], []) == 72
+      assert dpi.(["meta=strip"], stripped_dpi: 96) == 96
+      assert dpi.(["meta=keep"], []) == nil
+      assert dpi.(["meta=keep", "dpi=300"], []) == 300
+      assert dpi.(["dpi=300"], stripped_dpi: 96) == 300
+      assert dpi.([], strip_metadata: false, keep_copyright: false) == nil
+
+      assert prepared_material!([], stripped_dpi: 96).representation ==
+               prepared_material!(["dpi=96"]).representation
+    end
+
     test "two requests differing only in q differ in representation" do
       request_a = request!(["w=300", "q=50"])
       request_b = request!(["w=300", "q=90"])

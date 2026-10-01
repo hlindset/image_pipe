@@ -15,6 +15,7 @@ defmodule ImagePipe.Plan.Spec.Output do
             format_qualities: %{},
             autoquality: nil,
             max_bytes: nil,
+            dpi: nil,
             encoder_options: %{}
 
   @type t :: %__MODULE__{
@@ -34,6 +35,7 @@ defmodule ImagePipe.Plan.Spec.Output do
             | :none
             | {:size | :ssimulacra2 | :butteraugli, keyword(pos_integer() | float())},
           max_bytes: nil | pos_integer(),
+          dpi: nil | 1..65_535,
           encoder_options: %{optional(atom()) => struct()}
         }
 end

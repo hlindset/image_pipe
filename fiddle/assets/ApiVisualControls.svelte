@@ -51,7 +51,7 @@
       "gradient",
     ),
   );
-  const metadataSummary = $derived(summary("meta", "profile", "hdr"));
+  const metadataSummary = $derived(summary("meta", "dpi", "profile", "hdr"));
   const autoqualitySummary = $derived(summary("autoquality"));
   const encoderOptionsSummary = $derived(
     summary("jpeg-options", "png-options", "webp-options", "avif-options"),
@@ -1458,6 +1458,23 @@
     </Switch.Root>
     <span class:muted-label={!controlState.stripMetadata}>Keep copyright</span>
   </label>
+
+  <label class="switch-field">
+    <Switch.Root class="switch-root" bind:checked={controlState.dpiEnabled}>
+      <Switch.Thumb class="switch-thumb" />
+    </Switch.Root>
+    <span>Set DPI</span>
+  </label>
+
+  {#if controlState.dpiEnabled}
+    <RangeNumber
+      label="DPI"
+      bind:value={controlState.dpi}
+      min={controlLimits.dpi.min}
+      max={controlLimits.dpi.max}
+      step={controlLimits.dpi.step}
+    />
+  {/if}
 
   <label class="switch-field">
     <Switch.Root class="switch-root" bind:checked={controlState.stripColorProfile}>

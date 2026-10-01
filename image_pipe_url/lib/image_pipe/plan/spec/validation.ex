@@ -13,6 +13,7 @@ defmodule ImagePipe.Plan.Spec.Validation do
     :hdr,
     :autoquality,
     :max_bytes,
+    :dpi,
     :jpeg_options,
     :png_options,
     :webp_options,

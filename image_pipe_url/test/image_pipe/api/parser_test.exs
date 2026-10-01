@@ -493,6 +493,7 @@ defmodule ImagePipe.API.ParserTest do
         "format-q=webp:70,avif:60",
         "autoquality=ssimulacra2,error:2,target:78,min:40,max:95",
         "max-bytes=12000",
+        "dpi=300",
         "jpeg-options=progressive,quant-table:3",
         "png-options=palette:false,filter:paeth",
         "webp-options=near-lossless,effort:6",
@@ -510,6 +511,7 @@ defmodule ImagePipe.API.ParserTest do
                     {:ssimulacra2,
                      [target: 78.0, min_quality: 40, max_quality: 95, allowed_error: 2.0]},
                   max_bytes: 12_000,
+                  dpi: 300,
                   encoder_options: %{
                     jpeg: %JpegOptions{interlace: true, quant_table: 3},
                     png: %PngOptions{palette: false, filter: :paeth},
@@ -882,6 +884,7 @@ defmodule ImagePipe.API.ParserTest do
             "hdr=tonemap",
             "autoquality=none",
             "max-bytes=10000",
+            "dpi=300",
             "jpeg-options=progressive",
             "png-options=palette",
             "webp-options=lossless",
@@ -919,7 +922,7 @@ defmodule ImagePipe.API.ParserTest do
 
     test "info rejects every image-only output policy as inert" do
       for key <-
-            ~w(format q format-q meta profile hdr autoquality max-bytes jpeg-options png-options webp-options avif-options),
+            ~w(format q format-q meta dpi profile hdr autoquality max-bytes jpeg-options png-options webp-options avif-options),
           spec = OptionSpec.fetch(key) do
         assert {:error, {:invalid_request, diagnostics}} =
                  parse(["output=info", hd(spec.examples)])

@@ -120,11 +120,13 @@ redirect limits belong on the source adapter.
 | `format_quality` | `%{webp: 79, avif: 63}` | Per-format qualities, merged with defaults |
 | `strip_metadata` | `true` | Strip optional source metadata |
 | `keep_copyright` | `true` | Retain copyright and artist attribution when stripping |
+| `stripped_dpi` | `72` | Density written when stripping metadata without a request `dpi`, `1..65535` |
 | `strip_color_profile` | `true` | Convert into working space and omit source ICC; `false` preserves source profile |
 | `preserve_hdr` | `false` | Preserve high bit depth when supported by the output |
 
 Explicit request `quality`/`q` wins over the selected format's quality.
-Request `metadata`/`meta` replaces both metadata switches. Named output color
+Request `metadata`/`meta` replaces both metadata switches; request `dpi`
+replaces `stripped_dpi`. Named output color
 profiles require tone-mapped output. See [output and encoding](processing/output.md).
 
 ## Automatic quality search
