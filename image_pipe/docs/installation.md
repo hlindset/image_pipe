@@ -31,6 +31,7 @@ with `415`, even if the installed libvips has a loader for them.
 | Entry point | Setup | Result |
 | --- | --- | --- |
 | [Plug](plug-usage.md) | Mount `ImagePipe.Plug` and configure source adapters | HTTP image, placeholder, or JSON response |
+| [Builder + external server](external-server.md) | Use `image_pipe_url` in the application and run `image_pipe_server` separately | Signed URLs served by the image server |
 | [Elixir](elixir-api.md) | Build a plan with `ImagePipe.URL.new/0` | Buffered `ImagePipe.Result` or a written file |
 | [Combined](combined-usage.md) | Share `ImagePipe.URL.config/1` and `ImagePipe.config/1` between both | Matching processing, URL generation, and shared caches |
 
@@ -42,7 +43,7 @@ on the URL builder alone. It needs no libvips or NIFs:
 ```
 
 It provides `ImagePipe.URL` with the same URL grammar, presets, signing, and
-source encryption; see [split deployments](elixir-api.md#split-deployments).
+source encryption; see [URL builder with an external server](external-server.md).
 
 Your application supplies the HTTP server when using Plug. An existing Phoenix
 endpoint is sufficient. Direct Elixir calls need no web server.

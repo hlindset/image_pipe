@@ -98,7 +98,7 @@ Select shared presets with
 execution expand the default preset, named presets in order, and explicit
 options using the same rules. Generated URLs retain the preset names for the
 serving mount to resolve. If URLs are built in a different application from the
-one that serves them, see [split deployments](elixir-api.md#split-deployments).
+one that serves them, see [URL builder with an external server](external-server.md).
 
 Use a shared [processing pool](processing-controls.md) to bound generation
 across HTTP requests, jobs, and cache refreshes. Direct results are fully

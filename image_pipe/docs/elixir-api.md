@@ -233,20 +233,11 @@ execution can apply them.
 ### Split deployments
 
 An application that only builds URLs can send them to a separate image
-service. It can depend on the `image_pipe_url` package alone, which provides
-`ImagePipe.URL` without the processing runtime (see
-[installation](installation.md)). The URL carries preset names and signatures,
-not their definitions or keys, so:
+service using `image_pipe_url` alone. See
+[URL builder with an external server](external-server.md) for server setup,
+builder configuration, and shared settings.
 
-- Both sides must use identical signing keys, source-encryption keys, and
-  preset maps. Build both from one shared module or file. ImagePipe does not
-  detect drift between them.
-- Deploy the image service first. It must always run an ImagePipe version at
-  least as new as the builder's, so it can parse every URL the builder emits.
-- Adding or changing a preset is safe once the service has it. To remove one,
-  stop emitting it from the builder first.
-
-#### Fetching results from the service
+### Fetching results from the service
 
 `image_pipe_url` has no fetch function; the signed URL is the interface. To use
 a result on the builder side, request that URL from the service with any HTTP

@@ -8,6 +8,7 @@ defmodule ImagePipe.MixProject do
       "docs/index.md",
       "docs/installation.md",
       "docs/plug-usage.md",
+      "docs/external-server.md",
       "docs/elixir-api.md",
       "docs/combined-usage.md",
       "docs/fiddle.md"

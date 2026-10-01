@@ -12,6 +12,7 @@ before release.
 [Installation](docs/installation.md) explains local setup. Choose your entry point:
 
 - [Plug usage](docs/plug-usage.md): mount in Phoenix or Plug and serve your first image.
+- [Builder + external server](docs/external-server.md): generate URLs in your app and serve images separately.
 - [Elixir API](docs/elixir-api.md): build plans, process files/uploads, and write results.
 - [Combined usage](docs/combined-usage.md): generate URLs and share processing and caches.
 
