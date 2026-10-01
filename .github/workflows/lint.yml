@@ -53,10 +53,10 @@ jobs:
         with:
           mise_toml: |
             [tools]
-            erlang = "29.1"
+            erlang = "29.1.1"
             elixir = "1.20.4-otp-29"
-            node = "26.9.0"
-            pnpm = "12.4.2"
+            node = "26.10.0"
+            pnpm = "12.8.1"
       - name: Install Hex
         run: mise exec -- mix local.hex --force
       - name: Install Rebar
@@ -75,9 +75,9 @@ jobs:
             fiddle/_build
             !fiddle/deps/ortex/native/ortex/target
             !fiddle/deps/exla/cache/xla_extension
-          key: lint-mix-${{ steps.runner.outputs.image }}-erlang29.1-elixir1.20.4-otp29-${{ hashFiles('image_pipe_url/mix.lock', 'image_pipe/mix.lock', 'fiddle/mix.lock') }}
+          key: lint-mix-${{ steps.runner.outputs.image }}-erlang29.1.1-elixir1.20.4-otp29-${{ hashFiles('image_pipe_url/mix.lock', 'image_pipe/mix.lock', 'fiddle/mix.lock') }}
           restore-keys: |
-            lint-mix-${{ steps.runner.outputs.image }}-erlang29.1-elixir1.20.4-otp29-
+            lint-mix-${{ steps.runner.outputs.image }}-erlang29.1.1-elixir1.20.4-otp29-
       - name: Install image_pipe_url dependencies
         working-directory: image_pipe_url
         run: mise exec -- mix deps.get
@@ -99,9 +99,9 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: image_pipe_url/priv/plts
-          key: url-plt-dev-${{ steps.runner.outputs.image }}-erlang29.1-elixir1.20.4-otp29-${{ hashFiles('image_pipe_url/mix.lock') }}
+          key: url-plt-dev-${{ steps.runner.outputs.image }}-erlang29.1.1-elixir1.20.4-otp29-${{ hashFiles('image_pipe_url/mix.lock') }}
           restore-keys: |
-            url-plt-dev-${{ steps.runner.outputs.image }}-erlang29.1-elixir1.20.4-otp29-
+            url-plt-dev-${{ steps.runner.outputs.image }}-erlang29.1.1-elixir1.20.4-otp29-
       - name: Create image_pipe_url PLTs
         if: steps.url-plt-cache.outputs.cache-hit != 'true'
         working-directory: image_pipe_url
@@ -128,7 +128,7 @@ jobs:
           # mix.lock. Its sources are part of the key, and there is no
           # restore-keys fallback: dialyxir judges PLT freshness by the lock
           # alone and would keep a stale PLT from a partial match.
-          key: plt-dev-${{ steps.runner.outputs.image }}-erlang29.1-elixir1.20.4-otp29-${{ hashFiles('image_pipe/mix.lock', 'image_pipe_url/mix.exs', 'image_pipe_url/lib/**/*.ex') }}
+          key: plt-dev-${{ steps.runner.outputs.image }}-erlang29.1.1-elixir1.20.4-otp29-${{ hashFiles('image_pipe/mix.lock', 'image_pipe_url/mix.exs', 'image_pipe_url/lib/**/*.ex') }}
       - name: Create PLTs
         if: steps.plt-cache.outputs.cache-hit != 'true'
         working-directory: image_pipe
