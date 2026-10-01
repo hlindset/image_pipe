@@ -30,13 +30,25 @@ permissions:
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     env:
       MIX_ENV: test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The deps and PLT caches are keyed by runner image (e.g. ubuntu26): the
+      # deps hold compiled NIFs (ortex, exla), and Dialyzer rejects a PLT
+      # written by the Erlang installed on another image.
+      - name: Runner image
+        id: runner
+        run: |
+          echo "image=$ImageOS" >> "$GITHUB_OUTPUT"
+          # Workaround: mise (2026.9.18) maps ImageOS to builds.hex.pm's Erlang
+          # builds only up to ubuntu24 and compiles from source otherwise, so
+          # name the release. Remove once mise maps ubuntu26 itself
+          # (linux_precompiled_os_version in src/plugins/core/erlang.rs).
+          echo "MISE_ERLANG_PRECOMPILED_OS=${ImageOS/ubuntu/ubuntu-}.04" >> "$GITHUB_ENV"
       - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
           mise_toml: |
@@ -63,9 +75,9 @@ jobs:
             fiddle/_build
             !fiddle/deps/ortex/native/ortex/target
             !fiddle/deps/exla/cache/xla_extension
-          key: lint-mix-erlang29.1-elixir1.20.4-otp29-${{ hashFiles('image_pipe_url/mix.lock', 'image_pipe/mix.lock', 'fiddle/mix.lock') }}
+          key: lint-mix-${{ steps.runner.outputs.image }}-erlang29.1-elixir1.20.4-otp29-${{ hashFiles('image_pipe_url/mix.lock', 'image_pipe/mix.lock', 'fiddle/mix.lock') }}
           restore-keys: |
-            lint-mix-erlang29.1-elixir1.20.4-otp29-
+            lint-mix-${{ steps.runner.outputs.image }}-erlang29.1-elixir1.20.4-otp29-
       - name: Install image_pipe_url dependencies
         working-directory: image_pipe_url
         run: mise exec -- mix deps.get
@@ -87,9 +99,9 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: image_pipe_url/priv/plts
-          key: url-plt-dev-erlang29.1-elixir1.20.4-otp29-${{ hashFiles('image_pipe_url/mix.lock') }}
+          key: url-plt-dev-${{ steps.runner.outputs.image }}-erlang29.1-elixir1.20.4-otp29-${{ hashFiles('image_pipe_url/mix.lock') }}
           restore-keys: |
-            url-plt-dev-erlang29.1-elixir1.20.4-otp29-
+            url-plt-dev-${{ steps.runner.outputs.image }}-erlang29.1-elixir1.20.4-otp29-
       - name: Create image_pipe_url PLTs
         if: steps.url-plt-cache.outputs.cache-hit != 'true'
         working-directory: image_pipe_url
@@ -116,7 +128,7 @@ jobs:
           # mix.lock. Its sources are part of the key, and there is no
           # restore-keys fallback: dialyxir judges PLT freshness by the lock
           # alone and would keep a stale PLT from a partial match.
-          key: plt-dev-erlang29.1-elixir1.20.4-otp29-${{ hashFiles('image_pipe/mix.lock', 'image_pipe_url/mix.exs', 'image_pipe_url/lib/**/*.ex') }}
+          key: plt-dev-${{ steps.runner.outputs.image }}-erlang29.1-elixir1.20.4-otp29-${{ hashFiles('image_pipe/mix.lock', 'image_pipe_url/mix.exs', 'image_pipe_url/lib/**/*.ex') }}
       - name: Create PLTs
         if: steps.plt-cache.outputs.cache-hit != 'true'
         working-directory: image_pipe

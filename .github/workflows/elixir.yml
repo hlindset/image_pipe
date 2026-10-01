@@ -26,7 +26,7 @@ permissions:
 jobs:
   url:
     name: image_pipe_url / Elixir ${{ matrix.toolchain.elixir }} / OTP ${{ matrix.toolchain.erlang }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
@@ -45,6 +45,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Caches holding compiled code are keyed by runner image (e.g. ubuntu26):
+      # runner.os is just "Linux", so a runner upgrade would restore binaries
+      # built against the previous release's libraries.
+      - name: Runner image
+        id: runner
+        run: |
+          echo "image=$ImageOS" >> "$GITHUB_OUTPUT"
+          # Workaround: mise (2026.9.18) maps ImageOS to builds.hex.pm's Erlang
+          # builds only up to ubuntu24 and compiles from source otherwise, so
+          # name the release. Remove once mise maps ubuntu26 itself
+          # (linux_precompiled_os_version in src/plugins/core/erlang.rs).
+          echo "MISE_ERLANG_PRECOMPILED_OS=${ImageOS/ubuntu/ubuntu-}.04" >> "$GITHUB_ENV"
       - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
       - name: Install Hex
         run: mise exec -- mix local.hex --force
@@ -56,9 +68,9 @@ jobs:
           path: |
             image_pipe_url/deps
             image_pipe_url/_build
-          key: url-mix-${{ runner.os }}-${{ matrix.toolchain.elixir }}-${{ matrix.toolchain.erlang }}-${{ hashFiles('image_pipe_url/mix.lock') }}
+          key: url-mix-${{ steps.runner.outputs.image }}-${{ matrix.toolchain.elixir }}-${{ matrix.toolchain.erlang }}-${{ hashFiles('image_pipe_url/mix.lock') }}
           restore-keys: |
-            url-mix-${{ runner.os }}-${{ matrix.toolchain.elixir }}-${{ matrix.toolchain.erlang }}-
+            url-mix-${{ steps.runner.outputs.image }}-${{ matrix.toolchain.elixir }}-${{ matrix.toolchain.erlang }}-
       - name: Install dependencies
         run: mise exec -- mix deps.get
       - name: Compile
@@ -68,7 +80,7 @@ jobs:
 
   build:
     name: Elixir ${{ matrix.toolchain.elixir }} / OTP ${{ matrix.toolchain.erlang }} (${{ matrix.partition }}/3)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
@@ -98,6 +110,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Caches holding compiled code are keyed by runner image (e.g. ubuntu26):
+      # runner.os is just "Linux", so a runner upgrade would restore binaries
+      # built against the previous release's libraries.
+      - name: Runner image
+        id: runner
+        run: |
+          echo "image=$ImageOS" >> "$GITHUB_OUTPUT"
+          # Workaround: mise (2026.9.18) maps ImageOS to builds.hex.pm's Erlang
+          # builds only up to ubuntu24 and compiles from source otherwise, so
+          # name the release. Remove once mise maps ubuntu26 itself
+          # (linux_precompiled_os_version in src/plugins/core/erlang.rs).
+          echo "MISE_ERLANG_PRECOMPILED_OS=${ImageOS/ubuntu/ubuntu-}.04" >> "$GITHUB_ENV"
       - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
       # Downloaded packages are cached so a slow or failing Ubuntu mirror only
       # affects the package index fetch. Only the first matrix job saves.
@@ -106,9 +130,9 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/apt-archives
-          key: apt-${{ runner.os }}-${{ hashFiles('.github/workflows/elixir.yml') }}
+          key: apt-${{ steps.runner.outputs.image }}-${{ hashFiles('.github/workflows/elixir.yml') }}
           restore-keys: |
-            apt-${{ runner.os }}-
+            apt-${{ steps.runner.outputs.image }}-
       - name: Install libvips build and runtime dependencies
         run: |
           # The runner is throwaway, so skip dpkg's fsyncs and the man-db
@@ -138,7 +162,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.VIPS_PREFIX }}
-          key: vips-${{ runner.os }}-${{ env.VIPS_VERSION }}-jxl-exif-quant-v4
+          key: vips-${{ steps.runner.outputs.image }}-${{ env.VIPS_VERSION }}-jxl-exif-quant-v4
       - name: Build libvips with JPEG XL decoding + PNG quantization
         if: steps.cache-vips.outputs.cache-hit != 'true'
         run: |
@@ -176,9 +200,9 @@ jobs:
           path: |
             image_pipe/deps
             image_pipe/_build
-          key: mix-${{ runner.os }}-${{ matrix.toolchain.elixir }}-${{ matrix.toolchain.erlang }}-vips${{ env.VIPS_VERSION }}-${{ hashFiles('image_pipe/mix.lock') }}
+          key: mix-${{ steps.runner.outputs.image }}-${{ matrix.toolchain.elixir }}-${{ matrix.toolchain.erlang }}-vips${{ env.VIPS_VERSION }}-${{ hashFiles('image_pipe/mix.lock') }}
           restore-keys: |
-            mix-${{ runner.os }}-${{ matrix.toolchain.elixir }}-${{ matrix.toolchain.erlang }}-vips${{ env.VIPS_VERSION }}-
+            mix-${{ steps.runner.outputs.image }}-${{ matrix.toolchain.elixir }}-${{ matrix.toolchain.erlang }}-vips${{ env.VIPS_VERSION }}-
       - name: Install dependencies
         working-directory: image_pipe
         run: mise exec -- mix deps.get
