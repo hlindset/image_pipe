@@ -10,14 +10,15 @@ presets, signing, and source encryption. Its only runtime dependencies are
 `image_pipe` depends on this package, so a single application that both builds
 and serves URLs needs only `image_pipe`.
 
+Add `image_pipe_url` to your application's dependencies in `mix.exs`:
+
 ```elixir
 def deps do
-  [{:image_pipe_url, path: "../image_pipe/image_pipe_url"}]
+  [{:image_pipe_url, "~> 0.1.0"}]
 end
 ```
 
-ImagePipe is unreleased. Adjust the path to your local checkout and run
-`mix deps.get` in your application.
+Run `mix deps.get` in your application.
 
 ```elixir
 url_config =

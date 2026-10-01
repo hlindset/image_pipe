@@ -1,18 +1,17 @@
 # Installation
 
-ImagePipe requires Elixir 1.18 or newer. It is unreleased and has no Hex package
-yet; depend on a local checkout for evaluation. The repository holds the library
-in its `image_pipe/` directory:
+ImagePipe requires Elixir 1.18 or newer. Add it to your application's
+dependencies in `mix.exs`:
 
 ```elixir
 def deps do
   [
-    {:image_pipe, path: "../image_pipe/image_pipe"}
+    {:image_pipe, "~> 0.1.0"}
   ]
 end
 ```
 
-Adjust the path to your checkout, then run `mix deps.get` in your application.
+Run `mix deps.get` in your application.
 ImagePipe uses Image and Vix for libvips processing. Available input and output
 codecs depend on the native build; see [output formats](processing/output.md#formats).
 
@@ -39,7 +38,7 @@ An application that only generates URLs for a separate image service can depend
 on the URL builder alone. It needs no libvips or NIFs:
 
 ```elixir
-{:image_pipe_url, path: "../image_pipe/image_pipe_url"}
+{:image_pipe_url, "~> 0.1.0"}
 ```
 
 It provides `ImagePipe.URL` with the same URL grammar, presets, signing, and

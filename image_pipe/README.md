@@ -4,9 +4,6 @@ ImagePipe serves and processes images inside Elixir applications. Use its Plug
 endpoint for on-demand HTTP images, its Elixir API for jobs and uploads, or both
 with shared plans, configuration, and caches. Image and libvips power processing.
 
-ImagePipe is unreleased and has no Hex package yet. The `0.1.0` API may change
-before release.
-
 ## Get started
 
 [Installation](docs/installation.md) explains local setup. Choose your entry point:

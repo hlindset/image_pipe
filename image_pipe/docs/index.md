@@ -2,7 +2,7 @@
 
 ## Start here
 
-ImagePipe is unreleased. Start with [installation](installation.md), then choose
+Start with [installation](installation.md), then choose
 the guide that matches your application:
 
 | I want to… | Guide |

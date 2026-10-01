@@ -53,12 +53,11 @@ the `/images` mount. The original is now available to the server as
 
 ## Configure the builder application
 
-ImagePipe is unreleased. Add the URL package from your local checkout to the
-application's `mix.exs`, adjusting the path:
+Add the URL package to your application's dependencies in `mix.exs`:
 
 ```elixir
 def deps do
-  [{:image_pipe_url, path: "../image_pipe/image_pipe_url"}]
+  [{:image_pipe_url, "~> 0.1.0"}]
 end
 ```
 
