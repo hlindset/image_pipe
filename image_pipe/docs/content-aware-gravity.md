@@ -80,7 +80,7 @@ plug ImagePipe.Plug,
     [custom detector](#custom-detectors).
 - **`detector_required`** — boolean, default `false`.
   - `false` — unavailable detection falls back to attention.
-  - `true` — an explicit `detect` request returns 422 before source resolution,
+  - `true` — an explicit `detect` request returns 501 before source resolution,
     fetch, or cache access when a required detector is unavailable.
     `anchor=smart-face` still falls back to attention.
 

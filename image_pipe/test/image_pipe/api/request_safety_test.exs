@@ -39,8 +39,8 @@ defmodule ImagePipe.API.RequestSafetyTest do
       {"/sig=" <> String.duplicate("A", 43) <> "/w=64/src/images/cat.jpg", 403,
        [url: ImagePipe.URL.config(keys: [@signing_key])]},
       # The `expires` gate (§Signing) runs before source resolve: a past
-      # timestamp rejects with 404 before the source or cache are touched.
-      {"/expires=#{System.os_time(:second) - 3600}/w=64/src/images/cat.jpg", 404}
+      # timestamp rejects with 410 before the source or cache are touched.
+      {"/expires=#{System.os_time(:second) - 3600}/w=64/src/images/cat.jpg", 410}
     ]
   end
 

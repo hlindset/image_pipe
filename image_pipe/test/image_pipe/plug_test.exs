@@ -511,13 +511,13 @@ defmodule ImagePipe.PlugTest do
   # A stalled partial origin (one chunk of a chunked response, then the socket is
   # held open) surfaces as a source error, but WHICH source error is timing-
   # dependent under load: the per-message receive timeout (504 "source timeout")
-  # or the incomplete-chunked-body path (422 "incomplete source response") can win
+  # or the incomplete-chunked-body path (502 "incomplete source response") can win
   # the race. Both are correct source-error classifications of the same stall; the
   # contract under test is "surfaces as a source error" (never a 500 crash or 200).
   # Tightening this back to a single deterministic status is tracked in #429
   # (classify transport errors by reason in ReqStream).
   defp assert_stalled_source_error(conn) do
-    assert conn.status in [422, 504]
+    assert conn.status in [502, 504]
     assert conn.resp_body in ["incomplete source response", "source timeout"]
   end
 
@@ -1520,7 +1520,7 @@ defmodule ImagePipe.PlugTest do
         origin_req_options: [plug: LargeBodyOrigin]
       )
 
-    assert conn.status == 422
+    assert conn.status == 413
     assert conn.resp_body == "source response exceeds the size limit"
   end
 
@@ -1585,7 +1585,7 @@ defmodule ImagePipe.PlugTest do
         origin_req_options: [plug: OriginImage]
       )
 
-    assert conn.status == 422
+    assert conn.status == 413
     assert conn.resp_body == "source response exceeds the size limit"
   end
 
@@ -1600,7 +1600,7 @@ defmodule ImagePipe.PlugTest do
         origin_req_options: [plug: OriginImage]
       )
 
-    assert conn.status == 422
+    assert conn.status == 413
     assert conn.resp_body == "source response exceeds the size limit"
   end
 
@@ -1637,7 +1637,7 @@ defmodule ImagePipe.PlugTest do
         origin_req_options: [plug: ChunkedOriginImage]
       )
 
-    assert conn.status == 422
+    assert conn.status == 413
     assert conn.state == :sent
     assert conn.resp_body == "source response exceeds the size limit"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]

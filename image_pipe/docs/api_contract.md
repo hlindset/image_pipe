@@ -243,7 +243,7 @@ Detection and smart guides do not accept anchor offsets. Guides reset at `-`.
 
 Mount options are `detector: :default | nil | module` and
 `detector_required: boolean`. Strict mode checks the requested explicit
-detection classes before source resolution or cache access and returns 422
+detection classes before source resolution or cache access and returns 501
 when unavailable. Face-assisted attention remains optional. Missing, empty,
 or failed optional detection falls back to attention cropping.
 
@@ -582,7 +582,7 @@ without changing the ETag of an otherwise identical representation. Debug intent
 is also presentation-only and remains subject to the host disclosure gate.
 
 `expires` is a UNIX timestamp in seconds. A request expires when it is less than
-the current time; equality remains valid. Expired requests return `404` before
+the current time; equality remains valid. Expired requests return `410` before
 source fetch or cache access. Hosts may configure `clock: fn -> unix_seconds end`
 for a controlled time source; the default is `System.os_time(:second)`.
 

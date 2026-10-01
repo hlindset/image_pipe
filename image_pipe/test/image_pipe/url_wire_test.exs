@@ -203,7 +203,7 @@ defmodule ImagePipe.URLWireTest do
       IP.URL.url!(IP.URL.new(url_config) |> IP.URL.group(gray: true), "photo.jpg")
       |> String.replace("/gray/", "/bitonal/")
 
-    for {path, status} <- [{expired, 404}, {tampered, 403}] do
+    for {path, status} <- [{expired, 410}, {tampered, 403}] do
       response = conn(:get, path) |> IP.Plug.call(mount)
       assert response.status == status
       refute_received :source_fetch

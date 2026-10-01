@@ -190,8 +190,8 @@ defmodule ImagePipe.RequestSafetyTest do
 
     conn = ImagePipe.Plug.call(conn(:get, "/format=jpeg/src/images/cat.jpg"), opts)
 
-    assert conn.status == 422
-    assert conn.resp_body == "invalid image source"
+    assert conn.status == 404
+    assert conn.resp_body == "source not found"
     assert_received :source_resolve
     refute_received {:source_fetch, _fetch}
     refute_received :cache_lookup
@@ -232,8 +232,8 @@ defmodule ImagePipe.RequestSafetyTest do
 
     conn = ImagePipe.Plug.call(conn(:get, "/format=jpeg/src/images/cat.jpg"), opts)
 
-    assert conn.status == 422
-    assert conn.resp_body == "invalid image source"
+    assert conn.status == 404
+    assert conn.resp_body == "source not found"
     refute_received :cache_put
   end
 
@@ -246,7 +246,7 @@ defmodule ImagePipe.RequestSafetyTest do
 
     conn = ImagePipe.Plug.call(conn(:get, "/format=jpeg/src/images/cat.jpg"), opts)
 
-    assert conn.status == 422
+    assert conn.status == 502
     assert conn.resp_body == "incomplete source response"
     refute_received :cache_put
   end
@@ -260,7 +260,7 @@ defmodule ImagePipe.RequestSafetyTest do
 
     conn = ImagePipe.Plug.call(conn(:get, "/format=jpeg/src/images/cat.jpg"), opts)
 
-    assert conn.status == 422
+    assert conn.status == 502
     assert conn.resp_body == "incomplete source response"
     assert_received :cache_lookup
     refute_received :cache_put

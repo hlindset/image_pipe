@@ -293,7 +293,7 @@ defmodule ImagePipe.APIErrorPathsTest do
 
       assert_received :origin_fetch
       assert conn.status == 502
-      assert conn.resp_body == "upstream responded 503"
+      assert conn.resp_body == "source responded with an error"
       refute_received {:cache_open_sink, _key, _metadata}
     end
 

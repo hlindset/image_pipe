@@ -141,7 +141,7 @@ the helper does not apply `:base_url`.
 
 The first key signs new URLs; keep previous keys in the list while their URLs
 remain valid. `expires` is a Unix timestamp in seconds. The exact expiry second
-is still valid; later requests return 404 before source/cache access. Expiry
+is still valid; later requests return 410 before source/cache access. Expiry
 should be signed so clients cannot extend it.
 
 ## Conceal the source

@@ -394,7 +394,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     assert_receive {:origin, _, []}
     constrained = Keyword.put(config, :max_body_bytes, 1)
     assert request(constrained, 12).status == 200
-    assert request(constrained, 8).status == 422
+    assert request(constrained, 8).status == 413
     pixel_constrained = Keyword.put(config, :max_input_pixels, 1)
     assert request(pixel_constrained, 12).status == 200
     assert request(pixel_constrained, 8).status == 413

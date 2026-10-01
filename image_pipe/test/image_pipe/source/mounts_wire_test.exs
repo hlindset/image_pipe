@@ -42,7 +42,7 @@ defmodule ImagePipe.Source.MountsWireTest do
 
   test "a bare prefix and dot segments are rejected", %{config: config} do
     for path <- ["/src/media", "/src/media/../alpha.png", "/src/asset:%2F%2F..%2Falpha.png"] do
-      assert (conn(:get, path) |> ImagePipe.Plug.call(config)).status == 422, path
+      assert (conn(:get, path) |> ImagePipe.Plug.call(config)).status == 404, path
     end
   end
 end

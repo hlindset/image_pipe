@@ -43,6 +43,7 @@ and custom detection, and the [API contract](api_contract.md) for exact semantic
 - [Caching](cache.md): input and output storage, freshness, and stale refreshes.
 - [HTTP and CDN caching](cdn-http-cache.md): browser/CDN policy, ETags, and negotiation.
 - [Processing limits](processing-controls.md): concurrency, queues, deadlines, and cancellation.
+- [Error responses](errors.md): which status each failure returns, and why.
 - [Source network policy](source-network-policy.md): allowed origins and private networks.
 - [Telemetry](telemetry.md): logging, metrics, and traces.
 - [Debug headers](debug_headers.md): inspect processing and cache decisions.

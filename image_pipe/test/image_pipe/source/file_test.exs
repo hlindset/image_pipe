@@ -100,6 +100,31 @@ defmodule ImagePipe.Source.FileTest do
     assert SourceFile.fetch(resolved, opts, []) == {:error, {:source, :not_found}}
   end
 
+  test "fetch reports paths that can't name a file as not found", %{root: root} do
+    assert {:ok, opts} = SourceFile.validate_options(root: root, root_id: "fixture-root")
+
+    for segments <- [
+          ["images"],
+          ["images", "cat.jpg", "x"],
+          ["images", String.duplicate("a", 300)]
+        ] do
+      assert {:ok, resolved} = SourceFile.resolve(%SourcePath{segments: segments}, opts, [])
+      assert SourceFile.fetch(resolved, opts, []) == {:error, {:source, :not_found}}
+    end
+  end
+
+  test "fetch reports an unsearchable parent directory as unreadable", %{root: root} do
+    assert {:ok, opts} = SourceFile.validate_options(root: root, root_id: "fixture-root")
+    images = Path.join(root, "images")
+    File.chmod!(images, 0o000)
+    on_exit(fn -> File.chmod!(images, 0o755) end)
+
+    assert {:ok, resolved} =
+             SourceFile.resolve(%SourcePath{segments: ["images", "cat.jpg"]}, opts, [])
+
+    assert SourceFile.fetch(resolved, opts, []) == {:error, {:source, :unreadable}}
+  end
+
   test "file source defaults to not stable and disables internal cache in auto mode", %{
     root: root
   } do

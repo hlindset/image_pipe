@@ -111,7 +111,7 @@ Equivalent requests on different nodes can still generate independently.
 | `{:processing, :overloaded}` | `503` |
 | `{:processing, :queue_timeout}` | `503` |
 | `{:processing, :unavailable}` | `503` |
-| `{:processing, :timeout}` | `504` |
+| `{:processing, :timeout}` | `503` |
 
 Errors do not become successful cache entries. After streaming headers have been
 sent, a failure ends the stream and aborts staged output instead of changing its
