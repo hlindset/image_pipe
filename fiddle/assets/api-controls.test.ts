@@ -10,6 +10,39 @@ const source = "images/dog.jpg";
 const defaults = () => controlStateFromOptions("", source);
 
 describe("visual controls serialize API requests", () => {
+  it("enables a watermark with editing defaults and drops its options when disabled", () => {
+    const before = defaults();
+    const enabled = updateControlOptions("w=400", 0, before, { ...before, watermarkEnabled: true });
+    expect(enabled).toBe("w=400/wm=logo/wm-opacity=0.8/wm-at=bottom-right/wm-offset=16,16");
+
+    const opened = controlStateFromOptions(`${enabled}/wm-tile/wm-gap=5,0`, source);
+    expect(opened).toMatchObject({
+      watermarkEnabled: true,
+      watermarkOpacity: 0.8,
+      watermarkGravity: "bottom-right",
+      watermarkTile: true,
+      watermarkGapX: 5,
+      watermarkGapY: 0,
+    });
+
+    const disabled = updateControlOptions(`${enabled}/wm-tile/wm-gap=5,0`, 0, opened, {
+      ...opened,
+      watermarkEnabled: false,
+    });
+    expect(disabled).toBe("w=400");
+  });
+
+  it("reads omitted watermark options as URL defaults", () => {
+    expect(controlStateFromOptions("wm=logo", source)).toMatchObject({
+      watermarkOpacity: 1,
+      watermarkGravity: "center",
+      watermarkOffsetX: 0,
+      watermarkOffsetY: 0,
+      watermarkScaleEnabled: false,
+      watermarkTile: false,
+    });
+  });
+
   it("edits progressive blur sigma, direction, and stops in the selected group", () => {
     const options = "w=400/-/progressive-blur=2";
     const before = controlStateFromOptions(options, source, 1);
@@ -349,6 +382,8 @@ describe("deep links and edits", () => {
     "brightness=-30/contrast=1.4/saturation=0.5/colorize=0.3,blue,keep-alpha/gradient=0.4,black,left,0.1,0.8",
     "autoquality=butteraugli,target:1/format=webp/meta=copyright/profile=preserve/hdr=preserve",
     "format=jpeg/meta=strip/dpi=96",
+    "wm=logo",
+    "wm=logo/wm-opacity=0.5/wm-scale=0.2/wm-at=top-left/wm-offset=4,8/wm-tile/wm-gap=10,20",
   ])("opening %s does not rewrite it", (options) => {
     const before = controlStateFromOptions(options, source);
     expect(updateControlOptions(options, 0, before, structuredClone(before))).toBe(options);

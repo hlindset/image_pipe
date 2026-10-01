@@ -11,6 +11,7 @@
     controlOptionSegments,
     cropPixelLimit,
     resetCropPixelsToSource,
+    watermarkAssets,
     type ControlState,
     type SourceImage,
   } from "./api-controls";
@@ -1014,6 +1015,103 @@
       {/if}
     </Collapsible.Content>
   </Collapsible.Root>
+</section>
+
+<section class="tool-section">
+  <ToolToggleHeader
+    title="Watermark"
+    summary={controlState.watermarkEnabled ? `wm=${controlState.watermarkAsset}` : "Off"}
+    bind:checked={controlState.watermarkEnabled}
+  />
+
+  {#if controlState.watermarkEnabled}
+    <label class="field">
+      <span>Asset</span>
+      <select bind:value={controlState.watermarkAsset}>
+        {#each watermarkAssets as asset (asset)}
+          <option value={asset}>{asset}</option>
+        {/each}
+      </select>
+    </label>
+    <RangeNumber
+      label="Opacity"
+      bind:value={controlState.watermarkOpacity}
+      min={controlLimits.watermark.opacity.min}
+      max={controlLimits.watermark.opacity.max}
+      step={controlLimits.watermark.opacity.step}
+      inputStep="any"
+    />
+    <label class="switch-field">
+      <Switch.Root class="switch-root" bind:checked={controlState.watermarkScaleEnabled}>
+        <Switch.Thumb class="switch-thumb" />
+      </Switch.Root>
+      <span>Scale to frame</span>
+    </label>
+    {#if controlState.watermarkScaleEnabled}
+      <RangeNumber
+        label="Scale"
+        bind:value={controlState.watermarkScale}
+        min={controlLimits.watermark.scale.min}
+        max={controlLimits.watermark.scale.max}
+        step={controlLimits.watermark.scale.step}
+        inputStep="any"
+      />
+    {/if}
+    <label class="field">
+      <span>Gravity</span>
+      <select bind:value={controlState.watermarkGravity}>
+        <option value="center">center</option>
+        <option value="top">north</option>
+        <option value="bottom">south</option>
+        <option value="right">east</option>
+        <option value="left">west</option>
+        <option value="top-right">north east</option>
+        <option value="top-left">north west</option>
+        <option value="bottom-right">south east</option>
+        <option value="bottom-left">south west</option>
+      </select>
+    </label>
+    <RangeNumber
+      label="Offset X"
+      bind:value={controlState.watermarkOffsetX}
+      min={controlLimits.watermark.offset.min}
+      max={controlLimits.watermark.offset.max}
+      step={controlLimits.watermark.offset.step}
+      suffix="px"
+    />
+    <RangeNumber
+      label="Offset Y"
+      bind:value={controlState.watermarkOffsetY}
+      min={controlLimits.watermark.offset.min}
+      max={controlLimits.watermark.offset.max}
+      step={controlLimits.watermark.offset.step}
+      suffix="px"
+    />
+    <label class="switch-field">
+      <Switch.Root class="switch-root" bind:checked={controlState.watermarkTile}>
+        <Switch.Thumb class="switch-thumb" />
+      </Switch.Root>
+      <span>Tile</span>
+    </label>
+    {#if controlState.watermarkTile}
+      <RangeNumber
+        label="Gap X"
+        bind:value={controlState.watermarkGapX}
+        min={controlLimits.watermark.gap.min}
+        max={controlLimits.watermark.gap.max}
+        step={controlLimits.watermark.gap.step}
+        suffix="px"
+      />
+      <RangeNumber
+        label="Gap Y"
+        bind:value={controlState.watermarkGapY}
+        min={controlLimits.watermark.gap.min}
+        max={controlLimits.watermark.gap.max}
+        step={controlLimits.watermark.gap.step}
+        suffix="px"
+      />
+    {/if}
+  {/if}
 </section>
 
 <section class="tool-section">
