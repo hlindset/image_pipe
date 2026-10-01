@@ -32,6 +32,7 @@ root_id = "static"
   and a reference of every setting.
 - [Deployment](docs/deployment.md): images, Docker and Kubernetes, health
   checks, shutdown, caches, and capacity.
+- [Changelog](CHANGELOG.md): server release notes.
 
 The server loads no host Elixir code. Custom source adapters, caches,
 detectors, and function-valued options need a release built on `image_pipe`.

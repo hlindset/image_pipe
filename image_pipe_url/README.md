@@ -40,3 +40,5 @@ to run `image_pipe_server`, generate your first working URL, and synchronize
 keys and presets.
 
 The two packages are released in lockstep at the same version.
+
+See the [changelog](CHANGELOG.md) for release notes.

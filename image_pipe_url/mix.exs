@@ -20,7 +20,7 @@ defmodule ImagePipeURL.MixProject do
         source_ref: "v#{@version}",
         source_url: @source_url,
         source_url_pattern: "#{@source_url}/blob/v#{@version}/image_pipe_url/%{path}#L%{line}",
-        extras: ["README.md", "LICENSE.md"],
+        extras: ["README.md", "CHANGELOG.md", "LICENSE.md"],
         groups_for_modules: [
           "URL builder": [ImagePipe.URL, ImagePipe.URL.Config],
           "Plan Model": [ImagePipe.Plan, ~r/ImagePipe\.Plan\..*/],
@@ -52,9 +52,12 @@ defmodule ImagePipeURL.MixProject do
 
   defp package do
     [
-      files: ["lib", "mix.exs", "README.md", "LICENSE.md"],
+      files: ["lib", "mix.exs", "README.md", "CHANGELOG.md", "LICENSE.md"],
       licenses: ["Apache-2.0"],
-      links: %{"GitHub" => @source_url},
+      links: %{
+        "GitHub" => @source_url,
+        "Changelog" => "#{@source_url}/blob/main/image_pipe_url/CHANGELOG.md"
+      },
       maintainers: ["Håvard Lindset"]
     ]
   end
