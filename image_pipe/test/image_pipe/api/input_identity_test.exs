@@ -14,7 +14,7 @@ defmodule ImagePipe.API.InputIdentityTest do
       end)
 
     {{:ok, request, source}, _metadata} = ParsedRequest.parse(conn, config)
-    {:ok, _, policy} = ParsedRequest.prepare(request, source, config, "image/webp")
+    {:ok, _, _watermarks, policy} = ParsedRequest.prepare(request, source, config, "image/webp")
     conn = Plug.Conn.fetch_cookies(conn)
     inputs = %ImagePipe.Execution.Inputs{headers: conn.req_headers, cookies: conn.req_cookies}
     ImagePipe.Execution.identity_material(request, policy, inputs, config)

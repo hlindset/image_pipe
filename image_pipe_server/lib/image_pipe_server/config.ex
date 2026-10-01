@@ -16,7 +16,8 @@ defmodule ImagePipeServer.Config do
       (see `ImagePipeServer.Config.Sources`).
     * `[cache]` - `output` and `input` `ImagePipe.Cache.FileSystem` caches, and
       `storage_inputs` as `[{ header = "..." }, { cookie = "..." }]`.
-    * `[processing]` - the processing options of `ImagePipe.config/1`.
+    * `[processing]` - the processing options of `ImagePipe.config/1`,
+      including `watermarks.<name>` asset tables and `request_watermarks`.
     * `[pool]` - `ImagePipe.ProcessingPool` options. Without it, requests are
       unbounded.
     * `[http]` - the delivery options of `ImagePipe.Plug.init/1`.
@@ -80,6 +81,11 @@ defmodule ImagePipeServer.Config do
   ]
 
   @telemetry_schema [log_level: [type: {:in, Logger.levels()}]]
+
+  @watermark_schema [
+    source: [type: :string, required: true],
+    opacity: [type: :float, default: 1.0]
+  ]
 
   @doc "Reads, converts, and validates the configuration."
   @spec load!(%{String.t() => String.t()}, Path.t()) :: t()
@@ -188,7 +194,9 @@ defmodule ImagePipeServer.Config do
       jpeg_options: [type: encoder(JpegOptions)],
       png_options: [type: encoder(PngOptions)],
       webp_options: [type: encoder(WebpOptions)],
-      avif_options: [type: encoder(AvifOptions)]
+      avif_options: [type: encoder(AvifOptions)],
+      watermarks: [type: {:map, :string, Convert.table(@watermark_schema)}],
+      request_watermarks: [type: :boolean, default: false]
     )
   end
 
@@ -273,13 +281,28 @@ defmodule ImagePipeServer.Config do
 
       shared =
         [url: url] ++
-          Keyword.get(sections, :processing, []) ++
+          processing(Keyword.get(sections, :processing, [])) ++
           Keyword.get(sections, :cache, []) ++
           sources(Keyword.get(sections, :sources)) ++
           processing_pool(pool)
 
       ImagePipe.Plug.init([config: ImagePipe.config(shared)] ++ Keyword.get(sections, :http, []))
     end)
+  end
+
+  # Watermark names are the operator's own identifiers, fixed at boot.
+  defp processing(options) do
+    case Keyword.fetch(options, :watermarks) do
+      {:ok, watermarks} ->
+        Keyword.put(
+          options,
+          :watermarks,
+          Map.new(watermarks, fn {name, entry} -> {String.to_atom(name), entry} end)
+        )
+
+      :error ->
+        options
+    end
   end
 
   defp sources(nil), do: []

@@ -26,6 +26,35 @@ defmodule ImagePipe.RunTest do
     assert Image.shape(Image.from_binary!(result.data)) == {30, 20, 3}
   end
 
+  test "composites named and request watermarks through configured sources", %{bytes: bytes} do
+    dir = Path.join(System.tmp_dir!(), "image-pipe-run-wm-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    on_exit(fn -> File.rm_rf!(dir) end)
+
+    File.write!(
+      Path.join(dir, "mark.png"),
+      Image.new!(4, 4, color: :red) |> Image.write!(:memory, suffix: ".png")
+    )
+
+    sources = [files: [adapter: Source.File, match: :path, options: [root: dir, root_id: "wm"]]]
+    config = IP.config(sources: sources, watermarks: %{logo: [source: "mark.png"]})
+    output = &IP.URL.output(IP.URL.group(IP.URL.new(), &1), format: :png)
+
+    assert {:ok, named} = IP.run(config, output.(watermark: :logo), {:binary, bytes})
+    assert Image.get_pixel!(Image.from_binary!(named.data), 30, 20) == [255, 0, 0]
+
+    assert {:error, {:invalid_request, [%{reason: :unknown_watermark}]}} =
+             IP.run(config, output.(watermark: :other), {:binary, bytes})
+
+    sourced = output.(watermark_source: "mark.png")
+
+    assert {:error, {:invalid_request, [%{reason: :watermark_source_disabled}]}} =
+             IP.run(config, sourced, {:binary, bytes})
+
+    assert {:ok, result} = IP.run(config, sourced, {:binary, bytes}, request_watermarks: true)
+    assert result.data == named.data
+  end
+
   test "runs files and writes fully consumed output", %{bytes: bytes} do
     dir = Path.join(System.tmp_dir!(), "image-pipe-run-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
@@ -121,7 +150,9 @@ defmodule ImagePipe.RunTest do
     assert {:ok, request} = Plan.to_spec(IP.URL.output(IP.URL.new(), format: :jpeg).plan)
     assert {:ok, policy} = Processing.prepare(request, config, "")
     assert {:ok, source, config} = Source.from_input({:source, "photo.png"}, config)
-    assert {:ok, context} = Execution.prepare(request, source, policy, Inputs.new!([]), config)
+
+    assert {:ok, context} =
+             Execution.prepare(request, source, [], policy, Inputs.new!([]), config)
 
     try do
       assert {:ok, output} = Execution.open(context)

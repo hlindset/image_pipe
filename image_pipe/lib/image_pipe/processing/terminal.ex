@@ -6,6 +6,7 @@ defmodule ImagePipe.Processing.Terminal do
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Output.Terminal.LqipCss
   alias ImagePipe.Plan.Spec
+  alias ImagePipe.Processing
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.PendingOrientation
@@ -19,18 +20,21 @@ defmodule ImagePipe.Processing.Terminal do
       [:output, :terminal],
       %{terminal: request.output.terminal},
       fn ->
-        result =
-          Decode.with_image(source, request, config, fn state, geometry ->
-            render_body(state, geometry, request, config)
-          end)
-
+        result = Processing.with_watermarks(config, &render_decoded(source, request, &1))
         {result, %{result: terminal_result(result)}}
       end
     )
   end
 
+  defp render_decoded(source, request, config) do
+    Decode.with_image(source, request, config, fn state, geometry ->
+      render_body(state, geometry, request, config)
+    end)
+  end
+
   defp render_body(state, _geometry, %Spec{output: %{terminal: :blurhash}} = request, config) do
-    with {:ok, state} <- Executor.execute(state, request, config),
+    with {:ok, config} <- Processing.watermark_opts(config),
+         {:ok, state} <- Executor.execute(state, request, config),
          {:ok, state} <- Executor.reduce_terminal(state, request.output, config) do
       case Blurhash.compute(state.image) do
         {:ok, hash} -> {:ok, "text/plain", hash}
@@ -63,7 +67,8 @@ defmodule ImagePipe.Processing.Terminal do
   end
 
   defp render_body(state, _geometry, %Spec{output: %{terminal: :lqip_css}} = request, config) do
-    with {:ok, state} <- Executor.execute(state, request, config),
+    with {:ok, config} <- Processing.watermark_opts(config),
+         {:ok, state} <- Executor.execute(state, request, config),
          {:ok, state} <- Executor.reduce_terminal(state, request.output, config) do
       case LqipCss.compute(state.image) do
         {:ok, value} -> {:ok, "text/plain", value}

@@ -61,7 +61,7 @@ defmodule ImagePipe.API.IdentityTest do
        ) do
     conn = Plug.Conn.fetch_cookies(conn)
     inputs = %Inputs{headers: conn.req_headers, cookies: conn.req_cookies}
-    Identity.material(request, negotiation, inputs, config, detector_identity)
+    Identity.material(request, negotiation, inputs, config, detector_identity, %{})
   end
 
   defp source_identity,
@@ -80,7 +80,9 @@ defmodule ImagePipe.API.IdentityTest do
       |> Keyword.merge(config_opts)
       |> Config.validate!()
 
-    assert {:ok, _source, policy} = ParsedRequest.prepare(request, "images/cat.jpg", config, "")
+    assert {:ok, _source, [], policy} =
+             ParsedRequest.prepare(request, "images/cat.jpg", config, "")
+
     conn = conn(:get, "/")
 
     conn = Plug.Conn.fetch_cookies(conn)

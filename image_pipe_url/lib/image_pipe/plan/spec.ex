@@ -13,6 +13,8 @@ defmodule ImagePipe.Plan.Spec do
   alias ImagePipe.Plan.Spec.Output
   alias ImagePipe.Plan.Spec.Validation
 
+  @zero_offset {{:px, 0}, {:px, 0}}
+
   @enforce_keys [:groups, :output]
   defstruct groups: [],
             output: nil,
@@ -37,9 +39,10 @@ defmodule ImagePipe.Plan.Spec do
         }
 
   @doc false
-  @spec errors([map()], map(), MapSet.t(Issue.location())) :: [Issue.t()]
-  def errors(groups, options, invalid \\ MapSet.new()),
-    do: Validation.errors(groups, options, invalid)
+  @spec errors([map()], map(), MapSet.t(Issue.location()), Validation.watermarks()) ::
+          [Issue.t()]
+  def errors(groups, options, invalid \\ MapSet.new(), watermarks \\ nil),
+    do: Validation.errors(groups, options, invalid, watermarks)
 
   @doc false
   @spec build([map()], map()) :: t()
@@ -90,7 +93,8 @@ defmodule ImagePipe.Plan.Spec do
       colorize: assemble_opacity_effect(Map.get(group_map, :colorize)),
       gradient: assemble_opacity_effect(Map.get(group_map, :gradient)),
       pad: Map.get(group_map, :padding),
-      bg: assemble_bg(Map.get(group_map, :background))
+      bg: assemble_bg(Map.get(group_map, :background)),
+      watermark: assemble_watermark(group_map)
     }
   end
 
@@ -123,6 +127,46 @@ defmodule ImagePipe.Plan.Spec do
           |> Map.get(:extend_offset, {{:px, 0}, {:px, 0}})
           |> normalize_offset()
       }
+    end
+  end
+
+  # A zero effective opacity draws nothing, so it shares identity with absence.
+  defp assemble_watermark(group_map) do
+    asset = watermark_asset(group_map)
+    opacity = Map.get(group_map, :watermark_opacity, 1.0)
+
+    if asset != nil and opacity != 0 do
+      tile = Map.get(group_map, :watermark_tile, false)
+
+      %{
+        asset: asset,
+        opacity: opacity * 1.0,
+        scale: Map.get(group_map, :watermark_scale),
+        at: Map.get(group_map, :watermark_at, :center),
+        offset: group_map |> Map.get(:watermark_offset, @zero_offset) |> normalize_offset(),
+        tile: tile,
+        gap:
+          if(tile,
+            do: group_map |> Map.get(:watermark_gap, @zero_offset) |> normalize_offset(),
+            else: @zero_offset
+          )
+      }
+    end
+  end
+
+  defp watermark_asset(group_map) do
+    cond do
+      Map.has_key?(group_map, :watermark) ->
+        {:name, Map.fetch!(group_map, :watermark)}
+
+      Map.has_key?(group_map, :watermark_source) ->
+        {:src, Map.fetch!(group_map, :watermark_source)}
+
+      Map.has_key?(group_map, :watermark_token) ->
+        {:enc, Map.fetch!(group_map, :watermark_token)}
+
+      true ->
+        nil
     end
   end
 

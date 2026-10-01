@@ -386,6 +386,9 @@ Processing defaults and limits of `ImagePipe.config/1`.
 | `webp_options.effort` | integer 0–6 |  |
 | `avif_options.subsample_mode` | `"auto"` or `"on"` or `"off"` |  |
 | `avif_options.effort` | integer 0–9 |  |
+| `watermarks.<name>.source` | string |  |
+| `watermarks.<name>.opacity` | number | `1.0` |
+| `request_watermarks` | boolean | `false` |
 
 Elixir only: `telemetry_prefix`, `clock`.
 

@@ -294,7 +294,9 @@ defmodule ImagePipe.API.OutputTest do
     config = Config.validate!(quality: 71)
     assert {:ok, request} = Parser.parse(lexed(["format=jpeg"]), config)
 
-    assert {:ok, _source, output} = ParsedRequest.prepare(request, "images/cat.jpg", config, "")
+    assert {:ok, _source, [], output} =
+             ParsedRequest.prepare(request, "images/cat.jpg", config, "")
+
     assert output.default_quality == {:quality, 71}
   end
 
@@ -302,7 +304,9 @@ defmodule ImagePipe.API.OutputTest do
     config = Config.validate!(autoquality_method: :size)
     assert {:ok, request} = Parser.parse(lexed(["output=blurhash"]), config)
 
-    assert {:ok, _source, output} = ParsedRequest.prepare(request, "images/cat.jpg", config, "")
+    assert {:ok, _source, [], output} =
+             ParsedRequest.prepare(request, "images/cat.jpg", config, "")
+
     assert output == nil
   end
 
@@ -315,7 +319,8 @@ defmodule ImagePipe.API.OutputTest do
                config
              )
 
-    assert {:ok, _source, output} = ParsedRequest.prepare(request, "images/cat.jpg", config, "")
+    assert {:ok, _source, [], output} =
+             ParsedRequest.prepare(request, "images/cat.jpg", config, "")
 
     assert request.filename == "report"
     assert request.attachment?
@@ -356,7 +361,8 @@ defmodule ImagePipe.API.OutputTest do
     config = Config.validate!(auto_avif: false)
     assert {:ok, request} = Parser.parse(lexed(["autoquality=ssimulacra2,min:70"]), config)
 
-    assert {:ok, _source, _output} = ParsedRequest.prepare(request, "images/cat.jpg", config, "")
+    assert {:ok, _source, [], _output} =
+             ParsedRequest.prepare(request, "images/cat.jpg", config, "")
   end
 
   test "renders resolved-output failures as a safe 400 plan error" do

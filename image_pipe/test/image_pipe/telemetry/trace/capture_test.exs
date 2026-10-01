@@ -194,6 +194,53 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     end
   end
 
+  test "watermark acquisition spans join the request trace across the process hop" do
+    prefix = [__MODULE__, :watermark]
+    :ok = TestExporter.attach(self(), prefix: prefix)
+
+    dir =
+      Path.join(System.tmp_dir!(), "image-pipe-trace-wm-#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(dir)
+    on_exit(fn -> File.rm_rf!(dir) end)
+
+    for name <- ["image.png", "mark.png"],
+        do:
+          File.write!(
+            Path.join(dir, name),
+            Image.new!(8, 8) |> Image.write!(:memory, suffix: ".png")
+          )
+
+    config =
+      ImagePipe.Plug.init(
+        sources: [
+          files: [
+            adapter: ImagePipe.Source.File,
+            match: :path,
+            options: [root: dir, root_id: "t"]
+          ]
+        ],
+        watermarks: %{logo: [source: "mark.png"]},
+        telemetry_prefix: prefix
+      )
+
+    conn =
+      Plug.Test.conn(:get, "/wm=logo/format=png/src/image.png") |> ImagePipe.Plug.call(config)
+
+    assert conn.status == 200
+
+    assert_receive {:span, %Span{name: "image_pipe.request", trace_id: trace_id}}
+
+    for phase <- [:prepare, :open] do
+      assert_receive {:span,
+                      %Span{
+                        name: "image_pipe.source.watermark",
+                        trace_id: ^trace_id,
+                        attributes: %{phase: ^phase, result: :ok}
+                      }}
+    end
+  end
+
   test "output coordination carries its request trace across the process hop" do
     prefix = [__MODULE__, :output_coordination]
     :ok = TestExporter.attach(self(), prefix: prefix)

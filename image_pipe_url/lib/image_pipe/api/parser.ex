@@ -49,7 +49,12 @@ defmodule ImagePipe.API.Parser do
       expand_presets(parsed.groups, parsed.request, occurrences, config, whole_path_span)
 
     cross_errors =
-      collect_cross_option_errors(clean_group_maps, clean_request_map, occurrences_for_cross)
+      collect_cross_option_errors(
+        clean_group_maps,
+        clean_request_map,
+        occurrences_for_cross,
+        config
+      )
 
     errors = parse_errors ++ preset_errors ++ cross_errors
 
@@ -350,7 +355,22 @@ defmodule ImagePipe.API.Parser do
 
   # -- semantic validation and URL diagnostics -----------------------------
 
-  defp collect_cross_option_errors(group_maps, request_map, occurrences) do
+  # Hosts that configure watermarks name their assets and gate request-supplied
+  # sources; parsing rejects other references before any source access.
+  defp watermark_context(config) do
+    case Keyword.fetch(config, :watermarks) do
+      {:ok, watermarks} ->
+        %{
+          names: Map.keys(watermarks),
+          request_sources?: Keyword.get(config, :request_watermarks, false)
+        }
+
+      :error ->
+        nil
+    end
+  end
+
+  defp collect_cross_option_errors(group_maps, request_map, occurrences, config) do
     invalid =
       for %{group_index: index, key: key, result: {:error, _}} <- occurrences,
           {:ok, name} <- [Map.fetch(@intent_keys, key)],
@@ -359,7 +379,7 @@ defmodule ImagePipe.API.Parser do
 
     group_maps
     |> typed_groups()
-    |> Spec.errors(typed_options(request_map), invalid)
+    |> Spec.errors(typed_options(request_map), invalid, watermark_context(config))
     |> Enum.map(&semantic_diagnostic(&1, occurrences))
   end
 
@@ -386,6 +406,10 @@ defmodule ImagePipe.API.Parser do
     do: "auto dimension has no concrete partner"
 
   defp semantic_message(%{detail: :invalid_offset}), do: message_for(:invalid_offset)
+  defp semantic_message(%{detail: :unknown_watermark}), do: message_for(:unknown_watermark)
+
+  defp semantic_message(%{detail: :watermark_source_disabled}),
+    do: message_for(:watermark_source_disabled)
 
   defp semantic_message(%{detail: {:terminal, terminal}, locations: [location]}) do
     terminal = terminal |> Atom.to_string() |> String.replace("_", "-")
@@ -409,6 +433,8 @@ defmodule ImagePipe.API.Parser do
   defp requirement_message(:box), do: "concrete (non-auto) w and h"
   defp requirement_message(:canvas), do: "extend or extend-ratio"
   defp requirement_message(:named_anchor), do: "an explicit non-smart anchor"
+  defp requirement_message(:watermark), do: "wm, wm-src64, or wm-enc"
+  defp requirement_message(:watermark_tile), do: "wm-tile"
   defp requirement_message(:quality_format), do: "a quality-bearing output format"
   defp requirement_message({:format, format}), do: "format=#{format}"
 
@@ -503,6 +529,25 @@ defmodule ImagePipe.API.Parser do
 
   def message_for(:invalid_gradient),
     do: "invalid value: expected opacity,color[,direction,start,stop]"
+
+  def message_for(:invalid_watermark), do: "invalid value: expected a name matching [a-z0-9_-]+"
+
+  def message_for(:invalid_watermark_source),
+    do: "invalid value: expected a nonempty unpadded base64url UTF-8 source"
+
+  def message_for(:invalid_watermark_token), do: "invalid value: expected a base64url token"
+  def message_for(:invalid_watermark_opacity), do: "invalid value: expected a decimal from 0 to 1"
+
+  def message_for(:invalid_watermark_scale),
+    do: "invalid value: expected a decimal greater than 0 and at most 1"
+
+  def message_for(:invalid_watermark_gap),
+    do: "invalid value: expected a non-negative x,y px or pct pair"
+
+  def message_for(:unknown_watermark), do: "unknown watermark"
+
+  def message_for(:watermark_source_disabled),
+    do: "request watermark sources are not enabled"
 
   def message_for(:invalid_rotation), do: "invalid value: expected degrees from 0 to 360"
   def message_for(:invalid_flip), do: "invalid value: expected h, v, or hv"

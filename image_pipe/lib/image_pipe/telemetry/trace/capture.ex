@@ -27,6 +27,7 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     [:source, :resolve],
     [:source, :fetch],
     [:source, :fetch_decode],
+    [:source, :watermark],
     [:output, :negotiate],
     [:output, :terminal],
     [:transform, :execute],

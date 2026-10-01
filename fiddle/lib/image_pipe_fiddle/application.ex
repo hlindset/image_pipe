@@ -125,7 +125,17 @@ defmodule ImagePipeFiddle.Application do
   end
 
   defp api_opts do
-    [allow_origin: "*", allow_debug_headers: true, sources: source_mounts()]
+    [
+      allow_origin: "*",
+      allow_debug_headers: true,
+      sources: source_mounts(),
+      watermarks: %{
+        logo: [source: "watermarks/logo.png"],
+        mark: [source: "watermarks/mark.png"],
+        badge: [source: "watermarks/badge.png"]
+      },
+      request_watermarks: true
+    ]
     |> maybe_put_cache(Application.get_env(:image_pipe_fiddle, :cache))
   end
 

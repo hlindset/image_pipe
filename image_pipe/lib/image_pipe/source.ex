@@ -63,6 +63,7 @@ defmodule ImagePipe.Source do
   alias ImagePipe.Source.Input
   alias ImagePipe.Source.Mounts
   alias ImagePipe.Source.Origin
+  alias ImagePipe.Source.Parser
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
   alias ImagePipe.Source.WrappedStream
@@ -168,6 +169,18 @@ defmodule ImagePipe.Source do
 
       {:error, reason} ->
         raise ArgumentError, "invalid ImagePipe source options: #{inspect(reason)}"
+    end
+  end
+
+  @doc """
+  Translates a host-configured source string into a plan source that a
+  configured mount serves. `opts` holds validated mounts.
+  """
+  @spec translate_configured(String.t(), keyword()) :: {:ok, PlanSource.t()} | {:error, term()}
+  def translate_configured(source, opts) when is_binary(source) do
+    with {:ok, plan_source} <- Parser.translate(source, opts),
+         {:ok, _name, _kind, _source} <- Mounts.route(plan_source, mounts(opts)) do
+      {:ok, plan_source}
     end
   end
 

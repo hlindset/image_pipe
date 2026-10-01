@@ -226,6 +226,47 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
     assert Task.await(task, 10_000).status == 413
   end
 
+  test "watermarked requests wait for the full source instead of overlapping", context do
+    File.mkdir_p!(context.root)
+    mark = Image.new!(20, 20, color: [255, 0, 0]) |> Image.write!(:memory, suffix: ".png")
+    File.write!(Path.join(context.root, "mark.png"), mark)
+
+    config =
+      ImagePipe.Plug.init(
+        telemetry_prefix: [__MODULE__, context.test],
+        max_body_bytes: 20_000_000,
+        max_input_pixels: 60_000_000,
+        sources: [
+          url: [
+            adapter: HTTP,
+            match: [scheme: ["http", "https"]],
+            options: [allowed_hosts: ["127.0.0.1"], address_policy: [allow_loopback: true]]
+          ],
+          files: [
+            adapter: ImagePipe.Source.File,
+            match: :path,
+            options: [root: context.root, root_id: "overlap"]
+          ]
+        ],
+        cache: {FileSystem, root: Path.join(context.root, "output")},
+        input_cache: {FileSystem, root: Path.join(context.root, "input")},
+        watermarks: %{logo: [source: "mark.png"]}
+      )
+
+    task =
+      Task.Supervisor.async_nolink(context.tasks, fn ->
+        request(%{context | config: config}, "w=100/wm=logo/wm-at=top-left")
+      end)
+
+    assert_receive {:origin_held, origin}, 2_000
+    refute_receive {:decoded, _metadata}, 200
+    send(origin, :continue)
+    response = Task.await(task, 10_000)
+    assert response.status == 200
+    image = Image.from_binary!(response.resp_body)
+    assert Enum.map(Image.get_pixel!(image, 5, 5), &round/1) == [255, 0, 0]
+  end
+
   defp complete_request(context, options \\ "w=100") do
     task = Task.Supervisor.async_nolink(context.tasks, fn -> request(context, options) end)
     assert_receive {:origin_held, origin}, 2_000

@@ -70,14 +70,15 @@ defmodule ImagePipe.Plan do
   end
 
   @doc false
-  @spec to_spec(t(), map()) :: {:ok, Spec.t()} | {:error, [Issue.t()]}
-  def to_spec(%__MODULE__{} = plan, presets \\ %{}) do
+  @spec to_spec(t(), map(), Spec.Validation.watermarks()) ::
+          {:ok, Spec.t()} | {:error, [Issue.t()]}
+  def to_spec(%__MODULE__{} = plan, presets \\ %{}, watermarks \\ nil) do
     indexed = plan |> groups() |> Enum.with_index() |> Map.new(fn {group, i} -> {i, group} end)
 
     with {:ok, expanded} <- Presets.expand(indexed, plan.options, presets) do
       groups = expanded.groups |> Enum.sort() |> Enum.map(&elem(&1, 1))
 
-      case Spec.errors(groups, expanded.request) do
+      case Spec.errors(groups, expanded.request, MapSet.new(), watermarks) do
         [] -> {:ok, Spec.build(groups, expanded.request)}
         issues -> {:error, issues}
       end

@@ -36,8 +36,9 @@ defmodule ImagePipe.Run do
   defp execute(plan, input, config, accept, inputs) do
     with {:ok, request} <- request(plan, config),
          {:ok, policy} <- Processing.prepare(request, config, accept),
+         {:ok, watermarks} <- Execution.watermark_sources(request, config),
          {:ok, source, config} <- Source.from_input(input, config),
-         {:ok, context} <- Execution.prepare(request, source, policy, inputs, config) do
+         {:ok, context} <- Execution.prepare(request, source, watermarks, policy, inputs, config) do
       try do
         render(context)
       after
@@ -47,7 +48,12 @@ defmodule ImagePipe.Run do
   end
 
   defp request(plan, config) do
-    case Plan.to_spec(plan, config[:presets]) do
+    watermarks = %{
+      names: Map.keys(config[:watermarks]),
+      request_sources?: config[:request_watermarks]
+    }
+
+    case Plan.to_spec(plan, config[:presets], watermarks) do
       {:ok, request} -> {:ok, request}
       {:error, issues} -> {:error, {:invalid_request, issues}}
     end

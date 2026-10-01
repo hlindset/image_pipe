@@ -29,6 +29,9 @@ defmodule ImagePipe.Security do
   def encrypt_source(source, config, options),
     do: SourceEncryption.encrypt(source, Keyword.fetch!(config, :source_encryption), options)
 
+  def encrypt_salted_source(source, config, salt),
+    do: SourceEncryption.encrypt_salted(source, Keyword.fetch!(config, :source_encryption), salt)
+
   def decrypt_source(token, config),
     do: SourceEncryption.decrypt(token, Keyword.fetch!(config, :source_encryption))
 

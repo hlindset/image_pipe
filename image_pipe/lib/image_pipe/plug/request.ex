@@ -3,6 +3,7 @@ defmodule ImagePipe.Plug.Request do
 
   alias ImagePipe.API.Parser
   alias ImagePipe.API.Path
+  alias ImagePipe.Execution
   alias ImagePipe.Plan.Spec
   alias ImagePipe.Processing
   alias ImagePipe.Security
@@ -18,7 +19,8 @@ defmodule ImagePipe.Plug.Request do
       with {:ok, key_index} <- Security.verify(sig, signed_path, config),
            {:ok, lexed} <- Path.extract(path, conn.query_string) |> normalize_lex_error(),
            {:ok, lexed} <- decrypt_source(lexed, config),
-           {:ok, request} <- Parser.parse(lexed, config) do
+           {:ok, request} <- Parser.parse(lexed, config),
+           {:ok, request} <- decrypt_watermarks(request, config) do
         {_marker, source, _span} = lexed.source
         {request, source, key_index}
       end
@@ -35,8 +37,9 @@ defmodule ImagePipe.Plug.Request do
 
   def prepare(%Spec{} = request, source, config, accept_header) do
     with {:ok, policy} <- Processing.prepare(request, config, accept_header),
-         {:ok, plan_source} <- SourceParser.translate(source, config) do
-      {:ok, plan_source, policy}
+         {:ok, plan_source} <- SourceParser.translate(source, config),
+         {:ok, watermarks} <- Execution.watermark_sources(request, config) do
+      {:ok, plan_source, watermarks, policy}
     end
   end
 
@@ -51,6 +54,28 @@ defmodule ImagePipe.Plug.Request do
   end
 
   defp decrypt_source(lexed, _config), do: {:ok, lexed}
+
+  defp decrypt_watermarks(%Spec{groups: groups} = request, config) do
+    groups
+    |> Enum.reduce_while({:ok, []}, fn group, {:ok, groups} ->
+      case decrypt_watermark(group, config) do
+        {:ok, group} -> {:cont, {:ok, [group | groups]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, groups} -> {:ok, %{request | groups: Enum.reverse(groups)}}
+      error -> error
+    end
+  end
+
+  defp decrypt_watermark(%{watermark: %{asset: {:enc, token}} = watermark} = group, config) do
+    with {:ok, source} <- Security.decrypt_source(token, config) do
+      {:ok, %{group | watermark: %{watermark | asset: {:src, source}}}}
+    end
+  end
+
+  defp decrypt_watermark(group, _config), do: {:ok, group}
 
   # Strips `conn.script_name` from `conn.request_path` as a raw prefix.
   # Because Plug decodes `script_name`, mount paths must use canonical

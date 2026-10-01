@@ -22,6 +22,7 @@ defmodule ImagePipe.MixProject do
       "docs/processing/resize.md",
       "docs/processing/crop.md",
       "docs/processing/effects.md",
+      "docs/processing/watermark.md",
       "docs/processing/output.md",
       "docs/processing/request.md",
       "docs/content-aware-gravity.md"

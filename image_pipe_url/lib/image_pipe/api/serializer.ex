@@ -133,6 +133,7 @@ defmodule ImagePipe.API.Serializer do
   end
 
   defp value("profile", value), do: Value.scalar(value)
+  defp value("wm-src64", source), do: Base.url_encode64(source, padding: false)
 
   defp value(_key, value) when is_tuple(value) do
     value |> Tuple.to_list() |> Value.csv()

@@ -38,15 +38,24 @@ defmodule ImagePipe.Transform.Executor do
   alias ImagePipe.Transform.Operation.Saturation
   alias ImagePipe.Transform.Operation.Sharpen
   alias ImagePipe.Transform.Operation.Trim
+  alias ImagePipe.Transform.Operation.Watermark
   alias ImagePipe.Transform.Orientation
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceGeometry
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.MutableImage, as: VipsMutableImage
+  alias Vix.Vips.Operation, as: VipsOperation
 
   @default_trim_threshold 10.0
   @blurhash_terminal_reduction {32, 32}
+  @working_spaces [
+    :VIPS_INTERPRETATION_sRGB,
+    :VIPS_INTERPRETATION_RGB,
+    :VIPS_INTERPRETATION_B_W,
+    :VIPS_INTERPRETATION_RGB16,
+    :VIPS_INTERPRETATION_GREY16
+  ]
 
   @spec decode_request(Spec.t(), SourceGeometry.t()) :: DecodePlanner.Request.t()
   def decode_request(%Spec{groups: [%Group{rotate: angle} | _]}, _geometry)
@@ -164,8 +173,9 @@ defmodule ImagePipe.Transform.Executor do
          {:ok, state} <- run_optional(state, colorize_op(group.colorize), opts),
          {:ok, state} <- run_display_optional(state, gradient_op(group.gradient), opts),
          {:ok, state} <- execute_canvas(state, group, dpr, opts),
-         {:ok, state} <- execute_padding(state, group.pad, dpr, opts) do
-      run_optional(state, background_op(group.bg), opts)
+         {:ok, state} <- execute_padding(state, group.pad, dpr, opts),
+         {:ok, state} <- run_optional(state, background_op(group.bg), opts) do
+      execute_watermark(state, group.watermark, dpr, opts)
     end
   end
 
@@ -394,6 +404,109 @@ defmodule ImagePipe.Transform.Executor do
       {:ok, Geometry.clear_source_frame(state)}
     end
   end
+
+  defp execute_watermark(state, nil, _dpr, _opts), do: {:ok, state}
+
+  defp execute_watermark(state, watermark, dpr, opts) do
+    %{image: asset, opacity: base_opacity} =
+      opts |> Keyword.fetch!(:watermarks) |> Map.fetch!(watermark.asset)
+
+    with {:ok, state} <- flush_display(state),
+         {:ok, asset} <- watermark_asset(asset, state, opts) do
+      {frame_width, frame_height} = Geometry.live_dims(state)
+      {width, height} = watermark_size(watermark.scale, asset, {frame_width, frame_height}, dpr)
+      {x, y} = watermark.offset
+      {gap_x, gap_y} = watermark.gap
+      {anchor_x, anchor_y} = anchor_pair(watermark.at)
+
+      operation = %Watermark{
+        image: asset,
+        width: width,
+        height: height,
+        opacity: watermark.opacity * base_opacity,
+        gravity: {:anchor, anchor_x, anchor_y},
+        x_offset: placement_length(x, frame_width, dpr),
+        y_offset: placement_length(y, frame_height, dpr),
+        tile: watermark.tile,
+        gap:
+          {placement_length(gap_x, frame_width, dpr), placement_length(gap_y, frame_height, dpr)}
+      }
+
+      Transform.run(state, operation, opts)
+    end
+  end
+
+  # Assets get the source's input conditioning, then the frame's color space,
+  # an alpha band, and the frame's band format.
+  defp watermark_asset(asset, %State{image: frame} = state, opts) do
+    asset_state = %State{image: asset, telemetry_opts: state.telemetry_opts}
+
+    with {:ok, %State{image: asset}} <- condition_color(asset_state, opts),
+         {:ok, asset} <- to_frame_space(asset, VipsImage.interpretation(frame)),
+         {:ok, asset} <- with_alpha(asset) do
+      case VipsOperation.cast(asset, VipsImage.format(frame)) do
+        {:ok, asset} -> {:ok, asset}
+        {:error, reason} -> {:error, {:transform, {Watermark, reason}}}
+      end
+    end
+  end
+
+  defp to_frame_space(asset, interpretation) when interpretation in @working_spaces do
+    case VipsImage.interpretation(asset) do
+      ^interpretation ->
+        {:ok, asset}
+
+      _other ->
+        case VipsOperation.colourspace(asset, interpretation) do
+          {:ok, asset} -> {:ok, asset}
+          {:error, reason} -> {:error, {:transform, {Watermark, reason}}}
+        end
+    end
+  end
+
+  defp to_frame_space(asset, _interpretation), do: {:ok, asset}
+
+  defp with_alpha(asset) do
+    case Image.has_alpha?(asset) do
+      true ->
+        {:ok, asset}
+
+      false ->
+        case VipsOperation.bandjoin_const(asset, [max_alpha(VipsImage.format(asset))]) do
+          {:ok, asset} -> {:ok, asset}
+          {:error, reason} -> {:error, {:transform, {Watermark, reason}}}
+        end
+    end
+  end
+
+  defp max_alpha(:VIPS_FORMAT_USHORT), do: 65_535.0
+  defp max_alpha(format) when format in [:VIPS_FORMAT_FLOAT, :VIPS_FORMAT_DOUBLE], do: 1.0
+  defp max_alpha(_format), do: 255.0
+
+  # A scale fits the asset in that fraction of the frame; otherwise it keeps
+  # its natural size at the group's effective DPR.
+  defp watermark_size(nil, asset, _frame, dpr),
+    do: scaled_dims(asset, dpr)
+
+  defp watermark_size(scale, asset, {frame_width, frame_height}, _dpr) do
+    factor =
+      min(
+        frame_width * scale / VipsImage.width(asset),
+        frame_height * scale / VipsImage.height(asset)
+      )
+
+    scaled_dims(asset, factor)
+  end
+
+  defp scaled_dims(asset, factor) do
+    {max(1, round_ties_to_even(VipsImage.width(asset) * factor)),
+     max(1, round_ties_to_even(VipsImage.height(asset) * factor))}
+  end
+
+  defp placement_length({:px, value}, _dimension, dpr), do: round_ties_to_even(value * dpr)
+
+  defp placement_length({:pct, value}, dimension, _dpr),
+    do: round_ties_to_even(dimension * value / 100)
 
   defp flush_display(%State{} = state) do
     case Geometry.pending_class(state) do
@@ -723,7 +836,8 @@ defmodule ImagePipe.Transform.Executor do
           {group.gradient, :gradient},
           {group.canvas, :canvas},
           {padding_name(group.pad), :padding},
-          {group.bg, :background}
+          {group.bg, :background},
+          {group.watermark, :watermark}
         ],
         value not in [nil, false],
         do: name

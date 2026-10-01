@@ -11,9 +11,13 @@
     controlOptionSegments,
     cropPixelLimit,
     resetCropPixelsToSource,
+    watermarkAssets,
     type ControlState,
+    type LengthUnit,
     type SourceImage,
   } from "./api-controls";
+  const watermarkLimit = (kind: "offset" | "gap", unit: LengthUnit) =>
+    controlLimits.watermark[unit === "percent" ? (`${kind}Percent` as const) : kind];
   let { controlState = $bindable(), source }: { controlState: ControlState; source: SourceImage } =
     $props();
   let orientationOpen = $state(false);
@@ -1014,6 +1018,131 @@
       {/if}
     </Collapsible.Content>
   </Collapsible.Root>
+</section>
+
+<section class="tool-section">
+  <ToolToggleHeader
+    title="Watermark"
+    summary={controlState.watermarkEnabled ? `wm=${controlState.watermarkAsset}` : "Off"}
+    bind:checked={controlState.watermarkEnabled}
+  />
+
+  {#if controlState.watermarkEnabled}
+    <label class="field">
+      <span>Asset</span>
+      <select bind:value={controlState.watermarkAsset}>
+        {#each watermarkAssets as asset (asset)}
+          <option value={asset}>{asset}</option>
+        {/each}
+      </select>
+    </label>
+    <RangeNumber
+      label="Opacity"
+      bind:value={controlState.watermarkOpacity}
+      min={controlLimits.watermark.opacity.min}
+      max={controlLimits.watermark.opacity.max}
+      step={controlLimits.watermark.opacity.step}
+      inputStep="any"
+    />
+    <label class="switch-field">
+      <Switch.Root class="switch-root" bind:checked={controlState.watermarkScaleEnabled}>
+        <Switch.Thumb class="switch-thumb" />
+      </Switch.Root>
+      <span>Scale to frame</span>
+    </label>
+    {#if controlState.watermarkScaleEnabled}
+      <RangeNumber
+        label="Scale"
+        bind:value={controlState.watermarkScale}
+        min={controlLimits.watermark.scale.min}
+        max={controlLimits.watermark.scale.max}
+        step={controlLimits.watermark.scale.step}
+        inputStep="any"
+      />
+    {/if}
+    <label class="field">
+      <span>Gravity</span>
+      <select bind:value={controlState.watermarkGravity}>
+        <option value="center">center</option>
+        <option value="top">north</option>
+        <option value="bottom">south</option>
+        <option value="right">east</option>
+        <option value="left">west</option>
+        <option value="top-right">north east</option>
+        <option value="top-left">north west</option>
+        <option value="bottom-right">south east</option>
+        <option value="bottom-left">south west</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>Offset X unit</span>
+      <select bind:value={controlState.watermarkOffsetXUnit}>
+        <option value="px">px</option><option value="percent">%</option>
+      </select>
+    </label>
+    <RangeNumber
+      label="Offset X"
+      bind:value={controlState.watermarkOffsetX}
+      min={watermarkLimit("offset", controlState.watermarkOffsetXUnit).min}
+      max={watermarkLimit("offset", controlState.watermarkOffsetXUnit).max}
+      step={watermarkLimit("offset", controlState.watermarkOffsetXUnit).step}
+      inputStep="any"
+      suffix={controlState.watermarkOffsetXUnit === "percent" ? "%" : "px"}
+    />
+    <label class="field">
+      <span>Offset Y unit</span>
+      <select bind:value={controlState.watermarkOffsetYUnit}>
+        <option value="px">px</option><option value="percent">%</option>
+      </select>
+    </label>
+    <RangeNumber
+      label="Offset Y"
+      bind:value={controlState.watermarkOffsetY}
+      min={watermarkLimit("offset", controlState.watermarkOffsetYUnit).min}
+      max={watermarkLimit("offset", controlState.watermarkOffsetYUnit).max}
+      step={watermarkLimit("offset", controlState.watermarkOffsetYUnit).step}
+      inputStep="any"
+      suffix={controlState.watermarkOffsetYUnit === "percent" ? "%" : "px"}
+    />
+    <label class="switch-field">
+      <Switch.Root class="switch-root" bind:checked={controlState.watermarkTile}>
+        <Switch.Thumb class="switch-thumb" />
+      </Switch.Root>
+      <span>Tile</span>
+    </label>
+    {#if controlState.watermarkTile}
+      <label class="field">
+        <span>Gap X unit</span>
+        <select bind:value={controlState.watermarkGapXUnit}>
+          <option value="px">px</option><option value="percent">%</option>
+        </select>
+      </label>
+      <RangeNumber
+        label="Gap X"
+        bind:value={controlState.watermarkGapX}
+        min={watermarkLimit("gap", controlState.watermarkGapXUnit).min}
+        max={watermarkLimit("gap", controlState.watermarkGapXUnit).max}
+        step={watermarkLimit("gap", controlState.watermarkGapXUnit).step}
+        inputStep="any"
+        suffix={controlState.watermarkGapXUnit === "percent" ? "%" : "px"}
+      />
+      <label class="field">
+        <span>Gap Y unit</span>
+        <select bind:value={controlState.watermarkGapYUnit}>
+          <option value="px">px</option><option value="percent">%</option>
+        </select>
+      </label>
+      <RangeNumber
+        label="Gap Y"
+        bind:value={controlState.watermarkGapY}
+        min={watermarkLimit("gap", controlState.watermarkGapYUnit).min}
+        max={watermarkLimit("gap", controlState.watermarkGapYUnit).max}
+        step={watermarkLimit("gap", controlState.watermarkGapYUnit).step}
+        inputStep="any"
+        suffix={controlState.watermarkGapYUnit === "percent" ? "%" : "px"}
+      />
+    {/if}
+  {/if}
 </section>
 
 <section class="tool-section">

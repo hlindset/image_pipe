@@ -20,7 +20,7 @@ defmodule ImagePipe.Execution do
   alias ImagePipe.Cache
   alias ImagePipe.Debug.Timing
   alias ImagePipe.Delivery
-  alias ImagePipe.Execution.{Acquisition, Context, Identity, Output, SourceCache}
+  alias ImagePipe.Execution.{Acquisition, Context, Identity, Output, SourceCache, Watermarks}
   alias ImagePipe.Processing
   alias ImagePipe.Processing.DebugBuilder
   alias ImagePipe.Processing.Terminal
@@ -31,26 +31,114 @@ defmodule ImagePipe.Execution do
   alias ImagePipe.Transform
   alias ImagePipe.Transform.Executor
 
-  def identity_material(request, policy, inputs, config),
-    do: Identity.material(request, policy, inputs, config, detector_identity(request, config))
+  def identity_material(request, policy, inputs, config, watermarks \\ []) do
+    Identity.material(
+      request,
+      policy,
+      inputs,
+      config,
+      detector_identity(request, config),
+      Map.new(watermarks, &{&1.asset, [source: &1.source.identity, opacity: &1.opacity]})
+    )
+  end
 
-  def prepare(request, source, policy, inputs, config) do
+  @doc "Plans the request's watermark assets before any source access."
+  def watermark_sources(request, config), do: Watermarks.plan(request, config)
+
+  def prepare(request, source, watermarks, policy, inputs, config) do
     material = identity_material(request, policy, inputs, config)
+    tasks = Watermarks.prepare_async(watermarks, material, config)
 
     context = %Context{
       request: request,
       source: source,
       policy: policy,
       material: material,
+      inputs: inputs,
       config: config,
-      representation:
-        Representation.build(source.identity, material, source.cache_semantics.byte_identity)
+      representation: nil
     }
 
-    case SourceCache.enabled?(source, config) do
-      true -> prepare_remote(context)
-      false -> {:ok, context}
+    prepared =
+      case SourceCache.enabled?(source, config) do
+        true -> prepare_remote(context)
+        false -> {:ok, represent(context)}
+      end
+
+    with {:ok, context} <- prepared,
+         {:ok, watermarks} <- Watermarks.await(tasks) do
+      {:ok, with_watermarks(context, watermarks)}
+    else
+      {:error, _reason} = error ->
+        Watermarks.cancel(tasks)
+        error
     end
+  end
+
+  defp with_watermarks(context, []), do: context
+
+  defp with_watermarks(context, watermarks) do
+    %{representation: representation} =
+      identity_material(
+        context.request,
+        context.policy,
+        context.inputs,
+        context.config,
+        watermarks
+      )
+
+    partitions =
+      for %{input_key: %{hash: hash}} <- watermarks, do: {:watermark_partition, hash}
+
+    material = %{
+      context.material
+      | representation: representation,
+        storage_only: context.material.storage_only ++ partitions
+    }
+
+    represent(%{context | material: material, watermarks: watermarks})
+  end
+
+  defp represent(context) do
+    %{
+      context
+      | representation:
+          Representation.build(context.source.identity, context.material, byte_identity(context))
+    }
+  end
+
+  @doc "Byte identity of the main source together with every watermark asset."
+  def byte_identity(%Context{} = context) do
+    main =
+      case context.acquisition.record do
+        nil -> context.source.cache_semantics.byte_identity
+        record -> record.byte_identity
+      end
+
+    Watermarks.byte_identity(main, context.watermarks)
+  end
+
+  @doc """
+  The main source's cache semantics, narrowed by every watermark asset: byte
+  identity spans all inputs, and any unstable or storage-denying asset
+  applies to the response.
+  """
+  def cache_semantics(%Context{} = context) do
+    semantics = context.source.cache_semantics
+    assets = Enum.map(context.watermarks, & &1.source.cache_semantics)
+
+    policy =
+      case Enum.any?(assets, &(Keyword.get(&1.policy, :storage) == :deny)) do
+        true -> Keyword.put(semantics.policy, :storage, :deny)
+        false -> semantics.policy
+      end
+
+    %{
+      semantics
+      | byte_identity: byte_identity(context),
+        stable?: semantics.stable? and Enum.all?(assets, & &1.stable?),
+        policy: policy
+    }
   end
 
   defp prepare_remote(context) do
@@ -82,7 +170,7 @@ defmodule ImagePipe.Execution do
            context.source,
            context.input_key,
            record,
-           {context.request, context.policy},
+           preparation(context),
            context.config
          ) do
       {:ok, acquisition} ->
@@ -93,18 +181,15 @@ defmodule ImagePipe.Execution do
     end
   end
 
-  defp current(context, acquisition) do
-    %{
-      context
-      | acquisition: acquisition,
-        stale?: false,
-        representation:
-          Representation.build(
-            context.source.identity,
-            context.material,
-            acquisition.record.byte_identity
-          )
-    }
+  defp current(context, acquisition),
+    do: represent(%{context | acquisition: acquisition, stale?: false})
+
+  # An overlapped decode would start before watermark assets are available.
+  defp preparation(%Context{request: request, policy: policy}) do
+    case Enum.any?(request.groups, &(&1.watermark != nil)) do
+      true -> nil
+      false -> {request, policy}
+    end
   end
 
   # Prepare owns its source lease; callers close it after their conditional gate
@@ -129,7 +214,36 @@ defmodule ImagePipe.Execution do
   defp open_current(context) do
     case lookup(context) do
       {:hit, output} -> {:ok, output}
-      :miss -> input(context)
+      :miss -> with_watermark_inputs(context, &input/1)
+    end
+  end
+
+  # Asset bytes are read while the main source is acquired, and awaited when
+  # generation needs them. An uncached main source is fetched by the
+  # processing worker, so that worker reads the assets alongside it instead.
+  defp with_watermark_inputs(%Context{watermarks: []} = context, fun), do: fun.(context)
+
+  defp with_watermark_inputs(%Context{input_key: nil} = context, fun),
+    do: fun.(%{context | watermark_tasks: :deferred})
+
+  defp with_watermark_inputs(context, fun) do
+    tasks = Watermarks.open_async(context.watermarks, context.config)
+
+    try do
+      fun.(%{context | watermark_tasks: tasks})
+    after
+      Watermarks.cancel(tasks)
+    end
+  end
+
+  defp watermark_inputs(%Context{watermarks: []}), do: {:ok, %{}}
+
+  defp watermark_inputs(%Context{watermark_tasks: :deferred} = context),
+    do: {:ok, {:deferred, Watermarks.deferred(context.watermarks, context.config)}}
+
+  defp watermark_inputs(context) do
+    with {:ok, watermarks} <- Watermarks.await(context.watermark_tasks) do
+      {:ok, Watermarks.inputs(watermarks)}
     end
   end
 
@@ -186,7 +300,7 @@ defmodule ImagePipe.Execution do
            context.source,
            context.input_key,
            context.acquisition.record,
-           {context.request, context.policy},
+           preparation(context),
            context.config
          ) do
       {:ok, acquisition} ->
@@ -273,10 +387,18 @@ defmodule ImagePipe.Execution do
   end
 
   defp generate_uncoalesced(context, lease \\ nil) do
-    config = Keyword.put(context.config, :source_record, context.acquisition.record)
-    config = Keyword.put(config, :output_lease, lease)
-    key = if storable?(context), do: context.representation.cache_key
-    result = generate(context, config, key)
+    result =
+      with {:ok, watermark_inputs} <- watermark_inputs(context) do
+        config =
+          context.config
+          |> Keyword.put(:source_record, context.acquisition.record)
+          |> Keyword.put(:output_lease, lease)
+          |> Keyword.put(:watermark_inputs, watermark_inputs)
+
+        key = if storable?(context), do: context.representation.cache_key
+        generate(context, config, key)
+      end
+
     finish(context, result)
     result
   end
@@ -364,12 +486,24 @@ defmodule ImagePipe.Execution do
 
   def finish(_context, _result), do: :ok
 
-  def source_state(%Context{acquisition: %{record: nil}}), do: nil
-
+  @doc """
+  The cached input state that bounds response freshness: the main source's,
+  or the most restrictive among it and the watermark assets.
+  """
   def source_state(context) do
-    record = context.acquisition.record
     now = SourceCache.now(context.config)
 
+    [{context.acquisition.record, context.source.cache_semantics}]
+    |> Enum.concat(Enum.map(context.watermarks, &{&1.record, &1.source.cache_semantics}))
+    |> Enum.reject(fn {record, _semantics} -> is_nil(record) end)
+    |> Enum.map(fn {record, semantics} -> record_state(record, semantics, now) end)
+    |> case do
+      [] -> nil
+      states -> {Enum.min_by(states, &freshness(&1, now)), now}
+    end
+  end
+
+  defp record_state(record, semantics, now) do
     age =
       case record.origin do
         nil ->
@@ -383,8 +517,14 @@ defmodule ImagePipe.Execution do
           )
       end
 
-    {Map.put(Source.Record.state(record, context.source.cache_semantics), :age, age), now}
+    Map.put(Source.Record.state(record, semantics), :age, age)
   end
+
+  # Unstorable state wins, then the earliest freshness deadline.
+  defp freshness(%{storable?: false}, _now), do: {0, 0}
+  defp freshness(%{fresh_until: nil}, _now), do: {1, 0}
+  defp freshness(%{fresh_until: :infinity}, _now), do: {3, 0}
+  defp freshness(%{fresh_until: deadline}, now), do: {2, deadline - now}
 
   defp refresh(context) do
     Cache.Work.refresh(

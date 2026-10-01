@@ -9,6 +9,9 @@ defmodule ImagePipe.Execution.Identity do
   cache storage without changing the ETag. Expiry, signatures, filenames,
   attachment, and debug presentation do not enter identity. The caller passes
   source byte identity separately to `ImagePipe.Representation.build/3`.
+
+  Watermark assets enter as their resolved source identity with the host base
+  opacity folded into the effective opacity; host entry names do not.
   """
 
   alias ImagePipe.Execution.Inputs
@@ -23,14 +26,15 @@ defmodule ImagePipe.Execution.Identity do
   outcome, the normalized request inputs (consulted only for configured
   `storage_inputs`), and mount `config`.
   """
-  @spec material(Spec.t(), Policy.t() | nil, Inputs.t(), keyword(), term() | nil) ::
+  @spec material(Spec.t(), Policy.t() | nil, Inputs.t(), keyword(), term() | nil, map()) ::
           IdentityMaterial.t()
   def material(
         %Spec{} = request,
         policy,
         %Inputs{} = inputs,
         config,
-        detector_identity
+        detector_identity,
+        watermarks
       )
       when is_list(config) do
     {configured_storage_only, storage_vary_names} =
@@ -38,7 +42,12 @@ defmodule ImagePipe.Execution.Identity do
 
     storage_only = cachebuster_material(request.cachebuster) ++ configured_storage_only
 
-    representation = representation_material(request, policy, detector_identity)
+    representation =
+      representation_material(
+        %{request | groups: canonical_groups(request.groups, watermarks)},
+        policy,
+        detector_identity
+      )
 
     vary_header_names =
       if varies_by_accept?(policy) do
@@ -70,7 +79,7 @@ defmodule ImagePipe.Execution.Identity do
        when terminal in [:blurhash, :lqip_css] do
     [orient: request.orient] ++
       page_material(request.page) ++
-      [groups: canonical_groups(request.groups)] ++
+      [groups: request.groups] ++
       [terminal: terminal_identity(terminal), output_policy: []] ++
       detector_material(detector_identity)
   end
@@ -79,7 +88,7 @@ defmodule ImagePipe.Execution.Identity do
     [orient: request.orient] ++
       page_material(request.page) ++
       [
-        groups: canonical_groups(request.groups),
+        groups: request.groups,
         terminal: :image,
         selection: {:image, selected_format(policy)},
         output_policy: Policy.identity_material(policy)
@@ -112,5 +121,25 @@ defmodule ImagePipe.Execution.Identity do
   defp detector_material(nil), do: []
   defp detector_material(identity), do: [detector: identity]
 
-  defp canonical_groups(groups), do: Enum.map(groups, &Map.from_struct/1)
+  defp canonical_groups(groups, watermarks) do
+    Enum.map(groups, fn group ->
+      group
+      |> Map.from_struct()
+      |> Map.update!(:watermark, &watermark_material(&1, watermarks))
+    end)
+  end
+
+  # A resolved asset contributes its source identity and folds its base
+  # opacity into the effective opacity, so host entry names never matter.
+  defp watermark_material(%{asset: asset, opacity: opacity} = watermark, watermarks) do
+    case Map.fetch(watermarks, asset) do
+      {:ok, [source: identity, opacity: base]} ->
+        %{watermark | asset: identity, opacity: opacity * base}
+
+      :error ->
+        watermark
+    end
+  end
+
+  defp watermark_material(nil, _watermarks), do: nil
 end

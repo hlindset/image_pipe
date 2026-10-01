@@ -13,6 +13,7 @@ constraints that affect the result.
 | [Orientation](processing/crop.md#orientation) | `orient`, `rotate`, `flip` |
 | [Trim and crop](processing/crop.md#trim-and-crop) | `trim`, `trim-symmetry`, `crop`, `crop-ratio`, `crop-ratio-enlarge`, `region` |
 | [Crop guides](processing/crop.md#crop-guides) | `anchor`, `focus`, `detect`, `anchor-offset` |
+| [Watermarks](processing/watermark.md) | `wm`, `wm-src64`, `wm-enc`, `wm-opacity`, `wm-scale`, `wm-at`, `wm-offset`, `wm-tile`, `wm-gap` |
 | [Effects](processing/effects.md) | `blur`, `progressive-blur`, `sharpen`, `pixelate`, `gray`, `bitonal`, `monochrome`, `duotone`, `brightness`, `contrast`, `saturation`, `colorize`, `gradient` |
 | [Formats and quality](processing/output.md) | `output`, `format`, `q`, `format-q`, `autoquality`, `max-bytes` |
 | [Encoders](processing/output.md#encoder-options) | `jpeg-options`, `png-options`, `webp-options`, `avif-options` |
@@ -31,6 +32,7 @@ EXIF auto-orientation applies once, then each group runs:
 5. Effects.
 6. Canvas extension.
 7. Padding and background.
+8. Watermark.
 
 Output encoding or a placeholder/info terminal finishes the request. Moving
 options within a group does not change execution order. Use `-` in a URL
@@ -47,8 +49,8 @@ ImagePipe.URL.new()
 ```
 
 Each group starts with fresh settings, including DPR, zoom, guide, and effects.
-The next group receives the previous result including canvas, padding, and
-background. Request-wide orientation policy, output policy, and delivery
+The next group receives the previous result including canvas, padding,
+background, and watermark. Request-wide orientation policy, output policy, and delivery
 controls are set once for the whole request.
 
 ## Values and defaults

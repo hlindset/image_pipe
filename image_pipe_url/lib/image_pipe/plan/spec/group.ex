@@ -4,7 +4,7 @@ defmodule ImagePipe.Plan.Spec.Group do
 
   `-` splits a request into ordered groups; each group is one pass of
   the fixed stage order (`rotate → flip → trim → region/crop → resize →
-  cover result crop → blur → … → pad → bg`). The executor applies this order
+  cover result crop → blur → … → pad → bg → watermark`). The executor applies this order
   independently of option order in the URL.
   """
 
@@ -38,6 +38,8 @@ defmodule ImagePipe.Plan.Spec.Group do
           | {:smart, :face_assist}
           | {:detect, {:all | [String.t()], %{optional(:default | String.t()) => float()}}}
 
+  @type watermark_asset :: {:name, String.t()} | {:src, String.t()} | {:enc, String.t()}
+
   defstruct rotate: nil,
             flip: nil,
             gray: false,
@@ -65,7 +67,8 @@ defmodule ImagePipe.Plan.Spec.Group do
             colorize: nil,
             gradient: nil,
             pad: nil,
-            bg: nil
+            bg: nil,
+            watermark: nil
 
   @type t :: %__MODULE__{
           rotate: nil | number(),
@@ -110,6 +113,17 @@ defmodule ImagePipe.Plan.Spec.Group do
                 stop: float()
               },
           pad: nil | {non_neg_integer(), non_neg_integer(), non_neg_integer(), non_neg_integer()},
-          bg: nil | {0..255, 0..255, 0..255, float()}
+          bg: nil | {0..255, 0..255, 0..255, float()},
+          watermark:
+            nil
+            | %{
+                asset: watermark_asset(),
+                opacity: float(),
+                scale: float() | nil,
+                at: named_anchor(),
+                offset: {length(), length()},
+                tile: boolean(),
+                gap: {length(), length()}
+              }
         }
 end

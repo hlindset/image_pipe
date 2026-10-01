@@ -118,6 +118,11 @@ export const cocoClasses = [
 export type CocoClass = (typeof cocoClasses)[number];
 
 export type TrimBackgroundMode = "auto" | "color";
+export type LengthUnit = "px" | "percent";
+
+// Host-configured watermark assets mounted by the fiddle server.
+export const watermarkAssets = ["logo", "mark", "badge"] as const;
+export type WatermarkAsset = (typeof watermarkAssets)[number];
 
 export type WebpCompression = "lossy" | "near_lossless" | "lossless";
 export type WebpPreset = "default" | "photo" | "picture" | "drawing" | "icon" | "text";
@@ -220,6 +225,21 @@ export type ControlState = {
   gradientDirection: string;
   gradientStart: number;
   gradientStop: number;
+  watermarkEnabled: boolean;
+  watermarkAsset: WatermarkAsset;
+  watermarkOpacity: number;
+  watermarkScaleEnabled: boolean;
+  watermarkScale: number;
+  watermarkGravity: Gravity;
+  watermarkOffsetX: number;
+  watermarkOffsetY: number;
+  watermarkOffsetXUnit: LengthUnit;
+  watermarkOffsetYUnit: LengthUnit;
+  watermarkTile: boolean;
+  watermarkGapX: number;
+  watermarkGapY: number;
+  watermarkGapXUnit: LengthUnit;
+  watermarkGapYUnit: LengthUnit;
   gravityEnabled: boolean;
   gravityMode: GravityMode;
   gravity: Gravity;
@@ -326,6 +346,14 @@ export const controlLimits = {
   },
   maxBytes: { min: 1, max: 5_000_000, step: 1 },
   dpi: { min: 1, max: 65_535, step: 1 },
+  watermark: {
+    opacity: { min: 0, max: 1, step: 0.05 },
+    scale: { min: 0.05, max: 1, step: 0.05 },
+    offset: { min: -400, max: 400, step: 1 },
+    offsetPercent: { min: -100, max: 100, step: 0.5 },
+    gap: { min: 0, max: 400, step: 1 },
+    gapPercent: { min: 0, max: 100, step: 0.5 },
+  },
 } satisfies {
   resize: Record<ImageDimensionAxis, NumericControlLimit>;
   crop: { percent: NumericControlLimit };
@@ -345,6 +373,10 @@ export const controlLimits = {
   >;
   maxBytes: NumericControlLimit;
   dpi: NumericControlLimit;
+  watermark: Record<
+    "opacity" | "scale" | "offset" | "offsetPercent" | "gap" | "gapPercent",
+    NumericControlLimit
+  >;
 };
 
 export { sampleImages };
@@ -441,6 +473,21 @@ export const defaultControlState: ControlState = {
   gradientDirection: "down",
   gradientStart: 0,
   gradientStop: 1,
+  watermarkEnabled: false,
+  watermarkAsset: "logo",
+  watermarkOpacity: 0.8,
+  watermarkScaleEnabled: false,
+  watermarkScale: 0.25,
+  watermarkGravity: "bottom-right",
+  watermarkOffsetX: 16,
+  watermarkOffsetY: 16,
+  watermarkOffsetXUnit: "px",
+  watermarkOffsetYUnit: "px",
+  watermarkTile: false,
+  watermarkGapX: 32,
+  watermarkGapY: 32,
+  watermarkGapXUnit: "px",
+  watermarkGapYUnit: "px",
   gravityEnabled: false,
   gravityMode: "anchor",
   gravity: "center",
@@ -528,6 +575,8 @@ const requestKeys = new Set([
   "avif-options",
 ]);
 
+const watermarkKeys = ["wm", "wm-opacity", "wm-scale", "wm-at", "wm-offset", "wm-tile", "wm-gap"];
+
 function keyOf(segment: string): string {
   return segment.split("=", 1)[0]!;
 }
@@ -538,6 +587,14 @@ export function optionGroups(options: string): string[][] {
 
 function dimension(unit: CropDimensionUnit, pixels: number, percent: number): string {
   return unit === "full" ? "100pct" : unit === "percent" ? `${percent}pct` : String(pixels);
+}
+
+function length(value: number, unit: LengthUnit): string {
+  return unit === "percent" ? `${value}pct` : String(value);
+}
+
+function lengthUnit(value: string | undefined): LengthUnit {
+  return value?.endsWith("pct") ? "percent" : "px";
 }
 
 function codecSegment(
@@ -649,6 +706,23 @@ export function controlOptionSegments(s: ControlState): string[] {
     segments.push(
       `gradient=${s.gradientOpacity},${s.gradientColor.replace(/^#/, "")},${s.gradientDirection},${s.gradientStart},${s.gradientStop}`,
     );
+  if (s.watermarkEnabled) {
+    segments.push(`wm=${s.watermarkAsset}`);
+    if (s.watermarkOpacity !== 1) segments.push(`wm-opacity=${s.watermarkOpacity}`);
+    if (s.watermarkScaleEnabled) segments.push(`wm-scale=${s.watermarkScale}`);
+    if (s.watermarkGravity !== "center") segments.push(`wm-at=${s.watermarkGravity}`);
+    if (s.watermarkOffsetX !== 0 || s.watermarkOffsetY !== 0)
+      segments.push(
+        `wm-offset=${length(s.watermarkOffsetX, s.watermarkOffsetXUnit)},${length(s.watermarkOffsetY, s.watermarkOffsetYUnit)}`,
+      );
+    if (s.watermarkTile) {
+      segments.push("wm-tile");
+      if (s.watermarkGapX !== 0 || s.watermarkGapY !== 0)
+        segments.push(
+          `wm-gap=${length(s.watermarkGapX, s.watermarkGapXUnit)},${length(s.watermarkGapY, s.watermarkGapYUnit)}`,
+        );
+    }
+  }
   if (s.formatEnabled) segments.push(`format=${s.format}`);
   if (s.qualityEnabled) segments.push(`q=${s.quality}`);
   if (s.autoqualityMethod !== "none") {
@@ -731,6 +805,17 @@ export function controlStateFromOptions(
   if (segments.some((segment) => ["w", "h"].includes(keyOf(segment)))) {
     s.resizeWidthUnit = "auto";
     s.resizeHeightUnit = "auto";
+  }
+  // Omitted watermark options take the URL defaults, not the editing defaults.
+  if (segments.some((segment) => keyOf(segment) === "wm")) {
+    Object.assign(s, {
+      watermarkOpacity: 1,
+      watermarkGravity: "center",
+      watermarkOffsetX: 0,
+      watermarkOffsetY: 0,
+      watermarkGapX: 0,
+      watermarkGapY: 0,
+    });
   }
   for (const segment of segments) {
     const [key, value = ""] = segment.split("=");
@@ -914,6 +999,35 @@ export function controlStateFromOptions(
         s.gradientDirection = parts[2] ?? "down";
         s.gradientStart = Number(parts[3] ?? 0);
         s.gradientStop = Number(parts[4] ?? 1);
+        break;
+      case "wm":
+        s.watermarkEnabled = true;
+        s.watermarkAsset = value as WatermarkAsset;
+        break;
+      case "wm-opacity":
+        s.watermarkOpacity = Number(value);
+        break;
+      case "wm-scale":
+        s.watermarkScaleEnabled = true;
+        s.watermarkScale = Number(value);
+        break;
+      case "wm-at":
+        s.watermarkGravity = value as Gravity;
+        break;
+      case "wm-offset":
+        s.watermarkOffsetX = parseFloat(parts[0]!);
+        s.watermarkOffsetY = parseFloat(parts[1]!);
+        s.watermarkOffsetXUnit = lengthUnit(parts[0]);
+        s.watermarkOffsetYUnit = lengthUnit(parts[1]);
+        break;
+      case "wm-tile":
+        s.watermarkTile = value !== "false";
+        break;
+      case "wm-gap":
+        s.watermarkGapX = parseFloat(parts[0]!);
+        s.watermarkGapY = parseFloat(parts[1]!);
+        s.watermarkGapXUnit = lengthUnit(parts[0]);
+        s.watermarkGapYUnit = lengthUnit(parts[1]);
         break;
       case "format":
         s.formatEnabled = true;
@@ -1145,6 +1259,10 @@ export function updateControlOptions(
   }
   if (!before.cropEnabled && after.cropEnabled)
     groups[groupIndex] = groups[groupIndex]!.filter((segment) => keyOf(segment) !== "region");
+  if (before.watermarkEnabled && !after.watermarkEnabled)
+    groups[groupIndex] = groups[groupIndex]!.filter(
+      (segment) => !watermarkKeys.includes(keyOf(segment)),
+    );
   return groups
     .filter((group) => group.length > 0)
     .map((group) => group.join("/"))

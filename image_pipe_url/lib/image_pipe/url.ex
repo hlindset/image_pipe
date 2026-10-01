@@ -113,8 +113,9 @@ defmodule ImagePipe.URL do
   With encrypted configuration, per-call `:iv` accepts `:deterministic`,
   `:random`, or an explicit 16-byte binary. An explicit IV must be unpredictable
   or derived from the complete source with a secret key; do not reuse it for
-  different sources under the same key. The default derives the IV safely.
-  Random mode produces a fresh URL. Deterministic encryption reveals source
+  different sources under the same key. An explicit IV encrypts the main
+  source; each watermark source derives its own IV from it with the secret
+  key. The default derives the IV safely. Random mode produces a fresh URL. Deterministic encryption reveals source
   equality; both modes reveal the padded source length.
 
   An explicit `:expires` value is stable; computing a new expiry for each call

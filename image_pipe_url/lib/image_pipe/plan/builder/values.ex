@@ -26,6 +26,34 @@ defmodule ImagePipe.Plan.Builder.Values do
   defp normalize(value, :fraction) when is_number(value) and value >= 0 and value <= 1,
     do: float(value)
 
+  defp normalize(value, :scale) when is_number(value) and value > 0 and value <= 1,
+    do: float(value)
+
+  defp normalize(value, :watermark_name) when is_atom(value) and not is_boolean(value) do
+    name = Atom.to_string(value)
+
+    case Regex.match?(~r/\A[a-z0-9_-]+\z/, name) do
+      true -> {:ok, name}
+      false -> :error
+    end
+  end
+
+  defp normalize(value, :source) when is_binary(value) and value != "" do
+    case String.valid?(value) do
+      true -> {:ok, value}
+      false -> :error
+    end
+  end
+
+  defp normalize({x, y}, :gap), do: pair(x, y, :gap_length)
+
+  defp normalize(value, :gap_length) do
+    with {:ok, {_unit, size} = length} <- normalize(value, :offset_length),
+         true <- size >= 0 do
+      {:ok, length}
+    end
+  end
+
   defp normalize(value, :rotate) when is_number(value) and value >= 0 and value <= 360 do
     case value == trunc(value) do
       true -> {:ok, rem(trunc(value), 360)}

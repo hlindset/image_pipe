@@ -75,10 +75,12 @@ defmodule ImagePipe.Plug.Runner do
     conn = Plug.Conn.fetch_cookies(conn)
     inputs = %Inputs{headers: conn.req_headers, cookies: conn.req_cookies}
 
-    with {:ok, plan_source, policy} <- ParsedRequest.prepare(request, source, config, accept),
+    with {:ok, plan_source, watermarks, policy} <-
+           ParsedRequest.prepare(request, source, config, accept),
          {:ok, source} <-
            ImageSource.resolve(plan_source, config, ImageSource.runtime_opts(config)),
-         {:ok, context} <- Execution.prepare(request, source, policy, inputs, config) do
+         {:ok, context} <-
+           Execution.prepare(request, source, watermarks, policy, inputs, config) do
       try do
         serve_context(conn, context)
       after
@@ -123,20 +125,7 @@ defmodule ImagePipe.Plug.Runner do
   end
 
   defp context_headers(conn, context) do
-    source =
-      case context.acquisition.record do
-        nil ->
-          context.source
-
-        record ->
-          %{
-            context.source
-            | cache_semantics: %{
-                context.source.cache_semantics
-                | byte_identity: record.byte_identity
-              }
-          }
-      end
+    source = %{context.source | cache_semantics: Execution.cache_semantics(context)}
 
     headers = cache_headers(conn, context.representation, source, context.config)
 
