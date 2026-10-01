@@ -21,7 +21,7 @@ env:
 jobs:
   verify:
     name: Verify version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -52,8 +52,8 @@ jobs:
         variant: [base, vision]
         platform:
           # amd64 reads the layer cache Server image CI writes on main.
-          - { arch: amd64, runner: ubuntu-24.04, cache: "" }
-          - { arch: arm64, runner: ubuntu-24.04-arm, cache: "-arm64" }
+          - { arch: amd64, runner: ubuntu-26.04, cache: "" }
+          - { arch: arm64, runner: ubuntu-26.04-arm, cache: "-arm64" }
     env:
       CACHE_SCOPE: server-${{ matrix.variant }}${{ matrix.platform.cache }}
     steps:
@@ -124,7 +124,7 @@ jobs:
   hex:
     name: Hex packages
     needs: [verify, image]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     environment: ${{ github.event_name == 'push' && 'release' || 'release-dry-run' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -151,7 +151,7 @@ jobs:
     name: Tag images (${{ matrix.variant }})
     if: github.event_name == 'push'
     needs: hex
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       packages: write
@@ -202,7 +202,7 @@ jobs:
     name: GitHub release
     if: github.event_name == 'push'
     needs: tag-images
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:

@@ -30,13 +30,18 @@ permissions:
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     env:
       MIX_ENV: test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The deps cache holds compiled NIFs (ortex, exla), so it is keyed by
+      # runner image (e.g. ubuntu26) to avoid restoring them across releases.
+      - name: Runner image
+        id: runner
+        run: echo "image=$ImageOS" >> "$GITHUB_OUTPUT"
       - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
           mise_toml: |
@@ -63,9 +68,9 @@ jobs:
             fiddle/_build
             !fiddle/deps/ortex/native/ortex/target
             !fiddle/deps/exla/cache/xla_extension
-          key: lint-mix-erlang29.1-elixir1.20.4-otp29-${{ hashFiles('image_pipe_url/mix.lock', 'image_pipe/mix.lock', 'fiddle/mix.lock') }}
+          key: lint-mix-${{ steps.runner.outputs.image }}-erlang29.1-elixir1.20.4-otp29-${{ hashFiles('image_pipe_url/mix.lock', 'image_pipe/mix.lock', 'fiddle/mix.lock') }}
           restore-keys: |
-            lint-mix-erlang29.1-elixir1.20.4-otp29-
+            lint-mix-${{ steps.runner.outputs.image }}-erlang29.1-elixir1.20.4-otp29-
       - name: Install image_pipe_url dependencies
         working-directory: image_pipe_url
         run: mise exec -- mix deps.get

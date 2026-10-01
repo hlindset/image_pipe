@@ -24,7 +24,7 @@ permissions:
 jobs:
   test:
     name: image_pipe_server tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     env:
       MIX_ENV: test
     defaults:
@@ -34,6 +34,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Caches holding compiled code are keyed by runner image (e.g. ubuntu26):
+      # runner.os is just "Linux", so a runner upgrade would restore binaries
+      # built against the previous release's libraries.
+      - name: Runner image
+        id: runner
+        run: echo "image=$ImageOS" >> "$GITHUB_OUTPUT"
       - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
       - name: Install Hex
         run: mise exec -- mix local.hex --force
@@ -45,9 +51,9 @@ jobs:
           path: |
             image_pipe_server/deps
             image_pipe_server/_build
-          key: server-mix-${{ runner.os }}-${{ hashFiles('mise.toml') }}-${{ hashFiles('image_pipe_server/mix.lock') }}
+          key: server-mix-${{ steps.runner.outputs.image }}-${{ hashFiles('mise.toml') }}-${{ hashFiles('image_pipe_server/mix.lock') }}
           restore-keys: |
-            server-mix-${{ runner.os }}-${{ hashFiles('mise.toml') }}-
+            server-mix-${{ steps.runner.outputs.image }}-${{ hashFiles('mise.toml') }}-
       - name: Install dependencies
         run: mise exec -- mix deps.get
       - name: Check formatting
