@@ -76,9 +76,11 @@ between demands, so slow downstream consumption can expire an image stream.
 Complete-body terminals release after their generated result and source cleanup,
 before cache storage and HTTP delivery.
 
-The existing delivery prepare/next call timeout remains a separate limit. Its
-60-second default can expire before a longer processing deadline or queue wait.
-Source connection/read limits also remain independent. A processing deadline
+Image delivery also waits at most 60 seconds for each encoded chunk. This
+fixed backstop is not configurable; use `processing_timeout` to bound
+generation. Before headers it returns `503` like a processing deadline, and it
+can expire before a `processing_timeout` or queue wait longer than 60 seconds.
+Source connection/read limits remain independent. A processing deadline
 does not implement a total source-transfer deadline for work outside generation.
 
 ## Output-cache request coalescing
