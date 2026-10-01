@@ -5,7 +5,7 @@ defmodule ImagePipe.Test.Autoquality.TileSelection do
   Part E ships even-spaced K-tile sub-sampling (`ImagePipe.Output.Ssim2Metric.CropScore`).
   Part F asks whether a *saliency-guided* selection tracks the full-frame score
   tightly enough to retire the full-frame confirm gate (see
-  `docs/autoquality_benchmark.md`). This module is the pure selection core: given a
+  `bench/autoquality.md`). This module is the pure selection core: given a
   list of tiles carrying cheap per-tile signals, return the K to score.
 
   A tile is a map with `:x, :y, :w, :h` (pixel window) plus the cheap signals

@@ -53,7 +53,6 @@ and custom detection, and the [API contract](api_contract.md) for exact semantic
 
 ## Understand the implementation
 
-The [execution flow](execution_flow.md), [transform internals](transform_operations.md),
-and [cache benchmarks](cache-benchmark.md) explain how the library works.
-Historical design notes live under `docs/superpowers/` in the repository;
-the published guides describe the current API.
+The [API contract](api_contract.md) defines exact semantics. See
+[execution flow](execution_flow.md) for the request lifecycle,
+[transform internals](transform_operations.md) for execution and geometry.

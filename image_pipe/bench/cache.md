@@ -1,6 +1,6 @@
 # Coordinated cache measurements
 
-Run each command in a fresh VM, from the repository root:
+Run each command in a fresh VM, from `image_pipe/`:
 
 ```sh
 mise exec -- mix run bench/coordinated_cache.exs two-pool

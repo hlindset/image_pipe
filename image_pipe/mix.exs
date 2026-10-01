@@ -41,8 +41,7 @@ defmodule ImagePipe.MixProject do
     Internals: [
       "docs/api_contract.md",
       "docs/execution_flow.md",
-      "docs/transform_operations.md",
-      "docs/cache-benchmark.md"
+      "docs/transform_operations.md"
     ],
     Project: ["README.md", "CHANGELOG.md", "LICENSE.md"]
   ]

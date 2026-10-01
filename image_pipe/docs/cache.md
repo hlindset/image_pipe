@@ -72,9 +72,6 @@ their existing stability rules and are never copied into the input pool.
 
 ## Original-byte pool
 
-The repeatable [cache benchmarks](cache-benchmark.md) record origin savings,
-latency, disk use, and memory tradeoffs for multi-variant and large-hit workloads.
-
 Add an independently configured filesystem pool:
 
 ```elixir
