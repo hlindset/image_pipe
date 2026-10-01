@@ -101,6 +101,10 @@ jobs:
       - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
       - name: Install libvips build and runtime dependencies
         run: |
+          # Most of this step is dpkg, not downloading. The runner is
+          # throwaway, so skip dpkg's fsyncs and the man-db index rebuild.
+          echo force-unsafe-io | sudo tee /etc/dpkg/dpkg.cfg.d/force-unsafe-io >/dev/null
+          sudo rm -f /var/lib/man-db/auto-update
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential meson ninja-build pkg-config \
