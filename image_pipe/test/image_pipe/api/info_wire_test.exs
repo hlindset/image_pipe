@@ -31,14 +31,102 @@ defmodule ImagePipe.API.InfoWireTest do
     assert get_resp_header(response, "vary") == []
 
     assert JSON.decode!(response.resp_body) == %{
-             "format" => "jpeg",
-             "mime_type" => "image/jpeg",
-             "width" => 16,
-             "height" => 24,
-             "orientation" => 6,
-             "pages" => 1,
-             "size" => byte_size(body)
+             "source" => %{
+               "format" => "jpeg",
+               "mime_type" => "image/jpeg",
+               "width" => 16,
+               "height" => 24,
+               "orientation" => 6,
+               "pages" => 1,
+               "size" => byte_size(body)
+             },
+             "result" => %{"width" => 16, "height" => 24, "dpr" => 1.0}
            }
+  end
+
+  test "result follows the request's orientation while source keeps the EXIF display frame", %{
+    body: body
+  } do
+    info = info("orient=none/output=info", mount(body))
+    assert {info["source"]["width"], info["source"]["height"]} == {16, 24}
+    assert info["result"] == %{"width" => 24, "height" => 16, "dpr" => 1.0}
+  end
+
+  test "result dimensions match the image the same URL serves" do
+    body = gradient_jpeg(120, 80)
+    config = mount(body)
+
+    for options <- [
+          "w=50",
+          "w=40/h=40/fit=cover/rotate=90",
+          "crop=60,30/pad=5",
+          "w=30/-/extend/w=40/h=40",
+          "orient=none/w=33"
+        ] do
+      image = request(options, config)
+      assert image.status == 200, options
+      decoded = Image.from_binary!(image.resp_body)
+      result = info(options <> "/output=info", config)["result"]
+
+      assert {result["width"], result["height"]} == {Image.width(decoded), Image.height(decoded)},
+             options
+    end
+  end
+
+  test "result dpr is the last group's effective DPR" do
+    config = mount(gradient_jpeg(120, 80))
+
+    assert %{"width" => 100, "dpr" => 2.0} = info("w=50/dpr=2/output=info", config)["result"]
+    # Without enlargement the 120px source clamps a 200px target to DPR 1.2.
+    assert %{"width" => 120, "dpr" => 1.2} = info("w=100/dpr=2/output=info", config)["result"]
+
+    assert %{"width" => 104, "dpr" => 1.0} =
+             info("w=50/dpr=2/-/pad=2/output=info", config)["result"]
+
+    assert %{"width" => 108, "dpr" => 2.0} =
+             info("w=50/dpr=2/-/pad=2/dpr=2/output=info", config)["result"]
+  end
+
+  test "requested placeholders equal the standalone outputs with one source fetch" do
+    config = mount(gradient_jpeg(400, 300))
+
+    for options <- ["", "w=60/", "crop=200,100/blur=2/"] do
+      blurhash = request(options <> "output=blurhash", config).resp_body
+      lqip = request(options <> "output=lqip-css", config).resp_body
+      assert_received :origin_fetch
+      assert_received :origin_fetch
+
+      response = request(options <> "output=info,lqip-css,blurhash", config)
+      assert response.status == 200, options
+      assert_received :origin_fetch
+      refute_received :origin_fetch
+
+      result = JSON.decode!(response.resp_body)["result"]
+      assert result["blurhash"] == blurhash, options
+      assert result["lqip_css"] == lqip, options
+    end
+
+    result = info("w=60/output=info,lqip-css", config)["result"]
+    assert Map.has_key?(result, "lqip_css")
+    refute Map.has_key?(result, "blurhash")
+  end
+
+  test "groups, orientation, and placeholders separate info cache entries", %{body: body} do
+    config = mount(body)
+
+    etags =
+      for options <- [
+            "output=info",
+            "w=8/output=info",
+            "orient=none/output=info",
+            "output=info,blurhash",
+            "output=info,lqip-css"
+          ] do
+        get_resp_header(request(options, config), "etag")
+      end
+
+    assert length(Enum.uniq(etags)) == length(etags)
+    assert get_resp_header(request("q=80/output=info", config), "etag") == hd(etags)
   end
 
   test "info reports display dimensions for every EXIF orientation" do
@@ -51,7 +139,7 @@ defmodule ImagePipe.API.InfoWireTest do
 
       response = request("output=info", mount(body))
       assert response.status == 200
-      info = JSON.decode!(response.resp_body)
+      info = JSON.decode!(response.resp_body)["source"]
       expected_dimensions = if orientation in 5..8, do: {16, 24}, else: {24, 16}
 
       assert {info["width"], info["height"]} == expected_dimensions
@@ -66,7 +154,7 @@ defmodule ImagePipe.API.InfoWireTest do
 
     assert response.status == 200
 
-    assert JSON.decode!(response.resp_body) == %{
+    assert JSON.decode!(response.resp_body)["source"] == %{
              "format" => "jpeg_xl",
              "mime_type" => "image/jxl",
              "width" => 24,
@@ -119,37 +207,26 @@ defmodule ImagePipe.API.InfoWireTest do
     assert request("output=info", mount(body, telemetry_prefix: @prefix)).status == 200
 
     assert_received {:stage, @prefix ++ [:output, :terminal, :stop],
-                     %{terminal: :info, result: :ok}}
+                     %{terminal: :info, placeholders: [], result: :ok}}
 
     refute_received {:stage, @prefix ++ [:transform, :execute, :start], _}
     refute_received {:stage, @prefix ++ [:transform, :materialize, :start], _}
     refute_received {:stage, @prefix ++ [:output, :encode, :start], _}
   end
 
-  test "inert image options and inherited transforms fail before source or cache access", %{
-    body: body
-  } do
-    config =
-      mount(body,
-        cache: {CacheProbe, []},
-        url: ImagePipe.URL.config(presets: %{"card" => "w=10"})
-      )
+  test "preset transforms apply to the result", %{body: body} do
+    config = mount(body, url: ImagePipe.URL.config(presets: %{"card" => "w=10"}))
+    assert %{"width" => 10} = info("preset=card/output=info", config)["result"]
+  end
 
-    for option <- [
-          "w=10",
-          "rotate=0",
-          "orient=auto",
-          "orient=none",
-          "format=jpeg",
-          "q=80",
-          "meta=keep",
-          "profile=strip",
-          "hdr=preserve",
-          "preset=card"
-        ] do
-      assert request("output=info/#{option}", config).status == 400, option
-      refute_received :origin_fetch
-      refute_received {:cache_lookup, _}
+  test "image-only URL options do not change info", %{body: body} do
+    plain = request("output=info", mount(body))
+
+    for option <- ["format=jpeg", "q=80", "meta=keep", "profile=strip", "hdr=preserve"] do
+      ignored = request("output=info/#{option}", mount(body))
+      assert ignored.status == 200, option
+      assert ignored.resp_body == plain.resp_body
+      assert get_resp_header(ignored, "etag") == get_resp_header(plain, "etag")
     end
   end
 
@@ -208,7 +285,7 @@ defmodule ImagePipe.API.InfoWireTest do
     response = request("output=info", config)
 
     assert response.status == 200
-    assert %{"width" => 16, "height" => 24} = JSON.decode!(response.resp_body)
+    assert %{"source" => %{"width" => 16, "height" => 24}} = JSON.decode!(response.resp_body)
     assert_received {:cache_lookup, _}
     assert_received :origin_fetch
   end
@@ -220,6 +297,18 @@ defmodule ImagePipe.API.InfoWireTest do
     refute_received {:cache_lookup, _}
     assert request("output=info/expires=100", config).status == 200
     assert_received :origin_fetch
+  end
+
+  defp info(options, config) do
+    response = request(options, config)
+    assert response.status == 200, options
+    JSON.decode!(response.resp_body)
+  end
+
+  defp gradient_jpeg(width, height) do
+    width
+    |> Image.linear_gradient!(height, start_color: :navy, finish_color: :orange)
+    |> Image.write!(:memory, suffix: ".jpg")
   end
 
   defp request(options, config, accept \\ "*/*") do

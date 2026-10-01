@@ -494,22 +494,21 @@ defmodule ImagePipe.APIWireTest do
       assert get_resp_header(plain_conn, "etag") != get_resp_header(blurred_conn, "etag")
     end
 
-    test "q=50 combined with output=blurhash is a 400, inert (never reaches source/cache)" do
-      config = opts(sources: counting_sources(), cache: {CacheProbe, []})
-      conn = get("/q=50/output=blurhash/src/images/cat.jpg", config)
+    test "image-only output options are ignored and share the plain BlurHash cache entry" do
+      config = opts(sources: counting_sources(), cache: stateful_cache_probe())
 
-      assert conn.status == 400
-      refute_received :origin_fetch
-      refute_received {:cache_lookup, _key}
-    end
+      plain = get("/output=blurhash/src/images/cat.jpg", config)
+      assert plain.status == 200
+      assert_received :origin_fetch
 
-    test "format=webp combined with output=blurhash is a 400, inert (never reaches source/cache)" do
-      config = opts(sources: counting_sources(), cache: {CacheProbe, []})
-      conn = get("/format=webp/output=blurhash/src/images/cat.jpg", config)
+      for options <- ["q=50", "format=webp", "format=png/meta=keep"] do
+        conn = get("/#{options}/output=blurhash/src/images/cat.jpg", config)
 
-      assert conn.status == 400
-      refute_received :origin_fetch
-      refute_received {:cache_lookup, _key}
+        assert conn.status == 200, options
+        assert conn.resp_body == plain.resp_body
+        assert get_resp_header(conn, "etag") == get_resp_header(plain, "etag")
+        refute_received :origin_fetch
+      end
     end
   end
 

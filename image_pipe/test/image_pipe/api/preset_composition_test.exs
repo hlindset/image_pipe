@@ -292,7 +292,7 @@ defmodule ImagePipe.API.PresetCompositionTest do
 
   test "validation runs against expanded request-scoped options" do
     assert {:error, {:invalid_request, diagnostics}} =
-             parse("/preset=text", %{"text" => "output=blurhash/format=png"})
+             parse("/preset=text", %{"text" => "output=blurhash/format=png/max-bytes=1000"})
 
     assert [%{reason: :inert_option, spans: [{1, 11}]}] = diagnostics
   end

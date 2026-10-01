@@ -54,7 +54,7 @@ defmodule ImagePipe.API.GifSourceWireTest do
     assert response.status == 200
 
     assert %{"format" => "gif", "mime_type" => "image/gif", "width" => 32, "height" => 24} =
-             JSON.decode!(response.resp_body)
+             JSON.decode!(response.resp_body)["source"]
   end
 
   test "an animated GIF over max_input_frames is rejected after one loader open" do

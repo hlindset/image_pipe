@@ -87,7 +87,7 @@ These paths are relative to the mount; add your `/images` prefix if configured.
 | Grayscale without resizing | `/gray/src/photos/beach.jpg` |
 | WebP with a byte budget | `/format=webp/max-bytes=30000/src/photos/beach.jpg` |
 | Placeholder | `/w=400/h=300/fit=cover/output=blurhash/src/photos/beach.jpg` |
-| Source dimensions | `/output=info/src/photos/beach.jpg` |
+| Result dimensions and placeholders | `/w=400/output=info,blurhash,lqip-css/src/photos/beach.jpg` |
 
 See the [API contract](api_contract.md#processing-semantics) for exact coordinate,
 rounding, identity, and cross-option semantics.

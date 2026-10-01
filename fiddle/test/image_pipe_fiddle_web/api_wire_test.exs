@@ -15,7 +15,7 @@ defmodule ImagePipeFiddleWeb.APIWireTest do
     assert conn.status == 400
   end
 
-  test "API info download example returns source facts", %{conn: conn} do
+  test "API info download example returns source and result facts", %{conn: conn} do
     response =
       get(
         conn,
@@ -29,7 +29,10 @@ defmodule ImagePipeFiddleWeb.APIWireTest do
              ~s(attachment; filename="source-info.json")
            ]
 
-    assert %{"width" => 64, "height" => 96, "orientation" => 6} = JSON.decode!(response.resp_body)
+    assert %{
+             "source" => %{"width" => 64, "height" => 96, "orientation" => 6},
+             "result" => %{"width" => 64, "height" => 96}
+           } = JSON.decode!(response.resp_body)
   end
 
   test "API BlurHash example returns text", %{conn: conn} do

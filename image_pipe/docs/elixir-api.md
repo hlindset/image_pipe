@@ -456,7 +456,7 @@ Every successful call returns `{:ok, %ImagePipe.Result{}}`:
 | Terminal | `data` | Additional result fields |
 | --- | --- | --- |
 | `:image` | Complete encoded binary | `format`, `content_type`, `width`, `height` |
-| `:info` | Map with string keys: format, MIME type, displayed width/height, EXIF orientation, page count, and available source size | `content_type: "application/json"` |
+| `:info` | Map with string keys: `"source"` (format, MIME type, displayed width/height, EXIF orientation, page count, and available source size) and `"result"` (width, height, effective DPR, and requested placeholders) | `content_type: "application/json"` |
 | `:blurhash` | BlurHash string | `content_type: "text/plain"` |
 | `:lqip_css` | Packed CSS color string | `content_type: "text/plain"` |
 
@@ -527,7 +527,7 @@ named presets before checking the combined options.
 
 Unknown options, duplicate keys, invalid types, and out-of-range values raise
 `ArgumentError` during construction. `ImagePipe.URL.validate/1` checks
-dependencies, conflicts, and terminal applicability, returning `:ok` or
+dependencies and conflicts, returning `:ok` or
 `{:error, issues}`. Each `ImagePipe.Plan.Spec.Issue` has a `reason`,
 `detail`, and `locations`: `{:group, zero_based_index, option_name}` or
 `{:request, option_name}`. Resize locations use the individual names such as
@@ -541,9 +541,7 @@ dependencies, conflicts, and terminal applicability, returning `:ok` or
 # fit requires a concrete resize dimension
 ```
 
-Validation preserves explicit choices: `blur: 0` is still inapplicable to
-`terminal: :info`. It checks the plan before canonical no-op normalization.
-It never fetches a source, opens an image, or accesses a cache. Source,
+Validation checks the plan before canonical no-op normalization. It never fetches a source, opens an image, or accesses a cache. Source,
 credentials, host configuration, and image-dependent geometry belong to the
 terminal lifecycle.
 

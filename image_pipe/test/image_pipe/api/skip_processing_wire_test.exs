@@ -140,7 +140,7 @@ defmodule ImagePipe.API.SkipProcessingWireTest do
     test "for non-image terminals", %{files: files} do
       response = request("output=info", mount(files), "image.gif")
 
-      assert %{"format" => "gif", "width" => 32} = JSON.decode!(response.resp_body)
+      assert %{"source" => %{"format" => "gif", "width" => 32}} = JSON.decode!(response.resp_body)
     end
   end
 

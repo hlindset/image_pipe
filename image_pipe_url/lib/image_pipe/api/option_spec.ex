@@ -519,8 +519,14 @@ defmodule ImagePipe.API.OptionSpec do
         name: :terminal,
         scope: :request,
         value: &__MODULE__.parse_output/1,
-        summary: "Terminal selection: image (default), blurhash, lqip-css, or info",
-        examples: ["output=blurhash", "output=lqip-css", "output=info"]
+        summary:
+          "Terminal selection: image (default), blurhash, lqip-css, or info with optional placeholder flags",
+        examples: [
+          "output=blurhash",
+          "output=lqip-css",
+          "output=info",
+          "output=info,blurhash,lqip-css"
+        ]
       },
       %__MODULE__{
         key: "format",
@@ -1364,13 +1370,27 @@ defmodule ImagePipe.API.OptionSpec do
 
   @doc false
   @spec parse_output(String.t()) ::
-          {:ok, :image | :blurhash | :lqip_css | :info} | {:error, :invalid_output}
-  def parse_output(string) do
-    case Map.fetch(@output_map, string) do
+          {:ok, :image | :blurhash | :lqip_css | :info | {:info, [:blurhash | :lqip_css, ...]}}
+          | {:error, :invalid_output}
+  def parse_output(string), do: output_value(String.split(string, ","))
+
+  defp output_value([output]) do
+    case Map.fetch(@output_map, output) do
       {:ok, output} -> {:ok, output}
       :error -> {:error, :invalid_output}
     end
   end
+
+  defp output_value(["info" | flags]) do
+    placeholders = Enum.map(flags, &Map.get(@output_map, &1))
+
+    if Enum.all?(placeholders, &(&1 in [:blurhash, :lqip_css])) and
+         placeholders == Enum.uniq(placeholders),
+       do: {:ok, {:info, Enum.sort(placeholders)}},
+       else: {:error, :invalid_output}
+  end
+
+  defp output_value(_values), do: {:error, :invalid_output}
 
   @doc false
   @spec parse_filename(String.t()) :: {:ok, String.t()} | {:error, :invalid_filename}

@@ -107,8 +107,8 @@ compression ratio from `X-ImagePipe-Source-Size ÷ body length`.
 `output=info`, `output=blurhash`, and `output=lqip-css` responses expose the cache status,
 cache key, applied operations, and terminal computation timing. Source and
 encoded-output fact headers are omitted because the shared complete-body
-terminal result does not carry those image facts. `output=info` has no transform
-pipeline; a placeholder request reports the operations it actually applies.
+terminal result does not carry those image facts. Info and placeholder requests
+report the operations they apply.
 
 These facts are collected on every successful generation and stored with the
 complete-body cache entry. A later request with both debug controls enabled can

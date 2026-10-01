@@ -344,11 +344,26 @@ defmodule ImagePipe.API.OptionSpecTest do
       assert OptionSpec.parse_bg("fff,0.5") == {:ok, {{255, 255, 255}, 0.5}}
     end
 
-    test "parse_output accepts image, blurhash, and info only" do
+    test "parse_output accepts the outputs and info's placeholder flags" do
       assert OptionSpec.parse_output("image") == {:ok, :image}
       assert OptionSpec.parse_output("blurhash") == {:ok, :blurhash}
       assert OptionSpec.parse_output("info") == {:ok, :info}
-      assert OptionSpec.parse_output("lqip") == {:error, :invalid_output}
+      assert OptionSpec.parse_output("info,lqip-css") == {:ok, {:info, [:lqip_css]}}
+
+      assert OptionSpec.parse_output("info,lqip-css,blurhash") ==
+               {:ok, {:info, [:blurhash, :lqip_css]}}
+
+      for value <- [
+            "lqip",
+            "info,",
+            "info,info",
+            "info,image",
+            "info,blurhash,blurhash",
+            "blurhash,lqip-css",
+            "image,blurhash"
+          ] do
+        assert OptionSpec.parse_output(value) == {:error, :invalid_output}, value
+      end
     end
 
     test "filename and cachebuster use the nonempty ASCII path-token grammar" do

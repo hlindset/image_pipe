@@ -120,12 +120,9 @@ defmodule ImagePipe.API.LqipCssWireTest do
                      %{dims: {3, 3}, result: :ok}}
   end
 
-  test "image-only options reject before source or cache access", %{body: body} do
-    config =
-      mount(body,
-        cache: {CacheProbe, []},
-        url: ImagePipe.URL.config(presets: %{"encoded" => "q=70"})
-      )
+  test "image-only options are ignored, including preset-supplied ones", %{body: body} do
+    config = mount(body, url: ImagePipe.URL.config(presets: %{"encoded" => "q=70"}))
+    plain = request("output=lqip-css", config)
 
     for option <- [
           "format=png",
@@ -139,9 +136,10 @@ defmodule ImagePipe.API.LqipCssWireTest do
           "jpeg-options=progressive",
           "preset=encoded"
         ] do
-      assert request("output=lqip-css/#{option}", config).status == 400, option
-      refute_received :origin_fetch
-      refute_received {:cache_lookup, _}
+      ignored = request("output=lqip-css/#{option}", config)
+      assert ignored.status == 200, option
+      assert ignored.resp_body == plain.resp_body
+      assert get_resp_header(ignored, "etag") == get_resp_header(plain, "etag")
     end
   end
 

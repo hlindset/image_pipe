@@ -4,21 +4,6 @@ defmodule ImagePipe.Plan.Spec.Validation do
   alias ImagePipe.Plan.Spec.Issue
 
   @dimensions [:width, :height, :min_width, :min_height]
-  @image_options [
-    :format,
-    :quality,
-    :format_qualities,
-    :metadata,
-    :color_profile,
-    :hdr,
-    :autoquality,
-    :max_bytes,
-    :dpi,
-    :jpeg_options,
-    :png_options,
-    :webp_options,
-    :avif_options
-  ]
   @watermark_assets [:watermark, :watermark_source, :watermark_token]
   @watermark_options [
     :watermark_opacity,
@@ -58,7 +43,7 @@ defmodule ImagePipe.Plan.Spec.Validation do
         group_errors(group, index, invalid) ++ watermark_errors(group, index, watermarks)
       end)
 
-    group_errors ++ terminal_errors(groups, options) ++ output_errors(options)
+    group_errors ++ output_errors(options)
   end
 
   defp watermark_errors(_group, _index, nil), do: []
@@ -211,23 +196,6 @@ defmodule ImagePipe.Plan.Spec.Validation do
     true
   rescue
     ArithmeticError -> false
-  end
-
-  defp terminal_errors(groups, options) do
-    terminal = Map.get(options, :terminal, :image)
-
-    group_errors =
-      for {group, index} <- Enum.with_index(groups),
-          key <- Map.keys(group),
-          terminal == :info,
-          do: issue(:inert_option, index, [key], {:terminal, terminal})
-
-    request_errors =
-      for key <- Map.keys(options),
-          (key in @image_options and terminal != :image) or (key == :orient and terminal == :info),
-          do: issue(:inert_option, :request, [key], {:terminal, terminal})
-
-    group_errors ++ request_errors
   end
 
   defp output_errors(options) do

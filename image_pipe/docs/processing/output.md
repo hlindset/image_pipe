@@ -112,28 +112,37 @@ JPEG uses standard output even with `hdr=preserve`. Required codec metadata
 may still appear under `meta=strip`. See the
 [color contract](../api_contract.md#metadata-color-profiles-and-hdr).
 
-## Placeholders and source information
+## Placeholders and image information
 
 | URL | Elixir | HTTP result |
 | --- | --- | --- |
 | `output=image` | `terminal: :image` | Encoded image; default |
 | `output=blurhash` | `terminal: :blurhash` | BlurHash string, `text/plain` |
 | `output=lqip-css` | `terminal: :lqip_css` | Packed `#rrggbbaa` CSS value, `text/plain` |
-| `output=info` | `terminal: :info` | Source information, `application/json` |
+| `output=info` | `terminal: :info` | Source and result information, `application/json` |
+| `output=info,blurhash,lqip-css` | `terminal: {:info, [:blurhash, :lqip_css]}` | Info with placeholders |
 
 Placeholders apply transforms and orientation, then use a fixed pixel space.
-They reject image encoding settings such as format, quality, profile, and HDR.
-LQIP CSS values work with Image's shared LQIP stylesheet; see the
+Non-image outputs check image encoding settings such as format, quality,
+profile, and HDR as an image request would, then ignore them, so switching a
+valid image URL to a placeholder or info keeps it valid. LQIP CSS values work
+with Image's shared LQIP stylesheet; see the
 [terminal contract](../api_contract.md#presets-and-terminals).
 
-Info returns source format, MIME type, display width/height, EXIF orientation,
-and available byte size. It rejects processing options, explicit orientation,
-and image output policy, including options inherited from presets:
+Info applies the request's groups and orientation. Its `source` object has the
+source format, MIME type, display width/height, EXIF orientation, page count,
+and available byte size. Its `result` object has the width and height the same
+URL's image would have and the last group's effective `dpr`, plus any
+placeholders named after `info`, each equal to its standalone output:
 
 ```elixir
-plan = ImagePipe.URL.new() |> ImagePipe.URL.output(terminal: :info)
+plan =
+  ImagePipe.URL.new()
+  |> ImagePipe.URL.group(resize: [width: 600])
+  |> ImagePipe.URL.output(terminal: {:info, [:blurhash, :lqip_css]})
+
 {:ok, result} = ImagePipe.run(ImagePipe.config(), plan, {:file, "photos/beach.jpg"})
-result.data # a map with string keys
+result.data["result"] # %{"width" => 600, "height" => ..., "dpr" => 1.0, "blurhash" => ..., ...}
 ```
 
 These terminals retain source safety limits. Text and JSON have fixed content

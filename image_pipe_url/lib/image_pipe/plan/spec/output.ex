@@ -3,10 +3,12 @@ defmodule ImagePipe.Plan.Spec.Output do
   Terminal selection and sparse output intent from a request.
 
   Host defaults and format negotiation resolve this intent into
-  `ImagePipe.Output.Policy` for image encoding.
+  `ImagePipe.Output.Policy` for image encoding. `placeholders` lists, in
+  sorted order, the placeholders an info response includes.
   """
 
   defstruct terminal: :image,
+            placeholders: [],
             format: nil,
             quality: nil,
             metadata: nil,
@@ -20,6 +22,7 @@ defmodule ImagePipe.Plan.Spec.Output do
 
   @type t :: %__MODULE__{
           terminal: :image | :blurhash | :lqip_css | :info,
+          placeholders: [:blurhash | :lqip_css],
           format: nil | :avif | :webp | :jpeg | :png,
           quality: nil | 1..100,
           metadata: nil | :strip | :copyright | :keep,

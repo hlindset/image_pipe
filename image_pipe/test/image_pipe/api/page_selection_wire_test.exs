@@ -105,7 +105,9 @@ defmodule ImagePipe.API.PageSelectionWireTest do
   end
 
   test "info reports the page count and describes the selected page" do
-    info = fn options, body -> request(options, mount(body)).resp_body |> JSON.decode!() end
+    info = fn options, body ->
+      request(options, mount(body)).resp_body |> JSON.decode!() |> Map.fetch!("source")
+    end
 
     assert %{"pages" => 3} = info.("output=info", MultiFrameSources.encode(:webp, 3))
 

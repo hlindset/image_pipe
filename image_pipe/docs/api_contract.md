@@ -65,13 +65,13 @@ The API accepts these option keys:
 It also implements `-`, `src`, `src64`, `enc`, and full-length HMAC signing with
 key rotation. Presets support nested references and complete `-` pipelines.
 Sources are paths, HTTP(S) URLs, S3 objects, or configured custom schemes. Image,
-BlurHash, LQIP CSS, and source-info JSON are the supported outputs.
+BlurHash, LQIP CSS, and info JSON are the supported outputs.
 
 ## Capabilities
 
 | Area | Supported behavior |
 | --- | --- |
-| Validation | Reject duplicate, conflicting, inert, or invalid options before side effects; canonicalize equivalent requests |
+| Validation | Reject duplicate, conflicting, inert, or invalid options before side effects; ignore valid image-only output options on non-image outputs; canonicalize equivalent requests |
 | Requests | Presets, signing, expiry, GET/HEAD/OPTIONS, conditional GET, negotiation, caching, and streamed delivery |
 | Resize | Contain, cover, cover-down, stretch, auto, enlargement, minimum dimensions, independent zoom axes, and DPR |
 | Crop | Guided and explicit regions, anchors, focal points, attention, face/object detection, offsets, and ratio correction |
@@ -81,7 +81,7 @@ BlurHash, LQIP CSS, and source-info JSON are the supported outputs.
 | Encoding | Explicit or negotiated formats, quality and per-format quality, byte budgets, SSIMULACRA2/Butteraugli/size search, and JPEG/PNG/WebP/AVIF controls |
 | Color and metadata | Copyright and metadata policy, ICC conversion and preservation, and HDR preservation |
 | Sources | Filesystem, HTTP(S), S3, host adapters, custom schemes, and authenticated source concealment |
-| Delivery | Images, BlurHash, LQIP CSS, source-info JSON, filenames, attachments, cachebusters, opt-in debug headers, and clock injection |
+| Delivery | Images, BlurHash, LQIP CSS, info JSON, filenames, attachments, cachebusters, opt-in debug headers, and clock injection |
 
 ## Host configuration
 
@@ -566,8 +566,13 @@ and `avif_options` accept their corresponding
 `ImagePipe.Plan.Output.*Options` structs. JPEG's host struct calls its
 progressive flag `interlace`.
 
-Quality, search, budgets, and encoder URL options apply only to image output.
-BlurHash and LQIP CSS reject these URL options and ignore configured image output policy.
+Image-only output options (`format`, `q`, `format-q`, `meta`, `dpi`, `profile`,
+`hdr`, `autoquality`, `max-bytes`, and the encoder options) apply only to image
+output. BlurHash, LQIP CSS, and info validate them as an image request would,
+including their conflicts, and then ignore them: a URL is valid with a
+non-image output exactly when it is valid with `output=image`, and requests
+that differ only in these options share cache entries and ETags. Non-image
+outputs also ignore configured image output policy.
 
 ### Presets and terminals
 
@@ -592,17 +597,39 @@ The value is used as `style="--lqip: #22333091"` with the shared stylesheet in
 [Image's LQIP CSS guide](https://hexdocs.pm/image/lqip_css.html). Successful
 placeholder responses use the usual cache and pre-fetch conditional-request path.
 
-`output=info` describes the source with JSON fields
-`format`, `mime_type`, display `width`/`height`, EXIF `orientation`, `pages`
-(the number of pages or frames the source declares), and optional byte
-`size`. With `page=N`, the dimensions and orientation describe page N. It rejects all group options, explicit `orient` values, and
-image output options, including metadata, profile, and HDR controls,
-uses fixed `application/json`, and does not set `Vary: Accept`. Info retains
-source safety limits and can use header inspection without transforming or
-encoding pixels. Format names use the library's canonical vocabulary, including
-`heif`, `jpeg_xl`, and `jpeg2000`. Host image encoding
-policies do not alter info. Preset expansion happens before applicability
-validation, so inherited image options also reject.
+`output=info` returns JSON describing the source and the result of the
+request's groups:
+
+```json
+{
+  "source": {"format": "jpeg", "mime_type": "image/jpeg", "width": 4000,
+             "height": 3000, "orientation": 6, "pages": 1, "size": 2481920},
+  "result": {"width": 600, "height": 450, "dpr": 1.0,
+             "blurhash": "LEHV6nWB2yk8pyo0adR*.7kCMdnj", "lqip_css": "#22333091"}
+}
+```
+
+`source` has the source `format`, `mime_type`, display `width`/`height` under
+its EXIF orientation regardless of `orient`, EXIF `orientation`, `pages` (the
+number of pages or frames the source declares), and optional byte `size`. With
+`page=N`, the dimensions and orientation describe page N. Format names use the
+library's canonical vocabulary, including `heif`, `jpeg_xl`, and `jpeg2000`.
+
+`result` has the `width` and `height` an image request for the same URL would
+encode, and `dpr`, the effective DPR of the last group after the enlargement
+clamp. A caller divides by `dpr` for CSS dimensions: without `enlarge`,
+`w=100/dpr=2` on a 150px source reports width 150 at DPR 1.5. DPR does not
+carry across groups, so `dpr` describes the last group's lengths; an earlier
+group's enlargement clamp is not reflected in it.
+
+Flags after `info` add placeholders to `result`: `output=info,blurhash,lqip-css`.
+Each value equals what `output=blurhash` or `output=lqip-css` returns for the
+same URL, and the source is fetched once. Info accepts every group option,
+`orient`, and `page`, and ignores image-only output options. It uses fixed
+`application/json`, does not set `Vary: Accept`, and retains source safety
+limits. A request with no operations and no LQIP reads only the header; BlurHash
+adds its own decode of the fetched source. Host image encoding policies do not
+alter info.
 
 ### Skip processing
 

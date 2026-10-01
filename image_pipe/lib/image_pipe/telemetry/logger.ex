@@ -346,7 +346,13 @@ defmodule ImagePipe.Telemetry.Logger do
   end
 
   defp message([:output, :terminal | _], _m, meta) do
-    "image_pipe output terminal: #{outcome(meta)} (#{meta[:terminal]})"
+    placeholders =
+      case meta[:placeholders] do
+        [_ | _] = placeholders -> " with " <> Enum.join(placeholders, ", ")
+        _none -> ""
+      end
+
+    "image_pipe output terminal: #{outcome(meta)} (#{meta[:terminal]}#{placeholders})"
   end
 
   defp message([:transform, :detect, :model | _], _m, meta) do
