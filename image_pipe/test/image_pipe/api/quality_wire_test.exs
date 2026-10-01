@@ -242,10 +242,8 @@ defmodule ImagePipe.API.QualityWireTest do
           "format=png/autoquality=ssimulacra2",
           "format=jpeg/png-options=palette",
           "jpeg-options=progressive:true",
-          "output=blurhash/format-q=webp:60",
-          "output=blurhash/autoquality=none",
-          "output=blurhash/max-bytes=1000",
-          "output=blurhash/jpeg-options=progressive"
+          "output=blurhash/q=50/autoquality=ssimulacra2",
+          "output=blurhash/format=png/max-bytes=1000"
         ] do
       assert response(options, config).status == 400, options
       refute_received :origin_fetch

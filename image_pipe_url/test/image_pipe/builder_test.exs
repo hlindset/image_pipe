@@ -286,7 +286,8 @@ defmodule ImagePipe.BuilderTest do
           {[crop: {20, 20}, anchor: :smart, anchor_offset: {1, 2}], [],
            "crop=20,20/anchor=smart/anchor-offset=1,2"},
           {[blur: 0], [terminal: :info], "blur=0/output=info"},
-          {[blur: 1], [terminal: :blurhash, quality: 80], "blur=1/output=blurhash/q=80"},
+          {[blur: 1], [terminal: :blurhash, quality: 80, autoquality: {:ssimulacra2, []}],
+           "blur=1/output=blurhash/q=80/autoquality=ssimulacra2"},
           {[blur: 1], [format: :png, max_bytes: 1000], "blur=1/format=png/max-bytes=1000"},
           {[blur: 1], [format: :webp, jpeg_options: [interlace: true]],
            "blur=1/format=webp/jpeg-options=progressive"}
@@ -307,6 +308,19 @@ defmodule ImagePipe.BuilderTest do
     assert Enum.any?(issues, &(&1.reason == :inert_option))
     assert Enum.any?(issues, &({:group, 0, :anchor} in &1.locations))
     assert {:error, ^issues} = Plan.to_spec(plan.plan)
+  end
+
+  test "non-image outputs keep image-only options in the URL and drop them from the spec" do
+    plan =
+      IP.URL.new()
+      |> IP.URL.group(blur: 1)
+      |> IP.URL.output(terminal: :lqip_css, format: :webp, quality: 80)
+
+    assert :ok = IP.URL.validate(plan)
+    assert IP.URL.url!(plan, "cat.jpg") =~ "format=webp/q=80"
+
+    bare = IP.URL.new() |> IP.URL.group(blur: 1) |> IP.URL.output(terminal: :lqip_css)
+    assert Plan.to_spec(plan.plan) == Plan.to_spec(bare.plan)
   end
 
   test "terminal applicability is checked before no-op normalization" do

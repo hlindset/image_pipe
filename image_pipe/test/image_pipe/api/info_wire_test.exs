@@ -126,9 +126,7 @@ defmodule ImagePipe.API.InfoWireTest do
     refute_received {:stage, @prefix ++ [:output, :encode, :start], _}
   end
 
-  test "inert image options and inherited transforms fail before source or cache access", %{
-    body: body
-  } do
+  test "inherited transforms fail before source or cache access", %{body: body} do
     config =
       mount(body,
         cache: {CacheProbe, []},
@@ -140,16 +138,22 @@ defmodule ImagePipe.API.InfoWireTest do
           "rotate=0",
           "orient=auto",
           "orient=none",
-          "format=jpeg",
-          "q=80",
-          "meta=keep",
-          "profile=strip",
-          "hdr=preserve",
           "preset=card"
         ] do
       assert request("output=info/#{option}", config).status == 400, option
       refute_received :origin_fetch
       refute_received {:cache_lookup, _}
+    end
+  end
+
+  test "image-only URL options do not change info", %{body: body} do
+    plain = request("output=info", mount(body))
+
+    for option <- ["format=jpeg", "q=80", "meta=keep", "profile=strip", "hdr=preserve"] do
+      ignored = request("output=info/#{option}", mount(body))
+      assert ignored.status == 200, option
+      assert ignored.resp_body == plain.resp_body
+      assert get_resp_header(ignored, "etag") == get_resp_header(plain, "etag")
     end
   end
 

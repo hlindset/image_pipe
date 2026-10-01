@@ -137,19 +137,19 @@ defmodule ImagePipe.API.MetadataWireTest do
     end
   end
 
-  test "image-only URL output policies reject BlurHash before source or cache access" do
-    config = mount(cache: {CacheProbe, []})
+  test "BlurHash ignores image-only URL output policies" do
+    plain = response("output=blurhash", mount())
 
     for options <- [
-          "output=blurhash/meta=strip",
+          "output=blurhash/meta=keep",
           "output=blurhash/profile=srgb",
           "output=blurhash/hdr=preserve",
           "output=blurhash/dpi=300"
         ] do
-      assert response(options, config).status == 400, options
-      refute_received :origin_fetch
-      refute_received {:cache_lookup, _key}
-      refute_received {:cache_put, _key, _body}
+      ignored = response(options, mount())
+      assert ignored.status == 200, options
+      assert ignored.resp_body == plain.resp_body
+      assert etag(ignored) == etag(plain)
     end
   end
 

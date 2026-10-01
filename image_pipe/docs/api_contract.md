@@ -71,7 +71,7 @@ BlurHash, LQIP CSS, and source-info JSON are the supported outputs.
 
 | Area | Supported behavior |
 | --- | --- |
-| Validation | Reject duplicate, conflicting, inert, or invalid options before side effects; canonicalize equivalent requests |
+| Validation | Reject duplicate, conflicting, inert, or invalid options before side effects; ignore valid image-only output options on non-image outputs; canonicalize equivalent requests |
 | Requests | Presets, signing, expiry, GET/HEAD/OPTIONS, conditional GET, negotiation, caching, and streamed delivery |
 | Resize | Contain, cover, cover-down, stretch, auto, enlargement, minimum dimensions, independent zoom axes, and DPR |
 | Crop | Guided and explicit regions, anchors, focal points, attention, face/object detection, offsets, and ratio correction |
@@ -566,8 +566,13 @@ and `avif_options` accept their corresponding
 `ImagePipe.Plan.Output.*Options` structs. JPEG's host struct calls its
 progressive flag `interlace`.
 
-Quality, search, budgets, and encoder URL options apply only to image output.
-BlurHash and LQIP CSS reject these URL options and ignore configured image output policy.
+Image-only output options (`format`, `q`, `format-q`, `meta`, `dpi`, `profile`,
+`hdr`, `autoquality`, `max-bytes`, and the encoder options) apply only to image
+output. BlurHash, LQIP CSS, and info validate them as an image request would,
+including their conflicts, and then ignore them: a URL is valid with a
+non-image output exactly when it is valid with `output=image`, and requests
+that differ only in these options share cache entries and ETags. Non-image
+outputs also ignore configured image output policy.
 
 ### Presets and terminals
 
@@ -595,14 +600,13 @@ placeholder responses use the usual cache and pre-fetch conditional-request path
 `output=info` describes the source with JSON fields
 `format`, `mime_type`, display `width`/`height`, EXIF `orientation`, `pages`
 (the number of pages or frames the source declares), and optional byte
-`size`. With `page=N`, the dimensions and orientation describe page N. It rejects all group options, explicit `orient` values, and
-image output options, including metadata, profile, and HDR controls,
-uses fixed `application/json`, and does not set `Vary: Accept`. Info retains
+`size`. With `page=N`, the dimensions and orientation describe page N. It rejects all group options and explicit `orient` values,
+ignores image-only output options, uses fixed `application/json`, and does not set `Vary: Accept`. Info retains
 source safety limits and can use header inspection without transforming or
 encoding pixels. Format names use the library's canonical vocabulary, including
 `heif`, `jpeg_xl`, and `jpeg2000`. Host image encoding
 policies do not alter info. Preset expansion happens before applicability
-validation, so inherited image options also reject.
+validation, so inherited group options also reject.
 
 ### Skip processing
 

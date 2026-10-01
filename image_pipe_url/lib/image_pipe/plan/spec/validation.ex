@@ -4,21 +4,6 @@ defmodule ImagePipe.Plan.Spec.Validation do
   alias ImagePipe.Plan.Spec.Issue
 
   @dimensions [:width, :height, :min_width, :min_height]
-  @image_options [
-    :format,
-    :quality,
-    :format_qualities,
-    :metadata,
-    :color_profile,
-    :hdr,
-    :autoquality,
-    :max_bytes,
-    :dpi,
-    :jpeg_options,
-    :png_options,
-    :webp_options,
-    :avif_options
-  ]
   @watermark_assets [:watermark, :watermark_source, :watermark_token]
   @watermark_options [
     :watermark_opacity,
@@ -224,7 +209,7 @@ defmodule ImagePipe.Plan.Spec.Validation do
 
     request_errors =
       for key <- Map.keys(options),
-          (key in @image_options and terminal != :image) or (key == :orient and terminal == :info),
+          key == :orient and terminal == :info,
           do: issue(:inert_option, :request, [key], {:terminal, terminal})
 
     group_errors ++ request_errors

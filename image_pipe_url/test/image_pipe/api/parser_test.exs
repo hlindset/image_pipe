@@ -862,36 +862,26 @@ defmodule ImagePipe.API.ParserTest do
                parse(["w=800", "fit=auto"])
     end
 
-    test "format with output=blurhash is inert" do
-      assert {:error, {:invalid_request, diagnostics}} =
-               parse(["w=32", "output=blurhash", "format=webp"])
-
-      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+    test "non-image outputs accept image-only output options and drop them" do
+      for terminal <- ~w(blurhash lqip-css info),
+          key <-
+            ~w(format q format-q meta dpi profile hdr autoquality max-bytes jpeg-options png-options webp-options avif-options),
+          spec = OptionSpec.fetch(key) do
+        assert {:ok, request} = parse(["output=" <> terminal, hd(spec.examples)])
+        assert {:ok, bare} = parse(["output=" <> terminal])
+        assert request == bare, "#{terminal} #{key}"
+      end
     end
 
-    test "q with output=blurhash is inert" do
-      assert {:error, {:invalid_request, diagnostics}} =
-               parse(["w=32", "output=blurhash", "q=80"])
-
-      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
-    end
-
-    test "advanced output options with output=blurhash are inert" do
-      for option <- [
-            "format-q=webp:70",
-            "meta=keep",
-            "profile=srgb",
-            "hdr=tonemap",
-            "autoquality=none",
-            "max-bytes=10000",
-            "dpi=300",
-            "jpeg-options=progressive",
-            "png-options=palette",
-            "webp-options=lossless",
-            "avif-options=effort:6"
-          ] do
+    test "non-image outputs still reject image-only output conflicts" do
+      for terminal <- ~w(blurhash lqip-css info) do
         assert {:error, {:invalid_request, diagnostics}} =
-                 parse(["w=32", "output=blurhash", option])
+                 parse(["output=" <> terminal, "q=80", "autoquality=ssimulacra2"])
+
+        assert Enum.any?(diagnostics, &(&1.reason == :mutually_exclusive_options))
+
+        assert {:error, {:invalid_request, diagnostics}} =
+                 parse(["output=" <> terminal, "format=webp", "jpeg-options=progressive"])
 
         assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
       end
@@ -918,21 +908,6 @@ defmodule ImagePipe.API.ParserTest do
     test "info accepts a page selection" do
       assert {:ok, request} = parse(["output=info", "page=2"])
       assert request.page == 2
-    end
-
-    test "info rejects every image-only output policy as inert" do
-      for key <-
-            ~w(format q format-q meta dpi profile hdr autoquality max-bytes jpeg-options png-options webp-options avif-options),
-          spec = OptionSpec.fetch(key) do
-        assert {:error, {:invalid_request, diagnostics}} =
-                 parse(["output=info", hd(spec.examples)])
-
-        assert Enum.any?(diagnostics, fn diagnostic ->
-                 diagnostic.reason == :inert_option and
-                   String.starts_with?(diagnostic.message, "#{spec.key} ")
-               end),
-               spec.key
-      end
     end
 
     test "info accepts its complete request-control allowlist" do

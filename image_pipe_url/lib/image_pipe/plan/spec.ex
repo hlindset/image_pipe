@@ -268,9 +268,18 @@ defmodule ImagePipe.Plan.Spec do
   defp assemble_bg({{r, g, b}, nil}), do: {r, g, b, 1.0}
   defp assemble_bg({{r, g, b}, alpha}), do: {r, g, b, alpha}
 
+  # Image-only output options were validated as for an image request; other
+  # terminals ignore them, so they leave no trace in canonical data.
   defp assemble_output(options) do
+    case Map.get(options, :terminal, :image) do
+      :image -> assemble_image_output(options)
+      terminal -> %Output{terminal: terminal}
+    end
+  end
+
+  defp assemble_image_output(options) do
     %Output{
-      terminal: Map.get(options, :terminal, :image),
+      terminal: :image,
       format: Map.get(options, :format),
       quality: Map.get(options, :quality),
       metadata: Map.get(options, :metadata),
