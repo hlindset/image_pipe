@@ -67,7 +67,7 @@ jobs:
         run: mise exec -- mix test --no-compile
 
   build:
-    name: Elixir ${{ matrix.toolchain.elixir }} / OTP ${{ matrix.toolchain.erlang }} (${{ matrix.partition }}/2)
+    name: Elixir ${{ matrix.toolchain.elixir }} / OTP ${{ matrix.toolchain.erlang }} (${{ matrix.partition }}/3)
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -76,7 +76,7 @@ jobs:
           - { elixir: 1.18.5-otp-27, erlang: "27" }
           - { elixir: 1.19.6-otp-28, erlang: "28" }
           - { elixir: 1.20.4-otp-29, erlang: "29.1" }
-        partition: [1, 2]
+        partition: [1, 2, 3]
 
     # Build current libvips for clamp/maxpair, PNG palette quantization, and
     # JPEG XL source decoding. Compile vix against the same build.
@@ -178,7 +178,7 @@ jobs:
           key: ${{ steps.mix-cache.outputs.cache-primary-key }}
       - name: Run tests
         working-directory: image_pipe
-        run: mise exec -- mix test --no-compile --partitions 2
+        run: mise exec -- mix test --no-compile --partitions 3
         env:
           MIX_ENV: test
           MIX_TEST_PARTITION: ${{ matrix.partition }}
