@@ -349,6 +349,11 @@ defmodule ImagePipe.API.Path do
         redacted = mask_bytes(redacted, segment_offset + 4, byte_size(signature))
         redact_secrets(path, remainder, redacted)
 
+      {"wm-enc=" <> token, _offset, remainder} ->
+        segment_offset = byte_size(path) - byte_size(rest) + 1
+        redacted = mask_bytes(redacted, segment_offset + 7, byte_size(token))
+        redact_secrets(path, remainder, redacted)
+
       {_segment, _offset, remainder} ->
         redact_secrets(path, remainder, redacted)
     end

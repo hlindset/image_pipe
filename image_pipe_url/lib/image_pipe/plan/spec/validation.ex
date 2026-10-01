@@ -19,7 +19,23 @@ defmodule ImagePipe.Plan.Spec.Validation do
     :webp_options,
     :avif_options
   ]
-  @exclusive [[:crop, :region], [:anchor, :detect], [:anchor, :focus], [:detect, :focus]]
+  @watermark_assets [:watermark, :watermark_source, :watermark_token]
+  @watermark_options [
+    :watermark_opacity,
+    :watermark_scale,
+    :watermark_at,
+    :watermark_offset,
+    :watermark_tile
+  ]
+  @exclusive [
+    [:crop, :region],
+    [:anchor, :detect],
+    [:anchor, :focus],
+    [:detect, :focus],
+    [:watermark, :watermark_source],
+    [:watermark, :watermark_token],
+    [:watermark_source, :watermark_token]
+  ]
   @encoders [
     jpeg_options: :jpeg,
     png_options: :png,
@@ -27,14 +43,44 @@ defmodule ImagePipe.Plan.Spec.Validation do
     avif_options: :avif
   ]
 
-  @spec errors([map()], map(), MapSet.t(Issue.location())) :: [Issue.t()]
-  def errors(groups, options, invalid) do
+  @typedoc """
+  Host watermark facts, or `nil` when the caller cannot know them (URL
+  generation): configured asset names and whether request sources are enabled.
+  """
+  @type watermarks :: nil | %{names: [String.t()], request_sources?: boolean()}
+
+  @spec errors([map()], map(), MapSet.t(Issue.location()), watermarks()) :: [Issue.t()]
+  def errors(groups, options, invalid, watermarks) do
     group_errors =
       groups
       |> Enum.with_index()
-      |> Enum.flat_map(fn {group, index} -> group_errors(group, index, invalid) end)
+      |> Enum.flat_map(fn {group, index} ->
+        group_errors(group, index, invalid) ++ watermark_errors(group, index, watermarks)
+      end)
 
     group_errors ++ terminal_errors(groups, options) ++ output_errors(options)
+  end
+
+  defp watermark_errors(_group, _index, nil), do: []
+
+  defp watermark_errors(group, index, %{names: names, request_sources?: request_sources?}) do
+    unknown =
+      case Map.fetch(group, :watermark) do
+        {:ok, name} ->
+          if name in names,
+            do: [],
+            else: [issue(:unknown_watermark, index, [:watermark], :unknown_watermark)]
+
+        :error ->
+          []
+      end
+
+    disabled =
+      for key <- [:watermark_source, :watermark_token],
+          Map.has_key?(group, key) and not request_sources?,
+          do: issue(:watermark_source_disabled, index, [key], :watermark_source_disabled)
+
+    unknown ++ disabled
   end
 
   defp group_errors(group, index, invalid) do
@@ -59,7 +105,8 @@ defmodule ImagePipe.Plan.Spec.Validation do
         crop_requirements(group, index, invalid) ++
         [{:trim_symmetry, absent?(group, :trim, index, invalid), :trim}] ++
         canvas_requirements(group, index, invalid) ++
-        placement_requirements(group, index, invalid)
+        placement_requirements(group, index, invalid) ++
+        watermark_requirements(group, index, invalid)
 
     errors =
       for {key, missing?, requirement} <- rules,
@@ -117,6 +164,19 @@ defmodule ImagePipe.Plan.Spec.Validation do
     ]
   end
 
+  defp watermark_requirements(group, index, invalid) do
+    missing? =
+      not Enum.any?(@watermark_assets, &Map.has_key?(group, &1)) and
+        not invalid?(invalid, index, @watermark_assets)
+
+    tile_missing? =
+      not Map.get(group, :watermark_tile, false) and
+        not invalid?(invalid, index, [:watermark_tile])
+
+    Enum.map(@watermark_options, &{&1, missing?, :watermark}) ++
+      [{:watermark_gap, tile_missing?, :watermark_tile}]
+  end
+
   defp auto_dimension_errors(group, index, invalid) do
     auto_keys = Enum.filter([:width, :height], &(Map.get(group, &1) == :auto))
 
@@ -136,7 +196,7 @@ defmodule ImagePipe.Plan.Spec.Validation do
     do: Enum.any?(keys, &MapSet.member?(invalid, {:group, index, &1}))
 
   defp offset_errors(group, index) do
-    for key <- [:anchor_offset, :extend_offset],
+    for key <- [:anchor_offset, :extend_offset, :watermark_offset, :watermark_gap],
         offset = Map.get(group, key),
         offset != nil,
         not offset_safe?(offset, Map.get(group, :dpr, 1.0)),

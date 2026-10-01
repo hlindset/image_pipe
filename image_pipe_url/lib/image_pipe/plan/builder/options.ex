@@ -75,7 +75,15 @@ defmodule ImagePipe.Plan.Builder.Options do
       colorize: [type: custom(:colorize)],
       gradient: [type: custom(:gradient)],
       padding: [type: custom(:padding)],
-      background: [type: custom(:background)]
+      background: [type: custom(:background)],
+      watermark: [type: custom(:watermark_name)],
+      watermark_source: [type: custom(:source)],
+      watermark_opacity: [type: custom(:fraction)],
+      watermark_scale: [type: custom(:scale)],
+      watermark_at: [type: {:in, @anchors}],
+      watermark_offset: [type: custom(:offset)],
+      watermark_tile: [type: :boolean],
+      watermark_gap: [type: custom(:gap)]
     ]
   end
 

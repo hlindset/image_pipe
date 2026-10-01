@@ -95,6 +95,8 @@ defmodule ImagePipe.API.OptionSpec do
   @unsigned_integer_pattern ~r/\A[0-9]+\z/
   @signed_integer_pattern ~r/\A-?[0-9]+\z/
   @detect_class_pattern ~r/\A[a-z0-9][a-z0-9_-]*\z/
+  @watermark_name_pattern ~r/\A[a-z0-9_-]+\z/
+  @base64url_pattern ~r/\A[A-Za-z0-9_-]+\z/
   @max_vips_axis 2_147_483_647
   @max_detect_weight 1_000_000.0
   @default_monochrome_color {179, 179, 179}
@@ -422,6 +424,78 @@ defmodule ImagePipe.API.OptionSpec do
         value: &__MODULE__.parse_bg/1,
         summary: "Background color, flattens transparency: color[,alpha]",
         examples: ["bg=f4f4f4"]
+      },
+      %__MODULE__{
+        key: "wm",
+        name: :watermark,
+        scope: :group,
+        value: &__MODULE__.parse_watermark/1,
+        summary: "Host-configured watermark asset name",
+        examples: ["wm=logo"]
+      },
+      %__MODULE__{
+        key: "wm-src64",
+        name: :watermark_source,
+        scope: :group,
+        value: &__MODULE__.parse_watermark_source/1,
+        summary: "Request-supplied watermark source as unpadded base64url",
+        examples: ["wm-src64=YnJhbmQvbG9nby5wbmc"]
+      },
+      %__MODULE__{
+        key: "wm-enc",
+        name: :watermark_token,
+        scope: :group,
+        value: &__MODULE__.parse_watermark_token/1,
+        summary: "Concealed watermark source token",
+        examples: ["wm-enc=AQIDBA"]
+      },
+      %__MODULE__{
+        key: "wm-opacity",
+        name: :watermark_opacity,
+        scope: :group,
+        value: &__MODULE__.parse_watermark_opacity/1,
+        summary: "Watermark opacity from 0 to 1, multiplying the asset's base opacity",
+        examples: ["wm-opacity=0.5"]
+      },
+      %__MODULE__{
+        key: "wm-scale",
+        name: :watermark_scale,
+        scope: :group,
+        value: &__MODULE__.parse_watermark_scale/1,
+        summary: "Watermark size as a fraction of the frame, greater than 0 and at most 1",
+        examples: ["wm-scale=0.25"]
+      },
+      %__MODULE__{
+        key: "wm-at",
+        name: :watermark_at,
+        scope: :group,
+        value: &__MODULE__.parse_named_anchor/1,
+        summary: "Watermark placement anchor",
+        examples: ["wm-at=bottom-right"]
+      },
+      %__MODULE__{
+        key: "wm-offset",
+        name: :watermark_offset,
+        scope: :group,
+        value: &__MODULE__.parse_offset/1,
+        summary: "Signed x,y watermark placement offset",
+        examples: ["wm-offset=10,-5pct"]
+      },
+      %__MODULE__{
+        key: "wm-tile",
+        name: :watermark_tile,
+        scope: :group,
+        value: :flag,
+        summary: "Repeat the watermark across the frame",
+        examples: ["wm-tile"]
+      },
+      %__MODULE__{
+        key: "wm-gap",
+        name: :watermark_gap,
+        scope: :group,
+        value: &__MODULE__.parse_watermark_gap/1,
+        summary: "Non-negative x,y spacing between watermark tiles",
+        examples: ["wm-gap=20,5pct"]
       },
       %__MODULE__{
         key: "orient",
@@ -1209,6 +1283,68 @@ defmodule ImagePipe.API.OptionSpec do
       {:ok, [color]} -> {:ok, {color, nil}}
       {:ok, [color, alpha]} -> {:ok, {color, alpha}}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc false
+  @spec parse_watermark(String.t()) :: {:ok, String.t()} | {:error, :invalid_watermark}
+  def parse_watermark(string) do
+    case Regex.match?(@watermark_name_pattern, string) do
+      true -> {:ok, string}
+      false -> {:error, :invalid_watermark}
+    end
+  end
+
+  @doc false
+  @spec parse_watermark_source(String.t()) ::
+          {:ok, String.t()} | {:error, :invalid_watermark_source}
+  def parse_watermark_source(string) do
+    case not String.contains?(string, "=") and Base.url_decode64(string, padding: false) do
+      {:ok, source} when source != "" ->
+        if String.valid?(source), do: {:ok, source}, else: {:error, :invalid_watermark_source}
+
+      _invalid ->
+        {:error, :invalid_watermark_source}
+    end
+  end
+
+  @doc false
+  @spec parse_watermark_token(String.t()) ::
+          {:ok, String.t()} | {:error, :invalid_watermark_token}
+  def parse_watermark_token(string) do
+    case Regex.match?(@base64url_pattern, string) do
+      true -> {:ok, string}
+      false -> {:error, :invalid_watermark_token}
+    end
+  end
+
+  @doc false
+  @spec parse_watermark_opacity(String.t()) ::
+          {:ok, float()} | {:error, :invalid_watermark_opacity}
+  def parse_watermark_opacity(string) do
+    case Value.fraction(string) do
+      {:ok, opacity} -> {:ok, opacity}
+      {:error, _reason} -> {:error, :invalid_watermark_opacity}
+    end
+  end
+
+  @doc false
+  @spec parse_watermark_scale(String.t()) ::
+          {:ok, float()} | {:error, :invalid_watermark_scale}
+  def parse_watermark_scale(string) do
+    case Value.fraction(string) do
+      {:ok, scale} when scale > 0 -> {:ok, scale}
+      _invalid -> {:error, :invalid_watermark_scale}
+    end
+  end
+
+  @doc false
+  @spec parse_watermark_gap(String.t()) ::
+          {:ok, {length_value(), length_value()}} | {:error, :invalid_watermark_gap}
+  def parse_watermark_gap(string) do
+    case parse_offset(string) do
+      {:ok, {{_x_unit, x}, {_y_unit, y}} = gap} when x >= 0 and y >= 0 -> {:ok, gap}
+      _invalid -> {:error, :invalid_watermark_gap}
     end
   end
 

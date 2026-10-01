@@ -23,6 +23,7 @@ defmodule ImagePipe.API.URL do
   def build(plan, source, config, options) do
     with {:ok, source} <- source(source),
          :ok <- validate_plan(plan, config),
+         {:ok, plan} <- conceal_watermarks(plan, config, options, config[:encrypt_source]),
          {:ok, segments} <- segments(plan),
          {:ok, source_segments} <-
            source_segments(source, config, options, config[:encrypt_source]) do
@@ -59,6 +60,31 @@ defmodule ImagePipe.API.URL do
     do: ["src64", Base.url_encode64(source, padding: false)]
 
   defp source_segments(source), do: ["src", URI.encode(source, &URI.char_unreserved?/1)]
+
+  # Watermark sources follow the main source: concealed whenever it is.
+  defp conceal_watermarks(%Plan{} = plan, config, options, true) do
+    plan.groups
+    |> Enum.reduce_while({:ok, []}, fn group, {:ok, groups} ->
+      case conceal_watermark(group, config, options) do
+        {:ok, group} -> {:cont, {:ok, [group | groups]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, groups} -> {:ok, %{plan | groups: Enum.reverse(groups)}}
+      error -> error
+    end
+  end
+
+  defp conceal_watermarks(plan, _config, _options, _encrypt?), do: {:ok, plan}
+
+  defp conceal_watermark(%{watermark_source: source} = group, config, options) do
+    with {:ok, token} <- Security.encrypt_source(source, config, options) do
+      {:ok, group |> Map.delete(:watermark_source) |> Map.put(:watermark_token, token)}
+    end
+  end
+
+  defp conceal_watermark(group, _config, _options), do: {:ok, group}
 
   defp validate_plan(plan, config) do
     presets = config[:presets]
