@@ -118,6 +118,7 @@ export const cocoClasses = [
 export type CocoClass = (typeof cocoClasses)[number];
 
 export type TrimBackgroundMode = "auto" | "color";
+export type LengthUnit = "px" | "percent";
 
 // Host-configured watermark assets mounted by the fiddle server.
 export const watermarkAssets = ["logo", "mark", "badge"] as const;
@@ -232,9 +233,13 @@ export type ControlState = {
   watermarkGravity: Gravity;
   watermarkOffsetX: number;
   watermarkOffsetY: number;
+  watermarkOffsetXUnit: LengthUnit;
+  watermarkOffsetYUnit: LengthUnit;
   watermarkTile: boolean;
   watermarkGapX: number;
   watermarkGapY: number;
+  watermarkGapXUnit: LengthUnit;
+  watermarkGapYUnit: LengthUnit;
   gravityEnabled: boolean;
   gravityMode: GravityMode;
   gravity: Gravity;
@@ -345,7 +350,9 @@ export const controlLimits = {
     opacity: { min: 0, max: 1, step: 0.05 },
     scale: { min: 0.05, max: 1, step: 0.05 },
     offset: { min: -400, max: 400, step: 1 },
+    offsetPercent: { min: -100, max: 100, step: 0.5 },
     gap: { min: 0, max: 400, step: 1 },
+    gapPercent: { min: 0, max: 100, step: 0.5 },
   },
 } satisfies {
   resize: Record<ImageDimensionAxis, NumericControlLimit>;
@@ -366,7 +373,10 @@ export const controlLimits = {
   >;
   maxBytes: NumericControlLimit;
   dpi: NumericControlLimit;
-  watermark: Record<"opacity" | "scale" | "offset" | "gap", NumericControlLimit>;
+  watermark: Record<
+    "opacity" | "scale" | "offset" | "offsetPercent" | "gap" | "gapPercent",
+    NumericControlLimit
+  >;
 };
 
 export { sampleImages };
@@ -471,9 +481,13 @@ export const defaultControlState: ControlState = {
   watermarkGravity: "bottom-right",
   watermarkOffsetX: 16,
   watermarkOffsetY: 16,
+  watermarkOffsetXUnit: "px",
+  watermarkOffsetYUnit: "px",
   watermarkTile: false,
   watermarkGapX: 32,
   watermarkGapY: 32,
+  watermarkGapXUnit: "px",
+  watermarkGapYUnit: "px",
   gravityEnabled: false,
   gravityMode: "anchor",
   gravity: "center",
@@ -571,6 +585,14 @@ export function optionGroups(options: string): string[][] {
 
 function dimension(unit: CropDimensionUnit, pixels: number, percent: number): string {
   return unit === "full" ? "100pct" : unit === "percent" ? `${percent}pct` : String(pixels);
+}
+
+function length(value: number, unit: LengthUnit): string {
+  return unit === "percent" ? `${value}pct` : String(value);
+}
+
+function lengthUnit(value: string | undefined): LengthUnit {
+  return value?.endsWith("pct") ? "percent" : "px";
 }
 
 function codecSegment(
@@ -688,11 +710,15 @@ export function controlOptionSegments(s: ControlState): string[] {
     if (s.watermarkScaleEnabled) segments.push(`wm-scale=${s.watermarkScale}`);
     if (s.watermarkGravity !== "center") segments.push(`wm-at=${s.watermarkGravity}`);
     if (s.watermarkOffsetX !== 0 || s.watermarkOffsetY !== 0)
-      segments.push(`wm-offset=${s.watermarkOffsetX},${s.watermarkOffsetY}`);
+      segments.push(
+        `wm-offset=${length(s.watermarkOffsetX, s.watermarkOffsetXUnit)},${length(s.watermarkOffsetY, s.watermarkOffsetYUnit)}`,
+      );
     if (s.watermarkTile) {
       segments.push("wm-tile");
       if (s.watermarkGapX !== 0 || s.watermarkGapY !== 0)
-        segments.push(`wm-gap=${s.watermarkGapX},${s.watermarkGapY}`);
+        segments.push(
+          `wm-gap=${length(s.watermarkGapX, s.watermarkGapXUnit)},${length(s.watermarkGapY, s.watermarkGapYUnit)}`,
+        );
     }
   }
   if (s.formatEnabled) segments.push(`format=${s.format}`);
@@ -989,6 +1015,8 @@ export function controlStateFromOptions(
       case "wm-offset":
         s.watermarkOffsetX = parseFloat(parts[0]!);
         s.watermarkOffsetY = parseFloat(parts[1]!);
+        s.watermarkOffsetXUnit = lengthUnit(parts[0]);
+        s.watermarkOffsetYUnit = lengthUnit(parts[1]);
         break;
       case "wm-tile":
         s.watermarkTile = value !== "false";
@@ -996,6 +1024,8 @@ export function controlStateFromOptions(
       case "wm-gap":
         s.watermarkGapX = parseFloat(parts[0]!);
         s.watermarkGapY = parseFloat(parts[1]!);
+        s.watermarkGapXUnit = lengthUnit(parts[0]);
+        s.watermarkGapYUnit = lengthUnit(parts[1]);
         break;
       case "format":
         s.formatEnabled = true;

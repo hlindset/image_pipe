@@ -13,8 +13,11 @@
     resetCropPixelsToSource,
     watermarkAssets,
     type ControlState,
+    type LengthUnit,
     type SourceImage,
   } from "./api-controls";
+  const watermarkLimit = (kind: "offset" | "gap", unit: LengthUnit) =>
+    controlLimits.watermark[unit === "percent" ? (`${kind}Percent` as const) : kind];
   let { controlState = $bindable(), source }: { controlState: ControlState; source: SourceImage } =
     $props();
   let orientationOpen = $state(false);
@@ -1071,21 +1074,35 @@
         <option value="bottom-left">south west</option>
       </select>
     </label>
+    <label class="field">
+      <span>Offset X unit</span>
+      <select bind:value={controlState.watermarkOffsetXUnit}>
+        <option value="px">px</option><option value="percent">%</option>
+      </select>
+    </label>
     <RangeNumber
       label="Offset X"
       bind:value={controlState.watermarkOffsetX}
-      min={controlLimits.watermark.offset.min}
-      max={controlLimits.watermark.offset.max}
-      step={controlLimits.watermark.offset.step}
-      suffix="px"
+      min={watermarkLimit("offset", controlState.watermarkOffsetXUnit).min}
+      max={watermarkLimit("offset", controlState.watermarkOffsetXUnit).max}
+      step={watermarkLimit("offset", controlState.watermarkOffsetXUnit).step}
+      inputStep="any"
+      suffix={controlState.watermarkOffsetXUnit === "percent" ? "%" : "px"}
     />
+    <label class="field">
+      <span>Offset Y unit</span>
+      <select bind:value={controlState.watermarkOffsetYUnit}>
+        <option value="px">px</option><option value="percent">%</option>
+      </select>
+    </label>
     <RangeNumber
       label="Offset Y"
       bind:value={controlState.watermarkOffsetY}
-      min={controlLimits.watermark.offset.min}
-      max={controlLimits.watermark.offset.max}
-      step={controlLimits.watermark.offset.step}
-      suffix="px"
+      min={watermarkLimit("offset", controlState.watermarkOffsetYUnit).min}
+      max={watermarkLimit("offset", controlState.watermarkOffsetYUnit).max}
+      step={watermarkLimit("offset", controlState.watermarkOffsetYUnit).step}
+      inputStep="any"
+      suffix={controlState.watermarkOffsetYUnit === "percent" ? "%" : "px"}
     />
     <label class="switch-field">
       <Switch.Root class="switch-root" bind:checked={controlState.watermarkTile}>
@@ -1094,21 +1111,35 @@
       <span>Tile</span>
     </label>
     {#if controlState.watermarkTile}
+      <label class="field">
+        <span>Gap X unit</span>
+        <select bind:value={controlState.watermarkGapXUnit}>
+          <option value="px">px</option><option value="percent">%</option>
+        </select>
+      </label>
       <RangeNumber
         label="Gap X"
         bind:value={controlState.watermarkGapX}
-        min={controlLimits.watermark.gap.min}
-        max={controlLimits.watermark.gap.max}
-        step={controlLimits.watermark.gap.step}
-        suffix="px"
+        min={watermarkLimit("gap", controlState.watermarkGapXUnit).min}
+        max={watermarkLimit("gap", controlState.watermarkGapXUnit).max}
+        step={watermarkLimit("gap", controlState.watermarkGapXUnit).step}
+        inputStep="any"
+        suffix={controlState.watermarkGapXUnit === "percent" ? "%" : "px"}
       />
+      <label class="field">
+        <span>Gap Y unit</span>
+        <select bind:value={controlState.watermarkGapYUnit}>
+          <option value="px">px</option><option value="percent">%</option>
+        </select>
+      </label>
       <RangeNumber
         label="Gap Y"
         bind:value={controlState.watermarkGapY}
-        min={controlLimits.watermark.gap.min}
-        max={controlLimits.watermark.gap.max}
-        step={controlLimits.watermark.gap.step}
-        suffix="px"
+        min={watermarkLimit("gap", controlState.watermarkGapYUnit).min}
+        max={watermarkLimit("gap", controlState.watermarkGapYUnit).max}
+        step={watermarkLimit("gap", controlState.watermarkGapYUnit).step}
+        inputStep="any"
+        suffix={controlState.watermarkGapYUnit === "percent" ? "%" : "px"}
       />
     {/if}
   {/if}

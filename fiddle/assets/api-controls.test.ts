@@ -32,6 +32,26 @@ describe("visual controls serialize API requests", () => {
     expect(disabled).toBe("w=400");
   });
 
+  it("edits watermark offsets and gaps in either unit per axis", () => {
+    const options = "wm=logo/wm-offset=5pct,8/wm-tile/wm-gap=2,10pct";
+    const before = controlStateFromOptions(options, source);
+    expect(before).toMatchObject({
+      watermarkOffsetX: 5,
+      watermarkOffsetXUnit: "percent",
+      watermarkOffsetY: 8,
+      watermarkOffsetYUnit: "px",
+      watermarkGapX: 2,
+      watermarkGapXUnit: "px",
+      watermarkGapY: 10,
+      watermarkGapYUnit: "percent",
+    });
+
+    const after = { ...before, watermarkOffsetYUnit: "percent" as const, watermarkGapX: 3 };
+    expect(updateControlOptions(options, 0, before, after)).toBe(
+      "wm=logo/wm-offset=5pct,8pct/wm-tile/wm-gap=3,10pct",
+    );
+  });
+
   it("reads omitted watermark options as URL defaults", () => {
     expect(controlStateFromOptions("wm=logo", source)).toMatchObject({
       watermarkOpacity: 1,
@@ -384,6 +404,7 @@ describe("deep links and edits", () => {
     "format=jpeg/meta=strip/dpi=96",
     "wm=logo",
     "wm=logo/wm-opacity=0.5/wm-scale=0.2/wm-at=top-left/wm-offset=4,8/wm-tile/wm-gap=10,20",
+    "wm=mark/wm-offset=5pct,-2.5pct/wm-tile/wm-gap=10pct,4",
   ])("opening %s does not rewrite it", (options) => {
     const before = controlStateFromOptions(options, source);
     expect(updateControlOptions(options, 0, before, structuredClone(before))).toBe(options);
