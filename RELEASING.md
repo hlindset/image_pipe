@@ -7,8 +7,13 @@ run by `mise run precommit`, fails when the three `@version` values differ.
 ## Release a version
 
 1. Set the same `@version` in `image_pipe_url/mix.exs`, `image_pipe/mix.exs`,
-   and `image_pipe_server/mix.exs`. In `image_pipe/CHANGELOG.md`, add the release
-   notes under a `## X.Y.Z` heading (a date may follow the version).
+   and `image_pipe_server/mix.exs`. In `image_pipe/CHANGELOG.md`, move the
+   `Unreleased` notes under `## [X.Y.Z] - YYYY-MM-DD`, using the release date.
+   Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/): group notes
+   under `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, or `Security`,
+   and include only categories with entries. Add a version link to the
+   comparison with the previous release, or to the tag for the first release.
+   Update the `Unreleased` link to compare the new tag with `HEAD`.
    Merge to `main`.
 2. Tag the merge commit and push the tag:
 

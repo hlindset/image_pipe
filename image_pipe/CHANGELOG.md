@@ -1,26 +1,32 @@
 # Changelog
 
-## 0.1.0
+This changelog follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-- Split URL building into the `image_pipe_url` package, which `image_pipe`
-  depends on and releases in lockstep. Build plans and URLs with
-  `ImagePipe.URL` and its `ImagePipe.URL.config/1`; the server configuration
-  takes that value as `url:`, and `ImagePipe.run/4` and `ImagePipe.write/5`
-  take the server configuration first.
+## [Unreleased]
 
-- Updated Elixir/OTP tooling and the library and Fiddle dependencies. Migrated
-  Image background options and Req connection settings, and replaced Vix Git
-  pins with the upstream release containing the required fixes.
+### Added
 
-- Added Hex package metadata.
-- Added product-neutral source adapters for local paths, HTTP(S), and
-  S3-compatible object sources.
-- Added documentation for installation, mounting,
-  API URLs, support boundaries, cache behavior, and operational
-  behavior.
-- Consolidated image processing into one API request lifecycle and executor,
-  with explicit `-` groups and fixed operation order. Added API geometry,
-  effects, encoder and color controls, concealed sources, and info/BlurHash output.
-- Retired the imgproxy, IIIF, and TwicPics URL APIs. Selected imgproxy image
-  comparisons remain as test references for shared behavior.
-- Added the license file.
+First release of ImagePipe, with image processing powered by
+[elixir-image/image](https://github.com/elixir-image/image),
+[Vix](https://github.com/akash-akya/vix), and libvips.
+
+- Serve transformed images on demand from Phoenix or any Plug application
+  through `ImagePipe.Plug`. Reuse the same processing plans and configuration
+  for uploads, files, and background jobs through the Elixir API.
+- Run a dedicated image service with `image_pipe_server`, packaged as a Docker
+  image or Mix release. Configure it through TOML and environment variables,
+  without writing an Elixir application.
+- Build URLs with `image_pipe_url` without the image processing runtime,
+  including presets, signatures, expiry, and source encryption.
+- Read originals from local files, HTTP(S), S3-compatible storage, or custom
+  source adapters.
+- Compose resizing, cropping, orientation, effects, and watermarks in explicit
+  processing groups, with optional face and object detection.
+- Encode images with format negotiation, quality controls, byte budgets, and
+  color-profile policies. Generate BlurHash, LQIP CSS, and image-info JSON.
+- Configure input and output caches, conditional HTTP responses, streamed
+  delivery, request safety limits, and processing concurrency. Observe requests
+  through telemetry, logging, and tracing.
+
+[Unreleased]: https://github.com/hlindset/image_pipe/commits/main/
