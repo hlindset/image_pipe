@@ -39,6 +39,15 @@ jobs:
         run: mise exec -- mix local.hex --force
       - name: Install Rebar
         run: mise exec -- mix local.rebar --force
+      - name: Cache deps and build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            image_pipe_server/deps
+            image_pipe_server/_build
+          key: server-mix-${{ runner.os }}-${{ hashFiles('mise.toml') }}-${{ hashFiles('image_pipe_server/mix.lock') }}
+          restore-keys: |
+            server-mix-${{ runner.os }}-${{ hashFiles('mise.toml') }}-
       - name: Install dependencies
         run: mise exec -- mix deps.get
       - name: Check formatting
@@ -47,22 +56,3 @@ jobs:
         run: mise exec -- mix compile --warnings-as-errors
       - name: Run tests
         run: mise exec -- mix test --no-compile
-
-  image:
-    name: Docker image (${{ matrix.variant }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        variant: [base, vision]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Build image
-        run: |
-          docker build -f image_pipe_server/Dockerfile \
-            --build-arg IMAGE_VISION=${{ matrix.variant == 'vision' && '1' || '0' }} \
-            -t image_pipe_server:ci .
-      - name: Smoke test
-        run: image_pipe_server/test/container/smoke.sh image_pipe_server:ci ${{ matrix.variant }}

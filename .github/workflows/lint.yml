@@ -49,6 +49,23 @@ jobs:
         run: mise exec -- mix local.hex --force
       - name: Install Rebar
         run: mise exec -- mix local.rebar --force
+      # The fiddle's Rust build tree and unpacked XLA archive stay out: the
+      # compiled ortex and exla in _build are all formatting and Credo need.
+      - name: Cache deps and build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            image_pipe_url/deps
+            image_pipe_url/_build
+            image_pipe/deps
+            image_pipe/_build
+            fiddle/deps
+            fiddle/_build
+            !fiddle/deps/ortex/native/ortex/target
+            !fiddle/deps/exla/cache/xla_extension
+          key: lint-mix-erlang29.1-elixir1.20.4-otp29-${{ hashFiles('image_pipe_url/mix.lock', 'image_pipe/mix.lock', 'fiddle/mix.lock') }}
+          restore-keys: |
+            lint-mix-erlang29.1-elixir1.20.4-otp29-
       - name: Install image_pipe_url dependencies
         working-directory: image_pipe_url
         run: mise exec -- mix deps.get
