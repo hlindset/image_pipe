@@ -12,6 +12,7 @@ defmodule ImagePipe.APIWireTest do
   alias ImagePipe.Output.RequestPolicy, as: APIOutput
   alias ImagePipe.Output.Resolved
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Telemetry.RequestContext
   alias ImagePipe.Test.PlugFixture.CacheProbe
   alias ImagePipe.Test.PlugFixture.CountingOriginImage
   alias ImagePipe.Test.PlugFixture.OriginImage
@@ -726,7 +727,9 @@ defmodule ImagePipe.APIWireTest do
           end
         end)
 
-      {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), nil, [])
+      {:ok, coordinator} =
+        Coordinator.start(build_fun, owner, fake_cache_key(), RequestContext.capture(), [])
+
       coordinator_ref = Process.monitor(coordinator)
 
       assert {:ok, %{first_chunk: "a"}} = Coordinator.prepare(coordinator)
@@ -747,7 +750,8 @@ defmodule ImagePipe.APIWireTest do
       build_fun = bracketed_build_fun(["a", "b", "c"], test_pid)
       owner = self()
 
-      {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), nil, [])
+      {:ok, coordinator} =
+        Coordinator.start(build_fun, owner, fake_cache_key(), RequestContext.capture(), [])
 
       assert {:ok, %{first_chunk: "a"}} = Coordinator.prepare(coordinator)
       refute_received :bracket_cleanup
@@ -768,7 +772,8 @@ defmodule ImagePipe.APIWireTest do
       build_fun = bracketed_build_fun(["a", "b", "c"], test_pid)
       owner = self()
 
-      {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), nil, [])
+      {:ok, coordinator} =
+        Coordinator.start(build_fun, owner, fake_cache_key(), RequestContext.capture(), [])
 
       assert {:ok, %{first_chunk: "a"}} = Coordinator.prepare(coordinator)
       refute_received :bracket_cleanup

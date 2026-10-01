@@ -45,7 +45,7 @@ defmodule ImagePipe.Delivery do
   alias ImagePipe.Cache.Key
   alias ImagePipe.Delivery.Coordinator
   alias ImagePipe.Delivery.PreparedStream
-  alias ImagePipe.Telemetry.Trace
+  alias ImagePipe.Telemetry.RequestContext
 
   @type build_fun :: ImagePipe.Delivery.Producer.build_fun()
 
@@ -72,7 +72,7 @@ defmodule ImagePipe.Delivery do
   def stream(conn_owner_pid, build_fun, cache_key, config)
       when is_pid(conn_owner_pid) and is_function(build_fun, 1) and is_list(config) do
     {:ok, coordinator} =
-      Coordinator.start(build_fun, conn_owner_pid, cache_key, Trace.Stack.context(), config)
+      Coordinator.start(build_fun, conn_owner_pid, cache_key, RequestContext.capture(), config)
 
     case Coordinator.prepare(coordinator) do
       {:ok, prepared} -> {:ok, prepared_stream(coordinator, cache_key, prepared)}

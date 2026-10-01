@@ -20,7 +20,7 @@ defmodule ImagePipe.Execution.Watermarks do
   alias ImagePipe.Source.Response
   alias ImagePipe.Source.StreamError
   alias ImagePipe.Telemetry
-  alias ImagePipe.Telemetry.Trace.Stack
+  alias ImagePipe.Telemetry.RequestContext
 
   @type planned :: %{asset: term(), source: ImagePipe.Plan.Source.t(), opacity: float()}
 
@@ -128,11 +128,11 @@ defmodule ImagePipe.Execution.Watermarks do
   end
 
   defp start(phase, fun, config) do
-    trace = Stack.context()
+    request_context = RequestContext.capture()
     telemetry = Telemetry.telemetry_opts(config)
 
     Task.Supervisor.async_nolink(ImagePipe.ProcessingPool.Tasks, fn ->
-      Stack.adopt(trace)
+      RequestContext.adopt(request_context)
 
       Telemetry.span(telemetry, [:source, :watermark], %{phase: phase}, fn ->
         result = fun.()

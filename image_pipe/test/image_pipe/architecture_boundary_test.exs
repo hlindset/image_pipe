@@ -356,10 +356,10 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     assert_boundary_deps(telemetry, [])
     # ImagePipe.Telemetry.Trace is the opt-in span-tracer facade; the Plug edge calls
-    # Trace.maybe_extract_inbound/1, so it is exported. Trace.Stack/Trace.Context are
-    # exported because runner/source code threads + adopts the trace context across the
-    # runner->delivery-coordinator (hop A) and runner->producer (hop B) process seams (it
-    # calls only these generic Trace.* modules, never concrete transform ops).
+    # Trace.maybe_extract_inbound/1, so it is exported. RequestContext is exported because
+    # execution, delivery, and the processing pool carry the request's trace context and
+    # Logger metadata across their process hops. Trace.Stack is exported because the
+    # processing pool keeps each job's span frame on its shared process.
     # Trace.ReqStep is exported because the source Req-client build site attaches it to
     # trace outbound fetches as a logical client span. Trace.Span and Trace.Exporter are
     # exported because a host implements the exporter behaviour (Trace.Exporter) and
@@ -371,9 +371,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     # Trace.OtelReplay is exported solely so ImagePipe.Application can supervise it; it is
     # exported-but-internal (@moduledoc false), the same posture as Trace.Stack.
     assert_boundary_exports(telemetry, [
+      ImagePipe.Telemetry.RequestContext,
       ImagePipe.Telemetry.Trace,
       ImagePipe.Telemetry.Trace.Stack,
-      ImagePipe.Telemetry.Trace.Context,
       ImagePipe.Telemetry.Trace.Span,
       ImagePipe.Telemetry.Trace.Exporter,
       ImagePipe.Telemetry.Trace.ReqStep,

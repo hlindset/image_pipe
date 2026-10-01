@@ -21,6 +21,7 @@ defmodule ImagePipe.APIErrorPathsTest do
   alias ImagePipe.Delivery.Coordinator
   alias ImagePipe.Output.Resolved
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Telemetry.RequestContext
   alias ImagePipe.Test.Delivery.SessionProbe
   alias ImagePipe.Test.PlugFixture.OriginImage
 
@@ -383,7 +384,9 @@ defmodule ImagePipe.APIErrorPathsTest do
           end
         end)
 
-      {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), nil, [])
+      {:ok, coordinator} =
+        Coordinator.start(build_fun, owner, fake_cache_key(), RequestContext.capture(), [])
+
       coordinator_ref = Process.monitor(coordinator)
 
       prepare_task = Task.async(fn -> Coordinator.prepare(coordinator) end)
@@ -598,7 +601,9 @@ defmodule ImagePipe.APIErrorPathsTest do
       build_fun = bracketed_build_fun(["a", "b"], test_pid)
       owner = self()
 
-      {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), nil, [])
+      {:ok, coordinator} =
+        Coordinator.start(build_fun, owner, fake_cache_key(), RequestContext.capture(), [])
+
       coordinator_ref = Process.monitor(coordinator)
 
       assert {:ok, %{first_chunk: "a"}} = Coordinator.prepare(coordinator)

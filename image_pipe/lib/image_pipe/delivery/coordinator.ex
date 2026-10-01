@@ -27,7 +27,7 @@ defmodule ImagePipe.Delivery.Coordinator do
   alias ImagePipe.Debug.Info
   alias ImagePipe.Delivery.Producer
   alias ImagePipe.ProcessingPool
-  alias ImagePipe.Telemetry.Trace
+  alias ImagePipe.Telemetry.RequestContext
 
   @call_timeout 60_000
   @cancel_timeout 2_000
@@ -37,7 +37,7 @@ defmodule ImagePipe.Delivery.Coordinator do
     :owner,
     :owner_monitor,
     :cache_key,
-    :trace_context,
+    :request_context,
     :config,
     :producer,
     :producer_monitor,
@@ -64,13 +64,13 @@ defmodule ImagePipe.Delivery.Coordinator do
           Producer.build_fun(),
           pid(),
           Cache.Key.t() | nil,
-          Trace.Context.t() | nil,
+          RequestContext.t(),
           keyword()
         ) ::
           GenServer.on_start()
-  def start(build_fun, owner, cache_key, trace_context, config)
+  def start(build_fun, owner, cache_key, request_context, config)
       when is_function(build_fun, 1) and is_pid(owner) do
-    GenServer.start(__MODULE__, {build_fun, owner, cache_key, trace_context, config})
+    GenServer.start(__MODULE__, {build_fun, owner, cache_key, request_context, config})
   end
 
   @spec prepare(server(), timeout()) :: {:ok, map()} | {:error, term()}
@@ -83,12 +83,13 @@ defmodule ImagePipe.Delivery.Coordinator do
   def cancel(server, timeout \\ @cancel_timeout), do: call_session(server, :cancel, timeout)
 
   @impl GenServer
-  def init({build_fun, owner, cache_key, trace_context, config}) when is_pid(owner) do
+  def init({build_fun, owner, cache_key, request_context, config}) when is_pid(owner) do
     Process.flag(:trap_exit, true)
     Process.put(:"$callers", [owner | Process.get(:"$callers", [])])
-    # Hop A: adopt the request's trace context so spans emitted from THIS
-    # process (e.g. [:cache, :write] at commit) nest under the request root.
-    Trace.Stack.adopt(trace_context)
+    # Hop A: adopt the request's context so spans emitted from THIS process
+    # (e.g. [:cache, :write] at commit) nest under the request root and keep
+    # the host's Logger metadata.
+    RequestContext.adopt(request_context)
     Cache.OutputWork.transfer(Keyword.get(config, :output_lease))
 
     {:ok,
@@ -99,7 +100,7 @@ defmodule ImagePipe.Delivery.Coordinator do
        # the other way around.
        owner_monitor: Process.monitor(owner),
        cache_key: cache_key,
-       trace_context: trace_context,
+       request_context: request_context,
        config: config
      }}
   end
@@ -114,7 +115,7 @@ defmodule ImagePipe.Delivery.Coordinator do
       ProcessingPool.within(pool, coordinator, state.config, fn -> state.build_fun.(pump) end)
     end
 
-    {:ok, producer} = Producer.start_link(build, state.trace_context)
+    {:ok, producer} = Producer.start_link(build, state.request_context)
     ref = Process.monitor(producer)
     producer_ref = Producer.request_next(producer, self())
 

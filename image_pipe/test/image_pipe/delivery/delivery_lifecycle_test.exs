@@ -16,6 +16,7 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
   alias ImagePipe.Delivery
   alias ImagePipe.Delivery.Coordinator
   alias ImagePipe.Output.Resolved
+  alias ImagePipe.Telemetry.RequestContext
   alias ImagePipe.Test.Delivery.SessionProbe
 
   @event_target __MODULE__.StreamEvents
@@ -195,7 +196,7 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
         end
       end
 
-      {:ok, coordinator} = Coordinator.start(build_fun, self(), nil, nil, [])
+      {:ok, coordinator} = Coordinator.start(build_fun, self(), nil, RequestContext.capture(), [])
 
       assert {:error, {:session, :timeout}} = Coordinator.prepare(coordinator, 100)
       assert_receive {:build_started, producer}
@@ -232,7 +233,7 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
         end
       end
 
-      {:ok, coordinator} = Coordinator.start(build_fun, self(), nil, nil, [])
+      {:ok, coordinator} = Coordinator.start(build_fun, self(), nil, RequestContext.capture(), [])
       coordinator_ref = Process.monitor(coordinator)
 
       assert {:error, {:session, :timeout}} = Coordinator.prepare(coordinator, 100)

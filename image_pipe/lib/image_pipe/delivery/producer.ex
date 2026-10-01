@@ -27,23 +27,24 @@ defmodule ImagePipe.Delivery.Producer do
 
   alias ImagePipe.Debug.Info
   alias ImagePipe.Delivery.StreamPull
-  alias ImagePipe.Telemetry.Trace
+  alias ImagePipe.Telemetry.RequestContext
 
   @type pump_result :: {:reply, pid(), reference(), term()}
   @type pump :: (Enumerable.t(), String.t(), term(), Info.t() | nil -> pump_result())
   @type build_fun :: (pump() -> pump_result() | {:error, term()})
 
-  @spec start_link(build_fun(), Trace.Context.t() | nil) :: {:ok, pid()}
-  def start_link(build_fun, trace_context) when is_function(build_fun, 1) do
+  @spec start_link(build_fun(), RequestContext.t()) :: {:ok, pid()}
+  def start_link(build_fun, request_context) when is_function(build_fun, 1) do
     caller_chain = Process.get(:"$callers", [])
 
     pid =
       spawn_link(fn ->
         Process.put(:"$callers", caller_chain)
-        # Hop B: adopt the request's trace context (passed as data, since the
-        # spawned process does not inherit the caller's trace stack) so spans
-        # emitted from inside `build_fun` nest under the request root.
-        Trace.Stack.adopt(trace_context)
+        # Hop B: adopt the request's context (passed as data, since the
+        # spawned process inherits neither the caller's trace stack nor its
+        # Logger metadata) so spans emitted from inside `build_fun` nest under
+        # the request root and keep the host's metadata.
+        RequestContext.adopt(request_context)
         run(build_fun)
       end)
 

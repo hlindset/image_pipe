@@ -674,6 +674,28 @@ URLs, tokens, and private identifiers. Hosts that add paths in their own
 handlers must apply suitable privacy controls; they should separately decide
 which high-cardinality values are appropriate as metrics dimensions.
 
+## Request IDs
+
+ImagePipe uses the host's request ID rather than minting its own. Run
+`Plug.RequestId` (Phoenix endpoints do by default) before the mount: it sets
+the `x-request-id` response header and `Logger.metadata[:request_id]`.
+ImagePipe carries the caller's Logger metadata into every process that serves
+the request, including the processing pool, the streaming producer, and the
+cache writer, so log lines and telemetry handlers see the same metadata as
+the connection process. Correlate a response with its events by reading the
+ID in a handler:
+
+```elixir
+def handle_event(event, measurements, metadata, _config) do
+  request_id = Logger.metadata()[:request_id]
+  # ...
+end
+```
+
+Telemetry metadata carries no request ID field. Background cache refreshes
+run detached from any request and keep no request metadata. Traces correlate
+by trace ID instead; see [Tracing](#tracing-opt-in).
+
 ## Result values
 
 Request and stage spans use narrow result atoms:

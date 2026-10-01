@@ -24,6 +24,40 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert {:error, :not_found} = Telemetry.detach_default_logger()
   end
 
+  test "lines from the processing worker carry the request's Logger metadata" do
+    prefix = [__MODULE__, :request_id]
+    Telemetry.attach_default_logger(prefix: prefix, events: [:transform])
+    pool = start_supervised!({ImagePipe.ProcessingPool, max_concurrency: 1})
+
+    config =
+      ImagePipe.config(
+        processing_pool: pool,
+        telemetry_prefix: prefix,
+        sources: [
+          path: [
+            adapter: ImagePipe.Source.File,
+            match: :path,
+            options: [root: "priv/static", root_id: "static"]
+          ]
+        ]
+      )
+
+    mount = ImagePipe.Plug.init(config: config)
+
+    log =
+      capture_log([format: "$metadata| $message\n", metadata: [:request_id]], fn ->
+        conn =
+          Plug.Test.conn(:get, "/w=32/format=png/src/images/beach.jpg")
+          |> Plug.RequestId.call(Plug.RequestId.init([]))
+          |> ImagePipe.Plug.call(mount)
+
+        send(self(), {:request_id, Plug.Conn.get_resp_header(conn, "x-request-id")})
+      end)
+
+    assert_received {:request_id, [id]}
+    assert log =~ "request_id=#{id} | image_pipe transform execute: ok"
+  end
+
   test "logs processing admission and deadline outcomes at warning level" do
     prefix = [__MODULE__, :processing]
     Telemetry.attach_default_logger(prefix: prefix, events: [:request], level: :debug)

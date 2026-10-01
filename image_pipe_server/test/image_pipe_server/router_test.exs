@@ -41,6 +41,34 @@ defmodule ImagePipeServer.RouterTest do
     assert Image.width(image) == 2
   end
 
+  describe "request IDs" do
+    test "every response carries one", %{image_pipe: image_pipe} do
+      opts = [mount_path: "/images", image_pipe: image_pipe]
+      locked = Keyword.put(opts, :auth_token_hash, :crypto.hash(:sha256, "t0k"))
+
+      for {path, opts, status} <- [
+            {"/health", opts, 200},
+            {"/images/w=2/format=png/src/pic.png", opts, 200},
+            {"/elsewhere", opts, 404},
+            {"/images/w=2/format=png/src/pic.png", locked, 401}
+          ] do
+        conn = call(:get, path, opts)
+        assert conn.status == status
+        assert [_id] = get_resp_header(conn, "x-request-id")
+      end
+    end
+
+    test "keeps an incoming one", %{image_pipe: image_pipe} do
+      conn =
+        conn(:get, "/w=2/format=png/src/pic.png")
+        |> put_req_header("x-request-id", "edge-request-0123456789")
+        |> Router.call(Router.init(mount_path: "/", image_pipe: image_pipe))
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "x-request-id") == ["edge-request-0123456789"]
+    end
+  end
+
   describe "with a mount below the root" do
     test "serves images under the mount path", %{image_pipe: image_pipe} do
       conn =

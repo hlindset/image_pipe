@@ -165,6 +165,11 @@ image then refuses to start, which catches deploying the wrong variant. See
 `[telemetry] log_level` attaches the library's default Logger, which logs
 each request stage at that level. See [telemetry](../../image_pipe/docs/telemetry.md).
 
+Every response carries an `x-request-id` header, and every log line for that
+request is tagged `request_id=<id>`. The server keeps a valid incoming
+`x-request-id` (20 to 200 characters), so an ID set by a proxy or CDN carries
+through; otherwise it generates one.
+
 ## Tracing
 
 The server exports ImagePipe's request and stage spans with OpenTelemetry,
