@@ -99,19 +99,40 @@ jobs:
         with:
           persist-credentials: false
       - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+      # Downloaded packages are cached so a slow or failing Ubuntu mirror only
+      # affects the package index fetch. Only the first matrix job saves.
+      - name: Restore apt packages
+        id: apt-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/apt-archives
+          key: apt-${{ runner.os }}-${{ hashFiles('.github/workflows/elixir.yml') }}
+          restore-keys: |
+            apt-${{ runner.os }}-
       - name: Install libvips build and runtime dependencies
         run: |
-          # Most of this step is dpkg, not downloading. The runner is
-          # throwaway, so skip dpkg's fsyncs and the man-db index rebuild.
+          # The runner is throwaway, so skip dpkg's fsyncs and the man-db
+          # index rebuild.
           echo force-unsafe-io | sudo tee /etc/dpkg/dpkg.cfg.d/force-unsafe-io >/dev/null
           sudo rm -f /var/lib/man-db/auto-update
+          mkdir -p ~/apt-archives/partial
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
+            -o Dir::Cache::Archives="$HOME/apt-archives" \
+            -o APT::Keep-Downloaded-Packages=true \
             build-essential meson ninja-build pkg-config \
             libglib2.0-dev libexpat1-dev libjpeg-turbo8-dev libpng-dev \
             libwebp-dev libtiff-dev libgif-dev libheif-dev librsvg2-dev \
             liborc-0.4-dev liblcms2-dev libjxl-dev libcgif-dev libexif-dev \
             libheif-plugin-aomenc libheif-plugin-aomdec libimagequant-dev
+          sudo rm -rf ~/apt-archives/partial ~/apt-archives/lock
+          sudo chown -R "$(id -u):$(id -g)" ~/apt-archives
+      - name: Save apt packages
+        if: strategy.job-index == 0 && steps.apt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/apt-archives
+          key: ${{ steps.apt-cache.outputs.cache-primary-key }}
       - name: Cache libvips build
         id: cache-vips
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
