@@ -42,7 +42,11 @@ jobs:
       # written by the Erlang installed on another image.
       - name: Runner image
         id: runner
-        run: echo "image=$ImageOS" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "image=$ImageOS" >> "$GITHUB_OUTPUT"
+          # mise maps ImageOS to builds.hex.pm's Erlang builds only up to
+          # ubuntu24 and compiles from source otherwise; name the release.
+          echo "MISE_ERLANG_PRECOMPILED_OS=${ImageOS/ubuntu/ubuntu-}.04" >> "$GITHUB_ENV"
       - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
           mise_toml: |
