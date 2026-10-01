@@ -1,0 +1,58 @@
+name: Release
+
+# A vX.Y.Z tag publishes that version. Running the workflow by hand from any
+# branch is a dry run that builds and checks the packages without publishing.
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Projects share a version
+        if: github.event_name == 'workflow_dispatch'
+        run: scripts/check-versions.sh
+      - name: Tag matches the projects and is on main
+        if: github.event_name == 'push'
+        run: |
+          scripts/check-versions.sh "${GITHUB_REF_NAME#v}"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+  hex:
+    name: Hex packages
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'push' && 'release' || 'release-dry-run' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          install_args: erlang elixir
+      - name: Install Hex
+        run: mise exec -- mix local.hex --force
+      - name: Install Rebar
+        run: mise exec -- mix local.rebar --force
+      - name: Dry run
+        if: github.event_name == 'workflow_dispatch'
+        run: mise run release:hex --dry-run
+      - name: Publish
+        if: github.event_name == 'push'
+        run: mise run release:hex
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}

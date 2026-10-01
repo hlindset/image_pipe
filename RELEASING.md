@@ -1,25 +1,44 @@
 # Releasing
 
-`image_pipe` and `image_pipe_url` are released together at the same version.
-`image_pipe` pins `image_pipe_url` with `==`, and `mise run precommit` fails
-when the two `@version` values differ.
+`image_pipe_url`, `image_pipe`, and `image_pipe_server` share one version.
+`image_pipe` pins `image_pipe_url` with `==`, and `scripts/check-versions.sh`,
+run by `mise run precommit`, fails when the three `@version` values differ.
 
-1. Set the same `@version` in `image_pipe_url/mix.exs` and `image_pipe/mix.exs`,
-   and update `image_pipe/CHANGELOG.md`.
-2. Publish `image_pipe_url` first, from `image_pipe_url/`:
+## Release a version
 
-   ```sh
-   mise exec -- mix hex.publish
-   ```
-
-3. Publish `image_pipe` from `image_pipe/`. In development it depends on the
-   sibling checkout by path, which a Hex package cannot carry;
-   `IMAGE_PIPE_PUBLISH=1` switches it to the Hex release from step 2:
+1. Set the same `@version` in `image_pipe_url/mix.exs`, `image_pipe/mix.exs`,
+   and `image_pipe_server/mix.exs`, update `image_pipe/CHANGELOG.md`, and merge
+   to `main`.
+2. Tag the merge commit and push the tag:
 
    ```sh
-   IMAGE_PIPE_PUBLISH=1 mise exec -- mix deps.get
-   IMAGE_PIPE_PUBLISH=1 mise exec -- mix hex.publish
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
    ```
 
-   The `deps.get` records the Hex dependency in `image_pipe/mix.lock`. Discard
-   that change afterwards rather than committing it.
+The tag starts the [Release workflow](.github/workflows/release.yml). It checks
+that the tag matches all three versions and is on `main`, then publishes
+`image_pipe_url` and `image_pipe` to Hex with their docs. Publishing runs in the
+`release` environment, which holds the `HEX_API_KEY` secret.
+
+Never move a tag. Fix a bad release with the next patch version. Within Hex's
+revert window, `mix hex.publish --revert X.Y.Z` in the package directory
+withdraws a version.
+
+## Dry run
+
+Run the Release workflow by hand from any branch, or locally:
+
+```sh
+mise run release:hex --dry-run
+```
+
+A dry run builds both packages and their docs, failing on documentation
+warnings, without publishing. Until `image_pipe_url` at the new version is on
+Hex, `image_pipe` can't resolve it, so its check stops just short of that one
+dependency.
+
+## Rerunning
+
+`scripts/release_hex.exs` skips a version that is already on Hex. If
+`image_pipe` fails after `image_pipe_url` is published, rerun the failed job.

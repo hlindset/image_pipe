@@ -52,6 +52,10 @@ run = [
   "mix test",
 ]
 
+[tasks."release:hex"]
+description = "Publish image_pipe_url and image_pipe to Hex; pass --dry-run to only build and check them"
+run = "elixir scripts/release_hex.exs"
+
 [tasks."precommit:server"]
 description = "Library checks plus the image_pipe_server checks: format, compile (warnings as errors), test"
 depends = ["precommit"]
