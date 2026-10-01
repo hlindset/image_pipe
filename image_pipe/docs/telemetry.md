@@ -113,9 +113,8 @@ destination write after the processing request span and source cleanup.
 
 Stop metadata:
 
-- `:result` — the request outcome category (see "Result values").
-  `ImagePipe.API.classify_error/1` classifies request validation failures;
-  runtime failures use `ImagePipe.Telemetry.request_result/1`.
+- `:result` — the request outcome category (see "Result values"), from
+  `ImagePipe.Telemetry.request_result/1`.
 - `:status` — the response status.
 - `:error` — a stable error category on failures.
 
