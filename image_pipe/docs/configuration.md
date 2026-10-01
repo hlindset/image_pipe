@@ -145,11 +145,19 @@ redirect limits belong on the source adapter.
 | `stripped_dpi` | `72` | Density written when stripping metadata without a request `dpi`, `1..65535` |
 | `strip_color_profile` | `true` | Convert into working space and omit source ICC; `false` preserves source profile |
 | `preserve_hdr` | `false` | Preserve high bit depth when supported by the output |
+| `skip_processing_formats` | `[]` | Source formats delivered unchanged when the request allows; see below |
 
 Explicit request `quality`/`q` wins over the selected format's quality.
 Request `metadata`/`meta` replaces both metadata switches; request `dpi`
 replaces `stripped_dpi`. Named output color
 profiles require tone-mapped output. See [output and encoding](processing/output.md).
+
+`skip_processing_formats` lists source formats, such as `[:gif]`, that
+ImagePipe delivers as the unchanged source bytes instead of processing them.
+See [skip processing](api_contract.md#skip-processing) for which requests
+qualify. A skipped response ignores every processing and output option and
+keeps the source's metadata, including any location data, so list only formats
+whose originals you are willing to serve as they are.
 
 ## Automatic quality search
 

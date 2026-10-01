@@ -19,6 +19,7 @@ defmodule ImagePipe.Response.Sender do
   alias ImagePipe.Delivery.PreparedStream
   alias ImagePipe.Error
   alias ImagePipe.Output.Resolved
+  alias ImagePipe.Output.Skipped
   alias ImagePipe.Plan.Spec
   alias ImagePipe.Response.CacheHeaders
   alias ImagePipe.Response.Disposition
@@ -389,18 +390,19 @@ defmodule ImagePipe.Response.Sender do
   end
 
   defp output_metadata(%Resolved{format: format}), do: %{output_format: format}
+  defp output_metadata(%Skipped{format: format}), do: %{output_format: format, skipped: true}
 
-  defp deliver_ok_metadata(:ok, %Plug.Conn{status: status}, %Resolved{} = resolved_output),
+  defp deliver_ok_metadata(:ok, %Plug.Conn{status: status}, resolved_output),
     do: Map.merge(%{result: :ok, status: status}, output_metadata(resolved_output))
 
-  defp deliver_stop_metadata(:ok, %Plug.Conn{} = conn, %Resolved{} = resolved_output) do
+  defp deliver_stop_metadata(:ok, %Plug.Conn{} = conn, resolved_output) do
     deliver_ok_metadata(:ok, conn, resolved_output)
   end
 
   defp deliver_stop_metadata(
          {:error, {:client_closed, _reason}},
          %Plug.Conn{status: status},
-         %Resolved{} = resolved_output
+         resolved_output
        ) do
     Map.merge(
       %{
@@ -416,7 +418,7 @@ defmodule ImagePipe.Response.Sender do
   defp deliver_stop_metadata(
          {:error, reason},
          %Plug.Conn{status: status},
-         %Resolved{} = resolved_output
+         resolved_output
        ) do
     Map.merge(
       %{

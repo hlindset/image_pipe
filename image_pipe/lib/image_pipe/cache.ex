@@ -33,6 +33,7 @@ defmodule ImagePipe.Cache do
   alias ImagePipe.Cache.Sink
   alias ImagePipe.Error
   alias ImagePipe.Output.Resolved
+  alias ImagePipe.Output.Skipped
   alias ImagePipe.Telemetry
 
   @shared_cache_option_keys [:max_body_bytes]
@@ -147,8 +148,13 @@ defmodule ImagePipe.Cache do
   end
 
   @doc false
-  @spec open_sink(Key.t() | nil, Resolved.t() | {:complete_body, String.t()}, keyword()) ::
+  @spec open_sink(
+          Key.t() | nil,
+          Resolved.t() | Skipped.t() | {:complete_body, String.t()},
+          keyword()
+        ) ::
           sink() | nil
+  def open_sink(_key, %Skipped{}, _opts), do: nil
   def open_sink(nil, %Resolved{}, _opts), do: nil
   def open_sink(nil, {:complete_body, _content_type}, _opts), do: nil
 

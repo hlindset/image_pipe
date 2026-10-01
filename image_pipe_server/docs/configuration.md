@@ -354,6 +354,7 @@ Processing defaults and limits of `ImagePipe.config/1`.
 | `format_quality` | table of integer > 0 | `{ avif = 63, webp = 79 }` |
 | `strip_color_profile` | boolean | `true` |
 | `preserve_hdr` | boolean | `false` |
+| `skip_processing_formats` | array of `"avif"` or `"webp"` or `"jpeg"` or `"png"` or `"jpeg_xl"` or `"heif"` or `"tiff"` or `"jpeg2000"` or `"gif"` | `[]` |
 | `autoquality_method` | `"none"` or `"size"` or `"ssimulacra2"` or `"butteraugli"` | `"none"` |
 | `autoquality_target` | table of integer or number | `{ butteraugli = 1.0, ssimulacra2 = 78 }` |
 | `autoquality_min_quality` | integer > 0 | `70` |

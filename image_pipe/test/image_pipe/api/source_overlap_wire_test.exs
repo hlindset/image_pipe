@@ -100,6 +100,24 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
     refute_received {:decoded, _}
   end
 
+  test "a skipped source found during overlap streams the completed download", context do
+    config = Keyword.put(context.config, :skip_processing_formats, [:jpeg])
+
+    task =
+      Task.Supervisor.async_nolink(context.tasks, fn ->
+        Plug.Test.conn(:get, "/w=100/src/#{context.url}/image") |> ImagePipe.Plug.call(config)
+      end)
+
+    assert_receive {:origin_held, origin}, 2_000
+    assert_receive {:decoded, %{result: :ok, skipped: true}}, 2_000
+    send(origin, :continue)
+    response = Task.await(task, 10_000)
+
+    assert response.status == 200
+    assert response.resp_body == context.body
+    assert Plug.Conn.get_resp_header(response, "content-type") == ["image/jpeg"]
+  end
+
   test "empty source chunks do not break overlap observation", context do
     <<prefix::binary-size(512 * 1024), tail::binary>> = context.body
 

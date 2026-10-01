@@ -30,7 +30,8 @@ defmodule ImagePipe.Output.Policy do
                 dpi: nil,
                 quality_search_offsets: Output.default_quality_search_offsets(),
                 encoder_options: %{},
-                hdr: :tone_map
+                hdr: :tone_map,
+                skip_formats: []
               ]
 
   @passthrough_source_formats [:jpeg, :png]
@@ -66,7 +67,8 @@ defmodule ImagePipe.Output.Policy do
           dpi: nil | 1..65_535,
           quality_search_offsets: Output.quality_search_offsets(),
           encoder_options: %{optional(format()) => struct()},
-          hdr: Output.hdr()
+          hdr: Output.hdr(),
+          skip_formats: [source_format()]
         }
 
   @type identity_selection() ::
@@ -111,9 +113,26 @@ defmodule ImagePipe.Output.Policy do
       color_profile: policy.color_profile,
       hdr: policy.hdr,
       flatten_background: Color.key_data(policy.flatten_background),
-      encoder_options: encoder_options_identity(policy.encoder_options)
+      encoder_options: encoder_options_identity(policy.encoder_options),
+      skip_formats: policy.skip_formats
     ]
   end
+
+  @doc """
+  Narrows the host's skip-processing formats to the source formats this
+  request may deliver unchanged: every listed format without an explicit
+  `format`, or only the explicit format when it is listed.
+  """
+  @spec put_skip_formats(t(), [source_format()]) :: t()
+  def put_skip_formats(%__MODULE__{mode: :source} = policy, formats),
+    do: %{policy | skip_formats: formats |> Enum.uniq() |> Enum.sort()}
+
+  def put_skip_formats(%__MODULE__{mode: {:explicit, format}} = policy, formats),
+    do: %{policy | skip_formats: Enum.filter([format], &(&1 in formats))}
+
+  @doc "Whether a source in `source_format` is delivered unchanged."
+  @spec skip?(t(), source_format()) :: boolean()
+  def skip?(%__MODULE__{skip_formats: formats}, source_format), do: source_format in formats
 
   @spec resolve(t(), source_format() | nil) ::
           {:ok, Resolved.t()}

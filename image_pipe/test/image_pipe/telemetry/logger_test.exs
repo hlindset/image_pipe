@@ -759,6 +759,21 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "source fetch_decode: ok (detected jpeg via detected)"
   end
 
+  test "renders a skipped source on the fetch_decode span" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :source, :fetch_decode, :stop],
+          %{duration: System.convert_time_unit(1, :millisecond, :native)},
+          %{result: :ok, skipped: true, detected_source_format: :gif}
+        )
+      end)
+
+    assert log =~ "source fetch_decode: ok (detected gif, skipped processing)"
+  end
+
   test "renders the detected format on an unsupported-format reject" do
     Telemetry.attach_default_logger(level: :info)
 

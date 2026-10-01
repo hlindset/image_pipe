@@ -88,8 +88,8 @@ BlurHash, LQIP CSS, and source-info JSON are the supported outputs.
 Mount configuration includes source/cache adapters,
 `max_body_bytes`, `max_input_pixels`, result width/height/pixel limits,
 telemetry prefix, automatic format preferences, output capabilities, CORS,
-debug-header permission, storage vary inputs, named watermark assets, and the
-request-watermark gate. Source-adapter controls
+debug-header permission, storage vary inputs, named watermark assets, the
+request-watermark gate, and skip-processing formats. Source-adapter controls
 (including HTTP bounds and S3 credentials/providers) retain their own
 validation boundaries. Generated HTTP cache policy is opt-in and respects host
 headers and source identity. See [HTTP caching](cdn-http-cache.md).
@@ -603,6 +603,27 @@ encoding pixels. Format names use the library's canonical vocabulary, including
 `heif`, `jpeg_xl`, and `jpeg2000`. Host image encoding
 policies do not alter info. Preset expansion happens before applicability
 validation, so inherited image options also reject.
+
+### Skip processing
+
+The host setting `skip_processing_formats` lists source formats that
+ImagePipe may deliver as the unchanged source bytes. An image request is
+skipped when the source signature names a listed format, the request draws no
+watermark, and it names no `format` or names the source's own format. Accept
+negotiation does not prevent a skip: a client that accepts AVIF receives a
+listed GIF as `image/gif`. Other requests, and every `info`, `blurhash`, and
+`lqip-css` request, are processed as usual.
+
+A skipped request ignores every group option, `orient`, `page`, and every
+output option, and its response keeps the source metadata. ImagePipe makes no
+libvips call for it, so decode checks, `max_input_pixels`, frame limits, and
+result limits do not apply; a corrupt or oversized listed source is delivered
+as the origin holds it. Source limits, including `max_body_bytes`, still
+apply, and parsing still validates every option before source access. The
+response carries the source format's media type with
+`X-Content-Type-Options: nosniff` and the same `Vary: Accept` as a processed
+request. The listed formats contribute to cache keys and ETags; skipped
+responses are not written to the output cache.
 
 ### Request delivery controls
 

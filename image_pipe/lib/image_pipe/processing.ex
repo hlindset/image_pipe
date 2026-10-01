@@ -20,11 +20,13 @@ defmodule ImagePipe.Processing do
   alias ImagePipe.Decode
   alias ImagePipe.Delivery.StreamPull
   alias ImagePipe.Error
+  alias ImagePipe.Format
   alias ImagePipe.Output.Clamp
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.RequestPolicy
   alias ImagePipe.Output.Resolved, as: ResolvedOutput
+  alias ImagePipe.Output.Skipped
   alias ImagePipe.Plan.Spec
   alias ImagePipe.Processing.DebugBuilder
   alias ImagePipe.Processing.Prepared
@@ -39,8 +41,22 @@ defmodule ImagePipe.Processing do
          {:ok, policy} <- RequestPolicy.resolve(request.output, config, accept),
          :ok <- ensure_output_capable(policy, config),
          :ok <- check_detector(request, config) do
-      {:ok, policy}
+      {:ok, skip_formats(policy, request, config)}
     end
+  end
+
+  # A watermark protects the image, so a request that draws one is never
+  # delivered unprocessed.
+  defp skip_formats(nil, _request, _config), do: nil
+
+  defp skip_formats(policy, %Spec{groups: groups}, config) do
+    formats =
+      case Enum.any?(groups, &(&1.watermark != nil)) do
+        true -> []
+        false -> Keyword.fetch!(config, :skip_processing_formats)
+      end
+
+    Policy.put_skip_formats(policy, formats)
   end
 
   defp check_expires(%Spec{expires: nil}, _now), do: :ok
@@ -92,10 +108,16 @@ defmodule ImagePipe.Processing do
   def prepare_download(request, source, policy, config) do
     started = System.monotonic_time(:microsecond)
 
-    Decode.with_image(source, request, config, fn state, geometry ->
-      decode_us = System.monotonic_time(:microsecond) - started
-      prepare_pixels(state, geometry, request, policy, config, decode_us)
-    end)
+    Decode.with_image(
+      source,
+      request,
+      config,
+      fn state, geometry ->
+        decode_us = System.monotonic_time(:microsecond) - started
+        prepare_pixels(state, geometry, request, policy, config, decode_us)
+      end,
+      {policy.skip_formats, fn _format, _chunks -> {:ok, :skipped} end}
+    )
   end
 
   defp build_prepared(prepared, bytes, config) do
@@ -122,12 +144,28 @@ defmodule ImagePipe.Processing do
   defp produce_decoded(source, request, policy, config, pump, started) do
     on_bracket_exit = Keyword.get(config, :on_bracket_exit, fn -> :ok end)
 
-    Decode.with_image(source, request, config, fn state, geometry ->
-      decode_us = System.monotonic_time(:microsecond) - started
-      stream = fn -> produce_stream(state, geometry, request, policy, config, pump, decode_us) end
-      bracket(stream, on_bracket_exit)
-    end)
+    Decode.with_image(
+      source,
+      request,
+      config,
+      fn state, geometry ->
+        decode_us = System.monotonic_time(:microsecond) - started
+
+        stream = fn ->
+          produce_stream(state, geometry, request, policy, config, pump, decode_us)
+        end
+
+        bracket(stream, on_bracket_exit)
+      end,
+      {policy.skip_formats,
+       fn format, chunks ->
+         bracket(fn -> produce_skipped(policy, format, chunks, pump) end, on_bracket_exit)
+       end}
+    )
   end
+
+  defp produce_skipped(policy, format, chunks, pump),
+    do: pump.(chunks, Format.mime_type!(format), Skipped.new(policy, format), nil)
 
   defp bracket(fun, on_exit) do
     fun.()

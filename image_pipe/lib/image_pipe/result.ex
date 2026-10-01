@@ -14,7 +14,7 @@ defmodule ImagePipe.Result do
           terminal: :image | :info | :blurhash | :lqip_css,
           data: binary() | map(),
           content_type: String.t(),
-          format: ImagePipe.Format.output_format() | nil,
+          format: ImagePipe.Format.source_format() | nil,
           width: pos_integer() | nil,
           height: pos_integer() | nil
         }

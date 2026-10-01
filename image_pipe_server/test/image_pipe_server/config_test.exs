@@ -74,6 +74,7 @@ defmodule ImagePipeServer.ConfigTest do
             "quality" => {:env, "82"},
             "format_quality" => %{"webp" => 80},
             "format_order" => ["webp", "avif"],
+            "skip_processing_formats" => ["gif", "jpeg_xl"],
             "jpeg_options" => %{"interlace" => true, "quant_table" => 3},
             "source_cache_policy" => %{"freshness" => "origin"}
           }
@@ -82,6 +83,7 @@ defmodule ImagePipeServer.ConfigTest do
       assert processing[:quality] == 82
       assert processing[:format_quality] == %{webp: 80}
       assert processing[:format_order] == [:webp, :avif]
+      assert processing[:skip_processing_formats] == [:gif, :jpeg_xl]
       assert processing[:jpeg_options] == %JpegOptions{interlace: true, quant_table: 3}
       assert processing[:source_cache_policy] == [freshness: :origin]
     end

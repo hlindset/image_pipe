@@ -406,7 +406,9 @@ defmodule ImagePipe.Execution do
   defp generate(%Context{request: %{output: %{terminal: :image}}} = context, config, key) do
     build =
       case context.acquisition.processing do
-        nil ->
+        # An overlapped preparation that found a skipped source leaves the
+        # completed source to be streamed unchanged.
+        processing when processing in [nil, {:ok, :skipped}] ->
           Processing.build_fun(context.request, decode_input(context), context.policy, config)
 
         result ->
