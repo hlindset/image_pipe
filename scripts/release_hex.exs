@@ -23,13 +23,12 @@ defmodule ReleaseHex do
       end
 
     version = version!()
-    publish_args = if dry_run?, do: ["--yes", "--dry-run"], else: ["--yes"]
 
     step("image_pipe_url #{version}", fn ->
       unless published?("image_pipe_url", version) do
         mix!("image_pipe_url", ["deps.get"])
         mix!("image_pipe_url", ["docs", "--warnings-as-errors"])
-        mix!("image_pipe_url", ["hex.publish" | publish_args])
+        hex_publish!("image_pipe_url", dry_run?)
       end
     end)
 
@@ -39,7 +38,7 @@ defmodule ReleaseHex do
           :ok
 
         not dry_run? or published?("image_pipe_url", version) ->
-          publish_image_pipe(publish_args)
+          publish_image_pipe(dry_run?)
 
         true ->
           check_image_pipe_without_url(version)
@@ -74,7 +73,7 @@ defmodule ReleaseHex do
   end
 
   # Switching to the Hex dependency rewrites mix.lock; restore it afterwards.
-  defp publish_image_pipe(publish_args) do
+  defp publish_image_pipe(dry_run?) do
     lock = Path.join([@root, "image_pipe", "mix.lock"])
     original = File.read!(lock)
 
@@ -82,7 +81,7 @@ defmodule ReleaseHex do
       # A fresh release can take a moment to reach the registry mix resolves from.
       retry(6, fn -> mix("image_pipe", ["deps.get"], publish: true) == 0 end)
       mix!("image_pipe", ["docs", "--warnings-as-errors"], publish: true)
-      mix!("image_pipe", ["hex.publish" | publish_args], publish: true)
+      hex_publish!("image_pipe", dry_run?, publish: true)
     after
       File.write!(lock, original)
     end
@@ -138,13 +137,27 @@ defmodule ReleaseHex do
     end
   end
 
+  # hex.publish asks for credentials even in a dry run and, finding none, offers
+  # an interactive sign-in that hangs CI. A placeholder key skips the prompt: a
+  # dry run uploads nothing, and Hex reports and ignores the 401 from its
+  # account lookup.
+  defp hex_publish!(project, dry_run?, opts \\ []) do
+    if dry_run? do
+      opts = Keyword.put(opts, :env, [{"HEX_API_KEY", "dry-run"}])
+      mix!(project, ["hex.publish", "--yes", "--dry-run"], opts)
+    else
+      mix!(project, ["hex.publish", "--yes"], opts)
+    end
+  end
+
   defp mix!(project, args, opts \\ []) do
     status = mix(project, args, opts)
     if status != 0, do: Mix.raise("mix #{Enum.join(args, " ")} failed in #{project}")
   end
 
   defp mix(project, args, opts) do
-    env = if opts[:publish], do: [{"IMAGE_PIPE_PUBLISH", "1"}], else: []
+    publish_env = if opts[:publish], do: [{"IMAGE_PIPE_PUBLISH", "1"}], else: []
+    env = publish_env ++ Keyword.get(opts, :env, [])
 
     {_output, status} =
       System.cmd("mix", args,
