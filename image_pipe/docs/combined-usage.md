@@ -6,8 +6,7 @@ warm a cache, or write a file.
 
 ## Configure once
 
-Construct configuration at application startup and make it available to the
-mount and callers. Here is a complete example that can also be run in IEx:
+Construct configuration at startup and share it with the mount and callers:
 
 ```elixir
 url_config = ImagePipe.URL.config(base_url: "/images")
@@ -99,11 +98,8 @@ Select shared presets with
 execution expand the default preset, named presets in order, and explicit
 options using the same rules. Generated URLs retain the preset names for the
 serving mount to resolve. If URLs are built in a different application from the
-one that serves them, see [split deployments](elixir-api.md#split-deployments).
+one that serves them, see [URL builder with an external server](external-server.md).
 
 Use a shared [processing pool](processing-controls.md) to bound generation
 across HTTP requests, jobs, and cache refreshes. Direct results are fully
 buffered; allow memory for the complete output of each concurrent call.
-
-Continue with [configuration](configuration.md), [URL protection](urls.md),
-or the full [Elixir API guide](elixir-api.md).

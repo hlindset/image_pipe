@@ -4,6 +4,9 @@ ImagePipe serves and processes images inside Elixir applications, through a
 Plug endpoint, an Elixir API, or both. It also runs as a standalone image
 server, configured with a TOML file and environment variables.
 
+See [URL builder with an external server](image_pipe/docs/external-server.md)
+to use the builder in your application with a separate image service.
+
 This repository holds sibling Mix projects:
 
 | Directory | Contents |
@@ -19,6 +22,7 @@ Run `mix` commands from inside a project directory. From the repository root,
 run the checks. `mise run server:image` builds the server's Docker image and
 smoke-tests it.
 
+[Contributor notes](docs/index.md) cover architecture, design plans, and benchmarks.
 [RELEASING.md](RELEASING.md) describes publishing the packages.
 
 Licensed under the [Apache License 2.0](LICENSE.md).

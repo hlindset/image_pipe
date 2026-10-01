@@ -52,15 +52,16 @@ sources: [
     options: [
       allowed_hosts: ["assets.internal"],
       address_policy: [
-        allow_private: true,         # opens ALL RFC1918 ranges
-        allow: ["10.0.5.0/24"]       # OR open exactly one range, precisely
+        allow: ["10.0.5.0/24"]
       ]
     ]
   ]
 ]
 ```
 
-Toggles: `allow_loopback`, `allow_unspecified`, `allow_link_local`,
+Use `allow:` for specific CIDR ranges, or category toggles such as
+`allow_private: true` to allow all RFC1918 addresses. The available toggles are
+`allow_loopback`, `allow_unspecified`, `allow_link_local`,
 `allow_private`, `allow_unique_local`, `allow_multicast`, `allow_broadcast`,
 `allow_cgnat`, `allow_reserved`. Each toggle accepts only `true` or `false`;
 other values are rejected during source configuration. `allow:` is a list of CIDR strings. Omitting

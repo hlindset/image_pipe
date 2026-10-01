@@ -1,4 +1,4 @@
-# Feasibility benchmark, not the ImagePipe request path. See docs/source-overlap.md.
+# Feasibility benchmark, not the ImagePipe request path. See bench/source_overlap.md.
 # Run each sample in a fresh VM with --preload-modules.
 # mix run --no-compile --preload-modules bench/source_overlap.exs MODE IMAGE MBPS SHRINK
 defmodule SourceOverlapBench do

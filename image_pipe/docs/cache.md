@@ -72,9 +72,6 @@ their existing stability rules and are never copied into the input pool.
 
 ## Original-byte pool
 
-The repeatable [cache benchmarks](cache-benchmark.md) record origin savings,
-latency, disk use, and memory tradeoffs for multi-variant and large-hit workloads.
-
 Add an independently configured filesystem pool:
 
 ```elixir
@@ -90,22 +87,19 @@ cache: {ImagePipe.Cache.FileSystem,
 ```
 
 Use distinct roots and start `ImagePipe.Cache.FileSystem.child_spec/1` for each bounded pool.
-Each owns its own byte budget, sketch, recency queues and maintenance. Output
+Each has an independent byte budget and eviction policy. Output
 hits do not count as input demand. Original EXIF/ICC bytes are preserved.
 `pool: :input` labels the input supervisor's admission and maintenance telemetry;
 the default label is `:output`. The validated mount adds the input label automatically.
-The initial input adapter is filesystem storage; existing response-cache
-adapters continue to work and must preserve `Entry.Metadata.source_record`.
 
-Downloads spool completely to a temporary file before libvips opens them.
+Downloads stage original bytes in a temporary file for reuse.
 Current body/pixel limits apply when generating from input hits, while existing
 successful output hits remain usable after limits are lowered. Active inputs
 are pinned with temporary hard links through lazy decoding and encoding.
 Incomplete transfers are never published; undecodable inputs are invalidated.
 Temporary-file failures fall back to the bounded in-memory decode path.
 Staging and pinned readers can temporarily exceed the retained pool budget;
-their lifetime is bounded by active requests and source limits. Decoding while
-the source is still downloading is tracked separately in `image_plug-yx6`.
+their lifetime is bounded by active requests and source limits.
 
 Source version/freshness records are also stored as charged entries in the
 output pool. This lets fresh outputs survive eviction of their input blobs.
@@ -173,37 +167,14 @@ Input keys include source identity, digested fetch context and storage-only
 partitions, including cachebusters. Transform/format/terminal choices do not
 fragment originals. The input partition also partitions output storage.
 
-Cache keys include:
+Output keys include canonical processing groups, output policy, negotiation,
+and relevant detector identity. Equivalent option spellings share a key.
+`Accept` contributes its normalized negotiation outcome; explicit formats
+do not vary by `Accept`.
 
-- resolved source identity and byte-version seed
-- the core execution epoch
-- canonical request material: the ordered groups, the
-  EXIF auto-orient flag, the terminal identity, the canonical output plan, and the
-  resolved detector identity
-- the negotiation outcome and effective output policy material
-- the plan's cachebuster and the request values named by the mount-level
-  `storage_inputs: [{:header, name}, {:cookie, name}]`
-
-The last group is `storage_only`: it partitions internal storage without
-changing delivered bytes, so the ETag excludes it. See
-[CDN HTTP caching](cdn-http-cache.md).
-
-ImagePipe reserves `Accept` for automatic output normalization; the normalized
-negotiation outcome enters the key instead of the raw header value.
-
-Cache keys exclude:
-
-- request signatures
-- raw request paths
-- query strings
-- raw `Accept` headers
-- source metadata
-- decoded image properties
-- source-aware execution choices
-- unconfigured headers and cookies
-
-Key data includes a schema version and deterministic primitive serialization.
-Explicit formats bypass `Accept` negotiation, so they don't vary by `Accept`.
+Cachebusters and values named in `storage_inputs` partition storage without
+changing delivered bytes. ETags exclude those inputs; see
+[cache keys and validators](cdn-http-cache.md#cache-key-relationship).
 
 ## Stored headers
 
@@ -255,8 +226,7 @@ cache:
    node_id: System.get_env("POD_NAME", "node-0")}
 ```
 
-Bounded mode is opt-in. Without `:max_size_bytes`, the adapter runs unbounded and
-ignores every other option in this section.
+Without `:max_size_bytes`, the adapter ignores the other bounded-mode settings.
 
 ### Node identity and the supervision tree
 

@@ -18,55 +18,18 @@ decode shrink and orientation, while resize dimensions are final pixel sizes.
 The executor constructs each operation when its inputs are known and runs it
 immediately.
 
-## Request flow
-
-For an image response, the Plug lifecycle is:
-
-1. Parse and validate the path into an `ImagePipe.Plan.Spec`.
-2. Apply expiry and source-translation gates.
-3. Resolve source identity, output negotiation, representation identity, and
-   conditional/cache decisions.
-4. On a cache miss, inspect source geometry and plan shrink-on-load.
-5. Decode the image and condition its input color space.
-6. Execute every group in order through `ImagePipe.Transform.Executor`.
-7. Flush any deferred orientation, clamp output dimensions, materialize, and
-   encode the negotiated format.
-
-Parsing and static validation happen before source fetch or cache access.
-Output selection, expiry, source location, and response presentation are not
-transform operations.
-
 ## Fixed stage order
 
-Options run in this order, regardless of their order in the URL:
-
-1. `rotate`
-2. `flip`
-3. `trim`
-4. `region` or guided `crop`
-5. resize from `w`, `h`, `fit`, and `enlarge`, including the automatic result
-   crop for cover modes
-6. `blur`
-7. `sharpen`
-8. `pixelate`
-9. `gray`
-10. `bitonal`
-11. `monochrome`
-12. `duotone`
-13. `brightness`
-14. `contrast`
-15. `saturation`
-16. `colorize`
-17. `gradient`
-18. canvas extension
-19. `pad`
-20. `bg`
+The executor follows the [processing stage order](../../image_pipe/docs/processing.md#processing-order)
+and [effect order](../../image_pipe/docs/processing/effects.md#order-effects-deliberately), regardless
+of URL option order. See [execution flow](execution_flow.md) for the surrounding
+request lifecycle.
 
 `-` starts another group. Each group receives the complete result of the
 previous group, while group options themselves do not carry forward. Decode
 happens once, so only the first group can influence shrink-on-load planning.
 
-The [API contract](api_contract.md#processing-semantics)
+The [API contract](../../image_pipe/docs/api_contract.md#processing-semantics)
 defines the ordering and parameter semantics.
 
 ## Coordinate frames
@@ -92,26 +55,6 @@ The parser validates and canonicalizes group fields before execution. The
 executor resolves lengths, placement, and resize targets against the image at
 the corresponding stage.
 
-### Geometry and composition
-
-- Resize supports contain, cover, stretch, and source-dependent automatic
-  modes, with enlargement policy, guide, offsets, minimums, zoom, and DPR.
-  Cover resize executes a resize followed by a measured result crop.
-- Guided crop resolves a width and height using an anchor, focal point, smart
-  guide, or detector guide, with offsets and optional aspect-ratio correction.
-- Region crop resolves an explicit x/y/width/height rectangle. Partial overlaps
-  clamp to the image; wholly outside regions return 400.
-- Canvas extension places the current image on a target canvas with placement, offsets,
-  and transparent or solid fill.
-- Padding expands the current image by logical top/right/bottom/left sides,
-  scaled by the effective DPR of the preceding resize.
-- `Background` composites an alpha-capable sRGB color behind the current
-  image. An opaque background removes alpha as a consequence of composition.
-- `Trim` removes a uniform border using an automatic or explicit background
-  and supports horizontal or vertical margin equalization.
-
-Object and face guides share the displayed crop frame.
-
 ### Orientation
 
 - Rotation accepts clockwise angles in `[0, 360]`; parsing folds 360
@@ -124,23 +67,11 @@ can defer the composed orientation until a stage needs displayed pixels.
 
 ### Effects
 
-- `Blur` and `Sharpen` use a positive sigma.
-- `Pixelate` uses a block size greater than one pixel.
-- `Gray` performs true grayscale conversion.
-- `Bitonal` converts to grayscale and thresholds at 128 while preserving alpha.
-- `Monochrome` applies a single-color luminance tint.
-- `Duotone` maps luminance between shadow and highlight colors.
-- `Brightness` is an additive integer adjustment from `-255` to `255`.
-- `Contrast` and `Saturation` are positive factors, with `1` as identity.
-- `Colorize` overlays a color with an opacity and optional alpha preservation.
-- `Gradient` overlays a transparency-to-color gradient with angle and stop
-  positions.
-
 The parser removes identity values before constructing operations.
 Sigma and pixelate block size use physical pixels
 without DPR scaling. Pixelate and gradient flush pending orientation so their
 grid and direction use the current display frame. See the
-[effect vocabulary](api_contract.md#pixel-effects) for ranges,
+[effect vocabulary](../../image_pipe/docs/api_contract.md#pixel-effects) for ranges,
 defaults, color syntax, and alpha behavior.
 
 ### Color values
@@ -187,10 +118,9 @@ that needs random access, it copies the image to memory through
 or detector-guided crop and trim require this barrier. Sequential-safe
 operations remain lazy until a later barrier or delivery.
 
-Deferred orientation is data-dependent. Orientations that need random access
-materialize when flushed; identity and horizontal-only cases can retain the
-streaming path. A final delivery materialization ensures encoding owns a stable
-image.
+Orientation flushes prepare random access when required, then buffer the
+display frame for downstream operations, including horizontal flips. A final
+delivery barrier materializes any image that has not already been buffered.
 
 ## Decode planning
 
@@ -215,22 +145,6 @@ final group.
 
 Output format, quality, metadata, profile, copyright, HDR, and automatic
 negotiation policies belong to output planning and encoding.
-
-## Examples
-
-| Path fragment | Transform meaning |
-| --- | --- |
-| `/w=300/format=jpeg/src/images/beach.jpg` | Contain resize to width 300 |
-| `/w=300/h=200/fit=cover/anchor=top/src/images/beach.jpg` | Cover resize and top-guided result crop |
-| `/crop=100,100/focus=0.25,0.75/src/images/beach.jpg` | Guided crop around a focal point |
-| `/region=10,20,100,80/src/images/beach.jpg` | Explicit region crop |
-| `/rotate=90/flip=h/trim=auto/src/images/beach.jpg` | Rotate, flip, then trim regardless of URL option ordering |
-| `/w=500/-/trim=fff/src/images/beach.jpg` | Resize first; trim the smaller intermediate image in group two |
-| `/trim=fff/w=500/src/images/beach.jpg` | Trim first; resize within the same fixed-order group |
-| `/blur=2.5/gray/pad=10/bg=fff/src/images/beach.jpg` | Blur, grayscale, padding, then background composition |
-| `/sharpen=2/pixelate=7/src/images/beach.jpg` | Sharpen before pixelating, without resizing |
-| `/duotone=1,123456,efab89/gradient=0.5,black/src/images/beach.jpg` | Duotone followed by a downward dark gradient |
-| `/contrast=2/-/brightness=30/src/images/beach.jpg` | Use a second group to apply brightness after contrast |
 
 ## Boundary rules
 

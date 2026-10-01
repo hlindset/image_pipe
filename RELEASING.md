@@ -4,11 +4,22 @@
 `image_pipe` pins `image_pipe_url` with `==`, and `scripts/check-versions.sh`,
 run by `mise run precommit`, fails when the three `@version` values differ.
 
+Each project keeps its own release notes:
+
+- [ImagePipe](image_pipe/CHANGELOG.md): processing, sources, and library APIs.
+- [ImagePipe URL](image_pipe_url/CHANGELOG.md): plans, URL generation, and signing.
+- [ImagePipe server](image_pipe_server/CHANGELOG.md): service configuration and deployment.
+
 ## Release a version
 
 1. Set the same `@version` in `image_pipe_url/mix.exs`, `image_pipe/mix.exs`,
-   and `image_pipe_server/mix.exs`. In `image_pipe/CHANGELOG.md`, move the
-   unreleased notes under a `## X.Y.Z` heading (a date may follow the version).
+   and `image_pipe_server/mix.exs`. In each project's `CHANGELOG.md`, move the
+   `Unreleased` notes under `## [X.Y.Z] - YYYY-MM-DD`, using the release date.
+   Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/): group notes
+   under `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, or `Security`,
+   and include only categories with entries. Add a version link to the
+   comparison with the previous release, or to the tag for the first release.
+   Update the `Unreleased` link to compare the new tag with `HEAD`.
    Merge to `main`.
 2. Tag the merge commit and push the tag:
 
@@ -20,7 +31,7 @@ run by `mise run precommit`, fails when the three `@version` values differ.
 The tag starts the [Release workflow](.github/workflows/release.yml):
 
 1. It checks that the tag matches all three versions, is on `main`, and has
-   changelog notes.
+   notes in all three changelogs.
 2. It builds the `image_pipe_server` base and vision images for amd64 and
    arm64, smoke-tests each, and pushes them to GHCR untagged.
 3. It publishes `image_pipe_url` and then `image_pipe` to Hex with their docs,
@@ -28,7 +39,7 @@ The tag starts the [Release workflow](.github/workflows/release.yml):
 4. It tags the images `ghcr.io/hlindset/image_pipe_server:X.Y.Z`, `X.Y`, and
    `latest`, with a `-vision` suffix for the vision variant. A pre-release
    version gets only its own tag.
-5. It creates the GitHub release from the changelog notes.
+5. It creates the GitHub release from all three changelogs, grouped by project.
 
 A failure before step 3 leaves only untagged images. GHCR creates the package
 private on its first push; make it public once in the package settings.

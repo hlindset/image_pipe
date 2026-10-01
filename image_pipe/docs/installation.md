@@ -1,26 +1,36 @@
 # Installation
 
-ImagePipe requires Elixir 1.18 or newer. It is unreleased and has no Hex package
-yet; depend on a local checkout for evaluation. The repository holds the library
-in its `image_pipe/` directory:
+ImagePipe requires Elixir 1.18 or newer. Add it to your application's
+dependencies in `mix.exs`:
 
 ```elixir
 def deps do
   [
-    {:image_pipe, path: "../image_pipe/image_pipe"}
+    {:image_pipe, "~> 0.1.0"}
   ]
 end
 ```
 
-Adjust the path to your checkout, then run `mix deps.get` in your application.
+Run `mix deps.get` in your application.
 ImagePipe uses Image and Vix for libvips processing. Available input and output
 codecs depend on the native build; see [output formats](processing/output.md#formats).
+
+## Native format support
+
+Supported inputs are JPEG (including UltraHDR), PNG, WebP, TIFF, HEIF/AVIF,
+JPEG XL, JPEG 2000, and GIF. Each needs its loader in the deployed libvips build;
+a missing loader fails the request with `415`.
+
+ImagePipe checks image signatures and accepts only matching loaders. Other
+formats, including SVG, BMP, camera RAW, and AVIF image sequences, are rejected
+with `415`, even if the installed libvips has a loader for them.
 
 ## Choose an entry point
 
 | Entry point | Setup | Result |
 | --- | --- | --- |
 | [Plug](plug-usage.md) | Mount `ImagePipe.Plug` and configure source adapters | HTTP image, placeholder, or JSON response |
+| [Builder + external server](external-server.md) | Use `image_pipe_url` in the application and run `image_pipe_server` separately | Signed URLs served by the image server |
 | [Elixir](elixir-api.md) | Build a plan with `ImagePipe.URL.new/0` | Buffered `ImagePipe.Result` or a written file |
 | [Combined](combined-usage.md) | Share `ImagePipe.URL.config/1` and `ImagePipe.config/1` between both | Matching processing, URL generation, and shared caches |
 
@@ -28,18 +38,18 @@ An application that only generates URLs for a separate image service can depend
 on the URL builder alone. It needs no libvips or NIFs:
 
 ```elixir
-{:image_pipe_url, path: "../image_pipe/image_pipe_url"}
+{:image_pipe_url, "~> 0.1.0"}
 ```
 
 It provides `ImagePipe.URL` with the same URL grammar, presets, signing, and
-source encryption; see [split deployments](elixir-api.md#split-deployments).
+source encryption; see [URL builder with an external server](external-server.md).
 
 Your application supplies the HTTP server when using Plug. An existing Phoenix
 endpoint is sufficient. Direct Elixir calls need no web server.
 
 ## Work on this repository
 
-The repository pins its tools in `mise.toml`. Install them and the library/demo
+The repository pins its tools in `mise.toml`. Install them and the project
 dependencies with:
 
 ```sh

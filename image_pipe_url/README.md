@@ -10,11 +10,15 @@ presets, signing, and source encryption. Its only runtime dependencies are
 `image_pipe` depends on this package, so a single application that both builds
 and serves URLs needs only `image_pipe`.
 
+Add `image_pipe_url` to your application's dependencies in `mix.exs`:
+
 ```elixir
 def deps do
   [{:image_pipe_url, "~> 0.1.0"}]
 end
 ```
+
+Run `mix deps.get` in your application.
 
 ```elixir
 url_config =
@@ -30,10 +34,11 @@ url =
   |> ImagePipe.URL.url!("photos/beach.jpg")
 ```
 
-Generation performs no source, image, or cache I/O. The serving mount must use
-the same signing keys, source-encryption keys, and preset map, and should be
-deployed before the application that builds URLs. See
-[split deployments](https://github.com/hlindset/image_pipe/blob/main/image_pipe/docs/elixir-api.md#split-deployments)
-in the ImagePipe guides.
+Generation performs no source, image, or cache I/O. Follow the
+[builder + external server guide](https://github.com/hlindset/image_pipe/blob/main/image_pipe/docs/external-server.md)
+to run `image_pipe_server`, generate your first working URL, and synchronize
+keys and presets.
 
 The two packages are released in lockstep at the same version.
+
+See the [changelog](CHANGELOG.md) for release notes.

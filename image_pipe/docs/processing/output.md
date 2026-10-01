@@ -14,14 +14,19 @@ this page to `ImagePipe.URL.output/2`.
 | `format=webp` | `format: :webp` | WebP |
 | `format=avif` | `format: :avif` | AVIF |
 
-Omit `format` to negotiate from `Accept`, enabled encoders, and host preferences.
-Without a preferred acceptable modern format, policy considers the source format
-and fallback output. Explicit format bypasses negotiation. Negotiated image
-responses use `Vary: Accept`; configure your CDN accordingly.
+Omit `format` to negotiate AVIF or WebP from `Accept`, enabled encoders, and host
+preference order. `image/avif`, `image/webp`, and `image/*` advertise modern
+format support; a missing header or `*/*` alone does not. `q=0` excludes a
+candidate, but relative q-values do not change host preference order.
+
+With no enabled modern candidate, ImagePipe keeps the source format if it has
+an encoder. Otherwise it uses PNG for a final image with alpha, JPEG for one
+without. Negotiated image responses use `Vary: Accept`; configure your CDN
+accordingly. An explicit format bypasses negotiation.
 
 Codec availability depends on the installed libvips build. An explicit
 unavailable format fails; it does not silently substitute another format.
-See [operational format notes](../operational_notes.md) and
+See [native format support](../installation.md#native-format-support) and
 [HTTP negotiation](../cdn-http-cache.md).
 
 ## Quality and byte budgets

@@ -50,18 +50,14 @@ fails closed. `ImagePipe.ProcessingPool.stats/1` returns `%{active: n, queued: n
 | `queue_timeout` | `1_000` | Positive maximum admission wait in milliseconds |
 | `processing_timeout` | `30_000` | Positive execution deadline in milliseconds |
 
-Both timeouts are finite. Queue order is FIFO. Queue time starts when a worker
-requests admission; an expired waiter cannot start merely because a slot becomes
-available before its timer message is handled. Admission reserves no source image
-or encoder state. Waiting requests still have lightweight processes and request
-data; this pool does not replace HTTP server connection or request limits.
+Queue order is FIFO; expired waiters cannot start. Waiting requests hold no
+source image or encoder state, but still use processes and request data.
+Configure HTTP server connection limits separately.
 
 ## Work covered
 
-Every generated output holds a permit: images, blurhash, CSS LQIP, and `info`.
-Although `info` does not run transforms or encode image pixels, opening an image
-and reading its headers can consume a remote source, so its misses share the
-same budget. Uncached file and binary inputs follow the same admission path.
+Every generated output holds a permit: images, BlurHash, CSS LQIP, and `info`.
+Uncached file and binary inputs follow the same admission path.
 
 Output-cache hits and conditional `304` responses skip processing admission.
 Source identity resolution and source-cache acquisition/revalidation that precede
@@ -92,9 +88,8 @@ refreshes. Followers wait before processing admission; they consume no processin
 slots or processing-queue entries. Uncacheable inputs and configurations with
 only an `input_cache` use ordinary processing admission.
 
-The leader streams normally and retains ownership until its output-cache commit
-finishes. Followers then recheck the cache. The cache stores the shared result;
-coalescing adds no image buffer or stream broadcast. If the entry is missing,
+The leader retains ownership until its output-cache commit finishes.
+Followers then recheck the cache. If the entry is missing,
 evicted, rejected, or unavailable, each follower falls back to ordinary generation
 once. Failed generation also releases followers to run under their own safety
 limits. A cancelled leader promotes one waiter after the delivery session ends.
@@ -135,15 +130,8 @@ libvips concurrency/memory configuration.
 
 ## Observability
 
-`[:processing, :admission]` measures admission wait and reports `:admitted`,
-`:overloaded`, `:queue_timeout`, `:cancelled`, `:worker_down`, or `:unavailable`.
-`[:processing, :execute]` measures the admitted lifetime and reports `:ok`,
-`:processing_error`, `:timeout`, `:cancelled`, `:worker_down`, or `:unavailable`.
-Both use `:start`/`:stop` spans with safe `:active` and `:queued` counts sampled
-when the span opens. The pool closes spans even when a worker is terminated.
-
-The default Logger includes both in its `:request` group, preserving the outcome
-and warning on rejection, timeout, unavailability, and processing failure. Trace
-Capture and the opt-in OpenTelemetry exporter include both spans and queue counts.
-Execution spans retain their request parent; generation spans are their children.
-See [telemetry](telemetry.md) for handler setup.
+`[:processing, :admission]` measures queue wait; `[:processing, :execute]`
+measures the admitted lifetime. Both report outcomes and active/queued counts,
+including worker termination. The default Logger warns on failures, and tracing
+preserves request parentage. See [telemetry](telemetry-events.md#processing-admission-and-execution)
+for event fields.

@@ -1,17 +1,14 @@
 # ImagePipe documentation
 
-ImagePipe processes images inside your Elixir application. Serve images through
-Plug, generate them in a job or script, or use the same configuration and plans
-for both. Processing is powered by Image and libvips.
-
 ## Start here
 
-ImagePipe is unreleased. Start with [installation](installation.md), then choose
+Start with [installation](installation.md), then choose
 the guide that matches your application:
 
 | I want to… | Guide |
 | --- | --- |
 | Serve resized images from Phoenix or a Plug router | [Plug usage](plug-usage.md) |
+| Build URLs in an application and serve images separately | [URL builder with an external server](external-server.md) |
 | Process uploads, files, or images in background jobs | [Elixir API](elixir-api.md) |
 | Generate URLs and precompute images with shared settings | [Combined usage](combined-usage.md) |
 | Try the controls locally | [Run the Fiddle](fiddle.md) |
@@ -20,6 +17,8 @@ the guide that matches your application:
 
 - [Configuration](configuration.md): where settings belong, defaults, limits, and overrides.
 - [Image sources](sources.md): local files, HTTP(S), S3, and custom adapters.
+- [S3 credentials](s3-credentials.md): static keys, roles, temporary credentials, and warmup.
+- [Source network policy](source-network-policy.md): allowed origins and private networks.
 - [URLs and presets](urls.md): path structure, reusable recipes, signing, expiry, and source concealment.
 
 ## Choose processing options
@@ -37,23 +36,20 @@ and a complete option index. Each category shows URL and Elixir spellings.
 | [Request controls](processing/request.md) | Downloads, expiry, cachebusters, debugging |
 
 See [content-aware cropping](content-aware-gravity.md) for detector installation
-and custom detection, and the [API contract](api_contract.md) for exact semantics.
+and custom detection, and [API semantics](api_contract.md) for exact behavior.
 
 ## Run in production
 
+- [Deployment](deployment.md): streaming failures, timeouts, capacity, and memory.
 - [Caching](cache.md): input and output storage, freshness, and stale refreshes.
 - [HTTP and CDN caching](cdn-http-cache.md): browser/CDN policy, ETags, and negotiation.
 - [Processing limits](processing-controls.md): concurrency, queues, deadlines, and cancellation.
 - [Error responses](errors.md): which status each failure returns, and why.
-- [Source network policy](source-network-policy.md): allowed origins and private networks.
-- [Telemetry](telemetry.md): logging, metrics, and traces.
+
+## Observe your application
+
+- [Telemetry](telemetry.md): configure logging, metrics handlers, and request IDs.
+- [Telemetry event reference](telemetry-events.md): event names, measurements, metadata, and outcomes.
+- [Tracing](tracing.md): trace exporters, inbound context, and OpenTelemetry.
 - [Debug headers](debug_headers.md): inspect processing and cache decisions.
 - [OpenTelemetry with Jaeger](cookbook/opentelemetry-jaeger.md): a tracing walkthrough.
-- [Operational notes](operational_notes.md): safety, memory, and format behavior.
-
-## Understand the implementation
-
-The [execution flow](execution_flow.md), [transform internals](transform_operations.md),
-and [cache benchmarks](cache-benchmark.md) explain how the library works.
-Historical design notes live under `docs/superpowers/` in the repository;
-the published guides describe the current API.

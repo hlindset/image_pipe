@@ -44,13 +44,10 @@ Store secrets in server-side configuration.
 
 Mount options can override server configuration. Direct `run`/`write` host
 options override the server configuration passed to them. Explicit request
-output choices override host defaults. Preset precedence is `default`, named
-presets in listed order, then explicit options, for both Plug and direct
-execution. Configure `presets: %{"poster" => "w=320"}` in
-`ImagePipe.URL.config/1` and select names with
-`ImagePipe.URL.new(url_config, presets: ["poster"])`. The mount and `run`
-expand presets from the server configuration's `url:` value. See
-[presets](urls.md#presets) for related-option replacement rules.
+output choices override host defaults. Both Plug and direct execution expand
+presets from the server configuration's `url:` value: `default`, named presets
+in listed order, then explicit options. See [presets](urls.md#presets) for
+selection and related-option replacement rules.
 
 ## Sources, caches, and URL protection
 
@@ -120,12 +117,11 @@ cached responses may still be served after a limit changes.
 Multi-frame and multi-page sources (animated WebP, JPEG XL, and GIF, multi-page
 TIFF, HEIF/AVIF image collections) decode one image: their default image (the
 first frame or page, or a HEIF collection's primary image) unless the request
-selects another with `page=N`. `max_input_pixels` applies to that one image, or
-to `N + 1` frames when a request selects frame N of an animation. `max_input_frames` rejects a source
-that declares more frames than the limit with `413`, even though only one is
-decoded: the loader visits every frame while reading the header, and for
-animated WebP that cost grows quadratically. APNG sources decode their default
-image and their frames aren't counted.
+selects another with `page=N`. For animations, `max_input_pixels` counts the
+`N + 1` frames composited to reach frame N; for other sources it counts the
+selected image. `max_input_frames` rejects excessive frame/page counts with
+`413` to bound loader header work. APNG sources decode their default image
+without counting animation frames.
 
 Pool capacity, queue length, and deadlines belong on the pool's child spec;
 see [processing controls](processing-controls.md). Source network timeouts and

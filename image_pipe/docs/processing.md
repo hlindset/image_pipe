@@ -11,6 +11,7 @@ constraints that affect the result.
 | [Resize](processing/resize.md#resize) | `w`, `h`, `fit`, `enlarge`, `min-w`, `min-h`, `dpr`, `zoom` |
 | [Canvas and padding](processing/resize.md#canvas-padding-and-background) | `extend`, `extend-ratio`, `extend-at`, `extend-offset`, `pad`, `bg` |
 | [Orientation](processing/crop.md#orientation) | `orient`, `rotate`, `flip` |
+| [Page selection](api_contract.md#pages-and-frames) | `page` |
 | [Trim and crop](processing/crop.md#trim-and-crop) | `trim`, `trim-symmetry`, `crop`, `crop-ratio`, `crop-ratio-enlarge`, `region` |
 | [Crop guides](processing/crop.md#crop-guides) | `anchor`, `focus`, `detect`, `anchor-offset` |
 | [Watermarks](processing/watermark.md) | `wm`, `wm-src64`, `wm-enc`, `wm-opacity`, `wm-scale`, `wm-at`, `wm-offset`, `wm-tile`, `wm-gap` |

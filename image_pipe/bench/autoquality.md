@@ -1,14 +1,15 @@
 # Autoquality (ssim2) search — benchmark + findings
 
-Follow-up to #351. The `:ssim2` autoquality objective runs a binary search over
-encoder quality at the output/encode boundary
-([`ImagePipe.Output.EncodeSearch`](../lib/image_pipe/output/encode_search.ex)).
-For `:ssim2`, **every distinct iteration does a full-resolution encode + decode +
-SSIMULACRA2 metric** on the result, and the metric dominates. #351 shipped this
-correctness-verified only, with no performance data. This documents the
-benchmark tool and the numbers it produced.
+This study measures SSIMULACRA2 quality-search cost and accuracy, from the
+initial full-frame scorer through crop scoring and content-based calibration.
+Each distinct quality probe encodes and decodes a candidate, then scores it
+against the finalized image. The tables record the successive experiments;
+see [quality configuration](../docs/configuration.md#automatic-quality-search) for
+current host settings.
 
 ## Running it
+
+Run from `image_pipe/`:
 
 ```shell
 mise exec -- mix autoquality.bench            # parts A+B, default sizes, prints tables
@@ -1003,8 +1004,7 @@ default.)
 
 ### 1. Ship a non-zero `autoquality_max_resolution` default
 
-Today
-[`autoquality_max_resolution` defaults to `0`](../lib/image_pipe/api/config.ex)
+[`autoquality_max_resolution` defaults to `0`](../lib/image_pipe/processing/config.ex)
 — i.e. **unbounded**: the ssim2 search runs at any resolution. Part A shows that
 is unsafe (16 MP ≈ 4.7 s, 36 MP ≈ 20 s of CPU per request). Pick the cap from the
 host's per-request latency budget against the cost curve above, remembering the

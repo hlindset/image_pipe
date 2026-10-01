@@ -1,71 +1,15 @@
-# API contract
+# API semantics
 
 For setup and everyday usage, start with the [documentation overview](index.md).
 The [processing reference](processing.md) organizes options by task with URL and
-Elixir examples. This contract specifies exact semantics and implementation invariants.
+Elixir examples. This contract specifies public processing and request semantics.
 
-## Direction
+## Processing model
 
-ImagePipe has one declarative processing model, one request lifecycle, and one
-executor. URL requests and typed Elixir plans share that model: options within
-a group have a fixed processing order, and explicit group boundaries sequence
-processing (`-` in URLs, `ImagePipe.URL.group/2` in Elixir).
-Imgproxy supplies selected test references for shared behavior; ImagePipe semantics
-govern differences. Sources, caches, detectors, and telemetry exporters are host
-extension points.
-
-## Current implementation
-
-`ImagePipe.Plug` mounts the API. `ImagePipe.Plug.Runner` owns the
-HTTP request lifecycle. `ImagePipe.run/4` and `ImagePipe.write/5` execute plans
-directly from Elixir. Both entry points use `ImagePipe.Execution` for source
-freshness and caching, `Processing` for generation, and
-`ImagePipe.Transform.Executor` for group execution. URL configuration
-(`ImagePipe.URL.config/1`) owns presets, signing/encryption keys, and URL
-defaults. Server configuration (`ImagePipe.config/1`) owns limits, source
-options, detector setup, output defaults, caches, and storage partitions, and
-takes the URL configuration as `:url`. Mount configuration adds HTTP delivery
-controls. The builder (`ImagePipe.URL.new/1`) takes the URL configuration; the
-Plug mount and `run`/`write` take the server configuration. Configured
-source inputs share cache identity and freshness across native and HTTP calls;
-raw file and binary inputs bypass caches.
-
-`Delivery.PreparedStream` carries encoded chunks and representation metadata.
-`Response.Sender` applies HTTP disposition and debug headers from the current
-request on both generated responses and cache hits. Native execution buffers
-the shared output directly.
-
-Canonical request data lives in `ImagePipe.Plan.Spec`, with explicit
-`Plan.Spec.Group` transform intent and sparse `Plan.Spec.Output` policy.
-The parser validates URL grammar and translates it into typed intent.
-The [Elixir builder API](elixir-api.md) constructs processing plans and validates native option values.
-Both use `Plan.Spec.Validation` for cross-option rules; its typed issues
-are mapped to URL byte spans and messages by the parser.
-`Plan.Spec.build/2` owns canonical construction, group defaults, and identity
-normalization. Both frontends share the resulting values with execution.
-URL parsing returns the decoded source separately from processing intent;
-both frontends resolve their source before handing it to shared execution.
-`Output.RequestPolicy` combines host defaults,
-request overrides, and Accept negotiation. `Output.Resolved` selects the concrete
-encoding settings after source-format and final-image inspection.
-
-The API accepts these option keys:
-
-`orient`, `page`, `rotate`, `flip`, `w`, `h`, `fit`, `enlarge`, `min-w`, `min-h`, `dpr`,
-`zoom`, `crop`, `crop-ratio`, `crop-ratio-enlarge`, `region`, `trim-symmetry`,
-`anchor-offset`, `extend`, `extend-ratio`, `extend-at`, `extend-offset`,
-`anchor`, `focus`, `detect`, `blur`, `progressive-blur`, `sharpen`, `pixelate`, `gray`, `bitonal`,
-`monochrome`, `duotone`, `brightness`, `contrast`, `saturation`, `colorize`,
-`gradient`, `trim`, `pad`, `bg`, `wm`, `wm-src64`, `wm-enc`, `wm-opacity`,
-`wm-scale`, `wm-at`, `wm-offset`, `wm-tile`, `wm-gap`, `output`, `format`, `q`, `format-q`,
-`autoquality`, `max-bytes`, `jpeg-options`, `png-options`, `webp-options`,
-`avif-options`, `meta`, `dpi`, `profile`, `hdr`,
-`debug`, `expires`, `preset`, `filename`, `attachment`, `cb`.
-
-It also implements `-`, `src`, `src64`, `enc`, and full-length HMAC signing with
-key rotation. Presets support nested references and complete `-` pipelines.
-Sources are paths, HTTP(S) URLs, S3 objects, or configured custom schemes. Image,
-BlurHash, LQIP CSS, and info JSON are the supported outputs.
+URL requests and typed Elixir plans share one declarative processing model.
+Options within a group have a fixed processing order. Explicit group boundaries
+sequence processing (`-` in URLs, `ImagePipe.URL.group/2` in Elixir).
+Sources, caches, detectors, and telemetry exporters are host extension points.
 
 ## Capabilities
 
@@ -77,7 +21,7 @@ BlurHash, LQIP CSS, and info JSON are the supported outputs.
 | Crop | Guided and explicit regions, anchors, focal points, attention, face/object detection, offsets, and ratio correction |
 | Geometry | EXIF policy, arbitrary rotation, flips, symmetric trim, canvas placement, padding, and alpha-aware background |
 | Watermarks | Host-named or opt-in request-supplied image assets with opacity, scale, anchored placement, offsets, and tiling |
-| Effects | Blur, sharpen, pixelate, grayscale, bitonal, monochrome, duotone, brightness, contrast, saturation, colorize, and gradient |
+| Effects | Blur, progressive blur, sharpen, pixelate, grayscale, bitonal, monochrome, duotone, brightness, contrast, saturation, colorize, and gradient |
 | Encoding | Explicit or negotiated formats, quality and per-format quality, byte budgets, SSIMULACRA2/Butteraugli/size search, and JPEG/PNG/WebP/AVIF controls |
 | Color and metadata | Copyright and metadata policy, ICC conversion and preservation, and HDR preservation |
 | Sources | Filesystem, HTTP(S), S3, host adapters, custom schemes, and authenticated source concealment |
@@ -85,21 +29,15 @@ BlurHash, LQIP CSS, and info JSON are the supported outputs.
 
 ## Host configuration
 
-Mount configuration includes source/cache adapters,
-`max_body_bytes`, `max_input_pixels`, result width/height/pixel limits,
-telemetry prefix, automatic format preferences, output capabilities, CORS,
-debug-header permission, storage vary inputs, named watermark assets, the
-request-watermark gate, and skip-processing formats. Source-adapter controls
-(including HTTP bounds and S3 credentials/providers) retain their own
-validation boundaries. Generated HTTP cache policy is opt-in and respects host
-headers and source identity. See [HTTP caching](cdn-http-cache.md).
+URL configuration owns presets, signing/encryption keys, and the URL prefix.
+Server configuration owns source/cache adapters, generation limits, output
+defaults, detection, watermarks, and storage partitions. Plug configuration adds
+HTTP delivery controls. Source adapters validate their own options, including
+network limits and credentials. See the [configuration reference](configuration.md).
 
-Output defaults cover
-metadata/copyright/profile/HDR policy, quality/per-format quality, all
-autoquality targets/bounds/errors/iteration and resolution limits, and each
-encoder's options. Auto-orientation and smart-crop face assistance are
-controlled by `orient` and `anchor=smart-face`; a `default` preset can
-set their mount defaults.
+A `default` preset can set request defaults such as `orient` and
+`anchor=smart-face`. Generated [HTTP cache policy](cdn-http-cache.md) respects
+host headers and source storage permission.
 
 ## Processing semantics
 
@@ -128,19 +66,6 @@ applied before trim so that both background sampling and trim axes follow this
 frame. The request-wide `orient` value also applies to BlurHash and LQIP CSS. A default
 preset can set `orient=none`; an explicit URL value overrides that preset.
 
-### Pages and frames
-
-A multi-page or animated source (a TIFF, a HEIF/AVIF collection, an animated
-WebP, JPEG XL, or GIF) decodes one image. Without `page`, that is the source's
-default image: the primary image of a HEIF collection, the default image of an
-APNG, and the first page or frame otherwise. `page=N` selects page or frame N,
-0-based in file order, so `page=0` can differ from the default for HEIF. A still
-image has one page. A page past the last fails with `422` before decoding.
-Selecting frame N of an animation composites the frames before it, so the input
-pixel limit counts `N + 1` frames; a selected page of a TIFF or HEIF collection
-counts its own dimensions. `page` applies to every output, including info, and
-is part of the request's cache identity.
-
 Crop and region percentages use their operation's input dimensions, after
 rotation, flip, and trim. Trimming a 1000px-wide input to 800px and then
 applying `crop=50pct,100pct` requests 400px in width. Decode shrink-on-load
@@ -159,6 +84,19 @@ BlurHash's terminal reduction contributes a decode hint only for a single
 group, sized against its source crop when present so the crop retains enough
 detail for the terminal's working frame. Multi-group requests preserve the first
 group's input scale unless that group explicitly resizes it.
+
+### Pages and frames
+
+A multi-page or animated source (a TIFF, a HEIF/AVIF collection, an animated
+WebP, JPEG XL, or GIF) decodes one image. Without `page`, that is the source's
+default image: the primary image of a HEIF collection, the default image of an
+APNG, and the first page or frame otherwise. `page=N` selects page or frame N,
+0-based in file order, so `page=0` can differ from the default for HEIF. A still
+image has one page. A page past the last fails with `422` before decoding.
+Selecting frame N of an animation composites the frames before it, so the input
+pixel limit counts `N + 1` frames; a selected page of a TIFF or HEIF collection
+counts its own dimensions. `page` applies to every output, including info, and
+is part of the request's cache identity.
 
 ### Crop ratios and trim symmetry
 
@@ -334,7 +272,7 @@ the last 32 the deterministic-IV key. Associated data is the literal
 `image-pipe:source:v1`. The tag is the first 32 bytes of HMAC-SHA512 over
 `AAD || IV || ciphertext || AL`, where `AL` is the AAD's bit length as an
 unsigned 64-bit big-endian integer. Verify the tag before CBC decryption
-or padding validation. Tests include the RFC's published known-answer vector.
+or padding validation.
 
 Encryption keys are a separate ordered list of 32-byte keys: encrypt with
 the first, authenticate/decrypt against the configured list during rotation.
@@ -380,28 +318,10 @@ guessing source values by comparison. Source hostnames, paths, filenames,
 and query parameters are encrypted. Keys are redacted from configuration
 inspection. Clients receive only the completed signed URL.
 
-Generate complete URLs from the same plans used for direct execution:
-
-```elixir
-url_config = ImagePipe.URL.config(
-  base_url: "/images",
-  keys: [signing_key_hex],
-  source_encryption_keys: [encryption_key],
-  encrypt_source: true,
-  iv_mode: :deterministic
-)
-
-plan = ImagePipe.URL.new(url_config) |> ImagePipe.URL.group(resize: [width: 400])
-mount = ImagePipe.Plug.init(url: url_config, sources: sources)
-url = ImagePipe.URL.url!(plan, "photos/cat.jpg")
-random_url = ImagePipe.URL.url!(plan, "photos/cat.jpg", iv: :random)
-iv = :crypto.strong_rand_bytes(16)
-explicit_url = ImagePipe.URL.url!(plan, "photos/cat.jpg", iv: iv)
-```
-
-The shared URL configuration supplies the mount's `keys` and `source_encryption_keys`.
-Its generation mode does not restrict decryption. The `/images` prefix is outside
-the signed path. For lower-level integration, `ImagePipe.URL.encrypt_source(source,
+See [encrypted source examples](elixir-api.md#encrypted-sources) for builder
+and mount setup. The generation mode does not restrict decryption, and the
+mount prefix is outside the signed path. For lower-level integration,
+`ImagePipe.URL.encrypt_source(source,
 url_config, options)` returns only `{:ok, token}`; the caller must place it
 after `enc/` and sign the complete mount-relative path, for example with
 `ImagePipe.URL.sign_path/2`. Invalid source,
@@ -494,9 +414,8 @@ conversion produces 8-bit output and cannot be combined with effective HDR
 preservation; use `hdr=tonemap` with a named target. Conflicting URL and host
 settings fail before source or cache access.
 
-All three policies are request-scoped and enter effective output identity.
-They reject on BlurHash and LQIP CSS URLs; configured image policies do not change
-their fixed pixel space or text responses.
+These policies enter image output identity. Non-image outputs validate them
+and then ignore them, as described under [image quality and encoders](#image-quality-and-encoders).
 
 ### Image quality and encoders
 
@@ -674,27 +593,3 @@ is also presentation-only and remains subject to the host disclosure gate.
 the current time; equality remains valid. Expired requests return `410` before
 source fetch or cache access. Hosts may configure `clock: fn -> unix_seconds end`
 for a controlled time source; the default is `System.os_time(:second)`.
-
-## Architecture and verification constraints
-
-The Plug lifecycle calls parsing, source resolution, representation
-identity, execution, and delivery. Parsing produces request groups and output
-intent; the executor owns fixed ordering and runtime geometry. `Source`,
-`Output`, and `Response` own their respective data and effects.
-
-Preserve these invariants:
-
-- Signature/expiry/static validation precede source fetch and cache access.
-- Conditional responses can complete before fetch, decode, encode, or cache
-  reads when a trustworthy source identity is available.
-- Cachebuster and vary inputs affect storage identity; they do not change
-  a byte-identical representation's ETag. Safety limits gate generation.
-- Only successful encoded results are cached; cache failures fail open.
-- EXIF, color/HDR, shrink-on-load, and per-operation materialization retain
-  pixel tests. Sequential safety is proved with genuinely streamed input.
-- Delivery owns stream/resource cleanup on success and failure.
-- Telemetry changes update both the default Logger and trace Capture.
-
-API coverage must exercise real requests and decoded pixels, alongside
-parser tests. Keep AGENTS.md, boundary declarations, and architecture tests
-aligned with the implementation.

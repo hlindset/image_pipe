@@ -4,6 +4,9 @@ ImagePipe as a standalone image server, configured with a TOML file and
 environment variables instead of Elixir code. Apps that only build URLs, with
 `image_pipe_url`, can point at it instead of embedding `image_pipe`.
 
+Follow [URL builder with an external server](../image_pipe/docs/external-server.md)
+for a complete application-and-server walkthrough.
+
 ```bash
 docker build -f image_pipe_server/Dockerfile -t image_pipe_server .
 ```
@@ -29,6 +32,7 @@ root_id = "static"
   and a reference of every setting.
 - [Deployment](docs/deployment.md): images, Docker and Kubernetes, health
   checks, shutdown, caches, and capacity.
+- [Changelog](CHANGELOG.md): server release notes.
 
 The server loads no host Elixir code. Custom source adapters, caches,
 detectors, and function-valued options need a release built on `image_pipe`.
