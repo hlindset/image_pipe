@@ -1,41 +1,21 @@
 # Operational notes
 
-ImagePipe verifies path signatures and parses options before fetching
-source bytes. Invalid signatures return `403`; invalid processing requests
-return `400`. Neither causes source traffic.
+## Streaming failures
 
-Parser and plan validation finish before source resolution, cache lookup, or
-fetch. Source resolution finishes before cache lookup. Requests whose resolved
-source has `internal_cache: :enabled` look up the cache before source fetch and
-decode. Fetch and decode run only on a cache miss. They also run when a source
-uses `internal_cache: :disabled`.
+ImagePipe pulls the first encoded chunk before sending headers, so an early
+failure can return a normal [error response](errors.md). Later source, decode,
+encode, or client-close failures stop delivery and discard partial cache writes.
+Cache errors fail open: delivery continues and telemetry records the failure.
+A started response cannot be replaced with a new status or error body.
 
-Requests that cannot use a cache hit run in a supervised source session for
-lazy response streaming. The session owns the source-backed image and encoder
-continuation. The Plug process receives prepared response metadata, the first
-encoded chunk, and callbacks that pull later chunks.
+## Resource limits and timeouts
 
-ImagePipe pulls the first encoded chunk before committing response headers. A
-failure before that point can still become a normal ImagePipe error response.
-After `send_chunked/2`, late source, decode, encode, cache staging, and client-close
-failures have different response effects. Source, decode, encode, and
-client-close failures stop delivery and skip partial cache writes. Cache staging
-over-limit, staging errors, and cache commit errors fail open, emit telemetry,
-and keep the response delivery result. In all cases, ImagePipe can't replace an
-already-started response with a new HTTP error body.
-
-Runtime cache read, metadata, and write errors fail open. Invalid cache
-configuration still fails during Plug initialization.
-
-HTTP and S3 source fetches use non-bang Req calls with bounded redirects and
-receive timeouts. ImagePipe reads the source format from the decoded image
-rather than trusted HTTP headers. `:max_body_bytes` defaults to `10_000_000`
-bytes. `:max_input_pixels` defaults to `40_000_000` stored pixels. The existing
-32 KiB format peek also reads PNG IHDR, JPEG SOF, and WebP VP8X/VP8/VP8L
-dimensions to reject oversized inputs before opening the libvips loader.
-Incomplete, malformed, or unfamiliar headers fall back to libvips; its stored
-dimensions are always checked before transforms. Override both limits in
-`ImagePipe.Plug` init options.
+HTTP and S3 sources enforce redirect and receive-timeout limits. ImagePipe
+identifies formats from image bytes rather than HTTP headers. Header inspection
+rejects oversized inputs early where possible; decoded dimensions are always
+checked before transforms.
+See [resource limits](configuration.md#resource-limits) for defaults and
+configuration.
 
 Source adapter limits bound fetches per chunk and by total bytes.
 `:receive_timeout` limits waits between chunks;
@@ -61,41 +41,22 @@ downstream demand pauses. Source-cache acquisition and revalidation before the
 output-cache lookup retain their independent source limits. Output-cache hits
 and conditional responses bypass processing admission.
 
-Static result limits run after transforms and before output resolution or
-encoding. `:max_result_width` and `:max_result_height` default to `8_192`;
-`:max_result_pixels` defaults to `40_000_000`. Oversize static results are
-uniformly downscaled to fit. By contrast, `:max_input_pixels` is a hard `413`
-image-bomb gate after decode.
+Input body, pixel, and frame limits reject oversized sources with `413`.
+Output limits instead downscale the final image uniformly before encoding.
+Generation limits do not change cache identity: a successful cached response
+can still be served after limits are lowered.
 
-Multi-frame sources decode one frame or page (their default image, or the one
-a request selects with `page`), so `:max_input_pixels` applies per frame;
-selecting frame N of an animation counts the `N + 1` frames it composites. `:max_input_frames` (default `1_000`) is
-a hard `413` on the number of frames or pages a source declares. libvips'
-loaders visit every frame while reading the header, and for animated WebP that
-work grows quadratically: a crafted 9.4 MB file with 180,000 one-pixel frames
-takes about 22 s in the header read alone. ImagePipe therefore counts animated
-WebP frames from the container before any libvips open, and checks other
-families' page count before the decoding re-open. Raising the limit re-admits
-that cost.
-
-These limits gate response generation. They don't change cache identity.
-ImagePipe can serve a successful cached response even when the current request
-has stricter generation limits. The source fetch, decode, transform, and encode
-work already completed before the response entered the cache.
+## Source identity
 
 Built-in HTTP and S3 `req_options` are host-owned behavior. They must not vary
 source bytes for the same resolved identity. Byte-selecting request options need
 URI/object revision material, `internal_cache: :disabled`, or a custom adapter
 identity field.
 
-S3 `buckets` is a map. When present, it's an allowlist. `default` supplies
-shared defaults. Each bucket entry can override region, endpoint, credentials,
-request options, and cache policy.
-
 ## S3 credentials
 
 The `credentials` source option resolves the AWS credentials used to sign S3
-requests. It takes one of two shapes.
+requests. Use static keys or a provider that refreshes temporary credentials.
 
 **Static keys** — long-lived access key + secret (plus an optional session
 token):
@@ -119,7 +80,7 @@ credentials:
 ```
 
 **Provider** — a pluggable module that resolves temporary credentials at
-runtime, selected as `{:provider, Module, opts}`. ImagePipe ships two:
+runtime, selected as `{:provider, Module, opts}`. ImagePipe ships these providers:
 
 - **EC2 instance role (incl. Elastic Beanstalk), via IMDSv2:**
 
@@ -191,21 +152,12 @@ optional warm-up worker to the host supervision tree:
 
 ## Decode planning
 
-ImagePipe always opens decoded images with libvips sequential access. The decode
-planner uses the request geometry to select JPEG shrink-on-load or WebP scale
-hints when possible.
-
-The executor keeps the image lazy and streaming until an operation needs random
-pixel access. Smart or object-detection crops, trim, and arbitrary-angle rotate
-trigger a RAM materialization immediately before that operation. Deferred EXIF
-and user orientation handling manages its own materialization when required.
-Other operations remain sequential when proven safe by the test gate.
-
-Explicit `-` groups share the same transform state; a group boundary alone
-does not materialize the image. The late delivery barrier materializes any chain
-that reaches output without an earlier barrier. Source byte limits, timeouts,
-decoded pixel limits, and decode error handling apply regardless of the chosen
-load hint. Cache hits skip decoding and transforms entirely.
+Decode uses sequential access and JPEG shrink-on-load or WebP scale hints
+where geometry permits. Operations that need random pixel access copy the
+image into RAM; orientation flushes and delivery can also allocate buffers.
+Allow memory for these copies across concurrent requests. See
+[streaming and materialization](transform_operations.md#streaming-and-materialization)
+for execution details.
 
 ## libvips format support
 
@@ -224,25 +176,12 @@ missing loader fails the request with `415`.
 
 ## Automatic output
 
-Automatic output format selection uses the request `Accept` header only to
-detect optional modern format support. `q=0` excludes AVIF and WebP candidates,
-including exact media-type exclusions over wildcard allowances.
-Missing, empty, and global wildcard-only values such as `*/*` don't advertise
-modern format support. Explicit `image/avif`, `image/webp`, and `image/*`
-media ranges do.
-
-Among detected modern candidates, ImagePipe uses server preference order rather
-than relative q-value ordering. If ImagePipe detects no enabled modern
-candidate, output-capable source families use the decoded source format. Source
-families without encoder support fall back after transforms: PNG when the final
-image has an alpha channel, JPEG otherwise. Automatic output responses use
-`Vary: Accept`. Explicit formats bypass content negotiation and don't set
-`Vary: Accept`.
+Automatic image responses use `Vary: Accept`. Configure the CDN to include
+`Accept` in its cache key, or select an explicit output format. See
+[output formats](processing/output.md#formats) for negotiation rules.
 
 ## Debug response headers
 
-ImagePipe can attach opt-in `X-ImagePipe-*` and `Server-Timing` debug headers,
-gated by the `allow_debug_headers` mount option and the request's `debug` flag.
-They are off by default. The flag is covered by the path signature.
-See [Debug response headers](debug_headers.md) for the
-full catalogue and the security/disclosure details.
+Enable `allow_debug_headers` on the mount and `debug` in the request to inspect
+processing and cache decisions. Review the [header catalogue](debug_headers.md)
+before exposing this operational data to clients.

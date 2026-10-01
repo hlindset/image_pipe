@@ -80,9 +80,9 @@ encoding. Operation span durations measure lazy pipeline construction;
 when delivery is cancelled. Failed or incomplete streams do not enter cache.
 
 `Processing.Terminal` renders BlurHash, LQIP CSS, and info as complete-body responses.
-It owns their decode resources and terminal telemetry. BlurHash and LQIP CSS run the
-executor and terminal reduction; info reports decoded source facts without
-transforming pixels.
+It owns their decode resources and terminal telemetry. BlurHash and LQIP CSS run
+the executor and terminal reduction; info applies groups and reports source
+facts, result geometry, and any requested placeholders.
 Shared execution stores their encoded representations. Native calls consume
 the same entries and deserialize info into a map. Background stale refresh
 drains output through shared execution, without an HTTP connection.

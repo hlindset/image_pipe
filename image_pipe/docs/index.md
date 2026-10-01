@@ -1,9 +1,5 @@
 # ImagePipe documentation
 
-ImagePipe processes images inside your Elixir application. Serve images through
-Plug, generate them in a job or script, or use the same configuration and plans
-for both. Processing is powered by Image and libvips.
-
 ## Start here
 
 ImagePipe is unreleased. Start with [installation](installation.md), then choose

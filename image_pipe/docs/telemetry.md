@@ -38,14 +38,6 @@ telemetry_prefix ++ stage ++ [:stop]
 telemetry_prefix ++ stage ++ [:exception]
 ```
 
-The top-level request span is:
-
-```text
-[:image_pipe, :request, :start]
-[:image_pipe, :request, :stop]
-[:image_pipe, :request, :exception]
-```
-
 ImagePipe also emits stage spans for meaningful request phases. The exact set
 depends on the routing path. Conditional `304` responses and internal cache
 hits skip the fetch/decode, transform, and encode generation stages. Response
@@ -74,12 +66,6 @@ paths still emit the send span; streamed generation also emits delivery spans.
 [:image_pipe, :deliver, ...]
 ```
 
-For example, the cache lookup stop event with the default prefix is:
-
-```text
-[:image_pipe, :cache, :lookup, :stop]
-```
-
 ### Processing admission and execution
 
 With a configured [processing pool](processing-controls.md), generation misses
@@ -91,9 +77,7 @@ lifetime, including streamed demand pauses and cleanup, and reports `:ok`,
 The pool emits the stop event on worker death as well as ordinary completion.
 
 Start metadata includes `:active` and `:queued` counts before this admission or
-execution transition. No source, request, or pool-configuration values are emitted.
-Cache hits and conditional responses skip both spans. These are safe metadata
-keys in Trace Capture, and both spans reach the optional OpenTelemetry exporter.
+execution transition. Cache hits and conditional responses skip both spans.
 Execution inherits the request trace and parents the generated stage spans.
 Successful admission has trace status `:ok`; rejection and timeout have `:error`.
 
@@ -103,18 +87,17 @@ failure, and processing errors to `:warning`.
 
 ### Request span (`[:request]`)
 
-The `[:image_pipe, :request]` span wraps the whole request, opened by
-`ImagePipe.Plug.Runner` before parsing. Its **start metadata is empty**.
+The request span wraps the whole request, starting before parsing.
+Start metadata is empty.
 Direct `ImagePipe.run/4` calls also emit this span, enclosing plan preflight
 and the shared source/decode/transform/output stages. Their stop metadata has
 the same outcome categories, with no HTTP `:status`. Direct calls emit no
-parse, cache, send, or HTTP delivery stages. `ImagePipe.write/5` performs its
+parse, send, or HTTP delivery stages. `ImagePipe.write/5` performs its
 destination write after the processing request span and source cleanup.
 
 Stop metadata:
 
-- `:result` — the request outcome category (see "Result values"), from
-  `ImagePipe.Telemetry.request_result/1`.
+- `:result` — the request outcome category (see [result values](#result-values)).
 - `:status` — the response status.
 - `:error` — a stable error category on failures.
 
@@ -131,14 +114,8 @@ an unsigned request. Rejection reasons appear on the enclosing request span.
 
 ### Source fetch + decode (`[:source, :fetch_decode]`)
 
-`[:image_pipe, :source, :fetch_decode]` wraps source fetch, image decode, the
-input-pixel and input-frame guards, and the source body-size limit.
-
-It is emitted from the `ImagePipe.Decode.with_image/4` bracket. The span closes
-immediately after the decoded state is
-built, *before* the transform/encode continuation runs (even though that
-continuation stays inside the source bracket), so a transform or encode failure
-is never misattributed to fetch/decode.
+This span wraps source fetch, decode, and body/pixel/frame limits. It closes
+when decoded state is built, before transforms and encoding run.
 
 `output=info` with the `blurhash` flag decodes the fetched source twice: once for
 the result facts and once with BlurHash's own decode plan. It emits two
@@ -159,7 +136,7 @@ Success stop metadata:
 - `:original_dims` — `{w, h}` of the stored image before decode.
 - `:loaded_dims` — `{w, h}` actually decoded.
 - `:detected_source_format` — the format the up-front detector returned from the
-  header peek (`:jpeg`, `:png`, …, or `:unknown`). Product-neutral, non-sensitive.
+  header peek (`:jpeg`, `:png`, …, or `:unknown`).
 - `:source_format_resolution` — how the final `source_format` was decided:
   `:detected` (the signature named the family) or `:libvips_codec` (the
   AVIF-vs-HEIF split read from libvips).
@@ -172,7 +149,7 @@ A source delivered unchanged under `skip_processing_formats` stops the span
 with only `:result` (`:ok`), `:detected_source_format`, and `skipped: true`:
 no libvips call, image guard, transform, or encode runs for it.
 
-Failure stop metadata (one of two shapes, by failure mode):
+Failure stop metadata:
 
 - Source-side failure — `:result` is `:source_error`; `:error` is a stable
   category atom (e.g. `:body_too_large` when the source body crosses
@@ -240,35 +217,23 @@ records `:phase` and `:result` as span attributes.
 
 ### Transform execute span (`[:transform, :execute]`)
 
-The `[:image_pipe, :transform, :execute]` span wraps execution of all request groups.
-It is opened by `ImagePipe.Plug.Runner` around
-`ImagePipe.Transform.Executor.execute/3`. Its start metadata carries the
-aggregate request view:
+This span wraps execution of all request groups. Start metadata describes the
+requested operations:
 
 - `:operation_count` — number of requested semantic operations.
 - `:operations` — the ordered list of requested semantic operation-name atoms.
 
-These aggregate fields use a different vocabulary from the per-operation spans
-below. `:operations` is the semantic
-request view (`:crop_guided`, `:crop_region`, `:canvas`, …). The per-op span's
-`:operation` comes from the operation's `name/1` callback,
-where e.g. both crop variants execute as `:crop` and a canvas executes as
-`:extend_canvas`. A single semantic operation can also expand into several
-executed transform operations, so `:operation_count` is **not** guaranteed to
-equal the number of `[:transform, :operation]` spans. Treat the aggregate as
-"what the request asked for" and the per-op spans as "what actually ran".
+Request names can differ from executed names: `:crop_guided` and `:crop_region`
+both run as `:crop`, and `:canvas` runs as `:extend_canvas`. One requested
+operation can expand into several executed operations, so `:operation_count`
+can differ from the number of per-operation spans.
 
 Stop metadata: `:result` (`:ok` or `:processing_error`).
 
 ### Input color management span (`[:transform, :input_color_management]`)
 
-The `[:image_pipe, :transform, :input_color_management]` span wraps the
-data-determined input-color preamble, which runs once at the start of transform
-execution to condition the decoded image into a working colorspace before any
-group operation. It is emitted from the shared seam
-`ImagePipe.Transform.InputColorManagement.condition/2` itself (via
-`State.telemetry_opts`). `ImagePipe.Transform.Executor` calls it before
-running groups, nested inside the image request's `[:transform, :execute]` span.
+This span measures input color conditioning, once before group execution,
+nested inside `[:transform, :execute]`.
 
 Stop metadata:
 
@@ -284,9 +249,7 @@ Stop metadata:
   profile that was recognized and skipped — e.g. the canonical sRGB IEC61966
   profile on an sRGB source).
 
-This span fires even when the preamble is a no-op (e.g. a source with no
-embedded profile, or one already in a standard colour space); `imported?:
-false` covers that case.
+The span also fires when conditioning is a no-op, with `imported?: false`.
 
 The default Logger renders it as:
 
@@ -299,10 +262,9 @@ image_pipe transform input_color_management: ok imported (VIPS_INTERPRETATION_sR
 
 Each executed operation is wrapped in a nested
 `[:image_pipe, :transform, :operation]` span, inside `[:transform, :execute]`.
-Its **duration reflects pipeline construction, not pixel compute** — libvips
-defers and fuses work to materialization/encode — so use it for tracing
-execution *structure* (which operations ran, in what order), never as
-per-operation timing. Honest aggregate timing lives on `[:transform, :execute]`.
+Its duration measures pipeline construction; libvips defers pixel work to
+materialization and encoding. Use these spans to inspect operation order,
+and materialize/encode spans to measure pixel work.
 
 Start metadata:
 
@@ -311,21 +273,15 @@ Start metadata:
   public request).
 
 Stop metadata: `:result` (`:ok` or `:error`). A successful stop also carries
-`:dims` — the realized post-operation image dimensions `{width, height}` (an
-O(1) header read).
+`:dims` — the post-operation image dimensions `{width, height}`.
 
 The default Logger includes the operation name and outcome, for example
 `image_pipe transform: resize ok` or `image_pipe transform: crop error`.
 
 ### Materialization barrier span (`[:transform, :materialize]`)
 
-Each time the pipeline flushes the lazy libvips state to a RAM-resident buffer it
-emits a `[:image_pipe, :transform, :materialize]` span from
-`ImagePipe.Transform.Materializer` (`materialize/1` for a plain `copy_memory`, or
-`flush/1` for an orientation flush). This is
-the **honest per-barrier timing the per-operation spans deliberately lack**:
-libvips defers and fuses pixel work until materialization, so a materialize
-span's duration measures pixel evaluation and copying, not construction time.
+This span measures evaluation and copying of lazy libvips state into RAM,
+including orientation flushes.
 
 The executor's orientation boundary prepares random access before orientation that
 reorders rows, applies the orientation, and buffers its display frame. Each flush
@@ -351,21 +307,14 @@ Parenting depends on where the materialization happens — there are three cases
   and the late delivery copy runs after the transform pipeline has closed
   (after `[:transform, :execute]`): nested under the request root.
 
-The delivery backstop lives in the runner's post-clamp, pre-encode
-`Materializer.materialize/2` barrier. Every
-request that decodes and runs the transform pipeline (a cache miss)
-materializes at least once: a pipeline that never materializes during execution hits the
-delivery backstop. Requests served from cache (cache hits, conditional `304`s) skip
-decode and transform entirely, so they emit no `[:transform, :materialize]` span
-(nor any other transform span).
+Every generated image materializes at least once, using the post-clamp,
+pre-encode delivery barrier if needed. Cache hits and conditional `304`s skip
+transform spans.
 
 ### Output negotiate span (`[:output, :negotiate]`)
 
-The `[:image_pipe, :output, :negotiate]` span wraps output-format negotiation —
-resolving the request's `Output.Policy` against the decoded source format into a
-concrete `Output.Resolved`. `Output.Policy.negotiate/4` emits it once
-from the runner's producer-side build. The span covers source-format resolution
-and, when needed, inspection of the final image's alpha channel.
+This span measures output-format selection from the request policy, decoded
+source format, and final alpha channel.
 
 Start metadata: `:output_mode` — `:explicit` when the request pinned a format, or
 `:automatic` when the format is `Accept`-negotiated from the source.
@@ -401,18 +350,9 @@ copies both keys onto the span.
 
 ### Output encode span (`[:encode]`)
 
-The `[:image_pipe, :encode]` span wraps the **forced output encode** — building
-the encoder pipeline (`ImagePipe.Output.Encoder.stream_output/3`) and pulling the
-first encoded chunk, which forces libvips to actually encode. This is the heaviest
-stage of most requests, and unlike the per-operation transform spans (which time
-*construction*), this span measures real pixel/encode compute: libvips is lazy, so
-the work happens here when the first chunk is pulled.
-
-It is emitted from the **producer** process and parents to the request root
-(sibling of the delivery-backstop `[:transform, :materialize]`), not to `[:send]`.
-The runner's producer-side build forces the first chunk *inside* the span, so a
-first-chunk encode failure surfaces before any response header is written (a
-pre-header 500), never as a mid-stream abort of an already-committed 200.
+This span measures encoder construction and the first encoded chunk, forcing
+pixel work. It runs in the producer process under the request root. First-chunk
+failures occur before response headers and return `500`.
 
 Start metadata: `:output_format` — the negotiated output format atom.
 
@@ -426,8 +366,8 @@ Stop metadata:
 
 ### Encode-quality search span (`[:encode, :search]`)
 
-When automatic encode-quality search runs (a `:size`/`:ssim2` objective and/or a
-hard `max_bytes` budget on a quality-bearing format), ImagePipe wraps the binary
+When quality search runs (a `:size`, `:ssimulacra2`, or `:butteraugli` objective,
+or a `max_bytes` budget on a quality-bearing format), ImagePipe wraps the
 search over encoder quality in a `[:image_pipe, :encode, :search]` span, emitted
 from inside the encode stage (nested under `[:encode]`). The search probes
 candidate qualities, re-encoding the finalized image at each one, and returns the
@@ -442,10 +382,9 @@ Start metadata (product-neutral search descriptor):
 - `:target` — the objective target (byte target for `:size`, score band centre for
   `:ssimulacra2`, butteraugli distance band centre for `:butteraugli`; absent for
   `:none`).
-- `:max_bytes` — the hard byte budget when set.
+- `:max_bytes` — the requested byte budget when set.
 
-Stop metadata (the search verdict; keys deliberately differ from the internal
-result `meta`):
+Stop metadata:
 
 - `:result` — `:ok`, or `:processing_error` when the search failed (e.g. an
   encode/score error).
@@ -458,7 +397,7 @@ result `meta`):
 - `:final_score` — the perceptual score of the delivered quality for a
   SSIMULACRA2 or Butteraugli search, otherwise absent.
 - `:scorer` — `:full` (whole-frame SSIMULACRA2) or `:crop` (K p10-tiles above the
-  internal ~6 MP crossover, #354).
+  internal ~6 MP crossover).
 - `:tiles_scored` — tiles actually scored on the crop path (sub-sampled, `<= 16`);
   absent on the full-frame path.
 - `:confirm_passes` — full-frame confirm/bump passes on the crop path (1 = confirm
@@ -648,15 +587,7 @@ ImagePipe uses the measurements provided by `:telemetry.span/3`:
 Durations use the native time unit from `System.monotonic_time/0`. Handlers can
 convert them with `System.convert_time_unit/3` for a specific display unit.
 
-HTTP cache decision events aren't spans. ImagePipe emits them with
-`Telemetry.execute/4`, and they're sent with empty measurements:
-
-```text
-[:image_pipe, :http_cache, :prepare]
-[:image_pipe, :http_cache, :conditional, :match]
-[:image_pipe, :http_cache, :fallback, :no_store]
-[:image_pipe, :http_cache, :cache_hit, :headers]
-```
+HTTP cache decision events are one-shot events with empty measurements.
 
 ## Metadata
 
@@ -845,7 +776,9 @@ safe to emit. This marker fires only when a face is detected; no face means a
 plain attention crop and no blend event. The default Logger renders it at the
 base level.
 
-Cache-related metadata may also include:
+## Cache events
+
+Cache-related metadata may include:
 
 - `cache: :disabled`
 - `cache: :hit`
@@ -909,9 +842,10 @@ successful streamed delivery includes `cache: :write_error` and
 `result: :cache_error`, but the response still fails open because the body was
 already delivered.
 
-Generated CDN HTTP cache handling emits non-span events. The first three come
-from `ImagePipe.Response.CachePolicy` and fire **only** when
-the mount includes an explicit `:http_cache` option:
+## HTTP cache events
+
+HTTP cache handling emits one-shot events. The first three fire only when
+the mount includes an explicit `http_cache` option:
 
 - `[:image_pipe, :http_cache, :prepare]` with `:effective_mode`,
   `:byte_identity`, and `:etag`.
@@ -920,7 +854,7 @@ the mount includes an explicit `:http_cache` option:
 - `[:image_pipe, :http_cache, :fallback, :no_store]` with `:source_mount`,
   `:source_kind`, and `:reason`.
 
-The fourth is emitted by `ImagePipe.Response.Sender` on every mount:
+The fourth fires on every mount:
 
 - `[:image_pipe, :http_cache, :cache_hit, :headers]` with booleans for `:etag`,
   `:generated_cache_headers`, and `:representation_headers`.
@@ -961,12 +895,7 @@ Metadata:
 - `:dimensions` — `{w, h}` after the clamp.
 - `:limits` — the effective caps applied: `%{max_width, max_height, max_pixels}` (each a `pos_integer` or `:infinity`).
 
-This metadata is product-neutral and non-sensitive (no URLs, secrets, or PII).
-
-The event is emitted from a single site — the shared clamp seam
-`ImagePipe.Output.Clamp.clamp_with_telemetry/4`, called once from the runner's
-producer-side build. It fires only when the
-clamp actually downscaled the image; a within-caps result is a silent no-op.
+The event fires only when the clamp downscales the image.
 
 The opt-in default Logger attaches to this event and renders it at `:warning`,
 for example:
@@ -994,7 +923,7 @@ Metadata:
 - `:error` — the classified exception category atom (`ImagePipe.Error.tag/1`).
   Product-neutral and non-sensitive.
 
-Both surfaces see it: the opt-in default Logger renders one `:warning` line
+The default Logger renders a `:warning` line
 (`image_pipe debug collect: error (<tag>)`), and the OTel exporter folds it as an
 annotation onto the enclosing span (typically `[:source, :fetch_decode]`).
 
@@ -1067,11 +996,9 @@ ImagePipe also provides an opt-in tracer that converts these events into
 parentage across transform nesting and delivery processes. Producer-side
 `:encode` spans parent to the request root; `:deliver` nests under `:send`.
 
-The tracer is **not** attached automatically. A host opts in with
-`ImagePipe.Telemetry.attach_tracer/1` and removes it with
-`ImagePipe.Telemetry.detach_tracer/0`. Both are host-startup configuration, so
-`attach_tracer/1` **raises** `ArgumentError` on invalid options rather than
-returning a tagged error.
+Attach the tracer at startup with `ImagePipe.Telemetry.attach_tracer/1` and
+remove it with `ImagePipe.Telemetry.detach_tracer/0`. Invalid options raise
+`ArgumentError`.
 
 ```elixir
 # Attach the bundled stdlib-Logger exporter:
@@ -1092,10 +1019,6 @@ ImagePipe.Telemetry.detach_tracer()
 
 Reattaching replaces the tracer configuration. Setting `finch_spans: false`
 removes any previously attached Finch capture handler.
-
-`attach_tracer/1` raises `ArgumentError` when an option is unknown, has the wrong
-type, `:exporter` is missing, or the exporter module is not loaded / does not
-export `export/1`.
 
 ### The exporter contract
 
@@ -1129,12 +1052,8 @@ A host implements `ImagePipe.Telemetry.Trace.Exporter`:
 
 ### `LogExporter`
 
-`ImagePipe.Telemetry.Trace.LogExporter` is the bundled default. It is
-**stateless and flat by design**: it logs one structured `Logger.info` line per
-completed span as that span closes, in the process that emitted it. It does
-**not** buffer spans into a tree or wait for a root to close — parentage is
-carried in the `parent=` field so a downstream log pipeline can reconstruct
-nesting.
+`ImagePipe.Telemetry.Trace.LogExporter` logs one structured `Logger.info` line
+as each span closes. Use the `parent=` field to reconstruct nesting:
 
 ```
 image_pipe.trace trace=<trace_id> span=<span_id> parent=<parent_span_id|-> <name> dur=<duration_native|-> status=<ok|error|unset>
@@ -1203,9 +1122,3 @@ correlation requires every span to reach the SDK — so the inbound `trace_flags
 do not apply on this path. A true root goes through the SDK's root sampler
 (`always_on` by default), and its descendants follow it. Do sampling in your
 downstream OTel collector instead.
-
-**Span attributes:** the `[:output, :clamp]` one-shot's `source_dimensions` /
-`dimensions` / `limits` and the `[:transform, :input_color_management]` span's
-`working_space` / `imported?` are on the capture allowlist, so they surface as
-OTel span attributes (all product-neutral geometry, a
-colorspace atom, and a boolean; no secrets).

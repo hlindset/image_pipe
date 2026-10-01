@@ -1,4 +1,4 @@
-# CDN HTTP Caching
+# HTTP and CDN caching
 
 ImagePipe can emit shared HTTP cache headers for public image routes. Immutable
 sources use their authoritative identity; mutable remote sources use the current
@@ -23,19 +23,15 @@ forward "/images",
 
 ## Which mounts generate headers
 
-ImagePipe mounts opt into generated policy with `http_cache`. Setting
-`http_cache: [mode: :enabled]` runs `ImagePipe.Response.CachePolicy` after the
-representation is built and before the conditional gate. Setting
+Set `http_cache: [mode: :enabled]` to generate cache policy before evaluating
+conditional requests. Setting
 `mode: :disabled` suppresses generated reusable policy and validators unless the
 source adapter overrides it. Origin storage prohibitions still enforce `no-store`.
 
 When `http_cache` is omitted, identity headers come from the representation: an
 `ETag`, or `Cache-Control: no-store` when byte identity is unavailable. Coordinated
 mutable remote sources additionally bound that validator with source-derived
-`Cache-Control` and `Age`. The
-`[:http_cache, :prepare]`,
-`[:http_cache, :conditional, :match]`, and
-`[:http_cache, :fallback, :no_store]` events fire only on the generated path.
+`Cache-Control` and `Age`.
 
 A source adapter can override the mount-level mode per source:
 `http_cache: :enabled` forces the generated path even when the mount is
@@ -183,9 +179,8 @@ generated ETag; a miss processes the request and returns `200`. A header mixing
 `*` with explicit tags, invalid under RFC 9110 §13.1.2, is treated as the
 wildcard.
 
-ImagePipe serves only `GET` and `HEAD`. Any other method receives
-`405 Method Not Allowed` with `Allow: GET, HEAD`, before parsing, source
-resolution, or cache access.
+ImagePipe serves `GET` and `HEAD` images and answers `OPTIONS` with `204`.
+Other methods receive `405` before parsing, source resolution, or cache access.
 
 ImagePipe doesn't interpret host-supplied ETags. If an earlier Plug sets
 `ETag`, ImagePipe preserves it, suppresses its generated ETag, and doesn't use
@@ -234,54 +229,14 @@ Cache-Control: no-store
 It emits no generated ETag. This prevents shared caching when the route cannot
 prove byte identity.
 
-ImagePipe emits this required telemetry event:
-
-```text
-[:image_pipe, :http_cache, :fallback, :no_store]
-```
-
-Metadata is low-cardinality:
-
-```elixir
-%{
-  adapter: :path,
-  source_kind: :path,
-  reason: :missing_byte_identity
-}
-```
-
 If a host already set `Cache-Control`, ImagePipe preserves the host policy
 instead of replacing it with `no-store`.
 
 ## Telemetry
 
-HTTP cache preparation emits:
-
-```text
-[:image_pipe, :http_cache, :prepare]
-```
-
-Metadata includes `:effective_mode`, `:byte_identity`, and `:etag`. It doesn't
-include paths, source identities, or ETag values.
-
-A conditional `304` emits:
-
-```text
-[:image_pipe, :http_cache, :conditional, :match]
-```
-
-Metadata includes the method as `method: :get` or `method: :head`. It doesn't
-include paths or ETag values.
-
-Internal cache hits that receive freshly prepared HTTP cache headers emit:
-
-```text
-[:image_pipe, :http_cache, :cache_hit, :headers]
-```
-
-Metadata reports whether a generated ETag, generated cache headers, and
-representation headers were present. It doesn't include cache keys, paths,
-source identities, or ETag values.
+HTTP cache events report policy preparation, conditional matches, missing byte
+identity, and cache-hit headers. See [HTTP cache telemetry](telemetry.md#http-cache-events)
+for event names, metadata, and Logger output.
 
 ## Cache key relationship
 
@@ -290,44 +245,24 @@ object. ImagePipe may produce the same ETag for equivalent request material, but
 a CDN keyed on raw URLs stores separate objects unless it rewrites or redirects
 before lookup.
 
-Both values come from `ImagePipe.Representation.build/3`, which derives them
-from canonical request material and the current source byte identity, but
-different slices of that material:
+ImagePipe derives its storage key and ETag from the request and source byte
+identity:
 
-- the **internal cache key** is storage identity, and includes the
-  `storage_only` material — the cachebuster plus the request header and cookie
+- the **internal cache key** includes the cachebuster and the request header and cookie
   values named by the mount's `storage_inputs`;
-- the **generated ETag** identifies the client-visible representation and
-  excludes `storage_only`, so a cachebuster change busts storage while leaving
-  the validator — and therefore already-downloaded client copies — intact.
+- the **generated ETag** excludes those storage-only inputs, so a cachebuster
+  change selects a new storage entry while preserving the validator for
+  byte-identical output.
 
 Detector and model identity enter both values because changing either can change
 the rendition. A conditional GET cannot return `304` for a rendition made by a
 different detector.
 
-`Plan.Spec.expires` is enforced before source resolution. It
+Request expiry is enforced before source resolution. It
 doesn't change generated `Cache-Control`.
 
-## Versioning
+## Custom validators
 
-Generated ETags carry the visible `"ipr1"` schema prefix from
-`ImagePipe.Representation`. Changing the schema changes both the prefix and
-hashed material, invalidating stored validators.
-
-`ImagePipe.Representation`'s `@core_execution_epoch` enters both the cache key
-and ETag and can invalidate all stored representations together.
-
-## Deliberate limits
-
-These are deliberate v1 boundaries:
-
-- no generated `Last-Modified`
-- no `If-Modified-Since`
-- no `Vary` dimensions beyond `Accept` and the configured `storage_inputs`
-  header names
-- no Client Hints variation
-- no per-route custom ETag override
-
-Routes that need custom validators can leave generated HTTP caching off and
-set response headers in their own Plug chain. Mutable remote-source freshness
-is configured with `source_cache_policy` and source-level `cache_policy`.
+ImagePipe generates ETags and handles `If-None-Match`. Routes needing
+`Last-Modified`, `If-Modified-Since`, or custom validators can disable generated
+HTTP caching and set headers in their own Plug chain.

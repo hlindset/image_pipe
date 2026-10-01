@@ -39,7 +39,7 @@ endpoint is sufficient. Direct Elixir calls need no web server.
 
 ## Work on this repository
 
-The repository pins its tools in `mise.toml`. Install them and the library/demo
+The repository pins its tools in `mise.toml`. Install them and the project
 dependencies with:
 
 ```sh

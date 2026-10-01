@@ -224,6 +224,3 @@ follow symlinks and resolve relative paths from the working directory; use
 a File mount for root confinement. Both inputs obey source body and
 decoded-pixel limits. Store uploads in an addressable source before
 generating URLs for them.
-
-Next: [URL source encoding](urls.md#source-encoding), [shared usage](combined-usage.md),
-or [source configuration](configuration.md#sources-caches-and-url-protection).

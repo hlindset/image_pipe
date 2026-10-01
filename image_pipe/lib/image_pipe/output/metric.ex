@@ -1,9 +1,10 @@
 defmodule ImagePipe.Output.Metric do
   @moduledoc """
-  Perceptual-quality metric runtime behaviour for the autoquality external-measure
-  search. One module per metric owns its measurement semantics; the search loop
-  reads `direction/0` to orient its band walk and calls `reference/1` + `score/2`.
-  `runtime/1` maps a resolved external-measure search struct to its runtime module.
+  Runtime behaviour for perceptual quality metrics.
+
+  Each metric defines its reference image, score, and whether higher or lower
+  scores are better. `runtime/1` selects the metric module for a resolved quality
+  search.
   """
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
 

@@ -7,10 +7,9 @@ applied pipeline, and per-stage timings. They are **off by default**.
 
 ## Enabling
 
-Two independent controls must both be satisfied for any header to be emitted:
+Debug headers require both controls:
 
-1. **Mount option `allow_debug_headers: true`** (default `false`) — the
-   deployment-level switch. When `false`, no debug headers are ever rendered.
+1. Mount option `allow_debug_headers: true` (default `false`):
 
    ```elixir
    plug ImagePipe.Plug,
@@ -18,8 +17,7 @@ Two independent controls must both be satisfied for any header to be emitted:
      allow_debug_headers: true
    ```
 
-2. **Per-request trigger** — opts a single request into debug headers. Honored
-   only when `allow_debug_headers: true`; otherwise ignored. Use the bare
+2. Request `debug`, ignored unless the mount permits it. Use the bare
    `debug` option, for example `/w=400/debug/src/cat.jpg`, or `debug=false`
    to opt out. Like other path flags, `debug=true` and numeric spellings
    are invalid.
@@ -31,10 +29,8 @@ without invalidating them.
 
 ## Security and disclosure
 
-> **Signing.** `debug` is part of the signed
-> processing-options path, so a configured path signature (HMAC) covers them.
-> Adding it to an otherwise-valid signed URL invalidates its
-> signature.
+`debug` is covered by the path signature. Generate a new signed URL when
+adding it to a protected request.
 
 When triggered, an image response may disclose source dimensions and
 format/color/ICC/bit-depth/alpha facts, output dimensions and policy,
@@ -45,7 +41,7 @@ if this operational data is sensitive in your deployment.
 ## Header catalogue
 
 All `X-ImagePipe-*` values are flat (one fact per header). `nil`/absent facts are
-omitted. Names and units are owned by `ImagePipe.Debug.Headers`.
+omitted.
 
 ### Source
 
@@ -63,10 +59,6 @@ omitted. Names and units are owned by `ImagePipe.Debug.Headers`.
 | `X-ImagePipe-Shrink` | `w=2.0;h=2.0` | Shrink-on-load factors applied at decode |
 
 ### Output
-
-No output-size header is sent (it is unknown up front for a streamed encode). The
-browser obtains the size from the response body; the fiddle derives the
-compression ratio from `X-ImagePipe-Source-Size ÷ body length`.
 
 | Header | Example | Meaning |
 |---|---|---|
@@ -110,11 +102,6 @@ encoded-output fact headers are omitted because the shared complete-body
 terminal result does not carry those image facts. Info and placeholder requests
 report the operations they apply.
 
-These facts are collected on every successful generation and stored with the
-complete-body cache entry. A later request with both debug controls enabled can
-therefore render them from a hit even when the request that populated the entry
-did not emit debug headers.
-
 ### Timings — `Server-Timing`
 
 Durations are in **milliseconds**. On an image miss, the live per-stage
@@ -131,7 +118,7 @@ On a cache hit:
 Server-Timing: decode;dur=8.123, transform;dur=21.0, encode;dur=140.5, cache;dur=1.5, total;dur=181.2
 ```
 
-(There is no separate `fetch` stage — source fetch is folded into `decode`.)
+`decode` includes source fetch.
 
 For a complete-body terminal, `total` measures the terminal computation,
 including its source fetch, decode, transforms, and final info or placeholder body.

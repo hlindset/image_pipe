@@ -30,12 +30,8 @@ To enable face and object detection, add both dependencies to your application:
 {:ortex, "~> 0.1"}
 ```
 
-Both are required:
-
-- **`image_vision`** provides `Image.FaceDetection` (YuNet) and
-  `Image.Detection` (RT-DETR, COCO-80).
-- **`ortex`** is the ONNX runtime `image_vision` runs models through.
-  `image_vision` compiles its detection modules only when Ortex is present.
+`image_vision` provides YuNet face detection and RT-DETR object detection
+(COCO-80). It compiles those modules only when the Ortex ONNX runtime is present.
 
 Practical requirements:
 
@@ -45,12 +41,6 @@ Practical requirements:
   `mix image_vision.download_models --detect`. See
   [Warming up](#warming-up-avoiding-first-request-latency) to load models before
   serving requests.
-
-Once both dependencies compile, the default `Composite` detector routes `face`
-requests to the YuNet adapter
-(`ImagePipe.Transform.Detector.ImageVision.Face`) and COCO-80 object requests to
-the RT-DETR adapter (`ImagePipe.Transform.Detector.ImageVision.Objects`). Each
-checks whether its `image_vision` module is available at runtime.
 
 ## What happens without it
 
@@ -183,16 +173,10 @@ Requests with `anchor=smart-face` include the face detector identity. Across
 
 ## Detection telemetry
 
-Detection emits a `[:image_pipe, :transform, :detect]` span. Inference is eager,
-so its duration includes model work and cold-start costs. The `:result` is
-`:detected`, `:no_regions`, `:unavailable`, or `:error`. The composite emits a
-nested `[:image_pipe, :transform, :detect, :model]` span for each child it runs.
-
-With no configured detector, ImagePipe emits a one-shot
-`[:image_pipe, :transform, :detect, :skipped]` event with `result: :no_detector`.
-The opt-in default Logger logs `:unavailable`, `:error`, and `:no_detector` at
-`:warning`. Request-time detection diagnostics use telemetry; ImagePipe does
-not call Logger directly. See [Telemetry](telemetry.md) for the full schema.
+Detection spans measure inference, including cold-start costs. The default
+Logger warns when a detector is missing, unavailable, or fails. See
+[detection telemetry](telemetry.md#content-aware-crop-detection) for event names,
+per-model spans, and outcomes.
 
 ## Per-class weights
 
@@ -231,49 +215,7 @@ focal = Σ(pullᵢ · centerᵢ) / Σ(pullᵢ)
 pullᵢ  = classWeight(labelᵢ) · √areaᵢ
 ```
 
-`classWeight` resolves a region's label against the weight map:
-
-```
-classWeight(label) = weights[label] ?? weights[:default] ?? 1
-```
-
-`√area` balances object size and class weight. Using area directly would let
-large boxes dominate; ignoring area would give tiny background objects as much
-influence as large subjects. For a face with 1/15 of a person's bounding-box
-area, square-root weighting reduces the size difference to about 1/4.
-
-### Worked example — nested scene
-
-With a car (large, low-mid frame), a person (medium, mid frame), and a face
-(small, high frame):
-
-| Request | Resulting focal y | Behavior |
-| --- | --- | --- |
-| `detect=face` (filter) | 0.25 | car/person not considered — lands on face |
-| `detect=all` (uniform) | 0.49 | car dominates; face barely registers |
-| `detect=all,face:3` | 0.45 | moves focus upward toward the face |
-| `detect=all,face:8` | 0.39 | stronger face bias |
-
-A face inside a large person box needs more weight than the same face in a
-tight portrait: square-root weighting reduces the size difference but does
-not remove it.
-
-### Canonicalization
-
-ImagePipe canonicalizes weights to a sparse map:
-
-- Class weights equal to the effective default are dropped.
-- `detect=all:1` (default baseline) drops the `:default` key, leaving an empty
-  map `%{}`.
-- `detect=face:3` and `detect=all,face:3` have distinct canonical identities:
-  they have different detection specs (`["face"]` vs `:all`) and produce
-  different crops when other classes are present in the scene.
-- Uniform weights (`detect=all:2`) produce the same crop as `detect=all` (the
-  weight scalar cancels in the centroid) but a *different* cache key — a known,
-  accepted redundancy.
-
-## Imgproxy comparison
-
-ImagePipe uses YuNet for faces and RT-DETR for COCO-80 objects; imgproxy uses
-configurable YOLO models. These model differences and ImagePipe's face-assist
-blend can produce different crops. ImagePipe accepts positive decimal weights.
+`classWeight` is the explicit class weight, then the `all` baseline, then 1.
+Square-root weighting gives larger regions more influence without letting
+them dominate as strongly as raw area would. A face inside a large person box
+may therefore need more weight than the same face in a tight portrait.

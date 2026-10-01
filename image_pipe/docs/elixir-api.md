@@ -21,10 +21,6 @@ thumbnail =
 :ok = ImagePipe.URL.validate(thumbnail)
 ```
 
-The builder is reusable across sources. Execute it directly with
-`ImagePipe.run/4`, or write its result with `ImagePipe.write/5`. Generate an
-equivalent API URL with `ImagePipe.URL.url/3` or `ImagePipe.URL.url!/3`.
-
 For a first local result, run:
 
 ```elixir
@@ -38,11 +34,9 @@ format comes from the plan; `write` overwrites an existing destination.
 
 ## Shared configuration
 
-URL settings and server settings are separate values. `ImagePipe.URL.config/1`
-holds signing keys, source encryption, presets, and the URL prefix.
-`ImagePipe.config/1` holds sources, caches, processing defaults, limits, and
-storage partitions, and takes the URL configuration as `:url`. Build both once
-and share them between the Plug mount and direct Elixir calls:
+Build URL and server configuration once, then share them between the Plug mount
+and direct calls. See [configuration](configuration.md#where-settings-belong)
+for which settings belong in each:
 
 ```elixir
 url_config = ImagePipe.URL.config(presets: %{"card" => "w=400/h=400/fit=cover"})
@@ -79,13 +73,8 @@ mount = ImagePipe.Plug.init(config: config, http_cache: [mode: :enabled])
 # plug ImagePipe.Plug, config: config, http_cache: [mode: :enabled]
 ```
 
-`ImagePipe.URL.new()` uses default URL configuration.
-`ImagePipe.URL.new(url_config, expires: unix_seconds)` combines reusable
-configuration with request controls. Builder calls return new values, so
-`ip_client` stays empty and reusable. Both configurations are validated when
-constructed and hidden by `Inspect`; neither performs source or cache I/O.
-Per-call host options passed to `run` and `write` override the server
-configuration.
+Builder calls return new values, so `ip_client` remains reusable. Per-call host
+options passed to `run` and `write` override server configuration.
 
 The builder uses its URL configuration when generating URLs. The Plug and
 direct execution use the URL configuration inside the server configuration:
@@ -114,7 +103,7 @@ its original UTF-8 bytes, including any query parameters. The builder escapes
 them once. File and binary input tuples have no URL representation; store the
 bytes somewhere the mount can resolve first.
 
-Build configuration once and reuse it. `base_url` accepts an absolute HTTP(S)
+`base_url` accepts an absolute HTTP(S)
 URL, a root-relative mount such as `/images`, or a relative prefix such as
 `images`. Mount segments use unescaped ASCII letters, digits, `-`, `.`, `_`,
 or `~`. Credentials, query strings, fragments, and dot segments are rejected
@@ -137,8 +126,7 @@ mount = ImagePipe.Plug.init(url: url_config, sources: sources)
 ```
 
 Only the mount-relative path is signed. The base URL and mount prefix are
-prepended afterward. Configuration inspection excludes credentials. Keep it
-server-side; in a Phoenix template, render only the generated URL:
+prepended afterward. Keep keys server-side; render only the generated URL:
 
 ```heex
 <img src={ImagePipe.URL.url!(@thumbnail, @photo.source)} />
@@ -149,8 +137,7 @@ URL. Option order does not affect serialization; explicit groups remain
 separate. Set expiry explicitly with
 `ImagePipe.URL.new(url_config, expires: unix_seconds)` when needed. Reusing that
 timestamp preserves the URL; calculating a fresh `now + duration` changes it.
-URL generation does not check the current time or perform source, cache, or
-image I/O.
+URL generation does not check the current time.
 
 `url/3` returns `{:ok, url}`, `{:error, {:invalid_request, issues}}`,
 `{:error, :invalid_source}`, or `{:error, :too_many_options}`. The last error
@@ -212,10 +199,6 @@ assemble and sign paths themselves with `ImagePipe.URL.sign_path/2`.
 IV options. Passing IV options to a configuration with `encrypt_source: false`
 returns `{:error, :source_encryption_disabled}`. `url!/3` raises without echoing
 the source or credentials. Enabling encryption requires both key sets.
-
-The mount supplies source adapters, processing defaults, detector, and output
-negotiation. Match those settings and source contents with direct execution
-when you need equivalent output.
 
 ### Named presets
 
@@ -399,13 +382,9 @@ policy; stream responses have a bounded body read.
 
 ### Options and equivalence
 
-Pass processing options as the last argument to `run` or `write`. They share
-the mount's validated defaults for output quality, per-format quality,
-metadata, color profiles, HDR, quality search, encoder options, detector,
-`max_body_bytes`, `max_input_pixels`, `max_input_frames`, `max_result_width`,
-`max_result_height`, `max_result_pixels`, and `telemetry_prefix`. Source configuration uses the
-same `sources` option. Output limits clamp dimensions
-using the same encoder limits as HTTP.
+Pass host overrides as the last argument to `run` or `write`; processing
+options belong in the plan. Direct execution uses the same
+[server settings](configuration.md) and output dimension clamps as HTTP.
 
 `accept: "image/webp"` supplies optional format preferences when the plan
 does not specify a format. It defaults to an empty Accept value, following
@@ -418,12 +397,9 @@ Matching source bytes, plans, host settings, detector behavior, and Accept
 preferences produce the same processing result through direct execution and
 HTTP. Use the same preset definitions on both entry points.
 
-Configured `{:source, identifier}` inputs participate in the same input and
-output caches as HTTP. Either entry point can warm entries for the other.
-Remote source freshness, revalidation, stale-while-revalidate, storage
-permission, and generation limits apply equally. File-backed configured sources
-use their adapter's identity for output caching. Raw `{:file, path}` and
-`{:binary, bytes}` inputs bypass both caches.
+Configured `{:source, identifier}` inputs share HTTP caches and freshness
+policies; either entry point can warm entries for the other. Raw `{:file, path}`
+and `{:binary, bytes}` inputs bypass both caches.
 
 `request_inputs` supplies the values named by `storage_inputs`:
 
@@ -488,7 +464,6 @@ inside the source lifetime. A successful result owns no open resource. Source
 close callbacks run on success and on decode, transform, and encode failures;
 destination writes happen after source cleanup. Results are buffered in memory,
 so concurrent large outputs require enough memory for their complete binaries.
-No public stream ownership protocol is involved.
 
 ## Builder API: composition and validation
 
@@ -566,10 +541,8 @@ constraints, and equivalent URL syntax:
 - [Orientation and cropping](processing/crop.md): rotation, trim, regions, guides, and offsets.
 - [Effects](processing/effects.md): filters, color adjustments, and overlays.
 
-`ImagePipe.URL.group/2` appends a complete group in the fixed processing order.
-Coordinates accept numbers for pixels, `{:px, number}`, or `{:pct, percentage}`.
-Named options use atoms such as `:cover_down` and `:top_left`.
-Colors accept RGB tuples, CSS names, or three/six-digit hex strings.
+See [values and defaults](processing.md#values-and-defaults) for lengths,
+colors, and named options.
 
 ## Output options
 
