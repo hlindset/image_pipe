@@ -76,6 +76,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
 
     for metadata <- [
           %{result: :ok, source_frames: 3},
+          %{result: :ok, skipped: true, detected_source_format: :gif},
           %{result: :processing_error, error: :input_limit, limit: :frames},
           %{
             result: :processing_error,

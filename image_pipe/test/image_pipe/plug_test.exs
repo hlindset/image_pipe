@@ -442,7 +442,8 @@ defmodule ImagePipe.PlugTest do
         blue: 255,
         alpha: [unit: :ratio, numerator: 1, denominator: 1]
       ],
-      encoder_options: %{}
+      encoder_options: %{},
+      skip_formats: []
     ]
   end
 

@@ -85,27 +85,46 @@ defmodule ImagePipe.Decode do
   `Telemetry.start_span/3` bracket so transform/encode failures are attributed
   to the caller. Fetch/decode errors emit an error `:stop`; exceptions before
   decode completes emit `:exception`. Exceptions from `fun` do not close it again.
+
+  ## Skipping
+
+  `skip` is `{formats, on_skip}`. When the source signature names a format in
+  `formats`, the bracket calls `on_skip` with that format and the source bytes
+  as a chunk enumerable instead of `fun`, without any libvips call or image
+  limit check. The span stops with `skipped: true`.
   """
   @spec with_image(
           input(),
           Spec.t(),
           keyword(),
-          (State.t(), SourceGeometry.t() -> result)
+          (State.t(), SourceGeometry.t() -> result),
+          {[ImagePipe.Format.source_format()],
+           (ImagePipe.Format.source_format(), Enumerable.t() -> result) | nil}
         ) :: result | {:error, error()}
         when result: var
-  def with_image(source, %Spec{} = request, opts, fun)
+  def with_image(source, %Spec{} = request, opts, fun, skip \\ {[], nil})
       when is_function(fun, 2) do
     auto_rotate? = auto_rotate?(request)
     span = Telemetry.start_span(Telemetry.telemetry_opts(opts), [:source, :fetch_decode], %{})
     decoded = make_ref()
+    {skip_formats, on_skip} = skip
 
     try do
       source
       |> with_source_response(opts, fn response ->
-        case decode(response, request, opts, auto_rotate?) do
+        case decode(response, request, opts, auto_rotate?, skip_formats) do
           {:ok, state, geometry, stop_metadata} ->
             Telemetry.stop_span(span, stop_metadata)
             {decoded, fun.(state, geometry)}
+
+          {:skip, format, detected, input} ->
+            Telemetry.stop_span(span, %{
+              result: :ok,
+              skipped: true,
+              detected_source_format: detected
+            })
+
+            {decoded, on_skip.(format, chunks(input))}
 
           {:error, _reason} = error ->
             error
@@ -166,10 +185,11 @@ defmodule ImagePipe.Decode do
     error
   end
 
-  defp decode(response, request, opts, auto_rotate?) do
+  defp decode(response, request, opts, auto_rotate?, skip_formats) do
     with {:ok, input} <- input(response),
          {:ok, peek} <- peek_bytes(input) |> wrap_decode_error(),
          detected = Detector.detect(peek),
+         :ok <- check_skip(detected, skip_formats, input),
          :ok <- gate_detected(detected) |> wrap_decode_error(),
          :ok <- validate_header_pixels(peek, opts) |> wrap_input_limit_error(),
          :ok <- validate_container_frames(peek, input, opts),
@@ -217,6 +237,31 @@ defmodule ImagePipe.Decode do
        |> Map.put(:source_frames, frames)
        |> put_page(request.page)}
     end
+  end
+
+  defp check_skip(detected, skip_formats, input) do
+    format = skip_format(detected)
+
+    case format in skip_formats do
+      true -> {:skip, format, detected, input}
+      false -> :ok
+    end
+  end
+
+  defp skip_format(:avif_sequence), do: :avif
+  defp skip_format(detected), do: detected
+
+  @chunk_bytes 65_536
+
+  defp chunks({:path, path}), do: File.stream!(path, @chunk_bytes)
+  defp chunks({:download, download, _prefix}), do: Source.Download.stream(download)
+
+  defp chunks({:buffer, binary}) do
+    Stream.unfold(binary, fn
+      "" -> nil
+      <<chunk::binary-size(@chunk_bytes), rest::binary>> -> {chunk, rest}
+      rest -> {rest, ""}
+    end)
   end
 
   defp auto_rotate?(%Spec{output: %Output{terminal: :info}}), do: false

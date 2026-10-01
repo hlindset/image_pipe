@@ -8,6 +8,11 @@ defmodule ImagePipe.Response.Disposition do
     "image/png" => "png",
     "image/webp" => "webp",
     "image/avif" => "avif",
+    "image/gif" => "gif",
+    "image/tiff" => "tiff",
+    "image/heif" => "heif",
+    "image/jxl" => "jxl",
+    "image/jp2" => "jp2",
     "application/json" => "json",
     "text/plain" => "txt"
   }

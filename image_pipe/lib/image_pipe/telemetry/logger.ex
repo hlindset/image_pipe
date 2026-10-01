@@ -385,6 +385,7 @@ defmodule ImagePipe.Telemetry.Logger do
       Enum.reject(
         [
           detected_note(meta),
+          skipped_note(meta),
           loader_note(meta),
           page_note(meta),
           frames_note(meta),
@@ -422,6 +423,9 @@ defmodule ImagePipe.Telemetry.Logger do
     do: "detected #{detected}#{resolution_note(meta)}"
 
   defp detected_note(_meta), do: nil
+
+  defp skipped_note(%{skipped: true}), do: "skipped processing"
+  defp skipped_note(_meta), do: nil
 
   defp loader_note(%{source_loader: loader}) when not is_nil(loader), do: "loader #{loader}"
   defp loader_note(_meta), do: nil

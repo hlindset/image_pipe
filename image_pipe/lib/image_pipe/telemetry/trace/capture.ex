@@ -145,6 +145,8 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     :achieved_shrink,
     :detected_source_format,
     :source_format_resolution,
+    # the source was delivered unchanged under skip_processing_formats
+    :skipped,
     # declared frame/page count, and which input limit rejected the source
     :source_frames,
     :limit,

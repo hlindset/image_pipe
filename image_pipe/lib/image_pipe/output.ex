@@ -17,6 +17,7 @@ defmodule ImagePipe.Output do
       Policy,
       RequestPolicy,
       Resolved,
+      Skipped,
       Terminal.Blurhash,
       Terminal.LqipCss
     ]

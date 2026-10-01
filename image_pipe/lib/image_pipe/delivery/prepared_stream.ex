@@ -3,6 +3,7 @@ defmodule ImagePipe.Delivery.PreparedStream do
 
   alias ImagePipe.Debug.Info
   alias ImagePipe.Output.Resolved
+  alias ImagePipe.Output.Skipped
 
   @enforce_keys [:first_chunk, :content_type, :headers, :next, :cancel, :resolved_output]
   defstruct @enforce_keys ++ [debug: nil, cache_key: nil]
@@ -16,7 +17,7 @@ defmodule ImagePipe.Delivery.PreparedStream do
           headers: [{String.t(), String.t()}],
           next: (-> next_result()),
           cancel: (-> cancel_result()),
-          resolved_output: Resolved.t(),
+          resolved_output: Resolved.t() | Skipped.t(),
           debug: Info.t() | nil,
           cache_key: String.t() | nil
         }

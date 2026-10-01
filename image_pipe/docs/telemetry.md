@@ -164,6 +164,10 @@ Success stop metadata:
 - `:page` — the page or frame the request selected with `page=N`; absent when
   the request decodes the source's default image.
 
+A source delivered unchanged under `skip_processing_formats` stops the span
+with only `:result` (`:ok`), `:detected_source_format`, and `skipped: true`:
+no libvips call, image guard, transform, or encode runs for it.
+
 Failure stop metadata (one of two shapes, by failure mode):
 
 - Source-side failure — `:result` is `:source_error`; `:error` is a stable
@@ -199,14 +203,15 @@ Failure stop metadata (one of two shapes, by failure mode):
     libvips chose a loader outside that family. `:detected_source_format` is the
     detected family and `:source_loader` names the loader (e.g. `"dcrawload"`).
 
-The default Logger appends the detected format, a rejected loader, a selected
-page, a frame count above one, and the rejecting limit, e.g. `source
-fetch_decode: ok (detected webp, 3 frames)`, `source fetch_decode:
+The default Logger appends the detected format, a skipped source, a rejected
+loader, a selected page, a frame count above one, and the rejecting limit, e.g.
+`source fetch_decode: ok (detected webp, 3 frames)`, `source fetch_decode: ok
+(detected gif, skipped processing)`, `source fetch_decode:
 processing_error (detected tiff, loader dcrawload)`, `source fetch_decode:
 processing_error (page 3, 3 frames)`, or `source fetch_decode: processing_error
 (frames limit)`. Input-limit and page rejections log at the base level, like
 decode failures. The trace exporter keeps `:source_frames`, `:page`, `:limit`,
-and `:source_loader` as span attributes.
+`:source_loader`, and `:skipped` as span attributes.
 
 An upstream `304` produces `result: :not_modified` on the source fetch span.
 The default Logger renders this outcome, and the trace exporter records it as
@@ -617,6 +622,8 @@ Stop metadata:
   escalated).
 - `:status`, `:output_format`, and, on failure, `:stream_phase` (the streaming
   phase the error occurred in, e.g. `:encode`) and `:error`.
+- `skipped: true` when the response streams an unchanged source, whose
+  `:output_format` is then the source format.
 
 ## Measurements
 
