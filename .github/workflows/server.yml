@@ -39,6 +39,15 @@ jobs:
         run: mise exec -- mix local.hex --force
       - name: Install Rebar
         run: mise exec -- mix local.rebar --force
+      - name: Cache deps and build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            image_pipe_server/deps
+            image_pipe_server/_build
+          key: server-mix-${{ runner.os }}-${{ hashFiles('mise.toml') }}-${{ hashFiles('image_pipe_server/mix.lock') }}
+          restore-keys: |
+            server-mix-${{ runner.os }}-${{ hashFiles('mise.toml') }}-
       - name: Install dependencies
         run: mise exec -- mix deps.get
       - name: Check formatting

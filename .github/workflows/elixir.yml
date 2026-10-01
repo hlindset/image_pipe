@@ -25,29 +25,22 @@ permissions:
 
 jobs:
   url:
-    name: image_pipe_url / Elixir ${{ matrix.elixir }} / OTP ${{ matrix.erlang }}
+    name: image_pipe_url / Elixir ${{ matrix.toolchain.elixir }} / OTP ${{ matrix.toolchain.erlang }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - elixir: 1.18.5-otp-27
-            erlang: 27
-          - elixir: 1.18.5-otp-27
-            erlang: 28
-          - elixir: 1.19.6-otp-27
-            erlang: 27
-          - elixir: 1.19.6-otp-28
-            erlang: 28
-          - elixir: 1.20.4-otp-27
-            erlang: 27
-          - elixir: 1.20.4-otp-28
-            erlang: 28
-          - elixir: 1.20.4-otp-29
-            erlang: "29.1"
+        toolchain:
+          - { elixir: 1.18.5-otp-27, erlang: "27" }
+          - { elixir: 1.18.5-otp-27, erlang: "28" }
+          - { elixir: 1.19.6-otp-27, erlang: "27" }
+          - { elixir: 1.19.6-otp-28, erlang: "28" }
+          - { elixir: 1.20.4-otp-27, erlang: "27" }
+          - { elixir: 1.20.4-otp-28, erlang: "28" }
+          - { elixir: 1.20.4-otp-29, erlang: "29.1" }
     env:
-      MISE_ERLANG_VERSION: ${{ matrix.erlang }}
-      MISE_ELIXIR_VERSION: ${{ matrix.elixir }}
+      MISE_ERLANG_VERSION: ${{ matrix.toolchain.erlang }}
+      MISE_ELIXIR_VERSION: ${{ matrix.toolchain.elixir }}
       MIX_ENV: test
     defaults:
       run:
@@ -61,6 +54,15 @@ jobs:
         run: mise exec -- mix local.hex --force
       - name: Install Rebar
         run: mise exec -- mix local.rebar --force
+      - name: Cache deps and build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            image_pipe_url/deps
+            image_pipe_url/_build
+          key: url-mix-${{ runner.os }}-${{ matrix.toolchain.elixir }}-${{ matrix.toolchain.erlang }}-${{ hashFiles('image_pipe_url/mix.lock') }}
+          restore-keys: |
+            url-mix-${{ runner.os }}-${{ matrix.toolchain.elixir }}-${{ matrix.toolchain.erlang }}-
       - name: Install dependencies
         run: mise exec -- mix deps.get
       - name: Compile
@@ -69,32 +71,26 @@ jobs:
         run: mise exec -- mix test --no-compile
 
   build:
-    name: Elixir ${{ matrix.elixir }} / OTP ${{ matrix.erlang }}
+    name: Elixir ${{ matrix.toolchain.elixir }} / OTP ${{ matrix.toolchain.erlang }} (${{ matrix.partition }}/2)
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - elixir: 1.18.5-otp-27
-            erlang: 27
-          - elixir: 1.18.5-otp-27
-            erlang: 28
-          - elixir: 1.19.6-otp-27
-            erlang: 27
-          - elixir: 1.19.6-otp-28
-            erlang: 28
-          - elixir: 1.20.4-otp-27
-            erlang: 27
-          - elixir: 1.20.4-otp-28
-            erlang: 28
-          - elixir: 1.20.4-otp-29
-            erlang: "29.1"
+        toolchain:
+          - { elixir: 1.18.5-otp-27, erlang: "27" }
+          - { elixir: 1.18.5-otp-27, erlang: "28" }
+          - { elixir: 1.19.6-otp-27, erlang: "27" }
+          - { elixir: 1.19.6-otp-28, erlang: "28" }
+          - { elixir: 1.20.4-otp-27, erlang: "27" }
+          - { elixir: 1.20.4-otp-28, erlang: "28" }
+          - { elixir: 1.20.4-otp-29, erlang: "29.1" }
+        partition: [1, 2]
 
     # Build current libvips for clamp/maxpair, PNG palette quantization, and
     # JPEG XL source decoding. Compile vix against the same build.
     env:
-      MISE_ERLANG_VERSION: ${{ matrix.erlang }}
-      MISE_ELIXIR_VERSION: ${{ matrix.elixir }}
+      MISE_ERLANG_VERSION: ${{ matrix.toolchain.erlang }}
+      MISE_ELIXIR_VERSION: ${{ matrix.toolchain.elixir }}
       VIX_COMPILATION_MODE: PLATFORM_PROVIDED_LIBVIPS
       VIPS_VERSION: "8.18.7"
       # Upstream SHA256 of vips-${VIPS_VERSION}.tar.xz (release .sha256sum asset).
@@ -154,6 +150,18 @@ jobs:
         run: mise exec -- mix local.hex --force
       - name: Install Rebar
         run: mise exec -- mix local.rebar --force
+      # vix's NIF links against the libvips in VIPS_PREFIX, so the libvips
+      # version is part of the key.
+      - name: Restore deps and build
+        id: mix-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            image_pipe/deps
+            image_pipe/_build
+          key: mix-${{ runner.os }}-${{ matrix.toolchain.elixir }}-${{ matrix.toolchain.erlang }}-vips${{ env.VIPS_VERSION }}-${{ hashFiles('image_pipe/mix.lock') }}
+          restore-keys: |
+            mix-${{ runner.os }}-${{ matrix.toolchain.elixir }}-${{ matrix.toolchain.erlang }}-vips${{ env.VIPS_VERSION }}-
       - name: Install dependencies
         working-directory: image_pipe
         run: mise exec -- mix deps.get
@@ -162,8 +170,19 @@ jobs:
         run: mise exec -- mix compile --warnings-as-errors
         env:
           MIX_ENV: test
+      # One partition saves, before tests run, so a failing test run still
+      # leaves a warm cache.
+      - name: Save deps and build
+        if: matrix.partition == 1 && steps.mix-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            image_pipe/deps
+            image_pipe/_build
+          key: ${{ steps.mix-cache.outputs.cache-primary-key }}
       - name: Run tests
         working-directory: image_pipe
-        run: mise exec -- mix test --no-compile
+        run: mise exec -- mix test --no-compile --partitions 2
         env:
           MIX_ENV: test
+          MIX_TEST_PARTITION: ${{ matrix.partition }}
