@@ -126,6 +126,37 @@ defmodule ImagePipeServer.ConfigTest do
              end) =~ "server.mount_path: expected a path starting with /"
     end
 
+    test "passes [processing] watermarks to the library by name" do
+      config =
+        Config.build!(
+          Config.options!(%{
+            "sources" => %{
+              "files" => %{
+                "adapter" => "file",
+                "match" => "path",
+                "root" => "/srv/images",
+                "root_id" => "images"
+              }
+            },
+            "processing" => %{
+              "watermarks" => %{"logo" => %{"source" => "brand/logo.png", "opacity" => 0.5}},
+              "request_watermarks" => true
+            }
+          })
+        )
+
+      assert %{"logo" => %{opacity: 0.5}} = config.image_pipe[:watermarks]
+      assert config.image_pipe[:request_watermarks] == true
+
+      assert error(fn ->
+               Config.build!(
+                 Config.options!(%{
+                   "processing" => %{"watermarks" => %{"logo" => %{"opacity" => 0.5}}}
+                 })
+               )
+             end) =~ "watermark logo: required :source option"
+    end
+
     test "validates [pool] and [telemetry]" do
       config =
         Config.build!(
