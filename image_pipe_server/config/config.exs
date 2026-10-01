@@ -11,4 +11,6 @@ config :opentelemetry,
   resource: [service: %{name: "image_pipe_server"}],
   id_generator: ImagePipe.Telemetry.Trace.OtelIdGenerator
 
+config :logger, :default_formatter, metadata: [:request_id]
+
 import_config "#{config_env()}.exs"

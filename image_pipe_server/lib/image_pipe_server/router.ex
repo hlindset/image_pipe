@@ -8,6 +8,9 @@ defmodule ImagePipeServer.Router do
 
   With `:auth_token_hash` (the SHA-256 of the auth token), requests other than
   `/health` must send `Authorization: Bearer <token>`, or get a 401.
+
+  Every response carries an `x-request-id`, kept from the request when valid,
+  which is also the `:request_id` Logger metadata for the request.
   """
 
   @behaviour Plug
@@ -17,6 +20,7 @@ defmodule ImagePipeServer.Router do
   @impl Plug
   def init(opts) do
     %{
+      request_id: Plug.RequestId.init([]),
       mount: Plug.Router.Utils.split(Keyword.fetch!(opts, :mount_path)),
       image_pipe: Keyword.fetch!(opts, :image_pipe),
       auth_token_hash: Keyword.get(opts, :auth_token_hash)
@@ -24,14 +28,20 @@ defmodule ImagePipeServer.Router do
   end
 
   @impl Plug
-  def call(%Plug.Conn{method: method, path_info: ["health"]} = conn, _opts)
-      when method in ["GET", "HEAD"] do
+  def call(conn, opts) do
+    conn
+    |> Plug.RequestId.call(opts.request_id)
+    |> dispatch(opts)
+  end
+
+  defp dispatch(%Plug.Conn{method: method, path_info: ["health"]} = conn, _opts)
+       when method in ["GET", "HEAD"] do
     conn
     |> put_resp_content_type("text/plain")
     |> send_resp(200, "ok")
   end
 
-  def call(conn, %{auth_token_hash: hash} = opts) when is_binary(hash) do
+  defp dispatch(conn, %{auth_token_hash: hash} = opts) when is_binary(hash) do
     if authorized?(conn, hash) do
       route(conn, opts)
     else
@@ -41,7 +51,7 @@ defmodule ImagePipeServer.Router do
     end
   end
 
-  def call(conn, opts), do: route(conn, opts)
+  defp dispatch(conn, opts), do: route(conn, opts)
 
   defp route(conn, %{mount: mount, image_pipe: image_pipe}) do
     case strip_prefix(conn.path_info, mount) do
