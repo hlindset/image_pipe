@@ -12,6 +12,7 @@ defmodule ImagePipe.Processing.Config do
   @scalar_defaults [
     strip_metadata: true,
     keep_copyright: true,
+    stripped_dpi: 72,
     strip_color_profile: true,
     preserve_hdr: false,
     quality: 80,
@@ -58,6 +59,7 @@ defmodule ImagePipe.Processing.Config do
                     max_result_pixels: [type: :pos_integer, default: 40_000_000],
                     strip_metadata: [type: :boolean],
                     keep_copyright: [type: :boolean],
+                    stripped_dpi: [type: {:in, 1..65_535}],
                     quality: [type: :pos_integer],
                     format_quality: [type: {:map, :atom, :pos_integer}],
                     strip_color_profile: [type: :boolean],

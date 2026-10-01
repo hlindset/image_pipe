@@ -481,6 +481,14 @@ defmodule ImagePipe.API.OptionSpec do
         examples: ["meta=strip", "meta=copyright", "meta=keep"]
       },
       %__MODULE__{
+        key: "dpi",
+        name: :dpi,
+        scope: :request,
+        value: &__MODULE__.parse_dpi/1,
+        summary: "Output physical density in pixels per inch, 1-65535",
+        examples: ["dpi=300"]
+      },
+      %__MODULE__{
         key: "profile",
         name: :color_profile,
         scope: :request,
@@ -1298,6 +1306,15 @@ defmodule ImagePipe.API.OptionSpec do
     case OutputOptions.parse_max_bytes(string) do
       {:ok, max_bytes} -> {:ok, max_bytes}
       :error -> {:error, :invalid_max_bytes}
+    end
+  end
+
+  @doc false
+  @spec parse_dpi(String.t()) :: {:ok, 1..65_535} | {:error, :invalid_dpi}
+  def parse_dpi(string) do
+    case OutputOptions.parse_dpi(string) do
+      {:ok, dpi} -> {:ok, dpi}
+      :error -> {:error, :invalid_dpi}
     end
   end
 

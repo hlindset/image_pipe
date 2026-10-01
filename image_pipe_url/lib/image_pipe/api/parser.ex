@@ -531,6 +531,7 @@ defmodule ImagePipe.API.Parser do
   def message_for(:invalid_format_qualities), do: "invalid per-format quality list"
   def message_for(:invalid_autoquality), do: "invalid autoquality method or named fields"
   def message_for(:invalid_max_bytes), do: "invalid value: expected a positive integer"
+  def message_for(:invalid_dpi), do: "invalid value: expected an integer 1-65535"
   def message_for(:invalid_encoder_options), do: "invalid encoder option list"
   def message_for(:invalid_expires), do: "invalid value: expected a positive unix timestamp"
 

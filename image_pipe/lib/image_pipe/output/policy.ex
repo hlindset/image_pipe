@@ -27,6 +27,7 @@ defmodule ImagePipe.Output.Policy do
                 quality_search: :none,
                 quality_search_max_iterations: 6,
                 max_bytes: nil,
+                dpi: nil,
                 quality_search_offsets: Output.default_quality_search_offsets(),
                 encoder_options: %{},
                 hdr: :tone_map
@@ -62,6 +63,7 @@ defmodule ImagePipe.Output.Policy do
             | Output.QualitySearch.Butteraugli.t(),
           quality_search_max_iterations: pos_integer(),
           max_bytes: nil | pos_integer(),
+          dpi: nil | 1..65_535,
           quality_search_offsets: Output.quality_search_offsets(),
           encoder_options: %{optional(format()) => struct()},
           hdr: Output.hdr()
@@ -105,6 +107,7 @@ defmodule ImagePipe.Output.Policy do
       max_bytes: policy.max_bytes,
       strip_metadata: policy.strip_metadata,
       keep_copyright: policy.keep_copyright,
+      dpi: policy.dpi,
       color_profile: policy.color_profile,
       hdr: policy.hdr,
       flatten_background: Color.key_data(policy.flatten_background),
@@ -208,6 +211,7 @@ defmodule ImagePipe.Output.Policy do
       response_headers: policy.headers,
       strip_metadata: policy.strip_metadata,
       keep_copyright: policy.keep_copyright,
+      dpi: policy.dpi,
       color_profile: policy.color_profile,
       flatten_background: policy.flatten_background,
       quality_search: resolve_search(policy, format),

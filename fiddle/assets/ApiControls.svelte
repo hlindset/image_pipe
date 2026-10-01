@@ -123,6 +123,7 @@
     { label: "Keep metadata", options: "w=600/meta=keep" },
     { label: "Keep attribution", options: "w=600/meta=copyright" },
     { label: "Strip metadata", options: "w=600/meta=strip" },
+    { label: "Print density", options: "w=600/format=jpeg/dpi=300" },
     {
       label: "Keep Display P3",
       options: "w=400/format=png/profile=preserve",

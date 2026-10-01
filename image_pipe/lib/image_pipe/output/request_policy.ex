@@ -65,6 +65,7 @@ defmodule ImagePipe.Output.RequestPolicy do
         ),
       strip_metadata: strip_metadata,
       keep_copyright: keep_copyright,
+      dpi: dpi(request.dpi, strip_metadata, config),
       color_profile:
         request.color_profile ||
           color_profile_policy(Keyword.fetch!(config, :strip_color_profile)),
@@ -118,6 +119,11 @@ defmodule ImagePipe.Output.RequestPolicy do
   defp metadata_policy(:strip, _strip_metadata, _keep_copyright), do: {true, false}
   defp metadata_policy(:copyright, _strip_metadata, _keep_copyright), do: {true, true}
   defp metadata_policy(:keep, _strip_metadata, _keep_copyright), do: {false, false}
+
+  # Density is metadata: stripping replaces the source value with the host's.
+  defp dpi(nil, true, config), do: Keyword.fetch!(config, :stripped_dpi)
+  defp dpi(nil, false, _config), do: nil
+  defp dpi(dpi, _strip_metadata, _config), do: dpi
 
   defp validate_hdr_profile(%Policy{color_profile: {:convert, _target}, hdr: :preserve}),
     do: {:error, :hdr_profile_conversion}

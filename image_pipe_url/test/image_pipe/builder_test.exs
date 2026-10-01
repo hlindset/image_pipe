@@ -60,6 +60,8 @@ defmodule ImagePipe.BuilderTest do
     end
 
     assert_raise ArgumentError, fn -> IP.URL.output(IP.URL.new(), quality: 101) end
+    assert_raise ArgumentError, fn -> IP.URL.output(IP.URL.new(), dpi: 0) end
+    assert_raise ArgumentError, fn -> IP.URL.output(IP.URL.new(), dpi: 65_536) end
     assert_raise ArgumentError, fn -> IP.URL.new(orient: :sideways) end
     assert_raise ArgumentError, fn -> IP.URL.new(page: -1) end
   end
@@ -192,6 +194,7 @@ defmodule ImagePipe.BuilderTest do
            format_qualities: [webp: 75, jpeg: 90]
          ],
          "autoquality=ssimulacra2,target:85,min:30,max:95,error:1/max-bytes=12000/format-q=webp:75,jpeg:90"},
+        {"density", [metadata: :strip, dpi: 300], "meta=strip/dpi=300"},
         {"JPEG",
          [
            format: :jpeg,

@@ -92,6 +92,7 @@ defmodule ImagePipe.Output.PolicyIdentityTest do
           hdr: :preserve,
           flatten_background: Color.white(),
           max_bytes: 1000,
+          dpi: 300,
           quality_search: :none,
           encoder_options: %{}
       }
@@ -102,6 +103,7 @@ defmodule ImagePipe.Output.PolicyIdentityTest do
       assert Keyword.fetch!(material, :default_quality) == {:quality, 70}
       assert Keyword.fetch!(material, :format_qualities) == %{avif: {:quality, 50}}
       assert Keyword.fetch!(material, :max_bytes) == 1000
+      assert Keyword.fetch!(material, :dpi) == 300
       assert Keyword.fetch!(material, :strip_metadata) == false
       assert Keyword.fetch!(material, :keep_copyright) == false
       assert Keyword.fetch!(material, :color_profile) == :keep

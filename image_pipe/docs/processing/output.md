@@ -93,6 +93,7 @@ defaults. Host configuration takes [typed encoder structs](../configuration.md#e
 | `meta=copyright` | `metadata: :copyright` | Retain attribution, strip other optional metadata; default |
 | `meta=strip` | `metadata: :strip` | Strip optional metadata including attribution |
 | `meta=keep` | `metadata: :keep` | Retain source metadata |
+| `dpi=300` | `dpi: 300` | Write 300 pixels per inch, 1-65535, under any `meta` |
 | `profile=strip` | `color_profile: :strip` | Convert to working space, omit source ICC; default |
 | `profile=preserve` | `color_profile: :preserve_source` | Export back to source profile and retain it |
 | `profile=srgb` | `color_profile: {:convert, :srgb}` | Convert to and embed the named target profile |
@@ -100,6 +101,10 @@ defaults. Host configuration takes [typed encoder structs](../configuration.md#e
 | `profile=adobe-rgb` | `color_profile: {:convert, :adobe_rgb}` | Adobe RGB target |
 | `hdr=tonemap` | `hdr: :tone_map` | Standard working space; default |
 | `hdr=preserve` | `hdr: :preserve` | Preserve high bit depth where supported |
+
+Without `dpi`, stripping writes the host `stripped_dpi` (default 72) and
+`meta=keep` retains the source density. Density is a header value only: it
+never changes pixels, dimensions, or DPR scaling.
 
 Profile handling is independent of metadata policy. Named profile conversion
 produces 8-bit output and cannot combine with effective HDR preservation.

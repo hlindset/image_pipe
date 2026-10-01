@@ -171,6 +171,8 @@ describe("visual controls serialize API requests", () => {
       maxBytesEnabled: true,
       maxBytes: 30000,
       stripMetadata: false,
+      dpiEnabled: true,
+      dpi: 300,
       colorProfile: "display-p3",
       preserveHdr: true,
     });
@@ -180,6 +182,7 @@ describe("visual controls serialize API requests", () => {
       "autoquality=ssimulacra2,target:80,min:40,max:90,error:1",
       "max-bytes=30000",
       "meta=keep",
+      "dpi=300",
       "profile=display-p3",
       "hdr=preserve",
     ]);
@@ -345,6 +348,7 @@ describe("deep links and edits", () => {
     "progressive-blur=2",
     "brightness=-30/contrast=1.4/saturation=0.5/colorize=0.3,blue,keep-alpha/gradient=0.4,black,left,0.1,0.8",
     "autoquality=butteraugli,target:1/format=webp/meta=copyright/profile=preserve/hdr=preserve",
+    "format=jpeg/meta=strip/dpi=96",
   ])("opening %s does not rewrite it", (options) => {
     const before = controlStateFromOptions(options, source);
     expect(updateControlOptions(options, 0, before, structuredClone(before))).toBe(options);

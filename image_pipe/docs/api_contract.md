@@ -58,7 +58,7 @@ The API accepts these option keys:
 `monochrome`, `duotone`, `brightness`, `contrast`, `saturation`, `colorize`,
 `gradient`, `trim`, `pad`, `bg`, `output`, `format`, `q`, `format-q`,
 `autoquality`, `max-bytes`, `jpeg-options`, `png-options`, `webp-options`,
-`avif-options`, `meta`, `profile`, `hdr`,
+`avif-options`, `meta`, `dpi`, `profile`, `hdr`,
 `debug`, `expires`, `preset`, `filename`, `attachment`, `cb`.
 
 It also implements `-`, `src`, `src64`, `enc`, and full-length HMAC signing with
@@ -433,6 +433,13 @@ metadata, such as JPEG dimensions, may still be written under `strip`.
 Orientation metadata always describes the delivered pixels: `orient=none`
 uses stored axes even under `meta=keep`, without leaving a source EXIF tag
 that would rotate the result again in a viewer.
+
+Physical density is metadata too. `dpi=N`, an integer from 1 to 65535,
+writes N pixels per inch under every `meta` policy. Without `dpi`, `copyright`
+and `strip` write the host `stripped_dpi` (default 72) and `keep` retains the
+source density. Density never changes pixels, dimensions, or DPR scaling.
+JPEG writes it to JFIF and EXIF, PNG to `pHYs` and EXIF, and WebP and AVIF
+to EXIF only.
 
 `profile=strip` converts to the standard working color space and omits the
 source ICC profile. `profile=preserve` exports back to the source profile

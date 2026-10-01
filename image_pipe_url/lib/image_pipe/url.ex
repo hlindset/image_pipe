@@ -180,8 +180,8 @@ defmodule ImagePipe.URL do
   @doc """
   Merges explicit output settings into a plan.
 
-  Supports terminal selection, format, quality, color/metadata policy, quality
-  search, byte limits, and encoder options. Repeating an output call replaces
+  Supports terminal selection, format, quality, color/metadata policy, output
+  DPI, quality search, byte limits, and encoder options. Repeating an output call replaces
   each supplied option as a whole; omitted options retain their previous value.
   Host-dependent defaults remain unresolved. Malformed values raise `ArgumentError`.
   """

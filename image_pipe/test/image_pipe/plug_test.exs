@@ -432,6 +432,7 @@ defmodule ImagePipe.PlugTest do
       max_bytes: nil,
       strip_metadata: true,
       keep_copyright: true,
+      dpi: 72,
       color_profile: :strip,
       hdr: :tone_map,
       flatten_background: [
