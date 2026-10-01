@@ -5,6 +5,9 @@ defmodule ImagePipe.Execution.Context do
   defstruct @enforce_keys ++
               [
                 input_key: nil,
+                inputs: nil,
+                watermarks: [],
+                watermark_tasks: [],
                 acquisition: %ImagePipe.Execution.Acquisition{record: nil},
                 stale?: false
               ]

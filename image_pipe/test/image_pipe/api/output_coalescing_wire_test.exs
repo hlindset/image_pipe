@@ -136,6 +136,7 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
             Execution.prepare(
               request,
               source,
+              [],
               policy,
               Inputs.new!([]),
               config

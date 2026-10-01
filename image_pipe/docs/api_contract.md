@@ -56,7 +56,8 @@ The API accepts these option keys:
 `anchor-offset`, `extend`, `extend-ratio`, `extend-at`, `extend-offset`,
 `anchor`, `focus`, `detect`, `blur`, `progressive-blur`, `sharpen`, `pixelate`, `gray`, `bitonal`,
 `monochrome`, `duotone`, `brightness`, `contrast`, `saturation`, `colorize`,
-`gradient`, `trim`, `pad`, `bg`, `output`, `format`, `q`, `format-q`,
+`gradient`, `trim`, `pad`, `bg`, `wm`, `wm-src64`, `wm-enc`, `wm-opacity`,
+`wm-scale`, `wm-at`, `wm-offset`, `wm-tile`, `wm-gap`, `output`, `format`, `q`, `format-q`,
 `autoquality`, `max-bytes`, `jpeg-options`, `png-options`, `webp-options`,
 `avif-options`, `meta`, `dpi`, `profile`, `hdr`,
 `debug`, `expires`, `preset`, `filename`, `attachment`, `cb`.
@@ -75,6 +76,7 @@ BlurHash, LQIP CSS, and source-info JSON are the supported outputs.
 | Resize | Contain, cover, cover-down, stretch, auto, enlargement, minimum dimensions, independent zoom axes, and DPR |
 | Crop | Guided and explicit regions, anchors, focal points, attention, face/object detection, offsets, and ratio correction |
 | Geometry | EXIF policy, arbitrary rotation, flips, symmetric trim, canvas placement, padding, and alpha-aware background |
+| Watermarks | Host-named or opt-in request-supplied image assets with opacity, scale, anchored placement, offsets, and tiling |
 | Effects | Blur, sharpen, pixelate, grayscale, bitonal, monochrome, duotone, brightness, contrast, saturation, colorize, and gradient |
 | Encoding | Explicit or negotiated formats, quality and per-format quality, byte budgets, SSIMULACRA2/Butteraugli/size search, and JPEG/PNG/WebP/AVIF controls |
 | Color and metadata | Copyright and metadata policy, ICC conversion and preservation, and HDR preservation |
@@ -86,7 +88,8 @@ BlurHash, LQIP CSS, and source-info JSON are the supported outputs.
 Mount configuration includes source/cache adapters,
 `max_body_bytes`, `max_input_pixels`, result width/height/pixel limits,
 telemetry prefix, automatic format preferences, output capabilities, CORS,
-debug-header permission, and storage vary inputs. Source-adapter controls
+debug-header permission, storage vary inputs, named watermark assets, and the
+request-watermark gate. Source-adapter controls
 (including HTTP bounds and S3 credentials/providers) retain their own
 validation boundaries. Generated HTTP cache policy is opt-in and respects host
 headers and source identity. See [HTTP caching](cdn-http-cache.md).
@@ -101,7 +104,7 @@ set their mount defaults.
 ## Processing semantics
 
 The fixed stage order is rotate, flip, trim, source crop, resize/result
-crop, effects, canvas, padding, background. Within effects the order is
+crop, effects, canvas, padding, background, watermark. Within effects the order is
 blur, progressive blur, sharpen, pixelate, gray, bitonal, monochrome, duotone, brightness,
 contrast, saturation, colorize, gradient. Units are explicit and `-`
 groups are ordered. Rotate accepts arbitrary angles; `flip=h`, `flip=v`, and
@@ -147,7 +150,7 @@ Crop and region widths and heights must be positive; invalid sizes fail
 during request parsing before source resolution or cache access.
 
 Each `-` group receives the previous group's complete result, including
-canvas, padding, and background. Group parameters do not carry forward:
+canvas, padding, background, and watermark. Group parameters do not carry forward:
 guide, rotation, DPR, and effects must be stated again to apply again.
 EXIF is not reapplied. Internal orientation/color/materialization state may
 survive a group boundary when doing so is observably equivalent. Decode
@@ -225,6 +228,33 @@ realized target canvas and pixels scaled by effective DPR. Placement is
 clamped inside the canvas. Canvas placement runs in display coordinates,
 after effects and before padding and background. Added space is transparent
 until a background is requested. Canvas and offset options reset at `-`.
+
+### Watermarks
+
+`wm=name` selects a host-configured asset; `wm-src64` and `wm-enc` name a
+request-supplied source, decoded like `src64` and `enc`, when the host sets
+`request_watermarks`. Exactly one names the asset. `wm-opacity` (0 to 1,
+default 1) multiplies the host entry's base opacity; zero canonicalizes to
+absence. `wm-scale` (greater than 0, at most 1) fits the asset, with
+enlargement, inside that fraction of the frame; without it the asset keeps its
+natural size times effective DPR. `wm-at` and `wm-offset` use the canvas
+anchor and signed-length rules, with pixels scaled by effective DPR and
+percentages resolved against the frame, but placement is not clamped: overflow
+is clipped and an asset entirely outside the frame draws nothing. `wm-tile`
+repeats the asset in every direction from its anchored position; `wm-gap`
+(non-negative lengths) spaces the tiles. The other `wm-*` options require an
+asset, `wm-gap` requires `wm-tile`, and all reset at `-`.
+
+The watermark runs last in its group, on the display frame left by
+background. Assets resolve through the source mounts and input cache with the
+main source's limits, decode their default frame with EXIF orientation, and
+take the main source's input color management. Their metadata and profile are
+dropped. The asset is converted into the frame's color space and band format
+and composited `over` it; a frame without alpha keeps none. Unknown names,
+disabled request sources, and inert options fail before source or cache
+access. Asset fetch failures use the main source's statuses and decode failures
+return `415`. Identity takes each asset's source identity, byte identity, and
+effective opacity, never the host entry name.
 
 ### Object and face guides
 

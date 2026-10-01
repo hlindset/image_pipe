@@ -251,6 +251,61 @@ defmodule ImagePipe.Plug.ConfigTest do
     assert_raise ArgumentError, fn -> Config.validate!(smart_crop_face_detection: true) end
   end
 
+  describe "watermarks" do
+    @mounts [
+      sources: [
+        files: [
+          adapter: ImagePipe.Source.File,
+          match: :path,
+          options: [root: "/srv/images", root_id: "images"]
+        ]
+      ]
+    ]
+
+    test "normalizes named entries to plan sources with a base opacity" do
+      config =
+        Config.validate!(
+          @mounts ++
+            [
+              watermarks: %{
+                logo: [source: "brand/logo.png", opacity: 0.6],
+                badge: [source: "b.png"]
+              }
+            ]
+        )
+
+      assert %{
+               "logo" => %{
+                 source: %ImagePipe.Plan.Source.Path{segments: ["brand", "logo.png"]},
+                 opacity: 0.6
+               },
+               "badge" => %{opacity: 1.0}
+             } = config[:watermarks]
+
+      assert config[:request_watermarks] == false
+      assert Config.validate!([])[:watermarks] == %{}
+      assert Config.validate!(request_watermarks: true)[:request_watermarks] == true
+    end
+
+    test "rejects malformed entries" do
+      for watermarks <- [
+            %{"logo" => [source: "logo.png"]},
+            %{Logo: [source: "logo.png"]},
+            %{logo: []},
+            %{logo: [source: "logo.png", opacity: 0]},
+            %{logo: [source: "logo.png", opacity: 1.5]},
+            %{logo: [source: "logo.png", extra: true]},
+            %{logo: [source: "s3://bucket/logo.png"]}
+          ] do
+        assert_raise ArgumentError, fn ->
+          Config.validate!(@mounts ++ [watermarks: watermarks])
+        end
+      end
+
+      assert_raise ArgumentError, fn -> Config.validate!(request_watermarks: :yes) end
+    end
+  end
+
   test "rejects unknown mount options" do
     assert_raise ArgumentError, ~r/bogus/, fn -> Config.validate!(bogus: 1) end
   end

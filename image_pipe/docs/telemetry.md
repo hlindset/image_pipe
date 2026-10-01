@@ -61,6 +61,7 @@ paths still emit the send span; streamed generation also emits delivery spans.
 [:image_pipe, :output, :terminal, ...]
 [:image_pipe, :source, :fetch, ...]
 [:image_pipe, :source, :fetch_decode, ...]
+[:image_pipe, :source, :watermark, ...]
 [:image_pipe, :transform, :execute, ...]
 [:image_pipe, :transform, :input_color_management, ...]
 [:image_pipe, :transform, :operation, ...]
@@ -211,6 +212,22 @@ An upstream `304` produces `result: :not_modified` on the source fetch span.
 The default Logger renders this outcome, and the trace exporter records it as
 a successful span. Origin validators, URLs, and request credentials are not
 included in the event.
+
+### Watermark acquisition span (`[:source, :watermark]`)
+
+`[:image_pipe, :source, :watermark]` wraps one watermark asset's acquisition.
+Each runs in its own task while the main source is acquired, and the tracer
+parents it to the request across that process hop. Start metadata carries
+`:phase`: `:prepare` establishes the asset's byte identity before the
+conditional gate (reusing a fresh input-cache record, or fetching), and `:open`
+reads the asset's bytes after an output-cache miss. The asset's
+`[:source, :resolve]`, `[:source, :fetch]`, and input-cache spans nest inside
+it. Stop metadata carries `:result` in the request vocabulary. Asset sources
+and names are not included.
+
+The default Logger renders `source watermark prepare: ok` or `source watermark
+open: source_error`, escalating failures to a warning; the trace exporter
+records `:phase` and `:result` as span attributes.
 
 ### Transform execute span (`[:transform, :execute]`)
 
@@ -960,6 +977,7 @@ defmodule MyApp.ImagePipeTelemetry do
     [:output, :terminal],
     [:source, :fetch],
     [:source, :fetch_decode],
+    [:source, :watermark],
     [:transform, :execute],
     [:transform, :input_color_management],
     [:transform, :operation],

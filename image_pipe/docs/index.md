@@ -32,6 +32,7 @@ and a complete option index. Each category shows URL and Elixir spellings.
 | [Resize and layout](processing/resize.md) | Dimensions, fit, enlargement, DPR, zoom, canvas, padding, background |
 | [Orientation and cropping](processing/crop.md) | EXIF, rotation, flip, trim, regions, anchors, focus, detection |
 | [Effects](processing/effects.md) | Blur, sharpen, pixelate, grayscale, color adjustments, overlays |
+| [Watermarks](processing/watermark.md) | Image watermarks with opacity, scale, placement, and tiling |
 | [Output and encoding](processing/output.md) | Formats, quality, size budgets, encoders, profiles, HDR, placeholders, info |
 | [Request controls](processing/request.md) | Downloads, expiry, cachebusters, debugging |
 

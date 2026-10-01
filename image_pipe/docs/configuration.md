@@ -61,6 +61,8 @@ expand presets from the server configuration's `url:` value. See
 | `input_cache` | Disabled | Independent source-body cache adapter |
 | `source_cache_policy` | Built-in policy | Freshness/revalidation policy; see [caching](cache.md) |
 | `storage_inputs` | `[]` | Header/cookie names that partition cache storage, e.g. `[{:header, "x-tenant"}]` |
+| `watermarks` | `%{}` | Named watermark assets; see [watermarks](#watermarks) |
+| `request_watermarks` | `false` | Accept request-supplied watermark sources (`wm-src64`, `wm-enc`) |
 | `url` | Unsigned, no presets | An `ImagePipe.URL.Config` from `ImagePipe.URL.config/1` |
 | `clock` | Current Unix seconds | Zero-argument function used for request expiry |
 
@@ -78,6 +80,26 @@ expand presets from the server configuration's `url:` value. See
 Signing, encryption, and source encoding are covered in [URLs and presets](urls.md).
 `storage_inputs` changes storage identity without changing a byte-identical
 representation's ETag; it does not forward those inputs to the source.
+
+### Watermarks
+
+`watermarks` maps asset names to a source and an optional base opacity:
+
+```elixir
+watermarks: %{
+  logo: [source: "s3://brand/logo.png", opacity: 0.6],
+  badge: [source: "brand/badge.png"]
+}
+```
+
+Names are atoms matching `[a-z0-9_-]+`; requests select them with `wm=logo`.
+`source` uses the `src` grammar and must route to a configured mount.
+`opacity` is greater than 0 and at most 1, default 1, and multiplies the
+request's `wm-opacity`. See [watermarks](processing/watermark.md).
+
+`request_watermarks: true` lets requests name their own watermark sources.
+They still route only through the configured mounts; enable it only when
+overlaying caller-chosen content is acceptable.
 
 ## Resource limits
 

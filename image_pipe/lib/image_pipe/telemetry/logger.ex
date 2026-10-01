@@ -22,7 +22,12 @@ defmodule ImagePipe.Telemetry.Logger do
       [:deliver]
     ],
     parse: [[:parse]],
-    source: [[:source, :resolve], [:source, :fetch], [:source, :fetch_decode]],
+    source: [
+      [:source, :resolve],
+      [:source, :fetch],
+      [:source, :fetch_decode],
+      [:source, :watermark]
+    ],
     transform: [
       [:transform, :execute],
       [:transform, :input_color_management],
@@ -371,6 +376,9 @@ defmodule ImagePipe.Telemetry.Logger do
   defp message([:source, stage | _], _m, %{source_mount: mount} = meta)
        when stage in [:resolve, :fetch] and not is_nil(mount),
        do: "image_pipe source #{stage}: #{outcome(meta)} (mount #{mount})"
+
+  defp message([:source, :watermark | _], _m, meta),
+    do: "image_pipe source watermark #{meta[:phase]}: #{outcome(meta)}"
 
   defp message([:source, :fetch_decode | _], _m, meta) do
     notes =

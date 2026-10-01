@@ -22,6 +22,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
   alias ImagePipe.Transform.Operation.Rotate
   alias ImagePipe.Transform.Operation.Saturation
   alias ImagePipe.Transform.Operation.Sharpen
+  alias ImagePipe.Transform.Operation.Watermark
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
@@ -250,6 +251,73 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
 
     expected = Image.from_binary!(body) |> Image.flip!(:horizontal)
     assert VipsImage.write_to_binary(state.image) == VipsImage.write_to_binary(expected)
+  end
+
+  defp watermark(overrides) do
+    mark = Image.new!(17, 13, color: [255, 0, 0, 200])
+
+    struct!(
+      %Watermark{
+        image: mark,
+        width: 17,
+        height: 13,
+        opacity: 0.6,
+        gravity: {:anchor, :center, :center},
+        x_offset: 0,
+        y_offset: 0,
+        tile: false,
+        gap: {0, 0}
+      },
+      overrides
+    )
+  end
+
+  test "watermark streams when placed, clipped, and tiled" do
+    body = File.read!(@beach)
+
+    for overrides <- [
+          [],
+          [
+            gravity: {:anchor, :right, :bottom},
+            x_offset: -8,
+            y_offset: -5,
+            width: 30,
+            height: 23
+          ],
+          [tile: true, gap: {9, 4}, gravity: {:anchor, :left, :top}, x_offset: 3]
+        ] do
+      assert_sequential_matches_random([watermark(overrides)], body)
+    end
+  end
+
+  property "watermark streams across varied sizes, anchors, offsets, and tiling" do
+    body = File.read!(@dog)
+
+    check all(
+            width <- integer(1..120),
+            height <- integer(1..90),
+            anchor <- member_of([:center, :left, :right, :top, :bottom, :top_left, :bottom_right]),
+            x_offset <- integer(-60..60),
+            y_offset <- integer(-60..60),
+            tile <- boolean(),
+            gap <- tuple({integer(0..20), integer(0..20)}),
+            max_runs: 18
+          ) do
+      {ax, ay} = anchor_to_xy(anchor)
+
+      operation =
+        watermark(
+          width: width,
+          height: height,
+          gravity: {:anchor, ax, ay},
+          x_offset: x_offset,
+          y_offset: y_offset,
+          tile: tile,
+          gap: gap
+        )
+
+      assert_sequential_matches_random([operation], body)
+    end
   end
 
   defp alpha_png_body do

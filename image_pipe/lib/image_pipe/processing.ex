@@ -113,34 +113,26 @@ defmodule ImagePipe.Processing do
   end
 
   def build_fun(%Spec{} = request, source, policy, config) do
+    fn pump ->
+      started = System.monotonic_time(:microsecond)
+      with_watermarks(config, &produce_decoded(source, request, policy, &1, pump, started))
+    end
+  end
+
+  defp produce_decoded(source, request, policy, config, pump, started) do
     on_bracket_exit = Keyword.get(config, :on_bracket_exit, fn -> :ok end)
 
-    fn pump ->
-      decode_started_at = System.monotonic_time(:microsecond)
+    Decode.with_image(source, request, config, fn state, geometry ->
+      decode_us = System.monotonic_time(:microsecond) - started
+      stream = fn -> produce_stream(state, geometry, request, policy, config, pump, decode_us) end
+      bracket(stream, on_bracket_exit)
+    end)
+  end
 
-      Decode.with_image(
-        source,
-        request,
-        config,
-        fn state, geometry ->
-          decode_us = System.monotonic_time(:microsecond) - decode_started_at
-
-          try do
-            produce_stream(
-              state,
-              geometry,
-              request,
-              policy,
-              config,
-              pump,
-              decode_us
-            )
-          after
-            on_bracket_exit.()
-          end
-        end
-      )
-    end
+  defp bracket(fun, on_exit) do
+    fun.()
+  after
+    on_exit.()
   end
 
   defp produce_stream(state, geometry, request, policy, config, pump, decode_us) do
@@ -225,15 +217,57 @@ defmodule ImagePipe.Processing do
       %{operations: operations, operation_count: length(operations)},
       fn ->
         result =
-          Executor.execute(
-            state,
-            request,
-            pipeline_opts(policy, geometry, config)
-          )
+          with {:ok, opts} <- watermark_opts(pipeline_opts(policy, geometry, config)) do
+            Executor.execute(state, request, opts)
+          end
 
         {result, transform_stop_metadata(result)}
       end
     )
+  end
+
+  @doc false
+  # Starts deferred watermark reads in this process before the source fetch,
+  # cancelling any still running when `fun` returns.
+  def with_watermarks(config, fun) do
+    case Keyword.get(config, :watermark_inputs) do
+      {:deferred, start} ->
+        {await, cancel} = start.()
+
+        try do
+          fun.(Keyword.put(config, :watermark_inputs, {:started, await}))
+        after
+          cancel.()
+        end
+
+      _ready ->
+        fun.(config)
+    end
+  end
+
+  @doc false
+  # Decodes the watermark assets execution acquired for this request.
+  def watermark_opts(config) do
+    with {:ok, inputs} <- watermark_inputs(Keyword.get(config, :watermark_inputs, %{})) do
+      decode_watermarks(inputs, config)
+    end
+  end
+
+  defp watermark_inputs({:started, await}), do: await.()
+  defp watermark_inputs(inputs), do: {:ok, inputs}
+
+  defp decode_watermarks(inputs, config) do
+    inputs
+    |> Enum.reduce_while({:ok, %{}}, fn {asset, %{bytes: bytes, opacity: opacity}}, {:ok, acc} ->
+      case Decode.watermark(bytes, config) do
+        {:ok, image} -> {:cont, {:ok, Map.put(acc, asset, %{image: image, opacity: opacity})}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, watermarks} -> {:ok, Keyword.put(config, :watermarks, watermarks)}
+      error -> error
+    end
   end
 
   defp transform_stop_metadata({:ok, %State{}}), do: %{result: :ok}

@@ -67,6 +67,28 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "[warning]"
   end
 
+  test "renders watermark acquisition phases with their outcome" do
+    prefix = [__MODULE__, :watermark]
+    Telemetry.attach_default_logger(prefix: prefix)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(prefix ++ [:source, :watermark, :stop], %{duration: 1000}, %{
+          phase: :prepare,
+          result: :ok
+        })
+
+        :telemetry.execute(prefix ++ [:source, :watermark, :stop], %{duration: 1000}, %{
+          phase: :open,
+          result: :source_error
+        })
+      end)
+
+    assert log =~ "source watermark prepare: ok"
+    assert log =~ "source watermark open: source_error"
+    assert log =~ "[warning]"
+  end
+
   test "names the source mount on resolve and fetch lines" do
     prefix = [__MODULE__, :source_mount]
     Telemetry.attach_default_logger(prefix: prefix)
