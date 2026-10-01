@@ -10,6 +10,7 @@ defmodule ImagePipe.Delivery.VixStreamContinuationTest do
   alias ImagePipe.Source
   alias ImagePipe.Source.Parser, as: APISource
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Telemetry.RequestContext
   alias ImagePipe.Test.Delivery.ProducerClient
   alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.Materializer
@@ -418,7 +419,7 @@ defmodule ImagePipe.Delivery.VixStreamContinuationTest do
   defp start_producer(build_fun) when is_function(build_fun, 1) do
     start_supervised!(%{
       id: {Producer, make_ref()},
-      start: {Producer, :start_link, [build_fun, nil]},
+      start: {Producer, :start_link, [build_fun, RequestContext.capture()]},
       restart: :temporary,
       shutdown: 2_000,
       type: :worker

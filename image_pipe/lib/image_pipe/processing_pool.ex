@@ -29,6 +29,7 @@ defmodule ImagePipe.ProcessingPool do
 
   alias ImagePipe.ProcessingPool.Events
   alias ImagePipe.Telemetry
+  alias ImagePipe.Telemetry.RequestContext
   alias ImagePipe.Telemetry.Trace.Stack
 
   @schema NimbleOptions.new!(
@@ -55,11 +56,11 @@ defmodule ImagePipe.ProcessingPool do
 
   def run(pool, fun, config) do
     owner = self()
-    context = Stack.context()
+    request = RequestContext.capture()
 
     task =
       Task.Supervisor.async_nolink(ImagePipe.ProcessingPool.Tasks, fn ->
-        Stack.adopt(context)
+        RequestContext.adopt(request)
         task_result(pool, owner, config, fun)
       end)
 
@@ -89,11 +90,12 @@ defmodule ImagePipe.ProcessingPool do
   def within(nil, _owner, _config, fun), do: fun.()
 
   def within(pool, owner, config, fun) do
-    request = {:acquire, owner, Stack.context(), Telemetry.telemetry_opts(config), now()}
+    request = {:acquire, owner, RequestContext.capture(), Telemetry.telemetry_opts(config), now()}
 
     case call(pool, request) do
       {:ok, token, context} ->
-        Stack.adopt(context)
+        trace = RequestContext.trace(context)
+        Stack.adopt(trace)
 
         try do
           result = invoke(pool, token, fun)
@@ -103,7 +105,7 @@ defmodule ImagePipe.ProcessingPool do
             {:error, reason} -> exit({:shutdown, reason})
           end
         after
-          if context, do: Stack.pop()
+          if trace, do: Stack.pop()
         end
 
       {:error, _} = error ->

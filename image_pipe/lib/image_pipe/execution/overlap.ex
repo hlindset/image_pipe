@@ -4,7 +4,7 @@ defmodule ImagePipe.Execution.Overlap do
   alias ImagePipe.Processing
   alias ImagePipe.ProcessingPool
   alias ImagePipe.Source.{Download, Origin, Response}
-  alias ImagePipe.Telemetry.Trace.Stack
+  alias ImagePipe.Telemetry.RequestContext
 
   @minimum_prefix 256 * 1024
   @maximum_prefix 1024 * 1024
@@ -15,11 +15,11 @@ defmodule ImagePipe.Execution.Overlap do
     case candidate(response, preparation, config) do
       {:ok, expected, request, policy} ->
         {:ok, download} = Download.start(path, 0)
-        trace = Stack.context()
+        request_context = RequestContext.capture()
 
         task =
           Task.Supervisor.async_nolink(ImagePipe.ProcessingPool.Tasks, fn ->
-            Stack.adopt(trace)
+            RequestContext.adopt(request_context)
 
             receive do
               {:prepare, prefix} ->

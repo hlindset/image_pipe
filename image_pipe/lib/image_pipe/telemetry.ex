@@ -11,9 +11,9 @@ defmodule ImagePipe.Telemetry do
     top_level?: true,
     deps: [],
     exports: [
+      RequestContext,
       Trace,
       Trace.Stack,
-      Trace.Context,
       Trace.Span,
       Trace.Exporter,
       Trace.ReqStep,

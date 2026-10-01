@@ -14,6 +14,7 @@ defmodule ImagePipe.Delivery.ProducerTest do
   alias ImagePipe.Delivery.Producer
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Source.StreamError
+  alias ImagePipe.Telemetry.RequestContext
   alias ImagePipe.Test.Delivery.ProducerClient
 
   @event_target __MODULE__.StreamEvents
@@ -108,7 +109,7 @@ defmodule ImagePipe.Delivery.ProducerTest do
   defp start_producer(stream) do
     start_supervised!(%{
       id: {Producer, make_ref()},
-      start: {Producer, :start_link, [build_fun(stream), nil]},
+      start: {Producer, :start_link, [build_fun(stream), RequestContext.capture()]},
       restart: :temporary,
       shutdown: 2_000,
       type: :worker
