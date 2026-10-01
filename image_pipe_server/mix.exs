@@ -1,10 +1,13 @@
 defmodule ImagePipeServer.MixProject do
   use Mix.Project
 
+  # Released in lockstep with image_pipe and image_pipe_url.
+  @version "0.1.0"
+
   def project do
     [
       app: :image_pipe_server,
-      version: "0.1.0",
+      version: @version,
       elixir: "~> 1.18",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,

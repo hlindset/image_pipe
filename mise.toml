@@ -40,8 +40,8 @@ description = "Elixir checks for image_pipe_url and the library: format, compile
 depends = ["precommit:url"]
 dir = "image_pipe"
 run = [
-  # The packages release in lockstep; image_pipe pins image_pipe_url with ==.
-  "test \"$(grep -m1 '@version \"' mix.exs)\" = \"$(grep -m1 '@version \"' ../image_pipe_url/mix.exs)\" || { echo 'image_pipe and image_pipe_url versions differ'; exit 1; }",
+  # The projects release in lockstep; image_pipe pins image_pipe_url with ==.
+  "../scripts/check-versions.sh > /dev/null",
   "mix format --check-formatted",
   "mix compile --warnings-as-errors",
   "mix credo --strict",
