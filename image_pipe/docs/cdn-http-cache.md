@@ -235,7 +235,7 @@ instead of replacing it with `no-store`.
 ## Telemetry
 
 HTTP cache events report policy preparation, conditional matches, missing byte
-identity, and cache-hit headers. See [HTTP cache telemetry](telemetry.md#http-cache-events)
+identity, and cache-hit headers. See [HTTP cache telemetry](telemetry-events.md#http-cache-events)
 for event names, metadata, and Logger output.
 
 ## Cache key relationship

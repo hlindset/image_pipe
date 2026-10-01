@@ -16,6 +16,16 @@ Adjust the path to your checkout, then run `mix deps.get` in your application.
 ImagePipe uses Image and Vix for libvips processing. Available input and output
 codecs depend on the native build; see [output formats](processing/output.md#formats).
 
+## Native format support
+
+Supported inputs are JPEG (including UltraHDR), PNG, WebP, TIFF, HEIF/AVIF,
+JPEG XL, JPEG 2000, and GIF. Each needs its loader in the deployed libvips build;
+a missing loader fails the request with `415`.
+
+ImagePipe checks image signatures and accepts only matching loaders. Other
+formats, including SVG, BMP, camera RAW, and AVIF image sequences, are rejected
+with `415`, even if the installed libvips has a loader for them.
+
 ## Choose an entry point
 
 | Entry point | Setup | Result |

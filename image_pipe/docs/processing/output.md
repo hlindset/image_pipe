@@ -26,7 +26,7 @@ accordingly. An explicit format bypasses negotiation.
 
 Codec availability depends on the installed libvips build. An explicit
 unavailable format fails; it does not silently substitute another format.
-See [operational format notes](../operational_notes.md) and
+See [native format support](../installation.md#native-format-support) and
 [HTTP negotiation](../cdn-http-cache.md).
 
 ## Quality and byte budgets

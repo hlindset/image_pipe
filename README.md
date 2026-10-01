@@ -19,7 +19,7 @@ Run `mix` commands from inside a project directory. From the repository root,
 run the checks. `mise run server:image` builds the server's Docker image and
 smoke-tests it.
 
-[Contributor notes](docs/index.md) cover design plans and benchmarks.
+[Contributor notes](docs/index.md) cover architecture, design plans, and benchmarks.
 [RELEASING.md](RELEASING.md) describes publishing the packages.
 
 Licensed under the [Apache License 2.0](LICENSE.md).

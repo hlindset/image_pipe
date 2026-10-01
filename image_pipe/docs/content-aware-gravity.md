@@ -175,7 +175,7 @@ Requests with `anchor=smart-face` include the face detector identity. Across
 
 Detection spans measure inference, including cold-start costs. The default
 Logger warns when a detector is missing, unavailable, or fails. See
-[detection telemetry](telemetry.md#content-aware-crop-detection) for event names,
+[detection telemetry](telemetry-events.md#content-aware-crop-detection) for event names,
 per-model spans, and outcomes.
 
 ## Per-class weights

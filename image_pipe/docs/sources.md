@@ -179,7 +179,7 @@ Each effective bucket configuration requires credentials. Static credentials
 accept an optional `token` for temporary sessions. Use
 `{:provider, module, options}` with an `ImagePipe.Source.S3.CredentialProvider`
 implementation for refreshable credentials. See `ImagePipe.Source.S3` for the
-adapter and [S3 credential setup](operational_notes.md#s3-credentials) for
+adapter and [S3 credential setup](s3-credentials.md) for
 instance roles, container credentials, and STS providers. A `buckets` map,
 when supplied, is an allowlist; each entry overrides `default` settings.
 
@@ -196,6 +196,13 @@ object's `Cache-Control`, `ETag`, and `Last-Modified` govern caching as for
 HTTP sources. Use the original identifier with `{:source, identifier}` or the
 URL builder. Region, endpoint,
 credentials, timeouts, and cache policy belong to the adapter.
+
+## Source identity
+
+Built-in HTTP and S3 `req_options` are host-owned behavior. They must not vary
+source bytes for the same resolved identity. Byte-selecting request options need
+URI/object revision material, `internal_cache: :disabled`, or a custom adapter
+identity field.
 
 ## Custom adapters
 

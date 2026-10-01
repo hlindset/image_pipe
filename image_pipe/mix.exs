@@ -15,6 +15,8 @@ defmodule ImagePipe.MixProject do
     Configuration: [
       "docs/configuration.md",
       "docs/sources.md",
+      "docs/s3-credentials.md",
+      "docs/source-network-policy.md",
       "docs/urls.md"
     ],
     "Processing options": [
@@ -25,23 +27,22 @@ defmodule ImagePipe.MixProject do
       "docs/processing/watermark.md",
       "docs/processing/output.md",
       "docs/processing/request.md",
-      "docs/content-aware-gravity.md"
+      "docs/content-aware-gravity.md",
+      "docs/api_contract.md"
     ],
     Operations: [
+      "docs/deployment.md",
       "docs/cache.md",
       "docs/cdn-http-cache.md",
       "docs/processing-controls.md",
-      "docs/errors.md",
-      "docs/source-network-policy.md",
-      "docs/telemetry.md",
-      "docs/debug_headers.md",
-      "docs/cookbook/opentelemetry-jaeger.md",
-      "docs/operational_notes.md"
+      "docs/errors.md"
     ],
-    Internals: [
-      "docs/api_contract.md",
-      "docs/execution_flow.md",
-      "docs/transform_operations.md"
+    Observability: [
+      "docs/telemetry.md",
+      "docs/telemetry-events.md",
+      "docs/tracing.md",
+      "docs/debug_headers.md",
+      "docs/cookbook/opentelemetry-jaeger.md"
     ],
     Project: ["README.md", "CHANGELOG.md", "LICENSE.md"]
   ]

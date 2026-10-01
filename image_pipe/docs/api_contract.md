@@ -1,43 +1,15 @@
-# API contract
+# API semantics
 
 For setup and everyday usage, start with the [documentation overview](index.md).
 The [processing reference](processing.md) organizes options by task with URL and
-Elixir examples. This contract specifies exact semantics and implementation invariants.
+Elixir examples. This contract specifies public processing and request semantics.
 
 ## Processing model
 
-ImagePipe has one declarative processing model, one request lifecycle, and one
-executor. URL requests and typed Elixir plans share that model: options within
-a group have a fixed processing order, and explicit group boundaries sequence
-processing (`-` in URLs, `ImagePipe.URL.group/2` in Elixir).
-Imgproxy supplies selected test references for shared behavior; ImagePipe semantics
-govern differences. Sources, caches, detectors, and telemetry exporters are host
-extension points.
-
-## Current implementation
-
-`ImagePipe.Plug` serves HTTP requests; `ImagePipe.run/4` and `ImagePipe.write/5`
-execute plans directly. They share source freshness, caching, generation, and
-the transform executor. Configured source inputs share caches across both
-entry points; raw file and binary inputs bypass caches. See
-[execution flow](execution_flow.md) for lifecycle and delivery ownership.
-
-Canonical request data lives in `ImagePipe.Plan.Spec`, with explicit
-`Plan.Spec.Group` transform intent and sparse `Plan.Spec.Output` policy.
-The parser validates URL grammar and translates it into typed intent.
-The [Elixir builder API](elixir-api.md) constructs processing plans and validates native option values.
-Both use `Plan.Spec.Validation` for cross-option rules; its typed issues
-are mapped to URL byte spans and messages by the parser.
-`Plan.Spec.build/2` owns canonical construction, group defaults, and identity
-normalization. Both frontends share the resulting values with execution.
-URL parsing returns the decoded source separately from processing intent;
-both frontends resolve their source before handing it to shared execution.
-`Output.RequestPolicy` combines host defaults,
-request overrides, and Accept negotiation. `Output.Resolved` selects the concrete
-encoding settings after source-format and final-image inspection.
-
-The [option index](processing.md#option-index) lists URL keys and links to
-their URL and Elixir spellings.
+URL requests and typed Elixir plans share one declarative processing model.
+Options within a group have a fixed processing order. Explicit group boundaries
+sequence processing (`-` in URLs, `ImagePipe.URL.group/2` in Elixir).
+Sources, caches, detectors, and telemetry exporters are host extension points.
 
 ## Capabilities
 
@@ -94,19 +66,6 @@ applied before trim so that both background sampling and trim axes follow this
 frame. The request-wide `orient` value also applies to BlurHash and LQIP CSS. A default
 preset can set `orient=none`; an explicit URL value overrides that preset.
 
-### Pages and frames
-
-A multi-page or animated source (a TIFF, a HEIF/AVIF collection, an animated
-WebP, JPEG XL, or GIF) decodes one image. Without `page`, that is the source's
-default image: the primary image of a HEIF collection, the default image of an
-APNG, and the first page or frame otherwise. `page=N` selects page or frame N,
-0-based in file order, so `page=0` can differ from the default for HEIF. A still
-image has one page. A page past the last fails with `422` before decoding.
-Selecting frame N of an animation composites the frames before it, so the input
-pixel limit counts `N + 1` frames; a selected page of a TIFF or HEIF collection
-counts its own dimensions. `page` applies to every output, including info, and
-is part of the request's cache identity.
-
 Crop and region percentages use their operation's input dimensions, after
 rotation, flip, and trim. Trimming a 1000px-wide input to 800px and then
 applying `crop=50pct,100pct` requests 400px in width. Decode shrink-on-load
@@ -125,6 +84,19 @@ BlurHash's terminal reduction contributes a decode hint only for a single
 group, sized against its source crop when present so the crop retains enough
 detail for the terminal's working frame. Multi-group requests preserve the first
 group's input scale unless that group explicitly resizes it.
+
+### Pages and frames
+
+A multi-page or animated source (a TIFF, a HEIF/AVIF collection, an animated
+WebP, JPEG XL, or GIF) decodes one image. Without `page`, that is the source's
+default image: the primary image of a HEIF collection, the default image of an
+APNG, and the first page or frame otherwise. `page=N` selects page or frame N,
+0-based in file order, so `page=0` can differ from the default for HEIF. A still
+image has one page. A page past the last fails with `422` before decoding.
+Selecting frame N of an animation composites the frames before it, so the input
+pixel limit counts `N + 1` frames; a selected page of a TIFF or HEIF collection
+counts its own dimensions. `page` applies to every output, including info, and
+is part of the request's cache identity.
 
 ### Crop ratios and trim symmetry
 
@@ -300,7 +272,7 @@ the last 32 the deterministic-IV key. Associated data is the literal
 `image-pipe:source:v1`. The tag is the first 32 bytes of HMAC-SHA512 over
 `AAD || IV || ciphertext || AL`, where `AL` is the AAD's bit length as an
 unsigned 64-bit big-endian integer. Verify the tag before CBC decryption
-or padding validation. Tests include the RFC's published known-answer vector.
+or padding validation.
 
 Encryption keys are a separate ordered list of 32-byte keys: encrypt with
 the first, authenticate/decrypt against the configured list during rotation.
@@ -621,27 +593,3 @@ is also presentation-only and remains subject to the host disclosure gate.
 the current time; equality remains valid. Expired requests return `410` before
 source fetch or cache access. Hosts may configure `clock: fn -> unix_seconds end`
 for a controlled time source; the default is `System.os_time(:second)`.
-
-## Architecture and verification constraints
-
-The Plug lifecycle calls parsing, source resolution, representation
-identity, execution, and delivery. Parsing produces request groups and output
-intent; the executor owns fixed ordering and runtime geometry. `Source`,
-`Output`, and `Response` own their respective data and effects.
-
-Preserve these invariants:
-
-- Signature/expiry/static validation precede source fetch and cache access.
-- Conditional responses can complete before fetch, decode, encode, or cache
-  reads when a trustworthy source identity is available.
-- Cachebuster and vary inputs affect storage identity; they do not change
-  a byte-identical representation's ETag. Safety limits gate generation.
-- Only successful encoded results are cached; cache failures fail open.
-- EXIF, color/HDR, shrink-on-load, and per-operation materialization retain
-  pixel tests. Sequential safety is proved with genuinely streamed input.
-- Delivery owns stream/resource cleanup on success and failure.
-- Telemetry changes update both the default Logger and trace Capture.
-
-API coverage must exercise real requests and decoded pixels, alongside
-parser tests. Keep AGENTS.md, boundary declarations, and architecture tests
-aligned with the implementation.

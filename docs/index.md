@@ -1,8 +1,9 @@
 # Contributor notes
 
-## Design plans
+## Architecture
 
-Design plans live in `docs/plans/`.
+[Architecture](architecture/index.md) describes runtime ownership and verification,
+with request lifecycle and transform internals.
 
 ## Benchmark reports
 

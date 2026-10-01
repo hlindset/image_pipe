@@ -20,8 +20,8 @@ immediately.
 
 ## Fixed stage order
 
-The executor follows the [processing stage order](processing.md#processing-order)
-and [effect order](processing/effects.md#order-effects-deliberately), regardless
+The executor follows the [processing stage order](../../image_pipe/docs/processing.md#processing-order)
+and [effect order](../../image_pipe/docs/processing/effects.md#order-effects-deliberately), regardless
 of URL option order. See [execution flow](execution_flow.md) for the surrounding
 request lifecycle.
 
@@ -29,7 +29,7 @@ request lifecycle.
 previous group, while group options themselves do not carry forward. Decode
 happens once, so only the first group can influence shrink-on-load planning.
 
-The [API contract](api_contract.md#processing-semantics)
+The [API contract](../../image_pipe/docs/api_contract.md#processing-semantics)
 defines the ordering and parameter semantics.
 
 ## Coordinate frames
@@ -71,7 +71,7 @@ The parser removes identity values before constructing operations.
 Sigma and pixelate block size use physical pixels
 without DPR scaling. Pixelate and gradient flush pending orientation so their
 grid and direction use the current display frame. See the
-[effect vocabulary](api_contract.md#pixel-effects) for ranges,
+[effect vocabulary](../../image_pipe/docs/api_contract.md#pixel-effects) for ranges,
 defaults, color syntax, and alpha behavior.
 
 ### Color values

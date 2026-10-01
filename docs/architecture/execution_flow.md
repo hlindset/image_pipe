@@ -35,7 +35,7 @@ headers and delivery.
 `ImagePipe.API.Parser` produces `ImagePipe.Plan.Spec` data. Presets expand
 before validation, and `-` separates explicitly ordered groups. Option order
 inside a group does not affect processing order. The
-[API contract](api_contract.md) defines stages, coordinate frames,
+[API contract](../../image_pipe/docs/api_contract.md) defines stages, coordinate frames,
 and the capability inventory.
 
 `ImagePipe.Transform.Executor.decode_request/2` plans shrink-on-load from the first
@@ -89,6 +89,6 @@ drains output through shared execution, without an HTTP connection.
 Debug headers are request presentation: the mount must permit them, and the
 request must opt in. They do not change image cache identity or the ETag.
 
-See [cache behavior](cache.md), [HTTP caching](cdn-http-cache.md),
-[debug headers](debug_headers.md), and [telemetry](telemetry.md) for their
+See [cache behavior](../../image_pipe/docs/cache.md), [HTTP caching](../../image_pipe/docs/cdn-http-cache.md),
+[debug headers](../../image_pipe/docs/debug_headers.md), and [telemetry](../../image_pipe/docs/telemetry.md) for their
 respective contracts.

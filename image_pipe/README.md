@@ -39,9 +39,9 @@ The equivalent path for a configured source on an `/images` mount is:
 | --- | --- |
 | Application setup | [Configuration](docs/configuration.md), [sources](docs/sources.md), [URLs and presets](docs/urls.md) |
 | Processing | [Option index](docs/processing.md), [resize](docs/processing/resize.md), [crop](docs/processing/crop.md), [effects](docs/processing/effects.md), [output](docs/processing/output.md), [request controls](docs/processing/request.md) |
-| Production | [Caching](docs/cache.md), [HTTP/CDN policy](docs/cdn-http-cache.md), [processing limits](docs/processing-controls.md), [network policy](docs/source-network-policy.md) |
-| Observability | [Telemetry](docs/telemetry.md), [debug headers](docs/debug_headers.md), [Jaeger walkthrough](docs/cookbook/opentelemetry-jaeger.md) |
-| Internals | [API contract](docs/api_contract.md), [execution flow](docs/execution_flow.md), [transform operations](docs/transform_operations.md) |
+| Production | [Deployment](docs/deployment.md), [caching](docs/cache.md), [HTTP/CDN policy](docs/cdn-http-cache.md), [processing limits](docs/processing-controls.md), [network policy](docs/source-network-policy.md) |
+| Observability | [Telemetry setup](docs/telemetry.md), [event reference](docs/telemetry-events.md), [tracing](docs/tracing.md), [debug headers](docs/debug_headers.md), [Jaeger walkthrough](docs/cookbook/opentelemetry-jaeger.md) |
+| Reference | [API semantics](docs/api_contract.md) |
 
 ## Try the demo
 
