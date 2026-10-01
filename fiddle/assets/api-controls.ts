@@ -575,6 +575,8 @@ const requestKeys = new Set([
   "avif-options",
 ]);
 
+const watermarkKeys = ["wm", "wm-opacity", "wm-scale", "wm-at", "wm-offset", "wm-tile", "wm-gap"];
+
 function keyOf(segment: string): string {
   return segment.split("=", 1)[0]!;
 }
@@ -1257,6 +1259,10 @@ export function updateControlOptions(
   }
   if (!before.cropEnabled && after.cropEnabled)
     groups[groupIndex] = groups[groupIndex]!.filter((segment) => keyOf(segment) !== "region");
+  if (before.watermarkEnabled && !after.watermarkEnabled)
+    groups[groupIndex] = groups[groupIndex]!.filter(
+      (segment) => !watermarkKeys.includes(keyOf(segment)),
+    );
   return groups
     .filter((group) => group.length > 0)
     .map((group) => group.join("/"))

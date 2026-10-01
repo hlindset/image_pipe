@@ -52,6 +52,14 @@ describe("visual controls serialize API requests", () => {
     );
   });
 
+  it("disabling the watermark also drops options spelled at their defaults", () => {
+    const options = "w=400/wm=logo/wm-opacity=1/wm-at=center/wm-offset=0,0/wm-tile=false";
+    const before = controlStateFromOptions(options, source);
+    expect(updateControlOptions(options, 0, before, { ...before, watermarkEnabled: false })).toBe(
+      "w=400",
+    );
+  });
+
   it("reads omitted watermark options as URL defaults", () => {
     expect(controlStateFromOptions("wm=logo", source)).toMatchObject({
       watermarkOpacity: 1,
