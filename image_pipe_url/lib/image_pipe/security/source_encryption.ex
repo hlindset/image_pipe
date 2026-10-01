@@ -68,6 +68,25 @@ defmodule ImagePipe.Security.SourceEncryption do
 
   def encrypt(_source, %__MODULE__{}, _options), do: {:error, :invalid_source}
 
+  @doc false
+  # Derives a per-source IV from a caller's explicit IV, so one IV can conceal
+  # several sources in a URL without reuse. The 0xFF prefix is invalid UTF-8,
+  # keeping these inputs disjoint from deterministic derivation over a source.
+  @spec encrypt_salted(String.t(), t(), binary()) :: {:ok, String.t()} | {:error, atom()}
+  def encrypt_salted(
+        source,
+        %__MODULE__{derived_keys: [{_cbc_key, iv_key} | _keys]} = keyring,
+        salt
+      )
+      when is_binary(salt) and byte_size(salt) == @iv_bytes and is_binary(source) do
+    iv =
+      binary_part(:crypto.mac(:hmac, :sha256, iv_key, <<0xFF>> <> salt <> source), 0, @iv_bytes)
+
+    encrypt(source, keyring, iv: iv)
+  end
+
+  def encrypt_salted(source, keyring, _salt), do: encrypt(source, keyring, iv: :invalid)
+
   @spec decrypt(term(), t()) :: {:ok, String.t()} | {:error, :invalid_concealed_source}
   def decrypt(token, %__MODULE__{derived_keys: keys}) when is_binary(token) do
     with {:ok, payload} <- decode_token(token),

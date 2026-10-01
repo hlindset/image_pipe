@@ -31,6 +31,11 @@ defmodule ImagePipe.API.WatermarkTest do
 
   defp source64(source), do: Base.url_encode64(source, padding: false)
 
+  defp token_iv(token) do
+    <<_version, iv::binary-size(16), _rest::binary>> = Base.url_decode64!(token, padding: false)
+    iv
+  end
+
   test "a named asset resolves its placement defaults" do
     assert watermark(["wm=logo"]) == %{
              asset: {:name, "logo"},
@@ -190,6 +195,38 @@ defmodule ImagePipe.API.WatermarkTest do
 
       [_, token] = Regex.run(~r{/wm-enc=([A-Za-z0-9_-]+)/enc/}, concealed)
       assert Security.decrypt_source(token, config.options) == {:ok, "brand/mark.png"}
+    end
+
+    test "an explicit IV conceals the main source and salts each watermark source" do
+      config =
+        ImagePipe.URL.config(
+          keys: [@signing_key],
+          source_encryption_keys: [@source_key],
+          encrypt_source: true
+        )
+
+      iv = :binary.copy(<<7>>, 16)
+
+      url = fn watermark ->
+        ImagePipe.URL.new(config)
+        |> ImagePipe.URL.group(watermark_source: watermark)
+        |> ImagePipe.URL.url!("cat.jpg", iv: iv)
+      end
+
+      first = url.("brand/a.png")
+      assert first == url.("brand/a.png")
+
+      [_, mark] = Regex.run(~r{/wm-enc=([A-Za-z0-9_-]+)/}, first)
+      [_, main] = Regex.run(~r{/enc/([A-Za-z0-9_-]+)$}, first)
+      [_, other] = Regex.run(~r{/wm-enc=([A-Za-z0-9_-]+)/}, url.("brand/b.png"))
+
+      assert token_iv(main) == iv
+      assert token_iv(mark) not in [iv, token_iv(other)]
+      assert Security.decrypt_source(mark, config.options) == {:ok, "brand/a.png"}
+      assert Security.decrypt_source(main, config.options) == {:ok, "cat.jpg"}
+
+      {:ok, deterministic} = Security.encrypt_source("brand/a.png", config.options, [])
+      refute token_iv(deterministic) == token_iv(mark)
     end
 
     test "rejects malformed builder values" do

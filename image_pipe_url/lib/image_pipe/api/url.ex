@@ -79,12 +79,22 @@ defmodule ImagePipe.API.URL do
   defp conceal_watermarks(plan, _config, _options, _encrypt?), do: {:ok, plan}
 
   defp conceal_watermark(%{watermark_source: source} = group, config, options) do
-    with {:ok, token} <- Security.encrypt_source(source, config, options) do
+    with {:ok, token} <- encrypt_watermark(source, config, Keyword.get(options, :iv)) do
       {:ok, group |> Map.delete(:watermark_source) |> Map.put(:watermark_token, token)}
     end
   end
 
   defp conceal_watermark(group, _config, _options), do: {:ok, group}
+
+  # The main source consumes an explicit IV; each watermark source derives its
+  # own from it so no IV encrypts two different sources.
+  defp encrypt_watermark(source, config, iv) when is_binary(iv),
+    do: Security.encrypt_salted_source(source, config, iv)
+
+  defp encrypt_watermark(source, config, mode) do
+    options = if mode, do: [iv: mode], else: []
+    Security.encrypt_source(source, config, options)
+  end
 
   defp validate_plan(plan, config) do
     presets = config[:presets]

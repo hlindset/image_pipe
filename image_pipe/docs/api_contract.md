@@ -351,6 +351,10 @@ caller responsibility: use unpredictable random IVs or a secret-keyed
 derivation over the complete source, and do not reuse an IV for different
 sources under the same key. A constant IV or public hash of the source is
 unsuitable. Reusable configuration accepts only a mode, never a fixed IV.
+An explicit IV encrypts the main source. A concealed watermark source in the
+same URL takes the first 16 bytes of HMAC-SHA256 under the derived IV key over
+`0xFF || explicit IV || source bytes`; the `0xFF` byte, invalid in UTF-8,
+keeps these inputs apart from deterministic derivation.
 
 Configure signing keys whenever encryption is enabled, and verify the full
 request signature before decrypting. This binds processing options and
