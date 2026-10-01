@@ -66,6 +66,9 @@ defmodule ImagePipe.Response.ErrorStatusTest do
       assert {504, _} = ErrorStatus.resolve_status({:source, :receive_timeout})
       assert {503, _} = ErrorStatus.resolve_status({:processing, :timeout})
       assert {503, _} = ErrorStatus.resolve_status({:processing, :overloaded})
+
+      assert {503, "image processing timeout"} =
+               ErrorStatus.resolve_status({:session, :timeout})
     end
 
     test "host-side source failures map to 500" do

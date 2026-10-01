@@ -77,6 +77,8 @@ defmodule ImagePipe.Response.ErrorStatus do
       when reason in [:timeout, :overloaded, :queue_timeout, :unavailable],
       do: :unavailable
 
+  def classify({:session, :timeout}), do: :unavailable
+
   def classify(_other), do: :server_error
 
   # Step 1: a reason that leads with a known class atom routes by that class.
@@ -185,6 +187,7 @@ defmodule ImagePipe.Response.ErrorStatus do
     do: "object detection is not available on this server"
 
   def message_for({:processing, :timeout}), do: "image processing timeout"
+  def message_for({:session, :timeout}), do: "image processing timeout"
   def message_for({:processing, :queue_timeout}), do: "image processing queue timeout"
   def message_for({:processing, :overloaded}), do: "image processing overloaded"
   def message_for({:processing, :unavailable}), do: "image processing unavailable"
