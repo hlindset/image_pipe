@@ -18,10 +18,10 @@ defmodule ImagePipe.API.LayoutMatrixTest do
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
 
-  @layouts ~w(rgb rgba gray gray_alpha bitonal palette rgb16 rgba16 grey16 cmyk p3 p3_16)
+  @layouts ~w(rgb rgba gray gray_alpha bitonal palette rgb16 rgba16 grey16 cmyk p3 p3_16 tiny)
 
   # Operations whose result has alpha even when the source has none.
-  @adds_alpha ~w(pad=6 w=80/h=80/fit=contain/extend w=96/h=40/fit=contain/extend-ratio rotate=30 pad=6/bg=ff0000,0.5)
+  @adds_alpha ~w(pad=6 w=80/h=80/fit=contain/extend w=96/h=40/fit=contain/extend-ratio rotate=30 pad=6/bg=ff0000,0.5 w=40/dpr=2/pad=2/-/pad=2)
 
   # Operations whose result is 8-bit whatever the source depth.
   @eight_bit ~w(bitonal)
@@ -32,7 +32,7 @@ defmodule ImagePipe.API.LayoutMatrixTest do
     "w=40/h=40/fit=stretch",
     "crop=30,20/anchor=bottom-right",
     "crop=30,30/anchor=smart",
-    "region=5,5,30,20",
+    "region=0,0,30,20",
     "rotate=90",
     "rotate=30",
     "flip=hv",
@@ -57,7 +57,11 @@ defmodule ImagePipe.API.LayoutMatrixTest do
     "colorize=0.5,ff0000",
     "gradient=0.7,000080,down",
     "wm=mark/wm-scale=0.3",
-    "wm=mark/wm-tile/wm-scale=0.2"
+    "wm=mark/wm-tile/wm-scale=0.2",
+    # Groups that change the layout partway through.
+    "gray/-/pad=6/bg=ff0000",
+    "w=40/-/rotate=30/bg=00ff00",
+    "w=40/dpr=2/pad=2/-/pad=2"
   ]
 
   @modes [default: "", preserve: "hdr=preserve/profile=preserve/"]
@@ -188,6 +192,7 @@ defmodule ImagePipe.API.LayoutMatrixTest do
   defp layout("cmyk"), do: File.read!("test/support/image_pipe/test/sources/cmyk.jpg")
   defp layout("p3"), do: base() |> p3(8) |> png()
   defp layout("p3_16"), do: base() |> p3(16) |> png()
+  defp layout("tiny"), do: png(Image.new!(1, 1, color: [200, 60, 40]))
 
   defp gray(image) do
     {:ok, gray} = Operation.colourspace(image, :VIPS_INTERPRETATION_B_W)
