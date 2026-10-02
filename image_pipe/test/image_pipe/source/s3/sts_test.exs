@@ -138,6 +138,49 @@ defmodule ImagePipe.Source.S3.StsTest do
     assert params["WebIdentityToken"] == "OIDC.TOKEN.VALUE"
   end
 
+  describe "recorded LocalStack responses" do
+    # Real STS bodies (see the recorded/ README): an XML declaration, a different
+    # element order, and fractional-second expirations.
+    @recorded "test/support/image_pipe/source_test/s3/recorded"
+
+    test "AssumeRole" do
+      opts = [
+        region: "us-east-1",
+        role_arn: "arn:aws:iam::000000000000:role/image-pipe",
+        base_credentials: [access_key_id: "test", secret_access_key: "test"],
+        plug: recorded_plug("assume_role.xml")
+      ]
+
+      assert {:ok, creds, expiry} = Sts.assume_role(opts)
+      assert creds[:access_key_id] == "ASIAIOSFODNN7EXAMPLE"
+      assert creds[:secret_access_key] == "wJalrXUtnFEMI/K7MDENG/bPxRfiCYzEXAMPLEKEY"
+      assert creds[:token] == "AQoDYXdzEPT//////////wEXAMPLEtc764assumeRole"
+      assert expiry == ~U[2026-10-02 18:39:30.857000Z]
+    end
+
+    test "AssumeRoleWithWebIdentity" do
+      opts = [
+        region: "us-east-1",
+        role_arn: "arn:aws:iam::000000000000:role/image-pipe-eks",
+        web_identity_token: "token",
+        plug: recorded_plug("web_identity.xml")
+      ]
+
+      assert {:ok, creds, expiry} = Sts.assume_role_with_web_identity(opts)
+      assert creds[:access_key_id] == "ASIAIOSFODNN8EXAMPLE"
+      assert creds[:token] == "AQoDYXdzEPT//////////wEXAMPLEtc764webIdentity"
+      assert expiry == ~U[2026-10-02 18:39:30.871000Z]
+    end
+  end
+
+  defp recorded_plug(file) do
+    body = File.read!(Path.join(@recorded, file))
+
+    fn conn ->
+      conn |> Plug.Conn.put_resp_content_type("text/xml") |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
   test "maps an STS non-200 to an error" do
     plug = fn conn -> Plug.Conn.send_resp(conn, 403, "<ErrorResponse/>") end
 
