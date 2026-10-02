@@ -7,8 +7,10 @@ defmodule ImagePipe.Test.SourceInventory do
 
   **The verifiable facts are drift-checked** by
   `test/image_pipe/source_inventory_test.exs`, which decodes every file
-  and fails if the inventory and the bytes disagree, if a source is added/removed
-  without an entry, or if a constellation references an uninventoried source.
+  and fails if the inventory and the bytes disagree, or if a source is
+  added/removed without an entry. The imgproxy reference cases
+  (`imgproxy_reference/manifest.exs`) record each source's hash, since their
+  fixtures were baked from those exact bytes.
 
   ## Keep this in sync
 
@@ -22,8 +24,8 @@ defmodule ImagePipe.Test.SourceInventory do
       regenerate it; running the task overwrites EVERY such file, so `git status
       sources/` afterward and confirm only the intended files changed).
 
-  `consumers` beyond the differential conformance suite (these are the
-  cross-couplings that make a source change ripple outside the bake — e.g. the
+  `consumers` beyond the imgproxy reference cases (these are the
+  cross-couplings that make a source change ripple further — e.g. the
   color-management tests depend on a source carrying an embedded ICC profile):
     * `:icm` — `test/image_pipe/transform/input_color_management_test.exs`
     * `:icm_sequential` —
@@ -63,7 +65,7 @@ defmodule ImagePipe.Test.SourceInventory do
                    "A single sharp high-contrast edge for resample-skew detection; deliberately uniform elsewhere.",
                consumers: [],
                invariant:
-                 "Shared by ~20 constellations whose tols lean on its exact layout. Its uniform field gives " <>
+                 "Shared by many imgproxy reference cases whose tolerances lean on its exact layout. Its uniform field gives " <>
                    "no-resize inline crops zero discriminating power — those migrated to placement.png (#239)."
              },
              %{

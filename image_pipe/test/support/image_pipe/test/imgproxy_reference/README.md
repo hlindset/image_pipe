@@ -1,22 +1,32 @@
 # Imgproxy pixel references
 
-These three PNGs are immutable reference outputs baked by upstream imgproxy.
-The tests send equivalent requests through ImagePipe's URL API; no
-imgproxy parser or runtime code participates.
+Reference outputs baked by upstream open-source imgproxy, compared against
+ImagePipe by `test/image_pipe/api_imgproxy_reference_test.exs`. The test sends
+each case's native request through ImagePipe's URL API; no imgproxy code
+participates.
 
-The original fixture manifest recorded these generator fields verbatim:
+- `cases.ex` lists the cases: the native request, the imgproxy request the
+  fixture was baked from, the tolerance, and a comment on what the case
+  targets.
+- `fixtures/` holds one PNG per `:png` case. `:lossy` cases have no fixture;
+  they compare dimensions and content type.
+- `manifest.exs` records the generator (`imgproxy_digest`, `imgproxy_libvips`),
+  the SHA-256 of every source the fixtures were baked from, and each case's
+  fixture SHA-256 or expected lossy dimensions and content type.
 
-- `imgproxy_digest`: `sha256:9ed8f87b34d55c7844951ff65bcf6605de54ba6670f64951c7215f9b125a482e`
-- `imgproxy_libvips`: `42.20.2`
-- `pipe_libvips_at_gen`: `8.18.2`
+A tolerance `{threshold, budget}` allows at most `budget` band samples to
+differ by more than `threshold` levels. The default is `{2, 64}`; wider
+tolerances are explained in the case comment.
 
-Each comparison preserves the differential suite's default tolerance: at most
-64 band samples may differ by more than 2 levels. The source and fixture hashes
-below are part of the provenance. Do not regenerate a fixture to accommodate an
-ImagePipe change.
+## Change rules
 
-| Fixture | Source SHA-256 | Fixture SHA-256 | Imgproxy options | ImagePipe options |
-| --- | --- | --- | --- | --- |
-| `crop_gravity_placement.png` | `eb3de4dce6337ed2bd531b35187bcda3265542dc5b661152631839616eca7d09` | `65c19f17fcf0110fa45ef5e46a77e3ca9d90f1f4f017f229019d3b16aa089ff3` | `c:120:90/g:nowe` | `crop=120,90/anchor=top-left` |
-| `effects_chain_order_high_freq.png` | `54ded6c57ec02c685e275276b54947f8c9345015342fc8a2acc9d8e54e4a7d43` | `6dabd60fea767033d02075a8815bdabf88f716dbbe1cb3630a108c654e14a203` | `rs:fit:240:240/bl:2/sh:2/pix:8` | `w=240/h=240/fit=contain/blur=2/sharpen=2/pixelate=8` |
-| `trim_equal_hv_border.png` | `9782adfcd78b6033d6d97797bf76709fca200d5789491e4e8f080541e17b7ebd` | `e00a29a6c06e316258b52fb51795248503b7d2c25d48676bca3615b9d0e96bfc` | `t:10::1:1` | `trim=auto/trim-symmetry=hv` |
+- Fixtures are evidence of imgproxy's behaviour. Never re-bake or edit one to
+  accommodate an ImagePipe change; the integrity test fails if fixture bytes
+  change.
+- If ImagePipe differs from a case: fix ImagePipe when it is wrong. When the
+  difference is intended, remove the case, its fixture and its manifest entry,
+  and give the reason in the commit.
+- Sources the fixtures were baked from must stay byte-identical. The integrity
+  test checks them against the manifest; see `SourceInventory` before
+  regenerating sources.
+- Only add cases baked from open-source imgproxy.
