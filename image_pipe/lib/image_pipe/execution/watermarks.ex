@@ -161,7 +161,7 @@ defmodule ImagePipe.Execution.Watermarks do
     with {:ok, source} <- Source.resolve(plan_source, config, Source.runtime_opts(config)) do
       watermark = %Watermark{asset: asset, source: source, opacity: opacity}
 
-      case SourceCache.enabled?(source, config) do
+      case SourceCache.staged?(source) do
         true -> prepare_cached(watermark, material, config)
         false -> {:ok, watermark}
       end

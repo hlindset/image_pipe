@@ -26,6 +26,7 @@ defmodule ImagePipe.Telemetry.Logger do
       [:source, :resolve],
       [:source, :fetch],
       [:source, :fetch_decode],
+      [:source, :stage],
       [:source, :watermark]
     ],
     transform: [
@@ -41,7 +42,6 @@ defmodule ImagePipe.Telemetry.Logger do
       [:cache, :write],
       [:cache, :admission],
       [:cache, :warm_start],
-      [:cache, :source],
       [:cache, :input],
       [:cache, :refresh]
     ],

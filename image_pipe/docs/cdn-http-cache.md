@@ -72,8 +72,8 @@ write-once.
 ImagePipe can derive byte identity before a fetch. `internal_cache` controls
 storage and reuse in both pools. A route can use internal caching without
 generated HTTP cache headers. Mutable remote sources obtain byte identity from
-the complete original bytes; their output validators require current source
-evidence. `stable: :immutable` removes expiry, but origin storage restrictions
+the complete original bytes, with or without internal caching. Their output
+validators require current source evidence. `stable: :immutable` removes expiry, but origin storage restrictions
 still apply unless the host explicitly sets `cache_policy: [storage: :allow]`.
 
 ## Generated headers
@@ -149,6 +149,9 @@ transform, or encode. Local immutable sources can do this immediately after
 resolution. Coordinated remote sources first consult retained source evidence;
 fresh evidence avoids origin access and the encoded-body read. Immutable remote
 sources with explicit storage permission can skip that evidence lookup too.
+Without internal caching, a mutable remote source is downloaded on every
+request, and a matching `If-None-Match` returns `304` once the original's bytes
+are confirmed unchanged.
 
 Expired mutable sources validate upstream with `If-None-Match` or
 `If-Modified-Since` before answering a client conditional. An upstream `304`

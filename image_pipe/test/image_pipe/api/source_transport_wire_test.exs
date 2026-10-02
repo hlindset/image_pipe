@@ -55,7 +55,7 @@ defmodule ImagePipe.API.SourceTransportWireTest do
       assert_receive {:origin_ready, ^origin, url}
       prefix = [__MODULE__, unquote(name)]
       handler = make_ref()
-      event = prefix ++ [:source, :fetch_decode, :stop]
+      event = prefix ++ [:source, :stage, :stop]
 
       :ok =
         :telemetry.attach(
