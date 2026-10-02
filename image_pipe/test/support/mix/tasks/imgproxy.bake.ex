@@ -26,6 +26,7 @@ if Code.ensure_loaded?(Testcontainers) do
     import Plug.Test, only: [conn: 2]
 
     alias ImagePipe.Test.ImgproxyReference.Cases
+    alias ImagePipe.Test.PixelSuite
 
     @version "v4.0.17"
     @image "darthsim/imgproxy:#{@version}@sha256:db0b4b9cd690c8b3590203dea300fb759a18c4ec2af7b37424f0bdef23ce317d"
@@ -128,20 +129,21 @@ if Code.ensure_loaded?(Testcontainers) do
       end
 
       decoded = Image.open!(response.body, access: :random, fail_on: :error)
+      [content_type] = Req.Response.get_header(response, "content-type")
+      structure = PixelSuite.structure(response.body, content_type)
 
       case c.kind do
         :png ->
           path = Path.join(@fixtures, "#{c.id}.png")
           File.write!(path, Image.write!(decoded, :memory, suffix: ".png"))
-          %{fixture_sha256: sha256(path)}
+          %{fixture_sha256: sha256(path), structure: structure}
 
         :lossy ->
-          [content_type] = Req.Response.get_header(response, "content-type")
-
           %{
             width: Image.width(decoded),
             height: Image.height(decoded),
-            content_type: content_type
+            content_type: content_type,
+            structure: structure
           }
       end
     end

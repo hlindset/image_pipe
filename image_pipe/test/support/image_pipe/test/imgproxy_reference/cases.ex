@@ -6,13 +6,18 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
   the fixture was baked from, and the `{threshold, budget}` tolerance: at most
   `budget` band samples may differ by more than `threshold` levels. `:png` cases
   compare decoded pixels; `:lossy` cases compare dimensions and content type.
-  A `:pending` case is skipped with its reason until the named issue is fixed.
+  Every case also compares the output's structure (content type, band layout,
+  depth, ICC profile, orientation and extra metadata) with imgproxy's;
+  `:structure_differs` names the fields a case deliberately differs in, with the
+  reason. A `:pending` case is skipped with its reason until the named issue is
+  fixed.
   See `README.md` next to this file for fixture provenance and change rules.
   """
   use Boundary, top_level?: true, deps: []
 
   @type t :: %{
           optional(:pending) => String.t(),
+          optional(:structure_differs) => %{atom() => String.t()},
           id: String.t(),
           kind: :png | :lossy,
           source: String.t(),
@@ -2035,7 +2040,13 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         source: "gray.png",
         native: "w=200/h=150/fit=contain/blur=2/pixelate=4",
         imgproxy: "rs:fit:200:150/bl:2/pix:4",
-        tolerance: {2, 64}
+        tolerance: {2, 64},
+        structure_differs: %{
+          bands:
+            "ImagePipe keeps the gray result gray; imgproxy promotes it to sRGB with the same values",
+          interpretation:
+            "ImagePipe keeps the gray result gray; imgproxy promotes it to sRGB with the same values"
+        }
       },
       # Edge cases: 2-band grayscale with alpha (gray_alpha.png).
       # Resampling skew, no shift; threshold just above the measured maxΔ 11 (premultiplied).
@@ -2071,7 +2082,13 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         source: "gray_alpha.png",
         native: "w=200/h=150/fit=contain/blur=3",
         imgproxy: "rs:fit:200:150/bl:3",
-        tolerance: {2, 64}
+        tolerance: {2, 64},
+        structure_differs: %{
+          bands:
+            "ImagePipe keeps the gray result gray; imgproxy promotes it to sRGB with the same values",
+          interpretation:
+            "ImagePipe keeps the gray result gray; imgproxy promotes it to sRGB with the same values"
+        }
       },
       # Resampling skew, no shift; threshold just above the measured maxΔ 11 (premultiplied).
       %{
@@ -2132,7 +2149,13 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         source: "bitonal.png",
         native: "pixelate=10",
         imgproxy: "pix:10",
-        tolerance: {2, 64}
+        tolerance: {2, 64},
+        structure_differs: %{
+          bands:
+            "ImagePipe keeps the gray result gray; imgproxy promotes it to sRGB with the same values",
+          interpretation:
+            "ImagePipe keeps the gray result gray; imgproxy promotes it to sRGB with the same values"
+        }
       },
       %{
         id: "bitonal_crop",
