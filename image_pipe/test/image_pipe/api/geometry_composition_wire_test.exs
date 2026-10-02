@@ -57,6 +57,45 @@ defmodule ImagePipe.API.GeometryCompositionWireTest do
     assert Image.get_pixel!(gray16, 0, 0) == [128 * 257]
   end
 
+  test "an opaque color background promotes a grayscale image to RGB" do
+    rgb = image("/pad=1,0,0,1/bg=ff0000/format=png/src/image.png", png_origin(gray(:uchar)))
+    assert VipsImage.interpretation(rgb) == :VIPS_INTERPRETATION_sRGB
+    assert Image.get_pixel!(rgb, 0, 0) == [255, 0, 0]
+    assert Image.get_pixel!(rgb, 1, 1) == [50, 50, 50]
+
+    rgb16 =
+      image(
+        "/pad=1,0,0,1/bg=ff0000/hdr=preserve/format=png/src/image.png",
+        png_origin(gray(:ushort))
+      )
+
+    assert VipsImage.interpretation(rgb16) == :VIPS_INTERPRETATION_RGB16
+    assert Image.get_pixel!(rgb16, 0, 0) == [65_535, 0, 0]
+    assert Image.get_pixel!(rgb16, 1, 1) == List.duplicate(50 * 257, 3)
+  end
+
+  test "an arbitrary rotation of a grayscale image has transparent corners" do
+    output = image("/rotate=30/format=png/src/image.png", png_origin(gray(:uchar, 20)))
+    assert VipsImage.interpretation(output) == :VIPS_INTERPRETATION_B_W
+    assert Image.get_pixel!(output, 0, 0) == [0, 0]
+
+    assert Image.get_pixel!(output, div(Image.width(output), 2), div(Image.height(output), 2)) ==
+             [50, 255]
+  end
+
+  test "padding, canvas and rotation keep a 16-bit image opaque" do
+    for options <- ["pad=1,0,0,1", "w=40/h=40/fit=contain/extend", "rotate=30"] do
+      output =
+        image(
+          "/#{options}/hdr=preserve/format=png/src/image.png",
+          png_origin(gray(:ushort, 20))
+        )
+
+      centre = Image.get_pixel!(output, div(Image.width(output), 2), div(Image.height(output), 2))
+      assert centre == [50 * 257, 65_535], options
+    end
+  end
+
   test "an alpha background preserves alpha in generated padding" do
     padded =
       image(
@@ -117,16 +156,18 @@ defmodule ImagePipe.API.GeometryCompositionWireTest do
     end
   end
 
-  defp gray(:uchar) do
-    {:ok, image} = Operation.black(2, 2)
+  defp gray(format, size \\ 2)
+
+  defp gray(:uchar, size) do
+    {:ok, image} = Operation.black(size, size)
     {:ok, image} = Operation.linear(image, [1.0], [50.0])
     {:ok, image} = Operation.cast(image, :VIPS_FORMAT_UCHAR)
     {:ok, image} = Operation.copy(image, interpretation: :VIPS_INTERPRETATION_B_W)
     Image.write!(image, :memory, suffix: ".png")
   end
 
-  defp gray(:ushort) do
-    {:ok, image} = Operation.black(2, 2)
+  defp gray(:ushort, size) do
+    {:ok, image} = Operation.black(size, size)
     {:ok, image} = Operation.linear(image, [1.0], [50.0 * 257])
     {:ok, image} = Operation.cast(image, :VIPS_FORMAT_USHORT)
     {:ok, image} = Operation.copy(image, interpretation: :VIPS_INTERPRETATION_GREY16)

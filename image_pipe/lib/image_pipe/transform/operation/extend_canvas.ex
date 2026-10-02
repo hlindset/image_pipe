@@ -57,6 +57,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
       image_width: 1
     ]
 
+  alias ImagePipe.Transform.Alpha
   alias ImagePipe.Transform.State
 
   @default_gravity {:anchor, :center, :center}
@@ -150,7 +151,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
     {x, y} =
       resolved_embed_offset(operation, image_width(state), image_height(state), width, height)
 
-    with {:ok, image} <- alpha_ready_image(state.image) do
+    with {:ok, image} <- Alpha.ensure(state.image) do
       Image.embed(image, width, height, x: x, y: y, background: [0, 0, 0, 0])
     end
   end
@@ -184,11 +185,4 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
 
   defp base_offset(:y, {:anchor, _x, :bottom}, image_size, canvas_size),
     do: canvas_size - image_size
-
-  defp alpha_ready_image(image) do
-    case Image.has_alpha?(image) do
-      true -> {:ok, image}
-      false -> Image.add_alpha(image, :opaque)
-    end
-  end
 end

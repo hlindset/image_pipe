@@ -46,7 +46,7 @@
       fixture_sha256: "20e01ef221ecd7750d4c584a95e33676290139527eda19ef22296f006f556106"
     },
     "gray_extend_bg_red" => %{
-      fixture_sha256: "a6f507d2b123547b2fb4c40372a9d634142147566d679c1932964564e51dc9c0"
+      fixture_sha256: "9c6e794fd1fb4b44faf1c8b3a15371a307bfe3872ebe8ede50e4b6ad5b6952c9"
     },
     "rgb16_colorize" => %{
       fixture_sha256: "b3f9b80337a71d9c5bc6bd173ca608e325a1ad38de8945777335ee05486f5948"
@@ -139,7 +139,7 @@
       fixture_sha256: "b347d8785378af45f658eaeec8d7c2241d32d29c5d857ce2d576098da237cadd"
     },
     "gray_watermark_colour" => %{
-      fixture_sha256: "89f7c60f7f83052aa8922dca9672eb5eadb2221b2838c9ce2539dab4f6e48e2f"
+      fixture_sha256: "b48d4b9bbd328d6e058b4a97e13e60ed2236845aa7fe14e4089faee0089c5cc2"
     },
     "profile_display_p3" => %{
       fixture_sha256: "6e54c6ead69fe20396fb5449c5a4c346780533c5822ddcebd67297552246350f"

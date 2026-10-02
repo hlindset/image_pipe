@@ -13,8 +13,10 @@ defmodule ImagePipe.Transform.Executor do
   alias ImagePipe.Plan.Spec.Group
   alias ImagePipe.Plan.Spec.Output
   alias ImagePipe.Transform
+  alias ImagePipe.Transform.Alpha
   alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.Executor.Geometry
+  alias ImagePipe.Transform.GrayFrame
   alias ImagePipe.Transform.InputColorManagement
   alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.Operation.Background
@@ -421,7 +423,9 @@ defmodule ImagePipe.Transform.Executor do
       opts |> Keyword.fetch!(:watermarks) |> Map.fetch!(watermark.asset)
 
     with {:ok, state} <- flush_display(state),
-         {:ok, asset} <- watermark_asset(asset, state, opts) do
+         {:ok, asset} <- conditioned_asset(asset, state, opts),
+         {:ok, state} <- promote_gray_frame(state, asset),
+         {:ok, asset} <- watermark_asset(asset, state) do
       {frame_width, frame_height} = Geometry.live_dims(state)
       {width, height} = watermark_size(watermark.scale, asset, {frame_width, frame_height}, dpr)
       {x, y} = watermark.offset
@@ -447,11 +451,27 @@ defmodule ImagePipe.Transform.Executor do
 
   # Assets get the source's input conditioning, then the frame's color space,
   # an alpha band, and the frame's band format.
-  defp watermark_asset(asset, %State{image: frame} = state, opts) do
+  defp conditioned_asset(asset, %State{} = state, opts) do
     asset_state = %State{image: asset, telemetry_opts: state.telemetry_opts}
 
     with {:ok, %State{image: asset}} <- condition_color(asset_state, opts),
-         {:ok, asset} <- to_frame_space(asset, VipsImage.interpretation(frame)),
+         do: {:ok, asset}
+  end
+
+  # A color asset promotes a gray frame to RGB rather than being reduced to gray.
+  defp promote_gray_frame(%State{image: frame} = state, asset) do
+    if GrayFrame.gray?(frame) and not GrayFrame.gray?(asset) do
+      case GrayFrame.promote(frame) do
+        {:ok, frame} -> {:ok, %State{state | image: frame}}
+        {:error, reason} -> {:error, {:transform, {Watermark, reason}}}
+      end
+    else
+      {:ok, state}
+    end
+  end
+
+  defp watermark_asset(asset, %State{image: frame}) do
+    with {:ok, asset} <- to_frame_space(asset, VipsImage.interpretation(frame)),
          {:ok, asset} <- with_alpha(asset) do
       case VipsOperation.cast(asset, VipsImage.format(frame)) do
         {:ok, asset} -> {:ok, asset}
@@ -476,21 +496,11 @@ defmodule ImagePipe.Transform.Executor do
   defp to_frame_space(asset, _interpretation), do: {:ok, asset}
 
   defp with_alpha(asset) do
-    case Image.has_alpha?(asset) do
-      true ->
-        {:ok, asset}
-
-      false ->
-        case VipsOperation.bandjoin_const(asset, [max_alpha(VipsImage.format(asset))]) do
-          {:ok, asset} -> {:ok, asset}
-          {:error, reason} -> {:error, {:transform, {Watermark, reason}}}
-        end
+    case Alpha.ensure(asset) do
+      {:ok, asset} -> {:ok, asset}
+      {:error, reason} -> {:error, {:transform, {Watermark, reason}}}
     end
   end
-
-  defp max_alpha(:VIPS_FORMAT_USHORT), do: 65_535.0
-  defp max_alpha(format) when format in [:VIPS_FORMAT_FLOAT, :VIPS_FORMAT_DOUBLE], do: 1.0
-  defp max_alpha(_format), do: 255.0
 
   # A scale fits the asset in that fraction of the frame; otherwise it keeps
   # its natural size at the group's effective DPR.

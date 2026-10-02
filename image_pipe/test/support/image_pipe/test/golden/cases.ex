@@ -342,16 +342,14 @@ defmodule ImagePipe.Test.Golden.Cases do
         kind: :png,
         source: "gray.png",
         native: "w=300/h=300/fit=contain/extend/bg=ff0000",
-        tolerance: {2, 64},
-        changes_with: ["image_plug-dr1"]
+        tolerance: {2, 64}
       },
       %{
         id: "gray_watermark_colour",
         kind: :png,
         source: "gray.png",
         native: "w=400/h=300/fit=contain/wm=mark/wm-at=bottom-right/wm-scale=0.25",
-        tolerance: {2, 64},
-        changes_with: ["image_plug-dr1"]
+        tolerance: {2, 64}
       },
       %{
         id: "gray_colorize",

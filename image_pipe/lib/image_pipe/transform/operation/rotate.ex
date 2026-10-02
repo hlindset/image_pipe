@@ -15,6 +15,7 @@ defmodule ImagePipe.Transform.Operation.Rotate do
 
   import ImagePipe.Transform.State, only: [set_image: 2]
 
+  alias ImagePipe.Transform.Alpha
   alias ImagePipe.Transform.State
   alias Vix.Vips.Operation
 
@@ -22,10 +23,6 @@ defmodule ImagePipe.Transform.Operation.Rotate do
   defstruct [:angle]
 
   @type t :: %__MODULE__{angle: number()}
-
-  # Float RGBA: vips_rotate's `background` is an array of doubles; a 4-element
-  # value fills the exposed corners fully transparent on an alpha image.
-  @transparent [0.0, 0.0, 0.0, 0.0]
 
   @impl ImagePipe.Transform
   def name(%__MODULE__{}), do: :rotate
@@ -47,16 +44,14 @@ defmodule ImagePipe.Transform.Operation.Rotate do
   # Dialyzer can't see through Vix's generated Operation typings (rotate).
   @dialyzer {:no_fail_call, rotate: 2}
 
-  # Add alpha for transparent corners. vips_rotate handles premultiplication;
-  # doing it here too would distort semi-transparent colors. Call Vix directly
-  # because Image.rotate/3 rejects a four-component RGBA background.
+  # Add alpha for transparent corners, filled by a zero `background` with one
+  # value per band (two for gray, four for RGB). vips_rotate handles
+  # premultiplication; doing it here too would distort semi-transparent colors.
+  # Call Vix directly because Image.rotate/3 rejects a transparent background.
   defp rotate(image, angle) do
-    with {:ok, rgba} <- ensure_alpha(image) do
-      Operation.rotate(rgba, angle * 1.0, background: @transparent)
+    with {:ok, rgba} <- Alpha.ensure(image) do
+      transparent = List.duplicate(0.0, Image.bands(rgba))
+      Operation.rotate(rgba, angle * 1.0, background: transparent)
     end
-  end
-
-  defp ensure_alpha(image) do
-    if Image.has_alpha?(image), do: {:ok, image}, else: Image.add_alpha(image, :opaque)
   end
 end

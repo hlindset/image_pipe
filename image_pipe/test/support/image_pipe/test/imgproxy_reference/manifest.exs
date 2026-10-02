@@ -355,6 +355,9 @@
     "grav_we_off" => %{
       fixture_sha256: "73e3f0b5fbe124a79e4dede376fe331ef2a69d1b3d1e25bb06cb4ad2eec0638a"
     },
+    "gray_extend_bg" => %{
+      fixture_sha256: "1fd53166ff1bf20023d07545eb160669aa0e9e4adbf4e6ac824672d54e623645"
+    },
     "trim_resize_high_freq" => %{
       fixture_sha256: "1470298dfbd3d677e9c6f4ad75f38445f48c5851f2e759dc3e63e1c257810d69"
     },
@@ -514,6 +517,9 @@
     "sharpen_zone" => %{
       fixture_sha256: "ad6fb7b30b6afe83d7bd7c808d010cdd5f06feef5088b54a8ea6b6c8adaae7ee"
     },
+    "gray_pad_bg" => %{
+      fixture_sha256: "ff7deb860185486890a6cc761ea7c83a246aee891703def11ef9f111c9d70600"
+    },
     "alpha_resize" => %{
       fixture_sha256: "4423b7a96fff78ba10be919543ea7d515067da45c83fdaa7c59add65b47357f6"
     },
@@ -656,6 +662,9 @@
     },
     "dpr15_fit_marker" => %{
       fixture_sha256: "47851b26cfab3e08e0eb98a52fc3a08d9fe173b2da123889199a71d53a4a52cf"
+    },
+    "gray_watermark" => %{
+      fixture_sha256: "d1b8d609ac1254cab43b1db30118afeb09618d7d2c795d1b820a097482285d99"
     },
     "crop_full_axis_placement" => %{
       fixture_sha256: "d2727e0883ca0e97c2f49ae5a67a139d49f97b0ac88a09bdcc466dc6bd5405cf"
