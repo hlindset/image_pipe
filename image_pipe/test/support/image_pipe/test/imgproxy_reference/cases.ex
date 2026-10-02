@@ -1834,15 +1834,15 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         imgproxy: "rs:fill:300:300/g:sm",
         tolerance: {2, 64}
       },
-      # Attention scoring must run in the displayed frame.
+      # Attention scoring must run in the displayed frame. Same window as imgproxy
+      # (best-fit offset 0,0); the threshold covers resampling skew up to maxΔ 23.
       %{
         id: "exif_cover_smart",
         kind: :png,
         source: "exif_placement_6.jpg",
         native: "w=200/h=150/fit=cover/anchor=smart",
         imgproxy: "rs:fill:200:150/g:sm",
-        tolerance: {2, 64},
-        pending: "image_plug-416: smart cover crop on EXIF frames swaps the box"
+        tolerance: {24, 64}
       },
       # Coverage gaps: EXIF auto-orientation off (`ar:0`), a separate path through the
       # orientation flush.

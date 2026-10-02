@@ -313,7 +313,7 @@ defmodule ImagePipe.Transform.Executor do
           compensate_resize(resize, tail, pending)
 
         with {:ok, state} <- Transform.run(state, resize, opts),
-             {:ok, state} <- run_optional(state, tail, opts),
+             {:ok, state} <- run_pending_tail(state, tail, opts),
              {:ok, state} <- flush_display(state) do
           {:ok, state, target.dpr}
         end
@@ -352,6 +352,17 @@ defmodule ImagePipe.Transform.Executor do
     tail = if tail, do: Geometry.compensate_crop(tail, pending), else: nil
     {resize, tail}
   end
+
+  # `Geometry.compensate_crop/2` leaves a materializing result crop (smart or
+  # detected) in display coordinates, so it runs after the orientation flush.
+  defp run_pending_tail(state, %Crop{} = tail, opts) do
+    case Crop.requires_materialization?(tail) do
+      true -> run_display_optional(state, tail, opts)
+      false -> Transform.run(state, tail, opts)
+    end
+  end
+
+  defp run_pending_tail(state, nil, _opts), do: {:ok, state}
 
   defp run_display_optional(state, nil, _opts), do: {:ok, state}
 
