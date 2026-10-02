@@ -12,6 +12,7 @@ defmodule ImagePipe.Transform.Operation.Trim do
 
   alias ImagePipe.Plan.Color
   alias ImagePipe.Transform.State
+  alias ImagePipe.Transform.WorkingColor
   alias Vix.Vips.Image, as: VixImage
   alias Vix.Vips.Operation
 
@@ -41,6 +42,14 @@ defmodule ImagePipe.Transform.Operation.Trim do
     orig_w = Image.width(original)
     orig_h = Image.height(original)
 
+    # libvips' find_trim runs a 3×3 median, which fails on an image narrower or
+    # shorter than 3 pixels; such an image has nothing to trim.
+    if orig_w < 3 or orig_h < 3,
+      do: {:ok, state},
+      else: trim(op, state, original, orig_w, orig_h)
+  end
+
+  defp trim(op, state, original, orig_w, orig_h) do
     with {:ok, prepared} <- prepare(original),
          {:ok, background} <- background_list(op.background, prepared),
          {:ok, {left, top, width, height}} <-
@@ -70,7 +79,12 @@ defmodule ImagePipe.Transform.Operation.Trim do
     end
   end
 
+  # A tagged image compares through its profile, so colors match in sRGB.
   defp to_srgb(image) do
+    with {:ok, image} <- WorkingColor.to_srgb(image), do: to_srgb_values(image)
+  end
+
+  defp to_srgb_values(image) do
     case VixImage.interpretation(image) do
       :VIPS_INTERPRETATION_sRGB -> {:ok, image}
       _ -> Operation.colourspace(image, :VIPS_INTERPRETATION_sRGB)

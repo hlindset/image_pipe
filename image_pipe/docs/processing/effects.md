@@ -24,7 +24,10 @@ Effects work with or without resizing. Pass the Elixir options below to
 | `gradient=0.8,black,down,0.2,0.9` | `gradient: [opacity: 0.8, color: "black", angle: 0, start: 0.2, stop: 0.9]` | Opacity/start/stop `0..1`; required color; default angle 0, start 0, stop 1 |
 
 URL colors are bare three/six-digit hex or CSS names. Elixir also accepts
-RGB tuples and hex strings with `#`. Comma-separated URL values cannot contain
+RGB tuples and hex strings with `#`. Colors are sRGB, as in CSS: on a source
+that keeps a wide-gamut profile, a 16-bit source, or a gray source they convert
+into the image's own values, and a color that isn't a neutral gray turns a gray
+image into RGB. Comma-separated URL values cannot contain
 empty placeholders. Supply either both duotone colors or neither.
 
 Blur/sharpen sigma and pixelate block size use physical pixels, unaffected by

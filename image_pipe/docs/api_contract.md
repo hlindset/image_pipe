@@ -193,9 +193,11 @@ asset, `wm-gap` requires `wm-tile`, and all reset at `-`.
 The watermark runs last in its group, on the display frame left by
 background. Assets resolve through the source mounts and input cache with the
 main source's limits, decode their default frame with EXIF orientation, and
-take the main source's input color management. Their metadata and profile are
-dropped. The asset is converted into the frame's color space and band format
-and composited `over` it; a frame without alpha keeps none. Unknown names,
+take the main source's input color management. Their metadata is dropped. On a
+color frame the asset is color-managed into the frame's profile, or into sRGB
+when the frame has none; an untagged asset is sRGB. A color asset promotes a
+gray frame to RGB. The asset is then converted to the frame's band format and
+composited `over` it; a frame without alpha keeps none. Unknown names,
 disabled request sources, and inert options fail before source or cache
 access. Asset fetch failures use the main source's statuses and decode failures
 return `415`. Identity takes each asset's source identity, byte identity, and
@@ -356,7 +358,10 @@ brightness first.
 | `colorize` | Opacity from 0 to 1, required color, optional literal `keep-alpha` | `colorize=0.3,red,keep-alpha` |
 | `gradient` | Opacity from 0 to 1, required color, optional direction, start, stop | `gradient=0.8,black,down,0.2,0.9` |
 
-Colors accept bare 3/6-digit hex or CSS names. Positional values are comma
+Colors accept bare 3/6-digit hex or CSS names. They are sRGB, as in CSS:
+each converts into the image's working values, through a profile the source
+kept, to the gray value on a gray image, and at full scale on a 16-bit image.
+A color that isn't a neutral gray promotes a gray image to RGB first. Positional values are comma
 separated, without empty placeholders. Monochrome and duotone intensity,
 and colorize and gradient opacity, use 0 as identity. Identity values share
 representation identity with the absent effect; all supplied values are
@@ -402,16 +407,21 @@ source density. Density never changes pixels, dimensions, or DPR scaling.
 JPEG writes it to JFIF and EXIF, PNG to `pHYs` and EXIF, and WebP and AVIF
 to EXIF only.
 
-`profile=strip` converts to the standard working color space and omits the
-source ICC profile. `profile=preserve` exports back to the source profile
-and retains it. `profile=srgb`, `profile=display-p3`, and `profile=adobe-rgb`
-convert to a shipped target profile and embed its bytes. Profile handling
+Sources in sRGB, RGB, 16-bit RGB, or gray keep their pixel values and
+embedded ICC profile while processing; other spaces, such as CMYK, import
+their profile into the standard working space. `profile=strip` converts the
+result to sRGB (or gray) once at the end and omits the profile.
+`profile=preserve` keeps the source profile: a source that kept its values
+returns them with the profile untouched, so wide-gamut colors survive, and an
+imported source exports back to its profile. `profile=srgb`,
+`profile=display-p3`, and `profile=adobe-rgb` convert from the source profile
+(or sRGB for an untagged source) to a shipped target profile and embed its
+bytes. Profile handling
 is independent of `meta`: stripping optional metadata preserves a requested
 output profile. The default is `strip`; host `strip_color_profile: false`
-selects source-profile preservation. Input ICC conditioning happens before
-transforms so operations work on interpreted colors. The executor retains an
-imported source profile in its state and the runner passes it directly to the
-encoder for source-profile restoration.
+selects source-profile preservation. The executor backs up the source profile
+in its state, with whether it was imported, and the runner passes both to the
+encoder.
 
 `hdr=preserve` retains a high-bit-depth working space when the selected
 output format supports it. `hdr=tonemap` selects the standard working

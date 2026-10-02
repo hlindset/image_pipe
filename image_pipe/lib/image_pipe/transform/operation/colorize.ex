@@ -6,7 +6,9 @@ defmodule ImagePipe.Transform.Operation.Colorize do
 
   import ImagePipe.Transform.State
 
+  alias ImagePipe.Transform.GrayFrame
   alias ImagePipe.Transform.State
+  alias ImagePipe.Transform.WorkingColor
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
 
@@ -29,9 +31,11 @@ defmodule ImagePipe.Transform.Operation.Colorize do
   # Split alpha explicitly: without_alpha_band/2 always restores it, but colorize
   # defaults to opaque output. Rejoin only when keep_alpha is true.
   defp apply_colorize(image, o, color, keep_alpha) do
-    case Image.split_alpha(image) do
-      {rgb, nil} -> blend_rgb(rgb, o, color)
-      {rgb, alpha} -> blend_with_alpha(rgb, alpha, o, color, keep_alpha)
+    with {:ok, image} <- GrayFrame.for_color(image, color) do
+      case Image.split_alpha(image) do
+        {rgb, nil} -> blend_rgb(rgb, o, color)
+        {rgb, alpha} -> blend_with_alpha(rgb, alpha, o, color, keep_alpha)
+      end
     end
   end
 
@@ -41,9 +45,15 @@ defmodule ImagePipe.Transform.Operation.Colorize do
     end
   end
 
-  defp blend_rgb(rgb, o, [cr, cg, cb]) do
-    with {:ok, blended} <-
-           Operation.linear(rgb, [1.0 - o, 1.0 - o, 1.0 - o], [cr * o, cg * o, cb * o]) do
+  # The color is sRGB; blend its value in the image's own space and depth.
+  defp blend_rgb(rgb, o, color) do
+    with {:ok, values} <- WorkingColor.values(rgb, color),
+         {:ok, blended} <-
+           Operation.linear(
+             rgb,
+             Enum.map(values, fn _ -> 1.0 - o end),
+             Enum.map(values, &(&1 * o))
+           ) do
       Operation.cast(blended, VipsImage.format(rgb))
     end
   end

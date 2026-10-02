@@ -38,6 +38,17 @@ defmodule ImagePipe.API.CropRatioTrimWireTest do
     )
   end
 
+  test "trim passes through an image too small to trim" do
+    for {width, height} <- [{1, 1}, {2, 5}, {5, 2}],
+        options <- ["trim=auto", "trim=ffffff,10"] do
+      body =
+        Image.new!(width, height, color: [200, 60, 40]) |> Image.write!(:memory, suffix: ".png")
+
+      output = image(options, body)
+      assert {Image.width(output), Image.height(output)} == {width, height}, options
+    end
+  end
+
   test "crop ratio correction shrinks or grows the selected box before placement" do
     source = source()
 

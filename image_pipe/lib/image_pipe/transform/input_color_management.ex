@@ -1,7 +1,8 @@
 defmodule ImagePipe.Transform.InputColorManagement do
   # Converts decoded input to a working color space before transforms.
   #
-  # Runs once per execution, importing embedded ICC profiles when needed. The
+  # Runs once per execution. RGB-family and gray sources keep their values and
+  # embedded profile; other spaces (CMYK, Lab, …) import their profile. The
   # caller supplies `supports_hdr?` from `ImagePipe.Output.Policy`, based on the HDR
   # policy and output format's capabilities.
   @moduledoc false
@@ -11,6 +12,14 @@ defmodule ImagePipe.Transform.InputColorManagement do
   alias Vix.Vips.Image, as: VixImage
   alias Vix.Vips.Operation
 
+  @unimported [
+    :VIPS_INTERPRETATION_sRGB,
+    :VIPS_INTERPRETATION_RGB,
+    :VIPS_INTERPRETATION_RGB16,
+    :VIPS_INTERPRETATION_B_W,
+    :VIPS_INTERPRETATION_GREY16
+  ]
+
   @doc """
   Conditions a decoded image into a working space before any processing step.
 
@@ -18,9 +27,12 @@ defmodule ImagePipe.Transform.InputColorManagement do
   2. Unpacks Radiance-coded HDR input with `rad2float`.
   3. For linear-light (`:VIPS_INTERPRETATION_scRGB`) input, drops the embedded
      profile without saving it or setting `color_imported?`.
-  4. For other input with an importable ICC profile, saves the profile bytes on
+  4. For sRGB, RGB, RGB16, B_W and GREY16 input, keeps the pixel values and the
+     embedded profile, saving the profile bytes on `State` as a backup for the
+     output step without setting `color_imported?`.
+  5. For other input with an importable ICC profile, saves the profile bytes on
      `State`, imports to PCS float, and sets `color_imported?`.
-  5. Converts to the working space, including when no profile was imported.
+  6. Converts to the working space, including when no profile was imported.
 
   Preserves dimensions, `source_dimensions`, and `decode_shrink`. Returns failures
   as `{:error, {__MODULE__, reason}}`.
@@ -66,12 +78,23 @@ defmodule ImagePipe.Transform.InputColorManagement do
     end
   end
 
-  defp do_condition(state, image, interp, target) do
+  # RGB-family and gray sources keep their values: operations work on them as
+  # they are, and the output step converts or keeps the profile.
+  defp do_condition(state, image, interp, target) when interp in @unimported do
+    with {:ok, image} <- to_colorspace(image, target) do
+      {:ok, %State{State.set_image(state, image) | source_color_profile: profile_data(image)}}
+    end
+  end
+
+  defp do_condition(state, image, _interp, target) do
     profile = profile_data(image)
 
-    if importable?(image, interp, profile) do
-      with {:ok, imported} <- icc_import(image, interp, profile),
-           {:ok, image} <- to_colorspace(imported, target) do
+    if importable?(image, profile) do
+      # The imported pixels no longer match the embedded profile, so drop it from
+      # the image; the backup on `State` is what the output step exports to.
+      with {:ok, imported} <- icc_import(image, profile),
+           {:ok, image} <- to_colorspace(imported, target),
+           {:ok, image} <- remove_profile(image) do
         {:ok,
          %State{
            State.set_image(state, image)
@@ -86,64 +109,14 @@ defmodule ImagePipe.Transform.InputColorManagement do
     end
   end
 
-  # Import supported uncoded input with an embedded profile, except sRGB input
-  # already using the canonical IEC61966 profile.
-  defp importable?(image, interp, profile) do
-    is_binary(profile) and
-      not (interp == :VIPS_INTERPRETATION_sRGB and srgb_iec61966?(profile)) and
-      coding_none?(image) and band_format_importable?(image)
+  # Import supported uncoded input with an embedded profile.
+  defp importable?(image, profile) do
+    is_binary(profile) and coding_none?(image) and band_format_importable?(image)
   end
 
-  # Import to PCS float. For RGB16/GREY16, separate alpha before importing color
-  # bands, then rescale and rejoin it (matching imgproxy's vips_icc_import_go).
-  defp icc_import(image, interp, profile) do
-    pcs = pcs(profile)
-
-    case alpha_split(image, interp) do
-      {:ok, color, alpha} ->
-        with {:ok, imported} <- Operation.icc_import(color, embedded: true, pcs: pcs),
-             {:ok, alpha} <- rescale_alpha(alpha, imported) do
-          Operation.bandjoin([imported, alpha])
-        end
-
-      :none ->
-        Operation.icc_import(image, embedded: true, pcs: pcs)
-
-      {:error, _} = err ->
-        err
-    end
-  end
-
-  # Returns {:ok, color_bands, alpha_band} for 16-bit sources with alpha, :none
-  # otherwise. RGB16 has 3 color bands, GREY16 has 1.
-  defp alpha_split(image, :VIPS_INTERPRETATION_RGB16) do
-    alpha_split_at(image, 3)
-  end
-
-  defp alpha_split(image, :VIPS_INTERPRETATION_GREY16) do
-    alpha_split_at(image, 1)
-  end
-
-  defp alpha_split(_image, _interp), do: :none
-
-  defp alpha_split_at(image, color_bands) do
-    if Image.bands(image) > color_bands do
-      with {:ok, color} <- Operation.extract_band(image, 0, n: color_bands),
-           {:ok, alpha} <- Operation.extract_band(image, color_bands, n: 1) do
-        {:ok, color, alpha}
-      end
-    else
-      :none
-    end
-  end
-
-  # Match vips_icc_import_go: cast alpha to the imported format and scale by 1/255.
-  defp rescale_alpha(alpha, imported) do
-    with {:ok, format} <- VixImage.header_value(imported, "format"),
-         {:ok, cast} <- Operation.cast(alpha, format) do
-      Operation.linear(cast, [1.0 / 255.0], [0.0])
-    end
-  end
+  # Import to PCS float.
+  defp icc_import(image, profile),
+    do: Operation.icc_import(image, embedded: true, pcs: pcs(profile))
 
   defp to_colorspace(image, target), do: Operation.colourspace(image, target)
 
@@ -217,56 +190,4 @@ defmodule ImagePipe.Transform.InputColorManagement do
   end
 
   def pcs(_), do: :VIPS_PCS_LAB
-
-  @doc """
-  Returns `true` when the ICC profile header matches the canonical sRGB
-  IEC61966-2.1 profile as identified by `vips_icc_is_srgb_iec61966` in
-  imgproxy `vips/vips.c`.
-
-  Checks (all must match):
-  - offset  8 – version `<<2, 16, 0, 0>>` (profile version 2.1)
-  - offset 16 – colorspace `"RGB "`
-  - offset 24 – creation date prefix `<<7, 206, 0, 2, 0, 9>>`
-  - offset 48 – device manufacturer `"IEC "`
-  - offset 52 – device model `"sRGB"`
-  - offset 80 – profile creator `"HP  "`
-
-  Profiles shorter than 128 bytes (or `nil`) return `false`.
-  """
-  @spec srgb_iec61966?(binary() | nil) :: boolean()
-  def srgb_iec61966?(profile) when is_binary(profile) and byte_size(profile) >= 128 do
-    match?(
-      <<
-        _::binary-size(8),
-        # offset 8: version 2.1
-        2,
-        16,
-        0,
-        0,
-        _::binary-size(4),
-        # offset 16: colorspace "RGB "
-        "RGB ",
-        _::binary-size(4),
-        # offset 24: creation date prefix
-        7,
-        206,
-        0,
-        2,
-        0,
-        9,
-        _::binary-size(18),
-        # offset 48: device manufacturer "IEC "
-        "IEC ",
-        # offset 52: device model "sRGB"
-        "sRGB",
-        _::binary-size(24),
-        # offset 80: profile creator "HP  "
-        "HP  ",
-        _::binary
-      >>,
-      profile
-    )
-  end
-
-  def srgb_iec61966?(_), do: false
 end

@@ -12,7 +12,9 @@ defmodule ImagePipe.Transform.Operation.Gradient do
   import ImagePipe.Transform.State
 
   alias ImagePipe.Transform.DirectionalMask
+  alias ImagePipe.Transform.GrayFrame
   alias ImagePipe.Transform.State
+  alias ImagePipe.Transform.WorkingColor
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
 
@@ -43,6 +45,12 @@ defmodule ImagePipe.Transform.Operation.Gradient do
     width = Image.width(image)
     height = Image.height(image)
 
+    with {:ok, image} <- GrayFrame.for_color(image, op.color) do
+      blend_bands(image, op, width, height)
+    end
+  end
+
+  defp blend_bands(image, op, width, height) do
     Image.without_alpha_band(image, fn rgb ->
       with {:ok, mask} <-
              DirectionalMask.build(
@@ -59,12 +67,16 @@ defmodule ImagePipe.Transform.Operation.Gradient do
     end)
   end
 
-  defp blend(rgb, mask, [cr, cg, cb]) do
-    with {:ok, mask3} <- Operation.bandjoin([mask, mask, mask]),
-         {:ok, inv3} <- Operation.linear(mask3, [-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]),
-         {:ok, src_term} <- Operation.multiply(rgb, inv3),
-         {:ok, color_img} <- color_constant(rgb, [cr, cg, cb]),
-         {:ok, col_term} <- Operation.multiply(color_img, mask3) do
+  # The color is sRGB; blend its value in the image's own space and depth.
+  defp blend(rgb, mask, color) do
+    with {:ok, values} <- WorkingColor.values(rgb, color),
+         bands = length(values),
+         {:ok, masks} <- Operation.bandjoin(List.duplicate(mask, bands)),
+         {:ok, inverse} <-
+           Operation.linear(masks, List.duplicate(-1.0, bands), List.duplicate(1.0, bands)),
+         {:ok, src_term} <- Operation.multiply(rgb, inverse),
+         {:ok, color_img} <- color_constant(rgb, values),
+         {:ok, col_term} <- Operation.multiply(color_img, masks) do
       Operation.add(src_term, col_term)
     end
   end

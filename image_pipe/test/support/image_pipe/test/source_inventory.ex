@@ -370,6 +370,21 @@ defmodule ImagePipe.Test.SourceInventory do
                consumers: [],
                invariant:
                  "Trim against a transparent background; the opaque content's edges keep placement errors visible."
+             },
+             %{
+               file: "exif_placement_6.jxl",
+               width: 300,
+               height: 400,
+               bands: 3,
+               format: :VIPS_FORMAT_UCHAR,
+               interpretation: :VIPS_INTERPRETATION_sRGB,
+               profile?: true,
+               produced_by: :gen_sources,
+               content:
+                 "exif_placement_6.jpg transcoded losslessly by libjxl's cjxl, which stores orientation 6 in the codestream.",
+               consumers: [:wire],
+               invariant:
+                 "Decodes upright (300×400): libjxl applies the codestream orientation. Needs cjxl to regenerate."
              }
            ] ++
              Enum.map([2, 3, 4, 5, 6, 7, 8], fn o ->

@@ -1,6 +1,7 @@
 defmodule ImagePipe.Output.Terminal.PixelSpace do
   # Fixed pixel space for placeholders: profile-aware sRGB, tone-mapped,
-  # flattened on black, and cast to 8-bit channels.
+  # flattened on black, and cast to 8-bit channels. The result carries no ICC
+  # profile, so placeholder encoders don't convert the sRGB pixels again.
   @moduledoc false
 
   alias Vix.Vips.Image, as: Vimage
@@ -8,6 +9,7 @@ defmodule ImagePipe.Output.Terminal.PixelSpace do
   @spec normalize(Vimage.t()) :: {:ok, Vimage.t()} | {:error, term()}
   def normalize(%Vimage{} = image) do
     with {:ok, srgb} <- to_srgb(image),
+         {:ok, srgb} <- Image.remove_metadata(srgb, ["icc-profile-data"]),
          {:ok, flattened} <- Image.flatten(srgb, background: :black) do
       Image.cast(flattened, {:u, 8})
     end

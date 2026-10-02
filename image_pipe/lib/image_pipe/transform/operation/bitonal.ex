@@ -10,6 +10,7 @@ defmodule ImagePipe.Transform.Operation.Bitonal do
   import ImagePipe.Transform.State
 
   alias ImagePipe.Transform.State
+  alias ImagePipe.Transform.WorkingColor
   alias Vix.Vips.Operation, as: VixOperation
 
   defstruct []
@@ -35,7 +36,8 @@ defmodule ImagePipe.Transform.Operation.Bitonal do
   @dialyzer {:no_fail_call, to_bitonal: 1}
   defp to_bitonal(image) do
     Image.without_alpha_band(image, fn colour ->
-      with {:ok, gray} <- Image.to_colorspace(colour, :bw) do
+      with {:ok, colour} <- WorkingColor.to_srgb(colour),
+           {:ok, gray} <- Image.to_colorspace(colour, :bw) do
         VixOperation.relational_const(gray, :VIPS_OPERATION_RELATIONAL_MOREEQ, [@threshold])
       end
     end)

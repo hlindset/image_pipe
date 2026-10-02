@@ -231,10 +231,10 @@ Stop metadata:
   colorspace (e.g. `:VIPS_INTERPRETATION_sRGB`/`:VIPS_INTERPRETATION_B_W` for
   tone-mapped SDR, or `:VIPS_INTERPRETATION_RGB16`/`:VIPS_INTERPRETATION_GREY16`
   when an HDR source is preserved under `preserve_hdr`).
-- `:imported?` — `true` when the source had an importable embedded ICC profile
-  that was imported into the working space; `false` otherwise (no profile, or a
-  profile that was recognized and skipped — e.g. the canonical sRGB IEC61966
-  profile on an sRGB source).
+- `:imported?` — `true` when the source's embedded ICC profile was imported
+  into the working space (CMYK and other spaces that aren't RGB or gray);
+  `false` otherwise, including RGB-family and gray sources, which keep their
+  values and profile.
 
 The span also fires when conditioning is a no-op, with `imported?: false`.
 

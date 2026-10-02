@@ -44,8 +44,8 @@ defmodule ImagePipe.API.ColorManagementWireTest do
     assert {:ok, profile} = VipsImage.header_value(source, "icc-profile-data")
     assert byte_size(profile) > 0
 
-    {:ok, imported} = Operation.icc_import(source, embedded: true, pcs: :VIPS_PCS_XYZ)
-    {:ok, reference} = Operation.colourspace(imported, :VIPS_INTERPRETATION_sRGB)
+    {:ok, reference} =
+      Operation.icc_transform(source, "sRGB", embedded: true, pcs: :VIPS_PCS_XYZ, depth: 8)
 
     config =
       ImagePipe.Plug.init(
@@ -68,31 +68,56 @@ defmodule ImagePipe.API.ColorManagementWireTest do
     refute VipsImage.write_to_binary(actual) == VipsImage.write_to_binary(source)
   end
 
-  test "preserving a wide-gamut profile restores its encoding after processing" do
+  test "preserving a wide-gamut profile keeps the source values and profile" do
     source = source("icc_p3.png")
     profile = header(source, "icc-profile-data")
     assert is_binary(profile)
 
-    for geometry <- ["", "w=128/"] do
-      kept = response("#{geometry}format=png/profile=preserve", "icc_p3.png")
-      stripped = response("#{geometry}format=png/profile=strip", "icc_p3.png")
-      kept_image = decoded(kept)
-      stripped_image = decoded(stripped)
+    kept = response("format=png/profile=preserve", "icc_p3.png") |> decoded()
+    assert header(kept, "icc-profile-data") == profile
+    assert pixels(kept) == pixels(source)
 
-      assert header(kept_image, "icc-profile-data") == profile
-      assert header(stripped_image, "icc-profile-data") == nil
-      refute pixels(kept_image) == pixels(stripped_image)
-      assert Image.shape(kept_image) == Image.shape(stripped_image)
+    # With geometry, the values are processed as they are: the same request on an
+    # untagged copy of the source gives the same pixels.
+    {:ok, untagged} =
+      VipsImage.mutate(source, fn mutable -> MutableImage.remove(mutable, "icc-profile-data") end)
 
-      {:ok, expected} =
-        VipsImage.mutate(stripped_image, fn mutable ->
-          MutableImage.set(mutable, "icc-profile-data", :VipsBlob, profile)
-        end)
+    untagged_config =
+      untagged |> Image.write!(:memory, suffix: ".png") |> body_source("image/png")
 
-      {:ok, expected} = Operation.icc_export(expected, pcs: :VIPS_PCS_XYZ, depth: 8)
-      assert pixels(kept_image) == pixels(expected)
-      refute etag(kept) == etag(stripped)
-    end
+    resized = response("w=128/format=png/profile=preserve", "icc_p3.png") |> decoded()
+
+    plain =
+      conn(:get, "/w=128/format=png/src/untagged.png")
+      |> ImagePipe.Plug.call(ImagePipe.Plug.init(untagged_config))
+      |> decoded()
+
+    assert header(resized, "icc-profile-data") == profile
+    assert pixels(resized) == pixels(plain)
+
+    stripped = response("format=png/profile=strip", "icc_p3.png")
+    refute etag(stripped) == etag(response("format=png/profile=preserve", "icc_p3.png"))
+  end
+
+  test "a named profile converts from the source's own profile" do
+    {:ok, adobe} =
+      Operation.icc_transform(source("placement_odd.png"), ColorProfile.path!(:adobe_rgb),
+        input_profile: "sRGB"
+      )
+
+    body = Image.write!(adobe, :memory, suffix: ".png")
+    tagged = Image.from_binary!(body)
+    config = body |> body_source("image/png") |> ImagePipe.Plug.init()
+
+    output =
+      conn(:get, "/format=png/profile=display-p3/src/adobe.png")
+      |> ImagePipe.Plug.call(config)
+      |> decoded()
+
+    target = ColorProfile.path!(:display_p3)
+    {:ok, expected} = Operation.icc_transform(tagged, target, embedded: true)
+    assert header(output, "icc-profile-data") == File.read!(target)
+    assert pixels(output) == pixels(expected)
   end
 
   test "named profiles transform pixels and embed the matching profile without geometry" do
@@ -219,15 +244,19 @@ defmodule ImagePipe.API.ColorManagementWireTest do
   end
 
   test "preserving a corrupt embedded profile keeps decode failure classification" do
+    # CMYK is imported through its embedded profile, so a corrupt one fails
+    # processing; RGB-family and gray sources keep their profile untouched.
     profile = <<1, 2, 3, 4>>
-
-    <<0xFF, 0xD8, jpeg::binary>> =
-      Image.new!(16, 16, color: [100], bands: 1) |> Image.write!(:memory, suffix: ".jpg")
+    {:ok, cmyk} = Operation.black(16, 16, bands: 4)
+    {:ok, cmyk} = Operation.linear(cmyk, [1.0], [60.0])
+    {:ok, cmyk} = Operation.cast(cmyk, :VIPS_FORMAT_UCHAR)
+    {:ok, cmyk} = Operation.copy(cmyk, interpretation: :VIPS_INTERPRETATION_CMYK)
+    {:ok, <<0xFF, 0xD8, jpeg::binary>>} = VipsImage.write_to_buffer(cmyk, ".jpg")
 
     payload = <<"ICC_PROFILE", 0, 1, 1, profile::binary>>
     body = <<0xFF, 0xD8, 0xFF, 0xE2, byte_size(payload) + 2::16, payload::binary, jpeg::binary>>
     assert header(Image.from_binary!(body), "icc-profile-data") == profile
-    assert VipsImage.bands(Image.from_binary!(body)) == 1
+    assert VipsImage.interpretation(Image.from_binary!(body)) == :VIPS_INTERPRETATION_CMYK
     prefix = [:api_malformed_icc]
     event = prefix ++ [:request, :stop]
     handler = {__MODULE__, make_ref()}

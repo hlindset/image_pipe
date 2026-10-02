@@ -25,7 +25,7 @@
       fixture_sha256: "da3144646173bcf77e937a6cff9f578535828ddf972e543a9a5ed1c5728954e1"
     },
     "p3_preserve_bg_extend" => %{
-      fixture_sha256: "e742196fa175cd16883496694fecc7d899d7e7649379c6b21cc6e40fca6a4df0"
+      fixture_sha256: "b8861d98693d923c45d74c83c2b2fc3f57bd54141e85458667db0ff5811dcb72"
     },
     "crop_ratio_enlarge" => %{
       fixture_sha256: "6cff58284e100f55594e8ddf4cb785b678213ba74107da2170230bd552593b32"
@@ -49,10 +49,10 @@
       fixture_sha256: "9c6e794fd1fb4b44faf1c8b3a15371a307bfe3872ebe8ede50e4b6ad5b6952c9"
     },
     "rgb16_colorize" => %{
-      fixture_sha256: "b3f9b80337a71d9c5bc6bd173ca608e325a1ad38de8945777335ee05486f5948"
+      fixture_sha256: "8fd567bd67bdd6554ab561a67db707d56ad40970406d5a90ebedee296767fabe"
     },
     "rgb16_gray" => %{
-      fixture_sha256: "b1f49246beb11626dcf2adba7281a5c989b7426eec3d099048070175ad1ca0b3"
+      fixture_sha256: "1e46e3cf88517f390ad2a999c630f864e52bc4620677f041d1b390be4db61c1b"
     },
     "crop_ratio" => %{
       fixture_sha256: "a8da22141616406f9743c9035ff9a0db50ad26d1fc35afabb7e236e4cbcb14de"
@@ -67,7 +67,7 @@
       fixture_sha256: "0e2e16e703d6ec3bb87533466eecc8db420d9fe4eb7a2f2e2c1cc21ff55e77c6"
     },
     "gray_colorize" => %{
-      fixture_sha256: "2b2633b7b78acdb9ffb66071788ead15ac972d1cb0abc99bb8e10b7117a3d808"
+      fixture_sha256: "6618a47568cf6a839dae07e668d994302b5a9b0864f62165de908d99e623f52a"
     },
     "wm_tile_gap" => %{
       fixture_sha256: "244cedd9cedafdcc9dc525186ee8a79aa045ee4ce741d69dd52b1b7662891bdd"
@@ -115,7 +115,7 @@
       fixture_sha256: "cfc45e3ede2a00e1290211846b5c498cddcecb0743ef572b441162855a7f1217"
     },
     "p3_preserve_fit" => %{
-      fixture_sha256: "0b54a16e81628e34729e086d07210d9f6c82752a1dbca099e4eb27ab431ab4bf"
+      fixture_sha256: "366915b7469a34fb326822789dff872a6460503ba224984f92cfcf64a0f981ce"
     },
     "exif_smart_crop" => %{
       fixture_sha256: "76d53c2358badcd5dbe2eec4686dbd82ac6b82a540ccced20d20cc05feeb8177"
@@ -124,7 +124,7 @@
       fixture_sha256: "fefe5f26b249be17d200d097b95dbb80c2883503b5543b57a575cb8bdfb69cb9"
     },
     "p3_strip_fit" => %{
-      fixture_sha256: "a88979550a39e1796846f75a4db7b6d16e09368b1ec302a1271f5a7f1f051519"
+      fixture_sha256: "82bcf436bfa0a3b6d45a2b5a24d5437a67e12a7d7d9a3f1643856cd36db2c7da"
     },
     "wm_opacity_pct_offset" => %{
       fixture_sha256: "65db35835941cef1ce22ecfb9d1f15de2d88911543f6a0a39579674304334e04"
@@ -166,16 +166,16 @@
       fixture_sha256: "58a5f8b758dcf7e3502d879d4306bc4b519011b1da4d27d13a243b700f8cc7df"
     },
     "p3_strip_bg_extend" => %{
-      fixture_sha256: "961b272fe7199366fba3cf866547aef039b89143cc3a043fc18f8454e8ce3529"
+      fixture_sha256: "e08986f6ac9c328aae4c2e6b6d0dafa99eaed8f804b01fcc7e75a806f1e310a0"
     },
     "jpeg_q80" => %{
       fixture_sha256: "d8abe0b55b7f9dc78377d899c06336ec8aba60ed717a55bdc7a9461e991bb737"
     },
     "p3_preserve_blur" => %{
-      fixture_sha256: "aff8c2a82076dc4fb208683a61900fde73997f147594b28a1f55ea538e205a7f"
+      fixture_sha256: "2c889155cbbd47adbf184896ed9c8c1fe2c40fb5bb1c0b53db5f954ea7d07856"
     },
     "rgb16_duotone" => %{
-      fixture_sha256: "14837f06d3665cc44514ee8a0669fed2acedaa78ec49cf13a5e4dccd25936686"
+      fixture_sha256: "98e5233ede9bb4521187492dfe78c695235774812ba23d7a88b5f399960a4b34"
     }
   },
   libvips: "8.18.7"
