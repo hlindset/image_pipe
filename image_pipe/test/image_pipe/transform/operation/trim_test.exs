@@ -90,10 +90,11 @@ defmodule ImagePipe.Transform.Operation.TrimTest do
     assert Image.height(out) == 16
   end
 
-  test "a find_trim failure (sub-window image) propagates as an error, not a no-op" do
+  test "an image under 3 pixels on either axis passes through without find_trim" do
     {:ok, tiny} = Operation.black(1, 1, bands: 3)
     op = %Trim{threshold: 10.0, background: :auto, equal_hor: false, equal_ver: false}
-    assert {:error, {Trim, _}} = Trim.execute(op, state(tiny))
+    state = state(tiny)
+    assert {:ok, ^state} = Trim.execute(op, state)
   end
 
   test "uniform + equal_hor only stays a no-op (vertical axis still 0)" do

@@ -42,6 +42,14 @@ defmodule ImagePipe.Transform.Operation.Trim do
     orig_w = Image.width(original)
     orig_h = Image.height(original)
 
+    # libvips' find_trim runs a 3×3 median, which fails on an image narrower or
+    # shorter than 3 pixels; such an image has nothing to trim.
+    if orig_w < 3 or orig_h < 3,
+      do: {:ok, state},
+      else: trim(op, state, original, orig_w, orig_h)
+  end
+
+  defp trim(op, state, original, orig_w, orig_h) do
     with {:ok, prepared} <- prepare(original),
          {:ok, background} <- background_list(op.background, prepared),
          {:ok, {left, top, width, height}} <-
