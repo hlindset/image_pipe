@@ -91,24 +91,46 @@ defmodule ImagePipe.API.Parser do
   defp parse_options(segments) do
     {groups, structure_errors} = split_groups(segments)
 
-    occurrences =
+    {occurrences, group_count} =
       groups
       |> Enum.with_index()
       |> Enum.flat_map(fn {segments, index} ->
         Enum.map(segments, &classify_segment(&1, index))
       end)
+      |> drop_request_only_groups()
 
     errors =
       structure_errors ++
         collect_segment_errors(occurrences) ++
-        collect_duplicate_errors(occurrences, length(groups))
+        collect_duplicate_errors(occurrences, group_count)
 
     parsed = %{
-      groups: build_clean_group_maps(occurrences, length(groups)),
+      groups: build_clean_group_maps(occurrences, group_count),
       request: build_clean_request_map(occurrences)
     }
 
     {parsed, occurrences, errors}
+  end
+
+  # A request option's scope comes from the option, not its position, so a
+  # group holding only request options adds no group. Separator-only groups
+  # are already structure errors. A request without group options keeps one
+  # empty group.
+  defp drop_request_only_groups(occurrences) do
+    kept =
+      occurrences
+      |> Enum.reject(&match?(%{spec: %OptionSpec{scope: :request}}, &1))
+      |> Enum.map(& &1.group_index)
+      |> Enum.uniq()
+      |> Enum.with_index()
+      |> Map.new()
+
+    occurrences =
+      Enum.map(occurrences, fn occurrence ->
+        %{occurrence | group_index: Map.get(kept, occurrence.group_index, 0)}
+      end)
+
+    {occurrences, max(map_size(kept), 1)}
   end
 
   # -- pass 2: group splitting -------------------------------------------

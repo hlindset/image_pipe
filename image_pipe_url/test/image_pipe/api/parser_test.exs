@@ -1097,6 +1097,54 @@ defmodule ImagePipe.API.ParserTest do
     end
   end
 
+  describe "groups holding only request options" do
+    test "a group of request options adds no group" do
+      assert {:ok, %Spec{groups: [_]} = request} = parse(["w=800", "-", "format=webp"])
+      assert {:ok, ^request} = parse(["w=800", "format=webp"])
+    end
+
+    test "a leading group of request options leaves request defaults on the first group" do
+      config = [request_defaults: "w=100"]
+
+      assert {:ok, %Spec{groups: [%Group{resize: %{w: 800}}]} = request} =
+               parse(["format=webp", "-", "w=800"], "images/cat.jpg", config)
+
+      assert {:ok, ^request} = parse(["w=800", "format=webp"], "images/cat.jpg", config)
+    end
+
+    test "a group holding only a preset reference adds no group" do
+      config = [presets: %{"webp" => "format=webp"}]
+
+      assert {:ok, %Spec{groups: [_]} = request} =
+               parse(["w=800", "-", "preset=webp"], "images/cat.jpg", config)
+
+      assert {:ok, ^request} = parse(["w=800", "preset=webp"], "images/cat.jpg", config)
+    end
+
+    test "only request options keep the single group" do
+      assert {:ok, %Spec{groups: [%Group{}]} = request} = parse(["format=webp", "-", "q=70"])
+      assert {:ok, ^request} = parse(["format=webp", "q=70"])
+    end
+
+    test "a preset fragment whose second group holds only request options is single-group" do
+      config = [presets: %{"card" => "w=400/-/format=webp"}]
+
+      assert {:ok,
+              %Spec{groups: [%Group{resize: %{w: 400, h: 300}}], output: %Output{format: :webp}}} =
+               parse(["preset=card", "h=300"], "images/cat.jpg", config)
+    end
+
+    test "diagnostics in later groups keep their spans" do
+      {:ok, lexed} =
+        ImagePipe.API.Path.extract("/format=webp/-/w=800/-/fit=cover/src/cat.jpg", "")
+
+      assert {:error, {:invalid_request, [%Diagnostic{reason: :inert_option, spans: spans}]}} =
+               Parser.parse(lexed, mount([]))
+
+      assert {23, 9} in spans
+    end
+  end
+
   describe "presets [API §Presets, trimmed to probe]" do
     test "a named preset contributes options the URL never states" do
       config = [presets: %{"card" => "w=300/fit=cover"}]
