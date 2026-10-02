@@ -44,6 +44,7 @@ defmodule ImagePipe.Transform.Executor do
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceGeometry
   alias ImagePipe.Transform.State
+  alias ImagePipe.Transform.WorkingColor
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation, as: VipsOperation
 
@@ -425,6 +426,7 @@ defmodule ImagePipe.Transform.Executor do
     with {:ok, state} <- flush_display(state),
          {:ok, asset} <- conditioned_asset(asset, state, opts),
          {:ok, state} <- promote_gray_frame(state, asset),
+         {:ok, asset} <- into_frame_profile(asset, state),
          {:ok, asset} <- watermark_asset(asset, state) do
       {frame_width, frame_height} = Geometry.live_dims(state)
       {width, height} = watermark_size(watermark.scale, asset, {frame_width, frame_height}, dpr)
@@ -467,6 +469,21 @@ defmodule ImagePipe.Transform.Executor do
       end
     else
       {:ok, state}
+    end
+  end
+
+  # A color frame takes the asset through color management: an untagged asset
+  # is sRGB, and both land in the frame's profile, or sRGB without one.
+  defp into_frame_profile(asset, %State{image: frame}) do
+    if GrayFrame.gray?(frame) do
+      {:ok, asset}
+    else
+      with {:ok, asset} <- GrayFrame.promote(asset),
+           {:ok, asset} <- WorkingColor.into_space_of(asset, frame) do
+        {:ok, asset}
+      else
+        {:error, reason} -> {:error, {:transform, {Watermark, reason}}}
+      end
     end
   end
 

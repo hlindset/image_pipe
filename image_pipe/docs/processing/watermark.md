@@ -58,10 +58,12 @@ Host assets are configured by name with `watermarks`; see
 (`wm-src64`, `wm-enc`) require `request_watermarks: true`. Both resolve through
 the configured source mounts and input cache like the main source, so mount
 rules, body limits, and `max_input_pixels` apply to them. Assets use their
-default frame and EXIF orientation. Their metadata and ICC profile are
-dropped; output metadata and color policy describe the main source.
+default frame and EXIF orientation. Their metadata is dropped; output metadata
+and color policy describe the main source.
 
-An asset is converted into the frame's color space and composited over it.
+An asset is color-managed into the frame's space and composited over it: an
+untagged asset is sRGB, and both land in the frame's ICC profile, or in sRGB
+when the frame has none. A color asset turns a gray frame into RGB.
 Transparent parts of the asset leave the frame unchanged. A frame without alpha
 keeps none; a transparent frame gains coverage where the asset is opaque.
 

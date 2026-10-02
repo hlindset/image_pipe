@@ -6,7 +6,10 @@ defmodule ImagePipe.Transform.Operation.Duotone do
 
   import ImagePipe.Transform.State
 
+  alias ImagePipe.Transform.Alpha
+  alias ImagePipe.Transform.GrayFrame
   alias ImagePipe.Transform.State
+  alias ImagePipe.Transform.WorkingColor
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
 
@@ -38,37 +41,39 @@ defmodule ImagePipe.Transform.Operation.Duotone do
   end
 
   defp apply_duotone(%VipsImage{} = image, intensity, shadow, highlight) do
-    Image.without_alpha_band(image, fn image ->
-      with {:ok, image} <- ensure_rgb(image),
-           {:ok, matrix} <-
-             VipsImage.new_matrix_from_array(3, 3, matrix(intensity, shadow, highlight)),
-           {:ok, recombined} <- Operation.recomb(image, matrix),
-           {:ok, adjusted} <- Operation.linear(recombined, [1.0], addends(intensity, shadow)) do
-        Operation.cast(adjusted, VipsImage.format(image))
-      end
-    end)
-  end
-
-  defp ensure_rgb(%VipsImage{} = image) do
-    case Image.bands(image) do
-      1 -> Image.to_colorspace(image, :srgb)
-      3 -> {:ok, image}
+    with {:ok, image} <- GrayFrame.promote(image) do
+      Image.without_alpha_band(image, &tone(&1, intensity, shadow, highlight))
     end
   end
 
-  defp matrix(intensity, shadow, highlight) do
+  # Shadow and highlight are sRGB; take their values in the image's own space
+  # and depth, and scale the color deltas by its full range.
+  defp tone(image, intensity, shadow, highlight) do
+    full = Alpha.opaque(VipsImage.format(image))
+
+    with {:ok, shadow} <- WorkingColor.values(image, shadow),
+         {:ok, highlight} <- WorkingColor.values(image, highlight),
+         {:ok, matrix} <-
+           VipsImage.new_matrix_from_array(3, 3, matrix(intensity, shadow, highlight, full)),
+         {:ok, recombined} <- Operation.recomb(image, matrix),
+         {:ok, adjusted} <- Operation.linear(recombined, [1.0], addends(intensity, shadow)) do
+      Operation.cast(adjusted, VipsImage.format(image))
+    end
+  end
+
+  defp matrix(intensity, shadow, highlight, full) do
     [shadow_red, shadow_green, shadow_blue] = shadow
     [highlight_red, highlight_green, highlight_blue] = highlight
 
     [
-      row(intensity, 0, highlight_red - shadow_red),
-      row(intensity, 1, highlight_green - shadow_green),
-      row(intensity, 2, highlight_blue - shadow_blue)
+      row(intensity, 0, highlight_red - shadow_red, full),
+      row(intensity, 1, highlight_green - shadow_green, full),
+      row(intensity, 2, highlight_blue - shadow_blue, full)
     ]
   end
 
-  defp row(intensity, identity_band, color_delta) do
-    color_scale = intensity * color_delta / 255
+  defp row(intensity, identity_band, color_delta, full) do
+    color_scale = intensity * color_delta / full
 
     [
       identity(identity_band, 0, intensity) + @luma_r * color_scale,

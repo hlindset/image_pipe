@@ -9,7 +9,9 @@ defmodule ImagePipe.Transform.Operation.Background do
   alias ImagePipe.Transform.Alpha
   alias ImagePipe.Transform.GrayFrame
   alias ImagePipe.Transform.State
+  alias ImagePipe.Transform.WorkingColor
   alias Vix.Vips.Image, as: VipsImage
+  alias Vix.Vips.MutableImage
   alias Vix.Vips.Operation
 
   @enforce_keys [:color]
@@ -29,51 +31,62 @@ defmodule ImagePipe.Transform.Operation.Background do
     end
   end
 
-  def execute(%__MODULE__{color: color}, %State{} = state) do
-    with {:ok, image} <- Alpha.ensure(state.image),
-         {:ok, background} <- background_image(image, color),
-         {:ok, composited} <- Image.compose(background, image) do
-      {:ok, set_image(state, composited)}
-    else
+  def execute(%__MODULE__{color: [red, green, blue, alpha]}, %State{} = state) do
+    case compose(state.image, [red, green, blue], alpha) do
+      {:ok, image} -> {:ok, set_image(state, image)}
       {:error, reason} -> {:error, {__MODULE__, reason}}
     end
   end
 
-  # A non-neutral color on a gray image promotes the image to RGB so the color
-  # survives; a neutral one keeps it gray.
-  #
-  # Workaround for `image` (0.72, unchanged on main as of 2026-10): on a 1-band
-  # gray image, `Image.flatten/2` resolves the background through
-  # `Image.Pixel.to_pixel/3`, which maps an sRGB color to gray as Lab L*/100
-  # scaled to the band range. libvips stores gray as relative luminance with
-  # the sRGB transfer curve, so its own sRGB→B_W conversion turns #808080 into
-  # 128 where `Image.Pixel` gives 137. Resolve the gray value with libvips and
-  # flatten directly; other interpretations keep `Image.flatten/2`.
-  defp flatten(image, [red, green, blue] = rgb) do
-    cond do
-      not GrayFrame.gray?(image) or not Image.has_alpha?(image) ->
-        Image.flatten(image, background: rgb)
-
-      red == green and green == blue ->
-        with {:ok, background} <- gray_value(rgb, VipsImage.interpretation(image)) do
-          Operation.flatten(image, background: background)
-        end
-
-      true ->
-        with {:ok, promoted} <- GrayFrame.promote(image) do
-          Image.flatten(promoted, background: rgb)
-        end
+  # The color is sRGB: `WorkingColor` maps it into the image's values (its
+  # profile, gray, 16-bit), and a non-neutral color promotes a gray image.
+  defp flatten(image, rgb) do
+    if Image.has_alpha?(image) do
+      with {:ok, image} <- GrayFrame.for_color(image, rgb),
+           {:ok, values} <- WorkingColor.values(image, rgb) do
+        Operation.flatten(image, background: values)
+      end
+    else
+      {:ok, image}
     end
   end
 
-  defp gray_value(rgb, interpretation) do
-    with {:ok, pixel} <- Image.new(1, 1, color: rgb),
-         {:ok, gray} <- Operation.colourspace(pixel, interpretation) do
-      Operation.getpoint(gray, 0, 0)
+  # A translucent color goes on a canvas of the image's own space and format,
+  # under the image.
+  defp compose(image, rgb, alpha) do
+    with {:ok, image} <- Alpha.ensure(image),
+         {:ok, image} <- GrayFrame.for_color(image, rgb),
+         {:ok, values} <- WorkingColor.values(image, rgb),
+         opacity = alpha / 255 * Alpha.opaque(VipsImage.format(image)),
+         {:ok, canvas} <- canvas(image, values ++ [opacity]),
+         {:ok, composited} <-
+           Operation.composite2(canvas, image, :VIPS_BLEND_MODE_OVER,
+             "compositing-space": VipsImage.interpretation(image)
+           ),
+         {:ok, composited} <- Operation.cast(composited, VipsImage.format(image)) do
+      keep_profile(composited, image)
     end
   end
 
-  defp background_image(image, color) do
-    Image.new(Image.width(image), Image.height(image), color: color, bands: 4)
+  defp canvas(image, values) do
+    with {:ok, black} <-
+           Operation.black(Image.width(image), Image.height(image), bands: length(values)),
+         {:ok, filled} <- Operation.linear(black, List.duplicate(1.0, length(values)), values),
+         {:ok, cast} <- Operation.cast(filled, VipsImage.format(image)) do
+      Operation.copy(cast, interpretation: VipsImage.interpretation(image))
+    end
+  end
+
+  # The composite takes the canvas's metadata; carry over the image's profile.
+  defp keep_profile(composited, image) do
+    case VipsImage.header_value(image, "icc-profile-data") do
+      {:ok, profile} when is_binary(profile) ->
+        VipsImage.mutate(composited, fn mutable ->
+          MutableImage.set(mutable, "icc-profile-data", :VipsBlob, profile)
+        end)
+
+      _untagged ->
+        {:ok, composited}
+    end
   end
 end

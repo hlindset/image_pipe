@@ -356,8 +356,7 @@ defmodule ImagePipe.Test.Golden.Cases do
         kind: :png,
         source: "gray.png",
         native: "w=200/h=150/fit=contain/colorize=0.5,ff0000",
-        tolerance: {2, 64},
-        changes_with: ["image_plug-34z"]
+        tolerance: {2, 64}
       },
       # Wide gamut and 16-bit colour.
       %{
@@ -386,48 +385,42 @@ defmodule ImagePipe.Test.Golden.Cases do
         kind: :png,
         source: "icc_p3.png",
         native: "w=300/h=200/fit=contain/extend/bg=4080c0",
-        tolerance: {2, 64},
-        changes_with: ["image_plug-34z"]
+        tolerance: {2, 64}
       },
       %{
         id: "p3_preserve_bg_extend",
         kind: :png,
         source: "icc_p3.png",
         native: "w=300/h=200/fit=contain/extend/bg=ff0000/profile=preserve",
-        tolerance: {2, 64},
-        changes_with: ["image_plug-34z"]
+        tolerance: {2, 64}
       },
       %{
         id: "rgb16_colorize",
         kind: :png,
         source: "rgb16.png",
         native: "w=200/h=200/fit=contain/hdr=preserve/colorize=0.5,ff0000",
-        tolerance: {2, 64},
-        changes_with: ["image_plug-34z"]
+        tolerance: {2, 64}
       },
       %{
         id: "rgb16_gradient",
         kind: :png,
         source: "rgb16.png",
         native: "w=200/h=200/fit=contain/hdr=preserve/gradient=0.8,black,down",
-        tolerance: {2, 64},
-        changes_with: ["image_plug-34z"]
+        tolerance: {2, 64}
       },
       %{
         id: "rgb16_duotone",
         kind: :png,
         source: "rgb16.png",
         native: "w=200/h=200/fit=contain/hdr=preserve/duotone=1,123456,efab89",
-        tolerance: {2, 64},
-        changes_with: ["image_plug-34z"]
+        tolerance: {2, 64}
       },
       %{
         id: "rgb16_gray",
         kind: :png,
         source: "rgb16.png",
         native: "w=200/h=200/fit=contain/hdr=preserve/gray",
-        tolerance: {2, 64},
-        changes_with: ["image_plug-34z"]
+        tolerance: {2, 64}
       }
     ]
   end
