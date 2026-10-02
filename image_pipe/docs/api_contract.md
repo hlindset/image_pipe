@@ -413,7 +413,9 @@ their profile into the standard working space. `profile=strip` converts the
 result to sRGB (or gray) once at the end and omits the profile.
 `profile=preserve` keeps the source profile: a source that kept its values
 returns them with the profile untouched, so wide-gamut colors survive, and an
-imported source exports back to its profile. `profile=srgb`,
+imported source exports back to its profile. Only JPEG can hold CMYK, so a
+CMYK source preserved into another format is returned as sRGB without a
+profile. `profile=srgb`,
 `profile=display-p3`, and `profile=adobe-rgb` convert from the source profile
 (or sRGB for an untagged source) to a shipped target profile and embed its
 bytes. Profile handling

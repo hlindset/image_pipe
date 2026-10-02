@@ -267,7 +267,8 @@ defmodule ImagePipe.Output.Encoder do
   defp color_result(image, %Resolved{} = resolved, {profile, imported?}) do
     keep? =
       resolved.color_profile == :preserve_source and
-        Format.supports_color_profile?(resolved.format)
+        Format.supports_color_profile?(resolved.format) and
+        holds_profile_space?(resolved.format, profile)
 
     with {:ok, image} <- restore_backup(image, profile),
          {:ok, image} <- apply_color_result(image, keep?, imported?),
@@ -275,6 +276,14 @@ defmodule ImagePipe.Output.Encoder do
       {:ok, strip_metadata(image, resolved)}
     end
   end
+
+  # Only JPEG can store CMYK pixels; other formats would convert an exported
+  # CMYK image back without its profile, so they keep the standard working space.
+  defp holds_profile_space?(format, profile)
+       when is_binary(profile) and byte_size(profile) >= 128,
+       do: binary_part(profile, 16, 4) != "CMYK" or format == :jpeg
+
+  defp holds_profile_space?(_format, _profile), do: true
 
   # Export to the restored source profile, using its PCS and the image's bit depth.
   defp apply_color_result(image, true, true) do
