@@ -39,6 +39,15 @@ defmodule ImagePipe.API.PixelEffectsWireTest do
     end
   end
 
+  test "saturation keeps an image's alpha band" do
+    source = Image.new!(8, 8, color: [200, 70, 40, 128])
+    config = source |> Image.write!(:memory, suffix: ".png") |> png_origin() |> mount()
+    [red, green, blue, alpha] = image("saturation=0.01", config) |> Image.get_pixel!(4, 4)
+
+    assert alpha == 128
+    assert abs(red - green) <= 2 and abs(green - blue) <= 2
+  end
+
   test "progressive blur changes pixels without geometry and reaches both endpoints", %{
     config: config
   } do
