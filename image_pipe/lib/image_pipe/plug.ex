@@ -8,7 +8,7 @@ defmodule ImagePipe.Plug do
 
       url_config = ImagePipe.URL.config(keys: [signing_key])
       config = ImagePipe.config(url: url_config, presets: presets, sources: [...], quality: 82)
-      mount = ImagePipe.Plug.init(config: config, http_cache: [mode: :enabled])
+      mount = ImagePipe.Plug.init(config: config, http_cache: :auto)
 
       url =
         ImagePipe.URL.new(ImagePipe.url_config(config))

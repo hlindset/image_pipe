@@ -3,14 +3,14 @@
 ImagePipe can emit shared HTTP cache headers for public image routes. Immutable
 sources use their authoritative identity; mutable remote sources use the current
 original-byte identity and retained origin freshness. Generated policy is opt-in
-at the Plug level, and a source adapter can override it. See [internal caching](cache.md)
+at the Plug level, and a source can override it. See [internal caching](cache.md)
 for pool configuration and origin-policy overrides.
 
 ```elixir
 forward "/images",
   to: ImagePipe.Plug,
   init_opts: [
-    http_cache: [mode: :enabled],
+    http_cache: :auto,
     sources: [
       images: [
         adapter: ImagePipe.Source.File,
@@ -21,27 +21,26 @@ forward "/images",
   ]
 ```
 
-## Which mounts generate headers
+## Header modes
 
-Set `http_cache: [mode: :enabled]` to generate cache policy before evaluating
-conditional requests. Setting
-`mode: :disabled` suppresses generated reusable policy and validators unless the
-source adapter overrides it. Origin storage prohibitions still enforce `no-store`.
+The `http_cache` option takes one of four values:
 
-When `http_cache` is omitted, identity headers come from the representation: an
-`ETag`, or `Cache-Control: no-store` when byte identity is unavailable. Coordinated
-mutable remote sources additionally bound that validator with source-derived
+| Value | Headers |
+| --- | --- |
+| `:validators` (default) | An `ETag`, and no generated `Cache-Control` |
+| `:auto` | `Cache-Control: public, max-age=31536000, immutable` and an `ETag`. `private` instead of `public` when `storage_inputs` include a cookie |
+| `:public` | The same policy, always `public` |
+| `:private` | The same policy, always `private` |
+
+In every mode, a source without strong byte identity, or one whose cache policy
+denies storage, gets `Cache-Control: no-store` and no `ETag`. Mutable remote
+sources replace the one-year lifetime with the origin's freshness, sent as
 `Cache-Control` and `Age`.
 
-A source adapter can override the mount-level mode per source:
-`http_cache: :enabled` forces the generated path even when the mount is
-`mode: :disabled`; `http_cache: :disabled` suppresses generated cache headers
-even when the mount is `mode: :enabled`; the default `:inherit` follows the
-mount. Source overrides apply when the mount includes an explicit
-`:http_cache` option.
-
-Source-level `http_cache: :enabled` doesn't force an ETag. The resolved source
-still needs strong byte identity.
+A source can set the same option. Its default, `:inherit`, uses the mount's
+value, and any other value replaces it for that source. For example, a mount
+with `http_cache: :public` can serve per-user uploads from a source set to
+`http_cache: :private`.
 
 ## Stable source bytes
 
@@ -120,10 +119,9 @@ header doesn't depend on the configured list's order or spelling.
 Configuring any cookie storage input makes generated cache policy `private`
 by default, including on cache hits and `304` responses. Storage partitioning
 does not make a response safe to share through a CDN. A host that guarantees
-public responses can explicitly use
-`http_cache: [mode: :enabled, visibility: :public]`; `visibility: :private`
-forces private generated policy even without cookie inputs. Existing host
-headers and `Set-Cookie` retain precedence.
+public responses can use `http_cache: :public`, and `http_cache: :private`
+forces private policy even without cookie inputs. Existing host headers and
+`Set-Cookie` retain precedence.
 
 For CDN configuration:
 
@@ -219,8 +217,7 @@ when automatic output uses `Accept`.
 
 ## Missing byte identity
 
-If HTTP caching uses `mode: :enabled` but the resolved source doesn't provide
-strong byte identity, ImagePipe emits:
+If the resolved source doesn't provide strong byte identity, ImagePipe emits:
 
 ```http
 Cache-Control: no-store
@@ -229,8 +226,8 @@ Cache-Control: no-store
 It emits no generated ETag. This prevents shared caching when the route cannot
 prove byte identity.
 
-If a host already set `Cache-Control`, ImagePipe preserves the host policy
-instead of replacing it with `no-store`.
+With `:auto`, `:public`, or `:private`, a `Cache-Control` the host already set
+is preserved instead of replaced with `no-store`.
 
 ## Telemetry
 

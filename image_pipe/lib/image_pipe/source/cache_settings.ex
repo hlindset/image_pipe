@@ -8,7 +8,9 @@ defmodule ImagePipe.Source.CacheSettings do
       source identifier's bytes never change.
     * `:cache_policy` - an `ImagePipe.Source.CachePolicy` keyword list (default `[]`).
     * `:internal_cache` - `:auto` (default), `:enabled`, or `:disabled`.
-    * `:http_cache` - `:inherit` (default), `:enabled`, or `:disabled`.
+    * `:http_cache` - `:inherit` (default) or one of the mount's `:http_cache`
+      values (`:validators`, `:auto`, `:public`, `:private`), which then
+      replaces the mount's value for this source.
 
   After validating, `validate/1` rejects a TTL or stale window on a trusted
   source. `fields/2` then turns the validated options into the cache fields of
@@ -22,7 +24,10 @@ defmodule ImagePipe.Source.CacheSettings do
     stable: [type: {:in, [:auto, :trusted]}, default: :auto],
     cache_policy: [type: {:custom, CachePolicy, :validate, []}, default: []],
     internal_cache: [type: {:in, [:auto, :enabled, :disabled]}, default: :auto],
-    http_cache: [type: {:in, [:inherit, :disabled, :enabled]}, default: :inherit]
+    http_cache: [
+      type: {:in, [:inherit, :validators, :auto, :public, :private]},
+      default: :inherit
+    ]
   ]
 
   @doc "NimbleOptions schema entries for the shared cache settings."

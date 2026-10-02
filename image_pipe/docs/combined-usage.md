@@ -24,7 +24,7 @@ config = ImagePipe.config(
   quality: 82
 )
 
-mount = ImagePipe.Plug.init(config: config, http_cache: [mode: :enabled])
+mount = ImagePipe.Plug.init(config: config, http_cache: :auto)
 
 thumbnail =
   ImagePipe.URL.new(url_config)

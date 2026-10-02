@@ -966,12 +966,12 @@ defmodule ImagePipe.Telemetry.LoggerTest do
         :telemetry.execute(
           [:image_pipe, :http_cache, :prepare],
           %{},
-          %{effective_mode: :generate, byte_identity: :strong, etag: true}
+          %{effective_mode: :auto, byte_identity: :strong, etag: true}
         )
       end)
 
     refute log =~ "[warning]"
-    assert log =~ "http_cache prepare: generate"
+    assert log =~ "http_cache prepare: auto"
     assert log =~ "byte_identity strong"
   end
 
@@ -1031,7 +1031,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
         :telemetry.execute(
           [:image_pipe, :http_cache, :prepare],
           %{},
-          %{effective_mode: :generate, byte_identity: :strong, etag: true}
+          %{effective_mode: :auto, byte_identity: :strong, etag: true}
         )
       end)
 

@@ -217,7 +217,7 @@ defmodule ImagePipe.API.SkipProcessingWireTest do
         ]
       ],
       skip_processing_formats: [:gif],
-      http_cache: [mode: :enabled],
+      http_cache: :auto,
       telemetry_prefix: @prefix
     ]
     |> Keyword.merge(extra)

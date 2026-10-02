@@ -52,7 +52,7 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
         ],
         cache: {FileSystem, root: Path.join(root, "output")},
         input_cache: {FileSystem, root: Path.join(root, "input")},
-        http_cache: [mode: :enabled]
+        http_cache: :auto
       )
 
     tasks = start_supervised!(Task.Supervisor)

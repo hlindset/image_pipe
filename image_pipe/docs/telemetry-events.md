@@ -809,18 +809,15 @@ already delivered.
 
 ## HTTP cache events
 
-HTTP cache handling emits one-shot events. The first three fire only when
-the mount includes an explicit `http_cache` option:
+HTTP cache handling emits one-shot events:
 
-- `[:image_pipe, :http_cache, :prepare]` with `:effective_mode`,
+- `[:image_pipe, :http_cache, :prepare]` with `:effective_mode` (the resolved
+  `http_cache` value: `:validators`, `:auto`, `:public`, or `:private`),
   `:byte_identity`, and `:etag`.
 - `[:image_pipe, :http_cache, :conditional, :match]` with `method: :get` or
   `method: :head`.
 - `[:image_pipe, :http_cache, :fallback, :no_store]` with `:source_mount`,
   `:source_kind`, and `:reason`.
-
-The fourth fires on every mount:
-
 - `[:image_pipe, :http_cache, :cache_hit, :headers]` with booleans for `:etag`,
   `:generated_cache_headers`, and `:representation_headers`.
 
@@ -832,7 +829,7 @@ The opt-in default Logger renders all four at the base level under its own
 `:events` option independently of the storage `:cache` group), e.g.:
 
 ```text
-image_pipe http_cache prepare: generate (byte_identity strong, etag true)
+image_pipe http_cache prepare: auto (byte_identity strong, etag true)
 image_pipe http_cache conditional match: get
 image_pipe http_cache fallback no_store: missing_byte_identity (url, mount web)
 image_pipe http_cache cache_hit headers: etag true (generated true, representation false)

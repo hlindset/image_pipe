@@ -66,9 +66,9 @@ thumbnail =
     request_inputs: [headers: [{"x-tenant", "one"}]]
   )
 
-mount = ImagePipe.Plug.init(config: config, http_cache: [mode: :enabled])
+mount = ImagePipe.Plug.init(config: config, http_cache: :auto)
 # Pass mount to ImagePipe.Plug.call(conn, mount), or configure the router with:
-# plug ImagePipe.Plug, config: config, http_cache: [mode: :enabled]
+# plug ImagePipe.Plug, config: config, http_cache: :auto
 ```
 
 Builder calls return new values, so `ip_client` remains reusable. Per-call host

@@ -96,7 +96,7 @@ defmodule ImagePipe.Plug.Runner do
 
     case not context.stale? and Conditional.not_modified?(conn, headers.etag) do
       true ->
-        maybe_emit_conditional_match(conn, context.config)
+        CachePolicy.conditional_matched(conn, context.config)
         send_not_modified(conn, headers, context.config)
 
       false ->
@@ -127,11 +127,20 @@ defmodule ImagePipe.Plug.Runner do
   defp context_headers(conn, context) do
     source = %{context.source | cache_semantics: Execution.cache_semantics(context)}
 
-    headers = cache_headers(conn, context.representation, source, context.config)
+    mode = CachePolicy.mode(source.http_cache, context.config)
+
+    headers =
+      CachePolicy.generate(
+        conn,
+        context.representation,
+        source_facts(source),
+        mode,
+        context.config
+      )
 
     case Execution.source_state(context) do
       nil -> headers
-      {state, now} -> CachePolicy.limit_to_source(headers, conn, state, now, context.config)
+      {state, now} -> CachePolicy.limit_to_source(headers, conn, state, now, mode, context.config)
     end
   end
 
@@ -193,31 +202,14 @@ defmodule ImagePipe.Plug.Runner do
     {conn, %{result: :ok}}
   end
 
-  defp cache_headers(conn, representation, source, config) do
-    if Keyword.has_key?(config, :http_cache) do
-      CachePolicy.generate(conn, representation, source_facts(source), config)
-    else
-      case Keyword.get(source.cache_semantics.policy, :storage, :origin) do
-        :deny -> CacheHeaders.from_representation(%{representation | etag: nil, no_store?: true})
-        _permission -> CacheHeaders.from_representation(representation)
-      end
-    end
-  end
-
   defp source_facts(%ImageSource.Resolved{} = source) do
     %{
-      http_cache: source.http_cache,
       byte_identity: source.cache_semantics.byte_identity,
       stable?: source.cache_semantics.stable?,
       storage: Keyword.get(source.cache_semantics.policy, :storage, :origin),
       source_mount: source.mount,
       source_kind: source.source_kind
     }
-  end
-
-  defp maybe_emit_conditional_match(conn, config) do
-    if Keyword.has_key?(config, :http_cache), do: CachePolicy.conditional_matched(conn, config)
-    :ok
   end
 
   defp put_resp_headers(conn, headers) do

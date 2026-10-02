@@ -191,7 +191,7 @@ defmodule ImagePipe.APIWireTest do
 
   describe "generated HTTP cache policy" do
     test "opt-in headers support conditional responses before cache reads or source fetch" do
-      config = opts(http_cache: [mode: :enabled], sources: counting_sources())
+      config = opts(http_cache: :auto, sources: counting_sources())
       first = get("/w=64/src/images/cat.jpg", config)
       assert first.status == 200
       assert_received :origin_fetch
@@ -200,7 +200,7 @@ defmodule ImagePipe.APIWireTest do
 
       cached_config =
         opts(
-          http_cache: [mode: :enabled],
+          http_cache: :auto,
           sources: should_not_fetch_sources(),
           cache: {CacheProbe, []}
         )
@@ -212,7 +212,7 @@ defmodule ImagePipe.APIWireTest do
     end
 
     test "host privacy headers suppress generated validators and the conditional shortcut" do
-      config = opts(http_cache: [mode: :enabled])
+      config = opts(http_cache: :auto)
       first = get("/w=64/src/images/cat.jpg", config)
       [etag] = get_resp_header(first, "etag")
 
@@ -231,12 +231,6 @@ defmodule ImagePipe.APIWireTest do
         assert get_resp_header(response, "etag") == []
         assert get_resp_header(response, name) == [value]
       end
-    end
-
-    test "disabled policy emits no generated validator" do
-      response = get("/w=64/src/images/cat.jpg", opts(http_cache: [mode: :disabled]))
-      assert response.status == 200
-      assert get_resp_header(response, "etag") == []
     end
   end
 

@@ -125,7 +125,7 @@ defmodule ImagePipe.API.TerminalDebugWireTest do
         ]
       ],
       cache: {CacheProbe, store: store},
-      http_cache: [mode: :enabled],
+      http_cache: :auto,
       allow_debug_headers: Keyword.fetch!(options, :allow_debug_headers)
     )
   end

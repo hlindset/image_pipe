@@ -348,7 +348,7 @@ defmodule ImagePipe.API.PixelEffectsWireTest do
           ]
         ]
       ],
-      http_cache: [mode: :enabled]
+      http_cache: :auto
     )
   end
 

@@ -250,7 +250,7 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
         ]
       ],
       cache: {CacheProbe, store: table},
-      http_cache: [mode: :enabled],
+      http_cache: :auto,
       telemetry_prefix: @prefix
     ]
     |> Keyword.merge(overrides)

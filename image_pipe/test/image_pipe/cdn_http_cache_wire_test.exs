@@ -33,7 +33,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
          source_kind: :path,
          identity: [kind: :path, adapter: :path, root: "wire", path: path],
          internal_cache: :enabled,
-         http_cache: :enabled,
+         http_cache: :inherit,
          cache_semantics: %CacheSemantics{
            byte_identity: {:strong, [kind: :path, root: "wire", path: path]},
            stable?: true
@@ -115,7 +115,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
          source_kind: :path,
          identity: [kind: :path, adapter: :path, root: "wire-etagless", path: path],
          internal_cache: :enabled,
-         http_cache: :enabled,
+         http_cache: :auto,
          cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
          fetch: [path: path]
        }}
@@ -127,19 +127,18 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     end
   end
 
-  # StableSource with the source-level HTTP-cache decision left to the mount,
-  # so `http_cache: [mode: ...]` is the deciding input rather than being
-  # overridden by the source's own `:enabled`.
-  defmodule InheritingSource do
+  # StableSource that sets its own `http_cache`, replacing the mount's.
+  defmodule OverridingSource do
     @behaviour ImagePipe.Source
 
     def source_kinds, do: [:path, :url, :object]
 
-    def validate_options(opts), do: {:ok, Keyword.put_new(opts, :telemetry_kind, :inherit_test)}
+    def validate_options(opts),
+      do: {:ok, Keyword.put_new(opts, :telemetry_kind, :overriding_test)}
 
     def resolve(source, opts, runtime_opts) do
       {:ok, resolved} = StableSource.resolve(source, opts, runtime_opts)
-      {:ok, %{resolved | http_cache: :inherit}}
+      {:ok, %{resolved | http_cache: Keyword.fetch!(opts, :http_cache)}}
     end
 
     def fetch(resolved, opts, runtime_opts),
@@ -164,7 +163,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
         [
           sources: [path: [adapter: StableSource, match: :path, options: [test_pid: self()]]],
           cache: {CacheProbe, test_pid: self()},
-          http_cache: [mode: :enabled]
+          http_cache: :auto
         ],
         overrides
       )
@@ -208,7 +207,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     opts =
       mount(
         storage_inputs: [{:cookie, "session"}],
-        http_cache: [mode: :enabled, visibility: :public]
+        http_cache: :public
       )
 
     response = get(@image_path, opts, [{"cookie", "session=a"}])
@@ -238,7 +237,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     opts =
       mount(
         storage_inputs: [{:cookie, "session"}],
-        http_cache: [mode: :enabled, visibility: :public]
+        http_cache: :public
       )
 
     private =
@@ -658,7 +657,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       opts =
         init(
           detector: ImagePipe.Test.FakeDetector,
-          http_cache: [mode: :enabled],
+          http_cache: :auto,
           sources: [path: [adapter: StableSource, match: :path, options: [test_pid: self()]]],
           cache: {CacheProbe, test_pid: self()},
           identity: identity
@@ -757,7 +756,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
       assert_received {:http_cache, event, metadata}
       assert event == prefix ++ [:http_cache, :prepare]
-      assert metadata == %{effective_mode: :enabled, byte_identity: :strong, etag: true}
+      assert metadata == %{effective_mode: :auto, byte_identity: :strong, etag: true}
 
       refute_received {:http_cache, _event, %{reason: :missing_byte_identity}}
     end
@@ -778,7 +777,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       assert get_resp_header(conn, "etag") == []
 
       assert_received {:http_cache, _prepare,
-                       %{effective_mode: :enabled, byte_identity: :none, etag: false}}
+                       %{effective_mode: :auto, byte_identity: :none, etag: false}}
 
       assert_received {:http_cache, event, metadata}
       assert event == prefix ++ [:http_cache, :fallback, :no_store]
@@ -800,38 +799,79 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       assert event == prefix ++ [:http_cache, :conditional, :match]
     end
 
-    test "a source that inherits the mount's disabled mode generates no headers",
+    test "a mount's :validators emits only the ETag",
          %{prefix: prefix} do
       opts =
         mount(
-          sources: [path: [adapter: InheritingSource, match: :path, options: [test_pid: self()]]],
-          http_cache: [mode: :disabled],
+          http_cache: :validators,
           telemetry_prefix: prefix
         )
 
       conn = ImagePipe.Plug.call(conn(:get, @image_path), opts)
 
       assert conn.status == 200
-      assert get_resp_header(conn, "etag") == []
-      # Nothing generated: what remains is Plug's own default directive.
+      assert [_etag] = get_resp_header(conn, "etag")
+      # No generated policy: what remains is Plug's own default directive.
       assert get_resp_header(conn, "cache-control") == ["max-age=0, private, must-revalidate"]
 
-      # `[:http_cache, :prepare]` still reports the disabled decision; the
-      # no-store fallback must not fire.
-      assert_received {:http_cache, _prepare, %{effective_mode: :disabled, etag: false}}
+      assert_received {:http_cache, _prepare, %{effective_mode: :validators, etag: true}}
       refute_received {:http_cache, _event, %{reason: _}}
     end
 
-    test "a source that enables the HTTP cache overrides the mount's disabled mode",
-         %{prefix: prefix} do
-      opts = mount(http_cache: [mode: :disabled], telemetry_prefix: prefix)
+    test "a mount without http_cache defaults to :validators", %{prefix: prefix} do
+      opts =
+        init(
+          sources: [path: [adapter: StableSource, match: :path, options: [test_pid: self()]]],
+          cache: {CacheProbe, test_pid: self()},
+          telemetry_prefix: prefix
+        )
+
+      first = ImagePipe.Plug.call(conn(:get, @image_path), opts)
+      assert [etag] = get_resp_header(first, "etag")
+      assert get_resp_header(first, "cache-control") == ["max-age=0, private, must-revalidate"]
+      assert_received {:http_cache, _prepare, %{effective_mode: :validators}}
+
+      assert get(@image_path, opts, [{"if-none-match", etag}]).status == 304
+    end
+
+    test "a source value overrides a mount without http_cache", %{prefix: prefix} do
+      opts =
+        init(
+          sources: [
+            path: [
+              adapter: OverridingSource,
+              match: :path,
+              options: [test_pid: self(), http_cache: :auto]
+            ]
+          ],
+          cache: {CacheProbe, test_pid: self()},
+          telemetry_prefix: prefix
+        )
 
       conn = ImagePipe.Plug.call(conn(:get, @image_path), opts)
 
-      assert conn.status == 200
       assert get_resp_header(conn, "cache-control") == ["public, max-age=31536000, immutable"]
-      assert [_etag] = get_resp_header(conn, "etag")
-      assert_received {:http_cache, _prepare, %{effective_mode: :enabled, etag: true}}
+      assert_received {:http_cache, _prepare, %{effective_mode: :auto, etag: true}}
+    end
+
+    test "a :private source overrides a :public mount", %{prefix: prefix} do
+      opts =
+        mount(
+          sources: [
+            path: [
+              adapter: OverridingSource,
+              match: :path,
+              options: [test_pid: self(), http_cache: :private]
+            ]
+          ],
+          http_cache: :public,
+          telemetry_prefix: prefix
+        )
+
+      conn = ImagePipe.Plug.call(conn(:get, @image_path), opts)
+
+      assert get_resp_header(conn, "cache-control") == ["private, max-age=31536000, immutable"]
+      assert_received {:http_cache, _prepare, %{effective_mode: :private, etag: true}}
     end
   end
 

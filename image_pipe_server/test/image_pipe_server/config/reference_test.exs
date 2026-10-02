@@ -16,7 +16,9 @@ defmodule ImagePipeServer.Config.ReferenceTest do
     assert reference =~
              ~s(| `format_quality` | table of integer > 0 | `{ avif = 63, webp = 79 }` |)
 
-    assert reference =~ "| `http_cache.mode` | `\"disabled\"` or `\"enabled\"` | `\"disabled\"` |"
+    assert reference =~
+             ~s(| `http_cache` | `"validators"` or `"auto"` or `"public"` or `"private"` | `"validators"` |)
+
     assert reference =~ "| `keys` | array of string | `[]` |"
   end
 

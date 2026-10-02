@@ -192,13 +192,13 @@ defmodule ImagePipeServer.ConfigTest do
         Config.build!(
           Config.options!(%{
             "processing" => %{"quality" => 70},
-            "http" => %{"http_cache" => %{"mode" => "enabled"}, "allow_origin" => "*"}
+            "http" => %{"http_cache" => "auto", "allow_origin" => "*"}
           })
         )
 
       assert config.image_pipe[:quality] == 70
       assert config.image_pipe[:allow_origin] == "*"
-      assert config.image_pipe[:http_cache][:mode] == :enabled
+      assert config.image_pipe[:http_cache] == :auto
     end
 
     test "reports library validation errors" do

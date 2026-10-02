@@ -80,7 +80,7 @@ IPS_PROCESSING__QUALITY=82
 TOML strings, numbers, booleans, arrays, and tables map onto the library's
 options:
 
-- Named values are strings: `stable = "trusted"`, `http_cache = { mode = "enabled" }`.
+- Named values are strings: `stable = "trusted"`, `http_cache = "auto"`.
 - Tagged values are tables with one entry: `freshness = { fallback = 60 }`.
 - Tables with library-defined keys, such as `format_quality = { webp = 80 }`,
   accept only keys the library knows.
@@ -177,7 +177,7 @@ One table per named source mount. The table name is the mount name. Besides
 | `root_id` | string |  |
 | `stable` | `"auto"` or `"trusted"` | `"auto"` |
 | `internal_cache` | `"auto"` or `"enabled"` or `"disabled"` | `"auto"` |
-| `http_cache` | `"inherit"` or `"disabled"` or `"enabled"` | `"inherit"` |
+| `http_cache` | `"inherit"` or `"validators"` or `"auto"` or `"public"` or `"private"` | `"inherit"` |
 | `cache_policy.storage` | `"origin"` or `"allow"` or `"deny"` |  |
 | `cache_policy.freshness` | `"origin"` or `{ fallback = … }` or `{ force = … }` (integer ≥ 0) |  |
 | `cache_policy.stale_while_revalidate` | `"origin"` or `"disabled"` or `{ force = … }` (integer ≥ 0) |  |
@@ -194,7 +194,7 @@ One table per named source mount. The table name is the mount name. Besides
 | `max_redirects` | integer ≥ 0 | `0` |
 | `stable` | `"auto"` or `"trusted"` | `"auto"` |
 | `internal_cache` | `"auto"` or `"enabled"` or `"disabled"` | `"auto"` |
-| `http_cache` | `"inherit"` or `"disabled"` or `"enabled"` | `"inherit"` |
+| `http_cache` | `"inherit"` or `"validators"` or `"auto"` or `"public"` or `"private"` | `"inherit"` |
 | `cache_policy.storage` | `"origin"` or `"allow"` or `"deny"` |  |
 | `cache_policy.freshness` | `"origin"` or `{ fallback = … }` or `{ force = … }` (integer ≥ 0) |  |
 | `cache_policy.stale_while_revalidate` | `"origin"` or `"disabled"` or `{ force = … }` (integer ≥ 0) |  |
@@ -225,7 +225,7 @@ Elixir only: `req_options`, `address_resolver`.
 | `pool_timeout` | integer ≥ 0 |  |
 | `stable` | `"auto"` or `"trusted"` | `"auto"` |
 | `internal_cache` | `"auto"` or `"enabled"` or `"disabled"` | `"auto"` |
-| `http_cache` | `"inherit"` or `"disabled"` or `"enabled"` | `"inherit"` |
+| `http_cache` | `"inherit"` or `"validators"` or `"auto"` or `"public"` or `"private"` | `"inherit"` |
 | `cache_policy.storage` | `"origin"` or `"allow"` or `"deny"` |  |
 | `cache_policy.freshness` | `"origin"` or `{ fallback = … }` or `{ force = … }` (integer ≥ 0) |  |
 | `cache_policy.stale_while_revalidate` | `"origin"` or `"disabled"` or `{ force = … }` (integer ≥ 0) |  |
@@ -413,8 +413,7 @@ Delivery options of `ImagePipe.Plug.init/1`.
 | --- | --- | --- |
 | `allow_origin` | string |  |
 | `allow_debug_headers` | boolean | `false` |
-| `http_cache.mode` | `"disabled"` or `"enabled"` | `"disabled"` |
-| `http_cache.visibility` | `"auto"` or `"private"` or `"public"` | `"auto"` |
+| `http_cache` | `"validators"` or `"auto"` or `"public"` or `"private"` | `"validators"` |
 
 ### `[telemetry]`
 

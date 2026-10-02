@@ -129,7 +129,7 @@ defmodule ImagePipe.API.ResizeScaleWireTest do
             ]
           ]
         ],
-        http_cache: [mode: :enabled]
+        http_cache: :auto
       )
 
     conn(:get, "/#{options}/format=png/src/image.png") |> ImagePipe.Plug.call(config)

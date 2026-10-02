@@ -324,7 +324,7 @@ defmodule ImagePipe.API.ColorManagementWireTest do
             options: [root: @sources, root_id: "api-color", stable: :trusted]
           ]
         ],
-        http_cache: [mode: :enabled]
+        http_cache: :auto
       ]
       |> Keyword.merge(opts)
       |> ImagePipe.Plug.init()
