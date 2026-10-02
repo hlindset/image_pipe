@@ -1,10 +1,9 @@
 defmodule ImagePipe.Transform do
-  @moduledoc """
-  Operation behaviour and single-operation execution.
-
-  Operations provide a stable name and execute over `ImagePipe.Transform.State`.
-  `run/3` handles telemetry, materialization, and errors. The executor owns order.
-  """
+  # Operation behaviour and single-operation execution.
+  #
+  # Operations provide a stable name and execute over `ImagePipe.Transform.State`.
+  # `run/3` handles telemetry, materialization, and errors. The executor owns order.
+  @moduledoc false
 
   use Boundary,
     top_level?: true,

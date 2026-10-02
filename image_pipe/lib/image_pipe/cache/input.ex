@@ -1,5 +1,6 @@
 defmodule ImagePipe.Cache.Input do
-  @moduledoc "Filesystem original-byte storage using the shared admission pool implementation."
+  # Filesystem original-byte storage using the shared admission pool implementation.
+  @moduledoc false
   alias ImagePipe.Cache.File, as: CacheFile
   alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.Resources

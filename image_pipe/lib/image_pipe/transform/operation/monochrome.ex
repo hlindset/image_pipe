@@ -1,7 +1,6 @@
 defmodule ImagePipe.Transform.Operation.Monochrome do
-  @moduledoc """
-  Executable single-color luminance tint operation.
-  """
+  # Executable single-color luminance tint operation.
+  @moduledoc false
 
   use ImagePipe.Transform
 

@@ -4,8 +4,8 @@ defmodule ImagePipe.Transform.Detector do
 
   Detectors translate image content into product-neutral regions. The default
   adapter wraps the optional `image_vision` dependency; hosts may inject their
-  own. Return values cross a host boundary and are validated structurally by the
-  caller (`ImagePipe.Transform.Operation.Crop`).
+  own. Return values cross a host boundary and are validated structurally before
+  use.
   """
 
   @typedoc """

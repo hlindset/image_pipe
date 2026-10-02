@@ -1,10 +1,9 @@
 defmodule ImagePipe.Plug.Config do
-  @moduledoc """
-  Validates and resolves the mount configuration.
-
-  Mount-only parsing and delivery controls extend the shared host configuration
-  used by direct Elixir execution.
-  """
+  # Validates and resolves the mount configuration.
+  #
+  # Mount-only parsing and delivery controls extend the shared host configuration
+  # used by direct Elixir execution.
+  @moduledoc false
 
   alias ImagePipe.Config, as: SharedConfig
 

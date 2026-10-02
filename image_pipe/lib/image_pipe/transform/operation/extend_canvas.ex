@@ -1,51 +1,50 @@
 defmodule ImagePipe.Transform.Operation.ExtendCanvas do
-  @moduledoc """
-  Embeds the image into a same-size-or-larger transparent canvas without resampling.
-
-  The executor resolves dimensions for letterboxing, padding, or
-  aspect-ratio extension before constructing this operation.
-
-  ## Fields
-
-  Required fields:
-
-  - `rule`: either `{:dimensions, width, height}` or
-    `{:aspect_ratio, {ratio_width, ratio_height}}`.
-
-  Optional fields:
-
-  - `gravity`: an anchor tuple
-    `{:anchor, :left | :center | :right, :top | :center | :bottom}`. Defaults
-    to center.
-  - `x_offset`: numeric horizontal offset applied after gravity placement.
-    Defaults to `0.0`.
-  - `y_offset`: numeric vertical offset applied after gravity placement. Defaults
-    to `0.0`.
-
-  Dimension rules accept non-negative pixel numbers. Aspect-ratio rules use
-  positive numeric ratio components.
-
-  ## Execution Semantics
-
-  `execute/2` returns state containing the embedded image, or
-  `{:error, {__MODULE__, reason}}` if embedding fails.
-
-  Dimension rules round each size and clamp it to at least the current image size.
-  Aspect-ratio rules expand the needed axis, preserving the full image.
-
-  Gravity sets the base placement. Rounded positive offsets move right/down from
-  left/top/center anchors and inward from right/bottom anchors.
-  The final origin is clamped to keep the image inside the canvas.
-
-  ## Examples
-
-      canvas = %ImagePipe.Transform.Operation.ExtendCanvas{
-        rule: {:dimensions, 400, 300},
-        gravity: {:anchor, :center, :center},
-        x_offset: 0.0,
-        y_offset: 0.0
-      }
-  """
+  # Embeds the image into a same-size-or-larger transparent canvas without resampling.
+  #
+  # The executor resolves dimensions for letterboxing, padding, or
+  # aspect-ratio extension before constructing this operation.
+  #
+  # ## Fields
+  #
+  # Required fields:
+  #
+  # - `rule`: either `{:dimensions, width, height}` or
+  #   `{:aspect_ratio, {ratio_width, ratio_height}}`.
+  #
+  # Optional fields:
+  #
+  # - `gravity`: an anchor tuple
+  #   `{:anchor, :left | :center | :right, :top | :center | :bottom}`. Defaults
+  #   to center.
+  # - `x_offset`: numeric horizontal offset applied after gravity placement.
+  #   Defaults to `0.0`.
+  # - `y_offset`: numeric vertical offset applied after gravity placement. Defaults
+  #   to `0.0`.
+  #
+  # Dimension rules accept non-negative pixel numbers. Aspect-ratio rules use
+  # positive numeric ratio components.
+  #
+  # ## Execution Semantics
+  #
+  # `execute/2` returns state containing the embedded image, or
+  # `{:error, {__MODULE__, reason}}` if embedding fails.
+  #
+  # Dimension rules round each size and clamp it to at least the current image size.
+  # Aspect-ratio rules expand the needed axis, preserving the full image.
+  #
+  # Gravity sets the base placement. Rounded positive offsets move right/down from
+  # left/top/center anchors and inward from right/bottom anchors.
+  # The final origin is clamped to keep the image inside the canvas.
+  #
+  # ## Examples
+  #
+  #     canvas = %ImagePipe.Transform.Operation.ExtendCanvas{
+  #       rule: {:dimensions, 400, 300},
+  #       gravity: {:anchor, :center, :center},
+  #       x_offset: 0.0,
+  #       y_offset: 0.0
+  #     }
+  @moduledoc false
 
   use ImagePipe.Transform
 

@@ -1,32 +1,31 @@
 defmodule ImagePipe.Output.EncodeSearch do
-  @moduledoc """
-  Best-effort binary search over encoder quality.
-
-  Given a resolved quality-search objective (`:size`, `:ssimulacra2`, or
-  `:butteraugli`) and/or a hard `max_bytes` budget, probe candidate qualities
-  within `[min_quality, max_quality]` and return the already-encoded buffer for
-  the winning quality, alongside `meta` describing the outcome.
-
-  Two public entry points:
-
-    * `search/3` — the core, with injected `:encode_fun` and `:score_fun`
-      closures. It owns memoization, the iteration cap, and objective and
-      `max_bytes` phases.
-    * `run/3` — the production wrapper. It extracts the objective and budget from
-      a `%ImagePipe.Output.Resolved{}`, builds the real encode/score closures
-      from `ImagePipe.Output.Encoder` and the metric runtime under
-      `ImagePipe.Output.Metric.*`, and delegates to `search/3`.
-
-  ## Monotonicity contract
-
-  The binary search assumes encoded byte size is non-decreasing in quality, and
-  the perceptual score is monotone in quality in the metric's direction —
-  non-decreasing for `:higher_better` (SSIMULACRA2), non-increasing for
-  `:lower_better` (butteraugli distance). The loop branches on the metric's
-  direction. Real encoders can violate monotonicity locally, so the result may
-  miss the true optimum. The winning quality is always probed, re-measured,
-  and within `[min_quality, max_quality]`.
-  """
+  # Best-effort binary search over encoder quality.
+  #
+  # Given a resolved quality-search objective (`:size`, `:ssimulacra2`, or
+  # `:butteraugli`) and/or a hard `max_bytes` budget, probe candidate qualities
+  # within `[min_quality, max_quality]` and return the already-encoded buffer for
+  # the winning quality, alongside `meta` describing the outcome.
+  #
+  # Two public entry points:
+  #
+  #   * `search/3` — the core, with injected `:encode_fun` and `:score_fun`
+  #     closures. It owns memoization, the iteration cap, and objective and
+  #     `max_bytes` phases.
+  #   * `run/3` — the production wrapper. It extracts the objective and budget from
+  #     a `%ImagePipe.Output.Resolved{}`, builds the real encode/score closures
+  #     from `ImagePipe.Output.Encoder` and the metric runtime under
+  #     `ImagePipe.Output.Metric.*`, and delegates to `search/3`.
+  #
+  # ## Monotonicity contract
+  #
+  # The binary search assumes encoded byte size is non-decreasing in quality, and
+  # the perceptual score is monotone in quality in the metric's direction —
+  # non-decreasing for `:higher_better` (SSIMULACRA2), non-increasing for
+  # `:lower_better` (butteraugli distance). The loop branches on the metric's
+  # direction. Real encoders can violate monotonicity locally, so the result may
+  # miss the true optimum. The winning quality is always probed, re-measured,
+  # and within `[min_quality, max_quality]`.
+  @moduledoc false
 
   alias ImagePipe.Output.ContentClassifier
   alias ImagePipe.Output.Encoder

@@ -1,7 +1,6 @@
 defmodule ImagePipe.Transform.Operation.Padding do
-  @moduledoc """
-  Executable edge padding operation.
-  """
+  # Executable edge padding operation.
+  @moduledoc false
 
   use ImagePipe.Transform
 

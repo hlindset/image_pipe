@@ -1,7 +1,6 @@
 defmodule ImagePipe.Transform.Operation.Saturation do
-  @moduledoc """
-  Executable saturation adjustment operation.
-  """
+  # Executable saturation adjustment operation.
+  @moduledoc false
 
   use ImagePipe.Transform
 

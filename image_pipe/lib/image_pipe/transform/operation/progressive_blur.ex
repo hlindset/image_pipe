@@ -1,11 +1,10 @@
 defmodule ImagePipe.Transform.Operation.ProgressiveBlur do
-  @moduledoc """
-  Spatially varying Gaussian blur, interpolated between eight sigma intervals.
-
-  Each pixel blends its two adjacent blur levels. Filtering and interpolation
-  both use premultiplied alpha. The shared input is materialized because the
-  differently sized convolution windows revisit its pixels.
-  """
+  # Spatially varying Gaussian blur, interpolated between eight sigma intervals.
+  #
+  # Each pixel blends its two adjacent blur levels. Filtering and interpolation
+  # both use premultiplied alpha. The shared input is materialized because the
+  # differently sized convolution windows revisit its pixels.
+  @moduledoc false
 
   use ImagePipe.Transform
 

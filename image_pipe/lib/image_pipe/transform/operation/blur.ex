@@ -1,7 +1,6 @@
 defmodule ImagePipe.Transform.Operation.Blur do
-  @moduledoc """
-  Executable Gaussian blur operation.
-  """
+  # Executable Gaussian blur operation.
+  @moduledoc false
 
   use ImagePipe.Transform
 

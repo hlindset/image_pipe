@@ -49,40 +49,19 @@ defmodule ImagePipe.MixProject do
   ]
   @guide_paths Enum.flat_map(@guide_groups, fn {_group, paths} -> paths end)
   @internal_doc_references [
-    "ImagePipe.Cache.normalize_adapter_options/2",
-    "ImagePipe.Delivery.Producer",
     "ImagePipe.Error.tag/1",
-    "ImagePipe.Execution",
-    "ImagePipe.API.Config.validate!/1",
-    "ImagePipe.Output",
-    "ImagePipe.Output.Clamp.clamp_with_telemetry/4",
-    "ImagePipe.Output.Encoder",
-    "ImagePipe.Output.Encoder.stream_output/3",
-    "ImagePipe.Output.Negotiate.negotiate_output/4",
-    "ImagePipe.Output.Policy",
     "ImagePipe.Plug.Runner",
-    "ImagePipe.Response.CachePolicy",
-    "ImagePipe.Response.ErrorStatus",
     "ImagePipe.Response.Sender",
     "ImagePipe.Security.verify/3",
     "ImagePipe.Source.S3.Credentials.fetch/3",
     "ImagePipe.Source.S3.Credentials.validate/1",
     "ImagePipe.Source.S3.RefreshCache",
-    "ImagePipe.Source.StreamError",
-    "ImagePipe.Telemetry.Trace.Capture",
-    "ImagePipe.Telemetry.Trace.FinchCapture",
-    "ImagePipe.Telemetry.Trace.Stack.context/0"
+    "ImagePipe.Telemetry.Trace.Capture"
   ]
   # ExDoc resolves remote typespecs without consulting skip_code_autolink_to.
   # These exact specs intentionally mention hidden runtime value types.
   @internal_typespec_references [
-    "t:ImagePipe.Delivery.build_fun/0",
-    "ImagePipe.Delivery.stream/4",
-    "ImagePipe.Execution.Identity.material/6",
-    "ImagePipe.Output.EncodeSearch.run/3",
-    "ImagePipe.Source.resolve/3",
-    "t:ImagePipe.Transform.SourceGeometry.t/0",
-    "t:ImagePipe.Transform.State.t/0"
+    "t:ImagePipe.Result.t/0"
   ]
 
   def project do
@@ -112,16 +91,34 @@ defmodule ImagePipe.MixProject do
           end),
         groups_for_extras: @guide_groups,
         groups_for_modules: [
-          "Application API": [ImagePipe, ImagePipe.Config, ImagePipe.Result, ImagePipe.Plug],
-          "Source API": [ImagePipe.Source, ~r/ImagePipe\.Source\..*/],
-          "Cache API": [ImagePipe.Cache, ~r/ImagePipe\.Cache\..*/],
-          Operations: [
-            ImagePipe.ProcessingPool,
-            ImagePipe.Telemetry,
-            ~r/ImagePipe\.Telemetry\..*/
+          "Application API": [
+            ImagePipe,
+            ImagePipe.Config,
+            ImagePipe.Result,
+            ImagePipe.Plug,
+            ImagePipe.ProcessingPool
           ],
-          "Transform API": [ImagePipe.Transform, ~r/ImagePipe\.Transform\..*/],
-          "Runtime internals": [~r/.*/]
+          Sources: [
+            ImagePipe.Source,
+            ImagePipe.Source.File,
+            ImagePipe.Source.HTTP,
+            ImagePipe.Source.S3
+          ],
+          "Source adapter types": [
+            ImagePipe.Source.Resolved,
+            ImagePipe.Source.Response,
+            ImagePipe.Source.Origin,
+            ImagePipe.Source.CacheSettings,
+            ImagePipe.Source.CachePolicy,
+            ImagePipe.Source.CacheSemantics
+          ],
+          "S3 credentials": [~r/ImagePipe\.Source\.S3\..*/],
+          Cache: [ImagePipe.Cache.FileSystem],
+          "Content detection": [
+            ImagePipe.Transform.Detector,
+            ~r/ImagePipe\.Transform\.Detector\..*/
+          ],
+          Telemetry: [ImagePipe.Telemetry, ~r/ImagePipe\.Telemetry\..*/]
         ]
       ],
       test_coverage: [tool: ExCoveralls],

@@ -1,10 +1,9 @@
 defmodule ImagePipe.Output.Terminal.LqipCss do
-  @moduledoc """
-  Encodes a CSS-only placeholder as a packed `#rrggbbaa` value.
-
-  Uses the shared sRGB, black-flattened, 8-bit placeholder pixel space and
-  `Image.Lqip.Css`. The executor supplies a materialized 3×3 display frame.
-  """
+  # Encodes a CSS-only placeholder as a packed `#rrggbbaa` value.
+  #
+  # Uses the shared sRGB, black-flattened, 8-bit placeholder pixel space and
+  # `Image.Lqip.Css`. The executor supplies a materialized 3×3 display frame.
+  @moduledoc false
 
   alias Image.Lqip.Css
   alias ImagePipe.Output.Terminal.PixelSpace

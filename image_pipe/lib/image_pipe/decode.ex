@@ -1,15 +1,14 @@
 defmodule ImagePipe.Decode do
-  @moduledoc """
-  Source fetch and image decode bracket.
-
-  `with_image/4` fetches through `ImagePipe.Source.with_fetched/3`, admits only
-  sources whose signature names an accepted family, checks bounded header
-  dimensions when available, verifies that libvips chose a loader of that family,
-  reads stored dimensions and EXIF orientation
-  through libvips, then reopens sequentially with planned
-  shrink-on-load options. It passes the resulting `ImagePipe.Transform.State`
-  and `ImagePipe.Transform.SourceGeometry` to the caller.
-  """
+  # Source fetch and image decode bracket.
+  #
+  # `with_image/4` fetches through `ImagePipe.Source.with_fetched/3`, admits only
+  # sources whose signature names an accepted family, checks bounded header
+  # dimensions when available, verifies that libvips chose a loader of that family,
+  # reads stored dimensions and EXIF orientation
+  # through libvips, then reopens sequentially with planned
+  # shrink-on-load options. It passes the resulting `ImagePipe.Transform.State`
+  # and `ImagePipe.Transform.SourceGeometry` to the caller.
+  @moduledoc false
 
   use Boundary,
     top_level?: true,

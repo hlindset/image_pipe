@@ -1,19 +1,18 @@
 defmodule ImagePipe.Transform.Materializer do
-  @moduledoc """
-  Materialization boundary for transform execution.
-
-  `materialize/1` copies the image to RAM (`copy_memory`) and sets
-  `materialized?: true`. It leaves pending orientation untouched. The executor
-  calls `flush/1` before operations
-  that need the display frame, including trim.
-
-  `ImagePipe.Transform.run/3` materializes before the first operation requiring
-  random access, allowing earlier operations to stream. Delivery calls the
-  arity-2 callback before encoding if the state has not materialized.
-
-  Both `materialize/1` and `flush/1` emit `[:transform, :materialize]` spans
-  that measure the pixel work at each boundary.
-  """
+  # Materialization boundary for transform execution.
+  #
+  # `materialize/1` copies the image to RAM (`copy_memory`) and sets
+  # `materialized?: true`. It leaves pending orientation untouched. The executor
+  # calls `flush/1` before operations
+  # that need the display frame, including trim.
+  #
+  # `ImagePipe.Transform.run/3` materializes before the first operation requiring
+  # random access, allowing earlier operations to stream. Delivery calls the
+  # arity-2 callback before encoding if the state has not materialized.
+  #
+  # Both `materialize/1` and `flush/1` emit `[:transform, :materialize]` spans
+  # that measure the pixel work at each boundary.
+  @moduledoc false
 
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.{OrientationFlush, State}

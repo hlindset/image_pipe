@@ -1,11 +1,10 @@
 defmodule ImagePipe.Transform.Operation.Trim do
-  @moduledoc """
-  Executable uniform-border trim. Replicates imgproxy `vips_trim`
-  (`vips/vips.c`): prepare a detection copy (sRGB convert; magenta-flatten alpha),
-  resolve the background (top-left pixel for `:auto`, else the explicit color),
-  `find_trim`, symmetrize via `equal_hor`/`equal_ver`, return unchanged on a
-  degenerate box, and extract from the original image.
-  """
+  # Executable uniform-border trim. Replicates imgproxy `vips_trim`
+  # (`vips/vips.c`): prepare a detection copy (sRGB convert; magenta-flatten alpha),
+  # resolve the background (top-left pixel for `:auto`, else the explicit color),
+  # `find_trim`, symmetrize via `equal_hor`/`equal_ver`, return unchanged on a
+  # degenerate box, and extract from the original image.
+  @moduledoc false
 
   use ImagePipe.Transform
 

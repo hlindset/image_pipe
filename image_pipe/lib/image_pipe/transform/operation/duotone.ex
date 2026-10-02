@@ -1,7 +1,6 @@
 defmodule ImagePipe.Transform.Operation.Duotone do
-  @moduledoc """
-  Executable two-color luminance mapping operation.
-  """
+  # Executable two-color luminance mapping operation.
+  @moduledoc false
 
   use ImagePipe.Transform
 

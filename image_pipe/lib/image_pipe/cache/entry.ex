@@ -1,7 +1,6 @@
 defmodule ImagePipe.Cache.Entry do
-  @moduledoc """
-  Adapter-independent cached response entry.
-  """
+  # Adapter-independent cached response entry.
+  @moduledoc false
 
   alias ImagePipe.Debug.Info
   alias ImagePipe.Format

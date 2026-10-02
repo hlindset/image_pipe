@@ -1,11 +1,10 @@
 defmodule ImagePipe.Transform.Executor do
-  @moduledoc """
-  Executes canonical request intent over a decoded transform state.
-
-  The executor owns the fixed per-group stage order and resolves geometry from
-  the current image plus the decode state. Right-angle orientation remains
-  deferred until a stage needs display-frame pixels or the request boundary.
-  """
+  # Executes canonical request intent over a decoded transform state.
+  #
+  # The executor owns the fixed per-group stage order and resolves geometry from
+  # the current image plus the decode state. Right-angle orientation remains
+  # deferred until a stage needs display-frame pixels or the request boundary.
+  @moduledoc false
 
   import ImagePipe.Transform.Geometry, only: [round_ties_to_even: 1]
 

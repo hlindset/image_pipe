@@ -1,9 +1,8 @@
 defmodule ImagePipe.Debug.Headers do
-  @moduledoc """
-  Pure rendering of `ImagePipe.Debug.Info` into the opt-in `X-ImagePipe-*` debug
-  response headers and the standard `Server-Timing` header. This module is the
-  single source of truth for debug header names. `nil` facts are omitted.
-  """
+  # Pure rendering of `ImagePipe.Debug.Info` into the opt-in `X-ImagePipe-*` debug
+  # response headers and the standard `Server-Timing` header. This module is the
+  # single source of truth for debug header names. `nil` facts are omitted.
+  @moduledoc false
 
   alias ImagePipe.Debug.Info
 

@@ -1,16 +1,15 @@
 defmodule ImagePipe.Transform.Operation.Rotate do
-  @moduledoc """
-  Clockwise arbitrary-angle rotation with transparent corners.
-
-  Uses affine `vips_rotate`. Non-alpha output formats flatten the corners onto
-  `Output.Policy.flatten_background` at encoding.
-
-  Rotation reads pixels out of row order, so `requires_materialization?: true`
-  makes `ImagePipe.Transform.run/3` copy the input to RAM first. The executor
-  flushes pending orientation before this operation so it sees display-frame pixels.
-  The result stays lazy until a downstream resize buffers it, avoiding repeated
-  affine evaluation while allowing crop-only requests to evaluate a small region.
-  """
+  # Clockwise arbitrary-angle rotation with transparent corners.
+  #
+  # Uses affine `vips_rotate`. Non-alpha output formats flatten the corners onto
+  # `Output.Policy.flatten_background` at encoding.
+  #
+  # Rotation reads pixels out of row order, so `requires_materialization?: true`
+  # makes `ImagePipe.Transform.run/3` copy the input to RAM first. The executor
+  # flushes pending orientation before this operation so it sees display-frame pixels.
+  # The result stays lazy until a downstream resize buffers it, avoiding repeated
+  # affine evaluation while allowing crop-only requests to evaluate a small region.
+  @moduledoc false
 
   use ImagePipe.Transform
 

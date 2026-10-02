@@ -1,5 +1,6 @@
 defmodule ImagePipe.Output.ResolvedQualitySearch.Size do
-  @moduledoc "Resolved `:size` byte-budget search (bracket per-format clamped)."
+  # Resolved `:size` byte-budget search (bracket per-format clamped).
+  @moduledoc false
   @enforce_keys [:target, :min_quality, :max_quality]
   defstruct @enforce_keys ++ [max_resolution: 0]
 

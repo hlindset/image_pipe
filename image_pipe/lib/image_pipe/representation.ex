@@ -1,32 +1,31 @@
 defmodule ImagePipe.Representation do
-  @moduledoc """
-  Builds cache keys, ETags, and Vary header names before source fetch.
-
-  `build/3` accepts opaque `source_identity` keyword material from
-  `ImagePipe.Source.Resolved`, an `ImagePipe.Representation.IdentityMaterial`,
-  and the source's `byte_identity`. Deriving identity from these inputs lets
-  conditional GETs resolve before fetch, decode, or encode.
-
-  ## Byte identity governs the ETag
-
-  A source with strong byte identity contributes an `ETag`. A source with
-  `byte_identity: :none` gets no ETag and `Cache-Control: no-store` from
-  `response_headers/1`, preventing revalidation of potentially changed bytes.
-  The HTTP, File, and S3 adapters use `:none` when no validator is available.
-
-  The cache key and the ETag answer different questions and are derived from
-  different (but overlapping) slices of the same data:
-
-    * the **key** is storage identity — every input that can select a
-      different stored variant, including `storage_only` (cachebuster +
-      configured storage-vary values);
-    * the **ETag** is a strong byte-identity validator — deliberately
-      narrower, excluding `storage_only` so that changing a cachebuster or a
-      vary-only input busts storage without forcing clients to re-download
-      byte-identical content.
-
-  Both digests go through `ImagePipe.MaterialDigest`.
-  """
+  # Builds cache keys, ETags, and Vary header names before source fetch.
+  #
+  # `build/3` accepts opaque `source_identity` keyword material from
+  # `ImagePipe.Source.Resolved`, an `ImagePipe.Representation.IdentityMaterial`,
+  # and the source's `byte_identity`. Deriving identity from these inputs lets
+  # conditional GETs resolve before fetch, decode, or encode.
+  #
+  # ## Byte identity governs the ETag
+  #
+  # A source with strong byte identity contributes an `ETag`. A source with
+  # `byte_identity: :none` gets no ETag and `Cache-Control: no-store` from
+  # `response_headers/1`, preventing revalidation of potentially changed bytes.
+  # The HTTP, File, and S3 adapters use `:none` when no validator is available.
+  #
+  # The cache key and the ETag answer different questions and are derived from
+  # different (but overlapping) slices of the same data:
+  #
+  #   * the **key** is storage identity — every input that can select a
+  #     different stored variant, including `storage_only` (cachebuster +
+  #     configured storage-vary values);
+  #   * the **ETag** is a strong byte-identity validator — deliberately
+  #     narrower, excluding `storage_only` so that changing a cachebuster or a
+  #     vary-only input busts storage without forcing clients to re-download
+  #     byte-identical content.
+  #
+  # Both digests go through `ImagePipe.MaterialDigest`.
+  @moduledoc false
 
   use Boundary,
     top_level?: true,

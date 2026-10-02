@@ -1,7 +1,6 @@
 defmodule ImagePipe.Transform.Operation.Background do
-  @moduledoc """
-  Executable background composition operation.
-  """
+  # Executable background composition operation.
+  @moduledoc false
 
   use ImagePipe.Transform
 
