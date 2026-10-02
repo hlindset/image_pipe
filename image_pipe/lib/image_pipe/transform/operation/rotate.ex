@@ -1,7 +1,7 @@
 defmodule ImagePipe.Transform.Operation.Rotate do
   # Clockwise arbitrary-angle rotation with transparent corners.
   #
-  # Uses affine `vips_rotate`. Non-alpha output formats flatten the corners onto
+  # Non-alpha output formats flatten the corners onto
   # `Output.Policy.flatten_background` at encoding.
   #
   # Rotation reads pixels out of row order, so `requires_materialization?: true`
@@ -17,7 +17,6 @@ defmodule ImagePipe.Transform.Operation.Rotate do
 
   alias ImagePipe.Transform.Alpha
   alias ImagePipe.Transform.State
-  alias Vix.Vips.Operation
 
   @enforce_keys [:angle]
   defstruct [:angle]
@@ -41,17 +40,11 @@ defmodule ImagePipe.Transform.Operation.Rotate do
     end
   end
 
-  # Dialyzer can't see through Vix's generated Operation typings (rotate).
-  @dialyzer {:no_fail_call, rotate: 2}
-
-  # Add alpha for transparent corners, filled by a zero `background` with one
-  # value per band (two for gray, four for RGB). vips_rotate handles
-  # premultiplication; doing it here too would distort semi-transparent colors.
-  # Call Vix directly because Image.rotate/3 rejects a transparent background.
+  # Add alpha for transparent corners: without a background, `Image.rotate/3`
+  # fills with zeros, which is transparent once the image has alpha.
   defp rotate(image, angle) do
-    with {:ok, rgba} <- Alpha.ensure(image) do
-      transparent = List.duplicate(0.0, Image.bands(rgba))
-      Operation.rotate(rgba, angle * 1.0, background: transparent)
+    with {:ok, with_alpha} <- Alpha.ensure(image) do
+      Image.rotate(with_alpha, angle)
     end
   end
 end
