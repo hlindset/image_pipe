@@ -57,6 +57,23 @@ defmodule ImagePipe.API.GeometryCompositionWireTest do
     assert Image.get_pixel!(gray16, 0, 0) == [128 * 257]
   end
 
+  test "an opaque color background promotes a grayscale image to RGB" do
+    rgb = image("/pad=1,0,0,1/bg=ff0000/format=png/src/image.png", png_origin(gray(:uchar)))
+    assert VipsImage.interpretation(rgb) == :VIPS_INTERPRETATION_sRGB
+    assert Image.get_pixel!(rgb, 0, 0) == [255, 0, 0]
+    assert Image.get_pixel!(rgb, 1, 1) == [50, 50, 50]
+
+    rgb16 =
+      image(
+        "/pad=1,0,0,1/bg=ff0000/hdr=preserve/format=png/src/image.png",
+        png_origin(gray(:ushort))
+      )
+
+    assert VipsImage.interpretation(rgb16) == :VIPS_INTERPRETATION_RGB16
+    assert Image.get_pixel!(rgb16, 0, 0) == [65_535, 0, 0]
+    assert Image.get_pixel!(rgb16, 1, 1) == List.duplicate(50 * 257, 3)
+  end
+
   test "an arbitrary rotation of a grayscale image has transparent corners" do
     output = image("/rotate=30/format=png/src/image.png", png_origin(gray(:uchar, 20)))
     assert VipsImage.interpretation(output) == :VIPS_INTERPRETATION_B_W

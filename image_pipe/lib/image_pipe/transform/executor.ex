@@ -16,6 +16,7 @@ defmodule ImagePipe.Transform.Executor do
   alias ImagePipe.Transform.Alpha
   alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.Executor.Geometry
+  alias ImagePipe.Transform.GrayFrame
   alias ImagePipe.Transform.InputColorManagement
   alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.Operation.Background
@@ -422,7 +423,9 @@ defmodule ImagePipe.Transform.Executor do
       opts |> Keyword.fetch!(:watermarks) |> Map.fetch!(watermark.asset)
 
     with {:ok, state} <- flush_display(state),
-         {:ok, asset} <- watermark_asset(asset, state, opts) do
+         {:ok, asset} <- conditioned_asset(asset, state, opts),
+         {:ok, state} <- promote_gray_frame(state, asset),
+         {:ok, asset} <- watermark_asset(asset, state) do
       {frame_width, frame_height} = Geometry.live_dims(state)
       {width, height} = watermark_size(watermark.scale, asset, {frame_width, frame_height}, dpr)
       {x, y} = watermark.offset
@@ -448,11 +451,27 @@ defmodule ImagePipe.Transform.Executor do
 
   # Assets get the source's input conditioning, then the frame's color space,
   # an alpha band, and the frame's band format.
-  defp watermark_asset(asset, %State{image: frame} = state, opts) do
+  defp conditioned_asset(asset, %State{} = state, opts) do
     asset_state = %State{image: asset, telemetry_opts: state.telemetry_opts}
 
     with {:ok, %State{image: asset}} <- condition_color(asset_state, opts),
-         {:ok, asset} <- to_frame_space(asset, VipsImage.interpretation(frame)),
+         do: {:ok, asset}
+  end
+
+  # A color asset promotes a gray frame to RGB rather than being reduced to gray.
+  defp promote_gray_frame(%State{image: frame} = state, asset) do
+    if GrayFrame.gray?(frame) and not GrayFrame.gray?(asset) do
+      case GrayFrame.promote(frame) do
+        {:ok, frame} -> {:ok, %State{state | image: frame}}
+        {:error, reason} -> {:error, {:transform, {Watermark, reason}}}
+      end
+    else
+      {:ok, state}
+    end
+  end
+
+  defp watermark_asset(asset, %State{image: frame}) do
+    with {:ok, asset} <- to_frame_space(asset, VipsImage.interpretation(frame)),
          {:ok, asset} <- with_alpha(asset) do
       case VipsOperation.cast(asset, VipsImage.format(frame)) do
         {:ok, asset} -> {:ok, asset}

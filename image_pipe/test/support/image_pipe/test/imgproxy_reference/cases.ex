@@ -2006,6 +2006,32 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         imgproxy: "rs:fit:200:150",
         tolerance: {2, 64}
       },
+      # A neutral background keeps its gray value; a colour background or a colour
+      # watermark promotes the gray image to sRGB, as imgproxy does.
+      %{
+        id: "gray_pad_bg",
+        kind: :png,
+        source: "gray.png",
+        native: "w=200/h=150/fit=contain/pad=10/bg=808080",
+        imgproxy: "rs:fit:200:150/pd:10/bg:808080",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "gray_extend_bg",
+        kind: :png,
+        source: "gray.png",
+        native: "w=300/h=300/fit=contain/extend/bg=ff0000",
+        imgproxy: "rs:fit:300:300/ex:1/bg:ff0000",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "gray_watermark",
+        kind: :png,
+        source: "gray.png",
+        native: "w=400/h=300/fit=contain/wm=mark/wm-at=bottom-right/wm-scale=0.25",
+        imgproxy: "rs:fit:400:300/wm:1:soea:0:0:0.25",
+        tolerance: {2, 64}
+      },
       %{
         id: "gray_blur_pixelate",
         kind: :png,

@@ -20,6 +20,7 @@ defmodule ImagePipe.API.WatermarkWireTest do
       "image.png" => png(Image.new!(60, 40, color: @blue)),
       "mark.png" => png(Image.new!(10, 10, color: @red)),
       "alpha.png" => png(Image.new!(10, 10, color: @red ++ [128])),
+      "gray_mark.png" => png(gray_mark()),
       "rotated.jpg" => rotated_jpeg(),
       "corrupt.png" => "not an image",
       "deep.png" => deep_png()
@@ -130,13 +131,19 @@ defmodule ImagePipe.API.WatermarkWireTest do
     end
   end
 
-  test "the asset adopts the frame's color space", %{config: config} do
+  test "a color asset promotes a grayscale frame to RGB", %{config: config} do
     gray = image("gray", config)
     marked = image("gray/wm=logo", config)
-    assert VipsImage.bands(marked) == VipsImage.bands(gray)
-    assert VipsImage.interpretation(marked) == VipsImage.interpretation(gray)
-    refute pixel(marked, 30, 20) == pixel(gray, 30, 20)
-    assert pixel(marked, 0, 0) == pixel(gray, 0, 0)
+    assert VipsImage.interpretation(gray) == :VIPS_INTERPRETATION_B_W
+    assert VipsImage.interpretation(marked) == :VIPS_INTERPRETATION_sRGB
+    assert pixel(marked, 30, 20) == @red
+    assert pixel(marked, 0, 0) == List.duplicate(hd(pixel(gray, 0, 0)), 3)
+  end
+
+  test "a grayscale asset keeps a grayscale frame gray", %{config: config} do
+    marked = image("gray/wm=gray_logo", config)
+    assert VipsImage.interpretation(marked) == :VIPS_INTERPRETATION_B_W
+    assert VipsImage.bands(marked) == 1
   end
 
   test "assets follow a preserved high-bit-depth working space", %{config: config} do
@@ -310,6 +317,14 @@ defmodule ImagePipe.API.WatermarkWireTest do
     etag
   end
 
+  defp gray_mark do
+    {:ok, mark} = VipsOperation.black(10, 10)
+    {:ok, mark} = VipsOperation.linear(mark, [1.0], [200.0])
+    {:ok, mark} = VipsOperation.cast(mark, :VIPS_FORMAT_UCHAR)
+    {:ok, mark} = VipsOperation.copy(mark, interpretation: :VIPS_INTERPRETATION_B_W)
+    mark
+  end
+
   defp pixel(image, {x, y}), do: pixel(image, x, y)
   defp pixel(image, x, y), do: image |> Image.get_pixel!(x, y) |> Enum.map(&round/1)
   defp dimensions(image), do: {Image.width(image), Image.height(image)}
@@ -350,6 +365,7 @@ defmodule ImagePipe.API.WatermarkWireTest do
         watermarks: %{
           logo: [source: watermark_source("mark.png", asset_identity)],
           ghost: [source: "alpha.png", opacity: 0.5],
+          gray_logo: [source: "gray_mark.png"],
           turned: [source: "rotated.jpg"],
           corrupt: [source: "corrupt.png"]
         },

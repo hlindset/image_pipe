@@ -7,11 +7,10 @@ defmodule ImagePipe.Transform.Operation.Background do
   import ImagePipe.Transform.State
 
   alias ImagePipe.Transform.Alpha
+  alias ImagePipe.Transform.GrayFrame
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
-
-  @gray [:VIPS_INTERPRETATION_B_W, :VIPS_INTERPRETATION_GREY16]
 
   @enforce_keys [:color]
   defstruct @enforce_keys
@@ -40,6 +39,9 @@ defmodule ImagePipe.Transform.Operation.Background do
     end
   end
 
+  # A non-neutral color on a gray image promotes the image to RGB so the color
+  # survives; a neutral one keeps it gray.
+  #
   # Workaround for `image` (0.72, unchanged on main as of 2026-10): on a 1-band
   # gray image, `Image.flatten/2` resolves the background through
   # `Image.Pixel.to_pixel/3`, which maps an sRGB color to gray as Lab L*/100
@@ -47,15 +49,20 @@ defmodule ImagePipe.Transform.Operation.Background do
   # the sRGB transfer curve, so its own sRGB→B_W conversion turns #808080 into
   # 128 where `Image.Pixel` gives 137. Resolve the gray value with libvips and
   # flatten directly; other interpretations keep `Image.flatten/2`.
-  defp flatten(image, rgb) do
-    gray? = VipsImage.interpretation(image) in @gray
+  defp flatten(image, [red, green, blue] = rgb) do
+    cond do
+      not GrayFrame.gray?(image) or not Image.has_alpha?(image) ->
+        Image.flatten(image, background: rgb)
 
-    if gray? and Image.has_alpha?(image) do
-      with {:ok, background} <- gray_value(rgb, VipsImage.interpretation(image)) do
-        Operation.flatten(image, background: background)
-      end
-    else
-      Image.flatten(image, background: rgb)
+      red == green and green == blue ->
+        with {:ok, background} <- gray_value(rgb, VipsImage.interpretation(image)) do
+          Operation.flatten(image, background: background)
+        end
+
+      true ->
+        with {:ok, promoted} <- GrayFrame.promote(image) do
+          Image.flatten(promoted, background: rgb)
+        end
     end
   end
 
