@@ -1,11 +1,10 @@
 defmodule ImagePipe.Plan.Color do
-  @moduledoc """
-  Canonical product-neutral color model for Plan operations.
-
-  Colors are represented as sRGB channels with a canonical alpha ratio. The
-  `:color` dependency stays behind this module so parser, runtime, and cache
-  data do not depend on third-party structs.
-  """
+  # Canonical product-neutral color model for Plan operations.
+  #
+  # Colors are represented as sRGB channels with a canonical alpha ratio. The
+  # `:color` dependency stays behind this module so parser, runtime, and cache
+  # data do not depend on third-party structs.
+  @moduledoc false
 
   alias Elixir.Color.CSS.Names, as: CssNames
   alias Elixir.Color.SRGB

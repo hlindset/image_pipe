@@ -1,15 +1,14 @@
 defmodule ImagePipe.Output.Ssim2Metric.CropScore do
-  @moduledoc """
-  Crop-based (tiled) SSIMULACRA2 scoring for the autoquality search on large
-  outputs. Above an internal ~6 MP crossover the search scores `@subsample_k`
-  native-resolution 512px tiles of the full-res encode and takes their p10,
-  instead of scoring the whole frame — a flat ~4.2 MP metric sample regardless of
-  source size (issue #354, benchmark Part E).
-
-  This module does tiling + `extract_area` only; **all** SSIMULACRA2 access is
-  delegated to `ImagePipe.Output.Metric.Ssimulacra2`, which stays the only
-  module touching the SSIMULACRA2 NIF.
-  """
+  # Crop-based (tiled) SSIMULACRA2 scoring for the autoquality search on large
+  # outputs. Above an internal ~6 MP crossover the search scores `@subsample_k`
+  # native-resolution 512px tiles of the full-res encode and takes their p10,
+  # instead of scoring the whole frame — a flat ~4.2 MP metric sample regardless of
+  # source size (issue #354, benchmark Part E).
+  #
+  # This module does tiling + `extract_area` only; **all** SSIMULACRA2 access is
+  # delegated to `ImagePipe.Output.Metric.Ssimulacra2`, which stays the only
+  # module touching the SSIMULACRA2 NIF.
+  @moduledoc false
 
   alias ImagePipe.Output.Metric.Ssimulacra2, as: Ssim2Metric
   alias Vix.Vips.Operation

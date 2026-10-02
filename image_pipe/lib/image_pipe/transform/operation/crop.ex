@@ -1,68 +1,67 @@
 defmodule ImagePipe.Transform.Operation.Crop do
-  @moduledoc """
-  Selects a bounded rectangle from the current image.
-
-  The executor resolves geometry and gravity inheritance before
-  constructing coordinate, gravity, or post-resize result crops.
-
-  ## Fields
-
-  Required fields:
-
-  - `width`: crop width as `{:pixels, value}`.
-  - `height`: crop height as `{:pixels, value}`.
-  - `crop_from`: crop source, either `:gravity` or `%{left: left, top: top}`
-    with `{:pixels, value}` positions clamped to the image bounds.
-
-  Optional fields:
-
-  - `gravity`: `nil`, an anchor tuple
-    `{:anchor, :left | :center | :right, :top | :center | :bottom}`, or a
-    focal point tuple `{:fp, x, y}` where `x` and `y` are normalized `0.0..1.0`
-    coordinates.
-  - `x_offset`: horizontal offset as a number, `{:pixels, value}`,
-    or `{:scale, value}`. Defaults to `0.0`.
-  - `y_offset`: vertical offset using the same units as `x_offset`. Defaults
-    to `0.0`.
-  - `center_bias`: `{x_side, y_side}` tie-break for a centered crop with an odd
-    extent difference, each `:near` (keep the extra pixel toward the left/top
-    origin, matching imgproxy `ShrinkToEven`) or `:far` (toward the right/bottom).
-    Defaults to `{:near, :near}`. Only affects `:center` anchor axes; callers that
-    crop in a frame that is later reversed (deferred orientation) set the
-    reversed axis to `:far` so the kept pixel lands on the intended display side.
-
-  ## Execution Semantics
-
-  `execute/2` crops `ImagePipe.Transform.State.image` and returns a state with
-  the cropped image. If coordinate mapping or image cropping fails, execution
-  returns `{:error, {__MODULE__, reason}}`.
-
-  For `crop_from: :gravity`, execution resolves crop dimensions against the
-  current image, defaulting gravity to center when none is provided. Anchor
-  gravity pins the crop to an edge or center. Focal-point gravity centers the
-  crop around a normalized current-image point and clamps it into image bounds.
-
-  Result crops are represented as `crop_from: :gravity` with explicit `width`
-  and `height`. The executor scales pixel offsets by effective DPR; scale
-  offsets are resolved relative to the current image bounds.
-
-  Coordinate crops start at `crop_from` and clamp to image bounds. The executor
-  sets `reject_out_of_bounds: true` for regions wholly outside the original
-  source frame, before decode-shrink rescaling loses those coordinates. Such
-  crops return `{:error, {:bad_request, :region_out_of_bounds}}` without cropping.
-  The default is `false`; partially overlapping regions are never rejected.
-
-  ## Examples
-
-      crop = %ImagePipe.Transform.Operation.Crop{
-        width: {:pixels, 300},
-        height: {:pixels, 200},
-        crop_from: :gravity,
-        gravity: {:fp, 0.25, 0.75},
-        x_offset: {:scale, 0.1},
-        y_offset: {:pixels, -12}
-      }
-  """
+  # Selects a bounded rectangle from the current image.
+  #
+  # The executor resolves geometry and gravity inheritance before
+  # constructing coordinate, gravity, or post-resize result crops.
+  #
+  # ## Fields
+  #
+  # Required fields:
+  #
+  # - `width`: crop width as `{:pixels, value}`.
+  # - `height`: crop height as `{:pixels, value}`.
+  # - `crop_from`: crop source, either `:gravity` or `%{left: left, top: top}`
+  #   with `{:pixels, value}` positions clamped to the image bounds.
+  #
+  # Optional fields:
+  #
+  # - `gravity`: `nil`, an anchor tuple
+  #   `{:anchor, :left | :center | :right, :top | :center | :bottom}`, or a
+  #   focal point tuple `{:fp, x, y}` where `x` and `y` are normalized `0.0..1.0`
+  #   coordinates.
+  # - `x_offset`: horizontal offset as a number, `{:pixels, value}`,
+  #   or `{:scale, value}`. Defaults to `0.0`.
+  # - `y_offset`: vertical offset using the same units as `x_offset`. Defaults
+  #   to `0.0`.
+  # - `center_bias`: `{x_side, y_side}` tie-break for a centered crop with an odd
+  #   extent difference, each `:near` (keep the extra pixel toward the left/top
+  #   origin, matching imgproxy `ShrinkToEven`) or `:far` (toward the right/bottom).
+  #   Defaults to `{:near, :near}`. Only affects `:center` anchor axes; callers that
+  #   crop in a frame that is later reversed (deferred orientation) set the
+  #   reversed axis to `:far` so the kept pixel lands on the intended display side.
+  #
+  # ## Execution Semantics
+  #
+  # `execute/2` crops `ImagePipe.Transform.State.image` and returns a state with
+  # the cropped image. If coordinate mapping or image cropping fails, execution
+  # returns `{:error, {__MODULE__, reason}}`.
+  #
+  # For `crop_from: :gravity`, execution resolves crop dimensions against the
+  # current image, defaulting gravity to center when none is provided. Anchor
+  # gravity pins the crop to an edge or center. Focal-point gravity centers the
+  # crop around a normalized current-image point and clamps it into image bounds.
+  #
+  # Result crops are represented as `crop_from: :gravity` with explicit `width`
+  # and `height`. The executor scales pixel offsets by effective DPR; scale
+  # offsets are resolved relative to the current image bounds.
+  #
+  # Coordinate crops start at `crop_from` and clamp to image bounds. The executor
+  # sets `reject_out_of_bounds: true` for regions wholly outside the original
+  # source frame, before decode-shrink rescaling loses those coordinates. Such
+  # crops return `{:error, {:bad_request, :region_out_of_bounds}}` without cropping.
+  # The default is `false`; partially overlapping regions are never rejected.
+  #
+  # ## Examples
+  #
+  #     crop = %ImagePipe.Transform.Operation.Crop{
+  #       width: {:pixels, 300},
+  #       height: {:pixels, 200},
+  #       crop_from: :gravity,
+  #       gravity: {:fp, 0.25, 0.75},
+  #       x_offset: {:scale, 0.1},
+  #       y_offset: {:pixels, -12}
+  #     }
+  @moduledoc false
 
   use ImagePipe.Transform
 

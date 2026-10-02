@@ -1,31 +1,30 @@
 defmodule ImagePipe.Telemetry.Trace.ReqStep do
-  @moduledoc """
-  A Req step wrapper that traces an outbound HTTP call as a logical client span, injects a W3C
-  `traceparent` header, and stamps `finch_private` so `ImagePipe.Telemetry.Trace.FinchCapture`
-  can attach physical wire spans under the same parent. Apply where the source builds
-  its Req client (`req |> ReqStep.attach() |> Req.request(...)`).
-
-  ## Active-exporter coupling (not the stack)
-
-  The wrapper reads `ImagePipe.Telemetry.Trace.Stack.context/0` for its parent and carries
-  that identity in the request's private state. On completion, it emits through the
-  *active exporter* (`ImagePipe.Telemetry.Trace.exporter/0`) directly, preserving the
-  captured parent regardless of the active span when the HTTP call returns.
-
-  ## No-op when no tracer is attached
-
-  When `ImagePipe.Telemetry.Trace.exporter/0` is `nil` (no tracer attached), the wrapper emits
-  nothing. The header injection and `finch_private` stamp are cheap and harmless, so attaching
-  `ReqStep` is safe to do unconditionally at the build site — a source fetch behaves identically
-  whether or not a tracer is attached.
-
-  ## `into: :self` timing caveat
-
-  The source streams the body with `into: :self`, so the wrapper returns (and stops this span)
-  at **status + headers received**, not when the body finishes downloading. The
-  logical client span's duration therefore covers connect + TTFB, not the full transfer. The
-  captured status is correct.
-  """
+  # A Req step wrapper that traces an outbound HTTP call as a logical client span, injects a W3C
+  # `traceparent` header, and stamps `finch_private` so `ImagePipe.Telemetry.Trace.FinchCapture`
+  # can attach physical wire spans under the same parent. Apply where the source builds
+  # its Req client (`req |> ReqStep.attach() |> Req.request(...)`).
+  #
+  # ## Active-exporter coupling (not the stack)
+  #
+  # The wrapper reads `ImagePipe.Telemetry.Trace.Stack.context/0` for its parent and carries
+  # that identity in the request's private state. On completion, it emits through the
+  # *active exporter* (`ImagePipe.Telemetry.Trace.exporter/0`) directly, preserving the
+  # captured parent regardless of the active span when the HTTP call returns.
+  #
+  # ## No-op when no tracer is attached
+  #
+  # When `ImagePipe.Telemetry.Trace.exporter/0` is `nil` (no tracer attached), the wrapper emits
+  # nothing. The header injection and `finch_private` stamp are cheap and harmless, so attaching
+  # `ReqStep` is safe to do unconditionally at the build site — a source fetch behaves identically
+  # whether or not a tracer is attached.
+  #
+  # ## `into: :self` timing caveat
+  #
+  # The source streams the body with `into: :self`, so the wrapper returns (and stops this span)
+  # at **status + headers received**, not when the body finishes downloading. The
+  # logical client span's duration therefore covers connect + TTFB, not the full transfer. The
+  # captured status is correct.
+  @moduledoc false
   alias ImagePipe.Telemetry.Trace
   alias ImagePipe.Telemetry.Trace.{Context, Id, Span, Stack, W3C}
 

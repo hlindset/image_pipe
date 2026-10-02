@@ -1,7 +1,6 @@
 defmodule ImagePipe.Transform.Operation.Sharpen do
-  @moduledoc """
-  Executable sharpen operation.
-  """
+  # Executable sharpen operation.
+  @moduledoc false
 
   use ImagePipe.Transform
 

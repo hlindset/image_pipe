@@ -1,12 +1,11 @@
 defmodule ImagePipe.Transform.Operation.Gradient do
-  @moduledoc """
-  Executable transparency→color gradient overlay.
-
-  out = src·(1−m) + color·m, where m = opacity · clamp01((p − start)/(stop − start))
-  and p is the normalized projection of each pixel onto the gradient direction.
-
-  `angle` is canonical clockwise degrees (0=down, 90=left, 180=up, 270=right).
-  """
+  # Executable transparency→color gradient overlay.
+  #
+  # out = src·(1−m) + color·m, where m = opacity · clamp01((p − start)/(stop − start))
+  # and p is the normalized projection of each pixel onto the gradient direction.
+  #
+  # `angle` is canonical clockwise degrees (0=down, 90=left, 180=up, 270=right).
+  @moduledoc false
 
   use ImagePipe.Transform
 

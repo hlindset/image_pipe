@@ -32,10 +32,8 @@ an internal address past the check.
 
 A denied fetch returns `{:error, {:source, reason}}`, where `reason` is
 `:denied_scheme`, `:denied_host`, or `:denied_address`. Fetching opens the remote
-response through its headers; the body is consumed lazily. Use
-`ImagePipe.Source.with_fetched/3` to release the response even when its body is
-not consumed, or close a directly fetched response with
-`ImagePipe.Source.Response.close/1`.
+response through its headers; the body is consumed lazily, and ImagePipe releases
+the response when processing ends, even if the body was never read.
 
 ## Allowing private origins
 

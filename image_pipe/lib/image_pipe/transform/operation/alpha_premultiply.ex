@@ -1,12 +1,11 @@
 defmodule ImagePipe.Transform.Operation.AlphaPremultiply do
-  @moduledoc """
-  Shared helper for alpha-correct filtering.
-
-  libvips filters such as blur and sharpen must run on premultiplied alpha to
-  avoid bleeding fully-transparent pixel colour into visible edges. This wraps a
-  filter callback so it runs premultiply → filter → unpremultiply, restoring the
-  original band format. Images without an alpha band are filtered directly.
-  """
+  # Shared helper for alpha-correct filtering.
+  #
+  # libvips filters such as blur and sharpen must run on premultiplied alpha to
+  # avoid bleeding fully-transparent pixel colour into visible edges. This wraps a
+  # filter callback so it runs premultiply → filter → unpremultiply, restoring the
+  # original band format. Images without an alpha band are filtered directly.
+  @moduledoc false
 
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation

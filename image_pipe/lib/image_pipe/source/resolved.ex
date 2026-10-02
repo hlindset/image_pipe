@@ -1,12 +1,12 @@
 defmodule ImagePipe.Source.Resolved do
   @moduledoc """
-  Validated source information returned by `ImagePipe.Source.resolve/3`.
+  Validated source information returned by an adapter's `c:ImagePipe.Source.resolve/3`.
 
   Source adapters construct this value from canonical source intent. The
   `identity` and `cache_semantics` fields describe cache-safe source identity;
   `fetch` contains adapter-private data needed by the later fetch callback.
   `mount` is the name of the mount that resolved the source, set by
-  `ImagePipe.Source.resolve/3` (`nil` for direct `{:file, _}` and
+  ImagePipe after resolution (`nil` for direct `{:file, _}` and
   `{:binary, _}` inputs); adapters leave it unset.
   """
 

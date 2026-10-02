@@ -1,12 +1,11 @@
 defmodule ImagePipe.Plan.Spec do
-  @moduledoc """
-  Canonical request data shared by parsing and execution.
-
-  Groups express fixed-order transform intent. Output holds sparse request
-  policy before format negotiation. `build/2` normalizes typed, validated
-  intent supplied by request frontends. Delivery controls and request gates travel
-  with this data without contributing to pixel identity.
-  """
+  # Canonical request data shared by parsing and execution.
+  #
+  # Groups express fixed-order transform intent. Output holds sparse request
+  # policy before format negotiation. `build/2` normalizes typed, validated
+  # intent supplied by request frontends. Delivery controls and request gates travel
+  # with this data without contributing to pixel identity.
+  @moduledoc false
 
   alias ImagePipe.Plan.Spec.Group
   alias ImagePipe.Plan.Spec.Issue

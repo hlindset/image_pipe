@@ -1,12 +1,11 @@
 defmodule ImagePipe.Plan.Spec.Group do
-  @moduledoc """
-  One group's transform intent.
-
-  `-` splits a request into ordered groups; each group is one pass of
-  the fixed stage order (`rotate → flip → trim → region/crop → resize →
-  cover result crop → blur → … → pad → bg → watermark`). The executor applies this order
-  independently of option order in the URL.
-  """
+  # One group's transform intent.
+  #
+  # `-` splits a request into ordered groups; each group is one pass of
+  # the fixed stage order (`rotate → flip → trim → region/crop → resize →
+  # cover result crop → blur → … → pad → bg → watermark`). The executor applies this order
+  # independently of option order in the URL.
+  @moduledoc false
 
   @type length :: {:px, number()} | {:pct, number()}
   @type color :: {0..255, 0..255, 0..255}

@@ -158,11 +158,10 @@ defmodule ImagePipe.Telemetry do
     :ok
   end
 
-  @doc """
-  Maps a request outcome to the request `:result` telemetry vocabulary. Callers
-  stamp this on the `[:request]` span's stop metadata
-  (with `:status`, and `:error` on failures).
-  """
+  # Maps a request outcome to the request `:result` telemetry vocabulary. Callers
+  # stamp this on the `[:request]` span's stop metadata
+  # (with `:status`, and `:error` on failures).
+  @doc false
   @spec request_result(:ok | :not_modified | {:error, term()}) :: atom()
   def request_result(:ok), do: :ok
   def request_result(:not_modified), do: :not_modified
@@ -183,6 +182,7 @@ defmodule ImagePipe.Telemetry do
   def request_result({:error, {:source, _}}), do: :source_error
   def request_result({:error, _reason}), do: :processing_error
 
+  @doc false
   @spec span(keyword(), [atom()], map() | keyword(), (-> term())) :: term()
   def span(telemetry_opts, stage, start_metadata, fun) when is_function(fun, 0) do
     do_span(telemetry_opts, stage, start_metadata, fn start_metadata ->
@@ -191,7 +191,8 @@ defmodule ImagePipe.Telemetry do
     end)
   end
 
-  @typedoc "Handle for a manually bracketed span. See `start_span/3`."
+  # Handle for a manually bracketed span. See `start_span/3`.
+  @typedoc false
   @opaque span_handle() :: %{
             event: [atom()],
             start_time: integer(),
@@ -199,21 +200,20 @@ defmodule ImagePipe.Telemetry do
             closed: :atomics.atomics_ref()
           }
 
-  @doc """
-  Opens a span that closes independently of a function return.
-
-  For example, `ImagePipe.Decode.with_image/4` closes its fetch/decode span
-  inside the source bracket, before running the caller's continuation.
-
-  Mirrors `:telemetry.span/3`'s event names, measurement keys (`:monotonic_time`
-  + `:system_time` on `:start`; `:duration` + `:monotonic_time` on
-  `:stop`/`:exception`), and metadata semantics (start metadata merged into the
-  stop metadata, `telemetry_span_context` on every phase, matching `span/4`).
-
-  `stop_span/2` and `exception_span/4` are single-shot: the first close wins and
-  later calls no-op, so a surrounding catch-all may emit `exception_span/4`
-  unconditionally without re-closing a span that already stopped.
-  """
+  # Opens a span that closes independently of a function return.
+  #
+  # For example, `ImagePipe.Decode.with_image/4` closes its fetch/decode span
+  # inside the source bracket, before running the caller's continuation.
+  #
+  # Mirrors `:telemetry.span/3`'s event names, measurement keys (`:monotonic_time`
+  # + `:system_time` on `:start`; `:duration` + `:monotonic_time` on
+  # `:stop`/`:exception`), and metadata semantics (start metadata merged into the
+  # stop metadata, `telemetry_span_context` on every phase, matching `span/4`).
+  #
+  # `stop_span/2` and `exception_span/4` are single-shot: the first close wins and
+  # later calls no-op, so a surrounding catch-all may emit `exception_span/4`
+  # unconditionally without re-closing a span that already stopped.
+  @doc false
   @spec start_span(keyword(), [atom()], map() | keyword()) :: span_handle()
   def start_span(telemetry_opts, stage, start_metadata) when is_list(stage) do
     event = event_prefix(telemetry_opts, stage)
@@ -239,13 +239,15 @@ defmodule ImagePipe.Telemetry do
     }
   end
 
-  @doc "Closes a `start_span/3` bracket with a `:stop` event. Single-shot."
+  # Closes a `start_span/3` bracket with a `:stop` event. Single-shot.
+  @doc false
   @spec stop_span(span_handle(), map() | keyword()) :: :ok
   def stop_span(handle, stop_metadata) do
     close_span(handle, :stop, merge_metadata(handle.start_metadata, stop_metadata))
   end
 
-  @doc "Closes a `start_span/3` bracket with an `:exception` event. Single-shot."
+  # Closes a `start_span/3` bracket with an `:exception` event. Single-shot.
+  @doc false
   @spec exception_span(span_handle(), Exception.kind(), term(), Exception.stacktrace()) :: :ok
   def exception_span(handle, kind, reason, stacktrace) do
     metadata =
@@ -268,6 +270,7 @@ defmodule ImagePipe.Telemetry do
     :ok
   end
 
+  @doc false
   @spec execute(keyword(), [atom()], map() | keyword(), map() | keyword()) :: :ok
   def execute(telemetry_opts, stage, measurements, metadata) when is_list(stage) do
     telemetry_opts
@@ -275,6 +278,7 @@ defmodule ImagePipe.Telemetry do
     |> :telemetry.execute(Map.new(measurements), clean_metadata(metadata))
   end
 
+  @doc false
   @spec telemetry_opts(keyword()) :: keyword()
   def telemetry_opts(opts) when is_list(opts) do
     Keyword.take(opts, [:telemetry_prefix])

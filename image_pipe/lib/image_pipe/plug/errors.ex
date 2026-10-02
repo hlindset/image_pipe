@@ -1,12 +1,11 @@
 defmodule ImagePipe.Plug.Errors do
-  @moduledoc """
-  Maps request errors to HTTP responses.
-
-  Parse failures use `ImagePipe.API.DiagnosticRenderer`. Signature failures
-  return a terse 403 without spans or echoed paths to avoid a signature oracle.
-  Resolved output-policy failures return a fixed safe 400. Source, decode,
-  limit, encode, and output errors use `ImagePipe.Response.ErrorStatus`.
-  """
+  # Maps request errors to HTTP responses.
+  #
+  # Parse failures use `ImagePipe.API.DiagnosticRenderer`. Signature failures
+  # return a terse 403 without spans or echoed paths to avoid a signature oracle.
+  # Resolved output-policy failures return a fixed safe 400. Source, decode,
+  # limit, encode, and output errors use `ImagePipe.Response.ErrorStatus`.
+  @moduledoc false
 
   import Plug.Conn, only: [put_resp_content_type: 2, send_resp: 3]
 

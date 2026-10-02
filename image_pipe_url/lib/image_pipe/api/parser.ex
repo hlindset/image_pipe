@@ -1,23 +1,22 @@
 defmodule ImagePipe.API.Parser do
-  @moduledoc """
-  Parses URL segments into a validated, canonical `%Spec{}`.
-
-  `parse/2` consumes the lexed map from `ImagePipe.API.Path.extract/2`.
-  `Path` owns raw-path and HTTP handling.
-
-  Validation accumulates diagnostics in five passes:
-
-    1. Parse each option key and value.
-    2. Split groups on `-`; reject leading, trailing, or consecutive separators.
-    3. Reject duplicate group options within a group and request options anywhere,
-       marking every occurrence. Then expand presets.
-    4. Check conflicts, inert options, and output applicability using only valid,
-       non-duplicate values, to avoid errors caused by earlier failures.
-    5. Translate into typed intent for `Plan.Spec.build/2`, which removes
-       identity values and resolves omitted fit/guide defaults.
-
-  Diagnostics are `ImagePipe.API.Diagnostic` structs with stable `reason` atoms.
-  """
+  # Parses URL segments into a validated, canonical `%Spec{}`.
+  #
+  # `parse/2` consumes the lexed map from `ImagePipe.API.Path.extract/2`.
+  # `Path` owns raw-path and HTTP handling.
+  #
+  # Validation accumulates diagnostics in five passes:
+  #
+  #   1. Parse each option key and value.
+  #   2. Split groups on `-`; reject leading, trailing, or consecutive separators.
+  #   3. Reject duplicate group options within a group and request options anywhere,
+  #      marking every occurrence. Then expand presets.
+  #   4. Check conflicts, inert options, and output applicability using only valid,
+  #      non-duplicate values, to avoid errors caused by earlier failures.
+  #   5. Translate into typed intent for `Plan.Spec.build/2`, which removes
+  #      identity values and resolves omitted fit/guide defaults.
+  #
+  # Diagnostics are `ImagePipe.API.Diagnostic` structs with stable `reason` atoms.
+  @moduledoc false
 
   alias ImagePipe.API.Diagnostic
   alias ImagePipe.API.OptionSpec

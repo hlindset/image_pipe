@@ -1,25 +1,24 @@
 defmodule ImagePipe.Source.Parser do
-  @moduledoc """
-  Translates a decoded source string into `ImagePipe.Plan.Source`.
-
-  `translate/2` consumes a source string, with any outer transport encoding
-  already decoded, and classifies it:
-
-    * no `scheme://` prefix — a root-relative `%Plan.Source.Path{}`. The
-      decoded string is split into segments on `/` with no further decoding.
-      An optional leading slash is normalized for ordinary root-relative paths.
-    * `http://` or `https://` — an absolute `%Plan.Source.URL{}`. Inner URL
-      path escapes are decoded once here and re-encoded by the HTTP adapter.
-    * `s3://` — an `%Plan.Source.Object{}` with the query carried as its
-      immutable revision.
-    * a custom scheme a mount matches — a `%Plan.Source.Path{}` tagged with
-      that scheme, holding the part after `scheme://` split on `/`.
-    * anything else (an unknown scheme, an empty source, or a malformed
-      authority) — `{:error, {:invalid_source, reason}}`.
-
-  `ImagePipe.Source.resolve/3` consumes the returned `Plan.Source.t()`
-  unchanged.
-  """
+  # Translates a decoded source string into `ImagePipe.Plan.Source`.
+  #
+  # `translate/2` consumes a source string, with any outer transport encoding
+  # already decoded, and classifies it:
+  #
+  #   * no `scheme://` prefix — a root-relative `%Plan.Source.Path{}`. The
+  #     decoded string is split into segments on `/` with no further decoding.
+  #     An optional leading slash is normalized for ordinary root-relative paths.
+  #   * `http://` or `https://` — an absolute `%Plan.Source.URL{}`. Inner URL
+  #     path escapes are decoded once here and re-encoded by the HTTP adapter.
+  #   * `s3://` — an `%Plan.Source.Object{}` with the query carried as its
+  #     immutable revision.
+  #   * a custom scheme a mount matches — a `%Plan.Source.Path{}` tagged with
+  #     that scheme, holding the part after `scheme://` split on `/`.
+  #   * anything else (an unknown scheme, an empty source, or a malformed
+  #     authority) — `{:error, {:invalid_source, reason}}`.
+  #
+  # `ImagePipe.Source.resolve/3` consumes the returned `Plan.Source.t()`
+  # unchanged.
+  @moduledoc false
 
   alias ImagePipe.Plan.Source, as: PlanSource
   alias ImagePipe.Plan.Source.Object

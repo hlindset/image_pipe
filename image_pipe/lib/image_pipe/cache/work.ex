@@ -1,5 +1,6 @@
 defmodule ImagePipe.Cache.Work do
-  @moduledoc "Node-local bounded coordination for source acquisition and background refresh."
+  # Node-local bounded coordination for source acquisition and background refresh.
+  @moduledoc false
   use GenServer
   alias ImagePipe.Telemetry
   @max_keys 64

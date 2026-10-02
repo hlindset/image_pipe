@@ -1,11 +1,10 @@
 defmodule ImagePipe.Plan.Spec.Output do
-  @moduledoc """
-  Terminal selection and sparse output intent from a request.
-
-  Host defaults and format negotiation resolve this intent into
-  `ImagePipe.Output.Policy` for image encoding. `placeholders` lists, in
-  sorted order, the placeholders an info response includes.
-  """
+  # Terminal selection and sparse output intent from a request.
+  #
+  # Host defaults and format negotiation resolve this intent into
+  # `ImagePipe.Output.Policy` for image encoding. `placeholders` lists, in
+  # sorted order, the placeholders an info response includes.
+  @moduledoc false
 
   defstruct terminal: :image,
             placeholders: [],

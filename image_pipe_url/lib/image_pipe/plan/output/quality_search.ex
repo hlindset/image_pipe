@@ -1,16 +1,15 @@
 defmodule ImagePipe.Plan.Output.QualitySearch do
-  @moduledoc """
-  Builds a per-request autoquality search struct
-  (`Size`/`Ssimulacra2`/`Butteraugli`) from resolved neutral config, optionally
-  overlaid with URL-supplied fields through `build/3`. `from_config/1` uses only
-  the host configuration. The struct shape and per-metric fallbacks live here.
-
-  Per-metric target and `allowed_error` fallbacks come from the config maps
-  (processing configuration seeds `autoquality_target`/`autoquality_allowed_error` for
-  the perceptual metrics), so there are no built-in constants here. `:size` has no
-  default target — a byte budget must be supplied (URL or config) or `build/3`
-  returns a missing-target error.
-  """
+  # Builds a per-request autoquality search struct
+  # (`Size`/`Ssimulacra2`/`Butteraugli`) from resolved neutral config, optionally
+  # overlaid with URL-supplied fields through `build/3`. `from_config/1` uses only
+  # the host configuration. The struct shape and per-metric fallbacks live here.
+  #
+  # Per-metric target and `allowed_error` fallbacks come from the config maps
+  # (processing configuration seeds `autoquality_target`/`autoquality_allowed_error` for
+  # the perceptual metrics), so there are no built-in constants here. `:size` has no
+  # default target — a byte budget must be supplied (URL or config) or `build/3`
+  # returns a missing-target error.
+  @moduledoc false
 
   alias ImagePipe.Plan.Output.QualitySearch.{Butteraugli, Size, Ssimulacra2}
 

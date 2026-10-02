@@ -1,11 +1,10 @@
 defmodule ImagePipe.Output.Metric.Butteraugli do
-  @moduledoc """
-  Adapter over the `butteraugli` NIF — the only module that references
-  `Butteraugli.*`. `reference/1` builds a reusable reference from the finalized
-  pre-encode image; the loop calls `score/2` per decoded candidate. The targeted
-  value is `Result.score` — the headline max butteraugli distance (lower = better;
-  ~1.0 visually lossless). The supported target range is 0 to 25.
-  """
+  # Adapter over the `butteraugli` NIF — the only module that references
+  # `Butteraugli.*`. `reference/1` builds a reusable reference from the finalized
+  # pre-encode image; the loop calls `score/2` per decoded candidate. The targeted
+  # value is `Result.score` — the headline max butteraugli distance (lower = better;
+  # ~1.0 visually lossless). The supported target range is 0 to 25.
+  @moduledoc false
   @behaviour ImagePipe.Output.Metric
 
   alias ImagePipe.Plan.Output.QualitySearch.Metric

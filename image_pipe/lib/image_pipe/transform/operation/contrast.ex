@@ -1,7 +1,6 @@
 defmodule ImagePipe.Transform.Operation.Contrast do
-  @moduledoc """
-  Executable contrast adjustment operation.
-  """
+  # Executable contrast adjustment operation.
+  @moduledoc false
 
   use ImagePipe.Transform
 

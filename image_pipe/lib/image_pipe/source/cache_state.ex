@@ -1,15 +1,14 @@
 defmodule ImagePipe.Source.CacheState do
-  @moduledoc """
-  Source-derived storage permission and absolute freshness deadlines.
-
-  Both caches retain this state with their entries. Reading an entry or
-  generating a new output never changes its deadlines. Only a successful
-  source response or revalidation produces new state.
-
-  Header input uses Req's normalized lowercase names and lists of values.
-  Times are Unix seconds. Age includes apparent origin age and request delay
-  (RFC 9111 section 4.2.3). No heuristic freshness is assumed.
-  """
+  # Source-derived storage permission and absolute freshness deadlines.
+  #
+  # Both caches retain this state with their entries. Reading an entry or
+  # generating a new output never changes its deadlines. Only a successful
+  # source response or revalidation produces new state.
+  #
+  # Header input uses Req's normalized lowercase names and lists of values.
+  # Times are Unix seconds. Age includes apparent origin age and request delay
+  # (RFC 9111 section 4.2.3). No heuristic freshness is assumed.
+  @moduledoc false
 
   alias ImagePipe.Source.CachePolicy
   alias ImagePipe.Source.HTTPDate

@@ -1,11 +1,10 @@
 defmodule ImagePipe.Plan.Output.QualitySearch.Size do
-  @moduledoc """
-  Byte-budget autoquality search (imgproxy `autoquality:size`). `target` is a byte
-  count; the search finds the highest quality in `[min_quality, max_quality]` whose
-  encode is `<= target`. `format_min`/`format_max` clamp the bracket per output
-  format (resolved away in `ImagePipe.Output.Policy`); `max_resolution` (megapixels,
-  0 = off) skips the search on oversized results. No perceptual metric, no band.
-  """
+  # Byte-budget autoquality search (imgproxy `autoquality:size`). `target` is a byte
+  # count; the search finds the highest quality in `[min_quality, max_quality]` whose
+  # encode is `<= target`. `format_min`/`format_max` clamp the bracket per output
+  # format (resolved away in `ImagePipe.Output.Policy`); `max_resolution` (megapixels,
+  # 0 = off) skips the search on oversized results. No perceptual metric, no band.
+  @moduledoc false
   @enforce_keys [:target, :min_quality, :max_quality]
   defstruct @enforce_keys ++
               [

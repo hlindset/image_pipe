@@ -1,10 +1,9 @@
 defmodule ImagePipe.Debug.Info do
-  @moduledoc """
-  Aggregated, non-sensitive facts about how one response was produced, used to
-  render the opt-in `X-ImagePipe-*` debug headers. Product-neutral: populated by
-  request orchestration from values the source/output/transform layers already
-  return. Every field is optional so partial collection degrades gracefully.
-  """
+  # Aggregated, non-sensitive facts about how one response was produced, used to
+  # render the opt-in `X-ImagePipe-*` debug headers. Product-neutral: populated by
+  # request orchestration from values the source/output/transform layers already
+  # return. Every field is optional so partial collection degrades gracefully.
+  @moduledoc false
 
   defstruct source_format: nil,
             source_bytes: nil,

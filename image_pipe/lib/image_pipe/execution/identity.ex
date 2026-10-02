@@ -1,18 +1,17 @@
 defmodule ImagePipe.Execution.Identity do
-  @moduledoc """
-  Builds representation identity from canonical request data and the
-  resolved output policy. Byte-affecting groups, terminal, output selection,
-  and detector identity enter both the cache key and ETag. Info identity also
-  carries the placeholders it includes.
-
-  The cachebuster and configured request-header/cookie storage inputs partition
-  cache storage without changing the ETag. Expiry, signatures, filenames,
-  attachment, and debug presentation do not enter identity. The caller passes
-  source byte identity separately to `ImagePipe.Representation.build/3`.
-
-  Watermark assets enter as their resolved source identity with the host base
-  opacity folded into the effective opacity; host entry names do not.
-  """
+  # Builds representation identity from canonical request data and the
+  # resolved output policy. Byte-affecting groups, terminal, output selection,
+  # and detector identity enter both the cache key and ETag. Info identity also
+  # carries the placeholders it includes.
+  #
+  # The cachebuster and configured request-header/cookie storage inputs partition
+  # cache storage without changing the ETag. Expiry, signatures, filenames,
+  # attachment, and debug presentation do not enter identity. The caller passes
+  # source byte identity separately to `ImagePipe.Representation.build/3`.
+  #
+  # Watermark assets enter as their resolved source identity with the host base
+  # opacity folded into the effective opacity; host entry names do not.
+  @moduledoc false
 
   alias ImagePipe.Execution.Inputs
   alias ImagePipe.Output.Policy

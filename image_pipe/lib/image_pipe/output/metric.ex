@@ -1,11 +1,10 @@
 defmodule ImagePipe.Output.Metric do
-  @moduledoc """
-  Runtime behaviour for perceptual quality metrics.
-
-  Each metric defines its reference image, score, and whether higher or lower
-  scores are better. `runtime/1` selects the metric module for a resolved quality
-  search.
-  """
+  # Runtime behaviour for perceptual quality metrics.
+  #
+  # Each metric defines its reference image, score, and whether higher or lower
+  # scores are better. `runtime/1` selects the metric module for a resolved quality
+  # search.
+  @moduledoc false
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
 
   @callback direction() :: :higher_better | :lower_better

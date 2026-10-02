@@ -1,11 +1,10 @@
 defmodule ImagePipe.Transform.InputColorManagement do
-  @moduledoc """
-  Converts decoded input to a working color space before transforms.
-
-  Runs once per execution, importing embedded ICC profiles when needed. The
-  caller supplies `supports_hdr?` from `ImagePipe.Output.Policy`, based on the HDR
-  policy and output format's capabilities.
-  """
+  # Converts decoded input to a working color space before transforms.
+  #
+  # Runs once per execution, importing embedded ICC profiles when needed. The
+  # caller supplies `supports_hdr?` from `ImagePipe.Output.Policy`, based on the HDR
+  # policy and output format's capabilities.
+  @moduledoc false
 
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.State

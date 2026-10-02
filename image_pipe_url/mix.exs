@@ -23,9 +23,9 @@ defmodule ImagePipeURL.MixProject do
         extras: ["README.md", "CHANGELOG.md", "LICENSE.md"],
         groups_for_modules: [
           "URL builder": [ImagePipe.URL, ImagePipe.URL.Config],
-          "Plan Model": [ImagePipe.Plan, ~r/ImagePipe\.Plan\..*/],
-          "URL grammar": [ImagePipe.API, ~r/ImagePipe\.API\..*/],
-          Internals: [~r/.*/]
+          "Plan model": [ImagePipe.Plan, ImagePipe.Plan.Spec.Issue],
+          Sources: [ImagePipe.Plan.Source, ~r/ImagePipe\.Plan\.Source\..*/],
+          "Encoder options": [~r/ImagePipe\.Plan\.Output\..*Options/]
         ]
       ],
       dialyzer: [

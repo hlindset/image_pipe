@@ -89,8 +89,8 @@ defmodule ImagePipe.Source do
               {:ok, Resolved.t()} | {:error, error()}
 
   @doc """
-  The third argument must be projected with `runtime_opts/1`. Passing the full
-  mount configuration would expose other source and cache adapters' credentials.
+  The third argument holds runtime limits (body size, transport timeouts, and
+  the telemetry prefix), never the full mount configuration.
   """
   @callback fetch(Resolved.t(), keyword(), keyword()) ::
               {:ok, Response.t()} | {:not_modified, Origin.t()} | {:error, error()}
@@ -111,18 +111,18 @@ defmodule ImagePipe.Source do
     :telemetry_prefix
   ]
 
-  @doc """
-  Selects the runtime options passed as the third argument to `c:resolve/3`
-  and `c:fetch/3`.
-
-  Adapters receive their own validated options separately. This projection
-  excludes `:sources` and `:cache`, which can contain other adapters' credentials.
-  """
+  # Selects the runtime options passed as the third argument to `c:resolve/3`
+  # and `c:fetch/3`.
+  #
+  # Adapters receive their own validated options separately. This projection
+  # excludes `:sources` and `:cache`, which can contain other adapters' credentials.
+  @doc false
   @spec runtime_opts(keyword()) :: keyword()
   def runtime_opts(config) when is_list(config),
     do: Keyword.take(config, @runtime_option_keys)
 
-  @doc "Freezes dynamic origin credentials before partitioning a cached request."
+  # Freezes dynamic origin credentials before partitioning a cached request.
+  @doc false
   def prepare_cache_context(source, config) do
     {:ok, module, opts} = mount_config(source, config)
 
@@ -153,6 +153,7 @@ defmodule ImagePipe.Source do
 
   defp prepare_cache_source(_module, source, _opts, _runtime), do: {:ok, source}
 
+  @doc false
   @spec validate_config(keyword()) :: {:ok, keyword()} | {:error, error()}
   def validate_config(opts) when is_list(opts) do
     with {:ok, policy} <- CachePolicy.validate(Keyword.get(opts, :source_cache_policy, [])),
@@ -161,6 +162,7 @@ defmodule ImagePipe.Source do
     end
   end
 
+  @doc false
   @spec validate_config!(keyword()) :: keyword()
   def validate_config!(opts) when is_list(opts) do
     case validate_config(opts) do
@@ -172,10 +174,9 @@ defmodule ImagePipe.Source do
     end
   end
 
-  @doc """
-  Translates a host-configured source string into a plan source that a
-  configured mount serves. `opts` holds validated mounts.
-  """
+  # Translates a host-configured source string into a plan source that a
+  # configured mount serves. `opts` holds validated mounts.
+  @doc false
   @spec translate_configured(String.t(), keyword()) :: {:ok, PlanSource.t()} | {:error, term()}
   def translate_configured(source, opts) when is_binary(source) do
     with {:ok, plan_source} <- Parser.translate(source, opts),
@@ -184,6 +185,7 @@ defmodule ImagePipe.Source do
     end
   end
 
+  @doc false
   @spec resolve(PlanSource.t() | Input.t(), keyword(), keyword()) ::
           {:ok, Resolved.t()} | {:error, error()}
   def resolve(%Input{} = source, _opts, runtime_opts),
@@ -257,6 +259,7 @@ defmodule ImagePipe.Source do
     end
   end
 
+  @doc false
   @spec fetch(Resolved.t(), keyword(), keyword()) ::
           {:ok, Response.t()} | {:not_modified, Origin.t()} | {:error, error()}
   def fetch(%Resolved{} = resolved, opts, runtime_opts) do
@@ -294,21 +297,20 @@ defmodule ImagePipe.Source do
     end
   end
 
-  @doc """
-  Fetches a source and passes its `Response.t()` to `fun`.
-
-  Uses `fetch/3`'s telemetry, body-size limit, and source-error normalization.
-  `config` selects the adapter through `:sources`; `runtime_opts/1` selects
-  the runtime options it receives.
-
-  Resource streams clean up on completion, early halt, or reducer failure.
-  The response's close function also runs when the callback exits, including
-  when it never enumerates the body. Streams must be consumed in this process
-  and within this bracket; this function never re-enumerates them.
-
-  Returns `fun`'s result or `fetch/3`'s `{:error, {:source, _}}` unchanged.
-  Exceptions and throws from `fun` propagate unchanged.
-  """
+  # Fetches a source and passes its `Response.t()` to `fun`.
+  #
+  # Uses `fetch/3`'s telemetry, body-size limit, and source-error normalization.
+  # `config` selects the adapter through `:sources`; `runtime_opts/1` selects
+  # the runtime options it receives.
+  #
+  # Resource streams clean up on completion, early halt, or reducer failure.
+  # The response's close function also runs when the callback exits, including
+  # when it never enumerates the body. Streams must be consumed in this process
+  # and within this bracket; this function never re-enumerates them.
+  #
+  # Returns `fun`'s result or `fetch/3`'s `{:error, {:source, _}}` unchanged.
+  # Exceptions and throws from `fun` propagate unchanged.
+  @doc false
   @spec with_fetched(Resolved.t(), keyword(), (Response.t() -> result)) ::
           result | {:error, error()}
         when result: var
@@ -316,11 +318,10 @@ defmodule ImagePipe.Source do
     resolved |> fetch(config, runtime_opts(config)) |> consume(fun)
   end
 
-  @doc """
-  Revalidates prior origin evidence. A changed response is passed to `fun` in
-  the same resource bracket as `with_fetched/3`. A valid upstream 304 returns
-  `{:not_modified, refreshed_origin}` without invoking the body consumer.
-  """
+  # Revalidates prior origin evidence. A changed response is passed to `fun` in
+  # the same resource bracket as `with_fetched/3`. A valid upstream 304 returns
+  # `{:not_modified, refreshed_origin}` without invoking the body consumer.
+  @doc false
   def with_revalidated(%Resolved{} = resolved, %Origin{} = previous, config, fun) do
     runtime = Keyword.put(runtime_opts(config), :source_validation, previous)
     resolved |> fetch(config, runtime) |> consume(fun)
@@ -335,6 +336,7 @@ defmodule ImagePipe.Source do
   defp consume({:not_modified, _origin} = result, _fun), do: result
   defp consume({:error, {:source, _reason}} = error, _fun), do: error
 
+  @doc false
   @spec wrap_response(Response.t(), keyword()) :: {:ok, Response.t()} | {:error, error()}
   def wrap_response(%Response{} = response, runtime_opts) do
     valid_close? = is_nil(response.close) or is_function(response.close, 0)

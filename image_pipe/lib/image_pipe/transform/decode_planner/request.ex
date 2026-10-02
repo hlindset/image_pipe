@@ -1,11 +1,10 @@
 defmodule ImagePipe.Transform.DecodePlanner.Request do
-  @moduledoc """
-  Concrete decode geometry for
-  `ImagePipe.Transform.DecodePlanner.open_options_for/5`.
-
-  The executor resolves display-frame extents before choosing decode load
-  options. This struct carries the inputs the load-shrink math needs.
-  """
+  # Concrete decode geometry for
+  # `ImagePipe.Transform.DecodePlanner.open_options_for/5`.
+  #
+  # The executor resolves display-frame extents before choosing decode load
+  # options. This struct carries the inputs the load-shrink math needs.
+  @moduledoc false
 
   @typedoc "A {width, height} extent in display-frame pixels."
   @type extent() :: {pos_integer(), pos_integer()}

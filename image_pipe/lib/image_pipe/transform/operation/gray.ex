@@ -1,8 +1,7 @@
 defmodule ImagePipe.Transform.Operation.Gray do
-  @moduledoc """
-  Executable true grayscale (desaturation) operation. Converts to the `:bw`
-  colourspace, discarding hue and saturation; alpha is preserved.
-  """
+  # Executable true grayscale (desaturation) operation. Converts to the `:bw`
+  # colourspace, discarding hue and saturation; alpha is preserved.
+  @moduledoc false
 
   use ImagePipe.Transform
 

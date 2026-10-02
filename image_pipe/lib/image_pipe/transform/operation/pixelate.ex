@@ -1,7 +1,6 @@
 defmodule ImagePipe.Transform.Operation.Pixelate do
-  @moduledoc """
-  Executable pixelation operation.
-  """
+  # Executable pixelation operation.
+  @moduledoc false
 
   use ImagePipe.Transform
 

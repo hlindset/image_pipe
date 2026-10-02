@@ -1,5 +1,6 @@
 defmodule ImagePipe.Cache.File do
-  @moduledoc "A verified, open cache body. Close it after delivery, including HEAD and 304."
+  # A verified, open cache body. Close it after delivery, including HEAD and 304.
+  @moduledoc false
   @enforce_keys [:io, :size, :sha256, :path]
   defstruct @enforce_keys
   @type t :: %__MODULE__{io: pid(), size: non_neg_integer(), sha256: String.t(), path: Path.t()}

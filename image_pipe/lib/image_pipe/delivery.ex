@@ -1,32 +1,31 @@
 defmodule ImagePipe.Delivery do
-  @moduledoc """
-  Streaming delivery sessions for the request runner's image terminal.
-
-  ## Process ownership
-
-    * **conn owner** — the process running the ImagePipe plug request
-      (`self()` when calling `stream/4`). It holds the prepared stream's
-      `next`/`cancel` closures.
-    * **coordinator** (`Delivery.Coordinator`) — monitors the owner and owns
-      the cache sink. On owner `:DOWN`, it requests a graceful producer halt
-      and aborts the sink. The monitor must point from coordinator to owner
-      to detect owner death.
-    * **producer** (`Delivery.Producer`) — linked to and monitored by the
-      coordinator. It runs `build_fun`'s fetch → decode → transform → encode
-      flow and the `pump` demand loop. Only encoded chunks cross the process
-      boundary; the lazy vips image and encoder enumerable stay here.
-
-  `build_fun` must remain inside its resource brackets until `pump` reaches
-  EOF or halts. Cleanup runs once inside the producer on completion, owner
-  disconnect, and explicit cancellation.
-
-  ## Graceful cancellation
-
-  Owner death and explicit cancellation send `{:halt, ...}` so the producer
-  can finish its current work and run `after` cleanup. The producer does not
-  trap exits, so a shutdown signal would skip that cleanup. A short timeout
-  force-kills a stuck producer; cleanup may not run in that case.
-  """
+  # Streaming delivery sessions for the request runner's image terminal.
+  #
+  # ## Process ownership
+  #
+  #   * **conn owner** — the process running the ImagePipe plug request
+  #     (`self()` when calling `stream/4`). It holds the prepared stream's
+  #     `next`/`cancel` closures.
+  #   * **coordinator** (`Delivery.Coordinator`) — monitors the owner and owns
+  #     the cache sink. On owner `:DOWN`, it requests a graceful producer halt
+  #     and aborts the sink. The monitor must point from coordinator to owner
+  #     to detect owner death.
+  #   * **producer** (`Delivery.Producer`) — linked to and monitored by the
+  #     coordinator. It runs `build_fun`'s fetch → decode → transform → encode
+  #     flow and the `pump` demand loop. Only encoded chunks cross the process
+  #     boundary; the lazy vips image and encoder enumerable stay here.
+  #
+  # `build_fun` must remain inside its resource brackets until `pump` reaches
+  # EOF or halts. Cleanup runs once inside the producer on completion, owner
+  # disconnect, and explicit cancellation.
+  #
+  # ## Graceful cancellation
+  #
+  # Owner death and explicit cancellation send `{:halt, ...}` so the producer
+  # can finish its current work and run `after` cleanup. The producer does not
+  # trap exits, so a shutdown signal would skip that cleanup. A short timeout
+  # force-kills a stuck producer; cleanup may not run in that case.
+  @moduledoc false
 
   use Boundary,
     top_level?: true,

@@ -1,7 +1,6 @@
 defmodule ImagePipe.Transform.Operation.Colorize do
-  @moduledoc """
-  Executable solid-color overlay: out = src·(1−o) + color·o.
-  """
+  # Executable solid-color overlay: out = src·(1−o) + color·o.
+  @moduledoc false
 
   use ImagePipe.Transform
 

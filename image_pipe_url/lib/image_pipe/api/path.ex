@@ -1,25 +1,24 @@
 defmodule ImagePipe.API.Path do
-  @moduledoc """
-  Splits request paths into segments with byte spans.
-
-  Signature verification must precede parsing:
-
-    * `split_signature/1` returns `{sig, signed_path}` using raw byte
-      inspection only. It does not validate segments, decode escapes, or
-      allocate diagnostics.
-    * `extract/2` lexes and decodes only after `Signature.verify/3` succeeds
-      against the same path's `split_signature/1` output. It skips the
-      leading signature segment and returns no signature data.
-
-  Both take the raw mount-relative path: `""` or a string starting with `/`,
-  with the mount prefix and query string already removed.
-
-  Spans are `{byte_offset, byte_length}` into the mount-relative raw path,
-  including the skipped signature segment in their offsets.
-
-  Lexing stops with `:too_many_segments` after `@max_option_segments`
-  non-source segments, bounding work on hostile paths.
-  """
+  # Splits request paths into segments with byte spans.
+  #
+  # Signature verification must precede parsing:
+  #
+  #   * `split_signature/1` returns `{sig, signed_path}` using raw byte
+  #     inspection only. It does not validate segments, decode escapes, or
+  #     allocate diagnostics.
+  #   * `extract/2` lexes and decodes only after `Signature.verify/3` succeeds
+  #     against the same path's `split_signature/1` output. It skips the
+  #     leading signature segment and returns no signature data.
+  #
+  # Both take the raw mount-relative path: `""` or a string starting with `/`,
+  # with the mount prefix and query string already removed.
+  #
+  # Spans are `{byte_offset, byte_length}` into the mount-relative raw path,
+  # including the skipped signature segment in their offsets.
+  #
+  # Lexing stops with `:too_many_segments` after `@max_option_segments`
+  # non-source segments, bounding work on hostile paths.
+  @moduledoc false
 
   alias ImagePipe.API.Diagnostic
 

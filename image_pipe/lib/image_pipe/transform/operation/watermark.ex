@@ -1,29 +1,28 @@
 defmodule ImagePipe.Transform.Operation.Watermark do
-  @moduledoc """
-  Composites a watermark asset over the image.
-
-  The executor prepares `image` in the frame's color space and resolves every
-  length to pixels before constructing this operation.
-
-  ## Fields
-
-  - `image`: the asset, with an alpha band, in display orientation.
-  - `width`, `height`: the drawn asset size in pixels, at least 1.
-  - `opacity`: from 0 (exclusive) to 1, multiplying the asset alpha.
-  - `gravity`: `{:anchor, :left | :center | :right, :top | :center | :bottom}`.
-  - `x_offset`, `y_offset`: integer pixels moving the asset inward from
-    right/bottom anchors and forward from left/top/center anchors.
-  - `tile`: repeat the asset across the frame.
-  - `gap`: `{x, y}` non-negative integer pixels between tiles.
-
-  ## Execution Semantics
-
-  Placement is not clamped: an asset partly outside the frame is clipped, and
-  one entirely outside leaves the image unchanged. A tiled asset repeats in
-  every direction from its anchored position. The asset composites `over` the
-  image; an image without alpha keeps none, and the result retains the image's
-  band format.
-  """
+  # Composites a watermark asset over the image.
+  #
+  # The executor prepares `image` in the frame's color space and resolves every
+  # length to pixels before constructing this operation.
+  #
+  # ## Fields
+  #
+  # - `image`: the asset, with an alpha band, in display orientation.
+  # - `width`, `height`: the drawn asset size in pixels, at least 1.
+  # - `opacity`: from 0 (exclusive) to 1, multiplying the asset alpha.
+  # - `gravity`: `{:anchor, :left | :center | :right, :top | :center | :bottom}`.
+  # - `x_offset`, `y_offset`: integer pixels moving the asset inward from
+  #   right/bottom anchors and forward from left/top/center anchors.
+  # - `tile`: repeat the asset across the frame.
+  # - `gap`: `{x, y}` non-negative integer pixels between tiles.
+  #
+  # ## Execution Semantics
+  #
+  # Placement is not clamped: an asset partly outside the frame is clipped, and
+  # one entirely outside leaves the image unchanged. A tiled asset repeats in
+  # every direction from its anchored position. The asset composites `over` the
+  # image; an image without alpha keeps none, and the result retains the image's
+  # band format.
+  @moduledoc false
 
   use ImagePipe.Transform
 

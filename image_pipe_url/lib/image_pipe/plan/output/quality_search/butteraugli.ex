@@ -1,12 +1,11 @@
 defmodule ImagePipe.Plan.Output.QualitySearch.Butteraugli do
-  @moduledoc """
-  Butteraugli distance-target autoquality search. `target` is a butteraugli
-  distance (lower = better; ~1.0 is visually lossless; valid range 0.0–25.0,
-  validated at resolve). On WebP/AVIF/JPEG the search walks the encoder quality
-  knob within `[min_quality, max_quality]` to land within `[target − allowed_error,
-  target + allowed_error]`.
-  `max_resolution` skips the search on oversized results.
-  """
+  # Butteraugli distance-target autoquality search. `target` is a butteraugli
+  # distance (lower = better; ~1.0 is visually lossless; valid range 0.0–25.0,
+  # validated at resolve). On WebP/AVIF/JPEG the search walks the encoder quality
+  # knob within `[min_quality, max_quality]` to land within `[target − allowed_error,
+  # target + allowed_error]`.
+  # `max_resolution` skips the search on oversized results.
+  @moduledoc false
   @enforce_keys [:target, :min_quality, :max_quality]
   defstruct @enforce_keys ++
               [

@@ -1,8 +1,7 @@
 defmodule ImagePipe.Output.Terminal.PixelSpace do
-  @moduledoc """
-  Fixed pixel space for placeholders: profile-aware sRGB, tone-mapped,
-  flattened on black, and cast to 8-bit channels.
-  """
+  # Fixed pixel space for placeholders: profile-aware sRGB, tone-mapped,
+  # flattened on black, and cast to 8-bit channels.
+  @moduledoc false
 
   alias Vix.Vips.Image, as: Vimage
 

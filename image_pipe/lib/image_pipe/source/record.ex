@@ -1,5 +1,6 @@
 defmodule ImagePipe.Source.Record do
-  @moduledoc "Source byte identity and origin evidence shared by input and output entries."
+  # Source byte identity and origin evidence shared by input and output entries.
+  @moduledoc false
   alias ImagePipe.Source.CacheState
   alias ImagePipe.Source.Origin
   @enforce_keys [:byte_identity, :origin, :received_at]

@@ -1,7 +1,6 @@
 defmodule ImagePipe.Cache do
-  @moduledoc """
-  Coordinates cache lookups and writes for processed image responses.
-  """
+  # Coordinates cache lookups and writes for processed image responses.
+  @moduledoc false
 
   use Boundary,
     top_level?: true,

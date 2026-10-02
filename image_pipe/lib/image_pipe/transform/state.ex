@@ -1,40 +1,39 @@
 defmodule ImagePipe.Transform.State do
-  @moduledoc """
-  Execution state carried through a transform chain.
-
-  Holds the current image, debug flag, and runtime configuration. Operations
-  return updated state and access host collaborators without depending on request
-  modules:
-
-  - `detector`: host-configured content detector module, or `nil` when no
-    detector is configured.
-  - `telemetry_opts`: telemetry metadata threaded through stage spans.
-  - `materialized?`: the graph has RAM-backed input and can be read out of row
-    order without revisiting the sequential source. Later operations may remain
-    lazy; this does not imply the current result is a contiguous pixel buffer.
-  - `buffer_before_resize?`: an arbitrary rotation remains lazy in the current
-    graph. Resize buffers it before resampling to avoid repeated affine work;
-    materialization and orientation flush clear the flag.
-  - `source_dimensions`: exact full-resolution `{w, h}` before shrink-on-load,
-    or `nil` for a full-resolution decode. Residual resize uses this extent to
-    match the full-resolution target. Pending orientation maps its axes to the
-    display frame; a physical quarter-turn flush swaps the extent and shrink
-    axes. Resize consumes the extent. Crop, trim, arbitrary rotation, canvas,
-    and padding establish new geometry; the executor clears the extent and
-    decode scale at those boundaries.
-  - `decode_shrink`: realized per-axis factors `%{w: float, h: float}`
-    (original ÷ decoded, each `>= 1.0`), or `nil` for a full-resolution decode.
-    Crops before resize rescale absolute dimensions and gravity offsets to
-    select the same source region; relative coordinates stay unchanged. Integer
-    decode dimensions can yield different factors per axis. Factors follow the
-    current image axes: gravity crops swap them for a pending quarter turn, then
-    map crop dimensions back to the image frame.
-  - `dpr`: the effective DPR of the most recently executed group, after the
-    enlargement clamp; 1.0 before any group runs.
-  - `source_color_profile` and `color_imported?`: input-color-management results
-    passed to the encoder. The profile holds raw source ICC bytes or `nil`; the
-    flag records whether `icc_import` ran. Never emit these in telemetry metadata.
-  """
+  # Execution state carried through a transform chain.
+  #
+  # Holds the current image, debug flag, and runtime configuration. Operations
+  # return updated state and access host collaborators without depending on request
+  # modules:
+  #
+  # - `detector`: host-configured content detector module, or `nil` when no
+  #   detector is configured.
+  # - `telemetry_opts`: telemetry metadata threaded through stage spans.
+  # - `materialized?`: the graph has RAM-backed input and can be read out of row
+  #   order without revisiting the sequential source. Later operations may remain
+  #   lazy; this does not imply the current result is a contiguous pixel buffer.
+  # - `buffer_before_resize?`: an arbitrary rotation remains lazy in the current
+  #   graph. Resize buffers it before resampling to avoid repeated affine work;
+  #   materialization and orientation flush clear the flag.
+  # - `source_dimensions`: exact full-resolution `{w, h}` before shrink-on-load,
+  #   or `nil` for a full-resolution decode. Residual resize uses this extent to
+  #   match the full-resolution target. Pending orientation maps its axes to the
+  #   display frame; a physical quarter-turn flush swaps the extent and shrink
+  #   axes. Resize consumes the extent. Crop, trim, arbitrary rotation, canvas,
+  #   and padding establish new geometry; the executor clears the extent and
+  #   decode scale at those boundaries.
+  # - `decode_shrink`: realized per-axis factors `%{w: float, h: float}`
+  #   (original ÷ decoded, each `>= 1.0`), or `nil` for a full-resolution decode.
+  #   Crops before resize rescale absolute dimensions and gravity offsets to
+  #   select the same source region; relative coordinates stay unchanged. Integer
+  #   decode dimensions can yield different factors per axis. Factors follow the
+  #   current image axes: gravity crops swap them for a pending quarter turn, then
+  #   map crop dimensions back to the image frame.
+  # - `dpr`: the effective DPR of the most recently executed group, after the
+  #   enlargement clamp; 1.0 before any group runs.
+  # - `source_color_profile` and `color_imported?`: input-color-management results
+  #   passed to the encoder. The profile holds raw source ICC bytes or `nil`; the
+  #   flag records whether `icc_import` ran. Never emit these in telemetry metadata.
+  @moduledoc false
 
   defstruct image: nil,
             debug: false,

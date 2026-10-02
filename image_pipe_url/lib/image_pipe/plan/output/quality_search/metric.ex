@@ -1,17 +1,16 @@
 defmodule ImagePipe.Plan.Output.QualitySearch.Metric do
-  @moduledoc """
-  Product-neutral facts about a perceptual autoquality metric, keyed by its
-  identity atom. The Plan namespace gives the parser and
-  `ImagePipe.Output` runtime one definition of each mathematical property.
-
-  - `target_range/1` — the valid `{lo, hi}` band a requested target must fall in:
-    SSIMULACRA2's `0`–`100` score, butteraugli's `0.0`–`25.0` distance.
-  - `direction/1` — whether a higher score is better (SSIMULACRA2) or a lower
-    distance is better (butteraugli), orienting the search loop's band walk.
-
-  `:size` (byte-budget autoquality) is not a perceptual metric and has no range or
-  direction here; the parser validates its byte target directly.
-  """
+  # Product-neutral facts about a perceptual autoquality metric, keyed by its
+  # identity atom. The Plan namespace gives the parser and
+  # `ImagePipe.Output` runtime one definition of each mathematical property.
+  #
+  # - `target_range/1` — the valid `{lo, hi}` band a requested target must fall in:
+  #   SSIMULACRA2's `0`–`100` score, butteraugli's `0.0`–`25.0` distance.
+  # - `direction/1` — whether a higher score is better (SSIMULACRA2) or a lower
+  #   distance is better (butteraugli), orienting the search loop's band walk.
+  #
+  # `:size` (byte-budget autoquality) is not a perceptual metric and has no range or
+  # direction here; the parser validates its byte target directly.
+  @moduledoc false
 
   @type id :: :ssimulacra2 | :butteraugli
   @type direction :: :higher_better | :lower_better

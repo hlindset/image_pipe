@@ -158,7 +158,7 @@ cache error, and the entry is not stored.
 
 ## Cache keys
 
-`ImagePipe.Representation.build/3` derives keys from canonical request material
+ImagePipe derives cache keys from canonical request material
 and source byte identity. Mutable remote identities use the digest of a complete
 original; trusted identities use the source's authoritative seed. Fresh source
 evidence allows conditionals before source fetch, decode, or encode.

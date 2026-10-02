@@ -1,8 +1,7 @@
 defmodule ImagePipe.Transform.Operation.Brightness do
-  @moduledoc """
-  Executable brightness adjustment operation: additive offset on the 0–255 scale
-  (imgproxy `brightness`, integer -255..255).
-  """
+  # Executable brightness adjustment operation: additive offset on the 0–255 scale
+  # (imgproxy `brightness`, integer -255..255).
+  @moduledoc false
 
   use ImagePipe.Transform
 

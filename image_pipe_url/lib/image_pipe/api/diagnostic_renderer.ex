@@ -1,22 +1,21 @@
 defmodule ImagePipe.API.DiagnosticRenderer do
-  @moduledoc """
-  Renders URL diagnostics as a caret display for `400` responses.
-
-  The raw request path occupies one line. Every diagnostic span gets carets;
-  each diagnostic gets one label anchored at its leftmost span. Labels stack
-  rightmost-first beneath the carets, with connecting bars to prevent overlap.
-
-  Work and output are bounded:
-
-    * at most #{16} diagnostics are rendered — further ones are
-      summarized in a trailing count line;
-    * the echoed path is capped at #{2048} bytes, truncated with a
-      marker;
-    * the whole rendered body is capped at #{8192} bytes, truncated with
-      a marker.
-
-  Truncation uses byte offsets and may split a multi-byte UTF-8 sequence.
-  """
+  # Renders URL diagnostics as a caret display for `400` responses.
+  #
+  # The raw request path occupies one line. Every diagnostic span gets carets;
+  # each diagnostic gets one label anchored at its leftmost span. Labels stack
+  # rightmost-first beneath the carets, with connecting bars to prevent overlap.
+  #
+  # Work and output are bounded:
+  #
+  #   * at most 16 diagnostics are rendered — further ones are
+  #     summarized in a trailing count line;
+  #   * the echoed path is capped at 2048 bytes, truncated with a
+  #     marker;
+  #   * the whole rendered body is capped at 8192 bytes, truncated with
+  #     a marker.
+  #
+  # Truncation uses byte offsets and may split a multi-byte UTF-8 sequence.
+  @moduledoc false
 
   alias ImagePipe.API.Diagnostic
 

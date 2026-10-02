@@ -1,12 +1,11 @@
 defmodule ImagePipe.Plan.Output.QualitySearch.Ssimulacra2 do
-  @moduledoc """
-  SSIMULACRA2 quality-target autoquality search. `target` is a SSIMULACRA2 score
-  (0–100, higher = better); the search walks the encoder quality knob within
-  `[min_quality, max_quality]` to land within `[target − allowed_error, target +
-  allowed_error]` (a symmetric band on the 0–100 scale). `format_min`/`format_max`
-  clamp the bracket per output format; `max_resolution` skips the search on
-  oversized results.
-  """
+  # SSIMULACRA2 quality-target autoquality search. `target` is a SSIMULACRA2 score
+  # (0–100, higher = better); the search walks the encoder quality knob within
+  # `[min_quality, max_quality]` to land within `[target − allowed_error, target +
+  # allowed_error]` (a symmetric band on the 0–100 scale). `format_min`/`format_max`
+  # clamp the bracket per output format; `max_resolution` skips the search on
+  # oversized results.
+  @moduledoc false
   @enforce_keys [:target, :min_quality, :max_quality]
   defstruct @enforce_keys ++
               [

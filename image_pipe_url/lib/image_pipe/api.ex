@@ -1,9 +1,8 @@
 defmodule ImagePipe.API do
-  @moduledoc """
-  ImagePipe's URL grammar: lexing, parsing, presets, canonical serialization,
-  and URL generation. `ImagePipe.URL` builds URLs and `ImagePipe.Plug`
-  verifies, parses, and serves requests through this module set.
-  """
+  # ImagePipe's URL grammar: lexing, parsing, presets, canonical serialization,
+  # and URL generation. `ImagePipe.URL` builds URLs and `ImagePipe.Plug`
+  # verifies, parses, and serves requests through this module set.
+  @moduledoc false
 
   use Boundary,
     top_level?: true,

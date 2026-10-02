@@ -1,17 +1,16 @@
 defmodule ImagePipe.MaterialDigest do
-  @moduledoc """
-  Deterministic digest of arbitrary identity material.
-
-  Turns a term (the inputs that define an identity — cache key data, ETag
-  material) into a stable SHA-256 digest by recursively normalizing keyword
-  lists and map values so incidental ordering cannot change the result, serializing
-  deterministically, and hashing. Two equal-meaning inputs always produce the
-  same digest, so it is a stable identity. Callers own the final encoding (hex
-  for storage paths, base64 for ETag headers).
-
-  Maps retain their type and exact keys, including compound keys. Map values
-  and struct fields are normalized recursively; plain list order is preserved.
-  """
+  # Deterministic digest of arbitrary identity material.
+  #
+  # Turns a term (the inputs that define an identity — cache key data, ETag
+  # material) into a stable SHA-256 digest by recursively normalizing keyword
+  # lists and map values so incidental ordering cannot change the result, serializing
+  # deterministically, and hashing. Two equal-meaning inputs always produce the
+  # same digest, so it is a stable identity. Callers own the final encoding (hex
+  # for storage paths, base64 for ETag headers).
+  #
+  # Maps retain their type and exact keys, including compound keys. Map values
+  # and struct fields are normalized recursively; plain list order is preserved.
+  @moduledoc false
 
   use Boundary, top_level?: true, deps: [], exports: []
 
