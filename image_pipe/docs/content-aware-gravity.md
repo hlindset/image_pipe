@@ -108,9 +108,17 @@ defmodule MyApp.MyDetector do
   @impl true
   def detect(image, opts) do
     classes = Keyword.get(opts, :classes, :all)
-    # ... return product-neutral regions for the requested classes ...
-    {:ok, [%{label: "face", score: 0.97, box: {x, y, width, height}}]}
-    # box is {x, y, width, height} in absolute top-left pixels
+
+    with {:ok, detections} <- MyApp.Model.run(image) do
+      regions =
+        for %{label: label, score: score, x: x, y: y, width: w, height: h} <- detections,
+            classes == :all or label in classes do
+          # box is {x, y, width, height} in absolute top-left pixels
+          %{label: label, score: score, box: {x, y, w, h}}
+        end
+
+      {:ok, regions}
+    end
   end
 
   @impl true
@@ -124,6 +132,10 @@ defmodule MyApp.MyDetector do
   def warmup(_opts), do: :ok
 end
 ```
+
+`MyApp.Model.run/1` stands in for your model or service. `detect/2` must return
+only regions whose label is in `opts[:classes]`, or any label when it is `:all`.
+Crop targeting and telemetry use the labels as returned.
 
 Mount with `detector: MyApp.MyDetector`. Include the model version in `identity/1`
 so model changes invalidate cached results and ETags. Keep it free of secrets:
