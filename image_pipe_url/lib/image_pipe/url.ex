@@ -113,9 +113,7 @@ defmodule ImagePipe.URL do
   Preset names remain references in generated URLs. Explicit options, including
   false and identity values, are retained as overrides. With `:mount_presets`,
   the combined request is validated like `validate/1`; otherwise the mount
-  validates it. Empty encoder-option or format-quality overrides with inherited
-  presets or request defaults return `{:error, :unrepresentable_preset_override}`
-  because they have no URL spelling.
+  validates it. An `:unset` option is written as `key=unset`.
 
   With encrypted configuration, per-call `:iv` accepts `:deterministic`,
   `:random`, or an explicit 16-byte binary. An explicit IV must be unpredictable
@@ -158,7 +156,7 @@ defmodule ImagePipe.URL do
 
   Accepts `:orient` (`:auto` or `:none`), `:page` (a 0-based page or
   frame), `:filename`, `:attachment`, `:cachebuster`, `:expires` (positive
-  Unix seconds), and `:debug`.
+  Unix seconds), and `:debug`. Each also accepts `:unset`.
   Unknown, duplicate, or malformed options raise `ArgumentError`.
   """
   @spec new(Config.t() | keyword()) :: t()
@@ -180,6 +178,9 @@ defmodule ImagePipe.URL do
   accept RGB tuples, CSS names, or hex strings. Effects and encoder policies
   use typed values; see `docs/elixir-api.md` for the complete option shapes.
 
+  Any option, including each resize setting, accepts `:unset` to clear a value
+  set by the group's presets or the request defaults.
+
   Values are checked immediately and malformed options raise `ArgumentError`.
   Use `validate/1` to check dependencies and conflicts across the plan.
   """
@@ -193,7 +194,10 @@ defmodule ImagePipe.URL do
   Supports terminal selection, format, quality, color/metadata policy, output
   DPI, quality search, byte limits, and encoder options. Repeating an output call replaces
   each supplied option as a whole; omitted options retain their previous value.
-  Host-dependent defaults remain unresolved. Malformed values raise `ArgumentError`.
+  Host-dependent defaults remain unresolved. Any option accepts `:unset` to
+  restore the host configuration over presets and request defaults; encoder
+  options and format qualities need at least one entry otherwise. Malformed
+  values raise `ArgumentError`.
   """
   @spec output(t(), keyword()) :: t()
   def output(%__MODULE__{} = builder, options),

@@ -46,6 +46,17 @@ defmodule ImagePipe.Plan.Spec.Validation do
     group_errors ++ output_errors(options)
   end
 
+  # The keys of one group whose requirement the group does not meet.
+  @doc false
+  @spec inert_keys(map()) :: MapSet.t(atom())
+  def inert_keys(group) do
+    for %Issue{reason: :inert_option, locations: locations} <-
+          requirements(group, 0, MapSet.new()),
+        {:group, 0, key} <- locations,
+        into: MapSet.new(),
+        do: key
+  end
+
   defp watermark_errors(_group, _index, nil), do: []
 
   defp watermark_errors(group, index, %{names: names, request_sources?: request_sources?}) do

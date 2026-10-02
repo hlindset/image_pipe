@@ -126,18 +126,50 @@ defmodule ImagePipe.PresetsTest do
     end
   end
 
-  test "URL generation rejects empty collection overrides that the URL grammar cannot express" do
+  test "URL generation clears request defaults with unset" do
     url_config =
       IP.url_config(IP.config(request_defaults: "jpeg-options=progressive/format-q=jpeg:70"))
 
-    for options <- [[jpeg_options: []], [format_qualities: []]] do
-      builder = IP.URL.new(url_config) |> IP.URL.output(options)
-      assert :ok = IP.URL.validate(builder)
-      assert IP.URL.url(builder, "photo.jpg") == {:error, :unrepresentable_preset_override}
+    builder =
+      IP.URL.new(url_config) |> IP.URL.output(jpeg_options: :unset, format_qualities: :unset)
 
-      assert IP.URL.url(IP.URL.new() |> IP.URL.output(options), "photo.jpg") ==
-               {:ok, "/src/photo.jpg"}
+    assert :ok = IP.URL.validate(builder)
+
+    assert IP.URL.url(builder, "photo.jpg") ==
+             {:ok, "/format-q=unset/jpeg-options=unset/src/photo.jpg"}
+  end
+
+  test "unset restores negotiation and drops a defaulted transform at the wire" do
+    body = Image.new!(60, 40, color: [200, 40, 40]) |> Image.write!(:memory, suffix: ".png")
+
+    origin = fn conn ->
+      conn |> Plug.Conn.put_resp_content_type("image/png") |> Plug.Conn.send_resp(200, body)
     end
+
+    sources = [
+      path: [
+        adapter: RootHTTPAdapter,
+        match: :path,
+        options: [root_url: "http://origin.test", req_options: [plug: origin]]
+      ]
+    ]
+
+    get = fn config, path ->
+      Plug.Test.conn(:get, path)
+      |> Plug.Conn.put_req_header("accept", "image/webp")
+      |> IP.Plug.call(IP.Plug.init(config))
+    end
+
+    defaulted = IP.config(request_defaults: "gray/format=png", sources: sources)
+    plain = IP.config(sources: sources)
+
+    response = get.(defaulted, "/w=30/gray=unset/format=unset/src/photo.png")
+    expected = get.(plain, "/w=30/src/photo.png")
+
+    assert response.status == 200
+    assert Plug.Conn.get_resp_header(response, "content-type") == ["image/webp"]
+    assert Plug.Conn.get_resp_header(response, "vary") == ["Accept"]
+    assert response.resp_body == expected.resp_body
   end
 
   test "encrypted preset URLs preserve references and round trip sources" do

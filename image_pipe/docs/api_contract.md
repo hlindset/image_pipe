@@ -530,6 +530,14 @@ presets at initialization and reject cycles/unknown names. A host
 preset lookup resolves names the static map does not define per request, after
 signature verification and before source or cache access, with the same
 precedence and composition; static names shadow it.
+Every option except `preset` accepts `unset`, which clears the option from
+every lower layer as if none had set it: a group option becomes neutral, and a
+request option returns to the host configuration. An unset clears its override
+family and the inherited options whose requirement the merged group no longer
+meets; explicit options in the same layer stay and are validated. A preset's
+unset also clears request defaults. `unset` never reaches canonical data, so
+`key=unset` without presets is the same request as an absent `key`. It is
+reserved: no watermark asset or detection class can be named `unset`.
 Nested references anchor to their group within the fragment. A preset
 containing `-` (a pipeline preset) supplies the complete group sequence and
 must supply every group option in the request; request options may still

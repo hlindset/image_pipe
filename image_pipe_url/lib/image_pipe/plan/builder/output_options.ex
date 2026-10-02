@@ -55,6 +55,8 @@ defmodule ImagePipe.Plan.Builder.OutputOptions do
       {:error,
        "expected :image, :blurhash, :lqip_css, :info, or {:info, placeholders} with distinct :blurhash/:lqip_css"}
 
+  def format_qualities([]), do: {:error, "expected at least one format; use :unset to clear"}
+
   def format_qualities(values) do
     schema = Enum.map(@formats, &{&1, @quality})
 
@@ -110,6 +112,8 @@ defmodule ImagePipe.Plan.Builder.OutputOptions do
         :ok
     end
   end
+
+  def encoder([], _format), do: {:error, "expected at least one option; use :unset to clear"}
 
   def encoder(options, format) do
     module = encoder_module(format)

@@ -90,14 +90,8 @@ defmodule ImagePipe.API.Presets do
 
   defp fragment(_label, fragment) when is_binary(fragment), do: {:ok, fragment}
 
-  defp fragment(label, {:plan, plan}) do
-    fragment = plan |> Serializer.segments() |> Enum.join("/")
-
-    case Serializer.empty_overrides?(plan) do
-      true -> {:error, "#{label} has an empty override with no URL spelling"}
-      false -> {:ok, fragment}
-    end
-  end
+  defp fragment(_label, {:plan, plan}),
+    do: {:ok, plan |> Serializer.segments() |> Enum.join("/")}
 
   defp fragment(label, _value),
     do: {:error, "#{label} must be an option fragment string or an ImagePipe.URL builder"}

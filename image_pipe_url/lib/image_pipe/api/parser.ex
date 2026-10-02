@@ -204,6 +204,7 @@ defmodule ImagePipe.API.Parser do
   defp value_span({offset, _len}, key, nil), do: {offset, byte_size(key)}
   defp value_span({offset, _len}, key, value), do: {offset + byte_size(key) + 1, byte_size(value)}
 
+  defp dispatch_value(%OptionSpec{key: key}, "unset") when key != "preset", do: {:ok, :unset}
   defp dispatch_value(%OptionSpec{value: :flag}, nil), do: {:ok, true}
   defp dispatch_value(%OptionSpec{value: :flag}, value), do: Value.flag(value)
   defp dispatch_value(%OptionSpec{}, nil), do: {:error, :missing_value}

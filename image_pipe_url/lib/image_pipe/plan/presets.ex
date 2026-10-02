@@ -13,16 +13,23 @@ defmodule ImagePipe.Plan.Presets do
   #
   # A pipeline preset (one with several groups) must supply every group option
   # in the request; request options may come from anywhere.
+  #
+  # An `:unset` value clears its option from every lower layer, together with
+  # its override family and the inherited options whose requirement the merged
+  # group no longer meets. It survives compilation, so a preset's unset also
+  # clears request defaults, and is removed when a request is expanded.
   @moduledoc false
 
   alias ImagePipe.Plan.Spec.Issue
+  alias ImagePipe.Plan.Spec.Validation
 
   @guide_family [:anchor, :anchor_offset, :focus, :detect]
   @canvas_family [:extend, :extend_ratio, :extend_at, :extend_offset]
   @group_override_families [
     @guide_family,
     [:crop, :region],
-    @canvas_family
+    @canvas_family,
+    [:watermark, :watermark_source, :watermark_token]
   ]
   @crop_modifiers [:crop_ratio, :crop_ratio_enlarge]
   @request_override_families [[:quality, :autoquality]]
@@ -92,9 +99,17 @@ defmodule ImagePipe.Plan.Presets do
           not Map.has_key?(presets, name),
           do: issue(:unknown_preset, index, name)
 
-    case unknown do
-      [] -> compose(groups, request, presets, defaults)
-      issues -> {:error, issues}
+    with [] <- unknown,
+         {:ok, expanded} <- compose(groups, request, presets, defaults) do
+      {:ok,
+       %{
+         expanded
+         | groups: Map.new(expanded.groups, fn {i, options} -> {i, drop_unset(options)} end),
+           request: drop_unset(expanded.request)
+       }}
+    else
+      [_ | _] = issues -> {:error, issues}
+      {:error, _issues} = error -> error
     end
   end
 
@@ -155,7 +170,7 @@ defmodule ImagePipe.Plan.Presets do
       end)
 
     kept =
-      case Enum.reject(Enum.sort(merged), fn {_index, options} -> options == %{} end) do
+      case Enum.reject(Enum.sort(merged), fn {_index, options} -> drop_unset(options) == %{} end) do
         [] -> [Enum.min_by(merged, &elem(&1, 0))]
         kept -> kept
       end
@@ -231,6 +246,7 @@ defmodule ImagePipe.Plan.Presets do
     |> prune_override_families(next)
     |> prune_region_dependents(next)
     |> Map.merge(next)
+    |> prune_unset_dependents(previous, next)
   end
 
   defp merge_request(next, previous) do
@@ -238,6 +254,30 @@ defmodule ImagePipe.Plan.Presets do
     |> prune_families(next, @request_override_families)
     |> Map.merge(next)
   end
+
+  # Inherited options made inert by this layer's unsets are cleared with them.
+  # Options that were already inert, or that this layer sets, stay so that
+  # validation reports them.
+  defp prune_unset_dependents(merged, previous, next) do
+    case Enum.any?(next, &match?({_key, :unset}, &1)) do
+      true ->
+        stale = Validation.inert_keys(drop_unset(previous))
+
+        merged
+        |> drop_unset()
+        |> Validation.inert_keys()
+        |> Enum.reject(&(Map.has_key?(next, &1) or MapSet.member?(stale, &1)))
+        |> case do
+          [] -> merged
+          inert -> prune_unset_dependents(Map.drop(merged, inert), previous, next)
+        end
+
+      false ->
+        merged
+    end
+  end
+
+  defp drop_unset(options), do: Map.reject(options, &match?({_key, :unset}, &1))
 
   defp prune_override_families(previous, next) do
     prune_families(previous, next, @group_override_families)

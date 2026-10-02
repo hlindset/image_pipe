@@ -1282,4 +1282,107 @@ defmodule ImagePipe.API.ParserTest do
       end
     end
   end
+
+  describe "unset [API §Presets]" do
+    test "key=unset canonicalizes like an absent option, for every option" do
+      for %OptionSpec{key: key} <- OptionSpec.all(), key != "preset" do
+        base = if key == "blur", do: "sharpen=1", else: "blur=2"
+
+        assert parse([base, key <> "=unset"]) == parse([base]),
+               "expected #{key}=unset to equal an absent #{key}"
+      end
+    end
+
+    test "unset removes a preset's option and the options that depend on it" do
+      config = [presets: %{"brand" => "w=300/wm=logo/wm-opacity=0.5/wm-at=top"}]
+
+      assert parse(["preset=brand", "wm=unset"], "images/cat.jpg", config) ==
+               parse(["w=300"])
+    end
+
+    test "unset restores the host configuration for request options" do
+      config = [request_defaults: "format=webp/q=60/format-q=avif:50/jpeg-options=progressive"]
+
+      assert parse(
+               ["w=800", "format=unset", "q=unset", "format-q=unset", "jpeg-options=unset"],
+               "images/cat.jpg",
+               config
+             ) == parse(["w=800"])
+    end
+
+    test "a preset's unset clears request defaults" do
+      config = [
+        request_defaults: "blur=2/format=webp",
+        presets: %{"plain" => "blur=unset/format=unset"}
+      ]
+
+      assert parse(["preset=plain", "w=800"], "images/cat.jpg", config) == parse(["w=800"])
+    end
+
+    test "unset clears the option's override family" do
+      config = [presets: %{"tile" => "region=0,0,10,10"}]
+
+      assert parse(["preset=tile", "crop=unset", "w=800"], "images/cat.jpg", config) ==
+               parse(["w=800"])
+    end
+
+    test "unset clears inherited options whose requirement is gone" do
+      config = [
+        presets: %{
+          "card" => "w=800/fit=cover/anchor=smart/enlarge/zoom=2",
+          "trimmed" => "trim=auto/trim-symmetry=h",
+          "framed" => "extend/extend-at=top/w=10/h=10",
+          "ratio" => "crop=100,100/crop-ratio=3:2/crop-ratio-enlarge"
+        }
+      ]
+
+      assert parse(["preset=card", "w=unset", "blur=2"], "images/cat.jpg", config) ==
+               parse(["blur=2"])
+
+      assert parse(["preset=trimmed", "trim=unset", "blur=2"], "images/cat.jpg", config) ==
+               parse(["blur=2"])
+
+      assert parse(["preset=framed", "extend=unset"], "images/cat.jpg", config) ==
+               parse(["w=10", "h=10"])
+
+      assert parse(["preset=ratio", "crop=unset", "blur=2"], "images/cat.jpg", config) ==
+               parse(["blur=2"])
+    end
+
+    test "unset keeps inherited options whose requirement still holds" do
+      config = [
+        presets: %{
+          "box" => "w=800/h=600/fit=cover/anchor=smart",
+          "crop" => "w=800/fit=cover/crop=100,100/anchor=smart"
+        }
+      ]
+
+      assert parse(["preset=box", "w=unset"], "images/cat.jpg", config) ==
+               parse(["h=600", "fit=cover", "anchor=smart"])
+
+      assert parse(["preset=crop", "w=unset"], "images/cat.jpg", config) ==
+               parse(["crop=100,100", "anchor=smart"])
+    end
+
+    test "unset does not clear explicit options that depend on it" do
+      config = [presets: %{"card" => "w=800"}]
+
+      assert {:error, {:invalid_request, diagnostics}} =
+               parse(["preset=card", "w=unset", "fit=cover"], "images/cat.jpg", config)
+
+      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+    end
+
+    test "a request watermark source replaces a preset's watermark" do
+      config = [presets: %{"brand" => "w=300/wm=logo/wm-opacity=0.5"}]
+
+      assert parse(["preset=brand", "wm-src64=bG9nby5wbmc"], "images/cat.jpg", config) ==
+               parse(["w=300", "wm-src64=bG9nby5wbmc", "wm-opacity=0.5"])
+    end
+
+    test "unset is not a detect class" do
+      assert {:error, {:invalid_request, [%Diagnostic{reason: :invalid_detect}]}} =
+               parse(["w=800", "fit=cover", "detect=car,unset"])
+    end
+  end
 end

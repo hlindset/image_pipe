@@ -16,7 +16,8 @@ defmodule ImagePipe.API.SerializerTest do
   test "canonical requests round trip through every option family" do
     plans = [
       IP.URL.new(),
-      IP.URL.new() |> IP.URL.output(jpeg_options: [], webp_options: []),
+      IP.URL.new() |> IP.URL.output(jpeg_options: :unset, format: :unset),
+      IP.URL.new(filename: :unset) |> IP.URL.group(watermark: :unset, resize: [width: :unset]),
       IP.URL.new(
         orient: :none,
         page: 0,
