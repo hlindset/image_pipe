@@ -99,8 +99,8 @@ defaults. Host configuration takes [typed encoder structs](../configuration.md#e
 | `meta=strip` | `metadata: :strip` | Strip optional metadata including attribution |
 | `meta=keep` | `metadata: :keep` | Retain source metadata |
 | `dpi=300` | `dpi: 300` | Write 300 pixels per inch, 1-65535, under any `meta` |
-| `profile=strip` | `color_profile: :strip` | Convert to working space, omit source ICC; default |
-| `profile=preserve` | `color_profile: :preserve_source` | Export back to source profile and retain it |
+| `profile=strip` | `color_profile: :strip` | Convert to sRGB (or gray) at the end, omit source ICC; default |
+| `profile=preserve` | `color_profile: :preserve_source` | Keep the source profile; RGB and gray sources keep their values, so wide-gamut colors survive |
 | `profile=srgb` | `color_profile: {:convert, :srgb}` | Convert to and embed the named target profile |
 | `profile=display-p3` | `color_profile: {:convert, :display_p3}` | Display P3 target |
 | `profile=adobe-rgb` | `color_profile: {:convert, :adobe_rgb}` | Adobe RGB target |

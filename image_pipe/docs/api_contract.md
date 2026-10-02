@@ -402,16 +402,21 @@ source density. Density never changes pixels, dimensions, or DPR scaling.
 JPEG writes it to JFIF and EXIF, PNG to `pHYs` and EXIF, and WebP and AVIF
 to EXIF only.
 
-`profile=strip` converts to the standard working color space and omits the
-source ICC profile. `profile=preserve` exports back to the source profile
-and retains it. `profile=srgb`, `profile=display-p3`, and `profile=adobe-rgb`
-convert to a shipped target profile and embed its bytes. Profile handling
+Sources in sRGB, RGB, 16-bit RGB, or gray keep their pixel values and
+embedded ICC profile while processing; other spaces, such as CMYK, import
+their profile into the standard working space. `profile=strip` converts the
+result to sRGB (or gray) once at the end and omits the profile.
+`profile=preserve` keeps the source profile: a source that kept its values
+returns them with the profile untouched, so wide-gamut colors survive, and an
+imported source exports back to its profile. `profile=srgb`,
+`profile=display-p3`, and `profile=adobe-rgb` convert from the source profile
+(or sRGB for an untagged source) to a shipped target profile and embed its
+bytes. Profile handling
 is independent of `meta`: stripping optional metadata preserves a requested
 output profile. The default is `strip`; host `strip_color_profile: false`
-selects source-profile preservation. Input ICC conditioning happens before
-transforms so operations work on interpreted colors. The executor retains an
-imported source profile in its state and the runner passes it directly to the
-encoder for source-profile restoration.
+selects source-profile preservation. The executor backs up the source profile
+in its state, with whether it was imported, and the runner passes both to the
+encoder.
 
 `hdr=preserve` retains a high-bit-depth working space when the selected
 output format supports it. `hdr=tonemap` selects the standard working

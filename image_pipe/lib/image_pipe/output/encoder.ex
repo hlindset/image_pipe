@@ -29,15 +29,21 @@ defmodule ImagePipe.Output.Encoder do
   def encoder_limit(:jpeg), do: %{max_dimension: 65_535, max_pixels: :infinity}
   def encoder_limit(:png), do: %{max_dimension: :infinity, max_pixels: :infinity}
 
-  @doc "Encodes the image using the source ICC profile retained by input conditioning, or nil."
-  @spec stream_output(VixImage.t(), Resolved.t(), binary() | nil, keyword()) ::
+  @typedoc """
+  The source ICC profile input conditioning backed up (or `nil`), and whether it
+  was imported into the working space.
+  """
+  @type source_color :: {binary() | nil, boolean()}
+
+  @doc "Encodes the image using the source color state from input conditioning."
+  @spec stream_output(VixImage.t(), Resolved.t(), source_color(), keyword()) ::
           {:ok, Enumerable.t(), String.t(), map() | nil}
           | {:error, {:encode, Exception.t(), list()}}
           | {:error, {:decode, term()}}
-  def stream_output(%VixImage{} = image, %Resolved{} = resolved_output, source_profile, opts) do
+  def stream_output(%VixImage{} = image, %Resolved{} = resolved_output, source_color, opts) do
     {mime_type, suffix} = output_format(resolved_output)
 
-    with {:ok, finalized} <- finalize(image, resolved_output, source_profile) do
+    with {:ok, finalized} <- finalize(image, resolved_output, source_color) do
       deliver(finalized, resolved_output, mime_type, suffix, opts)
     end
   rescue
@@ -214,11 +220,11 @@ defmodule ImagePipe.Output.Encoder do
   # Materialize on the producer's stack so corrupt-source failures return decode
   # errors (415). Doing this inside mutate would crash the linked MutableImage
   # GenServer. Color finalization and metadata stripping then use the in-memory image.
-  defp finalize(image, %Resolved{} = resolved, source_profile) do
+  defp finalize(image, %Resolved{} = resolved, source_color) do
     case VixImage.copy_memory(image) do
       {:ok, mem} ->
         with {:ok, flattened} <- flatten_for_format(mem, resolved),
-             {:ok, image} <- color_result(flattened, resolved, source_profile) do
+             {:ok, image} <- color_result(flattened, resolved, source_color) do
           {:ok, set_density(image, resolved)}
         end
 
@@ -251,20 +257,20 @@ defmodule ImagePipe.Output.Encoder do
   defp color_result(
          image,
          %Resolved{color_profile: {:convert, target}} = resolved,
-         _source_profile
+         source_color
        ) do
-    with {:ok, image} <- convert_to_target(image, target, resolved.format) do
+    with {:ok, image} <- convert_to_target(image, target, resolved.format, source_color) do
       {:ok, strip_metadata(image, resolved)}
     end
   end
 
-  defp color_result(image, %Resolved{} = resolved, source_profile) do
+  defp color_result(image, %Resolved{} = resolved, {profile, imported?}) do
     keep? =
       resolved.color_profile == :preserve_source and
         Format.supports_color_profile?(resolved.format)
 
-    with {:ok, image} <- restore_backup(image, source_profile),
-         {:ok, image} <- apply_color_result(image, keep?, source_profile != nil),
+    with {:ok, image} <- restore_backup(image, profile),
+         {:ok, image} <- apply_color_result(image, keep?, imported?),
          {:ok, image} <- maybe_drop_profile(image, keep?) do
       {:ok, strip_metadata(image, resolved)}
     end
@@ -308,24 +314,44 @@ defmodule ImagePipe.Output.Encoder do
     end
   end
 
+  # Output-policy validation rejects named profile conversion with HDR preservation.
+  # Dialyzer can't see through Vix's generated Operation typings, so it reports
+  # the icc_transform calls as failing; they succeed at runtime.
+  @dialyzer {:no_fail_call, convert_from_source: 3, convert_from_srgb: 2}
+  defp convert_to_target(image, target, format, {profile, imported?}) do
+    cond do
+      not Format.supports_color_profile?(format) ->
+        {:ok, image}
+
+      is_binary(profile) and not imported? ->
+        convert_from_source(image, target, profile)
+
+      true ->
+        convert_from_srgb(image, target)
+    end
+  end
+
+  # A source that kept its profile converts from that profile.
+  defp convert_from_source(image, target, profile) do
+    with {:ok, image} <- restore_backup(image, profile),
+         {:ok, converted} <-
+           Operation.icc_transform(image, ColorProfile.path!(target), embedded: true) do
+      {:ok, converted}
+    else
+      {:error, reason} -> {:error, {:decode, reason}}
+    end
+  end
+
   # Promote greyscale to three-band sRGB before target conversion. Declare sRGB
   # explicitly because untagged sources have no embedded input profile.
   # colourspace produces 8-bit UCHAR, matching libvips' default output depth.
-  # Output-policy validation rejects named profile conversion with HDR preservation.
-  # Dialyzer can't see through Vix's generated Operation typings, so it reports
-  # the icc_transform call as failing; it succeeds at runtime.
-  @dialyzer {:no_fail_call, convert_to_target: 3}
-  defp convert_to_target(image, target, format) do
-    if Format.supports_color_profile?(format) do
-      with {:ok, srgb} <- Operation.colourspace(image, :VIPS_INTERPRETATION_sRGB),
-           {:ok, converted} <-
-             Operation.icc_transform(srgb, ColorProfile.path!(target), input_profile: "sRGB") do
-        {:ok, converted}
-      else
-        {:error, reason} -> {:error, {:decode, reason}}
-      end
+  defp convert_from_srgb(image, target) do
+    with {:ok, srgb} <- Operation.colourspace(image, :VIPS_INTERPRETATION_sRGB),
+         {:ok, converted} <-
+           Operation.icc_transform(srgb, ColorProfile.path!(target), input_profile: "sRGB") do
+      {:ok, converted}
     else
-      {:ok, image}
+      {:error, reason} -> {:error, {:decode, reason}}
     end
   end
 

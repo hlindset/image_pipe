@@ -365,24 +365,21 @@ defmodule ImagePipe.Test.Golden.Cases do
         kind: :png,
         source: "icc_p3.png",
         native: "w=200/h=200/fit=contain/profile=preserve",
-        tolerance: {2, 64},
-        changes_with: ["image_plug-qud"]
+        tolerance: {2, 64}
       },
       %{
         id: "p3_preserve_blur",
         kind: :png,
         source: "icc_p3.png",
         native: "w=200/h=200/fit=contain/profile=preserve/blur=3",
-        tolerance: {2, 64},
-        changes_with: ["image_plug-qud"]
+        tolerance: {2, 64}
       },
       %{
         id: "p3_strip_fit",
         kind: :png,
         source: "icc_p3.png",
         native: "w=200/h=200/fit=contain",
-        tolerance: {2, 64},
-        changes_with: ["image_plug-qud"]
+        tolerance: {2, 64}
       },
       %{
         id: "p3_strip_bg_extend",
@@ -390,7 +387,7 @@ defmodule ImagePipe.Test.Golden.Cases do
         source: "icc_p3.png",
         native: "w=300/h=200/fit=contain/extend/bg=4080c0",
         tolerance: {2, 64},
-        changes_with: ["image_plug-qud", "image_plug-34z"]
+        changes_with: ["image_plug-34z"]
       },
       %{
         id: "p3_preserve_bg_extend",
@@ -398,7 +395,7 @@ defmodule ImagePipe.Test.Golden.Cases do
         source: "icc_p3.png",
         native: "w=300/h=200/fit=contain/extend/bg=ff0000/profile=preserve",
         tolerance: {2, 64},
-        changes_with: ["image_plug-qud", "image_plug-34z"]
+        changes_with: ["image_plug-34z"]
       },
       %{
         id: "rgb16_colorize",

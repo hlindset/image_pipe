@@ -509,7 +509,12 @@ defmodule ImagePipe.Delivery.VixStreamContinuationTest do
       )
 
     {:ok, stream, content_type, _search_meta} =
-      Encoder.stream_output(image, resolved_output, state.source_color_profile, config)
+      Encoder.stream_output(
+        image,
+        resolved_output,
+        {state.source_color_profile, state.color_imported?},
+        config
+      )
 
     pump.(stream, content_type, resolved_output, nil)
   end

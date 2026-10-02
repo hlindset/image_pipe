@@ -20,9 +20,10 @@ defmodule ImagePipe.Output.Terminal.LqipCss do
     end
   end
 
-  # Pixels already reflect the executor's orientation and working-space import.
-  # Image's thumbnail encoder must not apply the retained source tags again.
+  # Pixels already reflect the executor's orientation, so Image's thumbnail
+  # encoder must not apply the retained tag again. A remaining ICC profile
+  # describes the pixels and `PixelSpace` converts through it.
   defp clear_source_metadata(image) do
-    Image.remove_metadata(image, ["orientation", "icc-profile-data"])
+    Image.remove_metadata(image, ["orientation"])
   end
 end

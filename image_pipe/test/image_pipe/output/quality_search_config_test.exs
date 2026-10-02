@@ -11,7 +11,7 @@ defmodule ImagePipe.Output.QualitySearchConfigTest do
   test "configured search iterations reach encoding and representation identity" do
     image = Image.open!("priv/static/images/beach.jpg") |> Image.thumbnail!(128)
     {_policy, reference} = resolved_output(quality: 50)
-    {:ok, encoded, "image/jpeg", nil} = Encoder.stream_output(image, reference, nil, [])
+    {:ok, encoded, "image/jpeg", nil} = Encoder.stream_output(image, reference, {nil, false}, [])
     target = encoded |> Enum.to_list() |> IO.iodata_to_binary() |> byte_size()
 
     opts = [
@@ -25,8 +25,12 @@ defmodule ImagePipe.Output.QualitySearchConfigTest do
     {long_policy, long} = resolved_output([autoquality_max_iterations: 12] ++ opts)
     refute Policy.identity_material(short_policy) == Policy.identity_material(long_policy)
 
-    {:ok, [_short_body], "image/jpeg", short_meta} = Encoder.stream_output(image, short, nil, [])
-    {:ok, [_long_body], "image/jpeg", long_meta} = Encoder.stream_output(image, long, nil, [])
+    {:ok, [_short_body], "image/jpeg", short_meta} =
+      Encoder.stream_output(image, short, {nil, false}, [])
+
+    {:ok, [_long_body], "image/jpeg", long_meta} =
+      Encoder.stream_output(image, long, {nil, false}, [])
+
     assert short_meta.iterations < long_meta.iterations
     refute short_meta.quality == long_meta.quality
   end
@@ -43,7 +47,9 @@ defmodule ImagePipe.Output.QualitySearchConfigTest do
     {long, _resolved} = resolved_output([autoquality_max_iterations: 12] ++ opts, :png)
     assert Policy.identity_material(short) == Policy.identity_material(long)
     image = Image.new!(8, 8, color: :red)
-    assert {:ok, _stream, "image/png", nil} = Encoder.stream_output(image, resolved, nil, [])
+
+    assert {:ok, _stream, "image/png", nil} =
+             Encoder.stream_output(image, resolved, {nil, false}, [])
   end
 
   test "lossless WebP omits its unused iteration limit from explicit and negotiated identity" do

@@ -25,7 +25,7 @@
       fixture_sha256: "da3144646173bcf77e937a6cff9f578535828ddf972e543a9a5ed1c5728954e1"
     },
     "p3_preserve_bg_extend" => %{
-      fixture_sha256: "e742196fa175cd16883496694fecc7d899d7e7649379c6b21cc6e40fca6a4df0"
+      fixture_sha256: "9d8a83e3c2cb8a7aa01e40f2c4a1049b1cc02c55c7cf2e0b2ff7c51f323482af"
     },
     "crop_ratio_enlarge" => %{
       fixture_sha256: "6cff58284e100f55594e8ddf4cb785b678213ba74107da2170230bd552593b32"
@@ -115,7 +115,7 @@
       fixture_sha256: "cfc45e3ede2a00e1290211846b5c498cddcecb0743ef572b441162855a7f1217"
     },
     "p3_preserve_fit" => %{
-      fixture_sha256: "0b54a16e81628e34729e086d07210d9f6c82752a1dbca099e4eb27ab431ab4bf"
+      fixture_sha256: "366915b7469a34fb326822789dff872a6460503ba224984f92cfcf64a0f981ce"
     },
     "exif_smart_crop" => %{
       fixture_sha256: "76d53c2358badcd5dbe2eec4686dbd82ac6b82a540ccced20d20cc05feeb8177"
@@ -124,7 +124,7 @@
       fixture_sha256: "fefe5f26b249be17d200d097b95dbb80c2883503b5543b57a575cb8bdfb69cb9"
     },
     "p3_strip_fit" => %{
-      fixture_sha256: "a88979550a39e1796846f75a4db7b6d16e09368b1ec302a1271f5a7f1f051519"
+      fixture_sha256: "82bcf436bfa0a3b6d45a2b5a24d5437a67e12a7d7d9a3f1643856cd36db2c7da"
     },
     "wm_opacity_pct_offset" => %{
       fixture_sha256: "65db35835941cef1ce22ecfb9d1f15de2d88911543f6a0a39579674304334e04"
@@ -166,13 +166,13 @@
       fixture_sha256: "58a5f8b758dcf7e3502d879d4306bc4b519011b1da4d27d13a243b700f8cc7df"
     },
     "p3_strip_bg_extend" => %{
-      fixture_sha256: "961b272fe7199366fba3cf866547aef039b89143cc3a043fc18f8454e8ce3529"
+      fixture_sha256: "8493fbbf1da0507f7be64ee09f43096103dcd0ad184072e7ccadcfdd85bf2f9a"
     },
     "jpeg_q80" => %{
       fixture_sha256: "d8abe0b55b7f9dc78377d899c06336ec8aba60ed717a55bdc7a9461e991bb737"
     },
     "p3_preserve_blur" => %{
-      fixture_sha256: "aff8c2a82076dc4fb208683a61900fde73997f147594b28a1f55ea538e205a7f"
+      fixture_sha256: "2c889155cbbd47adbf184896ed9c8c1fe2c40fb5bb1c0b53db5f954ea7d07856"
     },
     "rgb16_duotone" => %{
       fixture_sha256: "14837f06d3665cc44514ee8a0669fed2acedaa78ec49cf13a5e4dccd25936686"

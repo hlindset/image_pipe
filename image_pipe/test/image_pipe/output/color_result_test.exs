@@ -14,14 +14,14 @@ defmodule ImagePipe.Output.ColorResultTest do
   @p3_fixture "#{@sources}/icc_p3.png"
   @plain_srgb_fixture "#{@sources}/small.png"
 
-  # Import a Display-P3 source and pass its recorded source profile to encoding.
-  # The live `icc-profile-data` is removed to reproduce the libvips
-  # 8.15+ profile-loss the encoder's restore step exists to repair — so the test
-  # discriminates the restore+export path from "keep whatever is embedded".
+  # Condition a Display-P3 source, which keeps its values and backs up its
+  # profile, and pass that backup to encoding. The live `icc-profile-data` is
+  # removed to reproduce the libvips 8.15+ profile loss the encoder's restore
+  # step exists to repair.
   defp p3_carrier do
     img = Image.open!(@p3_fixture, access: :sequential)
     {:ok, state} = ICM.condition(%State{image: img}, supports_hdr?: false)
-    true = state.color_imported?
+    false = state.color_imported?
     {:ok, mem} = VixImage.copy_memory(state.image)
 
     {:ok, image} =
@@ -30,7 +30,7 @@ defmodule ImagePipe.Output.ColorResultTest do
         :ok
       end)
 
-    {image, state.source_color_profile}
+    {image, {state.source_color_profile, false}}
   end
 
   defp resolved(format, color_profile, opts \\ []) do
@@ -57,35 +57,35 @@ defmodule ImagePipe.Output.ColorResultTest do
     end
   end
 
-  test ":preserve_source + imported re-embeds the source profile (jpeg)" do
-    {carrier, p3_bytes} = p3_carrier()
+  test ":preserve_source re-embeds the backed-up source profile (jpeg)" do
+    {carrier, {p3_bytes, _imported?} = source_color} = p3_carrier()
 
     assert {:ok, stream, "image/jpeg", _meta} =
-             Encoder.stream_output(carrier, resolved(:jpeg, :preserve_source), p3_bytes, [])
+             Encoder.stream_output(carrier, resolved(:jpeg, :preserve_source), source_color, [])
 
     out = decode(stream)
     assert header(out, "icc-profile-data") == p3_bytes
   end
 
   test ":preserve_source re-embeds even with strip_metadata: false" do
-    {carrier, p3_bytes} = p3_carrier()
+    {carrier, {p3_bytes, _imported?} = source_color} = p3_carrier()
 
     assert {:ok, stream, _, _meta} =
              Encoder.stream_output(
                carrier,
                resolved(:jpeg, :preserve_source, strip_metadata: false),
-               p3_bytes,
+               source_color,
                []
              )
 
     assert decode(stream) |> header("icc-profile-data") == p3_bytes
   end
 
-  test ":strip drops the ICC profile even for an imported source" do
-    {carrier, p3_bytes} = p3_carrier()
+  test ":strip drops the backed-up source profile" do
+    {carrier, source_color} = p3_carrier()
 
     assert {:ok, stream, _, _meta} =
-             Encoder.stream_output(carrier, resolved(:jpeg, :strip), p3_bytes, [])
+             Encoder.stream_output(carrier, resolved(:jpeg, :strip), source_color, [])
 
     assert decode(stream) |> header("icc-profile-data") == nil
   end
@@ -94,7 +94,12 @@ defmodule ImagePipe.Output.ColorResultTest do
     base = Image.open!(@plain_srgb_fixture, access: :random)
 
     assert {:ok, stream, _, _meta} =
-             Encoder.stream_output(base, resolved(:png, :strip, strip_metadata: false), nil, [])
+             Encoder.stream_output(
+               base,
+               resolved(:png, :strip, strip_metadata: false),
+               {nil, false},
+               []
+             )
 
     out = decode(stream)
 
@@ -107,7 +112,7 @@ defmodule ImagePipe.Output.ColorResultTest do
       {:ok, image} = Operation.black(16, 16, bands: 3)
 
       {:ok, stream, _, _meta} =
-        Encoder.stream_output(image, resolved(:png, {:convert, :display_p3}), nil, [])
+        Encoder.stream_output(image, resolved(:png, {:convert, :display_p3}), {nil, false}, [])
 
       assert decode(stream) |> header("icc-profile-data") != nil
     end
@@ -117,7 +122,7 @@ defmodule ImagePipe.Output.ColorResultTest do
       {:ok, grey} = Operation.colourspace(grey, :VIPS_INTERPRETATION_B_W)
 
       {:ok, stream, _, _meta} =
-        Encoder.stream_output(grey, resolved(:png, {:convert, :display_p3}), nil, [])
+        Encoder.stream_output(grey, resolved(:png, {:convert, :display_p3}), {nil, false}, [])
 
       out = decode(stream)
 
@@ -129,7 +134,7 @@ defmodule ImagePipe.Output.ColorResultTest do
       {:ok, image} = Operation.black(16, 16, bands: 3)
       res = resolved(:jpeg, {:convert, :adobe_rgb}, strip_metadata: true)
 
-      {:ok, stream, _, _meta} = Encoder.stream_output(image, res, nil, [])
+      {:ok, stream, _, _meta} = Encoder.stream_output(image, res, {nil, false}, [])
 
       assert decode(stream) |> header("icc-profile-data") != nil
     end
@@ -139,7 +144,7 @@ defmodule ImagePipe.Output.ColorResultTest do
 
       embedded = fn target ->
         {:ok, stream, _, _meta} =
-          Encoder.stream_output(image, resolved(:png, {:convert, target}), nil, [])
+          Encoder.stream_output(image, resolved(:png, {:convert, target}), {nil, false}, [])
 
         decode(stream) |> header("icc-profile-data")
       end

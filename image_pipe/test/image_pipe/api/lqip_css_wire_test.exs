@@ -83,7 +83,11 @@ defmodule ImagePipe.API.LqipCssWireTest do
       body = File.read!(Path.join("test/support/image_pipe/test/sources", filename))
       config = mount(body)
       response = request("output=lqip-css", config)
-      reference = request("format=png/profile=strip/hdr=tonemap/bg=black", config)
+      # The placeholder samples a 3×3 reduction, so compare it with image output
+      # reduced the same way.
+      reference =
+        request("w=3/h=3/fit=stretch/format=png/profile=strip/hdr=tonemap/bg=black", config)
+
       assert reference.status == 200
       assert response.status == 200
 

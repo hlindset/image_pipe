@@ -219,7 +219,12 @@ defmodule ImagePipe.Processing do
 
     result =
       Timing.measure(fn ->
-        encode_first_chunk(image, resolved_output, state.source_color_profile, config)
+        encode_first_chunk(
+          image,
+          resolved_output,
+          {state.source_color_profile, state.color_imported?},
+          config
+        )
       end)
 
     case result do
@@ -330,7 +335,7 @@ defmodule ImagePipe.Processing do
     )
   end
 
-  defp encode_first_chunk(image, %ResolvedOutput{} = resolved_output, source_profile, config) do
+  defp encode_first_chunk(image, %ResolvedOutput{} = resolved_output, source_color, config) do
     Telemetry.span(
       Telemetry.telemetry_opts(config),
       [:encode],
@@ -338,7 +343,7 @@ defmodule ImagePipe.Processing do
       fn ->
         result =
           with {:ok, stream, content_type, search_meta} <-
-                 Encoder.stream_output(image, resolved_output, source_profile, config),
+                 Encoder.stream_output(image, resolved_output, source_color, config),
                {:ok, chunk, stream_state} <- first_chunk(stream) do
             {:ok, chunk, content_type, stream_state, search_meta}
           end

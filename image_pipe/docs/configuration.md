@@ -144,7 +144,7 @@ redirect limits belong on the source adapter.
 | `strip_metadata` | `true` | Strip optional source metadata |
 | `keep_copyright` | `true` | Retain copyright and artist attribution when stripping |
 | `stripped_dpi` | `72` | Density written when stripping metadata without a request `dpi`, `1..65535` |
-| `strip_color_profile` | `true` | Convert into working space and omit source ICC; `false` preserves source profile |
+| `strip_color_profile` | `true` | Convert to sRGB (or gray) at output and omit source ICC; `false` preserves source profile |
 | `preserve_hdr` | `false` | Preserve high bit depth when supported by the output |
 | `skip_processing_formats` | `[]` | Source formats delivered unchanged when the request allows; see below |
 
