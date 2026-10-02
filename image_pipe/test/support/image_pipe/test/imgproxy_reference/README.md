@@ -23,7 +23,7 @@ and writes fixtures and the manifest; its moduledoc has the command. It needs
 Docker.
 
 Every case writes its output, an amplified difference image and its result
-to `tmp/imgproxy_reference/`. `mix imgproxy.report` turns them into one
+to `tmp/imgproxy_reference/`. `mix image_pipe.pixel_report --suite reference` turns them into one
 self-contained HTML page: failures first, then passing cases sorted by how
 much of their tolerance they used. CI runs the suite as its own
 `imgproxy reference tests` step in one job (the module is tagged

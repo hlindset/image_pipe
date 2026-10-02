@@ -1,36 +1,54 @@
-defmodule Mix.Tasks.Imgproxy.Report do
-  @shortdoc "Build an HTML report of the imgproxy reference cases"
+defmodule Mix.Tasks.ImagePipe.PixelReport do
+  @shortdoc "Build an HTML report of a whole-image suite's results"
   @moduledoc """
-  Collects the results `ImagePipe.APIImgproxyReferenceTest` wrote to
-  `tmp/imgproxy_reference/` into one self-contained HTML page: failures first,
-  then passing cases sorted by how close they came to their tolerance, each
-  with the imgproxy reference, ImagePipe's output and the amplified difference
-  side by side.
+  Collects the results a whole-image suite wrote to its results directory into
+  one self-contained HTML page: failures first, then passing cases sorted by
+  how close they came to their tolerance, each with the fixture, ImagePipe's
+  output and the amplified difference side by side.
 
-      MIX_ENV=test mise exec -- mix imgproxy.report [--output PATH]
+      MIX_ENV=test mise exec -- mix image_pipe.pixel_report --suite reference|golden [--output PATH]
 
-  The default output is `tmp/imgproxy_reference/index.html`. When
-  `GITHUB_STEP_SUMMARY` is set, it also appends counts, failures and the cases
-  with the least headroom to the GitHub Actions job summary.
+  `reference` is the imgproxy reference suite (`tmp/imgproxy_reference/`),
+  `golden` the self-baked goldens (`tmp/golden/`). The default output is
+  `index.html` in the suite's results directory. When `GITHUB_STEP_SUMMARY` is
+  set, it also appends counts, failures and the cases with the least headroom
+  to the GitHub Actions job summary.
   """
   use Mix.Task
   use Boundary, top_level?: true, check: [out: false]
 
-  alias ImagePipe.Test.ImgproxyReference.Cases
-
-  @results "tmp/imgproxy_reference"
-  @fixtures "test/support/image_pipe/test/imgproxy_reference/fixtures"
+  @suites %{
+    "reference" => %{
+      cases: ImagePipe.Test.ImgproxyReference.Cases,
+      results: "tmp/imgproxy_reference",
+      fixtures: "test/support/image_pipe/test/imgproxy_reference/fixtures",
+      title: "imgproxy reference",
+      fixture_label: "imgproxy reference"
+    },
+    "golden" => %{
+      cases: ImagePipe.Test.Golden.Cases,
+      results: "tmp/golden",
+      fixtures: "test/support/image_pipe/test/golden/fixtures",
+      title: "golden images",
+      fixture_label: "golden"
+    }
+  }
   @closest 10
 
   @impl Mix.Task
   def run(args) do
-    {opts, _, _} = OptionParser.parse(args, strict: [output: :string])
-    output = opts[:output] || Path.join(@results, "index.html")
+    {opts, _, _} = OptionParser.parse(args, strict: [suite: :string, output: :string])
 
-    {pending, active} = Enum.split_with(Cases.all(), & &1[:pending])
+    suite =
+      Map.get(@suites, opts[:suite]) ||
+        Mix.raise("--suite must be one of: #{@suites |> Map.keys() |> Enum.join(", ")}")
+
+    output = opts[:output] || Path.join(suite.results, "index.html")
+
+    {pending, active} = Enum.split_with(suite.cases.all(), & &1[:pending])
 
     results =
-      for c <- active, path = Path.join(@results, "#{c.id}.result"), File.exists?(path) do
+      for c <- active, path = Path.join(suite.results, "#{c.id}.result"), File.exists?(path) do
         Map.put(path |> File.read!() |> :erlang.binary_to_term(), :case, c)
       end
 
@@ -38,8 +56,8 @@ defmodule Mix.Tasks.Imgproxy.Report do
     passed = Enum.sort_by(passed, &budget_used/1, :desc)
 
     File.mkdir_p!(Path.dirname(output))
-    File.write!(output, page(failed, passed, pending))
-    summarize(failed, passed, pending, System.get_env("GITHUB_STEP_SUMMARY"))
+    File.write!(output, page(suite, failed, passed, pending))
+    summarize(suite, failed, passed, pending, System.get_env("GITHUB_STEP_SUMMARY"))
 
     Mix.shell().info(
       "Wrote #{length(failed)} failed, #{length(passed)} passed, " <>
@@ -51,14 +69,14 @@ defmodule Mix.Tasks.Imgproxy.Report do
   defp budget_used(%{outliers: outliers, budget: budget}), do: outliers / max(budget, 1)
   defp budget_used(_result), do: 0.0
 
-  defp page(failed, passed, pending) do
+  defp page(suite, failed, passed, pending) do
     """
     <!doctype html>
     <html lang="en">
     <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>imgproxy reference report</title>
+    <title>#{suite.title} report</title>
     <style>
       body { font: 14px/1.4 system-ui, sans-serif; margin: 16px; background: #fff; color: #111; }
       section { border-top: 1px solid #ccc; padding: 12px 0; }
@@ -73,23 +91,23 @@ defmodule Mix.Tasks.Imgproxy.Report do
     </style>
     </head>
     <body>
-    <h1>imgproxy reference report</h1>
+    <h1>#{suite.title} report</h1>
     <p>#{length(failed)} failed, #{length(passed)} passed, #{length(pending)} pending.
     Passing cases are sorted by how much of their outlier budget they used.</p>
-    #{Enum.map_join(failed, "\n", &section(&1, "fail"))}
-    #{Enum.map_join(passed, "\n", &section(&1, "pass"))}
+    #{Enum.map_join(failed, "\n", &section(suite, &1, "fail"))}
+    #{Enum.map_join(passed, "\n", &section(suite, &1, "pass"))}
     #{pending_list(pending)}
     </body>
     </html>
     """
   end
 
-  defp section(%{case: c} = result, class) do
+  defp section(suite, %{case: c} = result, class) do
     images =
       [
-        {"imgproxy reference", Path.join(@fixtures, "#{c.id}.png")},
-        {"ImagePipe", Path.join(@results, "#{c.id}.actual.png")},
-        {"difference ×8", Path.join(@results, "#{c.id}.diff.png")}
+        {suite.fixture_label, Path.join(suite.fixtures, "#{c.id}.png")},
+        {"ImagePipe", Path.join(suite.results, "#{c.id}.actual.png")},
+        {"difference ×8", Path.join(suite.results, "#{c.id}.diff.png")}
       ]
       |> Enum.filter(fn {_label, path} -> File.exists?(path) end)
       |> Enum.map_join("\n", fn {label, path} ->
@@ -101,12 +119,18 @@ defmodule Mix.Tasks.Imgproxy.Report do
     <section class="#{class}">
     <h2 id="#{c.id}">#{c.id}</h2>
     <p>#{escape(describe(result))}</p>
-    <p>ImagePipe <code>#{escape(c.native)}</code> on <code>#{escape(c.source)}</code><br>
-    imgproxy <code>#{escape(c.imgproxy)}</code></p>
+    <p>ImagePipe <code>#{escape(c.native)}</code> on <code>#{escape(c.source)}</code>#{extra(c)}</p>
     <div class="row">#{images}</div>
     </section>
     """
   end
+
+  defp extra(%{imgproxy: imgproxy}), do: "<br>imgproxy <code>#{escape(imgproxy)}</code>"
+
+  defp extra(%{changes_with: issues}),
+    do: "<br>Expected to change with #{Enum.map_join(issues, ", ", &"<code>#{&1}</code>")}"
+
+  defp extra(_case), do: ""
 
   defp pending_list([]), do: ""
 
@@ -135,9 +159,9 @@ defmodule Mix.Tasks.Imgproxy.Report do
 
   defp metrics_suffix(_result), do: ""
 
-  defp summarize(_failed, _passed, _pending, nil), do: :ok
+  defp summarize(_suite, _failed, _passed, _pending, nil), do: :ok
 
-  defp summarize(failed, passed, pending, path) do
+  defp summarize(suite, failed, passed, pending, path) do
     failures =
       case failed do
         [] ->
@@ -163,7 +187,7 @@ defmodule Mix.Tasks.Imgproxy.Report do
     File.write!(
       path,
       """
-      ### imgproxy reference
+      ### #{suite.title}
 
       #{length(failed)} failed, #{length(passed)} passed, #{length(pending)} pending.
       #{failures}
@@ -173,7 +197,7 @@ defmodule Mix.Tasks.Imgproxy.Report do
       | --- | --- | --- |
       #{closest}
 
-      Images for every case are in the imgproxy reference report artifact.
+      Images for every case are in the #{suite.title} report artifact.
       """,
       [:append]
     )
