@@ -142,7 +142,55 @@ defmodule Mix.Tasks.Fixtures.GenSources do
     write!(rgb16, "rgb16.png", suffix: ".png")
     write!(opaque_alpha(rgb16), "rgba16.png", suffix: ".png")
 
+    write_edge_sources()
+
     Mix.shell().info("Wrote sources to #{@dir}")
+  end
+
+  # Band layouts, sizes and content the RGB(A) sources above don't cover.
+  defp write_edge_sources do
+    grid = placement_image(400, 300, 50)
+    {:ok, gray} = Operation.colourspace(grid, :VIPS_INTERPRETATION_B_W)
+    write!(gray, "gray.png", suffix: ".png")
+
+    # Opaque centre, half-transparent ring, fully transparent outer border.
+    alpha =
+      400
+      |> Image.new!(300, color: [0], bands: 1)
+      |> Image.Draw.rect!(40, 30, 320, 240, color: [128])
+      |> Image.Draw.rect!(100, 75, 200, 150, color: [255])
+
+    {:ok, gray_alpha} = Operation.bandjoin([gray, alpha])
+    {:ok, gray_alpha} = Operation.copy(gray_alpha, interpretation: :VIPS_INTERPRETATION_B_W)
+    write!(gray_alpha, "gray_alpha.png", suffix: ".png")
+
+    {:ok, palette} = VipsImage.write_to_buffer(grid, ".png[palette]")
+    File.write!(Path.join(@dir, "palette.png"), palette)
+
+    {:ok, bitonal} = Operation.relational_const(gray, :VIPS_OPERATION_RELATIONAL_MOREEQ, [128.0])
+    {:ok, bitonal} = VipsImage.write_to_buffer(bitonal, ".png[bitdepth=1]")
+    File.write!(Path.join(@dir, "bitonal.png"), bitonal)
+
+    # Large enough that a cover downscale shrinks on load before orientation.
+    @w
+    |> placement_image(@h, @placement_step)
+    |> Image.set_orientation!(6)
+    |> write!("exif_large_6.jpg", suffix: ".jpg", quality: 95)
+
+    write!(placement_image(2000, 8, 8), "strip.png", suffix: ".png")
+
+    uniform = Image.new!(200, 150, color: [90, 120, 150])
+    write!(uniform, "uniform.png", suffix: ".png")
+
+    {:ok, framed} = Operation.bandjoin_const(placement_image(176, 176, 22), [255.0])
+
+    {:ok, alpha_border} =
+      Operation.embed(framed, 40, 40, 256, 256,
+        extend: :VIPS_EXTEND_BACKGROUND,
+        background: [0.0, 0.0, 0.0, 0.0]
+      )
+
+    write!(alpha_border, "alpha_border.png", suffix: ".png")
   end
 
   @doc "Deterministic aperiodic placement grid: `w*h*3` uchar bytes, row-major."

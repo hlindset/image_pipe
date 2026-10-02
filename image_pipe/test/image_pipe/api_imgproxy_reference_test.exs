@@ -125,6 +125,15 @@ defmodule ImagePipe.APIImgproxyReferenceTest do
       )
     end
 
+    {actual, expected} = comparable(actual, expected)
+
+    if VipsImage.bands(actual) != VipsImage.bands(expected) do
+      fail_case(
+        c.id,
+        "#{VipsImage.bands(actual)} bands != imgproxy reference #{VipsImage.bands(expected)}"
+      )
+    end
+
     outliers = PixelCompare.outliers(actual, expected, threshold)
     max_delta = write_diff(c.id, actual, expected)
     metrics = %{outliers: outliers, threshold: threshold, budget: budget, max_delta: max_delta}
@@ -144,6 +153,33 @@ defmodule ImagePipe.APIImgproxyReferenceTest do
 
     [content_type] = Plug.Conn.get_resp_header(response, "content-type")
     {response.resp_body, content_type}
+  end
+
+  # imgproxy sometimes promotes a grayscale result to sRGB without changing its
+  # values, so compare a 1- or 2-band output against an RGB(A) reference in sRGB.
+  # Colour under fully transparent pixels is invisible, so alpha images compare
+  # premultiplied.
+  defp comparable(actual, expected) do
+    actual =
+      if VipsImage.bands(actual) < VipsImage.bands(expected) and
+           VipsImage.interpretation(actual) == :VIPS_INTERPRETATION_B_W do
+        {:ok, srgb} = Operation.colourspace(actual, :VIPS_INTERPRETATION_sRGB)
+        srgb
+      else
+        actual
+      end
+
+    {premultiplied(actual), premultiplied(expected)}
+  end
+
+  defp premultiplied(image) do
+    if Image.has_alpha?(image) do
+      {:ok, premultiplied} = Operation.premultiply(image)
+      {:ok, cast} = Operation.cast(premultiplied, VipsImage.format(image))
+      cast
+    else
+      image
+    end
   end
 
   # Writes the difference amplified ×8 and returns its maximum, both in 8-bit

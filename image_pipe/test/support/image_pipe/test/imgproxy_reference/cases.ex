@@ -1995,6 +1995,310 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         native: "w=200/h=150/fit=cover/anchor=top-right/anchor-offset=10,10",
         imgproxy: "rs:fill:200:150/g:noea:10:10",
         tolerance: {2, 64}
+      },
+      # Edge cases: 1-band grayscale (gray.png). imgproxy may return these promoted
+      # to sRGB; the test compares in sRGB when it does.
+      %{
+        id: "gray_fit",
+        kind: :png,
+        source: "gray.png",
+        native: "w=200/h=150/fit=contain",
+        imgproxy: "rs:fit:200:150",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "gray_blur_pixelate",
+        kind: :png,
+        source: "gray.png",
+        native: "w=200/h=150/fit=contain/blur=2/pixelate=4",
+        imgproxy: "rs:fit:200:150/bl:2/pix:4",
+        tolerance: {2, 64}
+      },
+      # Edge cases: 2-band grayscale with alpha (gray_alpha.png).
+      # Resampling skew, no shift; threshold just above the measured maxΔ 11 (premultiplied).
+      %{
+        id: "gray_alpha_fit",
+        kind: :png,
+        source: "gray_alpha.png",
+        native: "w=200/h=150/fit=contain",
+        imgproxy: "rs:fit:200:150",
+        tolerance: {12, 64}
+      },
+      # Resampling skew, no shift; threshold just above the measured maxΔ 11.
+      %{
+        id: "gray_alpha_flatten",
+        kind: :png,
+        source: "gray_alpha.png",
+        native: "w=200/h=150/fit=contain/bg=ffffff",
+        imgproxy: "rs:fit:200:150/bg:ffffff",
+        tolerance: {12, 64}
+      },
+      # Resampling skew, no shift; threshold just above the measured maxΔ 7 (premultiplied).
+      %{
+        id: "gray_alpha_extend",
+        kind: :png,
+        source: "gray_alpha.png",
+        native: "w=300/h=300/fit=contain/extend",
+        imgproxy: "rs:fit:300:300/ex:1",
+        tolerance: {8, 64}
+      },
+      %{
+        id: "gray_alpha_blur",
+        kind: :png,
+        source: "gray_alpha.png",
+        native: "w=200/h=150/fit=contain/blur=3",
+        imgproxy: "rs:fit:200:150/bl:3",
+        tolerance: {2, 64}
+      },
+      # Resampling skew, no shift; threshold just above the measured maxΔ 11 (premultiplied).
+      %{
+        id: "gray_alpha_rotate",
+        kind: :png,
+        source: "gray_alpha.png",
+        native: "rotate=90/w=150/h=200/fit=contain",
+        imgproxy: "rot:90/rs:fit:150:200",
+        tolerance: {12, 64}
+      },
+      # Trim from a transparent top-left corner on a 2-band image.
+      %{
+        id: "gray_alpha_trim",
+        kind: :png,
+        source: "gray_alpha.png",
+        native: "trim=auto",
+        imgproxy: "t:10",
+        tolerance: {2, 64}
+      },
+      # Edge cases: palette and 1-bit PNG sources.
+      # Resampling skew, no shift; threshold just above the measured maxΔ 8.
+      %{
+        id: "palette_fit",
+        kind: :png,
+        source: "palette.png",
+        native: "w=200/h=150/fit=contain",
+        imgproxy: "rs:fit:200:150",
+        tolerance: {10, 64}
+      },
+      %{
+        id: "palette_crop",
+        kind: :png,
+        source: "palette.png",
+        native: "crop=120,90/anchor=bottom-right",
+        imgproxy: "c:120:90:soea",
+        tolerance: {2, 64}
+      },
+      # Resampling skew, no shift; threshold just above the measured maxΔ 18.
+      %{
+        id: "palette_extend_bg",
+        kind: :png,
+        source: "palette.png",
+        native: "w=300/h=300/fit=contain/extend/bg=00ff00",
+        imgproxy: "rs:fit:300:300/ex:1/bg:00ff00",
+        tolerance: {20, 64}
+      },
+      %{
+        id: "bitonal_fit",
+        kind: :png,
+        source: "bitonal.png",
+        native: "w=200/h=150/fit=contain",
+        imgproxy: "rs:fit:200:150",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "bitonal_pixelate",
+        kind: :png,
+        source: "bitonal.png",
+        native: "pixelate=10",
+        imgproxy: "pix:10",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "bitonal_crop",
+        kind: :png,
+        source: "bitonal.png",
+        native: "crop=100,100",
+        imgproxy: "c:100:100:ce",
+        tolerance: {2, 64}
+      },
+      # Edge cases: a 1600×1200 EXIF-6 source, where shrink-on-load and pending
+      # orientation meet.
+      # Resampling skew, no shift; threshold just above the measured maxΔ 28, from shrink-on-load.
+      %{
+        id: "exif_large_cover_offset",
+        kind: :png,
+        source: "exif_large_6.jpg",
+        native: "w=200/h=150/fit=cover/anchor=bottom-right/anchor-offset=10,10",
+        imgproxy: "rs:fill:200:150/g:soea:10:10",
+        tolerance: {32, 64}
+      },
+      %{
+        id: "exif_large_fit",
+        kind: :png,
+        source: "exif_large_6.jpg",
+        native: "w=300/h=300/fit=contain",
+        imgproxy: "rs:fit:300:300",
+        tolerance: {2, 64}
+      },
+      # Resampling skew, no shift; threshold just above the measured maxΔ 32, from shrink-on-load.
+      %{
+        id: "exif_large_crop_fit",
+        kind: :png,
+        source: "exif_large_6.jpg",
+        native: "crop=800,600/anchor=top-left/w=200/h=200/fit=contain",
+        imgproxy: "c:800:600:nowe/rs:fit:200:200",
+        tolerance: {36, 64}
+      },
+      %{
+        id: "exif_large_cover_focus",
+        kind: :png,
+        source: "exif_large_6.jpg",
+        native: "w=300/h=200/fit=cover/focus=0.2,0.8",
+        imgproxy: "rs:fill:300:200/g:fp:0.2:0.8",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "exif_large_cover_dpr",
+        kind: :png,
+        source: "exif_large_6.jpg",
+        native: "w=150/h=100/fit=cover/anchor=top/dpr=2",
+        imgproxy: "rs:fill:150:100/g:no/dpr:2",
+        tolerance: {2, 64}
+      },
+      # Edge cases: a 2000×8 strip, where the short axis rounds towards zero.
+      %{
+        id: "strip_fit_width",
+        kind: :png,
+        source: "strip.png",
+        native: "w=100",
+        imgproxy: "rs:fit:100:0",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "strip_fit_box",
+        kind: :png,
+        source: "strip.png",
+        native: "w=400/h=400/fit=contain",
+        imgproxy: "rs:fit:400:400",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "strip_extend",
+        kind: :png,
+        source: "strip.png",
+        native: "w=200/h=50/fit=contain/extend",
+        imgproxy: "rs:fit:200:50/ex:1",
+        tolerance: {2, 64}
+      },
+      # Edge cases: trim with nothing but background, and trim on transparency.
+      # Trim finds no content.
+      %{
+        id: "uniform_trim",
+        kind: :png,
+        source: "uniform.png",
+        native: "trim=auto",
+        imgproxy: "t:10",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "uniform_trim_resize",
+        kind: :png,
+        source: "uniform.png",
+        native: "trim=auto/w=100/h=100/fit=contain",
+        imgproxy: "t:10/rs:fit:100:100",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "alpha_border_trim",
+        kind: :png,
+        source: "alpha_border.png",
+        native: "trim=auto",
+        imgproxy: "t:10",
+        tolerance: {2, 64}
+      },
+      # Padding after trim stays transparent.
+      %{
+        id: "alpha_border_trim_pad",
+        kind: :png,
+        source: "alpha_border.png",
+        native: "trim=auto/pad=10",
+        imgproxy: "t:10/pd:10",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "alpha_border_trim_symmetric",
+        kind: :png,
+        source: "alpha_border.png",
+        native: "trim=auto/trim-symmetry=hv",
+        imgproxy: "t:10::1:1",
+        tolerance: {2, 64}
+      },
+      # Edge cases: degenerate sizes.
+      # A block larger than the image.
+      %{
+        id: "pixelate_larger_than_image",
+        kind: :png,
+        source: "small.png",
+        native: "pixelate=500",
+        imgproxy: "pix:500",
+        tolerance: {2, 64}
+      },
+      # Odd block on a transverse EXIF frame (the mirror-padding path).
+      %{
+        id: "pixelate_odd_exif7",
+        kind: :png,
+        source: "exif_placement_7.jpg",
+        native: "pixelate=7",
+        imgproxy: "pix:7",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "pixelate_odd_dims",
+        kind: :png,
+        source: "placement.png",
+        native: "w=201/h=151/fit=contain/pixelate=8",
+        imgproxy: "rs:fit:201:151/pix:8",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "crop_larger_than_image",
+        kind: :png,
+        source: "small.png",
+        native: "crop=2000,2000",
+        imgproxy: "c:2000:2000",
+        tolerance: {2, 64}
+      },
+      # An offset pushing the crop outside the image clamps it inside.
+      %{
+        id: "crop_offset_out_of_bounds",
+        kind: :png,
+        source: "small.png",
+        native: "crop=100,80/anchor=top-left/anchor-offset=500,500",
+        imgproxy: "c:100:80:nowe:500:500",
+        tolerance: {2, 64}
+      },
+      # Edge cases: options that change nothing.
+      %{
+        id: "extend_ratio_already_matching",
+        kind: :png,
+        source: "marker.png",
+        native: "w=400/h=300/fit=contain/extend-ratio",
+        imgproxy: "rs:fit:400:300/exar:1",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "bg_on_opaque",
+        kind: :png,
+        source: "marker.png",
+        native: "w=200/h=150/fit=contain/bg=ff0000",
+        imgproxy: "rs:fit:200:150/bg:ff0000",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "extend_canvas_matching",
+        kind: :png,
+        source: "marker.png",
+        native: "w=400/h=300/fit=contain/extend",
+        imgproxy: "rs:fit:400:300/ex:1",
+        tolerance: {2, 64}
       }
     ]
   end

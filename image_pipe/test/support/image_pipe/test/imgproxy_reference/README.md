@@ -31,7 +31,10 @@ much of their tolerance they used. CI runs the suite as its own
 cases with the least headroom to the job summary.
 
 A tolerance `{threshold, budget}` allows at most `budget` band samples to
-differ by more than `threshold` levels. The default is `{2, 64}`; wider
+differ by more than `threshold` levels. Images with alpha compare
+premultiplied, since colour under transparent pixels is invisible. When imgproxy
+returns a grayscale result promoted to sRGB, ImagePipe's 1- or 2-band output is
+converted to sRGB before comparing. The default is `{2, 64}`; wider
 tolerances are explained in the case comment.
 
 ## Change rules
