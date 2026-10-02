@@ -173,31 +173,38 @@ defmodule ImagePipe.Source.OriginFetchTest do
     assert_receive {:DOWN, ^monitor, :process, ^origin, :normal}
   end
 
-  test "authenticated sources need origin permission or an explicit storage override" do
-    opts =
-      config(fn conn ->
-        assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer secret"]
+  # Source credentials are host configuration, never the client's, so an
+  # authenticated fetch follows the origin's cache directives like any other.
+  test "authenticated sources are stored unless the origin forbids it" do
+    for {directive, storable?} <- [
+          {"max-age=60", true},
+          {"private, max-age=60", false},
+          {"no-store", false}
+        ] do
+      opts =
+        config(fn conn ->
+          assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer secret"]
 
-        conn
-        |> Plug.Conn.put_resp_header("cache-control", "max-age=60")
-        |> Plug.Conn.put_resp_header("vary", "Authorization")
-        |> Plug.Conn.send_resp(200, "bytes")
+          conn
+          |> Plug.Conn.put_resp_header("cache-control", directive)
+          |> Plug.Conn.put_resp_header("vary", "Authorization")
+          |> Plug.Conn.send_resp(200, "bytes")
+        end)
+
+      opts =
+        update_url_mount(opts, fn http ->
+          Keyword.update!(http, :req_options, &Keyword.put(&1, :auth, {:bearer, "secret"}))
+        end)
+
+      Source.with_fetched(resolve(opts), opts, fn response ->
+        origin = response.origin
+        refute inspect(origin) =~ "secret"
+        assert Origin.cache_state(origin, [], false).storable? == storable?
+        assert Origin.cache_state(origin, [storage: :allow], false).storable?
+        assert Origin.matches?(origin, %{"authorization" => ["Bearer secret"]})
+        refute Origin.matches?(origin, %{"authorization" => ["Bearer different"]})
       end)
-
-    opts =
-      update_url_mount(opts, fn http ->
-        Keyword.update!(http, :req_options, &Keyword.put(&1, :auth, {:bearer, "secret"}))
-      end)
-
-    Source.with_fetched(resolve(opts), opts, fn response ->
-      origin = response.origin
-      refute inspect(origin) =~ "secret"
-      assert origin.authenticated?
-      refute Origin.cache_state(origin, [], false).storable?
-      assert Origin.cache_state(origin, [storage: :allow], false).storable?
-      assert Origin.matches?(origin, %{"authorization" => ["Bearer secret"]})
-      refute Origin.matches?(origin, %{"authorization" => ["Bearer different"]})
-    end)
+    end
   end
 
   test "Last-Modified is used when no ETag exists, with deterministic 304 age refresh" do

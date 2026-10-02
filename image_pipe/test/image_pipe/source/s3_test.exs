@@ -3,6 +3,7 @@ defmodule ImagePipe.Source.S3Test do
 
   alias ImagePipe.Plan.Source.Object
   alias ImagePipe.Source
+  alias ImagePipe.Source.Origin
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
   alias ImagePipe.Source.S3
@@ -275,7 +276,9 @@ defmodule ImagePipe.Source.S3Test do
     plug = fn conn ->
       send(self(), {:s3_request, conn.req_headers, conn.request_path, conn.query_string})
 
+      # S3 sends no Cache-Control unless the object has one.
       conn
+      |> Plug.Conn.delete_resp_header("cache-control")
       |> Plug.Conn.put_resp_header("x-amz-version-id", "abc")
       |> Plug.Conn.send_resp(200, "image bytes")
     end
@@ -325,6 +328,9 @@ defmodule ImagePipe.Source.S3Test do
 
     assert {"x-amz-security-token", "TOKEN_TEST"} =
              List.keyfind(headers, "x-amz-security-token", 0)
+
+    # A signed object without Cache-Control is stored by default.
+    assert Origin.cache_state(response.origin, [], false).storable?
   end
 
   test "a versioned fetch fails unless the store confirms the requested version" do

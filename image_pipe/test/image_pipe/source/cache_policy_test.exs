@@ -169,37 +169,4 @@ defmodule ImagePipe.Source.CachePolicyTest do
       assert CacheState.status(cached, 990 + ttl + swr + later) == :requires_validation
     end
   end
-
-  test "authenticated requests require valid explicit shared-cache permission" do
-    for directive <- [
-          "max-age=60",
-          "public=invalid",
-          "s-maxage=invalid",
-          "must-revalidate=invalid"
-        ] do
-      cached =
-        CacheState.from_headers(
-          %{"cache-control" => [directive]},
-          [],
-          false,
-          {1_000, 1_000},
-          true
-        )
-
-      refute cached.storable?
-    end
-
-    for directive <- ["public, max-age=60", "s-maxage=60", "must-revalidate, max-age=60"] do
-      cached =
-        CacheState.from_headers(
-          %{"cache-control" => [directive]},
-          [],
-          false,
-          {1_000, 1_000},
-          true
-        )
-
-      assert cached.storable?
-    end
-  end
 end

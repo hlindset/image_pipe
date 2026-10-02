@@ -25,8 +25,8 @@ defmodule ImagePipe.Source.CacheState do
           revalidation: :none | :always | :stale
         }
 
-  @spec from_headers(map(), CachePolicy.t(), boolean(), {integer(), integer()}, boolean()) :: t()
-  def from_headers(headers, policy, stable?, {requested_at, received_at}, authenticated? \\ false) do
+  @spec from_headers(map(), CachePolicy.t(), boolean(), {integer(), integer()}) :: t()
+  def from_headers(headers, policy, stable?, {requested_at, received_at}) do
     directives = directives(Map.get(headers, "cache-control", []))
     age = age(headers, requested_at, received_at)
     lifetime = lifetime(headers, directives, policy, received_at)
@@ -35,8 +35,7 @@ defmodule ImagePipe.Source.CacheState do
       deadlines(stable?, age, received_at, lifetime, stale_window(directives, policy))
 
     %__MODULE__{
-      storable?:
-        storable?(headers, directives, Keyword.get(policy, :storage, :origin), authenticated?),
+      storable?: storable?(headers, directives, Keyword.get(policy, :storage, :origin)),
       fresh_until: fresh_until,
       stale_until: stale_until,
       revalidation: revalidation(directives, policy, stable?, age)
@@ -96,19 +95,11 @@ defmodule ImagePipe.Source.CacheState do
     {fresh_until, fresh_until + stale_window}
   end
 
-  defp storable?(headers, directives, storage, authenticated?) do
+  # Source credentials come from host configuration, never the client, so an
+  # authenticated fetch follows the same rules as any other.
+  defp storable?(headers, directives, storage) do
     vary = headers |> Map.get("vary", []) |> Enum.flat_map(&Utils.list/1)
-
-    "*" not in vary and storage_allowed?(storage, directives) and
-      authorized_storage?(storage, directives, authenticated?)
-  end
-
-  defp authorized_storage?(:allow, _directives, _authenticated?), do: true
-  defp authorized_storage?(_storage, _directives, false), do: true
-
-  defp authorized_storage?(_storage, directives, true) do
-    directives["public"] == [nil] or directives["must-revalidate"] == [nil] or
-      seconds(Map.get(directives, "s-maxage", []), :invalid) != :invalid
+    "*" not in vary and storage_allowed?(storage, directives)
   end
 
   defp storage_allowed?(:deny, _directives), do: false

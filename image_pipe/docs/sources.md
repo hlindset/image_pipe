@@ -193,8 +193,8 @@ that ignore version IDs fail the fetch with a 502 rather than serving the
 current object as that version. A revision is not a cache-busting token: an
 arbitrary string names a version that doesn't exist. Without a revision, the
 object's `Cache-Control`, `ETag`, and `Last-Modified` govern caching as for
-HTTP sources. Use the original identifier with `{:source, identifier}` or the
-URL builder. Region, endpoint,
+HTTP sources, even though the adapter signs the request. Use the original
+identifier with `{:source, identifier}` or the URL builder. Region, endpoint,
 credentials, timeouts, and cache policy belong to the adapter.
 
 ## Source identity
