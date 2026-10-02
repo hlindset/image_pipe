@@ -27,7 +27,7 @@ The `http_cache` option takes one of four values:
 
 | Value | Headers |
 | --- | --- |
-| `:validators` (default) | An `ETag`, and no generated `Cache-Control` |
+| `:validators` (default) | An `ETag`, and no generated `Cache-Control` unless the URL has an expiry |
 | `:auto` | `Cache-Control: public, max-age=31536000, immutable` and an `ETag`. `private` instead of `public` when `storage_inputs` include a cookie |
 | `:public` | The same policy, always `public` |
 | `:private` | The same policy, always `private` |
@@ -36,6 +36,19 @@ In every mode, a source without strong byte identity, or one whose cache policy
 denies storage, gets `Cache-Control: no-store` and no `ETag`. Mutable remote
 sources replace the one-year lifetime with the origin's freshness, sent as
 `Cache-Control` and `Age`.
+
+A URL with an [`expires`](processing/request.md) time never gets a cache
+lifetime that outlasts it. ImagePipe lowers `max-age` to the time left,
+shortens or drops `stale-while-revalidate` so it also ends by then, and adds
+`must-revalidate`. In `:validators` mode such a response gets
+`Cache-Control: public, max-age=<seconds left>, must-revalidate`. A
+`Cache-Control` you set in an earlier Plug is left as it is.
+
+> #### CDN lifetime overrides ignore expiry {: .warning}
+>
+> A CDN rule that replaces the origin's `Cache-Control` with its own edge
+> lifetime can keep serving an image after its URL expires. If expiry must be
+> exact, check it at the edge.
 
 A source can set the same option. Its default, `:inherit`, uses the mount's
 value, and any other value replaces it for that source. For example, a mount
@@ -257,9 +270,6 @@ identity:
 Detector and model identity enter both values because changing either can change
 the rendition. A conditional GET cannot return `304` for a rendition made by a
 different detector.
-
-Request expiry is enforced before source resolution. It
-doesn't change generated `Cache-Control`.
 
 ## Custom validators
 

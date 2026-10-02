@@ -138,10 +138,23 @@ defmodule ImagePipe.Plug.Runner do
         context.config
       )
 
-    case Execution.source_state(context) do
-      nil -> headers
-      {state, now} -> CachePolicy.limit_to_source(headers, conn, state, now, mode, context.config)
-    end
+    headers =
+      case Execution.source_state(context) do
+        nil ->
+          headers
+
+        {state, now} ->
+          CachePolicy.limit_to_source(headers, conn, state, now, mode, context.config)
+      end
+
+    CachePolicy.limit_to_expiry(
+      headers,
+      conn,
+      context.request.expires,
+      Keyword.fetch!(context.config, :clock).(),
+      mode,
+      context.config
+    )
   end
 
   defp deliver(

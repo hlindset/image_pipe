@@ -170,6 +170,104 @@ defmodule ImagePipe.Response.CachePolicy do
     }
   end
 
+  @doc """
+  Bounds the response's cache lifetime by the request's `expires`, so no
+  cache holds or serves it after the URL stops being valid. Runs after
+  `limit_to_source/6`, over whichever `Cache-Control` the policy settled on.
+  A host `Cache-Control` and `no-store` are left alone. A response with a
+  generated ETag but no `Cache-Control` (`:validators`) gets one bounded by
+  the expiry.
+  """
+  @spec limit_to_expiry(
+          CacheHeaders.t(),
+          Plug.Conn.t(),
+          pos_integer() | nil,
+          integer(),
+          mode(),
+          keyword()
+        ) :: CacheHeaders.t()
+  def limit_to_expiry(prepared, _conn, nil, _now, _mode, _config), do: prepared
+
+  def limit_to_expiry(prepared, conn, expires, now, mode, config) do
+    remaining = max(0, expires - now)
+    host? = CacheHeaders.host_cache_control?(get_resp_header(conn, "cache-control"))
+
+    case List.keyfind(prepared.headers, "cache-control", 0) do
+      _control when host? ->
+        prepared
+
+      {"cache-control", control} ->
+        capped = cap_control(control, response_age(prepared.headers), remaining)
+
+        %{
+          prepared
+          | headers:
+              List.keystore(prepared.headers, "cache-control", 0, {"cache-control", capped})
+        }
+
+      nil when prepared.etag != nil ->
+        control = "#{visibility(mode, config)}, max-age=#{remaining}, must-revalidate"
+        %{prepared | headers: prepared.headers ++ [{"cache-control", control}]}
+
+      nil ->
+        prepared
+    end
+  end
+
+  # Caches subtract `Age` from `max-age`, so the freshness left is the
+  # difference; a stale window may only run until the expiry.
+  defp cap_control(control, age, remaining) do
+    directives =
+      control |> String.split(",") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
+
+    if "no-store" in directives do
+      control
+    else
+      fresh = directive_seconds(directives, "max-age") - age
+
+      directives =
+        if fresh > remaining do
+          directives
+          |> put_directive("max-age", remaining + age)
+          |> put_directive("stale-while-revalidate", 0)
+        else
+          stale = min(directive_seconds(directives, "stale-while-revalidate"), remaining - fresh)
+          put_directive(directives, "stale-while-revalidate", stale)
+        end
+
+      directives
+      |> Enum.concat(["must-revalidate"])
+      |> Enum.uniq()
+      |> Enum.join(", ")
+    end
+  end
+
+  defp directive_seconds(directives, name) do
+    Enum.find_value(directives, 0, fn directive ->
+      case String.split(directive, "=", parts: 2) do
+        [^name, seconds] -> String.to_integer(seconds)
+        _other -> nil
+      end
+    end)
+  end
+
+  defp put_directive(directives, name, seconds) do
+    Enum.flat_map(directives, fn directive ->
+      case String.split(directive, "=", parts: 2) do
+        [^name, _seconds] when seconds == 0 and name != "max-age" -> []
+        [^name, _seconds] -> ["#{name}=#{seconds}"]
+        _other -> [directive]
+      end
+    end)
+  end
+
+  defp response_age(headers) do
+    case List.keyfind(headers, "age", 0) do
+      {"age", age} -> String.to_integer(age)
+      nil -> 0
+    end
+  end
+
   # `Vary` can't name cookies, so a cookie-partitioned response isn't safe for
   # a shared cache unless the host says so with `:public`.
   defp visibility(:public, _config), do: "public"
