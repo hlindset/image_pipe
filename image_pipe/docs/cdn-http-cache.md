@@ -15,7 +15,7 @@ forward "/images",
       images: [
         adapter: ImagePipe.Source.File,
         match: :path,
-        options: [root: "/srv/images", root_id: "primary", stable: :trusted]
+        options: [root: "/srv/images", root_id: "primary", stable: :immutable]
       ]
     ]
   ]
@@ -44,28 +44,28 @@ with `http_cache: :public` can serve per-user uploads from a source set to
 
 ## Stable source bytes
 
-`stable: :trusted` tells a source adapter that the resolved source identity names
+`stable: :immutable` tells a source adapter that the resolved source identity names
 the same bytes for every request. Use it only for write-once storage,
 content-addressed paths, or storage where your application policy prevents
 in-place replacement under the same identity.
 
 For `ImagePipe.Source.File`, `stable: :auto` isn't enough to generate byte
 identity. Files can be overwritten under the same path, so file sources need
-`stable: :trusted` before ImagePipe derives a strong byte identity from
+`stable: :immutable` before ImagePipe derives a strong byte identity from
 `root_id` and path segments.
 
-For `ImagePipe.Source.HTTP`, `stable: :trusted` derives byte identity from URL
+For `ImagePipe.Source.HTTP`, `stable: :immutable` derives byte identity from URL
 components. Raw query strings never enter ETags or telemetry; a query SHA-256
 preserves their identity effect. Different query strings therefore produce
 different ETags. HTTP authentication callbacks and S3 credentials are resolved
 once per request and the effective credential snapshot partitions both caches.
-Credential changes also partition trusted immutable validators. Secrets are
+Credential changes also partition immutable validators. Secrets are
 hashed before entering storage keys and are never emitted in telemetry.
 
 For `ImagePipe.Source.S3`, objects with a revision are stable under
 `stable: :auto`: the revision is an S3 version ID, the fetch requests that
 version, and the store must confirm it with `x-amz-version-id`. S3 objects
-without a revision need `stable: :trusted` if the bucket or key policy is
+without a revision need `stable: :immutable` if the bucket or key policy is
 write-once.
 
 `stable` and `internal_cache` are separate settings. `stable` is about whether
@@ -73,7 +73,7 @@ ImagePipe can derive byte identity before a fetch. `internal_cache` controls
 storage and reuse in both pools. A route can use internal caching without
 generated HTTP cache headers. Mutable remote sources obtain byte identity from
 the complete original bytes; their output validators require current source
-evidence. `stable: :trusted` removes expiry, but origin storage restrictions
+evidence. `stable: :immutable` removes expiry, but origin storage restrictions
 still apply unless the host explicitly sets `cache_policy: [storage: :allow]`.
 
 ## Generated headers
@@ -147,7 +147,7 @@ ImagePipe handles `If-None-Match` for explicit entity tags matching a generated
 ETag. A matching `GET` or `HEAD` returns `304 Not Modified` without decode,
 transform, or encode. Local immutable sources can do this immediately after
 resolution. Coordinated remote sources first consult retained source evidence;
-fresh evidence avoids origin access and the encoded-body read. Trusted remote
+fresh evidence avoids origin access and the encoded-body read. Immutable remote
 sources with explicit storage permission can skip that evidence lookup too.
 
 Expired mutable sources validate upstream with `If-None-Match` or

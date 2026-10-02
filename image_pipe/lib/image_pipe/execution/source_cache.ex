@@ -18,7 +18,7 @@ defmodule ImagePipe.Execution.SourceCache do
 
   def now(config), do: Keyword.get(config, :clock, fn -> System.system_time(:second) end).()
 
-  def trusted_record(source, config) do
+  def immutable_record(source, config) do
     semantics = source.cache_semantics
 
     if semantics.stable? and Keyword.get(semantics.policy, :storage) == :allow do

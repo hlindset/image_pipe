@@ -27,7 +27,7 @@ defmodule ImagePipe.Source.CachePolicyTest do
     end
   end
 
-  test "trusted sources have no deadlines but remain subject to storage permission" do
+  test "immutable sources have no deadlines but remain subject to storage permission" do
     immutable = state(%{"cache-control" => ["no-cache, max-age=0"]}, [], true)
     assert immutable.fresh_until == :infinity
     assert CacheState.status(immutable, 9_999_999) == :fresh

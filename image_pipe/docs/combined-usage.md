@@ -17,7 +17,7 @@ config = ImagePipe.config(
     media: [
       adapter: ImagePipe.Source.File,
       match: :path,
-      options: [root: "/srv/images", root_id: "media", stable: :trusted]
+      options: [root: "/srv/images", root_id: "media", stable: :immutable]
     ]
   ],
   cache: {ImagePipe.Cache.FileSystem, root: "/var/cache/image-pipe/output"},
@@ -37,7 +37,7 @@ url = ImagePipe.URL.url!(thumbnail, "photos/beach-v1.jpg")
   ImagePipe.write(config, thumbnail, {:source, "photos/beach-v1.jpg"}, "thumbnail.webp")
 ```
 
-`stable: :trusted` promises immutable source identifiers. Give changed files a
+`stable: :immutable` promises immutable source identifiers. Give changed files a
 new path, such as `beach-v2.jpg`. Use the default `stable: :auto` for mutable
 files, and read the [source cache policy](cache.md) before enabling caching for them.
 

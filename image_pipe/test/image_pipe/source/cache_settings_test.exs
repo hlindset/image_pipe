@@ -11,7 +11,7 @@ defmodule ImagePipe.Source.CacheSettingsTest do
   test "defaults to mutable, inherited, and no policy" do
     opts = settings()
 
-    refute CacheSettings.trusted?(opts)
+    refute CacheSettings.immutable?(opts)
 
     assert CacheSettings.fields(opts, stable?: false, seed: [id: 1], auto: :enabled) == [
              internal_cache: :enabled,
@@ -21,9 +21,9 @@ defmodule ImagePipe.Source.CacheSettingsTest do
   end
 
   test "a stable source gets a strong byte identity from its seed" do
-    opts = settings(stable: :trusted, cache_policy: [storage: :allow])
+    opts = settings(stable: :immutable, cache_policy: [storage: :allow])
 
-    assert CacheSettings.trusted?(opts)
+    assert CacheSettings.immutable?(opts)
 
     fields = CacheSettings.fields(opts, stable?: true, seed: [id: 1], auto: :when_stable)
 

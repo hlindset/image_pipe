@@ -32,7 +32,7 @@ adapter = "http"
 match = { prefix = "tmdb" }
 base_url = "https://image.tmdb.org/t/p/original"
 path_pattern = '[a-zA-Z0-9_-]+\.(jpg|jpeg|png|webp)'
-stable = "trusted"
+stable = "immutable"
 cache_policy = { storage = "allow" }
 
 [cache.output]
@@ -80,7 +80,7 @@ IPS_PROCESSING__QUALITY=82
 TOML strings, numbers, booleans, arrays, and tables map onto the library's
 options:
 
-- Named values are strings: `stable = "trusted"`, `http_cache = "auto"`.
+- Named values are strings: `stable = "immutable"`, `http_cache = "auto"`.
 - Tagged values are tables with one entry: `freshness = { fallback = 60 }`.
 - Tables with library-defined keys, such as `format_quality = { webp = 80 }`,
   accept only keys the library knows.
@@ -175,7 +175,7 @@ One table per named source mount. The table name is the mount name. Besides
 | --- | --- | --- |
 | `root` | string |  |
 | `root_id` | string |  |
-| `stable` | `"auto"` or `"trusted"` | `"auto"` |
+| `stable` | `"auto"` or `"immutable"` | `"auto"` |
 | `internal_cache` | `"auto"` or `"enabled"` or `"disabled"` | `"auto"` |
 | `http_cache` | `"inherit"` or `"validators"` or `"auto"` or `"public"` or `"private"` | `"inherit"` |
 | `cache_policy.storage` | `"origin"` or `"allow"` or `"deny"` |  |
@@ -192,7 +192,7 @@ One table per named source mount. The table name is the mount name. Besides
 | `connect_timeout` | integer ≥ 0 |  |
 | `pool_timeout` | integer ≥ 0 |  |
 | `max_redirects` | integer ≥ 0 | `0` |
-| `stable` | `"auto"` or `"trusted"` | `"auto"` |
+| `stable` | `"auto"` or `"immutable"` | `"auto"` |
 | `internal_cache` | `"auto"` or `"enabled"` or `"disabled"` | `"auto"` |
 | `http_cache` | `"inherit"` or `"validators"` or `"auto"` or `"public"` or `"private"` | `"inherit"` |
 | `cache_policy.storage` | `"origin"` or `"allow"` or `"deny"` |  |
@@ -223,7 +223,7 @@ Elixir only: `req_options`, `address_resolver`.
 | `receive_timeout` | integer ≥ 0 |  |
 | `connect_timeout` | integer ≥ 0 |  |
 | `pool_timeout` | integer ≥ 0 |  |
-| `stable` | `"auto"` or `"trusted"` | `"auto"` |
+| `stable` | `"auto"` or `"immutable"` | `"auto"` |
 | `internal_cache` | `"auto"` or `"enabled"` or `"disabled"` | `"auto"` |
 | `http_cache` | `"inherit"` or `"validators"` or `"auto"` or `"public"` or `"private"` | `"inherit"` |
 | `cache_policy.storage` | `"origin"` or `"allow"` or `"deny"` |  |

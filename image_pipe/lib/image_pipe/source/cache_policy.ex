@@ -8,10 +8,10 @@ defmodule ImagePipe.Source.CachePolicy do
   freshness; force explicitly replaces it. `:stale_while_revalidate` is
   `:origin`, `:disabled`, or `{:force, seconds}`.
 
-  Omitted fields inherit the mount policy. A trusted immutable source has no
+  Omitted fields inherit the mount policy. A immutable source has no
   freshness deadline, including when it inherits a finite mount default, but
   still needs permission to store. Explicit source TTL/SWR overrides conflict
-  with `stable: :trusted` and are rejected. All durations are
+  with `stable: :immutable` and are rejected. All durations are
   seconds. These are host settings, never request URL options.
   """
 
@@ -57,10 +57,9 @@ defmodule ImagePipe.Source.CachePolicy do
     finite_freshness? = is_tuple(Keyword.get(policy, :freshness))
     stale_override? = is_tuple(Keyword.get(policy, :stale_while_revalidate))
 
-    case opts[:stable] == :trusted and (finite_freshness? or stale_override?) do
+    case opts[:stable] == :immutable and (finite_freshness? or stale_override?) do
       true ->
-        {:error,
-         {:invalid_source_config, "trusted immutable sources cannot specify a TTL or SWR window"}}
+        {:error, {:invalid_source_config, "immutable sources cannot specify a TTL or SWR window"}}
 
       false ->
         {:ok, opts}

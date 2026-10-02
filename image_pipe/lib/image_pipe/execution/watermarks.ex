@@ -174,7 +174,7 @@ defmodule ImagePipe.Execution.Watermarks do
       watermark = %{watermark | source: source, input_key: key}
 
       record =
-        SourceCache.trusted_record(source, config) || SourceCache.lookup(source, key, config)
+        SourceCache.immutable_record(source, config) || SourceCache.lookup(source, key, config)
 
       case SourceCache.status(record, source, config) do
         :fresh -> {:ok, %{watermark | record: record}}

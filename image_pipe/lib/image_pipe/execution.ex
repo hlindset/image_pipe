@@ -154,7 +154,7 @@ defmodule ImagePipe.Execution do
       context = %{context | source: source, input_key: key, material: material}
 
       record =
-        SourceCache.trusted_record(source, context.config) ||
+        SourceCache.immutable_record(source, context.config) ||
           SourceCache.lookup(source, key, context.config)
 
       case SourceCache.status(record, source, context.config) do

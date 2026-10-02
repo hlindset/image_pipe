@@ -56,7 +56,7 @@ defmodule ImagePipe.ConfiguredBuilderTest do
             options: [
               root: Path.expand("test/support/image_pipe/test/sources"),
               root_id: "test-images",
-              stable: :trusted
+              stable: :immutable
             ]
           ]
         ],

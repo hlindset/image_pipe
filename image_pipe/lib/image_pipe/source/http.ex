@@ -225,7 +225,7 @@ defmodule ImagePipe.Source.HTTP do
         query: source.query
       ]
 
-      stable? = CacheSettings.trusted?(opts)
+      stable? = CacheSettings.immutable?(opts)
 
       cache =
         CacheSettings.fields(opts,

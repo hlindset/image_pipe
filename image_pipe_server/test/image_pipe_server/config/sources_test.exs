@@ -141,12 +141,12 @@ defmodule ImagePipeServer.Config.SourcesTest do
         "static" => %{
           "adapter" => "file",
           "match" => "path",
-          "stable" => "trusted",
+          "stable" => "immutable",
           "cache_policy" => %{"storage" => "allow", "freshness" => %{"fallback" => 60}}
         }
       })
 
-    assert mount[:options][:stable] == :trusted
+    assert mount[:options][:stable] == :immutable
 
     assert Enum.sort(mount[:options][:cache_policy]) == [
              freshness: {:fallback, 60},

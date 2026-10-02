@@ -321,7 +321,7 @@ defmodule ImagePipe.API.ColorManagementWireTest do
           path: [
             adapter: ImagePipe.Source.File,
             match: :path,
-            options: [root: @sources, root_id: "api-color", stable: :trusted]
+            options: [root: @sources, root_id: "api-color", stable: :immutable]
           ]
         ],
         http_cache: :auto

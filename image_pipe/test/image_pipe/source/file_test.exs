@@ -139,9 +139,9 @@ defmodule ImagePipe.Source.FileTest do
     assert resolved.cache_semantics.byte_identity == :none
   end
 
-  test "file source trusted stability derives strong byte identity", %{root: root} do
+  test "immutable file source derives strong byte identity", %{root: root} do
     assert {:ok, opts} =
-             SourceFile.validate_options(root: root, root_id: "fixture-root", stable: :trusted)
+             SourceFile.validate_options(root: root, root_id: "fixture-root", stable: :immutable)
 
     source = %SourcePath{segments: ["images", "cat.jpg"]}
 

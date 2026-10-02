@@ -434,11 +434,11 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     refute_received {:origin, _, _}
   end
 
-  test "trusted immutable sources ignore elapsed time but still honor storage permission", %{
+  test "immutable sources ignore elapsed time but still honor storage permission", %{
     config: config,
     state: state
   } do
-    config = update_url_mount(config, &Keyword.put(&1, :stable, :trusted))
+    config = update_url_mount(config, &Keyword.put(&1, :stable, :immutable))
 
     first = request(config, 12)
     assert first.status == 200
@@ -588,13 +588,13 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     refute_received {:auth_resolved, _}
   end
 
-  test "trusted storage permission permits conditionals after both pools are removed", %{
+  test "immutable source storage permission permits conditionals after both pools are removed", %{
     config: config,
     root: root
   } do
     config =
       config
-      |> update_url_mount(&Keyword.put(&1, :stable, :trusted))
+      |> update_url_mount(&Keyword.put(&1, :stable, :immutable))
       |> Keyword.put(:source_cache_policy, storage: :allow)
 
     first = request(config, 12)
