@@ -65,11 +65,11 @@ defmodule ImagePipe.Source.DownloadTest do
         id: :owned
       )
 
-    observer = self()
-
     worker =
       Task.Supervisor.async_nolink(context.tasks, fn ->
-        send(observer, :worker_ready)
+        receive do
+          {:sync, from} -> send(from, :synced)
+        end
 
         receive do
           :finish -> :ok
@@ -77,9 +77,16 @@ defmodule ImagePipe.Source.DownloadTest do
       end)
 
     Download.watch(download, worker.pid)
-    assert_receive :worker_ready
+
+    # A monitor is a signal, ordered only against later signals from the same
+    # sender. Round-trip each process after monitoring it so both monitors are
+    # in place before the owner's exit can reach the download.
     monitor = Process.monitor(worker.pid)
+    send(worker.pid, {:sync, self()})
+    assert_receive :synced
     download_monitor = Process.monitor(download)
+    _ = :sys.get_state(download)
+
     send(owner.pid, :finish)
     Task.await(owner)
     assert_receive {:DOWN, ^monitor, :process, _, :shutdown}
