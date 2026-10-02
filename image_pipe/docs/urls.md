@@ -100,6 +100,58 @@ builder and the mount run in different applications, both must use the same
 preset map; see [split deployments](elixir-api.md#split-deployments) and
 [combined usage](combined-usage.md).
 
+### Preset lookup
+
+To keep presets in a database or cache server, implement
+`ImagePipe.URL.PresetLookup` and pass it as `:preset_lookup`. It resolves names
+the static `:presets` map does not define, while the mount parses a request:
+
+```elixir
+defmodule MyApp.Presets do
+  @behaviour ImagePipe.URL.PresetLookup
+
+  import Ecto.Query
+
+  @impl true
+  def validate_options(options), do: {:ok, options}
+
+  @impl true
+  def fetch(names, options) do
+    repo = Keyword.fetch!(options, :repo)
+    query = from p in "presets", where: p.name in ^names, select: {p.name, p.fragment}
+    {:ok, Map.new(repo.all(query))}
+  end
+end
+
+url_config = ImagePipe.URL.config(
+  presets: %{"default" => "q=80"},
+  preset_lookup: {MyApp.Presets, repo: MyApp.Repo}
+)
+```
+
+`fetch/2` receives a batch of names and returns the fragments it knows; omit
+the rest. It runs once per nesting level, so a request without nested lookups
+makes one call. Static names shadow the lookup and are never fetched. Looked-up
+presets may reference static ones, but static presets may reference only
+static names.
+
+- Without a static `default`, every request asks the lookup for `default`.
+  Define one statically to keep requests that use only static presets free of
+  lookup I/O, including conditional `304` responses.
+- An unknown name answers `400`. A lookup that returns `{:error, _}`, raises,
+  exits, or returns a malformed value answers `503`. A stored fragment that
+  fails to parse, references an unknown preset, or forms a cycle answers `500`.
+  All of these return before source fetch or cache access.
+- `:max_preset_lookups` (default `32`) caps the distinct names one request may
+  look up; exceeding it answers `500`.
+- ImagePipe does not cache lookups. Cache in your implementation, for example
+  in ETS or Cachex, and bound backend timeouts in your client configuration.
+- Changing a stored definition changes the cache key and ETag of the requests
+  that use it.
+- `ImagePipe.URL.validate/1` returns `:ok` for a plan selecting a name the
+  static map does not define; the mount validates it after lookup. URL
+  generation never calls the lookup.
+
 ## Signing and expiry
 
 Configure the same signing keys in the URL builder and mount:

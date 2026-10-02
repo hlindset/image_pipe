@@ -893,6 +893,34 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "output negotiate: output_error"
   end
 
+  test "renders the preset lookup span and escalates its failures" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :preset, :lookup, :stop],
+          %{duration: 1000},
+          %{result: :ok, fetched: 2, batches: 1}
+        )
+      end)
+
+    refute log =~ "[warning]"
+    assert log =~ "preset lookup: ok (2 fetched, 1 batches)"
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :preset, :lookup, :stop],
+          %{duration: 1000},
+          %{result: :error, reason: :lookup_unavailable, fetched: 0, batches: 1}
+        )
+      end)
+
+    assert log =~ "[warning]"
+    assert log =~ "preset lookup: error (lookup_unavailable)"
+  end
+
   test "renders the per-model detect span with its region count and outcome" do
     prefix = [__MODULE__, :model_success]
     Telemetry.attach_default_logger(level: :info, prefix: prefix)

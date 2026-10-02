@@ -21,6 +21,7 @@ paths still emit the send span; streamed generation also emits delivery spans.
 
 ```text
 [:image_pipe, :parse, ...]
+[:image_pipe, :preset, :lookup, ...]
 [:image_pipe, :source, :resolve, ...]
 [:image_pipe, :cache, :lookup, ...]
 [:image_pipe, :processing, :admission, ...]
@@ -87,6 +88,16 @@ source decryption, and URL parsing. Its
 **start metadata is empty**. Stop metadata contains `:result` (`:ok` or
 `:error`); successful parsing also includes `:sig_key_index`, or `nil` for
 an unsigned request. Rejection reasons appear on the enclosing request span.
+
+### Preset lookup span (`[:preset, :lookup]`)
+
+Emitted only when a request selects names the static preset map does not
+define, inside `[:parse]` for Plug requests and `[:request]` for direct
+execution. Start metadata contains `:names`, the names of the first batch.
+Stop metadata contains `:result` (`:ok` or `:error`), `:fetched` (definitions
+returned by the lookup), and `:batches` (calls to `fetch/2`); failures add
+`:reason` (`:lookup_unavailable` or `:invalid_definition`). The default Logger
+logs failures at `:warning`.
 
 ### Source fetch + decode (`[:source, :fetch_decode]`)
 

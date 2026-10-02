@@ -499,7 +499,10 @@ Presets expand before validation and canonicalization. Precedence is default
 preset, named presets in listed order, then explicit values. Shared configuration
 owns preset definitions; Plug and builder execution use the same expansion.
 URL generation preserves named references and explicit overrides. Resolve
-nested named presets at initialization and reject cycles/unknown names.
+nested static presets at initialization and reject cycles/unknown names. A host
+preset lookup resolves names the static map does not define per request, after
+signature verification and before source or cache access, with the same
+precedence and composition; static names shadow it.
 Single-group presets contribute to the first group. A preset containing
 `-` supplies the complete group sequence and cannot combine with explicit
 URL group options or another multi-group preset; request-scoped options may

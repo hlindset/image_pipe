@@ -21,7 +21,7 @@ defmodule ImagePipe.Telemetry.Logger do
       [:encode, :classify],
       [:deliver]
     ],
-    parse: [[:parse]],
+    parse: [[:parse], [:preset, :lookup]],
     source: [
       [:source, :resolve],
       [:source, :fetch],
@@ -213,7 +213,8 @@ defmodule ImagePipe.Telemetry.Logger do
       color_management_failure?(suffix, metadata) or
       detect_fallback_warning?(suffix, metadata) or
       negotiate_failure?(suffix, metadata) or
-      terminal_failure?(suffix, metadata)
+      terminal_failure?(suffix, metadata) or
+      preset_lookup_failure?(suffix, metadata)
   end
 
   # A genuine server-side encode-compute failure (forced evaluation raised/errored
@@ -248,6 +249,9 @@ defmodule ImagePipe.Telemetry.Logger do
 
   defp terminal_failure?([:output, :terminal | _], meta), do: meta[:result] not in [:ok, nil]
   defp terminal_failure?(_suffix, _meta), do: false
+
+  defp preset_lookup_failure?([:preset, :lookup | _], meta), do: meta[:result] == :error
+  defp preset_lookup_failure?(_suffix, _meta), do: false
 
   # --- message ---
   defp message([:transform, :operation | _], _m, meta) do
@@ -405,6 +409,13 @@ defmodule ImagePipe.Telemetry.Logger do
       notes -> "image_pipe source fetch_decode: #{outcome(meta)} (#{Enum.join(notes, ", ")})"
     end
   end
+
+  defp message([:preset, :lookup | _], _m, %{result: :error} = meta),
+    do: "image_pipe preset lookup: error (#{meta[:reason]})"
+
+  defp message([:preset, :lookup | _], _m, meta),
+    do:
+      "image_pipe preset lookup: #{outcome(meta)} (#{meta[:fetched]} fetched, #{meta[:batches]} batches)"
 
   defp message([:debug, :collect, :error | _], _m, meta),
     do: "image_pipe debug collect: error (#{meta[:error]})"

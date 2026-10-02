@@ -26,7 +26,7 @@ defmodule ImagePipe.URL do
   use Boundary,
     top_level?: true,
     deps: [ImagePipe.API, ImagePipe.Plan, ImagePipe.Security],
-    exports: [Config]
+    exports: [Config, PresetLookup]
 
   alias ImagePipe.API.URL, as: Generator
   alias ImagePipe.Plan
@@ -55,6 +55,11 @@ defmodule ImagePipe.URL do
   `:presets` maps names to URL option fragments. Nested references are resolved
   at configuration time. Both Plug and direct execution apply the `default`
   preset, selected named presets, and explicit options in that order.
+
+  `:preset_lookup` is an optional `{module, options}` implementing
+  `ImagePipe.URL.PresetLookup`. It resolves names the `:presets` map does not
+  define, at request time. `:max_preset_lookups` (default `32`, only with
+  `:preset_lookup`) caps the distinct names one request may look up.
 
   `:encrypt_source` defaults to `false`. Set it to `true` with independent
   `:source_encryption_keys` (ordered raw 32-byte binaries) to conceal the source.
@@ -196,8 +201,17 @@ defmodule ImagePipe.URL do
   Returns `:ok` or `{:error, issues}`. Each issue identifies typed option
   locations, a reason, and constraint details. Explicit no-op options are
   checked before normalization, including applicability to the selected output.
+
+  With a `:preset_lookup`, a plan selecting a name the static `:presets` map
+  does not define returns `:ok`; the serving mount validates it after lookup.
   """
   @spec validate(t()) :: :ok | {:error, [Issue.t()]}
-  def validate(%__MODULE__{plan: plan, config: config}),
-    do: Plan.validate(plan, config.options[:presets])
+  def validate(%__MODULE__{plan: plan, config: %Config{options: options}}) do
+    presets = options[:presets]
+    names = Map.get(plan.options, :presets, [])
+
+    if options[:preset_lookup] && not Enum.all?(names, &Map.has_key?(presets, &1)),
+      do: :ok,
+      else: Plan.validate(plan, presets)
+  end
 end

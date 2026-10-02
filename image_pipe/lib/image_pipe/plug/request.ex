@@ -3,11 +3,13 @@ defmodule ImagePipe.Plug.Request do
 
   alias ImagePipe.API.Parser
   alias ImagePipe.API.Path
+  alias ImagePipe.API.Presets
   alias ImagePipe.Execution
   alias ImagePipe.Plan.Spec
   alias ImagePipe.Processing
   alias ImagePipe.Security
   alias ImagePipe.Source.Parser, as: SourceParser
+  alias ImagePipe.Telemetry
 
   # Verify → lex → decrypt → parse. Returns the telemetry stop metadata with
   # the result so the Runner's parse span can report the signing key index.
@@ -19,6 +21,7 @@ defmodule ImagePipe.Plug.Request do
       with {:ok, key_index} <- Security.verify(sig, signed_path, config),
            {:ok, lexed} <- Path.extract(path, conn.query_string) |> normalize_lex_error(),
            {:ok, lexed} <- decrypt_source(lexed, config),
+           {:ok, config} <- presets(lexed, config),
            {:ok, request} <- Parser.parse(lexed, config),
            {:ok, request} <- decrypt_watermarks(request, config) do
         {_marker, source, _span} = lexed.source
@@ -32,6 +35,29 @@ defmodule ImagePipe.Plug.Request do
       {:error, _reason} = error ->
         # Deliberately NO error tag — preserving the chain's parse stop shape.
         {error, %{result: :error}}
+    end
+  end
+
+  # Request-time preset lookup replaces the static map with the request's
+  # compiled closure. Static-only requests skip it.
+  defp presets(lexed, config) do
+    case Presets.pending(Parser.preset_names(lexed), config) do
+      [] ->
+        {:ok, config}
+
+      pending ->
+        Telemetry.span(
+          Telemetry.telemetry_opts(config),
+          [:preset, :lookup],
+          %{names: pending},
+          fn ->
+            Presets.resolve(pending, config)
+          end
+        )
+        |> case do
+          {:ok, presets} -> {:ok, Keyword.put(config, :presets, presets)}
+          {:error, _reason} = error -> error
+        end
     end
   end
 

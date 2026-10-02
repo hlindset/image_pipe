@@ -390,6 +390,18 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert span.attributes[:sig_key_index] == 1
   end
 
+  test "captures the preset lookup span with its names and counts" do
+    Telemetry.span([], [:preset, :lookup], %{names: ["default", "card"]}, fn ->
+      {:ok, %{result: :ok, fetched: 2, batches: 2}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.preset.lookup"} = span}
+    assert span.status == :ok
+    assert span.attributes[:names] == ["default", "card"]
+    assert span.attributes[:fetched] == 2
+    assert span.attributes[:batches] == 2
+  end
+
   test "an unsigned request's nil :sig_key_index does not appear as a [:parse] span attribute" do
     Telemetry.span([], [:parse], %{}, fn -> {:ok, %{result: :ok, sig_key_index: nil}} end)
 

@@ -25,9 +25,11 @@ defmodule ImagePipe.Plan.Presets do
 
   @type compiled :: %{groups: %{non_neg_integer() => map()}, request: map()}
 
+  # `compiled` seeds already-compiled presets that `parsed` fragments may
+  # reference, such as the static map under request-time lookup.
   @doc false
-  def compile(parsed) do
-    Enum.reduce_while(Map.keys(parsed), {:ok, %{}}, fn name, {:ok, compiled} ->
+  def compile(parsed, compiled \\ %{}) do
+    Enum.reduce_while(Map.keys(parsed), {:ok, compiled}, fn name, {:ok, compiled} ->
       case resolve(name, parsed, compiled, []) do
         {:ok, _preset, compiled} -> {:cont, {:ok, compiled}}
         {:error, _message} = error -> {:halt, error}

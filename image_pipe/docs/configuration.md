@@ -73,6 +73,8 @@ selection and related-option replacement rules.
 | `encrypt_source` | `false` | Generate concealed sources in URLs; requires both key sets |
 | `iv_mode` | `:deterministic` | Source-encryption IV generation; also accepts `:random` |
 | `presets` | `%{}` | Preset name to URL option fragment; see [presets](urls.md#presets) |
+| `preset_lookup` | none | `{module, options}` implementing `ImagePipe.URL.PresetLookup`; see [preset lookup](urls.md#preset-lookup) |
+| `max_preset_lookups` | `32` | Distinct names one request may look up; only with `preset_lookup` |
 
 Signing, encryption, and source encoding are covered in [URLs and presets](urls.md).
 `storage_inputs` changes storage identity without changing a byte-identical

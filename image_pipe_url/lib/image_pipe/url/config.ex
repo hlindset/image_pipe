@@ -16,7 +16,9 @@ defmodule ImagePipe.URL.Config do
 
   @schema NimbleOptions.new!(
             base_url: [type: :string, default: ""],
-            presets: [type: {:custom, Presets, :validate_config, []}, default: %{}]
+            presets: [type: {:custom, Presets, :validate_config, []}, default: %{}],
+            preset_lookup: [type: {:custom, Presets, :validate_lookup, []}],
+            max_preset_lookups: [type: :pos_integer]
           )
 
   @doc false
@@ -27,7 +29,12 @@ defmodule ImagePipe.URL.Config do
     case NimbleOptions.validate(remaining, @schema) do
       {:ok, validated} ->
         base_url = validated |> Keyword.fetch!(:base_url) |> base_url!()
-        options = security ++ [base_url: base_url, presets: Keyword.fetch!(validated, :presets)]
+
+        options =
+          security ++
+            [base_url: base_url, presets: Keyword.fetch!(validated, :presets)] ++
+            lookup_options!(validated)
+
         %__MODULE__{options: options}
 
       {:error, %NimbleOptions.ValidationError{key: :base_url}} ->
@@ -35,6 +42,20 @@ defmodule ImagePipe.URL.Config do
 
       {:error, error} ->
         raise ArgumentError, "invalid ImagePipe.URL configuration: #{Exception.message(error)}"
+    end
+  end
+
+  defp lookup_options!(validated) do
+    case {validated[:preset_lookup], validated[:max_preset_lookups]} do
+      {nil, nil} ->
+        []
+
+      {nil, _max} ->
+        raise ArgumentError,
+              "invalid ImagePipe.URL configuration: max_preset_lookups requires preset_lookup"
+
+      {lookup, max} ->
+        [preset_lookup: lookup, max_preset_lookups: max || 32]
     end
   end
 

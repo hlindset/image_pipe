@@ -1,6 +1,7 @@
 defmodule ImagePipe.Run do
   @moduledoc false
 
+  alias ImagePipe.API.Presets
   alias ImagePipe.Config
   alias ImagePipe.Error
   alias ImagePipe.Execution
@@ -53,9 +54,28 @@ defmodule ImagePipe.Run do
       request_sources?: config[:request_watermarks]
     }
 
-    case Plan.to_spec(plan, config[:presets], watermarks) do
-      {:ok, request} -> {:ok, request}
-      {:error, issues} -> {:error, {:invalid_request, issues}}
+    with {:ok, presets} <- presets(plan, config) do
+      case Plan.to_spec(plan, presets, watermarks) do
+        {:ok, request} -> {:ok, request}
+        {:error, issues} -> {:error, {:invalid_request, issues}}
+      end
+    end
+  end
+
+  defp presets(plan, config) do
+    case Presets.pending(Map.get(plan.options, :presets, []), config) do
+      [] ->
+        {:ok, config[:presets]}
+
+      pending ->
+        Telemetry.span(
+          Telemetry.telemetry_opts(config),
+          [:preset, :lookup],
+          %{names: pending},
+          fn ->
+            Presets.resolve(pending, config)
+          end
+        )
     end
   end
 

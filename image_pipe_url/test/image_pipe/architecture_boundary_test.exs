@@ -7,7 +7,7 @@ defmodule ImagePipe.URL.ArchitectureBoundaryTest do
   @declarations %{
     ImagePipe.URL => {
       [ImagePipe.API, ImagePipe.Plan, ImagePipe.Security],
-      [ImagePipe.URL.Config]
+      [ImagePipe.URL.Config, ImagePipe.URL.PresetLookup]
     },
     ImagePipe.API => {
       [ImagePipe.Format, ImagePipe.Plan, ImagePipe.Security],

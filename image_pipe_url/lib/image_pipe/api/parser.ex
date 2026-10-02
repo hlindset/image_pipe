@@ -64,6 +64,15 @@ defmodule ImagePipe.API.Parser do
     end
   end
 
+  # The preset names a lexed request selects, for request-time lookup before
+  # `parse/2`. A malformed selection yields none; `parse/2` reports it.
+  @doc false
+  @spec preset_names(lexed()) :: [String.t()]
+  def preset_names(%{segments: segments}) do
+    {parsed, _occurrences, _errors} = parse_options(segments)
+    parsed.request |> typed_options() |> Map.get(:presets, [])
+  end
+
   @doc false
   @spec parse_preset(String.t()) :: {:ok, map()} | {:error, [Diagnostic.t()]}
   def parse_preset(fragment) do
