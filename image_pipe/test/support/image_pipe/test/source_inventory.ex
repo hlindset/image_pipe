@@ -7,8 +7,10 @@ defmodule ImagePipe.Test.SourceInventory do
 
   **The verifiable facts are drift-checked** by
   `test/image_pipe/source_inventory_test.exs`, which decodes every file
-  and fails if the inventory and the bytes disagree, if a source is added/removed
-  without an entry, or if a constellation references an uninventoried source.
+  and fails if the inventory and the bytes disagree, or if a source is
+  added/removed without an entry. The imgproxy reference cases
+  (`imgproxy_reference/manifest.exs`) record each source's hash, since their
+  fixtures were baked from those exact bytes.
 
   ## Keep this in sync
 
@@ -22,8 +24,8 @@ defmodule ImagePipe.Test.SourceInventory do
       regenerate it; running the task overwrites EVERY such file, so `git status
       sources/` afterward and confirm only the intended files changed).
 
-  `consumers` beyond the differential conformance suite (these are the
-  cross-couplings that make a source change ripple outside the bake — e.g. the
+  `consumers` beyond the imgproxy reference cases (these are the
+  cross-couplings that make a source change ripple further — e.g. the
   color-management tests depend on a source carrying an embedded ICC profile):
     * `:icm` — `test/image_pipe/transform/input_color_management_test.exs`
     * `:icm_sequential` —
@@ -63,7 +65,7 @@ defmodule ImagePipe.Test.SourceInventory do
                    "A single sharp high-contrast edge for resample-skew detection; deliberately uniform elsewhere.",
                consumers: [],
                invariant:
-                 "Shared by ~20 constellations whose tols lean on its exact layout. Its uniform field gives " <>
+                 "Shared by many imgproxy reference cases whose tolerances lean on its exact layout. Its uniform field gives " <>
                    "no-resize inline crops zero discriminating power — those migrated to placement.png (#239)."
              },
              %{
@@ -255,6 +257,119 @@ defmodule ImagePipe.Test.SourceInventory do
                invariant:
                  "Alpha MUST stay uniformly opaque (65535) — the #229 rgba16_preserve_hdr divergence depends on " <>
                    "it. Profile-less: the ICM `@rgba16_fixture` test attaches a profile in-test (#240)."
+             },
+             %{
+               file: "gray.png",
+               width: 400,
+               height: 300,
+               bands: 1,
+               format: :VIPS_FORMAT_UCHAR,
+               interpretation: :VIPS_INTERPRETATION_B_W,
+               profile?: false,
+               produced_by: :gen_sources,
+               content: "Single-band 8-bit grayscale of the 400×300 placement grid (50px cells).",
+               consumers: [],
+               invariant:
+                 "Exercises 1-band paths (background, canvas, watermark, trim) that RGB sources never reach; cell edges keep placement errors visible."
+             },
+             %{
+               file: "gray_alpha.png",
+               width: 400,
+               height: 300,
+               bands: 2,
+               format: :VIPS_FORMAT_UCHAR,
+               interpretation: :VIPS_INTERPRETATION_B_W,
+               profile?: false,
+               produced_by: :gen_sources,
+               content:
+                 "gray.png plus an alpha band: opaque centre (200×150), half-transparent ring, fully transparent outer border.",
+               consumers: [],
+               invariant:
+                 "The only 2-band source: grayscale with alpha through premultiply, flatten and canvas paths."
+             },
+             %{
+               file: "palette.png",
+               width: 400,
+               height: 300,
+               bands: 3,
+               format: :VIPS_FORMAT_UCHAR,
+               interpretation: :VIPS_INTERPRETATION_sRGB,
+               profile?: false,
+               produced_by: :gen_sources,
+               content:
+                 "The 400×300 placement grid saved as an 8-bit palette PNG (libvips quantisation).",
+               consumers: [],
+               invariant:
+                 "Decodes through the indexed-PNG loader; the palette flag must stay set, the decoded pixels are what the fixtures were baked from."
+             },
+             %{
+               file: "bitonal.png",
+               width: 400,
+               height: 300,
+               bands: 1,
+               format: :VIPS_FORMAT_UCHAR,
+               interpretation: :VIPS_INTERPRETATION_B_W,
+               profile?: false,
+               produced_by: :gen_sources,
+               content: "gray.png thresholded at 128 and saved as a 1-bit PNG.",
+               consumers: [],
+               invariant: "Decodes from a 1-bit PNG to 8-bit grayscale; hard black/white edges."
+             },
+             %{
+               file: "exif_large_6.jpg",
+               width: 1600,
+               height: 1200,
+               bands: 3,
+               format: :VIPS_FORMAT_UCHAR,
+               interpretation: :VIPS_INTERPRETATION_sRGB,
+               profile?: false,
+               produced_by: :gen_sources,
+               content: "The 1600×1200 placement grid tagged EXIF orientation 6.",
+               consumers: [],
+               invariant:
+                 "Large enough that cover and fit downscales shrink on load while orientation is still pending, unlike the 400×300 EXIF sources."
+             },
+             %{
+               file: "strip.png",
+               width: 2000,
+               height: 8,
+               bands: 3,
+               format: :VIPS_FORMAT_UCHAR,
+               interpretation: :VIPS_INTERPRETATION_sRGB,
+               profile?: false,
+               produced_by: :gen_sources,
+               content: "A 2000×8 strip of the placement grid with 8px cells.",
+               consumers: [],
+               invariant:
+                 "Extreme aspect ratio: resize targets round towards zero on the short axis."
+             },
+             %{
+               file: "uniform.png",
+               width: 200,
+               height: 150,
+               bands: 3,
+               format: :VIPS_FORMAT_UCHAR,
+               interpretation: :VIPS_INTERPRETATION_sRGB,
+               profile?: false,
+               produced_by: :gen_sources,
+               content: "A flat [90,120,150] field.",
+               consumers: [],
+               invariant: "Trim finds nothing but background; uniform by design."
+             },
+             %{
+               file: "alpha_border.png",
+               width: 256,
+               height: 256,
+               bands: 4,
+               format: :VIPS_FORMAT_UCHAR,
+               interpretation: :VIPS_INTERPRETATION_sRGB,
+               profile?: false,
+               produced_by: :gen_sources,
+               content:
+                 "A 176×176 opaque placement grid (22px cells) centred in a fully transparent 256×256 RGBA frame.",
+               consumers: [],
+               invariant:
+                 "Trim against a transparent background; the opaque content's edges keep placement errors visible."
              }
            ] ++
              Enum.map([2, 3, 4, 5, 6, 7, 8], fn o ->

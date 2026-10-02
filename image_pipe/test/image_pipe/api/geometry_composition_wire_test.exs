@@ -8,6 +8,7 @@ defmodule ImagePipe.API.GeometryCompositionWireTest do
   alias ImagePipe.Test.Orientation1TwinOrigin
   alias ImagePipe.Test.OrientedFrameOrigin
   alias Vix.Vips.Image, as: VipsImage
+  alias Vix.Vips.Operation
 
   test "a later percentage region resolves against the preceding resize" do
     response =
@@ -41,6 +42,19 @@ defmodule ImagePipe.API.GeometryCompositionWireTest do
     opaque = image("/pad=1,0,0,1/bg=ff0000/format=png/src/image.png", origin)
     assert {Image.width(opaque), Image.height(opaque)} == {3, 3}
     assert Image.get_pixel!(opaque, 0, 0) == [255, 0, 0]
+  end
+
+  test "an opaque background on a grayscale image uses the color's gray value" do
+    gray = image("/pad=1,0,0,1/bg=808080/format=png/src/image.png", png_origin(gray(:uchar)))
+    assert Image.get_pixel!(gray, 0, 0) == [128]
+
+    gray16 =
+      image(
+        "/pad=1,0,0,1/bg=808080/hdr=preserve/format=png/src/image.png",
+        png_origin(gray(:ushort))
+      )
+
+    assert Image.get_pixel!(gray16, 0, 0) == [128 * 257]
   end
 
   test "an alpha background preserves alpha in generated padding" do
@@ -101,6 +115,22 @@ defmodule ImagePipe.API.GeometryCompositionWireTest do
       |> put_resp_content_type("image/png")
       |> send_resp(200, body)
     end
+  end
+
+  defp gray(:uchar) do
+    {:ok, image} = Operation.black(2, 2)
+    {:ok, image} = Operation.linear(image, [1.0], [50.0])
+    {:ok, image} = Operation.cast(image, :VIPS_FORMAT_UCHAR)
+    {:ok, image} = Operation.copy(image, interpretation: :VIPS_INTERPRETATION_B_W)
+    Image.write!(image, :memory, suffix: ".png")
+  end
+
+  defp gray(:ushort) do
+    {:ok, image} = Operation.black(2, 2)
+    {:ok, image} = Operation.linear(image, [1.0], [50.0 * 257])
+    {:ok, image} = Operation.cast(image, :VIPS_FORMAT_USHORT)
+    {:ok, image} = Operation.copy(image, interpretation: :VIPS_INTERPRETATION_GREY16)
+    Image.write!(image, :memory, suffix: ".png")
   end
 
   defp marked(width, height) do

@@ -35,6 +35,8 @@ defmodule ImagePipe.API.OrientationMatrixTest do
     {"crop=100,80/anchor=top-left (guided crop)", ["crop=100,80", "anchor=top-left"]},
     {"fit=cover/w=150/h=100/focus=0.75,0.25 (cover + focal result crop)",
      ["fit=cover", "w=150", "h=100", "focus=0.75,0.25"]},
+    {"fit=cover/w=150/h=100/anchor=smart (cover + smart result crop)",
+     ["fit=cover", "w=150", "h=100", "anchor=smart"]},
     {"plain w=160 resize", ["w=160"]}
   ]
 

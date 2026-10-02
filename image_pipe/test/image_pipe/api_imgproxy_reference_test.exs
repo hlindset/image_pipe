@@ -1,65 +1,82 @@
 defmodule ImagePipe.APIImgproxyReferenceTest do
   @moduledoc """
-  Compact pixel references baked by upstream imgproxy and exercised through
-  ImagePipe's API.
+  Pixel references baked by upstream imgproxy and exercised through ImagePipe's
+  URL API.
 
-  See `test/support/image_pipe/test/imgproxy_reference/README.md` for immutable
-  fixture provenance and the API translation of each upstream request.
+  See `test/support/image_pipe/test/imgproxy_reference/README.md` for fixture
+  provenance and change rules. Every case writes its output, an amplified
+  difference image and its result to `tmp/imgproxy_reference/`;
+  `mix image_pipe.pixel_report --suite reference` builds an HTML page and a
+  summary from them.
   """
 
   use ExUnit.Case, async: true
 
-  import Plug.Test
+  @moduletag :imgproxy_reference
 
-  alias ImagePipe.Test.Differential.PixelCompare
+  alias ImagePipe.Test.ImgproxyReference.Cases
+  alias ImagePipe.Test.PixelSuite
 
-  @sources "test/support/image_pipe/test/sources"
-  @fixtures "test/support/image_pipe/test/imgproxy_reference"
-  @tolerance 2
-  @outlier_budget 64
+  @reference "test/support/image_pipe/test/imgproxy_reference"
+  @suite %{
+    fixtures: Path.join(@reference, "fixtures"),
+    results: "tmp/imgproxy_reference",
+    label: "imgproxy reference"
+  }
+  @manifest @reference |> Path.join("manifest.exs") |> Code.eval_file() |> elem(0)
 
-  for {name, source, options} <- [
-        {"crop_gravity_placement", "placement.png", "crop=120,90/anchor=top-left"},
-        {"effects_chain_order_high_freq", "high_freq.jpg",
-         "w=240/h=240/fit=contain/blur=2/sharpen=2/pixelate=8"},
-        {"trim_equal_hv_border", "border_asym.png", "trim=auto/trim-symmetry=hv"}
-      ] do
-    @name name
-    @source source
-    @options options
+  setup_all do
+    PixelSuite.reset!(@suite)
+    {:ok, config: PixelSuite.config("imgproxy-reference")}
+  end
 
-    test "API #{name} stays within the retained imgproxy pixel reference" do
-      actual = render(unquote(@source), unquote(@options))
-      expected = Image.open!(Path.join(@fixtures, unquote(@name) <> ".png"), access: :random)
+  describe "reference" do
+    for c <- Cases.all() do
+      @case c
+      if c[:pending], do: @tag(skip: c.pending)
 
-      assert PixelCompare.same_dims?(actual, expected),
-             "dimensions #{inspect(PixelCompare.dims(actual))} != imgproxy reference " <>
-               inspect(PixelCompare.dims(expected))
-
-      outliers = PixelCompare.outliers(actual, expected, @tolerance)
-
-      assert outliers <= @outlier_budget,
-             "#{outliers} band samples exceed Δ#{@tolerance}; budget #{@outlier_budget}"
+      test "#{c.id}: #{c.native}", %{config: config} do
+        check(@case, config)
+      end
     end
   end
 
-  defp render(source, options) do
-    config =
-      ImagePipe.Plug.init(
-        sources: [
-          path: [
-            adapter: ImagePipe.Source.File,
-            match: :path,
-            options: [root: @sources, root_id: "imgproxy-reference"]
-          ]
-        ]
-      )
+  describe "fixture integrity" do
+    test "sources match the hashes the fixtures were baked from" do
+      for {file, sha256} <- @manifest.sources do
+        assert PixelSuite.file_sha256(Path.join(PixelSuite.sources(), file)) == sha256,
+               "#{file} changed since the imgproxy fixtures were baked from it"
+      end
+    end
 
-    response =
-      conn(:get, "/#{options}/format=png/src/#{source}")
-      |> ImagePipe.Plug.call(config)
+    test "every case has a manifest entry and every entry a case" do
+      ids = MapSet.new(Cases.all(), & &1.id)
+      assert ids == MapSet.new(Map.keys(@manifest.cases))
+      assert length(Cases.all()) == MapSet.size(ids), "duplicate case ids"
+    end
 
-    assert response.status == 200
-    Image.open!(response.resp_body, access: :random, fail_on: :error)
+    test "fixtures match their recorded hashes and none are orphaned" do
+      png_ids = for %{kind: :png, id: id} <- Cases.all(), do: id
+
+      for id <- png_ids do
+        assert PixelSuite.file_sha256(PixelSuite.fixture_path(@suite, id)) ==
+                 @manifest.cases[id].fixture_sha256,
+               "#{id}: fixture bytes changed; imgproxy fixtures are never re-baked"
+      end
+
+      assert @suite.fixtures |> File.ls!() |> Enum.sort() ==
+               png_ids |> Enum.map(&"#{&1}.png") |> Enum.sort()
+    end
+
+    test "every case source is recorded in the manifest" do
+      for c <- Cases.all() do
+        assert Map.has_key?(@manifest.sources, c.source), "#{c.id}: #{c.source} has no hash"
+      end
+    end
   end
+
+  defp check(%{kind: :lossy} = c, config),
+    do: PixelSuite.check_lossy(c, config, @suite, @manifest.cases[c.id])
+
+  defp check(%{kind: :png} = c, config), do: PixelSuite.check_pixels(c, config, @suite)
 end
