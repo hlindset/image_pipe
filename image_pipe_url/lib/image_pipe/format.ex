@@ -1,10 +1,9 @@
 defmodule ImagePipe.Format do
-  @moduledoc """
-  Canonical image format names and capabilities used by output policy.
-
-  Output formats are AVIF, WebP, JPEG, and PNG. JPEG XL, HEIF, TIFF, JPEG 2000,
-  and GIF are accepted as source formats but are not output formats.
-  """
+  # Canonical image format names and capabilities used by output policy.
+  #
+  # Output formats are AVIF, WebP, JPEG, and PNG. JPEG XL, HEIF, TIFF, JPEG 2000,
+  # and GIF are accepted as source formats but are not output formats.
+  @moduledoc false
 
   use Boundary,
     top_level?: true,

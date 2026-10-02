@@ -1,9 +1,8 @@
 defmodule ImagePipe.Plan.Output do
-  @moduledoc """
-  Output value types and quality-search defaults shared by request parsing,
-  output policy, and encoding. Per-format encoder options and quality-search
-  parameters live in the nested modules.
-  """
+  # Output value types and quality-search defaults shared by request parsing,
+  # output policy, and encoding. Per-format encoder options and quality-search
+  # parameters live in the nested modules.
+  @moduledoc false
 
   # The confirm-skipped crop-estimate correction per `{format, content-class}`
   # (#380). Above the 6 MP crop crossover the `:ssim2` search ships the crop verdict

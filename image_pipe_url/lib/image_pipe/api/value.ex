@@ -1,12 +1,11 @@
 defmodule ImagePipe.API.Value do
-  @moduledoc """
-  Pure parsers for URL option values.
-
-  Each parses one value shape and returns `{:ok, value}` or
-  `{:error, reason_atom}`. The caller attaches diagnostic spans and validates
-  option-specific ranges and dependencies, such as brightness limits or a
-  dimension's resize consumer.
-  """
+  # Pure parsers for URL option values.
+  #
+  # Each parses one value shape and returns `{:ok, value}` or
+  # `{:error, reason_atom}`. The caller attaches diagnostic spans and validates
+  # option-specific ranges and dependencies, such as brightness limits or a
+  # dimension's resize consumer.
+  @moduledoc false
 
   alias ImagePipe.Plan.Color, as: PlanColor
 

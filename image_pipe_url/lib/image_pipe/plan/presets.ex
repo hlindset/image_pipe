@@ -1,16 +1,15 @@
 defmodule ImagePipe.Plan.Presets do
-  @moduledoc """
-  Compiles host-configured presets at initialization.
-
-  Defaults apply first, followed by named presets in request order and
-  explicit options. Nested references use the same precedence without
-  implicitly applying the default. Preset names disappear before request
-  canonicalization and representation identity.
-
-  Single-group presets contribute to the first group. A pipeline preset
-  supplies the complete group sequence; explicit group options and another
-  pipeline preset cannot be combined with it. Output options can override it.
-  """
+  # Compiles host-configured presets at initialization.
+  #
+  # Defaults apply first, followed by named presets in request order and
+  # explicit options. Nested references use the same precedence without
+  # implicitly applying the default. Preset names disappear before request
+  # canonicalization and representation identity.
+  #
+  # Single-group presets contribute to the first group. A pipeline preset
+  # supplies the complete group sequence; explicit group options and another
+  # pipeline preset cannot be combined with it. Output options can override it.
+  @moduledoc false
 
   alias ImagePipe.Plan.Spec.Issue
 

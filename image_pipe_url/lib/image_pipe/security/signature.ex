@@ -1,17 +1,16 @@
 defmodule ImagePipe.Security.Signature do
-  @moduledoc """
-  HMAC signing and verification for ImagePipe URLs.
-
-  `verify/3` runs before lexing. Its `sig_segment` and `signed_path` come
-  directly from `ImagePipe.API.Path.split_signature/1`. The MAC covers
-  raw bytes from the slash after the signature through the mount-relative
-  path's end, excluding the query. Neither function normalizes the path:
-  duplicate slashes affect the signature and may be rejected later by parsing.
-
-  Configuration validation decodes and redacts the ordered signing keys. `sign/2` uses the
-  first; verification tries each with `:crypto.hash_equals/2` and
-  returns the matching index, exposed as `:sig_key_index` telemetry for key rotation.
-  """
+  # HMAC signing and verification for ImagePipe URLs.
+  #
+  # `verify/3` runs before lexing. Its `sig_segment` and `signed_path` come
+  # directly from `ImagePipe.API.Path.split_signature/1`. The MAC covers
+  # raw bytes from the slash after the signature through the mount-relative
+  # path's end, excluding the query. Neither function normalizes the path:
+  # duplicate slashes affect the signature and may be rejected later by parsing.
+  #
+  # Configuration validation decodes and redacts the ordered signing keys. `sign/2` uses the
+  # first; verification tries each with `:crypto.hash_equals/2` and
+  # returns the matching index, exposed as `:sig_key_index` telemetry for key rotation.
+  @moduledoc false
 
   @signature_size 43
 

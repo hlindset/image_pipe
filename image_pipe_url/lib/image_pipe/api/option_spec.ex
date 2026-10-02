@@ -1,12 +1,11 @@
 defmodule ImagePipe.API.OptionSpec do
-  @moduledoc """
-  Declarative option table for the ImagePipe URL API.
-
-  Each `%OptionSpec{}` defines an option's URL key, canonical name, scope, value parser, and
-  documentation. Semantic constraints are owned by `ImagePipe.Plan.Spec`.
-
-  Tests require complete entries with at least one example each.
-  """
+  # Declarative option table for the ImagePipe URL API.
+  #
+  # Each `%OptionSpec{}` defines an option's URL key, canonical name, scope, value parser, and
+  # documentation. Semantic constraints are owned by `ImagePipe.Plan.Spec`.
+  #
+  # Tests require complete entries with at least one example each.
+  @moduledoc false
 
   alias ImagePipe.API.OutputOptions
   alias ImagePipe.API.Value
