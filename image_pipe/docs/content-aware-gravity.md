@@ -135,7 +135,8 @@ end
 
 `MyApp.Model.run/1` stands in for your model or service. `detect/2` must return
 only regions whose label is in `opts[:classes]`, or any label when it is `:all`.
-Crop targeting and telemetry use the labels as returned.
+ImagePipe doesn't filter the result, so a region with another label still moves
+the crop.
 
 Mount with `detector: MyApp.MyDetector`. Include the model version in `identity/1`
 so model changes invalidate cached results and ETags. Keep it free of secrets:
