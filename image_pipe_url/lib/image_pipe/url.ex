@@ -19,8 +19,8 @@ defmodule ImagePipe.URL do
 
   URL generation performs no source, image, or cache I/O. The serving mount
   takes the same configuration through `ImagePipe.config(url: config, ...)`.
-  A builder app and a separate image service must use identical signing keys
-  and presets.
+  A builder app and a separate image service must use identical signing keys.
+  Preset definitions belong to the image service; URLs carry their names.
   """
 
   use Boundary,
@@ -42,7 +42,9 @@ defmodule ImagePipe.URL do
   @doc """
   Builds reusable, redacted URL configuration.
 
-  Owns signing, source encryption, presets, and the URL prefix.
+  Owns signing, source encryption, and the URL prefix. Preset definitions
+  belong to the serving configuration (`ImagePipe.config/1`); URLs carry only
+  preset names.
 
   `:base_url` is an optional HTTP(S) URL or path prefix, such as
   `"https://cdn.example.com/images"` or `"/images"`. Mount path segments must
@@ -52,9 +54,13 @@ defmodule ImagePipe.URL do
   uses the first key. Omit keys for unsigned URLs. Invalid configuration raises
   `ArgumentError` without including credentials in the message.
 
-  `:presets` maps names to URL option fragments. Nested references are resolved
-  at configuration time. Both Plug and direct execution apply the `default`
-  preset, selected named presets, and explicit options in that order.
+  `:mount_presets` optionally describes the serving mount's presets so the
+  builder can check plans; it never changes generated URLs. It accepts
+  `:presets` and `:request_defaults` as on `ImagePipe.config/1`, and
+  `preset_lookup: true` when the mount has a lookup. Without it, `url/3` and
+  `validate/1` check values only. Apps that serve their own URLs get it filled
+  in by `ImagePipe.url_config/1`. A copy must match the mount; a stale one
+  gives wrong validation results.
 
   `:encrypt_source` defaults to `false`. Set it to `true` with independent
   `:source_encryption_keys` (ordered raw 32-byte binaries) to conceal the source.
@@ -105,10 +111,11 @@ defmodule ImagePipe.URL do
   tuples accepted by `ImagePipe.run/4` have no URL representation.
 
   Preset names remain references in generated URLs. Explicit options, including
-  false and identity values, are retained as overrides. Names defined only on
-  the serving mount are allowed; that mount validates the combined request.
-  Empty encoder-option or format-quality overrides with presets return
-  `{:error, :unrepresentable_preset_override}` because they have no URL spelling.
+  false and identity values, are retained as overrides. With `:mount_presets`,
+  the combined request is validated like `validate/1`; otherwise the mount
+  validates it. Empty encoder-option or format-quality overrides with inherited
+  presets or request defaults return `{:error, :unrepresentable_preset_override}`
+  because they have no URL spelling.
 
   With encrypted configuration, per-call `:iv` accepts `:deterministic`,
   `:random`, or an explicit 16-byte binary. An explicit IV must be unpredictable
@@ -196,8 +203,13 @@ defmodule ImagePipe.URL do
   Returns `:ok` or `{:error, issues}`. Each issue identifies typed option
   locations, a reason, and constraint details. Explicit no-op options are
   checked before normalization, including applicability to the selected output.
+
+  Semantic checks need `:mount_presets` in the URL configuration; without it
+  this returns `:ok`. With it, request defaults, known presets, and explicit
+  options are checked together. A name the known presets lack is an unknown
+  preset, unless the mount has a lookup, which then decides at request time.
   """
   @spec validate(t()) :: :ok | {:error, [Issue.t()]}
-  def validate(%__MODULE__{plan: plan, config: config}),
-    do: Plan.validate(plan, config.options[:presets])
+  def validate(%__MODULE__{plan: plan, config: %Config{options: options}}),
+    do: Generator.check(plan, options)
 end

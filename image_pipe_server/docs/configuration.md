@@ -156,7 +156,6 @@ URL verification settings, converted with `ImagePipe.URL.config/1`.
 | `iv_mode` | `"deterministic"` or `"random"` | `"deterministic"` |
 | `encrypt_source` | boolean | `false` |
 | `source_encryption_keys` | array of string with a `base64:` or `hex:` prefix |  |
-| `presets` | table of string |  |
 
 ### `[sources.<name>]`
 
@@ -390,6 +389,8 @@ Processing defaults and limits of `ImagePipe.config/1`.
 | `watermarks.<name>.source` | string |  |
 | `watermarks.<name>.opacity` | number | `1.0` |
 | `request_watermarks` | boolean | `false` |
+| `presets` | table of string |  |
+| `request_defaults` | string |  |
 
 Elixir only: `telemetry_prefix`, `clock`.
 

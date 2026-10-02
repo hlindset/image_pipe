@@ -5,8 +5,8 @@ defmodule ImagePipe.API.PresetCompositionTest do
 
   alias ImagePipe.Plug.Request, as: ParsedRequest
 
-  defp parse(path, presets) do
-    config = ImagePipe.Plug.init(url: ImagePipe.URL.config(presets: presets))
+  defp parse(path, presets, request_defaults \\ nil) do
+    config = ImagePipe.Plug.init(presets: presets, request_defaults: request_defaults)
     {result, _metadata} = ParsedRequest.parse(conn(:get, path <> "/src/images/cat.jpg"), config)
 
     case result do
@@ -15,14 +15,13 @@ defmodule ImagePipe.API.PresetCompositionTest do
     end
   end
 
-  test "nested presets resolve with default, named and explicit precedence" do
+  test "nested presets resolve with request defaults, named and explicit precedence" do
     presets = %{
-      "default" => "q=60/blur=1",
       "base" => "w=200/format=webp",
       "card" => "preset=base/h=100/fit=cover/q=80"
     }
 
-    assert {:ok, request} = parse("/preset=card/w=300/q=90", presets)
+    assert {:ok, request} = parse("/preset=card/w=300/q=90", presets, "q=60/blur=1")
     assert {:ok, ^request} = parse("/w=300/h=100/fit=cover/blur=1/format=webp/q=90", %{})
   end
 
@@ -233,7 +232,7 @@ defmodule ImagePipe.API.PresetCompositionTest do
   test "configured preset names must be selectable by the URL grammar" do
     for name <- ["", "bad/name", "two,names", "has space", "bad\n"] do
       assert_raise ArgumentError, fn ->
-        ImagePipe.Plug.init(url: ImagePipe.URL.config(presets: %{name => "w=100"}))
+        ImagePipe.Plug.init(presets: %{name => "w=100"})
       end
     end
 
@@ -247,14 +246,10 @@ defmodule ImagePipe.API.PresetCompositionTest do
     assert {:ok, ^request} = parse("/w=300/-/w=100/pad=5/format=png", %{})
   end
 
-  test "single-group defaults and presets contribute to the first pipeline group" do
-    presets = %{
-      "default" => "blur=1",
-      "padding" => "pad=5",
-      "small" => "w=300/-/w=100"
-    }
+  test "request defaults and single-group presets contribute to the first pipeline group" do
+    presets = %{"padding" => "pad=5", "small" => "w=300/-/w=100"}
 
-    assert {:ok, request} = parse("/preset=small,padding", presets)
+    assert {:ok, request} = parse("/preset=small,padding", presets, "blur=1")
     assert {:ok, ^request} = parse("/w=300/blur=1/pad=5/-/w=100", %{})
   end
 
@@ -285,7 +280,7 @@ defmodule ImagePipe.API.PresetCompositionTest do
           %{"a" => "w=200/-/w=100", "b" => "preset=a/w=50"}
         ] do
       assert_raise ArgumentError, fn ->
-        ImagePipe.Plug.init(url: ImagePipe.URL.config(presets: presets))
+        ImagePipe.Plug.init(presets: presets)
       end
     end
   end

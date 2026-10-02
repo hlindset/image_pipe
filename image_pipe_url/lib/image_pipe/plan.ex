@@ -61,21 +61,21 @@ defmodule ImagePipe.Plan do
   end
 
   @doc false
-  @spec validate(t(), map()) :: :ok | {:error, [Issue.t()]}
-  def validate(%__MODULE__{} = plan, presets \\ %{}) do
-    case to_spec(plan, presets) do
+  @spec validate(t(), map(), map() | nil) :: :ok | {:error, [Issue.t()]}
+  def validate(%__MODULE__{} = plan, presets \\ %{}, defaults \\ nil) do
+    case to_spec(plan, presets, defaults) do
       {:ok, _request} -> :ok
       {:error, _issues} = error -> error
     end
   end
 
   @doc false
-  @spec to_spec(t(), map(), Spec.Validation.watermarks()) ::
+  @spec to_spec(t(), map(), map() | nil, Spec.Validation.watermarks()) ::
           {:ok, Spec.t()} | {:error, [Issue.t()]}
-  def to_spec(%__MODULE__{} = plan, presets \\ %{}, watermarks \\ nil) do
+  def to_spec(%__MODULE__{} = plan, presets \\ %{}, defaults \\ nil, watermarks \\ nil) do
     indexed = plan |> groups() |> Enum.with_index() |> Map.new(fn {group, i} -> {i, group} end)
 
-    with {:ok, expanded} <- Presets.expand(indexed, plan.options, presets) do
+    with {:ok, expanded} <- Presets.expand(indexed, plan.options, presets, defaults) do
       groups = expanded.groups |> Enum.sort() |> Enum.map(&elem(&1, 1))
 
       case Spec.errors(groups, expanded.request, MapSet.new(), watermarks) do

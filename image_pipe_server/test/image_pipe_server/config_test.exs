@@ -24,15 +24,26 @@ defmodule ImagePipeServer.ConfigTest do
               "base64:" <> Base.encode64(@key32),
               "hex:" <> Base.encode16(@key32)
             ],
-            "iv_mode" => "random",
-            "presets" => %{"card" => "w=400/h=400"}
+            "iv_mode" => "random"
           }
         })[:url]
 
       assert url[:keys] == ["aa", "bb"]
       assert url[:source_encryption_keys] == [@key32, @key32]
       assert url[:iv_mode] == :random
-      assert url[:presets] == %{"card" => "w=400/h=400"}
+    end
+
+    test "converts presets and request defaults in [processing]" do
+      processing =
+        Config.options!(%{
+          "processing" => %{
+            "presets" => %{"card" => "w=400/h=400"},
+            "request_defaults" => "q=80"
+          }
+        })[:processing]
+
+      assert processing[:presets] == %{"card" => "w=400/h=400"}
+      assert processing[:request_defaults] == "q=80"
     end
 
     test "rejects unprefixed or undecodable source-encryption keys without echoing them" do

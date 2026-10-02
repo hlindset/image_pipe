@@ -245,9 +245,15 @@ defmodule ImagePipe.API.OrientationMatrixTest do
       assert Enum.any?(diagnostics, &(&1.reason == :duplicate_option))
     end
 
-    test "the default preset can select orient=none" do
-      assert {:ok, presets} = Presets.validate_config(%{"default" => "orient=none"})
-      assert {:ok, request} = Parser.parse(lexed([]), presets: presets)
+    test "request defaults can select orient=none" do
+      assert {:ok, compiled} = Presets.compile(%{}, "orient=none")
+
+      assert {:ok, request} =
+               Parser.parse(lexed([]),
+                 presets: compiled.presets,
+                 request_defaults: compiled.request_defaults
+               )
+
       assert request.orient == :none
     end
   end

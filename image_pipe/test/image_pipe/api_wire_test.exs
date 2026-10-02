@@ -74,7 +74,7 @@ defmodule ImagePipe.APIWireTest do
   # already documents) — appended AFTER `ImagePipe.Plug.init/1`'s validation,
   # which would reject them as unknown options.
   defp opts(extra) do
-    {url_options, extra} = Keyword.split(extra, [:keys, :presets])
+    {url_options, extra} = Keyword.split(extra, [:keys])
     url = ImagePipe.URL.config(url_options)
     base = ImagePipe.Plug.init(Keyword.merge([url: url, sources: @default_sources], extra))
 

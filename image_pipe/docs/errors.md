@@ -37,6 +37,8 @@ detail than the response, which deliberately says less.
 | `404` | An encrypted source token fails to decrypt. |
 | `405` | The method isn't `GET`, `HEAD`, or `OPTIONS`. The response carries `Allow`. |
 | `410` | The request's `expires` time has passed. |
+| `500` | A looked-up preset definition is invalid, or the request exceeds `max_preset_lookups`. |
+| `503` | The preset lookup is unavailable. |
 
 All of these return before source resolution, fetch, or cache access.
 

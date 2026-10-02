@@ -49,17 +49,15 @@ pre-encode the entire string. Source filename extensions do not set output forma
 
 ## Presets
 
-Define recipes in the URL configuration and give the same value to the mount:
+Define recipes on the serving configuration. URLs carry only their names:
 
 ```elixir
-url_config = ImagePipe.URL.config(
+config = ImagePipe.config(
+  request_defaults: "q=80",
   presets: %{
     "card" => "w=400/h=300/fit=cover",
     "framed" => "preset=card/-/pad=20/bg=fff/format=webp"
-  }
-)
-mount = ImagePipe.Plug.init(
-  url: url_config,
+  },
   sources: [
     media: [
       adapter: ImagePipe.Source.File,
@@ -68,7 +66,8 @@ mount = ImagePipe.Plug.init(
     ]
   ]
 )
-poster = ImagePipe.URL.new(url_config, presets: ["card"])
+mount = ImagePipe.Plug.init(config: config)
+poster = ImagePipe.URL.new(ImagePipe.url_config(config), presets: ["card"])
 url = ImagePipe.URL.url!(poster, "photos/beach.jpg")
 ```
 
@@ -79,8 +78,21 @@ url = ImagePipe.URL.url!(poster, "photos/beach.jpg")
 
 Preset names contain letters, digits, dots, underscores, and hyphens. Nested
 references compile at initialization; unknown names and cycles fail there.
-A preset named `default` applies automatically. Multiple names use
-`preset=first,second`; later presets take precedence, then explicit URL options.
+Multiple names use `preset=first,second`; later presets take precedence, then
+explicit URL options. A preset may be an empty string, which contributes
+nothing: use it to retire a name without breaking its URLs.
+
+Presets and request defaults accept an `ImagePipe.URL` builder in place of a
+string. It compiles exactly like its URL spelling:
+
+```elixir
+presets: %{
+  "card" => ImagePipe.URL.new() |> ImagePipe.URL.group(resize: [width: 400, height: 300, fit: :cover])
+}
+```
+
+`request_defaults` apply to every request before selected presets and explicit
+options. They are one group, cannot select presets, and never appear in URLs.
 
 Single-group presets contribute to the first group. A pipeline preset containing
 `-` supplies the complete sequence; it accepts request-wide overrides such
@@ -95,10 +107,85 @@ and offset are another family, so supply the intended canvas settings together.
 
 Presets share cache identity with equivalent explicit requests. Plug and direct
 Elixir execution expand presets using the same rules. URL generation preserves
-named references so changing their definitions leaves URLs stable. When the
-builder and the mount run in different applications, both must use the same
-preset map; see [split deployments](elixir-api.md#split-deployments) and
-[combined usage](combined-usage.md).
+named references so changing their definitions leaves URLs stable.
+
+### Validating URLs before serving
+
+The URL builder checks a plan's combined options only when it knows the
+mount's presets. `ImagePipe.url_config(config)` returns the configuration's URL
+settings with that knowledge filled in. A URL configuration from
+`ImagePipe.URL.config/1` alone checks values only, so `url/3` and `validate/1`
+accept plans that the mount may still reject with `400`.
+
+When the builder runs in another application, describe the mount with
+`:mount_presets`, typically from a shared configuration value:
+
+```elixir
+ImagePipe.URL.config(
+  keys: keys,
+  mount_presets: [presets: shared_presets, request_defaults: "q=80", preset_lookup: true]
+)
+```
+
+`preset_lookup: true` says that the mount has a lookup, so names the map lacks
+are left to the mount. The copy only affects validation; a stale one gives
+wrong results but never changes a URL. `ImagePipe.validate(config, builder)`
+runs the full check, including the lookup, in the serving application. With
+known request defaults, an empty collection override such as `jpeg_options: []`
+cannot be written in a URL, so `url/3` returns
+`{:error, :unrepresentable_preset_override}`.
+
+### Preset lookup
+
+To keep presets in a database or cache server, implement
+`ImagePipe.PresetLookup` and pass it as `:preset_lookup`. It resolves names
+the static `:presets` map does not define, while the mount parses a request:
+
+```elixir
+defmodule MyApp.Presets do
+  @behaviour ImagePipe.PresetLookup
+
+  import Ecto.Query
+
+  @impl true
+  def validate_options(options), do: {:ok, options}
+
+  @impl true
+  def fetch(names, options) do
+    repo = Keyword.fetch!(options, :repo)
+    query = from p in "presets", where: p.name in ^names, select: {p.name, p.fragment}
+    {:ok, Map.new(repo.all(query))}
+  end
+end
+
+config = ImagePipe.config(
+  presets: %{"card" => "w=400/h=300/fit=cover"},
+  preset_lookup: {MyApp.Presets, repo: MyApp.Repo},
+  sources: [...]
+)
+```
+
+`fetch/2` receives a batch of names and returns the fragments it knows; omit
+the rest. It runs once per nesting level, so a request without nested lookups
+makes one call. Static names shadow the lookup and are never fetched, and
+requests that use only static presets never call it. Looked-up presets may
+reference static ones, but static presets may reference only static names.
+`request_defaults` never involve the lookup.
+
+- An unknown name answers `400`. A lookup that returns `{:error, _}`, raises,
+  exits, or returns a malformed value answers `503`. A stored fragment that
+  fails to parse, references an unknown preset, or forms a cycle answers `500`.
+  All of these return before source fetch or cache access.
+- `:max_preset_lookups` (default `32`) caps the distinct names one request may
+  look up; exceeding it answers `500`.
+- To retire a stored preset, return `""` for it rather than omitting it, so its
+  URLs keep working. Decide per preset: one that carries a watermark, a
+  concealing crop, or a size cap should not quietly become empty.
+- ImagePipe does not cache lookups. Cache in your implementation, for example
+  in ETS or Cachex, and bound backend timeouts in your client configuration.
+- Changing a stored definition changes the cache key and ETag of the requests
+  that use it.
+- URL generation never calls the lookup.
 
 ## Signing and expiry
 

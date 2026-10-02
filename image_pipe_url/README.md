@@ -5,7 +5,7 @@ without the image processing runtime. Use it in an application that only
 generates URLs, while a separate service running `image_pipe` serves them.
 
 It contains the URL grammar, the processing plan model and its validation,
-presets, signing, and source encryption. Its only runtime dependencies are
+preset references, signing, and source encryption. Its only runtime dependencies are
 `nimble_options`, `color`, and `mime`; it starts no processes and loads no NIFs.
 `image_pipe` depends on this package, so a single application that both builds
 and serves URLs needs only `image_pipe`.
@@ -24,8 +24,7 @@ Run `mix deps.get` in your application.
 url_config =
   ImagePipe.URL.config(
     base_url: "https://images.example.com",
-    keys: [System.fetch_env!("IMAGE_PIPE_SIGNING_KEY")],
-    presets: %{"card" => "w=400/h=300/fit=cover"}
+    keys: [System.fetch_env!("IMAGE_PIPE_SIGNING_KEY")]
   )
 
 url =
@@ -37,7 +36,7 @@ url =
 Generation performs no source, image, or cache I/O. Follow the
 [builder + external server guide](https://github.com/hlindset/image_pipe/blob/main/image_pipe/docs/external-server.md)
 to run `image_pipe_server`, generate your first working URL, and synchronize
-keys and presets.
+keys. Preset definitions live on the server; URLs carry only their names.
 
 The two packages are released in lockstep at the same version.
 

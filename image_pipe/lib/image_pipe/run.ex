@@ -8,6 +8,7 @@ defmodule ImagePipe.Run do
   alias ImagePipe.Execution.Output
   alias ImagePipe.Format
   alias ImagePipe.Plan
+  alias ImagePipe.Presets
   alias ImagePipe.Processing
   alias ImagePipe.Result
   alias ImagePipe.Source
@@ -53,10 +54,22 @@ defmodule ImagePipe.Run do
       request_sources?: config[:request_watermarks]
     }
 
-    case Plan.to_spec(plan, config[:presets], watermarks) do
-      {:ok, request} -> {:ok, request}
-      {:error, issues} -> {:error, {:invalid_request, issues}}
+    names = Map.get(plan.options, :presets, [])
+
+    with {:ok, presets} <- Presets.for_request(names, config) do
+      case Plan.to_spec(plan, presets, config[:request_defaults], watermarks) do
+        {:ok, request} -> {:ok, request}
+        {:error, issues} -> {:error, {:invalid_request, issues}}
+      end
     end
+  end
+
+  def validate(%Config{} = shared, %ImagePipe.URL{plan: plan}) do
+    config = shared.options
+
+    with {:ok, request} <- request(plan, config),
+         {:ok, _policy} <- Processing.prepare(request, config, ""),
+         do: :ok
   end
 
   defp render(context) do

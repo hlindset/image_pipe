@@ -5,6 +5,7 @@ defmodule ImagePipe.Plug.Request do
   alias ImagePipe.API.Path
   alias ImagePipe.Execution
   alias ImagePipe.Plan.Spec
+  alias ImagePipe.Presets
   alias ImagePipe.Processing
   alias ImagePipe.Security
   alias ImagePipe.Source.Parser, as: SourceParser
@@ -19,6 +20,7 @@ defmodule ImagePipe.Plug.Request do
       with {:ok, key_index} <- Security.verify(sig, signed_path, config),
            {:ok, lexed} <- Path.extract(path, conn.query_string) |> normalize_lex_error(),
            {:ok, lexed} <- decrypt_source(lexed, config),
+           {:ok, config} <- presets(lexed, config),
            {:ok, request} <- Parser.parse(lexed, config),
            {:ok, request} <- decrypt_watermarks(request, config) do
         {_marker, source, _span} = lexed.source
@@ -33,6 +35,13 @@ defmodule ImagePipe.Plug.Request do
         # Deliberately NO error tag — preserving the chain's parse stop shape.
         {error, %{result: :error}}
     end
+  end
+
+  # Request-time preset lookup replaces the static map with the request's
+  # compiled closure. Static-only requests skip it.
+  defp presets(lexed, config) do
+    with {:ok, presets} <- Presets.for_request(Parser.preset_names(lexed), config),
+         do: {:ok, Keyword.put(config, :presets, presets)}
   end
 
   def prepare(%Spec{} = request, source, config, accept_header) do

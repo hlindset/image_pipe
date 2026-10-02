@@ -105,7 +105,7 @@ defmodule ImagePipeFiddle.Application do
   end
 
   defp build_api_opts do
-    [url: ImagePipe.URL.config(presets: @presets)]
+    [url: ImagePipe.URL.config()]
     |> Keyword.merge(api_opts())
     |> ImagePipe.Plug.init()
   end
@@ -119,8 +119,7 @@ defmodule ImagePipeFiddle.Application do
   defp signed_url_config do
     ImagePipe.URL.config(
       keys: [@demo_signing_key],
-      source_encryption_keys: [@demo_source_encryption_key],
-      presets: @presets
+      source_encryption_keys: [@demo_source_encryption_key]
     )
   end
 
@@ -128,6 +127,7 @@ defmodule ImagePipeFiddle.Application do
     [
       allow_origin: "*",
       allow_debug_headers: true,
+      presets: @presets,
       sources: source_mounts(),
       watermarks: %{
         logo: [source: "watermarks/logo.png"],

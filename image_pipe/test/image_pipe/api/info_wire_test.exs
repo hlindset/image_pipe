@@ -215,7 +215,7 @@ defmodule ImagePipe.API.InfoWireTest do
   end
 
   test "preset transforms apply to the result", %{body: body} do
-    config = mount(body, url: ImagePipe.URL.config(presets: %{"card" => "w=10"}))
+    config = mount(body, presets: %{"card" => "w=10"})
     assert %{"width" => 10} = info("preset=card/output=info", config)["result"]
   end
 

@@ -18,6 +18,8 @@ First release of ImagePipe, with image processing powered by
   source adapters.
 - Compose resizing, cropping, orientation, effects, and watermarks in explicit
   processing groups, with optional face and object detection.
+- Define reusable presets and request defaults on the server configuration,
+  statically or through a host preset lookup backed by a database or cache.
 - Encode images with format negotiation, quality controls, byte budgets, and
   color-profile policies. Generate BlurHash, LQIP CSS, and image-info JSON.
 - Configure input and output caches, conditional HTTP responses, streamed

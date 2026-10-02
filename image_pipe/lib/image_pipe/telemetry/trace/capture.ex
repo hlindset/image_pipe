@@ -10,6 +10,7 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     [:processing, :admission],
     [:processing, :execute],
     [:parse],
+    [:preset, :lookup],
     [:send],
     [:encode],
     [:encode, :search],
@@ -87,6 +88,10 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     # metadata (nil when the request is legitimately unsigned) — a small
     # integer, never a secret
     :sig_key_index,
+    # preset lookup: host-chosen preset names and counts
+    :names,
+    :fetched,
+    :batches,
     :cache,
     :output_mode,
     :source_kind,
