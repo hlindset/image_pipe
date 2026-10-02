@@ -143,8 +143,30 @@ defmodule Mix.Tasks.Fixtures.GenSources do
     write!(opaque_alpha(rgb16), "rgba16.png", suffix: ".png")
 
     write_edge_sources()
+    transcode_oriented_jxl()
 
     Mix.shell().info("Wrote sources to #{@dir}")
+  end
+
+  # JPEG XL keeps orientation in its codestream, which libvips' writer leaves at
+  # 1, so transcode the EXIF-6 JPEG with libjxl's cjxl, which carries the
+  # orientation over. Without cjxl, keep the committed file.
+  defp transcode_oriented_jxl do
+    case System.find_executable("cjxl") do
+      nil ->
+        Mix.shell().info("cjxl not found; keeping the committed exif_placement_6.jxl")
+
+      cjxl ->
+        {_output, 0} =
+          System.cmd(
+            cjxl,
+            [
+              Path.join(@dir, "exif_placement_6.jpg"),
+              Path.join(@dir, "exif_placement_6.jxl")
+            ],
+            stderr_to_stdout: true
+          )
+    end
   end
 
   # Band layouts, sizes and content the RGB(A) sources above don't cover.

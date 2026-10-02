@@ -90,6 +90,34 @@ defmodule ImagePipe.API.InputFormatWireTest do
     end
   end
 
+  # Libjxl applies a JPEG XL codestream orientation on decode. The source is the
+  # EXIF-6 JPEG transcoded by cjxl, which moves the orientation into the
+  # codestream; it must display exactly like the JPEG.
+  for request <- ["", "crop=120,80/anchor=top-left/", "w=150/"] do
+    @request request
+
+    test "a JPEG XL codestream orientation displays like EXIF: #{request}" do
+      config = file_config()
+      expected = image("/#{@request}format=png/src/exif_placement_6.jpg", config)
+      actual = image("/#{@request}format=png/src/exif_placement_6.jxl", config)
+
+      assert dims(actual) == dims(expected)
+      assert mean_difference(actual, expected) <= 1.0
+    end
+  end
+
+  defp file_config do
+    ImagePipe.Plug.init(
+      sources: [
+        path: [
+          adapter: ImagePipe.Source.File,
+          match: :path,
+          options: [root: "test/support/image_pipe/test/sources", root_id: "input-formats"]
+        ]
+      ]
+    )
+  end
+
   # A 128×96 base with distinct regions, large enough that a 4× downscale
   # shrinks on load in the containers that support it.
   defp base do
