@@ -6,6 +6,7 @@ defmodule ImagePipe.Transform.Operation.Background do
 
   import ImagePipe.Transform.State
 
+  alias ImagePipe.Transform.Alpha
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
@@ -30,7 +31,7 @@ defmodule ImagePipe.Transform.Operation.Background do
   end
 
   def execute(%__MODULE__{color: color}, %State{} = state) do
-    with {:ok, image} <- alpha_ready_image(state.image),
+    with {:ok, image} <- Alpha.ensure(state.image),
          {:ok, background} <- background_image(image, color),
          {:ok, composited} <- Image.compose(background, image) do
       {:ok, set_image(state, composited)}
@@ -62,13 +63,6 @@ defmodule ImagePipe.Transform.Operation.Background do
     with {:ok, pixel} <- Image.new(1, 1, color: rgb),
          {:ok, gray} <- Operation.colourspace(pixel, interpretation) do
       Operation.getpoint(gray, 0, 0)
-    end
-  end
-
-  defp alpha_ready_image(image) do
-    case Image.has_alpha?(image) do
-      true -> {:ok, image}
-      false -> Image.add_alpha(image, :opaque)
     end
   end
 

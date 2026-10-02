@@ -13,6 +13,7 @@ defmodule ImagePipe.Transform.Executor do
   alias ImagePipe.Plan.Spec.Group
   alias ImagePipe.Plan.Spec.Output
   alias ImagePipe.Transform
+  alias ImagePipe.Transform.Alpha
   alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.Executor.Geometry
   alias ImagePipe.Transform.InputColorManagement
@@ -476,21 +477,11 @@ defmodule ImagePipe.Transform.Executor do
   defp to_frame_space(asset, _interpretation), do: {:ok, asset}
 
   defp with_alpha(asset) do
-    case Image.has_alpha?(asset) do
-      true ->
-        {:ok, asset}
-
-      false ->
-        case VipsOperation.bandjoin_const(asset, [max_alpha(VipsImage.format(asset))]) do
-          {:ok, asset} -> {:ok, asset}
-          {:error, reason} -> {:error, {:transform, {Watermark, reason}}}
-        end
+    case Alpha.ensure(asset) do
+      {:ok, asset} -> {:ok, asset}
+      {:error, reason} -> {:error, {:transform, {Watermark, reason}}}
     end
   end
-
-  defp max_alpha(:VIPS_FORMAT_USHORT), do: 65_535.0
-  defp max_alpha(format) when format in [:VIPS_FORMAT_FLOAT, :VIPS_FORMAT_DOUBLE], do: 1.0
-  defp max_alpha(_format), do: 255.0
 
   # A scale fits the asset in that fraction of the frame; otherwise it keeps
   # its natural size at the group's effective DPR.
