@@ -33,7 +33,8 @@ Except for `orient`, pass this page's Elixir options to `ImagePipe.URL.group/2`.
 
 `region` and guided `crop` are alternatives. Crop-ratio settings require a
 guided crop. Percentages use the current display frame after rotation, flip,
-and trim; there is no hidden offset back into the original image.
+and trim; there is no hidden offset back into the original image. Trim leaves
+an image narrower or shorter than 3 pixels unchanged.
 
 ```text
 /crop=50pct,100pct/anchor=left/w=300/src/photos/beach.jpg
