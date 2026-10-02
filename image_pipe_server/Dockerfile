@@ -10,7 +10,7 @@
 # IMAGE_VISION=1 bundles the default detector (image_vision with ONNX Runtime)
 # and bakes its models into the image.
 
-ARG ELIXIR_IMAGE=hexpm/elixir:1.20.4-erlang-29.1-debian-trixie-20260918-slim
+ARG ELIXIR_IMAGE=hexpm/elixir:1.20.4-erlang-29.1.1-debian-trixie-20260918-slim
 ARG RUNTIME_IMAGE=debian:trixie-20260918-slim
 
 FROM ${ELIXIR_IMAGE} AS build

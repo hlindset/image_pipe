@@ -12,8 +12,6 @@ defmodule ImagePipe.Application do
 
   use Application
 
-  require Logger
-
   alias ImagePipe.Output.Capabilities
 
   @impl true
@@ -33,7 +31,6 @@ defmodule ImagePipe.Application do
 
     opts = [strategy: :one_for_one, name: ImagePipe.Supervisor]
 
-    Logger.info("Starting application...")
     Supervisor.start_link(children, opts)
   end
 end

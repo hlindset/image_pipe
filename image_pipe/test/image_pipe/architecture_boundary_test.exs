@@ -54,7 +54,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   ]
   @parsing_forbidden_globs @core_surface_globs ++ @transform_globs ++ @core_toolkit_globs
   @boundary_files %{
-    ImagePipe.Application => "lib/application.ex",
+    ImagePipe.Application => "lib/image_pipe/application.ex",
     ImagePipe.Config => "lib/image_pipe/config.ex",
     ImagePipe.Execution => "lib/image_pipe/execution.ex",
     ImagePipe.Cache => "lib/image_pipe/cache.ex",
