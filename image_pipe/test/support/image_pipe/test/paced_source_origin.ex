@@ -32,16 +32,28 @@ defmodule ImagePipe.Test.PacedSourceOrigin do
         end
 
         send(observer, {:origin_held, self()})
-
-        receive do
-          :continue -> :gen_tcp.send(socket, tail)
-          :truncate -> :ok
-        end
+        hold(socket, tail)
       after
         :gen_tcp.close(socket)
       end
     after
       :gen_tcp.close(listener)
+    end
+  end
+
+  # Overlap re-evaluates only when bytes arrive, so a client that read the
+  # prefix in one burst would never start decoding before EOF. Trickling a
+  # byte at a time keeps it observing while nearly all of the body is held.
+  defp hold(socket, <<byte::binary-size(1), rest::binary>> = tail) do
+    receive do
+      :continue -> :gen_tcp.send(socket, tail)
+      :truncate -> :ok
+    after
+      10 ->
+        case :gen_tcp.send(socket, byte) do
+          :ok -> hold(socket, rest)
+          {:error, _reason} -> :ok
+        end
     end
   end
 end
