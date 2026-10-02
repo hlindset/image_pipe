@@ -87,7 +87,9 @@ jobs:
         toolchain:
           - { elixir: 1.18.5-otp-27, erlang: "27" }
           - { elixir: 1.19.6-otp-28, erlang: "28" }
-          - { elixir: 1.20.4-otp-29, erlang: "29.1.1" }
+          # `reference` runs the imgproxy reference suite once, in partition 1;
+          # its pixels depend on libvips, not on the toolchain.
+          - { elixir: 1.20.4-otp-29, erlang: "29.1.1", reference: true }
         partition: [1, 2, 3]
 
     # Build current libvips for clamp/maxpair, PNG palette quantization, and
@@ -223,22 +225,28 @@ jobs:
           key: ${{ steps.mix-cache.outputs.cache-primary-key }}
       - name: Run tests
         working-directory: image_pipe
-        run: mise exec -- mix test --no-compile --partitions 3
+        run: mise exec -- mix test --no-compile --partitions 3 --exclude imgproxy_reference
         env:
           MIX_ENV: test
           MIX_TEST_PARTITION: ${{ matrix.partition }}
-      # A failing imgproxy reference case leaves its images in
-      # tmp/imgproxy_reference/; publish them as one browsable page.
-      - name: Build imgproxy reference report
-        if: failure() && hashFiles('image_pipe/tmp/imgproxy_reference/*.txt') != ''
+      - name: imgproxy reference tests
+        if: ${{ !cancelled() && matrix.toolchain.reference && matrix.partition == 1 }}
         working-directory: image_pipe
-        run: mise exec -- mix imgproxy.report --output "tmp/imgproxy-reference-otp${{ matrix.toolchain.erlang }}-${{ matrix.partition }}.html"
+        run: mise exec -- mix test --no-compile --only imgproxy_reference
+        env:
+          MIX_ENV: test
+      # Every case leaves its output and result in tmp/imgproxy_reference/;
+      # publish them as one browsable page and a job summary, pass or fail.
+      - name: Build imgproxy reference report
+        if: ${{ !cancelled() && matrix.toolchain.reference && matrix.partition == 1 && hashFiles('image_pipe/tmp/imgproxy_reference/*.result') != '' }}
+        working-directory: image_pipe
+        run: mise exec -- mix imgproxy.report --output tmp/imgproxy-reference.html
         env:
           MIX_ENV: test
       - name: Upload imgproxy reference report
-        if: failure() && hashFiles('image_pipe/tmp/imgproxy_reference/*.txt') != ''
+        if: ${{ !cancelled() && matrix.toolchain.reference && matrix.partition == 1 && hashFiles('image_pipe/tmp/imgproxy-reference.html') != '' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          path: image_pipe/tmp/imgproxy-reference-otp${{ matrix.toolchain.erlang }}-${{ matrix.partition }}.html
+          path: image_pipe/tmp/imgproxy-reference.html
           archive: false
           retention-days: 14

@@ -4,23 +4,26 @@ defmodule ImagePipe.APIImgproxyReferenceTest do
   URL API.
 
   See `test/support/image_pipe/test/imgproxy_reference/README.md` for fixture
-  provenance and change rules. A failing case writes its actual output, an
-  amplified difference image and its message to `tmp/imgproxy_reference/`;
-  `mix imgproxy.report` builds an HTML page from them.
+  provenance and change rules. Every case writes its output, an amplified
+  difference image and its result to `tmp/imgproxy_reference/`;
+  `mix imgproxy.report` builds an HTML page and a summary from them.
   """
 
   use ExUnit.Case, async: true
+
+  @moduletag :imgproxy_reference
 
   import Plug.Test
 
   alias ImagePipe.Test.Differential.PixelCompare
   alias ImagePipe.Test.ImgproxyReference.Cases
+  alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
 
   @sources "test/support/image_pipe/test/sources"
   @reference "test/support/image_pipe/test/imgproxy_reference"
   @fixtures Path.join(@reference, "fixtures")
-  @failures "tmp/imgproxy_reference"
+  @results "tmp/imgproxy_reference"
   @manifest @reference |> Path.join("manifest.exs") |> Code.eval_file() |> elem(0)
 
   setup_all do
@@ -35,6 +38,9 @@ defmodule ImagePipe.APIImgproxyReferenceTest do
         ],
         watermarks: %{mark: [source: "alpha.png"]}
       )
+
+    File.rm_rf!(@results)
+    File.mkdir_p!(@results)
 
     {:ok, config: config}
   end
@@ -87,13 +93,26 @@ defmodule ImagePipe.APIImgproxyReferenceTest do
     {body, content_type} = render(c.native, c.source, config)
     actual = Image.open!(body, access: :random, fail_on: :error)
     expected = @manifest.cases[c.id]
+    dims = {Image.width(actual), Image.height(actual)}
 
-    assert {Image.width(actual), Image.height(actual)} == {expected.width, expected.height}
-    assert content_type == expected.content_type
+    cond do
+      dims != {expected.width, expected.height} ->
+        fail_case(
+          c.id,
+          "dimensions #{inspect(dims)} != #{inspect({expected.width, expected.height})}"
+        )
+
+      content_type != expected.content_type ->
+        fail_case(c.id, "content type #{content_type} != #{expected.content_type}")
+
+      true ->
+        record(c.id, %{status: :pass})
+    end
   end
 
   defp check(%{kind: :png} = c, config) do
     {body, _content_type} = render(c.native <> "/format=png", c.source, config)
+    File.write!(Path.join(@results, "#{c.id}.actual.png"), body)
     actual = Image.open!(body, access: :random, fail_on: :error)
     expected = Image.open!(fixture_path(c.id), access: :random, fail_on: :error)
     {threshold, budget} = c.tolerance
@@ -101,22 +120,19 @@ defmodule ImagePipe.APIImgproxyReferenceTest do
     unless PixelCompare.same_dims?(actual, expected) do
       fail_case(
         c.id,
-        body,
-        nil,
         "dimensions #{inspect(PixelCompare.dims(actual))} != imgproxy reference " <>
           inspect(PixelCompare.dims(expected))
       )
     end
 
     outliers = PixelCompare.outliers(actual, expected, threshold)
+    max_delta = write_diff(c.id, actual, expected)
+    metrics = %{outliers: outliers, threshold: threshold, budget: budget, max_delta: max_delta}
 
     if outliers > budget do
-      fail_case(
-        c.id,
-        body,
-        {actual, expected},
-        "#{outliers} band samples exceed Δ#{threshold}; budget #{budget}"
-      )
+      fail_case(c.id, "#{outliers} band samples exceed Δ#{threshold}; budget #{budget}", metrics)
+    else
+      record(c.id, Map.put(metrics, :status, :pass))
     end
   end
 
@@ -130,22 +146,28 @@ defmodule ImagePipe.APIImgproxyReferenceTest do
     {response.resp_body, content_type}
   end
 
-  # Writes the output, the failure message and, for pixel failures, an
-  # amplified difference image; `mix imgproxy.report` turns them into a page.
-  defp fail_case(id, body, images, message) do
-    File.mkdir_p!(@failures)
-    File.write!(Path.join(@failures, "#{id}.actual.png"), body)
-    File.write!(Path.join(@failures, "#{id}.txt"), message)
+  # Writes the difference amplified ×8 and returns its maximum, both in 8-bit
+  # levels like `PixelCompare` (16-bit samples are divided by 257).
+  defp write_diff(id, actual, expected) do
+    levels = if VipsImage.format(actual) == :VIPS_FORMAT_USHORT, do: 257.0, else: 1.0
+    {:ok, delta} = Operation.subtract(actual, expected)
+    {:ok, delta} = Operation.abs(delta)
+    {:ok, delta} = Operation.linear(delta, [1.0 / levels], [0.0])
+    {:ok, {max_delta, _position}} = Operation.max(delta)
+    max_delta = Float.round(max_delta, 1)
+    {:ok, amplified} = Operation.linear(delta, [8.0], [0.0])
+    {:ok, amplified} = Operation.cast(amplified, :VIPS_FORMAT_UCHAR)
+    Image.write!(amplified, Path.join(@results, "#{id}.diff.png"))
+    max_delta
+  end
 
-    with {actual, expected} <- images,
-         {:ok, delta} <- Operation.subtract(actual, expected),
-         {:ok, delta} <- Operation.abs(delta),
-         {:ok, delta} <- Operation.linear(delta, [8.0], [0.0]),
-         {:ok, delta} <- Operation.cast(delta, :VIPS_FORMAT_UCHAR) do
-      Image.write!(delta, Path.join(@failures, "#{id}.diff.png"))
-    end
+  # Every case records its result for `mix imgproxy.report`, passing or not.
+  defp record(id, result),
+    do: File.write!(Path.join(@results, "#{id}.result"), :erlang.term_to_binary(result))
 
-    flunk("#{id}: #{message}. Output written to #{@failures}/")
+  defp fail_case(id, message, metrics \\ %{}) do
+    record(id, Map.merge(metrics, %{status: :fail, message: message}))
+    flunk("#{id}: #{message}. Output written to #{@results}/")
   end
 
   defp fixture_path(id), do: Path.join(@fixtures, "#{id}.png")
