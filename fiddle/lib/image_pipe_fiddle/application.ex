@@ -9,7 +9,8 @@ defmodule ImagePipeFiddle.Application do
   @demo_source_encryption_key :binary.copy(<<42, 73>>, 16)
   @presets %{
     "card" => "w=400/h=400/fit=cover",
-    "framed" => "preset=card/-/pad=20/bg=fff/format=webp"
+    "frame" => "pad=20/bg=fff",
+    "framed" => "preset=card/-/preset=frame/format=webp"
   }
 
   @impl true

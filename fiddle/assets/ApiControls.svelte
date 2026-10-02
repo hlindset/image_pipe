@@ -90,6 +90,7 @@
     { label: "Padding", options: "w=600/pad=24/bg=fff" },
     { label: "Resize then trim", options: "w=500/-/trim=fff" },
     { label: "Framed preset", options: "preset=framed" },
+    { label: "Preset in a later group", options: "w=500/-/trim=auto/preset=frame" },
     { label: "Rotate", options: "rotate=30/w=600" },
     { label: "Flip", options: "rotate=90/flip=h/w=600" },
     {
