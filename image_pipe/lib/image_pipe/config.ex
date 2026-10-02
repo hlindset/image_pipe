@@ -135,9 +135,22 @@ defmodule ImagePipe.Config do
 
   @doc false
   def validate_preset_lookup({module, options}) when is_atom(module) and is_list(options) do
-    case module.validate_options(options) do
-      {:ok, options} when is_list(options) -> {:ok, {module, options}}
-      {:error, reason} -> {:error, "preset_lookup options are invalid: #{inspect(reason)}"}
+    with {:module, _module} <- Code.ensure_loaded(module),
+         true <- function_exported?(module, :validate_options, 1),
+         true <- function_exported?(module, :fetch, 2) do
+      case module.validate_options(options) do
+        {:ok, options} when is_list(options) ->
+          {:ok, {module, options}}
+
+        {:error, reason} ->
+          {:error, "preset_lookup options are invalid: #{inspect(reason)}"}
+
+        _invalid ->
+          {:error,
+           "#{inspect(module)}.validate_options/1 must return {:ok, keyword} or {:error, reason}"}
+      end
+    else
+      _missing -> {:error, "#{inspect(module)} does not implement ImagePipe.PresetLookup"}
     end
   end
 

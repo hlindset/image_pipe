@@ -5,13 +5,14 @@ defmodule ImagePipe.Test.PresetLookup do
 
   `:presets` maps names to fragments. `:fail` makes `fetch/2` return
   `{:error, :down}`, `:raise` makes it raise, and `:reply` replaces the
-  return value verbatim.
+  return value verbatim. `:validate_reply` replaces `validate_options/1`'s
+  return value.
   """
 
   @behaviour ImagePipe.PresetLookup
 
   @impl true
-  def validate_options(options), do: {:ok, options}
+  def validate_options(options), do: Keyword.get(options, :validate_reply, {:ok, options})
 
   @impl true
   def fetch(names, options) do

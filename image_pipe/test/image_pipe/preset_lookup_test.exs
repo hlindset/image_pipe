@@ -175,6 +175,20 @@ defmodule ImagePipe.PresetLookupTest do
     assert_raise ArgumentError, ~r/preset_lookup/, fn ->
       config(body, preset_lookup: PresetLookup)
     end
+
+    for module <- [MissingPresetLookup, String] do
+      assert_raise ArgumentError, ~r/does not implement ImagePipe.PresetLookup/, fn ->
+        config(body, preset_lookup: {module, []})
+      end
+    end
+
+    assert_raise ArgumentError, ~r/options are invalid: :bad/, fn ->
+      config(body, preset_lookup: lookup(validate_reply: {:error, :bad}))
+    end
+
+    assert_raise ArgumentError, ~r/must return/, fn ->
+      config(body, preset_lookup: lookup(validate_reply: :nonsense))
+    end
   end
 
   test "changing a looked-up definition changes the ETag", %{body: body} do
