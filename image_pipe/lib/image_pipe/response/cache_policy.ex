@@ -53,16 +53,24 @@ defmodule ImagePipe.Response.CachePolicy do
   def mode(:inherit, config), do: Keyword.get(config, :http_cache, :validators)
   def mode(mode, _config), do: mode
 
-  @spec generate(Plug.Conn.t(), Representation.t(), source_facts(), mode(), keyword()) ::
+  # `degraded?` marks output produced by a fallback after a failure (a crop that
+  # used attention because detection errored). Neither shared caches nor the
+  # client may keep it, and it gets no validator to revalidate against.
+  @spec generate(Plug.Conn.t(), Representation.t(), source_facts(), mode(), keyword(), boolean()) ::
           CacheHeaders.t()
   def generate(
         %Plug.Conn{} = conn,
         %Representation{} = representation,
         source_facts,
         mode,
-        config
+        config,
+        degraded? \\ false
       ) do
-    {prepared, fallback_reason} = prepare(conn, representation, source_facts, mode, config)
+    {prepared, fallback_reason} =
+      case prepare(conn, representation, source_facts, mode, config) do
+        {prepared, _reason} when degraded? -> {no_store(prepared), :detection_failed}
+        prepared_and_reason -> prepared_and_reason
+      end
 
     Telemetry.execute(
       Telemetry.telemetry_opts(config),
@@ -120,14 +128,7 @@ defmodule ImagePipe.Response.CachePolicy do
   def limit_to_source(prepared, conn, facts, now, mode, config) do
     cond do
       not facts.storable? ->
-        %{
-          prepared
-          | etag: nil,
-            headers: [{"cache-control", "no-store"}],
-            representation_headers: [
-              {"cache-control", "no-store"} | prepared.representation_headers
-            ]
-        }
+        no_store(prepared)
 
       facts.fresh_until == :infinity ->
         prepared
@@ -414,6 +415,15 @@ defmodule ImagePipe.Response.CachePolicy do
 
   defp has_host_cache_control?(conn) do
     CacheHeaders.host_cache_control?(get_resp_header(conn, "cache-control"))
+  end
+
+  defp no_store(prepared) do
+    %{
+      prepared
+      | etag: nil,
+        headers: [{"cache-control", "no-store"}],
+        representation_headers: [{"cache-control", "no-store"} | prepared.representation_headers]
+    }
   end
 
   defp byte_identity_kind({:strong, _seed}), do: :strong

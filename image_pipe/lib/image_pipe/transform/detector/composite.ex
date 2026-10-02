@@ -5,7 +5,8 @@ defmodule ImagePipe.Transform.Detector.Composite do
   Each class goes to every child that lists it in `supported_classes/1`; `:all`
   routes to every child, and unclaimed classes are dropped. Identity and
   availability reflect only routed children, so an object-only request is
-  unaffected by a face-model change. The default combines the face (YuNet) and
+  unaffected by a face-model change. A failing child fails the detection, and
+  an unavailable child contributes no regions. The default combines the face (YuNet) and
   object (RT-DETR) adapters.
   """
   @behaviour ImagePipe.Transform.Detector
@@ -43,6 +44,9 @@ defmodule ImagePipe.Transform.Detector.Composite do
   def identity(opts), do: identity(default(), opts)
 
   @impl true
+  def ready?(opts), do: ready?(default(), opts)
+
+  @impl true
   def warmup(opts), do: warmup(default(), opts)
 
   # Warm only the children the requested classes route to, so e.g.
@@ -75,17 +79,23 @@ defmodule ImagePipe.Transform.Detector.Composite do
     |> merge_results()
   end
 
-  # Merge successful results even when other children fail. Return an error only
-  # if every routed child fails, so telemetry distinguishes an outage from no
-  # detections. No routed children yields {:ok, []}.
+  # Any child error other than an unavailable child fails the detection, so the
+  # caller never treats a partial result as complete. An unavailable child
+  # contributes no regions. Every child unavailable is an unavailable detector.
+  # No routed children yields {:ok, []}.
   defp merge_results([]), do: {:ok, []}
 
   defp merge_results(results) do
-    region_lists = for {:ok, regions} <- results, do: regions
+    failure =
+      Enum.find(results, fn
+        {:error, {:detector, :unavailable}} -> false
+        result -> match?({:error, _}, result)
+      end)
 
-    case region_lists do
-      [] -> Enum.find(results, &match?({:error, _}, &1))
-      lists -> {:ok, List.flatten(lists)}
+    case {failure, for({:ok, regions} <- results, do: regions)} do
+      {{:error, _} = error, _lists} -> error
+      {nil, []} -> {:error, {:detector, :unavailable}}
+      {nil, lists} -> {:ok, List.flatten(lists)}
     end
   end
 
@@ -116,6 +126,15 @@ defmodule ImagePipe.Transform.Detector.Composite do
     composite
     |> routed(classes)
     |> Enum.all?(fn {child, _} -> child.available?(opts) end)
+  end
+
+  @spec ready?(t(), keyword()) :: boolean()
+  def ready?(%__MODULE__{} = composite, opts) do
+    classes = Keyword.get(opts, :classes, :all)
+
+    composite
+    |> routed(classes)
+    |> Enum.all?(fn {child, _} -> Detector.ready?(child, opts) end)
   end
 
   @spec identity(t(), keyword()) :: {module(), [term()]}

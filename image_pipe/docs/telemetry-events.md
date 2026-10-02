@@ -833,7 +833,8 @@ HTTP cache handling emits one-shot events:
 - `[:image_pipe, :http_cache, :conditional, :match]` with `method: :get` or
   `method: :head`.
 - `[:image_pipe, :http_cache, :fallback, :no_store]` with `:source_mount`,
-  `:source_kind`, and `:reason`.
+  `:source_kind`, and `:reason`. `:detection_failed` means a crop fell back to
+  attention after a detection error, so the response isn't stored.
 - `[:image_pipe, :http_cache, :cache_hit, :headers]` with booleans for `:etag`,
   `:generated_cache_headers`, and `:representation_headers`.
 

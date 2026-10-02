@@ -156,8 +156,9 @@ for a slot. A request that finds the queue full, or waits longer than
 
 Detection-based gravity needs the vision image. Without it, detection
 requests fall back to attention cropping. Set
-`[processing] detector_required = true` to reject them instead; the plain
-image then refuses to start, which catches deploying the wrong variant. See
+`[processing] detector_required = true` to fail them instead, including when
+detection errors while processing. The plain image then refuses to start,
+which catches deploying the wrong variant. See
 [content-aware gravity](../../image_pipe/docs/content-aware-gravity.md).
 
 ## Logging

@@ -2,7 +2,7 @@ defmodule ImagePipe.Execution.Output do
   @moduledoc false
   @enforce_keys [:context, :value, :cache, :cache_us]
   @derive {Inspect, only: [:cache, :cache_us]}
-  defstruct @enforce_keys ++ [extra_lease: nil]
+  defstruct @enforce_keys ++ [extra_lease: nil, degraded?: false]
 
   alias ImagePipe.Cache
   alias ImagePipe.Delivery.StreamPull

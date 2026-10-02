@@ -78,8 +78,10 @@ Percentages use the crop's input frame.
 
 Detection class names use lowercase letters, digits, underscores, and hyphens,
 starting with a letter or digit. Weights are positive and at most 1,000,000.
-Optional detection falls back to attention when unavailable, empty, or failed.
-Set `detector_required: true` to reject unavailable explicitly requested classes.
+A class the server's detector doesn't support, such as `detect=unicorn`, fails
+with `400`. Otherwise detection falls back to attention when the detector is
+unavailable, finds nothing, or fails. A server that requires detection fails
+the request instead. See [content-aware cropping](../content-aware-gravity.md#options).
 
 See [content-aware cropping](../content-aware-gravity.md) for detector setup,
 weights, warmup, and custom detectors. See the

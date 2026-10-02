@@ -10,7 +10,7 @@ defmodule ImagePipe.Transform.Detector.ImageVision.Objects do
   """
   @behaviour ImagePipe.Transform.Detector
 
-  @compile {:no_warn_undefined, Image.Detection}
+  @compile {:no_warn_undefined, [Image.Detection, ImageVision.ModelCache]}
 
   @repo "onnx-community/rtdetr_r50vd"
   @filename "onnx/model.onnx"
@@ -36,6 +36,11 @@ defmodule ImagePipe.Transform.Detector.ImageVision.Objects do
 
   @impl true
   def available?(_opts), do: Code.ensure_loaded?(Image.Detection)
+
+  # Model files live in image_vision's on-disk cache; a miss would download.
+  @impl true
+  @dialyzer {:nowarn_function, ready?: 1}
+  def ready?(opts), do: available?(opts) and ImageVision.ModelCache.cached?(@repo, @filename)
 
   @impl true
   def identity(_opts) do

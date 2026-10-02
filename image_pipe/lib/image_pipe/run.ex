@@ -75,8 +75,9 @@ defmodule ImagePipe.Run do
   defp render(context) do
     with {:ok, output} <- Execution.open(context) do
       try do
-        with {:ok, data, type, debug} <- Output.buffer(output) do
-          result(context.request.output.terminal, data, type, debug)
+        with {:ok, data, type, debug} <- Output.buffer(output),
+             {:ok, result} <- result(context.request.output.terminal, data, type, debug) do
+          {:ok, %Result{result | degraded?: output.degraded?}}
         end
       after
         Execution.close_output(output)

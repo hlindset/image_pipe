@@ -219,10 +219,14 @@ guides and form one preset override family together with `anchor-offset`.
 Detection and smart guides do not accept anchor offsets. Guides reset at `-`.
 
 Mount options are `detector: :default | nil | module` and
-`detector_required: boolean`. Strict mode checks the requested explicit
-detection classes before source resolution or cache access and returns 501
-when unavailable. Face-assisted attention remains optional. Missing, empty,
-or failed optional detection falls back to attention cropping.
+`detector_required: boolean`. Explicit detection classes that the configured
+detector does not support return 400 before source resolution or cache
+access. Strict mode checks the requested explicit classes at the same point
+and returns 501 when the detector is unavailable, or 503 when its models are
+not present. In strict mode a detection error returns 500. Face-assisted
+attention remains optional. Missing, empty, or failed optional detection falls
+back to attention cropping. A fallback after a detection error is not stored
+and is sent with `Cache-Control: no-store` and no ETag.
 
 Representation identity includes the detector identities relevant to every
 group, including face models used by `smart-face`. Both storage keys and

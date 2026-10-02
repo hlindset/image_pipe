@@ -72,6 +72,8 @@ defmodule ImagePipe.Response.ErrorStatus do
   def classify({:encode, _}), do: :server_error
   def classify({:encode, _, _}), do: :server_error
   def classify({:detector, :unavailable}), do: :not_implemented
+  def classify({:detector, :not_ready}), do: :unavailable
+  def classify({:detector, {:unknown_classes, _names}}), do: :bad_request
 
   def classify({:processing, reason})
       when reason in [:timeout, :overloaded, :queue_timeout, :unavailable],
@@ -129,6 +131,7 @@ defmodule ImagePipe.Response.ErrorStatus do
     do: "requested region is outside the image"
 
   def message_for({:transform, {:bad_request, _}}), do: "bad request"
+  def message_for({:transform, {:server_error, {:detector, _}}}), do: "object detection failed"
   def message_for({:transform, _}), do: "invalid image transform"
 
   def message_for({:source, reason}) when reason in @absent_reasons, do: "source not found"
@@ -186,6 +189,12 @@ defmodule ImagePipe.Response.ErrorStatus do
 
   def message_for({:detector, :unavailable}),
     do: "object detection is not available on this server"
+
+  def message_for({:detector, :not_ready}),
+    do: "object detection models are not loaded yet"
+
+  def message_for({:detector, {:unknown_classes, names}}),
+    do: "unknown detection class: " <> Enum.join(names, ", ")
 
   def message_for({:processing, :timeout}), do: "image processing timeout"
   def message_for({:session, :timeout}), do: "image processing timeout"

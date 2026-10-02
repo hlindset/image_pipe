@@ -88,7 +88,8 @@ defmodule ImagePipe.Transform.Executor do
   def execute(%State{} = state, %Spec{} = request, opts) do
     state = %State{
       state
-      | detector: Transform.resolve_detector(Keyword.get(opts, :detector, :default))
+      | detector: Transform.resolve_detector(Keyword.get(opts, :detector, :default)),
+        detector_required: Keyword.get(opts, :detector_required, false)
     }
 
     with {:ok, state} <- condition_color(state, opts),

@@ -1,5 +1,8 @@
 defmodule ImagePipe.Output.Resolved do
   @moduledoc false
+  # `degraded?` marks pixels produced by a fallback after a failure (a crop that
+  # used attention because detection errored). Such output is never stored and
+  # gets no validator.
 
   alias ImagePipe.Plan.Color
 
@@ -18,7 +21,8 @@ defmodule ImagePipe.Output.Resolved do
                 quality_search_max_iterations: 6,
                 max_bytes: nil,
                 dpi: nil,
-                encoder_options: nil
+                encoder_options: nil,
+                degraded?: false
               ]
 
   @type format :: ImagePipe.Format.output_format()
@@ -44,6 +48,7 @@ defmodule ImagePipe.Output.Resolved do
             | ImagePipe.Plan.Output.JpegOptions.t()
             | ImagePipe.Plan.Output.PngOptions.t()
             | ImagePipe.Plan.Output.WebpOptions.t()
-            | ImagePipe.Plan.Output.AvifOptions.t()
+            | ImagePipe.Plan.Output.AvifOptions.t(),
+          degraded?: boolean()
         }
 end

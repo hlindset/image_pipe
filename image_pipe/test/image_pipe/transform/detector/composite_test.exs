@@ -63,6 +63,18 @@ defmodule ImagePipe.Transform.Detector.CompositeTest do
     def detect(_image, _opts), do: {:error, {:detector, :boom}}
   end
 
+  defmodule UnavailableChild do
+    @behaviour ImagePipe.Transform.Detector
+    @impl true
+    def supported_classes(_), do: ["car"]
+    @impl true
+    def available?(_), do: false
+    @impl true
+    def identity(_), do: {__MODULE__, :unavailable}
+    @impl true
+    def detect(_image, _opts), do: {:error, {:detector, :unavailable}}
+  end
+
   # Children that report which warmup ran, to verify class-routed warmup.
   defmodule WarmFace do
     @behaviour ImagePipe.Transform.Detector
@@ -119,7 +131,7 @@ defmodule ImagePipe.Transform.Detector.CompositeTest do
     assert {:error, {:detector, :boom}} = Composite.detect(composite, :image, classes: ["car"])
   end
 
-  test "best-effort: still succeeds when at least one routed child succeeds" do
+  test "fails when any routed child fails, reporting each child's span" do
     prefix = [__MODULE__, :partial_success]
     event = prefix ++ [:transform, :detect, :model, :stop]
     ref = :telemetry_test.attach_event_handlers(self(), [event])
@@ -128,15 +140,22 @@ defmodule ImagePipe.Transform.Detector.CompositeTest do
     # car routes to both ErroringChild (fails) and ObjectChild (succeeds)
     composite = Composite.new([ErroringChild, ObjectChild])
 
-    assert {:ok, regions} =
+    assert {:error, {:detector, :boom}} =
              Composite.detect(composite, :image,
                classes: ["car"],
                telemetry_opts: [telemetry_prefix: prefix]
              )
 
-    assert Enum.map(regions, & &1.label) == ["car"]
     assert_received {^event, ^ref, _, %{detector: ErroringChild, result: :error, regions: 0}}
     assert_received {^event, ^ref, _, %{detector: ObjectChild, result: :ok, regions: 1}}
+  end
+
+  test "an unavailable child contributes no regions" do
+    composite = Composite.new([UnavailableChild, ObjectChild])
+    assert {:ok, [%{label: "car"}]} = Composite.detect(composite, :image, classes: ["car"])
+
+    assert {:error, {:detector, :unavailable}} =
+             Composite.detect(Composite.new([UnavailableChild]), :image, classes: ["car"])
   end
 
   test "supported_classes is the union of children" do
@@ -184,6 +203,12 @@ defmodule ImagePipe.Transform.Detector.CompositeTest do
     assert Composite.available?(c, classes: ["face"], object_available?: false) == true
     assert Composite.available?(c, classes: ["car"], object_available?: false) == false
     assert Composite.available?(c, classes: :all, object_available?: false) == false
+  end
+
+  test "ready? requires every routed child to be ready" do
+    c = composite()
+    assert Composite.ready?(c, classes: ["face"], object_available?: false) == true
+    assert Composite.ready?(c, classes: ["car"], object_available?: false) == false
   end
 
   test "emits a per-model span per routed child with detector, model identity, and classes" do

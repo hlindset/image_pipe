@@ -22,6 +22,7 @@ defmodule ImagePipe.Execution do
   alias ImagePipe.Debug.Timing
   alias ImagePipe.Delivery
   alias ImagePipe.Execution.{Acquisition, Context, Identity, Output, SourceCache, Watermarks}
+  alias ImagePipe.Output.Resolved
   alias ImagePipe.Processing
   alias ImagePipe.Processing.DebugBuilder
   alias ImagePipe.Processing.Terminal
@@ -419,7 +420,8 @@ defmodule ImagePipe.Execution do
     with {:ok, stream} <-
            Delivery.stream(self(), build, key, config) do
       stream = %{stream | next: fn -> next(stream, context) end}
-      {:ok, output(context, {:stream, stream}, :miss, nil)}
+      output = output(context, {:stream, stream}, :miss, nil)
+      {:ok, %Output{output | degraded?: degraded?(stream.resolved_output)}}
     end
   end
 
@@ -433,16 +435,20 @@ defmodule ImagePipe.Execution do
         )
       end)
 
-    with {:ok, type, data} <- result do
+    with {:ok, type, data, degraded?} <- result do
       body =
         if context.request.output.terminal == :info, do: JSON.encode_to_iodata!(data), else: data
 
       body = IO.iodata_to_binary(body)
       debug = DebugBuilder.build_terminal(Executor.operation_names(context.request), cost)
-      store_body(key, type, body, debug, cost, config)
-      {:ok, output(context, {:body, body, type, debug}, :miss, nil)}
+      store_body(if(degraded?, do: nil, else: key), type, body, debug, cost, config)
+      output = output(context, {:body, body, type, debug}, :miss, nil)
+      {:ok, %Output{output | degraded?: degraded?}}
     end
   end
+
+  defp degraded?(%Resolved{degraded?: degraded?}), do: degraded?
+  defp degraded?(_skipped), do: false
 
   defp next(stream, context) do
     result = stream.next.()

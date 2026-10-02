@@ -32,13 +32,14 @@ detail than the response, which deliberately says less.
 
 | Status | When |
 | --- | --- |
-| `400` | The URL doesn't parse or fails validation, including `sig` on a mount without signing keys. The body lists the problems. |
+| `400` | The URL doesn't parse or fails validation, including `sig` on a mount without signing keys, or a `detect` class that the configured detector doesn't support. The body lists the problems. |
 | `403` | A required signature is missing or wrong. The body is always `invalid signature`. |
 | `404` | An encrypted source token fails to decrypt. |
 | `405` | The method isn't `GET`, `HEAD`, or `OPTIONS`. The response carries `Allow`. |
 | `410` | The request's `expires` time has passed. |
 | `500` | A looked-up preset definition is invalid, or the request exceeds `max_preset_lookups`. |
-| `503` | The preset lookup is unavailable. |
+| `501` | Detection was requested with `detector_required: true` and no detector is available. |
+| `503` | The preset lookup is unavailable, or detection was requested with `detector_required: true` before the detection models were downloaded. |
 
 All of these return before source resolution, fetch, or cache access.
 
@@ -60,8 +61,8 @@ All of these return before source resolution, fetch, or cache access.
 | `413` | The decoded image exceeds `max_input_pixels` or declares more frames than allowed. |
 | `415` | The source isn't a supported image. |
 | `422` | The transform can't be applied to this image, or the requested page doesn't exist. |
-| `500` | Encoding failed, or an unexpected internal error occurred. |
-| `501` | The requested output format has no encoder in this build, or detection was requested with `detector_required: true` and no detector is available. |
+| `500` | Encoding failed, detection failed with `detector_required: true`, or an unexpected internal error occurred. |
+| `501` | The requested output format has no encoder in this build. |
 | `503` | Processing is overloaded, queued too long, unavailable, or exceeded its deadline. |
 
 ## Custom source adapters

@@ -23,6 +23,7 @@ defmodule ImagePipe.Transform do
     ]
 
   alias ImagePipe.Telemetry
+  alias ImagePipe.Transform.Detector
   alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.State
 
@@ -109,6 +110,14 @@ defmodule ImagePipe.Transform do
     case resolve_detector(detector) do
       nil -> false
       module -> module.available?(opts)
+    end
+  end
+
+  @spec detector_ready?(:default | nil | module(), keyword()) :: boolean()
+  def detector_ready?(detector, opts) do
+    case resolve_detector(detector) do
+      nil -> false
+      module -> Detector.ready?(module, opts)
     end
   end
 

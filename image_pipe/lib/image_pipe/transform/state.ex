@@ -7,6 +7,11 @@ defmodule ImagePipe.Transform.State do
   #
   # - `detector`: host-configured content detector module, or `nil` when no
   #   detector is configured.
+  # - `detector_required`: the mount's `detector_required`. A detection error
+  #   fails the request instead of falling back to attention.
+  # - `degraded?`: a crop fell back to attention because detection returned an
+  #   error. The output must not be stored or given a validator, so a later
+  #   request can retry detection.
   # - `telemetry_opts`: telemetry metadata threaded through stage spans.
   # - `materialized?`: the graph has RAM-backed input and can be read out of row
   #   order without revisiting the sequential source. Later operations may remain
@@ -38,6 +43,8 @@ defmodule ImagePipe.Transform.State do
   defstruct image: nil,
             debug: false,
             detector: nil,
+            detector_required: false,
+            degraded?: false,
             telemetry_opts: [],
             source_dimensions: nil,
             decode_shrink: nil,
@@ -52,6 +59,8 @@ defmodule ImagePipe.Transform.State do
           image: Vix.Vips.Image.t() | nil,
           debug: boolean(),
           detector: module() | nil,
+          detector_required: boolean(),
+          degraded?: boolean(),
           telemetry_opts: keyword(),
           source_dimensions: {pos_integer(), pos_integer()} | nil,
           decode_shrink: %{w: float(), h: float()} | nil,

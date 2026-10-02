@@ -85,8 +85,6 @@ defmodule ImagePipe.API.ObjectCropWireTest do
     opts = mount(detector: PartialDetector, detector_required: true)
     assert response("crop=50,50/detect=face", opts).status == 200
     assert_received :origin_fetch
-    assert response("crop=50,50/detect=unicorn", opts).status == 200
-    assert_received :origin_fetch
     assert response("crop=50,50/detect=car", opts).status == 501
     refute_received :origin_fetch
   end

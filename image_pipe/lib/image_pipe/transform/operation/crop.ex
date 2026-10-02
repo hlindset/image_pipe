@@ -257,9 +257,17 @@ defmodule ImagePipe.Transform.Operation.Crop do
     end
   end
 
+  # Face assistance is optional on every mount, so a detection error falls back
+  # even when the mount requires detection.
   defp face_assist_crop(%__MODULE__{} = params, %State{} = state) do
-    with {:ok, [_ | _] = regions} <-
-           run_detect(state, ["face"], %{}),
+    case run_detect(state, ["face"], %{}) do
+      {:ok, regions} -> blend_faces(params, state, regions)
+      {:error, reason} -> attention_after_error(params, state, reason)
+    end
+  end
+
+  defp blend_faces(params, state, regions) do
+    with [_ | _] <- regions,
          {:ok, {:fp, fx, fy}} <-
            Focal.weighted_centroid(regions, image_width(state), image_height(state), %{}),
          {:ok, {ax, ay}} <- attention_point(params, state) do
@@ -324,9 +332,25 @@ defmodule ImagePipe.Transform.Operation.Crop do
            Focal.weighted_centroid(regions, image_width(state), image_height(state), weights) do
       execute(%{params | gravity: focal}, state)
     else
-      _ -> smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
+      {:error, reason} when state.detector_required ->
+        {:error, {:server_error, {:detector, reason}}}
+
+      {:error, reason} ->
+        attention_after_error(params, state, reason)
+
+      _ ->
+        smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
     end
   end
+
+  # An unavailable detector already gives the representation an `:unavailable`
+  # identity, so its fallback may be stored. Any other error marks the output
+  # degraded.
+  defp attention_after_error(params, %State{} = state, {:detector, :unavailable}),
+    do: smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
+
+  defp attention_after_error(params, %State{} = state, _reason),
+    do: smart_crop(params, %State{state | degraded?: true}, :VIPS_INTERESTING_ATTENTION)
 
   defp run_detect(state, classes, weights) do
     Telemetry.span(

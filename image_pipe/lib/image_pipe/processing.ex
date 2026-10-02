@@ -67,20 +67,46 @@ defmodule ImagePipe.Processing do
   defp ensure_output_capable(policy, config), do: Policy.ensure_capable(policy, config)
 
   defp check_detector(request, config) do
-    case explicit_detector_classes(request) do
-      nil ->
+    detector = Keyword.get(config, :detector, :default)
+
+    with :ok <- check_known_classes(request, detector) do
+      case {explicit_detector_classes(request), Keyword.get(config, :detector_required, false)} do
+        {nil, _required?} -> :ok
+        {_classes, false} -> :ok
+        {classes, true} -> check_required(detector, Keyword.put(config, :classes, classes))
+      end
+    end
+  end
+
+  # Weighted names count too: `detect=all,unicorn:3` names `unicorn`.
+  defp check_known_classes(%Spec{groups: groups}, detector) do
+    named =
+      for %{guide: {:detect, {requested, weights}}} <- groups,
+          name <- List.wrap(requested) ++ Map.keys(weights),
+          is_binary(name),
+          uniq: true,
+          do: name
+
+    case {named, Transform.resolve_detector(detector)} do
+      {[], _} ->
         :ok
 
-      classes ->
-        if Keyword.get(config, :detector_required, false) and
-             not Transform.detector_available?(
-               Keyword.get(config, :detector, :default),
-               Keyword.put(config, :classes, classes)
-             ) do
-          {:error, {:detector, :unavailable}}
-        else
-          :ok
+      {_named, nil} ->
+        :ok
+
+      {named, module} ->
+        case named -- module.supported_classes([]) do
+          [] -> :ok
+          unknown -> {:error, {:detector, {:unknown_classes, Enum.sort(unknown)}}}
         end
+    end
+  end
+
+  defp check_required(detector, opts) do
+    cond do
+      not Transform.detector_available?(detector, opts) -> {:error, {:detector, :unavailable}}
+      not Transform.detector_ready?(detector, opts) -> {:error, {:detector, :not_ready}}
+      true -> :ok
     end
   end
 
@@ -188,6 +214,7 @@ defmodule ImagePipe.Processing do
            end),
          {:ok, %ResolvedOutput{} = resolved_output} <-
            resolve_output(policy, geometry.source_format, state.image, config),
+         resolved_output = %ResolvedOutput{resolved_output | degraded?: state.degraded?},
          {:ok, clamped, _clamp_info} <-
            Clamp.clamp_with_telemetry(
              state.image,

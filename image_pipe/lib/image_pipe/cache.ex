@@ -154,6 +154,7 @@ defmodule ImagePipe.Cache do
         ) ::
           sink() | nil
   def open_sink(_key, %Skipped{}, _opts), do: nil
+  def open_sink(_key, %Resolved{degraded?: true}, _opts), do: nil
   def open_sink(nil, %Resolved{}, _opts), do: nil
   def open_sink(nil, {:complete_body, _content_type}, _opts), do: nil
 
