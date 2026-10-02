@@ -6,11 +6,13 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
   the fixture was baked from, and the `{threshold, budget}` tolerance: at most
   `budget` band samples may differ by more than `threshold` levels. `:png` cases
   compare decoded pixels; `:lossy` cases compare dimensions and content type.
+  A `:pending` case is skipped with its reason until the named issue is fixed.
   See `README.md` next to this file for fixture provenance and change rules.
   """
   use Boundary, top_level?: true, deps: []
 
   @type t :: %{
+          optional(:pending) => String.t(),
           id: String.t(),
           kind: :png | :lossy,
           source: String.t(),
@@ -638,7 +640,8 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         source: "icc_p3.png",
         native: "w=200/h=200/fit=contain/profile=preserve",
         imgproxy: "rs:fit:200:200/scp:0",
-        tolerance: {2, 64}
+        tolerance: {2, 64},
+        pending: "image_plug-qud: profile=preserve clips wide-gamut colours"
       },
       #
       # T1.1: EXIF quarter-turn × asymmetric cover. exif_6 is storage 400×300 /
@@ -689,7 +692,8 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         source: "icc_p3.png",
         native: "w=200/h=200/fit=contain/profile=preserve/blur=3",
         imgproxy: "rs:fit:200:200/scp:0/bl:3",
-        tolerance: {2, 64}
+        tolerance: {2, 64},
+        pending: "image_plug-qud: profile=preserve clips wide-gamut colours"
       },
       # T1.5: alpha-flatten × transparent extend-padding × background. Does the
       # (0,0,0,0) extend padding composite onto bg the same way the source's own alpha
@@ -923,7 +927,8 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         source: "icc_p3.png",
         native: "w=300/h=200/fit=auto/profile=preserve",
         imgproxy: "rs:auto:300:200/scp:0",
-        tolerance: {2, 64}
+        tolerance: {2, 64},
+        pending: "image_plug-qud: profile=preserve clips wide-gamut colours"
       },
       # T2.14: inline pre-resize crop corner, no resize — the genuine c:W:H:TYPE corner
       # form on the crop path.

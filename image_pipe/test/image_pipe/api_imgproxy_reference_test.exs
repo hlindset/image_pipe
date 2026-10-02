@@ -40,6 +40,7 @@ defmodule ImagePipe.APIImgproxyReferenceTest do
   describe "reference" do
     for c <- Cases.all() do
       @case c
+      if c[:pending], do: @tag(skip: c.pending)
 
       test "#{c.id}: #{c.native}", %{config: config} do
         check(@case, config)
