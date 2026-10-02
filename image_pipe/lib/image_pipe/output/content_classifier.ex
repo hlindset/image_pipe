@@ -86,7 +86,7 @@ defmodule ImagePipe.Output.ContentClassifier do
   end
 
   defp extract(image) do
-    scale = min(1.0, @downsample / max(VixImage.width(image), VixImage.height(image)))
+    scale = min(1.0, @downsample / max(Image.width(image), Image.height(image)))
 
     with {:ok, small} <- Operation.resize(image, scale),
          {:ok, g8lazy} <- Operation.colourspace(small, :VIPS_INTERPRETATION_B_W),

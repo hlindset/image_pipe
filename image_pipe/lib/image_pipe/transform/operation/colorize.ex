@@ -29,19 +29,15 @@ defmodule ImagePipe.Transform.Operation.Colorize do
   # Split alpha explicitly: without_alpha_band/2 always restores it, but colorize
   # defaults to opaque output. Rejoin only when keep_alpha is true.
   defp apply_colorize(image, o, color, keep_alpha) do
-    case Image.has_alpha?(image) do
-      false -> blend_rgb(image, o, color)
-      true -> blend_with_alpha(image, o, color, keep_alpha)
+    case Image.split_alpha(image) do
+      {rgb, nil} -> blend_rgb(rgb, o, color)
+      {rgb, alpha} -> blend_with_alpha(rgb, alpha, o, color, keep_alpha)
     end
   end
 
-  defp blend_with_alpha(image, o, color, keep_alpha) do
-    color_bands = VipsImage.bands(image) - 1
-
-    with {:ok, rgb} <- Operation.extract_band(image, 0, n: color_bands),
-         {:ok, alpha} <- Operation.extract_band(image, color_bands, n: 1),
-         {:ok, blended} <- blend_rgb(rgb, o, color) do
-      if keep_alpha, do: Operation.bandjoin([blended, alpha]), else: {:ok, blended}
+  defp blend_with_alpha(rgb, alpha, o, color, keep_alpha) do
+    with {:ok, blended} <- blend_rgb(rgb, o, color) do
+      if keep_alpha, do: Image.join_bands([blended, alpha]), else: {:ok, blended}
     end
   end
 

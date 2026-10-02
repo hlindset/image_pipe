@@ -74,7 +74,7 @@ defmodule ImagePipe.Transform.Operation.Watermark do
   end
 
   defp size(image, width, height) do
-    case {VipsImage.width(image), VipsImage.height(image)} do
+    case {Image.width(image), Image.height(image)} do
       {^width, ^height} ->
         {:ok, image}
 
@@ -88,7 +88,7 @@ defmodule ImagePipe.Transform.Operation.Watermark do
   defp fade(image, opacity) when opacity == 1.0, do: {:ok, image}
 
   defp fade(image, opacity) do
-    color_bands = VipsImage.bands(image) - 1
+    color_bands = Image.bands(image) - 1
 
     with {:ok, faded} <-
            Operation.linear(
@@ -101,8 +101,8 @@ defmodule ImagePipe.Transform.Operation.Watermark do
   end
 
   defp place(base, mark, operation) do
-    frame = {VipsImage.width(base), VipsImage.height(base)}
-    size = {VipsImage.width(mark), VipsImage.height(mark)}
+    frame = {Image.width(base), Image.height(base)}
+    size = {Image.width(mark), Image.height(mark)}
     {x, y} = origin(operation, frame, size)
 
     cond do
@@ -131,8 +131,8 @@ defmodule ImagePipe.Transform.Operation.Watermark do
 
   # One tile sits at the anchored origin; the grid repeats in every direction.
   defp tiled(base, mark, {x, y}, {frame_width, frame_height}, {gap_x, gap_y}) do
-    cell_width = VipsImage.width(mark) + gap_x
-    cell_height = VipsImage.height(mark) + gap_y
+    cell_width = Image.width(mark) + gap_x
+    cell_height = Image.height(mark) + gap_y
     start_x = grid_start(x, cell_width)
     start_y = grid_start(y, cell_height)
     across = ceil_div(frame_width - start_x, cell_width)
@@ -141,7 +141,7 @@ defmodule ImagePipe.Transform.Operation.Watermark do
     with {:ok, cell} <-
            Operation.embed(mark, 0, 0, cell_width, cell_height,
              extend: :VIPS_EXTEND_BACKGROUND,
-             background: List.duplicate(0.0, VipsImage.bands(mark))
+             background: List.duplicate(0.0, Image.bands(mark))
            ),
          {:ok, plane} <- Operation.replicate(cell, across, down),
          {:ok, plane} <-
@@ -175,6 +175,8 @@ defmodule ImagePipe.Transform.Operation.Watermark do
 
   defp restore_alpha(image, true), do: {:ok, image}
 
-  defp restore_alpha(image, false),
-    do: Operation.extract_band(image, 0, n: VipsImage.bands(image) - 1)
+  defp restore_alpha(image, false) do
+    {color, _alpha} = Image.split_alpha(image)
+    {:ok, color}
+  end
 end

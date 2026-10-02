@@ -97,8 +97,8 @@ defmodule ImagePipe.Processing.Terminal do
   defp executed_facts(state, request, config) do
     with {:ok, state} <- Executor.execute(state, request, config) do
       result = %{
-        "width" => VipsImage.width(state.image),
-        "height" => VipsImage.height(state.image),
+        "width" => Image.width(state.image),
+        "height" => Image.height(state.image),
         "dpr" => state.dpr
       }
 

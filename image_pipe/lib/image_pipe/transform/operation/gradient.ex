@@ -40,8 +40,8 @@ defmodule ImagePipe.Transform.Operation.Gradient do
 
   # Blend color bands, then restore the original alpha unchanged.
   defp apply_gradient(%VipsImage{} = image, %__MODULE__{} = op) do
-    width = VipsImage.width(image)
-    height = VipsImage.height(image)
+    width = Image.width(image)
+    height = Image.height(image)
 
     Image.without_alpha_band(image, fn rgb ->
       with {:ok, mask} <-
@@ -70,7 +70,7 @@ defmodule ImagePipe.Transform.Operation.Gradient do
   end
 
   defp color_constant(ref, channels) do
-    case Operation.black(VipsImage.width(ref), VipsImage.height(ref), bands: length(channels)) do
+    case Operation.black(Image.width(ref), Image.height(ref), bands: length(channels)) do
       {:ok, base} -> Operation.linear(base, [1.0], Enum.map(channels, &(&1 * 1.0)))
       error -> error
     end

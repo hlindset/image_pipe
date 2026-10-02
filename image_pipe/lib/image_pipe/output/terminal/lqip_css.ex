@@ -8,7 +8,6 @@ defmodule ImagePipe.Output.Terminal.LqipCss do
   alias Image.Lqip.Css
   alias ImagePipe.Output.Terminal.PixelSpace
   alias Vix.Vips.Image, as: Vimage
-  alias Vix.Vips.MutableImage
 
   @spec identity() :: {:lqip_css, 1}
   def identity, do: {:lqip_css, 1}
@@ -24,10 +23,6 @@ defmodule ImagePipe.Output.Terminal.LqipCss do
   # Pixels already reflect the executor's orientation and working-space import.
   # Image's thumbnail encoder must not apply the retained source tags again.
   defp clear_source_metadata(image) do
-    Vimage.mutate(image, fn mutable ->
-      _ = MutableImage.remove(mutable, "orientation")
-      _ = MutableImage.remove(mutable, "icc-profile-data")
-      :ok
-    end)
+    Image.remove_metadata(image, ["orientation", "icc-profile-data"])
   end
 end
