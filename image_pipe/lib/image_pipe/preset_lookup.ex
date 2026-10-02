@@ -28,8 +28,6 @@ defmodule ImagePipe.PresetLookup do
   of requests that use it.
   """
 
-  use Boundary, top_level?: true, deps: [], exports: []
-
   @doc """
   Validates the lookup's options once, when the configuration is built.
   """

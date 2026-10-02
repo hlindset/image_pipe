@@ -8,7 +8,7 @@ defmodule ImagePipe.Test.PresetLookup do
   return value verbatim.
   """
 
-  @behaviour ImagePipe.URL.PresetLookup
+  @behaviour ImagePipe.PresetLookup
 
   @impl true
   def validate_options(options), do: {:ok, options}
