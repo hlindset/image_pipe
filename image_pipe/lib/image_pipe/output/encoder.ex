@@ -413,21 +413,10 @@ defmodule ImagePipe.Output.Encoder do
   defp icc_fields(%Resolved{color_profile: :strip}), do: ["icc-profile-data"]
   defp icc_fields(%Resolved{}), do: []
 
-  # Explicit string field names via Vix mutate. We deliberately avoid:
-  #   * the libvips `strip` write flag (it also removes the ICC profile);
-  #   * `Image.remove_metadata(_, :xmp)` — `image` v0.67 maps :xmp -> "xmp-dataa"
-  #     (a typo), silently retaining XMP;
-  #   * default `remove_metadata`/`minimize_metadata` field-enumeration on the
-  #     non-kcr paths — they over-strip the ICC profile.
-  defp remove_fields(image, fields) do
-    {:ok, image} =
-      VixImage.mutate(image, fn mut ->
-        Enum.each(fields, &VixMutableImage.remove(mut, &1))
-        :ok
-      end)
-
-    image
-  end
+  # Explicit field names. We deliberately avoid the libvips `strip` write flag
+  # and the default `remove_metadata` field enumeration: both also remove the
+  # ICC profile.
+  defp remove_fields(image, fields), do: Image.remove_metadata!(image, fields)
 
   defp header_value(image, field) do
     case VixImage.header_value(image, field) do

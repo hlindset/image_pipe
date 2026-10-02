@@ -9,7 +9,6 @@ defmodule ImagePipe.Transform.InputColorManagement do
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VixImage
-  alias Vix.Vips.MutableImage
   alias Vix.Vips.Operation
 
   @doc """
@@ -128,7 +127,7 @@ defmodule ImagePipe.Transform.InputColorManagement do
   defp alpha_split(_image, _interp), do: :none
 
   defp alpha_split_at(image, color_bands) do
-    if VixImage.bands(image) > color_bands do
+    if Image.bands(image) > color_bands do
       with {:ok, color} <- Operation.extract_band(image, 0, n: color_bands),
            {:ok, alpha} <- Operation.extract_band(image, color_bands, n: 1) do
         {:ok, color, alpha}
@@ -162,10 +161,7 @@ defmodule ImagePipe.Transform.InputColorManagement do
         {:ok, image}
 
       _profile ->
-        VixImage.mutate(image, fn mutable ->
-          _ = MutableImage.remove(mutable, "icc-profile-data")
-          :ok
-        end)
+        Image.remove_metadata(image, ["icc-profile-data"])
     end
   end
 

@@ -1,10 +1,8 @@
 defmodule ImagePipe.Decode.Streaming do
   @moduledoc false
-  alias Image.Options.Open
   alias ImagePipe.Decode.SourceFormat
   alias ImagePipe.Format.Detector
   alias ImagePipe.Source.Download
-  alias Vix.Vips.Image, as: VipsImage
 
   def eligible?(prefix) do
     with format when format in [:jpeg, :png] <- Detector.detect(prefix),
@@ -29,8 +27,6 @@ defmodule ImagePipe.Decode.Streaming do
         fn _state -> :ok end
       )
 
-    with {:ok, options} <- Open.validate_options(options) do
-      VipsImage.new_from_enum(stream, options)
-    end
+    Image.open(stream, options)
   end
 end

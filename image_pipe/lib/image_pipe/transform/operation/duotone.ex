@@ -50,7 +50,7 @@ defmodule ImagePipe.Transform.Operation.Duotone do
   end
 
   defp ensure_rgb(%VipsImage{} = image) do
-    case VipsImage.bands(image) do
+    case Image.bands(image) do
       1 -> Image.to_colorspace(image, :srgb)
       3 -> {:ok, image}
     end

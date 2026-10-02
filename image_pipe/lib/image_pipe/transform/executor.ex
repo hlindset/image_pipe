@@ -43,7 +43,6 @@ defmodule ImagePipe.Transform.Executor do
   alias ImagePipe.Transform.SourceGeometry
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
-  alias Vix.Vips.MutableImage, as: VipsMutableImage
   alias Vix.Vips.Operation, as: VipsOperation
 
   @default_trim_threshold 10.0
@@ -490,16 +489,16 @@ defmodule ImagePipe.Transform.Executor do
   defp watermark_size(scale, asset, {frame_width, frame_height}, _dpr) do
     factor =
       min(
-        frame_width * scale / VipsImage.width(asset),
-        frame_height * scale / VipsImage.height(asset)
+        frame_width * scale / Image.width(asset),
+        frame_height * scale / Image.height(asset)
       )
 
     scaled_dims(asset, factor)
   end
 
   defp scaled_dims(asset, factor) do
-    {max(1, round_ties_to_even(VipsImage.width(asset) * factor)),
-     max(1, round_ties_to_even(VipsImage.height(asset) * factor))}
+    {max(1, round_ties_to_even(Image.width(asset) * factor)),
+     max(1, round_ties_to_even(Image.height(asset) * factor))}
   end
 
   defp placement_length({:px, value}, _dimension, dpr), do: round_ties_to_even(value * dpr)
@@ -776,10 +775,7 @@ defmodule ImagePipe.Transform.Executor do
   defp remove_output_orientation(%State{} = state) do
     with {:ok, %State{} = state} <- materialize_for_orientation_metadata(state),
          {:ok, image} <-
-           VipsImage.mutate(state.image, fn mutable ->
-             VipsMutableImage.remove(mutable, "orientation")
-             :ok
-           end) do
+           Image.remove_metadata(state.image, ["orientation"]) do
       {:ok, %State{state | image: image}}
     else
       {:error, {:decode, _reason}} = error -> error

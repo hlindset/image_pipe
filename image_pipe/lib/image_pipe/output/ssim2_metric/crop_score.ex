@@ -11,7 +11,6 @@ defmodule ImagePipe.Output.Ssim2Metric.CropScore do
   @moduledoc false
 
   alias ImagePipe.Output.Metric.Ssimulacra2, as: Ssim2Metric
-  alias Vix.Vips.Operation
 
   # Part E operating point. Internal constants, not host config (issue #354
   # forbids a second user-facing knob; dynamic-K selection is future work).
@@ -100,8 +99,8 @@ defmodule ImagePipe.Output.Ssim2Metric.CropScore do
   end
 
   defp tile_score(base, candidate, {x, y, w, h}) do
-    with {:ok, bt} <- Operation.extract_area(base, x, y, w, h),
-         {:ok, ct} <- Operation.extract_area(candidate, x, y, w, h),
+    with {:ok, bt} <- Image.crop(base, x, y, w, h),
+         {:ok, ct} <- Image.crop(candidate, x, y, w, h),
          {:ok, ref} <- Ssim2Metric.reference(bt) do
       Ssim2Metric.score(ref, ct)
     end

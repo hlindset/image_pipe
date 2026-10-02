@@ -39,7 +39,6 @@ defmodule ImagePipe.Decode do
   alias ImagePipe.Transform.State
   alias Vix.Vips.Foreign
   alias Vix.Vips.Image, as: VipsImage
-  alias Vix.Vips.Operation
 
   @peek_bytes 32 * 1024
   @reject_families [:bmp, :ico, :svg, :avif_sequence, :unknown]
@@ -181,7 +180,7 @@ defmodule ImagePipe.Decode do
          :ok <-
            validate_pixels({Image.width(image), Image.height(image)}, 1, opts)
            |> wrap_input_limit_error() do
-      case Operation.autorot(image) do
+      case Image.autorotate(image) do
         {:ok, {image, _flags}} -> {:ok, image}
         error -> wrap_decode_error(error)
       end
