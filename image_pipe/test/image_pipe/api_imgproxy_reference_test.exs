@@ -4,8 +4,9 @@ defmodule ImagePipe.APIImgproxyReferenceTest do
   URL API.
 
   See `test/support/image_pipe/test/imgproxy_reference/README.md` for fixture
-  provenance and change rules. A failing case writes its actual output and an
-  amplified difference image to `tmp/imgproxy_reference/`.
+  provenance and change rules. A failing case writes its actual output, an
+  amplified difference image and its message to `tmp/imgproxy_reference/`;
+  `mix imgproxy.report` builds an HTML page from them.
   """
 
   use ExUnit.Case, async: true
@@ -98,10 +99,11 @@ defmodule ImagePipe.APIImgproxyReferenceTest do
     {threshold, budget} = c.tolerance
 
     unless PixelCompare.same_dims?(actual, expected) do
-      record_failure(c.id, body, nil)
-
-      flunk(
-        "#{c.id}: dimensions #{inspect(PixelCompare.dims(actual))} != imgproxy reference " <>
+      fail_case(
+        c.id,
+        body,
+        nil,
+        "dimensions #{inspect(PixelCompare.dims(actual))} != imgproxy reference " <>
           inspect(PixelCompare.dims(expected))
       )
     end
@@ -109,11 +111,11 @@ defmodule ImagePipe.APIImgproxyReferenceTest do
     outliers = PixelCompare.outliers(actual, expected, threshold)
 
     if outliers > budget do
-      record_failure(c.id, body, {actual, expected})
-
-      flunk(
-        "#{c.id}: #{outliers} band samples exceed Δ#{threshold}; budget #{budget}. " <>
-          "Output written to #{@failures}/"
+      fail_case(
+        c.id,
+        body,
+        {actual, expected},
+        "#{outliers} band samples exceed Δ#{threshold}; budget #{budget}"
       )
     end
   end
@@ -128,9 +130,12 @@ defmodule ImagePipe.APIImgproxyReferenceTest do
     {response.resp_body, content_type}
   end
 
-  defp record_failure(id, body, images) do
+  # Writes the output, the failure message and, for pixel failures, an
+  # amplified difference image; `mix imgproxy.report` turns them into a page.
+  defp fail_case(id, body, images, message) do
     File.mkdir_p!(@failures)
     File.write!(Path.join(@failures, "#{id}.actual.png"), body)
+    File.write!(Path.join(@failures, "#{id}.txt"), message)
 
     with {actual, expected} <- images,
          {:ok, delta} <- Operation.subtract(actual, expected),
@@ -139,6 +144,8 @@ defmodule ImagePipe.APIImgproxyReferenceTest do
          {:ok, delta} <- Operation.cast(delta, :VIPS_FORMAT_UCHAR) do
       Image.write!(delta, Path.join(@failures, "#{id}.diff.png"))
     end
+
+    flunk("#{id}: #{message}. Output written to #{@failures}/")
   end
 
   defp fixture_path(id), do: Path.join(@fixtures, "#{id}.png")

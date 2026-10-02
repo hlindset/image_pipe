@@ -22,6 +22,10 @@ Watermark cases use `alpha.png` as the asset on both sides: imgproxy's
 and writes fixtures and the manifest; its moduledoc has the command. It needs
 Docker.
 
+A failing case writes its output, an amplified difference image and its
+message to `tmp/imgproxy_reference/`. `mix imgproxy.report` turns them into one
+self-contained HTML page; CI uploads that page, unzipped, when the case fails.
+
 A tolerance `{threshold, budget}` allows at most `budget` band samples to
 differ by more than `threshold` levels. The default is `{2, 64}`; wider
 tolerances are explained in the case comment.
