@@ -43,8 +43,8 @@ a source region. Use [crop](crop.md) to select a region.
 | --- | --- | --- |
 | `extend` | `extend: true` | Expand to the `w`/`h` canvas |
 | `extend-ratio` | `extend_ratio: true` | Expand to the `w`:`h` aspect ratio |
-| `extend-at=top-left` | `extend_at: :top_left` | Named placement anchor, center by default. Needs `extend` or `extend-ratio` in the same group |
-| `extend-offset=10,-5pct` | `extend_offset: {10, {:pct, -5}}` | Signed pixels or percentages of the realized canvas. Needs `extend` or `extend-ratio` in the same group |
+| `extend-at=top-left` | `extend_at: :top_left` | Named placement anchor, center by default. Needs `extend` or `extend-ratio` in the same group, otherwise `400` |
+| `extend-offset=10,-5pct` | `extend_offset: {10, {:pct, -5}}` | Signed pixels or percentages of the realized canvas. Needs `extend` or `extend-ratio` in the same group, otherwise `400` |
 | `pad=12` or `pad=10,20,30,40` | `padding: 12` or `padding: {10, 20, 30, 40}` | Nonnegative integers; one to four CSS-order values |
 | `bg=fff` or `bg=fff,0.5` | `background: "fff"` or `background: {"fff", 0.5}` | Color with optional alpha from 0 to 1 |
 
@@ -56,8 +56,8 @@ anchors are `center`, `top`, `bottom`, `left`, `right`, `top-left`, `top-right`,
 
 Added space is transparent. `bg` fills every transparent pixel, including
 transparent areas of the image itself. Formats without alpha, such as JPEG,
-flatten any remaining transparency onto white, so added space comes out white
-there unless you set an opaque `bg`.
+flatten any remaining transparency onto white. Without `bg`, added space comes
+out white, and a translucent `bg` is blended over white.
 
 ```text
 /w=400/h=400/extend/pad=12/bg=fff/src/photos/beach.jpg
