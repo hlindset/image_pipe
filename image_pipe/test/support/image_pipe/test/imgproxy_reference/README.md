@@ -13,7 +13,7 @@ participates.
 - `manifest.exs` records the generator (`imgproxy_image`, pinned by digest, and
   its `imgproxy_libvips`), the SHA-256 of every source the fixtures were baked
   from, and each case's fixture SHA-256 or expected lossy dimensions and
-  content type.
+  content type, plus the structure of imgproxy's encoded output.
 
 Watermark cases use `alpha.png` as the asset on both sides: imgproxy's
 `IMGPROXY_WATERMARK_PATH` and ImagePipe's `mark` watermark.
@@ -37,16 +37,26 @@ returns a grayscale result promoted to sRGB, ImagePipe's 1- or 2-band output is
 converted to sRGB before comparing. The default is `{2, 64}`; wider
 tolerances are explained in the case comment.
 
+Pixels can't show band layout, bit depth, an embedded ICC profile or
+metadata, so the bake also records a structure for each output from
+imgproxy's response before decoding: content type, bands, alpha,
+interpretation, depth, ICC profile (description and SHA-256), orientation, and
+any EXIF, XMP or IPTC beyond the tags libvips writes on every save. The test
+compares ImagePipe's output structure with it. A case that deliberately
+differs names the fields in `structure_differs`, with the reason.
+
 ## Change rules
 
 - Fixtures are evidence of imgproxy's behaviour. Never re-bake or edit one to
   accommodate an ImagePipe change; the integrity test fails if fixture bytes
-  change. Re-bake only to add cases (`--only`) or to upgrade the pinned
-  imgproxy, and review every changed fixture.
+  change. Re-bake only to add cases (`--only`), to upgrade the pinned
+  imgproxy, or to record a new structure field, and review every changed
+  fixture. Recording structure must leave every fixture byte-identical.
 - If ImagePipe differs from a case: fix ImagePipe when it is wrong, marking
-  the case `pending` with the issue until the fix lands. When the difference
-  is intended, remove the case, its fixture and its manifest entry, and give
-  the reason in the commit.
+  the case `pending` with the issue until the fix lands. When a pixel
+  difference is intended, remove the case, its fixture and its manifest entry,
+  and give the reason in the commit. When a structure difference is intended,
+  list the fields in the case's `structure_differs` with the reason.
 - Sources the fixtures were baked from must stay byte-identical. The integrity
   test checks them against the manifest; see `SourceInventory` before
   regenerating sources.

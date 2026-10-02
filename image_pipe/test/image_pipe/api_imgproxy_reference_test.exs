@@ -1,7 +1,8 @@
 defmodule ImagePipe.APIImgproxyReferenceTest do
   @moduledoc """
   Pixel references baked by upstream imgproxy and exercised through ImagePipe's
-  URL API.
+  URL API, with each output's structure (band layout, depth, ICC profile,
+  orientation and extra metadata) compared with imgproxy's.
 
   See `test/support/image_pipe/test/imgproxy_reference/README.md` for fixture
   provenance and change rules. Every case writes its output, an amplified
@@ -36,7 +37,16 @@ defmodule ImagePipe.APIImgproxyReferenceTest do
       if c[:pending], do: @tag(skip: c.pending)
 
       test "#{c.id}: #{c.native}", %{config: config} do
-        check(@case, config)
+        {body, content_type} = check(@case, config)
+        expected = @manifest.cases[@case.id].structure
+
+        PixelSuite.check_structure(
+          @case,
+          @suite,
+          PixelSuite.structure(body, content_type),
+          expected,
+          Map.keys(expected)
+        )
       end
     end
   end
