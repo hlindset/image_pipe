@@ -232,12 +232,10 @@ defmodule ImagePipe.MixProject do
         []
       end
 
-    # `testcontainers` provisions Docker for the opt-in AWS credential
-    # integration smoke lane (`AWS_INTEGRATION`) and the imgproxy reference
-    # bake (`IMGPROXY_REFERENCE`).
+    # `testcontainers` provisions Docker for the imgproxy reference bake
+    # (`IMGPROXY_REFERENCE`).
     testcontainers_deps =
-      if System.get_env("AWS_INTEGRATION") in ["1", "true"] or
-           System.get_env("IMGPROXY_REFERENCE") in ["1", "true"] do
+      if System.get_env("IMGPROXY_REFERENCE") in ["1", "true"] do
         [{:testcontainers, "~> 2.4", only: :test}]
       else
         []

@@ -43,6 +43,21 @@ defmodule ImagePipe.Source.S3.InstanceRoleTest do
     assert expiry == ~U[2026-06-26 12:00:00Z]
   end
 
+  # A real body from amazon-ec2-metadata-mock (see the recorded/ README):
+  # tab-indented JSON with extra Type and LastUpdated fields.
+  test "parses a recorded IMDS credentials response" do
+    creds_json =
+      File.read!("test/support/image_pipe/source_test/s3/recorded/imds_credentials.json")
+
+    assert {:ok, creds, expiry} =
+             InstanceRole.fetch_credentials("any-bucket", [plug: imds_plug(creds_json)], [])
+
+    assert creds[:access_key_id] == "12345678901"
+    assert creds[:secret_access_key] == "v/12345678901"
+    assert creds[:token] =~ "TEST92test48TEST"
+    assert expiry == ~U[2020-04-02 00:49:51Z]
+  end
+
   test "returns an error when IMDS is unreachable" do
     plug = fn conn -> Plug.Conn.send_resp(conn, 500, "boom") end
 

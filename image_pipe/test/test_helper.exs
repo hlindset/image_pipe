@@ -3,10 +3,7 @@
 # scheduler load (oversubscribed cores plus libvips/NIF work on dirty
 # schedulers), producing flaky timeouts. Give those waits more slack; it does
 # not slow down the passing path, which delivers the message near-instantly.
-# `:aws_integration` runs the opt-in LocalStack STS round-trip
-# (`--include aws_integration`); it is a protocol-fidelity smoke test, NOT a
-# correctness gate (LocalStack does not strictly verify SigV4 — signing is
-# already proven by the live S3 GET path).
+
 # Disable libvips' global operation cache for the test run. The cache keys
 # operations (notably `vips_autorot`) by their input image's pixel/argument
 # hash and is BLIND to mutable EXIF `orientation` metadata. Tests synthesize
@@ -26,10 +23,7 @@ Vix.Vips.cache_set_max(0)
 ExUnit.start(
   capture_log: true,
   assert_receive_timeout: 2_000,
-  exclude: [
-    :image_vision,
-    :aws_integration
-  ]
+  exclude: [:image_vision]
 )
 
 {:ok, _} = Application.ensure_all_started(:req)
