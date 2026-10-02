@@ -11,9 +11,10 @@ if Code.ensure_loaded?(Testcontainers) do
         IMGPROXY_REFERENCE=1 TESTCONTAINERS_RYUK_DISABLED=true MIX_ENV=test \\
           mise exec -- mix imgproxy.bake [--only id,id]
 
-    Afterwards, run `MIX_ENV=test mise exec -- mix compile --force` without
-    `IMGPROXY_REFERENCE`, or `mix test` fails to start the absent testcontainers
-    app.
+    This task only compiles when `IMGPROXY_REFERENCE` adds testcontainers, so
+    run `IMGPROXY_REFERENCE=1 MIX_ENV=test mise exec -- mix compile --force`
+    first. Afterwards, run `MIX_ENV=test mise exec -- mix compile --force`
+    without it, or `mix test` fails to start the absent testcontainers app.
 
     Without `--only` it re-bakes every case and removes orphaned fixtures. Run it
     for new cases or when upgrading the pinned imgproxy, never to make a case
@@ -53,6 +54,8 @@ if Code.ensure_loaded?(Testcontainers) do
         |> Testcontainers.Container.new()
         |> Testcontainers.Container.with_exposed_port(8080)
         |> Testcontainers.Container.with_environment("IMGPROXY_LOCAL_FILESYSTEM_ROOT", "/srv")
+        # The same asset the reference test configures as the `mark` watermark.
+        |> Testcontainers.Container.with_environment("IMGPROXY_WATERMARK_PATH", "/srv/alpha.png")
         |> Testcontainers.Container.with_bind_mount(Path.expand(@sources), "/srv", "ro")
 
       {:ok, started} = Testcontainers.start_container(container)
@@ -93,7 +96,8 @@ if Code.ensure_loaded?(Testcontainers) do
               match: :path,
               options: [root: @sources, root_id: "imgproxy-bake"]
             ]
-          ]
+          ],
+          watermarks: %{mark: [source: "alpha.png"]}
         )
 
       failures =

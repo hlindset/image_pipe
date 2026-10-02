@@ -1615,6 +1615,386 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         native: "pixelate=7",
         imgproxy: "pix:7",
         tolerance: {2, 64}
+      },
+      # Coverage gaps: watermark. The asset is alpha.png on both sides; placement over
+      # the placement grid makes a 1px shift fail across every cell edge.
+      %{
+        id: "wm_center_scaled",
+        kind: :png,
+        source: "placement.png",
+        native: "w=400/h=300/fit=contain/wm=mark/wm-scale=0.25",
+        imgproxy: "rs:fit:400:300/wm:1:ce:0:0:0.25",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "wm_corner_offset",
+        kind: :png,
+        source: "placement.png",
+        native:
+          "w=400/h=300/fit=contain/wm=mark/wm-at=bottom-right/wm-offset=20,10/wm-scale=0.25",
+        imgproxy: "rs:fit:400:300/wm:1:soea:20:10:0.25",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "wm_opacity_top_left",
+        kind: :png,
+        source: "placement.png",
+        native: "w=400/h=300/fit=contain/wm=mark/wm-opacity=0.5/wm-at=top-left/wm-scale=0.25",
+        imgproxy: "rs:fit:400:300/wm:0.5:nowe:0:0:0.25",
+        tolerance: {2, 64}
+      },
+      # Natural asset size: 256×256 inside a 400×300 frame.
+      %{
+        id: "wm_natural_size",
+        kind: :png,
+        source: "placement.png",
+        native: "w=400/h=300/fit=contain/wm=mark/wm-at=top",
+        imgproxy: "rs:fit:400:300/wm:1:no",
+        tolerance: {2, 64}
+      },
+      # Offsets below 1 are relative in imgproxy; 10pct of the frame natively.
+      %{
+        id: "wm_relative_offset",
+        kind: :png,
+        source: "placement.png",
+        native: "w=400/h=300/fit=contain/wm=mark/wm-at=left/wm-offset=10pct,0/wm-scale=0.2",
+        imgproxy: "rs:fit:400:300/wm:1:we:0.1:0:0.2",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "wm_tile",
+        kind: :png,
+        source: "placement.png",
+        native: "w=400/h=300/fit=contain/wm=mark/wm-tile/wm-scale=0.1",
+        imgproxy: "rs:fit:400:300/wm:1:re:0:0:0.1",
+        tolerance: {2, 64}
+      },
+      # Pixel offsets scale with DPR. (At natural size imgproxy ignores DPR while
+      # ImagePipe scales the asset with it, so this case uses wm-scale.)
+      %{
+        id: "wm_dpr_scaled",
+        kind: :png,
+        source: "marker.png",
+        native:
+          "w=200/h=150/fit=contain/dpr=2/wm=mark/wm-at=bottom-right/wm-offset=10,10/wm-scale=0.25",
+        imgproxy: "rs:fit:200:150/dpr:2/wm:1:soea:10:10:0.25",
+        tolerance: {2, 64}
+      },
+      # The watermark addresses the extended canvas, not just the image.
+      %{
+        id: "wm_on_extended_canvas",
+        kind: :png,
+        source: "small.png",
+        native: "w=400/h=300/fit=contain/extend/wm=mark/wm-at=bottom-right/wm-scale=0.25",
+        imgproxy: "rs:fit:400:300/ex:1/wm:1:soea:0:0:0.25",
+        tolerance: {2, 64}
+      },
+      # The watermark is the last stage, so its frame includes padding.
+      # Resampling skew without any shift (best-fit offset 0,0, maxΔ 28); the
+      # threshold sits just above the measured maximum. A 1px shift fails far past it.
+      %{
+        id: "wm_on_padding",
+        kind: :png,
+        source: "marker.png",
+        native: "w=300/h=200/fit=contain/pad=20/wm=mark/wm-at=top-left/wm-scale=0.2",
+        imgproxy: "rs:fit:300:200/pd:20/wm:1:nowe:0:0:0.2",
+        tolerance: {32, 64}
+      },
+      # A transparent frame gains coverage where the asset is opaque.
+      %{
+        id: "wm_on_alpha_frame",
+        kind: :png,
+        source: "alpha.png",
+        native: "w=200/h=200/fit=contain/wm=mark/wm-opacity=0.7/wm-scale=0.5",
+        imgproxy: "rs:fit:200:200/wm:0.7:ce:0:0:0.5",
+        tolerance: {2, 64}
+      },
+      # Placement in the displayed frame of an EXIF-6 source.
+      # Resampling skew without any shift (best-fit offset 0,0, maxΔ 18); the
+      # threshold sits just above the measured maximum. A 1px shift fails far past it.
+      %{
+        id: "wm_on_exif_frame",
+        kind: :png,
+        source: "exif_placement_6.jpg",
+        native: "w=200/h=200/fit=contain/wm=mark/wm-at=bottom-right/wm-scale=0.3",
+        imgproxy: "rs:fit:200:200/wm:1:soea:0:0:0.3",
+        tolerance: {20, 64}
+      },
+      # Coverage gaps: fractional DPR. Every older DPR case uses 2; rounding at 1.5
+      # and 1.25 takes different paths.
+      %{
+        id: "dpr15_fit_marker",
+        kind: :png,
+        source: "marker.png",
+        native: "w=200/h=150/fit=contain/dpr=1.5",
+        imgproxy: "rs:fit:200:150/dpr:1.5",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "dpr15_cover_offset_marker",
+        kind: :png,
+        source: "marker.png",
+        native: "w=200/h=150/fit=cover/anchor=bottom-right/anchor-offset=10,10/dpr=1.5",
+        imgproxy: "rs:fill:200:150/g:soea:10:10/dpr:1.5",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "dpr15_extend_pad_marker",
+        kind: :png,
+        source: "marker.png",
+        native:
+          "w=300/h=200/fit=contain/extend/extend-at=bottom-right/extend-offset=10,10/pad=5/dpr=1.5",
+        imgproxy: "rs:fit:300:200/ex:1:soea:10:10/pd:5/dpr:1.5",
+        tolerance: {2, 64}
+      },
+      # Source-crop offsets are physical pixels, unaffected by DPR.
+      %{
+        id: "dpr15_crop_offset_placement",
+        kind: :png,
+        source: "placement.png",
+        native: "crop=300,200/anchor=right/anchor-offset=20,0/dpr=1.5",
+        imgproxy: "c:300:200:ea:20:0/dpr:1.5",
+        tolerance: {2, 64}
+      },
+      # Resampling skew without any shift (best-fit offset 0,0, maxΔ 28); the
+      # threshold sits just above the measured maximum. A 1px shift fails far past it.
+      %{
+        id: "dpr125_cover_odd_marker",
+        kind: :png,
+        source: "marker.png",
+        native: "w=201/h=151/fit=cover/dpr=1.25",
+        imgproxy: "rs:fill:201:151/dpr:1.25",
+        tolerance: {32, 64}
+      },
+      # Coverage gaps: alpha through effects, rotation, cover crop and padding — the
+      # premultiply paths.
+      %{
+        id: "alpha_blur",
+        kind: :png,
+        source: "alpha.png",
+        native: "w=128/h=128/fit=contain/blur=3",
+        imgproxy: "rs:fit:128:128/bl:3",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "alpha_sharpen",
+        kind: :png,
+        source: "alpha.png",
+        native: "w=128/h=128/fit=contain/sharpen=2",
+        imgproxy: "rs:fit:128:128/sh:2",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "alpha_pixelate",
+        kind: :png,
+        source: "alpha.png",
+        native: "w=128/h=128/fit=contain/pixelate=8",
+        imgproxy: "rs:fit:128:128/pix:8",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "alpha_rotate90",
+        kind: :png,
+        source: "alpha.png",
+        native: "rotate=90/w=128/h=128/fit=contain",
+        imgproxy: "rot:90/rs:fit:128:128",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "alpha_flip_h",
+        kind: :png,
+        source: "alpha.png",
+        native: "flip=h/w=128/h=128/fit=contain",
+        imgproxy: "fl:1/rs:fit:128:128",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "alpha_cover_crop",
+        kind: :png,
+        source: "alpha.png",
+        native: "w=128/h=64/fit=cover/anchor=top",
+        imgproxy: "rs:fill:128:64/g:no",
+        tolerance: {2, 64}
+      },
+      # Padding without a background stays transparent.
+      %{
+        id: "alpha_pad_transparent",
+        kind: :png,
+        source: "alpha.png",
+        native: "w=128/h=128/fit=contain/pad=10",
+        imgproxy: "rs:fit:128:128/pd:10",
+        tolerance: {2, 64}
+      },
+      # Coverage gaps: smart crop beyond one inline crop.
+      %{
+        id: "cover_smart_marker",
+        kind: :png,
+        source: "marker.png",
+        native: "w=300/h=300/fit=cover/anchor=smart",
+        imgproxy: "rs:fill:300:300/g:sm",
+        tolerance: {2, 64}
+      },
+      # Attention scoring must run in the displayed frame.
+      %{
+        id: "exif_cover_smart",
+        kind: :png,
+        source: "exif_placement_6.jpg",
+        native: "w=200/h=150/fit=cover/anchor=smart",
+        imgproxy: "rs:fill:200:150/g:sm",
+        tolerance: {2, 64},
+        pending: "image_plug-416: smart cover crop on EXIF frames swaps the box"
+      },
+      # Coverage gaps: EXIF auto-orientation off (`ar:0`), a separate path through the
+      # orientation flush.
+      %{
+        id: "orient_none_crop",
+        kind: :png,
+        source: "exif_placement_6.jpg",
+        native: "orient=none/crop=200,120/anchor=top",
+        imgproxy: "ar:0/c:200:120:no",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "orient_none_cover",
+        kind: :png,
+        source: "exif_5.jpg",
+        native: "orient=none/w=200/h=150/fit=cover",
+        imgproxy: "ar:0/rs:fill:200:150",
+        tolerance: {2, 64}
+      },
+      # Resampling skew without any shift (best-fit offset 0,0, maxΔ 16); the
+      # threshold sits just above the measured maximum. A 1px shift fails far past it.
+      %{
+        id: "orient_none_rotate",
+        kind: :png,
+        source: "exif_6.jpg",
+        native: "orient=none/rotate=90/w=200/h=200/fit=contain",
+        imgproxy: "ar:0/rot:90/rs:fit:200:200",
+        tolerance: {20, 64}
+      },
+      # Coverage gaps: rotate 270, flip on both axes, and compositions that cancel out.
+      %{
+        id: "rot270_crop_placement",
+        kind: :png,
+        source: "placement.png",
+        native: "rotate=270/crop=200,120/anchor=top",
+        imgproxy: "rot:270/c:200:120:no",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "flip_hv_placement",
+        kind: :png,
+        source: "placement.png",
+        native: "flip=hv/w=400/h=300/fit=contain",
+        imgproxy: "fl:1:1/rs:fit:400:300",
+        tolerance: {2, 64}
+      },
+      # Rotating 180° and flipping both axes nets to identity.
+      %{
+        id: "rot180_flip_hv_identity",
+        kind: :png,
+        source: "placement.png",
+        native: "rotate=180/flip=hv/w=400/h=300/fit=contain",
+        imgproxy: "rot:180/fl:1:1/rs:fit:400:300",
+        tolerance: {2, 64}
+      },
+      # EXIF 3 composed with rotate 180 nets to identity.
+      %{
+        id: "exif3_rot180_identity",
+        kind: :png,
+        source: "exif_placement_3.jpg",
+        native: "rotate=180/w=200/h=150/fit=contain",
+        imgproxy: "rot:180/rs:fit:200:150",
+        tolerance: {2, 64}
+      },
+      # Resampling skew without any shift (best-fit offset 0,0, maxΔ 18); the
+      # threshold sits just above the measured maximum. A 1px shift fails far past it.
+      %{
+        id: "exif8_rot90_flip",
+        kind: :png,
+        source: "exif_placement_8.jpg",
+        native: "rotate=90/flip=h/w=200/h=200/fit=contain",
+        imgproxy: "rot:90/fl:1/rs:fit:200:200",
+        tolerance: {20, 64}
+      },
+      # Coverage gaps: trim followed by other geometry.
+      # Percentages resolve against the trimmed frame.
+      %{
+        id: "trim_then_pct_crop",
+        kind: :png,
+        source: "border.png",
+        native: "trim=auto/crop=50pct,50pct",
+        imgproxy: "t:10/c:0.5:0.5",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "trim_then_extend",
+        kind: :png,
+        source: "border.png",
+        native: "trim=auto/w=400/h=400/fit=contain/extend",
+        imgproxy: "t:10/rs:fit:400:400/ex:1",
+        tolerance: {2, 64}
+      },
+      # Coverage gaps: smaller combinations.
+      %{
+        id: "cover_enlarge_small",
+        kind: :png,
+        source: "small.png",
+        native: "w=300/h=300/fit=cover/enlarge",
+        imgproxy: "rs:fill:300:300:1",
+        tolerance: {2, 64}
+      },
+      # extend-ratio on a rotated display frame.
+      # Resampling skew without any shift (best-fit offset 0,0, maxΔ 16); the
+      # threshold sits just above the measured maximum. A 1px shift fails far past it.
+      %{
+        id: "exif_extend_ratio",
+        kind: :png,
+        source: "exif_6.jpg",
+        native: "w=300/h=200/fit=contain/extend-ratio",
+        imgproxy: "rs:fit:300:200/exar:1",
+        tolerance: {20, 64}
+      },
+      %{
+        id: "zoom_dpr_marker",
+        kind: :png,
+        source: "marker.png",
+        native: "w=200/h=150/fit=contain/zoom=1.5/dpr=2",
+        imgproxy: "rs:fit:200:150/z:1.5/dpr:2",
+        tolerance: {2, 64}
+      },
+      # Coverage gaps: CMYK, 16-bit and WebP sources beyond a plain resize.
+      %{
+        id: "cmyk_crop_blur",
+        kind: :png,
+        source: "cmyk.jpg",
+        native: "crop=60,60/anchor=top/blur=2",
+        imgproxy: "c:60:60:no/bl:2",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "rgb16_rotate_crop",
+        kind: :png,
+        source: "rgb16.png",
+        native: "rotate=90/crop=200,200",
+        imgproxy: "rot:90/c:200:200",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "rgba16_blur",
+        kind: :png,
+        source: "rgba16.png",
+        native: "w=128/h=128/fit=contain/blur=2",
+        imgproxy: "rs:fit:128:128/bl:2",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "webp_cover_offset",
+        kind: :png,
+        source: "high_freq.webp",
+        native: "w=200/h=150/fit=cover/anchor=top-right/anchor-offset=10,10",
+        imgproxy: "rs:fill:200:150/g:noea:10:10",
+        tolerance: {2, 64}
       }
     ]
   end

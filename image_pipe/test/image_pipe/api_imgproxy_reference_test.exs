@@ -31,7 +31,8 @@ defmodule ImagePipe.APIImgproxyReferenceTest do
             match: :path,
             options: [root: @sources, root_id: "imgproxy-reference"]
           ]
-        ]
+        ],
+        watermarks: %{mark: [source: "alpha.png"]}
       )
 
     {:ok, config: config}

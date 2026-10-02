@@ -44,6 +44,9 @@
     "grav_noea_off" => %{
       fixture_sha256: "182ca208fc74158e4c101b3352c7c87eea3ce1b31ba6e3034f87420daa2950dc"
     },
+    "dpr125_cover_odd_marker" => %{
+      fixture_sha256: "0080de9221f33aeee2cc17e1cdce554b55f38f9ac68ec3d49c0c3dfc9092dafa"
+    },
     "exar_gravity_south_small" => %{
       fixture_sha256: "33f879ec91797827a19aff9a8134162103c5f8e9b154ae5d01e7a10458201028"
     },
@@ -56,6 +59,9 @@
     "exif_extend_south" => %{
       fixture_sha256: "c69533dfb15e426ac760589bf0b6bbb8eab3e85d10e6d169e3ff12b927e1c3c9"
     },
+    "wm_center_scaled" => %{
+      fixture_sha256: "8cd42281b73269bd5422061b8dd9978c85dc2737307751e32a7164e25e72a2ae"
+    },
     "grav_soea_off" => %{
       fixture_sha256: "42cdba3868e3a8585ec2781c0b1d220eceed857f7629c719b93d296db1d4891d"
     },
@@ -64,6 +70,12 @@
     },
     "crop_west_placement" => %{
       fixture_sha256: "bdd71a80029e55b46cd367f719b958cb9d9eb8867745641f12e2b7f4335d55d3"
+    },
+    "wm_natural_size" => %{
+      fixture_sha256: "b314ee26db6e34f86ab051fcf9da550ce52e5e8c9c29fb7432729a7591cc4cec"
+    },
+    "alpha_pixelate" => %{
+      fixture_sha256: "35676bbc730bace1fa3e2abf2dd65a0540ff8c9c642095f72a7ab2af18008e64"
     },
     "trim_color_marker" => %{
       fixture_sha256: "b996b43cc151cc430653ff4a67788fef9772ed5aba702b7afa8405b40b8f51b3"
@@ -83,6 +95,9 @@
     "exif_5_extend_so" => %{
       fixture_sha256: "231caaba0f232ddb90d32a7c21b8378da1ca1e445737a3fec8777a46991ae945"
     },
+    "webp_cover_offset" => %{
+      fixture_sha256: "61c07055b217b92fa60fbf7d948b91a52173875b00393d50f4229431d05275c1"
+    },
     "crop_offset_dpr_placement" => %{
       fixture_sha256: "cdc7023e6f2d4cc112de67cfeebf47b23d2914e96ca99cc6f1f8c4390d15a8e1"
     },
@@ -94,6 +109,9 @@
     },
     "cover_gravity_south_offset_marker" => %{
       fixture_sha256: "892457cfed820ba8fc335c32155c450230fa641860f6b94e57075532be6697f1"
+    },
+    "exif_extend_ratio" => %{
+      fixture_sha256: "c3f478e0c89b23b281e8f7338ba5b4e401d67fe0044fe19615db3244ab8a8ecd"
     },
     "grav_ce_rel_off" => %{
       fixture_sha256: "b33090cff7904ff433f17c5ebd0d56e57df96668995c2de4e1ca639f00d43e75"
@@ -113,14 +131,26 @@
     "trim_equal_h_exif5" => %{
       fixture_sha256: "356a11d4845340173e3ec149c165e1cd276dc0047050d0c5970c4b2cb646a038"
     },
+    "alpha_blur" => %{
+      fixture_sha256: "49637c72b4ebfb0a08333f320a7bc64c4d0ad18c16dc7215009c86a363a3269f"
+    },
     "exif_5_cover_rot90" => %{
       fixture_sha256: "255202508ca2403b8307a2928b51178ced4c38a13745135760f75ac791005e50"
+    },
+    "cover_smart_marker" => %{
+      fixture_sha256: "3571ad4e89b9d6ad964d5dffd1fe6e4c763a50d7b7a2cb286c73b6d44d49dea3"
     },
     "cover_west_gravity_marker" => %{
       fixture_sha256: "cc951096a398c2ae0347478e4604d8d63e0b2b707c42880be21800597bf36dd5"
     },
     "exif_7_cover_rot90" => %{
       fixture_sha256: "f6ced049d65c6f9b957fd0d739135d7deda98def7e6f928d9d5e585ed560486f"
+    },
+    "wm_dpr_scaled" => %{
+      fixture_sha256: "bdb9955d7fd1f078d996201e66e3afe609e8c1109410cf1a35cdbda0ba1c088c"
+    },
+    "dpr15_extend_pad_marker" => %{
+      fixture_sha256: "055da8c136c573e9e1e80079980ddfd18d27ccb23867c800bbfd46199f961cb1"
     },
     "exif_4_crop_no" => %{
       fixture_sha256: "6d320fe78bd2cd98e8de1dea37bfa0c947a11fa5a25b0e72b8008acd49c51303"
@@ -133,6 +163,9 @@
     },
     "exif_7_extend_so" => %{
       fixture_sha256: "209d4e4ea4fc451007ed1a3888db0a83336ecef84326f474f266b434619821e3"
+    },
+    "cover_enlarge_small" => %{
+      fixture_sha256: "42898227a5d0777b7c724a96d8a71e6192db3568f02524a8f38bda3a17cf96fa"
     },
     "exif_crop_focal" => %{
       fixture_sha256: "6f7380739c9aa949e3102829cabe2ddaf9ca57ff6671abdcc83cbbd6ca43639d"
@@ -164,23 +197,59 @@
     "grav_sowe_off" => %{
       fixture_sha256: "5568cd750bfb92d57cad44503714f02f945047e2563ebc2885f13d43a6ed12e6"
     },
+    "exif8_rot90_flip" => %{
+      fixture_sha256: "636a89b11d99516b514f8b3174a499082c44008d0d59a71b02ae8a74931a3a5e"
+    },
+    "wm_on_padding" => %{
+      fixture_sha256: "943744641965270d6ad5b0a3d5ad84d535b8745e98ca0df99a1e2f259f243a9d"
+    },
     "exif_5_cover_fl" => %{
       fixture_sha256: "7b7c895adfc90b4546f5dd82aeb22ab7b8a0eda59efa4c61718a58e9aaff0126"
     },
     "extend_small" => %{
       fixture_sha256: "c17cded72bf2ad1924f0646d3b6225e95a724c825cc43225b39ec01151002a18"
     },
+    "flip_hv_placement" => %{
+      fixture_sha256: "46d63bfaec6485ee1ddba5e3a60f968b414adabec1601c26c0cffa9dfa6f0534"
+    },
+    "dpr15_cover_offset_marker" => %{
+      fixture_sha256: "47851b26cfab3e08e0eb98a52fc3a08d9fe173b2da123889199a71d53a4a52cf"
+    },
     "auto_resize_square_target_marker" => %{
       fixture_sha256: "bd1ebd7079f7d41f861fa3249b43d1b290e30f913f14744d6b8c897d00b0c103"
+    },
+    "wm_relative_offset" => %{
+      fixture_sha256: "eb5e5bde7f7fde2b3aef4370a95930aa8bee76f690f9b997f70d86ce8b9cf6c6"
     },
     "crop_inherit_grav_offset" => %{
       fixture_sha256: "c3753086394cdf7a5c01ae0dcc3c01c951b0246303a1252b5910418f30141868"
     },
+    "wm_on_exif_frame" => %{
+      fixture_sha256: "2f61673bc946adbda1805712575b428799094a676e0907e2900d8b9438cf3e02"
+    },
+    "exif_cover_smart" => %{
+      fixture_sha256: "625bd1068976931776084d668647cf52f3003509c3057e6296fe431fdfe9ae8e"
+    },
     "cover_offset_dpr_marker" => %{
       fixture_sha256: "5eacf1059134d3a40971cee9b56b2af7e7d4635b646ecebe98e58feec9027293"
     },
+    "rot270_crop_placement" => %{
+      fixture_sha256: "dbe064309f5c2e223b3ef95ab000f83205fef80c2d100009b35a7bcfc17a5e9b"
+    },
+    "cmyk_crop_blur" => %{
+      fixture_sha256: "242ae88b750726a39ad1c76e08467be182c0083457574613afd408f9dfc15a5f"
+    },
     "scp0_colorspace_124" => %{
       fixture_sha256: "90947f527cb71392f30558bf343b3e3cbddb516f73afecfba27a9518e30758f3"
+    },
+    "orient_none_rotate" => %{
+      fixture_sha256: "4eecef2490469f0eef1a4f40756e981b2bb543f3796a8f0387e7d532eeee7c5f"
+    },
+    "trim_then_extend" => %{
+      fixture_sha256: "b83a6db63891b98aa35e4d9700db62f657c5711e26b5c51766a18958e9042c09"
+    },
+    "alpha_sharpen" => %{
+      fixture_sha256: "97ab7812476c27d18aa453e1765bdef40be200932de967d17d29798c42b364b8"
     },
     "exif_7_cover_fl" => %{
       fixture_sha256: "2b1b736ed8a03f337ee9405951199fa5e011402e40cd9c48e712b80cc25c69ab"
@@ -236,6 +305,12 @@
     "rot90_flip_h_marker" => %{
       fixture_sha256: "3602aa2bb77f1d211b4943e282539533bb9323e14ed91cfac98a88960d84221f"
     },
+    "zoom_dpr_marker" => %{
+      fixture_sha256: "8b3e08ab16576362a3f78ecdf07478b4b1cc95ef45a5bd077890d993db569b6c"
+    },
+    "orient_none_crop" => %{
+      fixture_sha256: "ad8d8d14c983737e93056c3e1823d28d3f3feb3cb3e1983653f58ea9ab2ae9bc"
+    },
     "exif_7_crop_no" => %{
       fixture_sha256: "e9a1433b8c78bb2d0d6a66b0ac927cadaa3628c568dbe9c76ea80ff119337a13"
     },
@@ -263,6 +338,9 @@
     "resize_tail_enlarge_extend_small" => %{
       fixture_sha256: "8d7631377411352bb6dd7cde573eb082005f1a93567646ea22fa3dd38857f651"
     },
+    "rot180_flip_hv_identity" => %{
+      fixture_sha256: "a86807981299dd210cc507559a64002cf9668b8cb56adeddd55e2eb7657cd228"
+    },
     "grav_no" => %{
       fixture_sha256: "f5aac4fb68af709ea600b4ee05ced38d54ae748daa89fcf851394501e6beea57"
     },
@@ -275,11 +353,20 @@
     "enlarge_off_dpr_comp_small" => %{
       fixture_sha256: "dd59be38f7dbc89f7cbb930d2b6f738ee418acea6469adb72943d72aabe1634e"
     },
+    "orient_none_cover" => %{
+      fixture_sha256: "7fddd913ac395c2796ce9db79bc0cce5906fe07563e6598e73e158d721695d48"
+    },
+    "alpha_pad_transparent" => %{
+      fixture_sha256: "d1b39d301061446606b451ca9fd0e1f9ffac4887731152da9c0c3f6c14a7d4d2"
+    },
     "fill_down_marker" => %{
       fixture_sha256: "2939a6d8a0de7382492f0f268b896e4663e75b63d5be6846b86248e9f8d6c8da"
     },
     "exif_8_extend_so" => %{
       fixture_sha256: "053a2a202bfa785721c8e9cd4fdb09b5a3d62934858c7d80fece6a94d9d82af5"
+    },
+    "wm_on_extended_canvas" => %{
+      fixture_sha256: "0bde30a6c67a031d9b070f96d31b9b811f50e643efe0b49575644deeb69370b6"
     },
     "crop_relative_dims_odd_tie" => %{
       fixture_sha256: "a8ebca7df8186de2e21d1a0ac5619c0a7821cdbd545004d12e605f81a23e1909"
@@ -299,14 +386,26 @@
     "exif_8_cover" => %{
       fixture_sha256: "2b1b736ed8a03f337ee9405951199fa5e011402e40cd9c48e712b80cc25c69ab"
     },
+    "wm_opacity_top_left" => %{
+      fixture_sha256: "9bc7e31cc188f84a559e2716233ce21b58f52f76e22d7ab0ebebd9cc83f17f47"
+    },
     "pixelate_marker" => %{
       fixture_sha256: "522a35bf4f754db93a6d6816cf413c067a62cd11e2bee2fa4c0cb6c6de32f9e6"
+    },
+    "wm_corner_offset" => %{
+      fixture_sha256: "7718275ee73f8d0e8e41fe0b5ea2ab08c4ce458288d1f59a35035af6b9230cdb"
     },
     "blur_zone" => %{
       fixture_sha256: "02e9f874b5b4bf5cf007a844040bc7e3806abdd55216d67e024b737a71c8ecd3"
     },
     "extend_corner_offset_small" => %{
       fixture_sha256: "d26cb97cf990f1a00ac95d0f40bf826f433cd7d344e5342a24b00ef77cdf601c"
+    },
+    "wm_tile" => %{
+      fixture_sha256: "440dad7b71a573f5ec2df0173a8638499e020800dd7a8c71211014e53c0a9e60"
+    },
+    "rgb16_rotate_crop" => %{
+      fixture_sha256: "ea5cdcb7e7bf8099697120173698d9b2e3bb03c89809c49aa9d86335440a06a6"
     },
     "dpr_marker" => %{
       fixture_sha256: "e5fb54254c615ec898969e041fcb1e9e53fa3961045bd28ce846d899a520c0e1"
@@ -347,15 +446,21 @@
     "exif_user_flip_h" => %{
       fixture_sha256: "356a11d4845340173e3ec149c165e1cd276dc0047050d0c5970c4b2cb646a038"
     },
+    "alpha_cover_crop" => %{
+      fixture_sha256: "4534039625707327333bd4d977b2285a6f0d4feb66e94f6d5666e51c3899ecd1"
+    },
     "exif_8_crop_no" => %{
       fixture_sha256: "99449d7cdf5c29395b041ad60fbcb92aa5eebe7deddd3f0bbf32da59fe2f324d"
     },
-    "lossy_webp" => %{width: 240, content_type: "image/webp", height: 180},
+    "lossy_webp" => %{width: 240, height: 180, content_type: "image/webp"},
     "padding_border" => %{
       fixture_sha256: "1af6ead813738e1c08a94d74bb5901bbe999da983a6e9b3a7f84d082ac1ddf31"
     },
     "zoom_offset_no_scale" => %{
       fixture_sha256: "35334171012f49dbaf4ca819b88ab02b17529de5aeb59f4b90eb70d4babf814f"
+    },
+    "trim_then_pct_crop" => %{
+      fixture_sha256: "a9f94fd367a9ca0f371b66c0d411375dbcb93ef3d77e76a612cfe44acd5d3ff9"
     },
     "trim_border_equal" => %{
       fixture_sha256: "f25e7af1bf08e3df79b6ace82515d7276dc92575f96006f24d37b3b72bf48336"
@@ -363,9 +468,12 @@
     "gravity_offset_marker" => %{
       fixture_sha256: "a6cb42f915db8661374325d8e85931017c9d881ba5617331ec7737108a13e44c"
     },
-    "lossy_jpeg_q40" => %{width: 240, content_type: "image/jpeg", height: 180},
+    "lossy_jpeg_q40" => %{width: 240, height: 180, content_type: "image/jpeg"},
     "grav_nowe_off" => %{
       fixture_sha256: "0b228be1541dc6b840d455aa2669c79de9472d3a7e1e0fbdc059a01ca50de663"
+    },
+    "rgba16_blur" => %{
+      fixture_sha256: "864762a093bf7a6b1e47a9f09a33221fc247c3fd0018ec23b74de23aa484b22f"
     },
     "grav_no_off" => %{
       fixture_sha256: "c3753086394cdf7a5c01ae0dcc3c01c951b0246303a1252b5910418f30141868"
@@ -393,6 +501,9 @@
     },
     "cover_odd_gap_corner_dpr_marker" => %{
       fixture_sha256: "1a36b442593a4c27919fe48d5192a60a26a2a9f08e5cf40f9cabd7d8039230ba"
+    },
+    "exif3_rot180_identity" => %{
+      fixture_sha256: "641717dd8dba1e239099c42c01d8a000f687c202cc57f4140e4a9b41abd84a0e"
     },
     "flip_h_marker" => %{
       fixture_sha256: "97a92326a2223a93ba24e7bc7c793c000e848a50afaa1ece4c392c97d80c01f2"
@@ -430,6 +541,9 @@
     "force_resize_marker" => %{
       fixture_sha256: "b9a1442e44341fdc7023896be69f33159e0ed1c8b7e0e9647d4b27c9ef83cc02"
     },
+    "wm_on_alpha_frame" => %{
+      fixture_sha256: "04571e74cd023abf509d2e186f5c7efe71f0cad150acaaa660d0df15055ab963"
+    },
     "fill_down_corner_gravity_marker" => %{
       fixture_sha256: "81e505a01f3d56b81a62745684eb071abe8dac60c6ca7772e687fb0b983e75f6"
     },
@@ -438,6 +552,9 @@
     },
     "grav_ea" => %{
       fixture_sha256: "a48b1dcdf9b4e9101eef6043c1c1a0e3661fe3dde1f00ff8a9ba5508eede530f"
+    },
+    "dpr15_fit_marker" => %{
+      fixture_sha256: "47851b26cfab3e08e0eb98a52fc3a08d9fe173b2da123889199a71d53a4a52cf"
     },
     "crop_full_axis_placement" => %{
       fixture_sha256: "d2727e0883ca0e97c2f49ae5a67a139d49f97b0ac88a09bdcc466dc6bd5405cf"
@@ -450,6 +567,9 @@
     },
     "rotate_exif" => %{
       fixture_sha256: "79d98874795f31d33cb9c4739f7eb69f1b83c2e3b1096858f9ca126232db9322"
+    },
+    "dpr15_crop_offset_placement" => %{
+      fixture_sha256: "cdc7023e6f2d4cc112de67cfeebf47b23d2914e96ca99cc6f1f8c4390d15a8e1"
     },
     "exif_4_extend_so" => %{
       fixture_sha256: "f0faef7ede4bbe5e4f7593bf8127b2cc336a4df88752c4f50efc77826dfccf19"
@@ -466,12 +586,18 @@
     "background_alpha" => %{
       fixture_sha256: "cdcaf41f0c8f64c3f76aa258be5789dea1cd6f7843e95230e10fd7099ce29713"
     },
-    "lossy_avif" => %{width: 240, content_type: "image/avif", height: 180},
+    "lossy_avif" => %{width: 240, height: 180, content_type: "image/avif"},
     "cover_rel_offset_dpr_marker" => %{
       fixture_sha256: "781e18414afe7ea6005a01834ad6847d447e304ff94cb9096663637f750fa180"
     },
     "exif_3_crop_no" => %{
       fixture_sha256: "72c0684d1cd41a0069acac6f408ec1a87fe6a1041ef7c2dac33c36776d439f0b"
+    },
+    "alpha_rotate90" => %{
+      fixture_sha256: "35676bbc730bace1fa3e2abf2dd65a0540ff8c9c642095f72a7ab2af18008e64"
+    },
+    "alpha_flip_h" => %{
+      fixture_sha256: "35676bbc730bace1fa3e2abf2dd65a0540ff8c9c642095f72a7ab2af18008e64"
     }
   },
   imgproxy_image:

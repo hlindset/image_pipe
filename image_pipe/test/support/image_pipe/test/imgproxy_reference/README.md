@@ -15,6 +15,9 @@ participates.
   from, and each case's fixture SHA-256 or expected lossy dimensions and
   content type.
 
+Watermark cases use `alpha.png` as the asset on both sides: imgproxy's
+`IMGPROXY_WATERMARK_PATH` and ImagePipe's `mark` watermark.
+
 `mix imgproxy.bake` renders the cases through the pinned imgproxy container
 and writes fixtures and the manifest; its moduledoc has the command. It needs
 Docker.
