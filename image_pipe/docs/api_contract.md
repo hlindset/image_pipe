@@ -167,12 +167,15 @@ that aspect ratio. Both require concrete `w` and `h`, and cannot be enabled
 together. Canvas expansion preserves the image's scale and never crops it.
 The box dimensions use effective DPR; zoom affects the resize alone.
 
-`extend-at` chooses a named anchor, defaulting to center. `extend-offset=x,y`
-uses the same signed-length syntax, with percentages resolved against the
-realized target canvas and pixels scaled by effective DPR. Placement is
-clamped inside the canvas. Canvas placement runs in display coordinates,
-after effects and before padding and background. Added space is transparent
-until a background is requested. Canvas and offset options reset at `-`.
+`extend-at` chooses a named anchor, defaulting to center. The `smart` and
+`smart-face` anchors are not accepted. `extend-offset=x,y` uses the same
+signed-length syntax, with percentages resolved against the realized target
+canvas and pixels scaled by effective DPR. Both require `extend` or `extend-ratio` in the same group.
+Placement is clamped inside the canvas. Canvas placement runs in display
+coordinates, after effects and before padding and background. Added space is
+transparent. A background fills every transparent pixel of the frame, not only
+added space. Output formats without alpha flatten remaining transparency onto
+white. Canvas and offset options reset at `-`.
 
 ### Watermarks
 
