@@ -27,7 +27,7 @@
 - Use one concrete request lifecycle and one executor. Keep host extension points for sources, caches, detectors, and exporters. Prefer direct calls and data over configurable dialect/parser/renderer behaviours, continuation protocols, and callback wrappers.
 - Preserve useful capabilities identified in the contract before deleting their only entry point. Beads epic `image_plug-a0q` owns migration dependencies and progress.
 - Keep selected imgproxy comparisons as test-only reference evidence for intentionally shared behavior. ImagePipe semantics govern disagreements; exact vendor parity is not required.
-- When changing reference fixtures, follow `test/support/image_pipe/test/imgproxy_reference/README.md`. Update `SourceInventory` when adding, removing, or regenerating a source and check its consumers first: color-management tests also depend on source ICC profiles, bit depth, and alpha. Inspect generated-file changes with GitButler and retain only intentional fixture updates.
+- When changing reference fixtures, follow `test/support/image_pipe/test/imgproxy_reference/README.md`. Update `SourceInventory` when adding, removing, or regenerating a source and check its consumers first: color-management tests also depend on source ICC profiles, bit depth, and alpha. Inspect generated-file changes with GitButler and retain only intentional fixture updates. For the self-baked goldens, follow `test/support/image_pipe/test/golden/README.md`: re-bake only intended output changes, and treat a golden that moves without its issue in `changes_with` as a regression.
 
 ## Transform guidelines
 

@@ -6,6 +6,10 @@ defmodule Mix.Tasks.Fixtures.GenSources do
   silently change inputs).
 
       mise exec -- mix fixtures.gen_sources
+
+  `exif_placement_6.jxl` is transcoded with libjxl's `cjxl` (Homebrew `jpeg-xl`,
+  which Homebrew `vips` depends on; Debian/Ubuntu `libjxl-tools`). Without
+  `cjxl` on the path, the committed file is kept.
   """
   use Mix.Task
   use Boundary, top_level?: true, check: [out: false]
