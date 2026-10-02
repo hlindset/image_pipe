@@ -176,12 +176,13 @@ Failure stop metadata:
     detected family and `:source_loader` names the loader (e.g. `"dcrawload"`).
 
 The default Logger appends the detected format, a skipped source, a rejected
-loader, a selected page, a frame count above one, and the rejecting limit, e.g.
-`source fetch_decode: ok (detected webp, 3 frames)`, `source fetch_decode: ok
-(detected gif, skipped processing)`, `source fetch_decode:
-processing_error (detected tiff, loader dcrawload)`, `source fetch_decode:
-processing_error (page 3, 3 frames)`, or `source fetch_decode: processing_error
-(frames limit)`. Input-limit and page rejections log at the base level, like
+loader, a selected page, a frame count above one, and the rejecting limit
+after the error category, e.g. `source fetch_decode: ok (detected webp, 3
+frames)`, `source fetch_decode: ok (detected gif, skipped processing)`,
+`source fetch_decode: processing_error (unsupported_source_format, detected
+tiff, loader dcrawload)`, `source fetch_decode: processing_error
+(page_out_of_range, page 3, 3 frames)`, or `source fetch_decode:
+processing_error (input_limit, frames limit)`. Input-limit and page rejections log at the base level, like
 decode failures. The trace exporter keeps `:source_frames`, `:page`, `:limit`,
 `:source_loader`, and `:skipped` as span attributes.
 
@@ -611,7 +612,8 @@ which emitted fields become metrics tags. Common fields are:
   `image_pipe source fetch: ok (mount media)`.
 - `:source_kind` - `:path`, `:url`, `:object`, or `:input` on source spans.
 - `:source_adapter_kind` - `:file`, `:http`, `:s3`, or `:custom` on source spans.
-- `:error` - a stable error category when known.
+- `:error` - a stable error category when known. The default Logger appends it
+  to the outcome, for example `output negotiate: output_error (unsupported)`.
 - `:sig_key_index` - the matched signing-key index (`ImagePipe.Security.verify/3`'s
   return value) on the path parser's `[:parse]` stop metadata; `nil` when the
   request is legitimately unsigned.
