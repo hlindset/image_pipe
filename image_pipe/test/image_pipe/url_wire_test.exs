@@ -121,7 +121,7 @@ defmodule ImagePipe.URLWireTest do
         quality: 71
       )
 
-    client = IP.URL.new(IP.url_config(config), presets: ["thumb"])
+    client = IP.URL.new(IP.url_config(config)) |> IP.URL.group(presets: ["thumb"])
 
     url = IP.URL.url!(client, "photo.jpg")
     assert url == IP.URL.url!(client, "photo.jpg")

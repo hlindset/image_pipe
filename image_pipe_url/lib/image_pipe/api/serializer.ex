@@ -24,8 +24,7 @@ defmodule ImagePipe.API.Serializer do
 
   @spec segments(Plan.t()) :: [String.t()]
   def segments(%Plan{groups: groups, options: options}) do
-    presets(Map.get(options, :presets, [])) ++
-      groups(groups) ++ entries(Map.delete(options, :presets))
+    groups(groups) ++ entries(options)
   end
 
   defp presets([]), do: []
@@ -33,7 +32,7 @@ defmodule ImagePipe.API.Serializer do
 
   defp groups(groups) do
     groups
-    |> Enum.map(&entries/1)
+    |> Enum.map(&(presets(Map.get(&1, :presets, [])) ++ entries(Map.delete(&1, :presets))))
     |> Enum.intersperse(["-"])
     |> List.flatten()
   end

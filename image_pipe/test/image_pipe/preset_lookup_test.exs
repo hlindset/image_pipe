@@ -56,7 +56,7 @@ defmodule ImagePipe.PresetLookupTest do
 
   test "a looked-up preset applies identically through Plug and direct execution", %{body: body} do
     config = config(body, preset_lookup: lookup(presets: %{"card" => "w=30/format=png"}))
-    builder = IP.URL.new(IP.url_config(config), presets: ["card"])
+    builder = IP.URL.new(IP.url_config(config)) |> IP.URL.group(presets: ["card"])
 
     assert :ok = IP.URL.validate(builder)
     url = IP.URL.url!(builder, "photo.png")
@@ -214,15 +214,22 @@ defmodule ImagePipe.PresetLookupTest do
 
     without = config(body, presets: %{"card" => "w=30"})
 
-    assert :ok = IP.URL.validate(IP.URL.new(IP.url_config(with_lookup), presets: ["remote"]))
-
-    assert {:error, [_ | _]} =
-             IP.URL.validate(IP.URL.new(IP.url_config(without), presets: ["remote"]))
+    assert :ok =
+             IP.URL.validate(
+               IP.URL.new(IP.url_config(with_lookup))
+               |> IP.URL.group(presets: ["remote"])
+             )
 
     assert {:error, [_ | _]} =
              IP.URL.validate(
-               IP.URL.new(IP.url_config(with_lookup), presets: ["pipeline"])
-               |> IP.URL.group(blur: 1)
+               IP.URL.new(IP.url_config(without))
+               |> IP.URL.group(presets: ["remote"])
+             )
+
+    assert {:error, [_ | _]} =
+             IP.URL.validate(
+               IP.URL.new(IP.url_config(with_lookup))
+               |> IP.URL.group(presets: ["pipeline"], blur: 1)
              )
 
     refute_received {:preset_fetch, _names}
@@ -235,18 +242,18 @@ defmodule ImagePipe.PresetLookupTest do
         preset_lookup: lookup(presets: %{"card" => "w=30"})
       )
 
-    assert :ok = IP.validate(config, IP.URL.new(presets: ["card"]))
+    assert :ok = IP.validate(config, IP.URL.new() |> IP.URL.group(presets: ["card"]))
     assert_received {:preset_fetch, ["card"]}
 
     assert {:error, {:invalid_request, _issues}} =
-             IP.validate(config, IP.URL.new(presets: ["nope"]))
+             IP.validate(config, IP.URL.new() |> IP.URL.group(presets: ["nope"]))
 
     assert {:error, {:invalid_request, _issues}} =
-             IP.validate(config, IP.URL.new(presets: ["pipeline"]) |> IP.URL.group(blur: 1))
+             IP.validate(config, IP.URL.new() |> IP.URL.group(presets: ["pipeline"], blur: 1))
 
     failing = config(body, preset_lookup: lookup(fail: true))
 
-    assert IP.validate(failing, IP.URL.new(presets: ["card"])) ==
+    assert IP.validate(failing, IP.URL.new() |> IP.URL.group(presets: ["card"])) ==
              {:error, {:preset, :lookup_unavailable}}
 
     assert get(failing, "/preset=card/src/photo.png").status == 503

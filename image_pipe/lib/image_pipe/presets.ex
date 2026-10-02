@@ -74,7 +74,7 @@ defmodule ImagePipe.Presets do
       state = %{state | parsed: Map.merge(state.parsed, parsed)}
 
       parsed
-      |> Enum.flat_map(fn {_name, preset} -> Map.get(preset.request, :presets, []) end)
+      |> Enum.flat_map(fn {_name, preset} -> Presets.references(preset) end)
       |> Enum.uniq()
       |> Enum.reject(&(Map.has_key?(lookup.static, &1) or &1 in asked))
       |> fetch_levels(state, lookup)

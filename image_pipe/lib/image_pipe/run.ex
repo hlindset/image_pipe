@@ -54,7 +54,7 @@ defmodule ImagePipe.Run do
       request_sources?: config[:request_watermarks]
     }
 
-    names = Map.get(plan.options, :presets, [])
+    names = Plan.preset_names(plan)
 
     with {:ok, presets} <- Presets.for_request(names, config) do
       case Plan.to_spec(plan, presets, config[:request_defaults], watermarks) do

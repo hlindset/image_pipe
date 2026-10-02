@@ -156,9 +156,9 @@ defmodule ImagePipe.URL do
   `new(config)` reuses a value from `config/1`. Use `new(config, options)`
   to supply request controls as well. `new()` uses default configuration.
 
-  Accepts `:presets` (an ordered list of names), `:orient` (`:auto` or `:none`),
-  `:page` (a 0-based page or frame), `:filename`, `:attachment`,
-  `:cachebuster`, `:expires` (positive Unix seconds), and `:debug`.
+  Accepts `:orient` (`:auto` or `:none`), `:page` (a 0-based page or
+  frame), `:filename`, `:attachment`, `:cachebuster`, `:expires` (positive
+  Unix seconds), and `:debug`.
   Unknown, duplicate, or malformed options raise `ArgumentError`.
   """
   @spec new(Config.t() | keyword()) :: t()
@@ -173,6 +173,8 @@ defmodule ImagePipe.URL do
   @doc """
   Appends a processing group. Options in the group have fixed execution order.
 
+  `presets: [...]` names presets that apply to this group, in precedence
+  order; the group's explicit options override them.
   Resize settings use `resize: [width: 400, height: :auto, fit: :contain]`.
   Geometry uses numbers for pixels or `{:pct, value}` for percentages. Colors
   accept RGB tuples, CSS names, or hex strings. Effects and encoder policies

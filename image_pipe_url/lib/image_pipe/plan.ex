@@ -85,6 +85,17 @@ defmodule ImagePipe.Plan do
     end
   end
 
+  # Referenced preset names in reading order, for request-time lookup.
+  @doc false
+  @spec preset_names(t()) :: [String.t()]
+  def preset_names(%__MODULE__{} = plan),
+    do:
+      plan
+      |> groups()
+      |> Enum.with_index()
+      |> Map.new(fn {g, i} -> {i, g} end)
+      |> Presets.references()
+
   defp groups(%__MODULE__{groups: []}), do: [%{}]
   defp groups(%__MODULE__{groups: groups}), do: groups
 end

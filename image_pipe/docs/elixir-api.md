@@ -208,14 +208,17 @@ config = ImagePipe.config(
   presets: %{"poster-320" => "w=320/h=480/fit=cover"}
 )
 
-poster = ImagePipe.URL.new(ImagePipe.url_config(config), presets: ["poster-320"])
+poster =
+  ImagePipe.URL.new(ImagePipe.url_config(config))
+  |> ImagePipe.URL.group(presets: ["poster-320"])
 url = ImagePipe.URL.url!(poster, "photos/poster.jpg")
 # /preset=poster-320/src/photos%2Fposter.jpg
 {:ok, result} = ImagePipe.run(config, poster, {:file, "photos/poster.jpg"})
 ```
 
-Plug and direct execution share expansion: `request_defaults` first, selected
-names in order, then explicit builder or URL options. Nested presets resolve when the
+Plug and direct execution share expansion. A group's presets apply to that
+group: `request_defaults` first (first group only), its names in order, then
+the group's explicit builder or URL options. Nested presets resolve when the
 config is built. Validation and execution reject unknown names and conflicting
 pipeline composition before source or cache access.
 

@@ -72,7 +72,8 @@ url_config =
   )
 
 url =
-  ImagePipe.URL.new(url_config, presets: ["card"])
+  ImagePipe.URL.new(url_config)
+  |> ImagePipe.URL.group(presets: ["card"])
   |> ImagePipe.URL.output(format: :webp)
   |> ImagePipe.URL.url!("photos/beach.jpg")
 ```

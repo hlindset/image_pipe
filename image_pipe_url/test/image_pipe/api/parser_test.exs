@@ -1259,6 +1259,19 @@ defmodule ImagePipe.API.ParserTest do
       assert parse(["preset=retired", "w=800"], "images/cat.jpg", config) == parse(["w=800"])
     end
 
+    property "a preset's position within its group does not change the request" do
+      config = [presets: %{"mark" => "blur=2/format=webp"}]
+      segments = ["preset=mark", "trim=auto", "w=800", "sharpen=1"]
+
+      check all keys <- StreamData.list_of(StreamData.integer(), length: length(segments)) do
+        shuffled =
+          segments |> Enum.zip(keys) |> Enum.sort_by(&elem(&1, 1)) |> Enum.map(&elem(&1, 0))
+
+        assert parse(["w=100", "-" | shuffled], "images/cat.jpg", config) ==
+                 parse(["w=100", "-" | segments], "images/cat.jpg", config)
+      end
+    end
+
     property "an overridden-away preset never changes the canonical %Spec{}" do
       check all preset_w <- StreamData.integer(1..4000),
                 url_w <- StreamData.integer(1..4000) do

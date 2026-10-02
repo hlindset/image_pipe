@@ -31,6 +31,10 @@ defmodule ImagePipe.API.Presets do
     end
   end
 
+  # The names a parsed fragment references, in reading order.
+  @spec references(map()) :: [String.t()]
+  def references(%{groups: groups}), do: Presets.references(groups)
+
   # Compiles looked-up presets over the static compiled map they may reference.
   @spec compile_lookup(map(), map()) :: {:ok, map()} | :error
   def compile_lookup(parsed, static) do
@@ -63,7 +67,7 @@ defmodule ImagePipe.API.Presets do
         map_size(defaults.groups) > 1 ->
           {:error, "request_defaults must be a single group"}
 
-        Map.has_key?(defaults.request, :presets) ->
+        Map.has_key?(defaults.groups[0], :presets) ->
           {:error, "request_defaults cannot use presets"}
 
         true ->

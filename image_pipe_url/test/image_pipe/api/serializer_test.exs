@@ -3,7 +3,7 @@ defmodule ImagePipe.API.SerializerTest do
   use ExUnitProperties
 
   alias ImagePipe, as: IP
-  alias ImagePipe.API.{Parser, Path, Serializer}
+  alias ImagePipe.API.{Parser, Path, Presets, Serializer}
   alias ImagePipe.Plan
 
   test "ordered groups serialize with a hyphen separator" do
@@ -153,6 +153,27 @@ defmodule ImagePipe.API.SerializerTest do
     assert "fit=contain" in segments(second)
     assert_round_trip(first)
     assert_round_trip(second)
+  end
+
+  test "preset references serialize first in their own group" do
+    {:ok, compiled} =
+      Presets.compile(
+        %{"mark" => "sharpen=1", "a" => "blur=2", "b" => "format=webp"},
+        nil
+      )
+
+    plan =
+      IP.URL.new()
+      |> IP.URL.group(presets: ["mark"], resize: [width: 80])
+      |> IP.URL.group(presets: ["a", "b"])
+      |> IP.URL.output(quality: 70)
+
+    assert segments(plan) == ["preset=mark", "w=80", "-", "preset=a,b", "q=70"]
+
+    assert {:ok, expected} = Plan.to_spec(plan.plan, compiled.presets)
+    path = "/" <> Enum.join(segments(plan) ++ ["src", "photo.jpg"], "/")
+    assert {:ok, lexed} = Path.extract(path, "")
+    assert {:ok, ^expected} = Parser.parse(lexed, presets: compiled.presets)
   end
 
   property "geometry and decimal values survive canonical serialization" do

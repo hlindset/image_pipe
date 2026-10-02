@@ -70,7 +70,7 @@ defmodule ImagePipe.API.Parser do
   @spec preset_names(lexed()) :: [String.t()]
   def preset_names(%{segments: segments}) do
     {parsed, _occurrences, _errors} = parse_options(segments)
-    parsed.request |> typed_options() |> Map.get(:presets, [])
+    parsed.groups |> typed_group_maps() |> Presets.references()
   end
 
   # An empty fragment is a preset that contributes nothing.
@@ -349,43 +349,50 @@ defmodule ImagePipe.API.Parser do
 
   defp expand_presets(clean_group_maps, clean_request_map, occurrences, config, whole_path_span) do
     presets_config = Keyword.get(config, :presets, %{})
-    preset_span = request_occurrence_span(occurrences, "preset") || whole_path_span
+    fallback_span = request_occurrence_span(occurrences, "preset") || whole_path_span
 
-    {groups, request, diagnostics} =
-      case Presets.expand(
-             typed_group_maps(clean_group_maps),
-             typed_options(clean_request_map),
-             presets_config,
-             Keyword.get(config, :request_defaults)
-           ) do
-        {:ok, expanded} ->
-          groups = Map.new(expanded.groups, fn {i, opts} -> {i, url_options(opts)} end)
-          {groups, url_options(expanded.request), []}
+    case Presets.expand(
+           typed_group_maps(clean_group_maps),
+           typed_options(clean_request_map),
+           presets_config,
+           Keyword.get(config, :request_defaults)
+         ) do
+      {:ok, expanded} ->
+        groups = Map.new(expanded.groups, fn {i, opts} -> {i, url_options(opts)} end)
+        request = url_options(expanded.request)
+        new_index = Map.new(expanded.origins, fn {i, origin} -> {origin, i} end)
 
-        {:error, issues} ->
-          diagnostics = Enum.map(issues, &preset_diagnostic(&1, preset_span))
+        # Explicit occurrences stay first, so diagnostics use the original URL
+        # spans where possible. Preset contributions point to the group's
+        # preset reference.
+        explicit =
+          Enum.map(occurrences, fn occurrence ->
+            %{occurrence | group_index: Map.get(new_index, occurrence.group_index, 0)}
+          end)
 
-          {clean_group_maps, clean_request_map, diagnostics}
-      end
+        synthetic =
+          Enum.flat_map(groups, fn {index, options} ->
+            origin = Map.fetch!(expanded.origins, index)
+            span = occurrence_span(occurrences, origin, "preset") || fallback_span
+            Enum.map(Map.keys(options), &preset_occurrence(index, &1, span))
+          end) ++ Enum.map(Map.keys(request), &preset_occurrence(0, &1, fallback_span))
 
-    # Explicit occurrences stay first, so diagnostics use the original URL
-    # spans where possible. Preset contributions point to the preset name.
-    synthetic =
-      Enum.flat_map(groups, fn {index, options} ->
-        Enum.map(Map.keys(options), &preset_occurrence(index, &1, preset_span))
-      end) ++ Enum.map(Map.keys(request), &preset_occurrence(0, &1, preset_span))
+        {groups, request, [], explicit ++ synthetic}
 
-    {groups, request, diagnostics, occurrences ++ synthetic}
+      {:error, issues} ->
+        diagnostics = Enum.map(issues, &preset_diagnostic(&1, occurrences, fallback_span))
+        groups = Map.new(clean_group_maps, fn {i, opts} -> {i, Map.delete(opts, "preset")} end)
+        {groups, clean_request_map, diagnostics, occurrences}
+    end
   end
 
   defp preset_occurrence(index, key, span),
     do: occurrence(index, key, nil, span, span, span, {:ok, :from_preset})
 
-  defp preset_diagnostic(issue, span),
-    do: %Diagnostic{reason: issue.reason, message: preset_message(issue), spans: [span]}
-
-  defp preset_message(%{reason: :unknown_preset, detail: name}), do: "unknown preset: #{name}"
-  defp preset_message(issue), do: message_for(issue.reason)
+  defp preset_diagnostic(%{locations: [{:group, index, :presets}]} = issue, occurrences, fallback) do
+    span = occurrence_span(occurrences, index, "preset") || fallback
+    %Diagnostic{reason: issue.reason, message: Presets.message(issue), spans: [span]}
+  end
 
   # -- semantic validation and URL diagnostics -----------------------------
 
@@ -615,8 +622,13 @@ defmodule ImagePipe.API.Parser do
 
   def message_for(:unknown_preset), do: "unknown preset"
 
-  def message_for(:conflicting_preset_pipeline),
-    do: "a pipeline preset cannot combine with explicit group options or another pipeline preset"
+  def message_for(:pipeline_preset_with_group_options),
+    do: "a pipeline preset cannot be combined with group options"
+
+  def message_for(:pipeline_preset_with_preset),
+    do: "a pipeline preset cannot be combined with a preset that sets group options"
+
+  def message_for(:multiple_pipeline_presets), do: "pipeline presets cannot be combined"
 
   def message_for(:true_spelled_bare),
     do: "invalid value: write the bare flag instead of key=true"

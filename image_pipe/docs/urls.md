@@ -67,7 +67,7 @@ config = ImagePipe.config(
   ]
 )
 mount = ImagePipe.Plug.init(config: config)
-poster = ImagePipe.URL.new(ImagePipe.url_config(config), presets: ["card"])
+poster = ImagePipe.URL.new(ImagePipe.url_config(config)) |> ImagePipe.URL.group(presets: ["card"])
 url = ImagePipe.URL.url!(poster, "photos/beach.jpg")
 ```
 
@@ -78,9 +78,8 @@ url = ImagePipe.URL.url!(poster, "photos/beach.jpg")
 
 Preset names contain letters, digits, dots, underscores, and hyphens. Nested
 references compile at initialization; unknown names and cycles fail there.
-Multiple names use `preset=first,second`; later presets take precedence, then
-explicit URL options. A preset may be an empty string, which contributes
-nothing: use it to retire a name without breaking its URLs.
+A preset may be an empty string, which contributes nothing: use it to retire
+a name without breaking its URLs.
 
 Presets and request defaults accept an `ImagePipe.URL` builder in place of a
 string. It compiles exactly like its URL spelling:
@@ -91,13 +90,64 @@ presets: %{
 }
 ```
 
-`request_defaults` apply to every request before selected presets and explicit
-options. They are one group, cannot select presets, and never appear in URLs.
+`request_defaults` apply to the first group of every request, before its
+presets and explicit options. They are one group, cannot select presets, and
+never appear in URLs. Sources and signatures cannot appear in presets.
 
-Single-group presets contribute to the first group. A pipeline preset containing
-`-` supplies the complete sequence; it accepts request-wide overrides such
-as `format=png`, but cannot combine with explicit group options or another
-pipeline preset. Sources and signatures cannot appear in presets.
+### Single-group presets and pipeline presets
+
+A preset without `-` is a single-group preset. Think of it as an ingredient: a
+bundle of options you could have written yourself. It applies to the group it
+is written in, wherever it appears within that group:
+
+```text
+/w=800/-/trim=auto/preset=frame/src/photos/beach.jpg
+```
+
+Here `frame` pads the image after the trim, in the second group. Within a
+group, multiple names use `preset=first,second`; later presets take
+precedence, then the group's explicit options. An explicit option overrides
+presets only in its own group, so `/w=300/-/preset=card` resizes twice.
+Presets in separate groups stack: `/preset=frame/-/preset=frame` pads twice.
+
+A preset's request options, such as `format` or `q`, apply to the whole
+request whichever group it is written in. When presets in different groups set
+the same request option, the later one in the URL wins. Explicit request
+options win over every preset. A group whose presets add only request options
+adds no group: `/w=800/-/preset=webp` with `webp = format=webp` is the same
+request as `/w=800/format=webp`.
+
+A preset containing `-` is a pipeline preset: a recipe that supplies the
+complete group sequence. Build recipes from ingredients, so a request that
+needs something slightly different can assemble the ingredients itself:
+
+```elixir
+presets: %{
+  "card" => "w=400/h=300/fit=cover",
+  "frame" => "pad=20/bg=fff",
+  "framed" => "preset=card/-/preset=frame/format=webp"
+}
+```
+
+Nested references apply to the group they are written in, so `frame` pads
+framed's second group. A pipeline preset must supply every group option in
+the request. Request options may still come from anywhere, so
+`/preset=framed/format=png` works. These combinations are rejected with `400`,
+because which of the recipe's groups the other options would join is
+undefined:
+
+| Request | Reason |
+| --- | --- |
+| `/preset=framed/w=500` | `pipeline_preset_with_group_options`: explicit group options in the recipe's group |
+| `/w=800/-/preset=framed` | `pipeline_preset_with_group_options`: group options in another group |
+| `/preset=framed/-/sharpen=1` | `pipeline_preset_with_group_options`: same |
+| `/preset=framed,card` | `pipeline_preset_with_preset`: another preset sets group options |
+| `/preset=framed/-/preset=card` | `pipeline_preset_with_preset`: same |
+| `/preset=framed,other` (both pipelines) | `multiple_pipeline_presets` |
+
+A preset that sets only request options combines with a pipeline preset:
+`/preset=framed,webp` works. The same rules apply inside preset definitions,
+which fail at initialization (or with `500` when looked up) if they break them.
 
 Related alternatives replace one another: `anchor`/`focus`/`detect` replace the
 inherited guide and its offset; `region` replaces inherited `crop` and ratio
