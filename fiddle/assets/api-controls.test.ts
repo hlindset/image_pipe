@@ -10,6 +10,25 @@ const source = "images/dog.jpg";
 const defaults = () => controlStateFromOptions("", source);
 
 describe("visual controls serialize API requests", () => {
+  it("edits the presets of the selected group", () => {
+    const options = "w=500/-/trim=auto";
+    const before = controlStateFromOptions(options, source, 1);
+    expect(before.presets).toEqual([]);
+
+    const added = updateControlOptions(options, 1, before, { ...before, presets: ["frame"] });
+    expect(added).toBe("w=500/-/trim=auto/preset=frame");
+
+    const opened = controlStateFromOptions("w=500/-/preset=card,frame/trim=auto", source, 1);
+    expect(opened.presets).toEqual(["card", "frame"]);
+    expect(controlStateFromOptions("w=500/-/preset=card,frame", source, 0).presets).toEqual([]);
+
+    const removed = updateControlOptions("w=500/-/preset=card,frame/trim=auto", 1, opened, {
+      ...opened,
+      presets: [],
+    });
+    expect(removed).toBe("w=500/-/trim=auto");
+  });
+
   it("enables a watermark with editing defaults and drops its options when disabled", () => {
     const before = defaults();
     const enabled = updateControlOptions("w=400", 0, before, { ...before, watermarkEnabled: true });

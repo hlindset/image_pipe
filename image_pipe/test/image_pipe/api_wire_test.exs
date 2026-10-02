@@ -106,6 +106,26 @@ defmodule ImagePipe.APIWireTest do
     refute_received :origin_fetch
   end
 
+  test "a preset applies to the group it is written in" do
+    config =
+      opts(
+        presets: %{"frame" => "pad=4/bg=ff0000"},
+        sources: counting_sources(),
+        cache: stateful_cache_probe()
+      )
+
+    anchored = get("/w=64/-/preset=frame/format=png/src/images/cat.jpg", config)
+    assert anchored.status == 200
+    assert Image.width(Image.from_binary!(anchored.resp_body)) == 72
+
+    explicit = get("/w=64/-/pad=4/bg=ff0000/format=png/src/images/cat.jpg", config)
+    assert explicit.resp_body == anchored.resp_body
+    assert get_resp_header(explicit, "etag") == get_resp_header(anchored, "etag")
+
+    first_group = get("/preset=frame/-/w=64/format=png/src/images/cat.jpg", config)
+    assert Image.width(Image.from_binary!(first_group.resp_body)) == 64
+  end
+
   test "ambiguous pipeline preset fails before cache or source access" do
     response =
       get(

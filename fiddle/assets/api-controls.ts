@@ -122,6 +122,8 @@ export type LengthUnit = "px" | "percent";
 
 // Host-configured watermark assets mounted by the fiddle server.
 export const watermarkAssets = ["logo", "mark", "badge"] as const;
+// Presets the fiddle server configures (ImagePipeFiddle.Application).
+export const presetNames = ["card", "frame", "framed"] as const;
 export type WatermarkAsset = (typeof watermarkAssets)[number];
 
 export type WebpCompression = "lossy" | "near_lossless" | "lossless";
@@ -155,6 +157,7 @@ export type AvifOptionsState = {
 
 export type ControlState = {
   source: SourceImage;
+  presets: string[];
   autoRotateEnabled: boolean;
   pageEnabled: boolean;
   page: number;
@@ -403,6 +406,7 @@ export function resetCropPixelsToSource(currentState: ControlState): ControlStat
 
 export const defaultControlState: ControlState = {
   source: "images/dog.jpg",
+  presets: [],
   autoRotateEnabled: true,
   pageEnabled: false,
   page: 0,
@@ -609,6 +613,7 @@ function codecSegment(
 
 export function controlOptionSegments(s: ControlState): string[] {
   const segments: (string | null)[] = [];
+  if (s.presets.length) segments.push(`preset=${s.presets.join(",")}`);
   if (!s.autoRotateEnabled) segments.push("orient=none");
   if (s.pageEnabled && Number.isInteger(s.page) && s.page >= 0) segments.push(`page=${s.page}`);
   if (s.rotate !== 0) segments.push(`rotate=${s.rotate}`);
@@ -821,6 +826,9 @@ export function controlStateFromOptions(
     const [key, value = ""] = segment.split("=");
     const parts = value.split(",");
     switch (key) {
+      case "preset":
+        s.presets = parts.filter(Boolean);
+        break;
       case "orient":
         s.autoRotateEnabled = value !== "none";
         break;

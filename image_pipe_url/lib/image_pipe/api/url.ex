@@ -3,6 +3,7 @@ defmodule ImagePipe.API.URL do
 
   alias ImagePipe.API.{Path, Serializer}
   alias ImagePipe.Plan
+  alias ImagePipe.Plan.Presets
   alias ImagePipe.Plan.Source, as: PlanSource
   alias ImagePipe.Security
 
@@ -98,7 +99,7 @@ defmodule ImagePipe.API.URL do
 
   defp validate_plan(plan, config) do
     inherited? =
-      Map.get(plan.options, :presets, []) != [] or
+      preset_names(plan) != [] or
         match?(%{request_defaults: %{}}, config[:mount_presets])
 
     case inherited? and Serializer.empty_overrides?(plan) do
@@ -123,12 +124,19 @@ defmodule ImagePipe.API.URL do
         :ok
 
       %{presets: presets, request_defaults: defaults, lookup?: lookup?} ->
-        names = Map.get(plan.options, :presets, [])
+        names = preset_names(plan)
 
         if lookup? and not Enum.all?(names, &Map.has_key?(presets, &1)),
           do: :ok,
           else: Plan.validate(plan, presets, defaults)
     end
+  end
+
+  defp preset_names(plan) do
+    plan.groups
+    |> Enum.with_index()
+    |> Map.new(fn {group, index} -> {index, group} end)
+    |> Presets.references()
   end
 
   defp segments(plan) do

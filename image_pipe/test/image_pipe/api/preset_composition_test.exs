@@ -246,11 +246,11 @@ defmodule ImagePipe.API.PresetCompositionTest do
     assert {:ok, ^request} = parse("/w=300/-/w=100/pad=5/format=png", %{})
   end
 
-  test "request defaults and single-group presets contribute to the first pipeline group" do
-    presets = %{"padding" => "pad=5", "small" => "w=300/-/w=100"}
+  test "request defaults contribute to the first pipeline group" do
+    presets = %{"small" => "w=300/-/w=100"}
 
-    assert {:ok, request} = parse("/preset=small,padding", presets, "blur=1")
-    assert {:ok, ^request} = parse("/w=300/blur=1/pad=5/-/w=100", %{})
+    assert {:ok, request} = parse("/preset=small", presets, "blur=1")
+    assert {:ok, ^request} = parse("/w=300/blur=1/-/w=100", %{})
   end
 
   test "a nested pipeline can be named without repeating its groups" do
@@ -259,12 +259,132 @@ defmodule ImagePipe.API.PresetCompositionTest do
     assert {:ok, ^request} = parse("/w=300/-/w=100/format=webp", %{})
   end
 
-  test "pipeline presets reject ambiguous group composition" do
+  test "a pipeline preset combines with presets that set only request options" do
+    presets = %{"small" => "w=300/-/w=100", "webp" => "format=webp"}
+
+    for path <- [
+          "/preset=small,webp",
+          "/preset=small/-/preset=webp",
+          "/format=png/-/preset=small"
+        ] do
+      assert {:ok, %{groups: [_, _]}} = parse(path, presets)
+    end
+  end
+
+  test "pipeline presets reject group options from the URL" do
+    presets = %{"a" => "w=300/-/w=100"}
+
+    for path <- ["/preset=a/w=200", "/preset=a/blur=0", "/w=800/-/preset=a", "/preset=a/-/w=100"] do
+      assert {:error,
+              {:invalid_request, [%{reason: :pipeline_preset_with_group_options} = diagnostic]}} =
+               parse(path, presets)
+
+      assert diagnostic.message =~ ~s(pipeline preset "a")
+    end
+  end
+
+  test "pipeline presets reject presets that set group options" do
+    presets = %{"a" => "w=300/-/w=100", "mark" => "blur=2"}
+
+    for path <- ["/preset=a,mark", "/preset=mark,a", "/preset=a/-/preset=mark"] do
+      assert {:error, {:invalid_request, [%{reason: :pipeline_preset_with_preset} = diagnostic]}} =
+               parse(path, presets)
+
+      assert diagnostic.message =~ ~s(pipeline preset "a")
+      assert diagnostic.message =~ ~s(preset "mark")
+    end
+  end
+
+  test "two pipeline presets cannot combine" do
     presets = %{"a" => "w=300/-/w=100", "b" => "blur=2/-/pad=5"}
 
-    for path <- ["/preset=a/w=200", "/preset=a/blur=0", "/preset=a/-/w=100", "/preset=a,b"] do
-      assert {:error, {:invalid_request, diagnostics}} = parse(path, presets)
-      assert Enum.any?(diagnostics, &(&1.reason == :conflicting_preset_pipeline))
+    for path <- ["/preset=a,b", "/preset=a/-/preset=b"] do
+      assert {:error, {:invalid_request, [%{reason: :multiple_pipeline_presets} = diagnostic]}} =
+               parse(path, presets)
+
+      assert diagnostic.message =~ ~s("a")
+      assert diagnostic.message =~ ~s("b")
+    end
+  end
+
+  describe "group anchoring" do
+    test "a preset applies to the group it is written in" do
+      presets = %{"mark" => "blur=2"}
+      assert {:ok, request} = parse("/w=800/-/trim=auto/preset=mark", presets)
+      assert {:ok, ^request} = parse("/w=800/-/trim=auto/blur=2", %{})
+    end
+
+    test "position within a group does not matter" do
+      presets = %{"mark" => "blur=2"}
+      assert {:ok, request} = parse("/trim=auto/preset=mark/-/w=800", presets)
+      assert {:ok, ^request} = parse("/preset=mark/trim=auto/-/w=800", presets)
+    end
+
+    test "presets in separate groups stack" do
+      presets = %{"a" => "blur=2", "b" => "blur=4"}
+      assert {:ok, request} = parse("/preset=a/-/preset=b", presets)
+      assert {:ok, ^request} = parse("/blur=2/-/blur=4", %{})
+    end
+
+    test "an explicit option overrides presets only in its own group" do
+      presets = %{"thumb" => "w=200/h=200"}
+      assert {:ok, request} = parse("/w=300/-/preset=thumb", presets)
+      assert {:ok, ^request} = parse("/w=300/-/w=200/h=200", %{})
+
+      assert {:ok, request} = parse("/preset=thumb/w=300", presets)
+      assert {:ok, ^request} = parse("/w=300/h=200", %{})
+    end
+
+    test "request defaults apply only to the first group" do
+      presets = %{"mark" => "blur=2"}
+      assert {:ok, request} = parse("/w=800/-/preset=mark", presets, "sharpen=1")
+      assert {:ok, ^request} = parse("/w=800/sharpen=1/-/blur=2", %{})
+    end
+
+    test "request options from a later group's preset apply to the whole request" do
+      presets = %{"thumb" => "w=200/format=webp"}
+      assert {:ok, request} = parse("/w=800/-/preset=thumb", presets)
+      assert {:ok, ^request} = parse("/w=800/-/w=200/format=webp", %{})
+    end
+
+    test "conflicting request options from presets: the later in reading order wins" do
+      presets = %{"webp" => "w=200/format=webp", "avif" => "blur=1/format=avif"}
+      assert {:ok, request} = parse("/preset=webp/-/preset=avif", presets)
+      assert {:ok, ^request} = parse("/w=200/-/blur=1/format=avif", %{})
+
+      assert {:ok, request} = parse("/preset=avif/-/preset=webp", presets)
+      assert {:ok, ^request} = parse("/blur=1/-/w=200/format=webp", %{})
+    end
+
+    test "explicit request options win over every preset" do
+      presets = %{"thumb" => "w=200/format=webp"}
+      assert {:ok, request} = parse("/format=png/-/w=800/-/preset=thumb", presets)
+      assert {:ok, ^request} = parse("/w=800/-/w=200/format=png", %{})
+    end
+
+    test "a group whose presets add no group options adds no group" do
+      presets = %{"webp" => "format=webp"}
+      assert {:ok, request} = parse("/w=800/-/preset=webp", presets)
+      assert {:ok, ^request} = parse("/w=800/format=webp", %{})
+    end
+
+    test "request defaults go to the first group left after empty groups are dropped" do
+      presets = %{"webp" => "format=webp"}
+      assert {:ok, request} = parse("/preset=webp/-/w=800", presets, "w=100")
+      assert {:ok, ^request} = parse("/w=800/format=webp", %{})
+    end
+
+    test "nested references anchor to their fragment group" do
+      presets = %{"mark" => "blur=2", "framed" => "w=400/-/pad=20/preset=mark"}
+      assert {:ok, request} = parse("/preset=framed", presets)
+      assert {:ok, ^request} = parse("/w=400/-/pad=20/blur=2", %{})
+    end
+
+    test "preset is a group option, so repeating it in one group is a duplicate" do
+      presets = %{"a" => "blur=2", "b" => "sharpen=1"}
+
+      assert {:error, {:invalid_request, [%{reason: :duplicate_option}]}} =
+               parse("/preset=a/preset=b", presets)
     end
   end
 
@@ -277,7 +397,9 @@ defmodule ImagePipe.API.PresetCompositionTest do
           %{"a" => "w=100/src/secret.jpg"},
           %{"a" => "src64=aHR0cHM6Ly9leGFtcGxlLmNvbQ"},
           %{"a" => "sig=abc/w=100"},
-          %{"a" => "w=200/-/w=100", "b" => "preset=a/w=50"}
+          %{"a" => "w=200/-/w=100", "b" => "preset=a/w=50"},
+          %{"a" => "w=200/-/w=100", "b" => "blur=1", "c" => "preset=a,b"},
+          %{"a" => "w=200/-/w=100", "c" => "preset=a/-/preset=a"}
         ] do
       assert_raise ArgumentError, fn ->
         ImagePipe.Plug.init(presets: presets)

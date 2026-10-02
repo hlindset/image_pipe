@@ -36,7 +36,7 @@ defmodule ImagePipe.PresetsTest do
 
     for builder <- [
           IP.URL.new(url_config),
-          IP.URL.new(url_config, presets: ["poster"]) |> IP.URL.group(gray: false)
+          IP.URL.new(url_config) |> IP.URL.group(presets: ["poster"], gray: false)
         ] do
       assert :ok = IP.URL.validate(builder)
       url = IP.URL.url!(builder, "photo.jpg")
@@ -48,7 +48,7 @@ defmodule ImagePipe.PresetsTest do
       assert_received :source_fetch
     end
 
-    builder = IP.URL.new(url_config, presets: ["poster"]) |> IP.URL.group(gray: false)
+    builder = IP.URL.new(url_config) |> IP.URL.group(presets: ["poster"], gray: false)
     url = IP.URL.url!(builder, "photo.jpg")
     assert url =~ "/preset=poster/"
     assert url =~ "/gray=false/"
@@ -74,13 +74,15 @@ defmodule ImagePipe.PresetsTest do
   end
 
   test "URL references stay stable across preset definition changes and remote-only names" do
-    remote = IP.URL.new(presets: ["poster"]) |> IP.URL.url!("photos/a b.jpg")
+    remote = IP.URL.new() |> IP.URL.group(presets: ["poster"]) |> IP.URL.url!("photos/a b.jpg")
     assert remote == "/preset=poster/src/photos%2Fa%20b.jpg"
 
     for presets <- [%{"poster" => "w=30"}, %{"poster" => "w=40"}] do
       url_config = IP.url_config(IP.config(presets: presets))
 
-      assert IP.URL.new(url_config, presets: ["poster"]) |> IP.URL.url!("photos/a b.jpg") ==
+      assert IP.URL.new(url_config)
+             |> IP.URL.group(presets: ["poster"])
+             |> IP.URL.url!("photos/a b.jpg") ==
                remote
     end
   end
@@ -90,8 +92,8 @@ defmodule ImagePipe.PresetsTest do
     url_config = IP.url_config(config)
 
     for builder <- [
-          IP.URL.new(url_config, presets: ["missing"]),
-          IP.URL.new(url_config, presets: ["pipeline"]) |> IP.URL.group(blur: 1)
+          IP.URL.new(url_config) |> IP.URL.group(presets: ["missing"]),
+          IP.URL.new(url_config) |> IP.URL.group(presets: ["pipeline"], blur: 1)
         ] do
       assert {:error, [_ | _]} = IP.URL.validate(builder)
 
@@ -108,11 +110,12 @@ defmodule ImagePipe.PresetsTest do
 
     assert :ok =
              IP.URL.validate(
-               IP.URL.new(url_config, presets: ["pipeline"])
+               IP.URL.new(url_config)
+               |> IP.URL.group(presets: ["pipeline"])
                |> IP.URL.output(format: :png)
              )
 
-    builder = IP.URL.new(url_config, presets: ["box"]) |> IP.URL.group(resize: [fit: :cover])
+    builder = IP.URL.new(url_config) |> IP.URL.group(presets: ["box"], resize: [fit: :cover])
     assert :ok = IP.URL.validate(builder)
     assert IP.URL.url!(builder, "photo.jpg") =~ "fit=cover"
   end
@@ -147,7 +150,7 @@ defmodule ImagePipe.PresetsTest do
 
     config = IP.config(url: url_config, presets: %{"poster" => "w=30"})
 
-    builder = IP.URL.new(IP.url_config(config), presets: ["poster"])
+    builder = IP.URL.new(IP.url_config(config)) |> IP.URL.group(presets: ["poster"])
     source = "https://origin.test/a b.jpg?token=secret"
     url = IP.URL.url!(builder, source)
     assert url =~ "/preset=poster/enc/"
@@ -180,7 +183,7 @@ defmodule ImagePipe.PresetsTest do
         ]
       )
 
-    builder = IP.URL.new(IP.url_config(config), presets: ["poster"])
+    builder = IP.URL.new(IP.url_config(config)) |> IP.URL.group(presets: ["poster"])
     assert {:ok, native} = IP.run(config, builder, {:source, "photo.jpg"})
     assert_received :origin_fetch
 
@@ -197,8 +200,8 @@ defmodule ImagePipe.PresetsTest do
       config = IP.config(request_defaults: "w=10", presets: %{"a" => "w=20", "b" => "h=30"})
 
       builder =
-        IP.URL.new(IP.url_config(config), presets: ["a", "b"])
-        |> IP.URL.group(resize: [width: width, height: height])
+        IP.URL.new(IP.url_config(config))
+        |> IP.URL.group(presets: ["a", "b"], resize: [width: width, height: height])
 
       url = IP.URL.url!(builder, "photo.jpg")
 

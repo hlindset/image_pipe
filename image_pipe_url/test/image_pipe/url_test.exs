@@ -228,10 +228,12 @@ defmodule ImagePipe.URLTest do
         )
 
       assert :ok = IP.URL.validate(IP.URL.new(config) |> IP.URL.group(resize: [fit: :cover]))
-      assert :ok = IP.URL.validate(IP.URL.new(config, presets: ["cover"]))
+      assert :ok = IP.URL.validate(IP.URL.new(config) |> IP.URL.group(presets: ["cover"]))
 
       bare = IP.URL.config(mount_presets: [presets: %{"cover" => "fit=cover"}])
-      assert {:error, [_ | _]} = IP.URL.validate(IP.URL.new(bare, presets: ["cover"]))
+
+      assert {:error, [_ | _]} =
+               IP.URL.validate(IP.URL.new(bare) |> IP.URL.group(presets: ["cover"]))
     end
 
     test "a name the known presets lack is unknown unless the mount has a lookup" do
@@ -239,13 +241,15 @@ defmodule ImagePipe.URLTest do
       lookup = IP.URL.config(mount_presets: [presets: %{"card" => "w=30"}, preset_lookup: true])
 
       assert {:error, [%{reason: :unknown_preset}]} =
-               IP.URL.validate(IP.URL.new(static, presets: ["remote"]))
+               IP.URL.validate(IP.URL.new(static) |> IP.URL.group(presets: ["remote"]))
 
       assert {:error, {:invalid_request, _issues}} =
-               IP.URL.url(IP.URL.new(static, presets: ["remote"]), "photo.jpg")
+               IP.URL.url(IP.URL.new(static) |> IP.URL.group(presets: ["remote"]), "photo.jpg")
 
-      assert :ok = IP.URL.validate(IP.URL.new(lookup, presets: ["remote"]))
-      assert {:ok, _url} = IP.URL.url(IP.URL.new(lookup, presets: ["remote"]), "photo.jpg")
+      assert :ok = IP.URL.validate(IP.URL.new(lookup) |> IP.URL.group(presets: ["remote"]))
+
+      assert {:ok, _url} =
+               IP.URL.url(IP.URL.new(lookup) |> IP.URL.group(presets: ["remote"]), "photo.jpg")
     end
 
     test "builder values match their fragment spelling" do

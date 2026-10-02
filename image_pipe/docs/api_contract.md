@@ -9,6 +9,8 @@ Elixir examples. This contract specifies public processing and request semantics
 URL requests and typed Elixir plans share one declarative processing model.
 Options within a group have a fixed processing order. Explicit group boundaries
 sequence processing (`-` in URLs, `ImagePipe.URL.group/2` in Elixir).
+Request options apply to the whole request wherever a URL writes them, so a
+URL group holding only request options adds no group.
 Sources, caches, detectors, and telemetry exporters are host extension points.
 
 ## Capabilities
@@ -496,9 +498,15 @@ outputs also ignore configured image output policy.
 
 ### Presets and terminals
 
-Presets expand before validation and canonicalization. Precedence is request
-defaults, named presets in listed order, then explicit values. Request defaults
-are one group without preset references. Server configuration owns preset
+Presets expand before validation and canonicalization. A `preset=` reference
+is a group option: it applies to the group it is written in, wherever it sits
+within that group. Within a group, precedence is request defaults (first group
+only), named presets in listed order, then explicit values. A preset's request
+options apply request-wide; across groups the later preset in reading order
+wins, and explicit request options win over every preset. A group left without
+group options after expansion adds no group, and request defaults apply to the
+first remaining group. Request defaults are one group without preset
+references. Server configuration owns preset
 definitions; Plug and direct execution use the same expansion. URL generation
 preserves named references and explicit overrides; the builder validates
 combined requests only when given the mount's presets. Resolve nested static
@@ -506,11 +514,20 @@ presets at initialization and reject cycles/unknown names. A host
 preset lookup resolves names the static map does not define per request, after
 signature verification and before source or cache access, with the same
 precedence and composition; static names shadow it.
-Single-group presets contribute to the first group. A preset containing
-`-` supplies the complete group sequence and cannot combine with explicit
-URL group options or another multi-group preset; request-scoped options may
-still override it. Presets cannot supply a source or signature. Their names
-do not participate in representation identity.
+Nested references anchor to their group within the fragment. A preset
+containing `-` (a pipeline preset) supplies the complete group sequence and
+must supply every group option in the request; request options may still
+override it. Every other combination is rejected, so a later rule for
+extending pipelines changes no working request:
+
+| Combination | Reason |
+| --- | --- |
+| Explicit group options in any group | `pipeline_preset_with_group_options` |
+| Another preset that sets group options, in any group | `pipeline_preset_with_preset` |
+| A second pipeline preset | `multiple_pipeline_presets` |
+
+Presets cannot supply a source or signature. Their names do not participate
+in representation identity.
 
 `output=image` uses negotiated or explicit format. `output=blurhash` returns
 text. `output=lqip-css` returns Image's packed 8-digit `#rrggbbaa` placeholder

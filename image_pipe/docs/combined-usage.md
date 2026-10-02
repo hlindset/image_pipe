@@ -94,8 +94,8 @@ they are not forwarded to the source. See [Elixir request inputs](elixir-api.md#
 | Signing/encryption keys, URL prefix | Sources, caches, generation limits, output defaults, detector, presets, request defaults | CORS, debug-header permission, HTTP cache policy, conditional responses |
 
 Build URLs from `ImagePipe.url_config(config)` and select presets with
-`ImagePipe.URL.new(ImagePipe.url_config(config), presets: ["poster-320"])`; the
-builder then checks plans against the configuration's presets. Plug and direct
+`ImagePipe.URL.new(ImagePipe.url_config(config)) |> ImagePipe.URL.group(presets: ["poster-320"])`;
+the builder then checks plans against the configuration's presets. Plug and direct
 execution expand request defaults, named presets in order, and explicit
 options using the same rules. Generated URLs retain the preset names for the
 serving mount to resolve. If URLs are built in a different application from the

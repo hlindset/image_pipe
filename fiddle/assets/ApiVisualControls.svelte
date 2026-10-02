@@ -10,6 +10,7 @@
     controlLimits,
     controlOptionSegments,
     cropPixelLimit,
+    presetNames,
     resetCropPixelsToSource,
     watermarkAssets,
     type ControlState,
@@ -171,6 +172,30 @@
     return Number.isInteger(parsed) && parsed >= lo && parsed <= hi ? parsed : undefined;
   }
 </script>
+
+<section class="tool-section">
+  <div class="accordion-heading">
+    <div>
+      <h2>Presets</h2>
+      <p>{controlState.presets.length ? `preset=${controlState.presets.join(",")}` : "None"}</p>
+    </div>
+  </div>
+  {#each presetNames as name (name)}
+    <label class="switch-field">
+      <Switch.Root
+        class="switch-root"
+        checked={controlState.presets.includes(name)}
+        onCheckedChange={(checked) =>
+          (controlState.presets = checked
+            ? [...controlState.presets, name]
+            : controlState.presets.filter((preset) => preset !== name))}
+      >
+        <Switch.Thumb class="switch-thumb" />
+      </Switch.Root>
+      <span>{name}</span>
+    </label>
+  {/each}
+</section>
 
 <section class="tool-section">
   <ToolToggleHeader

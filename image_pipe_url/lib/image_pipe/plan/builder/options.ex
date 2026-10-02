@@ -19,7 +19,6 @@ defmodule ImagePipe.Plan.Builder.Options do
 
   def request!(options) do
     validate!(options,
-      presets: [type: {:list, {:custom, Values, :cast, [:preset_name]}}],
       orient: [type: {:in, [:auto, :none]}],
       page: [type: :non_neg_integer],
       filename: [type: custom(:path_token)],
@@ -32,6 +31,7 @@ defmodule ImagePipe.Plan.Builder.Options do
 
   def group!(options) do
     {resize, group} = options |> validate!(group_schema()) |> Map.pop(:resize, [])
+    group = if Map.get(group, :presets) == [], do: Map.delete(group, :presets), else: group
 
     case Map.merge(group, Map.new(resize)) do
       values when map_size(values) > 0 -> values
@@ -43,6 +43,7 @@ defmodule ImagePipe.Plan.Builder.Options do
 
   defp group_schema do
     [
+      presets: [type: {:list, {:custom, Values, :cast, [:preset_name]}}],
       resize: [type: :keyword_list, keys: resize_schema()],
       rotate: [type: custom(:rotate)],
       flip: [type: {:in, @axes}],

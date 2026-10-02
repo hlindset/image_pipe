@@ -1,14 +1,18 @@
 defmodule ImagePipe.Plan.Presets do
-  # Compiles host-configured presets at initialization.
+  # Compiles host-configured presets at initialization and expands a request's
+  # references.
   #
-  # Request defaults apply first, followed by named presets in request order
-  # and explicit options. Nested references use the same precedence. Preset
-  # names disappear before request canonicalization and representation
-  # identity.
+  # A reference applies to the group it is written in. Within a group, request
+  # defaults (first group only) apply first, then named presets in listed
+  # order, then explicit options. Presets' request options apply to the whole
+  # request; across groups the later preset in reading order wins, and explicit
+  # request options win over every preset. A group left without group options
+  # after expansion is dropped before request defaults apply. Nested references
+  # anchor the same way inside a fragment. Preset names disappear before
+  # request canonicalization and representation identity.
   #
-  # Single-group presets contribute to the first group. A pipeline preset
-  # supplies the complete group sequence; explicit group options and another
-  # pipeline preset cannot be combined with it. Output options can override it.
+  # A pipeline preset (one with several groups) must supply every group option
+  # in the request; request options may come from anywhere.
   @moduledoc false
 
   alias ImagePipe.Plan.Spec.Issue
@@ -55,78 +59,184 @@ defmodule ImagePipe.Plan.Presets do
 
   defp resolve_fragment(name, parsed, compiled, stack) do
     %{groups: groups, request: request} = Map.fetch!(parsed, name)
-    names = Map.get(request, :presets, [])
 
     dependencies =
-      Enum.reduce_while(names, {:ok, [], compiled}, fn dependency, {:ok, presets, compiled} ->
+      Enum.reduce_while(references(groups), {:ok, compiled}, fn dependency, {:ok, compiled} ->
         case resolve(dependency, parsed, compiled, [name | stack]) do
-          {:ok, preset, compiled} -> {:cont, {:ok, [preset | presets], compiled}}
+          {:ok, _preset, compiled} -> {:cont, {:ok, compiled}}
           {:error, _message} = error -> {:halt, error}
         end
       end)
 
-    with {:ok, presets, compiled} <- dependencies,
-         {:ok, preset} <- compose(groups, request, Enum.reverse(presets)) do
+    with {:ok, compiled} <- dependencies,
+         {:ok, preset} <- compose(groups, request, compiled, nil) do
+      preset = %{groups: preset.groups, request: preset.request}
       {:ok, preset, Map.put(compiled, name, preset)}
     else
-      {:error, :conflicting_preset_pipeline} ->
-        {:error,
-         "preset #{inspect(name)} conflicts with another pipeline or explicit group options"}
+      {:error, [%Issue{} = issue | _issues]} ->
+        {:error, "preset #{inspect(name)} is invalid: #{message(issue)}"}
 
       {:error, _message} = error ->
         error
     end
   end
 
-  # `defaults` is the compiled single-group request defaults, or nil.
+  # `groups` is indexed from 0 and may carry `:presets` per group. `defaults`
+  # is the compiled single-group request defaults, or nil. On success,
+  # `origins` maps each result group to the request group it came from.
   @doc false
   def expand(groups, request, presets, defaults) do
-    names = Map.get(request, :presets, [])
-    unknown = Enum.reject(names, &Map.has_key?(presets, &1))
+    unknown =
+      for {index, options} <- Enum.sort(groups),
+          name <- Map.get(options, :presets, []),
+          not Map.has_key?(presets, name),
+          do: issue(:unknown_preset, index, name)
 
     case unknown do
+      [] -> compose(groups, request, presets, defaults)
+      issues -> {:error, issues}
+    end
+  end
+
+  # Names in reading order: by group, then by position in the group's list.
+  @doc false
+  def references(groups) do
+    groups
+    |> Enum.sort()
+    |> Enum.flat_map(fn {_index, options} -> Map.get(options, :presets, []) end)
+    |> Enum.uniq()
+  end
+
+  @doc false
+  def message(%Issue{reason: :unknown_preset, detail: %{preset: name}}),
+    do: "unknown preset: #{name}"
+
+  def message(%Issue{reason: :pipeline_preset_with_group_options, detail: %{preset: name}}),
+    do: "pipeline preset #{inspect(name)} cannot be combined with group options"
+
+  def message(%Issue{
+        reason: :pipeline_preset_with_preset,
+        detail: %{preset: name, other: other}
+      }),
+      do:
+        "pipeline preset #{inspect(name)} cannot be combined with preset #{inspect(other)}, " <>
+          "which sets group options"
+
+  def message(%Issue{reason: :multiple_pipeline_presets, detail: %{preset: name, other: other}}),
+    do: "pipeline presets #{inspect(name)} and #{inspect(other)} cannot be combined"
+
+  defp compose(groups, request, presets, defaults) do
+    # Each selected preset with the request group it is anchored in, in
+    # reading order.
+    selected =
+      for {index, options} <- Enum.sort(groups),
+          name <- Map.get(options, :presets, []),
+          do: {index, name, Map.fetch!(presets, name)}
+
+    explicit = Map.new(groups, fn {index, options} -> {index, Map.delete(options, :presets)} end)
+
+    case Enum.filter(selected, fn {_index, _name, preset} -> pipeline?(preset) end) do
       [] ->
-        selected = List.wrap(defaults) ++ Enum.map(names, &Map.fetch!(presets, &1))
+        {:ok, compose_groups(explicit, request, selected, defaults)}
 
-        case compose(groups, request, selected) do
-          {:ok, expanded} -> {:ok, expanded}
-          {:error, reason} -> {:error, [issue(reason, :pipeline)]}
-        end
+      [pipeline] ->
+        compose_pipeline(pipeline, explicit, request, selected, defaults)
 
-      names ->
-        {:error, Enum.map(names, &issue(:unknown_preset, &1))}
+      [{index, name, _}, {_index, other, _} | _rest] ->
+        {:error, [issue(:multiple_pipeline_presets, index, name, other)]}
     end
   end
 
-  defp compose(groups, request, presets) do
-    pipeline_count = Enum.count(presets, &(map_size(&1.groups) > 1))
-    explicit_groups? = map_size(groups) > 1 or map_size(Map.fetch!(groups, 0)) > 0
-
-    if pipeline_count > 1 or (pipeline_count == 1 and explicit_groups?) do
-      {:error, :conflicting_preset_pipeline}
-    else
-      base = %{groups: %{0 => %{}}, request: %{}}
-      merged = Enum.reduce(presets, base, &merge/2)
-      explicit = %{groups: groups, request: Map.delete(request, :presets)}
-      {:ok, merge(explicit, merged)}
-    end
-  end
-
-  defp merge(next, previous) do
-    groups =
-      Map.merge(previous.groups, next.groups, fn _index, previous_options, next_options ->
-        previous_options
-        |> prune_override_families(next_options)
-        |> prune_region_dependents(next_options)
-        |> Map.merge(next_options)
+  defp compose_groups(explicit, request, selected, defaults) do
+    merged =
+      Map.new(explicit, fn {index, options} ->
+        layers = for {^index, _name, preset} <- selected, do: Map.fetch!(preset.groups, 0)
+        {index, merge_layers(layers ++ [options])}
       end)
 
-    request =
-      previous.request
-      |> prune_families(next.request, @request_override_families)
-      |> Map.merge(next.request)
+    kept =
+      case Enum.reject(Enum.sort(merged), fn {_index, options} -> options == %{} end) do
+        [] -> [Enum.min_by(merged, &elem(&1, 0))]
+        kept -> kept
+      end
 
-    %{groups: groups, request: request}
+    groups =
+      case {kept, defaults} do
+        {[{first, _options} | rest], %{groups: %{0 => default}}} ->
+          layers = for {^first, _name, preset} <- selected, do: Map.fetch!(preset.groups, 0)
+          [{first, merge_layers([default | layers] ++ [Map.fetch!(explicit, first)])} | rest]
+
+        {kept, nil} ->
+          kept
+      end
+
+    %{
+      groups:
+        groups |> Enum.with_index() |> Map.new(fn {{_origin, options}, i} -> {i, options} end),
+      request: compose_request(request, selected, defaults),
+      origins:
+        groups |> Enum.with_index() |> Map.new(fn {{origin, _options}, i} -> {i, origin} end)
+    }
+  end
+
+  defp compose_pipeline({index, name, pipeline}, explicit, request, selected, defaults) do
+    explicit_options? = Enum.any?(explicit, fn {_index, options} -> options != %{} end)
+
+    other =
+      Enum.find(selected, fn {_index, other, preset} ->
+        other != name and Enum.any?(preset.groups, fn {_i, options} -> options != %{} end)
+      end)
+
+    cond do
+      explicit_options? ->
+        {:error, [issue(:pipeline_preset_with_group_options, index, name)]}
+
+      other != nil ->
+        {_index, other_name, _preset} = other
+        {:error, [issue(:pipeline_preset_with_preset, index, name, other_name)]}
+
+      true ->
+        groups =
+          case defaults do
+            nil ->
+              pipeline.groups
+
+            %{groups: %{0 => default}} ->
+              Map.update!(pipeline.groups, 0, &merge_layers([default, &1]))
+          end
+
+        {:ok,
+         %{
+           groups: groups,
+           request: compose_request(request, selected, defaults),
+           origins: Map.new(groups, fn {i, _options} -> {i, index} end)
+         }}
+    end
+  end
+
+  defp compose_request(request, selected, defaults) do
+    layers = for {_index, _name, preset} <- selected, do: preset.request
+    layers = if defaults, do: [defaults.request | layers], else: layers
+    Enum.reduce(layers ++ [request], %{}, &merge_request/2)
+  end
+
+  defp merge_layers(layers) do
+    Enum.reduce(layers, %{}, fn next, previous -> merge_group(next, previous) end)
+  end
+
+  defp pipeline?(preset), do: map_size(preset.groups) > 1
+
+  defp merge_group(next, previous) do
+    previous
+    |> prune_override_families(next)
+    |> prune_region_dependents(next)
+    |> Map.merge(next)
+  end
+
+  defp merge_request(next, previous) do
+    previous
+    |> prune_families(next, @request_override_families)
+    |> Map.merge(next)
   end
 
   defp prune_override_families(previous, next) do
@@ -161,6 +271,8 @@ defmodule ImagePipe.Plan.Presets do
     resize_intent? and Map.get(options, :fit) in [:cover, :cover_down, :auto]
   end
 
-  defp issue(reason, detail),
-    do: %Issue{reason: reason, locations: [{:request, :presets}], detail: detail}
+  defp issue(reason, index, name, other \\ nil) do
+    detail = if other, do: %{preset: name, other: other}, else: %{preset: name}
+    %Issue{reason: reason, locations: [{:group, index, :presets}], detail: detail}
+  end
 end
