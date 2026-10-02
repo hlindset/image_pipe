@@ -10,6 +10,7 @@
     controlLimits,
     controlOptionSegments,
     cropPixelLimit,
+    offeredUnsets,
     presetNames,
     resetCropPixelsToSource,
     watermarkAssets,
@@ -28,6 +29,7 @@
   const fiddleObjClassesForPicker = ["face", ...cocoClasses];
   const cropWidthLimit = $derived(cropPixelLimit(source, "width"));
   const cropHeightLimit = $derived(cropPixelLimit(source, "height"));
+  const unsetOffered = $derived(offeredUnsets(controlState.presets));
   function summary(...keys: string[]): string {
     return (
       controlOptionSegments(controlState)
@@ -185,16 +187,39 @@
       <Switch.Root
         class="switch-root"
         checked={controlState.presets.includes(name)}
-        onCheckedChange={(checked) =>
-          (controlState.presets = checked
+        onCheckedChange={(checked) => {
+          controlState.presets = checked
             ? [...controlState.presets, name]
-            : controlState.presets.filter((preset) => preset !== name))}
+            : controlState.presets.filter((preset) => preset !== name);
+          controlState.unset = controlState.unset.filter((key) =>
+            offeredUnsets(controlState.presets).includes(key),
+          );
+        }}
       >
         <Switch.Thumb class="switch-thumb" />
       </Switch.Root>
       <span>{name}</span>
     </label>
   {/each}
+  {#if unsetOffered.length}
+    <h3 class="subsection-heading">Unset preset options</h3>
+    <p class="field-hint">Clear an option a selected preset sets.</p>
+    {#each unsetOffered as key (key)}
+      <label class="switch-field">
+        <Switch.Root
+          class="switch-root"
+          checked={controlState.unset.includes(key)}
+          onCheckedChange={(checked) =>
+            (controlState.unset = checked
+              ? [...controlState.unset, key]
+              : controlState.unset.filter((unset) => unset !== key))}
+        >
+          <Switch.Thumb class="switch-thumb" />
+        </Switch.Root>
+        <span>{key}</span>
+      </label>
+    {/each}
+  {/if}
 </section>
 
 <section class="tool-section">
@@ -1892,7 +1917,8 @@
     color: var(--text-muted);
   }
 
-  .encoder-format-heading {
+  .encoder-format-heading,
+  .subsection-heading {
     margin: 6px 0 0;
     color: var(--text-heading);
     font-size: 12px;
