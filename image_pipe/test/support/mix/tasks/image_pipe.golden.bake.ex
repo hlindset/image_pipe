@@ -2,8 +2,8 @@ defmodule Mix.Tasks.ImagePipe.Golden.Bake do
   @shortdoc "Bake golden images from ImagePipe's current output"
   @moduledoc """
   Renders each case in `ImagePipe.Test.Golden.Cases` through ImagePipe and
-  writes its decoded output as a PNG fixture, plus the manifest, under
-  `test/support/image_pipe/test/golden/`.
+  writes its decoded output as a PNG fixture, plus the manifest with each
+  output's structure, under `test/support/image_pipe/test/golden/`.
 
       MIX_ENV=test mise exec -- mix image_pipe.golden.bake [--only id,id]
 
@@ -59,7 +59,12 @@ defmodule Mix.Tasks.ImagePipe.Golden.Bake do
     path = Path.join(@fixtures, "#{c.id}.png")
     decoded = Image.open!(response.resp_body, access: :random, fail_on: :error)
     File.write!(path, Image.write!(decoded, :memory, suffix: ".png"))
-    %{fixture_sha256: PixelSuite.file_sha256(path)}
+    [content_type] = Plug.Conn.get_resp_header(response, "content-type")
+
+    %{
+      fixture_sha256: PixelSuite.file_sha256(path),
+      structure: PixelSuite.structure(response.resp_body, content_type)
+    }
   end
 
   defp remove_orphans(cases) do

@@ -65,10 +65,10 @@ defmodule ImagePipe.Test.PixelSuite do
   @doc """
   Compares a case's decoded output with its fixture PNG and records the
   result. `:png` cases render as PNG; any other kind renders its own format and
-  compares decoded pixels.
+  compares decoded pixels. Returns the rendered body and content type.
   """
   def check_pixels(c, config, suite) do
-    {body, _content_type} = render(c, config)
+    {body, content_type} = render(c, config)
     actual = Image.open!(body, access: :random, fail_on: :error)
     Image.write!(actual, Path.join(suite.results, "#{c.id}.actual.png"))
     expected = Image.open!(fixture_path(suite, c.id), access: :random, fail_on: :error)
@@ -107,9 +107,14 @@ defmodule ImagePipe.Test.PixelSuite do
     else
       record(suite, c.id, Map.put(metrics, :status, :pass))
     end
+
+    {body, content_type}
   end
 
-  @doc "Compares a lossy case's dimensions and content type with expected values."
+  @doc """
+  Compares a lossy case's dimensions and content type with expected values.
+  Returns the rendered body and content type.
+  """
   def check_lossy(c, config, suite, %{width: width, height: height, content_type: type}) do
     {body, content_type} = render(c, config)
     actual = Image.open!(body, access: :random, fail_on: :error)
@@ -124,6 +129,105 @@ defmodule ImagePipe.Test.PixelSuite do
 
       true ->
         record(suite, c.id, %{status: :pass})
+    end
+
+    {body, content_type}
+  end
+
+  # The EXIF tags libvips writes on every save. Anything else in an output's
+  # EXIF came from the source or the request, so a structure record lists it.
+  @standard_exif ~w(
+    exif-ifd0-Orientation exif-ifd0-ResolutionUnit exif-ifd0-XResolution
+    exif-ifd0-YResolution exif-ifd0-YCbCrPositioning exif-ifd2-ColorSpace
+    exif-ifd2-ComponentsConfiguration exif-ifd2-ExifVersion
+    exif-ifd2-FlashpixVersion exif-ifd2-PixelXDimension exif-ifd2-PixelYDimension
+  )
+
+  @doc """
+  The structure of an encoded output, which pixel comparisons can't see: its
+  content type, band layout, depth, embedded ICC profile, orientation, and any
+  EXIF, XMP or IPTC beyond the tags libvips writes on every save.
+  """
+  def structure(body, content_type) do
+    image = Image.open!(body)
+    {:ok, fields} = VipsImage.header_field_names(image)
+
+    %{
+      content_type: content_type,
+      bands: VipsImage.bands(image),
+      alpha?: Image.has_alpha?(image),
+      interpretation: VipsImage.interpretation(image),
+      depth: if(VipsImage.format(image) == :VIPS_FORMAT_USHORT, do: 16, else: 8),
+      icc: icc(image),
+      orientation: header(image, "orientation"),
+      metadata:
+        fields
+        |> Enum.filter(&String.match?(&1, ~r/^(exif-|xmp-data|iptc-data)/))
+        |> Kernel.--(["exif-data" | @standard_exif])
+        |> Enum.sort()
+    }
+  end
+
+  @doc """
+  Fails the case when `actual` differs from `expected` in any of `keys`, except
+  those the case lists under `:structure_differs` with a reason.
+  """
+  def check_structure(c, suite, actual, expected, keys) do
+    keys = keys -- Map.keys(Map.get(c, :structure_differs, %{}))
+
+    case Enum.reject(keys, &(Map.fetch!(actual, &1) == Map.fetch!(expected, &1))) do
+      [] ->
+        :ok
+
+      differing ->
+        fail_case(
+          suite,
+          c.id,
+          Enum.map_join(differing, "; ", fn key ->
+            "#{key} #{inspect(actual[key])} != #{suite.label} #{inspect(expected[key])}"
+          end)
+        )
+    end
+  end
+
+  defp icc(image) do
+    case VipsImage.header_value(image, "icc-profile-data") do
+      {:ok, profile} when is_binary(profile) ->
+        %{
+          description: icc_description(profile),
+          sha256: :sha256 |> :crypto.hash(profile) |> Base.encode16(case: :lower)
+        }
+
+      _absent ->
+        nil
+    end
+  end
+
+  # The profile's `desc` tag: ICC v2 stores it as ASCII, v4 as UTF-16 `mluc`.
+  defp icc_description(<<_header::binary-size(128), count::32, rest::binary>> = profile) do
+    tags =
+      for <<sig::binary-4, offset::32, size::32 <- binary_part(rest, 0, count * 12)>>,
+        do: {sig, offset, size}
+
+    case List.keyfind(tags, "desc", 0) do
+      {"desc", offset, size} -> profile |> binary_part(offset, size) |> description_text()
+      nil -> nil
+    end
+  end
+
+  defp description_text(<<"desc", _::32, length::32, ascii::binary-size(length), _::binary>>),
+    do: String.trim_trailing(ascii, <<0>>)
+
+  defp description_text(
+         <<"mluc", _::32, _records::32, _record_size::32, _locale::binary-4, length::32,
+           offset::32, _::binary>> = tag
+       ),
+       do: :unicode.characters_to_binary(binary_part(tag, offset, length), {:utf16, :big})
+
+  defp header(image, field) do
+    case VipsImage.header_value(image, field) do
+      {:ok, value} -> value
+      _absent -> nil
     end
   end
 

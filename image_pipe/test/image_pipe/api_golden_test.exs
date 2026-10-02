@@ -4,7 +4,9 @@ defmodule ImagePipe.APIGoldenTest do
 
   They catch unintended output changes where imgproxy can't serve as a
   reference: ImagePipe-only options, deliberate differences, output encoding
-  and colour handling. See `test/support/image_pipe/test/golden/README.md`.
+  and colour handling. Each case also compares the output's structure (content
+  type, band layout, depth, ICC profile, orientation and extra metadata) with
+  the structure recorded at bake time. See `test/support/image_pipe/test/golden/README.md`.
   Every case writes its output, an amplified difference image and its result to
   `tmp/golden/`; `mix image_pipe.pixel_report --suite golden` builds a page from them.
   """
@@ -30,7 +32,16 @@ defmodule ImagePipe.APIGoldenTest do
       @case c
 
       test "#{c.id}: #{c.native}", %{config: config} do
-        PixelSuite.check_pixels(@case, config, @suite)
+        {body, content_type} = PixelSuite.check_pixels(@case, config, @suite)
+        expected = @manifest.cases[@case.id].structure
+
+        PixelSuite.check_structure(
+          @case,
+          @suite,
+          PixelSuite.structure(body, content_type),
+          expected,
+          Map.keys(expected)
+        )
       end
     end
   end
