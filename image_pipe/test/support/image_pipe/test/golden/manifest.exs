@@ -8,6 +8,7 @@
     "high_freq.jpg" => "54ded6c57ec02c685e275276b54947f8c9345015342fc8a2acc9d8e54e4a7d43",
     "icc_p3.png" => "80ce9bc055c01a12a9d8bf3db1693a1b46995f66bfdb796503636122de264869",
     "marker.png" => "cbb47b49a36fc7a8b37233c862e1d4b88174ec6bf81876223779b4ce3c52120d",
+    "palette.png" => "a963243e4caa27df9474da13a271ebd98a1313f07c5059045eeb264fb7192735",
     "placement.png" => "eb3de4dce6337ed2bd531b35187bcda3265542dc5b661152631839616eca7d09",
     "rgb16.png" => "e0601a09f13020b00dd88e45794dd7fd59368239607c482609f027ee423d8119",
     "small.png" => "517719b9e7ad77f867266b8c4e135d383cdc94c3bf14f7bc26c2060a98ae870a",
@@ -93,7 +94,7 @@
       fixture_sha256: "4fe4c30929d37f0c222f4092a0fa39981dfb5ae883ed8f9b7fafcde10ebe382d"
     },
     "png_palette" => %{
-      fixture_sha256: "30945bc716e8cf049b19ac2c99b944bf425f452e5baff3429414c95d57e1478e"
+      fixture_sha256: "c7b63c4cd48c45021bbc9d44ba0362daf45d60aedd7df8ed56d2a7c31e21bdeb"
     },
     "gray_pad_bg_neutral" => %{
       fixture_sha256: "c4c73db1683d1e8cd943e7e876be67e775b1755468d4bc4b6caff3be5b9313d1"

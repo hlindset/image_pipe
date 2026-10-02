@@ -291,11 +291,13 @@ defmodule ImagePipe.Test.Golden.Cases do
         native: "w=300/h=200/fit=contain/format=webp/webp-options=lossless",
         tolerance: {2, 64}
       },
+      # The source already has at most 256 colours, so the palette encode is exact:
+      # quantising a richer image depends on the libimagequant version.
       %{
         id: "png_palette",
         kind: :encoded,
-        source: "placement.png",
-        native: "w=300/h=200/fit=contain/format=png/png-options=palette",
+        source: "palette.png",
+        native: "format=png/png-options=palette",
         tolerance: {2, 64}
       },
       %{
