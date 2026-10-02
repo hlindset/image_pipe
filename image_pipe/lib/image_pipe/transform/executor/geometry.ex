@@ -20,17 +20,19 @@ defmodule ImagePipe.Transform.Executor.Geometry do
     scale = max(minimum_scale(resize.min_w, base.width), minimum_scale(resize.min_h, base.height))
     base = %{width: base.width * scale, height: base.height * scale}
 
-    dpr =
+    scale =
       case resize.enlarge and mode != :cover_down do
         true -> dpr
         false -> min(dpr, min(width / base.width, height / base.height))
       end
 
+    # The enlargement clamp limits the resize, but layout lengths (offsets,
+    # padding, canvas) never drop below the requested density or 1x.
     {mode,
      %{
-       width: positive_round(base.width * dpr),
-       height: positive_round(base.height * dpr),
-       dpr: dpr
+       width: positive_round(base.width * scale),
+       height: positive_round(base.height * scale),
+       dpr: max(scale, min(dpr, 1.0))
      }}
   end
 

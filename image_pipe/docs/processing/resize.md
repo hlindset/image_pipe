@@ -74,7 +74,9 @@ background. Padding increases the final dimensions beyond the canvas size.
 ## Density and small sources
 
 DPR scales resize targets, pixel offsets, and padding. If enlargement is off
-and source size caps resizing, the same clamp reduces effective DPR for layout.
+and source size caps resizing, the same clamp reduces effective DPR for layout,
+but never below 1 or the requested DPR, whichever is smaller. A 120×90 source
+with `w=300/h=200/extend` stays 120×90 inside a 300×200 canvas.
 A 150×150 source with `w=100/h=100/dpr=2/pad=10` produces 150×150 image pixels
 plus 15px on each side: 180×180 overall. Adding `enlarge` produces 240×240.
 

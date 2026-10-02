@@ -11,7 +11,7 @@ defmodule ImagePipe.API.ResizeScaleWireTest do
         {"w=100/h=100/dpr=2/pad=10", {150, 150}, {180, 180}},
         {"w=100/h=100/dpr=2/pad=10/enlarge", {150, 150}, {240, 240}},
         {"dpr=2/pad=10", {150, 150}, {190, 190}},
-        {"w=300/pad=10", {150, 150}, {160, 160}},
+        {"w=300/pad=10", {150, 150}, {170, 170}},
         {"w=100/h=50/fit=stretch/dpr=2", {150, 100}, {150, 75}},
         {"w=50/zoom=2/pad=10", {150, 150}, {120, 120}},
         {"w=40/h=40/fit=stretch/zoom=2,0.5/dpr=2", {200, 200}, {160, 40}},
@@ -20,7 +20,7 @@ defmodule ImagePipe.API.ResizeScaleWireTest do
         {"crop=50,50/dpr=2/pad=10", {150, 150}, {90, 90}},
         {"crop=50pct,100pct", {401, 300}, {201, 300}},
         {"w=50/min-w=100", {150, 150}, {100, 100}},
-        {"min-w=200/pad=10", {150, 150}, {166, 166}},
+        {"min-w=200/pad=10", {150, 150}, {170, 170}},
         {"min-w=200/enlarge", {150, 150}, {200, 200}},
         {"min-w=50", {150, 150}, {150, 150}},
         {"min-w=1/zoom=2,1", {200, 100}, {200, 100}},
@@ -39,7 +39,10 @@ defmodule ImagePipe.API.ResizeScaleWireTest do
         {"w=100/dpr=0.00000001", {150, 150}, {1, 1}},
         {"rotate=90/w=50/dpr=2/pad=10", {150, 100}, {140, 190}},
         {"w=100/h=100/fit=cover/dpr=2", {150, 100}, {100, 100}},
-        {"w=100/h=100/fit=cover-down/dpr=2/enlarge", {150, 100}, {100, 100}}
+        {"w=100/h=100/fit=cover-down/dpr=2/enlarge", {150, 100}, {100, 100}},
+        {"w=300/h=200/extend", {120, 90}, {300, 200}},
+        {"w=300/h=200/extend/dpr=2", {120, 90}, {300, 200}},
+        {"w=300/h=200/extend/dpr=0.5", {120, 90}, {150, 100}}
       ] do
     test "#{options} on #{inspect(source)} produces #{inspect(expected)}" do
       output = request(unquote(options), unquote(source)) |> decode()
