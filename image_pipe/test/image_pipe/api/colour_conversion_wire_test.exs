@@ -43,6 +43,45 @@ defmodule ImagePipe.API.ColourConversionWireTest do
     end
   end
 
+  describe "CMYK sources" do
+    test "a background is the sRGB colour" do
+      output = file_image("pad=6/bg=4080c0/format=png", "cmyk.jpg")
+      assert close?(Image.get_pixel!(srgb(output), 0, 0), [64, 128, 192])
+    end
+
+    # Only JPEG can hold CMYK; other formats fall back to sRGB without the profile.
+    for format <- ~w(png webp avif) do
+      @format format
+
+      test "under preserve, #{format} output is sRGB" do
+        output = file_image("pad=6/bg=4080c0/profile=preserve/format=#{@format}", "cmyk.jpg")
+        assert VipsImage.interpretation(output) == :VIPS_INTERPRETATION_sRGB
+        assert {:error, _} = VipsImage.header_value(output, "icc-profile-data")
+        # Inside the padding, clear of lossy edge artefacts.
+        assert close?(Image.get_pixel!(output, 3, 3), [64, 128, 192], 3)
+      end
+    end
+
+    test "under preserve, JPEG output keeps CMYK and its profile" do
+      # 4080c0 is outside the source's CMYK gamut; 806040 is inside it.
+      output = file_image("pad=6/bg=806040/profile=preserve/format=jpeg", "cmyk.jpg")
+      assert VipsImage.interpretation(output) == :VIPS_INTERPRETATION_CMYK
+      assert close?(Image.get_pixel!(srgb(output), 0, 0), [128, 96, 64], 4)
+    end
+
+    test "trim finds a border by its sRGB colour" do
+      {:ok, cmyk} =
+        Operation.icc_transform(bordered([200, 50, 50]), "cmyk", input_profile: "sRGB")
+
+      body = Image.write!(cmyk, :memory, suffix: ".jpg", quality: 95)
+
+      for request <- ["trim=auto", "trim=c83232,20"] do
+        output = body_image("#{request}/format=png", body)
+        assert {Image.width(output), Image.height(output)} == {30, 20}, request
+      end
+    end
+  end
+
   describe "16-bit images" do
     test "colorize and gradient apply colours at 16-bit scale" do
       colorized = file_image("hdr=preserve/colorize=1,ff0000/format=png", "rgb16.png")
@@ -52,6 +91,19 @@ defmodule ImagePipe.API.ColourConversionWireTest do
       gradient = file_image("hdr=preserve/gradient=1,ff0000,down/format=png", "rgb16.png")
       assert VipsImage.format(gradient) == :VIPS_FORMAT_USHORT
       assert Image.get_pixel!(gradient, 10, Image.height(gradient) - 1) == [65_535, 0, 0]
+    end
+
+    test "trim finds a border by its sRGB colour and keeps 16-bit depth" do
+      {:ok, scaled} = Operation.linear(bordered([200, 50, 50]), [257.0], [0.0])
+      {:ok, cast} = Operation.cast(scaled, :VIPS_FORMAT_USHORT)
+      {:ok, rgb16} = Operation.copy(cast, interpretation: :VIPS_INTERPRETATION_RGB16)
+      body = png(rgb16)
+
+      for request <- ["trim=auto", "trim=c83232,2"] do
+        output = body_image("hdr=preserve/#{request}/format=png", body)
+        assert {Image.width(output), Image.height(output)} == {30, 20}, request
+        assert VipsImage.format(output) == :VIPS_FORMAT_USHORT, request
+      end
     end
 
     test "duotone and gray keep 16-bit depth" do
@@ -128,8 +180,25 @@ defmodule ImagePipe.API.ColourConversionWireTest do
     request_image("/wm=mark/profile=#{profile}/format=png/src/#{frame}", config)
   end
 
-  defp close?(actual, expected),
-    do: Enum.zip(actual, expected) |> Enum.all?(fn {a, e} -> abs(a - e) <= 1 end)
+  # A 30×20 field inside a 5px border of `border`.
+  defp bordered(border) do
+    Image.new!(40, 30, color: border)
+    |> Image.Draw.rect!(5, 5, 30, 20, color: [70, 130, 180])
+  end
+
+  defp srgb(image) do
+    case VipsImage.header_value(image, "icc-profile-data") do
+      {:ok, _profile} ->
+        {:ok, srgb} = Operation.icc_transform(image, "sRGB", embedded: true)
+        srgb
+
+      {:error, _absent} ->
+        image
+    end
+  end
+
+  defp close?(actual, expected, tolerance \\ 1),
+    do: Enum.zip(actual, expected) |> Enum.all?(fn {a, e} -> abs(a - e) <= tolerance end)
 
   defp file_image(options, file) do
     config =
