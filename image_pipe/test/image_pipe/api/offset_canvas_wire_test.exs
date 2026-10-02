@@ -15,12 +15,12 @@ defmodule ImagePipe.API.OffsetCanvasWireTest do
                       __DIR__
                     )
 
-  test "signed and fractional pixel anchor offsets move a guided crop after DPR scaling" do
+  test "signed and fractional pixel anchor offsets move a guided crop in source pixels" do
     origin = png_origin(File.read!(@placement_source))
 
     for {options, region} <- [
           {"crop=800,600/anchor=center/anchor-offset=-10,5", "390,305,800,600"},
-          {"crop=800,600/anchor=top-left/anchor-offset=0.49,0.49/dpr=2", "1,1,800,600"}
+          {"crop=800,600/anchor=top-left/anchor-offset=0.49,0.51/dpr=2", "0,1,800,600"}
         ] do
       actual = image(options, origin)
       expected = image("region=#{region}", origin)
@@ -50,17 +50,19 @@ defmodule ImagePipe.API.OffsetCanvasWireTest do
     assert_same_pixels(result_crop, expected)
   end
 
-  test "a source-crop offset uses the following resize's effective DPR" do
+  test "a source-crop offset selects the same source pixels at every DPR" do
     origin = png_origin(File.read!(@placement_source))
 
-    actual =
-      image(
-        "crop=60,40/anchor=top-left/anchor-offset=10,0/w=40/h=40/dpr=2",
-        origin
-      )
+    for dpr <- ["1", "1.5", "2"] do
+      actual =
+        image(
+          "crop=60,40/anchor=top-left/anchor-offset=10,0/w=40/h=40/dpr=#{dpr}",
+          origin
+        )
 
-    expected = image("region=15,0,60,40/w=40/h=40/dpr=2", origin)
-    assert_same_pixels(actual, expected)
+      expected = image("region=10,0,60,40/w=40/h=40/dpr=#{dpr}", origin)
+      assert_same_pixels(actual, expected)
+    end
   end
 
   test "one anchor offset guides a source crop and a following cover result crop" do

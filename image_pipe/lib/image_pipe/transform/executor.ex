@@ -239,8 +239,7 @@ defmodule ImagePipe.Transform.Executor do
   end
 
   defp execute_crop(%State{} = state, %Group{} = group, opts) do
-    crop_dpr = crop_offset_dpr(group, state)
-    crop = guided_crop(group, Geometry.display_effective_dims(state), crop_dpr)
+    crop = guided_crop(group, Geometry.display_effective_dims(state))
     materializing? = Crop.requires_materialization?(crop)
 
     case {Geometry.pending_class(state), materializing?} do
@@ -549,23 +548,6 @@ defmodule ImagePipe.Transform.Executor do
   defp run_optional(state, nil, _opts), do: {:ok, state}
   defp run_optional(state, operation, opts), do: Transform.run(state, operation, opts)
 
-  defp crop_offset_dpr(%Group{anchor_offset: nil, dpr: dpr}, _state), do: dpr
-  defp crop_offset_dpr(%Group{resize: nil, dpr: dpr}, _state), do: dpr
-
-  defp crop_offset_dpr(%Group{} = group, state) do
-    crop = guided_crop(group, Geometry.display_effective_dims(state), 1.0)
-
-    {width, height} =
-      Crop.resolved_box_dims(
-        crop,
-        elem(Geometry.display_effective_dims(state), 0),
-        elem(Geometry.display_effective_dims(state), 1)
-      )
-
-    {_mode, target} = Geometry.resize_target(group.resize, group.dpr, {width, height})
-    target.dpr
-  end
-
   defp region_crop({x, y, width, height}, {display_width, display_height}) do
     left = round(resolve_length(x, display_width))
     top = round(resolve_length(y, display_height))
@@ -581,7 +563,7 @@ defmodule ImagePipe.Transform.Executor do
     }
   end
 
-  defp guided_crop(%Group{crop: {width, height}} = group, {display_width, display_height}, dpr) do
+  defp guided_crop(%Group{crop: {width, height}} = group, {display_width, display_height}) do
     requested = %Crop{
       width: {:pixels, round(resolve_length(width, display_width))},
       height: {:pixels, round(resolve_length(height, display_height))},
@@ -593,7 +575,7 @@ defmodule ImagePipe.Transform.Executor do
     {crop_width, crop_height} =
       Crop.resolved_box_dims(requested, display_width, display_height)
 
-    {x_offset, y_offset} = crop_offsets(group.anchor_offset, dpr)
+    {x_offset, y_offset} = crop_offsets(group.anchor_offset)
 
     %Crop{
       width: {:pixels, crop_width},
@@ -605,10 +587,10 @@ defmodule ImagePipe.Transform.Executor do
     }
   end
 
-  defp crop_offsets(nil, _dpr), do: {{:pixels, 0.0}, {:pixels, 0.0}}
-
-  defp crop_offsets({x, y}, dpr),
-    do: {scaled_offset(x, dpr), scaled_offset(y, dpr)}
+  # Source crops run before resize, in physical source pixels like the crop
+  # size itself, so DPR doesn't move them.
+  defp crop_offsets(nil), do: {{:pixels, 0.0}, {:pixels, 0.0}}
+  defp crop_offsets({x, y}), do: {scaled_offset(x, 1.0), scaled_offset(y, 1.0)}
 
   defp resize_offsets(nil, _dpr), do: {{:pixels, 0.0}, {:pixels, 0.0}}
   defp resize_offsets({x, y}, dpr), do: {scaled_offset(x, dpr), scaled_offset(y, dpr)}
@@ -745,7 +727,7 @@ defmodule ImagePipe.Transform.Executor do
   end
 
   defp decode_crop_extent(%Group{crop: {_width, _height}} = group, display_dims) do
-    crop = guided_crop(group, display_dims, 1.0)
+    crop = guided_crop(group, display_dims)
     Crop.resolved_box_dims(crop, elem(display_dims, 0), elem(display_dims, 1))
   end
 

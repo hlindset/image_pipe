@@ -29,7 +29,7 @@ defmodule ImagePipe.Transform.State do
   #   current image axes: gravity crops swap them for a pending quarter turn, then
   #   map crop dimensions back to the image frame.
   # - `dpr`: the effective DPR of the most recently executed group, after the
-  #   enlargement clamp; 1.0 before any group runs.
+  #   enlargement clamp and its floor; 1.0 before any group runs.
   # - `source_color_profile` and `color_imported?`: input-color-management results
   #   passed to the encoder. The profile holds raw source ICC bytes or `nil`; the
   #   flag records whether `icc_import` ran. Never emit these in telemetry metadata.

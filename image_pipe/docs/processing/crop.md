@@ -71,8 +71,9 @@ Named anchors are `center`, `top`, `bottom`, `left`, `right`, `top-left`,
 `top-right`, `bottom-left`, and `bottom-right`. Elixir uses underscore atoms.
 Offsets require an explicit non-smart anchor. Positive offsets move inward
 from right/bottom edges and forward from left/top/center; placement stays
-inside the crop input. Pixel offsets use effective DPR; percentages use the
-crop's input frame.
+inside the crop input. On a guided crop, pixel offsets are source pixels like
+the crop size, unaffected by DPR; on a cover resize they use effective DPR.
+Percentages use the crop's input frame.
 
 Detection class names use lowercase letters, digits, underscores, and hyphens,
 starting with a letter or digit. Weights are positive and at most 1,000,000.

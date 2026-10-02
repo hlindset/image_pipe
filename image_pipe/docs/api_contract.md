@@ -124,11 +124,13 @@ offsets. A 60px percentage result stays 60px when DPR is 2.
 Resize computes its target using `w`/`h`, minimum dimensions, per-axis zoom,
 and DPR. Zoom affects only resize targets. With enlargement disabled, cap
 the resize scale to avoid increasing source pixels; reduce the effective
-DPR by the same uniform clamp factor. Use this effective DPR for pixel
-offsets, padding, and canvas target sizes. For example, a square 150px
+DPR by the same uniform clamp factor, but never below 1 or the requested
+DPR, whichever is smaller. Use this effective DPR for pixel offsets after
+resize, padding, and canvas target sizes. For example, a square 150px
 source with `w=100/h=100/dpr=2/pad=10` becomes a 150px image with 15px
 padding on each side, a 180px result. With `enlarge`, it becomes a 200px
-image with 20px padding, a 240px result. With no resize operation, effective
+image with 20px padding, a 240px result. A 120×90 source with
+`w=300/h=200/extend` keeps its size inside a 300×200 canvas. With no resize operation, effective
 DPR is the requested DPR; padding alone does not scale the source image.
 For stretch, use a uniform enlargement clamp across both axes so that
 clamping does not change the requested target aspect ratio.
@@ -155,8 +157,10 @@ anchor. Both components accept signed pixels or explicit percentages, such
 as `anchor-offset=10,-5pct`. It requires an explicit non-smart `anchor`.
 Positive values move inward from right/bottom edges and forward from
 left/top/center; placement is clamped to retain the crop inside its input.
-Each crop resolves percentages against its own input frame. Pixel offsets
-use the group's effective DPR, including when the source crop precedes resize.
+Each crop resolves percentages against its own input frame. A source crop's
+pixel offsets are physical source pixels, like its size, so DPR never changes
+which pixels it selects. A cover result crop's pixel offsets use the group's
+effective DPR.
 
 `extend` expands the canvas to the `w`/`h` box; `extend-ratio` expands it to
 that aspect ratio. Both require concrete `w` and `h`, and cannot be enabled
@@ -559,7 +563,7 @@ library's canonical vocabulary, including `heif`, `jpeg_xl`, and `jpeg2000`.
 
 `result` has the `width` and `height` an image request for the same URL would
 encode, and `dpr`, the effective DPR of the last group after the enlargement
-clamp. A caller divides by `dpr` for CSS dimensions: without `enlarge`,
+clamp and its floor. A caller divides by `dpr` for CSS dimensions: without `enlarge`,
 `w=100/dpr=2` on a 150px source reports width 150 at DPR 1.5. DPR does not
 carry across groups, so `dpr` describes the last group's lengths; an earlier
 group's enlargement clamp is not reflected in it.
