@@ -186,7 +186,7 @@ defmodule ImagePipe.API.ObjectCropWireTest do
           ]
         ]
       ],
-      http_cache: [mode: :enabled],
+      http_cache: :auto,
       max_body_bytes: 10_000_000,
       max_input_pixels: 40_000_000
     ]

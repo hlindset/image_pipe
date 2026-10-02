@@ -45,7 +45,7 @@ config = ImagePipe.config(
     media: [
       adapter: ImagePipe.Source.File,
       match: :path,
-      options: [root: "/srv/images", root_id: "media", stable: :trusted]
+      options: [root: "/srv/images", root_id: "media", stable: :immutable]
     ]
   ],
   cache: {ImagePipe.Cache.FileSystem, root: "/var/cache/image-pipe/output"},
@@ -66,9 +66,9 @@ thumbnail =
     request_inputs: [headers: [{"x-tenant", "one"}]]
   )
 
-mount = ImagePipe.Plug.init(config: config, http_cache: [mode: :enabled])
+mount = ImagePipe.Plug.init(config: config, http_cache: :auto)
 # Pass mount to ImagePipe.Plug.call(conn, mount), or configure the router with:
-# plug ImagePipe.Plug, config: config, http_cache: [mode: :enabled]
+# plug ImagePipe.Plug, config: config, http_cache: :auto
 ```
 
 Builder calls return new values, so `ip_client` remains reusable. Per-call host
@@ -82,7 +82,7 @@ presets from the server configuration, not from the builder.
 presets attached, so the builder checks plans against them. HTTP controls
 such as CORS and `http_cache` belong on the Plug mount.
 
-The file example assumes immutable source paths: `stable: :trusted` enables
+The file example assumes immutable source paths: `stable: :immutable` enables
 caching based on that promise. Give changed files a new identifier. With the
 default `stable: :auto`, configured files remain uncached unless caching is
 explicitly enabled. HTTP sources use origin freshness and validators.

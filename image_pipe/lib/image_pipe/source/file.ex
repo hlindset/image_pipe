@@ -57,7 +57,7 @@ defmodule ImagePipe.Source.File do
 
       cache =
         CacheSettings.fields(opts,
-          stable?: CacheSettings.trusted?(opts),
+          stable?: CacheSettings.immutable?(opts),
           seed: identity,
           auto: :when_stable
         )

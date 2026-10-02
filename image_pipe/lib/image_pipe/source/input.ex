@@ -42,7 +42,7 @@ defmodule ImagePipe.Source.Input do
        source_kind: :input,
        identity: [kind: :local_input],
        internal_cache: :disabled,
-       http_cache: :disabled,
+       http_cache: :validators,
        cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
        fetch: {kind, value}
      }}

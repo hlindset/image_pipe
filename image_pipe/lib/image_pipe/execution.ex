@@ -6,6 +6,7 @@ defmodule ImagePipe.Execution do
       ImagePipe.Cache,
       ImagePipe.Debug,
       ImagePipe.Delivery,
+      ImagePipe.Error,
       ImagePipe.Output,
       ImagePipe.Plan,
       ImagePipe.Processing,
@@ -60,7 +61,7 @@ defmodule ImagePipe.Execution do
     }
 
     prepared =
-      case SourceCache.enabled?(source, config) do
+      case SourceCache.staged?(source) do
         true -> prepare_remote(context)
         false -> {:ok, represent(context)}
       end
@@ -154,7 +155,7 @@ defmodule ImagePipe.Execution do
       context = %{context | source: source, input_key: key, material: material}
 
       record =
-        SourceCache.trusted_record(source, context.config) ||
+        SourceCache.immutable_record(source, context.config) ||
           SourceCache.lookup(source, key, context.config)
 
       case SourceCache.status(record, source, context.config) do

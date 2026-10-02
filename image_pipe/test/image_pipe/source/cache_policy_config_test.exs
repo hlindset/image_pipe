@@ -29,7 +29,7 @@ defmodule ImagePipe.Source.CachePolicyConfigTest do
     refute source.cache_semantics.stable?
   end
 
-  test "denied storage disables the output cache even for a trusted source" do
+  test "denied storage disables the output cache even for an immutable source" do
     opts =
       ImagePipe.Plug.init(
         source_cache_policy: [storage: :deny],
@@ -37,7 +37,7 @@ defmodule ImagePipe.Source.CachePolicyConfigTest do
           url: [
             adapter: HTTP,
             match: [scheme: ["http", "https"]],
-            options: [allowed_hosts: ["example.com"], stable: :trusted]
+            options: [allowed_hosts: ["example.com"], stable: :immutable]
           ]
         ]
       )
@@ -65,7 +65,7 @@ defmodule ImagePipe.Source.CachePolicyConfigTest do
     end
   end
 
-  test "trusted immutability rejects an explicit finite source lifetime" do
+  test "immutability rejects an explicit finite source lifetime" do
     assert_raise ArgumentError, fn ->
       ImagePipe.Plug.init(
         sources: [
@@ -74,7 +74,7 @@ defmodule ImagePipe.Source.CachePolicyConfigTest do
             match: [scheme: ["http", "https"]],
             options: [
               allowed_hosts: ["example.com"],
-              stable: :trusted,
+              stable: :immutable,
               cache_policy: [freshness: {:force, 60}]
             ]
           ]
@@ -83,7 +83,7 @@ defmodule ImagePipe.Source.CachePolicyConfigTest do
     end
   end
 
-  test "trusted sources inherit storage policy but supersede the mount freshness default" do
+  test "immutable sources inherit storage policy but supersede the mount freshness default" do
     opts =
       ImagePipe.Plug.init(
         source_cache_policy: [storage: :allow, freshness: {:fallback, 60}],
@@ -91,7 +91,7 @@ defmodule ImagePipe.Source.CachePolicyConfigTest do
           url: [
             adapter: HTTP,
             match: [scheme: ["http", "https"]],
-            options: [allowed_hosts: ["example.com"], stable: :trusted]
+            options: [allowed_hosts: ["example.com"], stable: :immutable]
           ]
         ]
       )
@@ -123,7 +123,7 @@ defmodule ImagePipe.Source.CachePolicyConfigTest do
                 credentials: {:static, access_key_id: "A", secret_access_key: "S"},
                 cache_policy: [storage: :deny, freshness: {:fallback, 60}]
               ],
-              buckets: %{"images" => [stable: :trusted, cache_policy: [storage: :allow]]}
+              buckets: %{"images" => [stable: :immutable, cache_policy: [storage: :allow]]}
             ]
           ]
         ]

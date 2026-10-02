@@ -246,7 +246,7 @@ defmodule ImagePipe.API.InfoWireTest do
 
   test "info reuses its complete body across Accept values and strong conditionals", %{body: body} do
     store = :ets.new(:api_info_cache, [:set, :public])
-    config = mount(body, cache: {CacheProbe, store: store}, http_cache: [mode: :enabled])
+    config = mount(body, cache: {CacheProbe, store: store}, http_cache: :auto)
     first = request("output=info", config, "image/webp")
     assert first.status == 200
     assert_received :origin_fetch

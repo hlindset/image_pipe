@@ -225,7 +225,7 @@ Pass these alongside `config: config`, rather than to `ImagePipe.config/1`:
 | --- | --- | --- |
 | `allow_origin` | Omitted | Nonempty CORS origin string, e.g. `"https://app.example.com"` or `"*"` |
 | `allow_debug_headers` | `false` | Allow request `debug` to expose diagnostic headers |
-| `http_cache` | Disabled | `[mode: :enabled, visibility: :auto]`; visibility also accepts `:private` or `:public` |
+| `http_cache` | `:validators` | Generated HTTP cache headers: `:validators`, `:auto`, `:public`, or `:private` |
 
 Enabling HTTP cache headers and configuring internal storage are separate
 decisions. See [HTTP caching](cdn-http-cache.md) and [debug headers](debug_headers.md)

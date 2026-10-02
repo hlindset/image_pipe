@@ -13,11 +13,8 @@ defmodule ImagePipe.Plug.Config do
                     ],
                     allow_debug_headers: [type: :boolean, default: false],
                     http_cache: [
-                      type: :keyword_list,
-                      keys: [
-                        mode: [type: {:in, [:disabled, :enabled]}, default: :disabled],
-                        visibility: [type: {:in, [:auto, :private, :public]}, default: :auto]
-                      ]
+                      type: {:in, [:validators, :auto, :public, :private]},
+                      default: :validators
                     ]
                   )
 

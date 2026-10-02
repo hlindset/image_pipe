@@ -54,11 +54,11 @@ defmodule ImagePipeServer.Config.ConvertTest do
 
   describe "enumerations" do
     test "convert names to atoms" do
-      schema = [stable: [type: {:in, [:auto, :trusted]}]]
+      schema = [stable: [type: {:in, [:auto, :immutable]}]]
 
-      assert convert(%{"stable" => "trusted"}, schema) == [stable: :trusted]
+      assert convert(%{"stable" => "immutable"}, schema) == [stable: :immutable]
       assert convert(%{"stable" => {:env, "auto"}}, schema) == [stable: :auto]
-      assert error(%{"stable" => "sometimes"}, schema) =~ "expected one of auto, trusted"
+      assert error(%{"stable" => "sometimes"}, schema) =~ "expected one of auto, immutable"
     end
 
     test "accept integers in a range" do

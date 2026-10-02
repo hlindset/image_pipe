@@ -26,7 +26,6 @@ defmodule ImagePipe.Response.CachePolicyTest do
 
   defp facts(overrides \\ []) do
     Enum.into(overrides, %{
-      http_cache: :inherit,
       byte_identity: {:strong, "seed"},
       stable?: true,
       source_mount: :web,
@@ -35,124 +34,154 @@ defmodule ImagePipe.Response.CachePolicyTest do
   end
 
   defp config(overrides \\ []) do
-    Keyword.merge(
-      [http_cache: [mode: :enabled], telemetry_prefix: [:cache_policy_test]],
-      overrides
-    )
+    Keyword.merge([telemetry_prefix: [:cache_policy_test]], overrides)
   end
 
-  test "generates Cache-Control and the representation's ETag when enabled" do
+  defp generate(conn, representation, facts, mode \\ :auto, config \\ config()),
+    do: CachePolicy.generate(conn, representation, facts, mode, config)
+
+  describe "mode/2" do
+    test "a mount without http_cache resolves to :validators" do
+      assert CachePolicy.mode(:inherit, config()) == :validators
+    end
+
+    test "an inheriting source takes the mount's value" do
+      assert CachePolicy.mode(:inherit, config(http_cache: :private)) == :private
+    end
+
+    test "a source value wins over the mount's" do
+      assert CachePolicy.mode(:validators, config(http_cache: :public)) == :validators
+      assert CachePolicy.mode(:private, config(http_cache: :public)) == :private
+      assert CachePolicy.mode(:auto, config(http_cache: :validators)) == :auto
+    end
+  end
+
+  test "generates Cache-Control and the representation's ETag" do
     assert %CacheHeaders{headers: headers, etag: ~s("ipr1-abc")} =
-             CachePolicy.generate(conn(:get, "/x"), representation(), facts(), config())
+             generate(conn(:get, "/x"), representation(), facts())
 
     assert {"cache-control", @generated} in headers
     assert {"etag", ~s("ipr1-abc")} in headers
   end
 
-  test "mode :disabled generates nothing and withholds the ETag" do
-    assert %CacheHeaders{headers: [], etag: nil} =
-             CachePolicy.generate(
+  test ":validators emits the representation's ETag and no Cache-Control" do
+    assert %CacheHeaders{headers: [{"etag", ~s("ipr1-abc")}], etag: ~s("ipr1-abc")} =
+             generate(conn(:get, "/x"), representation(), facts(), :validators)
+  end
+
+  test ":validators falls back to no-store without byte identity" do
+    assert %CacheHeaders{headers: [{"cache-control", "no-store"}], etag: nil} =
+             generate(
                conn(:get, "/x"),
-               representation(),
-               facts(),
-               config(http_cache: [mode: :disabled])
+               representation(etag: nil, no_store?: true),
+               facts(byte_identity: :none, stable?: false),
+               :validators
              )
   end
 
-  test "a per-source :disabled overrides an enabled mount" do
-    assert %CacheHeaders{headers: [], etag: nil} =
-             CachePolicy.generate(
-               conn(:get, "/x"),
-               representation(),
-               facts(http_cache: :disabled),
-               config()
-             )
+  test ":validators withholds the ETag when the source denies storage" do
+    assert %CacheHeaders{headers: [{"cache-control", "no-store"}], etag: nil} =
+             generate(conn(:get, "/x"), representation(), facts(storage: :deny), :validators)
+  end
+
+  test ":private generates private Cache-Control without cookie storage inputs" do
+    assert %CacheHeaders{headers: headers} =
+             generate(conn(:get, "/x"), representation(), facts(), :private)
+
+    assert {"cache-control", "private, max-age=31536000, immutable"} in headers
+  end
+
+  test ":auto turns private with cookie storage inputs and :public keeps it public" do
+    config = config(storage_inputs: [{:cookie, "session"}])
+
+    assert %CacheHeaders{headers: auto} =
+             generate(conn(:get, "/x"), representation(), facts(), :auto, config)
+
+    assert {"cache-control", "private, max-age=31536000, immutable"} in auto
+
+    assert %CacheHeaders{headers: public} =
+             generate(conn(:get, "/x"), representation(), facts(), :public, config)
+
+    assert {"cache-control", @generated} in public
   end
 
   test "a host Set-Cookie suppresses generation" do
     conn = put_resp_cookie(conn(:get, "/x"), "session", "1")
 
     assert %CacheHeaders{headers: [], etag: nil} =
-             CachePolicy.generate(conn, representation(), facts(), config())
+             generate(conn, representation(), facts())
   end
 
   test "a host Vary: * suppresses generation" do
     conn = put_resp_header(conn(:get, "/x"), "vary", "*")
 
     assert %CacheHeaders{headers: [], etag: nil} =
-             CachePolicy.generate(conn, representation(), facts(), config())
+             generate(conn, representation(), facts())
   end
 
   test "a representation Vary: * suppresses generation" do
     assert %CacheHeaders{headers: [], etag: nil} =
-             CachePolicy.generate(
-               conn(:get, "/x"),
-               representation(vary: ["*"]),
-               facts(),
-               config()
-             )
+             generate(conn(:get, "/x"), representation(vary: ["*"]), facts())
   end
 
   test "a host no-store suppresses generation" do
     conn = put_resp_header(conn(:get, "/x"), "cache-control", "no-store")
 
     assert %CacheHeaders{headers: [], etag: nil} =
-             CachePolicy.generate(conn, representation(), facts(), config())
+             generate(conn, representation(), facts())
   end
 
   test "a host Cache-Control yields the ETag only" do
     conn = put_resp_header(conn(:get, "/x"), "cache-control", "max-age=60")
 
     assert %CacheHeaders{headers: [{"etag", ~s("ipr1-abc")}], etag: ~s("ipr1-abc")} =
-             CachePolicy.generate(conn, representation(), facts(), config())
+             generate(conn, representation(), facts())
   end
 
   test "a host ETag is respected: none generated" do
     conn = put_resp_header(conn(:get, "/x"), "etag", ~s("host"))
 
     assert %CacheHeaders{headers: [{"cache-control", @generated}], etag: nil} =
-             CachePolicy.generate(conn, representation(), facts(), config())
+             generate(conn, representation(), facts())
   end
 
   test "a no-store representation gets Cache-Control: no-store and no ETag" do
     assert %CacheHeaders{headers: [{"cache-control", "no-store"}], etag: nil} =
-             CachePolicy.generate(
+             generate(
                conn(:get, "/x"),
                representation(etag: nil, no_store?: true),
-               facts(byte_identity: :none, stable?: false),
-               config()
+               facts(byte_identity: :none, stable?: false)
              )
   end
 
   test "a non-GET/HEAD method generates nothing" do
     assert %CacheHeaders{headers: [], etag: nil} =
-             CachePolicy.generate(conn(:post, "/x"), representation(), facts(), config())
+             generate(conn(:post, "/x"), representation(), facts())
   end
 
   test "representation Vary merges with a host Vary, deduplicated" do
     conn = put_resp_header(conn(:get, "/x"), "vary", "Origin")
 
     assert %CacheHeaders{representation_headers: [{"vary", "Origin, Accept"}]} =
-             CachePolicy.generate(conn, representation(vary: ["Accept"]), facts(), config())
+             generate(conn, representation(vary: ["Accept"]), facts())
   end
 
   test "prepare telemetry fires with effective_mode, byte_identity, and etag" do
     attach_telemetry([[:cache_policy_test, :http_cache, :prepare]])
 
-    CachePolicy.generate(conn(:get, "/x"), representation(), facts(), config())
+    generate(conn(:get, "/x"), representation(), facts())
 
     assert_receive {:telemetry_event, [:cache_policy_test, :http_cache, :prepare], %{}, metadata}
-    assert metadata == %{effective_mode: :enabled, byte_identity: :strong, etag: true}
+    assert metadata == %{effective_mode: :auto, byte_identity: :strong, etag: true}
   end
 
   test "no-store fallback telemetry fires with source_mount, source_kind, and reason" do
     attach_telemetry([[:cache_policy_test, :http_cache, :fallback, :no_store]])
 
-    CachePolicy.generate(
+    generate(
       conn(:get, "/x"),
       representation(etag: nil, no_store?: true),
-      facts(byte_identity: :none, stable?: false),
-      config()
+      facts(byte_identity: :none, stable?: false)
     )
 
     assert_receive {:telemetry_event, [:cache_policy_test, :http_cache, :fallback, :no_store],

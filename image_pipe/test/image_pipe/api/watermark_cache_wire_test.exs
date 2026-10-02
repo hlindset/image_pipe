@@ -86,7 +86,7 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
         watermarks: %{logo: [source: "https://origin.test/mark.png"]}
       )
 
-    %{config: IP.Plug.init(config: shared, http_cache: [mode: :enabled]), state: state}
+    %{config: IP.Plug.init(config: shared, http_cache: :auto), state: state}
   end
 
   test "input-cached assets serve later requests without refetching", %{config: config} do

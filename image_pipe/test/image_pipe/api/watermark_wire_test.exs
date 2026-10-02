@@ -370,7 +370,7 @@ defmodule ImagePipe.API.WatermarkWireTest do
           corrupt: [source: "corrupt.png"]
         },
         request_watermarks: true,
-        http_cache: [mode: :enabled]
+        http_cache: :auto
       ]
       |> Keyword.merge(options)
     )

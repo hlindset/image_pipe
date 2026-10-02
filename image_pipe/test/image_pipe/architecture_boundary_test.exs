@@ -122,6 +122,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Cache,
       ImagePipe.Debug,
       ImagePipe.Delivery,
+      ImagePipe.Error,
       ImagePipe.Output,
       ImagePipe.Plan,
       ImagePipe.Processing,

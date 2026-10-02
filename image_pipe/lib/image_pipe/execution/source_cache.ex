@@ -4,6 +4,7 @@ defmodule ImagePipe.Execution.SourceCache do
   alias ImagePipe.Cache.Input
   alias ImagePipe.Cache.Resources
   alias ImagePipe.Cache.Work
+  alias ImagePipe.Error
   alias ImagePipe.Execution.{Acquisition, Overlap}
   alias ImagePipe.Source
   alias ImagePipe.Source.CacheState
@@ -11,14 +12,13 @@ defmodule ImagePipe.Execution.SourceCache do
   alias ImagePipe.Source.Response
   alias ImagePipe.Telemetry
 
-  def enabled?(source, config) do
-    source.source_kind in [:url, :object] and
-      (Keyword.has_key?(config, :cache) or Keyword.has_key?(config, :input_cache))
-  end
+  # Remote originals are always staged, cached or not: staging is what derives
+  # their byte identity and retains the origin's freshness.
+  def staged?(source), do: source.source_kind in [:url, :object]
 
   def now(config), do: Keyword.get(config, :clock, fn -> System.system_time(:second) end).()
 
-  def trusted_record(source, config) do
+  def immutable_record(source, config) do
     semantics = source.cache_semantics
 
     if semantics.stable? and Keyword.get(semantics.policy, :storage) == :allow do
@@ -111,13 +111,13 @@ defmodule ImagePipe.Execution.SourceCache do
   end
 
   defp fetch(source, key, previous, preparation, config) do
-    Telemetry.span(Telemetry.telemetry_opts(config), [:cache, :source], %{pool: :input}, fn ->
+    Telemetry.span(Telemetry.telemetry_opts(config), [:source, :stage], %{}, fn ->
       started = System.monotonic_time(:microsecond)
       preparation = if is_nil(previous), do: preparation
       result = fetch_response(source, previous, config, &stage(&1, source, preparation, config))
       cost = System.monotonic_time(:microsecond) - started
       result = publish_coordinated(result, source, key, previous, cost, config)
-      {result, %{result: outcome(result)}}
+      {result, stop_metadata(result)}
     end)
   end
 
@@ -315,6 +315,10 @@ defmodule ImagePipe.Execution.SourceCache do
     do: raise(Source.StreamError, reason: :body_too_large)
 
   defp check_size!(_size, _limit), do: :ok
-  defp outcome({:ok, %Acquisition{}}), do: :ok
-  defp outcome({:error, _} = error), do: Telemetry.request_result(error)
+  defp stop_metadata({:ok, %Acquisition{}}), do: %{result: :ok}
+
+  defp stop_metadata({:error, {:source, reason}}),
+    do: %{result: :source_error, error: Error.tag(reason)}
+
+  defp stop_metadata({:error, _reason} = error), do: %{result: Telemetry.request_result(error)}
 end

@@ -50,8 +50,8 @@ defmodule ImagePipe.Source.HTTPTest do
     assert resolved.cache_semantics.byte_identity == :none
   end
 
-  test "http trusted byte identity doesn't expose raw query" do
-    assert {:ok, opts} = HTTP.validate_options(allowed_hosts: ["example.com"], stable: :trusted)
+  test "http immutable byte identity doesn't expose raw query" do
+    assert {:ok, opts} = HTTP.validate_options(allowed_hosts: ["example.com"], stable: :immutable)
 
     source = %URL{
       scheme: :https,
@@ -254,7 +254,7 @@ defmodule ImagePipe.Source.HTTPTest do
            end)
   end
 
-  test "trusted byte identity strips byte-changing headers even when internal cache is disabled" do
+  test "immutable byte identity strips byte-changing headers even when internal cache is disabled" do
     plug = fn conn ->
       send(self(), {:http_request, conn.req_headers})
       Plug.Conn.send_resp(conn, 200, "image bytes")
@@ -276,7 +276,7 @@ defmodule ImagePipe.Source.HTTPTest do
             match: [scheme: "https"],
             options: [
               allowed_hosts: ["assets.example.com"],
-              stable: :trusted,
+              stable: :immutable,
               internal_cache: :disabled,
               address_resolver: stub_resolver(),
               req_options: [
@@ -687,7 +687,7 @@ defmodule ImagePipe.Source.HTTPTest do
       assert stream == {:error, {:source, :denied_address}}
     end
 
-    test "trusted origin redirecting to a loopback target is blocked on the hop" do
+    test "immutable origin redirecting to a loopback target is blocked on the hop" do
       plug = fn
         %{request_path: "/redirect.jpg"} = conn ->
           conn
@@ -957,7 +957,7 @@ defmodule ImagePipe.Source.HTTPTest do
                 options: [
                   base_url: "https://assets.example.com/t",
                   path_pattern: ~r/[a-z]+\.jpg/,
-                  stable: :trusted
+                  stable: :immutable
                 ]
               ]
             ]

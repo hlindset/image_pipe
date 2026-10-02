@@ -34,72 +34,90 @@ defmodule ImagePipe.Response.CachePolicy do
   """
   @type source_facts :: %{
           optional(:storage) => :origin | :allow | :deny,
-          http_cache: :inherit | :enabled | :disabled,
           byte_identity: {:strong, term()} | :none,
           stable?: boolean(),
           source_mount: atom() | nil,
           source_kind: :path | :url | :object | :input
         }
 
-  @spec generate(Plug.Conn.t(), Representation.t(), source_facts(), keyword()) :: CacheHeaders.t()
-  def generate(%Plug.Conn{} = conn, %Representation{} = representation, source_facts, config) do
-    effective_mode = effective_mode(source_facts, config)
-    representation_headers = representation_headers(conn, representation)
+  @typedoc """
+  The resolved `http_cache` value: what this response's headers may carry.
+  """
+  @type mode :: :validators | :auto | :public | :private
 
-    {headers, etag, fallback_reason} =
-      generated_cache_headers(
-        conn,
-        representation,
+  @doc """
+  Resolves a source's `http_cache` against the mount's: any source value
+  other than `:inherit` replaces the mount's.
+  """
+  @spec mode(:inherit | mode(), keyword()) :: mode()
+  def mode(:inherit, config), do: Keyword.get(config, :http_cache, :validators)
+  def mode(mode, _config), do: mode
+
+  @spec generate(Plug.Conn.t(), Representation.t(), source_facts(), mode(), keyword()) ::
+          CacheHeaders.t()
+  def generate(
+        %Plug.Conn{} = conn,
+        %Representation{} = representation,
         source_facts,
-        effective_mode,
-        representation_headers
-      )
-
-    headers = apply_visibility(headers, config)
+        mode,
+        config
+      ) do
+    {prepared, fallback_reason} = prepare(conn, representation, source_facts, mode, config)
 
     Telemetry.execute(
       Telemetry.telemetry_opts(config),
       [:http_cache, :prepare],
       %{},
       %{
-        effective_mode: effective_mode,
+        effective_mode: mode,
         byte_identity: byte_identity_kind(source_facts.byte_identity),
-        etag: etag_emitted?(etag)
+        etag: etag_emitted?(prepared.etag)
       }
     )
 
     emit_fallback_telemetry(fallback_reason, source_facts, config)
 
-    %CacheHeaders{
-      representation_headers: representation_headers,
-      headers: headers,
-      etag: etag
-    }
+    prepared
   end
 
-  defp apply_visibility(headers, config) do
-    visibility = config |> Keyword.get(:http_cache, []) |> Keyword.get(:visibility, :auto)
+  # `:validators` carries only what the representation itself implies: its
+  # ETag, or `no-store` when the bytes have no identity or the source denies
+  # storage.
+  defp prepare(_conn, representation, source_facts, :validators, _config) do
+    case Map.get(source_facts, :storage) do
+      :deny ->
+        {CacheHeaders.from_representation(%{representation | etag: nil, no_store?: true}), nil}
 
-    cookie_partition? =
-      Enum.any?(Keyword.get(config, :storage_inputs, []), &match?({:cookie, _}, &1))
-
-    case visibility == :private or (visibility == :auto and cookie_partition?) do
-      true ->
-        Enum.map(headers, fn
-          {"cache-control", @generated_cache_control} ->
-            {"cache-control", "private, max-age=31536000, immutable"}
-
-          header ->
-            header
-        end)
-
-      false ->
-        headers
+      _permission ->
+        {CacheHeaders.from_representation(representation),
+         if(representation.no_store?, do: :missing_byte_identity)}
     end
   end
 
+  defp prepare(conn, representation, source_facts, mode, config) do
+    representation_headers = representation_headers(conn, representation)
+
+    {headers, etag, fallback_reason} =
+      generated_cache_headers(conn, representation, source_facts, representation_headers)
+
+    headers =
+      Enum.map(headers, fn
+        {"cache-control", @generated_cache_control} ->
+          {"cache-control", "#{visibility(mode, config)}, max-age=31536000, immutable"}
+
+        header ->
+          header
+      end)
+
+    {%CacheHeaders{
+       representation_headers: representation_headers,
+       headers: headers,
+       etag: etag
+     }, fallback_reason}
+  end
+
   @doc false
-  def limit_to_source(prepared, conn, facts, now, config) do
+  def limit_to_source(prepared, conn, facts, now, mode, config) do
     cond do
       not facts.storable? ->
         %{
@@ -121,12 +139,12 @@ defmodule ImagePipe.Response.CachePolicy do
         prepared
 
       true ->
-        limit_headers(prepared, facts, now, config)
+        limit_headers(prepared, facts, now, mode, config)
     end
   end
 
-  defp limit_headers(prepared, facts, now, config) do
-    visibility = visibility(config)
+  defp limit_headers(prepared, facts, now, mode, config) do
+    visibility = visibility(mode, config)
     {ttl, stale} = source_lifetimes(facts, now)
     control = "#{visibility}, max-age=#{ttl}"
 
@@ -152,14 +170,113 @@ defmodule ImagePipe.Response.CachePolicy do
     }
   end
 
-  defp visibility(config) do
-    visibility = config |> Keyword.get(:http_cache, []) |> Keyword.get(:visibility, :auto)
-    cookie? = Enum.any?(Keyword.get(config, :storage_inputs, []), &match?({:cookie, _}, &1))
+  @doc """
+  Bounds the response's cache lifetime by the request's `expires`, so no
+  cache holds or serves it after the URL stops being valid. Runs after
+  `limit_to_source/6`, over whichever `Cache-Control` the policy settled on.
+  A host `Cache-Control` and `no-store` are left alone. A response with a
+  generated ETag but no `Cache-Control` (`:validators`) gets one bounded by
+  the expiry.
+  """
+  @spec limit_to_expiry(
+          CacheHeaders.t(),
+          Plug.Conn.t(),
+          pos_integer() | nil,
+          integer(),
+          mode(),
+          keyword()
+        ) :: CacheHeaders.t()
+  def limit_to_expiry(prepared, _conn, nil, _now, _mode, _config), do: prepared
 
-    case visibility == :private or (visibility == :auto and cookie?) do
-      true -> "private"
-      false -> "public"
+  def limit_to_expiry(prepared, conn, expires, now, mode, config) do
+    remaining = max(0, expires - now)
+    host? = CacheHeaders.host_cache_control?(get_resp_header(conn, "cache-control"))
+
+    case List.keyfind(prepared.headers, "cache-control", 0) do
+      _control when host? ->
+        prepared
+
+      {"cache-control", control} ->
+        capped = cap_control(control, response_age(prepared.headers), remaining)
+
+        %{
+          prepared
+          | headers:
+              List.keystore(prepared.headers, "cache-control", 0, {"cache-control", capped})
+        }
+
+      nil when prepared.etag != nil ->
+        control = "#{visibility(mode, config)}, max-age=#{remaining}, must-revalidate"
+        %{prepared | headers: prepared.headers ++ [{"cache-control", control}]}
+
+      nil ->
+        prepared
     end
+  end
+
+  # Caches subtract `Age` from `max-age`, so the freshness left is the
+  # difference; a stale window may only run until the expiry.
+  defp cap_control(control, age, remaining) do
+    directives =
+      control |> String.split(",") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
+
+    if "no-store" in directives do
+      control
+    else
+      fresh = directive_seconds(directives, "max-age") - age
+
+      directives =
+        if fresh > remaining do
+          directives
+          |> put_directive("max-age", remaining + age)
+          |> put_directive("stale-while-revalidate", 0)
+        else
+          stale = min(directive_seconds(directives, "stale-while-revalidate"), remaining - fresh)
+          put_directive(directives, "stale-while-revalidate", stale)
+        end
+
+      directives
+      |> Enum.concat(["must-revalidate"])
+      |> Enum.uniq()
+      |> Enum.join(", ")
+    end
+  end
+
+  defp directive_seconds(directives, name) do
+    Enum.find_value(directives, 0, fn directive ->
+      case String.split(directive, "=", parts: 2) do
+        [^name, seconds] -> String.to_integer(seconds)
+        _other -> nil
+      end
+    end)
+  end
+
+  defp put_directive(directives, name, seconds) do
+    Enum.flat_map(directives, fn directive ->
+      case String.split(directive, "=", parts: 2) do
+        [^name, _seconds] when seconds == 0 and name != "max-age" -> []
+        [^name, _seconds] -> ["#{name}=#{seconds}"]
+        _other -> [directive]
+      end
+    end)
+  end
+
+  defp response_age(headers) do
+    case List.keyfind(headers, "age", 0) do
+      {"age", age} -> String.to_integer(age)
+      nil -> 0
+    end
+  end
+
+  # `Vary` can't name cookies, so a cookie-partitioned response isn't safe for
+  # a shared cache unless the host says so with `:public`.
+  defp visibility(:public, _config), do: "public"
+  defp visibility(:private, _config), do: "private"
+
+  defp visibility(_auto_or_validators, config) do
+    if Enum.any?(Keyword.get(config, :storage_inputs, []), &match?({:cookie, _}, &1)),
+      do: "private",
+      else: "public"
   end
 
   defp source_lifetimes(%{fresh_until: nil}, _now), do: {0, 0}
@@ -186,45 +303,16 @@ defmodule ImagePipe.Response.CachePolicy do
   defp conditional_method("GET"), do: :get
   defp conditional_method("HEAD"), do: :head
 
-  # `config` is the mount config a host's own validation produced — a value this
-  # boundary does not build, so `:http_cache` is not guaranteed to be present.
-  # Absent means the mount never opted in, which is exactly `:disabled`: the
-  # same answer the option's own default gives, and the direction that emits no
-  # cache headers.
-  defp effective_mode(%{http_cache: :inherit}, config) do
-    config
-    |> Keyword.get(:http_cache, [])
-    |> Keyword.get(:mode, :disabled)
-  end
-
-  defp effective_mode(%{http_cache: mode}, _config) when mode in [:enabled, :disabled], do: mode
-
-  defp generated_cache_headers(
-         _conn,
-         _representation,
-         _source_facts,
-         :disabled,
-         _representation_headers
-       ),
-       do: {[], nil, nil}
-
   defp generated_cache_headers(
          %Plug.Conn{method: method},
          _representation,
          _source_facts,
-         :enabled,
          _representation_headers
        )
        when method not in ["GET", "HEAD"],
        do: {[], nil, nil}
 
-  defp generated_cache_headers(
-         conn,
-         representation,
-         source_facts,
-         :enabled,
-         representation_headers
-       ) do
+  defp generated_cache_headers(conn, representation, source_facts, representation_headers) do
     cond do
       has_set_cookie?(conn) ->
         {[], nil, nil}

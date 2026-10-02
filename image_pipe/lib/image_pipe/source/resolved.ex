@@ -23,7 +23,7 @@ defmodule ImagePipe.Source.Resolved do
   defstruct [:mount | @enforce_keys]
 
   @type internal_cache :: :enabled | :disabled
-  @type http_cache :: :inherit | :disabled | :enabled
+  @type http_cache :: :inherit | :validators | :auto | :public | :private
 
   @type t :: %__MODULE__{
           mount: atom() | nil,

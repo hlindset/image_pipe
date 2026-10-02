@@ -168,7 +168,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
     log =
       capture_log(fn ->
-        for stage <- [:source, :input, :refresh] do
+        for stage <- [:input, :refresh] do
           :telemetry.execute(prefix ++ [:cache, stage, :stop], %{duration: 1_000}, %{
             result: :source_error,
             pool: :input
@@ -182,7 +182,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
         })
       end)
 
-    for stage <- [:source, :input, :refresh], do: assert(log =~ "cache #{stage}: source_error")
+    for stage <- [:input, :refresh], do: assert(log =~ "cache #{stage}: source_error")
     assert log =~ "(input pool)"
     assert log =~ "cache coordination: coalesced"
     assert log =~ "[warning]"
@@ -801,7 +801,8 @@ defmodule ImagePipe.Telemetry.LoggerTest do
         )
       end)
 
-    assert log =~ "source fetch_decode: processing_error (detected svg)"
+    assert log =~
+             "source fetch_decode: processing_error (unsupported_source_format, detected svg)"
   end
 
   test "renders the rejected loader on a loader-family mismatch" do
@@ -821,7 +822,8 @@ defmodule ImagePipe.Telemetry.LoggerTest do
         )
       end)
 
-    assert log =~ "source fetch_decode: processing_error (detected tiff, loader dcrawload)"
+    assert log =~
+             "source fetch_decode: processing_error (unsupported_source_format, detected tiff, loader dcrawload)"
   end
 
   test "renders the selected page and the page count" do
@@ -836,7 +838,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
         )
       end)
 
-    assert log =~ "source fetch_decode: processing_error (page 3, 3 frames)"
+    assert log =~ "source fetch_decode: processing_error (page_out_of_range, page 3, 3 frames)"
   end
 
   test "renders the frame count and the rejecting input limit on the fetch_decode span" do
@@ -858,7 +860,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
       end)
 
     assert log =~ "source fetch_decode: ok (detected webp, 3 frames)"
-    assert log =~ "source fetch_decode: processing_error (frames limit)"
+    assert log =~ "source fetch_decode: processing_error (input_limit, frames limit)"
   end
 
   test "renders the output negotiate span with its outcome and format" do
@@ -877,6 +879,21 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "output negotiate: ok (jpeg)"
   end
 
+  test "renders a remote source staging failure with its error category" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute([:image_pipe, :source, :stage, :stop], %{duration: 1_000}, %{
+          result: :source_error,
+          error: :receive_timeout
+        })
+      end)
+
+    assert log =~ "[warning]"
+    assert log =~ "source stage: source_error (receive_timeout)"
+  end
+
   test "escalates an output negotiate failure to warning" do
     Telemetry.attach_default_logger(level: :info)
 
@@ -890,7 +907,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
       end)
 
     assert log =~ "[warning]"
-    assert log =~ "output negotiate: output_error"
+    assert log =~ "output negotiate: output_error (unsupported)"
   end
 
   test "renders the preset lookup span and escalates its failures" do
@@ -966,12 +983,12 @@ defmodule ImagePipe.Telemetry.LoggerTest do
         :telemetry.execute(
           [:image_pipe, :http_cache, :prepare],
           %{},
-          %{effective_mode: :generate, byte_identity: :strong, etag: true}
+          %{effective_mode: :auto, byte_identity: :strong, etag: true}
         )
       end)
 
     refute log =~ "[warning]"
-    assert log =~ "http_cache prepare: generate"
+    assert log =~ "http_cache prepare: auto"
     assert log =~ "byte_identity strong"
   end
 
@@ -1031,7 +1048,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
         :telemetry.execute(
           [:image_pipe, :http_cache, :prepare],
           %{},
-          %{effective_mode: :generate, byte_identity: :strong, etag: true}
+          %{effective_mode: :auto, byte_identity: :strong, etag: true}
         )
       end)
 

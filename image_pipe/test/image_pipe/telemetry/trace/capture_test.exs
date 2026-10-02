@@ -169,7 +169,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     prefix = [__MODULE__, :coordinated]
     :ok = TestExporter.attach(self(), prefix: prefix)
 
-    for stage <- [:source, :input, :refresh] do
+    for stage <- [:input, :refresh] do
       Telemetry.span([telemetry_prefix: prefix], [:cache, stage], %{pool: :input}, fn ->
         Telemetry.execute([telemetry_prefix: prefix], [:cache, :coordination], %{}, %{
           result: :coalesced,
@@ -193,6 +193,21 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
       assert event.name == "image_pipe.cache.coordination"
       assert event.attributes.result == :coalesced
     end
+  end
+
+  test "captures a remote source staging failure with its error category" do
+    prefix = [__MODULE__, :stage]
+    :ok = TestExporter.attach(self(), prefix: prefix)
+
+    Telemetry.span([telemetry_prefix: prefix], [:source, :stage], %{}, fn ->
+      {{:error, {:source, :receive_timeout}}, %{result: :source_error, error: :receive_timeout}}
+    end)
+
+    assert_receive {:span,
+                    %Span{
+                      name: "image_pipe.source.stage",
+                      attributes: %{result: :source_error, error: :receive_timeout}
+                    }}
   end
 
   test "watermark acquisition spans join the request trace across the process hop" do

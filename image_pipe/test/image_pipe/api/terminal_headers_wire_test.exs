@@ -31,7 +31,7 @@ defmodule ImagePipe.API.TerminalHeadersWireTest do
           ]
         ],
         cache: {CacheProbe, store: :ets.new(:terminal_headers, [:set, :public])},
-        http_cache: [mode: :enabled]
+        http_cache: :auto
       )
 
     %{config: config}

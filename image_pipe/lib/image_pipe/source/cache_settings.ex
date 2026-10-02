@@ -4,13 +4,15 @@ defmodule ImagePipe.Source.CacheSettings do
 
   Adapters append `schema/0` to their option schemas, which accepts:
 
-    * `:stable` - `:auto` (default) or `:trusted`. `:trusted` promises that a
+    * `:stable` - `:auto` (default) or `:immutable`. `:immutable` promises that a
       source identifier's bytes never change.
     * `:cache_policy` - an `ImagePipe.Source.CachePolicy` keyword list (default `[]`).
     * `:internal_cache` - `:auto` (default), `:enabled`, or `:disabled`.
-    * `:http_cache` - `:inherit` (default), `:enabled`, or `:disabled`.
+    * `:http_cache` - `:inherit` (default) or one of the mount's `:http_cache`
+      values (`:validators`, `:auto`, `:public`, `:private`), which then
+      replaces the mount's value for this source.
 
-  After validating, `validate/1` rejects a TTL or stale window on a trusted
+  After validating, `validate/1` rejects a TTL or stale window on an immutable
   source. `fields/2` then turns the validated options into the cache fields of
   `ImagePipe.Source.Resolved`.
   """
@@ -19,10 +21,13 @@ defmodule ImagePipe.Source.CacheSettings do
   alias ImagePipe.Source.CacheSemantics
 
   @schema [
-    stable: [type: {:in, [:auto, :trusted]}, default: :auto],
+    stable: [type: {:in, [:auto, :immutable]}, default: :auto],
     cache_policy: [type: {:custom, CachePolicy, :validate, []}, default: []],
     internal_cache: [type: {:in, [:auto, :enabled, :disabled]}, default: :auto],
-    http_cache: [type: {:in, [:inherit, :disabled, :enabled]}, default: :inherit]
+    http_cache: [
+      type: {:in, [:inherit, :validators, :auto, :public, :private]},
+      default: :inherit
+    ]
   ]
 
   @doc "NimbleOptions schema entries for the shared cache settings."
@@ -30,15 +35,15 @@ defmodule ImagePipe.Source.CacheSettings do
   def schema, do: @schema
 
   @doc """
-  Rejects a TTL or stale-while-revalidate window on a trusted source, which
+  Rejects a TTL or stale-while-revalidate window on an immutable source, which
   has no freshness deadline. Returns the options unchanged when valid.
   """
   @spec validate(keyword()) :: {:ok, keyword()} | {:error, {:invalid_source_config, String.t()}}
   defdelegate validate(opts), to: CachePolicy, as: :validate_source
 
-  @doc "Whether the options mark the source as trusted immutable."
-  @spec trusted?(keyword()) :: boolean()
-  def trusted?(opts), do: Keyword.fetch!(opts, :stable) == :trusted
+  @doc "Whether the options mark the source as immutable."
+  @spec immutable?(keyword()) :: boolean()
+  def immutable?(opts), do: Keyword.fetch!(opts, :stable) == :immutable
 
   @doc """
   Returns the `:internal_cache`, `:http_cache`, and `:cache_semantics` fields

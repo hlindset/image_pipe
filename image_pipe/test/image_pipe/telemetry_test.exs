@@ -816,7 +816,7 @@ defmodule ImagePipe.TelemetryTest do
           path: [
             adapter: ImagePipe.Source.File,
             match: :path,
-            options: [root: "priv/static", root_id: "static", stable: :trusted]
+            options: [root: "priv/static", root_id: "static", stable: :immutable]
           ]
         ]
       ],

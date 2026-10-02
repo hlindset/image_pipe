@@ -33,7 +33,9 @@ not infer output format from its extension.
 ## Expiry and storage identity
 
 Expired requests fail before source fetch or cache access. A request remains
-valid at its exact expiry second. Configure [signing](../urls.md#signing-and-expiry)
+valid at its exact expiry second. Generated `Cache-Control` never lets a cache
+keep the response past the expiry. See
+[header modes](../cdn-http-cache.md#header-modes). Configure [signing](../urls.md#signing-and-expiry)
 to authenticate the expiry and processing options.
 
 `cb` changes the storage key while preserving the ETag for byte-identical

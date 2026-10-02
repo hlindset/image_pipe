@@ -161,7 +161,7 @@ defmodule ImagePipe.Execution.Watermarks do
     with {:ok, source} <- Source.resolve(plan_source, config, Source.runtime_opts(config)) do
       watermark = %Watermark{asset: asset, source: source, opacity: opacity}
 
-      case SourceCache.enabled?(source, config) do
+      case SourceCache.staged?(source) do
         true -> prepare_cached(watermark, material, config)
         false -> {:ok, watermark}
       end
@@ -174,7 +174,7 @@ defmodule ImagePipe.Execution.Watermarks do
       watermark = %{watermark | source: source, input_key: key}
 
       record =
-        SourceCache.trusted_record(source, config) || SourceCache.lookup(source, key, config)
+        SourceCache.immutable_record(source, config) || SourceCache.lookup(source, key, config)
 
       case SourceCache.status(record, source, config) do
         :fresh -> {:ok, %{watermark | record: record}}

@@ -62,10 +62,10 @@ are resolved before keying and frozen for the fetch; only their digest enters
 cache keys. Hosts implementing custom source adapters must include every
 byte-selecting fetch context in their resolved source data.
 
-`stable: :trusted` promises the source identity always names the same bytes.
-Trusted sources never expire or revalidate, but remain evictable and still need
+`stable: :immutable` promises the source identity always names the same bytes.
+Immutable sources never expire or revalidate, but remain evictable and still need
 storage permission. Explicit source TTL/SWR settings conflict with this promise;
-mutable mount defaults are ignored for trusted sources. Revision-addressed S3
+mutable mount defaults are ignored for immutable sources. Revision-addressed S3
 objects are automatically stable. `internal_cache: :disabled` disables both
 pools for a source; HTTP/S3 `:auto` uses origin policy. Local file sources retain
 their existing stability rules and are never copied into the input pool.
@@ -160,7 +160,7 @@ cache error, and the entry is not stored.
 
 ImagePipe derives cache keys from canonical request material
 and source byte identity. Mutable remote identities use the digest of a complete
-original; trusted identities use the source's authoritative seed. Fresh source
+original; immutable identities use the source's authoritative seed. Fresh source
 evidence allows conditionals before source fetch, decode, or encode.
 
 Input keys include source identity, digested fetch context and storage-only

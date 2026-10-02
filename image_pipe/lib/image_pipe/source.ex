@@ -97,7 +97,7 @@ defmodule ImagePipe.Source do
 
   @source_kinds [:path, :url, :object, :input]
   @internal_cache_policies [:enabled, :disabled]
-  @http_cache_policies [:inherit, :enabled, :disabled]
+  @http_cache_policies [:inherit, :validators, :auto, :public, :private]
 
   # Adapter runtime options: body limit, transport timeouts, and telemetry.
   # HTTP and S3 honor these timeout overrides when called directly; mount

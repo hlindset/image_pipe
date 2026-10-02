@@ -28,6 +28,7 @@ paths still emit the send span; streamed generation also emits delivery spans.
 [:image_pipe, :processing, :execute, ...]
 [:image_pipe, :output, :negotiate, ...]
 [:image_pipe, :output, :terminal, ...]
+[:image_pipe, :source, :stage, ...]
 [:image_pipe, :source, :fetch, ...]
 [:image_pipe, :source, :fetch_decode, ...]
 [:image_pipe, :source, :watermark, ...]
@@ -102,7 +103,9 @@ logs failures at `:warning`.
 ### Source fetch + decode (`[:source, :fetch_decode]`)
 
 This span wraps source fetch, decode, and body/pixel/frame limits. It closes
-when decoded state is built, before transforms and encoding run.
+when decoded state is built, before transforms and encoding run. HTTP and S3
+originals are downloaded earlier, in `[:source, :stage]`, so their fetch and
+body failures stop that span instead.
 
 `output=info` with the `blurhash` flag decodes the fetched source twice: once for
 the result facts and once with BlurHash's own decode plan. It emits two
@@ -113,7 +116,8 @@ libvips is lazy, so a separate decode span would time loader construction rather
 than pixel work. Decode and guard outcomes therefore appear on this span's stop
 metadata; real pixel work is timed by materialization and encode spans.
 
-The nested `[:source, :fetch]` span (source side effects only) lives inside it.
+For file sources, the nested `[:source, :fetch]` span (source side effects
+only) lives inside it.
 
 Success stop metadata:
 
@@ -172,12 +176,13 @@ Failure stop metadata:
     detected family and `:source_loader` names the loader (e.g. `"dcrawload"`).
 
 The default Logger appends the detected format, a skipped source, a rejected
-loader, a selected page, a frame count above one, and the rejecting limit, e.g.
-`source fetch_decode: ok (detected webp, 3 frames)`, `source fetch_decode: ok
-(detected gif, skipped processing)`, `source fetch_decode:
-processing_error (detected tiff, loader dcrawload)`, `source fetch_decode:
-processing_error (page 3, 3 frames)`, or `source fetch_decode: processing_error
-(frames limit)`. Input-limit and page rejections log at the base level, like
+loader, a selected page, a frame count above one, and the rejecting limit
+after the error category, e.g. `source fetch_decode: ok (detected webp, 3
+frames)`, `source fetch_decode: ok (detected gif, skipped processing)`,
+`source fetch_decode: processing_error (unsupported_source_format, detected
+tiff, loader dcrawload)`, `source fetch_decode: processing_error
+(page_out_of_range, page 3, 3 frames)`, or `source fetch_decode:
+processing_error (input_limit, frames limit)`. Input-limit and page rejections log at the base level, like
 decode failures. The trace exporter keeps `:source_frames`, `:page`, `:limit`,
 `:source_loader`, and `:skipped` as span attributes.
 
@@ -185,6 +190,19 @@ An upstream `304` produces `result: :not_modified` on the source fetch span.
 The default Logger renders this outcome, and the trace exporter records it as
 a successful span. Origin validators, URLs, and request credentials are not
 included in the event.
+
+### Remote source staging span (`[:source, :stage]`)
+
+`[:image_pipe, :source, :stage]` wraps the download or conditional
+revalidation of an HTTP or S3 original, including complete-body staging and
+input-cache publication. It runs for every fetched remote original, with or
+without a configured cache, and the `[:source, :fetch]` span nests inside it.
+A fresh cached original skips it.
+
+Stop metadata carries `result: :ok | :source_error`. A source error also
+carries `:error`, with the same categories as `[:source, :fetch_decode]`. The
+default Logger renders `source stage: source_error (receive_timeout)` and
+escalates failures to a warning.
 
 ### Watermark acquisition span (`[:source, :watermark]`)
 
@@ -194,8 +212,8 @@ parents it to the request across that process hop. Start metadata carries
 `:phase`: `:prepare` establishes the asset's byte identity before the
 conditional gate (reusing a fresh input-cache record, or fetching), and `:open`
 reads the asset's bytes after an output-cache miss. The asset's
-`[:source, :resolve]`, `[:source, :fetch]`, and input-cache spans nest inside
-it. Stop metadata carries `:result` in the request vocabulary. Asset sources
+`[:source, :resolve]`, `[:source, :stage]`, `[:source, :fetch]`, and
+input-cache spans nest inside it. Stop metadata carries `:result` in the request vocabulary. Asset sources
 and names are not included.
 
 The default Logger renders `source watermark prepare: ok` or `source watermark
@@ -594,7 +612,8 @@ which emitted fields become metrics tags. Common fields are:
   `image_pipe source fetch: ok (mount media)`.
 - `:source_kind` - `:path`, `:url`, `:object`, or `:input` on source spans.
 - `:source_adapter_kind` - `:file`, `:http`, `:s3`, or `:custom` on source spans.
-- `:error` - a stable error category when known.
+- `:error` - a stable error category when known. The default Logger appends it
+  to the outcome, for example `output negotiate: output_error (unsupported)`.
 - `:sig_key_index` - the matched signing-key index (`ImagePipe.Security.verify/3`'s
   return value) on the path parser's `[:parse]` stop metadata; `nil` when the
   request is legitimately unsigned.
@@ -768,20 +787,17 @@ with `Telemetry.execute/4`, not a span) with:
 - `cache: :stage_cleanup_error` when abort cleanup fails after the response path
   has already failed open.
 
-Coordinated source caching adds three spans (each has `:start`, `:stop`, and
-`:exception` events):
+Input caching adds two spans (each has `:start`, `:stop`, and `:exception`
+events):
 
 - `[:cache, :input]` measures opening and verifying a cached original. Stop
   metadata has `pool: :input` and `cache: :hit | :miss | :read_error`. A hit
   includes `:bytes`, the original bytes reused without downloading a body;
   read failures report `result: :cache_error` and fall back to origin access.
-- `[:cache, :source]` measures the source fill or conditional revalidation,
-  including complete-body staging and publication. Stop metadata has
-  `pool: :input` and `result: :ok | :source_error`.
 - `[:cache, :refresh]` measures supervised stale-while-revalidate work. It
   retains the request outcome, so failed refreshes remain visible.
 
-The default Logger and trace Capture subscribe to all three. Trace attributes
+The default Logger and trace Capture subscribe to both. Trace attributes
 include the safe `:pool` field; credentials, source URLs, and origin headers are
 not included. Output-only hits do not emit an input-pool hit.
 Filesystem admission, warm-start, eviction, flush, and cleanup events carry
@@ -809,18 +825,15 @@ already delivered.
 
 ## HTTP cache events
 
-HTTP cache handling emits one-shot events. The first three fire only when
-the mount includes an explicit `http_cache` option:
+HTTP cache handling emits one-shot events:
 
-- `[:image_pipe, :http_cache, :prepare]` with `:effective_mode`,
+- `[:image_pipe, :http_cache, :prepare]` with `:effective_mode` (the resolved
+  `http_cache` value: `:validators`, `:auto`, `:public`, or `:private`),
   `:byte_identity`, and `:etag`.
 - `[:image_pipe, :http_cache, :conditional, :match]` with `method: :get` or
   `method: :head`.
 - `[:image_pipe, :http_cache, :fallback, :no_store]` with `:source_mount`,
   `:source_kind`, and `:reason`.
-
-The fourth fires on every mount:
-
 - `[:image_pipe, :http_cache, :cache_hit, :headers]` with booleans for `:etag`,
   `:generated_cache_headers`, and `:representation_headers`.
 
@@ -832,7 +845,7 @@ The opt-in default Logger renders all four at the base level under its own
 `:events` option independently of the storage `:cache` group), e.g.:
 
 ```text
-image_pipe http_cache prepare: generate (byte_identity strong, etag true)
+image_pipe http_cache prepare: auto (byte_identity strong, etag true)
 image_pipe http_cache conditional match: get
 image_pipe http_cache fallback no_store: missing_byte_identity (url, mount web)
 image_pipe http_cache cache_hit headers: etag true (generated true, representation false)

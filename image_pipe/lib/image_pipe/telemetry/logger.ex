@@ -26,6 +26,7 @@ defmodule ImagePipe.Telemetry.Logger do
       [:source, :resolve],
       [:source, :fetch],
       [:source, :fetch_decode],
+      [:source, :stage],
       [:source, :watermark]
     ],
     transform: [
@@ -41,7 +42,6 @@ defmodule ImagePipe.Telemetry.Logger do
       [:cache, :write],
       [:cache, :admission],
       [:cache, :warm_start],
-      [:cache, :source],
       [:cache, :input],
       [:cache, :refresh]
     ],
@@ -385,7 +385,7 @@ defmodule ImagePipe.Telemetry.Logger do
 
   defp message([:source, stage | _], _m, %{source_mount: mount} = meta)
        when stage in [:resolve, :fetch] and not is_nil(mount),
-       do: "image_pipe source #{stage}: #{outcome(meta)} (mount #{mount})"
+       do: "image_pipe source #{stage}: #{result(meta)} (#{error_prefix(meta)}mount #{mount})"
 
   defp message([:source, :watermark | _], _m, meta),
     do: "image_pipe source watermark #{meta[:phase]}: #{outcome(meta)}"
@@ -394,6 +394,7 @@ defmodule ImagePipe.Telemetry.Logger do
     notes =
       Enum.reject(
         [
+          error_category(meta),
           detected_note(meta),
           skipped_note(meta),
           loader_note(meta),
@@ -405,8 +406,8 @@ defmodule ImagePipe.Telemetry.Logger do
       )
 
     case notes do
-      [] -> "image_pipe source fetch_decode: #{outcome(meta)}"
-      notes -> "image_pipe source fetch_decode: #{outcome(meta)} (#{Enum.join(notes, ", ")})"
+      [] -> "image_pipe source fetch_decode: #{result(meta)}"
+      notes -> "image_pipe source fetch_decode: #{result(meta)} (#{Enum.join(notes, ", ")})"
     end
   end
 
@@ -431,7 +432,27 @@ defmodule ImagePipe.Telemetry.Logger do
     "image_pipe #{label(suffix)}: exception (#{meta[:kind]} #{inspect(meta[:reason])})"
   end
 
-  defp outcome(meta), do: meta[:cache] || meta[:result] || :ok
+  defp outcome(meta) do
+    result = result(meta)
+
+    case error_category(meta) do
+      error when error in [nil, result] -> "#{result}"
+      error -> "#{result} (#{error})"
+    end
+  end
+
+  defp result(meta), do: meta[:cache] || meta[:result] || :ok
+
+  # Only category atoms are rendered: some stages carry a raw reason term.
+  defp error_category(%{error: error}) when is_atom(error) and not is_nil(error), do: error
+  defp error_category(_meta), do: nil
+
+  defp error_prefix(meta) do
+    case error_category(meta) do
+      nil -> ""
+      error -> "#{error}, "
+    end
+  end
 
   defp mount_note(%{source_mount: mount}) when not is_nil(mount), do: ", mount #{mount}"
   defp mount_note(_meta), do: ""

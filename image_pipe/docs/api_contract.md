@@ -638,5 +638,9 @@ is also presentation-only and remains subject to the host disclosure gate.
 
 `expires` is a UNIX timestamp in seconds. A request expires when it is less than
 the current time; equality remains valid. Expired requests return `410` before
-source fetch or cache access. Hosts may configure `clock: fn -> unix_seconds end`
+source fetch or cache access. Generated cache lifetimes end no later than the
+expiry: `max-age` (net of `Age`) and any `stale-while-revalidate` window are
+cut to the seconds remaining and `must-revalidate` is added; `:validators`
+responses with a generated ETag gain `Cache-Control` carrying that bound. A
+host `Cache-Control` and `no-store` are untouched. Hosts may configure `clock: fn -> unix_seconds end`
 for a controlled time source; the default is `System.os_time(:second)`.

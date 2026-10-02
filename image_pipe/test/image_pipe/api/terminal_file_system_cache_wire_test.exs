@@ -88,7 +88,7 @@ defmodule ImagePipe.API.TerminalFileSystemCacheWireTest do
         ]
       ],
       cache: {FileSystem, root: root},
-      http_cache: [mode: :enabled],
+      http_cache: :auto,
       allow_debug_headers: true
     )
   end

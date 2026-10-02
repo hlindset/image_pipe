@@ -51,7 +51,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
          source_kind: :path,
          identity: [kind: :path, adapter: :debug_wire_test, root: "wire", path: path],
          internal_cache: :enabled,
-         http_cache: :enabled,
+         http_cache: :auto,
          cache_semantics: %CacheSemantics{
            byte_identity: {:strong, [kind: :path, root: "wire", path: path]},
            stable?: true
@@ -129,7 +129,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
   defp stable_opts(overrides) do
     [
       sources: [path: [adapter: StableOrigin, match: :path, options: []]],
-      http_cache: [mode: :enabled]
+      http_cache: :auto
     ]
     |> Keyword.merge(overrides)
   end

@@ -79,7 +79,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
         clock: fn -> Agent.get(state, & &1.now) end
       )
 
-    config = IP.Plug.init(config: shared, http_cache: [mode: :enabled])
+    config = IP.Plug.init(config: shared, http_cache: :auto)
     %{config: config, shared: shared, state: state, root: root}
   end
 
@@ -88,7 +88,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
   } do
     prefix = [__MODULE__, :native_reuse]
     shared = IP.config(Keyword.put(shared.raw, :telemetry_prefix, prefix))
-    config = IP.Plug.init(config: shared, http_cache: [mode: :enabled])
+    config = IP.Plug.init(config: shared, http_cache: :auto)
     observe_transforms(prefix)
 
     assert {:ok, native} = native(shared, 12)
@@ -135,7 +135,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
         Keyword.put(shared.raw, :storage_inputs, [{:header, "X-Tenant"}, {:cookie, "session"}])
       )
 
-    config = IP.Plug.init(config: shared, http_cache: [mode: :enabled])
+    config = IP.Plug.init(config: shared, http_cache: :auto)
     opts = [request_inputs: [headers: [{"X-Tenant", "one"}], cookies: %{"session" => "abc"}]]
     assert {:ok, first} = native(shared, 12, opts)
     assert_receive {:origin, _, []}
@@ -434,11 +434,11 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     refute_received {:origin, _, _}
   end
 
-  test "trusted immutable sources ignore elapsed time but still honor storage permission", %{
+  test "immutable sources ignore elapsed time but still honor storage permission", %{
     config: config,
     state: state
   } do
-    config = update_url_mount(config, &Keyword.put(&1, :stable, :trusted))
+    config = update_url_mount(config, &Keyword.put(&1, :stable, :immutable))
 
     first = request(config, 12)
     assert first.status == 200
@@ -588,13 +588,13 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     refute_received {:auth_resolved, _}
   end
 
-  test "trusted storage permission permits conditionals after both pools are removed", %{
+  test "immutable source storage permission permits conditionals after both pools are removed", %{
     config: config,
     root: root
   } do
     config =
       config
-      |> update_url_mount(&Keyword.put(&1, :stable, :trusted))
+      |> update_url_mount(&Keyword.put(&1, :stable, :immutable))
       |> Keyword.put(:source_cache_policy, storage: :allow)
 
     first = request(config, 12)

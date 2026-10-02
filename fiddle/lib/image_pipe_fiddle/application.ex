@@ -67,7 +67,7 @@ defmodule ImagePipeFiddle.Application do
       path: [
         adapter: ImagePipe.Source.File,
         match: :path,
-        options: [root: static_root, root_id: "static", stable: :trusted]
+        options: [root: static_root, root_id: "static", stable: :immutable]
       ],
       s3: [
         adapter: ImagePipe.Source.S3,

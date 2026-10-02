@@ -30,7 +30,7 @@ defmodule ImagePipe.Source.S3Test do
     assert seed[:revision] == "v1"
   end
 
-  test "s3 without revision isn't stable unless trusted" do
+  test "s3 without revision isn't stable unless immutable" do
     assert {:ok, opts} =
              S3.validate_options(
                default: [
@@ -505,7 +505,7 @@ defmodule ImagePipe.Source.S3Test do
               default: [
                 region: "us-east-1",
                 endpoint: "https://minio.test",
-                stable: :trusted,
+                stable: :immutable,
                 internal_cache: :disabled,
                 credentials: {:static, access_key_id: "A", secret_access_key: "S"},
                 req_options: [
