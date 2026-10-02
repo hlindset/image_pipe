@@ -295,7 +295,8 @@ defmodule ImagePipe.Plug.ConfigTest do
             %{logo: [source: "logo.png", opacity: 0]},
             %{logo: [source: "logo.png", opacity: 1.5]},
             %{logo: [source: "logo.png", extra: true]},
-            %{logo: [source: "s3://bucket/logo.png"]}
+            %{logo: [source: "s3://bucket/logo.png"]},
+            %{unset: [source: "logo.png"]}
           ] do
         assert_raise ArgumentError, fn ->
           Config.validate!(@mounts ++ [watermarks: watermarks])

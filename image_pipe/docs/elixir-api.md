@@ -230,10 +230,11 @@ request. See [validating URLs before serving](urls.md#validating-urls-before-ser
 `ImagePipe.validate(config, builder)` runs the serving check, including any
 preset lookup, without reading a source.
 
-Empty encoder-option or per-format-quality overrides have no URL spelling.
-With named presets or known request defaults, `url/3` returns
-`{:error, :unrepresentable_preset_override}` for those overrides; direct
-execution can apply them.
+Pass `:unset` as any option's value, including a resize setting, to clear what
+the group's presets or the request defaults set:
+`group(presets: ["brand"], watermark: :unset)` or `output(format: :unset)`.
+The URL writes it as `key=unset`. Encoder options and format qualities need at
+least one entry; use `:unset` to clear them.
 
 ### Split deployments
 

@@ -60,6 +60,24 @@ defmodule ImagePipe.Plan do
     %{plan | options: Map.merge(plan.options, Options.output!(options))}
   end
 
+  # Rewrites each group in order, stopping at the first error.
+  @doc false
+  @spec map_groups(t(), (map() -> {:ok, map()} | {:error, term()})) ::
+          {:ok, t()} | {:error, term()}
+  def map_groups(%__MODULE__{} = plan, fun) do
+    plan.groups
+    |> Enum.reduce_while({:ok, []}, fn group, {:ok, groups} ->
+      case fun.(group) do
+        {:ok, group} -> {:cont, {:ok, [group | groups]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, groups} -> {:ok, %{plan | groups: Enum.reverse(groups)}}
+      error -> error
+    end
+  end
+
   @doc false
   @spec validate(t(), map(), map() | nil) :: :ok | {:error, [Issue.t()]}
   def validate(%__MODULE__{} = plan, presets \\ %{}, defaults \\ nil) do

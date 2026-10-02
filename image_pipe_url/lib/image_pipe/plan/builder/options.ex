@@ -18,14 +18,17 @@ defmodule ImagePipe.Plan.Builder.Options do
   @axes [:horizontal, :vertical, :both]
 
   def request!(options) do
-    validate!(options,
-      orient: [type: {:in, [:auto, :none]}],
-      page: [type: :non_neg_integer],
-      filename: [type: custom(:path_token)],
-      attachment: [type: :boolean],
-      cachebuster: [type: custom(:path_token)],
-      expires: [type: :pos_integer],
-      debug: [type: :boolean]
+    validate!(
+      options,
+      unsettable(
+        orient: [type: {:in, [:auto, :none]}],
+        page: [type: :non_neg_integer],
+        filename: [type: custom(:path_token)],
+        attachment: [type: :boolean],
+        cachebuster: [type: custom(:path_token)],
+        expires: [type: :pos_integer],
+        debug: [type: :boolean]
+      )
     )
   end
 
@@ -39,12 +42,25 @@ defmodule ImagePipe.Plan.Builder.Options do
     end
   end
 
-  def output!(options), do: validate!(options, OutputOptions.schema())
+  def output!(options), do: validate!(options, unsettable(OutputOptions.schema()))
+
+  # Every option accepts `:unset`, which clears it from presets and request
+  # defaults.
+  defp unsettable(schema) do
+    Enum.map(schema, fn {key, spec} ->
+      {key, Keyword.update!(spec, :type, &{:or, [{:in, [:unset]}, &1]})}
+    end)
+  end
 
   defp group_schema do
     [
       presets: [type: {:list, {:custom, Values, :cast, [:preset_name]}}],
-      resize: [type: :keyword_list, keys: resize_schema()],
+      resize: [type: :keyword_list, keys: unsettable(resize_schema())]
+    ] ++ unsettable(transform_schema())
+  end
+
+  defp transform_schema do
+    [
       rotate: [type: custom(:rotate)],
       flip: [type: {:in, @axes}],
       gray: [type: :boolean],

@@ -124,6 +124,18 @@ export type LengthUnit = "px" | "percent";
 export const watermarkAssets = ["logo", "mark", "badge"] as const;
 // Presets the fiddle server configures (ImagePipeFiddle.Application).
 export const presetNames = ["card", "frame", "framed"] as const;
+// Options each preset sets, offered as `key=unset` switches.
+export const presetKeys: Record<(typeof presetNames)[number], string[]> = {
+  card: ["w", "h", "fit"],
+  frame: ["pad", "bg"],
+  framed: ["format"],
+};
+
+// The unset switches the selected presets offer, in preset order.
+export function offeredUnsets(presets: string[]): string[] {
+  const keys = presets.flatMap((preset) => presetKeys[preset as keyof typeof presetKeys] ?? []);
+  return [...new Set(keys)];
+}
 export type WatermarkAsset = (typeof watermarkAssets)[number];
 
 export type WebpCompression = "lossy" | "near_lossless" | "lossless";
@@ -158,6 +170,7 @@ export type AvifOptionsState = {
 export type ControlState = {
   source: SourceImage;
   presets: string[];
+  unset: string[];
   autoRotateEnabled: boolean;
   pageEnabled: boolean;
   page: number;
@@ -407,6 +420,7 @@ export function resetCropPixelsToSource(currentState: ControlState): ControlStat
 export const defaultControlState: ControlState = {
   source: "images/dog.jpg",
   presets: [],
+  unset: [],
   autoRotateEnabled: true,
   pageEnabled: false,
   page: 0,
@@ -776,7 +790,13 @@ export function controlOptionSegments(s: ControlState): string[] {
     }),
   );
   segments.push(codecSegment("avif-options", { subsample: s.avifOptions.subsample }));
-  return segments.filter((segment): segment is string => segment !== null);
+  const unset = new Set(s.unset);
+  return [
+    ...segments.filter(
+      (segment): segment is string => segment !== null && !unset.has(keyOf(segment)),
+    ),
+    ...s.unset.map((key) => `${key}=unset`),
+  ];
 }
 
 function color(value = "000000"): string {
@@ -803,10 +823,13 @@ export function controlStateFromOptions(
   s.cropWidth = sourceDimension(source, "width");
   s.cropHeight = sourceDimension(source, "height");
   const groups = optionGroups(options);
-  const segments = [
+  const allSegments = [
     ...(groups[groupIndex] ?? []).filter((segment) => !requestKeys.has(keyOf(segment))),
     ...groups.flat().filter((segment) => requestKeys.has(keyOf(segment))),
   ];
+  const isUnset = (segment: string) => segment.split("=")[1] === "unset";
+  s.unset = allSegments.filter(isUnset).map(keyOf);
+  const segments = allSegments.filter((segment) => !isUnset(segment));
   if (segments.some((segment) => ["w", "h"].includes(keyOf(segment)))) {
     s.resizeWidthUnit = "auto";
     s.resizeHeightUnit = "auto";

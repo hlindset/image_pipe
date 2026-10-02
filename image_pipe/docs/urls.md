@@ -151,9 +151,25 @@ which fail at initialization (or with `500` when looked up) if they break them.
 
 Related alternatives replace one another: `anchor`/`focus`/`detect` replace the
 inherited guide and its offset; `region` replaces inherited `crop` and ratio
-settings; `q` and `autoquality` form an override family. Canvas mode, placement,
+settings; `wm`/`wm-src64`/`wm-enc` replace the inherited watermark asset; `q`
+and `autoquality` form an override family. Canvas mode, placement,
 and offset are another family, so supply the intended canvas settings together.
 `extend=false` or `extend-ratio=false` disables inherited canvas settings.
+
+To remove a value a preset or the request defaults set, write `unset`. Every
+option except `preset` accepts it, and the request then behaves as if no layer
+had set the option:
+
+| Request | Effect |
+| --- | --- |
+| `/preset=brand/wm=unset` | no watermark, and no inherited `wm-opacity`, `wm-at`, or other placement |
+| `/format=unset` | negotiate the format from `Accept` again |
+| `/q=unset`, `/meta=unset`, `/jpeg-options=unset` | use the host configuration |
+| `/preset=card/w=unset` | drop the width; inherited `fit`, `enlarge`, and the guide go too unless `h` or a crop still uses them |
+
+Options written in the same URL are kept, so `/preset=card/w=unset/fit=cover`
+still fails when nothing else resizes. `unset` is reserved: a watermark asset or
+detection class can't be named `unset`.
 
 Presets share cache identity with equivalent explicit requests. Plug and direct
 Elixir execution expand presets using the same rules. URL generation preserves
@@ -180,10 +196,7 @@ ImagePipe.URL.config(
 `preset_lookup: true` says that the mount has a lookup, so names the map lacks
 are left to the mount. The copy only affects validation; a stale one gives
 wrong results but never changes a URL. `ImagePipe.validate(config, builder)`
-runs the full check, including the lookup, in the serving application. With
-known request defaults, an empty collection override such as `jpeg_options: []`
-cannot be written in a URL, so `url/3` returns
-`{:error, :unrepresentable_preset_override}`.
+runs the full check, including the lookup, in the serving application.
 
 ### Preset lookup
 

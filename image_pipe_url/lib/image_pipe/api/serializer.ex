@@ -8,20 +8,6 @@ defmodule ImagePipe.API.Serializer do
 
   @options OptionSpec.all()
 
-  @spec empty_overrides?(Plan.t()) :: boolean()
-  def empty_overrides?(%Plan{options: options}) do
-    Enum.any?(options, fn
-      {:format_qualities, qualities} ->
-        map_size(qualities) == 0
-
-      {key, value} when key in [:jpeg_options, :png_options, :webp_options, :avif_options] ->
-        Enum.all?(Map.from_struct(value), fn {_field, value} -> is_nil(value) end)
-
-      _option ->
-        false
-    end)
-  end
-
   @spec segments(Plan.t()) :: [String.t()]
   def segments(%Plan{groups: groups, options: options}) do
     groups(groups) ++ entries(options)
@@ -40,13 +26,11 @@ defmodule ImagePipe.API.Serializer do
   defp entries(options) do
     for spec <- @options,
         {:ok, value} <- [Map.fetch(options, spec.name)],
-        encoded = entry(spec.key, value),
-        encoded != nil,
-        do: encoded
+        do: entry(spec.key, value)
   end
 
+  defp entry(key, :unset), do: key <> "=unset"
   defp entry(key, true), do: key
-  defp entry("format-q", qualities) when map_size(qualities) == 0, do: nil
 
   defp entry(key, value)
        when key in ["jpeg-options", "png-options", "webp-options", "avif-options"] do
@@ -58,10 +42,7 @@ defmodule ImagePipe.API.Serializer do
         "avif-options" -> :avif
       end
 
-    case OutputOptions.serialize_encoder(value, format) do
-      "" -> nil
-      encoded -> key <> "=" <> encoded
-    end
+    key <> "=" <> OutputOptions.serialize_encoder(value, format)
   end
 
   defp entry(key, value), do: key <> "=" <> value(key, value)

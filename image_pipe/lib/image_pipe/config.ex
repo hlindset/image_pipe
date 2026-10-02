@@ -168,6 +168,10 @@ defmodule ImagePipe.Config do
                     )
 
   @doc false
+  # `unset` is the URL value that clears a watermark.
+  def validate_watermark_name(:unset),
+    do: {:error, "watermark name unset is reserved"}
+
   def validate_watermark_name(name) when is_atom(name) and not is_nil(name) do
     case Regex.match?(~r/\A[a-z0-9_-]+\z/, Atom.to_string(name)) do
       true -> {:ok, name}

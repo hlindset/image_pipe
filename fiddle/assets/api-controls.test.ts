@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   controlStateFromOptions,
   controlOptionSegments,
+  offeredUnsets,
   normalizeControlEdit,
   updateControlOptions,
 } from "./api-controls";
@@ -27,6 +28,27 @@ describe("visual controls serialize API requests", () => {
       presets: [],
     });
     expect(removed).toBe("w=500/-/trim=auto");
+  });
+
+  it("unsets preset options in place of the controls that set them", () => {
+    const before = controlStateFromOptions("preset=card", source);
+    const unset = updateControlOptions("preset=card", 0, before, {
+      ...before,
+      unset: ["w", "fit"],
+      blurEnabled: true,
+      blur: 2,
+    });
+    expect(unset).toBe("preset=card/blur=2/w=unset/fit=unset");
+
+    const opened = controlStateFromOptions(unset, source);
+    expect(opened).toMatchObject({ unset: ["w", "fit"], blurEnabled: true });
+    expect(controlOptionSegments(opened)).toEqual([
+      "preset=card",
+      "blur=2",
+      "w=unset",
+      "fit=unset",
+    ]);
+    expect(offeredUnsets(["frame", "card"])).toEqual(["pad", "bg", "w", "h", "fit"]);
   });
 
   it("enables a watermark with editing defaults and drops its options when disabled", () => {

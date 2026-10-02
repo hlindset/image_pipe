@@ -3,7 +3,6 @@ defmodule ImagePipe.API.URL do
 
   alias ImagePipe.API.{Path, Serializer}
   alias ImagePipe.Plan
-  alias ImagePipe.Plan.Presets
   alias ImagePipe.Plan.Source, as: PlanSource
   alias ImagePipe.Security
 
@@ -63,19 +62,8 @@ defmodule ImagePipe.API.URL do
   defp source_segments(source), do: ["src", URI.encode(source, &URI.char_unreserved?/1)]
 
   # Watermark sources follow the main source: concealed whenever it is.
-  defp conceal_watermarks(%Plan{} = plan, config, options, true) do
-    plan.groups
-    |> Enum.reduce_while({:ok, []}, fn group, {:ok, groups} ->
-      case conceal_watermark(group, config, options) do
-        {:ok, group} -> {:cont, {:ok, [group | groups]}}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-    |> case do
-      {:ok, groups} -> {:ok, %{plan | groups: Enum.reverse(groups)}}
-      error -> error
-    end
-  end
+  defp conceal_watermarks(plan, config, options, true),
+    do: Plan.map_groups(plan, &conceal_watermark(&1, config, options))
 
   defp conceal_watermarks(plan, _config, _options, _encrypt?), do: {:ok, plan}
 
@@ -98,19 +86,9 @@ defmodule ImagePipe.API.URL do
   end
 
   defp validate_plan(plan, config) do
-    inherited? =
-      preset_names(plan) != [] or
-        match?(%{request_defaults: %{}}, config[:mount_presets])
-
-    case inherited? and Serializer.empty_overrides?(plan) do
-      true ->
-        {:error, :unrepresentable_preset_override}
-
-      false ->
-        case check(plan, config) do
-          :ok -> :ok
-          {:error, issues} -> {:error, {:invalid_request, issues}}
-        end
+    case check(plan, config) do
+      :ok -> :ok
+      {:error, issues} -> {:error, {:invalid_request, issues}}
     end
   end
 
@@ -124,19 +102,12 @@ defmodule ImagePipe.API.URL do
         :ok
 
       %{presets: presets, request_defaults: defaults, lookup?: lookup?} ->
-        names = preset_names(plan)
+        names = Plan.preset_names(plan)
 
         if lookup? and not Enum.all?(names, &Map.has_key?(presets, &1)),
           do: :ok,
           else: Plan.validate(plan, presets, defaults)
     end
-  end
-
-  defp preset_names(plan) do
-    plan.groups
-    |> Enum.with_index()
-    |> Map.new(fn {group, index} -> {index, group} end)
-    |> Presets.references()
   end
 
   defp segments(plan) do

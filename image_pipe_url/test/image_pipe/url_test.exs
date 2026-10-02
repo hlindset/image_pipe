@@ -273,11 +273,31 @@ defmodule ImagePipe.URLTest do
       end
     end
 
-    test "an empty override cannot clear known request defaults" do
-      config = IP.URL.config(mount_presets: [request_defaults: "jpeg-options=progressive"])
-      builder = IP.URL.new(config) |> IP.URL.output(jpeg_options: [])
+    test "unset options are written as key=unset and clear presets" do
+      config =
+        IP.URL.config(
+          mount_presets: [
+            request_defaults: "jpeg-options=progressive/format=webp",
+            presets: %{"brand" => "w=300/h=200/fit=cover/wm=logo"}
+          ]
+        )
 
-      assert IP.URL.url(builder, "photo.jpg") == {:error, :unrepresentable_preset_override}
+      builder =
+        IP.URL.new(config, filename: :unset)
+        |> IP.URL.group(presets: ["brand"], resize: [width: :unset], watermark: :unset)
+        |> IP.URL.output(jpeg_options: :unset, format: :unset)
+
+      assert :ok = IP.URL.validate(builder)
+
+      assert IP.URL.url(builder, "photo.jpg") ==
+               {:ok,
+                "/preset=brand/w=unset/wm=unset/format=unset/jpeg-options=unset/filename=unset/src/photo.jpg"}
+    end
+
+    test "empty encoder options and format qualities are rejected" do
+      for options <- [[jpeg_options: []], [format_qualities: []]] do
+        assert_raise ArgumentError, ~r/:unset/, fn -> IP.URL.new() |> IP.URL.output(options) end
+      end
     end
   end
 end

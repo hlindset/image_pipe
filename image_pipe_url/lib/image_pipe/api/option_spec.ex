@@ -956,7 +956,8 @@ defmodule ImagePipe.API.OptionSpec do
 
   defp parse_detect_item(_invalid), do: :error
 
-  defp valid_detect_class?(class), do: Regex.match?(@detect_class_pattern, class)
+  defp valid_detect_class?(class),
+    do: class != "unset" and Regex.match?(@detect_class_pattern, class)
 
   defp unique_detect_classes?(pairs) do
     classes = Enum.map(pairs, &elem(&1, 0))
