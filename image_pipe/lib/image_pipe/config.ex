@@ -3,24 +3,33 @@ defmodule ImagePipe.Config do
   Reusable host configuration shared by the Plug and direct execution.
 
   Construct with `ImagePipe.config/1`. Configuration owns sources, caches,
-  processing defaults, and storage partitions, and takes URL settings (signing,
-  source encryption, presets) as an `ImagePipe.URL.Config` value. Inspection
-  excludes its values.
+  processing defaults, storage partitions, presets, and request defaults, and
+  takes URL settings (signing, source encryption) as an `ImagePipe.URL.Config`
+  value. Inspection excludes its values.
   """
   use Boundary,
     top_level?: true,
-    deps: [ImagePipe.Cache, ImagePipe.Processing, ImagePipe.Source, ImagePipe.URL],
+    deps: [
+      ImagePipe.API,
+      ImagePipe.Cache,
+      ImagePipe.Processing,
+      ImagePipe.Source,
+      ImagePipe.URL
+    ],
     exports: []
 
+  alias ImagePipe.API.Presets
   alias ImagePipe.Cache
   alias ImagePipe.Processing.Config, as: ProcessingConfig
   alias ImagePipe.Source
   alias ImagePipe.URL.Config, as: URLConfig
 
-  @enforce_keys [:options, :raw]
-  @derive {Inspect, except: [:options, :raw]}
+  @enforce_keys [:options, :raw, :url]
+  @derive {Inspect, except: [:options, :raw, :url]}
   defstruct @enforce_keys
-  @type t :: %__MODULE__{options: keyword(), raw: keyword()}
+  @type t :: %__MODULE__{options: keyword(), raw: keyword(), url: URLConfig.t()}
+
+  @preset_keys [:presets, :request_defaults, :preset_lookup, :max_preset_lookups]
 
   @schema NimbleOptions.new!(
             ProcessingConfig.schema() ++
@@ -36,7 +45,11 @@ defmodule ImagePipe.Config do
                     {:map, {:custom, __MODULE__, :validate_watermark_name, []}, :keyword_list},
                   default: %{}
                 ],
-                request_watermarks: [type: :boolean, default: false]
+                request_watermarks: [type: :boolean, default: false],
+                presets: [type: :any, default: %{}],
+                request_defaults: [type: :any],
+                preset_lookup: [type: {:custom, __MODULE__, :validate_preset_lookup, []}],
+                max_preset_lookups: [type: :pos_integer]
               ]
           )
 
@@ -49,6 +62,10 @@ defmodule ImagePipe.Config do
 
     case NimbleOptions.validate(resolved, @schema) do
       {:ok, validated} ->
+        {preset_options, validated} = Keyword.split(validated, @preset_keys)
+        {presets, mount_presets} = presets!(preset_options)
+        url = URLConfig.put_mount_presets(url, mount_presets)
+
         validated =
           validated
           |> Keyword.put_new(:clock, &ProcessingConfig.system_time/0)
@@ -58,18 +75,74 @@ defmodule ImagePipe.Config do
           validated
           |> ProcessingConfig.resolve!()
           |> Keyword.merge(url.options)
+          |> Keyword.merge(presets)
 
-        %__MODULE__{options: resolved, raw: options}
+        %__MODULE__{options: resolved, raw: options, url: url}
 
       {:error, error} ->
         raise ArgumentError, "invalid ImagePipe configuration: #{Exception.message(error)}"
     end
   end
 
-  defp url_config!(%URLConfig{} = url), do: url
+  defp url_config!(%URLConfig{options: options} = url) do
+    case Keyword.has_key?(options, :mount_presets) do
+      true ->
+        raise ArgumentError,
+              "url must not set mount_presets; configure presets on ImagePipe.config/1"
+
+      false ->
+        url
+    end
+  end
 
   defp url_config!(_url),
     do: raise(ArgumentError, "url must be built with ImagePipe.URL.config/1")
+
+  # Compiles static presets and request defaults; returns the resolved options
+  # and the builder's view of them for `ImagePipe.url_config/1`.
+  defp presets!(options) do
+    presets =
+      Map.new(Keyword.fetch!(options, :presets), fn {name, value} -> {name, plan(value)} end)
+
+    case Presets.compile(presets, plan(options[:request_defaults])) do
+      {:ok, compiled} ->
+        lookup = lookup_options!(options)
+
+        {[presets: compiled.presets, request_defaults: compiled.request_defaults] ++ lookup,
+         Map.put(compiled, :lookup?, lookup != [])}
+
+      {:error, message} ->
+        raise ArgumentError, "invalid ImagePipe configuration: #{message}"
+    end
+  end
+
+  defp lookup_options!(options) do
+    case {options[:preset_lookup], options[:max_preset_lookups]} do
+      {nil, nil} ->
+        []
+
+      {nil, _max} ->
+        raise ArgumentError,
+              "invalid ImagePipe configuration: max_preset_lookups requires preset_lookup"
+
+      {lookup, max} ->
+        [preset_lookup: lookup, max_preset_lookups: max || 32]
+    end
+  end
+
+  defp plan(%ImagePipe.URL{plan: plan}), do: {:plan, plan}
+  defp plan(value), do: value
+
+  @doc false
+  def validate_preset_lookup({module, options}) when is_atom(module) and is_list(options) do
+    case module.validate_options(options) do
+      {:ok, options} when is_list(options) -> {:ok, {module, options}}
+      {:error, reason} -> {:error, "preset_lookup options are invalid: #{inspect(reason)}"}
+    end
+  end
+
+  def validate_preset_lookup(_lookup),
+    do: {:error, "expected a {module, options} tuple implementing ImagePipe.PresetLookup"}
 
   @doc false
   @spec override(t(), keyword()) :: t()

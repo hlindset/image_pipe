@@ -8,6 +8,7 @@ defmodule ImagePipe.API.Serializer do
 
   @options OptionSpec.all()
 
+  @spec empty_overrides?(Plan.t()) :: boolean()
   def empty_overrides?(%Plan{options: options}) do
     Enum.any?(options, fn
       {:format_qualities, qualities} ->

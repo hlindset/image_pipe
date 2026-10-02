@@ -1,10 +1,10 @@
 defmodule ImagePipe.Plan.Presets do
   # Compiles host-configured presets at initialization.
   #
-  # Defaults apply first, followed by named presets in request order and
-  # explicit options. Nested references use the same precedence without
-  # implicitly applying the default. Preset names disappear before request
-  # canonicalization and representation identity.
+  # Request defaults apply first, followed by named presets in request order
+  # and explicit options. Nested references use the same precedence. Preset
+  # names disappear before request canonicalization and representation
+  # identity.
   #
   # Single-group presets contribute to the first group. A pipeline preset
   # supplies the complete group sequence; explicit group options and another
@@ -78,19 +78,15 @@ defmodule ImagePipe.Plan.Presets do
     end
   end
 
+  # `defaults` is the compiled single-group request defaults, or nil.
   @doc false
-  def expand(groups, request, presets) do
+  def expand(groups, request, presets, defaults) do
     names = Map.get(request, :presets, [])
     unknown = Enum.reject(names, &Map.has_key?(presets, &1))
 
     case unknown do
       [] ->
-        defaults =
-          if Map.has_key?(presets, "default") and "default" not in names,
-            do: ["default"],
-            else: []
-
-        selected = Enum.map(defaults ++ names, &Map.fetch!(presets, &1))
+        selected = List.wrap(defaults) ++ Enum.map(names, &Map.fetch!(presets, &1))
 
         case compose(groups, request, selected) do
           {:ok, expanded} -> {:ok, expanded}

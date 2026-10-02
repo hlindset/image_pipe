@@ -29,14 +29,15 @@ Sources, caches, detectors, and telemetry exporters are host extension points.
 
 ## Host configuration
 
-URL configuration owns presets, signing/encryption keys, and the URL prefix.
-Server configuration owns source/cache adapters, generation limits, output
-defaults, detection, watermarks, and storage partitions. Plug configuration adds
+URL configuration owns signing/encryption keys and the URL prefix. Server
+configuration owns source/cache adapters, generation limits, output defaults,
+detection, watermarks, storage partitions, presets, request defaults, and the
+preset lookup. Plug configuration adds
 HTTP delivery controls. Source adapters validate their own options, including
 network limits and credentials. See the [configuration reference](configuration.md).
 
-A `default` preset can set request defaults such as `orient` and
-`anchor=smart-face`. Generated [HTTP cache policy](cdn-http-cache.md) respects
+Request defaults can set options such as `orient` and `anchor=smart-face` for
+every request. Generated [HTTP cache policy](cdn-http-cache.md) respects
 host headers and source storage permission.
 
 ## Processing semantics
@@ -495,11 +496,13 @@ outputs also ignore configured image output policy.
 
 ### Presets and terminals
 
-Presets expand before validation and canonicalization. Precedence is default
-preset, named presets in listed order, then explicit values. Shared configuration
-owns preset definitions; Plug and builder execution use the same expansion.
-URL generation preserves named references and explicit overrides. Resolve
-nested static presets at initialization and reject cycles/unknown names. A host
+Presets expand before validation and canonicalization. Precedence is request
+defaults, named presets in listed order, then explicit values. Request defaults
+are one group without preset references. Server configuration owns preset
+definitions; Plug and direct execution use the same expansion. URL generation
+preserves named references and explicit overrides; the builder validates
+combined requests only when given the mount's presets. Resolve nested static
+presets at initialization and reject cycles/unknown names. A host
 preset lookup resolves names the static map does not define per request, after
 signature verification and before source or cache access, with the same
 precedence and composition; static names shadow it.

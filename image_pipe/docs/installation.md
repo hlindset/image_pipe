@@ -41,8 +41,8 @@ on the URL builder alone. It needs no libvips or NIFs:
 {:image_pipe_url, "~> 0.1.0"}
 ```
 
-It provides `ImagePipe.URL` with the same URL grammar, presets, signing, and
-source encryption; see [URL builder with an external server](external-server.md).
+It provides `ImagePipe.URL` with the same URL grammar, preset references,
+signing, and source encryption; see [URL builder with an external server](external-server.md).
 
 Your application supplies the HTTP server when using Plug. An existing Phoenix
 endpoint is sufficient. Direct Elixir calls need no web server.

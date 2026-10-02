@@ -7,6 +7,9 @@ defmodule ImagePipe.BuilderTest do
   alias ImagePipe.API.Path
   alias ImagePipe.Plan
 
+  # Semantic checks need to know the mount's presets; this mount has none.
+  @known IP.URL.config(mount_presets: [])
+
   test "builds reusable, source-independent plans with explicit groups" do
     plan =
       IP.URL.new(orient: :none)
@@ -291,7 +294,7 @@ defmodule ImagePipe.BuilderTest do
           {[blur: 1], [format: :webp, jpeg_options: [interlace: true]],
            "blur=1/format=webp/jpeg-options=progressive"}
         ] do
-      plan = IP.URL.new() |> IP.URL.group(group) |> IP.URL.output(output)
+      plan = IP.URL.new(@known) |> IP.URL.group(group) |> IP.URL.output(output)
       assert {:error, issues} = IP.URL.validate(plan)
       assert {:error, {:invalid_request, diagnostics}} = parse(path)
 
@@ -301,7 +304,7 @@ defmodule ImagePipe.BuilderTest do
   end
 
   test "reports conflicts and missing consumers using typed option locations" do
-    plan = IP.URL.new() |> IP.URL.group(anchor: :top, focus: {0.5, 0.5})
+    plan = IP.URL.new(@known) |> IP.URL.group(anchor: :top, focus: {0.5, 0.5})
     assert {:error, issues} = IP.URL.validate(plan)
     assert Enum.any?(issues, &(&1.reason == :mutually_exclusive_options))
     assert Enum.any?(issues, &(&1.reason == :inert_option))
@@ -336,7 +339,7 @@ defmodule ImagePipe.BuilderTest do
 
   test "checks output conflicts across merged output calls" do
     plan =
-      IP.URL.new()
+      IP.URL.new(@known)
       |> IP.URL.output(quality: 80)
       |> IP.URL.output(autoquality: {:size, target: 12_000})
 

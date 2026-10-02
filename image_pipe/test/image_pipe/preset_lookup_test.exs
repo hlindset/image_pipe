@@ -15,13 +15,9 @@ defmodule ImagePipe.PresetLookupTest do
     %{body: body}
   end
 
-  defp url_config(lookup_options, extra \\ []) do
-    IP.URL.config(
-      [preset_lookup: {PresetLookup, Keyword.put(lookup_options, :test_pid, self())}] ++ extra
-    )
-  end
+  defp lookup(options), do: {PresetLookup, Keyword.put(options, :test_pid, self())}
 
-  defp config(url_config, body, extra \\ []) do
+  defp config(body, options) do
     pid = self()
 
     origin = fn conn ->
@@ -31,7 +27,6 @@ defmodule ImagePipe.PresetLookupTest do
 
     IP.config(
       [
-        url: url_config,
         sources: [
           path: [
             adapter: RootHTTPAdapter,
@@ -43,7 +38,7 @@ defmodule ImagePipe.PresetLookupTest do
             ]
           ]
         ]
-      ] ++ extra
+      ] ++ options
     )
   end
 
@@ -60,9 +55,8 @@ defmodule ImagePipe.PresetLookupTest do
   end
 
   test "a looked-up preset applies identically through Plug and direct execution", %{body: body} do
-    url_config = url_config(presets: %{"card" => "w=30/format=png"})
-    config = config(url_config, body)
-    builder = IP.URL.new(url_config, presets: ["card"])
+    config = config(body, preset_lookup: lookup(presets: %{"card" => "w=30/format=png"}))
+    builder = IP.URL.new(IP.url_config(config), presets: ["card"])
 
     assert :ok = IP.URL.validate(builder)
     url = IP.URL.url!(builder, "photo.png")
@@ -71,20 +65,20 @@ defmodule ImagePipe.PresetLookupTest do
     response = get(config, url)
     assert response.status == 200
     assert dimensions(response) == {30, 20}
-    assert_received {:preset_fetch, ["default", "card"]}
+    assert_received {:preset_fetch, ["card"]}
 
     assert {:ok, result} = IP.run(config, builder, {:binary, body})
     assert result.data == response.resp_body
-    assert_received {:preset_fetch, ["default", "card"]}
+    assert_received {:preset_fetch, ["card"]}
   end
 
   test "static presets shadow the lookup and static-only requests never call it", %{body: body} do
-    url_config =
-      url_config([presets: %{"card" => "w=10", "default" => "w=10"}],
-        presets: %{"card" => "w=30/format=png", "default" => "format=png"}
+    config =
+      config(body,
+        request_defaults: "format=png",
+        presets: %{"card" => "w=30"},
+        preset_lookup: lookup(presets: %{"card" => "w=10"})
       )
-
-    config = config(url_config, body)
 
     response = get(config, "/preset=card/src/photo.png")
     assert response.status == 200
@@ -94,28 +88,39 @@ defmodule ImagePipe.PresetLookupTest do
     conditional = get(config, "/preset=card/src/photo.png", [{"if-none-match", etag}])
     assert conditional.status == 304
 
+    assert get(config, "/w=30/src/photo.png").status == 200
     refute_received {:preset_fetch, _names}
   end
 
   test "nested references resolve in batches across looked-up and static presets",
        %{body: body} do
-    url_config =
-      url_config(
-        [presets: %{"poster" => "preset=base,framed", "base" => "w=30"}],
-        presets: %{"framed" => "pad=2/format=png"}
+    config =
+      config(body,
+        presets: %{"framed" => "pad=2/format=png"},
+        preset_lookup: lookup(presets: %{"poster" => "preset=base,framed", "base" => "w=30"})
       )
 
-    response = get(config(url_config, body), "/preset=poster/src/photo.png")
+    response = get(config, "/preset=poster/src/photo.png")
     assert response.status == 200
     assert dimensions(response) == {34, 24}
-    assert_received {:preset_fetch, ["default", "poster"]}
+    assert_received {:preset_fetch, ["poster"]}
     assert_received {:preset_fetch, ["base"]}
     refute_received {:preset_fetch, _names}
   end
 
-  test "a static preset cannot reference a name only the lookup could define" do
+  test "a retired name returning an empty fragment serves the plain request", %{body: body} do
+    config = config(body, preset_lookup: lookup(presets: %{"promo" => ""}))
+
+    retired = get(config, "/preset=promo/w=30/format=png/src/photo.png")
+    plain = get(config, "/w=30/format=png/src/photo.png")
+    assert retired.status == 200
+    assert retired.resp_body == plain.resp_body
+    assert Plug.Conn.get_resp_header(retired, "etag") == Plug.Conn.get_resp_header(plain, "etag")
+  end
+
+  test "a static preset cannot reference a name only the lookup could define", %{body: body} do
     assert_raise ArgumentError, ~r/unknown preset: remote/, fn ->
-      url_config([], presets: %{"card" => "preset=remote"})
+      config(body, presets: %{"card" => "preset=remote"}, preset_lookup: lookup([]))
     end
   end
 
@@ -132,7 +137,7 @@ defmodule ImagePipe.PresetLookupTest do
     ]
 
     for {lookup_options, status} <- cases do
-      config = config(url_config(lookup_options), body, cache: {CacheProbe, []})
+      config = config(body, preset_lookup: lookup(lookup_options), cache: {CacheProbe, []})
       response = get(config, "/preset=card/src/photo.png")
       assert response.status == status, inspect(lookup_options)
       refute_received :source_fetch
@@ -141,38 +146,42 @@ defmodule ImagePipe.PresetLookupTest do
   end
 
   test "max_preset_lookups caps the distinct names one request may look up", %{body: body} do
-    presets = %{"card" => "preset=base", "base" => "w=30/format=png"}
+    lookup = lookup(presets: %{"card" => "preset=base", "base" => "w=30/format=png"})
 
     assert get(
-             config(url_config([presets: presets], max_preset_lookups: 2), body),
+             config(body, preset_lookup: lookup, max_preset_lookups: 1),
              "/preset=card/src/photo.png"
            ).status ==
              500
 
     assert get(
-             config(url_config([presets: presets], max_preset_lookups: 3), body),
+             config(body, preset_lookup: lookup, max_preset_lookups: 2),
              "/preset=card/src/photo.png"
            ).status ==
              200
   end
 
-  test "max_preset_lookups requires a lookup and a positive integer" do
+  test "lookup options are validated at init", %{body: body} do
     assert_raise ArgumentError, ~r/requires preset_lookup/, fn ->
-      IP.URL.config(max_preset_lookups: 4)
+      config(body, max_preset_lookups: 4)
     end
 
     for value <- [0, -1, "4"] do
-      assert_raise ArgumentError, fn -> url_config([], max_preset_lookups: value) end
+      assert_raise ArgumentError, fn ->
+        config(body, preset_lookup: lookup([]), max_preset_lookups: value)
+      end
     end
 
     assert_raise ArgumentError, ~r/preset_lookup/, fn ->
-      IP.URL.config(preset_lookup: PresetLookup)
+      config(body, preset_lookup: PresetLookup)
     end
   end
 
   test "changing a looked-up definition changes the ETag", %{body: body} do
     etag = fn presets ->
-      response = get(config(url_config(presets: presets), body), "/preset=card/src/photo.png")
+      response =
+        get(config(body, preset_lookup: lookup(presets: presets)), "/preset=card/src/photo.png")
+
       assert response.status == 200
       Plug.Conn.get_resp_header(response, "etag")
     end
@@ -182,20 +191,52 @@ defmodule ImagePipe.PresetLookupTest do
     assert etag.(%{"card" => "w=30/format=png"}) == narrow
   end
 
-  test "the builder defers names the static map does not define to the mount" do
-    with_lookup = url_config([], presets: %{"card" => "w=30", "pipeline" => "w=30/-/gray"})
-    without = IP.URL.config(presets: %{"card" => "w=30"})
+  test "the mount's URL config defers looked-up names and checks static ones", %{body: body} do
+    with_lookup =
+      config(body,
+        presets: %{"card" => "w=30", "pipeline" => "w=30/-/gray"},
+        preset_lookup: lookup([])
+      )
 
-    assert :ok = IP.URL.validate(IP.URL.new(with_lookup, presets: ["remote"]))
-    assert {:error, [_ | _]} = IP.URL.validate(IP.URL.new(without, presets: ["remote"]))
+    without = config(body, presets: %{"card" => "w=30"})
+
+    assert :ok = IP.URL.validate(IP.URL.new(IP.url_config(with_lookup), presets: ["remote"]))
+
+    assert {:error, [_ | _]} =
+             IP.URL.validate(IP.URL.new(IP.url_config(without), presets: ["remote"]))
 
     assert {:error, [_ | _]} =
              IP.URL.validate(
-               IP.URL.new(with_lookup, presets: ["pipeline"])
+               IP.URL.new(IP.url_config(with_lookup), presets: ["pipeline"])
                |> IP.URL.group(blur: 1)
              )
 
     refute_received {:preset_fetch, _names}
+  end
+
+  test "ImagePipe.validate/2 runs the lookup and matches the mount", %{body: body} do
+    config =
+      config(body,
+        presets: %{"pipeline" => "w=30/-/gray"},
+        preset_lookup: lookup(presets: %{"card" => "w=30"})
+      )
+
+    assert :ok = IP.validate(config, IP.URL.new(presets: ["card"]))
+    assert_received {:preset_fetch, ["card"]}
+
+    assert {:error, {:invalid_request, _issues}} =
+             IP.validate(config, IP.URL.new(presets: ["nope"]))
+
+    assert {:error, {:invalid_request, _issues}} =
+             IP.validate(config, IP.URL.new(presets: ["pipeline"]) |> IP.URL.group(blur: 1))
+
+    failing = config(body, preset_lookup: lookup(fail: true))
+
+    assert IP.validate(failing, IP.URL.new(presets: ["card"])) ==
+             {:error, {:preset, :lookup_unavailable}}
+
+    assert get(failing, "/preset=card/src/photo.png").status == 503
+    refute_received :source_fetch
   end
 
   test "the lookup span reports names, counts, and failures", %{body: body} do
@@ -213,15 +254,15 @@ defmodule ImagePipe.PresetLookupTest do
     on_exit(fn -> :telemetry.detach(handler) end)
 
     presets = %{"card" => "preset=base", "base" => "w=30/format=png"}
-    config = config(url_config(presets: presets), body, telemetry_prefix: @prefix)
+    config = config(body, preset_lookup: lookup(presets: presets), telemetry_prefix: @prefix)
     assert get(config, "/preset=card/src/photo.png").status == 200
 
-    assert_received {:span, @prefix ++ [:preset, :lookup, :start], %{names: ["default", "card"]}}
+    assert_received {:span, @prefix ++ [:preset, :lookup, :start], %{names: ["card"]}}
 
     assert_received {:span, @prefix ++ [:preset, :lookup, :stop],
                      %{result: :ok, fetched: 2, batches: 2}}
 
-    config = config(url_config(fail: true), body, telemetry_prefix: @prefix)
+    config = config(body, preset_lookup: lookup(fail: true), telemetry_prefix: @prefix)
     assert get(config, "/preset=card/src/photo.png").status == 503
 
     assert_received {:span, @prefix ++ [:preset, :lookup, :stop],

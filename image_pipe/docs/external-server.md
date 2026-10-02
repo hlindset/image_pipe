@@ -23,7 +23,7 @@ Create `config.toml` in the repository root:
 [server]
 mount_path = "/images"
 
-[url.presets]
+[processing.presets]
 card = "w=400/h=300/fit=cover"
 
 [sources.static]
@@ -68,8 +68,7 @@ so it inherits `IMAGE_PIPE_SIGNING_KEY`. Generate a URL:
 url_config =
   ImagePipe.URL.config(
     base_url: "http://localhost:8080/images",
-    keys: [System.fetch_env!("IMAGE_PIPE_SIGNING_KEY")],
-    presets: %{"card" => "w=400/h=300/fit=cover"}
+    keys: [System.fetch_env!("IMAGE_PIPE_SIGNING_KEY")]
   )
 
 url =
@@ -88,10 +87,13 @@ or CDN address, such as `https://images.example.com/images`.
 
 ## Share settings and originals
 
-Keep signing keys and preset definitions synchronized between the application
-and server. A URL carries a preset's name; the server applies its current
-definition. Manage these settings from one shared configuration source. If you
-enable [source encryption](urls.md#conceal-the-source), share those keys too.
+Keep signing keys synchronized between the application and server. A URL
+carries a preset's name; the server applies its current definition, so the
+application needs no preset definitions to build URLs. To have the builder
+check plans against the server's presets, pass them as
+[`mount_presets`](urls.md#validating-urls-before-serving) from the same shared
+configuration source. If you enable
+[source encryption](urls.md#conceal-the-source), share those keys too.
 
 Deploy the server before a newer builder or a new preset. The server must
 understand the URLs the builder emits. Stop generating a preset's URLs before

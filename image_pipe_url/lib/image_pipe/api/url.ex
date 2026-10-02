@@ -97,27 +97,37 @@ defmodule ImagePipe.API.URL do
   end
 
   defp validate_plan(plan, config) do
-    presets = config[:presets]
-    names = Map.get(plan.options, :presets, [])
+    inherited? =
+      Map.get(plan.options, :presets, []) != [] or
+        match?(%{request_defaults: %{}}, config[:mount_presets])
 
-    inherited? = names != [] or Map.has_key?(presets, "default")
-
-    cond do
-      inherited? and Serializer.empty_overrides?(plan) ->
+    case inherited? and Serializer.empty_overrides?(plan) do
+      true ->
         {:error, :unrepresentable_preset_override}
 
-      Enum.all?(names, &Map.has_key?(presets, &1)) ->
-        validate_known_plan(plan, presets)
-
-      true ->
-        :ok
+      false ->
+        case check(plan, config) do
+          :ok -> :ok
+          {:error, issues} -> {:error, {:invalid_request, issues}}
+        end
     end
   end
 
-  defp validate_known_plan(plan, presets) do
-    case Plan.validate(plan, presets) do
-      :ok -> :ok
-      {:error, issues} -> {:error, {:invalid_request, issues}}
+  # Semantic checks run only when the builder knows the mount's presets. A name
+  # the known map lacks defers to the mount when it has a lookup.
+  @doc false
+  @spec check(Plan.t(), keyword()) :: :ok | {:error, [ImagePipe.Plan.Spec.Issue.t()]}
+  def check(plan, config) do
+    case config[:mount_presets] do
+      nil ->
+        :ok
+
+      %{presets: presets, request_defaults: defaults, lookup?: lookup?} ->
+        names = Map.get(plan.options, :presets, [])
+
+        if lookup? and not Enum.all?(names, &Map.has_key?(presets, &1)),
+          do: :ok,
+          else: Plan.validate(plan, presets, defaults)
     end
   end
 

@@ -66,6 +66,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Processing => "lib/image_pipe/processing.ex",
     ImagePipe.ProcessingPool => "lib/image_pipe/processing_pool.ex",
     ImagePipe.Plug => "lib/image_pipe/plug.ex",
+    ImagePipe.Presets => "lib/image_pipe/presets.ex",
     ImagePipe.Representation => "lib/image_pipe/representation.ex",
     ImagePipe.Response => "lib/image_pipe/response.ex",
     ImagePipe.Source => "lib/image_pipe/source.ex",
@@ -96,6 +97,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Execution,
       ImagePipe.Output,
       ImagePipe.Plan,
+      ImagePipe.Presets,
       ImagePipe.Processing,
       ImagePipe.Response,
       ImagePipe.Security,
@@ -104,6 +106,13 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
 
     assert_boundary_exports(plug, [])
+  end
+
+  test "preset resolution runs before and apart from sources and caches" do
+    presets = boundary_declaration(ImagePipe.Presets)
+
+    assert_boundary_deps(presets, [ImagePipe.API, ImagePipe.Telemetry])
+    assert_boundary_exports(presets, [])
   end
 
   test "shared execution owns caching without depending on HTTP adapters" do
@@ -127,6 +136,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     config = boundary_declaration(ImagePipe.Config)
 
     assert_boundary_deps(config, [
+      ImagePipe.API,
       ImagePipe.Cache,
       ImagePipe.Processing,
       ImagePipe.Source,

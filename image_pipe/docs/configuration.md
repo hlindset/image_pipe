@@ -6,10 +6,11 @@ URL configuration with `ImagePipe.URL.config/1` and server configuration with
 `:url`:
 
 ```elixir
-url_config = ImagePipe.URL.config(base_url: "/images", presets: %{"card" => "w=400"})
+url_config = ImagePipe.URL.config(base_url: "/images")
 
 config = ImagePipe.config(
   url: url_config,
+  presets: %{"card" => "w=400"},
   sources: [
     media: [
       adapter: ImagePipe.Source.File,
@@ -22,7 +23,7 @@ config = ImagePipe.config(
   quality: 82
 )
 
-plan = ImagePipe.URL.new(url_config)
+plan = ImagePipe.URL.new(ImagePipe.url_config(config))
 mount = ImagePipe.Plug.init(config: config, allow_origin: "*")
 ```
 
@@ -35,8 +36,8 @@ Store secrets in server-side configuration.
 
 | Layer | Examples | How to supply it |
 | --- | --- | --- |
-| URL configuration | Signing and encryption keys, presets, URL prefix | `ImagePipe.URL.config/1`, passed to the server as `url:` |
-| Server configuration | Sources, limits, output defaults, caches | `ImagePipe.config/1` |
+| URL configuration | Signing and encryption keys, URL prefix | `ImagePipe.URL.config/1`, passed to the server as `url:` |
+| Server configuration | Sources, limits, output defaults, caches, presets, request defaults | `ImagePipe.config/1` |
 | Source mount | Routing rule, root directory, allowed hosts, network timeouts, S3 credentials | A named mount under `sources`: `:match` plus the adapter's `:options` |
 | Plug mount | CORS, HTTP cache policy, debug permission | `ImagePipe.Plug.init(options)` or router mount options |
 | Processing request | Width, crop, effects, format, quality | URL options or `ImagePipe.URL.group/2` and `ImagePipe.URL.output/2` |
@@ -45,8 +46,8 @@ Store secrets in server-side configuration.
 Mount options can override server configuration. Direct `run`/`write` host
 options override the server configuration passed to them. Explicit request
 output choices override host defaults. Both Plug and direct execution expand
-presets from the server configuration's `url:` value: `default`, named presets
-in listed order, then explicit options. See [presets](urls.md#presets) for
+presets from the server configuration: `request_defaults`, named presets in
+listed order, then explicit options. See [presets](urls.md#presets) for
 selection and related-option replacement rules.
 
 ## Sources, caches, and URL protection
@@ -60,7 +61,11 @@ selection and related-option replacement rules.
 | `storage_inputs` | `[]` | Header/cookie names that partition cache storage, e.g. `[{:header, "x-tenant"}]` |
 | `watermarks` | `%{}` | Named watermark assets; see [watermarks](#watermarks) |
 | `request_watermarks` | `false` | Accept request-supplied watermark sources (`wm-src64`, `wm-enc`) |
-| `url` | Unsigned, no presets | An `ImagePipe.URL.Config` from `ImagePipe.URL.config/1` |
+| `url` | Unsigned | An `ImagePipe.URL.Config` from `ImagePipe.URL.config/1` |
+| `presets` | `%{}` | Preset name to URL option fragment or builder; see [presets](urls.md#presets) |
+| `request_defaults` | none | One-group fragment or builder applied to every request first |
+| `preset_lookup` | none | `{module, options}` implementing `ImagePipe.PresetLookup`; see [preset lookup](urls.md#preset-lookup) |
+| `max_preset_lookups` | `32` | Distinct names one request may look up; only with `preset_lookup` |
 | `clock` | Current Unix seconds | Zero-argument function used for request expiry |
 
 `ImagePipe.URL.config/1` accepts:
@@ -72,9 +77,7 @@ selection and related-option replacement rules.
 | `source_encryption_keys` | `[]` | Ordered raw 32-byte encryption keys, separate from signing keys |
 | `encrypt_source` | `false` | Generate concealed sources in URLs; requires both key sets |
 | `iv_mode` | `:deterministic` | Source-encryption IV generation; also accepts `:random` |
-| `presets` | `%{}` | Preset name to URL option fragment; see [presets](urls.md#presets) |
-| `preset_lookup` | none | `{module, options}` implementing `ImagePipe.URL.PresetLookup`; see [preset lookup](urls.md#preset-lookup) |
-| `max_preset_lookups` | `32` | Distinct names one request may look up; only with `preset_lookup` |
+| `mount_presets` | none | The serving mount's presets, for builder validation only; see [validating URLs](urls.md#validating-urls-before-serving) |
 
 Signing, encryption, and source encoding are covered in [URLs and presets](urls.md).
 `storage_inputs` changes storage identity without changing a byte-identical

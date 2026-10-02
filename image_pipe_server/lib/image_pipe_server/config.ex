@@ -17,7 +17,8 @@ defmodule ImagePipeServer.Config do
     * `[cache]` - `output` and `input` `ImagePipe.Cache.FileSystem` caches, and
       `storage_inputs` as `[{ header = "..." }, { cookie = "..." }]`.
     * `[processing]` - the processing options of `ImagePipe.config/1`,
-      including `watermarks.<name>` asset tables and `request_watermarks`.
+      including `watermarks.<name>` asset tables, `request_watermarks`,
+      `presets.<name>` option fragments, and `request_defaults`.
     * `[pool]` - `ImagePipe.ProcessingPool` options. Without it, requests are
       unbounded.
     * `[http]` - the delivery options of `ImagePipe.Plug.init/1`.
@@ -121,8 +122,7 @@ defmodule ImagePipeServer.Config do
     Keyword.merge(ImagePipe.Security.options_schema(),
       source_encryption_keys: [
         type: {:list, {:convert, &encryption_key/2, "string with a `base64:` or `hex:` prefix"}}
-      ],
-      presets: [type: {:map, :string, :string}]
+      ]
     )
   end
 
@@ -196,7 +196,9 @@ defmodule ImagePipeServer.Config do
       webp_options: [type: encoder(WebpOptions)],
       avif_options: [type: encoder(AvifOptions)],
       watermarks: [type: {:map, :string, Convert.table(@watermark_schema)}],
-      request_watermarks: [type: :boolean, default: false]
+      request_watermarks: [type: :boolean, default: false],
+      presets: [type: {:map, :string, :string}],
+      request_defaults: [type: :string]
     )
   end
 

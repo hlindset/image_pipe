@@ -6,6 +6,7 @@ defmodule ImagePipe.API.ParserTest do
   alias ImagePipe.API.DiagnosticRenderer
   alias ImagePipe.API.OptionSpec
   alias ImagePipe.API.Parser
+  alias ImagePipe.API.Presets
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
   alias ImagePipe.Plan.Spec
   alias ImagePipe.Plan.Spec.Group
@@ -25,7 +26,15 @@ defmodule ImagePipe.API.ParserTest do
     Parser.parse(lexed(segments, source), mount(config))
   end
 
-  defp mount(options), do: ImagePipe.URL.config(options).options
+  # Presets and request defaults compile as `ImagePipe.config/1` compiles them.
+  defp mount(options) do
+    {presets, options} = Keyword.pop(options, :presets, %{})
+    {defaults, options} = Keyword.pop(options, :request_defaults)
+    {:ok, compiled} = Presets.compile(presets, defaults)
+
+    ImagePipe.URL.config(options).options ++
+      [presets: compiled.presets, request_defaults: compiled.request_defaults]
+  end
 
   describe "worked examples [API §Examples]" do
     test "srcset workhorse: /w=800/src/images/cat.jpg" do
@@ -1101,23 +1110,20 @@ defmodule ImagePipe.API.ParserTest do
              } = request
     end
 
-    test "the default preset applies with no preset= segment in the URL at all" do
-      config = [presets: %{"default" => "blur=2.5"}]
+    test "request defaults apply with no preset= segment in the URL at all" do
+      config = [request_defaults: "blur=2.5"]
 
       assert {:ok, %Spec{groups: [%Group{blur: 2.5}]}} =
                parse(["w=800"], "images/cat.jpg", config)
     end
 
-    test "precedence chain: default < named presets in URL order < explicit URL options" do
+    test "precedence chain: request defaults < named presets in URL order < explicit URL options" do
       config = [
-        presets: %{
-          "default" => "blur=1",
-          "a" => "blur=2/trim=auto",
-          "b" => "blur=3"
-        }
+        request_defaults: "blur=1",
+        presets: %{"a" => "blur=2/trim=auto", "b" => "blur=3"}
       ]
 
-      # explicit w=800 is untouched by any level; blur is set by "default",
+      # explicit w=800 is untouched by any level; blur is set by the defaults,
       # displaced by "a", then displaced again by "b" (last-listed named
       # preset wins); trim survives from "a" since nothing displaces it.
       assert {:ok, request} = parse(["preset=a,b", "w=800"], "images/cat.jpg", config)
@@ -1134,7 +1140,7 @@ defmodule ImagePipe.API.ParserTest do
     end
 
     test "an explicit URL option displaces every preset level for that key" do
-      config = [presets: %{"default" => "w=100", "card" => "w=300"}]
+      config = [request_defaults: "w=100", presets: %{"card" => "w=300"}]
 
       assert {:ok, request} = parse(["preset=card", "w=800"], "images/cat.jpg", config)
       assert %Spec{groups: [%Group{resize: %{w: 800}}]} = request
@@ -1166,12 +1172,12 @@ defmodule ImagePipe.API.ParserTest do
                parse(["preset=cover", "w=800"], "images/cat.jpg", config)
     end
 
-    test "a default-preset-only inertness diagnostic anchors to the whole raw path, not {0, 0}" do
-      # No `preset=` segment at all — the `default` preset applies purely
+    test "a request-defaults-only inertness diagnostic anchors to the whole raw path, not {0, 0}" do
+      # No `preset=` segment at all — the request defaults apply purely
       # from config, so there is no real segment for the resulting
       # cross-option diagnostic to anchor to. It must fall back to the
       # whole raw path, not a zero-length {0, 0} span.
-      config = [presets: %{"default" => "fit=cover"}]
+      config = [request_defaults: "fit=cover"]
       raw_path = "/src/images/cat.jpg"
       lexed = %{segments: [], source: {:src, "images/cat.jpg", {5, 14}}}
 
@@ -1189,15 +1195,20 @@ defmodule ImagePipe.API.ParserTest do
       assert rendered =~ String.duplicate("^", 19)
     end
 
-    test "a host preset literally named `default` combined with an explicit preset=default is idempotent" do
+    test "a preset named default applies only when selected" do
       config = [presets: %{"default" => "blur=2"}]
 
-      assert {:ok, applied_once} = parse(["w=800"], "images/cat.jpg", config)
+      assert {:ok, plain} = parse(["w=800"], "images/cat.jpg", config)
+      assert plain == elem(parse(["w=800"]), 1)
 
-      assert {:ok, applied_explicitly} =
+      assert {:ok, %Spec{groups: [%Group{blur: 2.0}]}} =
                parse(["preset=default", "w=800"], "images/cat.jpg", config)
+    end
 
-      assert applied_once == applied_explicitly
+    test "an empty preset contributes nothing" do
+      config = [presets: %{"retired" => ""}]
+
+      assert parse(["preset=retired", "w=800"], "images/cat.jpg", config) == parse(["w=800"])
     end
 
     property "an overridden-away preset never changes the canonical %Spec{}" do

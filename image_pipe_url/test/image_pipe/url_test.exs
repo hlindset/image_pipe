@@ -132,7 +132,8 @@ defmodule ImagePipe.URLTest do
       assert IP.URL.url(IP.URL.new(), source) == {:error, :invalid_source}
     end
 
-    invalid = IP.URL.new() |> IP.URL.group(extend: true)
+    known = IP.URL.config(mount_presets: [])
+    invalid = IP.URL.new(known) |> IP.URL.group(extend: true)
     assert {:error, {:invalid_request, [_issue]}} = IP.URL.url(invalid, "photo.jpg")
     assert_raise ArgumentError, fn -> IP.URL.url!(invalid, "private-source") end
     assert_raise ArgumentError, fn -> IP.URL.url!(IP.URL.new(), {:binary, "private-source"}) end
@@ -212,4 +213,67 @@ defmodule ImagePipe.URLTest do
   end
 
   defp encrypted_token(path), do: path |> String.split("/enc/") |> List.last()
+
+  describe "mount_presets" do
+    test "without it the builder checks values only" do
+      plan = IP.URL.new() |> IP.URL.group(resize: [fit: :cover])
+      assert IP.URL.validate(plan) == :ok
+      assert {:ok, "/fit=cover/src/photo.jpg"} = IP.URL.url(plan, "photo.jpg")
+    end
+
+    test "known request defaults and presets take part in the check" do
+      config =
+        IP.URL.config(
+          mount_presets: [presets: %{"cover" => "fit=cover"}, request_defaults: "w=400"]
+        )
+
+      assert :ok = IP.URL.validate(IP.URL.new(config) |> IP.URL.group(resize: [fit: :cover]))
+      assert :ok = IP.URL.validate(IP.URL.new(config, presets: ["cover"]))
+
+      bare = IP.URL.config(mount_presets: [presets: %{"cover" => "fit=cover"}])
+      assert {:error, [_ | _]} = IP.URL.validate(IP.URL.new(bare, presets: ["cover"]))
+    end
+
+    test "a name the known presets lack is unknown unless the mount has a lookup" do
+      static = IP.URL.config(mount_presets: [presets: %{"card" => "w=30"}])
+      lookup = IP.URL.config(mount_presets: [presets: %{"card" => "w=30"}, preset_lookup: true])
+
+      assert {:error, [%{reason: :unknown_preset}]} =
+               IP.URL.validate(IP.URL.new(static, presets: ["remote"]))
+
+      assert {:error, {:invalid_request, _issues}} =
+               IP.URL.url(IP.URL.new(static, presets: ["remote"]), "photo.jpg")
+
+      assert :ok = IP.URL.validate(IP.URL.new(lookup, presets: ["remote"]))
+      assert {:ok, _url} = IP.URL.url(IP.URL.new(lookup, presets: ["remote"]), "photo.jpg")
+    end
+
+    test "builder values match their fragment spelling" do
+      card = IP.URL.new() |> IP.URL.group(resize: [width: 30, height: 20, fit: :cover])
+      as_builder = IP.URL.config(mount_presets: [presets: %{"card" => card}])
+      as_string = IP.URL.config(mount_presets: [presets: %{"card" => "w=30/h=20/fit=cover"}])
+
+      assert as_builder.options[:mount_presets] == as_string.options[:mount_presets]
+    end
+
+    test "request defaults with groups or presets, and unknown references, fail at init" do
+      for options <- [
+            [request_defaults: "w=10/-/blur=1"],
+            [request_defaults: "preset=card", presets: %{"card" => "w=10"}],
+            [presets: %{"card" => "preset=missing"}],
+            [presets: %{"card" => "w=nope"}]
+          ] do
+        assert_raise ArgumentError, ~r/mount_presets/, fn ->
+          IP.URL.config(mount_presets: options)
+        end
+      end
+    end
+
+    test "an empty override cannot clear known request defaults" do
+      config = IP.URL.config(mount_presets: [request_defaults: "jpeg-options=progressive"])
+      builder = IP.URL.new(config) |> IP.URL.output(jpeg_options: [])
+
+      assert IP.URL.url(builder, "photo.jpg") == {:error, :unrepresentable_preset_override}
+    end
+  end
 end

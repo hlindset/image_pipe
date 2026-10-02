@@ -73,8 +73,11 @@ defmodule ImagePipe.API.Parser do
     parsed.request |> typed_options() |> Map.get(:presets, [])
   end
 
+  # An empty fragment is a preset that contributes nothing.
   @doc false
   @spec parse_preset(String.t()) :: {:ok, map()} | {:error, [Diagnostic.t()]}
+  def parse_preset(""), do: {:ok, %{groups: %{0 => %{}}, request: %{}}}
+
   def parse_preset(fragment) do
     case fragment |> fragment_segments() |> parse_options() do
       {parsed, _occurrences, []} ->
@@ -330,7 +333,8 @@ defmodule ImagePipe.API.Parser do
       case Presets.expand(
              typed_group_maps(clean_group_maps),
              typed_options(clean_request_map),
-             presets_config
+             presets_config,
+             Keyword.get(config, :request_defaults)
            ) do
         {:ok, expanded} ->
           groups = Map.new(expanded.groups, fn {i, opts} -> {i, url_options(opts)} end)

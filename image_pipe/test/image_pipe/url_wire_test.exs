@@ -110,12 +110,18 @@ defmodule ImagePipe.URLWireTest do
         keys: [@key],
         source_encryption_keys: [@encryption_key],
         encrypt_source: true,
-        iv_mode: :deterministic,
-        presets: %{"thumb" => "w=30/format=png"}
+        iv_mode: :deterministic
       )
 
-    config = IP.config(url: url_config, sources: sources, quality: 71)
-    client = IP.URL.new(url_config, presets: ["thumb"])
+    config =
+      IP.config(
+        url: url_config,
+        presets: %{"thumb" => "w=30/format=png"},
+        sources: sources,
+        quality: 71
+      )
+
+    client = IP.URL.new(IP.url_config(config), presets: ["thumb"])
 
     url = IP.URL.url!(client, "photo.jpg")
     assert url == IP.URL.url!(client, "photo.jpg")

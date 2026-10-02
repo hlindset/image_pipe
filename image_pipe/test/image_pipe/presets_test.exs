@@ -8,7 +8,7 @@ defmodule ImagePipe.PresetsTest do
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias Vix.Vips.Image, as: VipsImage
 
-  test "shared defaults and nested presets execute identically through Plug and builder" do
+  test "request defaults and nested presets execute identically through Plug and builder" do
     image = Image.new!(60, 40, color: [80, 120, 160])
     body = Image.write!(image, :memory, suffix: ".png")
     pid = self()
@@ -18,19 +18,11 @@ defmodule ImagePipe.PresetsTest do
       conn |> Plug.Conn.put_resp_content_type("image/png") |> Plug.Conn.send_resp(200, body)
     end
 
-    url_config =
-      IP.URL.config(
-        presets: %{
-          "default" => "gray/format=png",
-          "base" => "w=30",
-          "poster" => "preset=base/brightness=10"
-        },
-        keys: [Base.encode16(:binary.copy(<<71>>, 32))]
-      )
-
     config =
       IP.config(
-        url: url_config,
+        url: IP.URL.config(keys: [Base.encode16(:binary.copy(<<71>>, 32))]),
+        request_defaults: "gray/format=png",
+        presets: %{"base" => "w=30", "poster" => "preset=base/brightness=10"},
         sources: [
           path: [
             adapter: RootHTTPAdapter,
@@ -39,6 +31,8 @@ defmodule ImagePipe.PresetsTest do
           ]
         ]
       )
+
+    url_config = IP.url_config(config)
 
     for builder <- [
           IP.URL.new(url_config),
@@ -80,18 +74,20 @@ defmodule ImagePipe.PresetsTest do
   end
 
   test "URL references stay stable across preset definition changes and remote-only names" do
-    url = fn presets ->
-      IP.URL.new(IP.URL.config(presets: presets), presets: ["poster"])
-      |> IP.URL.url!("photos/a b.jpg")
-    end
+    remote = IP.URL.new(presets: ["poster"]) |> IP.URL.url!("photos/a b.jpg")
+    assert remote == "/preset=poster/src/photos%2Fa%20b.jpg"
 
-    assert url.(%{}) == "/preset=poster/src/photos%2Fa%20b.jpg"
-    assert url.(%{"poster" => "w=30"}) == url.(%{"poster" => "w=40"})
+    for presets <- [%{"poster" => "w=30"}, %{"poster" => "w=40"}] do
+      url_config = IP.url_config(IP.config(presets: presets))
+
+      assert IP.URL.new(url_config, presets: ["poster"]) |> IP.URL.url!("photos/a b.jpg") ==
+               remote
+    end
   end
 
   test "unknown names and pipeline conflicts fail before execution side effects" do
-    url_config = IP.URL.config(presets: %{"pipeline" => "w=30/-/gray"})
-    config = IP.config(url: url_config, cache: {CacheProbe, []})
+    config = IP.config(presets: %{"pipeline" => "w=30/-/gray"}, cache: {CacheProbe, []})
+    url_config = IP.url_config(config)
 
     for builder <- [
           IP.URL.new(url_config, presets: ["missing"]),
@@ -107,7 +103,8 @@ defmodule ImagePipe.PresetsTest do
   end
 
   test "a pipeline preset accepts request overrides and supplies dependent option consumers" do
-    url_config = IP.URL.config(presets: %{"pipeline" => "w=30/-/gray", "box" => "w=30/h=20"})
+    url_config =
+      IP.url_config(IP.config(presets: %{"pipeline" => "w=30/-/gray", "box" => "w=30/h=20"}))
 
     assert :ok =
              IP.URL.validate(
@@ -128,7 +125,7 @@ defmodule ImagePipe.PresetsTest do
 
   test "URL generation rejects empty collection overrides that the URL grammar cannot express" do
     url_config =
-      IP.URL.config(presets: %{"default" => "jpeg-options=progressive/format-q=jpeg:70"})
+      IP.url_config(IP.config(request_defaults: "jpeg-options=progressive/format-q=jpeg:70"))
 
     for options <- [[jpeg_options: []], [format_qualities: []]] do
       builder = IP.URL.new(url_config) |> IP.URL.output(options)
@@ -143,15 +140,14 @@ defmodule ImagePipe.PresetsTest do
   test "encrypted preset URLs preserve references and round trip sources" do
     url_config =
       IP.URL.config(
-        presets: %{"poster" => "w=30"},
         keys: [Base.encode16(:binary.copy(<<71>>, 32))],
         source_encryption_keys: [:binary.copy(<<72>>, 32)],
         encrypt_source: true
       )
 
-    config = IP.config(url: url_config)
+    config = IP.config(url: url_config, presets: %{"poster" => "w=30"})
 
-    builder = IP.URL.new(url_config, presets: ["poster"])
+    builder = IP.URL.new(IP.url_config(config), presets: ["poster"])
     source = "https://origin.test/a b.jpg?token=secret"
     url = IP.URL.url!(builder, source)
     assert url =~ "/preset=poster/enc/"
@@ -165,11 +161,9 @@ defmodule ImagePipe.PresetsTest do
   test "a builder pipeline preset warms the cache for equivalent Plug requests" do
     table = :ets.new(:shared_preset_cache, [:set, :public])
 
-    url_config = IP.URL.config(presets: %{"poster" => "w=30/-/pad=2/format=png"})
-
     config =
       IP.config(
-        url: url_config,
+        presets: %{"poster" => "w=30/-/pad=2/format=png"},
         cache: {ImagePipe.Test.PlugFixture.CacheProbe, store: table},
         sources: [
           path: [
@@ -186,7 +180,7 @@ defmodule ImagePipe.PresetsTest do
         ]
       )
 
-    builder = IP.URL.new(url_config, presets: ["poster"])
+    builder = IP.URL.new(IP.url_config(config), presets: ["poster"])
     assert {:ok, native} = IP.run(config, builder, {:source, "photo.jpg"})
     assert_received :origin_fetch
 
@@ -200,15 +194,20 @@ defmodule ImagePipe.PresetsTest do
 
   property "explicit dimensions override ordered presets in both request frontends" do
     check all width <- integer(1..100), height <- integer(1..100) do
-      url_config = IP.URL.config(presets: %{"default" => "w=10", "a" => "w=20", "b" => "h=30"})
-      config = IP.config(url: url_config)
+      config = IP.config(request_defaults: "w=10", presets: %{"a" => "w=20", "b" => "h=30"})
 
       builder =
-        IP.URL.new(url_config, presets: ["a", "b"])
+        IP.URL.new(IP.url_config(config), presets: ["a", "b"])
         |> IP.URL.group(resize: [width: width, height: height])
 
       url = IP.URL.url!(builder, "photo.jpg")
-      assert {:ok, request} = ImagePipe.Plan.to_spec(builder.plan, config.options[:presets])
+
+      assert {:ok, request} =
+               ImagePipe.Plan.to_spec(
+                 builder.plan,
+                 config.options[:presets],
+                 config.options[:request_defaults]
+               )
 
       assert {{:ok, ^request, "photo.jpg"}, _} =
                ParsedRequest.parse(Plug.Test.conn(:get, url), IP.Plug.init(config))

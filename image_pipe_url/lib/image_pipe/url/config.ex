@@ -16,9 +16,14 @@ defmodule ImagePipe.URL.Config do
 
   @schema NimbleOptions.new!(
             base_url: [type: :string, default: ""],
-            presets: [type: {:custom, Presets, :validate_config, []}, default: %{}],
-            preset_lookup: [type: {:custom, Presets, :validate_lookup, []}],
-            max_preset_lookups: [type: :pos_integer]
+            mount_presets: [
+              type: :keyword_list,
+              keys: [
+                presets: [type: :any, default: %{}],
+                request_defaults: [type: :any],
+                preset_lookup: [type: :boolean, default: false]
+              ]
+            ]
           )
 
   @doc false
@@ -30,11 +35,7 @@ defmodule ImagePipe.URL.Config do
       {:ok, validated} ->
         base_url = validated |> Keyword.fetch!(:base_url) |> base_url!()
 
-        options =
-          security ++
-            [base_url: base_url, presets: Keyword.fetch!(validated, :presets)] ++
-            lookup_options!(validated)
-
+        options = security ++ [base_url: base_url] ++ mount_presets!(validated[:mount_presets])
         %__MODULE__{options: options}
 
       {:error, %NimbleOptions.ValidationError{key: :base_url}} ->
@@ -45,19 +46,32 @@ defmodule ImagePipe.URL.Config do
     end
   end
 
-  defp lookup_options!(validated) do
-    case {validated[:preset_lookup], validated[:max_preset_lookups]} do
-      {nil, nil} ->
-        []
+  # What the builder knows about the serving mount's presets, used only for
+  # validation. `ImagePipe.config/1` injects its own with `put_mount_presets/2`.
+  @type mount_presets :: %{presets: map(), request_defaults: map() | nil, lookup?: boolean()}
 
-      {nil, _max} ->
-        raise ArgumentError,
-              "invalid ImagePipe.URL configuration: max_preset_lookups requires preset_lookup"
+  @doc false
+  @spec put_mount_presets(t(), mount_presets()) :: t()
+  def put_mount_presets(%__MODULE__{options: options} = config, mount_presets),
+    do: %{config | options: Keyword.put(options, :mount_presets, mount_presets)}
 
-      {lookup, max} ->
-        [preset_lookup: lookup, max_preset_lookups: max || 32]
+  defp mount_presets!(nil), do: []
+
+  defp mount_presets!(options) do
+    presets =
+      Map.new(Keyword.fetch!(options, :presets), fn {name, value} -> {name, plan(value)} end)
+
+    case Presets.compile(presets, plan(options[:request_defaults])) do
+      {:ok, compiled} ->
+        [mount_presets: Map.put(compiled, :lookup?, Keyword.fetch!(options, :preset_lookup))]
+
+      {:error, message} ->
+        raise ArgumentError, "invalid ImagePipe.URL configuration: mount_presets: #{message}"
     end
   end
+
+  defp plan(value) when is_struct(value, ImagePipe.URL), do: {:plan, value.plan}
+  defp plan(value), do: value
 
   defp base_url!(value) do
     with {:ok, uri} <- URI.new(value),

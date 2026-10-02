@@ -121,7 +121,7 @@ defmodule ImagePipe.API.LqipCssWireTest do
   end
 
   test "image-only options are ignored, including preset-supplied ones", %{body: body} do
-    config = mount(body, url: ImagePipe.URL.config(presets: %{"encoded" => "q=70"}))
+    config = mount(body, presets: %{"encoded" => "q=70"})
     plain = request("output=lqip-css", config)
 
     for option <- [

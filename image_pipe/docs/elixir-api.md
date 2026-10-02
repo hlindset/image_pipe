@@ -39,10 +39,8 @@ and direct calls. See [configuration](configuration.md#where-settings-belong)
 for which settings belong in each:
 
 ```elixir
-url_config = ImagePipe.URL.config(presets: %{"card" => "w=400/h=400/fit=cover"})
-
 config = ImagePipe.config(
-  url: url_config,
+  presets: %{"card" => "w=400/h=400/fit=cover"},
   sources: [
     media: [
       adapter: ImagePipe.Source.File,
@@ -56,7 +54,7 @@ config = ImagePipe.config(
   storage_inputs: [{:header, "x-tenant"}]
 )
 
-ip_client = ImagePipe.URL.new(url_config)
+ip_client = ImagePipe.URL.new(ImagePipe.url_config(config))
 
 thumbnail =
   ip_client
@@ -77,9 +75,11 @@ Builder calls return new values, so `ip_client` remains reusable. Per-call host
 options passed to `run` and `write` override server configuration.
 
 The builder uses its URL configuration when generating URLs. The Plug and
-direct execution use the URL configuration inside the server configuration:
-its keys verify and decrypt URLs, and its presets expand plans. `run` resolves
-presets from the server configuration, not from the builder. HTTP controls
+direct execution use the server configuration: its URL settings verify and
+decrypt URLs, and its presets and request defaults expand plans. `run` resolves
+presets from the server configuration, not from the builder.
+`ImagePipe.url_config(config)` returns the URL settings with the server's
+presets attached, so the builder checks plans against them. HTTP controls
 such as CORS and `http_cache` belong on the Plug mount.
 
 The file example assumes immutable source paths: `stable: :trusted` enables
@@ -203,30 +203,32 @@ the source or credentials. Enabling encryption requires both key sets.
 ### Named presets
 
 ```elixir
-url_config = ImagePipe.URL.config(presets: %{
-  "default" => "format=webp",
-  "poster-320" => "w=320/h=480/fit=cover"
-})
-config = ImagePipe.config(url: url_config)
+config = ImagePipe.config(
+  request_defaults: "format=webp",
+  presets: %{"poster-320" => "w=320/h=480/fit=cover"}
+)
 
-poster = ImagePipe.URL.new(url_config, presets: ["poster-320"])
+poster = ImagePipe.URL.new(ImagePipe.url_config(config), presets: ["poster-320"])
 url = ImagePipe.URL.url!(poster, "photos/poster.jpg")
 # /preset=poster-320/src/photos%2Fposter.jpg
 {:ok, result} = ImagePipe.run(config, poster, {:file, "photos/poster.jpg"})
 ```
 
-Plug and direct execution share expansion: `default` first, selected names in
-order, then explicit builder or URL options. Nested presets resolve when the
+Plug and direct execution share expansion: `request_defaults` first, selected
+names in order, then explicit builder or URL options. Nested presets resolve when the
 config is built. Validation and execution reject unknown names and conflicting
 pipeline composition before source or cache access.
 
 URL generation preserves named references and explicit overrides, including
 false and identity values. Changing a preset definition leaves the URL stable;
-the serving mount resolves its current definition. URL generation can reference
-names defined only on that mount, which then validates the combined request.
+the serving mount resolves its current definition. A builder without the
+mount's presets can reference any name; the mount then validates the combined
+request. See [validating URLs before serving](urls.md#validating-urls-before-serving).
+`ImagePipe.validate(config, builder)` runs the serving check, including any
+preset lookup, without reading a source.
 
 Empty encoder-option or per-format-quality overrides have no URL spelling.
-With named or default presets, `url/3` returns
+With named presets or known request defaults, `url/3` returns
 `{:error, :unrepresentable_preset_override}` for those overrides; direct
 execution can apply them.
 
@@ -246,14 +248,13 @@ client. Only sources the service can resolve work this way: `{:file, path}` and
 upload endpoint.
 
 The signature covers only the mount-relative path, so server-side fetches can
-skip the CDN. Build a second URL configuration with the same keys and presets
-and the service's internal address as `base_url`:
+skip the CDN. Build a second URL configuration with the same keys and the
+service's internal address as `base_url`:
 
 ```elixir
 internal = ImagePipe.URL.config(
   base_url: "http://image-service:4000/images",
-  keys: signing_keys,
-  presets: presets
+  keys: signing_keys
 )
 
 url =
@@ -488,12 +489,13 @@ Ordinary functions provide reusable plans. Every call returns a new value;
 replaces its entire value, including nested encoder keywords or per-format
 quality settings. Omitted options keep their previous value. Host-dependent
 output defaults remain unspecified until execution or URL interpretation
-supplies configuration. Validation and execution expand the shared default and
+supplies configuration. Validation and execution expand request defaults and
 named presets before checking the combined options.
 
 Unknown options, duplicate keys, invalid types, and out-of-range values raise
-`ArgumentError` during construction. `ImagePipe.URL.validate/1` checks
-dependencies and conflicts, returning `:ok` or
+`ArgumentError` during construction. With the mount's presets known (see
+[validating URLs](urls.md#validating-urls-before-serving)),
+`ImagePipe.URL.validate/1` checks dependencies and conflicts, returning `:ok` or
 `{:error, issues}`. Each `ImagePipe.Plan.Spec.Issue` has a `reason`,
 `detail`, and `locations`: `{:group, zero_based_index, option_name}` or
 `{:request, option_name}`. Resize locations use the individual names such as
@@ -501,7 +503,7 @@ dependencies and conflicts, returning `:ok` or
 
 ```elixir
 {:error, issues} =
-  ImagePipe.URL.new()
+  ImagePipe.URL.new(ImagePipe.url_config(config))
   |> ImagePipe.URL.group(resize: [fit: :cover])
   |> ImagePipe.URL.validate()
 # fit requires a concrete resize dimension

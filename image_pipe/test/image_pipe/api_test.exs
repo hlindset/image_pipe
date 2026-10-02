@@ -41,7 +41,8 @@ defmodule ImagePipe.APITest do
     test "compiles preset options at initialization" do
       opts =
         ImagePipe.Plug.init(
-          url: ImagePipe.URL.config(presets: %{"card" => "w=300/h=200/fit=cover"})
+          presets: %{"card" => "w=300/h=200/fit=cover"},
+          request_defaults: "q=80"
         )
 
       assert Keyword.fetch!(opts, :presets) == %{
@@ -50,17 +51,49 @@ defmodule ImagePipe.APITest do
                  request: %{}
                }
              }
+
+      assert Keyword.fetch!(opts, :request_defaults) == %{
+               groups: %{0 => %{}},
+               request: %{quality: 80}
+             }
+    end
+
+    test "builder values compile like their fragment spelling" do
+      card =
+        ImagePipe.URL.new()
+        |> ImagePipe.URL.group(resize: [width: 300, height: 200, fit: :cover])
+
+      assert Keyword.fetch!(ImagePipe.Plug.init(presets: %{"card" => card}), :presets) ==
+               Keyword.fetch!(
+                 ImagePipe.Plug.init(presets: %{"card" => "w=300/h=200/fit=cover"}),
+                 :presets
+               )
+    end
+
+    test "raises on request defaults with groups or presets" do
+      for options <- [
+            [request_defaults: "w=10/-/blur=1"],
+            [request_defaults: "preset=card", presets: %{"card" => "w=10"}]
+          ] do
+        assert_raise ArgumentError, ~r/request_defaults/, fn -> ImagePipe.Plug.init(options) end
+      end
+    end
+
+    test "raises on a URL config that already describes mount presets" do
+      assert_raise ArgumentError, ~r/mount_presets/, fn ->
+        ImagePipe.Plug.init(url: ImagePipe.URL.config(mount_presets: []))
+      end
     end
 
     test "raises on a preset fragment with an unknown option" do
       assert_raise ArgumentError, fn ->
-        ImagePipe.Plug.init(url: ImagePipe.URL.config(presets: %{"bad" => "bogus=1"}))
+        ImagePipe.Plug.init(presets: %{"bad" => "bogus=1"})
       end
     end
 
-    test "raises on a presets value that is not a map of strings" do
+    test "raises on a presets value that is neither a fragment nor a builder" do
       assert_raise ArgumentError, fn ->
-        ImagePipe.Plug.init(url: ImagePipe.URL.config(presets: %{"bad" => 123}))
+        ImagePipe.Plug.init(presets: %{"bad" => 123})
       end
     end
   end

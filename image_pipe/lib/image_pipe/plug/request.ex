@@ -3,13 +3,12 @@ defmodule ImagePipe.Plug.Request do
 
   alias ImagePipe.API.Parser
   alias ImagePipe.API.Path
-  alias ImagePipe.API.Presets
   alias ImagePipe.Execution
   alias ImagePipe.Plan.Spec
+  alias ImagePipe.Presets
   alias ImagePipe.Processing
   alias ImagePipe.Security
   alias ImagePipe.Source.Parser, as: SourceParser
-  alias ImagePipe.Telemetry
 
   # Verify → lex → decrypt → parse. Returns the telemetry stop metadata with
   # the result so the Runner's parse span can report the signing key index.
@@ -41,24 +40,8 @@ defmodule ImagePipe.Plug.Request do
   # Request-time preset lookup replaces the static map with the request's
   # compiled closure. Static-only requests skip it.
   defp presets(lexed, config) do
-    case Presets.pending(Parser.preset_names(lexed), config) do
-      [] ->
-        {:ok, config}
-
-      pending ->
-        Telemetry.span(
-          Telemetry.telemetry_opts(config),
-          [:preset, :lookup],
-          %{names: pending},
-          fn ->
-            Presets.resolve(pending, config)
-          end
-        )
-        |> case do
-          {:ok, presets} -> {:ok, Keyword.put(config, :presets, presets)}
-          {:error, _reason} = error -> error
-        end
-    end
+    with {:ok, presets} <- Presets.for_request(Parser.preset_names(lexed), config),
+         do: {:ok, Keyword.put(config, :presets, presets)}
   end
 
   def prepare(%Spec{} = request, source, config, accept_header) do

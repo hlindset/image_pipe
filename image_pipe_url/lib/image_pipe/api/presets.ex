@@ -1,158 +1,100 @@
 defmodule ImagePipe.API.Presets do
+  # Compiles host preset configuration: named presets and request defaults,
+  # each given as a URL option fragment or a builder's plan tagged
+  # `{:plan, plan}`. A plan is serialized and parsed like a fragment, so both
+  # forms follow one grammar.
+  # Also parses and compiles fragments returned by a request-time lookup.
   @moduledoc false
 
   alias ImagePipe.API.OptionSpec
   alias ImagePipe.API.Parser
+  alias ImagePipe.API.Serializer
   alias ImagePipe.Plan.Presets
 
-  def validate_config(presets) when is_map(presets) do
-    valid? =
-      Enum.all?(presets, fn {name, fragment} ->
-        is_binary(name) and is_binary(fragment) and
-          OptionSpec.parse_preset_names(name) == {:ok, [name]}
-      end)
+  @type compiled :: %{presets: map(), request_defaults: map() | nil}
 
-    case valid? do
-      true ->
-        with {:ok, parsed} <- parse_fragments(presets), do: Presets.compile(parsed)
-
-      false ->
-        {:error, "expected a map of preset name to option-fragment string"}
+  @spec compile(term(), term()) :: {:ok, compiled()} | {:error, String.t()}
+  def compile(presets, request_defaults) do
+    with {:ok, parsed} <- parse_presets(presets),
+         {:ok, compiled} <- Presets.compile(parsed),
+         {:ok, defaults} <- parse_defaults(request_defaults) do
+      {:ok, %{presets: compiled, request_defaults: defaults}}
     end
   end
 
-  def validate_config(_presets),
-    do: {:error, "expected a map of preset name to option-fragment string"}
-
-  def validate_lookup({module, options}) when is_atom(module) and is_list(options) do
-    case module.validate_options(options) do
-      {:ok, options} when is_list(options) -> {:ok, {module, options}}
-      {:error, reason} -> {:error, "preset_lookup options are invalid: #{inspect(reason)}"}
+  # One looked-up fragment; `:error` when it does not parse.
+  @spec parse_fragment(String.t()) :: {:ok, map()} | :error
+  def parse_fragment(fragment) do
+    case Parser.parse_preset(fragment) do
+      {:ok, preset} -> {:ok, preset}
+      {:error, _diagnostics} -> :error
     end
   end
 
-  def validate_lookup(_lookup),
-    do: {:error, "expected a {module, options} tuple implementing ImagePipe.URL.PresetLookup"}
-
-  # Names a request needs from the lookup: its selected names plus `default`,
-  # minus everything the static map defines. Empty without a lookup.
-  def pending(names, options) do
-    case options[:preset_lookup] do
-      nil ->
-        []
-
-      _lookup ->
-        static = Keyword.fetch!(options, :presets)
-        ["default" | names] |> Enum.uniq() |> Enum.reject(&Map.has_key?(static, &1))
-    end
-  end
-
-  # Fetches `names` and their nested references level by level, then compiles
-  # them over the static presets. Returns the result with `[:preset, :lookup]`
-  # span stop metadata.
-  # A requested name the lookup omits stays absent, so expansion reports it as
-  # unknown; a broken stored definition is the host's fault, not the client's.
-  def resolve(names, options) do
-    {module, lookup_options} = Keyword.fetch!(options, :preset_lookup)
-    static = Keyword.fetch!(options, :presets)
-    max = Keyword.fetch!(options, :max_preset_lookups)
-    lookup = %{module: module, options: lookup_options, static: static, max: max}
-    state = %{asked: [], parsed: %{}, batches: 0}
-
-    {result, state} =
-      case fetch_levels(names, state, lookup) do
-        {:ok, state} -> {compile(state.parsed, static), state}
-        {:error, reason, state} -> {{:error, reason}, state}
-      end
-
-    {result, stop_metadata(result, stats(state))}
-  end
-
-  defp stats(state), do: %{fetched: map_size(state.parsed), batches: state.batches}
-
-  defp stop_metadata({:ok, _compiled}, stats), do: Map.put(stats, :result, :ok)
-
-  defp stop_metadata({:error, {:preset, reason}}, stats),
-    do: Map.merge(stats, %{result: :error, reason: reason})
-
-  defp fetch_levels([], state, _lookup), do: {:ok, state}
-
-  defp fetch_levels(names, state, lookup) do
-    asked = state.asked ++ names
-    state = %{state | asked: asked, batches: state.batches + 1}
-
-    with :ok <- within_limit(asked, lookup.max),
-         {:ok, fragments} <- fetch(lookup, names),
-         {:ok, parsed} <- parse_fragments_strict(fragments) do
-      state = %{state | parsed: Map.merge(state.parsed, parsed)}
-
-      parsed
-      |> Enum.flat_map(fn {_name, preset} -> Map.get(preset.request, :presets, []) end)
-      |> Enum.uniq()
-      |> Enum.reject(&(Map.has_key?(lookup.static, &1) or &1 in asked))
-      |> fetch_levels(state, lookup)
-    else
-      {:error, reason} -> {:error, reason, state}
-    end
-  end
-
-  defp within_limit(asked, max) do
-    case length(asked) <= max do
-      true -> :ok
-      false -> {:error, {:preset, :invalid_definition}}
-    end
-  end
-
-  defp fetch(lookup, names) do
-    case lookup.module.fetch(names, lookup.options) do
-      {:ok, found} when is_map(found) -> take_fragments(found, names)
-      _invalid -> {:error, {:preset, :lookup_unavailable}}
-    end
-  rescue
-    _exception -> {:error, {:preset, :lookup_unavailable}}
-  catch
-    :exit, _reason -> {:error, {:preset, :lookup_unavailable}}
-  end
-
-  defp take_fragments(found, names) do
-    Enum.reduce_while(names, {:ok, %{}}, fn name, {:ok, fragments} ->
-      case Map.fetch(found, name) do
-        {:ok, fragment} when is_binary(fragment) ->
-          {:cont, {:ok, Map.put(fragments, name, fragment)}}
-
-        {:ok, _invalid} ->
-          {:halt, {:error, {:preset, :lookup_unavailable}}}
-
-        :error ->
-          {:cont, {:ok, fragments}}
-      end
-    end)
-  end
-
-  defp parse_fragments_strict(fragments) do
-    case parse_fragments(fragments) do
-      {:ok, parsed} -> {:ok, parsed}
-      {:error, _message} -> {:error, {:preset, :invalid_definition}}
-    end
-  end
-
-  defp compile(parsed, static) do
+  # Compiles looked-up presets over the static compiled map they may reference.
+  @spec compile_lookup(map(), map()) :: {:ok, map()} | :error
+  def compile_lookup(parsed, static) do
     case Presets.compile(parsed, static) do
       {:ok, compiled} -> {:ok, compiled}
-      {:error, _message} -> {:error, {:preset, :invalid_definition}}
+      {:error, _message} -> :error
     end
   end
 
-  defp parse_fragments(presets) do
-    Enum.reduce_while(presets, {:ok, %{}}, fn {name, fragment}, {:ok, parsed} ->
-      case Parser.parse_preset(fragment) do
-        {:ok, preset} ->
-          {:cont, {:ok, Map.put(parsed, name, preset)}}
-
-        {:error, diagnostics} ->
-          messages = Enum.map_join(diagnostics, "; ", & &1.message)
-          {:halt, {:error, "preset #{inspect(name)} is invalid: #{messages}"}}
+  defp parse_presets(presets) when is_map(presets) do
+    Enum.reduce_while(presets, {:ok, %{}}, fn {name, value}, {:ok, parsed} ->
+      with true <- is_binary(name) and OptionSpec.parse_preset_names(name) == {:ok, [name]},
+           {:ok, preset} <- parse_value("preset #{inspect(name)}", value) do
+        {:cont, {:ok, Map.put(parsed, name, preset)}}
+      else
+        false -> {:halt, {:error, "invalid preset name: #{inspect(name)}"}}
+        {:error, _message} = error -> {:halt, error}
       end
     end)
   end
+
+  defp parse_presets(_presets),
+    do: {:error, "expected a map of preset name to option fragment or builder"}
+
+  defp parse_defaults(nil), do: {:ok, nil}
+
+  defp parse_defaults(value) do
+    with {:ok, defaults} <- parse_value("request_defaults", value) do
+      cond do
+        map_size(defaults.groups) > 1 ->
+          {:error, "request_defaults must be a single group"}
+
+        Map.has_key?(defaults.request, :presets) ->
+          {:error, "request_defaults cannot use presets"}
+
+        true ->
+          {:ok, defaults}
+      end
+    end
+  end
+
+  defp parse_value(label, value) do
+    with {:ok, fragment} <- fragment(label, value) do
+      case Parser.parse_preset(fragment) do
+        {:ok, preset} ->
+          {:ok, preset}
+
+        {:error, diagnostics} ->
+          {:error, "#{label} is invalid: #{Enum.map_join(diagnostics, "; ", & &1.message)}"}
+      end
+    end
+  end
+
+  defp fragment(_label, fragment) when is_binary(fragment), do: {:ok, fragment}
+
+  defp fragment(label, {:plan, plan}) do
+    fragment = plan |> Serializer.segments() |> Enum.join("/")
+
+    case Serializer.empty_overrides?(plan) do
+      true -> {:error, "#{label} has an empty override with no URL spelling"}
+      false -> {:ok, fragment}
+    end
+  end
+
+  defp fragment(label, _value),
+    do: {:error, "#{label} must be an option fragment string or an ImagePipe.URL builder"}
 end
