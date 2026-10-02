@@ -8,9 +8,9 @@ the guide that matches your application:
 | I want to… | Guide |
 | --- | --- |
 | Serve resized images from Phoenix or a Plug router | [Plug usage](plug-usage.md) |
-| Build URLs in an application and serve images separately | [URL builder with an external server](external-server.md) |
 | Process uploads, files, or images in background jobs | [Elixir API](elixir-api.md) |
 | Generate URLs and precompute images with shared settings | [Combined usage](combined-usage.md) |
+| Build URLs in an application and serve images separately | [URL builder with an external server](external-server.md) |
 | Try the controls locally | [Run the Fiddle](fiddle.md) |
 
 ## Configure your application
