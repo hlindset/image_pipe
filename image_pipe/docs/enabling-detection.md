@@ -53,7 +53,8 @@ docker run --read-only --tmpfs /tmp -p 8080:8080 -v ./config.toml:/etc/image_pip
 ### Plug
 
 Each model downloads the first time it is used. RT-DETR, the object model,
-is about 175 MB, so download it when you build or deploy instead:
+is about 175 MB, so download it when you build or deploy, rather than each
+time a new server starts:
 
 ```bash
 mix image_vision.download_models --detect
@@ -69,9 +70,23 @@ directory for both:
 config :image_vision, :cache_dir, "/var/lib/image_vision/models"
 ```
 
-Then add the warmup worker to your supervision tree. It downloads the face
-model, YuNet (about 340 KB), and loads both models, so the first detection
-request doesn't wait for them:
+An [ImagePipe instance](phoenix-getting-started.md#starting-imagepipe)
+loads both models when it starts, so the first detection request doesn't
+wait for them. It also downloads the face model, YuNet (about 340 KB), and
+any other model that isn't on disk yet. Loading runs in the background and
+doesn't delay startup. If you only use face detection, set
+`detector_warmup` to skip RT-DETR:
+
+```elixir
+# lib/my_app/application.ex
+children = [
+  {ImagePipe, name: MyApp.Images, sources: [...], detector_warmup: ["face"]},
+  MyAppWeb.Endpoint
+]
+```
+
+A mount configured in the router without an instance loads nothing at
+startup. Add the warmup worker to your supervision tree instead:
 
 ```elixir
 # lib/my_app/application.ex
@@ -81,15 +96,13 @@ children = [
 ]
 ```
 
-The worker runs once in the background and doesn't delay startup. Pass
-`classes: ["face"]` as well if you only use face detection, to skip
-RT-DETR.
-
 > #### Required detection needs the models on disk {: .warning}
 >
 > With `detector_required: true`, requests don't download models. A
-> `detect` request answers `503` until every model it needs is on disk, so
-> run the warmup worker or download the models ahead of time.
+> `detect` request answers `503` until every model it needs is on disk.
+> An instance downloads them at startup unless `detector_warmup` leaves
+> them out. Without an instance, run the warmup worker or download the
+> models ahead of time.
 
 ### image_pipe_server
 
@@ -109,16 +122,11 @@ set `detector_required`:
 ### Plug
 
 ```elixir
-# lib/my_app_web/router.ex
-forward "/images", ImagePipe.Plug,
-  sources: [
-    media: [
-      adapter: ImagePipe.Source.File,
-      match: :path,
-      options: [root: "/srv/images", root_id: "media"]
-    ]
-  ],
-  detector_required: true
+# lib/my_app/application.ex
+children = [
+  {ImagePipe, name: MyApp.Images, sources: [...], detector_required: true},
+  MyAppWeb.Endpoint
+]
 ```
 
 ### image_pipe_server

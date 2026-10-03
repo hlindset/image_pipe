@@ -1,9 +1,11 @@
 defmodule ImagePipe.Transform.Detector.Warmup do
   @moduledoc """
-  Optional one-shot worker that pre-loads a detector's models at boot.
+  One-shot worker that pre-loads a detector's models at boot.
 
-  Add it to the host's supervision tree. The library doesn't start it, but
-  `image_pipe_server` does:
+  An `ImagePipe` instance starts it with the instance's detector and the
+  classes from its `:detector_warmup` option. A configuration used without an instance,
+  such as a mount configured in the router, needs the worker in the host's
+  supervision tree:
 
       {ImagePipe.Transform.Detector.Warmup, detector: :default}
 

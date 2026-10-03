@@ -69,6 +69,10 @@ defmodule ImagePipe.Transform.Detector do
   - `ready?/1` returning `false` fails it with `503`. Without `ready?/1`,
     the detector is ready whenever it is available.
 
+  `ready?/1` should return `true` once `warmup/1` has succeeded. An
+  `ImagePipe` instance calls `warmup/1` at startup unless its
+  `detector_warmup` option is `false`.
+
   With `detector_required: true`, `ImagePipe.config/1` also calls
   `available?/1` with `classes: [class]` for each supported class, and
   raises `ArgumentError` when it returns `false` for all of them.

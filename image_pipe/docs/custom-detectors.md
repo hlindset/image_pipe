@@ -103,8 +103,9 @@ forward "/images", ImagePipe.Plug,
 ```
 
 The same option works in `ImagePipe.config/1` and in an `ImagePipe` instance.
-To load models at startup, add the warmup worker to your supervision tree,
-before the endpoint:
+An instance calls your `warmup/1` when it starts. For a mount without an
+instance, like the one above, add the warmup worker to your supervision
+tree, before the endpoint:
 
 ```elixir
 # lib/my_app/application.ex

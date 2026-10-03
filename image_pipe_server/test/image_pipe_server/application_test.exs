@@ -51,7 +51,7 @@ defmodule ImagePipeServer.ApplicationTest do
   end
 
   describe "children/1" do
-    test "starts the pool, the ImagePipe instance, and warm-ups before the listener", %{
+    test "starts the pool and the ImagePipe instance before the listener", %{
       tmp_dir: dir
     } do
       config =
@@ -62,16 +62,14 @@ defmodule ImagePipeServer.ApplicationTest do
               {ImagePipe.Cache.FileSystem,
                [root: Path.join(dir, "out"), max_size_bytes: 1_000_000, node_id: "test"]},
             input_cache: {ImagePipe.Cache.FileSystem, [root: Path.join(dir, "in")]}
-          ],
-          processing: [detector: ImagePipeServer.Test.AvailableDetector]
+          ]
         )
 
-      assert [pool, instance, detector, http] = App.children(config)
+      assert [pool, instance, http] = App.children(config)
       assert {ImagePipe.ProcessingPool, pool_opts} = pool
       assert pool_opts[:max_concurrency] == 2
       assert {ImagePipe, instance_opts} = instance
       assert instance_opts[:config] == config.image_pipe
-      assert {ImagePipe.Transform.Detector.Warmup, _opts} = detector
       assert {Bandit, _opts} = http
     end
 
