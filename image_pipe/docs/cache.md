@@ -33,16 +33,8 @@ Raw `{:file, path}` and `{:binary, bytes}` inputs bypass both pools.
 
 ## Freshness and source stability
 
-HTTP and S3 sources use origin freshness for both original bytes and processed
-responses. The default honors `s-maxage`, `max-age`, `Expires`, `Date`, `Age`,
-`no-cache`, `no-store`, `private`, mandatory revalidation and
-`stale-while-revalidate`. Missing freshness requires validation; there is no
-heuristic TTL. Origin ETags and Last-Modified values validate originals; weak
-origin ETags are never promoted to strong response ETags.
-ImagePipe acts as the host's image processor: origin `no-transform` does not
-cancel explicitly requested operations or change storage permission.
-
-Storage permission is separate from freshness. Set mount defaults with
+How these settings behave is explained in
+[Caching and freshness](caching-and-freshness.md). Set mount defaults with
 `source_cache_policy`, or override individual fields using a source adapter's
 `cache_policy` (including per-bucket S3 settings):
 
@@ -54,23 +46,15 @@ source_cache_policy: [
 ]
 ```
 
-Fallback freshness applies only when origin freshness is absent. Forced TTL
-does not grant storage permission. Explicit `storage: :allow` overrides the
-origin's `private` and `no-store`. `Vary: *` still prevents reuse. Originals
-fetched with your source credentials, such as signed S3 requests, follow the
-same rules, both for the cache and for the response's `Cache-Control`.
-Request URLs cannot set these host policies. Auth callbacks and S3 credentials
-are resolved before keying and frozen for the fetch; only their digest enters
-cache keys. Hosts implementing custom source adapters must include every
-byte-selecting fetch context in their resolved source data.
+Auth callbacks and S3 credentials are resolved once, before the cache lookup,
+and reused for the fetch. Only a hash of them enters cache keys. Hosts
+implementing custom source adapters must include every byte-selecting fetch
+context in their resolved source data.
 
-`stable: :immutable` promises the source identity always names the same bytes.
-Immutable sources never expire or revalidate, but remain evictable and still need
-storage permission. Explicit source TTL/SWR settings conflict with this promise;
-mutable mount defaults are ignored for immutable sources. Revision-addressed S3
-objects are automatically stable. `internal_cache: :disabled` disables both
-pools for a source, and `:auto` caches subject to the source's storage policy. A local file is
-copied into the input pool only when its mount sets `copy: :keep` (see
+`stable: :immutable` marks a source whose identifiers always name the same
+bytes. `internal_cache: :disabled` disables both pools for a source, and
+`:auto` caches subject to the source's storage policy. A local file is copied
+into the input pool only when its mount sets `copy: :keep` (see
 [local files](sources.md#local-files)).
 
 ## Original-byte pool
@@ -104,29 +88,20 @@ Temporary-file failures fall back to the bounded in-memory decode path.
 Staging and pinned readers can temporarily exceed the retained pool budget;
 their lifetime is bounded by active requests and source limits.
 
-Source version/freshness records are also stored as charged entries in the
-output pool. This lets fresh outputs survive eviction of their input blobs.
-These records compete for the existing pool budget; there is no unbounded
-metadata cache. If all evidence is evicted, the next request acquires or
-validates the source before selecting a mutable output.
+The output pool also stores each source's version and freshness, which is what
+lets [processed images outlive their original](caching-and-freshness.md#originals-and-processed-images).
+These small entries count against the output pool's byte budget.
 
-## Stale-while-revalidate
+## Coordination limits
 
-An eligible stale output returns immediately while supervised work refreshes
-its source and requested variant. An origin `304` retains the output without
-re-encoding; a changed original selects a new byte-version key. Other variants
-rebuild on demand. Output misses wait for source validation. Hits, old-input
-generation, and failed refreshes never extend source deadlines. Once the stale
-window ends, origin failures are returned; SWR is not stale-if-error.
+Source fetches and background refreshes are coordinated on each node, as
+described in [Caching and freshness](caching-and-freshness.md#request-coalescing):
 
-Coordination is node-local. Source operations coalesce by input identity;
-background jobs coalesce by output variant. Coordination allows 64 active source
-keys and 1,024 waiters, with uncached fallback on saturation. Background work is
-limited to 16 jobs, a 60-second deadline and a one-second retry cooldown. Jobs
-survive the initiating response; process monitors release cancelled owners and
-temporary files. Source version keys prevent old output workers from replacing
-newer versions. Downstream headers retain source age and mandatory validation
-rules. See [CDN HTTP caching](cdn-http-cache.md).
+- Up to 64 originals can be fetched or checked at once, with 1,024 waiting
+  requests. Beyond that, a request fetches its original without waiting and
+  without caching it.
+- Up to 16 background refreshes run at once, each with a 60-second deadline
+  and a one-second retry cooldown.
 
 ## Cache misses and streaming
 

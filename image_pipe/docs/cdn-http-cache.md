@@ -60,17 +60,12 @@ with `http_cache: :public` can serve per-user uploads from a source set to
 
 ## Stable source bytes
 
-`stable: :immutable` tells a source adapter that the resolved source identity names
-the same bytes for every request. Use it only for write-once storage,
-content-addressed paths, or storage where your application policy prevents
-in-place replacement under the same identity.
-
-For `ImagePipe.Source.File`, `stable: :auto` identifies each file by a hash of
-its contents and checks it for changes on every request that a fresh cached
-response doesn't answer.
-`stable: :immutable` derives identity from `root_id` and the path instead, so a
-cached response is served without touching the file. See
-[local files](sources.md#local-files).
+`stable: :immutable` marks a source whose identifiers always name the same
+bytes, so when storage is allowed its responses get the one-year lifetime in
+every mode except `:validators`. When to use it is covered in
+[write-once sources](caching-and-freshness.md#write-once-sources).
+For `ImagePipe.Source.File`, the identity then comes from `root_id` and the
+path.
 
 For `ImagePipe.Source.HTTP`, `stable: :immutable` derives byte identity from URL
 components. Raw query strings never enter ETags or telemetry; a query SHA-256
@@ -86,13 +81,8 @@ version, and the store must confirm it with `x-amz-version-id`. S3 objects
 without a revision need `stable: :immutable` if the bucket or key policy is
 write-once.
 
-`stable` and `internal_cache` are separate settings. `stable` is about whether
-ImagePipe can derive byte identity before a fetch. `internal_cache` controls
-storage and reuse in both pools. A route can use internal caching without
-generated HTTP cache headers. Sources that can change obtain byte identity from
-the complete original bytes, with or without internal caching. Their output
-validators require current source evidence. `stable: :immutable` removes expiry, but origin storage restrictions
-still apply unless the host explicitly sets `cache_policy: [storage: :allow]`.
+`internal_cache` is a separate setting that controls storage in both pools. A
+route can use internal caching without generated HTTP cache headers.
 
 ## Generated headers
 
@@ -204,6 +194,9 @@ Other methods receive `405` before parsing, source resolution, or cache access.
 ImagePipe doesn't interpret host-supplied ETags. If an earlier Plug sets
 `ETag`, ImagePipe preserves it, suppresses its generated ETag, and doesn't use
 that host ETag to return `304`.
+
+An origin's `ETag` is used only to check the original with the origin. A weak
+origin `ETag` never becomes a response `ETag`.
 
 ## Host headers
 

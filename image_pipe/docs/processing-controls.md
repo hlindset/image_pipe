@@ -81,25 +81,14 @@ does not implement a total source-transfer deadline for work outside generation.
 
 ## Output-cache request coalescing
 
-With an output `cache` configured, concurrent misses for the same configured
-cache and representation share one generation on each node. This applies to
-images, `info`, blurhash, and CSS LQIP across Plug, Elixir calls, and background
-refreshes. Followers wait before processing admission; they consume no processing
-slots or processing-queue entries. Uncacheable inputs and configurations with
-only an `input_cache` use ordinary processing admission.
-
-The leader retains ownership until its output-cache commit finishes.
-Followers then recheck the cache. If the entry is missing,
-evicted, rejected, or unavailable, each follower falls back to ordinary generation
-once. Failed generation also releases followers to run under their own safety
-limits. A cancelled leader promotes one waiter after the delivery session ends.
-
-Coordination is best effort, bounded to 64 distinct output keys and 1,024 waiting
-requests per node. Followers wait at most 60 seconds. Saturation, expiry, or a
-coordinator restart falls back to ordinary processing admission, which can still
-reject an overloaded request. These bounds protect coordinator resources; they
-do not introduce an HTTP retry requirement or change the processing pool limits.
-Equivalent requests on different nodes can still generate independently.
+Concurrent requests for the same uncached output are processed once, as
+described in [request coalescing](caching-and-freshness.md#request-coalescing).
+This covers images, `info`, BlurHash, and CSS LQIP, from the Plug, Elixir calls,
+and background refreshes. Waiting requests hold no processing slot or queue
+entry. Coalescing allows 64 distinct outputs and 1,024 waiting requests per
+node, and a request waits at most 60 seconds. Past those bounds, a request goes
+through ordinary processing admission, which can still reject it when the pool
+is overloaded.
 
 ## Failure and cancellation
 
