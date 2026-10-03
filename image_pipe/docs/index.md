@@ -35,7 +35,7 @@ option index. Each category page shows the URL and Elixir spellings.
 | [Effects](processing/effects.md) | Blur, sharpen, pixelate, grayscale, color adjustments, overlays |
 | [Watermarks](processing/watermark.md) | Image watermarks with opacity, scale, placement, and tiling |
 | [Output and encoding](processing/output.md) | Formats, quality, size budgets, encoders, profiles, HDR, placeholders, info |
-| [Request controls](processing/request.md) | Downloads, expiry, cachebusters, debugging |
+| [Request controls](processing/request.md) | Downloads, page selection, cache busting, expiry, debugging |
 
 - [Content-aware cropping](content-aware-gravity.md): installing face and object detection.
 - [API semantics](api_contract.md): the precise rules the processing options follow.

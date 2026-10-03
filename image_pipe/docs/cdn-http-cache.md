@@ -132,7 +132,7 @@ the `ETag`. Credentials enter only as a hash, and never appear in telemetry.
 
 ## Expiring URLs
 
-A URL with an [`expires`](processing/request.md) time never gets a cache
+A URL with an [`expires`](processing/request.md#expires) time never gets a cache
 lifetime that outlasts it:
 
 - `max-age` is lowered to the time left.

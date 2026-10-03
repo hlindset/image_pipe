@@ -21,7 +21,7 @@ immediately.
 ## Fixed stage order
 
 The executor follows the [processing stage order](../../image_pipe/docs/processing.md#processing-order)
-and [effect order](../../image_pipe/docs/processing/effects.md#order-effects-deliberately), regardless
+and [effect order](../../image_pipe/docs/processing/effects.md#effect-order), regardless
 of URL option order. See [execution flow](execution_flow.md) for the surrounding
 request lifecycle.
 

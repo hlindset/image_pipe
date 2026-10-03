@@ -1,71 +1,353 @@
 # Resize and layout
 
-[All processing options](../processing.md) · [Orientation and cropping](crop.md)
+These options set the size and shape of the image, its pixel density, and the
+canvas, padding, and background around it. Values use the shared
+[option value syntax](../requesting-images.md#option-values), and
+[processing order](../processing.md#processing-order) shows which steps run
+before and after the resize.
 
-Pass these options to `ImagePipe.URL.group/2`; the `resize` fields go inside its
-`resize: [...]` keyword list.
+The result can't exceed the maximum output size set in the
+[Plug configuration](../configuration.md#resource-limits) or
+[server configuration](../../../image_pipe_server/docs/server-configuration.md#processing).
+A larger result is scaled down to fit rather than rejected.
 
 ## Resize
 
-| URL | Elixir | Values / behavior |
-| --- | --- | --- |
-| `w=400`, `h=300` | `resize: [width: 400, height: 300]` | Positive integer or `auto`; omitted/automatic axis follows aspect ratio |
-| `fit=contain` | `resize: [fit: :contain]` | Fit mode below; requires a concrete dimension |
-| `enlarge` | `resize: [enlarge: true]` | Allow upscaling; default false |
-| `min-w=200`, `min-h=150` | `resize: [min_width: 200, min_height: 150]` | Positive integer minimum target dimensions, subject to enlargement cap |
-| `dpr=2` | `dpr: 2` | Positive density factor; default 1 |
-| `zoom=1.5` or `zoom=2,1` | `resize: [zoom: 1.5]` or `[zoom: {2, 1}]` | Positive factor(s); default 1; non-unit zoom needs a dimension or minimum |
+### w and h
 
-| Fit | Result |
-| --- | --- |
-| `contain` / `:contain` | Preserve aspect ratio within the target box; default |
-| `cover` / `:cover` | Fill the target box, cropping excess using the guide |
-| `cover-down` / `:cover_down` | Cover without upscaling |
-| `stretch` / `:stretch` | Resize axes independently to the target ratio |
-| `auto` / `:auto` | Cover when source and target orientations match, contain otherwise |
+Accepts a [pixel length](../requesting-images.md#pixel-lengths) of 1 or more,
+in whole pixels, or `auto`. Default: none.
+
+Sets the width and height of the box the image is resized into. How the image
+fills the box is set by [`fit`](#fit), which defaults to `contain`. With only
+one of them, or with the other set to `auto`, the other dimension follows the
+image's aspect ratio, except under `fit=stretch`. `auto` needs a number in the
+other dimension or in [`min-w` or `min-h`](#min-w-and-min-h), otherwise the
+request fails with `400`.
+
+Without [`enlarge`](#enlarge), the resized image is never larger than the
+source. A 300-pixel-wide source requested with `w=400` comes out 300 pixels
+wide.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/w=400/h=300/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder, resize: [width: 400, height: 300])
+```
+
+<!-- tabs-close -->
+
+### fit
+
+Accepts one of these [named values](../requesting-images.md#named-values).
+Default: `contain`.
+
+- `contain` fits the whole image inside the box. One side can come out
+  shorter than the box.
+- `cover` fills the box and cuts off what doesn't fit. The center is kept
+  unless [`anchor`, `focus`, or `detect`](crop.md#crop-guides) sets another
+  part.
+- `cover-down` works like `cover`, but never enlarges the image, even with
+  [`enlarge`](#enlarge). Without `enlarge`, it gives the same result as `cover`.
+- `stretch` resizes the width and height separately to the box, which
+  distorts the image when the aspect ratios differ. With only `w`, the height
+  stays at the source height, and with only `h`, the width does.
+- `auto` uses `cover` when the source and the box are both landscape or both
+  portrait, and `contain` otherwise. A square counts as landscape. With only
+  one of `w` and `h`, it uses `contain`.
+
+`fit` needs a number in `w`, `h`, `min-w`, or `min-h` in the same group,
+otherwise the request fails with `400`.
+
+Without `enlarge`, a `cover` result for a small source keeps the box's aspect
+ratio at a smaller size, because the box is scaled down to fit the source
+before cropping. A 300×300 source with `w=400/h=300/fit=cover` comes out
+300×225.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/w=400/h=300/fit=cover/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder, resize: [width: 400, height: 300, fit: :cover])
+```
+
+<!-- tabs-close -->
+
+### enlarge
+
+A [flag](../requesting-images.md#flags). Default: off.
+
+Allows the result to be larger than the source. Without it, a source smaller
+than the requested size keeps its own size, or shrinks to keep the box's aspect
+ratio under [`fit=cover`](#fit). `enlarge` needs a number in `w`, `h`, `min-w`,
+or `min-h` in the same group, otherwise the request fails with `400`.
+`fit=cover-down` ignores it.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/w=1200/enlarge/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder, resize: [width: 1200, enlarge: true])
+```
+
+<!-- tabs-close -->
+
+### min-w and min-h
+
+Accepts a pixel length of 1 or more, in whole pixels. Default: none.
+
+Sets the smallest width or height the resized image may have. When the
+target from `w` and `h` is smaller, ImagePipe enlarges the whole target,
+keeping its aspect ratio, until it meets both minimums. Without `w` or `h`,
+the target starts at the source's own size.
+
+The minimums don't override [`enlarge`](#enlarge): without it, the result
+still can't be larger than the source, so `min-w` or `min-h` alone changes
+nothing.
+
+A 2:1 source at least 600 pixels wide, requested with `w=400/min-h=300`,
+comes out 600×300, because 400 pixels wide would make it only 200 pixels high.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/w=400/min-h=300/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder, resize: [width: 400, min_height: 300])
+```
+
+<!-- tabs-close -->
+
+### zoom
+
+Accepts a positive [number](../requesting-images.md#numbers), or an `x,y`
+[pair](../requesting-images.md#pairs-and-lists) of them. Default: `1`.
+
+Multiplies `w` and `h` before `fit` is applied, both by the one number or each
+by its own. With only `min-w` or `min-h`, it multiplies the source's size. An
+`auto` dimension follows the zoomed one, so `w=400/zoom=2,1` gives an
+800-pixel-wide image that keeps its aspect ratio.
+
+Zoom doesn't change the [canvas](#extend-and-extend-ratio), padding, or
+offsets. A `zoom` other than `1` needs a number in `w`, `h`,
+`min-w`, or `min-h` in the same group, otherwise the request fails with `400`.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/w=400/zoom=1.5/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder, resize: [width: 400, zoom: 1.5])
+```
+
+<!-- tabs-close -->
+
+### dpr
+
+Accepts a positive number, the device pixel ratio. Default: `1`.
+
+Multiplies the sizes you request in pixels: `w`, `h`, `min-w`, `min-h`, the
+`extend` canvas, `pad`, `extend-offset`, and an `anchor-offset` on a cover
+resize. `/w=400/dpr=2` gives an 800-pixel-wide image, from a source at least
+that wide, for a 400-pixel slot on a high-density screen.
+
+`dpr` doesn't change percentages, or the sizes and offsets of a
+[`crop` or `region`](crop.md#trim-and-crop), which are measured in pixels of
+the image being cropped.
+
+- Without `w`, `h`, `min-w`, or `min-h` there is nothing to resize, so the
+  image keeps its own size. `pad` is still multiplied: `/pad=10/dpr=2` adds
+  20 pixels on each side.
+- Without [`enlarge`](#enlarge), a source too small to reach the requested
+  size lowers the density used for padding, the canvas, and offsets to match
+  the size actually reached. It never goes below the smaller of 1 and the
+  requested `dpr`. A 150×150 source with `w=100/h=100/dpr=2/pad=10`
+  reaches 1.5× instead of 2×, so it comes out as 150×150 pixels of image with
+  15 pixels of padding on each side, 180×180 in all. Adding `enlarge` gives
+  240×240.
+
+<!-- tabs-open -->
+
+### URL
 
 ```text
 /w=400/h=300/fit=cover/dpr=2/src/photos/beach.jpg
 ```
 
+### Elixir
+
 ```elixir
-ImagePipe.URL.new()
-|> ImagePipe.URL.group(resize: [width: 400, height: 300, fit: :cover], dpr: 2)
+ImagePipe.URL.group(builder, resize: [width: 400, height: 300, fit: :cover], dpr: 2)
 ```
 
-Without enlargement, small sources can produce smaller results. Zoom scales
-the requested resize box before the fit mode is applied; it does not select
-a source region. Use [crop](crop.md) to select a region.
+<!-- tabs-close -->
 
 ## Canvas, padding, and background
 
-| URL | Elixir | Values / behavior |
-| --- | --- | --- |
-| `extend` | `extend: true` | Expand to the `w`/`h` canvas |
-| `extend-ratio` | `extend_ratio: true` | Expand to the `w`:`h` aspect ratio |
-| `extend-at=top-left` | `extend_at: :top_left` | Named placement anchor, center by default. Needs `extend` or `extend-ratio` in the same group, otherwise `400` |
-| `extend-offset=10,-5pct` | `extend_offset: {10, {:pct, -5}}` | Signed pixels or percentages of the realized canvas. Needs `extend` or `extend-ratio` in the same group, otherwise `400` |
-| `pad=12` or `pad=10,20,30,40` | `padding: 12` or `padding: {10, 20, 30, 40}` | Nonnegative integers; one to four CSS-order values |
-| `bg=fff` or `bg=fff,0.5` | `background: "fff"` or `background: {"fff", 0.5}` | Color with optional alpha from 0 to 1 |
+Added space is transparent until [`bg`](#bg) fills it.
 
-Both canvas modes require concrete `w` and `h` and cannot be enabled together.
-Canvas expansion preserves the image's scale and never crops it. Placement
-anchors are `center`, `top`, `bottom`, `left`, `right`, `top-left`, `top-right`,
-`bottom-left`, and `bottom-right` (underscores in Elixir atoms). `smart` and
-`smart-face` are crop-only.
+### extend and extend-ratio
 
-Added space is transparent. `bg` fills every transparent pixel, including
-transparent areas of the image itself. Formats without alpha, such as JPEG,
-flatten any remaining transparency onto white. Without `bg`, added space comes
-out white, and a translucent `bg` is blended over white.
+Each is a flag. Default: off.
+
+- `extend` places the image on a canvas of `w` × `h` pixels (times `dpr`).
+- `extend-ratio` adds space along one axis so the result has the aspect ratio
+  `w`:`h`.
+
+[`extend-at`](#extend-at-and-extend-offset) sets where the image sits on the
+canvas, the center by default.
+
+Neither scales nor crops the image. Each needs numbers in both `w` and `h`,
+and they can't be used together. Otherwise the request fails with `400`. The
+canvas is never smaller than the image, so `extend` changes nothing when the
+image already fills the box, as with `fit=cover`.
+
+A source smaller than the box keeps its size without [`enlarge`](#enlarge): a
+120×90 source with `w=300/h=200/extend` sits at 120×90 in the middle of a
+300×200 canvas.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/w=400/h=400/extend/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder, resize: [width: 400, height: 400], extend: true)
+```
+
+<!-- tabs-close -->
+
+### extend-at and extend-offset
+
+`extend-at` accepts an [anchor](../requesting-images.md#anchors). Default:
+`center`.
+
+`extend-offset` accepts an `x,y` pair of pixel lengths or
+[percentages](../requesting-images.md#percentages), either of which can be
+negative. Percentages are of the canvas width and height. Pixels are
+multiplied by `dpr`. Default: `0,0`.
+
+`extend-at` sets where the image sits on the canvas, and `extend-offset` moves
+it from there. Positive values move it right and down from a left, top, or
+center anchor, and inward from a right or bottom anchor. The image always stays
+inside the canvas. Both need `extend` or `extend-ratio` in the same group,
+otherwise the request fails with `400`.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/w=400/h=400/extend/extend-at=bottom/extend-offset=0,10/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder,
+  resize: [width: 400, height: 400],
+  extend: true,
+  extend_at: :bottom,
+  extend_offset: {0, 10}
+)
+```
+
+<!-- tabs-close -->
+
+### pad
+
+Accepts one to four whole pixel lengths of 0 or more, in CSS order. Default:
+none.
+
+- One value pads every side.
+- Two values pad the top and bottom, then the left and right.
+- Three values pad the top, then the left and right, then the bottom.
+- Four values pad the top, right, bottom, and left.
+
+Adds space outside the image and any canvas, so the result grows by the
+padding. Padding is multiplied by `dpr`.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/w=400/pad=10,20/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder, resize: [width: 400], padding: {10, 20})
+```
+
+<!-- tabs-close -->
+
+### bg
+
+Accepts a [color](../requesting-images.md#colors), optionally followed by an
+alpha [fraction](../requesting-images.md#fractions). Default: none.
+
+Fills every transparent pixel in the group's result: canvas, padding, the
+corners left by [`rotate`](crop.md#rotate), and transparent areas of the image
+itself. An opaque `bg` makes the image fully opaque. With an alpha below 1,
+those areas stay partly transparent.
+
+Without `bg`, transparent areas stay transparent in formats that support it,
+such as PNG, WebP, and AVIF. JPEG has no transparency, so it turns any
+remaining transparency white.
+
+<!-- tabs-open -->
+
+### URL
 
 ```text
 /w=400/h=400/extend/pad=12/bg=fff/src/photos/beach.jpg
 ```
 
+### Elixir
+
 ```elixir
-ImagePipe.URL.new()
-|> ImagePipe.URL.group(
+ImagePipe.URL.group(builder,
   resize: [width: 400, height: 400],
   extend: true,
   padding: 12,
@@ -73,19 +355,4 @@ ImagePipe.URL.new()
 )
 ```
 
-This contains the image, extends the canvas, then adds padding and a white
-background. Padding increases the final dimensions beyond the canvas size.
-
-## Density and small sources
-
-DPR scales resize targets, pixel offsets, and padding. If enlargement is off
-and source size caps resizing, the same clamp reduces effective DPR for layout,
-but never below 1 or the requested DPR, whichever is smaller. A 120×90 source
-with `w=300/h=200/extend` stays 120×90 inside a 300×200 canvas.
-A 150×150 source with `w=100/h=100/dpr=2/pad=10` produces 150×150 image pixels
-plus 15px on each side: 180×180 overall. Adding `enlarge` produces 240×240.
-
-Percentage offsets resolve once against their frame and are not multiplied by
-DPR. Zoom affects resize alone; DPR also affects the canvas. With no resize,
-DPR can scale padding without scaling source pixels. See the
-[geometry contract](../api_contract.md#dpr-zoom-offsets-and-padding).
+<!-- tabs-close -->
