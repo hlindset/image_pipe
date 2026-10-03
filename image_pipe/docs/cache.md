@@ -1,25 +1,7 @@
 # Cache
 
-ImagePipe can cache complete encoded responses after successful processing:
-
-```elixir
-forward "/",
-  to: ImagePipe.Plug,
-  init_opts: [
-    sources: [
-      images: [
-        adapter: ImagePipe.Source.File,
-        match: :path,
-        options: [root: "/srv/images", root_id: "primary"]
-      ]
-    ],
-    cache:
-      {ImagePipe.Cache.FileSystem,
-       root: "/var/cache/image_pipe",
-       path_prefix: "processed",
-       max_body_bytes: 10_000_000}
-  ]
-```
+ImagePipe can cache complete encoded responses after successful processing.
+To set up the caches, see [Caching processed images](caching-processed-images.md).
 
 Cache lookup follows request parsing, validation, and source resolution.
 Invalid requests return before source or cache access; invalid signatures return
@@ -59,25 +41,9 @@ into the input pool only when its mount sets `copy: :keep` (see
 
 ## Original-byte pool
 
-Add an independently configured filesystem pool:
-
-```elixir
-input_cache: {ImagePipe.Cache.FileSystem,
-  root: "/var/cache/image_pipe/originals",
-  pool: :input,
-  max_size_bytes: 2_000_000_000,
-  node_id: "node-0"},
-cache: {ImagePipe.Cache.FileSystem,
-  root: "/var/cache/image_pipe/outputs",
-  max_size_bytes: 5_000_000_000,
-  node_id: "node-0"}
-```
-
-Use distinct roots and start `ImagePipe.Cache.FileSystem.child_spec/1` for each bounded pool.
-Each has an independent byte budget and eviction policy. Output
-hits do not count as input demand. Original EXIF/ICC bytes are preserved.
-`pool: :input` labels the input supervisor's admission and maintenance telemetry;
-the default label is `:output`. The validated mount adds the input label automatically.
+`input_cache` takes an `ImagePipe.Cache.FileSystem` pool with a root distinct
+from the output cache's. Each pool has an independent byte budget and eviction
+policy. Output hits do not count as input demand. Original EXIF/ICC bytes are preserved.
 
 Downloads stage original bytes in a temporary file for reuse.
 Current body/pixel limits apply when generating from input hits, while existing
@@ -194,40 +160,20 @@ path errors.
 By default the filesystem cache grows without an upper size limit. Setting
 `:max_size_bytes` switches `ImagePipe.Cache.FileSystem` into bounded mode, where
 a cost-aware W-TinyLFU admission and eviction policy keeps the total size of
-stored body files at or under the configured cap.
-
-```elixir
-cache:
-  {ImagePipe.Cache.FileSystem,
-   root: "/var/cache/image_pipe",
-   max_size_bytes: 5_000_000_000,
-   node_id: System.get_env("POD_NAME", "node-0")}
-```
-
-Without `:max_size_bytes`, the adapter ignores the other bounded-mode settings.
+stored body files at or under the configured cap. Setting other bounded-mode
+options without `:max_size_bytes` is a configuration error.
 
 ### Node identity and the supervision tree
 
 Bounded mode runs a per-node `Admission` GenServer that owns the size budget,
 the admission policy, and the persisted frequency sketch. It requires a stable
 `:node_id` string. The `:node_id` names the per-node persisted state file, so it
-must stay stable across restarts of the same node. On Kubernetes, StatefulSet
-pods get stable ordinal names (e.g. `image-pipe-0`, exposed via `POD_NAME` from
-the downward API), which make good `:node_id` values; Deployment/ReplicaSet pods
-get a random suffix that changes on every restart, so their pod names must not
-be used.
+must stay stable across restarts of the same node. Choosing node IDs for
+replicas is covered in [Run several replicas](caching-processed-images.md#run-several-replicas).
 
 `ImagePipe.Cache.FileSystem.child_spec/1` returns a supervisor spec (a `Registry`
 plus the `Admission` process) when `:max_size_bytes` is set, and `:ignore`
-otherwise. Add it to your application's supervision tree **before** the Plug
-endpoint starts serving requests, using the same options you pass to the cache:
-
-```elixir
-children = [
-  ImagePipe.Cache.FileSystem.child_spec(cache_opts),
-  {Bandit, plug: MyApp.Endpoint}
-]
-```
+otherwise.
 
 Bounded commits fail closed: if no `Admission` process is running for a request's
 `{root, node_id}`, the cache skips the write rather than leaving an untracked

@@ -111,8 +111,6 @@ spec:
       env:
         - name: IPS_URL__KEYS_FILE
           value: /run/secrets/image-pipe/signing_keys
-        - name: IPS_CACHE__OUTPUT__NODE_ID
-          valueFrom: { fieldRef: { fieldPath: metadata.name } }
       readinessProbe: { httpGet: { path: /health, port: 8080 } }
       livenessProbe: { httpGet: { path: /health, port: 8080 } }
       securityContext:
@@ -129,14 +127,16 @@ spec:
     - { name: tmp, emptyDir: { medium: Memory } }
 ```
 
-Use a StatefulSet when a bounded cache persists across restarts: its
-`node_id` must stay stable for the same node, and StatefulSet pod names do.
+A bounded cache needs a `node_id`. With the per-pod `emptyDir` above, a fixed
+one in the configuration file works. For cache volumes that are shared or
+outlive the pod, see
+[Run several replicas](../../image_pipe/docs/caching-processed-images.md#run-several-replicas).
 
 ## Caches
 
-`[cache.output]` stores encoded responses, `[cache.input]` stores source
-bytes. Both grow without limit unless `max_size_bytes` is set, which also
-requires a stable `node_id`. See the library's [cache guide](../../image_pipe/docs/cache.md).
+To set up `[cache.output]` for processed images and `[cache.input]` for
+originals, and to bound their size, see
+[Caching processed images](../../image_pipe/docs/caching-processed-images.md).
 
 Whether a response is cached also depends on its source mount:
 

@@ -34,6 +34,7 @@ defmodule ImagePipe.MixProject do
     Operations: [
       "docs/deployment.md",
       "docs/caching-and-freshness.md",
+      "docs/caching-processed-images.md",
       "docs/cache.md",
       "docs/cdn-http-cache.md",
       "docs/processing-controls.md",
