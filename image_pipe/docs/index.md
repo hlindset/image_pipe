@@ -1,30 +1,31 @@
 # ImagePipe documentation
 
-## Start here
+ImagePipe resizes, crops, and converts images, either on request over HTTP or
+in Elixir code. Start with the page for what you want to do:
 
-Start with [installation](installation.md), then choose
-the guide that matches your application:
-
-| I want to… | Guide |
+| I want to… | Start with |
 | --- | --- |
-| Serve resized images from Phoenix or a Plug router | [Plug usage](plug-usage.md) |
-| Process uploads, files, or images in background jobs | [Elixir API](elixir-api.md) |
-| Generate URLs and precompute images with shared settings | [Combined usage](combined-usage.md) |
-| Build URLs in an application and serve images separately | [URL builder with an external server](external-server.md) |
-| Try the controls locally | [Run the Fiddle](fiddle.md) |
+| Request images from an ImagePipe server someone else runs | [Processing options](processing.md) and [URLs and presets](urls.md) |
+| Run `image_pipe_server` | [Running image_pipe_server](https://github.com/hlindset/image_pipe/blob/main/image_pipe_server/README.md) |
+| Serve images from my Phoenix or Plug app | [Plug usage](plug-usage.md) |
+| Process images in Elixir code (uploads, jobs) | [Elixir API](elixir-api.md) |
+| Generate signed URLs for a separate server | [URL builder with an external server](external-server.md) |
+| Extend ImagePipe with custom sources, detectors, or telemetry handlers | [Custom source adapters](sources.md#custom-adapters), [custom detectors](content-aware-gravity.md#custom-detectors), and [telemetry handlers](telemetry.md#attaching-handlers) |
 
-## Configure your application
+## Application setup
 
+- [Installation](installation.md): the Hex dependency and supported image formats.
+- [Combined usage](combined-usage.md): serve images and process them in code with one configuration.
 - [Configuration](configuration.md): where settings belong, defaults, limits, and overrides.
-- [Image sources](sources.md): local files, HTTP(S), S3, and custom adapters.
+- [Image sources](sources.md): local files, HTTP(S), and S3.
 - [S3 credentials](s3-credentials.md): static keys, roles, temporary credentials, and warmup.
 - [Source network policy](source-network-policy.md): allowed origins and private networks.
-- [URLs and presets](urls.md): path structure, reusable recipes, signing, expiry, and source concealment.
 
-## Choose processing options
+## Requesting images
 
-Start with the [processing overview](processing.md) for ordering, units, defaults,
-and a complete option index. Each category shows URL and Elixir spellings.
+[Processing options](processing.md) covers ordering, units, defaults, and a
+complete option index. Each category page shows the URL and Elixir spellings.
+To try the options in a local demo app, [run the Fiddle](fiddle.md).
 
 | Category | What it covers |
 | --- | --- |
@@ -35,20 +36,26 @@ and a complete option index. Each category shows URL and Elixir spellings.
 | [Output and encoding](processing/output.md) | Formats, quality, size budgets, encoders, profiles, HDR, placeholders, info |
 | [Request controls](processing/request.md) | Downloads, expiry, cachebusters, debugging |
 
-See [content-aware cropping](content-aware-gravity.md) for detector installation
-and custom detection, and [API semantics](api_contract.md) for exact behavior.
+- [Content-aware cropping](content-aware-gravity.md): installing face and object detection.
+- [API semantics](api_contract.md): the precise rules the processing options follow.
 
-## Run in production
+## Caching and CDNs
+
+- [Caching and freshness](caching-and-freshness.md): how long originals and processed images stay valid.
+- [Caching processed images](caching-processed-images.md): store processed images on disk and share them between replicas.
+- [Serving images through a CDN](serving-through-a-cdn.md): cache headers, source lifetimes, and CDN settings.
+- [Cache storage](cache.md): what the caches store, cache key inputs, and bounded mode.
+- [HTTP cache headers](cdn-http-cache.md): `Cache-Control`, `ETag`, `Vary`, and `304` responses.
+
+## Running in production
 
 - [Deployment](deployment.md): streaming failures, timeouts, capacity, and memory.
-- [Cache storage](cache.md): what the caches store, cache key inputs, and bounded mode.
-- [HTTP cache headers](cdn-http-cache.md): generated `Cache-Control`, `ETag`, and `Vary`, and `304` responses.
 - [Processing limits](processing-controls.md): concurrency, queues, deadlines, and cancellation.
 - [Error responses](errors.md): which status each failure returns, and why.
 
-## Observe your application
+## Monitoring and tracing
 
-- [Telemetry](telemetry.md): configure logging, metrics handlers, and request IDs.
+- [Telemetry](telemetry.md): logging, metrics handlers, and request IDs.
 - [Telemetry event reference](telemetry-events.md): event names, measurements, metadata, and outcomes.
 - [Tracing](tracing.md): trace exporters, inbound context, and OpenTelemetry.
 - [Debug headers](debug_headers.md): inspect processing and cache decisions.
