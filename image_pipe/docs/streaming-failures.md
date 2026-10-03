@@ -84,6 +84,18 @@ With Bandit, ImagePipe notices that a client has gone the next time it
 writes to the connection. It then stops the encoder and the work behind it,
 releases the processing pool slot, and discards the partial cache entry.
 
+When the client of a streamed image disconnects, ImagePipe logs it at `info`
+level, not as an error, and the
+[`[:deliver]` span](telemetry-events.md#deliver) ends with
+`result: :client_closed`.
+
+When the client has gone before ImagePipe sends the headers, Bandit raises
+`Bandit.TransportError`. ImagePipe lets that exception reach Bandit, which
+treats it as a client disconnect and by default doesn't log it. ImagePipe's
+`[:send]` and `[:request]` spans end with the exception, so the
+[default telemetry logger](telemetry.md#logging-with-the-default-logger) logs them as warnings. In a Plug app,
+error trackers that capture exceptions from your Plug pipeline report it too.
+
 The work stops between chunks, not instantly. A libvips operation that is
 already running finishes first, and a stopped request gets one second to
 clean up before it is killed.

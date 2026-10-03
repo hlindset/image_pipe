@@ -398,6 +398,37 @@ defmodule ImagePipe.TelemetryTest do
     end)
   end
 
+  # Bandit raises from `send_chunked` when the socket is already gone.
+  defmodule GoneClientAdapter do
+    @moduledoc false
+    def send_chunked(_state, _status, _headers),
+      do: raise(Bandit.TransportError, message: "socket closed", error: :closed)
+
+    def get_peer_data(_state), do: %{address: {127, 0, 0, 1}, port: 0, ssl_cert: nil}
+    def get_http_protocol(_state), do: :"HTTP/1.1"
+  end
+
+  test "deliver stop metadata reports client_closed when the client is gone before headers" do
+    # The exception reaches the server, which handles it as a client close.
+    log =
+      capture_log(fn ->
+        assert_raise Bandit.TransportError, fn ->
+          :get
+          |> conn("/format=jpeg/src/images/beach.jpg")
+          |> Map.put(:adapter, {GoneClientAdapter, nil})
+          |> ImagePipe.Plug.call(base_opts())
+        end
+      end)
+
+    assert log =~ "client_closed"
+    refute log =~ ~r/\[error\].*socket closed/
+
+    assert_event(telemetry_events(), @prefix ++ [:deliver, :stop], fn _measurements, metadata ->
+      assert metadata.result == :client_closed
+      assert metadata.stream_phase == :client
+    end)
+  end
+
   test "request and send stop metadata report processing error when streaming encode fails before response" do
     {conn, log} =
       with_log(fn ->

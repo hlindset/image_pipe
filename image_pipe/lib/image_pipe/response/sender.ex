@@ -175,18 +175,35 @@ defmodule ImagePipe.Response.Sender do
 
     prepared_stream = maybe_add_debug_headers(prepared_stream, conn, opts)
 
-    Telemetry.span(
-      telemetry_opts,
+    telemetry_opts
+    |> Telemetry.span(
       [:deliver],
       output_metadata(prepared_stream.resolved_output),
       fn ->
         prepared_stream = merge_prepared_stream_headers(conn, prepared_stream, prepared)
         {conn, outcome} = do_send_prepared_stream(conn, prepared_stream)
 
-        {conn, deliver_stop_metadata(outcome, conn, prepared_stream.resolved_output)}
+        {keep_client_gone(conn, outcome),
+         deliver_stop_metadata(outcome, conn, prepared_stream.resolved_output)}
       end
     )
+    |> reraise_client_gone()
   end
+
+  # The server needs the exception it raised for a gone client back, so it
+  # can close the connection quietly. It is raised again once the span has
+  # recorded the client close.
+  defp keep_client_gone(conn, {:error, {:client_closed, {:raised, exception, stacktrace}}}),
+    do: Plug.Conn.put_private(conn, :image_pipe_client_gone, {exception, stacktrace})
+
+  defp keep_client_gone(conn, _outcome), do: conn
+
+  defp reraise_client_gone(%Plug.Conn{
+         private: %{image_pipe_client_gone: {exception, stacktrace}}
+       }),
+       do: reraise(exception, stacktrace)
+
+  defp reraise_client_gone(conn), do: conn
 
   defp debug_headers(nil, _cache_info, _opts), do: []
 
@@ -195,7 +212,7 @@ defmodule ImagePipe.Response.Sender do
   end
 
   defp do_send_prepared_stream(%Plug.Conn{} = conn, %PreparedStream{} = prepared_stream) do
-    case stream_prepared_chunks(conn, prepared_stream) do
+    case stream_or_cancel(conn, prepared_stream) do
       {:ok, conn} ->
         {conn, :ok}
 
@@ -203,6 +220,14 @@ defmodule ImagePipe.Response.Sender do
         _cancel_result = prepared_stream.cancel.()
         {mark_prepared_stream_error(conn, reason), {:error, reason}}
     end
+  end
+
+  defp stream_or_cancel(%Plug.Conn{} = conn, %PreparedStream{} = prepared_stream) do
+    stream_prepared_chunks(conn, prepared_stream)
+  catch
+    kind, reason ->
+      _cancel_result = prepared_stream.cancel.()
+      :erlang.raise(kind, reason, __STACKTRACE__)
   end
 
   defp stream_prepared_chunks(%Plug.Conn{} = conn, %PreparedStream{} = prepared_stream) do
@@ -217,15 +242,25 @@ defmodule ImagePipe.Response.Sender do
     end
   end
 
+  # Bandit raises a TransportError from `send_chunked` once the client has
+  # gone. Any other exception propagates.
   defp open_prepared_chunked(%Plug.Conn{} = conn) do
     {:ok, send_chunked(conn, 200)}
   rescue
     exception ->
-      {:error, mark_send_processing_error(conn), {:encode, {exception, __STACKTRACE__}}}
-  catch
-    kind, reason ->
-      {:error, mark_send_processing_error(conn), {kind, reason}}
+      if client_gone?(exception),
+        do: {:error, conn, {:client_closed, {:raised, exception, __STACKTRACE__}}},
+        else: reraise(exception, __STACKTRACE__)
   end
+
+  # Bandit isn't a dependency, so its exception is matched by name. These are
+  # the reasons Bandit itself treats as the client closing the connection.
+  @client_closure_errors [:closed, :enotconn, :einval, :econnaborted, :econnreset]
+
+  defp client_gone?(%{__struct__: Bandit.TransportError, error: error}),
+    do: error in @client_closure_errors
+
+  defp client_gone?(_exception), do: false
 
   defp prepare_chunked_conn(%Plug.Conn{} = conn, %PreparedStream{} = prepared_stream) do
     conn
@@ -279,6 +314,14 @@ defmodule ImagePipe.Response.Sender do
 
   defp mark_send_processing_error(%Plug.Conn{} = conn),
     do: Plug.Conn.put_private(conn, :image_pipe_send_result, :processing_error)
+
+  defp mark_prepared_stream_error(
+         %Plug.Conn{} = conn,
+         {:client_closed, {:raised, exception, _stacktrace}}
+       ) do
+    Logger.info("prepared_stream_client_closed: #{Exception.message(exception)}")
+    conn
+  end
 
   defp mark_prepared_stream_error(%Plug.Conn{} = conn, {:client_closed, reason}) do
     Logger.info("prepared_stream_client_closed: #{inspect(reason)}")
