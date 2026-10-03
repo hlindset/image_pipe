@@ -76,12 +76,6 @@ defmodule ImagePipe.RepresentationTest do
     assert a.etag != b.etag
   end
 
-  test "a strong byte_identity emits the ETag as its response header" do
-    rep = Representation.build(source_identity(), material(), {:strong, source_identity()})
-
-    assert Representation.response_headers(rep) == [{"etag", rep.etag}]
-  end
-
   test "key data carries the core execution epoch" do
     rep = build(source_identity(), material())
 

@@ -3,8 +3,6 @@ defmodule ImagePipe.Response.CacheHeaders do
 
   import Plug.Conn, only: [get_resp_header: 2]
 
-  alias ImagePipe.Representation
-
   @enforce_keys [:representation_headers, :headers, :etag]
   defstruct @enforce_keys
 
@@ -16,16 +14,6 @@ defmodule ImagePipe.Response.CacheHeaders do
           headers: [header()],
           etag: String.t() | nil
         }
-
-  @doc false
-  @spec from_representation(ImagePipe.Representation.t()) :: t()
-  def from_representation(%ImagePipe.Representation{} = representation) do
-    %__MODULE__{
-      etag: representation.etag,
-      representation_headers: vary_headers(representation.vary),
-      headers: Representation.response_headers(representation)
-    }
-  end
 
   @doc false
   @spec host_cache_control?([String.t()]) :: boolean()
@@ -65,7 +53,4 @@ defmodule ImagePipe.Response.CacheHeaders do
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
   end
-
-  defp vary_headers([]), do: []
-  defp vary_headers(names), do: [{"vary", Enum.join(names, ", ")}]
 end
