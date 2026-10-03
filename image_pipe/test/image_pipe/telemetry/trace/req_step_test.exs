@@ -116,14 +116,13 @@ defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
     refute inspect(s.attributes) =~ "LEAK"
   end
 
-  test "is a harmless no-op when no tracer is attached" do
+  test "sends no traceparent and emits no span when no tracer is attached" do
     Telemetry.detach_tracer()
 
     Telemetry.span([], [:request], %{}, fn ->
       req =
         stub_request(fn req ->
-          # traceparent is still injected (cheap, header only); span just is not emitted.
-          assert [_tp] = Req.Request.get_header(req, "traceparent")
+          assert Req.Request.get_header(req, "traceparent") == []
           {req, Req.Response.new(status: 200, body: "ok")}
         end)
         |> ReqStep.attach()

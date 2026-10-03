@@ -46,6 +46,9 @@ ends when the origin's status and headers arrive, because the body is
 streamed afterwards. Finch spans for the connection pool, connecting,
 sending, and receiving (`finch.connect`, `finch.recv`, and so on) nest in it,
 unless the tracer is attached with `finch_spans: false`.
+The request carries a `traceparent` header naming the client span, so an
+origin that traces its own requests joins the trace. Without a tracer,
+source requests send no `traceparent`.
 
 A span's attributes are its event's start and stop metadata, limited to keys
 known to be safe to export. Request paths, source URLs, signatures, and
@@ -90,10 +93,6 @@ removes it from outside requests.
 `image_pipe_server` always extracts inbound context when tracing is on. If
 clients reach it directly, have your proxy or CDN remove or replace
 `traceparent` (see [server tracing](../../image_pipe_server/docs/server-deployment.md#tracing)).
-
-Requests to HTTP and S3 sources carry a `traceparent` header naming the
-`image_pipe.http.client` span, so an origin that traces its own requests
-joins the trace. The header is sent even when no tracer is attached.
 
 ## Sampling
 
