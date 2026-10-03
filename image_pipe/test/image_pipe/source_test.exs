@@ -198,9 +198,6 @@ defmodule ImagePipe.SourceTest do
       assert Source.resolve(%Path{segments: ["other", "cat.jpg"]}, config, []) ==
                {:error, {:source, :not_found}}
 
-      assert Source.resolve(%URL{scheme: :https, host: "example.com", path: []}, config, []) ==
-               {:error, {:source, :missing_adapter}}
-
       assert {:ok, empty} = Source.validate_config(sources: [])
 
       assert Source.resolve(%Path{segments: ["cat.jpg"]}, empty, []) ==

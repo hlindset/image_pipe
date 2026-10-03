@@ -6,6 +6,29 @@ defmodule ImagePipe.API.SourceTest do
   alias ImagePipe.Plan.Source.URL
   alias ImagePipe.Source.Parser, as: Source
 
+  defp url_config do
+    ImagePipe.Source.validate_config!(
+      sources: [
+        url: [
+          adapter: ImagePipe.Source.HTTP,
+          match: [scheme: ["http", "https"]],
+          options: [allowed_hosts: ["example.com"]]
+        ],
+        objects: [
+          adapter: ImagePipe.Source.S3,
+          match: [scheme: "s3"],
+          options: [
+            default: [
+              region: "us-east-1",
+              endpoint: "https://s3.example.com",
+              credentials: {:static, access_key_id: "A", secret_access_key: "S"}
+            ]
+          ]
+        ]
+      ]
+    )
+  end
+
   describe "translate/2 — relative path sources" do
     test "an optional leading slash resolves to the same root-relative path" do
       assert Source.translate("/images/cat.jpg", []) == Source.translate("images/cat.jpg", [])
@@ -40,7 +63,7 @@ defmodule ImagePipe.API.SourceTest do
                 port: 443,
                 path: ["cat.jpg"],
                 query: nil
-              }} = Source.translate("https://example.com/cat.jpg", [])
+              }} = Source.translate("https://example.com/cat.jpg", url_config())
     end
 
     test "the encoded-query example arrives already-decoded and splits into query" do
@@ -52,27 +75,27 @@ defmodule ImagePipe.API.SourceTest do
                 host: "example.com",
                 path: ["cat.jpg"],
                 query: "v=2"
-              }} = Source.translate("https://example.com/cat.jpg?v=2", [])
+              }} = Source.translate("https://example.com/cat.jpg?v=2", url_config())
     end
 
     test "http scheme is accepted with its own default port" do
       assert {:ok, %URL{scheme: :http, host: "example.com", port: 80}} =
-               Source.translate("http://example.com/cat.jpg", [])
+               Source.translate("http://example.com/cat.jpg", url_config())
     end
 
     test "explicit non-default port is preserved" do
       assert {:ok, %URL{scheme: :https, host: "example.com", port: 8443}} =
-               Source.translate("https://example.com:8443/cat.jpg", [])
+               Source.translate("https://example.com:8443/cat.jpg", url_config())
     end
 
     test "root path (no path segments) yields an empty segment list" do
-      assert {:ok, %URL{path: []}} = Source.translate("https://example.com", [])
-      assert {:ok, %URL{path: []}} = Source.translate("https://example.com/", [])
+      assert {:ok, %URL{path: []}} = Source.translate("https://example.com", url_config())
+      assert {:ok, %URL{path: []}} = Source.translate("https://example.com/", url_config())
     end
 
     test "multi-segment path" do
       assert {:ok, %URL{path: ["a", "b", "c.jpg"]}} =
-               Source.translate("https://example.com/a/b/c.jpg", [])
+               Source.translate("https://example.com/a/b/c.jpg", url_config())
     end
 
     test "inner URL path escapes decode once before the HTTP adapter re-encodes them" do
@@ -83,26 +106,26 @@ defmodule ImagePipe.API.SourceTest do
               }} =
                Source.translate(
                  "https://example.com/images/my%20photo%231%25done.jpg?token=a%26b%3Dc",
-                 []
+                 url_config()
                )
     end
 
     test "escaped path separators stay inside their URL path segment" do
       assert {:ok, %URL{path: ["images", "nested/cat.jpg"]}} =
-               Source.translate("https://example.com/images/nested%2Fcat.jpg", [])
+               Source.translate("https://example.com/images/nested%2Fcat.jpg", url_config())
     end
 
     test "preserves empty inner URL path components" do
       assert {:ok, %URL{path: ["images", "", "cat.jpg", ""]}} =
-               Source.translate("https://example.com/images//cat.jpg/", [])
+               Source.translate("https://example.com/images//cat.jpg/", url_config())
 
       assert {:ok, %URL{path: ["", "cat.jpg"]}} =
-               Source.translate("https://example.com//cat.jpg", [])
+               Source.translate("https://example.com//cat.jpg", url_config())
     end
 
     test "host is lowercased" do
       assert {:ok, %URL{host: "example.com"}} =
-               Source.translate("https://EXAMPLE.com/cat.jpg", [])
+               Source.translate("https://EXAMPLE.com/cat.jpg", url_config())
     end
   end
 
@@ -117,16 +140,16 @@ defmodule ImagePipe.API.SourceTest do
               }} =
                Source.translate(
                  "s3://bucket/images/my%20photo%231%25done.jpg?version=a%26b%3Dc",
-                 []
+                 url_config()
                )
     end
 
     test "preserves empty object-key components" do
       assert {:ok, %Object{key: "images//cat.jpg/"}} =
-               Source.translate("s3://bucket/images//cat.jpg/", [])
+               Source.translate("s3://bucket/images//cat.jpg/", url_config())
 
       assert {:ok, %Object{key: "/cat.jpg"}} =
-               Source.translate("s3://bucket//cat.jpg", [])
+               Source.translate("s3://bucket//cat.jpg", url_config())
     end
 
     test "rejects object sources that cannot be represented by the S3 adapter" do
@@ -139,7 +162,8 @@ defmodule ImagePipe.API.SourceTest do
             "s3://bucket/cat.jpg#fragment",
             "s3://bucket/cat%zz.jpg"
           ] do
-        assert {:error, {:invalid_source, _reason}} = Source.translate(source, []), source
+        assert {:error, {:invalid_source, _reason}} = Source.translate(source, url_config()),
+               source
       end
     end
   end
@@ -177,6 +201,19 @@ defmodule ImagePipe.API.SourceTest do
     end
   end
 
+  describe "translate/2 — built-in schemes without a source" do
+    test "an http, https, or s3 URL no source matches is unsupported" do
+      for {source, scheme} <- [
+            {"https://example.com/cat.jpg", "https"},
+            {"http://example.com/cat.jpg", "http"},
+            {"s3://bucket/cat.jpg", "s3"}
+          ] do
+        assert Source.translate(source, []) ==
+                 {:error, {:invalid_source, {:unsupported_scheme, scheme}}}
+      end
+    end
+  end
+
   describe "translate/2 — errors" do
     test "empty source is rejected" do
       assert {:error, {:invalid_source, _reason}} = Source.translate("", [])
@@ -188,7 +225,8 @@ defmodule ImagePipe.API.SourceTest do
     end
 
     test "a malformed http(s) authority (empty host) is rejected" do
-      assert {:error, {:invalid_source, _reason}} = Source.translate("https:///cat.jpg", [])
+      assert {:error, {:invalid_source, _reason}} =
+               Source.translate("https:///cat.jpg", url_config())
     end
 
     test "malformed and out-of-range explicit HTTP ports are rejected" do
@@ -200,36 +238,37 @@ defmodule ImagePipe.API.SourceTest do
             "https://example.com:65536/cat.jpg",
             "http://[::1]:abc/cat.jpg"
           ] do
-        assert {:error, {:invalid_source, _reason}} = Source.translate(source, []), source
+        assert {:error, {:invalid_source, _reason}} = Source.translate(source, url_config()),
+               source
       end
     end
 
     test "malformed inner URL percent escapes are rejected" do
       assert {:error, {:invalid_source, _reason}} =
-               Source.translate("https://example.com/cat%zz.jpg", [])
+               Source.translate("https://example.com/cat%zz.jpg", url_config())
 
       assert {:error, {:invalid_source, _reason}} =
-               Source.translate("https://example.com/cat.jpg?token=%zz", [])
+               Source.translate("https://example.com/cat.jpg?token=%zz", url_config())
     end
 
     test "userinfo (user:pass@) is rejected rather than silently dropped" do
       assert {:error, {:invalid_source, :userinfo_not_allowed}} =
-               Source.translate("https://user:pass@example.com/x", [])
+               Source.translate("https://user:pass@example.com/x", url_config())
     end
 
     test "userinfo without a password is rejected" do
       assert {:error, {:invalid_source, :userinfo_not_allowed}} =
-               Source.translate("https://user@example.com/x", [])
+               Source.translate("https://user@example.com/x", url_config())
     end
 
     test "a fragment is rejected rather than silently dropped" do
       assert {:error, {:invalid_source, :fragment_not_allowed}} =
-               Source.translate("https://example.com/x#frag", [])
+               Source.translate("https://example.com/x#frag", url_config())
     end
 
     test "positive control — a plain URL with query and no userinfo/fragment still succeeds" do
       assert {:ok, %URL{scheme: :https, host: "example.com", path: ["cat.jpg"], query: "v=2"}} =
-               Source.translate("https://example.com/cat.jpg?v=2", [])
+               Source.translate("https://example.com/cat.jpg?v=2", url_config())
     end
   end
 end
