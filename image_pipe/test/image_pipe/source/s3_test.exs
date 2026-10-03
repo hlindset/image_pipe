@@ -237,6 +237,24 @@ defmodule ImagePipe.Source.S3Test do
                ]
              )
 
+    assert {:ok, _options} =
+             S3.validate_options(
+               default: [
+                 region: "us-east-1",
+                 endpoint: "https://s3.amazonaws.com",
+                 credentials: {:static, access_key_id: "A", secret_access_key: "S", token: nil}
+               ]
+             )
+
+    assert {:error, {:invalid_source_config, _reason}} =
+             S3.validate_options(
+               default: [
+                 region: "us-east-1",
+                 endpoint: "https://s3.amazonaws.com",
+                 credentials: {:static, access_key_id: "A", secret_access_key: "S", token: ""}
+               ]
+             )
+
     assert {:error, {:invalid_source_config, _reason}} =
              S3.validate_options(
                default: [

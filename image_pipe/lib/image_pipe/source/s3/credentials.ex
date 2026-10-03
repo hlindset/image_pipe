@@ -96,6 +96,7 @@ defmodule ImagePipe.Source.S3.Credentials do
   defp optional_binary(opts, key) do
     case Keyword.fetch(opts, key) do
       {:ok, value} when is_binary(value) and value != "" -> {:ok, value}
+      {:ok, nil} -> {:ok, nil}
       {:ok, _value} -> {:error, {:invalid_credential, key}}
       :error -> {:ok, nil}
     end

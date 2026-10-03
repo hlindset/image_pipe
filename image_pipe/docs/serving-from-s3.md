@@ -80,9 +80,8 @@ credentials:
    secret_access_key: System.fetch_env!("AWS_SECRET_ACCESS_KEY")}
 ```
 
-For temporary keys, add `token: System.fetch_env!("AWS_SESSION_TOKEN")`.
-Leave `token` out when there is none, since a `nil` token fails the
-configuration.
+For temporary keys, add `token: System.get_env("AWS_SESSION_TOKEN")`. When
+`AWS_SESSION_TOKEN` is unset, the keys are used without a session token.
 
 ### image_pipe_server
 
