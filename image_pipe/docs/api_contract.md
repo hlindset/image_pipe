@@ -234,8 +234,9 @@ and is sent with `Cache-Control: no-store` and no ETag.
 Representation identity includes the detector identities relevant to every
 group, including face models used by `smart-face`. Both storage keys and
 ETags change when a relevant model changes; unrelated model changes leave
-them stable. See [content-aware cropping](content-aware-gravity.md) for host
-configuration, weighting, and warmup.
+them stable. See [content-aware cropping](content-aware-gravity.md) for
+weighting and [enabling detection](enabling-detection.md) for host
+configuration and warmup.
 
 ### Sources
 

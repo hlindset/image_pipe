@@ -354,18 +354,37 @@ a weight, as in `face:3`, a positive number up to 1,000,000. Default: none.
 Centers the crop on the objects found, larger and more heavily weighted ones
 counting more. Class names use lowercase letters, digits, `_`, and `-`, and
 start with a letter or digit. A class listed twice fails with `400`.
+Weights only count relative to other classes, so `detect=face:3` crops like
+`detect=face`. `all` takes a weight too, used for every class not named, as
+in `detect=all:2,face:3`.
+
+The server's default detector supports `face` and the 80 COCO object classes:
+`person`, `bicycle`, `car`, `motorcycle`, `airplane`, `bus`, `train`,
+`truck`, `boat`, `traffic_light`, `fire_hydrant`, `stop_sign`,
+`parking_meter`, `bench`, `bird`, `cat`, `dog`, `horse`, `sheep`, `cow`,
+`elephant`, `bear`, `zebra`, `giraffe`, `backpack`, `umbrella`, `handbag`,
+`tie`, `suitcase`, `frisbee`, `skis`, `snowboard`, `sports_ball`, `kite`,
+`baseball_bat`, `baseball_glove`, `skateboard`, `surfboard`,
+`tennis_racket`, `bottle`, `wine_glass`, `cup`, `fork`, `knife`, `spoon`,
+`bowl`, `banana`, `apple`, `sandwich`, `orange`, `broccoli`, `carrot`,
+`hot_dog`, `pizza`, `donut`, `cake`, `chair`, `couch`, `potted_plant`,
+`bed`, `dining_table`, `toilet`, `tv`, `laptop`, `mouse`, `remote`,
+`keyboard`, `cell_phone`, `microwave`, `oven`, `toaster`, `sink`,
+`refrigerator`, `book`, `clock`, `vase`, `scissors`, `teddy_bear`,
+`hair_drier`, and `toothbrush`. A server with a custom detector has its own
+list.
 
 - A class the server's detector doesn't support, such as `detect=unicorn`,
   fails with `400` before the image is fetched.
 - When detection finds nothing, the crop falls back to `anchor=smart`.
 - When the server has no detector, or detection fails, the crop also falls
-  back to `anchor=smart`, unless the server is set up to require detection.
-  Then the request fails with `501`, `503`, or `500`, as described under
-  [what happens without a detector](../content-aware-gravity.md#what-happens-without-it).
+  back to `anchor=smart`. A fallback after a failure is sent with
+  `Cache-Control: no-store`. A server that requires detection fails the
+  request instead, with `501`, `503`, or `500` (see
+  [error responses](../errors.md)).
 
-[Content-aware cropping](../content-aware-gravity.md#general-object-gravity)
-describes the classes and how
-[weights](../content-aware-gravity.md#per-class-weights) combine.
+[Content-aware cropping](../content-aware-gravity.md) explains how regions
+and weights become the crop's center.
 
 <!-- tabs-open -->
 

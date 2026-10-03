@@ -214,9 +214,9 @@ fields. See the [encoder field reference](processing/output.md#encoder-options).
 | `detector_required` | `false` | Fail explicit detection requests when the detector isn't installed (`501`), its models aren't downloaded (`503`), or detection errors (`500`) |
 | `telemetry_prefix` | `[:image_pipe]` | Nonempty list of atoms for emitted event names |
 
-See [content-aware cropping](content-aware-gravity.md) for dependencies and
-warmup. Logger and tracing handlers are opt-in; [telemetry](telemetry.md) explains
-how to attach them.
+See [Enabling face and object detection](enabling-detection.md) for
+dependencies and warmup. Logger and tracing handlers are opt-in.
+[Telemetry](telemetry.md) explains how to attach them.
 
 ## Plug-only options
 

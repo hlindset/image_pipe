@@ -34,6 +34,8 @@ defmodule ImagePipe.MixProject do
       "docs/processing/output.md",
       "docs/processing/request.md",
       "docs/content-aware-gravity.md",
+      "docs/enabling-detection.md",
+      "docs/custom-detectors.md",
       "docs/api_contract.md"
     ],
     Operations: [

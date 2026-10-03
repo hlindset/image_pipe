@@ -162,12 +162,9 @@ for a slot. A request that finds the queue full, or waits longer than
 
 ## Detection
 
-Detection-based gravity needs the `0.1.0-vision` image. Without it, detection
-requests fall back to attention cropping. Set
-`[processing] detector_required = true` to fail them instead, including when
-detection errors while processing. The plain image then refuses to start,
-which catches deploying the wrong variant. See
-[content-aware gravity](../../image_pipe/docs/content-aware-gravity.md).
+Face and object detection need the `0.1.0-vision` image. Enabling it,
+requiring it, and checking that it runs are covered in
+[Enabling face and object detection](../../image_pipe/docs/enabling-detection.md).
 
 ## Logging
 

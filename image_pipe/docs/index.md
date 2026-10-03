@@ -10,7 +10,7 @@ in Elixir code. Start with the page for what you want to do:
 | Serve images from my Phoenix or Plug app | [Plug usage](plug-usage.md) |
 | Process images in Elixir code (uploads, jobs) | [Processing images in Elixir](processing-in-elixir.md), then the [Elixir API](elixir-api.md) |
 | Generate signed URLs for a separate server | [URL builder with an external server](external-server.md), then [shared URL settings](shared-url-settings.md) and [fetching images from the server](fetching-from-the-server.md) |
-| Extend ImagePipe with custom sources, detectors, or telemetry handlers | [Custom source adapters](sources.md#custom-adapters), [custom detectors](content-aware-gravity.md#custom-detectors), and [telemetry handlers](telemetry.md#attaching-handlers) |
+| Extend ImagePipe with custom sources, detectors, or telemetry handlers | [Custom source adapters](sources.md#custom-adapters), [custom detectors](custom-detectors.md), and [telemetry handlers](telemetry.md#attaching-handlers) |
 
 ## Application setup
 
@@ -20,6 +20,7 @@ in Elixir code. Start with the page for what you want to do:
 - [Image sources](sources.md): local files, HTTP(S), and S3.
 - [S3 credentials](s3-credentials.md): static keys, roles, temporary credentials, and warmup.
 - [Source network policy](source-network-policy.md): allowed origins and private networks.
+- [Enabling face and object detection](enabling-detection.md): install the detector, load its models, and require detection.
 
 ## Requesting images
 
@@ -37,7 +38,7 @@ option index. Each category page shows the URL and Elixir spellings.
 | [Output and encoding](processing/output.md) | Formats, quality, size budgets, encoders, profiles, HDR, placeholders, info |
 | [Request controls](processing/request.md) | Downloads, page selection, cache busting, expiry, debugging |
 
-- [Content-aware cropping](content-aware-gravity.md): installing face and object detection.
+- [Content-aware cropping](content-aware-gravity.md): how attention and detection choose what a crop keeps.
 - [API semantics](api_contract.md): the precise rules the processing options follow.
 
 ## Caching and CDNs
