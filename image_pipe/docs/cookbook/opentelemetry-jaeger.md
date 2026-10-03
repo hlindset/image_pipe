@@ -1,14 +1,13 @@
-# Cookbook: OpenTelemetry traces to Jaeger (local)
+# Exporting traces to Jaeger
 
-ImagePipe emits `:telemetry` spans and provides an opt-in exporter that replays
-them through the host's OpenTelemetry SDK while preserving ImagePipe's
-`trace_id`. This recipe sends those traces to a local Jaeger.
+See ImagePipe's request traces in a local
+[Jaeger](https://www.jaegertracing.io/), sent through the OpenTelemetry SDK.
+This recipe assumes ImagePipe runs in your app. How the traces are built is explained in
+[Request tracing](../tracing.md). For `image_pipe_server`, set the
+[tracing variables](../../../image_pipe_server/docs/server-deployment.md#tracing)
+instead, and run Jaeger as below.
 
-> The `fiddle/` demo contains a runnable example gated by `FIDDLE_OTEL=1`. See
-> `fiddle/docker-compose.yml`, `fiddle/config/config.exs`, and the
-> `attach_tracer/1` call in `fiddle/lib/image_pipe_fiddle/application.ex`.
-
-## 1. Run Jaeger
+## Run Jaeger
 
 ```yaml
 # docker-compose.yml
@@ -18,33 +17,32 @@ services:
     ports: ["16686:16686", "4317:4317", "4318:4318"]
 ```
 
-`docker compose up -d`, then open http://localhost:16686. Jaeger v2 accepts OTLP
-natively on 4317 (gRPC) and 4318 (HTTP).
+Run `docker compose up -d`, then open http://localhost:16686. Jaeger accepts
+OTLP on ports 4317 (gRPC) and 4318 (HTTP).
 
-## 2. Add the OTel SDK (host side)
+## Add the OpenTelemetry SDK
 
 ```elixir
 # mix.exs
-# list :opentelemetry_exporter BEFORE :opentelemetry so the exporter app
-# starts first (otherwise the SDK's processor can't reach it at boot)
+# :opentelemetry_exporter before :opentelemetry, so the exporter starts
+# before the SDK needs it
 {:opentelemetry_exporter, "~> 1.8"},
 {:opentelemetry, "~> 1.7"},
 ```
 
-ImagePipe declares only the optional `:opentelemetry_api` dependency. The host
-provides the SDK; `:opentelemetry` brings the API transitively.
+ImagePipe only depends on `:opentelemetry_api`, which `:opentelemetry`
+brings in.
 
-## 3. Point the SDK at Jaeger
+## Point the SDK at Jaeger
 
 ```elixir
 # config/config.exs
 config :opentelemetry,
   span_processor: :batch,
   traces_exporter: :otlp,
-  # the Jaeger "service" name (otherwise a default like "Erlang/OTP"); ImagePipe
-  # itself only sets the `image_pipe` instrumentation scope, not the resource
+  # the service name Jaeger shows
   resource: [service: %{name: "my_app"}],
-  # export untraced requests as true root spans that keep ImagePipe's trace_id
+  # keeps ImagePipe's trace IDs on new traces
   id_generator: ImagePipe.Telemetry.Trace.OtelIdGenerator
 
 config :opentelemetry_exporter,
@@ -53,44 +51,39 @@ config :opentelemetry_exporter,
 ```
 
 ```elixir
-# config/test.exs — never export during tests
+# config/test.exs
 config :opentelemetry, traces_exporter: :none
 ```
 
-For releases, this configuration can live in `config/runtime.exs` and read the
-endpoint from an environment variable. Keep the test override.
+The `id_generator` setting makes a request's root span a true root in
+Jaeger, with the same trace ID as ImagePipe's log lines (see
+[trace and span IDs](../tracing.md#trace-and-span-ids)). For a release, move
+this configuration to `config/runtime.exs` and read the endpoint from an
+environment variable.
 
-## 4. Activate at startup
+## Attach the tracer
 
 ```elixir
-ImagePipe.Telemetry.attach_tracer(
-  exporter: ImagePipe.Telemetry.Trace.OpenTelemetryExporter,
-  extract_inbound: true
-)
+# lib/my_app/application.ex
+ImagePipe.Telemetry.attach_tracer(exporter: ImagePipe.Telemetry.Trace.OpenTelemetryExporter)
 ```
 
-If `:opentelemetry_api` is absent, this raises at startup. After a request and a
-batch flush, Jaeger shows an `image_pipe.request` trace with descendants such as
-`image_pipe.send`, its nested `image_pipe.deliver`, `image_pipe.encode`,
-`image_pipe.transform.execute`, and `image_pipe.transform.operation`.
+If a proxy you control sets `traceparent`, add `extract_inbound: true` so
+ImagePipe's traces join the caller's (see
+[inbound trace context](../tracing.md#inbound-trace-context)).
 
-When ImagePipe starts the trace, the root is a true root span carrying
-ImagePipe's `trace_id`, so log lines and Jaeger traces share one trace ID.
-Without the `id_generator` setting, the exporter forces that trace ID through a
-synthetic remote parent instead, and Jaeger warns about an invalid parent span
-ID on the root. Behind a traced caller, `extract_inbound: true` makes the root a
-real child of the inbound span.
+Request an image. After the SDK's next batch export, Jaeger shows an
+`image_pipe.request` trace with child spans such as `image_pipe.send`,
+`image_pipe.deliver`, `image_pipe.encode`, `image_pipe.transform.execute`,
+and `image_pipe.transform.operation`.
 
-## Troubleshooting: no traces appear
+## Troubleshooting missing traces
 
-The exporter detects the OTel API at **compile time**. If the SDK was added after
-ImagePipe was compiled, the exporter remains unavailable and
-`ImagePipe.Telemetry.Trace.OpenTelemetryExporter.available?/0` returns `false`.
-Force a recompile:
+If `attach_tracer/1` raises, or no traces appear, check
+`ImagePipe.Telemetry.Trace.OpenTelemetryExporter.available?/0`. ImagePipe
+detects the OpenTelemetry API when it compiles, so it returns `false` when
+you added the SDK after ImagePipe was compiled. Recompile ImagePipe:
 
 ```sh
-mix deps.compile image_pipe --force   # or: mix clean && mix compile
+mix deps.compile image_pipe --force
 ```
-
-A fresh build sees `:opentelemetry_api` during compilation and needs no forced
-recompile.

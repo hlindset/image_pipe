@@ -122,5 +122,5 @@ Detection is the most expensive crop guide.
   cache key and ETag include the versions of the models a request uses, so
   updating the face model replaces face crops but keeps cached car crops.
 
-[Detection telemetry](telemetry-events.md#content-aware-crop-detection)
+[Detection telemetry](telemetry-events.md#transform-detect)
 times each model run, including the first-load cost.

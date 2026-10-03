@@ -190,7 +190,7 @@ Other results on the `detect` line:
 
 - [Crop guides](processing/crop.md#crop-guides) lists the `detect` and
   `anchor` syntax and the class names.
-- [Detection telemetry](telemetry-events.md#content-aware-crop-detection)
+- [Detection telemetry](telemetry-events.md#transform-detect)
   describes the detection events, including per-model timings.
 - [Writing a custom detector](custom-detectors.md) replaces the bundled
   detector with your own model or service.

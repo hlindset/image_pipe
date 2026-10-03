@@ -57,8 +57,8 @@ option index. Each category page shows the URL and Elixir spellings.
 
 ## Monitoring and tracing
 
-- [Telemetry](telemetry.md): logging, metrics handlers, and request IDs.
+- [Monitoring with telemetry](telemetry.md): logging, metrics handlers, and request IDs.
 - [Telemetry event reference](telemetry-events.md): event names, measurements, metadata, and outcomes.
-- [Tracing](tracing.md): trace exporters, inbound context, and OpenTelemetry.
+- [Request tracing](tracing.md): how traces are built, inbound trace context, and sampling.
 - [Debug headers](debug_headers.md): inspect processing and cache decisions.
-- [OpenTelemetry with Jaeger](cookbook/opentelemetry-jaeger.md): a tracing walkthrough.
+- [Exporting traces to Jaeger](cookbook/opentelemetry-jaeger.md): send traces to a local Jaeger.

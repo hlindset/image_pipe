@@ -118,8 +118,5 @@ libvips concurrency/memory configuration.
 
 ## Observability
 
-`[:processing, :admission]` measures queue wait; `[:processing, :execute]`
-measures the admitted lifetime. Both report outcomes and active/queued counts,
-including worker termination. The default Logger warns on failures, and tracing
-preserves request parentage. See [telemetry](telemetry-events.md#processing-admission-and-execution)
-for event fields.
+The pool emits [`[:processing, :admission]`](telemetry-events.md#processing-admission)
+and [`[:processing, :execute]`](telemetry-events.md#processing-execute).

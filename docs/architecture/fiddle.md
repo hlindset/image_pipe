@@ -34,6 +34,13 @@ Issue a `/image` request, then open the Jaeger UI at http://localhost:16686 and
 look for the `image_pipe.request` trace under the `image_pipe_fiddle` service.
 Tracing is off by default, so `mise run fiddle` needs no Jaeger.
 
+## Debug headers
+
+The `/image` mount allows [debug headers](../../image_pipe/docs/debug_headers.md).
+The **Debug headers** example adds `debug` to the request, and the panel below
+the preview shows the returned facts with the output size and compression
+ratio.
+
 ## Source types (local / S3 / HTTP)
 
 The **Source type** control selects local files, a fake S3 server, or HTTP.

@@ -142,5 +142,5 @@ or a malformed result.
 - [Content-aware cropping](content-aware-gravity.md) explains how regions
   and class weights become the crop's focus point.
 - [Crop guides](processing/crop.md#crop-guides) lists the `detect` syntax.
-- [Detection telemetry](telemetry-events.md#content-aware-crop-detection)
+- [Detection telemetry](telemetry-events.md#transform-detect)
   describes the events a detector run emits.

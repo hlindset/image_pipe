@@ -30,7 +30,8 @@ defmodule ImagePipe.Source do
       `c:validate_options/1`. The default value is `[]`.
 
   Invalid mounts raise `ArgumentError` when the configuration is built. The
-  mount name appears in [telemetry](telemetry.md) as `:source_mount`.
+  mount name appears in [telemetry events](telemetry-events.md#common-metadata)
+  as `:source_mount`.
 
   ## Adapters
 

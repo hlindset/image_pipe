@@ -168,8 +168,10 @@ requiring it, and checking that it runs are covered in
 
 ## Logging
 
-`[telemetry] log_level` attaches the library's default Logger, which logs
-each request stage at that level. See [telemetry](../../image_pipe/docs/telemetry.md).
+`[telemetry] log_level` turns on request logging: one line per request
+stage at that level, with failures and degraded results at `warning`. The
+[telemetry event reference](../../image_pipe/docs/telemetry-events.md)
+describes each stage.
 
 Every response carries an `x-request-id` header, and every log line for that
 request is tagged `request_id=<id>`. The server keeps a valid incoming
@@ -192,10 +194,23 @@ docker run -e OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318 -e OTEL_SERVICE_
 - The service name defaults to `image_pipe_server`. The SDK reads the other
   variables itself, such as `OTEL_EXPORTER_OTLP_HEADERS`,
   `OTEL_EXPORTER_OTLP_PROTOCOL`, and `OTEL_TRACES_SAMPLER`.
-- An incoming W3C `traceparent` header continues the caller's trace.
 
-See the library's [telemetry guide](../../image_pipe/docs/telemetry.md) for
-the spans and their attributes.
+The server always continues an incoming W3C `traceparent` header: the
+request joins the caller's trace, under the caller's trace ID. Any client can
+send this header and choose the trace its requests are recorded in. If
+clients reach the server directly, have your proxy or CDN remove or replace
+`traceparent`. With the default parent-based sampler, requests that carry
+the header are always exported, and `OTEL_TRACES_SAMPLER` applies only to
+requests without it.
+
+To try tracing locally, run Jaeger as in
+[Exporting traces to Jaeger](../../image_pipe/docs/cookbook/opentelemetry-jaeger.md#run-jaeger)
+and point `OTEL_EXPORTER_OTLP_ENDPOINT` at its port 4318.
+
+[Request tracing](../../image_pipe/docs/tracing.md) explains how the spans
+form a trace, and the
+[telemetry event reference](../../image_pipe/docs/telemetry-events.md) lists
+the metadata spans draw their attributes from.
 
 ## Without Docker
 

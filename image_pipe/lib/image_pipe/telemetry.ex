@@ -1,10 +1,11 @@
 defmodule ImagePipe.Telemetry do
   @moduledoc """
-  Telemetry helpers and an opt-in default Logger handler for ImagePipe.
+  Attaches ImagePipe's optional Logger handler and span tracer.
 
-  ImagePipe emits `:telemetry` events only. Hosts attach their own handlers
-  (metrics, OpenTelemetry, APM). For convenience, `attach_default_logger/1`
-  attaches a stdlib `Logger` handler covering ImagePipe's events.
+  ImagePipe emits `:telemetry` events and attaches no handlers itself.
+  `attach_default_logger/1` logs them with `Logger`, and `attach_tracer/1`
+  turns them into trace spans. The events are listed in the
+  [event reference](telemetry-events.md).
   """
 
   use Boundary,
@@ -30,32 +31,81 @@ defmodule ImagePipe.Telemetry do
   @default_prefix [:image_pipe]
 
   @logger_schema NimbleOptions.new!(
-                   level: [type: {:in, Logger.levels()}, default: :info],
+                   level: [
+                     type: {:in, Logger.levels()},
+                     default: :info,
+                     doc:
+                       "The level for ordinary lines. Failures and degraded results log at `:warning`."
+                   ],
                    events: [
                      type: {:or, [{:in, [:all]}, {:list, {:in, DefaultLogger.all_groups()}}]},
-                     default: :all
+                     default: :all,
+                     doc: "`:all`, or a list of the event groups to log. See the groups above."
                    ],
                    prefix: [
                      type: {:custom, __MODULE__, :validate_logger_prefix, []},
-                     default: @default_prefix
+                     default: @default_prefix,
+                     doc:
+                       "The telemetry prefix to subscribe to, a non-empty list of atoms. " <>
+                         "Must match the `telemetry_prefix` ImagePipe is configured with."
                    ],
-                   debug: [type: :boolean, default: false]
+                   debug: [
+                     type: :boolean,
+                     default: false,
+                     doc:
+                       "When `true`, also logs each event's raw measurements and metadata " <>
+                         "at `:debug`, including operation parameters."
+                   ]
                  )
 
   @spec default_prefix() :: [atom()]
   def default_prefix, do: @default_prefix
 
   @doc """
-  Attaches the default `Logger` handler. Opt-in and idempotent.
+  Attaches a `Logger` handler that logs one line per ImagePipe event.
 
-  Raises `ArgumentError` on invalid startup options.
+      ImagePipe.Telemetry.attach_default_logger(events: [:request, :source])
 
-  Options:
-    * `:level` — base log level (default `:info`); errors/exceptions escalate to `:warning`.
-    * `:events` — `:all` (default) or a list drawn from `:request`, `:parse`, `:source`,
-      `:transform`, `:cache`, `:output`, `:http_cache`, and `:debug`.
-    * `:prefix` — telemetry event prefix list (default `#{inspect(@default_prefix)}`).
-    * `:debug` — when `true`, also log the full raw measurements/metadata (default `false`).
+  Call it once at application startup. Calling it again replaces the
+  handler's options. Remove it with `detach_default_logger/0`. Setting it up
+  is covered in [Monitoring with telemetry](telemetry.md).
+
+  ## Event groups
+
+  `:events` selects groups from the
+  [event reference](telemetry-events.md):
+
+    * `:request`: request, processing pool, send, deliver, and encode events,
+      except the encode-search probe cost spans, which aren't logged.
+    * `:parse`: parsing and preset lookup.
+    * `:source`: source events.
+    * `:transform`: transform and detection events.
+    * `:cache`: cache events.
+    * `:output`: output format negotiation, info and placeholder bodies, and
+      output clamping.
+    * `:http_cache`: HTTP cache header events.
+    * `:debug`: debug header collection errors.
+
+  ## Log levels
+
+  Lines log at `:level`. These log at `:warning`:
+
+    * Exceptions, and results such as `:source_error`, `:cache_error`,
+      `:materialize_error`, `:parser_error`, and `:plan_error`.
+    * Encode, color-management, output negotiation, info or placeholder, and
+      preset lookup failures.
+    * Processing pool rejections, timeouts, and worker failures.
+    * Detection that fell back to attention (`:unavailable`, `:error`, or no
+      detector configured).
+    * A quality search with outcome `:best_effort`.
+    * An output clamp, a debug collection error, and cache coordination
+      results `:busy` and `:bypass`.
+
+  ## Options
+
+  #{NimbleOptions.docs(@logger_schema)}
+
+  Raises `ArgumentError` for invalid options.
   """
   @spec attach_default_logger(keyword()) :: :ok
   def attach_default_logger(opts \\ []) when is_list(opts) do
@@ -86,26 +136,56 @@ defmodule ImagePipe.Telemetry do
   def validate_logger_prefix(_prefix), do: {:error, "expected a non-empty list of atoms"}
 
   @tracer_schema NimbleOptions.new!(
-                   exporter: [type: :atom, required: true],
-                   prefix: [type: {:list, :atom}, default: @default_prefix],
-                   extract_inbound: [type: :boolean, default: false],
-                   finch_spans: [type: :boolean, default: true]
+                   exporter: [
+                     type: :atom,
+                     required: true,
+                     doc:
+                       "A module implementing `ImagePipe.Telemetry.Trace.Exporter`, such as " <>
+                         "`ImagePipe.Telemetry.Trace.LogExporter` or " <>
+                         "`ImagePipe.Telemetry.Trace.OpenTelemetryExporter`."
+                   ],
+                   prefix: [
+                     type: {:list, :atom},
+                     default: @default_prefix,
+                     doc:
+                       "The telemetry prefix to subscribe to. Must match the " <>
+                         "`telemetry_prefix` ImagePipe is configured with."
+                   ],
+                   extract_inbound: [
+                     type: :boolean,
+                     default: false,
+                     doc:
+                       "When `true`, a request with a valid W3C `traceparent` header (version `00`, " <>
+                         "lowercase hexadecimal fields, non-zero IDs) continues " <>
+                         "the caller's trace. Enable it only when a proxy you control sets the " <>
+                         "header or removes it from outside requests. See " <>
+                         "[inbound trace context](tracing.md#inbound-trace-context)."
+                   ],
+                   finch_spans: [
+                     type: :boolean,
+                     default: true,
+                     doc:
+                       "Also records a span for each HTTP request a source makes through Finch, " <>
+                         "including connection setup. `false` removes a Finch handler attached earlier."
+                   ]
                  )
 
   @doc """
-  Attaches the opt-in span tracer. See `ImagePipe.Telemetry.Trace`.
+  Attaches the span tracer, which builds spans from ImagePipe's telemetry
+  events and passes each finished span to an exporter.
 
-  Reattaching replaces the tracer configuration, including whether Finch spans
-  are captured.
+      ImagePipe.Telemetry.attach_tracer(exporter: ImagePipe.Telemetry.Trace.LogExporter)
 
-  Raises `ArgumentError` for unknown keys, wrong types, or an exporter that
-  cannot load, lacks `export/1`, or reports it is not ready.
+  Call it once at application startup. Calling it again replaces the whole
+  tracer configuration. Remove it with `detach_tracer/0`. How spans form a
+  trace is explained in [Request tracing](tracing.md).
 
-  Options:
-    * `:exporter` — required; a module implementing `ImagePipe.Telemetry.Trace.Exporter`.
-    * `:prefix` — telemetry event prefix list (default `#{inspect(@default_prefix)}`).
-    * `:extract_inbound` — extract a W3C `traceparent` from inbound requests (default `false`).
-    * `:finch_spans` — also capture physical Finch wire spans (default `true`).
+  ## Options
+
+  #{NimbleOptions.docs(@tracer_schema)}
+
+  Raises `ArgumentError` for invalid options, or for an exporter that can't be
+  loaded, has no `export/1`, or whose `ready?/0` returns `false`.
   """
   @spec attach_tracer(keyword()) :: :ok
   def attach_tracer(opts) when is_list(opts) do

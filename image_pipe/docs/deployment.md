@@ -34,7 +34,7 @@ started (see [failures during streaming](streaming-failures.md)). Set
 `processing_timeout` well above the time your largest images take to encode
 and send to the proxy, and watch the `[:image_pipe, :deliver]` telemetry span:
 it stops with `result: :processing_error` when a started response fails (see
-[telemetry events](telemetry-events.md#delivery-streaming-span-deliver)).
+[telemetry events](telemetry-events.md#deliver)).
 Source-cache acquisition and revalidation before the output-cache lookup retain
 their independent source limits. Output-cache hits and conditional responses
 bypass processing admission.

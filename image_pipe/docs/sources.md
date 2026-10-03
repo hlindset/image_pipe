@@ -77,7 +77,7 @@ sources.
 A prefix always wins, so the `path` source can't serve a top-level folder
 named like a prefix. Each source has its own cache entries, even when two
 sources read the same files. The source's name appears in
-[telemetry](telemetry.md) as `:source_mount`.
+[telemetry events](telemetry-events.md#common-metadata) as `:source_mount`.
 
 Requests that no source serves fail:
 
