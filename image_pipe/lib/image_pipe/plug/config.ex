@@ -115,7 +115,9 @@ defmodule ImagePipe.Plug.Config do
 
   @doc false
   def validate_instance(name) when is_atom(name) and not is_nil(name), do: {:ok, name}
-  def validate_instance(_name), do: {:error, "expected the name of an instance, got: nil"}
+
+  def validate_instance(name),
+    do: {:error, "expected the name of an instance, got: #{inspect(name)}"}
 
   @doc false
   def validate_allow_origin(value) when is_binary(value) and value != "" do
