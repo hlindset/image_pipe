@@ -5,9 +5,17 @@ defmodule ImagePipe.Transform.Detector.Composite do
   Each class goes to every child that lists it in `supported_classes/1`; `:all`
   routes to every child, and unclaimed classes are dropped. Identity and
   availability reflect only routed children, so an object-only request is
-  unaffected by a face-model change. A failing child fails the detection, and
-  an unavailable child contributes no regions. The default combines the face (YuNet) and
-  object (RT-DETR) adapters.
+  unaffected by a face-model change. A failing child fails the detection.
+
+  An unavailable child contributes no regions, and the other children's
+  regions are used. A child must return a different identity while it is
+  unavailable (see "Identity" in `ImagePipe.Transform.Detector`), so that
+  result is cached under its own key and replaced once the child is
+  available again. When every routed child is unavailable, the composite
+  returns `{:error, {:detector, :unavailable}}`. With `detector_required:
+  true`, any unavailable routed child fails the request with `501` instead.
+
+  The default combines the face (YuNet) and object (RT-DETR) adapters.
   """
   @behaviour ImagePipe.Transform.Detector
 

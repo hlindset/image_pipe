@@ -56,6 +56,11 @@ defmodule ImagePipe.Transform.Detector do
   fails, not the regions the others found. A partial result is cached as if
   it were complete.
 
+  A detector may instead let an unavailable model contribute no regions, as
+  `ImagePipe.Transform.Detector.Composite` does. Its `identity/1` must then
+  change while the model is missing, so the result is cached apart from the
+  complete one.
+
   `anchor=smart-face` falls back to attention cropping on any error, whatever
   `:detector_required` is.
 
