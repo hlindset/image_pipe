@@ -40,7 +40,8 @@ swamping a small subject, while still letting a close-up face win over a
 distant one.
 
 A region that extends past the image's edges, or has no area, is left out.
-The detector's confidence score doesn't change the pull.
+The detector's confidence score doesn't change the pull. The bundled
+detector drops objects scoring below 0.5 and faces below 0.6.
 
 In formula form, the focus point is the weighted average of the region
 centers, where each region's pull is its class weight times the square root

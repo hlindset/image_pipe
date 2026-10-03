@@ -13,7 +13,7 @@ defmodule ImagePipe.Transform.Detector.ImageVisionTest do
   test "identity reflects availability" do
     expected =
       if Face.available?([]),
-        do: {Face, {"opencv/face_detection_yunet", "face_detection_yunet_2023mar.onnx"}},
+        do: {Face, {"opencv/face_detection_yunet", "face_detection_yunet_2023mar.onnx", 0.6}},
         else: {Face, :unavailable}
 
     assert Face.identity([]) == expected
