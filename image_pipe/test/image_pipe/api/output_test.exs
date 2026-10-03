@@ -264,32 +264,6 @@ defmodule ImagePipe.API.OutputTest do
     assert output.max_bytes == 12_000
   end
 
-  test "blurhash ignores host image output policy" do
-    output =
-      resolve!(["output=blurhash"],
-        autoquality_method: :size,
-        strip_metadata: false,
-        keep_copyright: false,
-        strip_color_profile: false,
-        preserve_hdr: true
-      )
-
-    assert output == nil
-  end
-
-  test "info ignores host image output policy" do
-    output =
-      resolve!(["output=info"],
-        autoquality_method: :size,
-        strip_metadata: false,
-        keep_copyright: false,
-        strip_color_profile: false,
-        preserve_hdr: true
-      )
-
-    assert output == nil
-  end
-
   test "prepare resolves host output defaults" do
     config = Config.validate!(quality: 71)
     assert {:ok, request} = Parser.parse(lexed(["format=jpeg"]), config)
@@ -301,7 +275,7 @@ defmodule ImagePipe.API.OutputTest do
   end
 
   test "prepare does not resolve image policy for blurhash" do
-    config = Config.validate!(autoquality_method: :size)
+    config = Config.validate!(autoquality_method: :size, autoquality_target: %{size: 10_000})
     assert {:ok, request} = Parser.parse(lexed(["output=blurhash"]), config)
 
     assert {:ok, _source, [], output} =
@@ -311,7 +285,7 @@ defmodule ImagePipe.API.OutputTest do
   end
 
   test "prepare preserves info presentation intent and bypasses image policy" do
-    config = Config.validate!(autoquality_method: :size)
+    config = Config.validate!(autoquality_method: :size, autoquality_target: %{size: 10_000})
 
     assert {:ok, request} =
              Parser.parse(

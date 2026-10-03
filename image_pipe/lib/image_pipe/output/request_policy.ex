@@ -16,12 +16,7 @@ defmodule ImagePipe.Output.RequestPolicy do
   }
 
   @spec resolve(SpecOutput.t(), keyword(), String.t()) ::
-          {:ok, Policy.t() | nil} | {:error, {:invalid_output, term()}}
-  def resolve(%SpecOutput{terminal: terminal}, _config, _accept_header)
-      when terminal in [:blurhash, :lqip_css, :info] do
-    {:ok, nil}
-  end
-
+          {:ok, Policy.t()} | {:error, {:invalid_output, term()}}
   def resolve(%SpecOutput{} = request, config, accept_header) do
     with {:ok, quality_search} <- resolve_quality_search(request, config),
          output = policy(request, config, accept_header, quality_search),

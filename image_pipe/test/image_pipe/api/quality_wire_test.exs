@@ -253,7 +253,7 @@ defmodule ImagePipe.API.QualityWireTest do
   end
 
   test "BlurHash ignores configured image quality search" do
-    config = mount(autoquality_method: :size)
+    config = mount(autoquality_method: :size, autoquality_target: %{size: 10_000})
     response = response("output=blurhash", config)
     assert response.status == 200
     assert get_resp_header(response, "content-type") == ["text/plain; charset=utf-8"]

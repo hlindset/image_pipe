@@ -312,7 +312,7 @@ defmodule ImagePipe.BuilderTest do
     assert {:error, ^issues} = Plan.to_spec(plan.plan)
   end
 
-  test "non-image outputs keep image-only options in the URL and drop them from the spec" do
+  test "non-image outputs keep image-only options for output validation" do
     plan =
       IP.URL.new()
       |> IP.URL.group(blur: 1)
@@ -321,8 +321,9 @@ defmodule ImagePipe.BuilderTest do
     assert :ok = IP.URL.validate(plan)
     assert IP.URL.url!(plan, "cat.jpg") =~ "format=webp/q=80"
 
-    bare = IP.URL.new() |> IP.URL.group(blur: 1) |> IP.URL.output(terminal: :lqip_css)
-    assert Plan.to_spec(plan.plan) == Plan.to_spec(bare.plan)
+    assert {:ok,
+            %Plan.Spec{output: %Plan.Spec.Output{terminal: :lqip_css, format: :webp, quality: 80}}} =
+             Plan.to_spec(plan.plan)
   end
 
   test "info placeholder flags build the same request as the URL" do

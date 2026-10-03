@@ -871,14 +871,13 @@ defmodule ImagePipe.API.ParserTest do
                parse(["w=800", "fit=auto"])
     end
 
-    test "non-image outputs accept image-only output options and drop them" do
+    test "non-image outputs accept image-only output options" do
       for terminal <- ~w(blurhash lqip-css info),
           key <-
             ~w(format q format-q meta dpi profile hdr autoquality max-bytes jpeg-options png-options webp-options avif-options),
           spec = OptionSpec.fetch(key) do
-        assert {:ok, request} = parse(["output=" <> terminal, hd(spec.examples)])
-        assert {:ok, bare} = parse(["output=" <> terminal])
-        assert request == bare, "#{terminal} #{key}"
+        assert {:ok, _request} = parse(["output=" <> terminal, hd(spec.examples)]),
+               "#{terminal} #{key}"
       end
     end
 
