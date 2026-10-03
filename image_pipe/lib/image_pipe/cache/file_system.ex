@@ -1,5 +1,39 @@
 defmodule ImagePipe.Cache.FileSystem do
-  @moduledoc "Filesystem response cache with independently supervised W-TinyLFU admission."
+  @moduledoc """
+  Cache adapter that stores processed images, or originals, as files on local disk.
+
+      cache: {ImagePipe.Cache.FileSystem, root: "/var/cache/image_pipe/processed"}
+
+  Without `:max_size_bytes` the cache grows without limit. With it, the cache
+  runs in bounded mode, with `:max_size_bytes` as a soft cap: writes evict the
+  least valuable entries, and a background pass evicts any overshoot. Entries
+  requested most often are kept longest (a W-TinyLFU policy). Bounded mode
+  runs processes that track the cache's size, so a bounded cache must be
+  configured on an instance, which starts them (see `ImagePipe.child_spec/1`):
+
+      children = [
+        {ImagePipe,
+         name: MyApp.Images,
+         sources: sources,
+         cache:
+           {ImagePipe.Cache.FileSystem,
+            root: "/var/cache/image_pipe/processed",
+            max_size_bytes: 5_000_000_000,
+            node_id: "node-0"}},
+        MyAppWeb.Endpoint
+      ]
+
+  To set up processed-image and originals caches, see
+  [Caching processed images](caching-processed-images.md).
+
+  ## Options
+
+  #{NimbleOptions.docs(ImagePipe.Cache.FileSystem.Store.options_schema())}
+
+  The adapter also accepts the shared `:max_body_bytes` option, a
+  non-negative integer or `nil`. Responses larger than `:max_body_bytes` are
+  delivered but not stored. The default `nil` stores responses of any size.
+  """
   @behaviour ImagePipe.Cache
   @dialyzer :no_match
   alias ImagePipe.Cache.Entry
@@ -8,14 +42,8 @@ defmodule ImagePipe.Cache.FileSystem do
   alias ImagePipe.Debug.Info
   @metadata_version 1
 
-  @doc """
-  Returns the supervision tree required by a bounded filesystem cache.
-
-  With `:max_size_bytes`, returns a supervisor child specification for the
-  cache's registry and admission process. Otherwise returns `:ignore`.
-  Use the same options as the cache adapter and start it before serving requests.
-  """
-  @spec child_spec(keyword()) :: Supervisor.child_spec() | :ignore
+  @impl true
+  @doc false
   defdelegate child_spec(opts), to: Store
   @doc false
   defdelegate registry_name(root), to: Store

@@ -234,13 +234,14 @@ and is sent with `Cache-Control: no-store` and no ETag.
 Representation identity includes the detector identities relevant to every
 group, including face models used by `smart-face`. Both storage keys and
 ETags change when a relevant model changes; unrelated model changes leave
-them stable. See [content-aware cropping](content-aware-gravity.md) for host
-configuration, weighting, and warmup.
+them stable. See [content-aware cropping](content-aware-gravity.md) for
+weighting and [enabling detection](enabling-detection.md) for host
+configuration and warmup.
 
 ### Sources
 
 All source forms route through the configured source mounts (see
-[sources](sources.md#mounts-and-routing)). `src/<source>` percent-decodes its
+[sources](sources.md#routing-image-paths-to-sources)). `src/<source>` percent-decodes its
 tail once; `src64/<source>` decodes unpadded base64url. After this outer
 decoding:
 
@@ -334,7 +335,7 @@ guessing source values by comparison. Source hostnames, paths, filenames,
 and query parameters are encrypted. Keys are redacted from configuration
 inspection. Clients receive only the completed signed URL.
 
-See [encrypted source examples](elixir-api.md#encrypted-sources) for builder
+See [source encryption keys](shared-url-settings.md#source-encryption-keys) for builder
 and mount setup. The generation mode does not restrict decryption, and the
 mount prefix is outside the signed path. For lower-level integration,
 `ImagePipe.URL.encrypt_source(source,

@@ -1,27 +1,23 @@
 # Watermarks
 
-A watermark composites an image asset over the group's result. It is the last
-stage of a group, after effects, canvas, padding, and background, so it
-addresses the whole displayed frame, including padding.
+Watermark options draw an image, such as a logo, over the result of a
+[group](../requesting-images.md#processing-groups).
 
-| URL | Elixir | Values / behavior |
-| --- | --- | --- |
-| `wm=logo` | `watermark: :logo` | Host-configured asset name |
-| `wm-src64=<base64url>` | `watermark_source: "brand/logo.png"` | Request-supplied source, when the host enables it |
-| `wm-enc=<token>` | Generated from `watermark_source` | Concealed request source |
-| `wm-opacity=0.5` | `watermark_opacity: 0.5` | 0 to 1, default 1; multiplies the asset's base opacity |
-| `wm-scale=0.25` | `watermark_scale: 0.25` | Fit inside this fraction of the frame, greater than 0 and at most 1 |
-| `wm-at=bottom-right` | `watermark_at: :bottom_right` | Named anchor, center by default |
-| `wm-offset=10,-5pct` | `watermark_offset: {10, {:pct, -5}}` | Signed pixels or percentages of the frame |
-| `wm-tile` | `watermark_tile: true` | Repeat the asset across the frame |
-| `wm-gap=20,5pct` | `watermark_gap: {20, {:pct, 5}}` | Non-negative spacing between tiles; requires `wm-tile` |
+The watermark is the last step of its group, after effects, canvas, padding,
+and background, so it covers the whole frame, padding included (see
+[processing order](../processing.md#processing-order)). Each group starts
+without a watermark. The other `wm-*` options need [`wm`](#wm),
+[`wm-src64`, or `wm-enc`](#wm-src64-and-wm-enc) in the same group.
 
-Exactly one of `wm`, `wm-src64`, and `wm-enc` names the asset, and the other
-options require one of them. Watermark options reset at `-`.
+<!-- tabs-open -->
+
+### URL
 
 ```text
 /w=800/wm=logo/wm-at=bottom-right/wm-offset=16,16/wm-scale=0.2/src/photos/beach.jpg
 ```
+
+### Elixir
 
 ```elixir
 ImagePipe.URL.new()
@@ -34,49 +30,261 @@ ImagePipe.URL.new()
 )
 ```
 
+<!-- tabs-close -->
+
+## Watermark assets
+
+### wm
+
+Accepts the name of a watermark defined in the server's configuration:
+lowercase letters, digits, `_`, and `-`. Default: no watermark.
+
+Draws that named image. The server's configuration defines which names
+exist. A name it doesn't define fails with `400` and `unknown watermark`. The watermark
+may come with its own opacity, which [`wm-opacity`](#wm-opacity) multiplies.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/wm=logo/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder, watermark: :logo)
+```
+
+<!-- tabs-close -->
+
+### wm-src64 and wm-enc
+
+`wm-src64` accepts an image path in unpadded base64url, written the same way as
+after the [`src64/` marker](../requesting-images.md#image-paths). `wm-enc`
+accepts an encrypted token, like the `enc/` marker. These tokens need the
+server's encryption key, so they are created server-side, for example by the
+application that builds your URLs. Default: no watermark.
+
+Draws the image at that path, from the same image sources as the main image.
+Both options work only when the server's configuration allows watermarks
+named by the request. Otherwise they fail with `400` and
+`request watermark sources are not enabled`. A `wm-enc` token that can't be
+decrypted answers `404`.
+
+A group takes one watermark: `wm`, `wm-src64`, and `wm-enc` can't be combined,
+and using two fails with `400`, such as `wm and wm-src64 are mutually exclusive`.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/wm-src64=YnJhbmQvbG9nby5wbmc/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder, watermark_source: "brand/logo.png")
+```
+
+<!-- tabs-close -->
+
+Watermark names, and whether requests may name their own watermarks, are set
+in the [Plug configuration](../configuration.md#watermarks) or the
+[server configuration](../../image_pipe_server/docs/server-configuration.md#processing).
+
 ## Size and placement
 
-With `wm-scale`, the asset is fitted, with enlargement, inside that fraction of
-the frame width and height, keeping its aspect ratio. An upscaled raster asset
-softens. Without `wm-scale`, the asset is drawn at its natural size times the
-group's effective DPR.
+### wm-opacity
 
-Anchors place the asset inside the frame. Positive offsets move it inward from
-right and bottom anchors and forward from left, top, and center. Pixel offsets
-scale with effective DPR; percentages resolve against the frame. Placement is
-not clamped: an offset can push the asset partly outside the frame, where it is
-clipped, and an asset entirely outside the frame draws nothing.
+Accepts a [fraction](../requesting-images.md#fractions). Default: `1`.
 
-With `wm-tile`, one tile sits where the single asset would, and the grid
-repeats in every direction from it. `wm-gap` adds space to the right of and
-below each tile.
+Sets how opaque the watermark is. The value multiplies any opacity the named
+watermark already has, so `wm-opacity=0.5` on a watermark defined at `0.6`
+draws it at `0.3`. `wm-opacity=0` draws nothing, and the watermark image isn't
+fetched.
 
-## Assets
+<!-- tabs-open -->
 
-Host assets are configured by name with `watermarks`; see
-[configuration](../configuration.md#watermarks). Request-supplied sources
-(`wm-src64`, `wm-enc`) require `request_watermarks: true`. Both resolve through
-the configured source mounts and input cache like the main source, so mount
-rules, body limits, and `max_input_pixels` apply to them. Assets use their
-default frame and EXIF orientation. Their metadata is dropped; output metadata
-and color policy describe the main source.
+### URL
 
-An asset is color-managed into the frame's space and composited over it: an
-untagged asset is sRGB, and both land in the frame's ICC profile, or in sRGB
-when the frame has none. A color asset turns a gray frame into RGB.
-Transparent parts of the asset leave the frame unchanged. A frame without alpha
-keeps none; a transparent frame gains coverage where the asset is opaque.
+```text
+/wm=logo/wm-opacity=0.5/src/photos/beach.jpg
+```
 
-When generating URLs, a builder with `encrypt_source: true` conceals watermark
-sources as `wm-enc`, the same way it conceals the main source.
+### Elixir
 
-## Failures and caching
+```elixir
+ImagePipe.URL.group(builder, watermark: :logo, watermark_opacity: 0.5)
+```
 
-Unknown names, disabled request sources, and inert options fail with `400`
-before any source access. An asset that cannot be fetched fails the request
-with the status a main-source failure would produce, and an undecodable asset
-fails with `415`; a request never silently drops its watermark.
+<!-- tabs-close -->
 
-The asset's source identity, its byte identity, and the effective opacity enter
-the cache key and ETag; host entry names do not. A conditional request is
-answered with `304` before either source is fetched.
+### wm-scale
+
+Accepts a number greater than `0` and at most `1`. Default: the watermark's own
+size, multiplied by the group's [`dpr`](resize.md#dpr).
+
+Fits the watermark inside that fraction of the frame's width and height,
+keeping its aspect ratio. With `wm-scale=0.25` on an 800×600 result, a
+watermark fits inside 200×150. A small watermark is enlarged to fit, so a
+raster logo can look soft.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/w=800/wm=logo/wm-scale=0.25/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder, resize: [width: 800], watermark: :logo, watermark_scale: 0.25)
+```
+
+<!-- tabs-close -->
+
+### wm-at
+
+Accepts an [anchor](../requesting-images.md#anchors). Default: `center`.
+
+Places the watermark at that position in the frame.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/wm=logo/wm-at=bottom-right/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder, watermark: :logo, watermark_at: :bottom_right)
+```
+
+<!-- tabs-close -->
+
+### wm-offset
+
+Accepts `x,y`, each a [pixel length](../requesting-images.md#pixel-lengths) or
+a [percentage](../requesting-images.md#percentages), and either may be
+negative. Default: `0,0`.
+
+Moves the watermark from its [`wm-at`](#wm-at) position:
+
+- With a `right` or `bottom` anchor, positive values move it inward, away from
+  that edge.
+- With a `left`, `top`, or `center` anchor, positive values move it right or
+  down.
+
+Pixels are multiplied by the group's `dpr`. A percentage `x` is of the frame
+width, and a percentage `y` of the frame height. The offset isn't limited to
+the frame: the part of the watermark outside it is cut off, and a watermark
+moved completely outside draws nothing.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/wm=logo/wm-at=bottom-right/wm-offset=16,5pct/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder,
+  watermark: :logo,
+  watermark_at: :bottom_right,
+  watermark_offset: {16, {:pct, 5}}
+)
+```
+
+<!-- tabs-close -->
+
+### wm-tile
+
+A [flag](../requesting-images.md#flags). Default: off.
+
+Repeats the watermark across the whole frame. One copy sits where the single
+watermark would be, after [`wm-at`](#wm-at) and [`wm-offset`](#wm-offset), and
+the copies repeat from there in every direction.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/wm=logo/wm-tile/wm-scale=0.1/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder, watermark: :logo, watermark_tile: true, watermark_scale: 0.1)
+```
+
+<!-- tabs-close -->
+
+### wm-gap
+
+Accepts `x,y`, each a pixel length or a percentage, not negative. Default:
+`0,0`.
+
+Adds space to the right of and below each tiled copy. Pixels are multiplied by
+the group's `dpr`, and percentages are of the frame width (`x`) and height
+(`y`). Requires [`wm-tile`](#wm-tile). Without it, the request fails with `400`
+and `wm-gap requires wm-tile`.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/wm=logo/wm-tile/wm-gap=20,5pct/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder,
+  watermark: :logo,
+  watermark_tile: true,
+  watermark_gap: {20, {:pct, 5}}
+)
+```
+
+<!-- tabs-close -->
+
+## Watermark appearance
+
+- Transparent parts of the watermark leave the image underneath unchanged.
+- An image without transparency stays opaque. A transparent image becomes
+  opaque where the watermark is opaque.
+- The watermark is turned upright according to its own EXIF orientation.
+- An animated or multi-page watermark file draws a single still frame.
+- A color watermark on a grayscale image turns the result into a color image.
+- The response's metadata and color profile come from the main image, never
+  from the watermark.
+
+## Watermark errors
+
+These fail with `400` before any image is fetched:
+
+- An unknown `wm` name, or `wm-src64` or `wm-enc` when request-named watermarks
+  aren't allowed.
+- Two of `wm`, `wm-src64`, and `wm-enc` in one group.
+- Another `wm-*` option without a watermark in its group, such as
+  `wm-opacity requires wm, wm-src64, or wm-enc`.
+
+A watermark image that can't be fetched fails the whole request with the same
+status as a main image would, such as `404` when it doesn't exist or `413` when
+it is too large. A watermark file that isn't a supported image answers `415`.
+[Error responses](../errors.md) lists the statuses.

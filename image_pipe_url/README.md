@@ -34,7 +34,7 @@ url =
 ```
 
 Generation performs no source, image, or cache I/O. Follow the
-[builder + external server guide](https://github.com/hlindset/image_pipe/blob/main/image_pipe/docs/external-server.md)
+[builder + external server guide](https://github.com/hlindset/image_pipe/blob/main/image_pipe/docs/building-server-urls.md)
 to run `image_pipe_server`, generate your first working URL, and synchronize
 keys. Preset definitions live on the server; URLs carry only their names.
 

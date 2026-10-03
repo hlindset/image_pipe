@@ -2,14 +2,6 @@
 
 Configure source limits, generation capacity, and HTTP timeouts for your workload.
 
-## Streaming failures
-
-ImagePipe pulls the first encoded chunk before sending headers, so an early
-failure can return a normal [error response](errors.md). Later source, decode,
-encode, or client-close failures stop delivery and discard partial cache writes.
-Cache errors fail open: delivery continues and telemetry records the failure.
-A started response cannot be replaced with a new status or error body.
-
 ## Resource limits and timeouts
 
 HTTP and S3 sources enforce redirect and receive-timeout limits. ImagePipe
@@ -37,9 +29,15 @@ for ImagePipe's response and handle slow clients:
 An optional [processing pool](processing-controls.md) caps concurrent generation
 and queued jobs across Plug and Elixir callers. Its processing deadline covers
 admitted generation through stream cleanup, including source consumption and
-downstream demand pauses. Source-cache acquisition and revalidation before the
-output-cache lookup retain their independent source limits. Output-cache hits
-and conditional responses bypass processing admission.
+downstream demand pauses, so a deadline can cut off a response that has already
+started (see [failures during streaming](streaming-failures.md)). Set
+`processing_timeout` well above the time your largest images take to encode
+and send to the proxy, and watch the `[:image_pipe, :deliver]` telemetry span:
+it stops with `result: :processing_error` when a started response fails (see
+[telemetry events](telemetry-events.md#deliver)).
+Source-cache acquisition and revalidation before the output-cache lookup retain
+their independent source limits. Output-cache hits and conditional responses
+bypass processing admission.
 
 Input body, pixel, and frame limits reject oversized sources with `413`.
 Output limits instead downscale the final image uniformly before encoding.

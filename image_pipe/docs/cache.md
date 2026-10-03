@@ -1,50 +1,32 @@
-# Cache
+# Cache storage
 
-ImagePipe can cache complete encoded responses after successful processing:
+ImagePipe has two caches: `cache` stores complete processed responses, and
+`input_cache` stores originals fetched from remote sources. Both take
+`{ImagePipe.Cache.FileSystem, options}`. The adapter's options are listed in
+`ImagePipe.Cache.FileSystem`, and the server's `[cache]` keys in the
+[server configuration reference](../../image_pipe_server/docs/server-configuration.md#cache).
+Setting up the caches is covered in
+[Caching processed images](caching-processed-images.md), and how long cached
+images stay valid in [Caching and freshness](caching-and-freshness.md).
 
-```elixir
-forward "/",
-  to: ImagePipe.Plug,
-  init_opts: [
-    sources: [
-      images: [
-        adapter: ImagePipe.Source.File,
-        match: :path,
-        options: [root: "/srv/images", root_id: "primary"]
-      ]
-    ],
-    cache:
-      {ImagePipe.Cache.FileSystem,
-       root: "/var/cache/image_pipe",
-       path_prefix: "processed",
-       max_body_bytes: 10_000_000}
-  ]
-```
+## Requests that use the cache
 
-Cache lookup follows request parsing, validation, and source resolution.
-Invalid requests return before source or cache access; invalid signatures return
-`403`. Failed processing is never cached.
+The cache is read after the request is parsed, its signature checked, and its
+source resolved. A request that fails any of those steps returns its error
+without reading the cache or fetching the source.
 
-Direct Elixir calls using `{:source, identifier}` share these pools and policies
-with the Plug. Build configuration once with `ImagePipe.config/1`, pass it to
-`ImagePipe.run/4` and the mount's `:config` option, and supply matching
-`accept` and `request_inputs` when needed. See [shared configuration](elixir-api.md#shared-configuration).
-Raw `{:file, path}` and `{:binary, bytes}` inputs bypass both pools.
+`ImagePipe.run/4` uses the same caches when its input is
+`{:source, identifier}` and it gets the same `ImagePipe.config/1` as the Plug.
+It selects the same cached copy as a Plug request only when given the same
+`accept` and `request_inputs` (see
+[sharing cache entries](combined-usage.md#share-cache-entries)).
+`{:file, path}` and `{:binary, bytes}` inputs never use either cache.
 
-## Freshness and source stability
+## Source cache settings
 
-HTTP and S3 sources use origin freshness for both original bytes and processed
-responses. The default honors `s-maxage`, `max-age`, `Expires`, `Date`, `Age`,
-`no-cache`, `no-store`, `private`, mandatory revalidation and
-`stale-while-revalidate`. Missing freshness requires validation; there is no
-heuristic TTL. Origin ETags and Last-Modified values validate originals; weak
-origin ETags are never promoted to strong response ETags.
-ImagePipe acts as the host's image processor: origin `no-transform` does not
-cancel explicitly requested operations or change storage permission.
-
-Storage permission is separate from freshness. Set mount defaults with
-`source_cache_policy`, or override individual fields using a source adapter's
-`cache_policy` (including per-bucket S3 settings):
+The `source_cache_policy` option sets the cache policy for every source. A
+source's own `cache_policy` option replaces it field by field, and the S3
+adapter also accepts one per bucket:
 
 ```elixir
 source_cache_policy: [
@@ -54,278 +36,175 @@ source_cache_policy: [
 ]
 ```
 
-Fallback freshness applies only when origin freshness is absent. Forced TTL
-does not grant storage permission. Explicit `storage: :allow` overrides the
-origin's `private` and `no-store`. `Vary: *` still prevents reuse. Originals
-fetched with your source credentials, such as signed S3 requests, follow the
-same rules, both for the cache and for the response's `Cache-Control`.
-Request URLs cannot set these host policies. Auth callbacks and S3 credentials
-are resolved before keying and frozen for the fetch; only their digest enters
-cache keys. Hosts implementing custom source adapters must include every
-byte-selecting fetch context in their resolved source data.
+`ImagePipe.Source.CachePolicy` describes each field. The other per-source
+settings, `stable`, `internal_cache`, and `http_cache`, are listed in
+`ImagePipe.Source.CacheSettings`:
 
-`stable: :immutable` promises the source identity always names the same bytes.
-Immutable sources never expire or revalidate, but remain evictable and still need
-storage permission. Explicit source TTL/SWR settings conflict with this promise;
-mutable mount defaults are ignored for immutable sources. Revision-addressed S3
-objects are automatically stable. `internal_cache: :disabled` disables both
-pools for a source, and `:auto` caches subject to the source's storage policy. A local file is
-copied into the input pool only when its mount sets `copy: :keep` (see
-[local files](sources.md#local-files)).
+- `stable: :immutable` marks a source whose identifiers always name the same
+  bytes.
+- `internal_cache: :disabled` turns off both caches for the source. The
+  default, `:auto`, caches whatever the source's storage policy allows.
+- `http_cache` is described in [HTTP cache headers](cdn-http-cache.md#per-source-modes).
 
-## Original-byte pool
+## What is stored
 
-Add an independently configured filesystem pool:
+The processed-image cache stores successful responses only. A failed
+request, and a crop that fell back to a default because
+[content detection](content-aware-gravity.md) failed, are never stored. A
+response larger than the cache's `max_body_bytes` is delivered but not
+stored.
 
-```elixir
-input_cache: {ImagePipe.Cache.FileSystem,
-  root: "/var/cache/image_pipe/originals",
-  pool: :input,
-  max_size_bytes: 2_000_000_000,
-  node_id: "node-0"},
-cache: {ImagePipe.Cache.FileSystem,
-  root: "/var/cache/image_pipe/outputs",
-  max_size_bytes: 5_000_000_000,
-  node_id: "node-0"}
-```
+A stored response keeps its body, content type, and two response headers:
+`vary` and `cache-control`. Header names are stored in lower case.
 
-Use distinct roots and start `ImagePipe.Cache.FileSystem.child_spec/1` for each bounded pool.
-Each has an independent byte budget and eviction policy. Output
-hits do not count as input demand. Original EXIF/ICC bytes are preserved.
-`pool: :input` labels the input supervisor's admission and maintenance telemetry;
-the default label is `:output`. The validated mount adds the input label automatically.
+Each original's version and its origin freshness headers are also stored in
+the processed-image cache. They let
+[processed images outlive their original](caching-and-freshness.md#originals-and-processed-images),
+and count against the processed-image cache's size.
 
-Downloads stage original bytes in a temporary file for reuse.
-Current body/pixel limits apply when generating from input hits, while existing
-successful output hits remain usable after limits are lowered. Active inputs
-are pinned with temporary hard links through lazy decoding and encoding.
-Incomplete transfers are never published; undecodable inputs are invalidated.
-Temporary-file failures fall back to the bounded in-memory decode path.
-Staging and pinned readers can temporarily exceed the retained pool budget;
-their lifetime is bounded by active requests and source limits.
+## Cache key inputs
 
-Source version/freshness records are also stored as charged entries in the
-output pool. This lets fresh outputs survive eviction of their input blobs.
-These records compete for the existing pool budget; there is no unbounded
-metadata cache. If all evidence is evicted, the next request acquires or
-validates the source before selecting a mutable output.
+Each stored response is selected by:
 
-## Stale-while-revalidate
+- The original's version (see
+  [originals and processed images](caching-and-freshness.md#originals-and-processed-images)).
+- The processing options. Two spellings of the same options select the same
+  entry.
+- The output format. For a URL without a `format` option this is the format
+  chosen from `Accept`, not the `Accept` header itself.
+- The content detector and model, when the crop uses detection.
+- The URL's cachebuster.
+- The values of the request headers and cookies named in `storage_inputs`.
+- The credentials and headers the source sends to its origin, such as an S3
+  access key or the result of an HTTP auth callback. They are resolved once
+  per request and enter the key only as a hash.
 
-An eligible stale output returns immediately while supervised work refreshes
-its source and requested variant. An origin `304` retains the output without
-re-encoding; a changed original selects a new byte-version key. Other variants
-rebuild on demand. Output misses wait for source validation. Hits, old-input
-generation, and failed refreshes never extend source deadlines. Once the stale
-window ends, origin failures are returned; SWR is not stale-if-error.
+The URL's expiry, signature, filename, `attachment` option, and `debug`
+option don't select a different entry.
 
-Coordination is node-local. Source operations coalesce by input identity;
-background jobs coalesce by output variant. Coordination allows 64 active source
-keys and 1,024 waiters, with uncached fallback on saturation. Background work is
-limited to 16 jobs, a 60-second deadline and a one-second retry cooldown. Jobs
-survive the initiating response; process monitors release cancelled owners and
-temporary files. Source version keys prevent old output workers from replacing
-newer versions. Downstream headers retain source age and mandatory validation
-rules. See [CDN HTTP caching](cdn-http-cache.md).
+The originals cache uses the original's identifier, the cachebuster, the
+`storage_inputs` values, and the origin credentials. Processing options and
+output format don't, so every size and format of one original shares one
+stored copy.
 
-## Cache misses and streaming
+A custom source adapter must include everything that selects different
+origin bytes in the identity it returns from `resolve/3`, or two different
+originals can share cache entries (see [Writing a custom source](custom-sources.md)).
 
-Before accepting a hit, ImagePipe requires a valid body, cacheable headers, and
-a matching content type: a known output format for an image, or a well-formed
-media type for `{:complete_body, content_type}`. Valid hits bypass source fetch,
-decode, transforms, and encoding.
+## Originals cache
 
-If cache entry validation fails, ImagePipe treats the hit like a miss. It
-reprocesses through a supervised source session using the same cache key and
-emits cache read telemetry for the invalid entry.
+`input_cache` accepts only `ImagePipe.Cache.FileSystem`, with a `root`
+different from the processed-image cache's. Each cache has its own size limit
+and eviction. Serving a processed image from the cache doesn't count as a
+request for its original.
 
-Cache misses and read errors stream through a supervised source session that
-owns fetch, decode, transforms, encoding, and staging. It returns the first
-encoded chunk before response headers commit, and `ImagePipe.Response.Sender`
-pulls later chunks on demand.
+- Originals are stored byte for byte, including their EXIF and ICC data.
+- Local files are copied in only when their source sets `copy: :keep` (see
+  [copy files from network storage](serving-local-files.md#copy-files-from-network-storage)).
+- A download is stored only once it completes.
+- An original that fails to decode is removed from the cache.
+- Making a new processed image from a stored original applies the current
+  `max_body_bytes` and pixel limits. Processed images already in the cache
+  are still served after you lower those limits.
+- Downloads in progress, and originals being read by a request, can take the
+  cache over its `max_size_bytes` for as long as those requests run.
 
-The session stages each encoded chunk as it sends it. The entry becomes visible
-only after:
+## Writing entries
 
-- the encoder stream finishes,
-- the sender has successfully delivered every chunk returned by the session,
-- and the staged body stayed within `:max_body_bytes`.
+A response is processed and streamed to the client at the same time, and
+written to the cache as it streams. The entry is stored only when:
 
-Client disconnects, owner process exits, explicit cancellation, source or encode
-failures after the first chunk, and incomplete streams abort the staged entry and
-don't write cache. If the staged body crosses `:max_body_bytes`, ImagePipe drops
-cache staging, continues delivering the response, and skips the cache write.
+- the encoder finished,
+- every chunk reached the client,
+- and the body stayed within `max_body_bytes`.
 
-Staging and commit errors fail open: delivery continues, telemetry records the
-cache error, and the entry is not stored.
+A client disconnect, a failure after the first chunk, or a body over
+`max_body_bytes` [leaves nothing in the cache](streaming-failures.md). The
+client still receives the full response in the last case.
 
-## Cache keys
+Cache errors never fail a request. A failed write is logged and reported in
+telemetry, and the response is delivered without being stored. A failed or
+invalid read is treated as a miss, and the image is processed again under the
+same key.
 
-ImagePipe derives cache keys from canonical request material and source byte
-identity. A source that can change is identified by the digest of its complete
-original, and an immutable one by the source's authoritative seed. Fresh source
-evidence allows conditionals before source fetch, decode, or encode.
+## Coordination limits
 
-Input keys include source identity, digested fetch context and storage-only
-partitions, including cachebusters. Transform/format/terminal choices do not
-fragment originals. The input partition also partitions output storage.
+Each node coordinates fetches of originals and background checks
+(see [request coalescing](caching-and-freshness.md#request-coalescing)):
 
-Output keys include canonical processing groups, output policy, negotiation,
-and relevant detector identity. Equivalent option spellings share a key.
-`Accept` contributes its normalized negotiation outcome; explicit formats
-do not vary by `Accept`.
+- Up to 64 originals can be fetched or checked at once, with up to 1,024
+  requests waiting for them. Past either limit, a request fetches its
+  original itself, without waiting and without caching it.
+- Up to 16 background checks run at once. Each has a 60-second deadline. A
+  failed check isn't retried for one second.
 
-Cachebusters and values named in `storage_inputs` partition storage without
-changing delivered bytes. ETags exclude those inputs; see
-[cache keys and validators](cdn-http-cache.md#cache-key-relationship).
+Limits for processed images are in
+[output-cache request coalescing](processing-controls.md#output-cache-request-coalescing).
 
-## Stored headers
+## Files on disk
 
-The cache stores only `vary` and `cache-control` response headers. It normalizes
-header names to lowercase and preserves duplicate allowed headers.
+`ImagePipe.Cache.FileSystem` names files by hash. Paths never contain request
+paths, source identifiers, header values, or cookie values. Each entry is a
+body file and a metadata file holding the body's size and SHA-256 hash.
 
-## Filesystem adapter
+Before sending a cached response, the cache checks the body's size and hash.
+An entry that fails the check, has invalid metadata, or can't be read is
+logged and treated as a miss. Files must not be changed in place after they
+are written: a change made after the check can fail the response midway.
 
-`ImagePipe.Cache.FileSystem` requires an absolute `:root`. The optional
-`:path_prefix` must be relative and rejects backslashes, duplicate-slash empty
-segments, `.`, `..`, and `~`-prefixed path segments. Generated hashes determine
-cache paths, not request, source, header, or cookie data.
-
-Filesystem metadata has its own `metadata_version` and records the body
-filename, byte size, and SHA-256 digest. Bodies are content-addressed by digest.
-
-Missing files are misses. Invalid metadata and filesystem read failures are
-logged, emitted as cache-read telemetry, and treated as misses.
-
-Response hits open and pin a descriptor, verify size and SHA-256 in 64 KiB
-chunks before committing headers, then rewind the same descriptor for bounded
-delivery. Eviction cannot invalidate an open reader. This costs two sequential
-disk passes and avoids loading a whole response into BEAM memory. HEAD and 304
-paths close readers too. External in-place modification after verification can
-still cause a delivery failure; published cache bodies must remain immutable.
-`ImagePipe.Cache.FileSystem.get/2` returns a binary body for direct callers;
-the Plug uses its file-backed read path.
-
-Adapter errors fail open and log a warning. Invalid configuration fails Plug
-initialization. Bodies over cache `:max_body_bytes` are still delivered but not
-stored; the option must be `nil` or a non-negative integer.
-
-The filesystem adapter validates generated paths under the configured root
-with `Path.safe_relative/2`, so paths that escape through symlinks fail as cache
-path errors.
+A path that leads outside `root` through a symlink fails as a cache error.
+`ImagePipe.Cache.FileSystem.get/2` returns the whole body as a binary, for
+callers outside the Plug.
 
 ## Bounded mode
 
-By default the filesystem cache grows without an upper size limit. Setting
-`:max_size_bytes` switches `ImagePipe.Cache.FileSystem` into bounded mode, where
-a cost-aware W-TinyLFU admission and eviction policy keeps the total size of
-stored body files at or under the configured cap.
+`max_size_bytes` turns on bounded mode. Without it the cache grows without
+limit. The other bounded-mode options, listed in
+`ImagePipe.Cache.FileSystem`, require `max_size_bytes`, and all except
+`node_id` have defaults.
 
-```elixir
-cache:
-  {ImagePipe.Cache.FileSystem,
-   root: "/var/cache/image_pipe",
-   max_size_bytes: 5_000_000_000,
-   node_id: System.get_env("POD_NAME", "node-0")}
-```
+### Node IDs and supervision
 
-Without `:max_size_bytes`, the adapter ignores the other bounded-mode settings.
+Bounded mode needs `node_id`, the name of this node's state file
+`<node_id>.state`. It must stay the same across restarts and differ between
+nodes that share a `root` (see
+[run several replicas](caching-processed-images.md#run-several-replicas)).
 
-### Node identity and the supervision tree
+Each `root` and `node_id` pair runs one process that tracks the cache's size
+and chooses which entries to keep. A bounded cache must be configured on an
+instance, which starts that process (see `ImagePipe.child_spec/1` and
+[Bound the cache size](caching-processed-images.md#bound-the-cache-size)).
 
-Bounded mode runs a per-node `Admission` GenServer that owns the size budget,
-the admission policy, and the persisted frequency sketch. It requires a stable
-`:node_id` string. The `:node_id` names the per-node persisted state file, so it
-must stay stable across restarts of the same node. On Kubernetes, StatefulSet
-pods get stable ordinal names (e.g. `image-pipe-0`, exposed via `POD_NAME` from
-the downward API), which make good `:node_id` values; Deployment/ReplicaSet pods
-get a random suffix that changes on every restart, so their pod names must not
-be used.
+### Size cap and startup scan
 
-`ImagePipe.Cache.FileSystem.child_spec/1` returns a supervisor spec (a `Registry`
-plus the `Admission` process) when `:max_size_bytes` is set, and `:ignore`
-otherwise. Add it to your application's supervision tree **before** the Plug
-endpoint starts serving requests, using the same options you pass to the cache:
+`max_size_bytes` is a soft cap on the total size of stored bodies:
 
-```elixir
-children = [
-  ImagePipe.Cache.FileSystem.child_spec(cache_opts),
-  {Bandit, plug: MyApp.Endpoint}
-]
-```
+- Each write either stores the new entry, evicting less valuable entries to
+  make room, or rejects it. Rejected and replaced bodies are deleted from
+  disk.
+- An entry larger than `max_size_bytes` is always rejected.
+- On startup the process scans the entries already on disk in the
+  background, then evicts until the cache is at or under the cap.
+- Every `reconcile_interval` (60 seconds by default) it evicts again until
+  the cache is at or under the cap. Evictions from this pass and the
+  startup scan are reported with `trigger: :reconcile`.
 
-Bounded commits fail closed: if no `Admission` process is running for a request's
-`{root, node_id}`, the cache skips the write rather than leaving an untracked
-entry on disk. Starting the cache supervisor before the endpoint avoids dropping
-writes during startup.
+### Warm start from peers
 
-### Configuration options
+Each node writes its request counts to `<node_id>.state` in `state_dir`
+every `flush_interval`. On startup a node merges the counts from every peer
+state file younger than `state_ttl`, so a new node keeps entries that are
+popular across the cluster. Older peer files are deleted every
+`cleanup_interval`. Counts of responses requested only once are not saved.
 
-All bounded options other than `:max_size_bytes` and `:node_id` have derived or
-fixed defaults; most deployments only set the first two. Interval options are in
-seconds.
+### Bounded-mode limitations
 
-| Option | Default | Meaning |
-| --- | --- | --- |
-| `:max_size_bytes` | — (enables bounded mode) | Soft cap on total stored body bytes. |
-| `:node_id` | — (required) | Stable per-node identity; names the persisted state file. |
-| `:pool` | `:output` | Telemetry label; set `:input` for an input-pool supervisor. |
-| `:state_dir` | `<root>/.cache_state` | Directory holding per-node `<node_id>.state` files. |
-| `:window_ratio` | `0.01` | Fraction of the cap used for the admission window. `0.0` disables the window. |
-| `:sketch_depth` | `4` | Count-Min Sketch hash rows. |
-| `:sketch_width` | derived from cap | Count-Min Sketch counters per row. |
-| `:aging_sample_size` | derived from cap | Increments between sketch aging passes. |
-| `:doorkeeper_cardinality` | derived from cap | Bloom doorkeeper capacity. |
-| `:doorkeeper_fpr` | `0.01` | Bloom doorkeeper false-positive rate. |
-| `:eviction_victim_limit` | `64` | Max victims considered per reconcile pass. |
-| `:flush_interval` | `30` | Seconds between state-file flushes. |
-| `:cleanup_interval` | `3600` | Seconds between stale peer-state cleanups. |
-| `:reconcile_interval` | `60` | Seconds between background reconcile passes. |
-| `:state_ttl` | `604_800` | Seconds before an untouched peer state file is stale. |
+- All writes to one `root` and `node_id` go through one process.
+- A crash between writing a body and writing its metadata can leave a body
+  file the cache doesn't track. The startup scan reads metadata files only,
+  so that body doesn't count against `max_size_bytes`.
+- Two writes to the same key at once both store their body. The last one
+  wins, and the other body is deleted.
 
-### Soft-cap semantics and boot reconciliation
-
-The cap is a soft cap on tracked body bytes. On each commit, admission decides
-whether to admit the new entry (evicting lower-value entries as needed) or reject
-it. Rejected and superseded bodies are deleted from disk so on-disk usage tracks
-admission's accounting. Entries larger than the cap are rejected outright; the
-written body and metadata are cleaned up and the commit reports an admission
-rejection.
-
-On boot, `Admission` scans the existing on-disk entries into its policy state and
-reconciles down to the cap, so a node that restarts against a populated cache
-directory converges without serving an over-cap cache.
-
-### Multi-node warm start
-
-Each node periodically persists its frequency sketch to `<node_id>.state` in
-`:state_dir`. On boot a node reads every peer `*.state` file in that directory
-and merges their frequencies into its starting sketch, so a freshly started node
-inherits cluster-wide popularity information instead of cold-starting. The Bloom
-doorkeeper is per-node and is not persisted. Peer state files older than
-`:state_ttl` are removed during periodic cleanup.
-
-### Telemetry
-
-Bounded mode emits these additional events under the configured telemetry prefix
-(default `[:image_pipe]`):
-
-- `[..., :cache, :warm_start, :start | :stop]` — boot warm start, with
-  `own_state_loaded` indicating successful local-state restoration and
-  `peer_state_files` counting present peer state files on stop.
-- `[..., :cache, :admission, :stop]` — each admission decision, with `result`
-  (`:admitted` / `:rejected`), `reason` on rejection, and `victim_count`.
-- `[..., :cache, :eviction, :stop]` — reconcile-driven eviction, with `count`
-  and `bytes` measurements and `trigger: :reconcile`.
-- `[..., :cache, :flush, :stop]` — state-file flush, with flushed `bytes`.
-- `[..., :cache, :cleanup, :stop]` — stale peer-file cleanup, with `removed`.
-
-### Known limitations
-
-- Admission serializes through a single GenServer per `{root, node_id}`, so it is
-  a per-node coordination point rather than a sharded one.
-- A crash between writing a body file and recording it can leave an orphan body
-  on disk; boot reconciliation accounts for on-disk entries, and unaccounted
-  bodies are bounded by the cap rather than tracked individually.
-- Concurrent commits to the same key race on the body file; the last commit wins
-  and the superseded body is deleted.
+The bounded-mode telemetry events are listed in
+[cache events](telemetry-events.md#cache-events).

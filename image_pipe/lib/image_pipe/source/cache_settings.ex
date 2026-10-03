@@ -1,34 +1,70 @@
 defmodule ImagePipe.Source.CacheSettings do
-  @moduledoc """
-  Cache settings shared by source adapters.
-
-  Adapters append `schema/0` to their option schemas, which accepts:
-
-    * `:stable` - `:auto` (default) or `:immutable`. `:immutable` promises that a
-      source identifier's bytes never change.
-    * `:cache_policy` - an `ImagePipe.Source.CachePolicy` keyword list (default `[]`).
-    * `:internal_cache` - `:auto` (default), `:enabled`, or `:disabled`.
-    * `:http_cache` - `:inherit` (default) or one of the mount's `:http_cache`
-      values (`:validators`, `:auto`, `:public`, `:private`), which then
-      replaces the mount's value for this source.
-
-  After validating, `validate/1` rejects a TTL or stale window on an immutable
-  source. `fields/2` then turns the validated options into the cache fields of
-  `ImagePipe.Source.Resolved`.
-  """
-
   alias ImagePipe.Source.CachePolicy
   alias ImagePipe.Source.CacheSemantics
 
   @schema [
-    stable: [type: {:in, [:auto, :immutable]}, default: :auto],
-    cache_policy: [type: {:custom, CachePolicy, :validate, []}, default: []],
-    internal_cache: [type: {:in, [:auto, :enabled, :disabled]}, default: :auto],
+    stable: [
+      type: {:in, [:auto, :immutable]},
+      type_doc: "`:auto` or `:immutable`",
+      default: :auto,
+      doc: """
+      `:immutable` marks a write-once source: an identifier always names the \
+      same bytes, so its originals and processed images never expire and are \
+      never revalidated. With `:auto`, each original is identified by its \
+      content. See [write-once sources](caching-and-freshness.md#write-once-sources).
+      """
+    ],
+    cache_policy: [
+      type: {:custom, CachePolicy, :validate, []},
+      type_doc: "`t:keyword/0`",
+      default: [],
+      doc: """
+      Cache policy for this source, with the fields of \
+      `ImagePipe.Source.CachePolicy`. Each field it sets replaces that field \
+      of the `:source_cache_policy` of `ImagePipe.config/1`. A source with \
+      `stable: :immutable` can't set a `:freshness` duration or a \
+      `:stale_while_revalidate` window.
+      """
+    ],
+    internal_cache: [
+      type: {:in, [:auto, :enabled, :disabled]},
+      type_doc: "`:auto`, `:enabled`, or `:disabled`",
+      default: :auto,
+      doc: """
+      `:disabled` keeps this source's originals and processed images out of \
+      the caches. `:auto` and `:enabled` cache what the source's storage \
+      policy allows.
+      """
+    ],
     http_cache: [
       type: {:in, [:inherit, :validators, :auto, :public, :private]},
-      default: :inherit
+      type_doc: "`:inherit`, `:validators`, `:auto`, `:public`, or `:private`",
+      default: :inherit,
+      doc: """
+      HTTP cache headers for responses from this source. `:inherit` uses the \
+      mount's `:http_cache` (see `ImagePipe.Plug`), and any other value \
+      replaces it. See [per-source modes](cdn-http-cache.md#per-source-modes).
+      """
     ]
   ]
+
+  @moduledoc """
+  Cache settings shared by source adapters.
+
+  The built-in adapters accept these options, and a custom adapter can append
+  `schema/0` to its own option schema to accept them too:
+
+      @schema NimbleOptions.new!([bucket: [type: :string, required: true]] ++ CacheSettings.schema())
+
+  After validating, `validate/1` rejects a lifetime or stale window on a
+  write-once source. `fields/2` then turns the validated options into the
+  cache fields of `ImagePipe.Source.Resolved`. Their effect is explained in
+  [Caching and freshness](caching-and-freshness.md).
+
+  ## Options
+
+  #{NimbleOptions.docs(@schema)}
+  """
 
   @doc "NimbleOptions schema entries for the shared cache settings."
   @spec schema() :: keyword()

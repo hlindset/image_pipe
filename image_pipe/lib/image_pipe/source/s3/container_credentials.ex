@@ -1,20 +1,4 @@
 defmodule ImagePipe.Source.S3.ContainerCredentials do
-  @moduledoc """
-  Credential provider for ECS/Fargate/EKS container credentials.
-
-      credentials: {:provider, ImagePipe.Source.S3.ContainerCredentials,
-                    relative_uri: System.get_env("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI")}
-
-  Options (the host typically wires these from the AWS-injected env vars):
-    * `:relative_uri` — slash-prefixed path appended to `:base_url`
-      (default `"http://169.254.170.2"`).
-    * `:full_uri` — absolute URL (takes precedence over `:relative_uri`). Only
-      accepted for a loopback host or over `https` (see `validate_options/1`).
-    * `:auth_token` — value for the `Authorization` header (optional).
-    * `:base_url` — base for `:relative_uri`, default `"http://169.254.170.2"`.
-    * `:plug` — test-only Req plug.
-    * `:receive_timeout` / `:connect_timeout` — bounded HTTP timeouts (ms), default 2000.
-  """
   @behaviour ImagePipe.Source.S3.CredentialProvider
 
   alias ImagePipe.Source.S3.MetadataRequest
@@ -22,14 +6,64 @@ defmodule ImagePipe.Source.S3.ContainerCredentials do
   @base_url "http://169.254.170.2"
 
   @opts_schema NimbleOptions.new!(
-                 base_url: [type: :string],
-                 full_uri: [type: :string],
-                 relative_uri: [type: :string],
-                 auth_token: [type: :string],
-                 plug: [type: :any],
-                 receive_timeout: [type: :non_neg_integer],
-                 connect_timeout: [type: :non_neg_integer]
+                 base_url: [
+                   type: :string,
+                   doc: """
+                   Base URL that `:relative_uri` is appended to. The default value is \
+                   `"http://169.254.170.2"`.
+                   """
+                 ],
+                 full_uri: [
+                   type: :string,
+                   doc: """
+                   Full credentials URL, from `AWS_CONTAINER_CREDENTIALS_FULL_URI`. \
+                   Takes precedence over `:relative_uri`. Must use `https` or a \
+                   loopback host, so the token can't be sent to another host.
+                   """
+                 ],
+                 relative_uri: [
+                   type: :string,
+                   doc: """
+                   Credentials path, from `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`. \
+                   Must start with `/`.
+                   """
+                 ],
+                 auth_token: [
+                   type: :string,
+                   doc: """
+                   `Authorization` header value, from \
+                   `AWS_CONTAINER_AUTHORIZATION_TOKEN`. When the platform sets \
+                   `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE` instead, pass the file's \
+                   contents.
+                   """
+                 ],
+                 receive_timeout: [
+                   type: :non_neg_integer,
+                   doc: "Milliseconds to wait for each response. The default value is `2000`."
+                 ],
+                 connect_timeout: [
+                   type: :non_neg_integer,
+                   doc: "Milliseconds to wait for a connection. The default value is `2000`."
+                 ],
+                 plug: [type: :any, doc: false]
                )
+
+  @moduledoc """
+  Credential provider for ECS, Fargate, and EKS container credentials.
+
+      credentials:
+        {:provider, ImagePipe.Source.S3.ContainerCredentials,
+         relative_uri: System.fetch_env!("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI")}
+
+  Pass the values the platform sets in the `AWS_CONTAINER_*` environment
+  variables. Fetching fails when neither `:full_uri` nor `:relative_uri` is
+  given. Setting up credentials is covered in
+  [Serving images from S3](serving-from-s3.md#choose-credentials).
+
+  ## Options
+
+  #{NimbleOptions.docs(@opts_schema)}
+  """
 
   @doc false
   def options_schema, do: @opts_schema.schema

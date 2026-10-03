@@ -1,268 +1,276 @@
-# HTTP and CDN caching
+# HTTP cache headers
 
-ImagePipe can emit shared HTTP cache headers for public image routes. Immutable
-sources use their authoritative identity. Sources that can change use the
-digest of the current original and the origin's freshness. Generated policy is
-opt-in at the Plug level, and a source can override it. See [internal caching](cache.md)
-for pool configuration and origin-policy overrides.
+ImagePipe generates `Cache-Control`, `ETag`, `Age`, and `Vary` headers for
+successful `GET` and `HEAD` image responses, and answers `If-None-Match` with
+`304 Not Modified`. The `http_cache` setting chooses which headers it sends:
+
+<!-- tabs-open -->
+
+### Plug
 
 ```elixir
-forward "/images",
-  to: ImagePipe.Plug,
-  init_opts: [
-    http_cache: :auto,
-    sources: [
-      images: [
-        adapter: ImagePipe.Source.File,
-        match: :path,
-        options: [root: "/srv/images", root_id: "primary", stable: :immutable]
-      ]
-    ]
-  ]
+forward "/images", ImagePipe.Plug,
+  http_cache: :auto,
+  sources: [...]
 ```
+
+### image_pipe_server
+
+```toml
+[http]
+http_cache = "auto"
+```
+
+<!-- tabs-close -->
+
+Putting a CDN in front is covered in
+[Serving images through a CDN](serving-through-a-cdn.md), and where cache
+lifetimes come from in [Caching and freshness](caching-and-freshness.md). The
+telemetry events are listed in
+[HTTP cache events](telemetry-events.md#http-cache-events).
 
 ## Header modes
 
-The `http_cache` option takes one of four values:
-
 | Value | Headers |
 | --- | --- |
-| `:validators` (default) | An `ETag`, and no generated `Cache-Control` unless the URL has an expiry |
-| `:auto` | `Cache-Control: public, max-age=31536000, immutable` and an `ETag`. `private` instead of `public` when `storage_inputs` include a cookie |
-| `:public` | The same policy, always `public` |
-| `:private` | The same policy, always `private` |
+| `validators` (default) | An `ETag`. Sources whose files can change also get their [source lifetime](#source-lifetimes) |
+| `auto` | `Cache-Control: public, max-age=31536000, immutable` and an `ETag`. `private` in some cases (see [Vary](#vary)) |
+| `public` | The same as `auto`, always `public` |
+| `private` | The same as `auto`, always `private` |
 
-In every mode, a source whose cache policy denies storage gets
-`Cache-Control: no-store` and no `ETag`. So does a crop that fell back to
-attention because [content detection](content-aware-gravity.md) failed. Sources
-that can change replace the one-year lifetime with the origin's freshness, sent
-as `Cache-Control` and `Age`. A local file has no origin freshness, so its
-lifetime is 0 unless you set a
-[fallback freshness](cache.md#freshness-and-source-stability).
+In every mode:
 
-A URL with an [`expires`](processing/request.md) time never gets a cache
-lifetime that outlasts it. ImagePipe lowers `max-age` to the time left,
-shortens or drops `stale-while-revalidate` so it also ends by then, and adds
-`must-revalidate`. In `:validators` mode such a response gets
-`Cache-Control: public, max-age=<seconds left>, must-revalidate`. A
-`Cache-Control` you set in an earlier Plug is left as it is.
+- Sources whose files can change get their
+  [source lifetime](#source-lifetimes) in place of the one-year lifetime.
+- A response that may not be stored gets `Cache-Control: no-store` and no
+  `ETag`. That covers a source whose storage is denied, by its origin or by
+  configuration (see
+  [storage permission](caching-and-freshness.md#storage-permission)), and a
+  crop that fell back to a default because
+  [content detection](content-aware-gravity.md) failed.
+- A URL with an expiry gets a lifetime that ends with it (see
+  [expiring URLs](#expiring-urls)).
 
-> #### CDN lifetime overrides ignore expiry {: .warning}
->
-> A CDN rule that replaces the origin's `Cache-Control` with its own edge
-> lifetime can keep serving an image after its URL expires. If expiry must be
-> exact, check it at the edge.
+## Per-source modes
 
-A source can set the same option. Its default, `:inherit`, uses the mount's
-value, and any other value replaces it for that source. For example, a mount
-with `http_cache: :public` can serve per-user uploads from a source set to
-`http_cache: :private`.
+A source's `http_cache` setting replaces the global value for that source.
+Its default, `inherit`, uses the global value. A source of per-user uploads
+can be `private` while other sources stay `public`:
 
-## Stable source bytes
+<!-- tabs-open -->
 
-`stable: :immutable` tells a source adapter that the resolved source identity names
-the same bytes for every request. Use it only for write-once storage,
-content-addressed paths, or storage where your application policy prevents
-in-place replacement under the same identity.
+### Plug
 
-For `ImagePipe.Source.File`, `stable: :auto` identifies each file by a hash of
-its contents and checks it for changes on every request that a fresh cached
-response doesn't answer.
-`stable: :immutable` derives identity from `root_id` and the path instead, so a
-cached response is served without touching the file. See
-[local files](sources.md#local-files).
-
-For `ImagePipe.Source.HTTP`, `stable: :immutable` derives byte identity from URL
-components. Raw query strings never enter ETags or telemetry; a query SHA-256
-preserves their identity effect. Different query strings therefore produce
-different ETags. HTTP authentication callbacks and S3 credentials are resolved
-once per request and the effective credential snapshot partitions both caches.
-Credential changes also partition immutable validators. Secrets are
-hashed before entering storage keys and are never emitted in telemetry.
-
-For `ImagePipe.Source.S3`, objects with a revision are stable under
-`stable: :auto`: the revision is an S3 version ID, the fetch requests that
-version, and the store must confirm it with `x-amz-version-id`. S3 objects
-without a revision need `stable: :immutable` if the bucket or key policy is
-write-once.
-
-`stable` and `internal_cache` are separate settings. `stable` is about whether
-ImagePipe can derive byte identity before a fetch. `internal_cache` controls
-storage and reuse in both pools. A route can use internal caching without
-generated HTTP cache headers. Sources that can change obtain byte identity from
-the complete original bytes, with or without internal caching. Their output
-validators require current source evidence. `stable: :immutable` removes expiry, but origin storage restrictions
-still apply unless the host explicitly sets `cache_policy: [storage: :allow]`.
-
-## Generated headers
-
-For successful `GET` and `HEAD` responses with generated HTTP caching enabled and
-immutable byte identity, ImagePipe emits:
-
-```http
-Cache-Control: public, max-age=31536000, immutable
-ETag: "ipr1-..."
+```elixir
+uploads: [
+  adapter: ImagePipe.Source.File,
+  match: [prefix: "uploads"],
+  options: [root: "/srv/uploads", root_id: "uploads", http_cache: :private]
+]
 ```
 
-Mutable sources instead emit the source-derived lifetime and current `Age`.
-Generating a new variant does not restart that lifetime. Origin `no-cache` and
-mandatory revalidation survive in downstream policy; a permitted
-`stale-while-revalidate` window is advertised too. Origin `no-store`, `private`,
-and other storage prohibitions produce `Cache-Control: no-store` unless the
-host explicitly overrides storage permission. A forced TTL alone does not
-override storage permission.
+### image_pipe_server
 
-When automatic output format selection depends on the request `Accept` header,
-ImagePipe also emits:
+```toml
+[sources.uploads]
+adapter = "file"
+match = { prefix = "uploads" }
+root = "/srv/uploads"
+root_id = "uploads"
+http_cache = "private"
+```
+
+<!-- tabs-close -->
+
+## Source lifetimes
+
+A response from a source whose files can change gets the original's
+lifetime as `max-age`, and its age as `Age`. Making a
+new size or format of the original doesn't restart that lifetime.
+
+- An origin `no-cache` adds `no-cache`, or `must-revalidate` when the
+  source forces a lifetime.
+- An origin `must-revalidate`, `proxy-revalidate`, or `s-maxage` adds
+  `must-revalidate`.
+- A `stale-while-revalidate` window that applies to the original is added
+  as `stale-while-revalidate`. A window forced by the source drops the
+  `no-cache` and `must-revalidate` above.
+- A source with no lifetime from its origin and no fallback lifetime gets
+  `max-age=0`. Local files have no origin, so they get `max-age=0` unless
+  their source sets a fallback lifetime (see the
+  [Plug settings](cache.md#source-cache-settings) or the
+  [server's `[sources.<name>]` keys](../../image_pipe_server/docs/server-configuration.md#sources-name)).
+
+For example, an original fetched 60 seconds ago with
+`Cache-Control: max-age=3600` gives:
+
+```http
+Cache-Control: public, max-age=3600
+Age: 60
+```
+
+## Write-once source headers
+
+A source marked write-once (`stable` set to immutable, see
+[write-once sources](caching-and-freshness.md#write-once-sources)) is the
+only kind that gets the one-year lifetime from the [header modes](#header-modes)
+table, as long as storage is allowed. In `validators` mode it gets only an
+`ETag`. Its `ETag` comes from the original's identifier, such as its path or
+URL, instead of its content. An S3 object addressed by a version ID counts as
+write-once without being marked.
+
+## Expiring URLs
+
+A URL with an [`expires`](processing/request.md#expires) time never gets a cache
+lifetime that outlasts it:
+
+- `max-age` is lowered to the time left.
+- `stale-while-revalidate` is shortened so it also ends by then, or dropped.
+- `must-revalidate` is added.
+
+In `validators` mode, a response from a write-once source gets
+`Cache-Control: public, max-age=<seconds left>, must-revalidate`, with
+`private` in place of `public` when `storage_inputs` names a cookie.
+
+## Vary
+
+A URL without a `format` option gets its format chosen from the request's
+`Accept` header, and its response carries:
 
 ```http
 Vary: Accept
 ```
 
-Configure the CDN cache key to include `Accept` for routes that use automatic
-output. Explicit output formats don't emit `Vary: Accept`.
+A URL with a `format` option doesn't vary by `Accept`.
 
-Configured `storage_inputs` header names also enter `Vary`. A mount with
-`storage_inputs: [{:header, "x-tenant"}, {:cookie, "session"}]` and automatic
-output sends:
+Headers named in `storage_inputs` are added to `Vary` too, in lower case,
+sorted, without duplicates, and ahead of `Accept`. With these settings and no
+`format` in the URL, the response carries `Vary: x-tenant, Accept`:
 
-```http
-Vary: x-tenant, Accept
+<!-- tabs-open -->
+
+### Plug
+
+```elixir
+storage_inputs: [{:header, "x-tenant"}, {:cookie, "session"}]
 ```
 
-Cookie entries never enter `Vary` — it names headers only. Header names
-normalize to lower case, drop duplicates, and sort deterministically, so the
-header doesn't depend on the configured list's order or spelling.
+### image_pipe_server
 
-Configuring any cookie storage input makes generated cache policy `private`
-by default, including on cache hits and `304` responses. Storage partitioning
-does not make a response safe to share through a CDN. A host that guarantees
-public responses can use `http_cache: :public`, and `http_cache: :private`
-forces private policy even without cookie inputs. Existing host headers and
-`Set-Cookie` retain precedence.
-
-For CDN configuration:
-
-- honor origin `Cache-Control`, including `no-store`
-- forward `If-None-Match` to ImagePipe for revalidation
-- include `Accept` in the cache key when using automatic output
-- don't add Client Hints such as `Width` or `DPR` to the cache key for v1
-- expect raw URL cache keys unless the CDN rewrites or redirects before lookup
-
-ImagePipe merges an existing `Vary` header with `Accept`. If an earlier Plug set
-`Vary: Accept-Encoding`, the final header for automatic output is:
-
-```http
-Vary: Accept-Encoding, Accept
+```toml
+[cache]
+storage_inputs = [{ header = "x-tenant" }, { cookie = "session" }]
 ```
 
-If an earlier Plug set `Vary: *`, ImagePipe preserves `Vary: *` and suppresses
-generated public cache headers.
+<!-- tabs-close -->
+
+Cookies never appear in `Vary`, since it names headers only. So when
+`storage_inputs` names a cookie, `auto` and `validators` send `private` in
+place of `public`, on cache hits and `304` responses as well. `public` sends
+`public` anyway, for a host that guarantees the responses are the same for
+every user.
+
+In a Plug app, a `Vary` header set by an earlier Plug is handled by mode:
+
+- In `auto`, `public`, and `private` modes it is merged with ImagePipe's.
+  After `Vary: Accept-Encoding`, the response carries
+  `Vary: Accept-Encoding, Accept`. An earlier `Vary: *` is kept as it is
+  (see [headers set by the host](#headers-set-by-the-host)).
+- In `validators` mode, ImagePipe's `Vary` replaces it. After
+  `Vary: Accept-Encoding` or `Vary: *`, the response carries `Vary: Accept`.
+
+## ETag
+
+A generated `ETag` is strong and looks like `"ipr1-<hash>"`. It is computed
+from the request before the original is fetched or processed. It changes
+when any of these change:
+
+- The original's version (see
+  [originals and processed images](caching-and-freshness.md#originals-and-processed-images)).
+- The processing options. Two spellings of the same options give the same
+  `ETag`.
+- The output format.
+- The content detector or model, when the crop uses detection. A `304` is
+  never sent for an image made by a different detector.
+
+The URL's cachebuster and the `storage_inputs` values select a different
+entry in ImagePipe's own cache, but don't change the `ETag`. A new cachebuster
+on an unchanged image stores a new copy, and clients that already have the
+image still get a `304` (see [cache key inputs](cache.md#cache-key-inputs)).
+
+A CDN keys on the raw URL. Two URLs that spell the same options differently
+get the same `ETag` but are stored as two CDN objects.
+
+An origin's own `ETag` is used only to check the original with the origin. It
+never becomes a response `ETag`.
 
 ## Conditional requests
 
-ImagePipe handles `If-None-Match` for explicit entity tags matching a generated
-ETag. A matching `GET` or `HEAD` returns `304 Not Modified` without decode,
-transform, or encode. Local immutable sources can do this immediately after
-resolution. Coordinated remote sources first consult retained source evidence;
-fresh evidence avoids origin access and the encoded-body read. Immutable remote
-sources with explicit storage permission can skip that evidence lookup too.
-Without internal caching, a mutable remote source is downloaded on every
-request, and a matching `If-None-Match` returns `304` once the original's bytes
-are confirmed unchanged.
-
-Expired mutable sources validate upstream with `If-None-Match` or
-`If-Modified-Since` before answering a client conditional. An upstream `304`
-refreshes shared evidence without downloading the original or re-encoding a
-surviving output. A changed `200` changes the original-byte identity and every
-derived key and validator. A valid SWR output may be served immediately,
-including a matching client `304`, while one supervised refresh runs in the
-background. Failed refreshes never extend the stale deadline.
-
-HEAD response
-metadata (`ETag`/`Cache-Control`/`Vary`) matches the equivalent `GET`, per RFC 9110
-§9.3.2.
-
-`If-None-Match` uses weak comparison for `GET` and `HEAD`, so both of these match
-the generated ETag `"ipr1-token"`:
+A `GET` or `HEAD` whose `If-None-Match` lists the generated `ETag` gets
+`304 Not Modified` without decoding, processing, or encoding the image. The
+comparison is weak, so both of these match `"ipr1-token"`:
 
 ```http
 If-None-Match: "ipr1-token"
 If-None-Match: W/"ipr1-token"
 ```
 
-`If-None-Match: *` needs proof that a current representation exists, which is not
-available before source processing. ImagePipe therefore honors it only on an
-**internal cache hit**. A hit returns `304 Not Modified` with or without a
-generated ETag; a miss processes the request and returns `200`. A header mixing
-`*` with explicit tags, invalid under RFC 9110 §13.1.2, is treated as the
-wildcard.
+Whether ImagePipe contacts the source first depends on the source:
 
-ImagePipe serves `GET` and `HEAD` images and answers `OPTIONS` with `204`.
-Other methods receive `405` before parsing, source resolution, or cache access.
+- A local write-once source answers `304` without reading the file, unless
+  the source keeps copies of its files in the originals cache.
+- A remote write-once source whose storage is allowed in its cache policy
+  answers `304` without contacting the origin.
+- Any other source answers `304` without contacting the origin while its
+  original is within its lifetime. This needs one of ImagePipe's caches,
+  which store the original's lifetime. Without them, the original is
+  downloaded or read on every request, and the `304` is sent once its
+  content matches.
+- An original past its lifetime is checked with its origin before the `304`
+  is sent (see
+  [originals and processed images](caching-and-freshness.md#originals-and-processed-images)).
+- Within a `stale-while-revalidate` window, a processed image that is
+  already cached gets its `304` at once (see
+  [stale-while-revalidate](caching-and-freshness.md#stale-while-revalidate)).
 
-ImagePipe doesn't interpret host-supplied ETags. If an earlier Plug sets
-`ETag`, ImagePipe preserves it, suppresses its generated ETag, and doesn't use
-that host ETag to return `304`.
+`If-None-Match: *` matches only a response served from ImagePipe's cache.
+On a cache miss the request is processed and returns `200`. A header that
+mixes `*` with listed tags is treated as `*`.
 
-## Host headers
+A `HEAD` response carries the same `ETag`, `Cache-Control`, and `Vary` as the
+matching `GET`. `OPTIONS` gets `204`. Other methods get `405` before the URL
+is parsed or the cache is read.
 
-Existing host policy wins over generated policy within the source storage
-permission. An origin storage prohibition forces `no-store`; use the explicit
-source policy override to change that decision.
+## Headers set by the host
 
-If an earlier Plug sets `Cache-Control` and storage is permitted, ImagePipe
-doesn't overwrite it. If there's no host ETag, ImagePipe may still add a
-generated ETag.
+In a Plug app, headers set by an earlier Plug take precedence over generated
+ones:
 
-ImagePipe treats the default `Cache-Control` value set by `Plug.Conn` as unset
-before response delivery:
+- An earlier `Cache-Control` is kept. ImagePipe may still add its `ETag`.
+- An earlier `ETag` is kept, and ImagePipe sends no generated `ETag`. A
+  request that matches the earlier `ETag` doesn't get a `304`.
+- `Plug.Conn`'s default `Cache-Control: max-age=0, private, must-revalidate`
+  counts as unset. The same directives in another order, such as
+  `private, max-age=0, must-revalidate`, count as set.
 
-```http
-Cache-Control: max-age=0, private, must-revalidate
-```
+In `auto`, `public`, and `private` modes:
 
-A Plug that needs to force that exact policy should set another explicit policy
-or disable generated HTTP caching for the route.
+- A response with `Set-Cookie` gets no generated `Cache-Control` or `ETag`.
+- An earlier `Cache-Control: no-store` stops the generated `ETag`.
+- An earlier `Vary: *` stops the generated `Cache-Control` and `ETag`.
 
-If the selected `Cache-Control` contains `no-store`, ImagePipe doesn't generate
-an ETag.
+A source whose storage is denied, by its origin or by configuration, gets
+`Cache-Control: no-store` even when an earlier Plug set `Cache-Control`.
+Allowing storage in the source's cache policy overrides an origin's denial
+(see the [Plug settings](cache.md#source-cache-settings) or the
+[server's `[sources.<name>]` keys](../../image_pipe_server/docs/server-configuration.md#sources-name)).
 
-If the response has `Set-Cookie`, ImagePipe suppresses generated public cache
-headers.
-
-Required representation headers are separate from generated cache policy.
-Suppressing generated `Cache-Control` or `ETag` leaves `Vary: Accept` in place
-when automatic output uses `Accept`.
-
-## Telemetry
-
-HTTP cache events report policy preparation, conditional matches, `no-store`
-fallbacks, and cache-hit headers. See [HTTP cache telemetry](telemetry-events.md#http-cache-events)
-for event names, metadata, and Logger output.
-
-## Cache key relationship
-
-The CDN controls its cache key. An ETag cannot make two URLs share one CDN
-object. ImagePipe may produce the same ETag for equivalent request material, but
-a CDN keyed on raw URLs stores separate objects unless it rewrites or redirects
-before lookup.
-
-ImagePipe derives its storage key and ETag from the request and source byte
-identity:
-
-- the **internal cache key** includes the cachebuster and the request header and cookie
-  values named by the mount's `storage_inputs`;
-- the **generated ETag** excludes those storage-only inputs, so a cachebuster
-  change selects a new storage entry while preserving the validator for
-  byte-identical output.
-
-Detector and model identity enter both values because changing either can change
-the rendition. A conditional GET cannot return `304` for a rendition made by a
-different detector.
+`Vary: Accept` is sent whenever the format comes from `Accept`, even when the
+generated `Cache-Control` and `ETag` are not.
 
 ## Custom validators
 
-ImagePipe generates ETags and handles `If-None-Match`. Routes needing
-`Last-Modified`, `If-Modified-Since`, or custom validators can disable generated
-HTTP caching and set headers in their own Plug chain.
+ImagePipe generates only `ETag` validators and answers only
+`If-None-Match`. It doesn't send `Last-Modified` or answer
+`If-Modified-Since`. In a Plug app, those are left to Plugs that run before
+ImagePipe.

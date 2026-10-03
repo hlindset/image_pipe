@@ -47,6 +47,11 @@ defmodule ImagePipe.Plan do
   @spec new(keyword()) :: t()
   def new(options), do: %__MODULE__{options: Options.request!(options)}
 
+  # The request controls `new/1` accepts, for generated documentation.
+  @doc false
+  @spec request_schema() :: keyword()
+  def request_schema, do: Options.request_schema()
+
   @doc false
   @spec group(t(), keyword()) :: t()
   def group(%__MODULE__{} = plan, options) do

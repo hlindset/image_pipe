@@ -19,7 +19,9 @@ defmodule ImagePipe.Run do
     unless is_binary(accept), do: raise(ArgumentError, "accept must be a string")
     {request_inputs, options} = Keyword.pop(options, :request_inputs, [])
     inputs = Inputs.new!(request_inputs)
-    config = Config.override(shared, options).options
+
+    %Config{options: config} =
+      shared |> Config.override(options) |> Config.reject_unsupervised_processes!()
 
     Telemetry.span(Telemetry.telemetry_opts(config), [:request], %{}, fn ->
       result = execute(plan, input, config, accept, inputs)

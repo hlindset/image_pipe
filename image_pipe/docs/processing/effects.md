@@ -1,50 +1,36 @@
 # Effects
 
-[All processing options](../processing.md)
+Effects filter the image, adjust its colors, or lay a color over it, with or
+without resizing.
 
-Effects work with or without resizing. Pass the Elixir options below to
-`ImagePipe.URL.group/2`. All effects start disabled in each group.
+Every effect is off unless the [group](../requesting-images.md#processing-groups)
+sets it, and each group starts with all effects off again. Effects that take a
+color accept a hex value or a CSS name, as described under
+[colors](../requesting-images.md#colors). On a grayscale image, `monochrome`
+and `duotone` always give a color image, and `colorize` and `gradient` give one
+when their color isn't a neutral gray.
 
-## Option reference
+## Effect order
 
-| URL example | Elixir example | Values / defaults |
-| --- | --- | --- |
-| `blur=2` | `blur: 2` | Nonnegative sigma; 0 disables |
-| `progressive-blur=4,down,0.2,0.8` | `progressive_blur: [sigma: 4, angle: 0, start: 0.2, stop: 0.8]` | Nonnegative maximum sigma; default direction down, start 0, stop 1; 0 sigma disables |
-| `sharpen=1.5` | `sharpen: 1.5` | Nonnegative sigma; 0 disables |
-| `pixelate=8` | `pixelate: 8` | Integer block size ≥ 1; 1 disables |
-| `gray` | `gray: true` | Grayscale; boolean |
-| `bitonal` | `bitonal: true` | Black and white; boolean |
-| `monochrome=0.8,704214` | `monochrome: [intensity: 0.8, color: "704214"]` | Intensity `0..1`; optional color defaults to `b3b3b3` |
-| `duotone=1,123456,efab89` | `duotone: [intensity: 1, shadow: "123456", highlight: "efab89"]` | Intensity `0..1`; default colors black and white |
-| `brightness=30` | `brightness: 30` | Integer addition from -255 to 255; 0 is identity |
-| `contrast=1.5` | `contrast: 1.5` | Positive factor; 1 is identity |
-| `saturation=0.7` | `saturation: 0.7` | Positive factor; 1 is identity |
-| `colorize=0.3,red,keep-alpha` | `colorize: [opacity: 0.3, color: "red", keep_alpha: true]` | Opacity `0..1`, required color; keep-alpha defaults false |
-| `gradient=0.8,black,down,0.2,0.9` | `gradient: [opacity: 0.8, color: "black", angle: 0, start: 0.2, stop: 0.9]` | Opacity/start/stop `0..1`; required color; default angle 0, start 0, stop 1 |
+Effects run after resizing and cropping, in this order, whatever order the URL
+lists them in:
 
-URL colors are bare three/six-digit hex or CSS names. Elixir also accepts
-RGB tuples and hex strings with `#`. Colors are sRGB, as in CSS: on a source
-that keeps a wide-gamut profile, a 16-bit source, or a gray source they convert
-into the image's own values, and a color that isn't a neutral gray turns a gray
-image into RGB. Comma-separated URL values cannot contain
-empty placeholders. Supply either both duotone colors or neither.
+`blur`, `progressive-blur`, `sharpen`, `pixelate`, `gray`, `bitonal`,
+`monochrome`, `duotone`, `brightness`, `contrast`, `saturation`, `colorize`,
+`gradient`
 
-Blur/sharpen sigma and pixelate block size use physical pixels, unaffected by
-DPR. Monochrome/duotone intensity and colorize/gradient opacity of 0 disable
-the operation. Explicit identity values are still validated.
+To run them in another order, put them in separate groups. This URL adjusts
+brightness after contrast:
 
-## Order effects deliberately
+<!-- tabs-open -->
 
-Effects always run in this order within a group:
-
-`blur → progressive-blur → sharpen → pixelate → gray → bitonal → monochrome → duotone → brightness → contrast → saturation → colorize → gradient`
-
-Use groups to change the order. These examples apply brightness after contrast:
+### URL
 
 ```text
 /contrast=2/-/brightness=30/src/photos/beach.jpg
 ```
+
+### Elixir
 
 ```elixir
 ImagePipe.URL.new()
@@ -52,27 +38,360 @@ ImagePipe.URL.new()
 |> ImagePipe.URL.group(brightness: 30)
 ```
 
-## Alpha and gradients
+<!-- tabs-close -->
 
-Colorize produces an opaque result unless `keep-alpha` is set. Gradient
-preserves source alpha. Zero opacity skips either effect without changing alpha.
+Where effects sit among the other stages is described under
+[processing order](../processing.md#processing-order).
 
-Gradient directions follow the current display axes: `down` is 0°, `left` 90°,
-`up` 180°, and `right` 270°. URLs also accept signed decimal angles; angles wrap
-modulo 360. Reversing start/stop reverses the ramp; equal values create a hard step.
+## Filters
 
-See the [pixel-effect contract](../api_contract.md#pixel-effects) for identity
-and representation details.
+### blur
 
-## Progressive blur
+Accepts a non-negative [number](../requesting-images.md#numbers), the Gaussian
+blur sigma. Default: off. `blur=0` has no effect.
 
-`progressive-blur=sigma[,direction[,start[,stop]]]` transitions from unblurred
-at `start` to the maximum Gaussian sigma at `stop`. Direction and stops follow
-the gradient conventions above, including reversed ramps and hard steps.
-Stops range from 0 to 1. The effect addresses the display frame after resizing;
-sigma uses physical pixels, unaffected by DPR.
+Blurs the whole image. Larger values blur more. The sigma is in output pixels,
+so [`dpr`](resize.md#dpr) doesn't change it.
 
-The varying radius is approximated by interpolating eight Gaussian sigma
-intervals. Filtering and blending use premultiplied alpha to avoid colored
-fringes at transparent edges. Multiple blur kernels require a materialized
-input and cost more than a single uniform blur.
+<!-- tabs-open -->
+
+### URL
+
+```text
+/w=800/blur=2/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder, resize: [width: 800], blur: 2)
+```
+
+<!-- tabs-close -->
+
+### progressive-blur
+
+Accepts `sigma,direction,start,stop`. Only the sigma is required:
+
+- `sigma` is the maximum blur, a non-negative number. `0` has no effect.
+- `direction` is `down` (default), `left`, `up`, or `right`, or an angle in
+  degrees, as described under [gradient](#gradient).
+- `start` and `stop` are [fractions](../requesting-images.md#fractions) of the
+  distance across the image, in that direction. They default to `0` and `1`.
+
+Default: off. The image is sharp before `start`, and the blur grows to the full
+sigma at `stop`. Swapping `start` and `stop` reverses the ramp, and equal values
+switch from sharp to fully blurred in one step. The sigma is in output pixels,
+so `dpr` doesn't change it. A progressive blur is slower than `blur`.
+
+The values are positional, so you can't skip one: to set `start`, also write a
+direction, as in `progressive-blur=4,down,0.5`. An empty value, such as
+`progressive-blur=4,,0.5`, fails with `400`.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/progressive-blur=4,down,0.2,0.8/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder, progressive_blur: [sigma: 4, start: 0.2, stop: 0.8])
+```
+
+<!-- tabs-close -->
+
+### sharpen
+
+Accepts a non-negative number, the sharpening sigma. Default: off. `sharpen=0`
+has no effect.
+
+Sharpens edges. The sigma is in output pixels, so `dpr` doesn't change it.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/w=400/sharpen=1.5/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder, resize: [width: 400], sharpen: 1.5)
+```
+
+<!-- tabs-close -->
+
+### pixelate
+
+Accepts a whole number of 1 or more, the block size in pixels. Default: off.
+`pixelate=1` has no effect.
+
+Replaces the image with square blocks of one color each. The block size is in
+output pixels, so `dpr` doesn't change it. `pixelate=0` fails with `400`.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/pixelate=8/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder, pixelate: 8)
+```
+
+<!-- tabs-close -->
+
+## Color adjustments
+
+### gray
+
+A [flag](../requesting-images.md#flags). Default: off.
+
+Converts the image to grayscale. Transparency is kept.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/gray/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder, gray: true)
+```
+
+<!-- tabs-close -->
+
+### bitonal
+
+A flag. Default: off.
+
+Converts the image to pure black and white: pixels darker than middle gray (128
+on a 0 to 255 scale) become black, and the rest become white. Transparency is
+kept, including partial transparency.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/bitonal/src/scans/receipt.png
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder, bitonal: true)
+```
+
+<!-- tabs-close -->
+
+### monochrome
+
+Accepts `intensity,color`:
+
+- `intensity` is a fraction. `0` has no effect, and `1` applies the full
+  effect.
+- `color` is optional and defaults to `b3b3b3`, a light gray.
+
+Default: off. Recolors the image in shades of one color, from black in the
+shadows to `color` in the highlights.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/monochrome=0.8,704214/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder, monochrome: [intensity: 0.8, color: "704214"])
+```
+
+<!-- tabs-close -->
+
+### duotone
+
+Accepts `intensity` or `intensity,shadow,highlight`:
+
+- `intensity` is a fraction. `0` has no effect, and `1` applies the full
+  effect.
+- `shadow` and `highlight` are colors. They default to black and white.
+
+Default: off. Recolors the image with two colors: dark areas take the shadow
+color and light areas the highlight color. Give both colors or neither:
+`duotone=1,123456` fails with `400`.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/duotone=1,123456,efab89/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder, duotone: [intensity: 1, shadow: "123456", highlight: "efab89"])
+```
+
+<!-- tabs-close -->
+
+### brightness
+
+Accepts a whole number from `-255` to `255`. Default: off. `brightness=0` has
+no effect.
+
+Adds the value to every color channel, which runs from 0 to 255 in a typical
+8-bit image. Positive values lighten the image and negative values darken it.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/brightness=-20/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder, brightness: -20)
+```
+
+<!-- tabs-close -->
+
+### contrast
+
+Accepts a number greater than 0, a contrast factor with no upper limit.
+Default: off. `contrast=1` has no effect.
+
+Values above 1 increase contrast, and values below 1 reduce it. `contrast=0`
+fails with `400`.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/contrast=1.25/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder, contrast: 1.25)
+```
+
+<!-- tabs-close -->
+
+### saturation
+
+Accepts a number greater than 0, a saturation factor with no upper limit.
+Default: off. `saturation=1` has no effect.
+
+Values above 1 make colors more vivid, and values below 1 make them duller.
+Use [`gray`](#gray) for full grayscale, since `saturation=0` fails with `400`.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/saturation=0.7/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder, saturation: 0.7)
+```
+
+<!-- tabs-close -->
+
+## Color overlays
+
+### colorize
+
+Accepts `opacity,color` or `opacity,color,keep-alpha`:
+
+- `opacity` is a fraction. `0` has no effect.
+- `color` is required.
+- `keep-alpha` is optional and keeps the image's transparency.
+
+Default: off. Blends the color evenly over the whole image at the given
+opacity. The result is opaque unless you add `keep-alpha`.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/colorize=0.3,red,keep-alpha/src/logos/brand.png
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder, colorize: [opacity: 0.3, color: "red", keep_alpha: true])
+```
+
+<!-- tabs-close -->
+
+### gradient
+
+Accepts `opacity,color,direction,start,stop`:
+
+- `opacity` is a fraction, the strength of the color at the end of the ramp.
+  `0` has no effect.
+- `color` is required.
+- `direction` is the way the color grows: `down` (default), `left`, `up`, or
+  `right`. It can also be an angle in degrees, clockwise from `down`, so `90`
+  is `left` and `180` is `up`. Angles may be negative or decimal and wrap
+  around at 360.
+- `start` and `stop` are fractions of the distance across the image, in that
+  direction. They default to `0` and `1`.
+
+Default: off. Lays the color over the image, transparent before `start` and
+reaching full opacity at `stop`. Swapping `start` and `stop` reverses the ramp,
+and equal values make a hard edge. The directions follow the image as it is
+displayed after rotating, flipping, and resizing. The image's transparency is
+kept.
+
+The values are positional, so to set `start` you also write a direction. An
+empty value, such as `gradient=0.8,black,,0.5`, fails with `400`.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/gradient=0.8,black,down,0.2,0.9/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder,
+  gradient: [opacity: 0.8, color: "black", angle: 0, start: 0.2, stop: 0.9]
+)
+```
+
+<!-- tabs-close -->

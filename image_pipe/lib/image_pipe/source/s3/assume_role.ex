@@ -1,49 +1,66 @@
 defmodule ImagePipe.Source.S3.AssumeRole do
-  @moduledoc """
-  Cross-account credential provider via STS `AssumeRole`.
-
-  A composing wrapper: it resolves a **base** provider's credentials, then signs
-  an STS `AssumeRole` call with them to obtain temporary credentials for a
-  different role (typically in another account).
-
-      credentials:
-        {:provider, ImagePipe.Source.S3.AssumeRole,
-         base: {:provider, ImagePipe.Source.S3.InstanceRole, []},
-         role_arn: "arn:aws:iam::123456789012:role/image-read",
-         external_id: "optional-external-id",
-         region: "eu-west-1"}
-
-  Options:
-    * `:base` — the base credential config (`{:static, …}` or `{:provider, …}`)
-      whose credentials are allowed to assume `:role_arn`. **Required.** Resolved
-      through `ImagePipe.Source.S3.Credentials.fetch/3`, so the base uses its own
-      cache entry.
-    * `:role_arn` — ARN of the role to assume. **Required.**
-    * `:region` — region for the STS endpoint and SigV4 signing. **Required.**
-    * `:external_id` — external ID required by the trust policy (optional).
-    * `:role_session_name` — STS session name (default `"image-pipe"`).
-    * `:receive_timeout` / `:connect_timeout` — bounded HTTP timeouts (ms),
-      default 5000.
-    * `:plug` — test-only Req plug.
-
-  Both the base resolution and the assumed credentials are cached and refreshed
-  by `ImagePipe.Source.S3.RefreshCache` before expiry.
-  """
   @behaviour ImagePipe.Source.S3.CredentialProvider
 
   alias ImagePipe.Source.S3.Credentials
   alias ImagePipe.Source.S3.Sts
 
   @opts_schema NimbleOptions.new!(
-                 base: [type: :any, required: true],
-                 role_arn: [type: :string, required: true],
-                 region: [type: :string, required: true],
-                 external_id: [type: :string],
-                 role_session_name: [type: :string],
-                 receive_timeout: [type: :non_neg_integer],
-                 connect_timeout: [type: :non_neg_integer],
-                 plug: [type: :any]
+                 base: [
+                   type: :any,
+                   type_doc: "`{:static, keyword()}` or `{:provider, module(), keyword()}`",
+                   required: true,
+                   doc: """
+                   Credentials allowed to assume `:role_arn`, in any form the \
+                   `:credentials` option of `ImagePipe.Source.S3` takes. They are \
+                   cached and refreshed separately.
+                   """
+                 ],
+                 role_arn: [type: :string, required: true, doc: "ARN of the role to assume."],
+                 region: [
+                   type: :string,
+                   required: true,
+                   doc: """
+                   Region of the STS endpoint, `sts.<region>.amazonaws.com`, also \
+                   used to sign the call.
+                   """
+                 ],
+                 external_id: [
+                   type: :string,
+                   doc: "External ID that the role's trust policy requires."
+                 ],
+                 role_session_name: [
+                   type: :string,
+                   doc:
+                     "Session name for the assumed role. The default value is `\"image-pipe\"`."
+                 ],
+                 receive_timeout: [
+                   type: :non_neg_integer,
+                   doc: "Milliseconds to wait for each response. The default value is `5000`."
+                 ],
+                 connect_timeout: [
+                   type: :non_neg_integer,
+                   doc: "Milliseconds to wait for a connection. The default value is `5000`."
+                 ],
+                 plug: [type: :any, doc: false]
                )
+
+  @moduledoc """
+  Credential provider that assumes an IAM role with STS `AssumeRole`, usually
+  a role in another account.
+
+      credentials:
+        {:provider, ImagePipe.Source.S3.AssumeRole,
+         base: {:provider, ImagePipe.Source.S3.InstanceRole, []},
+         role_arn: "arn:aws:iam::123456789012:role/image-read",
+         region: "eu-west-1"}
+
+  It signs the STS call with the `:base` credentials. Setting up credentials
+  is covered in [Serving images from S3](serving-from-s3.md#choose-credentials).
+
+  ## Options
+
+  #{NimbleOptions.docs(@opts_schema)}
+  """
 
   @doc false
   def options_schema, do: @opts_schema.schema

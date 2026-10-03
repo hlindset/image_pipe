@@ -26,8 +26,14 @@ defmodule ImagePipe.Config do
 
   @enforce_keys [:options, :raw, :url]
   @derive {Inspect, except: [:options, :raw, :url]}
-  defstruct @enforce_keys
-  @type t :: %__MODULE__{options: keyword(), raw: keyword(), url: URLConfig.t()}
+  defstruct @enforce_keys ++ [instance: nil]
+
+  @type t :: %__MODULE__{
+          options: keyword(),
+          raw: keyword(),
+          url: URLConfig.t(),
+          instance: atom() | nil
+        }
 
   @preset_keys [:presets, :request_defaults, :preset_lookup, :max_preset_lookups]
 
@@ -158,9 +164,74 @@ defmodule ImagePipe.Config do
     do: {:error, "expected a {module, options} tuple implementing ImagePipe.PresetLookup"}
 
   @doc false
+  # Only a supervised instance starts cache processes, so a configuration
+  # used without one must not need them.
+  @spec reject_unsupervised_processes!(t()) :: t()
+  def reject_unsupervised_processes!(%__MODULE__{instance: nil} = config) do
+    case Cache.child_specs(config.options) do
+      [] ->
+        config
+
+      [_ | _] ->
+        raise ArgumentError,
+              "a cache that needs processes, such as a bounded " <>
+                "ImagePipe.Cache.FileSystem, must be used through an ImagePipe instance " <>
+                "started with {ImagePipe, name: ..., ...}"
+    end
+  end
+
+  def reject_unsupervised_processes!(%__MODULE__{} = config), do: config
+
+  @doc false
+  # Supervised instances store their configuration here, keyed by name, so
+  # mounts can look it up per request.
+  @spec publish(atom(), t(), %{atom() => t()}) :: :ok
+  def publish(name, config, urls), do: :persistent_term.put({__MODULE__, name}, {config, urls})
+
+  @doc false
+  @spec unpublish(atom()) :: :ok
+  def unpublish(name) do
+    _erased? = :persistent_term.erase({__MODULE__, name})
+    :ok
+  end
+
+  @doc false
+  @spec fetch_instance!(atom(), atom() | nil) :: t()
+  def fetch_instance!(name, url) do
+    case {:persistent_term.get({__MODULE__, name}, nil), url} do
+      {nil, _url} ->
+        raise ArgumentError, "ImagePipe instance #{inspect(name)} is not running"
+
+      {{config, _urls}, nil} ->
+        config
+
+      {{_config, urls}, url} ->
+        case Map.fetch(urls, url) do
+          {:ok, config} ->
+            config
+
+          :error ->
+            raise ArgumentError,
+                  "ImagePipe instance #{inspect(name)} has no url named #{inspect(url)}"
+        end
+    end
+  end
+
+  @doc false
   @spec override(t(), keyword()) :: t()
   def override(%__MODULE__{} = config, []), do: config
-  def override(%__MODULE__{} = config, options), do: new!(Keyword.merge(config.raw, options))
+
+  # The result keeps the instance only while the instance runs every cache
+  # process it needs.
+  def override(%__MODULE__{} = config, options) do
+    overridden = new!(Keyword.merge(config.raw, options))
+    running = Cache.child_specs(config.options)
+
+    if config.instance != nil and
+         Enum.all?(Cache.child_specs(overridden.options), &(&1 in running)),
+       do: %{overridden | instance: config.instance},
+       else: overridden
+  end
 
   @watermark_schema NimbleOptions.new!(
                       source: [type: :string, required: true],

@@ -51,7 +51,9 @@ defmodule ImagePipeServer.ApplicationTest do
   end
 
   describe "children/1" do
-    test "starts the pool, bounded caches, and warm-ups before the listener", %{tmp_dir: dir} do
+    test "starts the pool, the ImagePipe instance, and warm-ups before the listener", %{
+      tmp_dir: dir
+    } do
       config =
         Config.build!(
           pool: [max_concurrency: 2],
@@ -64,16 +66,17 @@ defmodule ImagePipeServer.ApplicationTest do
           processing: [detector: ImagePipeServer.Test.AvailableDetector]
         )
 
-      assert [pool, cache, detector, http] = App.children(config)
+      assert [pool, instance, detector, http] = App.children(config)
       assert {ImagePipe.ProcessingPool, pool_opts} = pool
       assert pool_opts[:max_concurrency] == 2
-      assert %{id: {ImagePipe.Cache.FileSystem.Store, _root}} = cache
+      assert {ImagePipe, instance_opts} = instance
+      assert instance_opts[:config] == config.image_pipe
       assert {ImagePipe.Transform.Detector.Warmup, _opts} = detector
       assert {Bandit, _opts} = http
     end
 
-    test "starts only the listener by default" do
-      assert [{Bandit, _opts}] = App.children(Config.build!([]))
+    test "starts only the ImagePipe instance and the listener by default" do
+      assert [{ImagePipe, _instance}, {Bandit, _http}] = App.children(Config.build!([]))
     end
   end
 
@@ -102,8 +105,10 @@ defmodule ImagePipeServer.ApplicationTest do
     @tag :capture_log
     test "closes connections that stay silent" do
       config = Config.build!(server: [port: 0, bind: "127.0.0.1", read_timeout: 100])
-      router = [mount_path: "/", image_pipe: config.image_pipe]
-      {Bandit, opts} = App.http_child(config, {ImagePipeServer.Router, router})
+
+      {Bandit, opts} =
+        App.http_child(config, {ImagePipeServer.Router, App.router_options(config)})
+
       name = :"listener_#{System.unique_integer([:positive])}"
       opts = put_in(opts, [:thousand_island_options, :supervisor_options], name: name)
       start_supervised!(Supervisor.child_spec({Bandit, opts}, id: :idle_listener))

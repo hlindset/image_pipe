@@ -1,9 +1,9 @@
 # Error responses
 
 ImagePipe answers every failure that happens before response headers are sent
-with a status and a short `text/plain` message. A failure after streaming
-headers have been sent ends the stream instead; see
-[processing limits](processing-controls.md#failure-and-cancellation).
+with a status and a short `text/plain` message. A failure after headers have
+been sent cuts the response short instead, as described in
+[failures during streaming](streaming-failures.md).
 
 Errors never become cache entries. [Telemetry](telemetry.md) events carry more
 detail than the response, which deliberately says less.
@@ -38,7 +38,7 @@ detail than the response, which deliberately says less.
 | `405` | The method isn't `GET`, `HEAD`, or `OPTIONS`. The response carries `Allow`. |
 | `410` | The request's `expires` time has passed. |
 | `500` | A looked-up preset definition is invalid, or the request exceeds `max_preset_lookups`. |
-| `501` | Detection was requested with `detector_required: true` and no detector is available. |
+| `501` | Detection was requested with `detector_required: true` and no detector is available. Without `detector_required`, such requests [fall back to attention cropping](content-aware-gravity.md#missing-or-failed-detection). |
 | `503` | The preset lookup is unavailable, or detection was requested with `detector_required: true` before the detection models were downloaded. |
 
 All of these return before source resolution, fetch, or cache access.

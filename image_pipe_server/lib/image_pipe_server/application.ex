@@ -3,10 +3,10 @@ defmodule ImagePipeServer.Application do
 
   use Application
 
-  alias ImagePipe.Cache.FileSystem
   alias ImagePipeServer.Config
 
   @listener __MODULE__.Listener
+  @instance ImagePipeServer.ImagePipe
 
   @impl Application
   def start(_type, _args) do
@@ -35,21 +35,25 @@ defmodule ImagePipeServer.Application do
   def listener, do: @listener
 
   # Children stop in reverse order, so the listener, started last, drains
-  # in-flight requests before the pool and caches stop.
+  # in-flight requests before the pool and the ImagePipe instance stop.
   @doc false
   @spec children(Config.t()) :: [Supervisor.child_spec() | {module(), term()}]
   def children(%Config{} = config) do
-    router_opts = [
-      mount_path: Keyword.fetch!(config.server, :mount_path),
-      image_pipe: config.image_pipe,
-      auth_token_hash: Keyword.fetch!(config.server, :auth_token_hash)
-    ]
-
     pool(config.pool) ++
-      caches(config.image_pipe) ++
+      [{ImagePipe, name: @instance, config: config.image_pipe}] ++
       detector_warmup(config.detector_warmup) ++
       Enum.map(config.credential_warmups, &{ImagePipe.Source.S3.CredentialWarmup, &1}) ++
-      [http_child(config, {ImagePipeServer.Router, router_opts})]
+      [http_child(config, {ImagePipeServer.Router, router_options(config)})]
+  end
+
+  @doc false
+  @spec router_options(Config.t()) :: keyword()
+  def router_options(%Config{} = config) do
+    [
+      mount_path: Keyword.fetch!(config.server, :mount_path),
+      image_pipe: ImagePipe.Plug.init([instance: @instance] ++ config.http),
+      auth_token_hash: Keyword.fetch!(config.server, :auth_token_hash)
+    ]
   end
 
   # ThousandIsland caps connections per acceptor, so the cap is spread over
@@ -80,16 +84,6 @@ defmodule ImagePipeServer.Application do
 
   defp pool(nil), do: []
   defp pool(options), do: [{ImagePipe.ProcessingPool, options}]
-
-  # A bounded file-system cache needs its own processes; an unbounded one
-  # returns :ignore.
-  defp caches(image_pipe) do
-    for key <- [:cache, :input_cache],
-        {FileSystem, options} <- [Keyword.get(image_pipe, key)],
-        spec = FileSystem.child_spec(options),
-        spec != :ignore,
-        do: spec
-  end
 
   defp detector_warmup(nil), do: []
   defp detector_warmup(options), do: [{ImagePipe.Transform.Detector.Warmup, options}]

@@ -43,28 +43,29 @@ Store secrets in server-side configuration.
 | Processing request | Width, crop, effects, format, quality | URL options or `ImagePipe.URL.group/2` and `ImagePipe.URL.output/2` |
 | Direct call context | Accept header, storage partition values | `accept:` and `request_inputs:` on `run`/`write` |
 
-Mount options can override server configuration. Direct `run`/`write` host
+Server options passed to an inline mount override its `config:`. An instance
+mount accepts only mount options and `url:`. Direct `run`/`write` host
 options override the server configuration passed to them. Explicit request
 output choices override host defaults. Both Plug and direct execution expand
 presets from the server configuration: `request_defaults`, named presets in
-listed order, then explicit options. See [presets](urls.md#presets) for
+listed order, then explicit options. See [presets](presets.md) for
 selection and related-option replacement rules.
 
 ## Sources, caches, and URL protection
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `sources` | No mounts | Named mounts: `name: [adapter: module, match: rule, options: [...]]`; see [sources](sources.md#mounts-and-routing) |
+| `sources` | No mounts | Named mounts: `name: [adapter: module, match: rule, options: [...]]`; see [sources](sources.md#routing-image-paths-to-sources) |
 | `cache` | Disabled | Output cache adapter; see [caching](cache.md) |
 | `input_cache` | Disabled | Independent source-body cache adapter |
-| `source_cache_policy` | Built-in policy | Freshness/revalidation policy; see [caching](cache.md) |
+| `source_cache_policy` | Built-in policy | Freshness/revalidation policy; see [source cache settings](cache.md#source-cache-settings) |
 | `storage_inputs` | `[]` | Header/cookie names that partition cache storage, e.g. `[{:header, "x-tenant"}]` |
 | `watermarks` | `%{}` | Named watermark assets; see [watermarks](#watermarks) |
 | `request_watermarks` | `false` | Accept request-supplied watermark sources (`wm-src64`, `wm-enc`) |
 | `url` | Unsigned | An `ImagePipe.URL.Config` from `ImagePipe.URL.config/1` |
-| `presets` | `%{}` | Preset name to URL option fragment or builder; see [presets](urls.md#presets) |
+| `presets` | `%{}` | Preset name to URL option fragment or builder; see [defining presets](defining-presets.md) |
 | `request_defaults` | none | One-group fragment or builder applied to every request first |
-| `preset_lookup` | none | `{module, options}` implementing `ImagePipe.PresetLookup`; see [preset lookup](urls.md#preset-lookup) |
+| `preset_lookup` | none | `{module, options}` implementing `ImagePipe.PresetLookup`; see [storing presets in a database](storing-presets-in-a-database.md) |
 | `max_preset_lookups` | `32` | Distinct names one request may look up; only with `preset_lookup` |
 | `clock` | Current Unix seconds | Zero-argument function used for request expiry |
 
@@ -77,9 +78,10 @@ selection and related-option replacement rules.
 | `source_encryption_keys` | `[]` | Ordered raw 32-byte encryption keys, separate from signing keys |
 | `encrypt_source` | `false` | Generate concealed sources in URLs; requires both key sets |
 | `iv_mode` | `:deterministic` | Source-encryption IV generation; also accepts `:random` |
-| `mount_presets` | none | The serving mount's presets, for builder validation only; see [validating URLs](urls.md#validating-urls-before-serving) |
+| `mount_presets` | none | The serving mount's presets, for builder validation only; see `ImagePipe.URL.validate/1` |
 
-Signing, encryption, and source encoding are covered in [URLs and presets](urls.md).
+Signing and encryption are covered in [signing and source concealment](urls.md),
+and source encoding in [image paths](requesting-images.md#image-paths).
 `storage_inputs` changes storage identity without changing a byte-identical
 representation's ETag; it does not forward those inputs to the source.
 
@@ -213,9 +215,9 @@ fields. See the [encoder field reference](processing/output.md#encoder-options).
 | `detector_required` | `false` | Fail explicit detection requests when the detector isn't installed (`501`), its models aren't downloaded (`503`), or detection errors (`500`) |
 | `telemetry_prefix` | `[:image_pipe]` | Nonempty list of atoms for emitted event names |
 
-See [content-aware cropping](content-aware-gravity.md) for dependencies and
-warmup. Logger and tracing handlers are opt-in; [telemetry](telemetry.md) explains
-how to attach them.
+See [Enabling face and object detection](enabling-detection.md) for
+dependencies and warmup. Logger and tracing handlers are opt-in.
+[Telemetry](telemetry.md) explains how to attach them.
 
 ## Plug-only options
 

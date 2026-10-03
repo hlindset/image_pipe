@@ -1,26 +1,48 @@
 defmodule ImagePipe.Source.S3.CredentialWarmup do
-  @moduledoc """
-  Optional one-shot worker that primes an S3 credential cache entry at boot, so
-  the first image request for a bucket does not pay the provider round-trip.
-
-  Host-wired (ImagePipe does not start it):
-
-      {ImagePipe.Source.S3.CredentialWarmup,
-       provider: ImagePipe.Source.S3.InstanceRole, opts: [], scope: "my-bucket"}
-
-  Warms once in `handle_continue/2` (so host boot is never blocked) then stops
-  `:normal`. A warm-up failure is non-fatal: the entry is left cold and the first
-  real request falls through to the lazy path.
-  """
   use GenServer, restart: :transient
 
   alias ImagePipe.Source.S3.Credentials
 
   @options_schema NimbleOptions.new!(
-                    provider: [type: :atom, required: true],
-                    scope: [type: :string, required: true],
-                    opts: [type: :keyword_list, default: []]
+                    provider: [
+                      type: :atom,
+                      required: true,
+                      doc: "The provider module, as in the mount's `:credentials`."
+                    ],
+                    scope: [
+                      type: :string,
+                      required: true,
+                      doc: "The bucket whose credentials to fetch."
+                    ],
+                    opts: [
+                      type: :keyword_list,
+                      default: [],
+                      doc: """
+                      The provider's options. They must equal the options in the \
+                      mount's `:credentials`, or requests use a different cache \
+                      entry and the warmup has no effect.
+                      """
+                    ]
                   )
+
+  @moduledoc """
+  Fetches S3 credentials from a provider at startup, so the first request
+  for a bucket doesn't wait for them.
+
+      children = [
+        {ImagePipe.Source.S3.CredentialWarmup,
+         provider: ImagePipe.Source.S3.InstanceRole, opts: [], scope: "my-bucket"},
+        MyAppWeb.Endpoint
+      ]
+
+  ImagePipe doesn't start it. It fetches once without blocking startup, then
+  stops. If the fetch fails, the first request fetches the credentials
+  instead. Invalid options raise `ArgumentError` from `start_link/1`.
+
+  ## Options
+
+  #{NimbleOptions.docs(@options_schema)}
+  """
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do

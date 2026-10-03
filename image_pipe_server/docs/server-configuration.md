@@ -7,6 +7,9 @@ setting converts to an option that `ImagePipe.URL.config/1`,
 [library guides](../../image_pipe/docs/configuration.md) describe what each
 setting does. This page covers how to write them and lists every key.
 
+An application that builds URLs for the server must match some of them, as
+listed in [shared URL settings](../../image_pipe/docs/shared-url-settings.md).
+
 ## Sources and precedence
 
 1. The library's defaults.

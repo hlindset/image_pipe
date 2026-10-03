@@ -120,7 +120,7 @@ defmodule ImagePipeServer.ConfigTest do
              ]
 
       assert config.pool == nil
-      assert config.image_pipe[:processing_pool] == nil
+      assert config.image_pipe.options[:processing_pool] == nil
       assert config.telemetry == nil
     end
 
@@ -158,8 +158,8 @@ defmodule ImagePipeServer.ConfigTest do
           })
         )
 
-      assert %{"logo" => %{opacity: 0.5}} = config.image_pipe[:watermarks]
-      assert config.image_pipe[:request_watermarks] == true
+      assert %{"logo" => %{opacity: 0.5}} = config.image_pipe.options[:watermarks]
+      assert config.image_pipe.options[:request_watermarks] == true
 
       assert error(fn ->
                Config.build!(
@@ -180,7 +180,7 @@ defmodule ImagePipeServer.ConfigTest do
         )
 
       assert config.pool[:max_concurrency] == 4
-      assert config.image_pipe[:processing_pool] == config.pool[:name]
+      assert config.image_pipe.options[:processing_pool] == config.pool[:name]
       assert config.telemetry == [level: :debug]
 
       assert error(fn -> Config.build!(Config.options!(%{"pool" => %{"max_queue" => 1}})) end) =~
@@ -196,9 +196,9 @@ defmodule ImagePipeServer.ConfigTest do
           })
         )
 
-      assert config.image_pipe[:quality] == 70
-      assert config.image_pipe[:allow_origin] == "*"
-      assert config.image_pipe[:http_cache] == :auto
+      assert config.image_pipe.options[:quality] == 70
+      assert config.http[:allow_origin] == "*"
+      assert config.http[:http_cache] == :auto
     end
 
     test "reports library validation errors" do
@@ -313,7 +313,7 @@ defmodule ImagePipeServer.ConfigTest do
         )
 
       assert config.server[:port] == 9000
-      assert config.image_pipe[:quality] == 75
+      assert config.image_pipe.options[:quality] == 75
     end
   end
 end

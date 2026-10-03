@@ -1,44 +1,63 @@
 defmodule ImagePipe.Source.S3.WebIdentity do
-  @moduledoc """
-  EKS/IRSA credential provider via STS `AssumeRoleWithWebIdentity`.
-
-  On EKS with IAM Roles for Service Accounts (IRSA), the cluster projects a
-  short-lived OIDC token into the pod and injects `AWS_WEB_IDENTITY_TOKEN_FILE`
-  and `AWS_ROLE_ARN`. This provider reads that token file and exchanges it for
-  temporary credentials with an **unsigned** STS call (the token is the auth).
-
-      credentials:
-        {:provider, ImagePipe.Source.S3.WebIdentity,
-         token_file: System.get_env("AWS_WEB_IDENTITY_TOKEN_FILE"),
-         role_arn: System.get_env("AWS_ROLE_ARN"),
-         region: System.get_env("AWS_REGION")}
-
-  Options:
-    * `:token_file` — path to the projected OIDC token. **Required.** Re-read on
-      every refresh, because the projected token rotates. The path is the
-      cluster's projected-volume symlink; following it is intentional.
-    * `:role_arn` — ARN of the role to assume. **Required.**
-    * `:region` — region for the STS endpoint. **Required.**
-    * `:role_session_name` — STS session name (default `"image-pipe"`).
-    * `:receive_timeout` / `:connect_timeout` — bounded HTTP timeouts (ms),
-      default 5000.
-    * `:plug` — test-only Req plug.
-
-  Results are cached and refreshed by `ImagePipe.Source.S3.RefreshCache`.
-  """
   @behaviour ImagePipe.Source.S3.CredentialProvider
 
   alias ImagePipe.Source.S3.Sts
 
   @opts_schema NimbleOptions.new!(
-                 token_file: [type: :string, required: true],
-                 role_arn: [type: :string, required: true],
-                 region: [type: :string, required: true],
-                 role_session_name: [type: :string],
-                 receive_timeout: [type: :non_neg_integer],
-                 connect_timeout: [type: :non_neg_integer],
-                 plug: [type: :any]
+                 token_file: [
+                   type: :string,
+                   required: true,
+                   doc: """
+                   Path of the web identity token, from \
+                   `AWS_WEB_IDENTITY_TOKEN_FILE`. The file is read again on every \
+                   refresh, since the platform rotates it.
+                   """
+                 ],
+                 role_arn: [
+                   type: :string,
+                   required: true,
+                   doc: "ARN of the role to assume, from `AWS_ROLE_ARN`."
+                 ],
+                 region: [
+                   type: :string,
+                   required: true,
+                   doc: "Region of the STS endpoint, `sts.<region>.amazonaws.com`."
+                 ],
+                 role_session_name: [
+                   type: :string,
+                   doc:
+                     "Session name for the assumed role. The default value is `\"image-pipe\"`."
+                 ],
+                 receive_timeout: [
+                   type: :non_neg_integer,
+                   doc: "Milliseconds to wait for each response. The default value is `5000`."
+                 ],
+                 connect_timeout: [
+                   type: :non_neg_integer,
+                   doc: "Milliseconds to wait for a connection. The default value is `5000`."
+                 ],
+                 plug: [type: :any, doc: false]
                )
+
+  @moduledoc """
+  Credential provider for EKS IAM roles for service accounts (IRSA), using
+  STS `AssumeRoleWithWebIdentity`.
+
+      credentials:
+        {:provider, ImagePipe.Source.S3.WebIdentity,
+         token_file: System.fetch_env!("AWS_WEB_IDENTITY_TOKEN_FILE"),
+         role_arn: System.fetch_env!("AWS_ROLE_ARN"),
+         region: System.fetch_env!("AWS_REGION")}
+
+  It exchanges the token the cluster mounts into the pod for temporary
+  credentials. The STS call is unsigned, since the token authenticates it.
+  Setting up credentials is covered in
+  [Serving images from S3](serving-from-s3.md#choose-credentials).
+
+  ## Options
+
+  #{NimbleOptions.docs(@opts_schema)}
+  """
 
   @impl true
   def validate_options(opts) do

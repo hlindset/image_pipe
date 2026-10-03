@@ -1,23 +1,38 @@
 defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporter do
   @moduledoc """
-  Opt-in `ImagePipe.Telemetry.Trace.Exporter` that replays finished `%Trace.Span{}`
-  structs into a host-running OpenTelemetry SDK using the **public** OTel API.
+  An `ImagePipe.Telemetry.Trace.Exporter` that replays spans into the
+  OpenTelemetry SDK your application runs, through the public OpenTelemetry
+  API.
 
-  Spans are buffered per trace and replayed top-down when the trace's root span
-  finishes, so children are parented onto their parent's real OTel-minted span
-  context and the full hierarchy survives into Jaeger/Tempo. Correlation with
-  logs (`LogExporter`) is trace-level: both share the `trace_id`; OTel mints its
-  own span ids, so `span=` ids in log lines do not match OTel span ids.
+      ImagePipe.Telemetry.attach_tracer(exporter: ImagePipe.Telemetry.Trace.OpenTelemetryExporter)
 
-  Configure `ImagePipe.Telemetry.Trace.OtelIdGenerator` as the SDK's
-  `id_generator` so untraced requests export as true root spans. Without it,
-  the `trace_id` is forced through a synthetic W3C remote parent on the root,
-  which backends report as a missing parent.
+  Spans are buffered per trace and replayed when the trace's root span
+  finishes, so each one is created under its real parent. The trace ID stays
+  ImagePipe's, so it matches `ImagePipe.Telemetry.Trace.LogExporter` lines,
+  but the SDK creates new span IDs. Set
+  `ImagePipe.Telemetry.Trace.OtelIdGenerator` as the SDK's `id_generator` so
+  new traces export as true root spans. The steps are in
+  [Exporting traces to Jaeger](opentelemetry-jaeger.md), and the replay is
+  explained in [Request tracing](tracing.md#trace-and-span-ids).
 
-  Optional dependency `:opentelemetry_api` (compile); the host brings the SDK
-  (`:opentelemetry`) and starts it. When the API is absent, `ready?/0` is `false`
-  and `attach_tracer/1` raises. When the API is present but the SDK isn't started,
-  the API degrades to a noop tracer and this produces nothing — no crash.
+  ## Replay limits
+
+  Replay is best effort:
+
+    * Buffered traces are lost if the buffer process crashes or the node
+      shuts down. No flush runs at shutdown.
+    * While 10,000 traces are buffered, spans of new traces are dropped.
+    * A trace whose root hasn't finished after about 10 seconds is exported
+      as it is. Spans whose parent is in the exported set keep it, and the
+      others have a parent that is missing from the trace.
+    * A span from another process that finishes up to about 10 seconds
+      after its trace was exported still gets its parent, if the parent was
+      already exported. Otherwise its parent is missing.
+
+  ImagePipe depends on `:opentelemetry_api` as an optional dependency, and
+  your application adds the SDK (`:opentelemetry`) and starts it. Without the
+  API at compile time, `ready?/0` returns `false` and `attach_tracer/1`
+  raises. With the API but no running SDK, spans are dropped.
   """
   @behaviour ImagePipe.Telemetry.Trace.Exporter
 
@@ -25,7 +40,10 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporter do
 
   @otel_api_loaded Code.ensure_loaded?(:otel_tracer)
 
-  @doc "Whether the OpenTelemetry API is compiled in."
+  @doc """
+  Returns whether the OpenTelemetry API was available when ImagePipe was
+  compiled. Recompile ImagePipe after adding the SDK if this returns `false`.
+  """
   @spec available?() :: boolean()
   def available?, do: @otel_api_loaded
 

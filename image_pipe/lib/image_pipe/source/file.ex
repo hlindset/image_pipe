@@ -1,25 +1,4 @@
 defmodule ImagePipe.Source.File do
-  @moduledoc """
-  Built-in adapter for files below a configured root directory.
-
-  Configure it with `:root` and a stable, public `:root_id`. The optional
-  `:stable`, `:internal_cache`, and `:http_cache` settings control whether the
-  source can participate in internal and generated HTTP caching.
-
-  A file that isn't `stable: :immutable` is identified by the SHA-256 of its
-  bytes. After hashing, its size, mtime, ctime, inode, and device are kept as
-  evidence, and a later request whose stat matches reuses the digest without
-  reading the file. `verify: :hash` reads and hashes the file on every request
-  instead. Stat times have one-second resolution, so a file whose mtime or ctime
-  falls in the second it was hashed keeps no evidence and is hashed again. On a
-  network filesystem the times come from the server's clock. If it can lag
-  behind this host's, use `verify: :hash`.
-
-  Originals are read where they are. `copy: :keep` keeps a local copy in the
-  input pool instead, for network filesystems where a second read is costly.
-  See the [local files guide](sources.md#local-files).
-  """
-
   @behaviour ImagePipe.Source
 
   alias ImagePipe.MaterialDigest
@@ -32,12 +11,76 @@ defmodule ImagePipe.Source.File do
 
   @options_schema NimbleOptions.new!(
                     [
-                      root: [type: :string, required: true],
-                      root_id: [type: :string, required: true],
-                      verify: [type: {:in, [:stat, :hash]}, default: :stat],
-                      copy: [type: {:in, [:none, :keep]}, default: :none]
+                      root: [
+                        type: :string,
+                        required: true,
+                        doc: """
+                        Directory the source serves. A relative path is expanded \
+                        against the working directory when the configuration is built.
+                        """
+                      ],
+                      root_id: [
+                        type: :string,
+                        required: true,
+                        doc: """
+                        Stable name for the directory. A write-once source identifies \
+                        its files by `:root_id` and path instead of by `:root`, so keep \
+                        the name when the directory moves, and change it when the \
+                        directory holds different files.
+                        """
+                      ],
+                      verify: [
+                        type: {:in, [:stat, :hash]},
+                        type_doc: "`:stat` or `:hash`",
+                        default: :stat,
+                        doc: """
+                        How a file that can change is checked. `:stat` reuses the \
+                        file's hash while its size, timestamps, inode, and device \
+                        are unchanged. \
+                        `:hash` reads and hashes the file on every check, for \
+                        filesystems whose times can't be trusted, such as a network \
+                        filesystem whose server clock can lag behind this host's.
+                        """
+                      ],
+                      copy: [
+                        type: {:in, [:none, :keep]},
+                        type_doc: "`:none` or `:keep`",
+                        default: :none,
+                        doc: """
+                        `:keep` stores a copy of each original in the \
+                        [originals cache](cache.md#originals-cache), so other sizes \
+                        and formats don't read the file again. Use it on network \
+                        filesystems such as EFS or NFS. Needs `:input_cache` configured.
+                        """
+                      ]
                     ] ++ CacheSettings.schema()
                   )
+
+  @moduledoc """
+  Source adapter for image files below a directory.
+
+      media: [
+        adapter: ImagePipe.Source.File,
+        match: :path,
+        options: [root: "/srv/images", root_id: "media"]
+      ]
+
+  It resolves path sources, so `photos/beach.jpg` and `/photos/beach.jpg` both
+  read `/srv/images/photos/beach.jpg`. Paths can't leave the root. A path that
+  names no regular file is not found. Setting up a mount is covered in
+  [Serving images from local files](serving-local-files.md).
+
+  A file that isn't `stable: :immutable` is identified by the SHA-256 of its
+  bytes. After hashing, its size, mtime, ctime, inode, and device are kept,
+  and a later request whose stat matches reuses the hash without reading the
+  file. Stat times have one-second resolution, so a file whose mtime or ctime
+  falls in the second it was hashed is hashed again on the next request. On
+  a network filesystem the times come from the server's clock.
+
+  ## Options
+
+  #{NimbleOptions.docs(@options_schema)}
+  """
 
   @doc false
   def options_schema, do: @options_schema.schema

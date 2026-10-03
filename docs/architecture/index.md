@@ -5,6 +5,8 @@ These notes describe runtime ownership and contributor verification requirements
 
 - [Execution flow](execution_flow.md): request lifecycle, generation, and delivery.
 - [Transform internals](transform_operations.md): geometry, state, and materialization.
+- [Development](development.md): tool setup and the checks to run before committing.
+- [Running the Fiddle](fiddle.md): the demo app, its tracing, and its S3 sidecar.
 
 ## Request and output data
 

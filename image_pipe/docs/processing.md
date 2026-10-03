@@ -1,8 +1,9 @@
 # Processing options
 
-URL requests and Elixir plans use the same processing model. Choose a category
-below; each page pairs URL syntax with typed Elixir options and explains the
-constraints that affect the result.
+Processing options resize, crop, adjust, watermark, and encode an image, and
+each page below covers one category of them.
+[Requesting images](requesting-images.md) explains how options go into a URL
+and the [value syntax](requesting-images.md#option-values) they use.
 
 ## Option index
 
@@ -11,72 +12,42 @@ constraints that affect the result.
 | [Resize](processing/resize.md#resize) | `w`, `h`, `fit`, `enlarge`, `min-w`, `min-h`, `dpr`, `zoom` |
 | [Canvas and padding](processing/resize.md#canvas-padding-and-background) | `extend`, `extend-ratio`, `extend-at`, `extend-offset`, `pad`, `bg` |
 | [Orientation](processing/crop.md#orientation) | `orient`, `rotate`, `flip` |
-| [Page selection](api_contract.md#pages-and-frames) | `page` |
+| [Page selection](processing/request.md#page) | `page` |
 | [Trim and crop](processing/crop.md#trim-and-crop) | `trim`, `trim-symmetry`, `crop`, `crop-ratio`, `crop-ratio-enlarge`, `region` |
 | [Crop guides](processing/crop.md#crop-guides) | `anchor`, `focus`, `detect`, `anchor-offset` |
 | [Watermarks](processing/watermark.md) | `wm`, `wm-src64`, `wm-enc`, `wm-opacity`, `wm-scale`, `wm-at`, `wm-offset`, `wm-tile`, `wm-gap` |
 | [Effects](processing/effects.md) | `blur`, `progressive-blur`, `sharpen`, `pixelate`, `gray`, `bitonal`, `monochrome`, `duotone`, `brightness`, `contrast`, `saturation`, `colorize`, `gradient` |
-| [Formats and quality](processing/output.md) | `output`, `format`, `q`, `format-q`, `autoquality`, `max-bytes` |
+| [Formats and quality](processing/output.md#formats) | `output`, `format`, `q`, `format-q`, `autoquality`, `max-bytes` |
 | [Encoders](processing/output.md#encoder-options) | `jpeg-options`, `png-options`, `webp-options`, `avif-options` |
 | [Metadata and color](processing/output.md#metadata-color-profiles-and-hdr) | `meta`, `dpi`, `profile`, `hdr` |
 | [Request controls](processing/request.md) | `filename`, `attachment`, `cb`, `expires`, `debug` |
-| [URL structure and presets](urls.md) | `preset`, `-`, `sig`, `src`, `src64`, `enc` |
+| [Requesting images](requesting-images.md) | `preset`, `-`, `sig`, `src`, `src64`, `enc` |
 
 ## Processing order
 
-EXIF auto-orientation applies once, then each group runs:
+The image is first turned upright from its EXIF orientation, unless the
+request sets [`orient=none`](processing/crop.md#orient). Then each
+[group](requesting-images.md#processing-groups) applies its options in this
+order, whatever order the URL lists them in:
 
-1. Rotate and flip.
+1. Rotate, then flip.
 2. Trim.
-3. Source crop or region.
-4. Resize and result crop.
-5. Effects.
+3. Crop or region.
+4. Resize, and the crop that a [cover fit](processing/resize.md#fit) makes.
+5. [Effects](processing/effects.md#effect-order), in their own fixed order.
 6. Canvas extension.
-7. Padding and background.
-8. Watermark.
+7. Padding.
+8. Background.
+9. Watermark.
 
-Output encoding or a placeholder/info terminal finishes the request. Moving
-options within a group does not change execution order. Use `-` in a URL
-or another `ImagePipe.URL.group/2` call to process an intermediate result:
-
-```text
-/w=500/-/trim=fff/src/photos/beach.jpg
-```
-
-```elixir
-ImagePipe.URL.new()
-|> ImagePipe.URL.group(resize: [width: 500])
-|> ImagePipe.URL.group(trim: "fff")
-```
-
-Each group starts with fresh settings, including DPR, zoom, guide, and effects.
-The next group receives the previous result including canvas, padding,
-background, and watermark. Request-wide orientation policy, output policy, and delivery
-controls are set once for the whole request.
-
-## Values and defaults
-
-| Kind | URL | Elixir |
-| --- | --- | --- |
-| Pixel length | `100` or `100px` | `100` or `{:px, 100}` |
-| Percentage length | `50pct` | `{:pct, 50}` |
-| Color | `fff`, `123456`, `white` | `"fff"`, `"#123456"`, `"white"`, RGB tuple with channels in `0..255` |
-| Boolean | `enlarge` or `enlarge=true`; `enlarge=false` | `enlarge: true` or `false` |
-| Named value | `cover-down`, `top-left` | `:cover_down`, `:top_left` |
-
-Length syntax applies to crop/region/offset coordinates; resize dimensions are
-positive integers or `auto`. Crop percentages use the display frame **after
-trim**. Source crops use physical pixels and are unaffected by DPR. DPR scales
-output targets and pixel padding/offsets; zoom scales resize targets only.
-
-Defaults preserve aspect ratio (`contain`), disable enlargement, use DPR/zoom
-of 1, center crops, and preserve alpha until a background is requested.
-Effects are disabled. EXIF orientation defaults to `auto`. Encoding defaults
-come from [host configuration](configuration.md).
+Encoding, or a placeholder or `info` [output](processing/output.md#output),
+finishes the request. [Processing order and groups](processing-order.md)
+explains what this order means for each option and when to split options
+into groups.
 
 ## Common recipes
 
-These paths are relative to the mount; add your `/images` prefix if configured.
+Add these paths to your base URL.
 
 | Goal | Path |
 | --- | --- |
@@ -89,6 +60,3 @@ These paths are relative to the mount; add your `/images` prefix if configured.
 | WebP with a byte budget | `/format=webp/max-bytes=30000/src/photos/beach.jpg` |
 | Placeholder | `/w=400/h=300/fit=cover/output=blurhash/src/photos/beach.jpg` |
 | Result dimensions and placeholders | `/w=400/output=info,blurhash,lqip-css/src/photos/beach.jpg` |
-
-See the [API contract](api_contract.md#processing-semantics) for exact coordinate,
-rounding, identity, and cross-option semantics.

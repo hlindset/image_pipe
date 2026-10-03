@@ -1,133 +1,109 @@
-# Tracing
+# Request tracing
 
-ImagePipe also provides an opt-in tracer that converts [telemetry events](telemetry-events.md) into
-`ImagePipe.Telemetry.Trace.Span` values. It preserves request-wide trace IDs and
-parentage across transform nesting and delivery processes. Producer-side
-`:encode` spans parent to the request root; `:deliver` nests under `:send`.
+ImagePipe can turn its [telemetry events](telemetry-events.md) into trace
+spans, with one trace per request. A trace shows which stages a request went
+through, how they nest, and how long each took, even when the work moves
+between processes. Tracing is off until you attach a tracer.
 
-Attach the tracer at startup with `ImagePipe.Telemetry.attach_tracer/1` and
-remove it with `ImagePipe.Telemetry.detach_tracer/0`. Invalid options raise
-`ArgumentError`.
+## Attaching a tracer
+
+Attach the tracer once at startup, with an exporter that receives each
+finished span. The bundled `ImagePipe.Telemetry.Trace.LogExporter` writes one
+log line per span:
 
 ```elixir
-# Attach the bundled stdlib-Logger exporter:
+# lib/my_app/application.ex
 ImagePipe.Telemetry.attach_tracer(exporter: ImagePipe.Telemetry.Trace.LogExporter)
-
-# ... later ...
-ImagePipe.Telemetry.detach_tracer()
 ```
 
-## Options
+`ImagePipe.Telemetry.attach_tracer/1` lists the options. To send spans to an
+OpenTelemetry backend, use `ImagePipe.Telemetry.Trace.OpenTelemetryExporter`,
+as in [Exporting traces to Jaeger](cookbook/opentelemetry-jaeger.md). To send
+them somewhere else, implement `ImagePipe.Telemetry.Trace.Exporter`.
+`image_pipe_server` attaches the OpenTelemetry exporter itself when its
+[tracing settings](../../image_pipe_server/docs/server-deployment.md#tracing)
+are set.
 
-| Option            | Type            | Default                   | Meaning                                                                 |
-| ----------------- | --------------- | ------------------------- | ----------------------------------------------------------------------- |
-| `:exporter`       | module (atom)   | — (required)              | Module implementing the `ImagePipe.Telemetry.Trace.Exporter` behaviour. |
-| `:prefix`         | list of atoms   | `[:image_pipe]`           | Telemetry event prefix to subscribe to. Reuses `ImagePipe.Telemetry.default_prefix()`; match your configured `telemetry_prefix`. |
-| `:extract_inbound`| boolean         | `false`                   | Extract an inbound W3C `traceparent` header so the root span continues an upstream trace. Off by default — only enable behind a trusted edge. |
-| `:finch_spans`    | boolean         | `true`                    | Also capture physical Finch wire spans for outbound source fetches.     |
+## Spans and their hierarchy
 
-Reattaching replaces the tracer configuration. Setting `finch_spans: false`
-removes any previously attached Finch capture handler.
+Each span event becomes a span named after its event, so
+`[:source, :fetch_decode]` becomes `image_pipe.source.fetch_decode`. A
+request's trace has `image_pipe.request` as its root. Background cache work,
+such as refreshing a stale original or a bounded cache's admission decisions,
+forms its own traces. A one-shot event, such as
+`[:output, :clamp]`, becomes an event on the span that is open when it fires.
 
-## The exporter contract
+A span's parent is the span that was open when it started. That works within
+one process, and ImagePipe carries the request's trace into the other
+processes that serve it: the processing pool, the encoder, watermark fetches,
+and the cache writer. Their spans stay in the request's trace. For example,
+`image_pipe.encode` runs in the encoder process but is a child of
+`image_pipe.request`, or of `image_pipe.processing.execute` under a
+processing pool. `image_pipe.deliver` is a child of `image_pipe.send`.
 
-A host implements `ImagePipe.Telemetry.Trace.Exporter`:
+HTTP and S3 source requests add a client span, `image_pipe.http.client`. It
+ends when the origin's status and headers arrive, because the body is
+streamed afterwards. Finch spans for the connection pool, connecting,
+sending, and receiving (`finch.connect`, `finch.recv`, and so on) nest in it,
+unless the tracer is attached with `finch_spans: false`.
 
-```elixir
-@callback export(ImagePipe.Telemetry.Trace.Span.t()) :: :ok
-```
+A span's attributes are its event's start and stop metadata, limited to keys
+known to be safe to export. Request paths, source URLs, signatures, and
+credentials are never copied. A span's status comes from its `:result`.
+`ImagePipe.Telemetry.Trace.Exporter` describes the span an exporter receives,
+including how its status is set.
 
-- `export/1` is called **synchronously** in the process that emitted the span's
-  `:stop` / `:exception`. Keep it cheap and non-blocking — hand real I/O off to a
-  batch processor. It must return `:ok` and should not raise.
-- Span **attributes are pre-filtered for sensitivity** by the capture layer
-  (allowlist only — source URLs, request paths, signatures, and tokens are never
-  copied in). Exporters that fan out to third parties remain responsible for
-  their own egress policy.
-- Logical HTTP client spans record monotonic elapsed time through receipt of
-  status and headers for streamed source fetches. One-shot trace annotations use
-  their `:monotonic_time` measurement when present, or the synchronous capture
-  time otherwise. OTel replay retains these durations and occurrence times.
-- Attributes carry **both the start metadata and the allowlisted stop
-  metadata** — the per-result verdict (e.g. the encode-search `chosen_quality` /
-  `final_score` / `scorer`, the HTTP `status`, the classified `error` tag, the
-  decoded shape). Stop keys win on collision. Exporters need not read the
-  telemetry events separately to recover the outcome.
-- The allowlist covers **attributes only**. A span's `status_message` and the
-  `reason` on a folded `exception` event carry the raw exception reason
-  (`inspect/1`, standard tracing behavior) and are **not** allowlist-filtered,
-  so an exporter that renders them to third parties should be aware they may
-  embed an exception message. (The bundled `LogExporter` renders neither.)
+## Trace and span IDs
 
-## `LogExporter`
+ImagePipe generates its own random trace and span IDs. A request with no
+[inbound trace context](#inbound-trace-context) starts a new trace. Log lines
+from `LogExporter` show these IDs.
 
-`ImagePipe.Telemetry.Trace.LogExporter` logs one structured `Logger.info` line
-as each span closes. Use the `parent=` field to reconstruct nesting:
+`OpenTelemetryExporter` replays a trace into the OpenTelemetry SDK when the
+request's root span finishes, so each span can be created under its real
+parent. The SDK creates new span IDs, but the trace ID stays ImagePipe's, so
+log lines and the OpenTelemetry trace share a trace ID. For a new trace,
+that needs `ImagePipe.Telemetry.Trace.OtelIdGenerator` as the SDK's
+`id_generator`. Without it, the exporter sets the trace ID through a made-up
+remote parent, and backends report the root's parent as missing (Jaeger
+calls it an invalid parent span ID).
 
-```
-image_pipe.trace trace=<trace_id> span=<span_id> parent=<parent_span_id|-> <name> dur=<duration_native|-> status=<ok|error|unset>
-```
+Replay is best effort: buffered traces can be lost, delayed, or exported
+with some spans missing their parent. `OpenTelemetryExporter` lists the
+limits.
 
-## Inbound extraction and sampling
+## Inbound trace context
 
-Inbound `traceparent` extraction is **opt-in** (`extract_inbound: true`) because
-trusting an inbound trace header from an untrusted client lets a caller pin your
-`trace_id`; enable it only behind a gateway you control. When enabled and a valid
-W3C `traceparent` is present, the request root span continues that trace and
-parents to the inbound span; otherwise it mints a fresh root.
-The parser accepts version `00` with exact field widths, lowercase hexadecimal
-IDs and flags, and nonzero trace and parent IDs, following the
-[W3C field syntax](https://www.w3.org/TR/trace-context/#traceparent-header-field-values).
+When the tracer is attached with `extract_inbound: true`, a Plug request with
+a valid W3C [`traceparent`](https://www.w3.org/TR/trace-context/#traceparent-header)
+header continues the caller's trace. Its root span gets the caller's trace ID
+and is a child of the caller's span. A request with a missing or invalid
+header starts a new trace. `ImagePipe.run/4` never reads a header,
+and always starts a new trace.
 
-**Sampling is deferred to the host.** ImagePipe propagates `trace_flags` but does
-not implement a sampler. A host that wants head- or tail-based sampling does it in
-its exporter (e.g. drop spans whose `trace_flags` indicate "not sampled", or
-batch and sample in the downstream collector).
+Extraction is off by default because any client can send a `traceparent`.
+A client that does can attach its requests to a trace ID of its choosing,
+for example one that belongs to another service's traces, and mark them as
+sampled. Turn extraction on when a proxy you control sets the header or
+removes it from outside requests.
 
-## OpenTelemetry export
+`image_pipe_server` always extracts inbound context when tracing is on. If
+clients reach it directly, have your proxy or CDN remove or replace
+`traceparent` (see [server tracing](../../image_pipe_server/docs/server-deployment.md#tracing)).
 
-`ImagePipe.Telemetry.Trace.OpenTelemetryExporter` replays captured spans into a
-host-running OpenTelemetry SDK via the public OTel API. Optional dependency: ImagePipe
-compiles against `:opentelemetry_api` only (declared `optional: true`); the **host**
-adds `:opentelemetry` (+ an OTLP exporter) and starts the SDK.
+Requests to HTTP and S3 sources carry a `traceparent` header naming the
+`image_pipe.http.client` span, so an origin that traces its own requests
+joins the trace. The header is sent even when no tracer is attached.
 
-```elixir
-# host deps: {:opentelemetry, "~> 1.7"}, {:opentelemetry_exporter, "~> 1.8"}
-# config/config.exs
-config :opentelemetry, id_generator: ImagePipe.Telemetry.Trace.OtelIdGenerator
+## Sampling
 
-# at startup
-ImagePipe.Telemetry.attach_tracer(
-  exporter: ImagePipe.Telemetry.Trace.OpenTelemetryExporter,
-  extract_inbound: true
-)
-```
+ImagePipe doesn't sample. Every finished span goes to the exporter, carrying
+the trace's sampled flag: the caller's flag for an inbound trace, and
+sampled for a new one. An exporter or a downstream collector can drop
+traces.
 
-**Hierarchy and correlation:** the exporter buffers each trace and replays it
-top-down when the request root finishes, preserving the tree in Jaeger or Tempo.
-The bounded, supervised buffer is best-effort: crashes or shutdown drop buffered
-traces, and overload sheds new traces. Logs and OTel spans share `trace_id`, but
-OTel mints different span IDs.
-
-With inbound extraction, the request root is a real child of the caller. When
-ImagePipe originates a trace, the root is exported as a true root span carrying
-ImagePipe's trace ID, provided the SDK uses
-`ImagePipe.Telemetry.Trace.OtelIdGenerator` (configured above; it mints random
-IDs for everything else). Without it, a synthetic remote parent forces the trace
-ID into OTel, and backends report the root's parent as missing (Jaeger: invalid
-parent span ID; Tempo: root span not yet received). Only a span whose parent is
-actually remote is marked so; replayed descendants have local parents.
-Roots that never finish are flushed flat after about 10 seconds.
-Cross-process spans finishing shortly after the root retain parentage when their
-parent is already known; otherwise they may have a dangling parent.
-
-If `:opentelemetry_api` is absent, `attach_tracer/1` raises. If the API is present
-but the SDK is not running, the noop tracer drops spans. See the
-[Jaeger cookbook](cookbook/opentelemetry-jaeger.md).
-
-**Forced sampled flag:** the OTel exporter starts a root under a remote parent
-(inbound or synthetic) with the W3C `-01` sampled flag set — trace-level
-correlation requires every span to reach the SDK — so the inbound `trace_flags`
-do not apply on this path. A true root goes through the SDK's root sampler
-(`always_on` by default), and its descendants follow it. Do sampling in your
-downstream OTel collector instead.
+`OpenTelemetryExporter` starts an inbound trace's root as sampled, whatever
+the caller's flag, so that every span of the trace reaches the SDK. With the
+SDK's default parent-based sampler, inbound traces are therefore always
+exported, and the sampler's setting applies only to new traces. To sample
+traces from callers, sample in your OpenTelemetry collector.

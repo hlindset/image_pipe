@@ -7,49 +7,78 @@ defmodule ImagePipe.MixProject do
     "Getting started": [
       "docs/index.md",
       "docs/installation.md",
-      "docs/plug-usage.md",
-      "docs/external-server.md",
+      "../image_pipe_server/docs/server-getting-started.md",
+      "docs/phoenix-getting-started.md",
+      "docs/processing-in-elixir.md",
       "docs/elixir-api.md",
-      "docs/combined-usage.md",
-      "docs/fiddle.md"
+      "docs/building-server-urls.md"
     ],
-    Configuration: [
-      "docs/configuration.md",
-      "docs/sources.md",
-      "docs/s3-credentials.md",
-      "docs/source-network-policy.md",
-      "docs/urls.md"
-    ],
-    "Processing options": [
+    "Requesting images": [
+      "docs/requesting-images.md",
       "docs/processing.md",
       "docs/processing/resize.md",
       "docs/processing/crop.md",
       "docs/processing/effects.md",
       "docs/processing/watermark.md",
       "docs/processing/output.md",
-      "docs/processing/request.md",
-      "docs/content-aware-gravity.md",
-      "docs/api_contract.md"
+      "docs/processing/request.md"
     ],
-    Operations: [
+    "Running ImagePipe": [
+      "../image_pipe_server/docs/server-deployment.md",
       "docs/deployment.md",
+      "docs/sources.md",
+      "docs/serving-local-files.md",
+      "docs/serving-from-http.md",
+      "docs/serving-from-s3.md",
+      "docs/caching-processed-images.md",
+      "docs/serving-through-a-cdn.md",
+      "docs/signing-urls.md",
+      "docs/defining-presets.md",
+      "docs/enabling-detection.md",
+      "docs/processing-controls.md",
+      "docs/telemetry.md",
+      "docs/cookbook/opentelemetry-jaeger.md",
+      "docs/combined-usage.md",
+      "docs/fetching-from-the-server.md"
+    ],
+    Concepts: [
+      "docs/processing-order.md",
+      "docs/caching-and-freshness.md",
+      "docs/streaming-failures.md",
+      "docs/urls.md",
+      "docs/presets.md",
+      "docs/content-aware-gravity.md",
+      "docs/source-network-policy.md",
+      "docs/tracing.md"
+    ],
+    Extending: [
+      "docs/custom-sources.md",
+      "docs/custom-detectors.md",
+      "docs/storing-presets-in-a-database.md"
+    ],
+    Reference: [
+      "docs/configuration.md",
+      "../image_pipe_server/docs/server-configuration.md",
+      "docs/shared-url-settings.md",
       "docs/cache.md",
       "docs/cdn-http-cache.md",
-      "docs/processing-controls.md",
-      "docs/errors.md"
-    ],
-    Observability: [
-      "docs/telemetry.md",
+      "docs/errors.md",
       "docs/telemetry-events.md",
-      "docs/tracing.md",
       "docs/debug_headers.md",
-      "docs/cookbook/opentelemetry-jaeger.md"
+      "docs/api_contract.md"
     ],
     Project: ["README.md", "CHANGELOG.md", "LICENSE.md"]
   ]
   @guide_paths Enum.flat_map(@guide_groups, fn {_group, paths} -> paths end)
+  # Sidebar labels for pages whose H1 is too long for the sidebar.
+  @guide_titles %{
+    "docs/processing-controls.md" => "Concurrency and deadlines",
+    "docs/serving-from-http.md" => "Serving from an HTTP origin",
+    "docs/enabling-detection.md" => "Enabling detection"
+  }
   @internal_doc_references [
     "ImagePipe.Error.tag/1",
+    "ImagePipe.Plug.init/1",
     "ImagePipe.Plug.Runner",
     "ImagePipe.Response.Sender",
     "ImagePipe.Security.verify/3",
@@ -87,6 +116,7 @@ defmodule ImagePipe.MixProject do
         extras:
           Enum.map(@guide_paths, fn
             "docs/index.md" -> {"docs/index.md", filename: "overview"}
+            path when is_map_key(@guide_titles, path) -> {path, title: @guide_titles[path]}
             path -> path
           end),
         groups_for_extras: @guide_groups,
@@ -169,7 +199,7 @@ defmodule ImagePipe.MixProject do
   defp package do
     [
       files:
-        @guide_paths ++
+        Enum.reject(@guide_paths, &String.starts_with?(&1, "../")) ++
           [
             "lib",
             "priv/icc",

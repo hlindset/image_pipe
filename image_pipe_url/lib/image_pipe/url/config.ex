@@ -1,9 +1,11 @@
 defmodule ImagePipe.URL.Config do
   @moduledoc """
-  URL generation and verification settings shared by a builder and its serving mount.
+  URL settings shared by a builder and the server that serves its URLs.
 
-  Construct with `ImagePipe.URL.config/1`, and pass the same value to
-  `ImagePipe.config/1` as `:url` on the serving side. Inspection excludes its values.
+  Build one with `ImagePipe.URL.config/1`, which lists the options. On the
+  serving side, pass the same value to `ImagePipe.config/1` as `:url`, so the
+  server verifies signatures and decrypts sources with the same keys.
+  Inspecting the struct hides its values.
   """
 
   alias ImagePipe.API.Presets
@@ -15,16 +17,66 @@ defmodule ImagePipe.URL.Config do
   @type t :: %__MODULE__{options: keyword()}
 
   @schema NimbleOptions.new!(
-            base_url: [type: :string, default: ""],
+            base_url: [
+              type: :string,
+              default: "",
+              doc: """
+              Prefix for generated URLs: an HTTP(S) URL such as
+              `"https://cdn.example.com/images"`, a root-relative path such as
+              `"/images"`, or a relative path such as `"images"`. A trailing `/` is
+              removed. Path segments use unescaped ASCII letters, digits, `-`, `.`,
+              `_`, or `~`. A base URL with credentials, a query string, a fragment,
+              an empty segment, or a `.` or `..` segment raises. With the default,
+              URLs start with `/`, such as `/w=400/src/cat.jpg`.
+              """
+            ],
             mount_presets: [
               type: :keyword_list,
+              doc: """
+              The server's presets, so `ImagePipe.URL.validate/1` and
+              `ImagePipe.URL.url/3` check plans as the server does. It never changes
+              a generated URL, but a copy that differs from the server gives wrong
+              validation results. In an app that serves its own URLs,
+              `ImagePipe.url_config/1` returns the URL configuration with this
+              filled in, and `ImagePipe.config/1` raises for a URL configuration
+              that sets it.
+              """,
               keys: [
-                presets: [type: :any, default: %{}],
-                request_defaults: [type: :any],
-                preset_lookup: [type: :boolean, default: false]
+                presets: [
+                  type: :any,
+                  default: %{},
+                  type_doc: "`t:map/0`",
+                  doc: """
+                  The server's presets: preset names mapped to option fragments
+                  such as `"w=400/h=300/fit=cover"`, or to `ImagePipe.URL` builders.
+                  """
+                ],
+                request_defaults: [
+                  type: :any,
+                  type_doc: "`t:String.t/0` or `t:ImagePipe.URL.t/0`",
+                  doc: "The server's request defaults, as a fragment or builder."
+                ],
+                preset_lookup: [
+                  type: :boolean,
+                  default: false,
+                  doc: """
+                  Set to `true` when the server has a preset lookup. A plan that
+                  names a preset missing from `:presets` is then not checked at all,
+                  because only the server can resolve the name.
+                  """
+                ]
               ]
             ]
           )
+
+  @doc false
+  # Every option `ImagePipe.URL.config/1` accepts, in documentation order.
+  @spec schema() :: keyword()
+  def schema do
+    options = Security.options_schema() ++ @schema.schema
+    order = [:base_url, :keys, :encrypt_source, :source_encryption_keys, :iv_mode, :mount_presets]
+    Enum.map(order, &{&1, Keyword.fetch!(options, &1)})
+  end
 
   @doc false
   @spec new!(keyword()) :: t()
