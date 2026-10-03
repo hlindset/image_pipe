@@ -88,10 +88,10 @@ Requests that no source serves fail:
 - Any other `scheme://` that no source matches answers `400 invalid source`.
 
 The configuration fails to load when two sources claim the same prefix or
-scheme, when more than one source matches `path`, or when a file or S3
-source matches sources it can't read, such as a file source matching
-`https` or an S3 source matching a prefix. An HTTP source can match paths only with a `base_url`. Without one,
-the configuration loads, but every path it matches answers `500`.
+scheme, when more than one source matches `path`, or when a source matches
+requests its adapter can't serve, such as a file source matching `https`,
+an S3 source matching a prefix, or an HTTP source without a `base_url`
+matching paths or a custom scheme.
 
 ## Adapters
 

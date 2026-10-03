@@ -110,8 +110,8 @@ defmodule ImagePipe.Source.Mounts do
     with {:ok, mount} <- validate_mount_shape(name, mount),
          {:ok, rules} <- parse_match(name, Keyword.fetch!(mount, :match)),
          module = Keyword.fetch!(mount, :adapter),
-         :ok <- check_identifiers(name, module, rules),
          {:ok, opts} <- validate_adapter_options(module, Keyword.fetch!(mount, :options)),
+         :ok <- check_identifiers(name, module, opts, rules),
          {:ok, mounts} <- add_rules(mounts, name, rules) do
       {:ok, %{mounts | mounts: Map.put(mounts.mounts, name, {module, opts})}}
     end
@@ -158,13 +158,13 @@ defmodule ImagePipe.Source.Mounts do
   defp rule_identifier({:scheme, scheme}), do: Map.get(@builtin_scheme_identifiers, scheme, Path)
   defp rule_identifier(_rule), do: Path
 
-  defp check_identifiers(name, module, rules) do
-    supported = module.identifiers()
+  defp check_identifiers(name, module, opts, rules) do
+    supported = module.identifiers(opts)
     needed = rules |> Enum.map(&rule_identifier/1) |> Enum.uniq()
 
     cond do
       not (is_list(supported) and Enum.all?(supported, &(&1 in @identifiers))) ->
-        invalid_mount(name, "#{inspect(module)}.identifiers/0 returned #{inspect(supported)}")
+        invalid_mount(name, "#{inspect(module)}.identifiers/1 returned #{inspect(supported)}")
 
       Enum.all?(needed, &(&1 in supported)) ->
         :ok

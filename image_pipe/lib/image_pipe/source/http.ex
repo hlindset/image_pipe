@@ -194,7 +194,9 @@ defmodule ImagePipe.Source.HTTP do
   def options_schema, do: @options_schema.schema
 
   @impl Source
-  def identifiers, do: [SourcePath, URL]
+  def identifiers(options) do
+    if Keyword.has_key?(options, :base_url), do: [SourcePath, URL], else: [URL]
+  end
 
   @impl Source
   def validate_options(opts) do
@@ -324,9 +326,8 @@ defmodule ImagePipe.Source.HTTP do
 
   @impl Source
   def resolve(%SourcePath{segments: segments}, opts, runtime_opts) do
-    with {:ok, base} <- fetch_base_url(opts),
-         :ok <- validate_path(segments, opts) do
-      resolve(base_source(base, segments), opts, runtime_opts)
+    with :ok <- validate_path(segments, opts) do
+      resolve(base_source(Keyword.fetch!(opts, :base_url), segments), opts, runtime_opts)
     end
   end
 
@@ -369,13 +370,6 @@ defmodule ImagePipe.Source.HTTP do
        )}
     else
       {:error, {:source, :denied_host}}
-    end
-  end
-
-  defp fetch_base_url(opts) do
-    case Keyword.fetch(opts, :base_url) do
-      {:ok, base} -> {:ok, base}
-      :error -> {:error, {:source, :missing_adapter}}
     end
   end
 

@@ -169,7 +169,7 @@ defmodule ImagePipe.Source.S3 do
   """
 
   @impl Source
-  def identifiers, do: [Object]
+  def identifiers(_options), do: [Object]
 
   @impl Source
   def validate_options(opts) when is_list(opts) do

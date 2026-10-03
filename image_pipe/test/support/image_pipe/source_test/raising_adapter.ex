@@ -1,7 +1,7 @@
 defmodule ImagePipe.SourceTest.RaisingAdapter do
   @moduledoc false
 
-  def identifiers,
+  def identifiers(_options),
     do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
   def validate_options(opts), do: {:ok, opts}

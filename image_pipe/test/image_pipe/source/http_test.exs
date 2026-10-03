@@ -970,13 +970,6 @@ defmodule ImagePipe.Source.HTTPTest do
       assert identity.() == identity.()
     end
 
-    test "path sources need a base URL" do
-      {:ok, opts} = HTTP.validate_options(allowed_hosts: ["assets.example.com"])
-
-      assert HTTP.resolve(%SourcePath{segments: ["cat.jpg"]}, opts, []) ==
-               {:error, {:source, :missing_adapter}}
-    end
-
     test "fetches the mapped URL through a prefix mount" do
       plug = fn conn ->
         send(self(), {:http_request, conn.host, conn.request_path})

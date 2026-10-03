@@ -86,7 +86,7 @@ defmodule ImagePipe.Source.File do
   def options_schema, do: @options_schema.schema
 
   @impl Source
-  def identifiers, do: [SourcePath]
+  def identifiers(_options), do: [SourcePath]
 
   @impl Source
   def validate_options(opts) do
