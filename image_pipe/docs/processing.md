@@ -1,8 +1,10 @@
 # Processing options
 
 URL requests and Elixir plans use the same processing model. Choose a category
-below; each page pairs URL syntax with typed Elixir options and explains the
-constraints that affect the result.
+below. Each page pairs URL syntax with typed Elixir options and explains the
+constraints that affect the result. [Requesting images](requesting-images.md)
+explains the URL structure and the [option values](requesting-images.md#option-values)
+these pages use.
 
 ## Option index
 
@@ -20,7 +22,7 @@ constraints that affect the result.
 | [Encoders](processing/output.md#encoder-options) | `jpeg-options`, `png-options`, `webp-options`, `avif-options` |
 | [Metadata and color](processing/output.md#metadata-color-profiles-and-hdr) | `meta`, `dpi`, `profile`, `hdr` |
 | [Request controls](processing/request.md) | `filename`, `attachment`, `cb`, `expires`, `debug` |
-| [URL structure and presets](urls.md) | `preset`, `-`, `sig`, `src`, `src64`, `enc` |
+| [Requesting images](requesting-images.md) | `preset`, `-`, `sig`, `src`, `src64`, `enc` |
 
 ## Processing order
 
@@ -53,26 +55,6 @@ Each group starts with fresh settings, including DPR, zoom, guide, and effects.
 The next group receives the previous result including canvas, padding,
 background, and watermark. Request-wide orientation policy, output policy, and delivery
 controls are set once for the whole request.
-
-## Values and defaults
-
-| Kind | URL | Elixir |
-| --- | --- | --- |
-| Pixel length | `100` or `100px` | `100` or `{:px, 100}` |
-| Percentage length | `50pct` | `{:pct, 50}` |
-| Color | `fff`, `123456`, `white` | `"fff"`, `"#123456"`, `"white"`, RGB tuple with channels in `0..255` |
-| Boolean | `enlarge` or `enlarge=true`; `enlarge=false` | `enlarge: true` or `false` |
-| Named value | `cover-down`, `top-left` | `:cover_down`, `:top_left` |
-
-Length syntax applies to crop/region/offset coordinates; resize dimensions are
-positive integers or `auto`. Crop percentages use the display frame **after
-trim**. Source crops use physical pixels and are unaffected by DPR. DPR scales
-output targets and pixel padding/offsets; zoom scales resize targets only.
-
-Defaults preserve aspect ratio (`contain`), disable enlargement, use DPR/zoom
-of 1, center crops, and preserve alpha until a background is requested.
-Effects are disabled. EXIF orientation defaults to `auto`. Encoding defaults
-come from [host configuration](configuration.md).
 
 ## Common recipes
 

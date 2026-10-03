@@ -8,23 +8,8 @@ identifier. A mount prefix belongs to your router:
 └ mount ┘└──────────── options ────────────┘└──── source ────┘
 ```
 
-Options use `name=value` segments. Boolean flags such as `enlarge` can be bare;
-use `enlarge=false` to explicitly disable one. Duplicate, conflicting, unknown,
-or inapplicable options are rejected. Option values do not support percent
-escapes. See the [processing index](processing.md) for accepted values.
-
-## Groups and ordering
-
-Options within a group run in a fixed order, regardless of where they appear
-in the path. Use `-` to begin another processing pass:
-
-```text
-/w=500/-/trim=fff/src/photos/beach.jpg
-```
-
-That resizes before trimming. `/w=500/trim=fff/src/photos/beach.jpg` trims before
-resizing. Group settings reset at `-`; request-wide output and delivery
-settings apply to the final result. See [processing order](processing.md#processing-order).
+[Requesting images](requesting-images.md) explains option syntax, values, and
+processing groups. See the [processing index](processing.md) for every option.
 
 ## Source encoding
 

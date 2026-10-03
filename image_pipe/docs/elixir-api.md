@@ -539,7 +539,7 @@ constraints, and equivalent URL syntax:
 - [Orientation and cropping](processing/crop.md): rotation, trim, regions, guides, and offsets.
 - [Effects](processing/effects.md): filters, color adjustments, and overlays.
 
-See [values and defaults](processing.md#values-and-defaults) for lengths,
+See [option values](requesting-images.md#option-values) for lengths,
 colors, and named options.
 
 ## Output options

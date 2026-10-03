@@ -5,7 +5,7 @@ in Elixir code. Start with the page for what you want to do:
 
 | I want to… | Start with |
 | --- | --- |
-| Request images from an ImagePipe server someone else runs | [Processing options](processing.md) and [URLs and presets](urls.md) |
+| Request images from an ImagePipe server someone else runs | [Requesting images](requesting-images.md) |
 | Run `image_pipe_server` | [Deploying image_pipe_server](../../image_pipe_server/docs/server-deployment.md) and [Configuring image_pipe_server](../../image_pipe_server/docs/server-configuration.md) |
 | Serve images from my Phoenix or Plug app | [Plug usage](plug-usage.md) |
 | Process images in Elixir code (uploads, jobs) | [Elixir API](elixir-api.md) |
@@ -23,8 +23,10 @@ in Elixir code. Start with the page for what you want to do:
 
 ## Requesting images
 
-[Processing options](processing.md) covers ordering, units, defaults, and a
-complete option index. Each category page shows the URL and Elixir spellings.
+[Requesting images](requesting-images.md) explains how image URLs work: their
+structure, option values, presets, and signed URLs.
+[Processing options](processing.md) covers processing order and a complete
+option index. Each category page shows the URL and Elixir spellings.
 
 | Category | What it covers |
 | --- | --- |

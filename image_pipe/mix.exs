@@ -21,6 +21,7 @@ defmodule ImagePipe.MixProject do
       "docs/urls.md"
     ],
     "Processing options": [
+      "docs/requesting-images.md",
       "docs/processing.md",
       "docs/processing/resize.md",
       "docs/processing/crop.md",
