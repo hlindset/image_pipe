@@ -441,10 +441,11 @@ encoder.
 `hdr=preserve` retains a high-bit-depth working space when the selected
 output format supports it. `hdr=tonemap` selects the standard working
 space and is the default; host `preserve_hdr: true` changes that default.
-JPEG falls back to standard output even under `hdr=preserve`. Named profile
-conversion produces 8-bit output and cannot be combined with effective HDR
-preservation; use `hdr=tonemap` with a named target. Conflicting URL and host
-settings fail before source or cache access.
+Only AVIF and PNG keep high bit depth. JPEG and WebP fall back to standard
+output even under `hdr=preserve`. Named profile conversion produces 8-bit
+output and cannot be combined with effective HDR preservation; use
+`hdr=tonemap` with a named target. Conflicting URL and host settings fail
+before source or cache access.
 
 These policies enter image output identity. Non-image outputs validate them
 and then ignore them, as described under [image quality and encoders](#image-quality-and-encoders).
