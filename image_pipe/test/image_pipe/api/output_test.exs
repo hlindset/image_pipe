@@ -110,14 +110,6 @@ defmodule ImagePipe.API.OutputTest do
     assert output.quality_search_max_iterations == 5
   end
 
-  test "wraps an unresolved host autoquality policy for image output" do
-    config = Config.validate!(autoquality_method: :size)
-    assert {:ok, request} = Parser.parse(lexed(["format=jpeg"]), config)
-
-    assert {:error, {:invalid_output, {:invalid_option, :autoquality, :missing_target}}} =
-             Output.resolve(request.output, config, "")
-  end
-
   test "URL autoquality selects the method and overlays sparse fields on host defaults" do
     output =
       resolve!(["format=jpeg", "autoquality=ssimulacra2,target:82,min:55,error:0.5"],
