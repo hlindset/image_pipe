@@ -455,8 +455,10 @@ sets per-format qualities, using the same format names as `format`. Explicit
 Sparse host and URL format maps preserve other configured formats.
 A format-quality table may be shared across requests; only the selected
 format's entry applies.
-PNG ignores the implicit global quality default; an explicit quality can
-request quantization.
+PNG quality applies only to palette quantization, so a PNG ignores quality
+unless its encoder options enable `palette`. An explicit `q` with
+`format=png`, or a `png` entry in `format-q`, fails before source or cache
+access when `palette` is off.
 
 `autoquality` starts with a metric name followed by optional named fields:
 
