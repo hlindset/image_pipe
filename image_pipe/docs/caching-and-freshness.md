@@ -9,9 +9,9 @@ does, and one request to the origin checks them all.
 Both caches, and the settings on this page, are host configuration, set for
 all sources or per source. Request URLs can't change them:
 
-- In Elixir, [Cache](cache.md) sets up the caches. The settings are in
-  [freshness and source stability](cache.md#freshness-and-source-stability),
-  `ImagePipe.Source.CachePolicy`, and [local files](sources.md#local-files).
+- In Elixir, `ImagePipe.Cache.FileSystem` sets up the caches. The settings
+  are in [source cache settings](cache.md#source-cache-settings) and
+  [local files](sources.md#local-files).
 - In `image_pipe_server`, see
   [server configuration](https://github.com/hlindset/image_pipe/blob/main/image_pipe_server/docs/configuration.md):
   the `[cache]` table sets up the caches, and the settings are under
@@ -49,7 +49,7 @@ unchanged.
 
 How these lifetimes reach browsers and CDNs is covered in
 [Serving images through a CDN](serving-through-a-cdn.md) and
-[HTTP and CDN caching](cdn-http-cache.md).
+[HTTP cache headers](cdn-http-cache.md).
 
 ## Stale-while-revalidate
 

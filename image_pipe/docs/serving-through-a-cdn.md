@@ -237,7 +237,7 @@ the crop fell back to a default because
 
 ## Next steps
 
-- [HTTP and CDN caching](cdn-http-cache.md) is the reference for every
+- [HTTP cache headers](cdn-http-cache.md) is the reference for every
   generated header and conditional request.
 - [Caching processed images](caching-processed-images.md) stores images on
   the server, so a CDN miss isn't processed again.

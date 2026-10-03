@@ -41,8 +41,8 @@ and custom detection, and [API semantics](api_contract.md) for exact behavior.
 ## Run in production
 
 - [Deployment](deployment.md): streaming failures, timeouts, capacity, and memory.
-- [Caching](cache.md): input and output storage, freshness, and stale refreshes.
-- [HTTP and CDN caching](cdn-http-cache.md): browser/CDN policy, ETags, and negotiation.
+- [Cache storage](cache.md): what the caches store, cache key inputs, and bounded mode.
+- [HTTP cache headers](cdn-http-cache.md): generated `Cache-Control`, `ETag`, and `Vary`, and `304` responses.
 - [Processing limits](processing-controls.md): concurrency, queues, deadlines, and cancellation.
 - [Error responses](errors.md): which status each failure returns, and why.
 

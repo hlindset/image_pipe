@@ -57,7 +57,7 @@ selection and related-option replacement rules.
 | `sources` | No mounts | Named mounts: `name: [adapter: module, match: rule, options: [...]]`; see [sources](sources.md#mounts-and-routing) |
 | `cache` | Disabled | Output cache adapter; see [caching](cache.md) |
 | `input_cache` | Disabled | Independent source-body cache adapter |
-| `source_cache_policy` | Built-in policy | Freshness/revalidation policy; see [caching](cache.md) |
+| `source_cache_policy` | Built-in policy | Freshness/revalidation policy; see [source cache settings](cache.md#source-cache-settings) |
 | `storage_inputs` | `[]` | Header/cookie names that partition cache storage, e.g. `[{:header, "x-tenant"}]` |
 | `watermarks` | `%{}` | Named watermark assets; see [watermarks](#watermarks) |
 | `request_watermarks` | `false` | Accept request-supplied watermark sources (`wm-src64`, `wm-enc`) |

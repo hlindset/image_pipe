@@ -798,9 +798,21 @@ events):
 The default Logger and trace Capture subscribe to both. Trace attributes
 include the safe `:pool` field; credentials, source URLs, and origin headers are
 not included. Output-only hits do not emit an input-pool hit.
-Filesystem admission, warm-start, eviction, flush, and cleanup events carry
-the supervisor's `:pool` label too. The Logger appends `(input pool)` or
-`(output pool)` when a pool label is present.
+A bounded `ImagePipe.Cache.FileSystem` cache emits:
+
+- `[:cache, :warm_start]`, a span around startup state loading.
+- `[:cache, :admission]`, a span around each write decision. Stop metadata
+  has `result: :admitted | :rejected`, `reason` when rejected, and
+  `victim_count`.
+- `[:cache, :eviction, :stop]` for background evictions down to the cap, with
+  `count` and `bytes` measurements and `trigger: :reconcile`.
+- `[:cache, :flush, :stop]` when the node writes its state file, with a
+  `bytes` measurement.
+- `[:cache, :cleanup, :stop]` when stale peer state files are deleted, with a
+  `removed` measurement.
+
+These events carry the supervisor's `:pool` label too. The Logger appends
+`(input pool)` or `(output pool)` when a pool label is present.
 The `[:cache, :warm_start, :stop]` metadata reports `own_state_loaded: true`
 only when local state was restored successfully. `peer_state_files` counts
 present peer state files. Trace Capture retains both fields.

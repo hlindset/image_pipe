@@ -92,16 +92,16 @@ be relied on.
 
 Responses for a file that can change carry no cache lifetime, so browsers and
 CDNs revalidate them with the `ETag`. Set a
-[fallback freshness](cache.md#freshness-and-source-stability) to let them reuse a response
+[fallback freshness](cache.md#source-cache-settings) to let them reuse a response
 for a while. For write-once files, `stable: :immutable` skips the check
 entirely: ImagePipe trusts the path and never reads the file on a cache hit.
 Changed content must then get a new path.
 
 The file adapter reads originals where they are. On a network filesystem such
 as EFS or NFS, set `copy: :keep` to keep a local copy in the
-[original-byte pool](cache.md#original-byte-pool), so other sizes and formats
+[originals cache](cache.md#originals-cache), so other sizes and formats
 of the same file don't read it over the network again. The copy needs that
-pool configured.
+cache configured.
 
 | Option | Values | Default |
 | --- | --- | --- |
@@ -109,7 +109,7 @@ pool configured.
 | `verify` | `:stat` or `:hash` | `:stat` |
 | `copy` | `:none` or `:keep` | `:none` |
 
-See `ImagePipe.Source.File` and [cache policy](cache.md) for the other adapter
+See `ImagePipe.Source.File` and [source cache settings](cache.md#source-cache-settings) for the other adapter
 options.
 
 ## HTTP and HTTPS
