@@ -211,7 +211,7 @@ ImagePipe.URL.group(builder,
 
 ### wm-tile
 
-A [flag](../requesting-images.md#flags). Default: off.
+A [boolean](../requesting-images.md#booleans). Default: `false`.
 
 Repeats the watermark across the whole frame. One copy sits where the single
 watermark would be, after [`wm-at`](#wm-at) and [`wm-offset`](#wm-offset), and

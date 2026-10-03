@@ -48,7 +48,7 @@ Where effects sit among the other stages is described under
 ### blur
 
 Accepts a non-negative [number](../requesting-images.md#numbers), the Gaussian
-blur sigma. Default: off. `blur=0` has no effect.
+blur sigma. Default: none. `blur=0` has no effect.
 
 Blurs the whole image. Larger values blur more. The sigma is in output pixels,
 so [`dpr`](resize.md#dpr) doesn't change it.
@@ -79,7 +79,7 @@ Accepts `sigma,direction,start,stop`. Only the sigma is required:
 - `start` and `stop` are [fractions](../requesting-images.md#fractions) of the
   distance across the image, in that direction. They default to `0` and `1`.
 
-Default: off. The image is sharp before `start`, and the blur grows to the full
+Default: none. The image is sharp before `start`, and the blur grows to the full
 sigma at `stop`. Swapping `start` and `stop` reverses the ramp, and equal values
 switch from sharp to fully blurred in one step. The sigma is in output pixels,
 so `dpr` doesn't change it. A progressive blur is slower than `blur`.
@@ -106,7 +106,7 @@ ImagePipe.URL.group(builder, progressive_blur: [sigma: 4, start: 0.2, stop: 0.8]
 
 ### sharpen
 
-Accepts a non-negative number, the sharpening sigma. Default: off. `sharpen=0`
+Accepts a non-negative number, the sharpening sigma. Default: none. `sharpen=0`
 has no effect.
 
 Sharpens edges. The sigma is in output pixels, so `dpr` doesn't change it.
@@ -129,7 +129,7 @@ ImagePipe.URL.group(builder, resize: [width: 400], sharpen: 1.5)
 
 ### pixelate
 
-Accepts a whole number of 1 or more, the block size in pixels. Default: off.
+Accepts a whole number of 1 or more, the block size in pixels. Default: none.
 `pixelate=1` has no effect.
 
 Replaces the image with square blocks of one color each. The block size is in
@@ -155,7 +155,7 @@ ImagePipe.URL.group(builder, pixelate: 8)
 
 ### gray
 
-A [flag](../requesting-images.md#flags). Default: off.
+A [boolean](../requesting-images.md#booleans). Default: `false`.
 
 Converts the image to grayscale. Transparency is kept.
 
@@ -177,7 +177,7 @@ ImagePipe.URL.group(builder, gray: true)
 
 ### bitonal
 
-A flag. Default: off.
+A [boolean](../requesting-images.md#booleans). Default: `false`.
 
 Converts the image to pure black and white: pixels darker than middle gray (128
 on a 0 to 255 scale) become black, and the rest become white. Transparency is
@@ -207,7 +207,7 @@ Accepts `intensity,color`:
   effect.
 - `color` is optional and defaults to `b3b3b3`, a light gray.
 
-Default: off. Recolors the image in shades of one color, from black in the
+Default: none. Recolors the image in shades of one color, from black in the
 shadows to `color` in the highlights.
 
 <!-- tabs-open -->
@@ -234,7 +234,7 @@ Accepts `intensity` or `intensity,shadow,highlight`:
   effect.
 - `shadow` and `highlight` are colors. They default to black and white.
 
-Default: off. Recolors the image with two colors: dark areas take the shadow
+Default: none. Recolors the image with two colors: dark areas take the shadow
 color and light areas the highlight color. Give both colors or neither:
 `duotone=1,123456` fails with `400`.
 
@@ -256,7 +256,7 @@ ImagePipe.URL.group(builder, duotone: [intensity: 1, shadow: "123456", highlight
 
 ### brightness
 
-Accepts a whole number from `-255` to `255`. Default: off. `brightness=0` has
+Accepts a whole number from `-255` to `255`. Default: none. `brightness=0` has
 no effect.
 
 Adds the value to every color channel, which runs from 0 to 255 in a typical
@@ -281,7 +281,7 @@ ImagePipe.URL.group(builder, brightness: -20)
 ### contrast
 
 Accepts a number greater than 0, a contrast factor with no upper limit.
-Default: off. `contrast=1` has no effect.
+Default: none. `contrast=1` has no effect.
 
 Values above 1 increase contrast, and values below 1 reduce it. `contrast=0`
 fails with `400`.
@@ -305,7 +305,7 @@ ImagePipe.URL.group(builder, contrast: 1.25)
 ### saturation
 
 Accepts a number greater than 0, a saturation factor with no upper limit.
-Default: off. `saturation=1` has no effect.
+Default: none. `saturation=1` has no effect.
 
 Values above 1 make colors more vivid, and values below 1 make them duller.
 Use [`gray`](#gray) for full grayscale, since `saturation=0` fails with `400`.
@@ -336,7 +336,7 @@ Accepts `opacity,color` or `opacity,color,keep-alpha`:
 - `color` is required.
 - `keep-alpha` is optional and keeps the image's transparency.
 
-Default: off. Blends the color evenly over the whole image at the given
+Default: none. Blends the color evenly over the whole image at the given
 opacity. The result is opaque unless you add `keep-alpha`.
 
 <!-- tabs-open -->
@@ -369,7 +369,7 @@ Accepts `opacity,color,direction,start,stop`:
 - `start` and `stop` are fractions of the distance across the image, in that
   direction. They default to `0` and `1`.
 
-Default: off. Lays the color over the image, transparent before `start` and
+Default: none. Lays the color over the image, transparent before `start` and
 reaching full opacity at `stop`. Swapping `start` and `stop` reverses the ramp,
 and equal values make a hard edge. The directions follow the image as it is
 displayed after rotating, flipping, and resizing. The image's transparency is

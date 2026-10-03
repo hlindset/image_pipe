@@ -192,7 +192,7 @@ ImagePipe.URL.group(builder,
 `crop-ratio` accepts a ratio of two whole numbers, such as `16:9`, or a
 positive decimal, such as `1.5`. Default: none.
 
-`crop-ratio-enlarge` is a [flag](../requesting-images.md#flags). Default: off.
+`crop-ratio-enlarge` is a [boolean](../requesting-images.md#booleans). Default: `false`.
 
 `crop-ratio` changes the [`crop`](#crop) size to that aspect ratio by
 shrinking one side. With `crop-ratio-enlarge`, it grows the other side
