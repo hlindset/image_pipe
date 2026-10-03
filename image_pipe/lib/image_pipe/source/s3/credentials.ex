@@ -15,19 +15,9 @@ defmodule ImagePipe.Source.S3.Credentials do
 
   def validate({:provider, provider, opts})
       when is_atom(provider) and is_list(opts) do
-    cond do
-      not (Code.ensure_loaded?(provider) and
-               function_exported?(provider, :fetch_credentials, 3)) ->
-        {:error, {:invalid_source_config, :invalid_credential_provider}}
-
-      function_exported?(provider, :validate_options, 1) ->
-        case provider.validate_options(opts) do
-          :ok -> {:ok, {:provider, provider, opts}}
-          {:error, reason} -> {:error, {:invalid_source_config, reason}}
-        end
-
-      true ->
-        {:ok, {:provider, provider, opts}}
+    case provider.validate_options(opts) do
+      :ok -> {:ok, {:provider, provider, opts}}
+      {:error, reason} -> {:error, {:invalid_source_config, reason}}
     end
   end
 

@@ -12,6 +12,9 @@ defmodule ImagePipe.Source.S3.AssumeRoleTest do
 
   defmodule FailingBase do
     @behaviour ImagePipe.Source.S3.CredentialProvider
+
+    @impl true
+    def validate_options(_opts), do: :ok
     @impl true
     def fetch_credentials(_scope, _opts, _runtime), do: {:error, :no_base}
   end

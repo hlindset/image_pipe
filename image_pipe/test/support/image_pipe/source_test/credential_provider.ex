@@ -4,6 +4,9 @@ defmodule ImagePipe.SourceTest.CredentialProvider do
   @behaviour ImagePipe.Source.S3.CredentialProvider
 
   @impl true
+  def validate_options(_opts), do: :ok
+
+  @impl true
   def fetch_credentials(scope, provider_opts, runtime_opts) do
     # Credentials run inside the RefreshCache's task, so the test process is not
     # reachable via `$callers`. Tests that assert the provider was called pass

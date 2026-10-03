@@ -39,8 +39,11 @@ defmodule ImagePipe.Source.S3.CredentialWarmup do
   ImagePipe doesn't start it. Add one per bucket. The children need no
   explicit ids. Each warmup starts the fetch without blocking startup, then
   stops. The credentials aren't dropped before the first request for the
-  bucket uses them. If the fetch fails, the first request fetches the credentials
-  instead. Invalid options raise `ArgumentError` from `start_link/1`.
+  bucket uses them. If the fetch fails, the first request fetches the
+  credentials instead.
+
+  Invalid options raise `ArgumentError` from `start_link/1`. A `:provider`
+  without `validate_options/1` raises `UndefinedFunctionError`.
 
   ## Options
 
