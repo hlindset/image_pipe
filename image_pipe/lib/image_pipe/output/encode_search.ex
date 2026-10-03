@@ -27,6 +27,7 @@ defmodule ImagePipe.Output.EncodeSearch do
   # and within `[min_quality, max_quality]`.
   @moduledoc false
 
+  alias ImagePipe.Error
   alias ImagePipe.Output.ContentClassifier
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Metric
@@ -177,7 +178,11 @@ defmodule ImagePipe.Output.EncodeSearch do
   end
 
   defp search_stop_meta(quality_search, {:error, reason}) do
-    %{result: :processing_error, objective: objective_of(quality_search), error: reason}
+    %{
+      result: :processing_error,
+      objective: objective_of(quality_search),
+      error: Error.tag(reason)
+    }
   end
 
   defp objective_of(:none), do: :none
@@ -407,7 +412,7 @@ defmodule ImagePipe.Output.EncodeSearch do
             {{:ok, ctx}, confirm_probe_meta(q, ctx)}
 
           {:error, reason} = err ->
-            {err, %{result: :processing_error, error: reason}}
+            {err, %{result: :processing_error, error: Error.tag(reason)}}
         end
       end
     )
@@ -582,7 +587,7 @@ defmodule ImagePipe.Output.EncodeSearch do
       fn ->
         case do_encode(q, ctx.phase, ctx) do
           {:ok, ctx} -> {{:ok, ctx}, objective_probe_meta(q, ctx)}
-          {:error, reason} = err -> {err, %{result: :processing_error, error: reason}}
+          {:error, reason} = err -> {err, %{result: :processing_error, error: Error.tag(reason)}}
         end
       end
     )
@@ -860,7 +865,7 @@ defmodule ImagePipe.Output.EncodeSearch do
       fn ->
         case Encoder.encode_to_buffer(image, resolved, quality) do
           {:ok, binary} = ok -> {ok, %{result: :ok, bytes: byte_size(binary)}}
-          {:error, reason} = err -> {err, %{result: :processing_error, error: reason}}
+          {:error, reason} = err -> {err, %{result: :processing_error, error: Error.tag(reason)}}
         end
       end
     )
