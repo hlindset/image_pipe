@@ -93,8 +93,8 @@ ImagePipe.URL.group(builder, watermark_source: "brand/logo.png")
 <!-- tabs-close -->
 
 Watermark names, and whether requests may name their own watermarks, are set
-in the [Plug configuration](../configuration.md#watermarks) or the
-[server configuration](../../image_pipe_server/docs/server-configuration.md#processing).
+in the [Plug configuration](`ImagePipe.config/1`) or the
+[server configuration](../../../image_pipe_server/docs/server-configuration.md#processing).
 
 ## Size and placement
 

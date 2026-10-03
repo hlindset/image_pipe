@@ -8,7 +8,7 @@ events become traces in [Request tracing](tracing.md).
 
 An event name is the telemetry prefix, then the stage, then a suffix for
 spans. The prefix is `[:image_pipe]` unless `telemetry_prefix` sets another
-(see [configuration](configuration.md#detection-and-observability)). Names on
+(see `ImagePipe.config/1`). Names on
 this page leave out the prefix, so `[:request]` is emitted as
 `[:image_pipe, :request, :start]`, `[:image_pipe, :request, :stop]`, and
 `[:image_pipe, :request, :exception]`.

@@ -8,8 +8,7 @@ HTTP and S3 sources enforce redirect and receive-timeout limits. ImagePipe
 identifies formats from image bytes rather than HTTP headers. Header inspection
 rejects oversized inputs early where possible; decoded dimensions are always
 checked before transforms.
-See [resource limits](configuration.md#resource-limits) for defaults and
-configuration.
+`ImagePipe.config/1` lists the limits and their defaults.
 
 Source adapter limits bound fetches per chunk and by total bytes.
 `:receive_timeout` limits waits between chunks;

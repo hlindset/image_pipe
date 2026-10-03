@@ -27,8 +27,8 @@ caches, and limits from one configuration, so an application can use both.
 - `ImagePipe.Result`: the fields of a successful result.
 - `ImagePipe.URL`: building plans, signing, and source encryption.
 - `ImagePipe.Plug`: mount options.
-- [Configuration](configuration.md): where settings belong, defaults, and
-  limits.
+- [Elixir configuration](configuration.md): where each setting goes. `ImagePipe.config/1`
+  lists every option.
 - [Image sources](sources.md): local files, HTTP(S), and S3.
 - [Signing URLs and rotating keys](signing-urls.md): signing keys and expiry.
 - [Defining presets](defining-presets.md): named sets of options and request defaults.

@@ -7,7 +7,7 @@ canvas, padding, and background around it. Values use the shared
 before and after the resize.
 
 The result can't exceed the maximum output size set in the
-[Plug configuration](../configuration.md#resource-limits) or
+[Plug configuration](`ImagePipe.config/1`) or
 [server configuration](../../../image_pipe_server/docs/server-configuration.md#processing).
 A larger result is scaled down to fit rather than rejected.
 

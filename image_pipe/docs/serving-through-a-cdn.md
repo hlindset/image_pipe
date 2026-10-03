@@ -141,7 +141,7 @@ http_cache = "private"
 
 The `storage_inputs` setting lists request headers and cookies that select a
 different cached image (see the
-[Plug option](configuration.md#sources-caches-and-url-protection) or the
+[Plug option](`ImagePipe.config/1`) or the
 [server key](../../image_pipe_server/docs/server-configuration.md#cache)).
 If it names a cookie, `auto` makes every response private, because `Vary`
 can't name cookies.

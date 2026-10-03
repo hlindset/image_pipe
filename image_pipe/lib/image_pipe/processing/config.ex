@@ -39,61 +39,266 @@ defmodule ImagePipe.Processing.Config do
   @map_keys Keyword.keys(@map_defaults)
 
   @options_schema NimbleOptions.new!(
-                    sources: [type: :any],
-                    source_cache_policy: [type: :keyword_list],
-                    processing_pool: [type: {:or, [:atom, :pid]}],
-                    max_body_bytes: [type: :pos_integer, default: @default_max_body_bytes],
-                    max_input_pixels: [type: :pos_integer, default: @default_max_input_pixels],
-                    max_input_frames: [type: :pos_integer, default: @default_max_input_frames],
-                    telemetry_prefix: [
-                      type: {:custom, __MODULE__, :validate_telemetry_prefix, []},
-                      default: Telemetry.default_prefix()
+                    sources: [
+                      type: :any,
+                      type_doc: "`t:keyword/0`",
+                      doc: """
+                      Named sources that originals are read from, as \
+                      `name: [adapter: module, match: rule, options: [...]]`. See \
+                      [sources](sources.md#routing-image-paths-to-sources).
+                      """
                     ],
-                    auto_avif: [type: :boolean, default: true],
-                    auto_webp: [type: :boolean, default: true],
+                    source_cache_policy: [
+                      type: :keyword_list,
+                      doc: """
+                      Default cache storage and freshness policy for every source. See \
+                      `ImagePipe.Source.CachePolicy` and \
+                      [source cache settings](cache.md#source-cache-settings).
+                      """
+                    ],
+                    max_body_bytes: [
+                      type: :pos_integer,
+                      default: @default_max_body_bytes,
+                      doc:
+                        "Maximum size of an original, in bytes. A larger original fails the request."
+                    ],
+                    max_input_pixels: [
+                      type: :pos_integer,
+                      default: @default_max_input_pixels,
+                      doc: """
+                      Maximum pixels of a decoded original. For an animation, counts the \
+                      frames composited to reach the requested `page`. A larger original \
+                      fails the request.
+                      """
+                    ],
+                    max_input_frames: [
+                      type: :pos_integer,
+                      default: @default_max_input_frames,
+                      doc: """
+                      Maximum frames or pages an original may declare. An original with \
+                      more fails the request.
+                      """
+                    ],
+                    max_result_width: [
+                      type: :pos_integer,
+                      default: 8_192,
+                      doc: "Maximum output width. Larger results are scaled down to fit."
+                    ],
+                    max_result_height: [
+                      type: :pos_integer,
+                      default: 8_192,
+                      doc: "Maximum output height. Larger results are scaled down to fit."
+                    ],
+                    max_result_pixels: [
+                      type: :pos_integer,
+                      default: 40_000_000,
+                      doc: "Maximum output pixels. Larger results are scaled down to fit."
+                    ],
+                    processing_pool: [
+                      type: {:or, [:atom, :pid]},
+                      type_doc: "`t:atom/0` or `t:pid/0`",
+                      doc: """
+                      A running `ImagePipe.ProcessingPool`, by name or PID, that limits how \
+                      many images are processed at once. See \
+                      [processing concurrency and deadlines](processing-controls.md).
+                      """
+                    ],
+                    auto_avif: [
+                      type: :boolean,
+                      default: true,
+                      doc: "Serve AVIF when the request's `Accept` header lists it."
+                    ],
+                    auto_webp: [
+                      type: :boolean,
+                      default: true,
+                      doc: "Serve WebP when the request's `Accept` header lists it."
+                    ],
                     format_order: [
-                      type: {:custom, __MODULE__, :validate_format_order, []}
+                      type: {:custom, __MODULE__, :validate_format_order, []},
+                      type_doc: "list of `:avif` and `:webp`",
+                      doc: """
+                      Which format wins when `Accept` lists both. A format left out of the \
+                      list comes after the listed ones. The default value is \
+                      `[:avif, :webp]`.
+                      """
                     ],
-                    output_capabilities: [type: {:map, :atom, :boolean}],
-                    max_result_width: [type: :pos_integer, default: 8_192],
-                    max_result_height: [type: :pos_integer, default: 8_192],
-                    max_result_pixels: [type: :pos_integer, default: 40_000_000],
-                    strip_metadata: [type: :boolean],
-                    keep_copyright: [type: :boolean],
-                    stripped_dpi: [type: {:in, 1..65_535}],
-                    quality: [type: :pos_integer],
-                    format_quality: [type: {:map, :atom, :pos_integer}],
-                    strip_color_profile: [type: :boolean],
-                    preserve_hdr: [type: :boolean],
-                    skip_processing_formats: [type: {:list, {:in, Format.source_formats()}}],
-                    autoquality_method: [type: {:in, [:none, :size, :ssimulacra2, :butteraugli]}],
-                    autoquality_target: [type: {:map, :atom, {:or, [:integer, :float]}}],
-                    autoquality_min_quality: [type: :pos_integer],
-                    autoquality_max_quality: [type: :pos_integer],
+                    output_capabilities: [type: {:map, :atom, :boolean}, doc: false],
+                    quality: [
+                      type: :pos_integer,
+                      doc:
+                        "Encoder quality, `1..100`, for formats without a `:format_quality`. The default value is `80`."
+                    ],
+                    format_quality: [
+                      type: {:map, :atom, :pos_integer},
+                      doc: """
+                      Quality per output format, `1..100`. Merged with the defaults, \
+                      `%{webp: 79, avif: 63}`. A request's `q` wins over both.
+                      """
+                    ],
+                    strip_metadata: [
+                      type: :boolean,
+                      doc:
+                        "Remove EXIF, XMP, and other optional metadata from the output. The default value is `true`."
+                    ],
+                    keep_copyright: [
+                      type: :boolean,
+                      doc:
+                        "Keep copyright and artist fields when stripping metadata. The default value is `true`."
+                    ],
+                    stripped_dpi: [
+                      type: {:in, 1..65_535},
+                      type_doc: "`t:pos_integer/0`",
+                      doc: """
+                      Density written to the output, `1..65535`, when metadata is stripped \
+                      and the request has no `dpi`. The default value is `72`.
+                      """
+                    ],
+                    strip_color_profile: [
+                      type: :boolean,
+                      doc: """
+                      Convert the output to sRGB (or gray) and leave out the original's ICC \
+                      profile. `false` keeps the original's profile. The default value is `true`.
+                      """
+                    ],
+                    preserve_hdr: [
+                      type: :boolean,
+                      doc: """
+                      Keep high bit depth in output formats that support it. The default \
+                      value is `false`.
+                      """
+                    ],
+                    skip_processing_formats: [
+                      type: {:list, {:in, Format.source_formats()}},
+                      type_doc: "list of `t:atom/0`",
+                      doc: """
+                      Original formats, such as `[:gif]`, served unchanged instead of \
+                      processed when the request names no other `format` and draws no \
+                      watermark. The unchanged original keeps its metadata, including any \
+                      location data, and only `:max_body_bytes` limits it. See \
+                      [skip processing](api_contract.md#skip-processing). The default value \
+                      is `[]`.
+                      """
+                    ],
+                    autoquality_method: [
+                      type: {:in, [:none, :size, :ssimulacra2, :butteraugli]},
+                      doc: """
+                      Searches for a quality between the minimum and maximum quality: the \
+                      lowest that meets a `:ssimulacra2` or `:butteraugli` target, or the \
+                      highest whose output fits a `:size` byte target. `:none` turns search \
+                      off. Search encodes several candidates. The default value is `:none`.
+                      """
+                    ],
+                    autoquality_target: [
+                      type: {:map, :atom, {:or, [:integer, :float]}},
+                      type_doc: "`t:map/0`",
+                      doc: """
+                      Target per method. Merged with the defaults, \
+                      `%{ssimulacra2: 78, butteraugli: 1.0}`. SSIMULACRA2 targets are \
+                      `0..100` and Butteraugli targets `0..25`. `:size` search needs a \
+                      byte target, such as `%{size: 50_000}`. Without one, requests that \
+                      use it fail.
+                      """
+                    ],
                     autoquality_allowed_error: [
-                      type: {:map, :atom, {:or, [:integer, :float]}}
+                      type: {:map, :atom, {:or, [:integer, :float]}},
+                      type_doc: "`t:map/0`",
+                      doc: """
+                      How far from the target a result may land, per method. Merged with \
+                      the defaults, `%{ssimulacra2: 1.0, butteraugli: 0.1}`.
+                      """
                     ],
-                    autoquality_format_min_quality: [type: {:map, :atom, :pos_integer}],
-                    autoquality_format_max_quality: [type: {:map, :atom, :pos_integer}],
-                    autoquality_max_resolution: [type: :non_neg_integer],
-                    autoquality_max_iterations: [type: :pos_integer],
-                    jpeg_options: [type: {:struct, JpegOptions}],
-                    png_options: [type: {:struct, PngOptions}],
-                    webp_options: [type: {:struct, WebpOptions}],
-                    avif_options: [type: {:struct, AvifOptions}],
-                    clock: [
-                      type: {:custom, __MODULE__, :validate_clock, []}
+                    autoquality_min_quality: [
+                      type: :pos_integer,
+                      doc: "Lowest quality the search tries, `1..100`. The default value is `70`."
+                    ],
+                    autoquality_max_quality: [
+                      type: :pos_integer,
+                      doc:
+                        "Highest quality the search tries, `1..100`. The default value is `80`."
+                    ],
+                    autoquality_format_min_quality: [
+                      type: {:map, :atom, :pos_integer},
+                      doc: """
+                      Lowest quality per format, overriding `:autoquality_min_quality`. \
+                      Merged with the defaults, `%{avif: 60}`.
+                      """
+                    ],
+                    autoquality_format_max_quality: [
+                      type: {:map, :atom, :pos_integer},
+                      doc: """
+                      Highest quality per format, overriding `:autoquality_max_quality`. \
+                      Merged with the defaults, `%{avif: 65}`.
+                      """
+                    ],
+                    autoquality_max_resolution: [
+                      type: :non_neg_integer,
+                      doc: """
+                      Results larger than this many megapixels skip the search and use \
+                      the normal quality. `0`, the default, searches at every size.
+                      """
+                    ],
+                    autoquality_max_iterations: [
+                      type: :pos_integer,
+                      doc: "Most candidates one search encodes. The default value is `6`."
+                    ],
+                    jpeg_options: [
+                      type: {:struct, JpegOptions},
+                      doc: """
+                      Default JPEG encoder settings. A request's settings win field by \
+                      field. See [encoder options](processing/output.md#encoder-options).
+                      """
+                    ],
+                    png_options: [
+                      type: {:struct, PngOptions},
+                      doc: "Default PNG encoder settings, as for `:jpeg_options`."
+                    ],
+                    webp_options: [
+                      type: {:struct, WebpOptions},
+                      doc: "Default WebP encoder settings, as for `:jpeg_options`."
+                    ],
+                    avif_options: [
+                      type: {:struct, AvifOptions},
+                      doc: "Default AVIF encoder settings, as for `:jpeg_options`."
                     ],
                     detector: [
                       type: {:or, [{:in, [:default, nil]}, :atom]},
-                      default: :default
+                      type_doc: "`:default`, `nil`, or `t:module/0`",
+                      default: :default,
+                      doc: """
+                      The detector for face and object detection. `:default` uses the \
+                      built-in detector when its dependencies are installed, `nil` turns \
+                      detection off, and a module uses a custom detector. See \
+                      [enabling detection](enabling-detection.md).
+                      """
                     ],
                     detector_required: [
                       type: :boolean,
-                      default: false
+                      default: false,
+                      doc: """
+                      Fail requests that ask for detection when it can't run: `501` when \
+                      the detector isn't installed, `503` when its models aren't \
+                      downloaded, and `500` when detection fails. With `false`, the crop \
+                      falls back to attention cropping. `anchor=smart-face` always falls \
+                      back.
+                      """
+                    ],
+                    telemetry_prefix: [
+                      type: {:custom, __MODULE__, :validate_telemetry_prefix, []},
+                      type_doc: "list of `t:atom/0`",
+                      default: Telemetry.default_prefix(),
+                      doc: "Prefix of every telemetry event name. See [telemetry](telemetry.md)."
+                    ],
+                    clock: [
+                      type: {:custom, __MODULE__, :validate_clock, []},
+                      type_doc: "`(-> integer())`",
+                      doc: """
+                      Returns the current Unix time in seconds, for checking a URL's \
+                      `expires`. The system clock by default.
+                      """
                     ]
                   )
 
+  @doc false
   def schema, do: @options_schema.schema
 
   def system_time, do: System.os_time(:second)
