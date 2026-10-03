@@ -196,7 +196,7 @@ resized, cropped, and converted copies. From here:
 - [Requesting images](requesting-images.md) and the
   [processing options](processing.md): what each option does to the image,
   with an Elixir example for each.
-- [Combined Plug and Elixir usage](combined-usage.md): serve images over HTTP
+- [Serving and processing in one app](combined-usage.md): serve images over HTTP
   and process them in code with one configuration.
 
 Before running this in production, read

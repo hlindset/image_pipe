@@ -41,7 +41,7 @@ How image URLs work, and what each processing option does to the picture.
 Guides for deploying, connecting sources, caching, securing, and monitoring.
 
 - [Deploying image_pipe_server](../../image_pipe_server/docs/server-deployment.md): Docker, Kubernetes, health checks, and capacity.
-- [Deployment](deployment.md): source limits, generation capacity, timeouts, and memory.
+- [Limiting work per request](deployment.md): limits on originals, timeouts, slow clients, and memory.
 - [Image sources](sources.md): what a source is, routing, and the available sources.
 - [Serving images from local files](serving-local-files.md): read originals from a directory.
 - [Serving images from an HTTP origin](serving-from-http.md): download originals from a web server.
@@ -51,10 +51,10 @@ Guides for deploying, connecting sources, caching, securing, and monitoring.
 - [Signing URLs and rotating keys](signing-urls.md): require signed URLs and replace keys safely.
 - [Defining presets](defining-presets.md): named sets of URL options.
 - [Enabling face and object detection](enabling-detection.md): install the detector and load its models.
-- [Processing concurrency and deadlines](processing-controls.md): concurrency, queues, deadlines, and cancellation.
+- [Limiting concurrent processing](processing-controls.md): how many images are processed at once, queues, and deadlines.
 - [Monitoring with telemetry](telemetry.md): logging, metrics handlers, and request IDs.
 - [Exporting traces to Jaeger](cookbook/opentelemetry-jaeger.md): send traces to a local Jaeger.
-- [Combined Plug and Elixir usage](combined-usage.md): serve images and process them in code with one configuration.
+- [Serving and processing in one app](combined-usage.md): serve images and process them in code with one configuration.
 - [Fetching images from the server](fetching-from-the-server.md): use processed images inside your application.
 
 ## Concepts

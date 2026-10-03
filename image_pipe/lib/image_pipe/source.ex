@@ -38,6 +38,26 @@ defmodule ImagePipe.Source do
   An adapter's callbacks receive its own validated options and a set of
   runtime limits, never the rest of the configuration. Writing one is covered
   in [Writing a custom source](custom-sources.md).
+
+  ## Errors
+
+  An adapter fails a request by returning `{:error, {:source, reason}}`. Each
+  reason below gives the listed status, as it does for the built-in adapters:
+
+    * `:not_found` - `404`.
+    * `{:bad_status, code}` - the origin's HTTP status. `401`, `403`, `404`,
+      and `410` give `404`. Any other status gives `502`.
+    * `:body_too_large` - `413`.
+    * `:receive_timeout` - `504`.
+    * `:unreadable` and `:credentials_unavailable` - `500`.
+
+  Any other reason gives `502`. To choose the status, lead the reason with
+  a class: `{:source, {class, detail}}`, where `class` is `:bad_request`
+  (`400`), `:not_found` (`404`), `:payload_too_large` (`413`),
+  `:unsupported_media` (`415`), `:server_error` (`500`), `:not_implemented`
+  (`501`), `:bad_gateway` (`502`), or `:gateway_timeout` (`504`). The detail
+  never reaches the response body. [Error responses](errors.md) lists every
+  status.
   """
 
   use Boundary,
@@ -116,10 +136,9 @@ defmodule ImagePipe.Source do
     * `fetch` - any data `c:fetch/3` needs.
 
   The third argument holds runtime limits. Return
-  `{:error, {:source, reason}}` for a source the adapter can't serve. How
-  reasons become HTTP statuses is listed in
-  [error responses](errors.md#custom-source-adapters). Any other return
-  value fails the request with `500`.
+  `{:error, {:source, reason}}` for a source the adapter can't serve. The
+  status each reason gives is listed under [errors](#module-errors). Any
+  other return value fails the request with `500`.
   """
   @callback resolve(PlanSource.t(), keyword(), keyword()) ::
               {:ok, Resolved.t()} | {:error, error()}

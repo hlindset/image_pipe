@@ -1,29 +1,4 @@
 defmodule ImagePipe.ProcessingPool do
-  @moduledoc """
-  Node-local admission and deadlines for image processing.
-
-  Start under your supervision tree and select the same pool in each mount or
-  Elixir client that should share its capacity:
-
-      {ImagePipe.ProcessingPool,
-       name: MyApp.Images, max_concurrency: 4, max_queue: 8,
-       queue_timeout: 1_000, processing_timeout: 30_000}
-
-      ImagePipe.config(processing_pool: MyApp.Images, sources: sources)
-
-  `:max_concurrency` is required. `:max_queue` defaults to zero (reject overflow),
-  `:queue_timeout` to 1,000 ms, and `:processing_timeout` to 30,000 ms. Both
-  timeouts must be finite positive integers. Waiting is FIFO. All generated
-  terminals, including `info`, share the pool; cached responses bypass it.
-
-  The processing deadline starts on admission and includes source consumption,
-  decode, transforms, encoding, and demand pauses until the stream is closed.
-  Source transfer and delivery call timeouts remain separate limits.
-
-  Cancellation terminates the BEAM worker. Native operations may finish later;
-  this is not a hard CPU-preemption or native-memory ceiling. A permit remains
-  occupied until its worker returns from its resource brackets or goes down.
-  """
   use Boundary, top_level?: true, deps: [ImagePipe.Telemetry], exports: []
   use GenServer
 
@@ -33,12 +8,72 @@ defmodule ImagePipe.ProcessingPool do
   alias ImagePipe.Telemetry.Trace.Stack
 
   @schema NimbleOptions.new!(
-            name: [type: :atom],
-            max_concurrency: [type: :pos_integer, required: true],
-            max_queue: [type: :non_neg_integer, default: 0],
-            queue_timeout: [type: :pos_integer, default: 1_000],
-            processing_timeout: [type: :pos_integer, default: 30_000]
+            name: [
+              type: :atom,
+              doc: "Name that `ImagePipe.config/1`'s `:processing_pool` refers to."
+            ],
+            max_concurrency: [
+              type: :pos_integer,
+              required: true,
+              doc: "Most images processed at once."
+            ],
+            max_queue: [
+              type: :non_neg_integer,
+              default: 0,
+              doc: """
+              Most requests waiting for a turn. A request that finds the queue full \
+              fails with `{:processing, :overloaded}`. With `0`, requests never wait.
+              """
+            ],
+            queue_timeout: [
+              type: :pos_integer,
+              default: 1_000,
+              doc: """
+              Longest wait for a turn, in milliseconds. A request that waits longer \
+              fails with `{:processing, :queue_timeout}`.
+              """
+            ],
+            processing_timeout: [
+              type: :pos_integer,
+              default: 30_000,
+              doc: """
+              Longest time one image may take once it has a turn, in milliseconds, \
+              from reading the original to sending the last byte. A request that takes \
+              longer fails with `{:processing, :timeout}`.
+              """
+            ]
           )
+
+  @moduledoc """
+  Limits how many images are processed at once, with a queue for requests that
+  wait for a turn and a deadline for each image.
+
+      children = [
+        {ImagePipe.ProcessingPool, name: MyApp.Pool, max_concurrency: 8, max_queue: 64},
+        {ImagePipe, name: MyApp.Images, processing_pool: MyApp.Pool, sources: [...]},
+        MyAppWeb.Endpoint
+      ]
+
+  Every configuration that names the pool with `:processing_pool` shares its
+  capacity, across mounts and `ImagePipe.run/4` calls on the same node.
+  [Limiting concurrent processing](processing-controls.md) covers choosing the
+  limits and what counts toward them.
+
+  ## Errors
+
+  `ImagePipe.run/4` returns these errors, and a request gets a `503` for each:
+
+    * `{:processing, :overloaded}` - the queue is full.
+    * `{:processing, :queue_timeout}` - the request waited longer than
+      `:queue_timeout`.
+    * `{:processing, :timeout}` - the image took longer than
+      `:processing_timeout`.
+    * `{:processing, :unavailable}` - the pool isn't running.
+
+  ## Options
+
+  #{NimbleOptions.docs(@schema)}
+  """
 
   @doc false
   def options_schema, do: @schema.schema
@@ -121,7 +156,10 @@ defmodule ImagePipe.ProcessingPool do
       :erlang.raise(kind, reason, __STACKTRACE__)
   end
 
-  @doc "Returns current running and queued job counts."
+  @doc """
+  Returns the number of images being processed and of requests waiting, as
+  `%{active: 3, queued: 0}`.
+  """
   def stats(pool), do: GenServer.call(pool, :stats)
 
   @impl true

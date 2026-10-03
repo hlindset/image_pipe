@@ -89,7 +89,7 @@ A request whose deadline expires before the first bytes go out gets a `503`
 instead.
 
 The deadline is set on the pool. See
-[processing concurrency and deadlines](processing-controls.md) for Elixir and
+[limiting concurrent processing](processing-controls.md) for Elixir and
 [`[pool]`](../../image_pipe_server/docs/server-configuration.md#pool) for
 `image_pipe_server`.
 
@@ -99,6 +99,6 @@ A truncated response looks complete at the HTTP level, so a proxy or CDN can
 store it. ImagePipe's own cache never holds the partial copy, so the next
 request that reaches ImagePipe gets a complete image. Settings that make
 truncation less likely are in
-[resource limits and timeouts](deployment.md#resource-limits-and-timeouts),
+[slow clients](deployment.md#slow-clients),
 and what to do about a cut-off image at the edge is in
 [configure the CDN](serving-through-a-cdn.md#configure-the-cdn).

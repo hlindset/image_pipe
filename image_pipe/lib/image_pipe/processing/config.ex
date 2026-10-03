@@ -100,7 +100,7 @@ defmodule ImagePipe.Processing.Config do
                       doc: """
                       A running `ImagePipe.ProcessingPool`, by name or PID, that limits how \
                       many images are processed at once. See \
-                      [processing concurrency and deadlines](processing-controls.md).
+                      [limiting concurrent processing](processing-controls.md).
                       """
                     ],
                     auto_avif: [

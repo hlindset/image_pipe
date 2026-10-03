@@ -72,13 +72,11 @@ defmodule ImagePipe.MixProject do
   @guide_paths Enum.flat_map(@guide_groups, fn {_group, paths} -> paths end)
   # Sidebar labels for pages whose H1 is too long for the sidebar.
   @guide_titles %{
-    "docs/processing-controls.md" => "Concurrency and deadlines",
     "docs/serving-from-http.md" => "Serving from an HTTP origin",
     "docs/enabling-detection.md" => "Enabling detection"
   }
   @internal_doc_references [
     "ImagePipe.Error.tag/1",
-    "ImagePipe.Plug.init/1",
     "ImagePipe.Plug.Runner",
     "ImagePipe.Response.Sender",
     "ImagePipe.Security.verify/3",

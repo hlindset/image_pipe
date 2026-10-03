@@ -14,7 +14,7 @@ caches, and limits from one configuration, so an application can use both.
 - [Processing images in Elixir](processing-in-elixir.md): a first plan, run
   on a local file from `iex`.
 - [Getting started with Phoenix](phoenix-getting-started.md): mount `ImagePipe.Plug` in a router.
-- [Combined Plug and Elixir usage](combined-usage.md): share one
+- [Serving and processing in one app](combined-usage.md): share one
   configuration between a mount and direct calls.
 - [Caching processed images](caching-processed-images.md): store processed
   images on disk, with a size limit.
