@@ -39,6 +39,7 @@ defmodule ImagePipeServer.Config do
   @enforce_keys [
     :server,
     :image_pipe,
+    :http,
     :pool,
     :telemetry,
     :detector_warmup,
@@ -52,7 +53,8 @@ defmodule ImagePipeServer.Config do
     * `:server` - `:port`, `:ip`, `:mount_path`, `:shutdown_timeout`,
       `:read_timeout`, `:max_connections`, and `:auth_token_hash`, the SHA-256
       of the auth token (or `nil`). The token itself isn't kept.
-    * `:image_pipe` - mount options from `ImagePipe.Plug.init/1`.
+    * `:image_pipe` - the `ImagePipe.Config` the server's instance runs.
+    * `:http` - the delivery options of `ImagePipe.Plug.init/1`.
     * `:pool` - `ImagePipe.ProcessingPool` options with the pool's name, or `nil`.
     * `:telemetry` - default Logger options, or `nil`.
     * `:detector_warmup` - `ImagePipe.Transform.Detector.Warmup` options when
@@ -62,7 +64,8 @@ defmodule ImagePipeServer.Config do
   """
   @type t :: %__MODULE__{
           server: keyword(),
-          image_pipe: keyword(),
+          image_pipe: ImagePipe.Config.t(),
+          http: keyword(),
           pool: keyword() | nil,
           telemetry: keyword() | nil,
           detector_warmup: keyword() | nil,
@@ -227,9 +230,10 @@ defmodule ImagePipeServer.Config do
     %__MODULE__{
       server: server!(Keyword.get(sections, :server, [])),
       image_pipe: image_pipe,
+      http: http!(Keyword.get(sections, :http, [])),
       pool: pool,
       telemetry: telemetry(Keyword.get(sections, :telemetry, [])),
-      detector_warmup: detector_warmup!(image_pipe),
+      detector_warmup: detector_warmup!(image_pipe.options),
       credential_warmups: credential_warmups(Keyword.get(sections, :sources, []))
     }
   end
@@ -288,8 +292,14 @@ defmodule ImagePipeServer.Config do
           sources(Keyword.get(sections, :sources)) ++
           processing_pool(pool)
 
-      ImagePipe.Plug.init([config: ImagePipe.config(shared)] ++ Keyword.get(sections, :http, []))
+      ImagePipe.config(shared)
     end)
+  end
+
+  # Validates the mount options; the instance name is not looked up here.
+  defp http!(options) do
+    library!(fn -> ImagePipe.Plug.init([instance: __MODULE__] ++ options) end)
+    options
   end
 
   # Watermark names are the operator's own identifiers, fixed at boot.
