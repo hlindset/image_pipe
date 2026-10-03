@@ -2,7 +2,7 @@
 
 Serve originals from a store the built-in sources don't cover, such as a
 database, an internal API, or blobs your app manages. This guide assumes
-ImagePipe is running in your app (see [Plug usage](plug-usage.md)).
+ImagePipe is running in your app (see [Getting started with Phoenix](phoenix-getting-started.md)).
 `image_pipe_server` runs only the built-in sources.
 
 ## Implement the behaviour

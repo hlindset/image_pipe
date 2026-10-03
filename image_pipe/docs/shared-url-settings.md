@@ -3,7 +3,7 @@
 These settings must match between an application that builds URLs with
 `image_pipe_url` and the `image_pipe_server` or `ImagePipe.Plug` that serves
 them. A mismatch makes the server reject URLs the builder produced.
-[URL builder with an external server](external-server.md) walks through
+[Building URLs for the server](building-server-urls.md) walks through
 setting up both sides.
 
 `ImagePipe.Plug` takes the builder's settings unchanged: pass the
@@ -141,7 +141,10 @@ On a mismatch:
 URLs carry preset names, such as `preset=card`. The server applies its
 current definition of each name, so the builder needs no definitions to build
 URLs. The signature covers the name only, so changing a definition on the
-server keeps signed URLs valid. See [presets](presets.md).
+server keeps signed URLs valid. Define a preset on the server before the app
+builds URLs with it, and keep it there while those URLs are in use. The server
+answers `400` to a URL with a preset it doesn't have. See
+[presets](presets.md).
 
 <!-- tabs-open -->
 

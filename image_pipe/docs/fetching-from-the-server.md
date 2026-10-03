@@ -3,7 +3,7 @@
 Use a processed image, placeholder, or image information inside your
 application by requesting its signed URL with an HTTP client. This guide
 assumes your application builds URLs for an ImagePipe server running
-elsewhere (see [URL builder with an external server](external-server.md)).
+elsewhere (see [Building URLs for the server](building-server-urls.md)).
 
 `image_pipe_url` has no fetch function. The signed URL is the interface, so
 any HTTP client works. The examples use [Req](https://hexdocs.pm/req) 0.8,

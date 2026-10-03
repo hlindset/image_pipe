@@ -45,7 +45,7 @@ change.
 ## Connect the mount
 
 To share it with a router mount, run the configuration as an instance and
-mount it with `instance:` (see [Mount an instance](plug-usage.md#mount-an-instance)).
+mount it with `instance:` (see [Mounting an instance](ImagePipe.Plug.html#module-mounting-an-instance)).
 Router options are evaluated when the router compiles, so they can't take a
 `config` built at startup, and an instance is also needed when the
 configuration reads runtime values, such as keys from environment variables,
@@ -106,7 +106,7 @@ the builder then checks plans against the configuration's presets. Plug and dire
 execution expand request defaults, named presets in order, and explicit
 options using the same rules. Generated URLs retain the preset names for the
 serving mount to resolve. If URLs are built in a different application from the
-one that serves them, see [URL builder with an external server](external-server.md).
+one that serves them, see [Building URLs for the server](building-server-urls.md).
 
 Use a shared [processing pool](processing-controls.md) to bound generation
 across HTTP requests, jobs, and cache refreshes. Direct results are fully

@@ -8,10 +8,10 @@ defmodule ImagePipe.MixProject do
       "docs/index.md",
       "docs/installation.md",
       "../image_pipe_server/docs/server-getting-started.md",
-      "docs/plug-usage.md",
+      "docs/phoenix-getting-started.md",
       "docs/processing-in-elixir.md",
       "docs/elixir-api.md",
-      "docs/external-server.md"
+      "docs/building-server-urls.md"
     ],
     "Requesting images": [
       "docs/requesting-images.md",
@@ -73,7 +73,6 @@ defmodule ImagePipe.MixProject do
   # Sidebar labels for pages whose H1 is too long for the sidebar.
   @guide_titles %{
     "docs/processing-controls.md" => "Concurrency and deadlines",
-    "docs/external-server.md" => "Using an external server",
     "docs/serving-from-http.md" => "Serving from an HTTP origin",
     "docs/enabling-detection.md" => "Enabling detection"
   }

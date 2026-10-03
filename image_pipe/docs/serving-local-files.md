@@ -2,7 +2,7 @@
 
 Serve originals from a directory that ImagePipe can read, such as a local
 disk or a mounted network filesystem. This guide assumes ImagePipe is
-running in your app (see [Plug usage](plug-usage.md)) or as
+running in your app (see [Getting started with Phoenix](phoenix-getting-started.md)) or as
 `image_pipe_server` (see
 [getting started with the server](../../image_pipe_server/docs/server-getting-started.md)).
 

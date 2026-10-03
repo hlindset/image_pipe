@@ -4,7 +4,7 @@ ImagePipe serves and processes images inside Elixir applications, through a
 Plug endpoint, an Elixir API, or both. It also runs as a standalone image
 server, configured with a TOML file and environment variables.
 
-See [URL builder with an external server](image_pipe/docs/external-server.md)
+See [Building URLs for the server](image_pipe/docs/building-server-urls.md)
 to use the builder in your application with a separate image service.
 
 This repository holds sibling Mix projects:

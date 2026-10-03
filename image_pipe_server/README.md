@@ -11,7 +11,7 @@ environment variables instead of Elixir code. Apps that only build URLs, with
   and a reference of every setting.
 - [Changelog](CHANGELOG.md): server release notes.
 
-Follow [URL builder with an external server](../image_pipe/docs/external-server.md)
+Follow [Building URLs for the server](../image_pipe/docs/building-server-urls.md)
 for a complete application-and-server walkthrough.
 
 The server loads no host Elixir code. Custom source adapters, caches,

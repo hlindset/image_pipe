@@ -11,7 +11,8 @@ def deps do
 end
 ```
 
-Run `mix deps.get` in your application.
+Run `mix deps.get` in your application. If it reports a version conflict
+over `req`, as in a new Phoenix app, run `mix deps.unlock req` and try again.
 ImagePipe uses Image and Vix for libvips processing. Available input and output
 codecs depend on the native build. See [output formats](processing/output.md#formats).
 
@@ -40,4 +41,4 @@ on the URL builder alone. It needs no libvips or NIFs:
 ```
 
 It provides `ImagePipe.URL` with the same URL grammar, preset references,
-signing, and source encryption. See [URL builder with an external server](external-server.md).
+signing, and source encryption. See [Building URLs for the server](building-server-urls.md).

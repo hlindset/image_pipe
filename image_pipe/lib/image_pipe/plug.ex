@@ -5,7 +5,13 @@ defmodule ImagePipe.Plug do
 
       forward "/images", ImagePipe.Plug, sources: [...]
 
-  Setting up a mount is covered in [Plug usage](plug-usage.md).
+  In a `Plug.Router`, pass the options as `:init_opts`:
+
+      forward "/images", to: ImagePipe.Plug, init_opts: [sources: [...]]
+
+  A mount answers `GET`, `HEAD`, and `OPTIONS`. Other methods get `405`.
+  [Getting started with Phoenix](phoenix-getting-started.md) walks through
+  setting up a mount.
 
   An inline mount accepts every option of `ImagePipe.config/1`, or a
   `:config` built with it, plus the mount options below. It can't start the

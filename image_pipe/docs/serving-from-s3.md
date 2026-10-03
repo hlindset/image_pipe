@@ -2,7 +2,7 @@
 
 Serve originals from Amazon S3 or S3-compatible storage, such as MinIO or
 Cloudflare R2, in private buckets. This guide assumes ImagePipe is running in
-your app (see [Plug usage](plug-usage.md)) or as `image_pipe_server` (see
+your app (see [Getting started with Phoenix](phoenix-getting-started.md)) or as `image_pipe_server` (see
 [getting started with the server](../../image_pipe_server/docs/server-getting-started.md)).
 
 ## Add an S3 source

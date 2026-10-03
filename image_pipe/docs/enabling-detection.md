@@ -2,7 +2,7 @@
 
 Turn on the face and object detector, so `detect` and `anchor=smart-face`
 crops follow the faces and objects in each image. This guide assumes
-ImagePipe is running in your app (see [Plug usage](plug-usage.md)) or as
+ImagePipe is running in your app (see [Getting started with Phoenix](phoenix-getting-started.md)) or as
 `image_pipe_server`. `anchor=smart` works without any of this.
 
 The bundled detector finds faces with YuNet and 80 kinds of objects with

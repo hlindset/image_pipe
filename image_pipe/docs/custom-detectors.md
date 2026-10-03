@@ -2,7 +2,7 @@
 
 Replace the bundled face and object detector with your own model, a remote
 service, or a test fake, so `detect` crops use its results. This guide
-assumes ImagePipe is running in your app (see [Plug usage](plug-usage.md)).
+assumes ImagePipe is running in your app (see [Getting started with Phoenix](phoenix-getting-started.md)).
 `image_pipe_server` runs only the bundled detector.
 
 ## Implement the behaviour

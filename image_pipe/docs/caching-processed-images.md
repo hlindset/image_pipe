@@ -2,7 +2,7 @@
 
 Store processed images on disk, so a repeat request is served from the cache
 instead of being processed again. This guide assumes ImagePipe is already
-running in your app (see [Plug usage](plug-usage.md)) or as
+running in your app (see [Getting started with Phoenix](phoenix-getting-started.md)) or as
 `image_pipe_server`. How long cached images stay valid is covered in
 [Caching and freshness](caching-and-freshness.md).
 
@@ -113,7 +113,7 @@ forward "/images", ImagePipe.Plug, instance: MyApp.Images
 ```
 
 Mount options such as `http_cache` stay on the `forward` (see
-[Mount an instance](plug-usage.md#mount-an-instance)).
+[Mounting an instance](ImagePipe.Plug.html#module-mounting-an-instance)).
 
 To bound an originals cache, add `max_size_bytes` and `node_id` to the
 instance's `input_cache` options.

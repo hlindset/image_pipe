@@ -7,9 +7,9 @@ in Elixir code. Start with the page for what you want to do:
 | --- | --- |
 | Request images from an external ImagePipe server | [Requesting images](requesting-images.md) |
 | Run `image_pipe_server` | [Getting started with the server](../../image_pipe_server/docs/server-getting-started.md), then [deploying](../../image_pipe_server/docs/server-deployment.md) and [configuring](../../image_pipe_server/docs/server-configuration.md) it |
-| Serve images from my Phoenix or Plug app | [Plug usage](plug-usage.md) |
+| Serve images from my Phoenix or Plug app | [Getting started with Phoenix](phoenix-getting-started.md) |
 | Process images in Elixir code (uploads, jobs) | [Processing images in Elixir](processing-in-elixir.md), then the [Elixir API](elixir-api.md) |
-| Generate signed URLs for a separate server | [URL builder with an external server](external-server.md), then [shared URL settings](shared-url-settings.md) and [fetching images from the server](fetching-from-the-server.md) |
+| Generate signed URLs for a separate server | [Building URLs for the server](building-server-urls.md), then [shared URL settings](shared-url-settings.md) and [fetching images from the server](fetching-from-the-server.md) |
 | Extend ImagePipe with custom sources, detectors, or telemetry handlers | [Custom sources](custom-sources.md), [custom detectors](custom-detectors.md), and [telemetry handlers](telemetry.md#attaching-handlers) |
 
 ## Getting started
@@ -18,10 +18,10 @@ First steps for each way of running ImagePipe.
 
 - [Installation](installation.md): the Hex dependency and supported image formats.
 - [Getting started with the server](../../image_pipe_server/docs/server-getting-started.md): run `image_pipe_server` in Docker and request your first images.
-- [Plug usage](plug-usage.md): mount `ImagePipe.Plug` in Phoenix or `Plug.Router`.
+- [Getting started with Phoenix](phoenix-getting-started.md): serve resized images from a new Phoenix app.
 - [Processing images in Elixir](processing-in-elixir.md): resize, crop, and convert a photo from `iex`.
 - [Elixir API](elixir-api.md): the Elixir entry points and their guides.
-- [URL builder with an external server](external-server.md): generate signed URLs for a separate `image_pipe_server`.
+- [Building URLs for the server](building-server-urls.md): generate signed URLs for a separate `image_pipe_server`.
 
 ## Requesting images
 

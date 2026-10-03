@@ -2,7 +2,7 @@
 
 Set up ImagePipe so a CDN caches processed images at the edge and
 revalidates them with ImagePipe when they go stale. This guide assumes
-ImagePipe is already running in your app (see [Plug usage](plug-usage.md)) or
+ImagePipe is already running in your app (see [Getting started with Phoenix](phoenix-getting-started.md)) or
 as `image_pipe_server`, and that you can edit your CDN's cache settings. Why
 images get the lifetimes they do is covered in
 [Caching and freshness](caching-and-freshness.md).

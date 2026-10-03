@@ -207,5 +207,5 @@ cropped, and converted copies by URL. From here:
 
 Before exposing the server, set up URL signing with the
 [`[url]` keys](server-configuration.md#url) setting.
-[URL builder with an external server](../../image_pipe/docs/external-server.md)
+[Building URLs for the server](../../image_pipe/docs/building-server-urls.md)
 shows the application side, which signs the URLs.

@@ -2,7 +2,7 @@
 
 Serve originals that ImagePipe downloads from a web server, a storage
 bucket's public URL, or another image service. This guide assumes ImagePipe
-is running in your app (see [Plug usage](plug-usage.md)) or as
+is running in your app (see [Getting started with Phoenix](phoenix-getting-started.md)) or as
 `image_pipe_server` (see
 [getting started with the server](../../image_pipe_server/docs/server-getting-started.md)).
 
