@@ -217,6 +217,32 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
       assert {:ok, :second} = RefreshCache.fetch(key, fn -> {:ok, :second, :never} end)
     end
 
+    test "a warmed entry stays until its first use, then retires when idle" do
+      key = {:warmed, make_ref()}
+      test = self()
+
+      :ok =
+        RefreshCache.warm(key, fn ->
+          send(test, :fetched)
+          {:ok, :warm, :never}
+        end)
+
+      assert_receive :fetched
+      [{pid, _}] = Registry.lookup(RefreshCache.Registry, key)
+      ref = Process.monitor(pid)
+
+      for _ <- 1..4, do: send(pid, :check_idle)
+      _ = :sys.get_state(pid)
+      refute_received {:DOWN, ^ref, :process, ^pid, _reason}
+
+      assert {:ok, :warm} = RefreshCache.fetch(key, fn -> {:ok, :refetched, :never} end)
+      refute_received :fetched
+
+      send(pid, :check_idle)
+      send(pid, :check_idle)
+      assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
+    end
+
     test "retries a get queued behind idle retirement" do
       key = {:retirement_race, make_ref()}
       assert {:ok, :first} = RefreshCache.fetch(key, fn -> {:ok, :first, :never} end)

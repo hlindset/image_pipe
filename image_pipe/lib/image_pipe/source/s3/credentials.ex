@@ -40,15 +40,7 @@ defmodule ImagePipe.Source.S3.Credentials do
   end
 
   def fetch(scope, {:provider, provider, opts}, _runtime_opts) do
-    key =
-      :crypto.hash(
-        :sha256,
-        :erlang.term_to_binary({:s3_credentials, provider, opts, scope}, [:deterministic])
-      )
-
-    fetch_fun = fn -> resolve_provider(provider, scope, opts) end
-
-    case RefreshCache.fetch(key, fetch_fun) do
+    case RefreshCache.fetch(cache_key(provider, opts, scope), fetch_fun(provider, opts, scope)) do
       {:ok, credentials} -> {:ok, credentials}
       {:error, _reason} -> {:error, {:source, :credentials_unavailable}}
     end
@@ -56,6 +48,20 @@ defmodule ImagePipe.Source.S3.Credentials do
 
   def fetch(_scope, _credentials, _runtime_opts),
     do: {:error, {:source, :credentials_unavailable}}
+
+  # Starts fetching provider credentials before any request needs them.
+  @spec warm(String.t(), {:provider, module(), keyword()}) :: :ok | {:error, term()}
+  def warm(scope, {:provider, provider, opts}),
+    do: RefreshCache.warm(cache_key(provider, opts, scope), fetch_fun(provider, opts, scope))
+
+  defp cache_key(provider, opts, scope) do
+    :crypto.hash(
+      :sha256,
+      :erlang.term_to_binary({:s3_credentials, provider, opts, scope}, [:deterministic])
+    )
+  end
+
+  defp fetch_fun(provider, opts, scope), do: fn -> resolve_provider(provider, scope, opts) end
 
   defp resolve_provider(provider, scope, opts) do
     case provider.fetch_credentials(scope, opts, []) do

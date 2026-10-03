@@ -19,8 +19,9 @@ defmodule ImagePipe.Source.S3.CredentialWarmup do
                       default: [],
                       doc: """
                       The provider's options. They must equal the options in the \
-                      mount's `:credentials`, or requests use a different cache \
-                      entry and the warmup has no effect.
+                      mount's `:credentials`. Otherwise requests use a different \
+                      cache entry, and the warmed credentials are refreshed in \
+                      the background without ever being used.
                       """
                     ]
                   )
@@ -36,8 +37,9 @@ defmodule ImagePipe.Source.S3.CredentialWarmup do
       ]
 
   ImagePipe doesn't start it. Add one per bucket. The children need no
-  explicit ids. Each warmup fetches once without blocking startup, then
-  stops. If the fetch fails, the first request fetches the credentials
+  explicit ids. Each warmup starts the fetch without blocking startup, then
+  stops. The credentials aren't dropped before the first request for the
+  bucket uses them. If the fetch fails, the first request fetches the credentials
   instead. Invalid options raise `ArgumentError` from `start_link/1`.
 
   ## Options
@@ -72,7 +74,7 @@ defmodule ImagePipe.Source.S3.CredentialWarmup do
 
   @impl true
   def handle_continue(:warm_then_stop, state) do
-    _ = Credentials.fetch(state.scope, {:provider, state.provider, state.opts}, [])
+    _ = Credentials.warm(state.scope, {:provider, state.provider, state.opts})
     {:stop, :normal, state}
   end
 end

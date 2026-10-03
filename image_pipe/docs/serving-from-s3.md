@@ -294,9 +294,10 @@ The server fetches credentials at startup for each bucket listed under
 
 <!-- tabs-close -->
 
-A failed fetch at startup is retried by the first request. Credentials that
-no request uses are dropped after five to ten minutes, and the next request
-fetches them again.
+The fetched credentials are kept, and refreshed before they expire, until the
+first request for the bucket. After that, credentials that no request uses
+are dropped after five to ten minutes. A failed fetch at startup is retried
+by the first request.
 
 ## Request object versions
 
