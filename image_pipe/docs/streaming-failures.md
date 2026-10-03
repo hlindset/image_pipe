@@ -56,15 +56,15 @@ response without finishing it:
 - Over HTTP/1.1, the server closes the connection before the body is
   complete, so clients, proxies, and CDNs can tell it was cut short.
 - Over HTTP/2, Bandit (the server behind `image_pipe_server` and new Phoenix
-  apps) leaves the stream open instead of resetting it. The client waits for
-  the rest of the image until its own timeout.
+  apps) resets the stream, so the client sees the request fail.
 
 A browser shows part of the image or a broken image.
 
-ImagePipe abandons the response by raising `ImagePipe.Plug.StreamAbortedError`
-after logging the failure, so the server logs that exception as well. In a
-Plug app, error trackers that capture exceptions from your Plug pipeline
-report it too.
+ImagePipe raises `ImagePipe.Plug.StreamAbortedError` after logging the
+failure, so the server logs that exception as well. Over HTTP/2 with Bandit it
+raises `Bandit.HTTP2.Errors.StreamError` instead. In a Plug app, error
+trackers that capture exceptions from your Plug pipeline report the exception
+too.
 
 ## What the cache keeps
 
@@ -118,8 +118,8 @@ The deadline is set on the pool. See
 
 ## Clients, proxies, and CDNs
 
-Proxies and CDNs don't store a response whose body is incomplete. Over
-HTTP/2 they first wait for their origin timeout. ImagePipe's own cache never
-holds the partial copy either, so the next request gets a complete image.
+Proxies and CDNs don't store a response whose body is incomplete. ImagePipe's
+own cache never holds the partial copy either, so the next request gets a
+complete image.
 Settings that make truncation less likely are in
 [slow clients](deployment.md#slow-clients).

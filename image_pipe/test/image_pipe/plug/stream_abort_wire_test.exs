@@ -101,6 +101,24 @@ defmodule ImagePipe.Plug.StreamAbortWireTest do
     end
   end
 
+  describe "over a real HTTP/2 connection" do
+    test "a stream that fails mid-body is reset" do
+      bandit = start_bandit(config(image_module: ImagePipe.RunTest.LateFailureEncoder))
+      {:ok, {_ip, port}} = ThousandIsland.listener_info(bandit)
+      {:ok, http2} = Mint.HTTP2.connect(:http, "127.0.0.1", port)
+      {:ok, http2, ref} = Mint.HTTP2.request(http2, "GET", @path, [], nil)
+
+      {responses, log} = with_log(fn -> receive_stream(http2, ref, []) end)
+
+      assert {:status, ref, 200} in responses
+
+      assert {:error, ^ref, %Mint.HTTPError{reason: {:server_closed_request, :internal_error}}} =
+               List.last(responses)
+
+      assert log =~ "late encoder failure"
+    end
+  end
+
   test "a cache hit whose body can't be read aborts the response" do
     path = Path.join(System.tmp_dir!(), "stream-abort-#{System.unique_integer([:positive])}")
     File.write!(path, "cached image bytes")
@@ -134,17 +152,43 @@ defmodule ImagePipe.Plug.StreamAbortWireTest do
     Keyword.merge(ImagePipe.Plug.init([sources: @sources] ++ known), seams)
   end
 
-  defp serve(config) do
-    bandit =
-      start_supervised!(
-        {Bandit, plug: {Mounted, config}, port: 0, ip: :loopback, startup_log: false}
-      )
+  defp start_bandit(config) do
+    start_supervised!(
+      {Bandit, plug: {Mounted, config}, port: 0, ip: :loopback, startup_log: false}
+    )
+  end
 
+  defp serve(config) do
+    bandit = start_bandit(config)
     {:ok, {_ip, port}} = ThousandIsland.listener_info(bandit)
     {:ok, socket} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, active: false])
     :ok = :gen_tcp.send(socket, "GET #{@path} HTTP/1.1\r\nhost: localhost\r\n\r\n")
     socket
   end
+
+  # Collects the request's responses until it finishes or fails.
+  defp receive_stream(http2, ref, acc) do
+    receive do
+      message ->
+        case Mint.HTTP2.stream(http2, message) do
+          {:ok, http2, responses} ->
+            acc = acc ++ responses
+
+            if Enum.any?(responses, &finished?(&1, ref)),
+              do: acc,
+              else: receive_stream(http2, ref, acc)
+
+          :unknown ->
+            receive_stream(http2, ref, acc)
+        end
+    after
+      5_000 -> acc
+    end
+  end
+
+  defp finished?({:done, ref}, ref), do: true
+  defp finished?({:error, ref, _reason}, ref), do: true
+  defp finished?(_response, _ref), do: false
 
   # Reads until `done?` holds or the server closes the connection.
   defp read_until(socket, done?, acc \\ "") do

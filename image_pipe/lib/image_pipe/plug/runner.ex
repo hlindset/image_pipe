@@ -41,13 +41,28 @@ defmodule ImagePipe.Plug.Runner do
   # Returning a chunked conn lets the server end the body as if it were
   # complete. Raising makes it drop the connection instead, so clients and
   # CDNs see the truncation.
-  defp abort_failed_stream(%Plug.Conn{
-         state: :chunked,
-         private: %{image_pipe_send_result: :processing_error}
-       }),
-       do: raise(ImagePipe.Plug.StreamAbortedError)
+  defp abort_failed_stream(
+         %Plug.Conn{state: :chunked, private: %{image_pipe_send_result: :processing_error}} =
+           conn
+       ),
+       do: raise_abort(conn.adapter, Plug.Conn.get_http_protocol(conn))
 
   defp abort_failed_stream(conn), do: conn
+
+  # Workaround for Bandit #703 (https://github.com/mtrudel/bandit/issues/703):
+  # over HTTP/2, Bandit leaves a stream open when the plug raises after the
+  # response started, so the client hangs. Only its internal StreamError makes
+  # it send RST_STREAM. Bandit is not a dependency, hence the runtime module
+  # name. Delete this clause once Bandit resets the stream itself.
+  defp raise_abort({Bandit.Adapter, _adapter}, :"HTTP/2") do
+    stream_error = Module.concat(["Bandit", "HTTP2", "Errors", "StreamError"])
+
+    raise stream_error,
+      message: "image response failed after its headers were sent",
+      error_code: 0x2
+  end
+
+  defp raise_abort(_adapter, _protocol), do: raise(ImagePipe.Plug.StreamAbortedError)
 
   # -- route: OPTIONS/405 guards, then parse → prepare → resolve → serve ------
 
