@@ -69,8 +69,9 @@ Immutable sources never expire or revalidate, but remain evictable and still nee
 storage permission. Explicit source TTL/SWR settings conflict with this promise;
 mutable mount defaults are ignored for immutable sources. Revision-addressed S3
 objects are automatically stable. `internal_cache: :disabled` disables both
-pools for a source; HTTP/S3 `:auto` uses origin policy. Local file sources retain
-their existing stability rules and are never copied into the input pool.
+pools for a source, and `:auto` caches subject to the source's storage policy. A local file is
+copied into the input pool only when its mount sets `copy: :keep` (see
+[local files](sources.md#local-files)).
 
 ## Original-byte pool
 
@@ -160,9 +161,9 @@ cache error, and the entry is not stored.
 
 ## Cache keys
 
-ImagePipe derives cache keys from canonical request material
-and source byte identity. Mutable remote identities use the digest of a complete
-original; immutable identities use the source's authoritative seed. Fresh source
+ImagePipe derives cache keys from canonical request material and source byte
+identity. A source that can change is identified by the digest of its complete
+original, and an immutable one by the source's authoritative seed. Fresh source
 evidence allows conditionals before source fetch, decode, or encode.
 
 Input keys include source identity, digested fetch context and storage-only

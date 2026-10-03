@@ -113,6 +113,19 @@ defmodule ImagePipe.Source.FileTest do
     end
   end
 
+  test "fetch rejects a file over the body limit, immutable or not", %{root: root} do
+    for stable <- [:auto, :immutable] do
+      assert {:ok, opts} =
+               SourceFile.validate_options(root: root, root_id: "fixture-root", stable: stable)
+
+      assert {:ok, resolved} =
+               SourceFile.resolve(%SourcePath{segments: ["images", "cat.jpg"]}, opts, [])
+
+      assert SourceFile.fetch(resolved, opts, max_body_bytes: 1) ==
+               {:error, {:source, :body_too_large}}
+    end
+  end
+
   test "fetch reports an unsearchable parent directory as unreadable", %{root: root} do
     assert {:ok, opts} = SourceFile.validate_options(root: root, root_id: "fixture-root")
     images = Path.join(root, "images")
@@ -125,7 +138,7 @@ defmodule ImagePipe.Source.FileTest do
     assert SourceFile.fetch(resolved, opts, []) == {:error, {:source, :unreadable}}
   end
 
-  test "file source defaults to not stable and disables internal cache in auto mode", %{
+  test "file source defaults to content identity with internal cache in auto mode", %{
     root: root
   } do
     assert {:ok, opts} = SourceFile.validate_options(root: root, root_id: "fixture-root")
@@ -133,10 +146,10 @@ defmodule ImagePipe.Source.FileTest do
 
     assert {:ok, resolved} = SourceFile.resolve(source, opts, [])
 
-    assert resolved.internal_cache == :disabled
+    assert resolved.internal_cache == :enabled
     assert resolved.http_cache == :inherit
     assert resolved.cache_semantics.stable? == false
-    assert resolved.cache_semantics.byte_identity == :none
+    assert resolved.cache_semantics.byte_identity == :content
   end
 
   test "immutable file source derives strong byte identity", %{root: root} do

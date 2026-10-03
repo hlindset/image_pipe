@@ -3,7 +3,8 @@ defmodule ImagePipe.Test.ProcessingSource do
   @behaviour ImagePipe.Source
 
   @impl true
-  def source_kinds, do: [:path, :url, :object]
+  def identifiers,
+    do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
   alias ImagePipe.Source.{CacheSemantics, Resolved, Response}
 
@@ -14,11 +15,14 @@ defmodule ImagePipe.Test.ProcessingSource do
   def resolve(source, options, _runtime) do
     {:ok,
      %Resolved{
-       source_kind: Keyword.get(options, :source_kind, :path),
        identity: [path: source.segments],
        internal_cache: :enabled,
        http_cache: :inherit,
-       cache_semantics: %CacheSemantics{byte_identity: {:strong, source.segments}, stable?: true},
+       cache_semantics: %CacheSemantics{
+         byte_identity: {:strong, source.segments},
+         stable?: true,
+         copy?: Keyword.get(options, :copy?, false)
+       },
        fetch: {source.segments, options}
      }}
   end

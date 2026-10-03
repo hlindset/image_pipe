@@ -16,16 +16,6 @@ defmodule ImagePipe.Response.CacheHeadersTest do
              }
     end
 
-    test "uses no-store without an ETag for an unstable representation" do
-      representation = representation(etag: nil, no_store?: true)
-
-      assert CacheHeaders.from_representation(representation) == %CacheHeaders{
-               etag: nil,
-               representation_headers: [],
-               headers: [{"cache-control", "no-store"}]
-             }
-    end
-
     test "omits Vary when the representation has no Vary names" do
       representation = representation(vary: [])
 
@@ -46,8 +36,7 @@ defmodule ImagePipe.Response.CacheHeadersTest do
     defaults = %{
       cache_key: %Key{hash: "cache-key", data: []},
       etag: ~s("etag"),
-      vary: [],
-      no_store?: false
+      vary: []
     }
 
     struct!(Representation, Map.merge(defaults, Map.new(overrides)))

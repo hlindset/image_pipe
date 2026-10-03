@@ -18,7 +18,8 @@ defmodule ImagePipe.TelemetryTest do
     @behaviour ImagePipe.Source
 
     @impl true
-    def source_kinds, do: [:path, :url, :object]
+    def identifiers,
+      do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}
@@ -27,11 +28,13 @@ defmodule ImagePipe.TelemetryTest do
     def resolve(_source, _opts, _runtime_opts) do
       {:ok,
        %ImagePipe.Source.Resolved{
-         source_kind: :path,
          identity: [kind: :path, root: "invalid", path: ["images", "beach.jpg"]],
          internal_cache: :enabled,
          http_cache: :inherit,
-         cache_semantics: %ImagePipe.Source.CacheSemantics{byte_identity: :none, stable?: false},
+         cache_semantics: %ImagePipe.Source.CacheSemantics{
+           byte_identity: :content,
+           stable?: false
+         },
          fetch: :invalid
        }}
     end
@@ -97,7 +100,8 @@ defmodule ImagePipe.TelemetryTest do
     @behaviour ImagePipe.Source
 
     @impl true
-    def source_kinds, do: [:path, :url, :object]
+    def identifiers,
+      do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}
@@ -106,14 +110,23 @@ defmodule ImagePipe.TelemetryTest do
     def resolve(_source, opts, _runtime_opts) do
       {:ok,
        %ImagePipe.Source.Resolved{
-         source_kind: :path,
          identity: [kind: :path, root: "test", path: ["images", "source.tiff"]],
          internal_cache: :enabled,
          http_cache: :inherit,
-         cache_semantics: %ImagePipe.Source.CacheSemantics{byte_identity: :none, stable?: false},
+         cache_semantics: semantics(Keyword.get(opts, :stable, false)),
          fetch: Keyword.fetch!(opts, :body)
        }}
     end
+
+    # A stable source isn't staged, so its body reaches the decoder as a stream.
+    defp semantics(true),
+      do: %ImagePipe.Source.CacheSemantics{
+        byte_identity: {:strong, [:source_bytes]},
+        stable?: true
+      }
+
+    defp semantics(false),
+      do: %ImagePipe.Source.CacheSemantics{byte_identity: :content, stable?: false}
 
     @impl ImagePipe.Source
     def fetch(resolved, _opts, _runtime_opts) do
@@ -125,7 +138,8 @@ defmodule ImagePipe.TelemetryTest do
     @behaviour ImagePipe.Source
 
     @impl true
-    def source_kinds, do: [:path, :url, :object]
+    def identifiers,
+      do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}
@@ -141,7 +155,8 @@ defmodule ImagePipe.TelemetryTest do
     @behaviour ImagePipe.Source
 
     @impl true
-    def source_kinds, do: [:path, :url, :object]
+    def identifiers,
+      do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}
@@ -273,9 +288,8 @@ defmodule ImagePipe.TelemetryTest do
     for stage <- [[:source, :resolve], [:source, :fetch]] do
       assert_event(events, @prefix ++ stage ++ [:start], fn measurements, metadata ->
         assert is_integer(measurements.system_time)
-        assert metadata.source_kind in [:path, :url, :object, :input]
-        assert metadata.source_adapter_kind in [:file, :http, :s3, :custom]
         assert metadata.source_mount == :path
+        refute Map.has_key?(metadata, :source_kind)
         refute Map.has_key?(metadata, :source_adapter)
         refute inspect(metadata) =~ "images/beach.jpg"
         refute inspect(metadata) =~ "origin.test"
@@ -284,8 +298,6 @@ defmodule ImagePipe.TelemetryTest do
       assert_event(events, @prefix ++ stage ++ [:stop], fn measurements, metadata ->
         assert is_integer(measurements.duration)
         assert metadata.result == :ok
-        assert metadata.source_kind in [:path, :url, :object, :input]
-        assert metadata.source_adapter_kind in [:file, :http, :s3, :custom]
         assert metadata.source_mount == :path
         refute Map.has_key?(metadata, :source_adapter)
         refute inspect(metadata) =~ "images/beach.jpg"
@@ -310,8 +322,7 @@ defmodule ImagePipe.TelemetryTest do
       assert is_integer(measurements.duration)
       assert metadata.result == :source_error
       assert metadata.error == :denied_path
-      assert metadata.source_kind == :path
-      assert metadata.source_adapter_kind == :custom
+      assert metadata.source_mount == :path
     end)
   end
 
@@ -701,7 +712,9 @@ defmodule ImagePipe.TelemetryTest do
 
     opts =
       base_opts(
-        sources: [path: [adapter: SourceBytes, match: :path, options: [body: big_body]]],
+        sources: [
+          path: [adapter: SourceBytes, match: :path, options: [body: big_body, stable: true]]
+        ],
         max_body_bytes: 1_000
       )
 

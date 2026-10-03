@@ -21,16 +21,16 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   defmodule StableSource do
     @behaviour ImagePipe.Source
 
-    def source_kinds, do: [:path, :url, :object]
+    def identifiers,
+      do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
-    def validate_options(opts), do: {:ok, Keyword.put_new(opts, :telemetry_kind, :stable_test)}
+    def validate_options(opts), do: {:ok, opts}
 
     def resolve(source, _opts, _runtime_opts) do
       path = source.segments
 
       {:ok,
        %Resolved{
-         source_kind: :path,
          identity: [kind: :path, adapter: :path, root: "wire", path: path],
          internal_cache: :enabled,
          http_cache: :inherit,
@@ -100,41 +100,15 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     def abort_sink(_state, _opts), do: :ok
   end
 
-  defmodule EtaglessCachedSource do
-    @behaviour ImagePipe.Source
-
-    def source_kinds, do: [:path, :url, :object]
-
-    def validate_options(opts), do: {:ok, Keyword.put_new(opts, :telemetry_kind, :etagless_test)}
-
-    def resolve(source, _opts, _runtime_opts) do
-      path = source.segments
-
-      {:ok,
-       %Resolved{
-         source_kind: :path,
-         identity: [kind: :path, adapter: :path, root: "wire-etagless", path: path],
-         internal_cache: :enabled,
-         http_cache: :auto,
-         cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
-         fetch: [path: path]
-       }}
-    end
-
-    def fetch(_resolved, opts, _runtime_opts) do
-      send(Keyword.fetch!(opts, :test_pid), :source_fetch_called)
-      {:ok, %Response{stream: [File.read!("priv/static/images/beach.jpg")]}}
-    end
-  end
-
   # StableSource that sets its own `http_cache`, replacing the mount's.
   defmodule OverridingSource do
     @behaviour ImagePipe.Source
 
-    def source_kinds, do: [:path, :url, :object]
+    def identifiers,
+      do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
     def validate_options(opts),
-      do: {:ok, Keyword.put_new(opts, :telemetry_kind, :overriding_test)}
+      do: {:ok, opts}
 
     def resolve(source, opts, runtime_opts) do
       {:ok, resolved} = StableSource.resolve(source, opts, runtime_opts)
@@ -534,34 +508,6 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     refute_received :source_fetch_called
   end
 
-  test "wildcard if-none-match returns 304 on a cache hit even without a generated etag" do
-    entry = %Entry{
-      body: "cached body",
-      content_type: "image/jpeg",
-      headers: [],
-      created_at: DateTime.utc_now()
-    }
-
-    opts =
-      mount(
-        sources: [
-          path: [adapter: EtaglessCachedSource, match: :path, options: [test_pid: self()]]
-        ],
-        cache: {CacheHitProbe, test_pid: self(), entry: entry}
-      )
-
-    conn =
-      :get
-      |> conn(@image_path)
-      |> put_req_header("if-none-match", "*")
-      |> ImagePipe.Plug.call(opts)
-
-    assert conn.status == 304
-    assert conn.resp_body == ""
-    assert get_resp_header(conn, "etag") == []
-    refute_received :source_fetch_called
-  end
-
   test "if-none-match mixing an explicit tag with a wildcard collapses to wildcard and 304s on a cache hit" do
     entry = %Entry{
       body: "cached body",
@@ -757,32 +703,6 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       assert_received {:http_cache, event, metadata}
       assert event == prefix ++ [:http_cache, :prepare]
       assert metadata == %{effective_mode: :auto, byte_identity: :strong, etag: true}
-
-      refute_received {:http_cache, _event, %{reason: :missing_byte_identity}}
-    end
-
-    test "a byte-identity-less source falls back to no-store", %{prefix: prefix} do
-      opts =
-        mount(
-          sources: [
-            path: [adapter: EtaglessCachedSource, match: :path, options: [test_pid: self()]]
-          ],
-          telemetry_prefix: prefix
-        )
-
-      conn = ImagePipe.Plug.call(conn(:get, @image_path), opts)
-
-      assert conn.status == 200
-      assert get_resp_header(conn, "cache-control") == ["no-store"]
-      assert get_resp_header(conn, "etag") == []
-
-      assert_received {:http_cache, _prepare,
-                       %{effective_mode: :auto, byte_identity: :none, etag: false}}
-
-      assert_received {:http_cache, event, metadata}
-      assert event == prefix ++ [:http_cache, :fallback, :no_store]
-      assert metadata.reason == :missing_byte_identity
-      assert metadata.source_kind == :path
     end
 
     test "a matching conditional request emits the conditional-match event", %{prefix: prefix} do

@@ -82,10 +82,11 @@ presets from the server configuration, not from the builder.
 presets attached, so the builder checks plans against them. HTTP controls
 such as CORS and `http_cache` belong on the Plug mount.
 
-The file example assumes immutable source paths: `stable: :immutable` enables
-caching based on that promise. Give changed files a new identifier. With the
-default `stable: :auto`, configured files remain uncached unless caching is
-explicitly enabled. HTTP sources use origin freshness and validators.
+The file example assumes immutable source paths: `stable: :immutable` lets
+ImagePipe serve cached results without reading the file. Give changed files a
+new identifier. With the default `stable: :auto`, ImagePipe checks each file
+for changes and still reuses cached results while it's unchanged. HTTP sources
+use origin freshness and validators.
 
 ## URL generation
 

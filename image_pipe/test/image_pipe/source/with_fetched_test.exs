@@ -12,7 +12,8 @@ defmodule ImagePipe.Source.WithFetchedTest do
     @behaviour ImagePipe.Source
 
     @impl true
-    def source_kinds, do: [:path, :url, :object]
+    def identifiers,
+      do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}
@@ -31,7 +32,8 @@ defmodule ImagePipe.Source.WithFetchedTest do
     @behaviour ImagePipe.Source
 
     @impl true
-    def source_kinds, do: [:path, :url, :object]
+    def identifiers,
+      do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}
@@ -48,7 +50,8 @@ defmodule ImagePipe.Source.WithFetchedTest do
     @behaviour ImagePipe.Source
 
     @impl true
-    def source_kinds, do: [:path, :url, :object]
+    def identifiers,
+      do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}
@@ -65,11 +68,10 @@ defmodule ImagePipe.Source.WithFetchedTest do
   defp resolved(adapter, fetch) do
     %Resolved{
       mount: adapter,
-      source_kind: :path,
       identity: [kind: :path, root: "test", path: ["images", "cat.jpg"]],
       internal_cache: :enabled,
       http_cache: :inherit,
-      cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
+      cache_semantics: %CacheSemantics{byte_identity: :content, stable?: false},
       fetch: fetch
     }
   end

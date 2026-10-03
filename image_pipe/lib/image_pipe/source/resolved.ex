@@ -13,7 +13,6 @@ defmodule ImagePipe.Source.Resolved do
   alias ImagePipe.Source.CacheSemantics
 
   @enforce_keys [
-    :source_kind,
     :identity,
     :internal_cache,
     :http_cache,
@@ -27,7 +26,6 @@ defmodule ImagePipe.Source.Resolved do
 
   @type t :: %__MODULE__{
           mount: atom() | nil,
-          source_kind: :path | :url | :object | :input,
           identity: term(),
           internal_cache: internal_cache(),
           http_cache: http_cache(),

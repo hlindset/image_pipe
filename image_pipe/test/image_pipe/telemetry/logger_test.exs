@@ -1016,12 +1016,12 @@ defmodule ImagePipe.Telemetry.LoggerTest do
         :telemetry.execute(
           [:image_pipe, :http_cache, :fallback, :no_store],
           %{},
-          %{adapter: SomeAdapter, source_kind: :url, reason: :missing_byte_identity}
+          %{source_mount: :web, reason: :detection_failed}
         )
       end)
 
     refute log =~ "[warning]"
-    assert log =~ "http_cache fallback no_store: missing_byte_identity"
+    assert log =~ "http_cache fallback no_store: detection_failed (mount web)"
   end
 
   test "logs the http_cache cache-hit headers one-shot" do

@@ -36,26 +36,52 @@ defmodule ImagePipe.Source.Input do
 
   def prepare(_input, _config), do: {:error, {:invalid_source, :invalid_input}}
 
-  def resolve(%__MODULE__{kind: kind, value: value}, _opts, _runtime) do
-    {:ok,
-     %Resolved{
-       source_kind: :input,
-       identity: [kind: :local_input],
-       internal_cache: :disabled,
-       http_cache: :validators,
-       cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
-       fetch: {kind, value}
-     }}
+  # Direct inputs aren't staged, so their digest is taken here: the bytes in
+  # hand, or one read of the file.
+  def resolve(%__MODULE__{kind: kind, value: value}, _opts, runtime) do
+    with {:ok, digest} <- digest(kind, value, runtime) do
+      {:ok,
+       %Resolved{
+         identity: [kind: :local_input],
+         internal_cache: :disabled,
+         http_cache: :validators,
+         cache_semantics: %CacheSemantics{
+           byte_identity: {:strong, {:sha256, digest}},
+           stable?: true
+         },
+         fetch: {kind, value}
+       }}
+    end
+  end
+
+  defp digest(:binary, bytes, _runtime), do: {:ok, :crypto.hash(:sha256, bytes)}
+
+  defp digest(:file, path, runtime) do
+    with :ok <- check_file(path, runtime) do
+      digest =
+        path
+        |> File.stream!(65_536)
+        |> Enum.reduce(:crypto.hash_init(:sha256), &:crypto.hash_update(&2, &1))
+        |> :crypto.hash_final()
+
+      {:ok, digest}
+    end
+  rescue
+    _error in File.Error -> {:error, {:source, :unreadable}}
   end
 
   def fetch(%Resolved{fetch: {:binary, bytes}}, _opts, _runtime),
     do: {:ok, %Response{stream: [bytes]}}
 
   def fetch(%Resolved{fetch: {:file, path}}, _opts, runtime) do
+    with :ok <- check_file(path, runtime), do: {:ok, %Response{path: path}}
+  end
+
+  defp check_file(path, runtime) do
     limit = Keyword.fetch!(runtime, :max_body_bytes)
 
     case File.stat(path) do
-      {:ok, %{type: :regular, size: size}} when size <= limit -> {:ok, %Response{path: path}}
+      {:ok, %{type: :regular, size: size}} when size <= limit -> :ok
       {:ok, %{type: :regular}} -> {:error, {:source, :body_too_large}}
       {:ok, _non_regular} -> {:error, {:source, :not_regular_file}}
       {:error, reason} -> {:error, {:source, reason}}

@@ -65,7 +65,7 @@ defmodule ImagePipe.Source.S3 do
                   )
 
   @impl Source
-  def source_kinds, do: [:object]
+  def identifiers, do: [Object]
 
   @impl Source
   def validate_options(opts) when is_list(opts) do
@@ -73,7 +73,7 @@ defmodule ImagePipe.Source.S3 do
          {:ok, default} <- validate_config(Keyword.fetch!(validated, :default)),
          {:ok, default} <- CacheSettings.validate(default),
          {:ok, buckets} <- validate_buckets(Keyword.fetch!(validated, :buckets), default) do
-      {:ok, [default: default, buckets: buckets, telemetry_kind: :s3]}
+      {:ok, [default: default, buckets: buckets]}
     end
   end
 
@@ -101,7 +101,7 @@ defmodule ImagePipe.Source.S3 do
 
       # A version ID pins the object's bytes, so a revision makes it stable.
       stable? = CacheSettings.immutable?(config) or revision not in [nil, ""]
-      cache = CacheSettings.fields(config, stable?: stable?, seed: identity, auto: :enabled)
+      cache = CacheSettings.fields(config, stable?: stable?, seed: identity, copy?: true)
 
       fetch =
         [
@@ -116,7 +116,7 @@ defmodule ImagePipe.Source.S3 do
         ]
         |> Keyword.merge(Keyword.take(config, @timeout_keys))
 
-      {:ok, struct!(Resolved, [source_kind: :object, identity: identity, fetch: fetch] ++ cache)}
+      {:ok, struct!(Resolved, [identity: identity, fetch: fetch] ++ cache)}
     end
   end
 

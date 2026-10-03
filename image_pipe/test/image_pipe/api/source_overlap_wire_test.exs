@@ -154,7 +154,7 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
               bytes: context.body,
               stream: stream,
               origin: origin,
-              source_kind: :url
+              copy?: true
             ]
           ]
         ],

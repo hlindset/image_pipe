@@ -175,6 +175,8 @@ One table per named source mount. The table name is the mount name. Besides
 | --- | --- | --- |
 | `root` | string |  |
 | `root_id` | string |  |
+| `verify` | `"stat"` or `"hash"` | `"stat"` |
+| `copy` | `"none"` or `"keep"` | `"none"` |
 | `stable` | `"auto"` or `"immutable"` | `"auto"` |
 | `internal_cache` | `"auto"` or `"enabled"` or `"disabled"` | `"auto"` |
 | `http_cache` | `"inherit"` or `"validators"` or `"auto"` or `"public"` or `"private"` | `"inherit"` |

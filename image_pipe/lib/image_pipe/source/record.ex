@@ -15,7 +15,7 @@ defmodule ImagePipe.Source.Record do
   def new(source, digest, origin, now) do
     identity =
       case source.cache_semantics.byte_identity do
-        :none -> {:strong, {:source_sha256, digest}}
+        :content -> {:strong, {:source_sha256, digest}}
         strong -> strong
       end
 

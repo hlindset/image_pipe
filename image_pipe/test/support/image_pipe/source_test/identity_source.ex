@@ -6,7 +6,8 @@ defmodule ImagePipe.SourceTest.IdentitySource do
   @behaviour ImagePipe.Source
 
   @impl true
-  def source_kinds, do: [:path, :url, :object]
+  def identifiers,
+    do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
   @impl true
   def validate_options(opts), do: {:ok, opts}
@@ -15,7 +16,6 @@ defmodule ImagePipe.SourceTest.IdentitySource do
   def resolve(source, opts, _runtime) do
     {:ok,
      %Resolved{
-       source_kind: :path,
        identity: [path: source.segments],
        internal_cache: :enabled,
        http_cache: :inherit,

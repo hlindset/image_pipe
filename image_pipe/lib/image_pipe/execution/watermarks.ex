@@ -120,11 +120,7 @@ defmodule ImagePipe.Execution.Watermarks do
 
   def byte_identity(main, watermarks) do
     identities = [main | Enum.map(watermarks, &Watermark.byte_identity/1)]
-
-    case Enum.all?(identities, &match?({:strong, _seed}, &1)) do
-      true -> {:strong, Enum.map(identities, fn {:strong, seed} -> seed end)}
-      false -> :none
-    end
+    {:strong, Enum.map(identities, fn {:strong, seed} -> seed end)}
   end
 
   defp start(phase, fun, config) do

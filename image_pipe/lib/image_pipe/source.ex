@@ -78,12 +78,12 @@ defmodule ImagePipe.Source do
   @type error :: {:source, atom() | tuple()}
 
   @doc """
-  The kinds of plan source the adapter resolves: `:path` for
-  `ImagePipe.Plan.Source.Path`, `:url` for `ImagePipe.Plan.Source.URL`, and
-  `:object` for `ImagePipe.Plan.Source.Object`. A mount whose match rules would
-  route another kind to the adapter fails configuration.
+  The identifier structs the adapter's `c:resolve/3` accepts, from
+  `ImagePipe.Plan.Source.Path`, `ImagePipe.Plan.Source.URL`, and
+  `ImagePipe.Plan.Source.Object`. A mount whose match rules would route another
+  identifier to the adapter fails configuration.
   """
-  @callback source_kinds() :: [:path | :url | :object]
+  @callback identifiers() :: [module()]
   @callback validate_options(keyword()) :: {:ok, keyword()} | {:error, term()}
   @callback resolve(PlanSource.t(), keyword(), keyword()) ::
               {:ok, Resolved.t()} | {:error, error()}
@@ -95,7 +95,6 @@ defmodule ImagePipe.Source do
   @callback fetch(Resolved.t(), keyword(), keyword()) ::
               {:ok, Response.t()} | {:not_modified, Origin.t()} | {:error, error()}
 
-  @source_kinds [:path, :url, :object, :input]
   @internal_cache_policies [:enabled, :disabled]
   @http_cache_policies [:inherit, :validators, :auto, :public, :private]
 
@@ -131,12 +130,19 @@ defmodule ImagePipe.Source do
       # is also a compiled regex, which has no stable serialization.
       context =
         {module,
-         Keyword.drop(opts, [:cache_policy, :stable, :internal_cache, :http_cache, :path_pattern]),
-         prepared.fetch}
+         Keyword.drop(opts, [
+           :cache_policy,
+           :stable,
+           :internal_cache,
+           :http_cache,
+           :path_pattern,
+           :verify,
+           :copy
+         ]), prepared.fetch}
 
       identity =
         case prepared.cache_semantics.byte_identity do
-          :none -> :none
+          :content -> :content
           {:strong, seed} -> {:strong, {seed, ImagePipe.MaterialDigest.of(context)}}
         end
 
@@ -180,7 +186,7 @@ defmodule ImagePipe.Source do
   @spec translate_configured(String.t(), keyword()) :: {:ok, PlanSource.t()} | {:error, term()}
   def translate_configured(source, opts) when is_binary(source) do
     with {:ok, plan_source} <- Parser.translate(source, opts),
-         {:ok, _name, _kind, _source} <- Mounts.route(plan_source, mounts(opts)) do
+         {:ok, _name, _source} <- Mounts.route(plan_source, mounts(opts)) do
       {:ok, plan_source}
     end
   end
@@ -189,16 +195,15 @@ defmodule ImagePipe.Source do
   @spec resolve(PlanSource.t() | Input.t(), keyword(), keyword()) ::
           {:ok, Resolved.t()} | {:error, error()}
   def resolve(%Input{} = source, _opts, runtime_opts),
-    do: resolve_with(Input, [], nil, :input, source, runtime_opts, [])
+    do: resolve_with(Input, [], nil, source, runtime_opts, [])
 
   def resolve(source, opts, runtime_opts) do
-    with {:ok, name, source_kind, source} <- Mounts.route(source, mounts(opts)),
+    with {:ok, name, source} <- Mounts.route(source, mounts(opts)),
          {:ok, module, adapter_opts} <- Mounts.fetch(mounts(opts), name) do
       resolve_with(
         module,
         adapter_opts,
         name,
-        source_kind,
         source,
         runtime_opts,
         Keyword.get(opts, :source_cache_policy, [])
@@ -206,8 +211,8 @@ defmodule ImagePipe.Source do
     end
   end
 
-  defp resolve_with(module, adapter_opts, name, source_kind, source, runtime_opts, policy) do
-    source_metadata = source_metadata(source_kind, adapter_opts, name)
+  defp resolve_with(module, adapter_opts, name, source, runtime_opts, policy) do
+    source_metadata = %{source_mount: name}
     telemetry_opts = Telemetry.telemetry_opts(runtime_opts)
 
     Telemetry.span(telemetry_opts, [:source, :resolve], source_metadata, fn ->
@@ -232,7 +237,7 @@ defmodule ImagePipe.Source do
 
   defp put_mount(error, _name), do: error
 
-  defp mount_config(%Resolved{source_kind: :input}, _opts), do: {:ok, Input, []}
+  defp mount_config(%Resolved{mount: nil}, _opts), do: {:ok, Input, []}
   defp mount_config(%Resolved{mount: name}, opts), do: Mounts.fetch(mounts(opts), name)
 
   defp apply_cache_policy({:ok, resolved}, defaults) do
@@ -264,7 +269,7 @@ defmodule ImagePipe.Source do
           {:ok, Response.t()} | {:not_modified, Origin.t()} | {:error, error()}
   def fetch(%Resolved{} = resolved, opts, runtime_opts) do
     with {:ok, module, adapter_opts} <- mount_config(resolved, opts) do
-      source_metadata = source_metadata(resolved.source_kind, adapter_opts, resolved.mount)
+      source_metadata = %{source_mount: resolved.mount}
 
       telemetry_opts = Telemetry.telemetry_opts(runtime_opts)
 
@@ -377,36 +382,31 @@ defmodule ImagePipe.Source do
   end
 
   defp valid_resolved?(%Resolved{} = resolved) do
-    resolved.source_kind in @source_kinds and
-      resolved.internal_cache in @internal_cache_policies and
+    resolved.internal_cache in @internal_cache_policies and
       resolved.http_cache in @http_cache_policies and
       valid_cache_semantics?(resolved.cache_semantics) and
       Identity.valid?(resolved.identity)
   end
 
   defp valid_cache_semantics?(%CacheSemantics{
-         byte_identity: :none,
+         byte_identity: :content,
          stable?: false,
-         policy: policy
-       }),
+         policy: policy,
+         copy?: copy?
+       })
+       when is_boolean(copy?),
        do: match?({:ok, _}, CachePolicy.validate(policy))
 
   defp valid_cache_semantics?(%CacheSemantics{
          byte_identity: {:strong, _seed},
          stable?: true,
-         policy: policy
-       }),
+         policy: policy,
+         copy?: copy?
+       })
+       when is_boolean(copy?),
        do: match?({:ok, _}, CachePolicy.validate(policy))
 
   defp valid_cache_semantics?(_cache_semantics), do: false
-
-  defp source_metadata(source_kind, adapter_opts, mount) do
-    %{
-      source_mount: mount,
-      source_kind: source_kind,
-      source_adapter_kind: Keyword.get(adapter_opts, :telemetry_kind, :custom)
-    }
-  end
 
   defp result_metadata({:ok, _value}), do: %{result: :ok}
   defp result_metadata({:not_modified, _origin}), do: %{result: :not_modified}

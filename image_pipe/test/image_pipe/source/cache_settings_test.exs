@@ -13,10 +13,15 @@ defmodule ImagePipe.Source.CacheSettingsTest do
 
     refute CacheSettings.immutable?(opts)
 
-    assert CacheSettings.fields(opts, stable?: false, seed: [id: 1], auto: :enabled) == [
+    assert CacheSettings.fields(opts, stable?: false, seed: [id: 1], copy?: true) == [
              internal_cache: :enabled,
              http_cache: :inherit,
-             cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false, policy: []}
+             cache_semantics: %CacheSemantics{
+               byte_identity: :content,
+               stable?: false,
+               policy: [],
+               copy?: true
+             }
            ]
   end
 
@@ -25,7 +30,7 @@ defmodule ImagePipe.Source.CacheSettingsTest do
 
     assert CacheSettings.immutable?(opts)
 
-    fields = CacheSettings.fields(opts, stable?: true, seed: [id: 1], auto: :when_stable)
+    fields = CacheSettings.fields(opts, stable?: true, seed: [id: 1], copy?: false)
 
     assert fields[:cache_semantics] == %CacheSemantics{
              byte_identity: {:strong, [id: 1]},
@@ -34,23 +39,18 @@ defmodule ImagePipe.Source.CacheSettingsTest do
            }
   end
 
-  test "internal_cache :auto follows the adapter's rule; explicit modes win" do
-    auto = settings()
-
-    for {stable?, rule, expected} <- [
-          {false, :enabled, :enabled},
-          {true, :enabled, :enabled},
-          {false, :when_stable, :disabled},
-          {true, :when_stable, :enabled}
-        ] do
-      assert CacheSettings.fields(auto, stable?: stable?, seed: [], auto: rule)[:internal_cache] ==
-               expected
+  test "internal_cache :auto enables internal caching; explicit modes win" do
+    for stable? <- [false, true] do
+      assert CacheSettings.fields(settings(), stable?: stable?, seed: [], copy?: false)[
+               :internal_cache
+             ] ==
+               :enabled
     end
 
-    for mode <- [:enabled, :disabled], rule <- [:enabled, :when_stable] do
+    for mode <- [:enabled, :disabled] do
       opts = settings(internal_cache: mode)
 
-      assert CacheSettings.fields(opts, stable?: false, seed: [], auto: rule)[:internal_cache] ==
+      assert CacheSettings.fields(opts, stable?: false, seed: [], copy?: false)[:internal_cache] ==
                mode
     end
   end

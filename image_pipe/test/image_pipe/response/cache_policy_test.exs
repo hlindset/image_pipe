@@ -19,8 +19,7 @@ defmodule ImagePipe.Response.CachePolicyTest do
     %Representation{
       cache_key: %Key{hash: "deadbeef", data: []},
       etag: Keyword.get(overrides, :etag, ~s("ipr1-abc")),
-      vary: Keyword.get(overrides, :vary, []),
-      no_store?: Keyword.get(overrides, :no_store?, false)
+      vary: Keyword.get(overrides, :vary, [])
     }
   end
 
@@ -28,8 +27,7 @@ defmodule ImagePipe.Response.CachePolicyTest do
     Enum.into(overrides, %{
       byte_identity: {:strong, "seed"},
       stable?: true,
-      source_mount: :web,
-      source_kind: :url
+      source_mount: :web
     })
   end
 
@@ -67,16 +65,6 @@ defmodule ImagePipe.Response.CachePolicyTest do
   test ":validators emits the representation's ETag and no Cache-Control" do
     assert %CacheHeaders{headers: [{"etag", ~s("ipr1-abc")}], etag: ~s("ipr1-abc")} =
              generate(conn(:get, "/x"), representation(), facts(), :validators)
-  end
-
-  test ":validators falls back to no-store without byte identity" do
-    assert %CacheHeaders{headers: [{"cache-control", "no-store"}], etag: nil} =
-             generate(
-               conn(:get, "/x"),
-               representation(etag: nil, no_store?: true),
-               facts(byte_identity: :none, stable?: false),
-               :validators
-             )
   end
 
   test ":validators withholds the ETag when the source denies storage" do
@@ -145,15 +133,6 @@ defmodule ImagePipe.Response.CachePolicyTest do
              generate(conn, representation(), facts())
   end
 
-  test "a no-store representation gets Cache-Control: no-store and no ETag" do
-    assert %CacheHeaders{headers: [{"cache-control", "no-store"}], etag: nil} =
-             generate(
-               conn(:get, "/x"),
-               representation(etag: nil, no_store?: true),
-               facts(byte_identity: :none, stable?: false)
-             )
-  end
-
   test "a non-GET/HEAD method generates nothing" do
     assert %CacheHeaders{headers: [], etag: nil} =
              generate(conn(:post, "/x"), representation(), facts())
@@ -175,22 +154,25 @@ defmodule ImagePipe.Response.CachePolicyTest do
     assert metadata == %{effective_mode: :auto, byte_identity: :strong, etag: true}
   end
 
-  test "no-store fallback telemetry fires with source_mount, source_kind, and reason" do
+  test "degraded output is no-store and fires fallback telemetry" do
     attach_telemetry([[:cache_policy_test, :http_cache, :fallback, :no_store]])
 
-    generate(
-      conn(:get, "/x"),
-      representation(etag: nil, no_store?: true),
-      facts(byte_identity: :none, stable?: false)
-    )
+    assert %CacheHeaders{headers: [{"cache-control", "no-store"}], etag: nil} =
+             CachePolicy.generate(
+               conn(:get, "/x"),
+               representation(),
+               facts(),
+               :auto,
+               config(),
+               true
+             )
 
     assert_receive {:telemetry_event, [:cache_policy_test, :http_cache, :fallback, :no_store],
                     %{}, metadata}
 
     assert metadata == %{
              source_mount: :web,
-             source_kind: :url,
-             reason: :missing_byte_identity
+             reason: :detection_failed
            }
   end
 

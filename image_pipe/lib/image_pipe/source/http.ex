@@ -71,7 +71,7 @@ defmodule ImagePipe.Source.HTTP do
   def options_schema, do: @options_schema.schema
 
   @impl Source
-  def source_kinds, do: [:path, :url]
+  def identifiers, do: [SourcePath, URL]
 
   @impl Source
   def validate_options(opts) do
@@ -79,7 +79,6 @@ defmodule ImagePipe.Source.HTTP do
          {:ok, validated} <- validate_base_url(validated) do
       validated
       |> Keyword.update!(:allowed_hosts, fn hosts -> Enum.map(hosts, &String.downcase/1) end)
-      |> Keyword.put(:telemetry_kind, :http)
       |> CacheSettings.validate()
     end
   end
@@ -231,14 +230,13 @@ defmodule ImagePipe.Source.HTTP do
         CacheSettings.fields(opts,
           stable?: stable?,
           seed: redacted_http_identity(identity),
-          auto: :enabled
+          copy?: true
         )
 
       {:ok,
        struct!(
          Resolved,
          [
-           source_kind: :url,
            identity: identity,
            fetch: [
              url: build_url(%{source | host: host, port: port}),
