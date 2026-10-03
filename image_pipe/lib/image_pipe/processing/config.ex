@@ -4,6 +4,7 @@ defmodule ImagePipe.Processing.Config do
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
   alias ImagePipe.Plan.Output.QualitySearch.Metric
   alias ImagePipe.Telemetry
+  alias ImagePipe.Transform
 
   @default_max_body_bytes 10_000_000
   @default_max_input_pixels 40_000_000
@@ -276,10 +277,11 @@ defmodule ImagePipe.Processing.Config do
                       default: false,
                       doc: """
                       Fail requests that ask for detection when it can't run: `501` when \
-                      the detector isn't installed, `503` when its models aren't \
-                      downloaded, and `500` when detection fails. With `false`, the crop \
-                      falls back to attention cropping. `anchor=smart-face` always falls \
-                      back.
+                      the detector can't detect the requested classes in this build, `503` \
+                      when its models aren't downloaded, and `500` when detection fails. \
+                      With `false`, the crop falls back to attention cropping. \
+                      `anchor=smart-face` always falls back. With `true`, `ImagePipe.config/1` \
+                      raises `ArgumentError` when the detector can't detect any class.
                       """
                     ],
                     telemetry_prefix: [
@@ -379,7 +381,30 @@ defmodule ImagePipe.Processing.Config do
     validate_allowed_error!(Keyword.fetch!(resolved, :autoquality_allowed_error))
     validate_brackets!(resolved)
     validate_encoder_options!(resolved)
+    validate_detector_required!(resolved)
     :ok
+  end
+
+  # Requests check availability per class, so a detector that can run any of
+  # its classes may be required.
+  defp validate_detector_required!(resolved) do
+    detector = Keyword.get(resolved, :detector, :default)
+
+    if Keyword.get(resolved, :detector_required, false) and not detects_any_class?(detector) do
+      raise ArgumentError,
+            "invalid ImagePipe processing options: detector_required: " <>
+              "the detector is not available in this build"
+    end
+  end
+
+  defp detects_any_class?(detector) do
+    case Transform.resolve_detector(detector) do
+      nil ->
+        false
+
+      module ->
+        Enum.any?(module.supported_classes([]), &module.available?(classes: [&1]))
+    end
   end
 
   defp validate_encoder_options!(resolved) do

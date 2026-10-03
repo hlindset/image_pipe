@@ -5,6 +5,8 @@ defmodule ImagePipe.Plug.ConfigTest do
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
   alias ImagePipe.Plug.Config
   alias ImagePipe.Security.SourceEncryption
+  alias ImagePipe.Test.DetectorFixtures.PartialDetector
+  alias ImagePipe.Test.DetectorFixtures.UnavailableDetector
 
   @source_key :binary.copy(<<42>>, 32)
   @signing_key String.duplicate("a1", 32)
@@ -22,7 +24,29 @@ defmodule ImagePipe.Plug.ConfigTest do
   test "accepts a custom detector or explicitly disabled detection" do
     assert Config.validate!(detector: CustomDetector)[:detector] == CustomDetector
     assert Config.validate!(detector: nil)[:detector] == nil
-    assert Config.validate!(detector_required: true)[:detector_required] == true
+  end
+
+  test "detector_required needs a detector that can detect at least one class" do
+    message =
+      "invalid ImagePipe processing options: detector_required: " <>
+        "the detector is not available in this build"
+
+    for detector <- [nil, UnavailableDetector] do
+      error =
+        assert_raise ArgumentError, fn ->
+          Config.validate!(detector: detector, detector_required: true)
+        end
+
+      assert error.message == message
+
+      assert_raise ArgumentError, message, fn ->
+        ImagePipe.config(detector: detector, detector_required: true)
+      end
+    end
+
+    assert Config.validate!(detector: PartialDetector, detector_required: true)[
+             :detector_required
+           ]
   end
 
   test "rejects malformed detector configuration" do

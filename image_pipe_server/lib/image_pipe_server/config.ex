@@ -233,7 +233,7 @@ defmodule ImagePipeServer.Config do
       http: http!(Keyword.get(sections, :http, [])),
       pool: pool,
       telemetry: telemetry(Keyword.get(sections, :telemetry, [])),
-      detector_warmup: detector_warmup!(image_pipe.options),
+      detector_warmup: detector_warmup(image_pipe.options),
       credential_warmups: credential_warmups(Keyword.get(sections, :sources, []))
     }
   end
@@ -336,21 +336,11 @@ defmodule ImagePipeServer.Config do
     validate!([name: @pool] ++ options, ImagePipe.ProcessingPool.options_schema(), "pool")
   end
 
-  defp detector_warmup!(image_pipe) do
+  defp detector_warmup(image_pipe) do
     detector = Keyword.fetch!(image_pipe, :detector)
 
-    cond do
-      ImagePipe.Transform.detector_available?(detector, classes: :all) ->
-        [detector: detector]
-
-      Keyword.fetch!(image_pipe, :detector_required) ->
-        raise ConfigError,
-              "invalid configuration: processing.detector_required: " <>
-                "the detector is not available in this build"
-
-      true ->
-        nil
-    end
+    if ImagePipe.Transform.detector_available?(detector, classes: :all),
+      do: [detector: detector]
   end
 
   # Credentials are scoped by bucket, so only named buckets can be warmed.

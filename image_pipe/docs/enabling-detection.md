@@ -135,10 +135,23 @@ detector_required = true
 [Missing or failed detection](content-aware-gravity.md#missing-or-failed-detection)
 explains when to require detection.
 
-`image_pipe_server` also checks for the detector when it starts. The plain
-image refuses to start with `detector_required = true` and logs
-`invalid configuration: processing.detector_required: the detector is not
-available in this build`.
+A configuration that requires detection without a working detector fails
+before it serves anything, with the message `detector_required: the
+detector is not available in this build`:
+
+<!-- tabs-open -->
+
+### Plug
+
+`ImagePipe.config/1`, the `ImagePipe` child specification, and an
+`ImagePipe.Plug` mount configured in the router raise `ArgumentError`.
+
+### image_pipe_server
+
+The image without the `-vision` variant refuses to start and logs the
+message.
+
+<!-- tabs-close -->
 
 ## Check that detection runs
 

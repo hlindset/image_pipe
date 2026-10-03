@@ -97,7 +97,8 @@ These fallbacks treat detection as a hint: a picture is always served,
 even if the crop misses the subject. A server can instead treat it as a
 requirement (`detector_required`), and fail a `detect` request that can't
 run detection. That suits sites where a wrong crop is worse than a missing
-image, and it surfaces a deployment that lost its detector.
+image. A server that requires detection also refuses to start without a
+working detector.
 [Error responses](errors.md) lists the statuses.
 
 A class the detector doesn't know, such as `detect=unicorn`, fails with

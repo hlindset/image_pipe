@@ -38,7 +38,7 @@ detail than the response, which deliberately says less.
 | `405` | The method isn't `GET`, `HEAD`, or `OPTIONS`. The response carries `Allow`. |
 | `410` | The request's `expires` time has passed. |
 | `500` | A looked-up preset definition is invalid, or the request looks up more presets than the configuration allows. |
-| `501` | Detection was requested, the configuration requires it, and no detector is available. When detection isn't required, such requests [fall back to attention cropping](content-aware-gravity.md#missing-or-failed-detection). |
+| `501` | Detection was requested, the configuration requires it, and the detector can't detect the requested classes in this build. When detection isn't required, such requests [fall back to attention cropping](content-aware-gravity.md#missing-or-failed-detection). |
 | `503` | The preset lookup is unavailable, or detection was requested, the configuration requires it, and the detection models aren't downloaded yet. |
 
 All of these return before source resolution, fetch, or cache access.

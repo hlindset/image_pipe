@@ -236,7 +236,7 @@ defmodule ImagePipeServer.ConfigTest do
     test "rejects a required detector the build doesn't have" do
       assert error(fn ->
                Config.build!(Config.options!(%{"processing" => %{"detector_required" => true}}))
-             end) =~ "processing.detector_required: the detector is not available in this build"
+             end) =~ "detector_required: the detector is not available in this build"
     end
 
     test "warms S3 credential providers for each named bucket" do

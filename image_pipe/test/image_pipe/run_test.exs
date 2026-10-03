@@ -10,6 +10,7 @@ defmodule ImagePipe.RunTest do
   alias ImagePipe.RunTest.LateFailureEncoder
   alias ImagePipe.RunTest.OwnedSource
   alias ImagePipe.Source
+  alias ImagePipe.Test.DetectorFixtures.PartialDetector
 
   setup do
     image = Image.new!(60, 40, color: [80, 120, 160])
@@ -234,8 +235,8 @@ defmodule ImagePipe.RunTest do
        %{result: :parser_error}},
       {IP.URL.output(IP.URL.new(), hdr: :preserve, color_profile: {:convert, :srgb}),
        {:binary, bytes}, [], %{result: :plan_error}},
-      {IP.URL.group(IP.URL.new(), crop: {10, 10}, detect: ["face"]), {:binary, bytes},
-       [detector: nil, detector_required: true], %{result: :plan_error}},
+      {IP.URL.group(IP.URL.new(), crop: {10, 10}, detect: ["car"]), {:binary, bytes},
+       [detector: PartialDetector, detector_required: true], %{result: :plan_error}},
       {IP.URL.new(), {:file, "/missing/image.png"}, [], %{result: :source_error, error: :source}},
       {IP.URL.new(), {:binary, "invalid image"}, [], %{result: :processing_error, error: :decode}}
     ]
