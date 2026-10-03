@@ -175,7 +175,7 @@ defmodule ImagePipe.Processing.Config do
                       processed when the request names no other `format` and draws no \
                       watermark. The unchanged original keeps its metadata, including any \
                       location data, and only `:max_body_bytes` limits it. See \
-                      [skip processing](api_contract.md#skip-processing). The default value \
+                      [formats](processing/output.md#format). The default value \
                       is `[]`.
                       """
                     ],

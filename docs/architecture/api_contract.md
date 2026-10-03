@@ -1,7 +1,7 @@
 # API semantics
 
-For setup and everyday usage, start with the [documentation overview](index.md).
-The [processing reference](processing.md) organizes options by task with URL and
+For setup and everyday usage, start with the [documentation overview](../../image_pipe/docs/index.md).
+The [processing reference](../../image_pipe/docs/processing.md) organizes options by task with URL and
 Elixir examples. This contract specifies public processing and request semantics.
 
 ## Processing model
@@ -36,10 +36,10 @@ configuration owns source/cache adapters, generation limits, output defaults,
 detection, watermarks, storage partitions, presets, request defaults, and the
 preset lookup. Plug configuration adds
 HTTP delivery controls. Source adapters validate their own options, including
-network limits and credentials. See the [configuration reference](configuration.md).
+network limits and credentials. See the [configuration reference](../../image_pipe/docs/configuration.md).
 
 Request defaults can set options such as `orient` and `anchor=smart-face` for
-every request. Generated [HTTP cache policy](cdn-http-cache.md) respects
+every request. Generated [HTTP cache policy](../../image_pipe/docs/cdn-http-cache.md) respects
 host headers and source storage permission.
 
 ## Processing semantics
@@ -234,14 +234,14 @@ and is sent with `Cache-Control: no-store` and no ETag.
 Representation identity includes the detector identities relevant to every
 group, including face models used by `smart-face`. Both storage keys and
 ETags change when a relevant model changes; unrelated model changes leave
-them stable. See [content-aware cropping](content-aware-gravity.md) for
-weighting and [enabling detection](enabling-detection.md) for host
+them stable. See [content-aware cropping](../../image_pipe/docs/content-aware-gravity.md) for
+weighting and [enabling detection](../../image_pipe/docs/enabling-detection.md) for host
 configuration and warmup.
 
 ### Sources
 
 All source forms route through the configured source mounts (see
-[sources](sources.md#routing-image-paths-to-sources)). `src/<source>` percent-decodes its
+[sources](../../image_pipe/docs/sources.md#routing-image-paths-to-sources)). `src/<source>` percent-decodes its
 tail once; `src64/<source>` decodes unpadded base64url. After this outer
 decoding:
 
@@ -335,7 +335,7 @@ guessing source values by comparison. Source hostnames, paths, filenames,
 and query parameters are encrypted. Keys are redacted from configuration
 inspection. Clients receive only the completed signed URL.
 
-See [source encryption keys](shared-url-settings.md#source-encryption-keys) for builder
+See [source encryption keys](../../image_pipe/docs/shared-url-settings.md#source-encryption-keys) for builder
 and mount setup. The generation mode does not restrict decryption, and the
 mount prefix is outside the signed path. For lower-level integration,
 `ImagePipe.URL.encrypt_source(source,

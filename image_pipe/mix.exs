@@ -64,8 +64,7 @@ defmodule ImagePipe.MixProject do
       "docs/cdn-http-cache.md",
       "docs/errors.md",
       "docs/telemetry-events.md",
-      "docs/debug_headers.md",
-      "docs/api_contract.md"
+      "docs/debug_headers.md"
     ],
     Project: ["README.md", "CHANGELOG.md", "LICENSE.md"]
   ]

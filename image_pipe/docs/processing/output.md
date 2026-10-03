@@ -28,7 +28,8 @@ With `format`, the response is always that format. Without it:
 The server's configuration can list source formats, such as GIF, that are
 delivered unprocessed. An image request for such an original without
 `format`, or with the original's own format, and without a watermark returns
-the original file and ignores every other option. Placeholder and `info`
+the original file unchanged, metadata included, and ignores every other
+option. Placeholder and `info`
 requests are always processed.
 
 A format the server can't encode fails with `501` and the body
