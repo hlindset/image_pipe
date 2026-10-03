@@ -48,6 +48,7 @@ every check, though processed images are still reused when the bytes are
 unchanged.
 
 How these lifetimes reach browsers and CDNs is covered in
+[Serving images through a CDN](serving-through-a-cdn.md) and
 [HTTP and CDN caching](cdn-http-cache.md).
 
 ## Stale-while-revalidate

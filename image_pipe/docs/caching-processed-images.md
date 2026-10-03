@@ -263,8 +263,8 @@ sources.
 
 ## Next steps
 
-- [HTTP and CDN caching](cdn-http-cache.md) adds browser and CDN caching in
-  front.
+- [Serving images through a CDN](serving-through-a-cdn.md) adds CDN caching
+  in front.
 - [Cache](cache.md) lists every cache option.
 - The
   [server configuration reference](https://github.com/hlindset/image_pipe/blob/main/image_pipe_server/docs/configuration.md#cache)

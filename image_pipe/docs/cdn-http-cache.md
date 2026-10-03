@@ -4,7 +4,8 @@ ImagePipe can emit shared HTTP cache headers for public image routes. Immutable
 sources use their authoritative identity. Sources that can change use the
 digest of the current original and the origin's freshness. Generated policy is
 opt-in at the Plug level, and a source can override it. See [internal caching](cache.md)
-for pool configuration and origin-policy overrides.
+for pool configuration and origin-policy overrides, and
+[Serving images through a CDN](serving-through-a-cdn.md) for setting up a CDN.
 
 ```elixir
 forward "/images",
@@ -27,16 +28,16 @@ The `http_cache` option takes one of four values:
 
 | Value | Headers |
 | --- | --- |
-| `:validators` (default) | An `ETag`, and no generated `Cache-Control` unless the URL has an expiry |
+| `:validators` (default) | An `ETag`. Sources that can change also get their source lifetime as `Cache-Control`, and a URL with an expiry gets a capped one |
 | `:auto` | `Cache-Control: public, max-age=31536000, immutable` and an `ETag`. `private` instead of `public` when `storage_inputs` include a cookie |
 | `:public` | The same policy, always `public` |
 | `:private` | The same policy, always `private` |
 
 In every mode, a source whose cache policy denies storage gets
 `Cache-Control: no-store` and no `ETag`. So does a crop that fell back to
-attention because [content detection](content-aware-gravity.md) failed. Sources
-that can change replace the one-year lifetime with the origin's freshness, sent
-as `Cache-Control` and `Age`. A local file has no origin freshness, so its
+attention because [content detection](content-aware-gravity.md) failed. In every
+mode, sources that can change get the origin's freshness as `Cache-Control`
+and `Age`, in place of the one-year lifetime. A local file has no origin freshness, so its
 lifetime is 0 unless you set a
 [fallback freshness](cache.md#freshness-and-source-stability).
 
@@ -46,12 +47,6 @@ shortens or drops `stale-while-revalidate` so it also ends by then, and adds
 `must-revalidate`. In `:validators` mode such a response gets
 `Cache-Control: public, max-age=<seconds left>, must-revalidate`. A
 `Cache-Control` you set in an earlier Plug is left as it is.
-
-> #### CDN lifetime overrides ignore expiry {: .warning}
->
-> A CDN rule that replaces the origin's `Cache-Control` with its own edge
-> lifetime can keep serving an image after its URL expires. If expiry must be
-> exact, check it at the edge.
 
 A source can set the same option. Its default, `:inherit`, uses the mount's
 value, and any other value replaces it for that source. For example, a mount
@@ -109,8 +104,7 @@ ImagePipe also emits:
 Vary: Accept
 ```
 
-Configure the CDN cache key to include `Accept` for routes that use automatic
-output. Explicit output formats don't emit `Vary: Accept`.
+Explicit output formats don't emit `Vary: Accept`.
 
 Configured `storage_inputs` header names also enter `Vary`. A mount with
 `storage_inputs: [{:header, "x-tenant"}, {:cookie, "session"}]` and automatic
@@ -130,14 +124,6 @@ does not make a response safe to share through a CDN. A host that guarantees
 public responses can use `http_cache: :public`, and `http_cache: :private`
 forces private policy even without cookie inputs. Existing host headers and
 `Set-Cookie` retain precedence.
-
-For CDN configuration:
-
-- honor origin `Cache-Control`, including `no-store`
-- forward `If-None-Match` to ImagePipe for revalidation
-- include `Accept` in the cache key when using automatic output
-- don't add Client Hints such as `Width` or `DPR` to the cache key for v1
-- expect raw URL cache keys unless the CDN rewrites or redirects before lookup
 
 ImagePipe merges an existing `Vary` header with `Accept`. If an earlier Plug set
 `Vary: Accept-Encoding`, the final header for automatic output is:
