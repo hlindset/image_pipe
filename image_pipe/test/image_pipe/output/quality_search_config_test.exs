@@ -5,7 +5,6 @@ defmodule ImagePipe.Output.QualitySearchConfigTest do
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.RequestPolicy, as: APIOutput
-  alias ImagePipe.Plan.Output
   alias ImagePipe.Plug.Config
 
   test "configured search iterations reach encoding and representation identity" do
@@ -55,7 +54,7 @@ defmodule ImagePipe.Output.QualitySearchConfigTest do
   test "lossless WebP omits its unused iteration limit from explicit and negotiated identity" do
     opts = [
       autoquality_method: :ssimulacra2,
-      webp_options: %Output.WebpOptions{lossless: true}
+      webp_options: [lossless: true]
     ]
 
     explicit_materials =

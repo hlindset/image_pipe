@@ -62,14 +62,15 @@ When the same setting is given in more than one place:
 
 ## Encoder defaults
 
-The configuration takes encoder settings as structs, while the URL builder
-takes the same settings as keyword lists:
+`:jpeg_options`, `:png_options`, `:webp_options`, and `:avif_options` set
+encoder defaults. They take the same keyword lists as the options of the same
+name in `ImagePipe.URL.output/2`:
 
 ```elixir
 config =
   ImagePipe.config(
-    jpeg_options: %ImagePipe.Plan.Output.JpegOptions{interlace: true},
-    webp_options: %ImagePipe.Plan.Output.WebpOptions{effort: 5}
+    jpeg_options: [interlace: true],
+    webp_options: [effort: 5]
   )
 
 builder =
@@ -79,7 +80,10 @@ builder =
 
 A request's settings replace the configuration's field by field, so this
 builder encodes a baseline JPEG and keeps any other JPEG defaults. The
-fields are listed in [encoder options](processing/output.md#encoder-options).
+fields are listed in [encoder options](processing/output.md#encoder-options)
+under their URL names. Hyphens become underscores, and `progressive` and
+`subsample` have different builder names, listed in
+[URL option names](`ImagePipe.URL#module-url-option-names`).
 
 ## Limits and cached images
 

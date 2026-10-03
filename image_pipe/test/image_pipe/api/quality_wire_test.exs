@@ -5,8 +5,6 @@ defmodule ImagePipe.API.QualityWireTest do
   import Plug.Test
 
   alias ImagePipe.Output.Metric.Ssimulacra2, as: Ssim2Metric
-  alias ImagePipe.Plan.Output.JpegOptions
-  alias ImagePipe.Plan.Output.WebpOptions
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.PlugFixture.CacheProbe
   alias Vix.Vips.Image, as: VipsImage
@@ -46,7 +44,7 @@ defmodule ImagePipe.API.QualityWireTest do
   end
 
   test "JPEG options merge over host fields and can disable a host flag" do
-    config = mount(jpeg_options: %JpegOptions{interlace: true, quant_table: 3})
+    config = mount(jpeg_options: [interlace: true, quant_table: 3])
     actual = response("w=200/format=jpeg/jpeg-options=progressive:false", config)
     expected = response("w=200/format=jpeg/jpeg-options=progressive:false,quant-table:3", mount())
     assert_image(actual, "image/jpeg", {200, 133})
@@ -80,7 +78,7 @@ defmodule ImagePipe.API.QualityWireTest do
   end
 
   test "lossless WebP rejects explicit search requests before source or cache access" do
-    config = mount(webp_options: %WebpOptions{lossless: true}, cache: {CacheProbe, []})
+    config = mount(webp_options: [lossless: true], cache: {CacheProbe, []})
 
     for option <- ["autoquality=ssimulacra2", "autoquality=size,target:1000", "max-bytes=1000"] do
       assert response("format=webp/#{option}", config).status == 400
@@ -93,7 +91,7 @@ defmodule ImagePipe.API.QualityWireTest do
     config =
       mount(
         allow_debug_headers: true,
-        webp_options: %WebpOptions{lossless: true, effort: 0},
+        webp_options: [lossless: true, effort: 0],
         autoquality_method: :ssimulacra2
       )
 
