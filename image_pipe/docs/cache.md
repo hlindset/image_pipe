@@ -127,10 +127,9 @@ header names to lowercase and preserves duplicate allowed headers.
 
 ## Filesystem adapter
 
-`ImagePipe.Cache.FileSystem` requires an absolute `:root`. The optional
-`:path_prefix` must be relative and rejects backslashes, duplicate-slash empty
-segments, `.`, `..`, and `~`-prefixed path segments. Generated hashes determine
-cache paths, not request, source, header, or cookie data.
+`ImagePipe.Cache.FileSystem` stores entries under its `:root` directory. Its
+module docs list every option. Generated hashes determine cache paths, not
+request, source, header, or cookie data.
 
 Filesystem metadata has its own `metadata_version` and records the body
 filename, byte size, and SHA-256 digest. Bodies are content-addressed by digest.
@@ -149,7 +148,7 @@ the Plug uses its file-backed read path.
 
 Adapter errors fail open and log a warning. Invalid configuration fails Plug
 initialization. Bodies over cache `:max_body_bytes` are still delivered but not
-stored; the option must be `nil` or a non-negative integer.
+stored.
 
 The filesystem adapter validates generated paths under the configured root
 with `Path.safe_relative/2`, so paths that escape through symlinks fail as cache
@@ -161,7 +160,8 @@ By default the filesystem cache grows without an upper size limit. Setting
 `:max_size_bytes` switches `ImagePipe.Cache.FileSystem` into bounded mode, where
 a cost-aware W-TinyLFU admission and eviction policy keeps the total size of
 stored body files at or under the configured cap. Setting other bounded-mode
-options without `:max_size_bytes` is a configuration error.
+options without `:max_size_bytes` is a configuration error. Every other
+bounded-mode option has a default.
 
 ### Node identity and the supervision tree
 
@@ -180,30 +180,6 @@ Bounded commits fail closed: if no `Admission` process is running for a request'
 entry on disk. Starting the cache supervisor before the endpoint avoids dropping
 writes during startup.
 
-### Configuration options
-
-All bounded options other than `:max_size_bytes` and `:node_id` have derived or
-fixed defaults; most deployments only set the first two. Interval options are in
-seconds.
-
-| Option | Default | Meaning |
-| --- | --- | --- |
-| `:max_size_bytes` | — (enables bounded mode) | Soft cap on total stored body bytes. |
-| `:node_id` | — (required) | Stable per-node identity; names the persisted state file. |
-| `:pool` | `:output` | Telemetry label; set `:input` for an input-pool supervisor. |
-| `:state_dir` | `<root>/.cache_state` | Directory holding per-node `<node_id>.state` files. |
-| `:window_ratio` | `0.01` | Fraction of the cap used for the admission window. `0.0` disables the window. |
-| `:sketch_depth` | `4` | Count-Min Sketch hash rows. |
-| `:sketch_width` | derived from cap | Count-Min Sketch counters per row. |
-| `:aging_sample_size` | derived from cap | Increments between sketch aging passes. |
-| `:doorkeeper_cardinality` | derived from cap | Bloom doorkeeper capacity. |
-| `:doorkeeper_fpr` | `0.01` | Bloom doorkeeper false-positive rate. |
-| `:eviction_victim_limit` | `64` | Max victims considered per reconcile pass. |
-| `:flush_interval` | `30` | Seconds between state-file flushes. |
-| `:cleanup_interval` | `3600` | Seconds between stale peer-state cleanups. |
-| `:reconcile_interval` | `60` | Seconds between background reconcile passes. |
-| `:state_ttl` | `604_800` | Seconds before an untouched peer state file is stale. |
-
 ### Soft-cap semantics and boot reconciliation
 
 The cap is a soft cap on tracked body bytes. On each commit, admission decides
@@ -221,8 +197,9 @@ directory converges without serving an over-cap cache.
 
 Each node periodically persists its frequency sketch to `<node_id>.state` in
 `:state_dir`. On boot a node reads every peer `*.state` file in that directory
-and merges their frequencies into its starting sketch, so a freshly started node
-inherits cluster-wide popularity information instead of cold-starting. The Bloom
+younger than `:state_ttl` and merges their frequencies into its starting
+sketch, so a freshly started node inherits cluster-wide popularity information
+instead of cold-starting. The Bloom
 doorkeeper is per-node and is not persisted. Peer state files older than
 `:state_ttl` are removed during periodic cleanup.
 

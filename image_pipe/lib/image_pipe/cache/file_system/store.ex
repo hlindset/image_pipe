@@ -29,59 +29,146 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     :state_ttl
   ]
   @options_schema NimbleOptions.new!(
-                    pool: [type: {:in, [:input, :output]}],
                     root: [
                       required: true,
-                      type: {:custom, __MODULE__, :validate_root, []}
+                      type: {:custom, __MODULE__, :validate_root, []},
+                      type_doc: "absolute path (`t:String.t/0`)",
+                      doc: """
+                      Directory that holds the cache files. Must be an absolute path. \
+                      The processed-image and originals caches must use different roots. \
+                      Plug initialization fails otherwise.
+                      """
                     ],
                     path_prefix: [
                       default: "",
-                      type: {:custom, __MODULE__, :validate_path_prefix, []}
+                      type: {:custom, __MODULE__, :validate_path_prefix, []},
+                      type_doc: "relative path (`t:String.t/0`)",
+                      doc: """
+                      Subdirectory of `:root` where entries are written. Must be a relative \
+                      path without backslashes, `.` or `..` segments, or empty segments \
+                      (such as `a//b` or a trailing `/`).
+                      """
                     ],
-                    # Bounded-mode options — all optional at the per-key level;
-                    # cross-key requirements and derivation are enforced in
+                    pool: [
+                      type: {:in, [:input, :output]},
+                      type_doc: "`:input` or `:output`",
+                      doc: """
+                      Tags bounded-mode telemetry events with `pool`, so events from an \
+                      originals cache can be told apart from the processed-image cache. \
+                      Defaults to `:output`. For a bounded originals cache, pass \
+                      `pool: :input` to its `child_spec/1`. `:input_cache` adds it to the \
+                      adapter options itself.
+                      """
+                    ],
+                    # Bounded-mode options: all optional per key. Cross-key
+                    # requirements and derived defaults are applied in
                     # derive_bounded_options/1 after per-key validation.
                     max_size_bytes: [
-                      type: :pos_integer
+                      type: :pos_integer,
+                      doc: """
+                      Soft cap, in bytes, on the total size of stored responses. Setting it \
+                      turns on bounded mode, which requires `:node_id`. Every option below \
+                      requires `:max_size_bytes`.
+                      """
                     ],
                     node_id: [
-                      type: :string
+                      type: :string,
+                      doc: """
+                      Name of this node, used for its state file `<node_id>.state`. Required \
+                      in bounded mode. Must stay the same across restarts and differ \
+                      between nodes that share a root.
+                      """
                     ],
                     state_dir: [
-                      type: :string
+                      type: :string,
+                      doc: """
+                      Directory for the per-node state files. On boot a node merges the \
+                      request counts from every peer state file younger than `:state_ttl`. \
+                      Defaults to `<root>/.cache_state`.
+                      """
                     ],
                     window_ratio: [
-                      type: {:custom, __MODULE__, :validate_window_ratio, []}
+                      type: {:custom, __MODULE__, :validate_window_ratio, []},
+                      type_doc: "`t:float/0` from `0.0` to `1.0`",
+                      doc: """
+                      Share of `:max_size_bytes` reserved for newly stored responses. A \
+                      larger ratio favors recently added responses over often-requested \
+                      ones. `0.0` reserves no space. Defaults to `0.01`.
+                      """
                     ],
                     sketch_depth: [
-                      type: :pos_integer
+                      type: :pos_integer,
+                      doc: """
+                      Number of counter rows used to count requests per response. More rows \
+                      count more accurately but use more memory. Defaults to `4`.
+                      """
                     ],
                     sketch_width: [
-                      type: :pos_integer
+                      type: :pos_integer,
+                      doc: """
+                      Number of counters per row. More counters count more accurately but \
+                      use more memory. Defaults to one per 25,000 bytes of \
+                      `:max_size_bytes`, and at least 4,096.
+                      """
                     ],
                     aging_sample_size: [
-                      type: :pos_integer
+                      type: :pos_integer,
+                      doc: """
+                      Number of counted requests after which every count is halved, so \
+                      old popularity fades. A smaller value forgets faster. Defaults to one \
+                      per 5,000 bytes of `:max_size_bytes`, and at least 81,920.
+                      """
                     ],
                     doorkeeper_cardinality: [
-                      type: :pos_integer
+                      type: :pos_integer,
+                      doc: """
+                      Number of distinct responses the node tracks as requested once. A \
+                      response is counted only from its second request, so one-off \
+                      requests don't push out popular responses. Defaults to one per \
+                      12,500 bytes of `:max_size_bytes`, and at least 8,192.
+                      """
                     ],
                     doorkeeper_fpr: [
-                      type: {:custom, __MODULE__, :validate_doorkeeper_fpr, []}
+                      type: {:custom, __MODULE__, :validate_doorkeeper_fpr, []},
+                      type_doc: "`t:float/0` greater than `0.0` and less than `1.0`",
+                      doc: """
+                      Rate at which a first request is mistaken for a repeat and counted \
+                      early. Lower rates use more memory. Defaults to `0.01`.
+                      """
                     ],
                     eviction_victim_limit: [
-                      type: :pos_integer
+                      type: :pos_integer,
+                      doc: """
+                      Maximum number of entries one write may evict to make room. A write \
+                      that needs more is not stored. Defaults to `64`.
+                      """
                     ],
                     flush_interval: [
-                      type: :pos_integer
+                      type: :pos_integer,
+                      doc: """
+                      Seconds between writes of this node's state file. Defaults to `30`.
+                      """
                     ],
                     cleanup_interval: [
-                      type: :pos_integer
+                      type: :pos_integer,
+                      doc: """
+                      Seconds between removals of stale peer state files. Defaults to `3600`.
+                      """
                     ],
                     reconcile_interval: [
-                      type: :pos_integer
+                      type: :pos_integer,
+                      doc: """
+                      Seconds between background passes that evict entries until the stored \
+                      size is at or under `:max_size_bytes`. Defaults to `60`.
+                      """
                     ],
                     state_ttl: [
-                      type: :pos_integer
+                      type: :pos_integer,
+                      doc: """
+                      Seconds after its last change before a peer state file counts as stale. \
+                      Stale files are ignored on boot and removed during cleanup. Defaults \
+                      to `604_800` (seven days).
+                      """
                     ]
                   )
 

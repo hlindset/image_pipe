@@ -1,5 +1,40 @@
 defmodule ImagePipe.Cache.FileSystem do
-  @moduledoc "Filesystem response cache with independently supervised W-TinyLFU admission."
+  @moduledoc """
+  Cache adapter that stores processed images, or originals, as files on local disk.
+
+      cache: {ImagePipe.Cache.FileSystem, root: "/var/cache/image_pipe/processed"}
+
+  Without `:max_size_bytes` the cache grows without limit. With it, the cache
+  runs in bounded mode, with `:max_size_bytes` as a soft cap: writes evict the
+  least valuable entries, and a background pass evicts any overshoot. A
+  W-TinyLFU policy decides which entries to keep, favoring those requested
+  most often. Bounded mode needs the supervisor returned by `child_spec/1`.
+  Without it, every write is skipped and logged as a warning.
+
+      cache = [
+        root: "/var/cache/image_pipe/processed",
+        max_size_bytes: 5_000_000_000,
+        node_id: "node-0"
+      ]
+
+      mount = ImagePipe.Plug.init(sources: sources, cache: {ImagePipe.Cache.FileSystem, cache})
+
+      children = [
+        ImagePipe.Cache.FileSystem.child_spec(cache),
+        MyAppWeb.Endpoint
+      ]
+
+  To set up processed-image and originals caches, see
+  [Caching processed images](caching-processed-images.md).
+
+  ## Options
+
+  #{NimbleOptions.docs(ImagePipe.Cache.FileSystem.Store.options_schema())}
+
+  The adapter also accepts the shared `:max_body_bytes` option, a
+  non-negative integer or `nil`. Responses larger than `:max_body_bytes` are
+  delivered but not stored. The default `nil` stores responses of any size.
+  """
   @behaviour ImagePipe.Cache
   @dialyzer :no_match
   alias ImagePipe.Cache.Entry
