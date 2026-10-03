@@ -663,6 +663,63 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     refute_received {:origin, _, _}
   end
 
+  describe "validators mode with headers set by the host" do
+    setup %{shared: shared} do
+      %{validators: IP.Plug.init(config: shared, http_cache: :validators)}
+    end
+
+    test "a changeable source carries its lifetime and an ETag", %{validators: config} do
+      conn = request(config, 12)
+
+      assert get_resp_header(conn, "cache-control") == ["public, max-age=60"]
+      assert [_etag] = get_resp_header(conn, "etag")
+    end
+
+    test "a response cookie suppresses the ETag and the source lifetime", %{validators: config} do
+      conn = host_request(config, &put_resp_cookie(&1, "session", "a"))
+
+      assert get_resp_header(conn, "cache-control") == ["max-age=0, private, must-revalidate"]
+      assert get_resp_header(conn, "etag") == []
+      assert get_resp_header(conn, "age") == []
+    end
+
+    test "a host no-store suppresses the ETag and the source lifetime", %{validators: config} do
+      conn = host_request(config, &put_resp_header(&1, "cache-control", "no-store"))
+
+      assert get_resp_header(conn, "cache-control") == ["no-store"]
+      assert get_resp_header(conn, "etag") == []
+    end
+
+    test "a host Vary: * is kept and suppresses the ETag and the source lifetime", %{
+      validators: config
+    } do
+      conn = host_request(config, &put_resp_header(&1, "vary", "*"))
+
+      assert get_resp_header(conn, "vary") == ["*"]
+      assert get_resp_header(conn, "cache-control") == ["max-age=0, private, must-revalidate"]
+      assert get_resp_header(conn, "etag") == []
+    end
+
+    test "a host Vary is merged with the negotiated Accept", %{validators: config} do
+      conn =
+        :get
+        |> conn("/w=12/src/https://origin.test/image.png")
+        |> put_req_header("accept", "image/webp")
+        |> put_resp_header("vary", "Accept-Encoding")
+        |> ImagePipe.Plug.call(config)
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "vary") == ["Accept-Encoding, Accept"]
+    end
+  end
+
+  defp host_request(config, host_plug) do
+    :get
+    |> conn("/w=12/format=png/src/https://origin.test/image.png")
+    |> host_plug.()
+    |> ImagePipe.Plug.call(config)
+  end
+
   defp request(config, width, headers \\ []) do
     conn = conn(:get, "/w=#{width}/format=png/src/https://origin.test/image.png")
 

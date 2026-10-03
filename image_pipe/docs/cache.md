@@ -94,9 +94,9 @@ originals can share cache entries (see [Writing a custom source](custom-sources.
 ## Originals cache
 
 `input_cache` accepts only `ImagePipe.Cache.FileSystem`, with a `root`
-different from the processed-image cache's. Each cache has its own size limit
-and eviction. Serving a processed image from the cache doesn't count as a
-request for its original.
+separate from the processed-image cache's. Neither root may be inside the
+other. Each cache has its own size limit and eviction. Serving a processed
+image from the cache doesn't count as a request for its original.
 
 - Originals are stored byte for byte, including their EXIF and ICC data.
 - Local files are copied in only when their source sets `copy: :keep` (see
@@ -136,7 +136,7 @@ background checks (see
 - Up to 64 originals can be fetched or checked at once, with up to 1,024
   requests waiting for them. Past either limit, a request fetches its
   original itself, without waiting and without caching it.
-- Up to 16 background checks run at once. Each has a 60-second deadline. A
+- Up to 16 background checks run at once. Each has a 60-second deadline.
   After a check of an original finishes, that original isn't checked in the
   background again for one second.
 - Up to 64 processed images can be made at once while other requests wait for

@@ -14,5 +14,5 @@ environment variables instead of Elixir code. Apps that only build URLs, with
 Follow [Building URLs for the server](../image_pipe/docs/building-server-urls.md)
 for a complete application-and-server walkthrough.
 
-The server loads no host Elixir code. Custom source adapters, caches,
-detectors, and function-valued options need a release built on `image_pipe`.
+The server loads no host Elixir code. Custom source adapters, detectors, and
+function-valued options need a release built on `image_pipe`.

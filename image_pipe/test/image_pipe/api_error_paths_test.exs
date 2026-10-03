@@ -440,30 +440,45 @@ defmodule ImagePipe.APIErrorPathsTest do
   # ── row 5: encoder failure after the first streamed chunk ───────────────
 
   describe "row 5: encoder failure after the first streamed chunk" do
-    test "chunked 200 already sent when encode fails: stream halts at the delivered prefix, sink aborts, cleanup once" do
+    test "chunked 200 already sent when encode fails: the response aborts, sink aborts, cleanup once" do
       test_pid = self()
+      prefix = [:"api_error_paths_#{System.unique_integer([:positive])}"]
+      handler_id = "api-error-paths-#{inspect(prefix)}"
+
+      :telemetry.attach(
+        handler_id,
+        prefix ++ [:request, :stop],
+        fn _event, _measurements, metadata, test_pid ->
+          send(test_pid, {:request_stop, metadata})
+        end,
+        test_pid
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
 
       config =
         opts(
           cache: {ObservingCacheProbe, []},
           image_module: RaisingAfterFirstChunkImage,
-          on_bracket_exit: fn -> send(test_pid, :bracket_cleanup) end
+          on_bracket_exit: fn -> send(test_pid, :bracket_cleanup) end,
+          telemetry_prefix: prefix
         )
 
       log =
         capture_log(fn ->
-          conn = get("/w=64/src/images/cat.jpg", config)
-
-          # The response is already committed as a chunked 200 by the time
-          # encode fails; a chunked response cannot change its status, so the
-          # contract is halt+abort+cleanup, not a 500.
-          assert conn.status == 200
-          assert conn.state == :chunked
-          assert conn.resp_body == "first chunk"
-          assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+          # The chunked 200 is already committed when encode fails, so the
+          # response can't become a 500. Raising makes the server drop the
+          # connection instead of ending the body as if it were complete.
+          assert_raise ImagePipe.Plug.StreamAbortedError, fn ->
+            get("/w=64/src/images/cat.jpg", config)
+          end
         end)
 
       assert log =~ "boom after first chunk"
+
+      assert_received {:request_stop, metadata}
+      assert metadata[:result] == :processing_error
+      assert metadata[:status] == 200
 
       assert_received {:cache_open_sink, _key, _metadata}
       assert_received {:cache_write_chunk, "first chunk"}

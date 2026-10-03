@@ -56,8 +56,10 @@ defmodule ImagePipe.Response.SenderTest do
     @impl Plug.Conn.Adapter
     def send_file(payload, _status, _headers, _path, _offset, _length), do: {:ok, "", payload}
 
+    # Raises the exception in the payload, as Bandit raises a TransportError
+    # once the client has gone.
     @impl Plug.Conn.Adapter
-    def send_chunked(_payload, _status, _headers), do: raise("chunked open failed")
+    def send_chunked(%{raise: exception}, _status, _headers), do: raise(exception)
 
     @impl Plug.Conn.Adapter
     def chunk(payload, body), do: {:ok, IO.iodata_to_binary(body), payload}
@@ -411,9 +413,10 @@ defmodule ImagePipe.Response.SenderTest do
                     }}
   end
 
-  test "prepared streams cancel when send_chunked fails" do
+  test "prepared streams report a client gone before headers, then re-raise for the server" do
     parent = self()
     cancel_ref = make_ref()
+    gone = %Bandit.TransportError{message: "chunked open failed", error: :closed}
 
     attach_telemetry([[:image_pipe, :deliver, :stop]])
 
@@ -425,28 +428,62 @@ defmodule ImagePipe.Response.SenderTest do
         end
       )
 
-    conn =
+    assert_raise Bandit.TransportError, fn ->
       :get
       |> conn("/image")
-      |> Map.put(:adapter, {FailingChunkedAdapter, %{}})
+      |> Map.put(:adapter, {FailingChunkedAdapter, %{raise: gone}})
       |> Sender.send_prepared_stream(
         prepared,
         request!(),
         empty_cache_headers(),
         []
       )
+    end
 
-    assert conn.private.image_pipe_send_result == :processing_error
     assert_receive ^cancel_ref
 
     assert_receive {:telemetry_event, [:image_pipe, :deliver, :stop], _measurements,
                     %{
-                      result: :processing_error,
-                      stream_phase: :encode,
-                      error: :error,
+                      result: :client_closed,
+                      stream_phase: :client,
+                      error: :client_closed,
                       status: 200,
                       output_format: :jpeg
                     }}
+  end
+
+  test "prepared streams cancel and propagate any other send_chunked failure" do
+    parent = self()
+    cancel_ref = make_ref()
+    reset = %Bandit.TransportError{message: "RST_STREAM: protocol_error", error: :protocol_error}
+
+    attach_telemetry([[:image_pipe, :deliver, :exception]])
+
+    prepared =
+      prepared_stream(
+        cancel: fn ->
+          send(parent, cancel_ref)
+          :ok
+        end
+      )
+
+    assert_raise Bandit.TransportError, fn ->
+      :get
+      |> conn("/image")
+      |> Map.put(
+        :adapter,
+        {FailingChunkedAdapter, %{raise: reset}}
+      )
+      |> Sender.send_prepared_stream(
+        prepared,
+        request!(),
+        empty_cache_headers(),
+        []
+      )
+    end
+
+    assert_receive ^cancel_ref
+    assert_receive {:telemetry_event, [:image_pipe, :deliver, :exception], _measurements, _meta}
   end
 
   test "prepared streams cancel when first chunk fails" do

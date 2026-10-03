@@ -109,15 +109,15 @@ Cache-Control: public, max-age=3600
 Age: 60
 ```
 
-## Write-once source headers
+## Immutable source headers
 
-A source marked write-once (`stable` set to immutable, see
-[write-once sources](caching-and-freshness.md#write-once-sources)) is the
+A source marked immutable (`stable` set to `immutable`, see
+[immutable sources](caching-and-freshness.md#immutable-sources)) is the
 only kind that gets the one-year lifetime from the [header modes](#header-modes)
 table, as long as storage is allowed. In `validators` mode it gets only an
 `ETag`. Its `ETag` comes from the original's identifier, such as its path or
 URL, instead of its content. An S3 object addressed by a version ID counts as
-write-once without being marked.
+immutable without being marked.
 
 ## Expiring URLs
 
@@ -128,9 +128,9 @@ lifetime that outlasts it:
 - `stale-while-revalidate` is shortened so it also ends by then, or dropped.
 - `must-revalidate` is added.
 
-In `validators` mode, a response from a write-once source gets
-`Cache-Control: public, max-age=<seconds left>, must-revalidate`, with
-`private` in place of `public` when `storage_inputs` names a cookie.
+In `validators` mode, a response from an immutable source that carries a
+generated `ETag` gets `Cache-Control: public, max-age=<seconds left>, must-revalidate`,
+with `private` in place of `public` when `storage_inputs` names a cookie.
 
 ## Vary
 
@@ -170,14 +170,10 @@ place of `public`, on cache hits and `304` responses as well. `public` sends
 `public` anyway, for a host that guarantees the responses are the same for
 every user.
 
-In a Plug app, a `Vary` header set by an earlier Plug is handled by mode:
-
-- In `auto`, `public`, and `private` modes it is merged with ImagePipe's.
-  After `Vary: Accept-Encoding`, the response carries
-  `Vary: Accept-Encoding, Accept`. An earlier `Vary: *` is kept as it is
-  (see [headers set by the host](#headers-set-by-the-host)).
-- In `validators` mode, ImagePipe's `Vary` replaces it. After
-  `Vary: Accept-Encoding` or `Vary: *`, the response carries `Vary: Accept`.
+In a Plug app, a `Vary` header set by an earlier Plug is merged with
+ImagePipe's. After `Vary: Accept-Encoding`, the response carries
+`Vary: Accept-Encoding, Accept`. An earlier `Vary: *` is kept as it is (see
+[headers set by the host](#headers-set-by-the-host)).
 
 ## ETag
 
@@ -217,9 +213,9 @@ If-None-Match: W/"ipr1-token"
 
 Whether ImagePipe contacts the source first depends on the source:
 
-- A local write-once source answers `304` without reading the file, unless
+- A local immutable source answers `304` without reading the file, unless
   the source keeps copies of its files in the originals cache.
-- A remote write-once source whose storage is allowed in its cache policy
+- A remote immutable source whose storage is allowed in its cache policy
   answers `304` without contacting the origin.
 - Any other source answers `304` without contacting the origin while its
   original is within its lifetime. This needs one of ImagePipe's caches,
@@ -244,29 +240,28 @@ is parsed or the cache is read.
 ## Headers set by the host
 
 In a Plug app, headers set by an earlier Plug take precedence over generated
-ones:
+ones, in every mode:
 
 - An earlier `Cache-Control` is kept. ImagePipe may still add its `ETag`.
 - An earlier `ETag` is kept, and ImagePipe sends no generated `ETag`. A
   request that matches the earlier `ETag` doesn't get a `304`.
+- A response with `Set-Cookie` gets no generated `Cache-Control` or `ETag`.
+- An earlier `Cache-Control: no-store` stops the generated `ETag`.
+- An earlier `Vary: *` stops the generated `Cache-Control` and `ETag`.
 - `Plug.Conn`'s default `Cache-Control: max-age=0, private, must-revalidate`
   counts as unset. The same directives in another order, such as
   `private, max-age=0, must-revalidate`, count as set.
 
-In `auto`, `public`, and `private` modes:
-
-- A response with `Set-Cookie` gets no generated `Cache-Control` or `ETag`.
-- An earlier `Cache-Control: no-store` stops the generated `ETag`.
-- An earlier `Vary: *` stops the generated `Cache-Control` and `ETag`.
-
 A source whose storage is denied, by its origin or by configuration, gets
-`Cache-Control: no-store` even when an earlier Plug set `Cache-Control`.
+`Cache-Control: no-store` even when an earlier Plug set `Cache-Control` or
+`Set-Cookie`.
 Allowing storage in the source's cache policy overrides an origin's denial
 (see the [Plug settings](cache.md#source-cache-settings) or the
 [server's `[sources.<name>]` keys](../../image_pipe_server/docs/server-configuration.md#sources-name)).
 
 `Vary: Accept` is sent whenever the format comes from `Accept`, even when the
-generated `Cache-Control` and `ETag` are not.
+generated `Cache-Control` and `ETag` are not, unless an earlier Plug set
+`Vary: *`.
 
 ## Custom validators
 

@@ -23,8 +23,8 @@ defmodule ImagePipe.Source.File do
                         type: :string,
                         required: true,
                         doc: """
-                        Stable name for the directory. A write-once source identifies \
-                        its files by `:root_id` and path instead of by `:root`, so keep \
+                        Stable name for the directory. Caches identify the source's \
+                        files by `:root_id` and path instead of by `:root`, so keep \
                         the name when the directory moves, and change it when the \
                         directory holds different files.
                         """
@@ -105,7 +105,7 @@ defmodule ImagePipe.Source.File do
   @impl Source
   def resolve(%SourcePath{segments: segments}, opts, _runtime_opts) do
     with :ok <- validate_segments(segments),
-         {:ok, path} <- safe_path(opts, segments) do
+         {:ok, _path} <- safe_path(opts, segments) do
       identity = [
         kind: :path,
         adapter: :path,
@@ -125,7 +125,7 @@ defmodule ImagePipe.Source.File do
          Resolved,
          [
            identity: identity,
-           fetch: [path: path, root: Keyword.fetch!(opts, :root), segments: segments]
+           fetch: [segments: segments]
          ] ++ cache
        )}
     end
@@ -133,7 +133,7 @@ defmodule ImagePipe.Source.File do
 
   @impl Source
   def fetch(%Resolved{fetch: fetch}, opts, runtime_opts) do
-    with {:ok, path} <- safe_path(fetch[:root], fetch[:segments]),
+    with {:ok, path} <- safe_path(opts, fetch[:segments]),
          {:ok, stat} <- regular_file(path),
          :ok <- within_limit(stat, runtime_opts),
          :ok <- readable(path) do

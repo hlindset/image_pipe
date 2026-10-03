@@ -87,19 +87,9 @@ defmodule ImagePipe.Response.CachePolicy do
     prepared
   end
 
-  # `:validators` carries only what the representation itself implies: its
-  # ETag, or `no-store` when the source denies storage.
-  defp prepare(_conn, representation, source_facts, :validators, _config) do
-    case Map.get(source_facts, :storage) do
-      :deny ->
-        prepared = CacheHeaders.from_representation(representation)
-        {%{prepared | etag: nil, headers: [{"cache-control", "no-store"}]}, nil}
-
-      _permission ->
-        {CacheHeaders.from_representation(representation), nil}
-    end
-  end
-
+  # Every mode applies the same host precedence and `Vary` merge. `:validators`
+  # differs only in leaving out the generated immutable lifetime; a changeable
+  # source's lifetime still comes from `limit_to_source/6`.
   defp prepare(conn, representation, source_facts, mode, config) do
     representation_headers = representation_headers(conn, representation)
 
@@ -107,12 +97,15 @@ defmodule ImagePipe.Response.CachePolicy do
       generated_cache_headers(conn, representation, source_facts, representation_headers)
 
     headers =
-      Enum.map(headers, fn
+      Enum.flat_map(headers, fn
+        {"cache-control", @generated_cache_control} when mode == :validators ->
+          []
+
         {"cache-control", @generated_cache_control} ->
-          {"cache-control", "#{visibility(mode, config)}, max-age=31536000, immutable"}
+          [{"cache-control", "#{visibility(mode, config)}, max-age=31536000, immutable"}]
 
         header ->
-          header
+          [header]
       end)
 
     {%CacheHeaders{

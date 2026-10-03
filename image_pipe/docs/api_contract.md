@@ -11,7 +11,7 @@ Options within a group have a fixed processing order. Explicit group boundaries
 sequence processing (`-` in URLs, `ImagePipe.URL.group/2` in Elixir).
 Request options apply to the whole request wherever a URL writes them, so a
 URL group holding only request options adds no group.
-Sources, caches, detectors, and telemetry exporters are host extension points.
+Sources, detectors, and telemetry exporters are host extension points.
 
 ## Capabilities
 

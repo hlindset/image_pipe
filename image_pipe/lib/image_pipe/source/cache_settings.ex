@@ -8,10 +8,10 @@ defmodule ImagePipe.Source.CacheSettings do
       type_doc: "`:auto` or `:immutable`",
       default: :auto,
       doc: """
-      `:immutable` marks a write-once source: an identifier always names the \
+      `:immutable` marks an immutable source: an identifier always names the \
       same bytes, so its originals and processed images never expire and are \
       never revalidated. With `:auto`, each original is identified by its \
-      content. See [write-once sources](caching-and-freshness.md#write-once-sources).
+      content. See [immutable sources](caching-and-freshness.md#immutable-sources).
       """
     ],
     cache_policy: [
@@ -56,8 +56,8 @@ defmodule ImagePipe.Source.CacheSettings do
 
       @schema NimbleOptions.new!([bucket: [type: :string, required: true]] ++ CacheSettings.schema())
 
-  After validating, `validate/1` rejects a lifetime or stale window on a
-  write-once source. `fields/2` then turns the validated options into the
+  After validating, `validate/1` rejects a lifetime or stale window on an
+  immutable source. `fields/2` then turns the validated options into the
   cache fields of `ImagePipe.Source.Resolved`. Their effect is explained in
   [Caching and freshness](caching-and-freshness.md).
 

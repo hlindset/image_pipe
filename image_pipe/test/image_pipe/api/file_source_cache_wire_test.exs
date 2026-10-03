@@ -120,6 +120,52 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
     assert [_original | _] = pooled(input_root)
   end
 
+  test "a write-once file's ETag depends on root_id and path, not copy or root", ctx do
+    moved = Path.join(ctx.root, "moved")
+    File.mkdir_p!(moved)
+    File.cp!("priv/static/images/beach.jpg", Path.join(moved, "beach.jpg"))
+    input_cache = {ImagePipe.Cache.FileSystem, root: Path.join(ctx.root, "input-pool")}
+
+    etag = fn file_options ->
+      opts =
+        mount(ctx,
+          file_options: [stable: :immutable] ++ file_options,
+          input_cache: input_cache
+        )
+
+      [etag] = get_resp_header(get(@path, opts), "etag")
+      etag
+    end
+
+    read_in_place = etag.([])
+
+    assert etag.(copy: :keep) == read_in_place
+    assert etag.(copy: :keep, root: moved) == read_in_place
+    assert etag.(root: moved) == read_in_place
+  end
+
+  test "a write-once file with kept copies is cached by root_id, not root", ctx do
+    moved = Path.join(ctx.root, "moved")
+    File.mkdir_p!(moved)
+    File.cp!("priv/static/images/beach.jpg", Path.join(moved, "beach.jpg"))
+
+    caches = [
+      cache: {CacheProbe, store: :ets.new(:file_source_cache, [:set, :public])},
+      input_cache: {ImagePipe.Cache.FileSystem, root: Path.join(ctx.root, "input-pool")}
+    ]
+
+    first = get(@path, mount(ctx, [file_options: [stable: :immutable, copy: :keep]] ++ caches))
+    assert first.status == 200
+    flush_fetches()
+
+    moved_opts =
+      mount(ctx, [file_options: [stable: :immutable, copy: :keep, root: moved]] ++ caches)
+
+    again = get(@path, moved_opts)
+    assert again.resp_body == first.resp_body
+    refute_received {:fetch, _result}
+  end
+
   test "a watermark from a file mount keeps the response cacheable", ctx do
     File.cp!("priv/static/images/beach.jpg", Path.join(ctx.root, "mark.jpg"))
     opts = mount(ctx, watermarks: %{mark: [source: "media/mark.jpg"]})
@@ -163,7 +209,7 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
         media: [
           adapter: ImagePipe.Source.File,
           match: [prefix: "media"],
-          options: [root: ctx.root, root_id: "media"] ++ file_options
+          options: Keyword.merge([root: ctx.root, root_id: "media"], file_options)
         ]
       ],
       cache: {CacheProbe, store: :ets.new(:file_source_cache, [:set, :public])},

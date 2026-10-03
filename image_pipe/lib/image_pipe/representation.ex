@@ -93,10 +93,6 @@ defmodule ImagePipe.Representation do
     %Key{hash: digest_hex([pool: :input] ++ data), data: data}
   end
 
-  @doc "Returns the representation's `ETag` header."
-  @spec response_headers(t()) :: [{String.t(), String.t()}]
-  def response_headers(%__MODULE__{etag: etag}), do: [{"etag", etag}]
-
   defp digest_hex(data), do: data |> MaterialDigest.of() |> Base.encode16(case: :lower)
 
   defp etag(data) do

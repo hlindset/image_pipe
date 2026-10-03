@@ -1469,22 +1469,18 @@ defmodule ImagePipe.PlugTest do
     assert log =~ "encode_error: empty_stream"
   end
 
-  test "does not send text 500 when encoding fails after chunked response starts" do
+  test "aborts instead of sending a text 500 when encoding fails after chunked response starts" do
     conn = conn(:get, "/format=jpeg/src/images/beach.jpg")
 
     log =
       capture_log(fn ->
-        conn =
+        assert_raise ImagePipe.Plug.StreamAbortedError, fn ->
           call_image_pipe(conn,
             root_url: "http://origin.test",
             image_module: RaisingAfterFirstChunkImage,
             origin_req_options: [plug: OriginImage]
           )
-
-        assert conn.status == 200
-        assert conn.state == :chunked
-        assert conn.resp_body == "first chunk"
-        assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+        end
       end)
 
     assert log =~ "prepared_stream_error:"

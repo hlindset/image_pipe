@@ -24,7 +24,7 @@
 
 - ImagePipe has one path-oriented, declarative API. Follow [the API contract](image_pipe/docs/api_contract.md) for capability retention, fixed stage order, coordinate frames, DPR, source concealment, and terminal semantics.
 - Option order within a group must not define processing order. Only an explicit `-` opens a new group. Operations use the display frame produced by preceding stages; crop percentages resolve after trim. Deferred orientation is an implementation optimization and must preserve the logical result.
-- Use one concrete request lifecycle and one executor. Keep host extension points for sources, caches, detectors, and exporters. Prefer direct calls and data over configurable dialect/parser/renderer behaviours, continuation protocols, and callback wrappers.
+- Use one concrete request lifecycle and one executor. Keep host extension points for sources, detectors, and exporters. Prefer direct calls and data over configurable dialect/parser/renderer behaviours, continuation protocols, and callback wrappers.
 - Preserve useful capabilities identified in the contract before deleting their only entry point. Beads epic `image_plug-a0q` owns migration dependencies and progress.
 - Keep selected imgproxy comparisons as test-only reference evidence for intentionally shared behavior. ImagePipe semantics govern disagreements; exact vendor parity is not required.
 - When changing reference fixtures, follow `test/support/image_pipe/test/imgproxy_reference/README.md`. Update `SourceInventory` when adding, removing, or regenerating a source and check its consumers first: color-management tests also depend on source ICC profiles, bit depth, and alpha. Inspect generated-file changes with GitButler and retain only intentional fixture updates. For the self-baked goldens, follow `test/support/image_pipe/test/golden/README.md`: re-bake only intended output changes, and treat a golden that moves without its issue in `changes_with` as a regression.
@@ -91,7 +91,7 @@
 
 ## Elixir architecture guidelines
 
-- Prefer Elixir extension points with explicit behaviours (`ImagePipe.Source`, `ImagePipe.Transform.Detector`, `ImagePipe.Cache`), `@impl` annotations, typed parameter structs, and tagged `{:ok, value}` / `{:error, reason}` returns at runtime boundaries. Reserve raises for invalid initialization/configuration.
+- Prefer Elixir extension points with explicit behaviours (`ImagePipe.Source`, `ImagePipe.Transform.Detector`), `@impl` annotations, typed parameter structs, and tagged `{:ok, value}` / `{:error, reason}` returns at runtime boundaries. Reserve raises for invalid initialization/configuration.
 - Validate public options explicitly, preferably with `NimbleOptions` or adapter-owned `validate_options/1`, and reject unknown or malformed options before side effects.
 - For trusted internal behaviour dispatch, call the callback directly and let missing callbacks raise. Do not add runtime duck-typing probes, callback-presence checks, or wrapper functions whose only purpose is to make impossible internal misuse return tidy errors.
 - Constructor APIs should accept the narrowest shape that real callers use. Do not accept both keyword lists and maps, existing structs, or negative guard carve-outs such as `is_map(value) and not is_struct(value)` unless there is a real public caller or contract requiring it.
@@ -107,7 +107,7 @@ Validation belongs at boundaries the caller doesn't control. Inside the codebase
 - HTTP request input (headers, query strings, bodies, conditional-request fields).
 - Cache reads from external storage and other data crossing a serialization boundary.
 - Third-party API responses.
-- Return values from host-implementable behaviours such as `ImagePipe.Source`, `ImagePipe.Transform.Detector`, and `ImagePipe.Cache` adapters.
+- Return values from host-implementable behaviours such as `ImagePipe.Source` and `ImagePipe.Transform.Detector` adapters.
 
 **Don't validate:**
 

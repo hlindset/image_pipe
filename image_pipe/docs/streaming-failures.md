@@ -30,7 +30,7 @@ most failures:
 
 ## Failures after headers
 
-A few failures can only happen once the image is streaming:
+A few failures can only happen once the response is being sent:
 
 - **Corrupt image data.** Pixels are decoded as the encoder needs them, so a
   file with a valid header and damaged data further in can fail halfway
@@ -40,6 +40,8 @@ A few failures can only happen once the image is streaming:
   [Processing deadline](#processing-deadline) below covers why.
 - **No progress for 60 seconds.** ImagePipe waits at most that long for each
   encoded chunk.
+- **A cached image can't be read** partway through, such as after a disk
+  error.
 - **The client disconnects.**
 
 The status and headers have already been sent, so ImagePipe can't replace
@@ -47,13 +49,22 @@ them with an error. It stops sending and logs the failure.
 
 ## What the client receives
 
-After a failure mid-stream, the client has a `200` with the right
-`Content-Type` and part of the image. Streamed responses have no
-`Content-Length`, so the HTTP framing doesn't show that bytes are missing.
-With Bandit, the server behind `image_pipe_server` and new Phoenix apps, the
-response is ended normally and the connection stays open. A browser may show
-part of the image or a broken image, and a proxy or CDN sees what looks like a
-complete response.
+After any of these failures except a disconnect, the client has a `200` with
+the right `Content-Type` and part of the image, and ImagePipe abandons the
+response without finishing it:
+
+- Over HTTP/1.1, the server closes the connection before the body is
+  complete, so clients, proxies, and CDNs can tell it was cut short.
+- Over HTTP/2, Bandit (the server behind `image_pipe_server` and new Phoenix
+  apps) resets the stream, so the client sees the request fail.
+
+A browser shows part of the image or a broken image.
+
+ImagePipe raises `ImagePipe.Plug.StreamAbortedError` after logging the
+failure, so the server logs that exception as well. Over HTTP/2 with Bandit it
+raises `Bandit.HTTP2.Errors.StreamError` instead. In a Plug app, error
+trackers that capture exceptions from your Plug pipeline report the exception
+too.
 
 ## What the cache keeps
 
@@ -72,6 +83,18 @@ making it disconnects, one waiting request takes over.
 With Bandit, ImagePipe notices that a client has gone the next time it
 writes to the connection. It then stops the encoder and the work behind it,
 releases the processing pool slot, and discards the partial cache entry.
+
+When the client of a streamed image disconnects, ImagePipe logs it at `info`
+level, not as an error, and the
+[`[:deliver]` span](telemetry-events.md#deliver) ends with
+`result: :client_closed`.
+
+When the client has gone before ImagePipe sends the headers, Bandit raises
+`Bandit.TransportError`. ImagePipe lets that exception reach Bandit, which
+treats it as a client disconnect and by default doesn't log it. ImagePipe's
+`[:send]` and `[:request]` spans end with the exception, so the
+[default telemetry logger](telemetry.md#logging-with-the-default-logger) logs them as warnings. In a Plug app,
+error trackers that capture exceptions from your Plug pipeline report it too.
 
 The work stops between chunks, not instantly. A libvips operation that is
 already running finishes first, and a stopped request gets one second to
@@ -95,10 +118,8 @@ The deadline is set on the pool. See
 
 ## Clients, proxies, and CDNs
 
-A truncated response looks complete at the HTTP level, so a proxy or CDN can
-store it. ImagePipe's own cache never holds the partial copy, so the next
-request that reaches ImagePipe gets a complete image. Settings that make
-truncation less likely are in
-[slow clients](deployment.md#slow-clients),
-and what to do about a cut-off image at the edge is in
-[configure the CDN](serving-through-a-cdn.md#configure-the-cdn).
+Proxies and CDNs don't store a response whose body is incomplete. ImagePipe's
+own cache never holds the partial copy either, so the next request gets a
+complete image.
+Settings that make truncation less likely are in
+[slow clients](deployment.md#slow-clients).

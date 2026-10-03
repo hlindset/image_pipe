@@ -27,7 +27,8 @@ defmodule ImagePipeServer.Config.Reference do
     sources: nil,
     cache:
       "Caches on the local filesystem: `output` for processed images, `input` for " <>
-        "originals. Setting `max_size_bytes` bounds a cache and requires `node_id`. " <>
+        "originals. Their `root` directories must be separate, neither inside the other. " <>
+        "Setting `max_size_bytes` bounds a cache and requires `node_id`. " <>
         "See [caching processed images](../../image_pipe/docs/caching-processed-images.md).",
     processing:
       "Defaults and limits for every image the server processes. The limits on " <>

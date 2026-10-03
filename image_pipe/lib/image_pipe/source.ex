@@ -180,6 +180,12 @@ defmodule ImagePipe.Source do
   def runtime_opts(config) when is_list(config),
     do: Keyword.take(config, @runtime_option_keys)
 
+  # An immutable HTTP or S3 original changes when the adapter's settings do,
+  # such as its bucket or base URL, so those settings join the original's
+  # version. Other adapters identify an immutable original by their identity
+  # seed alone, whether or not it is copied.
+  @settings_versioned [ImagePipe.Source.HTTP, ImagePipe.Source.S3]
+
   # Freezes dynamic origin credentials before partitioning a cached request.
   @doc false
   def prepare_cache_context(source, config) do
@@ -190,20 +196,19 @@ defmodule ImagePipe.Source do
       # is also a compiled regex, which has no stable serialization.
       context =
         {module,
-         Keyword.drop(opts, [
-           :cache_policy,
-           :stable,
-           :internal_cache,
-           :http_cache,
-           :path_pattern,
-           :verify,
-           :copy
-         ]), prepared.fetch}
+         Keyword.drop(
+           opts,
+           [:cache_policy, :stable, :internal_cache, :http_cache, :path_pattern, :verify, :copy] ++
+             location_options(module)
+         ), prepared.fetch}
 
       identity =
         case prepared.cache_semantics.byte_identity do
-          :content -> :content
-          {:strong, seed} -> {:strong, {seed, ImagePipe.MaterialDigest.of(context)}}
+          {:strong, seed} when module in @settings_versioned ->
+            {:strong, {seed, ImagePipe.MaterialDigest.of(context)}}
+
+          identity ->
+            identity
         end
 
       {:ok, %{prepared | cache_semantics: %{prepared.cache_semantics | byte_identity: identity}},
@@ -212,6 +217,11 @@ defmodule ImagePipe.Source do
   rescue
     _exception -> {:error, {:source, :credentials_unavailable}}
   end
+
+  # A File source's `root_id` names its directory, so moving the directory to a
+  # new `root` keeps its cached originals and results.
+  defp location_options(ImagePipe.Source.File), do: [:root]
+  defp location_options(_module), do: []
 
   defp prepare_cache_source(module, source, opts, runtime)
        when module in [ImagePipe.Source.HTTP, ImagePipe.Source.S3],

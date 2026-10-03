@@ -124,6 +124,7 @@ defmodule ImagePipe.MixProject do
             ImagePipe.Config,
             ImagePipe.Result,
             ImagePipe.Plug,
+            ImagePipe.Plug.StreamAbortedError,
             ImagePipe.ProcessingPool
           ],
           Sources: [

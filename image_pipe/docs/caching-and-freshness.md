@@ -20,8 +20,8 @@ all sources or per source. Request URLs can't change them:
 ## Originals and processed images
 
 Each processed image belongs to one version of its original. Most sources
-identify a version by the original's content. A
-[write-once source](#write-once-sources) identifies it by the original's path,
+identify a version by the original's content. An
+[immutable source](#immutable-sources) identifies it by the original's path,
 URL, or S3 object instead. Each configured source keeps its own processed
 images, so two configured sources that serve the same file don't share them.
 
@@ -86,7 +86,7 @@ You can allow storage for a source, which overrides `no-store` and `private`,
 or deny it. `Vary: *` from the origin prevents storage even when it is
 allowed. A forced lifetime doesn't make a `no-store` response storable.
 
-## Write-once sources
+## Immutable sources
 
 For write-once storage, content-addressed paths, or storage where your
 application never replaces a file in place, you can mark a source as one whose
@@ -95,7 +95,7 @@ expire and are never checked, so a cached `cat.jpg` is served without
 contacting the source. They can still be evicted, and still need permission
 to be stored.
 
-A write-once source identifies each version by where the original comes from,
+An immutable source identifies each version by where the original comes from,
 not by its content:
 
 - A local file by the source's `root_id`, a stable name for its directory
@@ -108,15 +108,15 @@ For HTTP and S3 sources, changing how the source fetches originals, such as
 its request options or credentials, also gives every original a new version.
 Credentials are hashed first, so they never appear in cache keys or `ETag`s.
 
-A write-once source can't have its own lifetime or stale window, and a default
+An immutable source can't have its own lifetime or stale window, and a default
 lifetime set for all sources doesn't apply to it. S3 identifiers that name an
-object version are treated as write-once automatically (see
+object version are treated as immutable automatically (see
 [request object versions](serving-from-s3.md#request-object-versions)).
 
 ## Local file sources
 
 A local file has no origin headers, so it has no lifetime unless you set a
-fallback one. Unless the source is write-once, the file source identifies each
+fallback one. Unless the source is immutable, the file source identifies each
 file by a hash of its content: a changed `cat.jpg` gets new processed images,
 and an unchanged one reuses them.
 
@@ -128,6 +128,11 @@ requests within it skip the check.
 Originals are read where they are. On a network filesystem, the source can
 keep a local copy in the originals cache, so other sizes don't read the file
 over the network again.
+
+The cache identifies files by the source's `root_id` and their path, not by
+the directory's `root`. Moving the directory to a new `root` keeps cached
+originals, processed images, and their `ETag`s, as long as `root_id` stays
+the same.
 
 ## Request coalescing
 
