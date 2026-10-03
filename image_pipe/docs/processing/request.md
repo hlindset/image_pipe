@@ -176,8 +176,8 @@ A flag: `debug` or `debug=false`. Default: off.
 
 `debug` adds `X-ImagePipe-*` and `Server-Timing` response headers that
 describe the original, the chosen output, the cache status, and the time
-each stage took. They appear only when whoever runs ImagePipe allows debug
-headers (see [Plug configuration](../configuration.md#plug-only-options) and
+each stage took. They appear only when the server's configuration allows
+debug headers (see [Plug configuration](../configuration.md#plug-only-options) and
 [server configuration](../../../image_pipe_server/docs/server-configuration.md#http)).
 Otherwise `debug` is ignored. It never changes the image, the stored copy, or
 the `ETag`. [Debug headers](../debug_headers.md) lists each header.

@@ -36,11 +36,11 @@ ImagePipe.URL.new()
 
 ### wm
 
-Accepts the name of a watermark defined by whoever runs ImagePipe: lowercase
-letters, digits, `_`, and `-`. Default: no watermark.
+Accepts the name of a watermark defined in the server's configuration:
+lowercase letters, digits, `_`, and `-`. Default: no watermark.
 
-Draws that named image. Ask whoever runs ImagePipe which names exist. A name
-they haven't defined fails with `400` and `unknown watermark`. The watermark
+Draws that named image. The server's configuration defines which names
+exist. A name it doesn't define fails with `400` and `unknown watermark`. The watermark
 may come with its own opacity, which [`wm-opacity`](#wm-opacity) multiplies.
 
 <!-- tabs-open -->
@@ -63,13 +63,13 @@ ImagePipe.URL.group(builder, watermark: :logo)
 
 `wm-src64` accepts an image path in unpadded base64url, written the same way as
 after the [`src64/` marker](../requesting-images.md#image-paths). `wm-enc`
-accepts an encrypted token, like the `enc/` marker. Only whoever runs ImagePipe
-can create these tokens, so you get such URLs complete from them. Default: no
-watermark.
+accepts an encrypted token, like the `enc/` marker. These tokens need the
+server's encryption key, so they are created server-side, for example by the
+application that builds your URLs. Default: no watermark.
 
 Draws the image at that path, from the same image sources as the main image.
-Both options work only when whoever runs ImagePipe allows watermarks named by
-the request. Otherwise they fail with `400` and
+Both options work only when the server's configuration allows watermarks
+named by the request. Otherwise they fail with `400` and
 `request watermark sources are not enabled`. A `wm-enc` token that can't be
 decrypted answers `404`.
 
@@ -92,8 +92,8 @@ ImagePipe.URL.group(builder, watermark_source: "brand/logo.png")
 
 <!-- tabs-close -->
 
-Whoever runs ImagePipe defines watermark names and allows request-named
-watermarks in the [Plug configuration](../configuration.md#watermarks) or the
+Watermark names, and whether requests may name their own watermarks, are set
+in the [Plug configuration](../configuration.md#watermarks) or the
 [server configuration](../../image_pipe_server/docs/server-configuration.md#processing).
 
 ## Size and placement

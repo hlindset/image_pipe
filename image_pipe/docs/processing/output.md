@@ -18,14 +18,14 @@ With `format`, the response is always that format. Without it:
 - AVIF or WebP is used when the browser's `Accept` header names `image/avif`
   or `image/webp`. Wildcards such as `image/*` and `*/*` don't count, and a
   type listed with `q=0` is excluded. When both are accepted, AVIF wins
-  unless whoever runs ImagePipe changed the order or turned either format
-  off, or the server can't encode it.
+  unless the server's configuration changes the order or turns either
+  format off, or the server can't encode it.
 - Otherwise JPEG and PNG originals keep their format, and any other original
   becomes PNG if the result has transparency, JPEG if not.
 - The response carries `Vary: Accept`, because the same URL can return
   different formats.
 
-Whoever runs ImagePipe can list source formats, such as GIF, that are
+The server's configuration can list source formats, such as GIF, that are
 delivered unprocessed. An image request for such an original without
 `format`, or with the original's own format, and without a watermark returns
 the original file and ignores every other option. Placeholder and `info`
@@ -57,7 +57,7 @@ ImagePipe.URL.new()
 ### q
 
 Accepts a whole [number](../requesting-images.md#numbers) from `1` to `100`.
-Default: the quality set by whoever runs ImagePipe, 80 unless changed (see
+Default: the quality set in the server's configuration, 80 unless changed (see
 [Plug configuration](../configuration.md#format-and-quality-defaults) and
 [server configuration](../../../image_pipe_server/docs/server-configuration.md#processing)).
 
@@ -92,7 +92,7 @@ ImagePipe.URL.new()
 Accepts a [list](../requesting-images.md#pairs-and-lists) of `format:quality`
 pairs, such as `avif:60,webp:75`, using the format names from `format` and
 qualities from `1` to `100`. Each format may appear once. Default: per-format
-qualities set by whoever runs ImagePipe.
+qualities set in the server's configuration.
 
 Only the entry for the format the response uses applies, so one URL can set
 qualities for every format the browser might get. Formats you leave out keep
@@ -119,8 +119,8 @@ ImagePipe.URL.new()
 ### autoquality
 
 Accepts `none`, or a method name followed by optional `name:value` fields, as
-a list. Default: no search, unless whoever runs ImagePipe turns one on for
-every request.
+a list. Default: no search, unless the server's configuration turns one on
+for every request.
 
 `autoquality` encodes the image at several qualities and picks one that meets
 the target. The method sets what the target measures:
@@ -332,7 +332,7 @@ ImagePipe.URL.new()
 ### meta
 
 Accepts `copyright`, `strip`, or `keep`, a named value. Default: `copyright`,
-unless whoever runs ImagePipe changed it.
+unless the server's configuration changes it.
 
 | Value | Result |
 | --- | --- |
@@ -365,8 +365,8 @@ ImagePipe.URL.new()
 ### dpi
 
 Accepts a whole number from `1` to `65535`. Default: with `meta=copyright`
-or `meta=strip`, the density set by whoever runs ImagePipe, 72 unless
-changed. With `meta=keep`, the original's density.
+or `meta=strip`, the density set in the server's configuration, 72
+unless changed. With `meta=keep`, the original's density.
 
 `dpi` writes the image's density in pixels per inch, under any `meta`
 value. It changes only the stored density value, never the pixels, the
@@ -393,8 +393,8 @@ ImagePipe.URL.new()
 ### profile
 
 Accepts `strip`, `preserve`, `srgb`, `display-p3`, or `adobe-rgb`, a named
-value. Default: `strip`, unless whoever runs ImagePipe changed it to
-`preserve`.
+value. Default: `strip`, unless the server's configuration changes it
+to `preserve`.
 
 | Value | Result |
 | --- | --- |
@@ -434,7 +434,7 @@ ImagePipe.URL.new()
 ### hdr
 
 Accepts `tonemap` or `preserve`, a named value. Default: `tonemap`, unless
-whoever runs ImagePipe changed it to `preserve`.
+the server's configuration changes it to `preserve`.
 
 `hdr=preserve` keeps high bit depth through processing and into the output
 when the response is AVIF or PNG. JPEG and WebP output are always standard

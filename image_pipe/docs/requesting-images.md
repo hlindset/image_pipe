@@ -7,13 +7,14 @@ the processing options before the image's path:
 https://img.example.com/w=400/h=300/fit=cover/src/photos/beach.jpg
 ```
 
-When you request images from an external ImagePipe server, ask whoever runs
-it for:
+Requesting images from an ImagePipe server takes a few details from its
+configuration:
 
 - The base URL, such as `https://img.example.com` or `https://example.com/images`.
 - What an image path looks like: a path such as `photos/beach.jpg`, or a full
   URL when the images come from another website.
-- The names of any presets they have defined, and what each one does.
+- The names of any presets defined in the server's configuration, and what
+  each one does.
 - Whether URLs must be signed, and how you get signed URLs.
 
 ## URL structure
@@ -67,9 +68,9 @@ Two other markers can take the place of `src/`:
 - `src64/` followed by the image path in unpadded base64url, for example
   `src64/cGhvdG9zL2JlYWNoLmpwZw` for `photos/beach.jpg`. Leave out the
   trailing `=` characters.
-- `enc/` followed by an encrypted token that hides the image path. Only
-  whoever runs ImagePipe can create these tokens, so you get such URLs
-  complete from them. A token that can't be decrypted answers `404`.
+- `enc/` followed by an encrypted token that hides the image path. These
+  tokens need the server's encryption key, so they are created server-side,
+  for example by the application that builds your URLs. A token that can't be decrypted answers `404`.
 
 ## Processing groups
 
@@ -259,8 +260,8 @@ decimal: `crop-ratio=16:9` or `crop-ratio=1.5`.
 
 ## Named presets
 
-A preset is a named set of options defined by whoever runs ImagePipe. Write
-`preset=` and the name where you would write the options:
+A preset is a named set of options defined in the server's configuration.
+Write `preset=` and the name where you would write the options:
 
 ```text
 /preset=card/src/photos/beach.jpg
@@ -288,14 +289,14 @@ win over the preset's options in the same group, so with a `card` preset of
   `/preset=brand/wm=unset` removes the watermark. Every option except
   `preset` accepts `unset`.
 
-Whoever runs ImagePipe can also set defaults for the first group of every
+The server's configuration can also set defaults for the first group of every
 request. Presets and your own options win over them, and `unset` removes them
 too.
 
 A preset can also define several groups of its own. You can add only
 request-wide options to such a preset, such as `/preset=framed/format=png`,
 either directly or through another preset. Adding any other option answers
-`400`. Ask whoever runs ImagePipe which of their presets work this way.
+`400`. The server's configuration defines which presets work this way.
 
 A preset name that doesn't exist answers `400`.
 
@@ -308,9 +309,9 @@ that covers everything after it:
 https://img.example.com/sig=<signature>/w=400/src/photos/beach.jpg
 ```
 
-You can't sign URLs yourself, because signing needs a secret key. Whoever runs
-ImagePipe gives you complete signed URLs, or an endpoint in their app that
-creates them. They set this up as described in
+Signing needs the server's secret key, so URLs are signed server-side. The
+application that builds your URLs signs them, or an endpoint in it creates
+signed URLs. Signing is set up as described in
 [signing and expiry](urls.md#signing-and-expiry).
 
 - Changing any option or the image path invalidates the signature.
