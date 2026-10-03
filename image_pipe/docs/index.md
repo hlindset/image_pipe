@@ -6,7 +6,7 @@ in Elixir code. Start with the page for what you want to do:
 | I want to… | Start with |
 | --- | --- |
 | Request images from an ImagePipe server someone else runs | [Requesting images](requesting-images.md) |
-| Run `image_pipe_server` | [Deploying image_pipe_server](../../image_pipe_server/docs/server-deployment.md) and [Configuring image_pipe_server](../../image_pipe_server/docs/server-configuration.md) |
+| Run `image_pipe_server` | [Getting started with the server](../../image_pipe_server/docs/server-getting-started.md), then [deploying](../../image_pipe_server/docs/server-deployment.md) and [configuring](../../image_pipe_server/docs/server-configuration.md) it |
 | Serve images from my Phoenix or Plug app | [Plug usage](plug-usage.md) |
 | Process images in Elixir code (uploads, jobs) | [Elixir API](elixir-api.md) |
 | Generate signed URLs for a separate server | [URL builder with an external server](external-server.md) |

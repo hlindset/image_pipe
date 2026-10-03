@@ -33,17 +33,17 @@ root = "/data/images"
 root_id = "static"
 ```
 
-Build and start the container from the same shell. `IPS_URL__KEYS` supplies the
+Pull and start the server image from the same shell. `IPS_URL__KEYS` supplies the
 server with the signing key the application will use:
 
 ```sh
-docker build -f image_pipe_server/Dockerfile -t image_pipe_server .
+docker pull ghcr.io/hlindset/image_pipe_server:0.1.0
 docker run --rm -d --name image-pipe-example \
   --read-only --tmpfs /tmp -p 127.0.0.1:8080:8080 \
   -e IPS_URL__KEYS="$IMAGE_PIPE_SIGNING_KEY" \
   --mount "type=bind,src=$PWD/config.toml,dst=/etc/image_pipe/config.toml,readonly" \
   --mount "type=bind,src=$PWD/images,dst=/data/images,readonly" \
-  image_pipe_server
+  ghcr.io/hlindset/image_pipe_server:0.1.0
 curl --fail --retry 30 --retry-connrefused --retry-delay 1 http://localhost:8080/health
 ```
 

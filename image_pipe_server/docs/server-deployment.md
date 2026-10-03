@@ -1,28 +1,27 @@
 # Deploying image_pipe_server
 
-`image_pipe_server` runs as a Docker image that you build from the repository
-and configure with a TOML file and environment variables. The
+`image_pipe_server` runs as a Docker image that you configure with a TOML
+file and environment variables. The
 [configuration reference](server-configuration.md) lists every setting.
 
 ## Images
 
-There are two variants, built from the same Dockerfile:
+There are two variants:
 
-- `image_pipe_server`, without content-aware detection.
-- `image_pipe_server` built with `IMAGE_VISION=1`, which adds `image_vision`
-  with ONNX Runtime and bakes the face and object detection models into the
-  image, so detection works without network access at runtime.
+- `ghcr.io/hlindset/image_pipe_server:0.1.0`, without content-aware detection.
+- `ghcr.io/hlindset/image_pipe_server:0.1.0-vision`, which adds face and object
+  detection with the models baked into the image, so detection works without
+  network access at runtime.
 
-Both build libvips from source, so they read JPEG XL sources and write
-palette PNGs. Build from the repository root, since the server depends on
-its sibling projects:
+Both include libvips built from source, so they read JPEG XL sources and
+write palette PNGs.
+
+To build an image yourself, run from the repository root, since the server
+depends on its sibling projects. Add `--build-arg IMAGE_VISION=1` for the
+detection variant:
 
 ```bash
 docker build -f image_pipe_server/Dockerfile -t image_pipe_server .
-```
-
-```bash
-docker build -f image_pipe_server/Dockerfile --build-arg IMAGE_VISION=1 -t image_pipe_server:vision .
 ```
 
 The image runs as user `image_pipe` (uid 10001), listens on port 8080, and
@@ -30,26 +29,15 @@ checks `GET /health` for its Docker health status.
 
 ## Running
 
-Write a `config.toml` that serves the files in `/data/images`:
+To try the server locally first, follow
+[Getting started with the server](server-getting-started.md).
 
-```toml
-[sources.static]
-adapter = "file"
-match = "path"
-root = "/data/images"
-root_id = "static"
-```
-
-Mount it at `/etc/image_pipe/config.toml` (or name another path with
-`IPS_CONFIG`), mount your images, and give caches a volume:
+Mount the configuration file at `/etc/image_pipe/config.toml` (or name
+another path with `IPS_CONFIG`), mount your images, and give caches a volume:
 
 ```bash
-docker run --read-only --tmpfs /tmp -p 8080:8080 -v ./config.toml:/etc/image_pipe/config.toml:ro -v ./images:/data/images:ro -v image-cache:/var/cache/image_pipe image_pipe_server
+docker run --read-only --tmpfs /tmp -p 8080:8080 -v ./config.toml:/etc/image_pipe/config.toml:ro -v ./images:/data/images:ro -v image-cache:/var/cache/image_pipe ghcr.io/hlindset/image_pipe_server:0.1.0
 ```
-
-`http://localhost:8080/w=400/format=webp/src/photo.jpg` now serves
-`./images/photo.jpg` resized to 400 pixels wide, as WebP. `GET /health`
-answers `ok` once the server is ready.
 
 - The server writes only to `/tmp` and to cache directories, so the root
   filesystem can be read-only. Mount `/tmp` as a `tmpfs`.
@@ -63,7 +51,7 @@ With Docker Compose:
 ```yaml
 services:
   images:
-    image: image_pipe_server
+    image: ghcr.io/hlindset/image_pipe_server:0.1.0
     read_only: true
     tmpfs: [/tmp]
     ports: ["8080:8080"]
@@ -120,7 +108,7 @@ spec:
     runAsUser: 10001
   containers:
     - name: images
-      image: image_pipe_server
+      image: ghcr.io/hlindset/image_pipe_server:0.1.0
       ports: [{ containerPort: 8080 }]
       env:
         - name: IPS_URL__KEYS_FILE
@@ -160,6 +148,9 @@ Whether a response is cached also depends on its source mount:
   results while it's unchanged. Set `stable = "immutable"` for write-once files
   to skip the check. On a network filesystem such as EFS, `copy = "keep"` keeps
   local copies of originals in the `[cache] input` pool.
+- A file mount's `root_id` is part of the cache key of every result from that
+  mount. Keep it the same across restarts and replicas, or cached results
+  aren't reused.
 
 ## Processing capacity
 
@@ -171,7 +162,7 @@ for a slot. A request that finds the queue full, or waits longer than
 
 ## Detection
 
-Detection-based gravity needs the vision image. Without it, detection
+Detection-based gravity needs the `0.1.0-vision` image. Without it, detection
 requests fall back to attention cropping. Set
 `[processing] detector_required = true` to fail them instead, including when
 detection errors while processing. The plain image then refuses to start,
@@ -195,7 +186,7 @@ configured by the standard `OTEL_*` variables. Export is off until an OTLP
 endpoint or an exporter is set:
 
 ```bash
-docker run -e OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318 -e OTEL_SERVICE_NAME=images image_pipe_server
+docker run -e OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318 -e OTEL_SERVICE_NAME=images ghcr.io/hlindset/image_pipe_server:0.1.0
 ```
 
 - `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` turns
