@@ -55,9 +55,8 @@ defmodule ImagePipe.Cache.FileSystem.Store do
                       doc: """
                       Tags bounded-mode telemetry events with `pool`, so events from an \
                       originals cache can be told apart from the processed-image cache. \
-                      Defaults to `:output`. For a bounded originals cache, pass \
-                      `pool: :input` to its `child_spec/1`. `:input_cache` adds it to the \
-                      adapter options itself.
+                      Defaults to `:output`. A cache configured as `:input_cache` gets \
+                      `pool: :input` automatically.
                       """
                     ],
                     # Bounded-mode options: all optional per key. Cross-key

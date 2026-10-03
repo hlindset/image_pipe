@@ -170,11 +170,10 @@ Bounded mode needs `node_id`, the name of this node's state file
 nodes that share a `root` (see
 [run several replicas](caching-processed-images.md#run-several-replicas)).
 
-`ImagePipe.Cache.FileSystem.child_spec/1` returns the cache's supervisor in
-bounded mode, and `:ignore` otherwise. Each `root` and `node_id` pair runs one
-process that tracks the cache's size and decides what to keep. Writes are
-skipped until the supervisor is running, and each skipped write is logged as
-`Admission process unavailable in bounded mode; skipping write`.
+Each `root` and `node_id` pair runs one process that tracks the cache's size
+and chooses which entries to keep. A bounded cache must be configured on an
+instance, which starts that process (see `ImagePipe.child_spec/1` and
+[Bound the cache size](caching-processed-images.md#bound-the-cache-size)).
 
 ### Size cap and startup scan
 

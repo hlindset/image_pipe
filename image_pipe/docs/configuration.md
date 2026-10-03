@@ -43,7 +43,8 @@ Store secrets in server-side configuration.
 | Processing request | Width, crop, effects, format, quality | URL options or `ImagePipe.URL.group/2` and `ImagePipe.URL.output/2` |
 | Direct call context | Accept header, storage partition values | `accept:` and `request_inputs:` on `run`/`write` |
 
-Mount options can override server configuration. Direct `run`/`write` host
+Server options passed to an inline mount override its `config:`. An instance
+mount accepts only mount options and `url:`. Direct `run`/`write` host
 options override the server configuration passed to them. Explicit request
 output choices override host defaults. Both Plug and direct execution expand
 presets from the server configuration: `request_defaults`, named presets in

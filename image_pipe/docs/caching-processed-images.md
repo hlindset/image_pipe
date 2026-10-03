@@ -79,67 +79,43 @@ bounded cache also needs a `node_id` that names this server.
 
 ### Plug
 
-A bounded cache runs its own processes, which your application starts. The
-mount and those processes need the same options, so build them once in your
-application's `start/2`. Store the mount where a small plug can reach it, and
-start the cache before the endpoint:
+Move the configuration from your `forward` into an instance, which starts the
+processes a bounded cache needs. Add the instance to your application's
+supervision tree, before the endpoint:
 
 ```elixir
 # lib/my_app/application.ex
-def start(_type, _args) do
-  cache = [
-    root: "/var/cache/image_pipe/processed",
-    max_size_bytes: 5_000_000_000,
-    node_id: "node-0"
-  ]
-
-  mount =
-    ImagePipe.Plug.init(
-      sources: [
-        media: [
-          adapter: ImagePipe.Source.File,
-          match: :path,
-          options: [root: "/srv/images", root_id: "media"]
-        ]
-      ],
-      cache: {ImagePipe.Cache.FileSystem, cache}
-    )
-
-  :persistent_term.put({MyAppWeb.ImagePlug, :mount}, mount)
-
-  children = [
-    ImagePipe.Cache.FileSystem.child_spec(cache),
-    MyAppWeb.Endpoint
-  ]
-
-  Supervisor.start_link(children, strategy: :one_for_one, name: MyApp.Supervisor)
-end
+children = [
+  {ImagePipe,
+   name: MyApp.Images,
+   sources: [
+     media: [
+       adapter: ImagePipe.Source.File,
+       match: :path,
+       options: [root: "/srv/images", root_id: "media"]
+     ]
+   ],
+   cache:
+     {ImagePipe.Cache.FileSystem,
+      root: "/var/cache/image_pipe/processed",
+      max_size_bytes: 5_000_000_000,
+      node_id: "node-0"}},
+  MyAppWeb.Endpoint
+]
 ```
 
-```elixir
-# lib/my_app_web/image_plug.ex
-defmodule MyAppWeb.ImagePlug do
-  @behaviour Plug
-
-  @impl true
-  def init(opts), do: opts
-
-  @impl true
-  def call(conn, _opts) do
-    ImagePipe.Plug.call(conn, :persistent_term.get({__MODULE__, :mount}))
-  end
-end
-```
+Then mount the instance by name:
 
 ```elixir
 # lib/my_app_web/router.ex
-forward "/images", MyAppWeb.ImagePlug
+forward "/images", ImagePipe.Plug, instance: MyApp.Images
 ```
 
-To bound an originals cache, build its options the same way with
-`pool: :input` added, pass them as
-`input_cache: {ImagePipe.Cache.FileSystem, options}`, and start their own
-`child_spec/1`.
+Mount options such as `http_cache` stay on the `forward` (see
+[Mount an instance](plug-usage.md#mount-an-instance)).
+
+To bound an originals cache, add `max_size_bytes` and `node_id` to the
+instance's `input_cache` options.
 
 ### image_pipe_server
 
@@ -178,7 +154,7 @@ env:
     valueFrom: { fieldRef: { fieldPath: metadata.name } }
 ```
 
-In `start/2`, read it into the cache options:
+Read it into each bounded cache's options on the instance:
 
 ```elixir
 node_id: System.fetch_env!("POD_NAME")
@@ -249,13 +225,8 @@ If `[server]` sets `auth_token`, add `-H "Authorization: Bearer <token>"`.
 
 <!-- tabs-close -->
 
-If the second request is still a `miss`:
-
-- The origin may forbid storage (see
-  [storage permission](caching-and-freshness.md#storage-permission)).
-- In a Plug app, a bounded cache whose `child_spec/1` isn't started never
-  writes. The log shows
-  `Admission process unavailable in bounded mode; skipping write`.
+If the second request is still a `miss`, the origin may forbid storage (see
+[storage permission](caching-and-freshness.md#storage-permission)).
 
 Turn debug headers off again when you're done, since they
 [disclose details](debug_headers.md#security-and-disclosure) about your

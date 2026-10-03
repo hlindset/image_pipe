@@ -68,11 +68,23 @@ thumbnail =
 
 mount = ImagePipe.Plug.init(config: config, http_cache: :auto)
 # Pass mount to ImagePipe.Plug.call(conn, mount), or configure the router with:
-# plug ImagePipe.Plug, config: config, http_cache: :auto
+# forward "/images", ImagePipe.Plug, instance: MyApp.Images, http_cache: :auto
 ```
 
 Builder calls return new values, so `ip_client` remains reusable. Per-call host
 options passed to `run` and `write` override server configuration.
+
+A bounded cache must be configured on an instance (see
+`ImagePipe.child_spec/1`). Pass the instance's configuration to `run` and
+`write`:
+
+```elixir
+config = ImagePipe.config!(MyApp.Images)
+```
+
+Per-call options work with it as usual. A per-call bounded `:cache` or
+`:input_cache` raises `ArgumentError` unless it is one of the instance's own
+caches.
 
 The builder uses its URL configuration when generating URLs. The Plug and
 direct execution use the server configuration: its URL settings verify and

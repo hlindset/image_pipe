@@ -49,6 +49,40 @@ end
 
 Run that router with your application's Plug-compatible HTTP server.
 
+## Mount an instance
+
+Router options are evaluated when the router compiles. When the
+configuration reads runtime values, such as keys from environment variables,
+or uses a bounded cache, run it as an instance in your application's
+supervision tree, before the endpoint:
+
+```elixir
+# lib/my_app/application.ex
+children = [
+  {ImagePipe,
+   name: MyApp.Images,
+   sources: [
+     media: [
+       adapter: ImagePipe.Source.File,
+       match: :path,
+       options: [root: System.fetch_env!("IMAGE_ROOT"), root_id: "media"]
+     ]
+   ]},
+  MyAppWeb.Endpoint
+]
+```
+
+Then mount the instance by name:
+
+```elixir
+# lib/my_app_web/router.ex
+forward "/images", ImagePipe.Plug, instance: MyApp.Images
+```
+
+The mount accepts `url:` and mount options such as `http_cache` next to
+`instance:`. Other options raise `ArgumentError`. `ImagePipe.child_spec/1`
+lists the instance's options, and `ImagePipe.Plug` the mount options.
+
 ## Request an image
 
 With the application listening on port 4000:
@@ -91,9 +125,12 @@ signing, cache, and processing settings with the mount.
 
 ## Configure delivery
 
-Add settings to the mount's options, or supply a reusable `config:`. Invalid
-configuration raises at initialization. Malformed requests fail before source
-fetch or cache access.
+Add settings to the mount's or the instance's options, or supply a reusable
+`config:` to an inline mount. Invalid configuration raises `ArgumentError`
+when the router compiles, or for an instance when its child specification is
+built. An instance mount raises on a request if its instance isn't running or
+doesn't define its `url:`. Malformed requests fail before source fetch or
+cache access.
 
 - Configure [sources](sources.md) to enable HTTP(S), S3, or application identifiers.
 - Configure [signing keys](urls.md#signing-and-expiry) to require authenticated URLs.

@@ -44,11 +44,17 @@ results while they're unchanged. See [local files](sources.md#local-files).
 
 ## Connect the mount
 
-Use `config: config` in the mount options from the [Plug guide](plug-usage.md).
-For an application that supplies configuration at runtime, initialize with
-`ImagePipe.Plug.init(config: config)` once and call
-`ImagePipe.Plug.call(conn, mount)` from your forwarding plug. The forwarded
-connection's `path_info` must contain only the mount-relative path.
+To share it with a router mount, run the configuration as an instance and
+mount it with `instance:` (see [Mount an instance](plug-usage.md#mount-an-instance)).
+Router options are evaluated when the router compiles, so they can't take a
+`config` built at startup, and an instance is also needed when the
+configuration reads runtime values, such as keys from environment variables,
+or uses a bounded cache. Direct calls get the instance's configuration from
+`ImagePipe.config!/1`.
+
+`ImagePipe.Plug.call(conn, mount)` serves a request with a mount from
+`ImagePipe.Plug.init/1`. The connection's `path_info` must contain only the
+mount-relative path.
 
 For example, this simulates the forwarded HTTP request for the generated URL:
 

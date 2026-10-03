@@ -6,21 +6,20 @@ defmodule ImagePipe.Cache.FileSystem do
 
   Without `:max_size_bytes` the cache grows without limit. With it, the cache
   runs in bounded mode, with `:max_size_bytes` as a soft cap: writes evict the
-  least valuable entries, and a background pass evicts any overshoot. A
-  W-TinyLFU policy decides which entries to keep, favoring those requested
-  most often. Bounded mode needs the supervisor returned by `child_spec/1`.
-  Without it, every write is skipped and logged as a warning.
-
-      cache = [
-        root: "/var/cache/image_pipe/processed",
-        max_size_bytes: 5_000_000_000,
-        node_id: "node-0"
-      ]
-
-      mount = ImagePipe.Plug.init(sources: sources, cache: {ImagePipe.Cache.FileSystem, cache})
+  least valuable entries, and a background pass evicts any overshoot. Entries
+  requested most often are kept longest (a W-TinyLFU policy). Bounded mode
+  runs processes that track the cache's size, so a bounded cache must be
+  configured on an instance, which starts them (see `ImagePipe.child_spec/1`):
 
       children = [
-        ImagePipe.Cache.FileSystem.child_spec(cache),
+        {ImagePipe,
+         name: MyApp.Images,
+         sources: sources,
+         cache:
+           {ImagePipe.Cache.FileSystem,
+            root: "/var/cache/image_pipe/processed",
+            max_size_bytes: 5_000_000_000,
+            node_id: "node-0"}},
         MyAppWeb.Endpoint
       ]
 
