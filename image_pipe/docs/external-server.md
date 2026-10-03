@@ -111,7 +111,7 @@ the server can access. The server has no upload endpoint.
 
 - [URLs and presets](urls.md): processing options, signing, expiry, and source concealment.
 - [Fetching results from the service](elixir-api.md#fetching-results-from-the-service): consume responses in the application with an HTTP client.
-- [Server configuration](https://github.com/hlindset/image_pipe/blob/main/image_pipe_server/docs/configuration.md): TOML settings, environment variables, and mounted secrets.
-- [Server deployment](https://github.com/hlindset/image_pipe/blob/main/image_pipe_server/docs/deployment.md): TLS, caches, capacity, and health checks.
+- [Server configuration](../../image_pipe_server/docs/server-configuration.md): TOML settings, environment variables, and mounted secrets.
+- [Server deployment](../../image_pipe_server/docs/server-deployment.md): TLS, caches, capacity, and health checks.
 
 Stop the example container with `docker stop image-pipe-example`.

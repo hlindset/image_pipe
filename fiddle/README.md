@@ -5,7 +5,7 @@ The Fiddle edits and previews ImagePipe's path API. Browser state uses
 
 Controls generate URLs, and opening a saved URL restores its values. A group
 selector edits `-` requests; output settings apply to the whole request. The
-Advanced section allows direct path editing. See [the Fiddle guide](../image_pipe/docs/fiddle.md)
+Advanced section allows direct path editing. See [the Fiddle guide](../docs/architecture/fiddle.md)
 for sources, tracing, and sidecar setup.
 
 Crop and cover resize share the Gravity controls. Canvas modes require both

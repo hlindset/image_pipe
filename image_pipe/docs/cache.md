@@ -4,7 +4,7 @@ ImagePipe has two caches: `cache` stores complete processed responses, and
 `input_cache` stores originals fetched from remote sources. Both take
 `{ImagePipe.Cache.FileSystem, options}`. The adapter's options are listed in
 `ImagePipe.Cache.FileSystem`, and the server's `[cache]` keys in the
-[server configuration reference](https://github.com/hlindset/image_pipe/blob/main/image_pipe_server/docs/configuration.md#cache).
+[server configuration reference](../../image_pipe_server/docs/server-configuration.md#cache).
 Setting up the caches is covered in
 [Caching processed images](caching-processed-images.md), and how long cached
 images stay valid in [Caching and freshness](caching-and-freshness.md).

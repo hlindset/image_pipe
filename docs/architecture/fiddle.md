@@ -1,4 +1,4 @@
-# Run the Fiddle
+# Running the Fiddle
 
 The interactive demo (ImagePipe Fiddle) is a standalone Phoenix app in `fiddle/`.
 Install the toolchain pinned in `mise.toml`, then start the demo:
@@ -18,12 +18,12 @@ The source selector exercises local files, S3, and the demo's HTTP source.
 The Protection control demonstrates signed URLs and concealed sources using
 fixed demo keys.
 
-![Demo fiddle desktop screenshot](assets/demo-fiddle-desktop.png)
+![Demo fiddle desktop screenshot](../../image_pipe/docs/assets/demo-fiddle-desktop.png)
 
-### Tracing (OpenTelemetry → Jaeger)
+## Tracing (OpenTelemetry → Jaeger)
 
 To export `image_pipe.*` spans to local Jaeger (see
-[the cookbook](cookbook/opentelemetry-jaeger.md)):
+[the cookbook](../../image_pipe/docs/cookbook/opentelemetry-jaeger.md)):
 
 ```sh
 mise run fiddle:sidecars jaeger   # start Jaeger (OTLP + UI) via fiddle/docker-compose.yml
@@ -32,9 +32,9 @@ mise run fiddle otel              # boots the dev server with tracing on (FIDDLE
 
 Issue a `/image` request, then open the Jaeger UI at http://localhost:16686 and
 look for the `image_pipe.request` trace under the `image_pipe_fiddle` service.
-Tracing is off by default; `mise run fiddle` needs no Jaeger.
+Tracing is off by default, so `mise run fiddle` needs no Jaeger.
 
-### Source types (local / S3 / HTTP)
+## Source types (local / S3 / HTTP)
 
 The **Source type** control selects local files, a fake S3 server, or HTTP.
 All three serve the same bytes from `priv/static/images` for adapter comparisons.

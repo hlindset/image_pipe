@@ -6,7 +6,7 @@ in Elixir code. Start with the page for what you want to do:
 | I want to… | Start with |
 | --- | --- |
 | Request images from an ImagePipe server someone else runs | [Processing options](processing.md) and [URLs and presets](urls.md) |
-| Run `image_pipe_server` | [Running image_pipe_server](https://github.com/hlindset/image_pipe/blob/main/image_pipe_server/README.md) |
+| Run `image_pipe_server` | [Deploying image_pipe_server](../../image_pipe_server/docs/server-deployment.md) and [Configuring image_pipe_server](../../image_pipe_server/docs/server-configuration.md) |
 | Serve images from my Phoenix or Plug app | [Plug usage](plug-usage.md) |
 | Process images in Elixir code (uploads, jobs) | [Elixir API](elixir-api.md) |
 | Generate signed URLs for a separate server | [URL builder with an external server](external-server.md) |
@@ -25,7 +25,6 @@ in Elixir code. Start with the page for what you want to do:
 
 [Processing options](processing.md) covers ordering, units, defaults, and a
 complete option index. Each category page shows the URL and Elixir spellings.
-To try the options in a local demo app, [run the Fiddle](fiddle.md).
 
 | Category | What it covers |
 | --- | --- |

@@ -99,7 +99,7 @@ new size or format of the original doesn't restart that lifetime.
   `max-age=0`. Local files have no origin, so they get `max-age=0` unless
   their source sets a fallback lifetime (see the
   [Plug settings](cache.md#source-cache-settings) or the
-  [server's `[sources.<name>]` keys](https://github.com/hlindset/image_pipe/blob/main/image_pipe_server/docs/configuration.md#sourcesname)).
+  [server's `[sources.<name>]` keys](../../image_pipe_server/docs/server-configuration.md#sources-name)).
 
 For example, an original fetched 60 seconds ago with
 `Cache-Control: max-age=3600` gives:
@@ -273,7 +273,7 @@ A source whose storage is denied, by its origin or by configuration, gets
 `Cache-Control: no-store` even when an earlier Plug set `Cache-Control`.
 Allowing storage in the source's cache policy overrides an origin's denial
 (see the [Plug settings](cache.md#source-cache-settings) or the
-[server's `[sources.<name>]` keys](https://github.com/hlindset/image_pipe/blob/main/image_pipe_server/docs/configuration.md#sourcesname)).
+[server's `[sources.<name>]` keys](../../image_pipe_server/docs/server-configuration.md#sources-name)).
 
 `Vary: Accept` is sent whenever the format comes from `Accept`, even when the
 generated `Cache-Control` and `ETag` are not.

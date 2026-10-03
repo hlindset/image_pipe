@@ -41,17 +41,3 @@ on the URL builder alone. It needs no libvips or NIFs:
 
 It provides `ImagePipe.URL` with the same URL grammar, preset references,
 signing, and source encryption. See [URL builder with an external server](external-server.md).
-
-## Work on this repository
-
-The repository pins its tools in `mise.toml`. Install them and the project
-dependencies with:
-
-```sh
-mise install
-mise run setup
-```
-
-Use `mise exec --` for repository commands, run from the project directory, for
-example `cd image_pipe && mise exec -- iex -S mix`.
-See [Run the Fiddle](fiddle.md) for the interactive demo and sidecars.

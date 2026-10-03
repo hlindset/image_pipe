@@ -142,7 +142,7 @@ http_cache = "private"
 The `storage_inputs` setting lists request headers and cookies that select a
 different cached image (see the
 [Plug option](configuration.md#sources-caches-and-url-protection) or the
-[server key](https://github.com/hlindset/image_pipe/blob/main/image_pipe_server/docs/configuration.md#cache)).
+[server key](../../image_pipe_server/docs/server-configuration.md#cache)).
 If it names a cookie, `auto` makes every response private, because `Vary`
 can't name cookies.
 

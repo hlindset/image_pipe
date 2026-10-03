@@ -3,7 +3,7 @@ defmodule ImagePipeServer.Config.ReferenceTest do
 
   alias ImagePipeServer.Config.Reference
 
-  @doc_path Path.expand("../../../docs/configuration.md", __DIR__)
+  @doc_path Path.expand("../../../docs/server-configuration.md", __DIR__)
 
   setup_all do
     %{reference: Reference.markdown()}
@@ -48,8 +48,8 @@ defmodule ImagePipeServer.Config.ReferenceTest do
     assert reference =~ "`req_options`"
   end
 
-  test "docs/configuration.md holds the current reference", %{reference: reference} do
+  test "docs/server-configuration.md holds the current reference", %{reference: reference} do
     assert Reference.extract(File.read!(@doc_path)) == reference,
-           "run `mix image_pipe_server.gen.reference` to update docs/configuration.md"
+           "run `mix image_pipe_server.gen.reference` to update docs/server-configuration.md"
   end
 end

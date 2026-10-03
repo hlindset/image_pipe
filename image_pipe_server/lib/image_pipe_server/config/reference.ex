@@ -4,8 +4,8 @@ defmodule ImagePipeServer.Config.Reference do
   with, so it lists exactly the settings the server accepts.
 
   `mix image_pipe_server.gen.reference` writes it into
-  `docs/configuration.md`, between the `reference:start` and `reference:end`
-  comments.
+  `docs/server-configuration.md`, between the `reference:start` and
+  `reference:end` comments.
   """
 
   alias ImagePipeServer.Config

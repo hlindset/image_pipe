@@ -13,7 +13,7 @@ all sources or per source. Request URLs can't change them:
   are in [source cache settings](cache.md#source-cache-settings) and
   [local files](sources.md#local-files).
 - In `image_pipe_server`, see
-  [server configuration](https://github.com/hlindset/image_pipe/blob/main/image_pipe_server/docs/configuration.md):
+  [server configuration](../../image_pipe_server/docs/server-configuration.md):
   the `[cache]` table sets up the caches, and the settings are under
   `[processing]` and each `[sources.<name>]` table.
 

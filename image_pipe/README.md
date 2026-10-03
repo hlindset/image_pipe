@@ -27,15 +27,9 @@ Start with the [documentation overview](docs/index.md).
 
 ## Try the demo
 
-The [ImagePipe Fiddle](docs/fiddle.md) is a standalone Phoenix app with visual
+The repository includes the ImagePipe Fiddle, a Phoenix demo app with visual
 controls, URL editing, source selection, and tracing.
-
-```sh
-mise install
-mise run setup
-mise run fiddle
-```
-
-Open http://localhost:4000.
+[Running the Fiddle](https://github.com/hlindset/image_pipe/blob/main/docs/architecture/fiddle.md)
+covers starting it from a repository checkout.
 
 ![ImagePipe Fiddle](docs/assets/demo-fiddle-desktop.png)

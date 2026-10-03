@@ -1,8 +1,8 @@
 # Deploying image_pipe_server
 
-The server is a Mix release, packaged as a Docker image. This guide covers
-building and running the image, then the settings that matter in production.
-See [configuration](configuration.md) for the configuration language.
+`image_pipe_server` runs as a Docker image that you build from the repository
+and configure with a TOML file and environment variables. The
+[configuration reference](server-configuration.md) lists every setting.
 
 ## Images
 
@@ -30,12 +30,26 @@ checks `GET /health` for its Docker health status.
 
 ## Running
 
-Mount a configuration file at `/etc/image_pipe/config.toml` (or name another
-path with `IPS_CONFIG`), and give caches a volume:
+Write a `config.toml` that serves the files in `/data/images`:
+
+```toml
+[sources.static]
+adapter = "file"
+match = "path"
+root = "/data/images"
+root_id = "static"
+```
+
+Mount it at `/etc/image_pipe/config.toml` (or name another path with
+`IPS_CONFIG`), mount your images, and give caches a volume:
 
 ```bash
 docker run --read-only --tmpfs /tmp -p 8080:8080 -v ./config.toml:/etc/image_pipe/config.toml:ro -v ./images:/data/images:ro -v image-cache:/var/cache/image_pipe image_pipe_server
 ```
+
+`http://localhost:8080/w=400/format=webp/src/photo.jpg` now serves
+`./images/photo.jpg` resized to 400 pixels wide, as WebP. `GET /health`
+answers `ok` once the server is ready.
 
 - The server writes only to `/tmp` and to cache directories, so the root
   filesystem can be read-only. Mount `/tmp` as a `tmpfs`.

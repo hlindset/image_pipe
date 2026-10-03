@@ -10,11 +10,11 @@ defmodule ImagePipe.MixProject do
       "docs/plug-usage.md",
       "docs/external-server.md",
       "docs/elixir-api.md",
-      "docs/combined-usage.md",
-      "docs/fiddle.md"
+      "docs/combined-usage.md"
     ],
     Configuration: [
       "docs/configuration.md",
+      "../image_pipe_server/docs/server-configuration.md",
       "docs/sources.md",
       "docs/s3-credentials.md",
       "docs/source-network-policy.md",
@@ -33,6 +33,7 @@ defmodule ImagePipe.MixProject do
     ],
     Operations: [
       "docs/deployment.md",
+      "../image_pipe_server/docs/server-deployment.md",
       "docs/caching-and-freshness.md",
       "docs/caching-processed-images.md",
       "docs/serving-through-a-cdn.md",
@@ -53,6 +54,7 @@ defmodule ImagePipe.MixProject do
   @guide_paths Enum.flat_map(@guide_groups, fn {_group, paths} -> paths end)
   @internal_doc_references [
     "ImagePipe.Error.tag/1",
+    "ImagePipe.Plug.init/1",
     "ImagePipe.Plug.Runner",
     "ImagePipe.Response.Sender",
     "ImagePipe.Security.verify/3",
@@ -172,7 +174,7 @@ defmodule ImagePipe.MixProject do
   defp package do
     [
       files:
-        @guide_paths ++
+        Enum.reject(@guide_paths, &String.starts_with?(&1, "../")) ++
           [
             "lib",
             "priv/icc",

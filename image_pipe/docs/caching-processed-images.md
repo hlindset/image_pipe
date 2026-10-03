@@ -37,7 +37,7 @@ root = "/var/cache/image_pipe/processed"
 
 In the Docker image, put cache directories under `/var/cache/image_pipe` and
 mount a volume there, as shown in
-[Running](https://github.com/hlindset/image_pipe/blob/main/image_pipe_server/docs/deployment.md#running).
+[Running](../../image_pipe_server/docs/server-deployment.md#running).
 
 <!-- tabs-close -->
 
@@ -268,5 +268,5 @@ sources.
 - `ImagePipe.Cache.FileSystem` lists every cache option, and
   [Cache storage](cache.md) what is stored and how bounded mode behaves.
 - The
-  [server configuration reference](https://github.com/hlindset/image_pipe/blob/main/image_pipe_server/docs/configuration.md#cache)
+  [server configuration reference](../../image_pipe_server/docs/server-configuration.md#cache)
   lists every `[cache]` key.
