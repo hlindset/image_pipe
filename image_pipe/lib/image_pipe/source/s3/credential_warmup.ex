@@ -1,5 +1,5 @@
 defmodule ImagePipe.Source.S3.CredentialWarmup do
-  use GenServer, restart: :transient
+  use GenServer
 
   alias ImagePipe.Source.S3.Credentials
 
@@ -35,7 +35,8 @@ defmodule ImagePipe.Source.S3.CredentialWarmup do
         MyAppWeb.Endpoint
       ]
 
-  ImagePipe doesn't start it. It fetches once without blocking startup, then
+  ImagePipe doesn't start it. Add one per bucket. The children need no
+  explicit ids. Each warmup fetches once without blocking startup, then
   stops. If the fetch fails, the first request fetches the credentials
   instead. Invalid options raise `ArgumentError` from `start_link/1`.
 
@@ -43,6 +44,13 @@ defmodule ImagePipe.Source.S3.CredentialWarmup do
 
   #{NimbleOptions.docs(@options_schema)}
   """
+
+  # The options can hold secrets, so the id carries only their hash.
+  @doc false
+  def child_spec(opts) do
+    id = {__MODULE__, opts[:provider], opts[:scope], :erlang.phash2(opts[:opts])}
+    %{id: id, start: {__MODULE__, :start_link, [opts]}, restart: :transient}
+  end
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do

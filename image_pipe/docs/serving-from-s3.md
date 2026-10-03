@@ -274,31 +274,24 @@ instead:
 
 ### Plug
 
-Add a `ImagePipe.Source.S3.CredentialWarmup` per bucket to your supervision
-tree, with the same provider and options as the source:
+Add an `ImagePipe.Source.S3.CredentialWarmup` for each bucket to your
+supervision tree, with the same provider and options as the source:
 
 ```elixir
 # lib/my_app/application.ex
 children = [
   {ImagePipe.Source.S3.CredentialWarmup,
    provider: ImagePipe.Source.S3.InstanceRole, opts: [], scope: "photos"},
+  {ImagePipe.Source.S3.CredentialWarmup,
+   provider: ImagePipe.Source.S3.InstanceRole, opts: [], scope: "archive"},
   MyAppWeb.Endpoint
 ]
 ```
-
-To warm more than one bucket, give each child its own id with
-`Supervisor.child_spec/2`.
 
 ### image_pipe_server
 
 The server fetches credentials at startup for each bucket listed under
 `buckets` whose credentials come from a provider.
-
-> #### One warmed bucket per server {: .warning}
->
-> Two or more such buckets stop the server at boot, because their warmup
-> processes share one id. List at most one bucket with provider
-> credentials, or leave `buckets` out.
 
 <!-- tabs-close -->
 

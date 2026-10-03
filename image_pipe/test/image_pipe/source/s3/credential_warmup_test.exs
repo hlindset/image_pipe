@@ -72,4 +72,15 @@ defmodule ImagePipe.Source.S3.CredentialWarmupTest do
     assert {:ok, _} = Credentials.fetch(scope, {:provider, OnceProvider, opts}, [])
     refute_received {:warmed, ^scope}
   end
+
+  test "warmups for different buckets start side by side without explicit ids" do
+    opts = [test: self()]
+    scopes = for n <- 1..2, do: "bucket-#{n}-#{System.unique_integer([:positive])}"
+
+    for scope <- scopes,
+        do:
+          start_supervised!({CredentialWarmup, provider: OnceProvider, opts: opts, scope: scope})
+
+    for scope <- scopes, do: assert_receive({:warmed, ^scope})
+  end
 end
