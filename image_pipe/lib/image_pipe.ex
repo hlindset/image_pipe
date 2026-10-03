@@ -14,6 +14,12 @@ defmodule ImagePipe do
         |> ImagePipe.URL.output(format: :webp)
 
       {:ok, result} = ImagePipe.run(config, builder, {:source, "images/cat.jpg"})
+
+  An instance is a supervised process that holds a configuration and starts
+  the processes its caches need. Run one with `child_spec/1` when a mount's
+  configuration reads runtime values, such as environment variables, or when
+  the configuration uses a bounded cache. `ImagePipe.Plug` mounts and
+  `config!/1` find it by name.
   """
 
   use Boundary,
@@ -66,10 +72,57 @@ defmodule ImagePipe do
   @spec config(keyword()) :: Config.t()
   def config(options \\ []), do: Config.new!(options)
 
-  @doc false
+  @doc """
+  Returns a child specification that runs a named ImagePipe instance.
+
+  Start the instance in your application's supervision tree, before the
+  endpoint that mounts it. Its options are evaluated when the application
+  starts, so they can read environment variables:
+
+      children = [
+        {ImagePipe,
+         name: MyApp.Images,
+         sources: [...],
+         cache:
+           {ImagePipe.Cache.FileSystem,
+            root: "/var/cache/image_pipe/processed",
+            max_size_bytes: 5_000_000_000,
+            node_id: "node-0"}},
+        MyAppWeb.Endpoint
+      ]
+
+  Mount it with the `:instance` option of `ImagePipe.Plug`, and get its
+  configuration for `run/4` with `config!/1`.
+
+  A bounded `ImagePipe.Cache.FileSystem` runs processes that track the
+  cache's size, and only an instance starts them. A configuration with such a
+  cache must be used through an instance. An inline `ImagePipe.Plug` mount,
+  and `run/4` with a configuration from `config/1`, raise `ArgumentError` for
+  it. Setting one up is covered in
+  [Caching processed images](caching-processed-images.md).
+
+  ## Options
+
+  #{NimbleOptions.docs(ImagePipe.Instance.options_schema())}
+
+  Every option of `config/1` is accepted too. Invalid options raise
+  `ArgumentError` when the child specification is built, before the
+  instance starts.
+  """
+  @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(options), do: ImagePipe.Instance.child_spec(options)
 
-  @doc false
+  @doc """
+  Returns the configuration of a running instance, for `run/4` and `write/5`.
+
+      config = ImagePipe.config!(MyApp.Images)
+      {:ok, result} = ImagePipe.run(config, builder, {:source, "images/cat.jpg"})
+
+  The configuration uses the instance's `:url`. The named `:urls` are
+  available only to mounts, so `url_config/1` returns the default URL
+  settings.
+  Raises `ArgumentError` if no instance with that name is running.
+  """
   @spec config!(atom()) :: Config.t()
   def config!(name), do: Config.fetch_instance!(name, nil)
 

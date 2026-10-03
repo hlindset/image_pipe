@@ -9,26 +9,64 @@ defmodule ImagePipe.Plug.Config do
 
   @options_schema NimbleOptions.new!(
                     allow_origin: [
-                      type: {:custom, __MODULE__, :validate_allow_origin, []}
+                      type: {:custom, __MODULE__, :validate_allow_origin, []},
+                      type_doc: "`t:String.t/0`",
+                      doc: """
+                      CORS origin sent in `Access-Control-Allow-Origin`, such as \
+                      `"https://app.example.com"` or `"*"`. Without it, responses carry no \
+                      CORS headers.
+                      """
                     ],
-                    allow_debug_headers: [type: :boolean, default: false],
+                    allow_debug_headers: [
+                      type: :boolean,
+                      default: false,
+                      doc: """
+                      Lets a request's `debug` option add diagnostic headers to the response. \
+                      See [debug headers](debug_headers.md).
+                      """
+                    ],
                     http_cache: [
                       type: {:in, [:validators, :auto, :public, :private]},
-                      default: :validators
+                      default: :validators,
+                      doc: """
+                      Which HTTP cache headers responses carry. See \
+                      [HTTP cache headers](cdn-http-cache.md#header-modes).
+                      """
                     ]
                   )
+
+  @instance_schema NimbleOptions.new!(
+                     instance: [
+                       type: {:custom, __MODULE__, :validate_instance, []},
+                       type_doc: "`t:atom/0`",
+                       required: true,
+                       doc: """
+                       Name of a running instance (see `ImagePipe.child_spec/1`) whose \
+                       configuration the mount serves.
+                       """
+                     ],
+                     url: [
+                       type: :atom,
+                       doc: """
+                       Name of one of the instance's `:urls` to check request URLs with. \
+                       Defaults to the instance's `:url` option (see `ImagePipe.config/1`).
+                       """
+                     ]
+                   )
 
   @doc false
   def options_schema, do: @options_schema.schema
 
   @doc false
+  def instance_schema, do: @instance_schema.schema
+
+  @doc false
   @spec validate!(keyword() | SharedConfig.t()) ::
           keyword() | {:instance, atom(), atom() | nil, keyword()}
   def validate!(opts) when is_list(opts) do
-    case Keyword.pop(opts, :instance) do
-      {nil, opts} -> validate_inline!(opts)
-      {instance, opts} -> validate_instance!(instance, opts)
-    end
+    if Keyword.has_key?(opts, :instance),
+      do: validate_instance!(opts),
+      else: validate_inline!(opts)
   end
 
   def validate!(%SharedConfig{} = config), do: validate!(config: config)
@@ -41,19 +79,17 @@ defmodule ImagePipe.Plug.Config do
 
   # Shared configuration belongs to the instance, so only mount-only options
   # and the name of one of the instance's URL configurations are accepted.
-  defp validate_instance!(instance, opts) when is_atom(instance) do
-    case Keyword.pop(opts, :url) do
-      {url, opts} when is_atom(url) ->
-        {:instance, instance, url, validate_known_opts!(opts)}
+  defp validate_instance!(opts) do
+    {instance, opts} = Keyword.split(opts, [:instance, :url])
 
-      {_url, _opts} ->
-        raise ArgumentError,
-              "invalid ImagePipe.API options: url must name one of the instance's urls"
+    case NimbleOptions.validate(instance, @instance_schema) do
+      {:ok, instance} ->
+        {:instance, instance[:instance], instance[:url], validate_known_opts!(opts)}
+
+      {:error, error} ->
+        raise ArgumentError, "invalid ImagePipe.Plug options: #{Exception.message(error)}"
     end
   end
-
-  defp validate_instance!(_instance, _opts),
-    do: raise(ArgumentError, "invalid ImagePipe.API options: instance must be an atom")
 
   defp validate_inline!(opts) do
     {shared, opts} = Keyword.pop(opts, :config)
@@ -78,6 +114,10 @@ defmodule ImagePipe.Plug.Config do
     do: raise(ArgumentError, "config must be built with ImagePipe.config/1")
 
   @doc false
+  def validate_instance(name) when is_atom(name) and not is_nil(name), do: {:ok, name}
+  def validate_instance(_name), do: {:error, "expected the name of an instance, got: nil"}
+
+  @doc false
   def validate_allow_origin(value) when is_binary(value) and value != "" do
     if String.match?(value, ~r/[[:cntrl:]]/),
       do: {:error, "must not contain control characters"},
@@ -96,7 +136,7 @@ defmodule ImagePipe.Plug.Config do
 
       {:error, %NimbleOptions.ValidationError{} = error} ->
         raise ArgumentError,
-              "invalid ImagePipe.API options: #{Exception.message(error)}"
+              "invalid ImagePipe.Plug options: #{Exception.message(error)}"
     end
   end
 end

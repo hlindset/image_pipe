@@ -138,6 +138,10 @@ defmodule ImagePipe.InstanceTest do
       end
     end
 
+    test "rejects a nil instance:" do
+      assert_raise ArgumentError, ~r/instance/, fn -> ImagePipe.Plug.init(instance: nil) end
+    end
+
     test "rejects shared options next to instance:", ctx do
       assert_raise ArgumentError, ~r/sources/, fn ->
         ImagePipe.Plug.init(instance: ctx.name, sources: ctx.sources)

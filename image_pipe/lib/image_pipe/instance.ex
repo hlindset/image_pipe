@@ -10,10 +10,35 @@ defmodule ImagePipe.Instance do
   alias ImagePipe.URL.Config, as: URLConfig
 
   @schema NimbleOptions.new!(
-            name: [type: :atom, required: true],
-            urls: [type: {:custom, __MODULE__, :validate_urls, []}, default: []],
-            config: [type: {:struct, Config}]
+            name: [
+              type: :atom,
+              required: true,
+              doc: """
+              Name that mounts and `ImagePipe.config!/1` use to find the instance. It \
+              also names the instance's supervisor.
+              """
+            ],
+            urls: [
+              type: {:custom, __MODULE__, :validate_urls, []},
+              type_doc: "`t:keyword/0`",
+              default: [],
+              doc: """
+              Named URL configurations from `ImagePipe.URL.config/1`, such as \
+              `[signed: ImagePipe.URL.config(keys: [key])]`. A mount picks one with its \
+              `:url` option, so mounts with different signing keys share one instance \
+              and its caches.
+              """
+            ],
+            config: [
+              type: {:struct, Config},
+              type_doc: "`t:ImagePipe.Config.t/0`",
+              doc:
+                "A configuration from `ImagePipe.config/1` to start from. The other options override it."
+            ]
           )
+
+  @doc false
+  def options_schema, do: @schema.schema
 
   # Validates and builds the configuration up front, so invalid options raise
   # in the caller, as `ImagePipe.Plug.init/1` does.
