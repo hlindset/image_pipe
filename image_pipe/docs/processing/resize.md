@@ -90,7 +90,7 @@ ImagePipe.URL.group(builder, resize: [width: 400, height: 300, fit: :cover])
 
 ### enlarge
 
-A [flag](../requesting-images.md#flags). Default: off.
+A [boolean](../requesting-images.md#booleans). Default: `false`.
 
 Allows the result to be larger than the source. Without it, a source smaller
 than the requested size keeps its own size, or shrinks to keep the box's aspect
@@ -222,7 +222,7 @@ Added space is transparent until [`bg`](#bg) fills it.
 
 ### extend and extend-ratio
 
-Each is a flag. Default: off.
+Each is a [boolean](../requesting-images.md#booleans). Default: `false`.
 
 - `extend` places the image on a canvas of `w` × `h` pixels (times `dpr`).
 - `extend-ratio` adds space along one axis so the result has the aspect ratio

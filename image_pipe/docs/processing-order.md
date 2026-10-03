@@ -96,6 +96,3 @@ adds 10 pixels of padding to the 800-pixel image, not 20. The `dpr` that an
 the groups: `page` picks the page that enters the first group,
 `orient=none` skips the EXIF turn, and the output options encode the last
 group's result.
-
-The exact rules for every stage are in the
-[API contract](api_contract.md#processing-semantics).

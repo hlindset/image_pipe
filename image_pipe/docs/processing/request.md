@@ -41,8 +41,8 @@ ImagePipe.URL.new(filename: "beach")
 
 ### attachment
 
-A [flag](../requesting-images.md#flags): `attachment` or `attachment=false`.
-Default: off.
+A [boolean](../requesting-images.md#booleans): `attachment` or `attachment=false`.
+Default: `false`.
 
 `attachment` makes the browser download the response instead of displaying
 it, using `Content-Disposition: attachment`. `attachment=false` turns off an
@@ -172,7 +172,7 @@ ImagePipe.URL.new(expires: 2_000_000_000)
 
 ### debug
 
-A flag: `debug` or `debug=false`. Default: off.
+A [boolean](../requesting-images.md#booleans): `debug` or `debug=false`. Default: `false`.
 
 `debug` adds `X-ImagePipe-*` and `Server-Timing` response headers that
 describe the original, the chosen output, the cache status, and the time

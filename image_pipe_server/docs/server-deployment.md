@@ -13,8 +13,7 @@ There are two variants:
   detection with the models baked into the image, so detection works without
   network access at runtime.
 
-Both include libvips built from source, so they read JPEG XL sources and
-write palette PNGs.
+Both read every input format ImagePipe supports, including JPEG XL.
 
 To build an image yourself, run from the repository root, since the server
 depends on its sibling projects. Add `--build-arg IMAGE_VISION=1` for the
@@ -53,12 +52,15 @@ services:
   images:
     image: ghcr.io/hlindset/image_pipe_server:0.1.0
     read_only: true
-    tmpfs: [/tmp]
-    ports: ["8080:8080"]
+    tmpfs:
+      - /tmp
+    ports:
+      - "8080:8080"
     stop_grace_period: 20s
     environment:
       IPS_URL__KEYS_FILE: /run/secrets/signing_keys
-    secrets: [signing_keys]
+    secrets:
+      - signing_keys
     volumes:
       - ./config.toml:/etc/image_pipe/config.toml:ro
       - image-cache:/var/cache/image_pipe
@@ -109,24 +111,44 @@ spec:
   containers:
     - name: images
       image: ghcr.io/hlindset/image_pipe_server:0.1.0
-      ports: [{ containerPort: 8080 }]
+      ports:
+        - containerPort: 8080
       env:
         - name: IPS_URL__KEYS_FILE
           value: /run/secrets/image-pipe/signing_keys
-      readinessProbe: { httpGet: { path: /health, port: 8080 } }
-      livenessProbe: { httpGet: { path: /health, port: 8080 } }
+      readinessProbe:
+        httpGet:
+          path: /health
+          port: 8080
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 8080
       securityContext:
         readOnlyRootFilesystem: true
       volumeMounts:
-        - { name: config, mountPath: /etc/image_pipe, readOnly: true }
-        - { name: secrets, mountPath: /run/secrets/image-pipe, readOnly: true }
-        - { name: cache, mountPath: /var/cache/image_pipe }
-        - { name: tmp, mountPath: /tmp }
+        - name: config
+          mountPath: /etc/image_pipe
+          readOnly: true
+        - name: secrets
+          mountPath: /run/secrets/image-pipe
+          readOnly: true
+        - name: cache
+          mountPath: /var/cache/image_pipe
+        - name: tmp
+          mountPath: /tmp
   volumes:
-    - { name: config, configMap: { name: image-pipe-config } }
-    - { name: secrets, secret: { secretName: image-pipe } }
-    - { name: cache, emptyDir: {} }
-    - { name: tmp, emptyDir: { medium: Memory } }
+    - name: config
+      configMap:
+        name: image-pipe-config
+    - name: secrets
+      secret:
+        secretName: image-pipe
+    - name: cache
+      emptyDir: {}
+    - name: tmp
+      emptyDir:
+        medium: Memory
 ```
 
 A bounded cache needs a `node_id`. With the per-pod `emptyDir` above, a fixed
@@ -221,6 +243,9 @@ Build a release from `image_pipe_server/`:
 MIX_ENV=prod mix release
 ```
 
-By default vix uses its precompiled libvips, which can't read JPEG XL. For
-JPEG XL sources, install libvips 8.18 with JPEG XL support and build with
-`VIX_COMPILATION_MODE=PLATFORM_PROVIDED_LIBVIPS`.
+By default the release uses the libvips that vix ships, which can't read
+JPEG XL. For JPEG XL sources, install libvips 8.18 with JPEG XL support and
+build against it, as described in
+[using your system's libvips](https://vix.hexdocs.pm/readme.html#advanced-setup).
+For palette PNGs (`png-options=palette`), build that libvips with
+libimagequant too. The libvips vix ships includes it.

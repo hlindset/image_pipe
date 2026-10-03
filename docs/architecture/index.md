@@ -1,6 +1,6 @@
 # Architecture
 
-The [API semantics](../../image_pipe/docs/api_contract.md) define public behavior.
+The [API semantics](api_contract.md) define public behavior.
 These notes describe runtime ownership and contributor verification requirements.
 
 - [Execution flow](execution_flow.md): request lifecycle, generation, and delivery.

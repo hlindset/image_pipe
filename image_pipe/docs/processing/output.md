@@ -28,7 +28,8 @@ With `format`, the response is always that format. Without it:
 The server's configuration can list source formats, such as GIF, that are
 delivered unprocessed. An image request for such an original without
 `format`, or with the original's own format, and without a watermark returns
-the original file and ignores every other option. Placeholder and `info`
+the original file unchanged, metadata included, and ignores every other
+option. Placeholder and `info`
 requests are always processed.
 
 A format the server can't encode fails with `501` and the body
@@ -203,12 +204,12 @@ ImagePipe.URL.new()
 
 ## Encoder options
 
-Each encoder option takes a list of fields. A field is either a flag that
-turns a setting on, such as `progressive`, or a `name:value` pair, such as
-`effort:6`. Write `flag:false` to turn off a flag that the host
-or a [preset](../requesting-images.md#named-presets) turned on. Each field may
-appear once. Fields you leave out keep the encoder defaults set by whoever
-runs ImagePipe.
+Each encoder option takes a list of fields. A field is either a boolean
+written by its name, such as `progressive`, or a `name:value` pair, such as
+`effort:6`. Write `progressive:false` to turn off a boolean that the server's
+configuration or a [preset](../requesting-images.md#named-presets) turned on. Each field may
+appear once. Fields you leave out keep the encoder defaults configured on the
+server.
 
 With an explicit `format`, options for any other encoder fail with `400`.
 Without `format`, each encoder's options apply only when the response uses
@@ -220,11 +221,11 @@ Accepts these fields. Default: the host's JPEG encoder settings.
 
 | Field | Values | Effect |
 | --- | --- | --- |
-| `progressive` | flag | Progressive JPEG |
+| `progressive` | boolean | Progressive JPEG |
 | `subsample` | `auto`, `on`, `off` | Chroma subsampling |
-| `trellis-quant` | flag | Trellis quantization |
-| `overshoot-deringing` | flag | Reduces ringing around hard edges |
-| `optimize-scans` | flag | Optimizes progressive scans |
+| `trellis-quant` | boolean | Trellis quantization |
+| `overshoot-deringing` | boolean | Reduces ringing around hard edges |
+| `optimize-scans` | boolean | Optimizes progressive scans |
 | `quant-table` | `0` to `8` | Quantization table |
 
 <!-- tabs-open -->
@@ -250,8 +251,8 @@ Accepts these fields. Default: the host's PNG encoder settings.
 
 | Field | Values | Effect |
 | --- | --- | --- |
-| `interlace` | flag | Interlaced PNG |
-| `palette` | flag | Palette (indexed color) PNG |
+| `interlace` | boolean | Interlaced PNG |
+| `palette` | boolean | Palette (indexed color) PNG |
 | `bitdepth` | `1`, `2`, `4`, `8`, `16` | Bits per channel |
 | `filter` | `none`, `sub`, `up`, `avg`, `paeth`, `all` | Row filter |
 
@@ -278,9 +279,9 @@ Accepts these fields. Default: the host's WebP encoder settings.
 
 | Field | Values | Effect |
 | --- | --- | --- |
-| `lossless` | flag | Lossless WebP |
-| `near-lossless` | flag | Near-lossless WebP |
-| `smart-subsample` | flag | Sharper chroma subsampling |
+| `lossless` | boolean | Lossless WebP |
+| `near-lossless` | boolean | Near-lossless WebP |
+| `smart-subsample` | boolean | Sharper chroma subsampling |
 | `preset` | `default`, `photo`, `picture`, `drawing`, `icon`, `text` | Encoder tuning for the image type |
 | `effort` | `0` to `6` | Higher is slower and smaller |
 

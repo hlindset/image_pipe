@@ -106,6 +106,3 @@ The token protects the source only while nobody else can encrypt with your
 keys, so no endpoint may encrypt any source it's given. With such an
 endpoint, someone can encrypt a guessed source and compare the token with a
 URL they've seen.
-
-The [concealment contract](api_contract.md#source-concealment) specifies the
-encryption, key derivation, and token format.

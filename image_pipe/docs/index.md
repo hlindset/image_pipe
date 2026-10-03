@@ -90,7 +90,6 @@ Settings, headers, events, and rules to look up.
 - [Error responses](errors.md): which status each failure returns.
 - [Telemetry event reference](telemetry-events.md): event names, measurements, metadata, and outcomes.
 - [Debug response headers](debug_headers.md): inspect processing and cache decisions.
-- [API semantics](api_contract.md): the precise rules the processing options follow.
 
 ## Project
 

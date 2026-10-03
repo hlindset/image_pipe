@@ -45,23 +45,10 @@ effect, such as `fit=cover` without a width or height (`w`, `h`, `min-w`, or
 
 ## Image paths
 
-ImagePipe decodes percent escapes in the image path once, so escape the
-characters that would otherwise change the URL:
-
-| Character | Write |
-| --- | --- |
-| Space | `%20` |
-| `#` | `%23` |
-| `?` | `%3F` |
-| `%` | `%25` |
-
-The image `summer photos/beach #1.jpg` becomes
-`src/summer%20photos/beach%20%231.jpg`. Slashes stay as they are. When the
-image path already contains an escape, escape its `%` again: a source URL
-ending in `beach%231.jpg` becomes `beach%25231.jpg`.
-
-A full source URL goes after `src/` the same way, with any `?` written as
-`%3F`: `src/https://assets.example.com/a.jpg%3Fv=2`.
+URL-encode the image path, keeping its slashes:
+`summer photos/beach #1.jpg` becomes `src/summer%20photos/beach%20%231.jpg`,
+and the full URL `https://assets.example.com/a.jpg?v=2` becomes
+`src/https://assets.example.com/a.jpg%3Fv=2`.
 
 Two other markers can take the place of `src/`:
 
@@ -206,13 +193,11 @@ A position in the image: `center`, `top`, `bottom`, `left`, `right`,
 option also accepts `smart` and `smart-face`, described under
 [crop guides](processing/crop.md#crop-guides).
 
-### Flags
+### Booleans
 
-An on/off option is on when you write its name alone and off with `=false`:
-`enlarge` turns enlargement on, `enlarge=false` turns it off. `enlarge=true`
-is rejected.
-`=false` is useful for turning off something a [preset](#named-presets)
-turned on.
+Write the option's name alone for true and `=false` for false: `enlarge`
+or `enlarge=false`. `enlarge=true` is rejected. `=false` turns off something
+a [preset](#named-presets) turned on.
 
 <!-- tabs-open -->
 
