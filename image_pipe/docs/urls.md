@@ -255,7 +255,14 @@ mount = ImagePipe.Plug.init(url: url_config, sources: sources)
 
 Keys are hex strings. Generate a key once, for example with
 `Base.encode16(:crypto.strong_rand_bytes(32), case: :lower)`, and store it in
-server-side configuration. With keys configured, the mount requires a
+server-side configuration. Generate URLs on the server and render only the
+finished URL, so the key never reaches the browser:
+
+```heex
+<img src={ImagePipe.URL.url!(@thumbnail, @photo.source)} />
+```
+
+With keys configured, the mount requires a
 `sig=<mac>` prefix that authenticates the complete mount-relative path after
 the signature. The router prefix and hostname are outside the signature.
 Without keys, unsigned requests are accepted.
@@ -286,13 +293,58 @@ settings both sides must match.
 ## Conceal the source
 
 Add `encrypt_source: true` and independent `source_encryption_keys` to the URL
-configuration. Signing keys use hex strings; encryption keys use raw 32-byte
-binaries. The builder emits a signed `enc/<token>` path.
+configuration. Signing keys are hex strings, and encryption keys are raw
+32-byte binaries. The builder writes the source as a signed `enc/<token>`
+segment:
 
-Deterministic IV generation preserves URL stability for identical source/key
-pairs. Use `iv_mode: :random` or a per-call `iv: :random` for randomized tokens.
-Encryption hides source contents but reveals padded length; deterministic
-tokens also reveal equality. Generate URLs on the server and expose only the
-completed URL. See [encrypted sources](elixir-api.md#encrypted-sources) for a
-complete example and key rotation, and the [concealment contract](api_contract.md#source-concealment)
-for cryptographic details.
+```elixir
+url_config = ImagePipe.URL.config(
+  base_url: "/images",
+  keys: [signing_key],
+  source_encryption_keys: [encryption_key],
+  encrypt_source: true
+)
+
+plan = ImagePipe.URL.new(url_config) |> ImagePipe.URL.group(resize: [width: 400])
+url = ImagePipe.URL.url!(plan, "photos/beach.jpg")
+# "/images/sig=XzyslPgT…/w=400/enc/Aa_ELvrY…"
+mount = ImagePipe.Plug.init(url: url_config, sources: sources)
+```
+
+The token hides the whole source, including a private hostname, the path,
+and credentials in its query string. Watermark sources in the same URL are
+encrypted too. [Shared URL settings](shared-url-settings.md#source-encryption-keys)
+covers the keys, rotation, and the server's spelling.
+
+### Deterministic and random tokens
+
+By default, the same source and encryption key always give the same token,
+whatever the processing options, and in any process. A URL for `beach.jpg` at
+`w=400` and one at `w=400/-/blur=2` carry the same `enc/` token. With the same
+signing key and expiry, the complete URL stays the same too, so browsers and
+CDNs keep reusing their cached copy.
+
+`iv_mode: :random` in the configuration, or `iv: :random` for one URL, gives
+a new token on every call. Random tokens hide that two URLs show the same
+image, at the cost of a new URL each time for browsers and CDNs. The server
+caches the processed image by its decrypted source, so both modes share the
+server's stored copies and ETags with each other and with the same source
+written as `src/`.
+
+The configuration accepts only a mode, never a fixed IV, because the two
+modes are the safe way to pick one. `ImagePipe.URL.url/3` lists the rules
+for passing your own IV to a single URL.
+
+### What a token reveals
+
+- A token's length shows the source's length to within 16 bytes.
+- Deterministic tokens show which URLs have the same source.
+
+The token protects the source only while nobody else can encrypt with your
+keys. Generate URLs on the server, render only the finished URL, and never
+expose an endpoint that encrypts any source it's given. With such an
+endpoint, someone can encrypt a guessed source and compare the token with a
+URL they've seen.
+
+The [concealment contract](api_contract.md#source-concealment) specifies the
+encryption, key derivation, and token format.

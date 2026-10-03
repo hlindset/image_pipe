@@ -19,7 +19,7 @@ without reading the cache or fetching the source.
 `{:source, identifier}` and it gets the same `ImagePipe.config/1` as the Plug.
 It selects the same cached copy as a Plug request only when given the same
 `accept` and `request_inputs` (see
-[shared configuration](elixir-api.md#shared-configuration)).
+[sharing cache entries](combined-usage.md#share-cache-entries)).
 `{:file, path}` and `{:binary, bytes}` inputs never use either cache.
 
 ## Source cache settings

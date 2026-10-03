@@ -105,7 +105,7 @@ the server can access. The server has no upload endpoint.
 ## Next steps
 
 - [URLs and presets](urls.md): processing options, signing, expiry, and source concealment.
-- [Fetching results from the service](elixir-api.md#fetching-results-from-the-service): consume responses in the application with an HTTP client.
+- [Fetching images from the server](fetching-from-the-server.md): use the results in your application with an HTTP client.
 - [Server configuration](../../image_pipe_server/docs/server-configuration.md): TOML settings, environment variables, and mounted secrets.
 - [Server deployment](../../image_pipe_server/docs/server-deployment.md): TLS, caches, capacity, and health checks.
 

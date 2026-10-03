@@ -91,8 +91,8 @@ ImagePipe.run(config, thumbnail, {:source, "photos/beach-v1.jpg"},
 )
 ```
 
-Those header values partition storage only when named in `storage_inputs`;
-they are not forwarded to the source. See [Elixir request inputs](elixir-api.md#options-and-equivalence).
+Those header values partition storage only when named in `storage_inputs`.
+They are not forwarded to the source. See the `:request_inputs` option of `ImagePipe.run/4`.
 
 ## Know which settings are shared
 

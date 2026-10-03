@@ -334,7 +334,7 @@ guessing source values by comparison. Source hostnames, paths, filenames,
 and query parameters are encrypted. Keys are redacted from configuration
 inspection. Clients receive only the completed signed URL.
 
-See [encrypted source examples](elixir-api.md#encrypted-sources) for builder
+See [concealing the source](urls.md#conceal-the-source) for builder
 and mount setup. The generation mode does not restrict decryption, and the
 mount prefix is outside the signed path. For lower-level integration,
 `ImagePipe.URL.encrypt_source(source,
