@@ -1,7 +1,7 @@
 import { sampleImages, type SourceImage } from "./source";
 export type { SourceImage } from "./source";
 
-export type ResizeMode = "contain" | "cover" | "cover-down" | "stretch" | "auto";
+export type ResizeMode = "contain" | "cover" | "stretch" | "auto";
 export type Gravity =
   | "center"
   | "top"
@@ -1165,7 +1165,7 @@ export function controlStateFromOptions(
 // fit=auto resizes as contain unless both w and h are numbers.
 function coverResize(s: ControlState): boolean {
   if (s.resizeMode === "auto") return s.resizeWidthUnit === "px" && s.resizeHeightUnit === "px";
-  return ["cover", "cover-down"].includes(s.resizeMode);
+  return s.resizeMode === "cover";
 }
 
 // Keep prerequisites in sync when a user switches a visual tool on or off.

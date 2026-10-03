@@ -252,9 +252,8 @@ ImagePipe.URL.group(builder, region: {100, 50, 400, 300})
 
 `anchor`, `focus`, and `detect` set which part of the image a
 [`crop`](#crop) or a cover resize keeps. Without them, the center is kept.
-A cover resize is [`fit`](resize.md#fit) set to `cover` or `cover-down` with
-a number in `w`, `h`, `min-w`, or `min-h`, or `fit=auto` with numbers in both
-`w` and `h`.
+A cover resize is [`fit=cover`](resize.md#fit) with a number in `w`, `h`,
+`min-w`, or `min-h`, or `fit=auto` with numbers in both `w` and `h`.
 
 Use one of them per group, since two fail with `400`. Each needs a `crop` or
 a cover resize in the same group. Otherwise the request fails with `400`.

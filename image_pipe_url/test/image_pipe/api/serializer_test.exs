@@ -54,7 +54,7 @@ defmodule ImagePipe.API.SerializerTest do
           height: 60,
           min_width: 20,
           min_height: 10,
-          fit: :cover_down,
+          fit: :cover,
           enlarge: true,
           zoom: {1.2, 2}
         ],

@@ -316,12 +316,6 @@ defmodule ImagePipe.Plan.Spec do
   end
 
   defp guide_consumer?(options, resize_intent?) do
-    Map.has_key?(options, :crop) or (resize_intent? and cover_fit?(options))
+    Map.has_key?(options, :crop) or (resize_intent? and Validation.cover_fit?(options))
   end
-
-  # fit=auto resizes as contain unless both w and h are numbers.
-  defp cover_fit?(%{fit: :auto} = options),
-    do: is_integer(Map.get(options, :width)) and is_integer(Map.get(options, :height))
-
-  defp cover_fit?(options), do: Map.get(options, :fit) in [:cover, :cover_down]
 end

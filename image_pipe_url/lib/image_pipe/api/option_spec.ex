@@ -36,7 +36,6 @@ defmodule ImagePipe.API.OptionSpec do
   @fit_map %{
     "contain" => :contain,
     "cover" => :cover,
-    "cover-down" => :cover_down,
     "stretch" => :stretch,
     "auto" => :auto
   }
@@ -189,7 +188,7 @@ defmodule ImagePipe.API.OptionSpec do
         name: :fit,
         scope: :group,
         value: &__MODULE__.parse_fit/1,
-        summary: "Resize mode: contain, cover, cover-down, stretch, or auto",
+        summary: "Resize mode: contain, cover, stretch, or auto",
         examples: ["fit=cover"]
       },
       %__MODULE__{
@@ -764,7 +763,7 @@ defmodule ImagePipe.API.OptionSpec do
 
   @doc false
   @spec parse_fit(String.t()) ::
-          {:ok, :contain | :cover | :cover_down | :stretch | :auto} | {:error, :invalid_fit}
+          {:ok, :contain | :cover | :stretch | :auto} | {:error, :invalid_fit}
   def parse_fit(string) do
     case Map.fetch(@fit_map, string) do
       {:ok, fit} -> {:ok, fit}

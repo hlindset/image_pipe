@@ -25,7 +25,7 @@ defmodule ImagePipe.Plan.Spec.Group do
           h: :auto | pos_integer(),
           min_w: pos_integer() | nil,
           min_h: pos_integer() | nil,
-          fit: :contain | :cover | :cover_down | :stretch | :auto,
+          fit: :contain | :cover | :stretch | :auto,
           enlarge: boolean(),
           zoom: {float(), float()}
         }

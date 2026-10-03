@@ -19,7 +19,7 @@ Sources, detectors, and telemetry exporters are host extension points.
 | --- | --- |
 | Validation | Reject duplicate, conflicting, inert, or invalid options before side effects; ignore valid image-only output options on non-image outputs; canonicalize equivalent requests |
 | Requests | Presets, signing, expiry, GET/HEAD/OPTIONS, conditional GET, negotiation, caching, and streamed delivery |
-| Resize | Contain, cover, cover-down, stretch, auto, enlargement, minimum dimensions, independent zoom axes, and DPR |
+| Resize | Contain, cover, stretch, auto, enlargement, minimum dimensions, independent zoom axes, and DPR |
 | Crop | Guided and explicit regions, anchors, focal points, attention, face/object detection, offsets, and ratio correction |
 | Geometry | EXIF policy, arbitrary rotation, flips, symmetric trim, canvas placement, padding, and alpha-aware background |
 | Watermarks | Host-named or opt-in request-supplied image assets with opacity, scale, anchored placement, offsets, and tiling |

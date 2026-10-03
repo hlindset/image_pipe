@@ -166,7 +166,7 @@ invalid transformation options
 /w=300/h=300/fit=fill/src/photo.jpg
                  ^^^^
                  |
-                 invalid value: expected contain, cover, cover-down, stretch, or auto
+                 invalid value: expected contain, cover, stretch, or auto
 ```
 
 ## Choosing the output format

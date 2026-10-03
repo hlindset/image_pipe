@@ -248,7 +248,6 @@
       <select bind:value={controlState.resizeMode}>
         <option value="contain">contain</option>
         <option value="cover">cover</option>
-        <option value="cover-down">cover-down</option>
         <option value="stretch">stretch</option>
         <option value="auto">auto</option>
       </select>

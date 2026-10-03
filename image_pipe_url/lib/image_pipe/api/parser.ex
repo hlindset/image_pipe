@@ -535,7 +535,7 @@ defmodule ImagePipe.API.Parser do
     do: "invalid value: expected h, v, or hv"
 
   def message_for(:invalid_fit),
-    do: "invalid value: expected contain, cover, cover-down, stretch, or auto"
+    do: "invalid value: expected contain, cover, stretch, or auto"
 
   def message_for(:invalid_arity),
     do: "invalid value: wrong number of comma-separated elements"

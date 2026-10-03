@@ -158,7 +158,7 @@ defmodule ImagePipe.Plan.Builder.Options do
       height: [type: {:or, [:pos_integer, {:in, [:auto]}]}],
       min_width: [type: :pos_integer],
       min_height: [type: :pos_integer],
-      fit: [type: {:in, [:contain, :cover, :cover_down, :stretch, :auto]}],
+      fit: [type: {:in, [:contain, :cover, :stretch, :auto]}],
       enlarge: [type: :boolean],
       zoom: [type: custom(:zoom)]
     ]

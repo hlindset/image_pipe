@@ -83,7 +83,6 @@ defmodule ImagePipe.API.OptionSpecTest do
     test "parse_fit translates hyphenated URL spellings to atoms" do
       assert OptionSpec.parse_fit("contain") == {:ok, :contain}
       assert OptionSpec.parse_fit("cover") == {:ok, :cover}
-      assert OptionSpec.parse_fit("cover-down") == {:ok, :cover_down}
       assert OptionSpec.parse_fit("stretch") == {:ok, :stretch}
       assert OptionSpec.parse_fit("auto") == {:ok, :auto}
       assert OptionSpec.parse_fit("bogus") == {:error, :invalid_fit}

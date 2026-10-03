@@ -145,10 +145,10 @@ defmodule ImagePipe.BuilderTest do
          "trim=fff,12/trim-symmetry=h/w=300/h=200/extend/extend-at=bottom-right/extend-offset=-10pct,20/pad=1,2,3/bg=14283c,0.5"},
         {"ratio canvas and focus",
          [
-           resize: [width: 100, height: 80, fit: :cover_down],
+           resize: [width: 100, height: 80, fit: :cover],
            focus: {0.3, 0.7},
            extend_ratio: true
-         ], "w=100/h=80/fit=cover-down/focus=0.3,0.7/extend-ratio"},
+         ], "w=100/h=80/fit=cover/focus=0.3,0.7/extend-ratio"},
         {"weighted detection", [crop: {100, 100}, detect: [{:all, 2}, {"face", 3}, "person"]],
          "crop=100,100/detect=all:2,face:3,person"},
         {"progressive blur", [progressive_blur: [sigma: 4, angle: -90, start: 0.2, stop: 0.8]],

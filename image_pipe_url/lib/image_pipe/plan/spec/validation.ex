@@ -129,11 +129,15 @@ defmodule ImagePipe.Plan.Spec.Validation do
     Enum.map([:anchor, :focus, :detect], &{&1, missing?, :guide})
   end
 
-  # fit=auto resizes as contain unless both w and h are numbers.
-  defp cover_fit?(%{fit: :auto} = group),
+  @doc """
+  Whether a group's `fit` resizes as cover, so a crop guide can apply to it.
+  `fit=auto` resizes as contain unless both `width` and `height` are numbers.
+  """
+  @spec cover_fit?(map()) :: boolean()
+  def cover_fit?(%{fit: :auto} = group),
     do: is_integer(Map.get(group, :width)) and is_integer(Map.get(group, :height))
 
-  defp cover_fit?(group), do: Map.get(group, :fit) in [:cover, :cover_down]
+  def cover_fit?(group), do: Map.get(group, :fit) == :cover
 
   defp crop_requirements(group, index, invalid) do
     [
