@@ -30,7 +30,8 @@ caches, and limits from one configuration, so an application can use both.
 - [Configuration](configuration.md): where settings belong, defaults, and
   limits.
 - [Image sources](sources.md): local files, HTTP(S), and S3.
-- [URLs and presets](urls.md): signing, presets, and source encryption.
+- [Signing URLs and rotating keys](signing-urls.md): signing keys and expiry.
+- [Defining presets](defining-presets.md): named sets of options and request defaults.
 - [Requesting images](requesting-images.md) and the
   [processing options](processing.md): what each option does, with the
   builder spelling of each.

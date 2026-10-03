@@ -133,7 +133,7 @@ doesn't define its `url:`. Malformed requests fail before source fetch or
 cache access.
 
 - Configure [sources](sources.md) to enable HTTP(S), S3, or application identifiers.
-- Configure [signing keys](urls.md#signing-and-expiry) to require authenticated URLs.
+- Configure [signing keys](signing-urls.md) to require authenticated URLs.
 - Enable [HTTP cache policy](cdn-http-cache.md) and configure [storage caches](cache.md) independently.
 - Use [configuration](configuration.md) for defaults, limits, CORS, and presets.
 - Browse [processing options](processing.md) for all transforms and outputs.

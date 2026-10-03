@@ -152,7 +152,7 @@ Apply these settings to the CDN route that serves your images:
 
 - **Use ImagePipe's `Cache-Control`.** Don't replace it with an edge
   lifetime, or the CDN will cache `no-store` and `private` responses. A URL
-  signed with an [expiry](urls.md#signing-and-expiry) gets a lifetime that
+  signed with an [expiry](urls.md#expiry) gets a lifetime that
   ends when the URL does, and an edge lifetime would outlast it.
 - **Add `Accept` to the cache key.** URLs without a `format` option get WebP
   or AVIF chosen from the browser's `Accept` header, and carry
@@ -167,7 +167,7 @@ Apply these settings to the CDN route that serves your images:
   `304 Not Modified` without processing the image again.
 
 The CDN keys on the raw URL, so two spellings of the same options are two
-cached copies. Generate URLs with the [URL builder](urls.md) to keep one
+cached copies. Generate URLs with the URL builder, `ImagePipe.URL`, to keep one
 spelling per image.
 
 If `[server]` sets `auth_token`, configure the CDN to send

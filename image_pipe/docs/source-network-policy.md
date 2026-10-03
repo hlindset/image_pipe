@@ -1,92 +1,63 @@
-# Source network policy (SSRF protection)
+# Source network policy
 
-`ImagePipe.Source.HTTP` validates every origin and redirect destination before
-connecting. By default it connects only to public addresses.
+An HTTP source downloads from addresses that an image URL can name. Without
+limits, a request such as `src/http://169.254.169.254/latest/meta-data/`
+would make ImagePipe fetch from inside your network and hand back what it
+finds. This is server-side request forgery (SSRF). The HTTP source prevents
+it with two checks on every download: the host must be one you listed, and
+the address it connects to must be on the public internet.
 
-## Default policy
+## Hosts and addresses
 
-For each request, and again for each redirect, the adapter:
+`allowed_hosts` is the first check. A source accepts URLs only for the
+hostnames you list, or the host of its `base_url`, so a request can't name
+an arbitrary server.
 
-1. Requires an `http`/`https` scheme.
-2. Requires the (case-insensitive) host to be in `allowed_hosts` — redirects may
-   not leave the allowlist.
-3. Resolves the host and **denies the fetch if any resolved address is not
-   public** (loopback, unspecified, link-local, private, CGNAT, unique-local,
-   multicast, broadcast, or otherwise reserved).
-4. Connects directly to a validated IP, preserving the original HTTP Host,
-   TLS server name and certificate hostname verification. A failed connection
-   may try the next validated address; HTTP responses and body failures do not
-   trigger address failover.
+A hostname is not enough on its own, because DNS decides where it points.
+`assets.example.com` could resolve to `10.0.0.5` through a misconfigured
+record, or through an attacker who controls the domain's DNS. So the source
+also resolves the host and refuses the download unless every address it
+gets back is public. A mix of public and private addresses is refused too,
+since any of them might be the one used.
 
-Each redirect is resolved, validated and pinned separately. Connection pools
-are separated by the logical hostname and selected address, so a previously
-opened connection cannot bypass a new address decision. The logical URL is
-retained for request signing, redirect resolution and origin cache validators.
-With a configured forward proxy, plain HTTP request targets use the validated
-IP and HTTPS CONNECT targets use that IP; the origin hostname is retained for
-HTTP Host and TLS identity.
+Addresses that aren't public include loopback (`127.0.0.1`), private
+ranges (`10.0.0.0/8` and the other RFC 1918 ranges), link-local addresses
+such as the cloud metadata service at `169.254.169.254`, carrier-grade NAT,
+multicast, and reserved ranges. The full list is in
+[address policy](`m:ImagePipe.Source.HTTP#module-address-policy`).
 
-IPv4 literal encodings (decimal, octal, hex) and IPv4-mapped / NAT64 / 6to4 IPv6
-forms are canonicalized before classification, so they cannot be used to smuggle
-an internal address past the check.
+An address written in an unusual form is checked as the address it means.
+`2130706433`, `0x7f.1`, and `127.1` are all `127.0.0.1`, and an IPv6
+address that embeds an IPv4 address, such as `::ffff:10.0.0.5`, is checked
+as `10.0.0.5`. NAT64 addresses are treated as non-public.
 
-A denied fetch returns `{:error, {:source, reason}}`, where `reason` is
-`:denied_scheme`, `:denied_host`, or `:denied_address`. Fetching opens the remote
-response through its headers; the body is consumed lazily, and ImagePipe releases
-the response when processing ends, even if the body was never read.
+## Connecting to the checked address
 
-## Allowing private origins
+Checking the address and then letting the HTTP client resolve the host again
+would leave a gap: DNS can answer differently the second time. This is
+called DNS rebinding. Instead, the source connects to the address it
+checked, while still sending the hostname in the `Host` header and verifying
+the TLS certificate against it. The origin sees an ordinary request.
 
-Set `address_policy` on the source adapter. It accepts either a keyword list or a
-function.
+Connections are pooled per hostname and address, so a connection opened to
+one address is never reused after the host resolves somewhere else, and a
+forward proxy is asked for the checked address too.
 
-### Keyword list
+## Redirects
 
-```elixir
-sources: [
-  internal: [
-    adapter: ImagePipe.Source.HTTP,
-    match: [scheme: ["http", "https"]],
-    options: [
-      allowed_hosts: ["assets.internal"],
-      address_policy: [
-        allow: ["10.0.5.0/24"]
-      ]
-    ]
-  ]
-]
-```
+A redirect is a new download and gets the same checks: its host must be
+listed, and its addresses must be public. Redirects aren't followed at all
+unless the source sets `max_redirects`.
 
-Use `allow:` for specific CIDR ranges, or category toggles such as
-`allow_private: true` to allow all RFC1918 addresses. The available toggles are
-`allow_loopback`, `allow_unspecified`, `allow_link_local`,
-`allow_private`, `allow_unique_local`, `allow_multicast`, `allow_broadcast`,
-`allow_cgnat`, `allow_reserved`. Each toggle accepts only `true` or `false`;
-other values are rejected during source configuration. `allow:` is a list of CIDR strings. Omitting
-`address_policy` denies everything that is not public.
+## Private origins
 
-### Function
+Some origins are meant to be private, such as an image store on your own
+network. You can allow specific address ranges, or whole categories such as
+private addresses, for one source (see
+[allow a private origin](serving-from-http.md#allow-a-private-origin)).
+Allowing a narrow range keeps the protection for everything else on that
+network, so prefer `10.0.5.0/24` for an origin over all private addresses.
 
-```elixir
-address_policy: fn _ip, category -> category == :public end
-```
-
-The function receives the canonicalized IP tuple and its category and returns a
-boolean. It replaces the built-in decision. A non-boolean return or a raised
-exception is treated as **deny** (fail-closed).
-
-## Custom DNS resolution
-
-`address_resolver` overrides how hostnames resolve, e.g. a caching resolver:
-
-```elixir
-address_resolver: fn host -> {:ok, [{93, 184, 216, 34}]} end
-```
-
-It returns `{:ok, [ip_tuple]}` or `{:error, term}`. Errors, empty results, and
-exceptions deny the fetch. Addresses are tried in resolver order, with duplicates
-removed. The default resolver lists IPv4 addresses before IPv6 addresses.
-
-Pinning applies to the built-in Req/Finch network transport. Host-supplied Req
-adapters own their transport behavior; `Req.Plug` runs locally without opening
-a network connection.
+Denied downloads answer `404 source not found`, the same as a missing
+image. A client can't use the answer to learn which hosts or addresses
+exist behind the server (see [error responses](errors.md)).

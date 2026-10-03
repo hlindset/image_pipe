@@ -10,16 +10,16 @@ in Elixir code. Start with the page for what you want to do:
 | Serve images from my Phoenix or Plug app | [Plug usage](plug-usage.md) |
 | Process images in Elixir code (uploads, jobs) | [Processing images in Elixir](processing-in-elixir.md), then the [Elixir API](elixir-api.md) |
 | Generate signed URLs for a separate server | [URL builder with an external server](external-server.md), then [shared URL settings](shared-url-settings.md) and [fetching images from the server](fetching-from-the-server.md) |
-| Extend ImagePipe with custom sources, detectors, or telemetry handlers | [Custom source adapters](sources.md#custom-adapters), [custom detectors](custom-detectors.md), and [telemetry handlers](telemetry.md#attaching-handlers) |
+| Extend ImagePipe with custom sources, detectors, or telemetry handlers | [Custom sources](custom-sources.md), [custom detectors](custom-detectors.md), and [telemetry handlers](telemetry.md#attaching-handlers) |
 
 ## Application setup
 
 - [Installation](installation.md): the Hex dependency and supported image formats.
 - [Combined usage](combined-usage.md): serve images and process them in code with one configuration.
 - [Configuration](configuration.md): where settings belong, defaults, limits, and overrides.
-- [Image sources](sources.md): local files, HTTP(S), and S3.
-- [S3 credentials](s3-credentials.md): static keys, roles, temporary credentials, and warmup.
-- [Source network policy](source-network-policy.md): allowed origins and private networks.
+- [Image sources](sources.md): mounts, routing, and the available sources.
+- [Serving images from local files](serving-local-files.md), [an HTTP origin](serving-from-http.md), or [S3](serving-from-s3.md): set up each kind of source.
+- [Source network policy](source-network-policy.md): what HTTP sources may connect to, and why.
 - [Enabling face and object detection](enabling-detection.md): install the detector, load its models, and require detection.
 
 ## Requesting images

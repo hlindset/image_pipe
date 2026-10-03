@@ -167,7 +167,7 @@ defmodule ImagePipe do
   ## Inputs
 
     * `{:source, source}` - a source the configuration's
-      [source mounts](sources.md#mounts-and-routing) resolve, as for an HTTP
+      [source mounts](sources.md#routing-image-paths-to-sources) resolve, as for an HTTP
       request: a path, an HTTP(S) URL such as
       `"https://assets.example.com/cat.jpg"`, an S3 identifier, or a custom
       scheme. Pass the source without the `src/` marker or the URL escaping

@@ -1,13 +1,12 @@
 defmodule ImagePipe.Source do
   @moduledoc """
-  Behaviour for source adapters.
+  Behaviour for source adapters, and the shape of the `:sources` option of
+  `ImagePipe.config/1`.
 
-  A source adapter validates its mount options, resolves canonical
-  `ImagePipe.Plan.Source` values into a `ImagePipe.Source.Resolved` value, and
-  fetches that value as an `ImagePipe.Source.Response`.
+  ## Mounts
 
-  Configure adapters as named mounts under `:sources`. Each mount names its
-  adapter, the sources it serves, and the adapter's options:
+  `:sources` is a keyword list of named mounts. Each one names an adapter, the
+  sources it serves, and the adapter's options:
 
       sources: [
         media: [
@@ -22,14 +21,22 @@ defmodule ImagePipe.Source do
         ]
       ]
 
-  `:match` is `:path` (bare paths no prefix matches) or a keyword list of
-  `:prefix` (a single leading path segment) and `:scheme` values, each a string
-  or a list. `http`, `https`, and `s3` route URL and object sources; any other
-  scheme is another spelling of a path prefix, so `asset://catalog/42` reaches
-  its mount as the path `catalog/42`.
+    * `:adapter` - `ImagePipe.Source.File`, `ImagePipe.Source.HTTP`,
+      `ImagePipe.Source.S3`, or a module implementing this behaviour.
+    * `:match` - which sources reach the mount: `:path`, or a keyword list of
+      `:prefix` and `:scheme` rules. The rules are listed in
+      [routing image paths to sources](sources.md#routing-image-paths-to-sources).
+    * `:options` - the adapter's options, checked by its
+      `c:validate_options/1`. The default value is `[]`.
 
-  Adapter callbacks receive their own validated options and a projected set
-  of runtime limits. They never receive the complete mount configuration.
+  Invalid mounts raise `ArgumentError` when the configuration is built. The
+  mount name appears in [telemetry](telemetry.md) as `:source_mount`.
+
+  ## Adapters
+
+  An adapter's callbacks receive its own validated options and a set of
+  runtime limits, never the rest of the configuration. Writing one is covered
+  in [Writing a custom source](custom-sources.md).
   """
 
   use Boundary,
@@ -84,13 +91,46 @@ defmodule ImagePipe.Source do
   identifier to the adapter fails configuration.
   """
   @callback identifiers() :: [module()]
+
+  @doc """
+  Checks the mount's `:options` when the configuration is built. The options
+  it returns are passed to `c:resolve/3` and `c:fetch/3`. An error fails the
+  configuration with `ArgumentError`.
+  """
   @callback validate_options(keyword()) :: {:ok, keyword()} | {:error, term()}
+
+  @doc """
+  Describes a source without fetching it.
+
+  The source is one of the structs from `c:identifiers/0`, with the mount's
+  prefix or custom scheme removed. The returned `ImagePipe.Source.Resolved`
+  holds:
+
+    * `identity` - a keyword list that names the original, with atom keys
+      and strings, numbers, booleans, `nil`, non-module atoms, or lists of
+      them as values. It must include everything that selects different
+      bytes, or two originals share cache entries.
+    * `internal_cache`, `http_cache`, and `cache_semantics` - built with
+      `ImagePipe.Source.CacheSettings.fields/2`.
+    * `fetch` - any data `c:fetch/3` needs.
+
+  The third argument holds runtime limits. Return
+  `{:error, {:source, reason}}` for a source the adapter can't serve. How
+  reasons become HTTP statuses is listed in
+  [error responses](errors.md#custom-source-adapters). Any other return
+  value fails the request with `500`.
+  """
   @callback resolve(PlanSource.t(), keyword(), keyword()) ::
               {:ok, Resolved.t()} | {:error, error()}
 
   @doc """
-  The third argument holds runtime limits (body size, transport timeouts, and
-  the telemetry prefix), never the full mount configuration.
+  Fetches the original's bytes as an `ImagePipe.Source.Response`, with
+  exactly one of `stream` or `path`. A stream is subject to the
+  `:max_body_bytes` limit.
+
+  The third argument holds runtime limits: `:max_body_bytes`, the transport
+  timeouts, and the telemetry prefix. `{:not_modified, origin}` answers a
+  revalidation of origin headers the adapter returned before.
   """
   @callback fetch(Resolved.t(), keyword(), keyword()) ::
               {:ok, Response.t()} | {:not_modified, Origin.t()} | {:error, error()}

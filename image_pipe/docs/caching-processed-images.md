@@ -67,7 +67,8 @@ root = "/var/cache/image_pipe/originals"
 
 Local files are read where they are. To keep copies of them in the originals
 cache, for example on a network filesystem, set the file source's `copy`
-option to `keep` (see [local files](sources.md#local-files)).
+option to `keep` (see
+[copy files from network storage](serving-local-files.md#copy-files-from-network-storage)).
 
 ## Bound the cache size
 

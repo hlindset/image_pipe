@@ -1,22 +1,4 @@
 defmodule ImagePipe.Source.HTTP do
-  @moduledoc """
-  Built-in HTTP source adapter with destination and response-size controls.
-
-  `:allowed_hosts` is required unless `:base_url` is set. Redirects are disabled
-  by default and every redirect target is checked against the same host and
-  network-address policy. The default transport connects to validated addresses
-  while preserving the original hostname for HTTP and TLS.
-  Transport settings may be supplied through the documented timeout and
-  `:req_options` fields in the mount configuration.
-
-  Mounted under `path:` with `:base_url`, the adapter serves path sources from
-  that origin: each path segment is percent-encoded and appended to the base
-  URL, which then resolves exactly like a direct request for the full URL.
-  `:allowed_hosts` defaults to the base URL's host. Paths with empty, `.`, or
-  `..` segments are rejected, and an optional `:path_pattern` regex must match
-  the whole relative path (segments joined with `/`).
-  """
-
   @behaviour ImagePipe.Source
 
   alias ImagePipe.Plan.Source.Path, as: SourcePath
@@ -49,23 +31,162 @@ defmodule ImagePipe.Source.HTTP do
 
   @options_schema NimbleOptions.new!(
                     [
-                      allowed_hosts: [type: {:list, :string}],
-                      base_url: [type: :string],
-                      path_pattern: [type: {:struct, Regex}],
-                      req_options: [type: :keyword_list, default: []],
-                      receive_timeout: [type: :non_neg_integer],
-                      connect_timeout: [type: :non_neg_integer],
-                      pool_timeout: [type: :non_neg_integer],
-                      max_redirects: [type: :non_neg_integer, default: 0],
+                      allowed_hosts: [
+                        type: {:list, :string},
+                        doc: """
+                        Hostnames the adapter may connect to, compared without case. \
+                        Redirects can't leave the list. Required unless `:base_url` \
+                        is set, which defaults it to the base URL's host. A list given \
+                        with `:base_url` must include that host.
+                        """
+                      ],
+                      base_url: [
+                        type: :string,
+                        doc: """
+                        Origin that path sources are served from, such as \
+                        `"https://images.example.com/originals"`. Each path segment \
+                        is percent-encoded and appended, so `beach.jpg` fetches \
+                        `https://images.example.com/originals/beach.jpg`. Must be an \
+                        `http` or `https` URL with a host and no query, fragment, or \
+                        credentials. Without it, the adapter serves only URL sources.
+                        """
+                      ],
+                      path_pattern: [
+                        type: {:struct, Regex},
+                        type_doc: "`t:Regex.t/0`",
+                        doc: """
+                        Regular expression that the whole path, segments joined with \
+                        `/`, must match. Other paths are not found, and the origin is \
+                        never contacted. Requires `:base_url`.
+                        """
+                      ],
+                      req_options: [
+                        type: :keyword_list,
+                        default: [],
+                        doc: """
+                        Options for `Req.request/1`, such as `headers:` or `auth:`. \
+                        The adapter drops `:url`, `:base_url`, `:method`, `:body`, \
+                        `:params`, `:into`, `:retry`, `:redirect`, and `:max_redirects`, \
+                        and a `host` header. \
+                        It also drops `range`, `accept`, and `accept-encoding` headers, \
+                        except on a source with `internal_cache: :disabled` that isn't \
+                        write-once. Requests for one URL must always return the same \
+                        bytes, because cached originals and processed images are \
+                        reused per URL.
+                        """
+                      ],
+                      receive_timeout: [
+                        type: :non_neg_integer,
+                        doc: """
+                        Milliseconds to wait for the response and between body \
+                        chunks. The default value is `5000`.
+                        """
+                      ],
+                      connect_timeout: [
+                        type: :non_neg_integer,
+                        doc: "Milliseconds to wait for a connection. The default value is `5000`."
+                      ],
+                      pool_timeout: [
+                        type: :non_neg_integer,
+                        doc: """
+                        Milliseconds to wait for a free connection from the pool. \
+                        The default value is `5000`.
+                        """
+                      ],
+                      max_redirects: [
+                        type: :non_neg_integer,
+                        default: 0,
+                        doc: """
+                        Redirects to follow. Each target is checked against \
+                        `:allowed_hosts` and `:address_policy`. A redirect beyond the \
+                        limit fails the request with `502`.
+                        """
+                      ],
                       address_policy: [
                         type:
                           {:or,
                            [{:fun, 2}, {:custom, __MODULE__, :validate_address_policy_kw, []}]},
-                        default: []
+                        type_doc: "`t:keyword/0` or `(:inet.ip_address(), atom() -> boolean())`",
+                        default: [],
+                        doc: """
+                        Which non-public addresses the adapter may connect to. See \
+                        [Address policy](#module-address-policy).
+                        """
                       ],
-                      address_resolver: [type: {:fun, 1}]
+                      address_resolver: [
+                        type: {:fun, 1},
+                        type_doc:
+                          "`(String.t() -> {:ok, [:inet.ip_address()]} | {:error, term()})`",
+                        doc: """
+                        Resolves a hostname to the addresses to check and connect to, \
+                        such as a caching resolver. Addresses are tried in the order \
+                        returned, without duplicates. An error, an empty list, or an \
+                        exception denies the fetch. The default resolver returns IPv4 \
+                        addresses before IPv6 addresses.
+                        """
+                      ]
                     ] ++ CacheSettings.schema()
                   )
+
+  @moduledoc """
+  Source adapter for images fetched over HTTP and HTTPS.
+
+      web: [
+        adapter: ImagePipe.Source.HTTP,
+        match: [scheme: ["http", "https"]],
+        options: [allowed_hosts: ["assets.example.com"]]
+      ]
+
+  It resolves URL sources such as `https://assets.example.com/beach.jpg` and,
+  with `:base_url`, path sources. Setting up a mount is covered in
+  [Serving images from an HTTP origin](serving-from-http.md).
+
+  Before connecting, and again for each redirect, the adapter checks the
+  scheme and host, resolves the host, and denies the fetch unless every
+  resolved address is public or allowed by `:address_policy`. It then connects
+  to a checked address while keeping the hostname for the `Host` header and
+  TLS verification. Why is explained in
+  [Source network policy](source-network-policy.md). A denied fetch fails
+  with `{:source, :denied_scheme}`, `{:source, :denied_host}`, or
+  `{:source, :denied_address}`, which answer `404`. Connecting to a checked
+  address applies to Req's default transport. A Req adapter given in
+  `:req_options` makes its own connections.
+
+  ## Options
+
+  #{NimbleOptions.docs(@options_schema)}
+
+  ## Address policy
+
+  By default the adapter connects only to public addresses. `:address_policy`
+  takes a keyword list that also allows some categories or ranges:
+
+      address_policy: [allow: ["10.0.5.0/24"], allow_loopback: true]
+
+    * `:allow` - a list of CIDR ranges, such as `"10.0.5.0/24"` or
+      `"fd00::/8"`.
+    * `:allow_loopback` - `127.0.0.0/8` and `::1`.
+    * `:allow_unspecified` - `0.0.0.0/8` and `::`.
+    * `:allow_link_local` - `169.254.0.0/16` and `fe80::/10`.
+    * `:allow_private` - `10.0.0.0/8`, `172.16.0.0/12`, and `192.168.0.0/16`.
+    * `:allow_unique_local` - `fc00::/7`.
+    * `:allow_multicast` - `224.0.0.0/4` and `ff00::/8`.
+    * `:allow_broadcast` - `255.255.255.255`.
+    * `:allow_cgnat` - `100.64.0.0/10`.
+    * `:allow_reserved` - other non-public ranges: benchmarking and
+      documentation ranges, `240.0.0.0/4`, NAT64 `64:ff9b::/96`, and IPv6
+      addresses outside `2000::/3`.
+
+  Each category takes `true` or `false`. IPv4-mapped and 6to4 IPv6 addresses
+  are checked as the IPv4 address they contain.
+
+  Or pass a function that receives each resolved address as a tuple and its
+  category (`:public`, or one of the categories above without `allow_`) and
+  returns `true` to allow it. It replaces the built-in decision, and any
+  result other than `true`, or an exception, denies the address:
+
+      address_policy: fn _ip, category -> category in [:public, :private] end
+  """
 
   @doc false
   def options_schema, do: @options_schema.schema

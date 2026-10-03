@@ -48,14 +48,14 @@ mount accepts only mount options and `url:`. Direct `run`/`write` host
 options override the server configuration passed to them. Explicit request
 output choices override host defaults. Both Plug and direct execution expand
 presets from the server configuration: `request_defaults`, named presets in
-listed order, then explicit options. See [presets](urls.md#presets) for
+listed order, then explicit options. See [presets](presets.md) for
 selection and related-option replacement rules.
 
 ## Sources, caches, and URL protection
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `sources` | No mounts | Named mounts: `name: [adapter: module, match: rule, options: [...]]`; see [sources](sources.md#mounts-and-routing) |
+| `sources` | No mounts | Named mounts: `name: [adapter: module, match: rule, options: [...]]`; see [sources](sources.md#routing-image-paths-to-sources) |
 | `cache` | Disabled | Output cache adapter; see [caching](cache.md) |
 | `input_cache` | Disabled | Independent source-body cache adapter |
 | `source_cache_policy` | Built-in policy | Freshness/revalidation policy; see [source cache settings](cache.md#source-cache-settings) |
@@ -63,9 +63,9 @@ selection and related-option replacement rules.
 | `watermarks` | `%{}` | Named watermark assets; see [watermarks](#watermarks) |
 | `request_watermarks` | `false` | Accept request-supplied watermark sources (`wm-src64`, `wm-enc`) |
 | `url` | Unsigned | An `ImagePipe.URL.Config` from `ImagePipe.URL.config/1` |
-| `presets` | `%{}` | Preset name to URL option fragment or builder; see [presets](urls.md#presets) |
+| `presets` | `%{}` | Preset name to URL option fragment or builder; see [defining presets](defining-presets.md) |
 | `request_defaults` | none | One-group fragment or builder applied to every request first |
-| `preset_lookup` | none | `{module, options}` implementing `ImagePipe.PresetLookup`; see [preset lookup](urls.md#preset-lookup) |
+| `preset_lookup` | none | `{module, options}` implementing `ImagePipe.PresetLookup`; see [storing presets in a database](storing-presets-in-a-database.md) |
 | `max_preset_lookups` | `32` | Distinct names one request may look up; only with `preset_lookup` |
 | `clock` | Current Unix seconds | Zero-argument function used for request expiry |
 
@@ -78,9 +78,10 @@ selection and related-option replacement rules.
 | `source_encryption_keys` | `[]` | Ordered raw 32-byte encryption keys, separate from signing keys |
 | `encrypt_source` | `false` | Generate concealed sources in URLs; requires both key sets |
 | `iv_mode` | `:deterministic` | Source-encryption IV generation; also accepts `:random` |
-| `mount_presets` | none | The serving mount's presets, for builder validation only; see [validating URLs](urls.md#validating-urls-before-serving) |
+| `mount_presets` | none | The serving mount's presets, for builder validation only; see `ImagePipe.URL.validate/1` |
 
-Signing, encryption, and source encoding are covered in [URLs and presets](urls.md).
+Signing and encryption are covered in [signing and source concealment](urls.md),
+and source encoding in [image paths](requesting-images.md#image-paths).
 `storage_inputs` changes storage identity without changing a byte-identical
 representation's ETag; it does not forward those inputs to the source.
 

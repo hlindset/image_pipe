@@ -298,7 +298,8 @@ too.
 A preset can also define several groups of its own. You can add only
 request-wide options to such a preset, such as `/preset=framed/format=png`,
 either directly or through another preset. Adding any other option answers
-`400`. The server's configuration defines which presets work this way.
+`400`. The server's configuration defines which presets work this way, as
+described in [single-group and pipeline presets](presets.md#single-group-and-pipeline-presets).
 
 A preset name that doesn't exist answers `400`.
 
@@ -314,7 +315,7 @@ https://img.example.com/sig=<signature>/w=400/src/photos/beach.jpg
 Signing needs the server's secret key, so URLs are signed server-side. The
 application that builds your URLs signs them, or an endpoint in it creates
 signed URLs. Signing is set up as described in
-[signing and expiry](urls.md#signing-and-expiry).
+[signing URLs and rotating keys](signing-urls.md).
 
 - Changing any option or the image path invalidates the signature.
 - A missing or wrong signature answers `403` with the body `invalid signature`.

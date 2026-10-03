@@ -1,12 +1,4 @@
 defmodule ImagePipe.Source.S3 do
-  @moduledoc """
-  Built-in S3-compatible object source adapter.
-
-  Configure shared settings under `:default` and optionally override them per
-  bucket with `:buckets`. Each effective bucket configuration requires a
-  region and endpoint and may use static or provider-backed credentials.
-  """
-
   @behaviour ImagePipe.Source
 
   alias ImagePipe.Plan.Source.Object
@@ -37,19 +29,63 @@ defmodule ImagePipe.Source.S3 do
                    [
                      region: [
                        type: {:custom, __MODULE__, :validate_region_option, []},
-                       required: true
+                       type_doc: "`t:String.t/0`",
+                       required: true,
+                       doc: "Region used to sign requests, such as `\"us-east-1\"`."
                      ],
                      endpoint: [
                        type: {:custom, __MODULE__, :validate_endpoint_option, []},
-                       required: true
+                       type_doc: "`t:String.t/0`",
+                       required: true,
+                       doc: """
+                       Base URL of the S3 API, such as \
+                       `"https://s3.us-east-1.amazonaws.com"`, with no path, query, or \
+                       fragment. Objects are requested path-style, as \
+                       `<endpoint>/<bucket>/<key>`.
+                       """
                      ],
                      credentials: [
-                       type: {:custom, __MODULE__, :validate_credentials_option, []}
+                       type: {:custom, __MODULE__, :validate_credentials_option, []},
+                       type_doc: "`{:static, keyword()}` or `{:provider, module(), keyword()}`",
+                       doc: """
+                       Credentials that sign requests. Every bucket needs them, \
+                       from `:default` or its own settings. See \
+                       [Credentials](#module-credentials).
+                       """
                      ],
-                     req_options: [type: :keyword_list, default: []],
-                     receive_timeout: [type: :non_neg_integer],
-                     connect_timeout: [type: :non_neg_integer],
-                     pool_timeout: [type: :non_neg_integer]
+                     req_options: [
+                       type: :keyword_list,
+                       default: [],
+                       doc: """
+                       Options for `Req.request/1`, such as `headers:`. The adapter \
+                       drops `:url`, `:base_url`, `:method`, `:body`, `:params`, \
+                       `:into`, `:retry`, `:redirect`, `:max_redirects`, `:auth`, and \
+                       `:aws_sigv4`, and the `authorization`, `host`, \
+                       `x-amz-content-sha256`, and `x-amz-security-token` headers. It \
+                       also drops `range`, `accept`, and `accept-encoding` headers, \
+                       except on a source with `internal_cache: :disabled` that isn't \
+                       write-once. Requests for one object must always return the \
+                       same bytes.
+                       """
+                     ],
+                     receive_timeout: [
+                       type: :non_neg_integer,
+                       doc: """
+                       Milliseconds to wait for the response and between body \
+                       chunks. The default value is `5000`.
+                       """
+                     ],
+                     connect_timeout: [
+                       type: :non_neg_integer,
+                       doc: "Milliseconds to wait for a connection. The default value is `5000`."
+                     ],
+                     pool_timeout: [
+                       type: :non_neg_integer,
+                       doc: """
+                       Milliseconds to wait for a free connection from the pool. \
+                       The default value is `5000`.
+                       """
+                     ]
                    ] ++ CacheSettings.schema()
                  )
 
@@ -57,12 +93,80 @@ defmodule ImagePipe.Source.S3 do
   def config_schema, do: @config_schema.schema
 
   @options_schema NimbleOptions.new!(
-                    default: [type: :keyword_list, default: []],
+                    default: [
+                      type: :keyword_list,
+                      default: [],
+                      doc: """
+                      Bucket settings for every bucket. Must include `:region` and \
+                      `:endpoint`.
+                      """
+                    ],
                     buckets: [
                       type: {:or, [nil, {:map, :string, :keyword_list}]},
-                      default: nil
+                      type_doc: "`%{String.t() => keyword()}`",
+                      default: nil,
+                      doc: """
+                      Bucket settings per bucket name, each merged over `:default`. \
+                      When given, only the listed buckets are served, and other \
+                      buckets are not found. Omitted, every bucket is served.
+                      """
                     ]
                   )
+
+  @moduledoc """
+  Source adapter for objects in S3 and S3-compatible storage.
+
+      media: [
+        adapter: ImagePipe.Source.S3,
+        match: [scheme: "s3"],
+        options: [
+          default: [
+            region: "us-east-1",
+            endpoint: "https://s3.us-east-1.amazonaws.com",
+            credentials: {:provider, ImagePipe.Source.S3.InstanceRole, []}
+          ]
+        ]
+      ]
+
+  It resolves object sources written `s3://bucket/key` or
+  `s3://bucket/key?revision`. Setting up a mount is covered in
+  [Serving images from S3](serving-from-s3.md).
+
+  A revision is an S3 version ID, written as the whole query
+  (`?3HL4kqtJlcpX`, not `?versionId=3HL4kqtJlcpX`). The adapter requests that
+  version, and the object is treated as write-once. The response must carry a
+  matching `x-amz-version-id` header, or the fetch fails with `502`. Without a
+  revision, the object's `Cache-Control`, `ETag`, and `Last-Modified` headers
+  set its cache lifetime, as for an HTTP source.
+
+  ## Options
+
+  #{@options_schema.schema |> Keyword.update!(:buckets, &Keyword.delete(&1, :default)) |> NimbleOptions.docs()}
+
+  ## Bucket settings
+
+  `:default` and each entry of `:buckets` take these settings:
+
+  #{NimbleOptions.docs(@config_schema)}
+
+  ## Credentials
+
+    * `{:static, access_key_id: id, secret_access_key: secret}` - fixed keys.
+      Add `token:` for temporary credentials with a session token. Leave
+      `token` out when there is none, since an empty or `nil` token is
+      rejected.
+    * `{:provider, module, options}` - a module implementing
+      `ImagePipe.Source.S3.CredentialProvider`, which fetches credentials
+      and refreshes them before they expire. ImagePipe includes
+      `ImagePipe.Source.S3.InstanceRole`,
+      `ImagePipe.Source.S3.ContainerCredentials`,
+      `ImagePipe.Source.S3.WebIdentity`, and
+      `ImagePipe.Source.S3.AssumeRole`.
+
+  Credentials from a provider are cached per provider, options, and bucket.
+  Expired credentials are never sent. When they can't be refreshed, requests
+  fail with `{:source, :credentials_unavailable}`, which answers `500`.
+  """
 
   @impl Source
   def identifiers, do: [Object]

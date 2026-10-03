@@ -11,7 +11,7 @@ all sources or per source. Request URLs can't change them:
 
 - In Elixir, `ImagePipe.Cache.FileSystem` sets up the caches. The settings
   are in [source cache settings](cache.md#source-cache-settings) and
-  [local files](sources.md#local-files).
+  `ImagePipe.Source.File`.
 - In `image_pipe_server`, see
   [server configuration](../../image_pipe_server/docs/server-configuration.md):
   the `[cache]` table sets up the caches, and the settings are under
@@ -99,7 +99,7 @@ A write-once source identifies each version by where the original comes from,
 not by its content:
 
 - A local file by the source's `root_id`, a stable name for its directory
-  (see [local files](sources.md#local-files)), and the file's path.
+  (see [add a file source](serving-local-files.md#add-a-file-source)), and the file's path.
 - An HTTP original by its URL, including the query string.
 - An S3 object by its endpoint, bucket, key, and version ID.
 
@@ -111,7 +111,7 @@ Credentials are hashed first, so they never appear in cache keys or `ETag`s.
 A write-once source can't have its own lifetime or stale window, and a default
 lifetime set for all sources doesn't apply to it. S3 identifiers that name an
 object version are treated as write-once automatically (see
-[S3-compatible storage](sources.md#s3-compatible-storage)).
+[request object versions](serving-from-s3.md#request-object-versions)).
 
 ## Local file sources
 

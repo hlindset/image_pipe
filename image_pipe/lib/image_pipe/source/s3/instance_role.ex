@@ -1,17 +1,4 @@
 defmodule ImagePipe.Source.S3.InstanceRole do
-  @moduledoc """
-  Credential provider for an EC2 instance role via IMDSv2.
-
-  Use on EC2 (incl. Elastic Beanstalk) where a role is attached to the instance:
-
-      credentials: {:provider, ImagePipe.Source.S3.InstanceRole, []}
-
-  Options:
-    * `:base_url` — IMDS base, default `"http://169.254.169.254"`.
-    * `:ttl_seconds` — token TTL requested from IMDS, default `21600`.
-    * `:plug` — test-only Req plug; routes requests to a `Plug` instead of the network.
-    * `:receive_timeout` / `:connect_timeout` — bounded HTTP timeouts (ms), default 2000.
-  """
   @behaviour ImagePipe.Source.S3.CredentialProvider
 
   alias ImagePipe.Source.S3.MetadataRequest
@@ -20,13 +7,44 @@ defmodule ImagePipe.Source.S3.InstanceRole do
   @ttl_seconds 21_600
 
   @opts_schema NimbleOptions.new!(
-                 base_url: [type: :string],
-                 ttl_seconds: [type: :pos_integer],
-                 # test-only Req hook; :any so the schema doesn't reject a fn
-                 plug: [type: :any],
-                 receive_timeout: [type: :non_neg_integer],
-                 connect_timeout: [type: :non_neg_integer]
+                 base_url: [
+                   type: :string,
+                   doc: """
+                   Base URL of the instance metadata service. The default value is \
+                   `"http://169.254.169.254"`.
+                   """
+                 ],
+                 ttl_seconds: [
+                   type: :pos_integer,
+                   doc: """
+                   Lifetime requested for each metadata session token, in seconds. \
+                   The default value is `21600`.
+                   """
+                 ],
+                 receive_timeout: [
+                   type: :non_neg_integer,
+                   doc: "Milliseconds to wait for each response. The default value is `2000`."
+                 ],
+                 connect_timeout: [
+                   type: :non_neg_integer,
+                   doc: "Milliseconds to wait for a connection. The default value is `2000`."
+                 ],
+                 plug: [type: :any, doc: false]
                )
+
+  @moduledoc """
+  Credential provider for the IAM role attached to an EC2 instance, including
+  Elastic Beanstalk, read from the instance metadata service (IMDSv2).
+
+      credentials: {:provider, ImagePipe.Source.S3.InstanceRole, []}
+
+  Setting up credentials is covered in
+  [Serving images from S3](serving-from-s3.md#choose-credentials).
+
+  ## Options
+
+  #{NimbleOptions.docs(@opts_schema)}
+  """
 
   @impl true
   def validate_options(opts) do

@@ -89,7 +89,7 @@ stored copy.
 
 A custom source adapter must include everything that selects different
 origin bytes in the identity it returns from `resolve/3`, or two different
-originals can share cache entries (see [custom adapters](sources.md#custom-adapters)).
+originals can share cache entries (see [Writing a custom source](custom-sources.md)).
 
 ## Originals cache
 
@@ -100,7 +100,7 @@ request for its original.
 
 - Originals are stored byte for byte, including their EXIF and ICC data.
 - Local files are copied in only when their source sets `copy: :keep` (see
-  [local files](sources.md#local-files)).
+  [copy files from network storage](serving-local-files.md#copy-files-from-network-storage)).
 - A download is stored only once it completes.
 - An original that fails to decode is removed from the cache.
 - Making a new processed image from a stored original applies the current

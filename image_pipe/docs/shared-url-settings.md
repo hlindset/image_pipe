@@ -12,12 +12,10 @@ a Plug host spells a setting differently, the entry says so.
 
 ## Signing keys
 
-The hex-encoded HMAC keys that sign each URL. The builder signs with the first
-key in its list. The server accepts a signature made with any key in its list.
-A new key must be in the server's list before the builder signs with it.
-Keys are compared as decoded bytes, so upper- and lower-case hex spell the
-same key. When neither side has keys, URLs are unsigned. See
-[signing and expiry](urls.md#signing-and-expiry).
+The hex-encoded HMAC keys that sign each URL. The server's list must hold the
+first key in the builder's list, which is the one the builder signs with.
+When neither side has keys, URLs are unsigned. See
+[signing URLs and rotating keys](signing-urls.md).
 
 <!-- tabs-open -->
 
@@ -53,7 +51,7 @@ On a mismatch:
 
 The 32-byte keys that encrypt the source into an `enc/<token>` segment. The
 builder encrypts with the first key. The server decrypts with any key in its
-list. See [concealing the source](urls.md#conceal-the-source).
+list. See [source concealment](urls.md#source-concealment).
 
 <!-- tabs-open -->
 
@@ -143,7 +141,7 @@ On a mismatch:
 URLs carry preset names, such as `preset=card`. The server applies its
 current definition of each name, so the builder needs no definitions to build
 URLs. The signature covers the name only, so changing a definition on the
-server keeps signed URLs valid. See [presets](urls.md#presets).
+server keeps signed URLs valid. See [presets](presets.md).
 
 <!-- tabs-open -->
 
@@ -163,8 +161,7 @@ ImagePipe.URL.config(
 `ImagePipe.URL.url/3` check plans against the server's presets and request
 defaults. It never changes a generated URL. `preset_lookup: true` says the server
 resolves names missing from `presets` with a lookup, so the builder leaves
-them to it. See
-[validating URLs before serving](urls.md#validating-urls-before-serving).
+them to it. See `ImagePipe.URL.validate/1`.
 
 ### image_pipe_server
 
@@ -198,7 +195,7 @@ The URL carries the whole source string, escaped or encrypted, and the
 server routes it by its first path segment or its scheme. The string must
 start with a prefix or scheme a server source serves. The source's name
 (`static` in `[sources.static]`) never appears in URLs. See
-[mounts and routing](sources.md#mounts-and-routing).
+[routing image paths to sources](sources.md#routing-image-paths-to-sources).
 
 <!-- tabs-open -->
 

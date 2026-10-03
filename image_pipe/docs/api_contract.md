@@ -241,7 +241,7 @@ configuration and warmup.
 ### Sources
 
 All source forms route through the configured source mounts (see
-[sources](sources.md#mounts-and-routing)). `src/<source>` percent-decodes its
+[sources](sources.md#routing-image-paths-to-sources)). `src/<source>` percent-decodes its
 tail once; `src64/<source>` decodes unpadded base64url. After this outer
 decoding:
 
@@ -335,7 +335,7 @@ guessing source values by comparison. Source hostnames, paths, filenames,
 and query parameters are encrypted. Keys are redacted from configuration
 inspection. Clients receive only the completed signed URL.
 
-See [concealing the source](urls.md#conceal-the-source) for builder
+See [source encryption keys](shared-url-settings.md#source-encryption-keys) for builder
 and mount setup. The generation mode does not restrict decryption, and the
 mount prefix is outside the signed path. For lower-level integration,
 `ImagePipe.URL.encrypt_source(source,

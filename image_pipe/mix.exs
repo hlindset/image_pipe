@@ -20,9 +20,16 @@ defmodule ImagePipe.MixProject do
       "docs/configuration.md",
       "../image_pipe_server/docs/server-configuration.md",
       "docs/sources.md",
-      "docs/s3-credentials.md",
+      "docs/serving-local-files.md",
+      "docs/serving-from-http.md",
+      "docs/serving-from-s3.md",
+      "docs/custom-sources.md",
       "docs/source-network-policy.md",
-      "docs/urls.md"
+      "docs/urls.md",
+      "docs/signing-urls.md",
+      "docs/presets.md",
+      "docs/defining-presets.md",
+      "docs/storing-presets-in-a-database.md"
     ],
     "Processing options": [
       "docs/requesting-images.md",
