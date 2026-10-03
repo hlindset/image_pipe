@@ -235,6 +235,12 @@ defmodule ImagePipe.MixProject do
       {:boundary, "~> 0.10", runtime: false},
       {:excoveralls, ">= 0.0.0", only: [:test], runtime: false},
       {:ex_doc, "~> 0.35", only: :dev, runtime: false},
+      {:makeup_syntect, "~> 0.1.4", only: :dev, runtime: false},
+      {:makeup_eex, "~> 2.0", only: :dev, runtime: false},
+      # makeup_syntect (docs) pins rustler_precompiled ~> 0.8.2, butteraugli needs
+      # 0.9. An override's `only:` applies to butteraugli's copy too, so it must
+      # cover every env that compiles butteraugli here.
+      {:rustler_precompiled, "~> 0.9", only: [:dev, :test], override: true},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
       {:ex_dna, "~> 1.5", only: [:dev, :test], runtime: false},
