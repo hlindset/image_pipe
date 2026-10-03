@@ -10,9 +10,6 @@ defmodule ImagePipe.API.InputCacheFailureWireTest do
     root = Path.join(System.tmp_dir!(), "input_failure_#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(root) end)
     pool = [root: root, node_id: "test", max_size_bytes: 1_000_000]
-    start_supervised!(FileSystem.child_spec(pool))
-    [{admission, _}] = Registry.lookup(FileSystem.registry_name(root), {root, "test"})
-    assert :ok = Admission.await_scan(admission)
     tasks = start_supervised!(Task.Supervisor)
     origin_status = start_supervised!({Agent, fn -> 200 end})
     body = Image.new!(24, 16, color: :red) |> Image.write!(:memory, suffix: ".png")
@@ -34,21 +31,28 @@ defmodule ImagePipe.API.InputCacheFailureWireTest do
       end
     end
 
-    config =
-      ImagePipe.Plug.init(
-        sources: [
-          url: [
-            adapter: ImagePipe.Source.HTTP,
-            match: [scheme: ["http", "https"]],
-            options: [
-              allowed_hosts: ["origin.test"],
-              address_resolver: fn _ -> {:ok, [{93, 184, 216, 34}]} end,
-              req_options: [plug: origin]
-            ]
-          ]
-        ],
-        input_cache: {FileSystem, pool}
-      )
+    name = Module.concat(__MODULE__, "I#{System.unique_integer([:positive])}")
+
+    start_supervised!(
+      {ImagePipe,
+       name: name,
+       sources: [
+         url: [
+           adapter: ImagePipe.Source.HTTP,
+           match: [scheme: ["http", "https"]],
+           options: [
+             allowed_hosts: ["origin.test"],
+             address_resolver: fn _ -> {:ok, [{93, 184, 216, 34}]} end,
+             req_options: [plug: origin]
+           ]
+         ]
+       ],
+       input_cache: {FileSystem, pool}}
+    )
+
+    [{admission, _}] = Registry.lookup(FileSystem.registry_name(root), {root, "test"})
+    assert :ok = Admission.await_scan(admission)
+    config = ImagePipe.Plug.init(instance: name)
 
     %{config: config, admission: admission, tasks: tasks, origin_status: origin_status}
   end

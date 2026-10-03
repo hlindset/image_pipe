@@ -66,6 +66,13 @@ defmodule ImagePipe do
   @spec config(keyword()) :: Config.t()
   def config(options \\ []), do: Config.new!(options)
 
+  @doc false
+  def child_spec(options), do: ImagePipe.Instance.child_spec(options)
+
+  @doc false
+  @spec config!(atom()) :: Config.t()
+  def config!(name), do: Config.fetch_instance!(name, nil)
+
   @doc """
   Returns the configuration's URL settings for building URLs it will serve.
 

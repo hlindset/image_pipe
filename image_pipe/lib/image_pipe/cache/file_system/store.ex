@@ -192,8 +192,6 @@ defmodule ImagePipe.Cache.FileSystem.Store do
         start: {Supervisor, :start_link, [children, [strategy: :one_for_all]]},
         type: :supervisor
       }
-    else
-      :ignore
     end
   end
 

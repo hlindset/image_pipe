@@ -612,8 +612,8 @@ defmodule ImagePipe.Cache.FileSystemTest do
       assert %{id: _, start: _} = FileSystem.child_spec(opts)
     end
 
-    test "returns :ignore for unbounded mode" do
-      assert FileSystem.child_spec(root: "/tmp") == :ignore
+    test "returns nil for unbounded mode" do
+      assert FileSystem.child_spec(root: "/tmp") == nil
     end
   end
 

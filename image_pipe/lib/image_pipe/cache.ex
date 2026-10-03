@@ -61,8 +61,9 @@ defmodule ImagePipe.Cache do
   @callback commit_sink(state(), keyword()) :: :ok | {:ok, :rejected} | {:error, term()}
   @callback abort_sink(state(), keyword()) :: :ok | {:error, term()}
   @callback validate_options(keyword()) :: {:ok, keyword()} | {:error, term()}
+  @callback child_spec(keyword()) :: Supervisor.child_spec() | nil
 
-  @optional_callbacks validate_options: 1
+  @optional_callbacks validate_options: 1, child_spec: 1
 
   @type state :: term()
   @opaque sink :: Sink.t()
@@ -90,6 +91,23 @@ defmodule ImagePipe.Cache do
 
   @doc false
   def shared_option_keys, do: @shared_cache_option_keys
+
+  @doc false
+  # Processes the configured caches need, from the adapters' optional
+  # `child_spec/1`. Takes resolved configuration options.
+  @spec child_specs(keyword()) :: [Supervisor.child_spec()]
+  def child_specs(options) do
+    for key <- [:cache, :input_cache],
+        {adapter, cache_opts} <- [Keyword.get(options, key)],
+        spec = adapter_child_spec(adapter, cache_opts),
+        spec != nil,
+        do: Supervisor.child_spec(spec, [])
+  end
+
+  defp adapter_child_spec(adapter, cache_opts) do
+    if Code.ensure_loaded?(adapter) and function_exported?(adapter, :child_spec, 1),
+      do: adapter.child_spec(cache_opts)
+  end
 
   @doc false
   def source_record(input_key, opts) do

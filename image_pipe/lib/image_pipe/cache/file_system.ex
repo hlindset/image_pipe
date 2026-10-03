@@ -43,14 +43,8 @@ defmodule ImagePipe.Cache.FileSystem do
   alias ImagePipe.Debug.Info
   @metadata_version 1
 
-  @doc """
-  Returns the supervision tree required by a bounded filesystem cache.
-
-  With `:max_size_bytes`, returns a supervisor child specification for the
-  cache's registry and admission process. Otherwise returns `:ignore`.
-  Use the same options as the cache adapter and start it before serving requests.
-  """
-  @spec child_spec(keyword()) :: Supervisor.child_spec() | :ignore
+  @impl true
+  @doc false
   defdelegate child_spec(opts), to: Store
   @doc false
   defdelegate registry_name(root), to: Store

@@ -22,18 +22,52 @@ defmodule ImagePipe.Plug.Config do
   def options_schema, do: @options_schema.schema
 
   @doc false
-  @spec validate!(keyword() | SharedConfig.t()) :: keyword()
+  @spec validate!(keyword() | SharedConfig.t()) ::
+          keyword() | {:instance, atom(), atom() | nil, keyword()}
   def validate!(opts) when is_list(opts) do
+    case Keyword.pop(opts, :instance) do
+      {nil, opts} -> validate_inline!(opts)
+      {instance, opts} -> validate_instance!(instance, opts)
+    end
+  end
+
+  def validate!(%SharedConfig{} = config), do: validate!(config: config)
+
+  @doc false
+  # Resolves a mount on a supervised instance for one request.
+  @spec resolve({:instance, atom(), atom() | nil, keyword()}) :: keyword()
+  def resolve({:instance, name, url, mount}),
+    do: Keyword.merge(mount, SharedConfig.fetch_instance!(name, url).options)
+
+  # Shared configuration belongs to the instance, so only mount-only options
+  # and the name of one of the instance's URL configurations are accepted.
+  defp validate_instance!(instance, opts) when is_atom(instance) do
+    case Keyword.pop(opts, :url) do
+      {url, opts} when is_atom(url) ->
+        {:instance, instance, url, validate_known_opts!(opts)}
+
+      {_url, _opts} ->
+        raise ArgumentError,
+              "invalid ImagePipe.API options: url must name one of the instance's urls"
+    end
+  end
+
+  defp validate_instance!(_instance, _opts),
+    do: raise(ArgumentError, "invalid ImagePipe.API options: instance must be an atom")
+
+  defp validate_inline!(opts) do
     {shared, opts} = Keyword.pop(opts, :config)
     {mount, shared_options} = Keyword.split(opts, Keyword.keys(@options_schema.schema))
-    config = shared_config(shared, shared_options)
+
+    config =
+      shared
+      |> shared_config(shared_options)
+      |> SharedConfig.reject_unsupervised_processes!()
 
     mount
     |> validate_known_opts!()
     |> Keyword.merge(config.options)
   end
-
-  def validate!(%SharedConfig{} = config), do: validate!(config: config)
 
   defp shared_config(nil, options), do: SharedConfig.new!(options)
 
