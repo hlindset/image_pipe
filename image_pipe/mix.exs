@@ -70,6 +70,13 @@ defmodule ImagePipe.MixProject do
     Project: ["README.md", "CHANGELOG.md", "LICENSE.md"]
   ]
   @guide_paths Enum.flat_map(@guide_groups, fn {_group, paths} -> paths end)
+  # Sidebar labels for pages whose H1 is too long for the sidebar.
+  @guide_titles %{
+    "docs/processing-controls.md" => "Concurrency and deadlines",
+    "docs/external-server.md" => "Using an external server",
+    "docs/serving-from-http.md" => "Serving from an HTTP origin",
+    "docs/enabling-detection.md" => "Enabling detection"
+  }
   @internal_doc_references [
     "ImagePipe.Error.tag/1",
     "ImagePipe.Plug.init/1",
@@ -110,6 +117,7 @@ defmodule ImagePipe.MixProject do
         extras:
           Enum.map(@guide_paths, fn
             "docs/index.md" -> {"docs/index.md", filename: "overview"}
+            path when is_map_key(@guide_titles, path) -> {path, title: @guide_titles[path]}
             path -> path
           end),
         groups_for_extras: @guide_groups,
