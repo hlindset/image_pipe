@@ -41,7 +41,6 @@ defmodule ImagePipeServer.Application do
   def children(%Config{} = config) do
     pool(config.pool) ++
       [{ImagePipe, name: @instance, config: config.image_pipe}] ++
-      detector_warmup(config.detector_warmup) ++
       Enum.map(config.credential_warmups, &{ImagePipe.Source.S3.CredentialWarmup, &1}) ++
       [http_child(config, {ImagePipeServer.Router, router_options(config)})]
   end
@@ -84,7 +83,4 @@ defmodule ImagePipeServer.Application do
 
   defp pool(nil), do: []
   defp pool(options), do: [{ImagePipe.ProcessingPool, options}]
-
-  defp detector_warmup(nil), do: []
-  defp detector_warmup(options), do: [{ImagePipe.Transform.Detector.Warmup, options}]
 end

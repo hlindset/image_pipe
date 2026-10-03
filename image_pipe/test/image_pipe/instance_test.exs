@@ -3,6 +3,9 @@ defmodule ImagePipe.InstanceTest do
   import Plug.Test
 
   alias ImagePipe.Cache.FileSystem
+  alias ImagePipe.Test.DetectorFixtures.UnavailableDetector
+  alias ImagePipe.Test.DetectorFixtures.WarmingDetector
+  alias ImagePipe.Transform.Detector.Warmup
 
   @signing_key String.duplicate("a1", 32)
 
@@ -172,6 +175,46 @@ defmodule ImagePipe.InstanceTest do
     test "rejects a urls: value not built with ImagePipe.URL.config/1", ctx do
       assert_raise ArgumentError, ~r/urls/, fn ->
         ImagePipe.child_spec(name: ctx.name, sources: ctx.sources, urls: [signed: [keys: []]])
+      end
+    end
+  end
+
+  describe "detector warmup" do
+    setup do
+      Process.register(self(), WarmingDetector)
+      on_exit(&WarmingDetector.reset/0)
+    end
+
+    test "warms the instance's detector, so a strict mount serves detection", ctx do
+      start_instance(ctx, detector: WarmingDetector, detector_required: true)
+
+      assert_receive {:warmed, :all}
+      assert request("/crop=8,8/detect=face/src/red.png", instance: ctx.name).status == 200
+    end
+
+    test "warms only the configured classes", ctx do
+      start_instance(ctx, detector: WarmingDetector, detector_warmup: ["face"])
+      assert_receive {:warmed, ["face"]}
+    end
+
+    test "starts no warmup when turned off or the detector is unavailable", ctx do
+      for options <- [
+            [detector: WarmingDetector, detector_warmup: false],
+            [detector: UnavailableDetector],
+            [detector: nil]
+          ] do
+        start_instance(ctx, options)
+        children = Supervisor.which_children(ctx.name)
+        refute List.keymember?(children, Warmup, 0)
+        stop_supervised!(ctx.name)
+      end
+    end
+
+    test "rejects an invalid detector_warmup", ctx do
+      for warmup <- ["face", ["fcae"]] do
+        assert_raise ArgumentError, ~r/detector_warmup/, fn ->
+          ImagePipe.child_spec(name: ctx.name, detector: WarmingDetector, detector_warmup: warmup)
+        end
       end
     end
   end

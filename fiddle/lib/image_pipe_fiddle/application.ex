@@ -25,8 +25,7 @@ defmodule ImagePipeFiddle.Application do
          query: Application.get_env(:image_pipe_fiddle, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: ImagePipeFiddle.PubSub},
         {ImagePipe, image_pipe_opts()},
-        ImagePipeFiddleWeb.Endpoint,
-        {ImagePipe.Transform.Detector.Warmup, detector: :default, classes: ["face"]}
+        ImagePipeFiddleWeb.Endpoint
       ]
 
     opts = [strategy: :one_for_one, name: ImagePipeFiddle.Supervisor]
@@ -106,7 +105,11 @@ defmodule ImagePipeFiddle.Application do
   # One instance serves both mounts; the signed mount picks the `:signed` URL
   # configuration, so both share the cache.
   defp image_pipe_opts do
-    [name: ImagePipeFiddle.Images, urls: [signed: signed_url_config()]] ++ api_opts()
+    [
+      name: ImagePipeFiddle.Images,
+      urls: [signed: signed_url_config()],
+      detector_warmup: ["face"]
+    ] ++ api_opts()
   end
 
   @doc false

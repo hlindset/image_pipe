@@ -56,6 +56,11 @@ defmodule ImagePipe.Transform.Detector do
   fails, not the regions the others found. A partial result is cached as if
   it were complete.
 
+  A detector may instead let an unavailable model contribute no regions, as
+  `ImagePipe.Transform.Detector.Composite` does. Its `identity/1` must then
+  change while the model is missing, so the result is cached apart from the
+  complete one.
+
   `anchor=smart-face` falls back to attention cropping on any error, whatever
   `:detector_required` is.
 
@@ -68,6 +73,14 @@ defmodule ImagePipe.Transform.Detector do
   - `available?/1` returning `false` fails the request with `501`.
   - `ready?/1` returning `false` fails it with `503`. Without `ready?/1`,
     the detector is ready whenever it is available.
+
+  `ready?/1` should return `true` once `warmup/1` has succeeded. An
+  `ImagePipe` instance calls `warmup/1` at startup unless its
+  `detector_warmup` option is `false`.
+
+  With `detector_required: true`, `ImagePipe.config/1` also calls
+  `available?/1` with `classes: [class]` for each supported class, and
+  raises `ArgumentError` when it returns `false` for all of them.
 
   With `detector_required: false`, requests call `detect/2` directly.
   `ImagePipe.Transform.Detector.Warmup` also skips a detector whose

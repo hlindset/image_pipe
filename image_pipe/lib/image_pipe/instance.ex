@@ -1,12 +1,15 @@
 defmodule ImagePipe.Instance do
-  # Supervises one named configuration: the processes its caches need, then
-  # the publisher that makes the configuration visible to mounts.
+  # Supervises one named configuration: the processes its caches need, the
+  # publisher that makes the configuration visible to mounts, and the detector
+  # warmup.
   @moduledoc false
   use Supervisor
 
   alias ImagePipe.Cache
   alias ImagePipe.Config
   alias ImagePipe.Instance.Publisher
+  alias ImagePipe.Transform
+  alias ImagePipe.Transform.Detector.Warmup
   alias ImagePipe.URL.Config, as: URLConfig
 
   @schema NimbleOptions.new!(
@@ -34,6 +37,18 @@ defmodule ImagePipe.Instance do
               type_doc: "`t:ImagePipe.Config.t/0`",
               doc:
                 "A configuration from `ImagePipe.config/1` to start from. The other options override it."
+            ],
+            detector_warmup: [
+              type: {:or, [{:in, [:all, false]}, {:list, :string}]},
+              type_doc: "`:all`, `false`, or a list of class names",
+              default: :all,
+              doc: """
+              Which detector classes to load models for when the instance starts, using \
+              `ImagePipe.Transform.Detector.Warmup`. `:all` loads every model, a list \
+              such as `["face"]` loads only the models those classes need, and `false` \
+              loads none. Nothing is loaded when the configuration's detector isn't \
+              available. A class the detector doesn't support raises `ArgumentError`.
+              """
             ]
           )
 
@@ -43,12 +58,13 @@ defmodule ImagePipe.Instance do
   # Validates and builds the configuration up front, so invalid options raise
   # in the caller, as `ImagePipe.Plug.init/1` does.
   def child_spec(options) do
-    {instance, options} = Keyword.split(options, [:name, :urls, :config])
+    {instance, options} = Keyword.split(options, [:name, :urls, :config, :detector_warmup])
 
     case NimbleOptions.validate(instance, @schema) do
       {:ok, instance} ->
         name = Keyword.fetch!(instance, :name)
         config = %{base_config(instance[:config], options) | instance: name}
+        check_warmup_classes!(config, instance[:detector_warmup])
 
         urls =
           Map.new(instance[:urls], fn {url_name, url} ->
@@ -57,7 +73,7 @@ defmodule ImagePipe.Instance do
 
         %{
           id: name,
-          start: {__MODULE__, :start_link, [{name, config, urls}]},
+          start: {__MODULE__, :start_link, [{name, config, urls, instance[:detector_warmup]}]},
           type: :supervisor
         }
 
@@ -69,15 +85,49 @@ defmodule ImagePipe.Instance do
   defp base_config(nil, options), do: Config.new!(options)
   defp base_config(config, options), do: Config.override(config, options)
 
-  def start_link({name, _config, _urls} = instance),
+  def start_link({name, _config, _urls, _warmup} = instance),
     do: Supervisor.start_link(__MODULE__, instance, name: name)
 
   @impl true
-  def init({name, config, urls}) do
-    # The publisher starts last, so a published configuration always has its
-    # cache processes. A cache restart leaves the publisher running.
-    children = Cache.child_specs(config.options) ++ [{Publisher, {name, config, urls}}]
+  def init({name, config, urls, warmup}) do
+    # The publisher starts after the caches, so a published configuration
+    # always has its cache processes. A cache restart leaves the publisher
+    # running.
+    children =
+      Cache.child_specs(config.options) ++
+        [{Publisher, {name, config, urls}}] ++ warmup_children(config, warmup)
+
     Supervisor.init(children, strategy: :one_for_one)
+  end
+
+  defp check_warmup_classes!(config, classes) when is_list(classes) do
+    case Transform.resolve_detector(Keyword.fetch!(config.options, :detector)) do
+      nil ->
+        :ok
+
+      module ->
+        case classes -- module.supported_classes([]) do
+          [] ->
+            :ok
+
+          unknown ->
+            raise ArgumentError,
+                  "invalid ImagePipe instance: detector_warmup: unknown classes " <>
+                    inspect(Enum.sort(unknown))
+        end
+    end
+  end
+
+  defp check_warmup_classes!(_config, _classes), do: :ok
+
+  defp warmup_children(_config, false), do: []
+
+  defp warmup_children(config, classes) do
+    detector = Keyword.fetch!(config.options, :detector)
+
+    if Transform.detector_available?(detector, classes: classes),
+      do: [{Warmup, detector: detector, classes: classes}],
+      else: []
   end
 
   @doc false

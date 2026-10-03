@@ -225,18 +225,10 @@ defmodule ImagePipeServer.ConfigTest do
       assert config.server[:shutdown_timeout] == 30_000
     end
 
-    test "warms the detector only when the build has it" do
-      assert Config.build!([]).detector_warmup == nil
-
-      available = ImagePipeServer.Test.AvailableDetector
-      config = Config.build!(processing: [detector: available])
-      assert config.detector_warmup == [detector: available]
-    end
-
     test "rejects a required detector the build doesn't have" do
       assert error(fn ->
                Config.build!(Config.options!(%{"processing" => %{"detector_required" => true}}))
-             end) =~ "processing.detector_required: the detector is not available in this build"
+             end) =~ "detector_required: the detector is not available in this build"
     end
 
     test "warms S3 credential providers for each named bucket" do

@@ -40,7 +40,8 @@ swamping a small subject, while still letting a close-up face win over a
 distant one.
 
 A region that extends past the image's edges, or has no area, is left out.
-The detector's confidence score doesn't change the pull.
+The detector's confidence score doesn't change the pull. The bundled
+detector drops objects scoring below 0.5 and faces below 0.6.
 
 In formula form, the focus point is the weighted average of the region
 centers, where each region's pull is its class weight times the square root
@@ -97,7 +98,8 @@ These fallbacks treat detection as a hint: a picture is always served,
 even if the crop misses the subject. A server can instead treat it as a
 requirement (`detector_required`), and fail a `detect` request that can't
 run detection. That suits sites where a wrong crop is worse than a missing
-image, and it surfaces a deployment that lost its detector.
+image. A server that requires detection also refuses to start without a
+working detector.
 [Error responses](errors.md) lists the statuses.
 
 A class the detector doesn't know, such as `detect=unicorn`, fails with

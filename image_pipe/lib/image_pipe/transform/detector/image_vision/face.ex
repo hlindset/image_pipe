@@ -4,13 +4,19 @@ defmodule ImagePipe.Transform.Detector.ImageVision.Face do
   dependency (`Image.FaceDetection`, YuNet). The dependency is not declared by
   ImagePipe — hosts opt in. When absent, `available?/1` is false and callers fall
   back gracefully.
+
+  Faces with a confidence score below 0.6 are dropped before ImagePipe sees
+  them.
   """
   @behaviour ImagePipe.Transform.Detector
+
+  alias ImagePipe.Transform.Detector.ImageVision.Model
 
   @compile {:no_warn_undefined, [Image.FaceDetection, ImageVision.ModelCache]}
 
   @repo "opencv/face_detection_yunet"
   @model_file "face_detection_yunet_2023mar.onnx"
+  @min_score 0.6
 
   @impl true
   def supported_classes(_opts), do: ["face"]
@@ -24,11 +30,8 @@ defmodule ImagePipe.Transform.Detector.ImageVision.Face do
   def ready?(opts), do: available?(opts) and ImageVision.ModelCache.cached?(@repo, @model_file)
 
   @impl true
-  def identity(_opts) do
-    if available?([]),
-      do: {__MODULE__, {@repo, @model_file}},
-      else: {__MODULE__, :unavailable}
-  end
+  def identity(_opts),
+    do: Model.identity(__MODULE__, available?([]), {@repo, @model_file, @min_score})
 
   @impl true
   def detect(image, opts) do
@@ -58,7 +61,7 @@ defmodule ImagePipe.Transform.Detector.ImageVision.Face do
   defp detect_faces(image) do
     regions =
       image
-      |> Image.FaceDetection.detect()
+      |> Image.FaceDetection.detect(min_score: @min_score)
       |> Enum.map(fn %{box: box, score: score} -> %{label: "face", score: score, box: box} end)
 
     {:ok, regions}

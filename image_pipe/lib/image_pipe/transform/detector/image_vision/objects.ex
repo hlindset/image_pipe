@@ -5,10 +5,15 @@ defmodule ImagePipe.Transform.Detector.ImageVision.Objects do
   is not declared by ImagePipe — hosts opt in. When absent, `available?/1` is
   false and callers fall back gracefully.
 
+  Objects with a confidence score below 0.5 are dropped before ImagePipe
+  sees them.
+
   Class names use the URL-facing underscore spelling (`traffic_light`); the model
   emits spaces (`"traffic light"`), which this adapter normalizes on both sides.
   """
   @behaviour ImagePipe.Transform.Detector
+
+  alias ImagePipe.Transform.Detector.ImageVision.Model
 
   @compile {:no_warn_undefined, [Image.Detection, ImageVision.ModelCache]}
 
@@ -43,11 +48,8 @@ defmodule ImagePipe.Transform.Detector.ImageVision.Objects do
   def ready?(opts), do: available?(opts) and ImageVision.ModelCache.cached?(@repo, @filename)
 
   @impl true
-  def identity(_opts) do
-    if available?([]),
-      do: {__MODULE__, {@repo, @filename, @min_score}},
-      else: {__MODULE__, :unavailable}
-  end
+  def identity(_opts),
+    do: Model.identity(__MODULE__, available?([]), {@repo, @filename, @min_score})
 
   @impl true
   def detect(image, opts) do

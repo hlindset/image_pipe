@@ -59,24 +59,25 @@ defmodule ImagePipe.API.ObjectCropWireTest do
 
     opts =
       mount(
-        detector: UnavailableDetector,
+        detector: PartialDetector,
         detector_required: true,
         cache: {CacheProbe, []},
         telemetry_prefix: prefix
       )
 
-    assert response("crop=20,20/detect=face", opts).status == 501
+    assert response("crop=20,20/detect=car", opts).status == 501
     refute_received {:source_event, ^event}
     refute_received :origin_fetch
     refute_received {:cache_lookup, _key}
     refute_received {:cache_put, _key, _body}
   end
 
-  test "optional detection and strict face-assisted smart crop fall back to attention" do
-    for {guide, required?} <- [{"detect=face", false}, {"anchor=smart-face", true}] do
-      opts = mount(detector: UnavailableDetector, detector_required: required?)
+  test "optional detection and face-assisted smart crop fall back to attention" do
+    opts = mount(detector: UnavailableDetector)
+    plain = response("w=50/h=50/fit=cover/anchor=smart", opts) |> image()
+
+    for guide <- ["detect=face", "anchor=smart-face"] do
       fallback = response("w=50/h=50/fit=cover/#{guide}", opts) |> image()
-      plain = response("w=50/h=50/fit=cover/anchor=smart", opts) |> image()
       assert pixels(fallback) == pixels(plain)
     end
   end
