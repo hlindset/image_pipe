@@ -8,6 +8,7 @@ defmodule ImagePipe.API.PixelEffectsWireTest do
   alias ImagePipe.Test.Orientation1TwinOrigin
   alias ImagePipe.Test.OrientedFrameOrigin
   alias Vix.Vips.Image, as: VipsImage
+  alias Vix.Vips.Operation
 
   setup do
     source =
@@ -37,6 +38,27 @@ defmodule ImagePipe.API.PixelEffectsWireTest do
       assert dimensions(changed) == dimensions(baseline)
       refute pixels(changed) == pixels(baseline)
     end
+  end
+
+  test "brightness has the same effect on a 16-bit image" do
+    source = Image.new!(8, 8, color: [80, 120, 160])
+    eight_bit = source |> Image.write!(:memory, suffix: ".png") |> png_origin() |> mount()
+
+    sixteen_bit =
+      source
+      |> Operation.cast!(:VIPS_FORMAT_USHORT)
+      |> Operation.linear!([257.0], [0.0])
+      |> Operation.cast!(:VIPS_FORMAT_USHORT)
+      |> Operation.copy!(interpretation: :VIPS_INTERPRETATION_RGB16)
+      |> Image.write!(:memory, suffix: ".png")
+      |> png_origin()
+      |> mount()
+
+    assert image("brightness=40", eight_bit) |> Image.get_pixel!(4, 4) == [120, 160, 200]
+
+    deep = image("hdr=preserve/brightness=40", sixteen_bit)
+    assert VipsImage.format(deep) == :VIPS_FORMAT_USHORT
+    assert Image.get_pixel!(deep, 4, 4) == [120 * 257, 160 * 257, 200 * 257]
   end
 
   test "saturation keeps an image's alpha band" do

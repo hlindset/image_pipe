@@ -361,7 +361,7 @@ brightness first.
 | `gray`, `bitonal` | Bare flag; `=false` disables it | `gray` |
 | `monochrome` | Intensity from 0 to 1, optional color (default `b3b3b3`) | `monochrome=0.8,704214` |
 | `duotone` | Intensity from 0 to 1, optionally both shadow and highlight colors (default black and white) | `duotone=1,123456,efab89` |
-| `brightness` | Integer additive adjustment from -255 to 255; 0 is identity | `brightness=30` |
+| `brightness` | Integer additive adjustment from -255 to 255 on the 8-bit scale, scaled to the working bit depth; 0 is identity | `brightness=30` |
 | `contrast`, `saturation` | Positive factors; 1 is identity | `contrast=1.5/saturation=0.7` |
 | `colorize` | Opacity from 0 to 1, required color, optional literal `keep-alpha` | `colorize=0.3,red,keep-alpha` |
 | `gradient` | Opacity from 0 to 1, required color, optional direction, start, stop | `gradient=0.8,black,down,0.2,0.9` |

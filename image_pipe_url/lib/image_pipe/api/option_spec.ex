@@ -357,7 +357,7 @@ defmodule ImagePipe.API.OptionSpec do
         name: :brightness,
         scope: :group,
         value: &__MODULE__.parse_brightness/1,
-        summary: "Additive brightness adjustment from -255 to 255",
+        summary: "Additive brightness adjustment from -255 to 255 (8-bit scale)",
         examples: ["brightness=-20"]
       },
       %__MODULE__{

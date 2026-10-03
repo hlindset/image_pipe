@@ -259,8 +259,10 @@ ImagePipe.URL.group(builder, duotone: [intensity: 1, shadow: "123456", highlight
 Accepts a whole number from `-255` to `255`. Default: none. `brightness=0` has
 no effect.
 
-Adds the value to every color channel, which runs from 0 to 255 in a typical
-8-bit image. Positive values lighten the image and negative values darken it.
+Adds the value to every color channel on a 0 to 255 scale. A 16-bit image
+shifts by the same fraction of its range, so `brightness=40` lightens it as
+much as an 8-bit image. Positive values lighten
+the image and negative values darken it.
 
 <!-- tabs-open -->
 
