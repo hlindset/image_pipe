@@ -128,7 +128,7 @@ lifetime that outlasts it:
 - `stale-while-revalidate` is shortened so it also ends by then, or dropped.
 - `must-revalidate` is added.
 
-In `validators` mode, a response from a write-once source that carries a
+In `validators` mode, a response from an immutable source that carries a
 generated `ETag` gets `Cache-Control: public, max-age=<seconds left>, must-revalidate`,
 with `private` in place of `public` when `storage_inputs` names a cookie.
 

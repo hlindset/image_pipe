@@ -180,9 +180,9 @@ defmodule ImagePipe.Source do
   def runtime_opts(config) when is_list(config),
     do: Keyword.take(config, @runtime_option_keys)
 
-  # A write-once HTTP or S3 original changes when the adapter's settings do,
+  # An immutable HTTP or S3 original changes when the adapter's settings do,
   # such as its bucket or base URL, so those settings join the original's
-  # version. Other adapters identify a write-once original by their identity
+  # version. Other adapters identify an immutable original by their identity
   # seed alone, whether or not it is copied.
   @settings_versioned [ImagePipe.Source.HTTP, ImagePipe.Source.S3]
 
