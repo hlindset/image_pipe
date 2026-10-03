@@ -95,7 +95,7 @@ defmodule ImagePipe.Security do
         {[keys: keys, source_encryption: encryption, encrypt_source: encrypt_source], options}
 
       {:error, message} ->
-        raise ArgumentError, "invalid ImagePipe.API source encryption: #{message}"
+        raise ArgumentError, message
     end
   end
 
