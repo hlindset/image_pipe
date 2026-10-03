@@ -419,10 +419,11 @@ Response settings: the CORS origin, whether requests may ask for debug headers, 
 
 ### `[telemetry]`
 
-`log_level` logs each request and its stages at that level. Failures log at `warning`.
+`log_level` logs each request and its stages at that level. Failures log at `warning`. With `trust_traceparent`, a request with a W3C `traceparent` header joins the caller's trace when [tracing](server-deployment.md#tracing) is on. Any client can send that header.
 
 | Key | Type | Default |
 | --- | --- | --- |
 | `log_level` | `"error"` or `"info"` or `"debug"` or `"emergency"` or `"alert"` or `"critical"` or `"warning"` or `"notice"` |  |
+| `trust_traceparent` | boolean | `false` |
 
 <!-- reference:end -->

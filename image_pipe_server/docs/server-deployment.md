@@ -218,13 +218,20 @@ docker run -e OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318 -e OTEL_SERVICE_
   variables itself, such as `OTEL_EXPORTER_OTLP_HEADERS`,
   `OTEL_EXPORTER_OTLP_PROTOCOL`, and `OTEL_TRACES_SAMPLER`.
 
-The server always continues an incoming W3C `traceparent` header: the
-request joins the caller's trace, under the caller's trace ID. Any client can
-send this header and choose the trace its requests are recorded in. If
-clients reach the server directly, have your proxy or CDN remove or replace
-`traceparent`. With the default parent-based sampler, requests that carry
-the header are always exported, and `OTEL_TRACES_SAMPLER` applies only to
-requests without it.
+Each request starts a new trace, and an incoming W3C `traceparent` header is
+ignored. Any client can send `traceparent`. Set `trust_traceparent` in
+[`[telemetry]`](server-configuration.md#telemetry) only when a proxy or CDN
+you control sets or removes the header:
+
+```toml
+[telemetry]
+trust_traceparent = true
+```
+
+With `trust_traceparent` on, a request that carries the header joins the caller's trace,
+under the caller's trace ID. With the default parent-based sampler, such
+requests are always exported, and `OTEL_TRACES_SAMPLER` applies only to
+requests without the header.
 
 To try tracing locally, run Jaeger as in
 [Exporting traces to Jaeger](../../image_pipe/docs/cookbook/opentelemetry-jaeger.md#run-jaeger)

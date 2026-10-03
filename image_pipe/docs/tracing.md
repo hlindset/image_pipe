@@ -90,9 +90,10 @@ for example one that belongs to another service's traces, and mark them as
 sampled. Turn extraction on when a proxy you control sets the header or
 removes it from outside requests.
 
-`image_pipe_server` always extracts inbound context when tracing is on. If
-clients reach it directly, have your proxy or CDN remove or replace
-`traceparent` (see [server tracing](../../image_pipe_server/docs/server-deployment.md#tracing)).
+`image_pipe_server` extracts inbound context only when `trust_traceparent`
+is set in its
+[`[telemetry]` configuration](../../image_pipe_server/docs/server-configuration.md#telemetry).
+It is off by default.
 
 ## Sampling
 

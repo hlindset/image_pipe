@@ -19,10 +19,7 @@ defmodule ImagePipeServer.Application do
     if config.telemetry, do: ImagePipe.Telemetry.attach_default_logger(config.telemetry)
 
     if Application.fetch_env!(:image_pipe_server, :tracing) do
-      ImagePipe.Telemetry.attach_tracer(
-        exporter: ImagePipe.Telemetry.Trace.OpenTelemetryExporter,
-        extract_inbound: true
-      )
+      ImagePipe.Telemetry.attach_tracer(tracer_options(config))
     end
 
     Supervisor.start_link(children(config),
@@ -33,6 +30,15 @@ defmodule ImagePipeServer.Application do
 
   @doc false
   def listener, do: @listener
+
+  @doc false
+  @spec tracer_options(Config.t()) :: keyword()
+  def tracer_options(%Config{} = config) do
+    [
+      exporter: ImagePipe.Telemetry.Trace.OpenTelemetryExporter,
+      extract_inbound: config.trust_traceparent
+    ]
+  end
 
   # Children stop in reverse order, so the listener, started last, drains
   # in-flight requests before the pool and the ImagePipe instance stop.
