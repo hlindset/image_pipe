@@ -46,7 +46,7 @@ defmodule ImagePipe.Source.S3Test do
     assert {:ok, resolved} = S3.resolve(source, opts, [])
 
     assert resolved.internal_cache == :enabled
-    assert resolved.cache_semantics.byte_identity == :none
+    assert resolved.cache_semantics.byte_identity == :content
   end
 
   test "empty s3 revision isn't stable under auto mode" do
@@ -64,7 +64,7 @@ defmodule ImagePipe.Source.S3Test do
     assert {:ok, resolved} = S3.resolve(source, opts, [])
 
     assert resolved.internal_cache == :enabled
-    assert resolved.cache_semantics.byte_identity == :none
+    assert resolved.cache_semantics.byte_identity == :content
     assert resolved.cache_semantics.stable? == false
   end
 

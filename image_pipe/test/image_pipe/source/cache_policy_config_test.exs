@@ -25,7 +25,7 @@ defmodule ImagePipe.Source.CachePolicyConfigTest do
              freshness: {:fallback, 60}
            }
 
-    assert source.cache_semantics.byte_identity == :none
+    assert source.cache_semantics.byte_identity == :content
     refute source.cache_semantics.stable?
   end
 

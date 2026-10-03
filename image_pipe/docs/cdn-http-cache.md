@@ -1,9 +1,9 @@
 # HTTP and CDN caching
 
 ImagePipe can emit shared HTTP cache headers for public image routes. Immutable
-sources use their authoritative identity; mutable remote sources use the current
-original-byte identity and retained origin freshness. Generated policy is opt-in
-at the Plug level, and a source can override it. See [internal caching](cache.md)
+sources use their authoritative identity. Sources that can change use the
+digest of the current original and the origin's freshness. Generated policy is
+opt-in at the Plug level, and a source can override it. See [internal caching](cache.md)
 for pool configuration and origin-policy overrides.
 
 ```elixir
@@ -32,12 +32,13 @@ The `http_cache` option takes one of four values:
 | `:public` | The same policy, always `public` |
 | `:private` | The same policy, always `private` |
 
-In every mode, a source without strong byte identity, or one whose cache policy
-denies storage, gets `Cache-Control: no-store` and no `ETag`. So does a crop that
-fell back to attention because [content detection](content-aware-gravity.md)
-failed. Mutable remote
-sources replace the one-year lifetime with the origin's freshness, sent as
-`Cache-Control` and `Age`.
+In every mode, a source whose cache policy denies storage gets
+`Cache-Control: no-store` and no `ETag`. So does a crop that fell back to
+attention because [content detection](content-aware-gravity.md) failed. Sources
+that can change replace the one-year lifetime with the origin's freshness, sent
+as `Cache-Control` and `Age`. A local file has no origin freshness, so its
+lifetime is 0 unless you set a
+[fallback freshness](cache.md#freshness-and-source-stability).
 
 A URL with an [`expires`](processing/request.md) time never gets a cache
 lifetime that outlasts it. ImagePipe lowers `max-age` to the time left,
@@ -64,10 +65,12 @@ the same bytes for every request. Use it only for write-once storage,
 content-addressed paths, or storage where your application policy prevents
 in-place replacement under the same identity.
 
-For `ImagePipe.Source.File`, `stable: :auto` isn't enough to generate byte
-identity. Files can be overwritten under the same path, so file sources need
-`stable: :immutable` before ImagePipe derives a strong byte identity from
-`root_id` and path segments.
+For `ImagePipe.Source.File`, `stable: :auto` identifies each file by a hash of
+its contents and checks it for changes on every request that a fresh cached
+response doesn't answer.
+`stable: :immutable` derives identity from `root_id` and the path instead, so a
+cached response is served without touching the file. See
+[local files](sources.md#local-files).
 
 For `ImagePipe.Source.HTTP`, `stable: :immutable` derives byte identity from URL
 components. Raw query strings never enter ETags or telemetry; a query SHA-256
@@ -86,7 +89,7 @@ write-once.
 `stable` and `internal_cache` are separate settings. `stable` is about whether
 ImagePipe can derive byte identity before a fetch. `internal_cache` controls
 storage and reuse in both pools. A route can use internal caching without
-generated HTTP cache headers. Mutable remote sources obtain byte identity from
+generated HTTP cache headers. Sources that can change obtain byte identity from
 the complete original bytes, with or without internal caching. Their output
 validators require current source evidence. `stable: :immutable` removes expiry, but origin storage restrictions
 still apply unless the host explicitly sets `cache_policy: [storage: :allow]`.
@@ -209,8 +212,7 @@ permission. An origin storage prohibition forces `no-store`; use the explicit
 source policy override to change that decision.
 
 If an earlier Plug sets `Cache-Control` and storage is permitted, ImagePipe
-doesn't overwrite it. If the
-source has strong byte identity and no host ETag, ImagePipe may still add a
+doesn't overwrite it. If there's no host ETag, ImagePipe may still add a
 generated ETag.
 
 ImagePipe treats the default `Cache-Control` value set by `Plug.Conn` as unset
@@ -233,24 +235,10 @@ Required representation headers are separate from generated cache policy.
 Suppressing generated `Cache-Control` or `ETag` leaves `Vary: Accept` in place
 when automatic output uses `Accept`.
 
-## Missing byte identity
-
-If the resolved source doesn't provide strong byte identity, ImagePipe emits:
-
-```http
-Cache-Control: no-store
-```
-
-It emits no generated ETag. This prevents shared caching when the route cannot
-prove byte identity.
-
-With `:auto`, `:public`, or `:private`, a `Cache-Control` the host already set
-is preserved instead of replaced with `no-store`.
-
 ## Telemetry
 
-HTTP cache events report policy preparation, conditional matches, missing byte
-identity, and cache-hit headers. See [HTTP cache telemetry](telemetry-events.md#http-cache-events)
+HTTP cache events report policy preparation, conditional matches, `no-store`
+fallbacks, and cache-hit headers. See [HTTP cache telemetry](telemetry-events.md#http-cache-events)
 for event names, metadata, and Logger output.
 
 ## Cache key relationship

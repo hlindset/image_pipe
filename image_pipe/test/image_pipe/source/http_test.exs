@@ -47,7 +47,7 @@ defmodule ImagePipe.Source.HTTPTest do
     assert {:ok, resolved} = HTTP.resolve(source, opts, [])
 
     assert resolved.internal_cache == :enabled
-    assert resolved.cache_semantics.byte_identity == :none
+    assert resolved.cache_semantics.byte_identity == :content
   end
 
   test "http immutable byte identity doesn't expose raw query" do

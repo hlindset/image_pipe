@@ -29,7 +29,7 @@ defmodule ImagePipe.SourceTest.CustomAdapter do
        identity: [kind: :path, root: "test", path: ["images", "cat.jpg"]],
        internal_cache: Keyword.get(opts, :internal_cache, :enabled),
        http_cache: Keyword.get(opts, :http_cache, :inherit),
-       cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
+       cache_semantics: %CacheSemantics{byte_identity: :content, stable?: false},
        fetch: {:source, source}
      }}
   end

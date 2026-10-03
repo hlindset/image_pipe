@@ -6,12 +6,8 @@ defmodule ImagePipe.Representation do
   # and the source's `byte_identity`. Deriving identity from these inputs lets
   # conditional GETs resolve before fetch, decode, or encode.
   #
-  # ## Byte identity governs the ETag
-  #
-  # A source with strong byte identity contributes an `ETag`. A source with
-  # `byte_identity: :none` gets no ETag and `Cache-Control: no-store` from
-  # `response_headers/1`, preventing revalidation of potentially changed bytes.
-  # The HTTP, File, and S3 adapters use `:none` when no validator is available.
+  # The source's strong byte identity contributes to both the cache key and the
+  # `ETag`, so a new byte revision invalidates stored output and validators.
   #
   # The cache key and the ETag answer different questions and are derived from
   # different (but overlapping) slices of the same data:
@@ -39,29 +35,23 @@ defmodule ImagePipe.Representation do
   @core_execution_epoch 1
   @etag_schema "ipr1"
 
-  @enforce_keys [:cache_key, :etag, :vary, :no_store?]
+  @enforce_keys [:cache_key, :etag, :vary]
   defstruct @enforce_keys
 
-  # Mirrors Source.CacheSemantics without adding a Source dependency.
-  # Representation owns the decision to withhold an ETag for `:none`.
-  @type byte_identity :: {:strong, term()} | :none
+  @type byte_identity :: {:strong, term()}
 
   @type t :: %__MODULE__{
           cache_key: Key.t(),
-          etag: String.t() | nil,
-          vary: [String.t()],
-          no_store?: boolean()
+          etag: String.t(),
+          vary: [String.t()]
         }
 
   @doc """
   Builds the cache key, ETag, and Vary header names for a representation from
   `source_identity` (opaque keyword material identifying the source byte
-  content), pre-fetch `material`, and the source's `byte_identity`.
-
-  A `byte_identity` of `:none` withholds the ETag and marks the representation
-  `no_store?` — see the moduledoc and `response_headers/1`. The cache key is
-  computed regardless. A strong byte-identity seed contributes to both hashes,
-  so a new byte revision invalidates stored output and conditional validators.
+  content), pre-fetch `material`, and the source's `byte_identity`. The seed
+  contributes to both hashes, so a new byte revision invalidates stored output
+  and conditional validators.
   """
   @spec build(source_identity :: keyword(), IdentityMaterial.t(), byte_identity()) :: t()
   def build(source_identity, %IdentityMaterial{} = material, byte_identity)
@@ -75,13 +65,10 @@ defmodule ImagePipe.Representation do
       storage_only: material.storage_only
     ]
 
-    no_store? = byte_identity == :none
-
     %__MODULE__{
       cache_key: %Key{hash: digest_hex(key_data), data: key_data},
-      etag: if(no_store?, do: nil, else: etag(Keyword.delete(key_data, :storage_only))),
-      vary: material.vary_header_names,
-      no_store?: no_store?
+      etag: etag(Keyword.delete(key_data, :storage_only)),
+      vary: material.vary_header_names
     }
   end
 
@@ -106,12 +93,8 @@ defmodule ImagePipe.Representation do
     %Key{hash: digest_hex([pool: :input] ++ data), data: data}
   end
 
-  @doc """
-  Returns the representation's `ETag`, or `Cache-Control: no-store` when the
-  source has no stable byte identity.
-  """
+  @doc "Returns the representation's `ETag` header."
   @spec response_headers(t()) :: [{String.t(), String.t()}]
-  def response_headers(%__MODULE__{no_store?: true}), do: [{"cache-control", "no-store"}]
   def response_headers(%__MODULE__{etag: etag}), do: [{"etag", etag}]
 
   defp digest_hex(data), do: data |> MaterialDigest.of() |> Base.encode16(case: :lower)

@@ -77,15 +77,40 @@ The identifiers `photos/beach.jpg` and `/photos/beach.jpg` both select
 `/srv/images/photos/beach.jpg` and produce the same generated URL. The optional
 leading slash is normalized in Plug requests and `{:source, path}` execution.
 The adapter confines paths to the configured root. `root_id` identifies that
-source namespace. For immutable paths, `stable: :immutable` permits reuse based
-on that promise; changed content must get a new identifier. The default
-`:auto` stability does not assume immutability.
+source namespace.
 
 ```text
 /w=400/src/photos/beach.jpg
 ```
 
-See `ImagePipe.Source.File` and [cache policy](cache.md) for adapter options.
+By default a file can change under the same path. ImagePipe identifies it by a
+SHA-256 hash of its contents, so a changed file gets new cached outputs and a
+new `ETag`, and an unchanged file reuses them. ImagePipe checks the file's
+size and timestamps first and hashes it again only when they have changed.
+Set `verify: :hash` to hash the file on every request where file times can't
+be relied on.
+
+Responses for a file that can change carry no cache lifetime, so browsers and
+CDNs revalidate them with the `ETag`. Set a
+[fallback freshness](cache.md#freshness-and-source-stability) to let them reuse a response
+for a while. For write-once files, `stable: :immutable` skips the check
+entirely: ImagePipe trusts the path and never reads the file on a cache hit.
+Changed content must then get a new path.
+
+The file adapter reads originals where they are. On a network filesystem such
+as EFS or NFS, set `copy: :keep` to keep a local copy in the
+[original-byte pool](cache.md#original-byte-pool), so other sizes and formats
+of the same file don't read it over the network again. The copy needs that
+pool configured.
+
+| Option | Values | Default |
+| --- | --- | --- |
+| `stable` | `:auto` (the file can change) or `:immutable` | `:auto` |
+| `verify` | `:stat` or `:hash` | `:stat` |
+| `copy` | `:none` or `:keep` | `:none` |
+
+See `ImagePipe.Source.File` and [cache policy](cache.md) for the other adapter
+options.
 
 ## HTTP and HTTPS
 

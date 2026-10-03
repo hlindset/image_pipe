@@ -131,12 +131,19 @@ defmodule ImagePipe.Source do
       # is also a compiled regex, which has no stable serialization.
       context =
         {module,
-         Keyword.drop(opts, [:cache_policy, :stable, :internal_cache, :http_cache, :path_pattern]),
-         prepared.fetch}
+         Keyword.drop(opts, [
+           :cache_policy,
+           :stable,
+           :internal_cache,
+           :http_cache,
+           :path_pattern,
+           :verify,
+           :copy
+         ]), prepared.fetch}
 
       identity =
         case prepared.cache_semantics.byte_identity do
-          :none -> :none
+          :content -> :content
           {:strong, seed} -> {:strong, {seed, ImagePipe.MaterialDigest.of(context)}}
         end
 
@@ -232,7 +239,7 @@ defmodule ImagePipe.Source do
 
   defp put_mount(error, _name), do: error
 
-  defp mount_config(%Resolved{source_kind: :input}, _opts), do: {:ok, Input, []}
+  defp mount_config(%Resolved{mount: nil}, _opts), do: {:ok, Input, []}
   defp mount_config(%Resolved{mount: name}, opts), do: Mounts.fetch(mounts(opts), name)
 
   defp apply_cache_policy({:ok, resolved}, defaults) do
@@ -385,17 +392,21 @@ defmodule ImagePipe.Source do
   end
 
   defp valid_cache_semantics?(%CacheSemantics{
-         byte_identity: :none,
+         byte_identity: :content,
          stable?: false,
-         policy: policy
-       }),
+         policy: policy,
+         copy?: copy?
+       })
+       when is_boolean(copy?),
        do: match?({:ok, _}, CachePolicy.validate(policy))
 
   defp valid_cache_semantics?(%CacheSemantics{
          byte_identity: {:strong, _seed},
          stable?: true,
-         policy: policy
-       }),
+         policy: policy,
+         copy?: copy?
+       })
+       when is_boolean(copy?),
        do: match?({:ok, _}, CachePolicy.validate(policy))
 
   defp valid_cache_semantics?(_cache_semantics), do: false

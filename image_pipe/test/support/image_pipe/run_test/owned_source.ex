@@ -23,7 +23,7 @@ defmodule ImagePipe.RunTest.OwnedSource do
        identity: [kind: :test],
        internal_cache: :disabled,
        http_cache: :validators,
-       cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
+       cache_semantics: %CacheSemantics{byte_identity: :content, stable?: false},
        fetch: nil
      }}
   end

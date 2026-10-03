@@ -848,7 +848,7 @@ The opt-in default Logger renders all four at the base level under its own
 ```text
 image_pipe http_cache prepare: auto (byte_identity strong, etag true)
 image_pipe http_cache conditional match: get
-image_pipe http_cache fallback no_store: missing_byte_identity (url, mount web)
+image_pipe http_cache fallback no_store: detection_failed (url, mount web)
 image_pipe http_cache cache_hit headers: etag true (generated true, representation false)
 ```
 

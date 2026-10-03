@@ -34,7 +34,7 @@ defmodule ImagePipe.Response.CachePolicy do
   """
   @type source_facts :: %{
           optional(:storage) => :origin | :allow | :deny,
-          byte_identity: {:strong, term()} | :none,
+          byte_identity: {:strong, term()},
           stable?: boolean(),
           source_mount: atom() | nil,
           source_kind: :path | :url | :object | :input
@@ -89,16 +89,15 @@ defmodule ImagePipe.Response.CachePolicy do
   end
 
   # `:validators` carries only what the representation itself implies: its
-  # ETag, or `no-store` when the bytes have no identity or the source denies
-  # storage.
+  # ETag, or `no-store` when the source denies storage.
   defp prepare(_conn, representation, source_facts, :validators, _config) do
     case Map.get(source_facts, :storage) do
       :deny ->
-        {CacheHeaders.from_representation(%{representation | etag: nil, no_store?: true}), nil}
+        prepared = CacheHeaders.from_representation(representation)
+        {%{prepared | etag: nil, headers: [{"cache-control", "no-store"}]}, nil}
 
       _permission ->
-        {CacheHeaders.from_representation(representation),
-         if(representation.no_store?, do: :missing_byte_identity)}
+        {CacheHeaders.from_representation(representation), nil}
     end
   end
 
@@ -352,15 +351,15 @@ defmodule ImagePipe.Response.CachePolicy do
     end
   end
 
-  defp cache_control_without_etag(_conn, %{byte_identity: :none}) do
-    {[{"cache-control", @no_store}], nil, :missing_byte_identity}
-  end
-
-  defp cache_control_without_etag(conn, %{byte_identity: {:strong, _seed}, stable?: true}) do
+  # Reached when the host set its own ETag. Only an immutable source's
+  # lifetime is known without that validator.
+  defp cache_control_without_etag(conn, %{stable?: true}) do
     if has_resp_header?(conn, "etag"),
       do: {[{"cache-control", @generated_cache_control}], nil, nil},
       else: {[], nil, nil}
   end
+
+  defp cache_control_without_etag(_conn, _source_facts), do: {[], nil, nil}
 
   defp generated_etag_only(conn, representation) do
     case policy_etag(conn, representation) do
@@ -427,7 +426,6 @@ defmodule ImagePipe.Response.CachePolicy do
   end
 
   defp byte_identity_kind({:strong, _seed}), do: :strong
-  defp byte_identity_kind(:none), do: :none
 
   defp etag_emitted?(nil), do: false
   defp etag_emitted?(_etag), do: true

@@ -287,14 +287,6 @@ defmodule ImagePipe.API.WatermarkWireTest do
       assert_received {:origin_fetch, "mark.png"}
       refute_received {:origin_fetch, "mark.png"}
     end
-
-    test "an asset without byte identity makes the response uncacheable", %{origin: origin} do
-      config = mount(origin, asset_identity: :none)
-      response = response("wm=logo", config)
-      assert response.status == 200
-      assert get_resp_header(response, "etag") == []
-      assert get_resp_header(response, "cache-control") == ["no-store"]
-    end
   end
 
   defp response(options, config, source \\ "src/image.png") do
@@ -343,27 +335,17 @@ defmodule ImagePipe.API.WatermarkWireTest do
   end
 
   defp mount(origin, options \\ []) do
-    {asset_identity, options} = Keyword.pop(options, :asset_identity, :strong)
-
-    adapter = fn identity ->
-      [
-        adapter: RootHTTPAdapter,
-        options: [
-          root_url: "http://origin.test",
-          byte_identity: identity,
-          req_options: [plug: origin]
-        ]
-      ]
-    end
-
     ImagePipe.Plug.init(
       [
         sources: [
-          path: [match: :path] ++ adapter.(:strong),
-          assets: [match: [scheme: "asset"]] ++ adapter.(asset_identity)
+          path: [
+            match: :path,
+            adapter: RootHTTPAdapter,
+            options: [root_url: "http://origin.test", req_options: [plug: origin]]
+          ]
         ],
         watermarks: %{
-          logo: [source: watermark_source("mark.png", asset_identity)],
+          logo: [source: "mark.png"],
           ghost: [source: "alpha.png", opacity: 0.5],
           gray_logo: [source: "gray_mark.png"],
           turned: [source: "rotated.jpg"],
@@ -375,9 +357,6 @@ defmodule ImagePipe.API.WatermarkWireTest do
       |> Keyword.merge(options)
     )
   end
-
-  defp watermark_source(path, :strong), do: path
-  defp watermark_source(path, :none), do: "asset://" <> path
 
   defp origin(files) do
     pid = self()

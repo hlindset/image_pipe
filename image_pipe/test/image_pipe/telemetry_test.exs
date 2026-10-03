@@ -31,7 +31,10 @@ defmodule ImagePipe.TelemetryTest do
          identity: [kind: :path, root: "invalid", path: ["images", "beach.jpg"]],
          internal_cache: :enabled,
          http_cache: :inherit,
-         cache_semantics: %ImagePipe.Source.CacheSemantics{byte_identity: :none, stable?: false},
+         cache_semantics: %ImagePipe.Source.CacheSemantics{
+           byte_identity: :content,
+           stable?: false
+         },
          fetch: :invalid
        }}
     end
@@ -110,10 +113,20 @@ defmodule ImagePipe.TelemetryTest do
          identity: [kind: :path, root: "test", path: ["images", "source.tiff"]],
          internal_cache: :enabled,
          http_cache: :inherit,
-         cache_semantics: %ImagePipe.Source.CacheSemantics{byte_identity: :none, stable?: false},
+         cache_semantics: semantics(Keyword.get(opts, :stable, false)),
          fetch: Keyword.fetch!(opts, :body)
        }}
     end
+
+    # A stable source isn't staged, so its body reaches the decoder as a stream.
+    defp semantics(true),
+      do: %ImagePipe.Source.CacheSemantics{
+        byte_identity: {:strong, [:source_bytes]},
+        stable?: true
+      }
+
+    defp semantics(false),
+      do: %ImagePipe.Source.CacheSemantics{byte_identity: :content, stable?: false}
 
     @impl ImagePipe.Source
     def fetch(resolved, _opts, _runtime_opts) do
@@ -701,7 +714,9 @@ defmodule ImagePipe.TelemetryTest do
 
     opts =
       base_opts(
-        sources: [path: [adapter: SourceBytes, match: :path, options: [body: big_body]]],
+        sources: [
+          path: [adapter: SourceBytes, match: :path, options: [body: big_body, stable: true]]
+        ],
         max_body_bytes: 1_000
       )
 

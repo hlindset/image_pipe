@@ -38,8 +38,9 @@ url = ImagePipe.URL.url!(thumbnail, "photos/beach-v1.jpg")
 ```
 
 `stable: :immutable` promises immutable source identifiers. Give changed files a
-new path, such as `beach-v2.jpg`. Use the default `stable: :auto` for mutable
-files, and read the [source cache policy](cache.md) before enabling caching for them.
+new path, such as `beach-v2.jpg`. Use the default `stable: :auto` for files
+that can change: ImagePipe identifies them by their contents and reuses cached
+results while they're unchanged. See [local files](sources.md#local-files).
 
 ## Connect the mount
 

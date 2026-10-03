@@ -54,19 +54,7 @@ defmodule ImagePipe.API.TerminalFileSystemCacheWireTest do
     |> ImagePipe.Plug.call(config)
   end
 
-  test "BlurHash without source byte identity has no ETag and cannot be stored by HTTP caches", %{
-    body: body,
-    root: root
-  } do
-    config = mount(body, root, :none)
-    response = request("output=blurhash", config)
-
-    assert response.status == 200
-    assert get_resp_header(response, "etag") == []
-    assert header(response, "cache-control") =~ "no-store"
-  end
-
-  defp mount(body, root, byte_identity \\ :strong) do
+  defp mount(body, root) do
     test_pid = self()
 
     origin = fn conn ->
@@ -81,7 +69,6 @@ defmodule ImagePipe.API.TerminalFileSystemCacheWireTest do
           match: :path,
           options: [
             root_url: "http://origin.test",
-            byte_identity: byte_identity,
             internal_cache: :enabled,
             req_options: [plug: origin]
           ]

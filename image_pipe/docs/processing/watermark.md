@@ -78,6 +78,5 @@ with the status a main-source failure would produce, and an undecodable asset
 fails with `415`; a request never silently drops its watermark.
 
 The asset's source identity, its byte identity, and the effective opacity enter
-the cache key and ETag; host entry names do not. An asset without a stable byte
-identity makes the response `no-store`. A conditional request is answered with
-`304` before either source is fetched.
+the cache key and ETag; host entry names do not. A conditional request is
+answered with `304` before either source is fetched.

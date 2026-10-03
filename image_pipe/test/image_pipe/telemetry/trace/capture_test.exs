@@ -230,10 +230,12 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     config =
       ImagePipe.Plug.init(
         sources: [
+          # Immutable, so the asset is opened after preparation rather than
+          # staged during it, and both phases run.
           files: [
             adapter: ImagePipe.Source.File,
             match: :path,
-            options: [root: dir, root_id: "t"]
+            options: [root: dir, root_id: "t", stable: :immutable]
           ]
         ],
         watermarks: %{logo: [source: "mark.png"]},

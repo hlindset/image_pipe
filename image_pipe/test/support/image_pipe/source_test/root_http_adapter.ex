@@ -18,10 +18,10 @@ defmodule ImagePipe.SourceTest.RootHTTPAdapter do
     root_url = Keyword.fetch!(opts, :root_url)
     req_options = Keyword.get(opts, :req_options, [])
     internal_cache = Keyword.get(opts, :internal_cache, :enabled)
-    # `:none` (default) leaves the source without a byte identity; `:strong`
-    # gives it a stable one so a dialect emits an ETag — the shape ETag/304
-    # wire tests need.
-    byte_identity = Keyword.get(opts, :byte_identity, :none)
+    # `:strong` (default) trusts the identity as naming fixed bytes, so outputs
+    # are reused without refetching; `:content` identifies the source by the
+    # bytes it fetches.
+    byte_identity = Keyword.get(opts, :byte_identity, :strong)
 
     {:ok,
      [
@@ -57,8 +57,8 @@ defmodule ImagePipe.SourceTest.RootHTTPAdapter do
      }}
   end
 
-  defp cache_semantics(:none, _identity),
-    do: %CacheSemantics{byte_identity: :none, stable?: false}
+  defp cache_semantics(:content, _identity),
+    do: %CacheSemantics{byte_identity: :content, stable?: false}
 
   defp cache_semantics(:strong, identity),
     do: %CacheSemantics{byte_identity: {:strong, identity}, stable?: true}

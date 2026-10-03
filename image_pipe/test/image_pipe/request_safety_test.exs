@@ -43,7 +43,10 @@ defmodule ImagePipe.RequestSafetyTest do
          identity: [kind: :path, root: "test", path: ["missing.jpg"]],
          internal_cache: :enabled,
          http_cache: :inherit,
-         cache_semantics: %ImagePipe.Source.CacheSemantics{byte_identity: :none, stable?: false},
+         cache_semantics: %ImagePipe.Source.CacheSemantics{
+           byte_identity: :content,
+           stable?: false
+         },
          fetch: :missing
        }}
     end
@@ -69,7 +72,10 @@ defmodule ImagePipe.RequestSafetyTest do
          identity: [kind: :path, root: "test", path: ["stream-fails.jpg"]],
          internal_cache: :disabled,
          http_cache: :inherit,
-         cache_semantics: %ImagePipe.Source.CacheSemantics{byte_identity: :none, stable?: false},
+         cache_semantics: %ImagePipe.Source.CacheSemantics{
+           byte_identity: :content,
+           stable?: false
+         },
          fetch: :stream_fails
        }}
     end
@@ -98,7 +104,10 @@ defmodule ImagePipe.RequestSafetyTest do
          identity: [kind: :path, root: "test", path: ["cacheable-stream-fails.jpg"]],
          internal_cache: :enabled,
          http_cache: :inherit,
-         cache_semantics: %ImagePipe.Source.CacheSemantics{byte_identity: :none, stable?: false},
+         cache_semantics: %ImagePipe.Source.CacheSemantics{
+           byte_identity: :content,
+           stable?: false
+         },
          fetch: :stream_fails
        }}
     end

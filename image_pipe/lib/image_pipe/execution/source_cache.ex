@@ -12,9 +12,11 @@ defmodule ImagePipe.Execution.SourceCache do
   alias ImagePipe.Source.Response
   alias ImagePipe.Telemetry
 
-  # Remote originals are always staged, cached or not: staging is what derives
-  # their byte identity and retains the origin's freshness.
-  def staged?(source), do: source.source_kind in [:url, :object]
+  # Staging derives a content identity, retains the origin's freshness, and
+  # keeps a copy of the original when the source asks for one. A local file with
+  # a strong identity and no copy is read where it is.
+  def staged?(%{cache_semantics: %{byte_identity: :content}}), do: true
+  def staged?(%{cache_semantics: %{copy?: copy?}}), do: copy?
 
   def now(config), do: Keyword.get(config, :clock, fn -> System.system_time(:second) end).()
 
@@ -80,12 +82,12 @@ defmodule ImagePipe.Execution.SourceCache do
 
     case Input.open(key, record, config) do
       {:ok, path, lease} -> checked_input(record, path, lease, config)
-      :miss -> fetch(source, key, nil, preparation, config)
+      :miss -> fetch(source, key, nil, preparation, config, record)
     end
   end
 
-  defp open_or_fetch(source, key, _record, preparation, config, false),
-    do: fetch(source, key, nil, preparation, Keyword.drop(config, [:cache, :input_cache]))
+  defp open_or_fetch(source, key, record, preparation, config, false),
+    do: fetch(source, key, nil, preparation, Keyword.drop(config, [:cache, :input_cache]), record)
 
   defp checked_input(record, path, lease, config) do
     limit = Keyword.fetch!(config, :max_body_bytes)
@@ -110,11 +112,14 @@ defmodule ImagePipe.Execution.SourceCache do
     end
   end
 
-  defp fetch(source, key, previous, preparation, config) do
+  # `known` is a current record whose bytes are needed again, for another
+  # variant. A local original whose evidence still matches it isn't rehashed.
+  defp fetch(source, key, previous, preparation, config, known \\ nil) do
     Telemetry.span(Telemetry.telemetry_opts(config), [:source, :stage], %{}, fn ->
       started = System.monotonic_time(:microsecond)
       preparation = if is_nil(previous), do: preparation
-      result = fetch_response(source, previous, config, &stage(&1, source, preparation, config))
+      stage = &stage(&1, source, preparation, config, known)
+      result = fetch_response(source, previous, config, stage)
       cost = System.monotonic_time(:microsecond) - started
       result = publish_coordinated(result, source, key, previous, cost, config)
       {result, stop_metadata(result)}
@@ -153,12 +158,18 @@ defmodule ImagePipe.Execution.SourceCache do
          cost,
          config
        ) do
-    case storable?(record, source) do
-      true ->
-        if response.path, do: Input.put(key, response.path, record, cost, config)
+    cond do
+      storable?(record, source) ->
+        if response.path != nil and source.cache_semantics.copy?,
+          do: Input.put(key, response.path, record, cost, config)
+
         Cache.remember_source(key, record, config)
 
-      false ->
+      # Nothing is stored for a source that isn't cached internally.
+      source.internal_cache == :disabled ->
+        :ok
+
+      true ->
         invalidate(key, config)
     end
 
@@ -203,7 +214,39 @@ defmodule ImagePipe.Execution.SourceCache do
   def release(nil), do: :ok
   def release(lease), do: Resources.release(lease)
 
-  defp stage(response, source, preparation, config) do
+  # A local original without a copy is hashed where it is and decoded from its
+  # own path.
+  defp stage(
+         %Response{path: original} = response,
+         %{cache_semantics: %{copy?: false}} = source,
+         _preparation,
+         config,
+         known
+       )
+       when is_binary(original) do
+    record =
+      if unchanged?(known, response.origin),
+        do: Record.refresh(known, response.origin),
+        else:
+          Record.new(
+            source,
+            hash_file(original, config[:max_body_bytes]),
+            response.origin,
+            now(config)
+          )
+
+    {:ok,
+     %Acquisition{
+       record: record,
+       response: %Response{path: original, origin: response.origin},
+       source_bytes: File.stat!(original).size
+     }}
+  rescue
+    exception in Source.StreamError -> {:error, {:source, exception.reason}}
+    _exception in File.Error -> {:error, {:source, :unreadable}}
+  end
+
+  defp stage(response, source, preparation, config, _known) do
     path = Input.temporary_path(System.tmp_dir!())
     lease = Resources.track(path)
 
@@ -235,6 +278,10 @@ defmodule ImagePipe.Execution.SourceCache do
       exception in Source.StreamError ->
         release(lease)
         {:error, {:source, exception.reason}}
+
+      _exception in File.Error ->
+        release(lease)
+        {:error, {:source, :unreadable}}
     catch
       kind, reason ->
         release(lease)
@@ -309,6 +356,23 @@ defmodule ImagePipe.Execution.SourceCache do
 
     {{:buffer, bytes |> Enum.reverse() |> IO.iodata_to_binary()}, :crypto.hash_final(hash), size,
      nil}
+  end
+
+  defp unchanged?(%Record{origin: %{headers: %{"etag" => same}}}, %{headers: %{"etag" => same}}),
+    do: true
+
+  defp unchanged?(_known, _evidence), do: false
+
+  defp hash_file(path, limit) do
+    {_size, hash} =
+      path
+      |> File.stream!(65_536)
+      |> Enum.reduce({0, :crypto.hash_init(:sha256)}, fn bytes, {size, hash} ->
+        check_size!(size + byte_size(bytes), limit)
+        {size + byte_size(bytes), :crypto.hash_update(hash, bytes)}
+      end)
+
+    :crypto.hash_final(hash)
   end
 
   defp check_size!(size, limit) when size > limit,

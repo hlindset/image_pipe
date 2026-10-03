@@ -101,7 +101,7 @@ defmodule ImagePipe.Source.S3 do
 
       # A version ID pins the object's bytes, so a revision makes it stable.
       stable? = CacheSettings.immutable?(config) or revision not in [nil, ""]
-      cache = CacheSettings.fields(config, stable?: stable?, seed: identity, auto: :enabled)
+      cache = CacheSettings.fields(config, stable?: stable?, seed: identity, copy?: true)
 
       fetch =
         [

@@ -23,7 +23,7 @@ defmodule ImagePipe.SourceTest.InvalidIdentityAdapter do
        identity: Keyword.get(opts, :identity, kind: :path, client: self()),
        internal_cache: :disabled,
        http_cache: :inherit,
-       cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
+       cache_semantics: %CacheSemantics{byte_identity: :content, stable?: false},
        fetch: :bad_identity
      }}
   end

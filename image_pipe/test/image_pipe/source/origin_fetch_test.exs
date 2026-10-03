@@ -338,7 +338,7 @@ defmodule ImagePipe.Source.OriginFetchTest do
 
     {:ok, source} = Source.resolve(intent, opts, Source.runtime_opts(opts))
     previous = Source.with_fetched(source, opts, & &1.origin)
-    assert source.cache_semantics.byte_identity == :none
+    assert source.cache_semantics.byte_identity == :content
 
     assert {:not_modified, refreshed} =
              Source.with_revalidated(source, previous, opts, fn _ ->

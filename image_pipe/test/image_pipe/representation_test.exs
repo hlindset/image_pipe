@@ -76,19 +76,9 @@ defmodule ImagePipe.RepresentationTest do
     assert a.etag != b.etag
   end
 
-  test "a :none byte_identity withholds the ETag, marks no_store?, and computes the key" do
-    rep = Representation.build(source_identity(), material(), :none)
-
-    assert rep.etag == nil
-    assert rep.no_store? == true
-    assert rep.cache_key.hash =~ ~r/\A[0-9a-f]{64}\z/
-    assert Representation.response_headers(rep) == [{"cache-control", "no-store"}]
-  end
-
   test "a strong byte_identity emits the ETag as its response header" do
     rep = Representation.build(source_identity(), material(), {:strong, source_identity()})
 
-    assert rep.no_store? == false
     assert Representation.response_headers(rep) == [{"etag", rep.etag}]
   end
 

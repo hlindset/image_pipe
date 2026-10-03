@@ -270,7 +270,7 @@ defmodule ImagePipe.SourceTest do
       identity: [kind: :path, root: "test", path: ["images", "cat.jpg"]],
       internal_cache: :enabled,
       http_cache: :inherit,
-      cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
+      cache_semantics: %CacheSemantics{byte_identity: :content, stable?: false},
       fetch: :invalid_fetch
     }
 
@@ -400,7 +400,7 @@ defmodule ImagePipe.SourceTest do
       identity: [kind: :path, root: "test", path: ["images", "cat.jpg"]],
       internal_cache: :enabled,
       http_cache: :inherit,
-      cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
+      cache_semantics: %CacheSemantics{byte_identity: :content, stable?: false},
       fetch: :raise
     }
 

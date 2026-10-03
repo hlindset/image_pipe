@@ -55,32 +55,35 @@ defmodule ImagePipe.Source.CacheSettings do
       the options trust it or because the source itself pins them.
     * `:seed` - the byte-identity seed used when the source is stable. It must
       not contain secrets.
-    * `:auto` - what `internal_cache: :auto` means for this adapter:
-      `:enabled` for origins that can be revalidated, `:when_stable` otherwise.
+    * `:copy?` - whether to keep a local copy of the original in the input
+      pool. Remote adapters pass `true`.
+
+  A source that isn't stable is identified by its content. `internal_cache:
+  :auto` enables internal caching.
   """
   @spec fields(keyword(), keyword()) :: keyword()
   def fields(opts, source) do
     stable? = Keyword.fetch!(source, :stable?)
 
     byte_identity =
-      if stable?, do: {:strong, Keyword.fetch!(source, :seed)}, else: :none
+      if stable?, do: {:strong, Keyword.fetch!(source, :seed)}, else: :content
 
     [
-      internal_cache: internal_cache(opts, stable?, Keyword.fetch!(source, :auto)),
+      internal_cache: internal_cache(opts),
       http_cache: Keyword.fetch!(opts, :http_cache),
       cache_semantics: %CacheSemantics{
         byte_identity: byte_identity,
         stable?: stable?,
-        policy: Keyword.fetch!(opts, :cache_policy)
+        policy: Keyword.fetch!(opts, :cache_policy),
+        copy?: Keyword.fetch!(source, :copy?)
       }
     ]
   end
 
-  defp internal_cache(opts, stable?, auto) do
-    case {Keyword.fetch!(opts, :internal_cache), auto} do
-      {:auto, :enabled} -> :enabled
-      {:auto, :when_stable} -> if stable?, do: :enabled, else: :disabled
-      {mode, _auto} -> mode
+  defp internal_cache(opts) do
+    case Keyword.fetch!(opts, :internal_cache) do
+      :auto -> :enabled
+      mode -> mode
     end
   end
 end

@@ -142,7 +142,10 @@ Whether a response is cached also depends on its source mount:
 
 - HTTP and S3 mounts follow the origin's cache headers by default. Set
   `cache_policy` to override them.
-- File mounts use the output cache only with `internal_cache = "enabled"`.
+- File mounts identify each file by a hash of its contents and reuse cached
+  results while it's unchanged. Set `stable = "immutable"` for write-once files
+  to skip the check. On a network filesystem such as EFS, `copy = "keep"` keeps
+  local copies of originals in the `[cache] input` pool.
 
 ## Processing capacity
 

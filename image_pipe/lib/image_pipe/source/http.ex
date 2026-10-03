@@ -231,7 +231,7 @@ defmodule ImagePipe.Source.HTTP do
         CacheSettings.fields(opts,
           stable?: stable?,
           seed: redacted_http_identity(identity),
-          auto: :enabled
+          copy?: true
         )
 
       {:ok,
