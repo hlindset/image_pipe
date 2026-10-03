@@ -13,6 +13,8 @@ defmodule ImagePipe.Transform.DetectorTest do
     @impl true
     def identity(_o), do: {__MODULE__, :v}
     @impl true
+    def ready?(opts), do: Keyword.get(opts, :ready?, true)
+    @impl true
     def warmup(opts) do
       send(Keyword.fetch!(opts, :test_pid), {:warmed, opts})
       :ok
@@ -26,7 +28,7 @@ defmodule ImagePipe.Transform.DetectorTest do
     @impl true
     def detect(_i, _o), do: {:ok, []}
     @impl true
-    def available?(_o), do: true
+    def available?(opts), do: Keyword.get(opts, :available?, true)
     @impl true
     def identity(_o), do: {__MODULE__, :v}
   end
@@ -38,5 +40,11 @@ defmodule ImagePipe.Transform.DetectorTest do
 
   test "is a no-op :ok when the detector does not implement warmup/1" do
     assert Detector.warmup(NoWarmup, []) == :ok
+  end
+
+  test "ready? calls ready?/1 when implemented, else available?/1" do
+    assert Detector.ready?(WithWarmup, ready?: false) == false
+    assert Detector.ready?(NoWarmup, available?: true) == true
+    assert Detector.ready?(NoWarmup, available?: false) == false
   end
 end

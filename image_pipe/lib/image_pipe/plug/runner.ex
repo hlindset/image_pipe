@@ -112,7 +112,7 @@ defmodule ImagePipe.Plug.Runner do
 
   defp serve_output(conn, output) do
     context = output.context
-    headers = context_headers(conn, context)
+    headers = context_headers(conn, context, output.degraded?)
 
     case output.cache == :hit and
            (Conditional.if_none_match_wildcard?(conn) or
@@ -124,7 +124,7 @@ defmodule ImagePipe.Plug.Runner do
     Execution.close_output(output)
   end
 
-  defp context_headers(conn, context) do
+  defp context_headers(conn, context, degraded? \\ false) do
     source = %{context.source | cache_semantics: Execution.cache_semantics(context)}
 
     mode = CachePolicy.mode(source.http_cache, context.config)
@@ -135,7 +135,8 @@ defmodule ImagePipe.Plug.Runner do
         context.representation,
         source_facts(source),
         mode,
-        context.config
+        context.config,
+        degraded?
       )
 
     headers =

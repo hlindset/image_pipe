@@ -13,8 +13,10 @@ defmodule ImagePipe.Processing.Terminal do
   alias ImagePipe.Transform.PendingOrientation
   alias Vix.Vips.Image, as: VipsImage
 
+  # The last element is true when a crop fell back after a detection error, so
+  # the result must not be stored.
   @spec render(Decode.input(), Spec.t(), keyword()) ::
-          {:ok, String.t(), binary() | map()} | {:error, term()}
+          {:ok, String.t(), binary() | map(), boolean()} | {:error, term()}
   def render(source, %Spec{} = request, config) do
     Telemetry.span(
       Telemetry.telemetry_opts(config),
@@ -39,24 +41,24 @@ defmodule ImagePipe.Processing.Terminal do
   defp render_terminal(source, %Spec{output: %{terminal: terminal}} = request, config) do
     Decode.with_image(source, request, config, fn state, _geometry ->
       with {:ok, config} <- Processing.watermark_opts(config),
-           {:ok, value} <- placeholder(terminal, state, request, config) do
-        {:ok, "text/plain", value}
+           {:ok, value, degraded?} <- placeholder(terminal, state, request, config) do
+        {:ok, "text/plain", value, degraded?}
       end
     end)
   end
 
   defp render_info(input, request, config) do
     with {:ok, config} <- Processing.watermark_opts(config),
-         {:ok, body} <-
+         {:ok, body, degraded?} <-
            Decode.with_image(input, request, config, &describe(&1, &2, request, config)),
-         {:ok, body} <- put_blurhash(body, input, request, config) do
-      {:ok, "application/json", body}
+         {:ok, body, blurhash_degraded?} <- put_blurhash(body, input, request, config) do
+      {:ok, "application/json", body, degraded? or blurhash_degraded?}
     end
   end
 
   defp describe(state, geometry, request, config) do
-    with {:ok, result} <- result_facts(state, geometry, request, config) do
-      {:ok, %{"source" => source_facts(state, geometry), "result" => result}}
+    with {:ok, result, degraded?} <- result_facts(state, geometry, request, config) do
+      {:ok, %{"source" => source_facts(state, geometry), "result" => result}, degraded?}
     end
   end
 
@@ -85,7 +87,9 @@ defmodule ImagePipe.Processing.Terminal do
   defp result_facts(state, geometry, request, config) do
     if header_only?(request) do
       {width, height} = geometry.display_dimensions
-      {:ok, %{"width" => width, "height" => height, "dpr" => List.last(request.groups).dpr}}
+
+      {:ok, %{"width" => width, "height" => height, "dpr" => List.last(request.groups).dpr},
+       false}
     else
       executed_facts(state, request, config)
     end
@@ -102,13 +106,14 @@ defmodule ImagePipe.Processing.Terminal do
         "dpr" => state.dpr
       }
 
-      put_lqip_css(result, state, request, config)
+      with {:ok, result} <- put_lqip_css(result, state, request, config),
+           do: {:ok, result, state.degraded?}
     end
   end
 
   defp put_lqip_css(result, state, %Spec{output: output} = request, config) do
     if :lqip_css in output.placeholders do
-      with {:ok, value} <- placeholder(:lqip_css, state, request, config, :executed),
+      with {:ok, value, _degraded?} <- placeholder(:lqip_css, state, request, config, :executed),
            do: {:ok, Map.put(result, "lqip_css", value)}
     else
       {:ok, result}
@@ -119,10 +124,10 @@ defmodule ImagePipe.Processing.Terminal do
   # hash equals the standalone output for the same URL.
   defp put_blurhash(body, input, %Spec{output: output} = request, config) do
     if :blurhash in output.placeholders do
-      with {:ok, hash} <- standalone_blurhash(input, request, config),
-           do: {:ok, put_in(body, ["result", "blurhash"], hash)}
+      with {:ok, hash, degraded?} <- standalone_blurhash(input, request, config),
+           do: {:ok, put_in(body, ["result", "blurhash"], hash), degraded?}
     else
-      {:ok, body}
+      {:ok, body, false}
     end
   end
 
@@ -140,9 +145,9 @@ defmodule ImagePipe.Processing.Terminal do
   end
 
   defp placeholder(terminal, state, _request, config, :executed) do
-    with {:ok, state} <- Executor.reduce_terminal(state, %Output{terminal: terminal}, config) do
-      compute(terminal, state.image)
-    end
+    with {:ok, state} <- Executor.reduce_terminal(state, %Output{terminal: terminal}, config),
+         {:ok, value} <- compute(terminal, state.image),
+         do: {:ok, value, state.degraded?}
   end
 
   defp compute(:blurhash, image) do
@@ -169,6 +174,6 @@ defmodule ImagePipe.Processing.Terminal do
   defp put_size(body, nil), do: body
   defp put_size(body, size), do: Map.put(body, "size", size)
 
-  defp terminal_result({:ok, _content_type, _body}), do: :ok
+  defp terminal_result({:ok, _content_type, _body, _degraded?}), do: :ok
   defp terminal_result({:error, reason}), do: Telemetry.request_result({:error, reason})
 end

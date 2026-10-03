@@ -210,7 +210,7 @@ fields. See the [encoder field reference](processing/output.md#encoder-options).
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `detector` | `:default` | Default optional detector, `nil`, or a custom module |
-| `detector_required` | `false` | Reject unavailable explicitly requested detection classes before source/cache access |
+| `detector_required` | `false` | Fail explicit detection requests when the detector isn't installed (`501`), its models aren't downloaded (`503`), or detection errors (`500`) |
 | `telemetry_prefix` | `[:image_pipe]` | Nonempty list of atoms for emitted event names |
 
 See [content-aware cropping](content-aware-gravity.md) for dependencies and

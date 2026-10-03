@@ -33,7 +33,9 @@ The `http_cache` option takes one of four values:
 | `:private` | The same policy, always `private` |
 
 In every mode, a source without strong byte identity, or one whose cache policy
-denies storage, gets `Cache-Control: no-store` and no `ETag`. Mutable remote
+denies storage, gets `Cache-Control: no-store` and no `ETag`. So does a crop that
+fell back to attention because [content detection](content-aware-gravity.md)
+failed. Mutable remote
 sources replace the one-year lifetime with the origin's freshness, sent as
 `Cache-Control` and `Age`.
 

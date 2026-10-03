@@ -45,8 +45,10 @@ Practical requirements:
 ## What happens without it
 
 Missing detectors, empty detections, and detection errors fall back to libvips
-attention cropping. Set [`detector_required`](#options) to reject explicit
-detection requests when the detector is unavailable.
+attention cropping. A response that fell back after a detection error is sent
+with `Cache-Control: no-store` and no ETag, so the next request runs detection
+again. Set [`detector_required`](#options) to fail explicit detection requests
+instead.
 
 ## Options
 
@@ -59,20 +61,26 @@ plug ImagePipe.Plug,
   detector_required: false   # default
 ```
 
-- **`detector`** — which detector backs the face- and object-aware paths.
-  - `:default` *(default)* — the bundled `ImagePipe.Transform.Detector.Composite`,
+- **`detector`**: which detector backs the face- and object-aware paths.
+  - `:default` *(default)*: the bundled `ImagePipe.Transform.Detector.Composite`,
     which routes faces to `ImageVision.Face` (YuNet) and objects to
     `ImageVision.Objects` (RT-DETR/COCO-80). Activates automatically when
     `image_vision` + `ortex` are loaded; reports unavailable (→ attention
     fallback) otherwise.
-  - `nil` — detection disabled. Face-aware requests always fall back to attention.
-  - a module implementing `ImagePipe.Transform.Detector` — a
+  - `nil`: detection disabled. Face-aware requests always fall back to attention.
+  - a module implementing `ImagePipe.Transform.Detector`: a
     [custom detector](#custom-detectors).
-- **`detector_required`** — boolean, default `false`.
-  - `false` — unavailable detection falls back to attention.
-  - `true` — an explicit `detect` request returns 501 before source resolution,
-    fetch, or cache access when a required detector is unavailable.
-    `anchor=smart-face` still falls back to attention.
+- **`detector_required`**: boolean, default `false`.
+  - `false`: unavailable detection falls back to attention.
+  - `true`: an explicit `detect` request fails before the source is fetched
+    when the detector isn't installed (`501`) or its model files aren't
+    downloaded yet (`503`). A detection error while processing fails the
+    request with `500`. `anchor=smart-face` still falls back to attention.
+
+    A mount with `detector_required: true` answers `503` until the models are
+    on disk. Run `mix image_vision.download_models --detect` for RT-DETR at
+    deploy time, and the
+    [warmup worker](#warming-up-avoiding-first-request-latency) for YuNet.
 
 ## Warming up (avoiding first-request latency)
 
@@ -144,6 +152,12 @@ it appears in per-model telemetry sent to all handlers. `supported_classes/1`
 must be answerable even when the optional dep is absent; it is used for class
 routing and availability checks before any model is loaded.
 
+If your detector loads model files, implement the optional `ready?/1` callback.
+A mount with `detector_required: true` answers `503` while it returns `false`.
+Without it, the detector is ready whenever `available?/1` is true. When
+`opts[:required]` is `true`, a detector that combines several models must
+return an error if any of them fails.
+
 ## General object gravity
 
 Detection supports specific COCO-80 classes, custom detector classes, and the
@@ -170,8 +184,8 @@ YuNet, `car` uses RT-DETR. Detection runs on decoded images subject to
 `max_input_pixels`; successful responses can be cached. Account for RT-DETR's
 cost when setting pixel and concurrency limits, especially with `detect=all`.
 
-**Unknown classes.** The bundled composite drops classes no child claims.
-`detect=unicorn` falls back to attention cropping.
+**Unknown classes.** A class that no configured detector supports, such as
+`detect=unicorn`, fails with `400` before the source is fetched.
 
 **Crop focus.** The focus is the `√area`-weighted centroid of detected regions;
 malformed or out-of-image boxes are dropped. Larger regions contribute more.

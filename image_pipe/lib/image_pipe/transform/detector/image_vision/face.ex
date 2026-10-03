@@ -7,7 +7,7 @@ defmodule ImagePipe.Transform.Detector.ImageVision.Face do
   """
   @behaviour ImagePipe.Transform.Detector
 
-  @compile {:no_warn_undefined, Image.FaceDetection}
+  @compile {:no_warn_undefined, [Image.FaceDetection, ImageVision.ModelCache]}
 
   @repo "opencv/face_detection_yunet"
   @model_file "face_detection_yunet_2023mar.onnx"
@@ -17,6 +17,11 @@ defmodule ImagePipe.Transform.Detector.ImageVision.Face do
 
   @impl true
   def available?(_opts), do: Code.ensure_loaded?(Image.FaceDetection)
+
+  # Model files live in image_vision's on-disk cache; a miss would download.
+  @impl true
+  @dialyzer {:nowarn_function, ready?: 1}
+  def ready?(opts), do: available?(opts) and ImageVision.ModelCache.cached?(@repo, @model_file)
 
   @impl true
   def identity(_opts) do
