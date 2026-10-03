@@ -10,6 +10,7 @@ defmodule ImagePipe.MixProject do
       "docs/plug-usage.md",
       "../image_pipe_server/docs/server-getting-started.md",
       "docs/external-server.md",
+      "docs/shared-url-settings.md",
       "docs/elixir-api.md",
       "docs/combined-usage.md"
     ],

@@ -80,25 +80,20 @@ url =
 
 Open the returned URL in a browser. It serves a 400 × 300 WebP image. You can
 use the same URL as an image's `src` in your application. Signing keys stay in
-the application and the server; the browser receives the signed URL.
+the application and the server. The browser receives only the signed URL.
 
 `base_url` belongs to the builder. It includes the address clients can reach
-and the server's `mount_path`; for production, use your public HTTPS address
+and the server's `mount_path`. For production, use your public HTTPS address
 or CDN address, such as `https://images.example.com/images`.
 
 ## Share settings and originals
 
-Keep signing keys synchronized between the application and server. A URL
-carries a preset's name; the server applies its current definition, so the
-application needs no preset definitions to build URLs. To have the builder
-check plans against the server's presets, pass them as
-[`mount_presets`](urls.md#validating-urls-before-serving) from the same shared
-configuration source. If you enable
-[source encryption](urls.md#conceal-the-source), share those keys too.
+[Shared URL settings](shared-url-settings.md) lists every setting the
+application and server must match, with both spellings.
 
 Deploy the server before a newer builder or a new preset. The server must
 understand the URLs the builder emits. Stop generating a preset's URLs before
-removing its server definition; existing URLs need it for as long as they are
+removing its server definition. Existing URLs need it for as long as they are
 in use.
 
 The server must be able to read each original. In this example, `photos/beach.jpg`

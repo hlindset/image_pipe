@@ -279,6 +279,10 @@ remain valid. `expires` is a Unix timestamp in seconds. The exact expiry second
 is still valid; later requests return 410 before source/cache access. Expiry
 should be signed so clients cannot extend it.
 
+A builder in another application must use the server's keys.
+[Shared URL settings](shared-url-settings.md) lists them with the other
+settings both sides must match.
+
 ## Conceal the source
 
 Add `encrypt_source: true` and independent `source_encryption_keys` to the URL
