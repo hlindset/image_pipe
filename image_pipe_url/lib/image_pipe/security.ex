@@ -8,10 +8,49 @@ defmodule ImagePipe.Security do
   alias ImagePipe.Security.SourceEncryption
 
   @options_schema NimbleOptions.new!(
-                    keys: [type: {:list, :string}, default: []],
-                    source_encryption_keys: [type: {:list, :string}, default: []],
-                    iv_mode: [type: {:in, [:deterministic, :random]}, default: :deterministic],
-                    encrypt_source: [type: :boolean, default: false]
+                    keys: [
+                      type: {:list, :string},
+                      default: [],
+                      type_doc: "list of hex-encoded `t:String.t/0`",
+                      doc: """
+                      Signing keys. The first key signs generated URLs. The server
+                      accepts a signature from any key in the list, so keep an old
+                      key while URLs signed with it are in use. Without keys, URLs
+                      are unsigned and the server rejects signed ones.
+                      """
+                    ],
+                    source_encryption_keys: [
+                      type: {:list, :string},
+                      default: [],
+                      type_doc: "list of 32-byte `t:binary/0`",
+                      doc: """
+                      Raw 32-byte keys that encrypt and decrypt sources. The first key
+                      encrypts. The server decrypts with any key in the list. They must
+                      differ from the signing keys, and setting them requires
+                      `:keys`.
+                      """
+                    ],
+                    iv_mode: [
+                      type: {:in, [:deterministic, :random]},
+                      default: :deterministic,
+                      type_doc: "`:deterministic` or `:random`",
+                      doc: """
+                      How `ImagePipe.URL.url/3` picks the initialization vector for an
+                      encrypted source. `:deterministic` derives it from the source with
+                      a secret key, so one source always gives the same URL.
+                      `:random` gives a new URL on every call.
+                      """
+                    ],
+                    encrypt_source: [
+                      type: :boolean,
+                      default: false,
+                      doc: """
+                      Encrypts the source, and any watermark source, in generated URLs,
+                      which then use `enc/<token>` instead of `src/<path>`. Requires
+                      `:source_encryption_keys`. A server with encryption keys
+                      decrypts `enc/` sources regardless of this option.
+                      """
+                    ]
                   )
 
   @doc false

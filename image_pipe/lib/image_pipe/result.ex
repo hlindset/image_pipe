@@ -1,14 +1,37 @@
 defmodule ImagePipe.Result do
   @moduledoc """
-  A fully consumed plan result. It owns no open image or source resources.
+  The complete output of `ImagePipe.run/4` or `ImagePipe.write/5`.
 
-  `data` is encoded bytes for `:image`, a string for `:blurhash` or `:lqip_css`,
-  and a map with string keys for `:info`. Image results also carry `format`,
-  `width`, and `height`. `content_type` describes the serialized representation.
+      {:ok, result} = ImagePipe.run(config, builder, {:file, "photos/cat.jpg"})
+      {result.format, result.width, result.height}
+      #=> {:webp, 400, 300}
 
-  `degraded?` is true when a crop fell back to attention because content
-  detection failed. The cache doesn't store such a result, and you may want to
-  retry it rather than keep it.
+  A result holds no open file, source, or image. Its fields depend on the
+  plan's `terminal` output option:
+
+  | `terminal` | `data` | `content_type` | Also set |
+  | --- | --- | --- | --- |
+  | `:image` | Encoded image bytes | The image's MIME type, such as `"image/webp"` | `format`, `width`, `height` |
+  | `:blurhash` | BlurHash string | `"text/plain"` | |
+  | `:lqip_css` | CSS color string, such as `"#47a8f53d"` | `"text/plain"` | |
+  | `:info` | Map with string keys | `"application/json"` | |
+
+  `format` can be a format ImagePipe only reads, such as `:gif`, when the
+  configuration's `:skip_processing_formats` returns the original unchanged.
+
+  An `:info` result has `terminal: :info`, also for a plan with
+  `terminal: {:info, [:blurhash]}`. Its map has two keys:
+
+    * `"source"` - the original's `"format"`, `"mime_type"`, `"width"`,
+      `"height"`, `"orientation"` (the EXIF value), `"pages"`, and `"size"`
+      in bytes when known. Width and height are as displayed, after EXIF
+      orientation.
+    * `"result"` - the output's `"width"`, `"height"`, and `"dpr"`, plus
+      `"blurhash"` and `"lqip_css"` when requested.
+
+  `degraded?` is `true` when a `detect` crop fell back to attention-based
+  cropping because detection failed. Such a result isn't stored in the
+  cache, and retrying later may give the detected crop.
   """
 
   @enforce_keys [:terminal, :data, :content_type]

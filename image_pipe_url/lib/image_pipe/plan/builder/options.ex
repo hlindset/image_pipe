@@ -17,19 +17,67 @@ defmodule ImagePipe.Plan.Builder.Options do
   ]
   @axes [:horizontal, :vertical, :both]
 
-  def request!(options) do
-    validate!(
-      options,
-      unsettable(
-        orient: [type: {:in, [:auto, :none]}],
-        page: [type: :non_neg_integer],
-        filename: [type: custom(:path_token)],
-        attachment: [type: :boolean],
-        cachebuster: [type: custom(:path_token)],
-        expires: [type: :pos_integer],
-        debug: [type: :boolean]
-      )
-    )
+  @docs "https://hexdocs.pm/image_pipe"
+
+  def request!(options), do: validate!(options, unsettable(request_schema()))
+
+  def request_schema do
+    [
+      orient: [
+        type: {:in, [:auto, :none]},
+        type_doc: "`:auto` or `:none`",
+        doc: """
+        `:auto` applies the original's EXIF orientation, and `:none` ignores
+        it. The URL option is [`orient`](#{@docs}/crop.html#orient).
+        """
+      ],
+      page: [
+        type: :non_neg_integer,
+        doc: """
+        The zero-based page or frame of the original to use. The URL option is
+        [`page`](#{@docs}/request.html#page).
+        """
+      ],
+      filename: [
+        type: custom(:path_token),
+        type_doc: "`t:String.t/0`",
+        doc: """
+        The file name without extension, of ASCII letters, digits, `.`, `_`,
+        and `-`. The response's extension is appended. The URL option is
+        [`filename`](#{@docs}/request.html#filename).
+        """
+      ],
+      attachment: [
+        type: :boolean,
+        doc: """
+        Makes browsers download the response. The URL option is
+        [`attachment`](#{@docs}/request.html#attachment).
+        """
+      ],
+      cachebuster: [
+        type: custom(:path_token),
+        type_doc: "`t:String.t/0`",
+        doc: """
+        A token that makes the server store a copy separate from the one for
+        the same URL without it: ASCII letters, digits, `.`, `_`, and `-`. The URL option is
+        [`cb`](#{@docs}/request.html#cb).
+        """
+      ],
+      expires: [
+        type: :pos_integer,
+        doc: """
+        A Unix time in seconds. The URL stops working after that second. The URL option
+        is [`expires`](#{@docs}/request.html#expires).
+        """
+      ],
+      debug: [
+        type: :boolean,
+        doc: """
+        Adds debug response headers when the server allows them with
+        `allow_debug_headers`. The URL option is [`debug`](#{@docs}/request.html#debug).
+        """
+      ]
+    ]
   end
 
   def group!(options) do
