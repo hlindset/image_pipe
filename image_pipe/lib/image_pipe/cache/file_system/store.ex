@@ -35,8 +35,8 @@ defmodule ImagePipe.Cache.FileSystem.Store do
                       type_doc: "absolute path (`t:String.t/0`)",
                       doc: """
                       Directory that holds the cache files. Must be an absolute path. \
-                      The processed-image and originals caches must use different roots. \
-                      Plug initialization fails otherwise.
+                      The `cache` and `input_cache` roots must be separate, neither \
+                      inside the other. Plug initialization fails otherwise.
                       """
                     ],
                     path_prefix: [

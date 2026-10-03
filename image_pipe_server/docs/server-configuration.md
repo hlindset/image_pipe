@@ -294,7 +294,7 @@ credentials in the same forms.
 
 ### `[cache]`
 
-Caches on the local filesystem: `output` for processed images, `input` for originals. Setting `max_size_bytes` bounds a cache and requires `node_id`. See [caching processed images](../../image_pipe/docs/caching-processed-images.md).
+Caches on the local filesystem: `output` for processed images, `input` for originals. Their `root` directories must be separate, neither inside the other. Setting `max_size_bytes` bounds a cache and requires `node_id`. See [caching processed images](../../image_pipe/docs/caching-processed-images.md).
 
 | Key | Type | Default |
 | --- | --- | --- |

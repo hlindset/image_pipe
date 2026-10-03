@@ -24,8 +24,13 @@ defmodule ImagePipe.Cache.Input do
     end
   end
 
+  # Each pool's startup scan walks its whole root, so a root inside the other
+  # pool's would adopt and evict that pool's entries.
   defp separate_roots(input, {ImagePipe.Cache.FileSystem, output}) do
-    case Keyword.fetch!(input, :root) == Path.expand(Keyword.fetch!(output, :root)) do
+    input = input |> Keyword.fetch!(:root) |> Path.split()
+    output = output |> Keyword.fetch!(:root) |> Path.expand() |> Path.split()
+
+    case List.starts_with?(input, output) or List.starts_with?(output, input) do
       true -> {:error, :cache_pools_require_separate_roots}
       false -> :ok
     end

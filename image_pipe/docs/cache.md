@@ -94,9 +94,9 @@ originals can share cache entries (see [Writing a custom source](custom-sources.
 ## Originals cache
 
 `input_cache` accepts only `ImagePipe.Cache.FileSystem`, with a `root`
-different from the processed-image cache's. Each cache has its own size limit
-and eviction. Serving a processed image from the cache doesn't count as a
-request for its original.
+separate from the processed-image cache's. Neither root may be inside the
+other. Each cache has its own size limit and eviction. Serving a processed
+image from the cache doesn't count as a request for its original.
 
 - Originals are stored byte for byte, including their EXIF and ICC data.
 - Local files are copied in only when their source sets `copy: :keep` (see
