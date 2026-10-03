@@ -99,7 +99,8 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     :model,
     :classes,
     :regions,
-    :scale,
+    # requested weight per detection class (a map of class name to number)
+    :weights,
     :width,
     :height,
     :format,
@@ -172,10 +173,24 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     # ICC-import boolean (product-neutral; sourced from runtime image inspection)
     :working_space,
     :imported?,
-    # cache admission / warm-start
+    # cache admission / warm-start / eviction
     :victim_count,
     :own_state_loaded,
-    :peer_state_files
+    :peer_state_files,
+    :trigger,
+    # HTTP cache one-shots: the cache-header mode and booleans about the response
+    # headers, never the ETag value itself
+    :effective_mode,
+    :byte_identity,
+    :etag,
+    :method,
+    :generated_cache_headers,
+    :representation_headers,
+    # face/attention blend: normalized {x, y} points and the face weight
+    :attention,
+    :face,
+    :blended,
+    :weight
   ]
 
   @spec attach(map()) :: :ok

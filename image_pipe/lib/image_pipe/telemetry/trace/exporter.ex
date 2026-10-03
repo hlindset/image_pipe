@@ -36,9 +36,12 @@ defmodule ImagePipe.Telemetry.Trace.Exporter do
       instead carries `"http.status_code"`, or `"error.type"` on failure,
       and a Finch span carries `"http.status_code"` when a response arrived.
     * `:events`: the one-shot events that fired while the span was open, each
-      with `:name`, `:time` (native monotonic time), and allowlisted
-      `:attributes`. A span that raised also has an `"exception"` event with
-      `:name` and `:attributes` (`:kind` and `:reason`), but no `:time`.
+      with `:name`, `:time` (native monotonic time), and `:attributes`, the
+      event's metadata filtered by the allowlist that applies to span
+      attributes. Measurements, such as the `:scale` of `[:output, :clamp]`,
+      aren't included. A span that raised
+      also has an `"exception"` event with `:name` and `:attributes` (`:kind`
+      and `:reason`), but no `:time`.
     * `:status`: `:ok` when the event has no `:result`, or its `:result` is
       one of `:ok`, `:admitted`, `:options`, `:not_modified`, `:detected`,
       `:no_regions`, `:rejected`, `:client_closed`, or `:cancelled`. Any
