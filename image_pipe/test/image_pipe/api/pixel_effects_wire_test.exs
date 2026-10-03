@@ -61,6 +61,31 @@ defmodule ImagePipe.API.PixelEffectsWireTest do
     assert Image.get_pixel!(deep, 4, 4) == [120 * 257, 160 * 257, 200 * 257]
   end
 
+  for effect <- ["monochrome=0.8", "duotone=0.8,202020,f0f0f0"] do
+    test "#{effect} with neutral colors keeps a gray image gray" do
+      gray = Image.new!(8, 8, color: [100]) |> Image.Draw.rect!(0, 0, 4, 8, color: [200])
+
+      rgb =
+        Image.new!(8, 8, color: [100, 100, 100])
+        |> Image.Draw.rect!(0, 0, 4, 8, color: [200, 200, 200])
+
+      gray_config = gray |> Image.write!(:memory, suffix: ".png") |> png_origin() |> mount()
+      rgb_config = rgb |> Image.write!(:memory, suffix: ".png") |> png_origin() |> mount()
+
+      toned = image(unquote(effect), gray_config)
+      reference = image(unquote(effect), rgb_config)
+
+      assert Image.bands(toned) == 1
+      refute pixels(toned) == pixels(image("", gray_config))
+
+      for x <- [1, 6] do
+        [value] = Image.get_pixel!(toned, x, 4)
+        [red, _green, _blue] = Image.get_pixel!(reference, x, 4)
+        assert abs(value - red) <= 1
+      end
+    end
+  end
+
   test "saturation keeps an image's alpha band" do
     source = Image.new!(8, 8, color: [200, 70, 40, 128])
     config = source |> Image.write!(:memory, suffix: ".png") |> png_origin() |> mount()

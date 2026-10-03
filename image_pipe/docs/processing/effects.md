@@ -6,9 +6,10 @@ without resizing.
 Every effect is off unless the [group](../requesting-images.md#processing-groups)
 sets it, and each group starts with all effects off again. Effects that take a
 color accept a hex value or a CSS name, as described under
-[colors](../requesting-images.md#colors). On a grayscale image, `monochrome`
-and `duotone` always give a color image, and `colorize` and `gradient` give one
-when their color isn't a neutral gray.
+[colors](../requesting-images.md#colors). On a grayscale image, `monochrome`,
+`duotone`, `colorize`, and `gradient` produce a color image only if one of
+their colors isn't a neutral gray. The default `monochrome` and `duotone`
+colors keep it gray.
 
 ## Effect order
 

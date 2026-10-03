@@ -40,8 +40,10 @@ defmodule ImagePipe.Transform.Operation.Duotone do
     end
   end
 
+  # A gray image stays gray when both colors are neutral.
   defp apply_duotone(%VipsImage{} = image, intensity, shadow, highlight) do
-    with {:ok, image} <- GrayFrame.promote(image) do
+    with {:ok, image} <- GrayFrame.for_color(image, shadow),
+         {:ok, image} <- GrayFrame.for_color(image, highlight) do
       Image.without_alpha_band(image, &tone(&1, intensity, shadow, highlight))
     end
   end
@@ -53,11 +55,22 @@ defmodule ImagePipe.Transform.Operation.Duotone do
 
     with {:ok, shadow} <- WorkingColor.values(image, shadow),
          {:ok, highlight} <- WorkingColor.values(image, highlight),
-         {:ok, matrix} <-
-           VipsImage.new_matrix_from_array(3, 3, matrix(intensity, shadow, highlight, full)),
-         {:ok, recombined} <- Operation.recomb(image, matrix),
-         {:ok, adjusted} <- Operation.linear(recombined, [1.0], addends(intensity, shadow)) do
+         {:ok, adjusted} <- tone_values(image, intensity, shadow, highlight, full) do
       Operation.cast(adjusted, VipsImage.format(image))
+    end
+  end
+
+  # A gray pixel is its own luminance.
+  defp tone_values(image, intensity, [shadow], [highlight], full) do
+    scale = 1.0 - intensity + intensity * (highlight - shadow) / full
+    Operation.linear(image, [scale], [shadow * intensity])
+  end
+
+  defp tone_values(image, intensity, shadow, highlight, full) do
+    with {:ok, matrix} <-
+           VipsImage.new_matrix_from_array(3, 3, matrix(intensity, shadow, highlight, full)),
+         {:ok, recombined} <- Operation.recomb(image, matrix) do
+      Operation.linear(recombined, [1.0], addends(intensity, shadow))
     end
   end
 
