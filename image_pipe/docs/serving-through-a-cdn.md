@@ -10,7 +10,7 @@ images get the lifetimes they do is covered in
 ## Turn on cache headers
 
 By default ImagePipe sends an `ETag` but no cache lifetime for images from
-write-once sources. Set `http_cache` to `auto` so responses carry a
+immutable sources. Set `http_cache` to `auto` so responses carry a
 `Cache-Control` the CDN can follow:
 
 <!-- tabs-open -->
@@ -47,14 +47,14 @@ values.
 What the CDN may cache, and for how long, comes from each source:
 
 - A source whose files never change gets a one-year lifetime once you mark it
-  write-once (see [write-once sources](caching-and-freshness.md#write-once-sources)).
+  immutable (see [immutable sources](caching-and-freshness.md#immutable-sources)).
 - HTTP and S3 sources pass on the lifetime their origin sends. S3 objects
-  addressed by version count as write-once.
+  addressed by version count as immutable.
 - Sources that can change and get no lifetime from their origin, including
   local files, get `max-age=0`, so the CDN revalidates every request. Set a
   fallback lifetime to let the CDN reuse them for a while.
 
-Mark a write-once source like this:
+Mark an immutable source like this:
 
 <!-- tabs-open -->
 
@@ -197,7 +197,7 @@ each request.
 
 <!-- tabs-close -->
 
-For a write-once source the response includes:
+For an immutable source the response includes:
 
 ```http
 cache-control: public, max-age=31536000, immutable

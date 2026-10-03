@@ -109,15 +109,15 @@ Cache-Control: public, max-age=3600
 Age: 60
 ```
 
-## Write-once source headers
+## Immutable source headers
 
-A source marked write-once (`stable` set to immutable, see
-[write-once sources](caching-and-freshness.md#write-once-sources)) is the
+A source marked immutable (`stable` set to `immutable`, see
+[immutable sources](caching-and-freshness.md#immutable-sources)) is the
 only kind that gets the one-year lifetime from the [header modes](#header-modes)
 table, as long as storage is allowed. In `validators` mode it gets only an
 `ETag`. Its `ETag` comes from the original's identifier, such as its path or
 URL, instead of its content. An S3 object addressed by a version ID counts as
-write-once without being marked.
+immutable without being marked.
 
 ## Expiring URLs
 
@@ -213,9 +213,9 @@ If-None-Match: W/"ipr1-token"
 
 Whether ImagePipe contacts the source first depends on the source:
 
-- A local write-once source answers `304` without reading the file, unless
+- A local immutable source answers `304` without reading the file, unless
   the source keeps copies of its files in the originals cache.
-- A remote write-once source whose storage is allowed in its cache policy
+- A remote immutable source whose storage is allowed in its cache policy
   answers `304` without contacting the origin.
 - Any other source answers `304` without contacting the origin while its
   original is within its lifetime. This needs one of ImagePipe's caches,

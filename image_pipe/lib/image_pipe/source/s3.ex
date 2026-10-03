@@ -64,7 +64,7 @@ defmodule ImagePipe.Source.S3 do
                        `x-amz-content-sha256`, and `x-amz-security-token` headers. It \
                        also drops `range`, `accept`, and `accept-encoding` headers, \
                        except on a source with `internal_cache: :disabled` that isn't \
-                       write-once. Requests for one object must always return the \
+                       immutable. Requests for one object must always return the \
                        same bytes.
                        """
                      ],
@@ -134,7 +134,7 @@ defmodule ImagePipe.Source.S3 do
 
   A revision is an S3 version ID, written as the whole query
   (`?3HL4kqtJlcpX`, not `?versionId=3HL4kqtJlcpX`). The adapter requests that
-  version, and the object is treated as write-once. The response must carry a
+  version, and the object is treated as immutable. The response must carry a
   matching `x-amz-version-id` header, or the fetch fails with `502`. Without a
   revision, the object's `Cache-Control`, `ETag`, and `Last-Modified` headers
   set its cache lifetime, as for an HTTP source.

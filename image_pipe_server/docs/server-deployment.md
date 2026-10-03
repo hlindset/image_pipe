@@ -145,7 +145,7 @@ Whether a response is cached also depends on its source mount:
 - HTTP and S3 mounts follow the origin's cache headers by default. Set
   `cache_policy` to override them.
 - File mounts check each file for changes. Set `stable = "immutable"` for
-  [write-once](../../image_pipe/docs/caching-and-freshness.md#write-once-sources)
+  [immutable](../../image_pipe/docs/caching-and-freshness.md#immutable-sources)
   files to skip the check. On a network filesystem such as EFS, `copy = "keep"` keeps
   local copies of originals in the `[cache] input` pool.
 - A file mount's `root_id` is part of the cache key of every result from that

@@ -70,7 +70,7 @@ defmodule ImagePipe.Source.HTTP do
                         and a `host` header. \
                         It also drops `range`, `accept`, and `accept-encoding` headers, \
                         except on a source with `internal_cache: :disabled` that isn't \
-                        write-once. Requests for one URL must always return the same \
+                        immutable. Requests for one URL must always return the same \
                         bytes, because cached originals and processed images are \
                         reused per URL.
                         """

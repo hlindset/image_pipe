@@ -317,7 +317,7 @@ request that version, written `?` as `%3F`:
 
 A versioned object never changes, so cached images made from it are served
 without checking S3 (see
-[write-once sources](caching-and-freshness.md#write-once-sources)). If the
+[immutable sources](caching-and-freshness.md#immutable-sources)). If the
 store ignores version IDs, the request fails with `502` rather than serving
 the current object.
 

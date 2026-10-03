@@ -41,10 +41,10 @@ root_id = "media"
 To serve only paths under `media/`, match a prefix instead (see
 [routing image paths to sources](sources.md#routing-image-paths-to-sources)).
 
-## Mark write-once files
+## Mark files as immutable
 
 If files in the directory are never replaced in place, mark the source as
-write-once. Cached images from it are then served without checking the
+immutable. Cached images from it are then served without checking the
 file:
 
 <!-- tabs-open -->
