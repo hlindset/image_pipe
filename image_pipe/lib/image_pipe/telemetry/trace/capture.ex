@@ -99,7 +99,8 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     :model,
     :classes,
     :regions,
-    :scale,
+    # requested weight per detection class (a map of class name to number)
+    :weights,
     :width,
     :height,
     :format,
@@ -172,10 +173,24 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     # ICC-import boolean (product-neutral; sourced from runtime image inspection)
     :working_space,
     :imported?,
-    # cache admission / warm-start
+    # cache admission / warm-start / eviction
     :victim_count,
     :own_state_loaded,
-    :peer_state_files
+    :peer_state_files,
+    :trigger,
+    # HTTP cache one-shots: the cache-header mode and booleans about the response
+    # headers, never the ETag value itself
+    :effective_mode,
+    :byte_identity,
+    :etag,
+    :method,
+    :generated_cache_headers,
+    :representation_headers,
+    # face/attention blend: normalized {x, y} points and the face weight
+    :attention,
+    :face,
+    :blended,
+    :weight
   ]
 
   @spec attach(map()) :: :ok
@@ -348,15 +363,24 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
   defp end_time(start, %{duration: d}) when is_integer(d), do: start + d
   defp end_time(start, _), do: start
 
+  # Results that are normal outcomes rather than failures: a detector that found
+  # nothing, a cache declining an entry, or a client that went away. Every other
+  # result is a failure.
+  @ok_results [
+    nil,
+    :ok,
+    :admitted,
+    :options,
+    :not_modified,
+    :detected,
+    :no_regions,
+    :rejected,
+    :client_closed,
+    :cancelled
+  ]
+
   defp status_from(meta) do
-    case meta[:result] do
-      :ok -> :ok
-      :admitted -> :ok
-      :options -> :ok
-      :not_modified -> :ok
-      nil -> :ok
-      _other -> :error
-    end
+    if meta[:result] in @ok_results, do: :ok, else: :error
   end
 
   defp exception_event(meta) do

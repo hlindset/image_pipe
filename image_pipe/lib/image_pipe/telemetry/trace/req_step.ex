@@ -13,10 +13,9 @@ defmodule ImagePipe.Telemetry.Trace.ReqStep do
   #
   # ## No-op when no tracer is attached
   #
-  # When `ImagePipe.Telemetry.Trace.exporter/0` is `nil` (no tracer attached), the wrapper emits
-  # nothing. The header injection and `finch_private` stamp are cheap and harmless, so attaching
-  # `ReqStep` is safe to do unconditionally at the build site — a source fetch behaves identically
-  # whether or not a tracer is attached.
+  # When `ImagePipe.Telemetry.Trace.exporter/0` is `nil` (no tracer attached), the wrapper passes
+  # the request through untouched: no `traceparent` reaches the origin and no span is emitted.
+  # Attaching `ReqStep` is therefore safe to do unconditionally at the build site.
   #
   # ## `into: :self` timing caveat
   #
@@ -38,6 +37,10 @@ defmodule ImagePipe.Telemetry.Trace.ReqStep do
   end
 
   defp trace(req, acc, fun, state, next) do
+    if Trace.exporter(), do: traced(req, acc, fun, state, next), else: next.(req, acc, fun, state)
+  end
+
+  defp traced(req, acc, fun, state, next) do
     req = start(req)
     result = next.(req, acc, fun, state)
     finish(req, result)

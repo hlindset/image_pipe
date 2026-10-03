@@ -303,6 +303,37 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert_receive {:span, %Span{name: "image_pipe.request", status: :ok}}
   end
 
+  test "maps normal stage outcomes to :ok status" do
+    for {stage, result} <- [
+          {[:transform, :detect], :detected},
+          {[:transform, :detect], :no_regions},
+          {[:cache, :admission], :rejected},
+          {[:deliver], :client_closed},
+          {[:processing, :admission], :cancelled}
+        ] do
+      Telemetry.span([], stage, %{}, fn -> {:ok, %{result: result}} end)
+      name = "image_pipe." <> Enum.map_join(stage, ".", &Atom.to_string/1)
+      assert_receive {:span, %Span{name: ^name, status: status}}
+      assert {result, status} == {result, :ok}
+    end
+  end
+
+  test "maps failure outcomes to :error status" do
+    for {stage, result} <- [
+          {[:transform, :detect], :unavailable},
+          {[:transform, :detect], :error},
+          {[:processing, :admission], :overloaded},
+          {[:processing, :execute], :timeout},
+          {[:cache, :lookup], :cache_error},
+          {[:request], :parser_error}
+        ] do
+      Telemetry.span([], stage, %{}, fn -> {:ok, %{result: result}} end)
+      name = "image_pipe." <> Enum.map_join(stage, ".", &Atom.to_string/1)
+      assert_receive {:span, %Span{name: ^name, status: status}}
+      assert {result, status} == {result, :error}
+    end
+  end
+
   test "captures an exception as :error with a folded exception event" do
     assert_raise RuntimeError, fn ->
       Telemetry.span([], [:request], %{}, fn -> raise "boom" end)
@@ -497,6 +528,46 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     event = Enum.find(span.events, &(&1.name == "image_pipe.debug.collect.error"))
     assert event
     assert event.attributes[:error] == :decode_failed
+  end
+
+  test "one-shot events keep the metadata the event reference documents" do
+    events = [
+      {[:http_cache, :prepare], %{effective_mode: :auto, byte_identity: :strong, etag: true}},
+      {[:http_cache, :conditional, :match], %{method: :get}},
+      {[:http_cache, :cache_hit, :headers],
+       %{etag: true, generated_cache_headers: true, representation_headers: false}},
+      {[:transform, :detect, :blend],
+       %{attention: {0.5, 0.5}, face: {0.2, 0.3}, blended: {0.3, 0.4}, weight: 0.6}},
+      {[:cache, :coordination], %{operation: :source, pool: :input, result: :acquired}},
+      {[:cache, :eviction, :stop], %{trigger: :reconcile, pool: :output}}
+    ]
+
+    Telemetry.span([], [:send], %{}, fn ->
+      for {event, meta} <- events, do: Telemetry.execute([], event, %{}, meta)
+      {:ok, %{result: :ok}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.send"} = span}
+
+    for {event, meta} <- events do
+      name = "image_pipe." <> Enum.map_join(event, ".", &Atom.to_string/1)
+      captured = Enum.find(span.events, &(&1.name == name))
+      assert {name, captured.attributes} == {name, meta}
+    end
+  end
+
+  test "detect spans keep the requested class weights" do
+    Telemetry.span(
+      [],
+      [:transform, :detect],
+      %{classes: ["face"], weights: %{"face" => 2.0}},
+      fn ->
+        {:ok, %{result: :detected, regions: 1}}
+      end
+    )
+
+    assert_receive {:span, %Span{name: "image_pipe.transform.detect"} = span}
+    assert span.attributes[:weights] == %{"face" => 2.0}
   end
 
   test "nests the ssimulacra2 probe cost legs (encode/decode/metric) under the probe span" do

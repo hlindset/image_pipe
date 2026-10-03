@@ -104,6 +104,26 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
     refute_received {:telemetry, @chosen, _m2, _meta2}
   end
 
+  test "a failed encode reports the error category, not the raw reason" do
+    rs = %RQS.Ssimulacra2{target: 90.0, min_quality: 10, max_quality: 80, allowed_error: 0.0}
+    reason = {:encode, "VipsForeignSave: out of memory"}
+
+    assert {:error, ^reason} =
+             EncodeSearch.search(rs, nil,
+               encode_fun: fn _q -> {:error, reason} end,
+               score_fun: fn _bin -> 50.0 end,
+               telemetry_opts: Telemetry.telemetry_opts(telemetry_prefix: @prefix)
+             )
+
+    assert_receive {:telemetry, @probe, _measurements, probe_meta}
+    assert probe_meta.result == :processing_error
+    assert probe_meta.error == :encode
+
+    assert_receive {:telemetry, @stop, _measurements, stop_meta}
+    assert stop_meta.result == :processing_error
+    assert stop_meta.error == :encode
+  end
+
   test "confirm/bump probes carry the phase + the crop→full residual fields" do
     rs = %RQS.Ssimulacra2{
       target: 90.0,

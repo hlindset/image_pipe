@@ -23,6 +23,8 @@ defmodule ImagePipeServer.Config do
       unbounded.
     * `[http]` - the delivery options of `ImagePipe.Plug.init/1`.
     * `[telemetry]` - `log_level` attaches the default Logger.
+      `trust_traceparent` continues an inbound W3C `traceparent` when tracing
+      is on.
 
   Invalid configuration raises `ImagePipeServer.ConfigError` (see there for
   which values a message may quote).
@@ -38,6 +40,7 @@ defmodule ImagePipeServer.Config do
 
   @enforce_keys [
     :server,
+    :trust_traceparent,
     :image_pipe,
     :http,
     :pool,
@@ -52,6 +55,8 @@ defmodule ImagePipeServer.Config do
     * `:server` - `:port`, `:ip`, `:mount_path`, `:shutdown_timeout`,
       `:read_timeout`, `:max_connections`, and `:auth_token_hash`, the SHA-256
       of the auth token (or `nil`). The token itself isn't kept.
+    * `:trust_traceparent` - whether the tracer continues an inbound
+      `traceparent` (its `extract_inbound` option).
     * `:image_pipe` - the `ImagePipe.Config` the server's instance runs.
     * `:http` - the delivery options of `ImagePipe.Plug.init/1`.
     * `:pool` - `ImagePipe.ProcessingPool` options with the pool's name, or `nil`.
@@ -61,6 +66,7 @@ defmodule ImagePipeServer.Config do
   """
   @type t :: %__MODULE__{
           server: keyword(),
+          trust_traceparent: boolean(),
           image_pipe: ImagePipe.Config.t(),
           http: keyword(),
           pool: keyword() | nil,
@@ -80,7 +86,10 @@ defmodule ImagePipeServer.Config do
     auth_token: [type: :string]
   ]
 
-  @telemetry_schema [log_level: [type: {:in, Logger.levels()}]]
+  @telemetry_schema [
+    log_level: [type: {:in, Logger.levels()}],
+    trust_traceparent: [type: :boolean, default: false]
+  ]
 
   @watermark_schema [
     source: [type: :string, required: true],
@@ -225,6 +234,7 @@ defmodule ImagePipeServer.Config do
 
     %__MODULE__{
       server: server!(Keyword.get(sections, :server, [])),
+      trust_traceparent: trust_traceparent(Keyword.get(sections, :telemetry, [])),
       image_pipe: image_pipe,
       http: http!(Keyword.get(sections, :http, [])),
       pool: pool,
@@ -342,6 +352,8 @@ defmodule ImagePipeServer.Config do
           [Keyword.get(overrides, :credentials, default[:credentials])],
         do: [provider: provider, opts: opts, scope: bucket]
   end
+
+  defp trust_traceparent(options), do: Keyword.get(options, :trust_traceparent, false)
 
   defp telemetry(options) do
     case Keyword.fetch(options, :log_level) do

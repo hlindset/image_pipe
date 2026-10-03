@@ -42,7 +42,7 @@ would be `nil` is left out of the metadata.
 
 - `:result` (atom): the outcome. See [result values](#result-values).
 - `:error` (atom): the error category from `ImagePipe.Error.tag/1`, on
-  failures. Some encode-search failures carry the raw error reason instead.
+  failures.
 - `:status` (integer): the HTTP status, on events that know it.
 - `:cache` (atom): the cache outcome, on cache events.
 - `:pool` (`:input` or `:output`): which cache pool emitted the event.
@@ -626,6 +626,7 @@ image at several qualities and delivers one of those encodes.
   - `:max_bytes` (integer): the byte limit, when set.
 - Stop metadata:
   - `:result` (atom): `:ok` or `:processing_error`.
+  - `:error` (atom): the error category, on failure.
   - `:chosen_quality` (integer): the delivered quality.
   - `:chosen_bytes` (integer): the delivered size.
   - `:iterations` (integer): encodes performed.
@@ -656,8 +657,8 @@ the search already encoded emits nothing again.
   - `:score` (float): the score computed. Absent for `:size` and `:none`.
   - `:scorer` (atom): `:full` or `:crop`.
   - `:tiles_scored` (integer): crops scored. `:crop` only.
-  - `:result` and `:error`: on failure, `:processing_error` and the raw
-    error reason.
+  - `:result` (atom): `:processing_error`, on failure.
+  - `:error` (atom): the error category, on failure.
 
 ### Probe cost spans
 
@@ -666,7 +667,8 @@ real work, unlike `[:transform, :operation]`. The default Logger doesn't log
 them.
 
 - `[:encode, :search, :probe, :encode]`: the encode, for every objective.
-  Start metadata `:quality`, stop metadata `:result` and `:bytes`.
+  Start metadata `:quality`, stop metadata `:result` and `:bytes`, or
+  `:result` and `:error` on failure.
 - `[:encode, :search, :probe, metric, :decode]`: decoding the encoded
   candidate. `metric` is `:ssimulacra2` or `:butteraugli`. Start metadata
   `:bytes`, stop metadata `:result`.
@@ -705,9 +707,8 @@ One-shot. Emitted when the response's cache headers are built.
 
 ### `[:http_cache, :conditional, :match]`
 
-One-shot. Emitted when a conditional request matches before the
-output-cache lookup and is answered with `304`. A `304` answered after an
-output-cache hit doesn't emit it.
+One-shot. Emitted when a conditional request is answered with `304`, whether
+it matched before the output-cache lookup or after an output-cache hit.
 
 - Metadata: `:method` (atom), `:get` or `:head`.
 
