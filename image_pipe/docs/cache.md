@@ -55,8 +55,10 @@ source_cache_policy: [
 ```
 
 Fallback freshness applies only when origin freshness is absent. Forced TTL
-does not grant storage permission. Explicit `storage: :allow` overrides origin
-private/no-store/authentication restrictions; `Vary: *` still prevents reuse.
+does not grant storage permission. Explicit `storage: :allow` overrides the
+origin's `private` and `no-store`. `Vary: *` still prevents reuse. Originals
+fetched with your source credentials, such as signed S3 requests, follow the
+same rules, both for the cache and for the response's `Cache-Control`.
 Request URLs cannot set these host policies. Auth callbacks and S3 credentials
 are resolved before keying and frozen for the fetch; only their digest enters
 cache keys. Hosts implementing custom source adapters must include every

@@ -19,8 +19,7 @@ defmodule ImagePipe.Source.Origin do
     :requested_at,
     :received_at,
     :resource,
-    :vary,
-    :authenticated?
+    :vary
   ]
   defstruct @enforce_keys
 
@@ -30,14 +29,13 @@ defmodule ImagePipe.Source.Origin do
           requested_at: integer(),
           received_at: integer(),
           resource: binary(),
-          vary: %{String.t() => binary()},
-          authenticated?: boolean()
+          vary: %{String.t() => binary()}
         }
 
   @doc false
   def valid?(%__MODULE__{} = origin) do
     origin.status in 200..299 and is_integer(origin.requested_at) and
-      is_integer(origin.received_at) and is_boolean(origin.authenticated?) and
+      is_integer(origin.received_at) and
       is_binary(origin.resource) and byte_size(origin.resource) == 32 and
       valid_headers?(origin.headers) and valid_vary?(origin.vary)
   end
@@ -77,8 +75,7 @@ defmodule ImagePipe.Source.Origin do
       requested_at: requested_at,
       received_at: received_at,
       resource: resource(request.url),
-      vary: Map.new(vary, &{&1, MaterialDigest.of(Map.get(request.headers, &1, []))}),
-      authenticated?: Map.has_key?(request.headers, "authorization")
+      vary: Map.new(vary, &{&1, MaterialDigest.of(Map.get(request.headers, &1, []))})
     }
   end
 
@@ -89,8 +86,7 @@ defmodule ImagePipe.Source.Origin do
         origin.headers,
         policy,
         stable?,
-        {origin.requested_at, origin.received_at},
-        origin.authenticated?
+        {origin.requested_at, origin.received_at}
       )
 
     %{state | storable?: state.storable? and origin.status == 200}
