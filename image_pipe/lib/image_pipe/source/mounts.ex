@@ -33,11 +33,11 @@ defmodule ImagePipe.Source.Mounts do
       do: add_mounts(sources),
       else:
         {:error,
-         {:source, {:invalid_sources, "expected a keyword list of uniquely named mounts"}}}
+         {:source, {:invalid_sources, "expected a keyword list of uniquely named sources"}}}
   end
 
   def validate(_sources),
-    do: {:error, {:source, {:invalid_sources, "expected a keyword list of named mounts"}}}
+    do: {:error, {:source, {:invalid_sources, "expected a keyword list of named sources"}}}
 
   @doc false
   @spec scheme?(t(), String.t()) :: boolean()
@@ -104,7 +104,7 @@ defmodule ImagePipe.Source.Mounts do
     with {:ok, mount} <- validate_mount_shape(name, mount),
          {:ok, rules} <- parse_match(name, Keyword.fetch!(mount, :match)),
          module = Keyword.fetch!(mount, :adapter),
-         {:ok, opts} <- validate_adapter_options(module, Keyword.fetch!(mount, :options)),
+         {:ok, opts} <- validate_adapter_options(name, module, Keyword.fetch!(mount, :options)),
          :ok <- check_identifiers(name, module, opts, rules),
          {:ok, mounts} <- add_rules(mounts, name, rules) do
       {:ok, %{mounts | mounts: Map.put(mounts.mounts, name, {module, opts})}}
@@ -112,12 +112,12 @@ defmodule ImagePipe.Source.Mounts do
   end
 
   defp add_mount(_mounts, name, _mount),
-    do: invalid_mount(name, "expected a keyword list with :adapter, :match, and :options")
+    do: invalid_source(name, "expected a keyword list with :adapter, :match, and :options")
 
   defp validate_mount_shape(name, mount) do
     case NimbleOptions.validate(mount, @mount_schema) do
       {:ok, validated} -> {:ok, validated}
-      {:error, error} -> invalid_mount(name, Exception.message(error))
+      {:error, error} -> invalid_source(name, Exception.message(error))
     end
   end
 
@@ -130,14 +130,14 @@ defmodule ImagePipe.Source.Mounts do
 
       if rules != [] and Enum.all?(rules, &valid_rule?/1),
         do: {:ok, rules},
-        else: invalid_mount(name, "invalid match rule #{inspect(match)}")
+        else: invalid_source(name, "invalid match rule #{inspect(match)}")
     else
-      invalid_mount(name, "match must be :path or a keyword list of :prefix and :scheme")
+      invalid_source(name, "match must be :path or a keyword list of :prefix and :scheme")
     end
   end
 
   defp parse_match(name, _match),
-    do: invalid_mount(name, "match must be :path or a keyword list of :prefix and :scheme")
+    do: invalid_source(name, "match must be :path or a keyword list of :prefix and :scheme")
 
   defp valid_rule?({:prefix, prefix}) when is_binary(prefix),
     do: prefix not in ["", ".", ".."] and not String.contains?(prefix, "/")
@@ -158,25 +158,32 @@ defmodule ImagePipe.Source.Mounts do
 
     cond do
       not (is_list(supported) and Enum.all?(supported, &(&1 in @identifiers))) ->
-        invalid_mount(name, "#{inspect(module)}.identifiers/1 returned #{inspect(supported)}")
+        invalid_source(name, "#{inspect(module)}.identifiers/1 returned #{inspect(supported)}")
 
       Enum.all?(needed, &(&1 in supported)) ->
         :ok
 
       true ->
-        invalid_mount(
+        invalid_source(
           name,
           "#{inspect(module)} resolves #{inspect(supported)}, but match needs #{inspect(needed)}"
         )
     end
   end
 
-  defp validate_adapter_options(module, options) do
+  defp validate_adapter_options(name, module, options) do
     case module.validate_options(options) do
-      {:ok, validated} when is_list(validated) -> {:ok, order_like(options, validated)}
-      {:error, {:source, _reason}} = error -> error
-      {:error, reason} -> {:error, {:source, reason}}
-      _other -> {:error, {:source, :invalid_adapter_config}}
+      {:ok, validated} when is_list(validated) ->
+        {:ok, order_like(options, validated)}
+
+      {:error, {:invalid_source_config, message}} when is_binary(message) ->
+        invalid_source(name, message)
+
+      {:error, reason} ->
+        invalid_source(name, inspect(reason))
+
+      other ->
+        invalid_source(name, "#{inspect(module)}.validate_options/1 returned #{inspect(other)}")
     end
   end
 
@@ -199,14 +206,14 @@ defmodule ImagePipe.Source.Mounts do
   defp add_rule(%{path: nil} = mounts, name, {:path, nil}), do: {:ok, %{mounts | path: name}}
 
   defp add_rule(%{path: other}, name, {:path, nil}),
-    do: invalid_mount(name, "match :path is already used by mount #{inspect(other)}")
+    do: invalid_source(name, "match :path is already used by source #{inspect(other)}")
 
   defp add_rule(mounts, name, {:prefix, prefix}) do
     case mounts.prefixes do
       %{^prefix => other} ->
-        invalid_mount(
+        invalid_source(
           name,
-          "prefix #{inspect(prefix)} is already used by mount #{inspect(other)}"
+          "prefix #{inspect(prefix)} is already used by source #{inspect(other)}"
         )
 
       prefixes ->
@@ -217,9 +224,9 @@ defmodule ImagePipe.Source.Mounts do
   defp add_rule(mounts, name, {:scheme, scheme}) do
     case mounts.schemes do
       %{^scheme => other} ->
-        invalid_mount(
+        invalid_source(
           name,
-          "scheme #{inspect(scheme)} is already used by mount #{inspect(other)}"
+          "scheme #{inspect(scheme)} is already used by source #{inspect(other)}"
         )
 
       schemes ->
@@ -227,5 +234,5 @@ defmodule ImagePipe.Source.Mounts do
     end
   end
 
-  defp invalid_mount(name, reason), do: {:error, {:source, {:invalid_mount, name, reason}}}
+  defp invalid_source(name, reason), do: {:error, {:source, {:invalid_source, name, reason}}}
 end

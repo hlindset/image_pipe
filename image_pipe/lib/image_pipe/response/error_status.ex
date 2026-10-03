@@ -101,7 +101,6 @@ defmodule ImagePipe.Response.ErrorStatus do
               :unreadable,
               :credentials_unavailable,
               :invalid_adapter_result,
-              :invalid_adapter_config,
               :missing_adapter
             ],
        do: :server_error
@@ -163,7 +162,7 @@ defmodule ImagePipe.Response.ErrorStatus do
       do: "incomplete source response"
 
   def message_for({:source, reason})
-      when reason in [:invalid_adapter_result, :invalid_adapter_config, :missing_adapter],
+      when reason in [:invalid_adapter_result, :missing_adapter],
       do: "configuration error"
 
   def message_for({:source, reason}) when reason in [:unreadable, :credentials_unavailable],

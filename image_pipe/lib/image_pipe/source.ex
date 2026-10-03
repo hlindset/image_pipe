@@ -231,7 +231,7 @@ defmodule ImagePipe.Source do
   defp prepare_cache_source(_module, source, _opts, _runtime), do: {:ok, source}
 
   @doc false
-  @spec validate_config(keyword()) :: {:ok, keyword()} | {:error, error()}
+  @spec validate_config(keyword()) :: {:ok, keyword()} | {:error, error() | String.t()}
   def validate_config(opts) when is_list(opts) do
     with {:ok, policy} <- CachePolicy.validate(Keyword.get(opts, :source_cache_policy, [])),
          {:ok, sources} <- Mounts.validate(Keyword.get(opts, :sources, [])) do
@@ -247,9 +247,18 @@ defmodule ImagePipe.Source do
         opts
 
       {:error, reason} ->
-        raise ArgumentError, "invalid ImagePipe source options: #{inspect(reason)}"
+        raise ArgumentError, config_error_message(reason)
     end
   end
+
+  defp config_error_message({:source, {:invalid_source, name, message}}),
+    do: "invalid source #{inspect(name)}: #{message}"
+
+  defp config_error_message({:source, {:invalid_sources, message}}),
+    do: "invalid sources: #{message}"
+
+  defp config_error_message(message) when is_binary(message),
+    do: "invalid source_cache_policy: #{message}"
 
   # Translates a host-configured source string into a plan source that a
   # configured mount serves. `opts` holds validated mounts.

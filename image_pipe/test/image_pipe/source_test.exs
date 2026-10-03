@@ -242,7 +242,8 @@ defmodule ImagePipe.SourceTest do
     assert Source.validate_config(
              sources: [path: [adapter: InvalidConfigAdapter, match: :path, options: []]]
            ) ==
-             {:error, {:source, {:invalid_source_config, :bad_option}}}
+             {:error,
+              {:source, {:invalid_source, :path, "{:invalid_source_config, :bad_option}"}}}
   end
 
   test "malformed adapter callback results become source errors" do

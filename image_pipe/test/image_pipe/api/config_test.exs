@@ -464,4 +464,24 @@ defmodule ImagePipe.Plug.ConfigTest do
       assert config[:auto_webp] == true
     end
   end
+
+  test "source configuration errors name the source and the problem" do
+    file = [adapter: ImagePipe.Source.File, options: [root: "/srv/images", root_id: "media"]]
+
+    cases = [
+      {[photos: file],
+       "invalid source :photos: required :match option not found, " <>
+         "received options: [:adapter, :options]"},
+      {[photos: [adapter: ImagePipe.Source.File, match: :path, options: [root: "/srv"]]],
+       "invalid source :photos: required :root_id option not found, " <>
+         "received options: [:root]"},
+      {[photos: [match: :path] ++ file, archive: [match: :path] ++ file],
+       "invalid source :archive: match :path is already used by source :photos"},
+      {:photos, "invalid sources: expected a keyword list of named sources"}
+    ]
+
+    for {sources, message} <- cases do
+      assert_raise ArgumentError, message, fn -> ImagePipe.config(sources: sources) end
+    end
+  end
 end
