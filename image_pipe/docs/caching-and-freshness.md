@@ -107,9 +107,6 @@ Changed content must therefore get a new identifier, such as `cat-v2.jpg`.
 For HTTP and S3 sources, changing how the source fetches originals, such as
 its request options or credentials, also gives every original a new version.
 Credentials are hashed first, so they never appear in cache keys or `ETag`s.
-A file source's settings, such as its `root`, don't change the version. Moving
-the directory to a new `root` keeps the images' `ETag`s, so browsers and CDNs
-keep their copies, as long as `root_id` stays the same.
 
 A write-once source can't have its own lifetime or stale window, and a default
 lifetime set for all sources doesn't apply to it. S3 identifiers that name an
@@ -131,6 +128,11 @@ requests within it skip the check.
 Originals are read where they are. On a network filesystem, the source can
 keep a local copy in the originals cache, so other sizes don't read the file
 over the network again.
+
+The cache identifies files by the source's `root_id` and their path, not by
+the directory's `root`. Moving the directory to a new `root` keeps cached
+originals, processed images, and their `ETag`s, as long as `root_id` stays
+the same.
 
 ## Request coalescing
 

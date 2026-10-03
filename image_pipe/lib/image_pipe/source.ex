@@ -196,15 +196,11 @@ defmodule ImagePipe.Source do
       # is also a compiled regex, which has no stable serialization.
       context =
         {module,
-         Keyword.drop(opts, [
-           :cache_policy,
-           :stable,
-           :internal_cache,
-           :http_cache,
-           :path_pattern,
-           :verify,
-           :copy
-         ]), prepared.fetch}
+         Keyword.drop(
+           opts,
+           [:cache_policy, :stable, :internal_cache, :http_cache, :path_pattern, :verify, :copy] ++
+             location_options(module)
+         ), prepared.fetch}
 
       identity =
         case prepared.cache_semantics.byte_identity do
@@ -221,6 +217,11 @@ defmodule ImagePipe.Source do
   rescue
     _exception -> {:error, {:source, :credentials_unavailable}}
   end
+
+  # A File source's `root_id` names its directory, so moving the directory to a
+  # new `root` keeps its cached originals and results.
+  defp location_options(ImagePipe.Source.File), do: [:root]
+  defp location_options(_module), do: []
 
   defp prepare_cache_source(module, source, opts, runtime)
        when module in [ImagePipe.Source.HTTP, ImagePipe.Source.S3],

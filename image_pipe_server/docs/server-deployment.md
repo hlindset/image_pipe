@@ -150,7 +150,8 @@ Whether a response is cached also depends on its source mount:
   local copies of originals in the `[cache] input` pool.
 - A file mount's `root_id` is part of the cache key of every result from that
   mount. Keep it the same across restarts and replicas, or cached results
-  aren't reused.
+  aren't reused. The `root` path can differ between replicas or change over
+  time.
 
 ## Processing capacity
 
