@@ -222,9 +222,9 @@ ImagePipe.URL.group(builder, crop: {{:pct, 100}, {:pct, 100}}, crop_ratio: {16, 
 ### region
 
 Accepts `x,y,width,height`. Each is a pixel length or percentage. `x` and `y`
-are measured from the top-left corner and can be negative. `width` and
-`height` must be positive. Percentages are of the image's width and height.
-Default: none.
+are measured from the top-left corner and can't be negative, and `width` and
+`height` must be positive. A request that breaks either rule fails with `400`.
+Percentages are of the image's width and height. Default: none.
 
 Cuts out exactly that rectangle. `anchor`, `focus`, and `detect` don't move
 it. A rectangle that runs past an edge is moved inside the image, keeping its

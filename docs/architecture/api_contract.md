@@ -74,8 +74,11 @@ rotation, flip, and trim. Trimming a 1000px-wide input to 800px and then
 applying `crop=50pct,100pct` requests 400px in width. Decode shrink-on-load
 preserves these source-pixel coordinates. Region coordinates are
 relative to the trimmed image, with no hidden original-image offset.
-Crop and region widths and heights must be positive; invalid sizes fail
-during request parsing before source resolution or cache access.
+Crop and region widths and heights must be positive, and region origins
+must not be negative. Invalid values fail during request parsing before
+source resolution or cache access. A region that starts at or beyond the
+right or bottom edge fails after decode; one that runs past an edge moves
+inside the image, keeping its size up to the image's size.
 
 Each `-` group receives the previous group's complete result, including
 canvas, padding, background, and watermark. Group parameters do not carry forward:

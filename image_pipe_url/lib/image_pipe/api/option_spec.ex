@@ -866,13 +866,20 @@ defmodule ImagePipe.API.OptionSpec do
           | {:error, atom()}
   def parse_region(string) do
     case Value.csv(string, 4..4, [
-           &Value.length/1,
-           &Value.length/1,
+           &non_negative_length/1,
+           &non_negative_length/1,
            &positive_length/1,
            &positive_length/1
          ]) do
       {:ok, [x, y, w, h]} -> {:ok, {x, y, w, h}}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp non_negative_length(string) do
+    case Value.length(string) do
+      {:ok, {_unit, value} = length} when value >= 0 -> {:ok, length}
+      _invalid -> {:error, :invalid_length}
     end
   end
 

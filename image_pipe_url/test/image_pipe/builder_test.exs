@@ -54,6 +54,8 @@ defmodule ImagePipe.BuilderTest do
           [progressive_blur: [angle: 90]],
           [dpr: 0],
           [crop: {0, 20}],
+          [region: {-1, 0, 20, 20}],
+          [region: {0, {:pct, -5}, 20, 20}],
           [gray: "true"],
           [mystery: 1],
           [blur: 1, blur: 2],
@@ -127,8 +129,8 @@ defmodule ImagePipe.BuilderTest do
            anchor_offset: {-10, {:pct, 5}}
          ],
          "crop=80pct,200/crop-ratio=16:9/crop-ratio-enlarge/anchor=top-left/anchor-offset=-10,5pct"},
-        {"region and orientation", [rotate: 90.0, flip: :both, region: {-5, {:pct, 10}, 100, 80}],
-         "rotate=90/flip=hv/region=-5,10pct,100,80"},
+        {"region and orientation", [rotate: 90.0, flip: :both, region: {5, {:pct, 10}, 100, 80}],
+         "rotate=90/flip=hv/region=5,10pct,100,80"},
         {"trim and canvas",
          [
            trim: {"white", 12},
