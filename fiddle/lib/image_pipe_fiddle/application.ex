@@ -15,9 +15,6 @@ defmodule ImagePipeFiddle.Application do
 
   @impl true
   def start(_type, _args) do
-    :persistent_term.put({__MODULE__, :api_opts}, build_api_opts())
-    :persistent_term.put({__MODULE__, :api_signed_opts}, build_api_signed_opts())
-    :persistent_term.put({__MODULE__, :signed_url_config}, signed_url_config())
     ImagePipe.Telemetry.attach_default_logger(events: :all, level: :debug, debug: true)
     maybe_attach_tracer()
 
@@ -27,9 +24,10 @@ defmodule ImagePipeFiddle.Application do
         {DNSCluster,
          query: Application.get_env(:image_pipe_fiddle, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: ImagePipeFiddle.PubSub},
+        {ImagePipe, image_pipe_opts()},
         ImagePipeFiddleWeb.Endpoint,
         {ImagePipe.Transform.Detector.Warmup, detector: :default, classes: ["face"]}
-      ] ++ cache_children(Application.get_env(:image_pipe_fiddle, :cache))
+      ]
 
     opts = [strategy: :one_for_one, name: ImagePipeFiddle.Supervisor]
     Supervisor.start_link(children, opts)
@@ -105,19 +103,14 @@ defmodule ImagePipeFiddle.Application do
     end
   end
 
-  defp build_api_opts do
-    [url: ImagePipe.URL.config()]
-    |> Keyword.merge(api_opts())
-    |> ImagePipe.Plug.init()
+  # One instance serves both mounts; the signed mount picks the `:signed` URL
+  # configuration, so both share the cache.
+  defp image_pipe_opts do
+    [name: ImagePipeFiddle.Images, urls: [signed: signed_url_config()]] ++ api_opts()
   end
 
-  defp build_api_signed_opts do
-    [url: signed_url_config()]
-    |> Keyword.merge(api_opts())
-    |> ImagePipe.Plug.init()
-  end
-
-  defp signed_url_config do
+  @doc false
+  def signed_url_config do
     ImagePipe.URL.config(
       keys: [@demo_signing_key],
       source_encryption_keys: [@demo_source_encryption_key]
@@ -126,8 +119,6 @@ defmodule ImagePipeFiddle.Application do
 
   defp api_opts do
     [
-      allow_origin: "*",
-      allow_debug_headers: true,
       presets: @presets,
       sources: source_mounts(),
       watermarks: %{
@@ -142,13 +133,4 @@ defmodule ImagePipeFiddle.Application do
 
   defp maybe_put_cache(opts, nil), do: opts
   defp maybe_put_cache(opts, cache), do: Keyword.put(opts, :cache, cache)
-
-  defp cache_children(nil), do: []
-
-  defp cache_children({module, opts}) do
-    case module.child_spec(opts) do
-      :ignore -> []
-      spec -> [spec]
-    end
-  end
 end
