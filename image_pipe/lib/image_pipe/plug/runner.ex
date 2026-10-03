@@ -35,7 +35,19 @@ defmodule ImagePipe.Plug.Runner do
 
       {conn, metadata}
     end)
+    |> abort_failed_stream()
   end
+
+  # Returning a chunked conn lets the server end the body as if it were
+  # complete. Raising makes it drop the connection instead, so clients and
+  # CDNs see the truncation.
+  defp abort_failed_stream(%Plug.Conn{
+         state: :chunked,
+         private: %{image_pipe_send_result: :processing_error}
+       }),
+       do: raise(ImagePipe.Plug.StreamAbortedError)
+
+  defp abort_failed_stream(conn), do: conn
 
   # -- route: OPTIONS/405 guards, then parse → prepare → resolve → serve ------
 

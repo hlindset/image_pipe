@@ -173,12 +173,6 @@ spelling per image.
 If `[server]` sets `auth_token`, configure the CDN to send
 `Authorization: Bearer <token>` on its requests to the server.
 
-If an image fails after ImagePipe has started sending it, the CDN gets a
-cut-off image that looks complete (see
-[failures during streaming](streaming-failures.md)). Purge that URL at the
-CDN. ImagePipe's own cache doesn't hold the partial copy, so the next request
-gets a complete image.
-
 ## Check the headers
 
 Request an image from ImagePipe directly. If your URLs are signed, use a

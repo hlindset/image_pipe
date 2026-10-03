@@ -144,12 +144,18 @@ defmodule ImagePipe.Response.Sender do
   defp send_file_chunks(conn, file) do
     Enum.reduce_while(ImagePipe.Cache.File.stream(file), conn, fn bytes, conn ->
       case chunk(conn, bytes) do
-        {:ok, conn} -> {:cont, conn}
-        {:error, _reason} -> {:halt, mark_send_processing_error(conn)}
+        {:ok, conn} ->
+          {:cont, conn}
+
+        {:error, reason} ->
+          Logger.info("cached_body_client_closed: #{inspect(reason)}")
+          {:halt, conn}
       end
     end)
   rescue
-    _exception -> mark_send_processing_error(conn)
+    exception ->
+      Logger.error("cached_body_read_error: #{Exception.message(exception)}")
+      mark_send_processing_error(conn)
   end
 
   def send_prepared_stream(

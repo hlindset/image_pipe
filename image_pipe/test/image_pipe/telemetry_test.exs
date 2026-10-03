@@ -360,16 +360,15 @@ defmodule ImagePipe.TelemetryTest do
   end
 
   test "deliver stop metadata reports processing error after chunked stream failure" do
-    {conn, log} =
-      with_log(fn ->
-        :get
-        |> conn("/format=jpeg/src/images/beach.jpg")
-        |> ImagePipe.Plug.call(base_opts(image_module: RaisingAfterFirstChunkImage))
+    log =
+      capture_log(fn ->
+        assert_raise ImagePipe.Plug.StreamAbortedError, fn ->
+          :get
+          |> conn("/format=jpeg/src/images/beach.jpg")
+          |> ImagePipe.Plug.call(base_opts(image_module: RaisingAfterFirstChunkImage))
+        end
       end)
 
-    assert conn.status == 200
-    assert conn.state == :chunked
-    assert conn.resp_body == "first chunk"
     assert log =~ "boom after first chunk"
 
     events = telemetry_events()
