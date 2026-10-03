@@ -12,53 +12,90 @@ in Elixir code. Start with the page for what you want to do:
 | Generate signed URLs for a separate server | [URL builder with an external server](external-server.md), then [shared URL settings](shared-url-settings.md) and [fetching images from the server](fetching-from-the-server.md) |
 | Extend ImagePipe with custom sources, detectors, or telemetry handlers | [Custom sources](custom-sources.md), [custom detectors](custom-detectors.md), and [telemetry handlers](telemetry.md#attaching-handlers) |
 
-## Application setup
+## Getting started
+
+First steps for each way of running ImagePipe.
 
 - [Installation](installation.md): the Hex dependency and supported image formats.
-- [Combined usage](combined-usage.md): serve images and process them in code with one configuration.
-- [Configuration](configuration.md): where settings belong, defaults, limits, and overrides.
-- [Image sources](sources.md): mounts, routing, and the available sources.
-- [Serving images from local files](serving-local-files.md), [an HTTP origin](serving-from-http.md), or [S3](serving-from-s3.md): set up each kind of source.
-- [Source network policy](source-network-policy.md): what HTTP sources may connect to, and why.
-- [Enabling face and object detection](enabling-detection.md): install the detector, load its models, and require detection.
+- [Getting started with the server](../../image_pipe_server/docs/server-getting-started.md): run `image_pipe_server` in Docker and request your first images.
+- [Plug usage](plug-usage.md): mount `ImagePipe.Plug` in Phoenix or `Plug.Router`.
+- [Processing images in Elixir](processing-in-elixir.md): resize, crop, and convert a photo from `iex`.
+- [Elixir API](elixir-api.md): the Elixir entry points and their guides.
+- [URL builder with an external server](external-server.md): generate signed URLs for a separate `image_pipe_server`.
 
 ## Requesting images
 
-[Requesting images](requesting-images.md) explains how image URLs work: their
-structure, option values, presets, and signed URLs.
-[Processing options](processing.md) covers processing order and a complete
-option index. Each category page shows the URL and Elixir spellings.
+How image URLs work, and what each processing option does to the picture.
 
-| Category | What it covers |
-| --- | --- |
-| [Resize and layout](processing/resize.md) | Dimensions, fit, enlargement, DPR, zoom, canvas, padding, background |
-| [Orientation and cropping](processing/crop.md) | EXIF, rotation, flip, trim, regions, anchors, focus, detection |
-| [Effects](processing/effects.md) | Blur, sharpen, pixelate, grayscale, color adjustments, overlays |
-| [Watermarks](processing/watermark.md) | Image watermarks with opacity, scale, placement, and tiling |
-| [Output and encoding](processing/output.md) | Formats, quality, size budgets, encoders, profiles, HDR, placeholders, info |
-| [Request controls](processing/request.md) | Downloads, page selection, cache busting, expiry, debugging |
+- [Requesting images](requesting-images.md): URL structure, option values, presets, and signed URLs.
+- [Processing options](processing.md): the complete option index and common recipes.
+- [Resize and layout](processing/resize.md): dimensions, fit, DPR, zoom, canvas, padding, and background.
+- [Orientation and cropping](processing/crop.md): rotation, flip, trim, regions, anchors, and detection.
+- [Effects](processing/effects.md): blur, sharpen, pixelate, color adjustments, and overlays.
+- [Watermarks](processing/watermark.md): image watermarks with opacity, scale, placement, and tiling.
+- [Output and encoding](processing/output.md): formats, quality, size budgets, encoders, placeholders, and info.
+- [Request controls](processing/request.md): downloads, page selection, cache busting, expiry, and debugging.
 
-- [Content-aware cropping](content-aware-gravity.md): how attention and detection choose what a crop keeps.
-- [API semantics](api_contract.md): the precise rules the processing options follow.
+## Running ImagePipe
 
-## Caching and CDNs
+Guides for deploying, connecting sources, caching, securing, and monitoring.
 
-- [Caching and freshness](caching-and-freshness.md): how long originals and processed images stay valid.
+- [Deploying image_pipe_server](../../image_pipe_server/docs/server-deployment.md): Docker, Kubernetes, health checks, and capacity.
+- [Deployment](deployment.md): source limits, generation capacity, timeouts, and memory.
+- [Image sources](sources.md): what a source is, routing, and the available sources.
+- [Serving images from local files](serving-local-files.md): read originals from a directory.
+- [Serving images from an HTTP origin](serving-from-http.md): download originals from a web server.
+- [Serving images from S3](serving-from-s3.md): read originals from private S3-compatible buckets.
 - [Caching processed images](caching-processed-images.md): store processed images on disk and share them between replicas.
 - [Serving images through a CDN](serving-through-a-cdn.md): cache headers, source lifetimes, and CDN settings.
+- [Signing URLs and rotating keys](signing-urls.md): require signed URLs and replace keys safely.
+- [Defining presets](defining-presets.md): named sets of URL options.
+- [Enabling face and object detection](enabling-detection.md): install the detector and load its models.
+- [Processing concurrency and deadlines](processing-controls.md): concurrency, queues, deadlines, and cancellation.
+- [Monitoring with telemetry](telemetry.md): logging, metrics handlers, and request IDs.
+- [Exporting traces to Jaeger](cookbook/opentelemetry-jaeger.md): send traces to a local Jaeger.
+- [Combined Plug and Elixir usage](combined-usage.md): serve images and process them in code with one configuration.
+- [Fetching images from the server](fetching-from-the-server.md): use processed images inside your application.
+
+## Concepts
+
+Why ImagePipe behaves the way it does.
+
+- [Processing order and groups](processing-order.md): the fixed stage order, and groups that run options in a different order.
+- [Caching and freshness](caching-and-freshness.md): how long originals and processed images stay valid.
+- [Failures during streaming](streaming-failures.md): what happens when encoding fails after headers are sent.
+- [Signing and source concealment](urls.md): what a signature covers, expiry, and hidden source paths.
+- [Presets](presets.md): request defaults, precedence, and pipeline presets.
+- [Content-aware cropping](content-aware-gravity.md): how attention and detection choose what a crop keeps.
+- [Source network policy](source-network-policy.md): what HTTP sources may connect to.
+- [Request tracing](tracing.md): how traces are built, inbound trace context, and sampling.
+
+## Extending
+
+Plug in your own stores, detectors, and preset storage.
+
+- [Writing a custom source](custom-sources.md): serve originals from a database, API, or blob store.
+- [Writing a custom detector](custom-detectors.md): use your own model or service for `detect` crops.
+- [Storing presets in a database](storing-presets-in-a-database.md): change presets without a restart.
+
+## Reference
+
+Settings, headers, events, and rules to look up.
+
+- [Configuration](configuration.md): Elixir settings, defaults, limits, and overrides.
+- [Configuring image_pipe_server](../../image_pipe_server/docs/server-configuration.md): the server's TOML and environment variables.
+- [Shared URL settings](shared-url-settings.md): settings the URL builder and the server must agree on.
 - [Cache storage](cache.md): what the caches store, cache key inputs, and bounded mode.
 - [HTTP cache headers](cdn-http-cache.md): `Cache-Control`, `ETag`, `Vary`, and `304` responses.
-
-## Running in production
-
-- [Deployment](deployment.md): streaming failures, timeouts, capacity, and memory.
-- [Processing limits](processing-controls.md): concurrency, queues, deadlines, and cancellation.
-- [Error responses](errors.md): which status each failure returns, and why.
-
-## Monitoring and tracing
-
-- [Monitoring with telemetry](telemetry.md): logging, metrics handlers, and request IDs.
+- [Error responses](errors.md): which status each failure returns.
 - [Telemetry event reference](telemetry-events.md): event names, measurements, metadata, and outcomes.
-- [Request tracing](tracing.md): how traces are built, inbound trace context, and sampling.
-- [Debug headers](debug_headers.md): inspect processing and cache decisions.
-- [Exporting traces to Jaeger](cookbook/opentelemetry-jaeger.md): send traces to a local Jaeger.
+- [Debug response headers](debug_headers.md): inspect processing and cache decisions.
+- [API semantics](api_contract.md): the precise rules the processing options follow.
+
+## Project
+
+About the project itself.
+
+- [ImagePipe](../README.md): the project README.
+- [Changelog](../CHANGELOG.md): changes in each release.
+- [License](../LICENSE.md): the Apache License 2.0.

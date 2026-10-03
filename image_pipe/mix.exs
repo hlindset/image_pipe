@@ -7,63 +7,65 @@ defmodule ImagePipe.MixProject do
     "Getting started": [
       "docs/index.md",
       "docs/installation.md",
-      "docs/plug-usage.md",
       "../image_pipe_server/docs/server-getting-started.md",
-      "docs/external-server.md",
-      "docs/shared-url-settings.md",
-      "docs/fetching-from-the-server.md",
+      "docs/plug-usage.md",
       "docs/processing-in-elixir.md",
       "docs/elixir-api.md",
-      "docs/combined-usage.md"
+      "docs/external-server.md"
     ],
-    Configuration: [
-      "docs/configuration.md",
-      "../image_pipe_server/docs/server-configuration.md",
-      "docs/sources.md",
-      "docs/serving-local-files.md",
-      "docs/serving-from-http.md",
-      "docs/serving-from-s3.md",
-      "docs/custom-sources.md",
-      "docs/source-network-policy.md",
-      "docs/urls.md",
-      "docs/signing-urls.md",
-      "docs/presets.md",
-      "docs/defining-presets.md",
-      "docs/storing-presets-in-a-database.md"
-    ],
-    "Processing options": [
+    "Requesting images": [
       "docs/requesting-images.md",
-      "docs/processing-order.md",
       "docs/processing.md",
       "docs/processing/resize.md",
       "docs/processing/crop.md",
       "docs/processing/effects.md",
       "docs/processing/watermark.md",
       "docs/processing/output.md",
-      "docs/processing/request.md",
-      "docs/content-aware-gravity.md",
-      "docs/enabling-detection.md",
-      "docs/custom-detectors.md",
-      "docs/api_contract.md"
+      "docs/processing/request.md"
     ],
-    Operations: [
-      "docs/deployment.md",
+    "Running ImagePipe": [
       "../image_pipe_server/docs/server-deployment.md",
-      "docs/caching-and-freshness.md",
+      "docs/deployment.md",
+      "docs/sources.md",
+      "docs/serving-local-files.md",
+      "docs/serving-from-http.md",
+      "docs/serving-from-s3.md",
       "docs/caching-processed-images.md",
       "docs/serving-through-a-cdn.md",
+      "docs/signing-urls.md",
+      "docs/defining-presets.md",
+      "docs/enabling-detection.md",
+      "docs/processing-controls.md",
+      "docs/telemetry.md",
+      "docs/cookbook/opentelemetry-jaeger.md",
+      "docs/combined-usage.md",
+      "docs/fetching-from-the-server.md"
+    ],
+    Concepts: [
+      "docs/processing-order.md",
+      "docs/caching-and-freshness.md",
+      "docs/streaming-failures.md",
+      "docs/urls.md",
+      "docs/presets.md",
+      "docs/content-aware-gravity.md",
+      "docs/source-network-policy.md",
+      "docs/tracing.md"
+    ],
+    Extending: [
+      "docs/custom-sources.md",
+      "docs/custom-detectors.md",
+      "docs/storing-presets-in-a-database.md"
+    ],
+    Reference: [
+      "docs/configuration.md",
+      "../image_pipe_server/docs/server-configuration.md",
+      "docs/shared-url-settings.md",
       "docs/cache.md",
       "docs/cdn-http-cache.md",
-      "docs/processing-controls.md",
-      "docs/streaming-failures.md",
-      "docs/errors.md"
-    ],
-    Observability: [
-      "docs/telemetry.md",
+      "docs/errors.md",
       "docs/telemetry-events.md",
-      "docs/tracing.md",
       "docs/debug_headers.md",
-      "docs/cookbook/opentelemetry-jaeger.md"
+      "docs/api_contract.md"
     ],
     Project: ["README.md", "CHANGELOG.md", "LICENSE.md"]
   ]
