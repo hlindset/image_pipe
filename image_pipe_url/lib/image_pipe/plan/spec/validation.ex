@@ -123,13 +123,17 @@ defmodule ImagePipe.Plan.Spec.Validation do
   end
 
   defp guide_requirements(group, index, invalid) do
-    guide? =
-      Map.has_key?(group, :crop) or
-        (resize_intent?(group) and Map.get(group, :fit) in [:cover, :cover_down, :auto])
+    guide? = Map.has_key?(group, :crop) or (resize_intent?(group) and cover_fit?(group))
 
     missing? = not guide? and not invalid?(invalid, index, @dimensions ++ [:crop, :fit])
     Enum.map([:anchor, :focus, :detect], &{&1, missing?, :guide})
   end
+
+  # fit=auto resizes as contain unless both w and h are numbers.
+  defp cover_fit?(%{fit: :auto} = group),
+    do: is_integer(Map.get(group, :width)) and is_integer(Map.get(group, :height))
+
+  defp cover_fit?(group), do: Map.get(group, :fit) in [:cover, :cover_down]
 
   defp crop_requirements(group, index, invalid) do
     [

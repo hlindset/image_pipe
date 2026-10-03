@@ -308,8 +308,14 @@ defmodule ImagePipe.Plan.Presets do
         is_integer(Map.get(options, key))
       end)
 
-    resize_intent? and Map.get(options, :fit) in [:cover, :cover_down, :auto]
+    resize_intent? and cover_fit?(options)
   end
+
+  # fit=auto resizes as contain unless both w and h are numbers.
+  defp cover_fit?(%{fit: :auto} = options),
+    do: is_integer(Map.get(options, :width)) and is_integer(Map.get(options, :height))
+
+  defp cover_fit?(options), do: Map.get(options, :fit) in [:cover, :cover_down]
 
   defp issue(reason, index, name, other \\ nil) do
     detail = if other, do: %{preset: name, other: other}, else: %{preset: name}

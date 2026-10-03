@@ -866,9 +866,21 @@ defmodule ImagePipe.API.ParserTest do
       assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
     end
 
-    test "fit=auto counts as a valid guide consumer at parse time" do
-      assert {:ok, %Spec{groups: [%Group{guide: {:anchor, :center}}]}} =
-               parse(["w=800", "fit=auto"])
+    test "fit=auto with both w and h counts as a guide consumer" do
+      assert {:ok, %Spec{groups: [%Group{guide: {:anchor, :top}}]}} =
+               parse(["w=800", "h=600", "fit=auto", "anchor=top"])
+    end
+
+    test "fit=auto without both w and h resizes as contain, so a guide is inert" do
+      for size <- [["w=800"], ["h=600"], ["w=800", "min-h=600"]],
+          guide <- ["anchor=top", "focus=0.5,0.5", "detect=face"] do
+        assert {:error, {:invalid_request, diagnostics}} =
+                 parse(size ++ ["fit=auto", guide])
+
+        assert Enum.any?(diagnostics, &(&1.reason == :inert_option)), inspect({size, guide})
+      end
+
+      assert {:ok, %Spec{groups: [%Group{guide: nil}]}} = parse(["w=800", "fit=auto"])
     end
 
     test "non-image outputs accept image-only output options" do

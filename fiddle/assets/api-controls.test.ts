@@ -355,6 +355,17 @@ describe("deep links and edits", () => {
     expect(updateControlOptions(options, 0, before, after)).toBe("");
   });
 
+  it("treats fit=auto as a guide consumer only with both dimensions", () => {
+    const before = controlStateFromOptions("w=600/h=400/fit=auto/anchor=top", source);
+    expect(before.gravityEnabled).toBe(true);
+    const oneAxis = normalizeControlEdit(before, { ...before, resizeHeightUnit: "auto" });
+    expect(oneAxis.gravityEnabled).toBe(false);
+
+    const widthOnly = controlStateFromOptions("w=600/fit=auto", source);
+    const guided = normalizeControlEdit(widthOnly, { ...widthOnly, gravityEnabled: true });
+    expect(guided.resizeMode).toBe("cover");
+  });
+
   it("switches canvas modes and supplies concrete dimensions", () => {
     const before = controlStateFromOptions("w=600/h=600/extend", source);
     const after = normalizeControlEdit(before, { ...before, aspectCanvasEnabled: true });

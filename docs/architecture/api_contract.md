@@ -137,9 +137,11 @@ clamping does not change the requested target aspect ratio.
 
 Default resize mode is `contain`, enlargement is off, DPR and zoom are 1,
 the default crop anchor is center, and alpha is preserved unless a
-background is requested. `auto` selects cover when source and target
-orientation match on display axes, contain otherwise. All geometry is
-resolved before final integer-pixel rounding.
+background is requested. `auto` with numbers in both `w` and `h` selects
+cover when the source and the zoomed target have the same orientation on
+display axes, contain otherwise. It is contain with fewer dimensions, so crop
+guides apply to it only with both. All geometry is resolved before final
+integer-pixel rounding.
 
 `dpr` accepts a positive decimal. `zoom` accepts a positive decimal for both
 axes, or an `x,y` pair. It scales the requested box before the resize mode

@@ -252,15 +252,15 @@ ImagePipe.URL.group(builder, region: {100, 50, 400, 300})
 
 `anchor`, `focus`, and `detect` set which part of the image a
 [`crop`](#crop) or a cover resize keeps. Without them, the center is kept.
-A cover resize is [`fit`](resize.md#fit) set to `cover` or `cover-down`, or
-`fit=auto` when it uses cover.
+A cover resize is [`fit`](resize.md#fit) set to `cover` or `cover-down` with
+a number in `w`, `h`, `min-w`, or `min-h`, or `fit=auto` with numbers in both
+`w` and `h`.
 
-Use one of them per group, since two fail with `400`. Each needs a `crop`,
-or a `fit` of `cover`, `cover-down`, or `auto` with a number in `w`, `h`,
-`min-w`, or `min-h`, in the same group. Otherwise the request fails with
-`400`. When `fit=auto` uses contain, as it always does unless both `w` and `h`
-are numbers, the request is accepted and they have no effect on the resize. With both a `crop` and a cover
-resize, they apply to each.
+Use one of them per group, since two fail with `400`. Each needs a `crop` or
+a cover resize in the same group. Otherwise the request fails with `400`.
+With `fit=auto`, a guide has no effect on the resize when it picks contain,
+which happens when the image and the box differ in orientation. With both a
+`crop` and a cover resize, the guide applies to each.
 
 ### anchor
 
