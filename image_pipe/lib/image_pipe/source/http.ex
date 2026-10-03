@@ -67,7 +67,9 @@ defmodule ImagePipe.Source.HTTP do
                         Options for `Req.request/1`, such as `headers:` or `auth:`. \
                         The adapter drops `:url`, `:base_url`, `:method`, `:body`, \
                         `:params`, `:into`, `:retry`, `:redirect`, and `:max_redirects`, \
-                        and a `host` header. \
+                        and a `host` header. Setting Req's `:adapter` is a configuration \
+                        error, because the adapter connects only to addresses it has \
+                        checked ([Source network policy](source-network-policy.md)). \
                         It also drops `range`, `accept`, and `accept-encoding` headers, \
                         except on a source with `internal_cache: :disabled` that isn't \
                         immutable. Requests for one URL must always return the same \
@@ -148,9 +150,7 @@ defmodule ImagePipe.Source.HTTP do
   TLS verification. Why is explained in
   [Source network policy](source-network-policy.md). A denied fetch fails
   with `{:source, :denied_scheme}`, `{:source, :denied_host}`, or
-  `{:source, :denied_address}`, which answer `404`. Connecting to a checked
-  address applies to Req's default transport. A Req adapter given in
-  `:req_options` makes its own connections.
+  `{:source, :denied_address}`, which answer `404`.
 
   ## Options
 
@@ -201,11 +201,19 @@ defmodule ImagePipe.Source.HTTP do
   @impl Source
   def validate_options(opts) do
     with {:ok, validated} <- validate_schema(opts),
+         :ok <- reject_req_adapter(validated),
          {:ok, validated} <- validate_base_url(validated) do
       validated
       |> Keyword.update!(:allowed_hosts, fn hosts -> Enum.map(hosts, &String.downcase/1) end)
       |> CacheSettings.validate()
     end
+  end
+
+  # Another Req adapter makes its own connections, bypassing the checked address.
+  defp reject_req_adapter(opts) do
+    if Keyword.has_key?(Keyword.fetch!(opts, :req_options), :adapter),
+      do: {:error, {:invalid_source_config, "req_options can't set :adapter"}},
+      else: :ok
   end
 
   defp validate_schema(opts) do

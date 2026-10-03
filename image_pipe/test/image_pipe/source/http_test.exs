@@ -607,6 +607,21 @@ defmodule ImagePipe.Source.HTTPTest do
       end
     end
 
+    test "rejects a Req adapter in req_options, since it would skip address pinning" do
+      adapter = fn request -> {request, Req.Response.new(status: 200)} end
+
+      assert {:error, {:invalid_source_config, message}} =
+               HTTP.validate_options(allowed_hosts: ["x"], req_options: [adapter: adapter])
+
+      assert message =~ "adapter"
+
+      assert {:ok, _opts} =
+               HTTP.validate_options(
+                 allowed_hosts: ["x"],
+                 req_options: [plug: fn conn -> conn end]
+               )
+    end
+
     test "rejects a non-list :allow without raising" do
       assert {:error, {:invalid_source_config, _}} =
                HTTP.validate_options(allowed_hosts: ["x"], address_policy: [allow: "10.0.0.0/8"])
