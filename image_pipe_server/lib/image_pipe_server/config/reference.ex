@@ -21,16 +21,28 @@ defmodule ImagePipeServer.Config.Reference do
         "`max_connections` rounds up to a multiple of 100 above 100 connections. " <>
         "With `auth_token`, requests other than `/health` must send " <>
         "`Authorization: Bearer <token>`.",
-    url: "URL verification settings, converted with `ImagePipe.URL.config/1`.",
+    url:
+      "How the server checks request URLs: the signing keys and the keys that decrypt " <>
+        "`enc/` image paths. See [signing URLs and rotating keys](../../image_pipe/docs/signing-urls.md).",
     sources: nil,
     cache:
-      "`output` and `input` configure `ImagePipe.Cache.FileSystem` caches. " <>
-        "Setting `max_size_bytes` bounds a cache and requires `node_id`.",
-    processing: "Processing defaults and limits of `ImagePipe.config/1`.",
-    pool: "An `ImagePipe.ProcessingPool`. Without this section, requests are unbounded.",
-    http: "Delivery options of `ImagePipe.Plug.init/1`.",
+      "Caches on the local filesystem: `output` for processed images, `input` for " <>
+        "originals. Setting `max_size_bytes` bounds a cache and requires `node_id`. " <>
+        "See [caching processed images](../../image_pipe/docs/caching-processed-images.md).",
+    processing:
+      "Defaults and limits for every image the server processes. The limits on " <>
+        "originals and results are described in " <>
+        "[limiting work per request](../../image_pipe/docs/deployment.md).",
+    pool:
+      "How many images are processed at once, and how long requests wait for a turn. " <>
+        "Times are in milliseconds. Without this section, every request is processed " <>
+        "immediately. See [limiting concurrent processing](../../image_pipe/docs/processing-controls.md).",
+    http:
+      "Response settings: the CORS origin, whether requests may ask for debug headers, " <>
+        "and the HTTP cache headers. See [serving images through a CDN](../../image_pipe/docs/serving-through-a-cdn.md).",
     telemetry:
-      "`log_level` attaches the default Logger (`ImagePipe.Telemetry.attach_default_logger/1`)."
+      "`log_level` logs each request and its stages at that level. Failures log at " <>
+        "`warning`."
   ]
 
   @doc "The reference as Markdown."
@@ -95,8 +107,8 @@ defmodule ImagePipeServer.Config.Reference do
     """
     ### `[sources.<name>]`
 
-    One table per named source mount. The table name is the mount name. Besides
-    `adapter` and `match`, a mount takes its adapter's options.
+    One table per source. The table name is the source's name. Besides
+    `adapter` and `match`, a source takes its adapter's options.
 
     #{table(Sources.mount_schema())}
     #{adapters}

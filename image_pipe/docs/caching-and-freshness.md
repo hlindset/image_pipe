@@ -141,9 +141,5 @@ Both kinds of sharing are local to each node, so two servers can still make
 the same image. If the image isn't in the cache when the first request
 finishes, because processing failed or the image was too large to store, each
 waiting request makes the image itself. When too many requests are already
-waiting, new ones go ahead without waiting. The limits are listed in:
-
-- Source fetches and background checks:
-  [coordination limits](cache.md#coordination-limits).
-- Processed images: [request coalescing](processing-controls.md#output-cache-request-coalescing),
-  next to the processing pool limits that still apply.
+waiting, new ones go ahead without waiting. The limits are listed under
+[coordination limits](cache.md#coordination-limits).

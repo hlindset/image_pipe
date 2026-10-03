@@ -58,7 +58,7 @@ ImagePipe.URL.new()
 
 Accepts a whole [number](../requesting-images.md#numbers) from `1` to `100`.
 Default: the quality set in the server's configuration, 80 unless changed (see
-[Plug configuration](../configuration.md#format-and-quality-defaults) and
+[Plug configuration](`ImagePipe.config/1`) and
 [server configuration](../../../image_pipe_server/docs/server-configuration.md#processing)).
 
 `q` sets the encoder quality for every format, overriding `format-q` and

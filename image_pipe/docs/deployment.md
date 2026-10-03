@@ -1,52 +1,126 @@
-# Deployment
+# Limiting work per request
 
-Configure source limits, generation capacity, and HTTP timeouts for your workload.
+Before exposing ImagePipe to real traffic, limit the work one request can
+cause: how large an original may be, how long origins and clients may take,
+and how much memory it uses.
 
-## Resource limits and timeouts
+This guide assumes ImagePipe is running in your app (see
+[Getting started with Phoenix](phoenix-getting-started.md)) or as
+`image_pipe_server` (see
+[Getting started with the server](../../image_pipe_server/docs/server-getting-started.md)).
 
-HTTP and S3 sources enforce redirect and receive-timeout limits. ImagePipe
-identifies formats from image bytes rather than HTTP headers. Header inspection
-rejects oversized inputs early where possible; decoded dimensions are always
-checked before transforms.
-See [resource limits](configuration.md#resource-limits) for defaults and
-configuration.
+## Limiting originals
 
-Source adapter limits bound fetches per chunk and by total bytes.
-`:receive_timeout` limits waits between chunks;
-`:connect_timeout` and `:pool_timeout` bound connection setup and checkout.
-`:max_body_bytes` limits total size. Use a front proxy or CDN to bound waits
-for ImagePipe's response and handle slow clients:
+Three limits reject an original before it is processed, with `413`:
 
-- A trickling origin can keep a transfer open by sending each chunk just before
-  `:receive_timeout`. Configure a total request deadline in your hosting layer
-  as well as per-chunk timeouts.
-- A slow-reading client that drains a chunked response one TCP window at a time
-  keeps generation resources occupied. Response
-  buffering lets a proxy drain ImagePipe promptly and feed the client itself;
-  the proxy's send timeout then bounds the client. Without a proxy, configure
-  the server's outbound write or idle timeout.
+- `max_body_bytes`, 10 MB by default, limits the size of the file.
+- `max_input_pixels`, 40 million by default, limits its decoded size. For an
+  animation it counts the frames needed to reach the requested one.
+- `max_input_frames`, 1,000 by default, limits the frames or pages a file may
+  declare.
 
-An optional [processing pool](processing-controls.md) caps concurrent generation
-and queued jobs across Plug and Elixir callers. Its processing deadline covers
-admitted generation through stream cleanup, including source consumption and
-downstream demand pauses, so a deadline can cut off a response that has already
-started (see [failures during streaming](streaming-failures.md)). Set
-`processing_timeout` well above the time your largest images take to encode
-and send to the proxy, and watch the `[:image_pipe, :deliver]` telemetry span:
-it stops with `result: :processing_error` when a started response fails (see
-[telemetry events](telemetry-events.md#deliver)).
-Source-cache acquisition and revalidation before the output-cache lookup retain
-their independent source limits. Output-cache hits and conditional responses
-bypass processing admission.
+Lower them to the largest originals you expect to serve:
 
-Input body, pixel, and frame limits reject oversized sources with `413`.
-Output limits instead downscale the final image uniformly before encoding.
-Generation limits do not change cache identity: a successful cached response
-can still be served after limits are lowered.
+<!-- tabs-open -->
+
+### Plug
+
+```elixir
+{ImagePipe,
+ name: MyApp.Images,
+ max_body_bytes: 5_000_000,
+ max_input_pixels: 25_000_000,
+ sources: [...]}
+```
+
+### image_pipe_server
+
+```toml
+[processing]
+max_body_bytes = 5000000
+max_input_pixels = 25000000
+```
+
+<!-- tabs-close -->
+
+Large results don't fail. `max_result_width`, `max_result_height`, and
+`max_result_pixels` scale the output down to fit before it is encoded.
+
+## Timeouts for origins
+
+HTTP and S3 sources wait at most 5 seconds for a connection
+(`connect_timeout`) and 5 seconds for each part of the response
+(`receive_timeout`). Both are set per source:
+
+<!-- tabs-open -->
+
+### Plug
+
+```elixir
+sources: [
+  web: [
+    adapter: ImagePipe.Source.HTTP,
+    match: [scheme: ["https"]],
+    options: [allowed_hosts: ["assets.example.com"], receive_timeout: 3_000]
+  ]
+]
+```
+
+### image_pipe_server
+
+```toml
+[sources.web]
+adapter = "http"
+match = { scheme = ["https"] }
+allowed_hosts = ["assets.example.com"]
+receive_timeout = 3000
+```
+
+<!-- tabs-close -->
+
+An origin that sends a little data just within each timeout can still keep a
+fetch open for a long time. When the original is read while the image is
+processed, the [processing pool](processing-controls.md)'s
+`processing_timeout` bounds the whole fetch. With an
+[originals cache](cache.md#originals-cache), the original is fetched before
+processing starts, so only the source's own timeouts apply. Give the proxy
+or load balancer in front a total request timeout as well.
+
+## Slow clients
+
+ImagePipe streams each image as it is encoded. A client that reads slowly
+keeps that request's processing slot and memory until it finishes, and the
+processing pool's deadline counts that time too.
+
+Put a proxy or CDN in front that reads the whole response from ImagePipe and
+sends it to the client itself, such as nginx with response buffering or the
+CDN described in [serving images through a CDN](serving-through-a-cdn.md).
+Set `processing_timeout` well above the time your largest images take to
+make and send to that proxy.
+
+A response cut short by the deadline ends the
+[`[:deliver]` span](telemetry-events.md#deliver) with
+`result: :processing_error`. [Failures during streaming](streaming-failures.md)
+explains what the client receives.
 
 ## Memory
 
-Decode uses sequential access and JPEG shrink-on-load or WebP scale hints
-where geometry permits. Operations that need random pixel access copy the
-image into RAM; orientation flushes and delivery can also allocate buffers.
-Allow memory for these copies across concurrent requests.
+ImagePipe reads most images in one pass, without holding the whole decoded
+image in memory. Some operations need the whole image at once: trimming,
+rotating by an arbitrary angle, smart and object-detection cropping, and
+rotating a photo whose EXIF orientation says it is turned. These copy the
+decoded image into memory, so a 40-megapixel original can take over a
+hundred megabytes while it is processed.
+
+Allow for that across the requests that run at once. A
+[processing pool](processing-controls.md) caps how many that is, and
+`max_input_pixels` caps the size of each.
+
+## Next steps
+
+- [Limiting concurrent processing](processing-controls.md): a processing pool
+  and its deadlines.
+- [Serving images through a CDN](serving-through-a-cdn.md): a cache in front
+  that also absorbs slow clients.
+- [Deploying image_pipe_server](../../image_pipe_server/docs/server-deployment.md):
+  the server's connection limits, health checks, and shutdown.

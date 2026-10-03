@@ -1,113 +1,117 @@
-# Combined Plug and Elixir usage
+# Serving and processing in one app
 
-Share one configuration when your application both serves images over HTTP
-and generates images in jobs or scripts. The same plan can generate a URL,
-warm a cache, or write a file.
+When your app both serves images over HTTP and processes them in code, such
+as in background jobs, run one ImagePipe instance for both. Requests and
+jobs then share its sources, cache, and presets, and a job can prepare
+images the next browser request gets from the cache.
 
-## Configure once
+This guide assumes ImagePipe is running in your app (see
+[Getting started with Phoenix](phoenix-getting-started.md)).
 
-Construct configuration at startup and share it with the mount and callers:
+## Starting one instance
+
+Configure sources and a cache on the instance in
+`lib/my_app/application.ex`, before the endpoint:
 
 ```elixir
-url_config = ImagePipe.URL.config(base_url: "/images")
+# lib/my_app/application.ex
+children = [
+  {ImagePipe,
+   name: MyApp.Images,
+   url: ImagePipe.URL.config(base_url: "/images"),
+   sources: [
+     media: [
+       adapter: ImagePipe.Source.File,
+       match: :path,
+       options: [root: "/srv/images", root_id: "media"]
+     ]
+   ],
+   cache: {ImagePipe.Cache.FileSystem, root: "/var/cache/image_pipe/processed"}},
+  MyAppWeb.Endpoint
+]
+```
 
-config = ImagePipe.config(
-  url: url_config,
-  sources: [
-    media: [
-      adapter: ImagePipe.Source.File,
-      match: :path,
-      options: [root: "/srv/images", root_id: "media", stable: :immutable]
-    ]
-  ],
-  cache: {ImagePipe.Cache.FileSystem, root: "/var/cache/image-pipe/output"},
-  quality: 82
-)
+`base_url` is the path where the router mounts the instance, so URLs built
+from this configuration point at it.
 
-mount = ImagePipe.Plug.init(config: config, http_cache: :auto)
+Mount it in the router:
 
-thumbnail =
-  ImagePipe.URL.new(url_config)
+```elixir
+# lib/my_app_web/router.ex
+forward "/images", ImagePipe.Plug, instance: MyApp.Images
+```
+
+## Building URLs for pages
+
+`ImagePipe.config!/1` returns the instance's configuration, and
+`ImagePipe.url_config/1` its URL settings. Build URLs from them, so they
+carry the right base URL and signature:
+
+```elixir
+def thumbnail_url(path) do
+  MyApp.Images
+  |> ImagePipe.config!()
+  |> ImagePipe.url_config()
+  |> ImagePipe.URL.new()
   |> ImagePipe.URL.group(resize: [width: 400, height: 300, fit: :cover])
-  |> ImagePipe.URL.output(format: :webp)
-
-url = ImagePipe.URL.url!(thumbnail, "photos/beach-v1.jpg")
-{:ok, result} = ImagePipe.run(config, thumbnail, {:source, "photos/beach-v1.jpg"})
-{:ok, _result} =
-  ImagePipe.write(config, thumbnail, {:source, "photos/beach-v1.jpg"}, "thumbnail.webp")
+  |> ImagePipe.URL.url!(path)
+end
 ```
-
-`stable: :immutable` marks the files as
-[write-once](caching-and-freshness.md#write-once-sources), so a changed file
-needs a new path, such as `beach-v2.jpg`. Leave it out for files that can
-change.
-
-## Connect the mount
-
-To share it with a router mount, run the configuration as an instance and
-mount it with `instance:` (see [Mounting an instance](ImagePipe.Plug.html#module-mounting-an-instance)).
-Router options are evaluated when the router compiles, so they can't take a
-`config` built at startup, and an instance is also needed when the
-configuration reads runtime values, such as keys from environment variables,
-or uses a bounded cache. Direct calls get the instance's configuration from
-`ImagePipe.config!/1`.
-
-`ImagePipe.Plug.call(conn, mount)` serves a request with a mount from
-`ImagePipe.Plug.init/1`. The connection's `path_info` must contain only the
-mount-relative path.
-
-For example, this simulates the forwarded HTTP request for the generated URL:
-
-```elixir
-path = String.replace_prefix(url, "/images", "")
-conn = Plug.Test.conn(:get, path)
-conn = ImagePipe.Plug.call(conn, mount)
-200 = conn.status
-true = conn.resp_body == result.data
-```
-
-Keep configuration server-side. In a template, expose the generated URL:
 
 ```heex
-<img src={ImagePipe.URL.url!(@thumbnail, @photo.source)} alt={@photo.description} />
+<img src={thumbnail_url(@photo.path)} alt={@photo.description} />
 ```
 
-## Share cache entries
+`thumbnail_url("photos/beach.jpg")` returns
+`"/images/w=400/h=300/fit=cover/src/photos/beach.jpg"`. With signing keys in
+the instance's `url`, the URL also carries a signature. A builder that uses
+`presets:` is checked against the instance's presets when you build it.
 
-Configured `{:source, identifier}` inputs use the same adapters, cache entries,
-and [freshness rules](caching-and-freshness.md) as HTTP requests. A background `run` can warm
-the output for the next browser request, and HTTP can warm it for an Elixir job.
-Raw `{:file, path}` and `{:binary, bytes}` inputs bypass both caches.
+## Processing in a job
 
-Equivalent output requires the same source bytes, plan, host settings, and
-detector behavior. If the format is negotiated, pass the same `accept:` value
-to direct execution. If `storage_inputs` partitions storage, pass the matching
-`request_inputs:` too:
+Pass the same configuration to `ImagePipe.run/4`, and read the original
+through the instance's sources with `{:source, path}`:
 
 ```elixir
-ImagePipe.run(config, thumbnail, {:source, "photos/beach-v1.jpg"},
-  accept: "image/webp",
-  request_inputs: [headers: [{"x-tenant", "one"}]]
-)
+config = ImagePipe.config!(MyApp.Images)
+
+builder =
+  ImagePipe.URL.new(ImagePipe.url_config(config))
+  |> ImagePipe.URL.group(resize: [width: 400, height: 300, fit: :cover])
+
+{:ok, result} =
+  ImagePipe.run(config, builder, {:source, "photos/beach.jpg"},
+    accept: "image/avif,image/webp"
+  )
 ```
 
-Those header values partition storage only when named in `storage_inputs`.
-They are not forwarded to the source. See the `:request_inputs` option of `ImagePipe.run/4`.
+`run` stores the result in the instance's cache: new files appear under
+the cache's `root`. A browser that requests
+`/images/w=400/h=300/fit=cover/src/photos/beach.jpg` and accepts AVIF gets the
+same bytes from the cache, without processing the image again. The reverse
+works too: a job gets an image a browser already requested from the cache.
 
-## Know which settings are shared
+To share a cached image, the job and the request must produce the same
+output:
 
-| URL configuration | Server configuration | Plug-only behavior |
-| --- | --- | --- |
-| Signing/encryption keys, URL prefix | Sources, caches, generation limits, output defaults, detector, presets, request defaults | CORS, debug-header permission, HTTP cache policy, conditional responses |
+- Without `format` in the builder, the format depends on `Accept`. Pass the
+  browser's `Accept` value as `accept:`, or set `format` in the builder.
+- If the instance's `storage_inputs` keeps separate copies per header or
+  cookie, pass the matching values as `request_inputs:` (see
+  `ImagePipe.run/4`).
 
-Build URLs from `ImagePipe.url_config(config)` and select presets with
-`ImagePipe.URL.new(ImagePipe.url_config(config)) |> ImagePipe.URL.group(presets: ["poster-320"])`;
-the builder then checks plans against the configuration's presets. Plug and direct
-execution expand request defaults, named presets in order, and explicit
-options using the same rules. Generated URLs retain the preset names for the
-serving mount to resolve. If URLs are built in a different application from the
-one that serves them, see [Building URLs for the server](building-server-urls.md).
+Originals given as `{:file, path}` or `{:binary, bytes}` don't go through a
+source, so their results aren't cached.
 
-Use a shared [processing pool](processing-controls.md) to bound generation
-across HTTP requests, jobs, and cache refreshes. Direct results are fully
-buffered; allow memory for the complete output of each concurrent call.
+## Limiting the work
+
+Jobs and requests share the CPU. A
+[processing pool](processing-controls.md) on the instance limits how many
+images are processed at once, across both. `run` returns the complete image
+in memory, so allow memory for the full output of each job running at once.
+
+## Next steps
+
+- [Limiting concurrent processing](processing-controls.md): a processing pool
+  for requests and jobs.
+- `ImagePipe.run/4`: every input and option, and the errors it returns.

@@ -73,8 +73,8 @@ it when no cached copy can be used. Three things matter most, and the
   each original in the [originals cache](cache.md#originals-cache). Pass
   `false` when reading the store again is cheap.
 - Errors are `{:error, {:source, reason}}`. `:not_found` answers `404`.
-  [Error responses](errors.md#custom-source-adapters) lists the other
-  reasons and how to choose a status.
+  The [`ImagePipe.Source` errors](ImagePipe.Source.html#module-errors) list
+  the other reasons and how to choose a status.
 
 ## Add the source
 

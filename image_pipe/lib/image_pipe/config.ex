@@ -37,27 +37,111 @@ defmodule ImagePipe.Config do
 
   @preset_keys [:presets, :request_defaults, :preset_lookup, :max_preset_lookups]
 
+  @url_option_doc [
+    url: [
+      type: {:struct, URLConfig},
+      doc: """
+      Signing keys, source encryption keys, and the base URL, from \
+      `ImagePipe.URL.config/1`. A mount accepts only URLs signed with these keys. \
+      Without it, URLs aren't signed.
+      """
+    ]
+  ]
+
   @schema NimbleOptions.new!(
             ProcessingConfig.schema() ++
               [
-                cache: [type: :any],
-                input_cache: [type: :any],
+                cache: [
+                  type: :any,
+                  type_doc: "`{module, keyword}`",
+                  doc: """
+                  Cache for processed images, such as \
+                  `{ImagePipe.Cache.FileSystem, root: "/var/cache/image_pipe/processed"}`. \
+                  See [caching processed images](caching-processed-images.md). Off by \
+                  default.
+                  """
+                ],
+                input_cache: [
+                  type: :any,
+                  type_doc: "`{module, keyword}`",
+                  doc: """
+                  Cache for originals fetched from sources, configured like `:cache`. \
+                  See [originals cache](cache.md#originals-cache). Off by default.
+                  """
+                ],
                 storage_inputs: [
                   type: {:list, {:custom, __MODULE__, :validate_storage_input, []}},
-                  default: []
+                  type_doc: "list of `{:header, name}` or `{:cookie, name}`",
+                  default: [],
+                  doc: """
+                  Request headers and cookies whose values select separate cached \
+                  copies, such as `[{:header, "x-tenant"}]`. They aren't sent to the \
+                  source and don't change the image.
+                  """
                 ],
                 watermarks: [
                   type:
                     {:map, {:custom, __MODULE__, :validate_watermark_name, []}, :keyword_list},
-                  default: %{}
+                  type_doc: "map of `t:atom/0` to `t:keyword/0`",
+                  default: %{},
+                  doc: """
+                  Named watermark images that requests select with `wm=name`, as \
+                  `%{logo: [source: "brand/logo.png", opacity: 0.6]}`. Names match \
+                  `[a-z0-9_-]+`. `:source` is an image path that a configured source \
+                  serves. `:opacity`, above `0` and at most `1`, defaults to `1` and \
+                  multiplies the request's `wm-opacity`. See \
+                  [watermarks](processing/watermark.md).
+                  """
                 ],
-                request_watermarks: [type: :boolean, default: false],
-                presets: [type: :any, default: %{}],
-                request_defaults: [type: :any],
-                preset_lookup: [type: {:custom, __MODULE__, :validate_preset_lookup, []}],
-                max_preset_lookups: [type: :pos_integer]
+                request_watermarks: [
+                  type: :boolean,
+                  default: false,
+                  doc: """
+                  Let requests overlay any image the configured sources serve, with \
+                  `wm-src64` or `wm-enc`, besides the named `:watermarks`.
+                  """
+                ],
+                presets: [
+                  type: :any,
+                  type_doc: "map of `t:String.t/0` to fragment or `ImagePipe.URL` builder",
+                  default: %{},
+                  doc: """
+                  Named sets of options that URLs select with `preset=name`, as URL \
+                  fragments such as `%{"card" => "w=400/h=300/fit=cover"}` or \
+                  `ImagePipe.URL` builders. See [defining presets](defining-presets.md).
+                  """
+                ],
+                request_defaults: [
+                  type: :any,
+                  type_doc: "fragment or `ImagePipe.URL` builder",
+                  doc: """
+                  Options applied to the first group of every request, before presets \
+                  and the request's own options. One group, with no `preset`.
+                  """
+                ],
+                preset_lookup: [
+                  type: {:custom, __MODULE__, :validate_preset_lookup, []},
+                  type_doc: "`{module, keyword}`",
+                  doc: """
+                  Looks up preset names that `:presets` doesn't define, per request. \
+                  See `ImagePipe.PresetLookup` and \
+                  [storing presets in a database](storing-presets-in-a-database.md).
+                  """
+                ],
+                max_preset_lookups: [
+                  type: :pos_integer,
+                  doc: """
+                  Most distinct names one request may look up. Only with \
+                  `:preset_lookup`. The default value is `32`.
+                  """
+                ]
               ]
           )
+
+  @doc false
+  # The option list for `ImagePipe.config/1`. `:url` is validated before the
+  # schema, so it is documented here.
+  def options_docs, do: NimbleOptions.docs(@url_option_doc ++ @schema.schema)
 
   @doc false
   @spec new!(keyword()) :: t()

@@ -158,7 +158,7 @@ Without `[pool]`, every request processes at once. Set `max_concurrency` to
 about the number of CPU cores, and `max_queue` for how many requests may wait
 for a slot. A request that finds the queue full, or waits longer than
 `queue_timeout`, gets a `503`. See
-[processing controls](../../image_pipe/docs/processing-controls.md).
+[limiting concurrent processing](../../image_pipe/docs/processing-controls.md).
 
 ## Detection
 

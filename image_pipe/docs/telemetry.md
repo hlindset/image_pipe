@@ -64,7 +64,7 @@ end
 Call `MyApp.ImagePipeTelemetry.attach()` at startup. To subscribe to several
 events, use `:telemetry.attach_many/4`. Event names start with
 `telemetry_prefix`, `[:image_pipe]` by default (see
-[configuration](configuration.md#detection-and-observability)). If you set
+`ImagePipe.config/1`). If you set
 another prefix, use it in the event names here.
 
 For metrics, give the same event names to `Telemetry.Metrics` and choose

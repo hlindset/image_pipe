@@ -50,24 +50,32 @@ defmodule ImagePipe do
   alias ImagePipe.Config
 
   @doc """
-  Builds reusable, redacted host configuration for direct execution and Plug.
+  Builds the configuration that `ImagePipe.Plug` mounts, instances, and
+  `run/4` use.
 
-  Owns sources, caches, processing defaults, limits, storage partitions, and
-  presets. `:url` takes an `ImagePipe.URL.Config` from `ImagePipe.URL.config/1`
-  with the signing keys and source encryption the mount verifies; it defaults to
-  an unsigned configuration.
+      config =
+        ImagePipe.config(
+          sources: [
+            media: [
+              adapter: ImagePipe.Source.File,
+              match: :path,
+              options: [root: "/srv/images", root_id: "media"]
+            ]
+          ],
+          presets: %{"card" => "w=400/h=300/fit=cover"},
+          quality: 82
+        )
 
-  `:presets` maps names to option fragments or `ImagePipe.URL` builders.
-  Nested references resolve at configuration time. `:request_defaults` is one
-  single-group fragment or builder applied to every request before selected
-  presets and explicit options; it cannot reference presets. `:preset_lookup`
-  is an optional `{module, options}` implementing `ImagePipe.PresetLookup`
-  that resolves names `:presets` does not define, per request.
-  `:max_preset_lookups` (default `32`, only with a lookup) caps the distinct
-  names one request may look up.
+  Invalid options raise `ArgumentError`, without credentials in the message.
+  Building a configuration reads no sources or caches. Inspecting one hides its
+  values.
 
-  Invalid configuration raises `ArgumentError` without including credentials
-  in the message.
+  [Elixir configuration](configuration.md) shows which settings belong here and
+  which belong to a mount, a source, or a request.
+
+  ## Options
+
+  #{ImagePipe.Config.options_docs()}
   """
   @spec config(keyword()) :: Config.t()
   def config(options \\ []), do: Config.new!(options)
@@ -187,8 +195,8 @@ defmodule ImagePipe do
 
   ## Options
 
-  Options of `config/1` override the configuration for this call, such as
-  `max_input_pixels: 50_000_000`. Invalid options raise `ArgumentError`.
+  Every option of `config/1` overrides the configuration for this call, such
+  as `max_input_pixels: 50_000_000`. Invalid options raise `ArgumentError`.
   A configuration from `config!/1` takes the same options, but a bounded
   `:cache` or `:input_cache` raises `ArgumentError` unless it is one of the
   instance's own caches.
@@ -198,8 +206,7 @@ defmodule ImagePipe do
       has no `format`. The default `""` keeps the original's format where
       possible, as for a request without `Accept` (see
       [output formats](requesting-images.md#output-formats)). `:auto_avif`,
-      `:auto_webp`, `:format_order`, and `:output_capabilities` apply as on
-      a mount.
+      `:auto_webp`, and `:format_order` apply as on a mount.
     * `:request_inputs` (`t:keyword/0`) - the header and cookie values named
       by the configuration's `:storage_inputs`, as
       `[headers: [{"x-tenant", "one"}], cookies: %{"session" => "abc"}]`.

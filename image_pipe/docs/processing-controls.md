@@ -1,122 +1,98 @@
-# Processing concurrency and deadlines
+# Limiting concurrent processing
 
-ImagePipe can share one processing budget across Plug mounts, direct Elixir
-calls, and background cache refreshes. Configure an opt-in pool under the host's
-supervision tree, before the endpoint or workers that use it:
+A processing pool limits how many images ImagePipe processes at once. Requests
+beyond the limit wait in a queue or get a `503`, and each image gets a
+deadline. Without a pool, every request starts processing right away, so a
+burst of requests can use all the CPU and memory.
+
+This guide assumes ImagePipe is running in your app (see
+[Getting started with Phoenix](phoenix-getting-started.md)) or as
+`image_pipe_server` (see
+[Getting started with the server](../../image_pipe_server/docs/server-getting-started.md)).
+
+## Adding a pool
+
+<!-- tabs-open -->
+
+### Plug
+
+Start an `ImagePipe.ProcessingPool` before the instance, and name it in the
+instance's `processing_pool`:
 
 ```elixir
+# lib/my_app/application.ex
 children = [
-  {ImagePipe.ProcessingPool,
-   name: MyApp.Images,
-   max_concurrency: 4,
-   max_queue: 8,
-   queue_timeout: 1_000,
-   processing_timeout: 30_000},
+  {ImagePipe.ProcessingPool, name: MyApp.Pool, max_concurrency: 8, max_queue: 64},
+  {ImagePipe, name: MyApp.Images, processing_pool: MyApp.Pool, sources: [...]},
   MyAppWeb.Endpoint
 ]
 ```
 
-Select that pool in shared configuration:
+Calls to `ImagePipe.run/4` with the instance's configuration use the same
+pool, so jobs and requests share its capacity.
 
-```elixir
-config = ImagePipe.config(
-  processing_pool: MyApp.Images,
-  sources: [
-    images: [
-      adapter: ImagePipe.Source.File,
-      match: :path,
-      options: [root: "/srv/images", root_id: "images"]
-    ]
-  ]
-)
+### image_pipe_server
 
-# In a Plug pipeline:
-plug ImagePipe.Plug, config: config
+Add a `[pool]` section to `config.toml`:
 
-# In an Elixir caller:
-plan = ImagePipe.URL.new() |> ImagePipe.URL.group(resize: [width: 400])
-ImagePipe.run(config, plan, {:file, "/srv/images/photo.jpg"})
+```toml
+[pool]
+max_concurrency = 8
+max_queue = 64
 ```
 
-The pool is node-local. Use the same registered name or PID to share capacity;
-separate pools have independent budgets. Omitting `processing_pool` leaves
-generation unrestricted by these controls. A configured pool that is unavailable
-fails closed. `ImagePipe.ProcessingPool.stats/1` returns `%{active: n, queued: n}`.
+<!-- tabs-close -->
 
-| Pool option | Default | Meaning |
-| --- | --- | --- |
-| `max_concurrency` | Required | Positive maximum number of admitted jobs |
-| `max_queue` | `0` | Nonnegative number of waiting jobs; zero rejects overflow |
-| `queue_timeout` | `1_000` | Positive maximum admission wait in milliseconds |
-| `processing_timeout` | `30_000` | Positive execution deadline in milliseconds |
+## Choosing the limits
 
-Queue order is FIFO; expired waiters cannot start. Waiting requests hold no
-source image or encoder state, but still use processes and request data.
-Configure HTTP server connection limits separately.
+- `max_concurrency` is how many images are processed at once. Start with
+  about the number of CPU cores.
+- `max_queue` is how many requests may wait for a turn. A request that finds
+  the queue full gets a `503`. The default, `0`, sends a `503` to every
+  request beyond `max_concurrency`.
+- `queue_timeout`, 1 second by default, is how long a request waits for a
+  turn before it gets a `503`.
+- `processing_timeout`, 30 seconds by default, is how long one image may take
+  once it has a turn.
 
-## Work covered
+`ImagePipe.ProcessingPool` lists the options, and the
+[server reference](../../image_pipe_server/docs/server-configuration.md#pool)
+their TOML keys.
 
-Every generated output holds a permit: images, BlurHash, CSS LQIP, and `info`.
-Uncached file and binary inputs follow the same admission path.
+## What uses the pool
 
-Output-cache hits and conditional `304` responses skip processing admission.
-Source identity resolution and source-cache acquisition/revalidation that precede
-the output-cache lookup remain outside the processing pool. Source consumption
-performed by generation is inside it. Pool names, queue sizes, and deadlines do
-not change cache keys or ETags.
+Every image ImagePipe processes takes a turn: resized images, `info`,
+BlurHash, and LQIP placeholders, whether a request or a call to
+`ImagePipe.run/4` asked for it. These don't:
 
-The processing deadline starts when the slot is granted. It spans fetch/decode,
-transforms, encoding, and cleanup. An image producer keeps its slot through the
-last encoded chunk and resource-bracket exit. The deadline also includes pauses
-between demands, so slow downstream consumption can expire an image stream.
-Complete-body terminals release after their generated result and source cleanup,
-before cache storage and HTTP delivery.
+- Images served from the cache.
+- `304 Not Modified` responses.
+- Requests waiting for an identical request that is already being processed
+  (see [request coalescing](caching-and-freshness.md#request-coalescing)).
 
-Image delivery also waits at most 60 seconds for each encoded chunk. This
-fixed backstop is not configurable; use `processing_timeout` to bound
-generation. Before headers it returns `503` like a processing deadline, and it
-can expire before a `processing_timeout` or queue wait longer than 60 seconds.
-Source connection/read limits remain independent. A processing deadline
-does not implement a total source-transfer deadline for work outside generation.
+## Deadlines
 
-## Output-cache request coalescing
+The `processing_timeout` starts when a request gets its turn, and covers
+reading the original, processing, and sending the last byte of the response.
+A client that reads the response slowly uses up the deadline too.
 
-Concurrent requests for the same uncached output are processed once, as
-described in [request coalescing](caching-and-freshness.md#request-coalescing).
-This covers images, `info`, BlurHash, and CSS LQIP, from the Plug, Elixir calls,
-and background refreshes. Waiting requests hold no processing slot or queue
-entry. Coalescing allows 64 distinct outputs and 1,024 waiting requests per
-node, and a request waits at most 60 seconds. Past those bounds, a request goes
-through ordinary processing admission, which can still reject it when the pool
-is overloaded.
+When the deadline passes before the response starts, the request gets a
+`503`. When the response has already started, ImagePipe cuts it short, as
+described in [failures during streaming](streaming-failures.md). ImagePipe
+also gives up on a response when producing its next chunk takes longer than
+60 seconds, whatever the deadline.
 
-## Failure and cancellation
+ImagePipe stops a request at its deadline, but libvips may finish the
+operation it is running. The pool's limits therefore don't cap CPU or memory
+exactly. Keep the size limits on originals, such as `max_input_pixels`, as
+well.
 
-| Elixir error | HTTP status before headers |
-| --- | --- |
-| `{:processing, :overloaded}` | `503` |
-| `{:processing, :queue_timeout}` | `503` |
-| `{:processing, :unavailable}` | `503` |
-| `{:processing, :timeout}` | `503` |
-
-Errors do not become successful cache entries. A deadline that expires after
-headers have been sent cuts the response short instead, as described in
-[failures during streaming](streaming-failures.md).
-
-The pool monitors workers and their owners. Worker failures and request-owner
-death recover capacity; queued owners are removed without running their work.
-Delivery cancellation and disconnects use the coordinator's graceful halt, with
-its existing forced-stop fallback. A deadline terminates the worker, so arbitrary
-host callback `after` blocks cannot be guaranteed to run on forced cancellation.
-Admitted workers are linked to the pool so a pool crash stops its active work.
-
-Native libvips operations may finish after a BEAM cancellation signal. This is a
-limit on admitted job lifetimes, not a hard CPU-preemption or native-memory bound.
-The slot remains occupied until the worker has returned from its brackets or its
-monitor reports termination. Hosts still need input-size limits and an appropriate
-libvips concurrency/memory configuration.
-
-## Observability
+## Monitoring the pool
 
 The pool emits [`[:processing, :admission]`](telemetry-events.md#processing-admission)
-and [`[:processing, :execute]`](telemetry-events.md#processing-execute).
+for each wait for a turn and
+[`[:processing, :execute]`](telemetry-events.md#processing-execute) for each
+processed image. In Elixir, `ImagePipe.ProcessingPool.stats/1` returns how many
+images are being processed and how many requests are waiting, and
+`ImagePipe.ProcessingPool` lists the errors `ImagePipe.run/4` returns for each
+case that gives a `503` over HTTP.

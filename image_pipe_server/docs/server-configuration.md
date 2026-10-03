@@ -1,11 +1,8 @@
 # Configuring image_pipe_server
 
 The server reads its configuration once at boot, from a TOML file and from
-environment variables. It has no Elixir configuration of its own: every
-setting converts to an option that `ImagePipe.URL.config/1`,
-`ImagePipe.config/1`, or `ImagePipe.Plug.init/1` already validates, so the
-[library guides](../../image_pipe/docs/configuration.md) describe what each
-setting does. This page covers how to write them and lists every key.
+environment variables. The [guides](../../image_pipe/docs/index.md) describe what the settings
+do, with a tab for the server wherever its syntax differs.
 
 An application that builds URLs for the server must match some of them, as
 listed in [shared URL settings](../../image_pipe/docs/shared-url-settings.md).
@@ -151,7 +148,7 @@ The HTTP listener. Times are in milliseconds. `read_timeout` closes connections 
 
 ### `[url]`
 
-URL verification settings, converted with `ImagePipe.URL.config/1`.
+How the server checks request URLs: the signing keys and the keys that decrypt `enc/` image paths. See [signing URLs and rotating keys](../../image_pipe/docs/signing-urls.md).
 
 | Key | Type | Default |
 | --- | --- | --- |
@@ -162,8 +159,8 @@ URL verification settings, converted with `ImagePipe.URL.config/1`.
 
 ### `[sources.<name>]`
 
-One table per named source mount. The table name is the mount name. Besides
-`adapter` and `match`, a mount takes its adapter's options.
+One table per source. The table name is the source's name. Besides
+`adapter` and `match`, a source takes its adapter's options.
 
 | Key | Type | Default |
 | --- | --- | --- |
@@ -297,7 +294,7 @@ credentials in the same forms.
 
 ### `[cache]`
 
-`output` and `input` configure `ImagePipe.Cache.FileSystem` caches. Setting `max_size_bytes` bounds a cache and requires `node_id`.
+Caches on the local filesystem: `output` for processed images, `input` for originals. Setting `max_size_bytes` bounds a cache and requires `node_id`. See [caching processed images](../../image_pipe/docs/caching-processed-images.md).
 
 | Key | Type | Default |
 | --- | --- | --- |
@@ -338,32 +335,32 @@ credentials in the same forms.
 
 ### `[processing]`
 
-Processing defaults and limits of `ImagePipe.config/1`.
+Defaults and limits for every image the server processes. The limits on originals and results are described in [limiting work per request](../../image_pipe/docs/deployment.md).
 
 | Key | Type | Default |
 | --- | --- | --- |
 | `max_body_bytes` | integer > 0 | `10000000` |
 | `max_input_pixels` | integer > 0 | `40000000` |
 | `max_input_frames` | integer > 0 | `1000` |
-| `auto_avif` | boolean | `true` |
-| `auto_webp` | boolean | `true` |
-| `output_capabilities` | table of boolean |  |
 | `max_result_width` | integer > 0 | `8192` |
 | `max_result_height` | integer > 0 | `8192` |
 | `max_result_pixels` | integer > 0 | `40000000` |
+| `auto_avif` | boolean | `true` |
+| `auto_webp` | boolean | `true` |
+| `output_capabilities` | table of boolean |  |
+| `quality` | integer > 0 | `80` |
+| `format_quality` | table of integer > 0 | `{ avif = 63, webp = 79 }` |
 | `strip_metadata` | boolean | `true` |
 | `keep_copyright` | boolean | `true` |
 | `stripped_dpi` | integer 1–65535 | `72` |
-| `quality` | integer > 0 | `80` |
-| `format_quality` | table of integer > 0 | `{ avif = 63, webp = 79 }` |
 | `strip_color_profile` | boolean | `true` |
 | `preserve_hdr` | boolean | `false` |
 | `skip_processing_formats` | array of `"avif"` or `"webp"` or `"jpeg"` or `"png"` or `"jpeg_xl"` or `"heif"` or `"tiff"` or `"jpeg2000"` or `"gif"` | `[]` |
 | `autoquality_method` | `"none"` or `"size"` or `"ssimulacra2"` or `"butteraugli"` | `"none"` |
 | `autoquality_target` | table of integer or number | `{ butteraugli = 1.0, ssimulacra2 = 78 }` |
+| `autoquality_allowed_error` | table of integer or number | `{ butteraugli = 0.1, ssimulacra2 = 1.0 }` |
 | `autoquality_min_quality` | integer > 0 | `70` |
 | `autoquality_max_quality` | integer > 0 | `80` |
-| `autoquality_allowed_error` | table of integer or number | `{ butteraugli = 0.1, ssimulacra2 = 1.0 }` |
 | `autoquality_format_min_quality` | table of integer > 0 | `{ avif = 60 }` |
 | `autoquality_format_max_quality` | table of integer > 0 | `{ avif = 65 }` |
 | `autoquality_max_resolution` | integer ≥ 0 | `0` |
@@ -401,7 +398,7 @@ Elixir only: `telemetry_prefix`, `clock`.
 
 ### `[pool]`
 
-An `ImagePipe.ProcessingPool`. Without this section, requests are unbounded.
+How many images are processed at once, and how long requests wait for a turn. Times are in milliseconds. Without this section, every request is processed immediately. See [limiting concurrent processing](../../image_pipe/docs/processing-controls.md).
 
 | Key | Type | Default |
 | --- | --- | --- |
@@ -412,7 +409,7 @@ An `ImagePipe.ProcessingPool`. Without this section, requests are unbounded.
 
 ### `[http]`
 
-Delivery options of `ImagePipe.Plug.init/1`.
+Response settings: the CORS origin, whether requests may ask for debug headers, and the HTTP cache headers. See [serving images through a CDN](../../image_pipe/docs/serving-through-a-cdn.md).
 
 | Key | Type | Default |
 | --- | --- | --- |
@@ -422,7 +419,7 @@ Delivery options of `ImagePipe.Plug.init/1`.
 
 ### `[telemetry]`
 
-`log_level` attaches the default Logger (`ImagePipe.Telemetry.attach_default_logger/1`).
+`log_level` logs each request and its stages at that level. Failures log at `warning`.
 
 | Key | Type | Default |
 | --- | --- | --- |

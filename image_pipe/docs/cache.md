@@ -19,7 +19,7 @@ without reading the cache or fetching the source.
 `{:source, identifier}` and it gets the same `ImagePipe.config/1` as the Plug.
 It selects the same cached copy as a Plug request only when given the same
 `accept` and `request_inputs` (see
-[sharing cache entries](combined-usage.md#share-cache-entries)).
+[sharing cache entries](combined-usage.md#processing-in-a-job)).
 `{:file, path}` and `{:binary, bytes}` inputs never use either cache.
 
 ## Source cache settings
@@ -129,17 +129,20 @@ same key.
 
 ## Coordination limits
 
-Each node coordinates fetches of originals and background checks
-(see [request coalescing](caching-and-freshness.md#request-coalescing)):
+Each node coordinates fetching originals, making processed images, and
+background checks (see
+[request coalescing](caching-and-freshness.md#request-coalescing)):
 
 - Up to 64 originals can be fetched or checked at once, with up to 1,024
   requests waiting for them. Past either limit, a request fetches its
   original itself, without waiting and without caching it.
 - Up to 16 background checks run at once. Each has a 60-second deadline. A
-  failed check isn't retried for one second.
-
-Limits for processed images are in
-[output-cache request coalescing](processing-controls.md#output-cache-request-coalescing).
+  After a check of an original finishes, that original isn't checked in the
+  background again for one second.
+- Up to 64 processed images can be made at once while other requests wait for
+  them, with up to 1,024 requests waiting. A request waits at most 60 seconds.
+  Past any of these limits, a request processes the image itself, still
+  subject to the [processing pool](processing-controls.md).
 
 ## Files on disk
 

@@ -17,8 +17,8 @@ detail than the response, which deliberately says less.
   same request may succeed later or on another deployment.
 - **Sources are concealed.** A client learns that a source wasn't found,
   couldn't be processed, or that the origin failed. It never learns an origin's
-  status code, whether ImagePipe's credentials were rejected, or which part of
-  a mount's path or network policy refused the request. Those all read as
+  status code, whether ImagePipe's credentials were rejected, or which of
+  the source's path or network rules refused the request. Those all read as
   `404 source not found`.
 - **One failure, one status.** A source that's too large gets `413` whether the
   limit is on its bytes, its pixels, or its frames.
@@ -32,14 +32,14 @@ detail than the response, which deliberately says less.
 
 | Status | When |
 | --- | --- |
-| `400` | The URL doesn't parse or fails validation, including `sig` on a mount without signing keys, or a `detect` class that the configured detector doesn't support. The body lists the problems. |
+| `400` | The URL doesn't parse or fails validation, including `sig` on a server without signing keys, or a `detect` class that the configured detector doesn't support. The body lists the problems. |
 | `403` | A required signature is missing or wrong. The body is always `invalid signature`. |
 | `404` | An encrypted source token fails to decrypt. |
 | `405` | The method isn't `GET`, `HEAD`, or `OPTIONS`. The response carries `Allow`. |
 | `410` | The request's `expires` time has passed. |
-| `500` | A looked-up preset definition is invalid, or the request exceeds `max_preset_lookups`. |
-| `501` | Detection was requested with `detector_required: true` and no detector is available. Without `detector_required`, such requests [fall back to attention cropping](content-aware-gravity.md#missing-or-failed-detection). |
-| `503` | The preset lookup is unavailable, or detection was requested with `detector_required: true` before the detection models were downloaded. |
+| `500` | A looked-up preset definition is invalid, or the request looks up more presets than the configuration allows. |
+| `501` | Detection was requested, the configuration requires it, and no detector is available. When detection isn't required, such requests [fall back to attention cropping](content-aware-gravity.md#missing-or-failed-detection). |
+| `503` | The preset lookup is unavailable, or detection was requested, the configuration requires it, and the detection models aren't downloaded yet. |
 
 All of these return before source resolution, fetch, or cache access.
 
@@ -47,9 +47,9 @@ All of these return before source resolution, fetch, or cache access.
 
 | Status | When |
 | --- | --- |
-| `404` | Nothing exists at the source path, or the mount's policy refuses it: a path outside `path_pattern`, a denied host, address, scheme, or bucket, a directory where a file was expected. Also when the origin answers `401`, `403`, `404`, or `410`. |
+| `404` | Nothing exists at the source path, or the source's rules refuse it: a path that doesn't match the source's allowed paths, a denied host, address, scheme, or bucket, a directory where a file was expected. Also when the origin answers `401`, `403`, `404`, or `410`. |
 | `413` | The source body exceeds `max_body_bytes`. |
-| `500` | A local file exists but can't be read, source credentials are unavailable, or a source adapter is misconfigured. |
+| `500` | A local file or a cached original exists but can't be read, source credentials are unavailable, or a source adapter is misconfigured. |
 | `502` | The origin is unreachable, answers any other error status, redirects badly, or sends a truncated or malformed response. |
 | `504` | The origin doesn't answer in time. |
 
@@ -61,19 +61,6 @@ All of these return before source resolution, fetch, or cache access.
 | `413` | The decoded image exceeds `max_input_pixels` or declares more frames than allowed. |
 | `415` | The source isn't a supported image. |
 | `422` | The transform can't be applied to this image, or the requested page doesn't exist. |
-| `500` | Encoding failed, detection failed with `detector_required: true`, or an unexpected internal error occurred. |
+| `500` | Encoding failed, detection failed and the configuration requires it, or an unexpected internal error occurred. |
 | `501` | The requested output format has no encoder in this build. |
 | `503` | Processing is overloaded, queued too long, unavailable, or exceeded its deadline. |
-
-## Custom source adapters
-
-A source adapter returns `{:error, {:source, reason}}`. The built-in reasons
-above map as listed. Any other reason is treated as an origin failure and
-answers `502`.
-
-To choose a different status, lead the reason with a status class:
-`{:error, {:source, {class, detail}}}`, where `class` is one of `:bad_request`
-(`400`), `:not_found` (`404`), `:payload_too_large` (`413`),
-`:unsupported_media` (`415`), `:server_error` (`500`), `:not_implemented`
-(`501`), `:bad_gateway` (`502`), or `:gateway_timeout` (`504`). The detail is
-free-form and never reaches the response body.

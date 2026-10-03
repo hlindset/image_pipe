@@ -179,7 +179,7 @@ resized and cropped copies of a photo to a page. From here:
   where originals come from in production.
 - `ImagePipe.Plug`: every option of the `forward`, and using it in a
   `Plug.Router`.
-- [Combined Plug and Elixir usage](combined-usage.md): build URLs and process
+- [Serving and processing in one app](combined-usage.md): build URLs and process
   images in code with the same configuration.
 
 Before deploying, set up [URL signing](signing-urls.md) so only your app can
