@@ -39,9 +39,12 @@ defmodule ImagePipe.Telemetry.Trace.Exporter do
       with `:name`, `:time` (native monotonic time), and allowlisted
       `:attributes`. A span that raised also has an `"exception"` event with
       `:name` and `:attributes` (`:kind` and `:reason`), but no `:time`.
-    * `:status`: `:ok` when the event's `:result` is `:ok`, `:admitted`,
-      `:options`, or `:not_modified`, or absent. `:error` for any other
-      `:result` and for exceptions.
+    * `:status`: `:ok` when the event has no `:result`, or its `:result` is
+      one of `:ok`, `:admitted`, `:options`, `:not_modified`, `:detected`,
+      `:no_regions`, `:rejected`, `:client_closed`, or `:cancelled`. Any
+      other `:result`, and any exception, gives `:error`. The
+      [telemetry event reference](telemetry-events.md) lists which events
+      emit each result.
     * `:status_message`: on an exception, `inspect/1` of the raised reason.
       It isn't filtered and can contain an exception message, as can the
       `reason` attribute of an `"exception"` event.

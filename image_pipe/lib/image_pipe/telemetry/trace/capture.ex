@@ -348,15 +348,24 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
   defp end_time(start, %{duration: d}) when is_integer(d), do: start + d
   defp end_time(start, _), do: start
 
+  # Results that are normal outcomes rather than failures: a detector that found
+  # nothing, a cache declining an entry, or a client that went away. Every other
+  # result is a failure.
+  @ok_results [
+    nil,
+    :ok,
+    :admitted,
+    :options,
+    :not_modified,
+    :detected,
+    :no_regions,
+    :rejected,
+    :client_closed,
+    :cancelled
+  ]
+
   defp status_from(meta) do
-    case meta[:result] do
-      :ok -> :ok
-      :admitted -> :ok
-      :options -> :ok
-      :not_modified -> :ok
-      nil -> :ok
-      _other -> :error
-    end
+    if meta[:result] in @ok_results, do: :ok, else: :error
   end
 
   defp exception_event(meta) do

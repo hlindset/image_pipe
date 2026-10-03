@@ -303,6 +303,37 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert_receive {:span, %Span{name: "image_pipe.request", status: :ok}}
   end
 
+  test "maps normal stage outcomes to :ok status" do
+    for {stage, result} <- [
+          {[:transform, :detect], :detected},
+          {[:transform, :detect], :no_regions},
+          {[:cache, :admission], :rejected},
+          {[:deliver], :client_closed},
+          {[:processing, :admission], :cancelled}
+        ] do
+      Telemetry.span([], stage, %{}, fn -> {:ok, %{result: result}} end)
+      name = "image_pipe." <> Enum.map_join(stage, ".", &Atom.to_string/1)
+      assert_receive {:span, %Span{name: ^name, status: status}}
+      assert {result, status} == {result, :ok}
+    end
+  end
+
+  test "maps failure outcomes to :error status" do
+    for {stage, result} <- [
+          {[:transform, :detect], :unavailable},
+          {[:transform, :detect], :error},
+          {[:processing, :admission], :overloaded},
+          {[:processing, :execute], :timeout},
+          {[:cache, :lookup], :cache_error},
+          {[:request], :parser_error}
+        ] do
+      Telemetry.span([], stage, %{}, fn -> {:ok, %{result: result}} end)
+      name = "image_pipe." <> Enum.map_join(stage, ".", &Atom.to_string/1)
+      assert_receive {:span, %Span{name: ^name, status: status}}
+      assert {result, status} == {result, :error}
+    end
+  end
+
   test "captures an exception as :error with a folded exception event" do
     assert_raise RuntimeError, fn ->
       Telemetry.span([], [:request], %{}, fn -> raise "boom" end)
