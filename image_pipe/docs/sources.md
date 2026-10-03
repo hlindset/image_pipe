@@ -83,19 +83,12 @@ source namespace.
 /w=400/src/photos/beach.jpg
 ```
 
-By default a file can change under the same path. ImagePipe identifies it by a
-SHA-256 hash of its contents, so a changed file gets new cached outputs and a
-new `ETag`, and an unchanged file reuses them. ImagePipe checks the file's
-size and timestamps first and hashes it again only when they have changed.
-Set `verify: :hash` to hash the file on every request where file times can't
-be relied on.
-
-Responses for a file that can change carry no cache lifetime, so browsers and
-CDNs revalidate them with the `ETag`. Set a
-[fallback freshness](cache.md#source-cache-settings) to let them reuse a response
-for a while. For write-once files, `stable: :immutable` skips the check
-entirely: ImagePipe trusts the path and never reads the file on a cache hit.
-Changed content must then get a new path.
+By default a file can change under the same path, and the adapter identifies
+it by its content. Set `stable: :immutable` for write-once files, which are
+identified by `root_id` and path instead, so changed content needs a new path.
+Set `verify: :hash` where file times can't be trusted. How each choice affects
+caching and `ETag`s is explained in
+[local file sources](caching-and-freshness.md#local-file-sources).
 
 The file adapter reads originals where they are. On a network filesystem such
 as EFS or NFS, set `copy: :keep` to keep a local copy in the
@@ -211,8 +204,7 @@ when supplied, is an allowlist; each entry overrides `default` settings.
 Identifiers use `s3://bucket/key` or `s3://bucket/key?revision`. The optional
 revision is an S3 version ID, written as the entire query (`?3HL4kqtJlcpX`, not
 `?versionId=3HL4kqtJlcpX`). The adapter requests that version, and the object
-is then treated as immutable: it is cached without a freshness limit, though
-storage still needs the origin's or your cache policy's permission. The store
+counts as [write-once](caching-and-freshness.md#write-once-sources). The store
 must confirm the version with an `x-amz-version-id` response header; stores
 that ignore version IDs fail the fetch with a 502 rather than serving the
 current object as that version. A revision is not a cache-busting token: an
@@ -222,12 +214,14 @@ HTTP sources, even though the adapter signs the request. Use the original
 identifier with `{:source, identifier}` or the URL builder. Region, endpoint,
 credentials, timeouts, and cache policy belong to the adapter.
 
-## Source identity
+## Origin request options
 
-Built-in HTTP and S3 `req_options` are host-owned behavior. They must not vary
-source bytes for the same resolved identity. Byte-selecting request options need
-URI/object revision material, `internal_cache: :disabled`, or a custom adapter
-identity field.
+The HTTP and S3 adapters pass `req_options` to the Req client. They must fetch
+the same bytes for the same URL or object every time, because cached originals
+and processed images are reused per URL or object (see
+[originals and processed images](caching-and-freshness.md#originals-and-processed-images)).
+To fetch a different variant, put the difference in the URL or the S3 version,
+set `internal_cache: :disabled`, or write a custom adapter.
 
 ## Custom adapters
 

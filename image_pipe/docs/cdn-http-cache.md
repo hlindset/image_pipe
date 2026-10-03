@@ -115,20 +115,9 @@ A source marked write-once (`stable` set to immutable, see
 [write-once sources](caching-and-freshness.md#write-once-sources)) is the
 only kind that gets the one-year lifetime from the [header modes](#header-modes)
 table, as long as storage is allowed. In `validators` mode it gets only an
-`ETag`. Its `ETag` comes from the original's identifier instead of its
-content:
-
-- The file adapter: the source's `root_id` and the file's path.
-- The http adapter: the URL, including its query string. Different query
-  strings give different `ETag`s.
-- The s3 adapter: the endpoint, bucket, key, and version. An object
-  addressed by a version ID counts as write-once without being marked. The
-  fetch requests that version, and the store must confirm it in
-  `x-amz-version-id`.
-
-For a write-once source, a change of origin credentials, such as a new S3
-access key or a different result from an HTTP auth callback, also changes
-the `ETag`. Credentials enter only as a hash, and never appear in telemetry.
+`ETag`. Its `ETag` comes from the original's identifier, such as its path or
+URL, instead of its content. An S3 object addressed by a version ID counts as
+write-once without being marked.
 
 ## Expiring URLs
 
@@ -196,7 +185,8 @@ A generated `ETag` is strong and looks like `"ipr1-<hash>"`. It is computed
 from the request before the original is fetched or processed. It changes
 when any of these change:
 
-- The original's content, or for a write-once source its identifier.
+- The original's version (see
+  [originals and processed images](caching-and-freshness.md#originals-and-processed-images)).
 - The processing options. Two spellings of the same options give the same
   `ETag`.
 - The output format.

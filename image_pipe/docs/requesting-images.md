@@ -112,6 +112,8 @@ request-wide options adds no group, so `/w=800/-/format=webp` is the same reques
 `/w=800/format=webp`.
 
 A URL must not start or end with `-`, or contain two `-` segments in a row.
+[Processing order and groups](processing-order.md) explains the order and
+when a new group helps.
 
 ## Option values
 
@@ -355,8 +357,7 @@ that are too large or can't be processed.
 
 ## Next steps
 
-- [Processing options](processing.md): every option, grouped by category,
-  and the order ImagePipe applies them in.
+- [Processing options](processing.md): every option, grouped by category.
 - [Resize and layout](processing/resize.md): width, height, fit, and
   pixel density, the options most requests start with.
 - [Request controls](processing/request.md): downloads, file names, and

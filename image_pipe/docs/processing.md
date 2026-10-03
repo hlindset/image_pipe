@@ -26,41 +26,24 @@ and the [value syntax](requesting-images.md#option-values) they use.
 ## Processing order
 
 The image is first turned upright from its EXIF orientation, unless the
-request sets [`orient=none`](processing/crop.md#orientation). Then each
+request sets [`orient=none`](processing/crop.md#orient). Then each
 [group](requesting-images.md#processing-groups) applies its options in this
 order, whatever order the URL lists them in:
 
-1. Rotate and flip.
+1. Rotate, then flip.
 2. Trim.
-3. Crop or region of the original.
-4. Resize, and the crop that a cover fit makes.
-5. Effects.
+3. Crop or region.
+4. Resize, and the crop that a [cover fit](processing/resize.md#fit) makes.
+5. [Effects](processing/effects.md#effect-order), in their own fixed order.
 6. Canvas extension.
-7. Padding and background.
-8. Watermark.
+7. Padding.
+8. Background.
+9. Watermark.
 
 Encoding, or a placeholder or `info` [output](processing/output.md#output),
-finishes the request.
-
-Because rotation comes before resizing, `w` in this URL sets the width of the
-rotated image, whichever of the two options comes first:
-
-<!-- tabs-open -->
-
-### URL
-
-```text
-/w=400/rotate=90/src/photos/beach.jpg
-```
-
-### Elixir
-
-```elixir
-ImagePipe.URL.new()
-|> ImagePipe.URL.group(rotate: 90, resize: [width: 400])
-```
-
-<!-- tabs-close -->
+finishes the request. [Processing order and groups](processing-order.md)
+explains what this order means for each option and when to split options
+into groups.
 
 ## Common recipes
 

@@ -99,10 +99,9 @@ is overloaded.
 | `{:processing, :unavailable}` | `503` |
 | `{:processing, :timeout}` | `503` |
 
-Errors do not become successful cache entries. After streaming headers have been
-sent, a failure ends the stream and aborts staged output instead of changing its
-HTTP status. A prepared stream that expires while idle returns the timeout on its
-next pull.
+Errors do not become successful cache entries. A deadline that expires after
+headers have been sent cuts the response short instead, as described in
+[failures during streaming](streaming-failures.md).
 
 The pool monitors workers and their owners. Worker failures and request-owner
 death recover capacity; queued owners are removed without running their work.

@@ -1,9 +1,9 @@
 # Error responses
 
 ImagePipe answers every failure that happens before response headers are sent
-with a status and a short `text/plain` message. A failure after streaming
-headers have been sent ends the stream instead; see
-[processing limits](processing-controls.md#failure-and-cancellation).
+with a status and a short `text/plain` message. A failure after headers have
+been sent cuts the response short instead, as described in
+[failures during streaming](streaming-failures.md).
 
 Errors never become cache entries. [Telemetry](telemetry.md) events carry more
 detail than the response, which deliberately says less.

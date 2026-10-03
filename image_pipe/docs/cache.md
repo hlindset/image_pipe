@@ -119,8 +119,8 @@ written to the cache as it streams. The entry is stored only when:
 - and the body stayed within `max_body_bytes`.
 
 A client disconnect, a failure after the first chunk, or a body over
-`max_body_bytes` leaves nothing in the cache. The client still receives the
-full response in the last case.
+`max_body_bytes` [leaves nothing in the cache](streaming-failures.md). The
+client still receives the full response in the last case.
 
 Cache errors never fail a request. A failed write is logged and reported in
 telemetry, and the response is delivered without being stored. A failed or

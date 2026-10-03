@@ -26,6 +26,7 @@ defmodule ImagePipe.MixProject do
     ],
     "Processing options": [
       "docs/requesting-images.md",
+      "docs/processing-order.md",
       "docs/processing.md",
       "docs/processing/resize.md",
       "docs/processing/crop.md",
@@ -47,6 +48,7 @@ defmodule ImagePipe.MixProject do
       "docs/cache.md",
       "docs/cdn-http-cache.md",
       "docs/processing-controls.md",
+      "docs/streaming-failures.md",
       "docs/errors.md"
     ],
     Observability: [

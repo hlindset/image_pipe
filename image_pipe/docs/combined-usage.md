@@ -37,10 +37,10 @@ url = ImagePipe.URL.url!(thumbnail, "photos/beach-v1.jpg")
   ImagePipe.write(config, thumbnail, {:source, "photos/beach-v1.jpg"}, "thumbnail.webp")
 ```
 
-`stable: :immutable` promises immutable source identifiers. Give changed files a
-new path, such as `beach-v2.jpg`. Use the default `stable: :auto` for files
-that can change: ImagePipe identifies them by their contents and reuses cached
-results while they're unchanged. See [local files](sources.md#local-files).
+`stable: :immutable` marks the files as
+[write-once](caching-and-freshness.md#write-once-sources), so a changed file
+needs a new path, such as `beach-v2.jpg`. Leave it out for files that can
+change.
 
 ## Connect the mount
 
@@ -74,8 +74,8 @@ Keep configuration server-side. In a template, expose the generated URL:
 
 ## Share cache entries
 
-Configured `{:source, identifier}` inputs use the same adapters, source identity,
-freshness rules, and cache entries as HTTP requests. A background `run` can warm
+Configured `{:source, identifier}` inputs use the same adapters, cache entries,
+and [freshness rules](caching-and-freshness.md) as HTTP requests. A background `run` can warm
 the output for the next browser request, and HTTP can warm it for an Elixir job.
 Raw `{:file, path}` and `{:binary, bytes}` inputs bypass both caches.
 

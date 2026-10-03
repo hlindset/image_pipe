@@ -19,9 +19,11 @@ all sources or per source. Request URLs can't change them:
 
 ## Originals and processed images
 
-Each processed image belongs to one version of its original. A version is
-identified by the original's content, or for a write-once source by its path,
-URL, or S3 version.
+Each processed image belongs to one version of its original. Most sources
+identify a version by the original's content. A
+[write-once source](#write-once-sources) identifies it by the original's path,
+URL, or S3 object instead. Each configured source keeps its own processed
+images, so two configured sources that serve the same file don't share them.
 
 - When the origin starts serving different bytes for `cat.jpg`, requests make
   new processed images from the new version. Copies made from the old bytes
@@ -93,7 +95,20 @@ expire and are never checked, so a cached `cat.jpg` is served without
 contacting the source. They can still be evicted, and still need permission
 to be stored.
 
-Such a source can't have its own lifetime or stale window, and a default
+A write-once source identifies each version by where the original comes from,
+not by its content:
+
+- A local file by the source's `root_id`, a stable name for its directory
+  (see [local files](sources.md#local-files)), and the file's path.
+- An HTTP original by its URL, including the query string.
+- An S3 object by its endpoint, bucket, key, and version ID.
+
+Changed content must therefore get a new identifier, such as `cat-v2.jpg`.
+For HTTP and S3 sources, changing how the source fetches originals, such as
+its request options or credentials, also gives every original a new version.
+Credentials are hashed first, so they never appear in cache keys or `ETag`s.
+
+A write-once source can't have its own lifetime or stale window, and a default
 lifetime set for all sources doesn't apply to it. S3 identifiers that name an
 object version are treated as write-once automatically (see
 [S3-compatible storage](sources.md#s3-compatible-storage)).
@@ -102,8 +117,8 @@ object version are treated as write-once automatically (see
 
 A local file has no origin headers, so it has no lifetime unless you set a
 fallback one. Unless the source is write-once, the file source identifies each
-file by its content: a changed `cat.jpg` gets new processed images, and an
-unchanged one reuses them.
+file by a hash of its content: a changed `cat.jpg` gets new processed images,
+and an unchanged one reuses them.
 
 Each request checks the file's size and timestamps, and reads the file again
 only when they have changed. Where file times can't be trusted, the source can
