@@ -17,8 +17,8 @@ defmodule ImagePipe.Source.Mounts do
           path: atom() | nil
         }
 
-  @builtin_scheme_kinds %{"http" => :url, "https" => :url, "s3" => :object}
-  @source_kinds [:path, :url, :object]
+  @builtin_scheme_identifiers %{"http" => URL, "https" => URL, "s3" => Object}
+  @identifiers [Path, URL, Object]
   @scheme_pattern ~r/\A[a-z][a-z0-9+.\-]*\z/
 
   @mount_schema NimbleOptions.new!(
@@ -42,7 +42,7 @@ defmodule ImagePipe.Source.Mounts do
   @doc false
   @spec custom_schemes(t()) :: [String.t()]
   def custom_schemes(%__MODULE__{schemes: schemes}),
-    do: schemes |> Map.keys() |> Enum.reject(&Map.has_key?(@builtin_scheme_kinds, &1))
+    do: schemes |> Map.keys() |> Enum.reject(&Map.has_key?(@builtin_scheme_identifiers, &1))
 
   @doc false
   @spec fetch(t(), atom()) :: {:ok, module(), keyword()} | {:error, {:source, :missing_adapter}}
@@ -54,11 +54,10 @@ defmodule ImagePipe.Source.Mounts do
   end
 
   @doc """
-  Selects the mount for a plan source. Returns the mount name, the source kind,
-  and the source as the adapter receives it (prefix or custom scheme removed).
+  Selects the mount for a plan source. Returns the mount name and the source as
+  the adapter receives it (prefix or custom scheme removed).
   """
-  @spec route(struct(), t()) ::
-          {:ok, atom(), :path | :url | :object, struct()} | {:error, {:source, atom()}}
+  @spec route(struct(), t()) :: {:ok, atom(), struct()} | {:error, {:source, atom()}}
   def route(%Path{scheme: nil, segments: [first | rest]} = source, %__MODULE__{} = mounts) do
     case mounts.prefixes do
       %{^first => name} -> path_route(name, %{source | segments: rest})
@@ -75,16 +74,16 @@ defmodule ImagePipe.Source.Mounts do
   end
 
   def route(%URL{scheme: scheme} = source, %__MODULE__{} = mounts),
-    do: scheme_route(Atom.to_string(scheme), :url, source, mounts)
+    do: scheme_route(Atom.to_string(scheme), source, mounts)
 
   def route(%Object{scheme: scheme} = source, %__MODULE__{} = mounts),
-    do: scheme_route(scheme, :object, source, mounts)
+    do: scheme_route(scheme, source, mounts)
 
   def route(_source, _mounts), do: {:error, {:source, :missing_adapter}}
 
-  defp scheme_route(scheme, kind, source, mounts) do
+  defp scheme_route(scheme, source, mounts) do
     case mounts.schemes do
-      %{^scheme => name} -> {:ok, name, kind, source}
+      %{^scheme => name} -> {:ok, name, source}
       _schemes -> {:error, {:source, :missing_adapter}}
     end
   end
@@ -93,7 +92,7 @@ defmodule ImagePipe.Source.Mounts do
   defp path_route(name, %Path{segments: segments} = source) do
     if segments == [] or Enum.any?(segments, &(&1 in ["", ".", ".."])),
       do: {:error, {:source, :denied_path}},
-      else: {:ok, name, :path, source}
+      else: {:ok, name, source}
   end
 
   defp unique_names?(sources), do: sources |> Keyword.keys() |> then(&(Enum.uniq(&1) == &1))
@@ -111,7 +110,7 @@ defmodule ImagePipe.Source.Mounts do
     with {:ok, mount} <- validate_mount_shape(name, mount),
          {:ok, rules} <- parse_match(name, Keyword.fetch!(mount, :match)),
          module = Keyword.fetch!(mount, :adapter),
-         :ok <- check_source_kinds(name, module, rules),
+         :ok <- check_identifiers(name, module, rules),
          {:ok, opts} <- validate_adapter_options(module, Keyword.fetch!(mount, :options)),
          {:ok, mounts} <- add_rules(mounts, name, rules) do
       {:ok, %{mounts | mounts: Map.put(mounts.mounts, name, {module, opts})}}
@@ -154,16 +153,18 @@ defmodule ImagePipe.Source.Mounts do
 
   defp valid_rule?(_rule), do: false
 
-  defp rule_kind({:scheme, scheme}), do: Map.get(@builtin_scheme_kinds, scheme, :path)
-  defp rule_kind(_rule), do: :path
+  # The identifier struct a rule routes: http, https, and s3 schemes route URL
+  # and object identifiers; a prefix or any other scheme routes paths.
+  defp rule_identifier({:scheme, scheme}), do: Map.get(@builtin_scheme_identifiers, scheme, Path)
+  defp rule_identifier(_rule), do: Path
 
-  defp check_source_kinds(name, module, rules) do
-    supported = module.source_kinds()
-    needed = rules |> Enum.map(&rule_kind/1) |> Enum.uniq()
+  defp check_identifiers(name, module, rules) do
+    supported = module.identifiers()
+    needed = rules |> Enum.map(&rule_identifier/1) |> Enum.uniq()
 
     cond do
-      not (is_list(supported) and Enum.all?(supported, &(&1 in @source_kinds))) ->
-        invalid_mount(name, "#{inspect(module)}.source_kinds/0 returned #{inspect(supported)}")
+      not (is_list(supported) and Enum.all?(supported, &(&1 in @identifiers))) ->
+        invalid_mount(name, "#{inspect(module)}.identifiers/0 returned #{inspect(supported)}")
 
       Enum.all?(needed, &(&1 in supported)) ->
         :ok

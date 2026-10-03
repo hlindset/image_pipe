@@ -43,16 +43,14 @@ defmodule ImagePipe.Source.File do
   def options_schema, do: @options_schema.schema
 
   @impl Source
-  def source_kinds, do: [:path]
+  def identifiers, do: [SourcePath]
 
   @impl Source
   def validate_options(opts) do
     case NimbleOptions.validate(opts, @options_schema) do
       {:ok, validated} ->
         validated =
-          validated
-          |> Keyword.update!(:root, &Path.expand/1)
-          |> Keyword.put(:telemetry_kind, :file)
+          Keyword.update!(validated, :root, &Path.expand/1)
 
         CacheSettings.validate(validated)
 
@@ -83,7 +81,6 @@ defmodule ImagePipe.Source.File do
        struct!(
          Resolved,
          [
-           source_kind: :path,
            identity: identity,
            fetch: [path: path, root: Keyword.fetch!(opts, :root), segments: segments]
          ] ++ cache

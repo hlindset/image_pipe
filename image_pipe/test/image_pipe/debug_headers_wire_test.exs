@@ -32,7 +32,8 @@ defmodule ImagePipe.DebugHeadersWireTest do
     @behaviour ImagePipe.Source
 
     @impl true
-    def source_kinds, do: [:path, :url, :object]
+    def identifiers,
+      do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
     alias ImagePipe.Source.CacheSemantics
     alias ImagePipe.Source.Resolved
@@ -40,7 +41,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
 
     @impl ImagePipe.Source
     def validate_options(opts),
-      do: {:ok, Keyword.put_new(opts, :telemetry_kind, :debug_wire_test)}
+      do: {:ok, opts}
 
     @impl ImagePipe.Source
     def resolve(source, _opts, _runtime_opts) do
@@ -48,7 +49,6 @@ defmodule ImagePipe.DebugHeadersWireTest do
 
       {:ok,
        %Resolved{
-         source_kind: :path,
          identity: [kind: :path, adapter: :debug_wire_test, root: "wire", path: path],
          internal_cache: :enabled,
          http_cache: :auto,

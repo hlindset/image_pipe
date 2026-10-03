@@ -27,8 +27,7 @@ defmodule ImagePipe.Response.CachePolicyTest do
     Enum.into(overrides, %{
       byte_identity: {:strong, "seed"},
       stable?: true,
-      source_mount: :web,
-      source_kind: :url
+      source_mount: :web
     })
   end
 
@@ -173,7 +172,6 @@ defmodule ImagePipe.Response.CachePolicyTest do
 
     assert metadata == %{
              source_mount: :web,
-             source_kind: :url,
              reason: :detection_failed
            }
   end

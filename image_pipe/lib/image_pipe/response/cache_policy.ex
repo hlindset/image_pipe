@@ -36,8 +36,7 @@ defmodule ImagePipe.Response.CachePolicy do
           optional(:storage) => :origin | :allow | :deny,
           byte_identity: {:strong, term()},
           stable?: boolean(),
-          source_mount: atom() | nil,
-          source_kind: :path | :url | :object | :input
+          source_mount: atom() | nil
         }
 
   @typedoc """
@@ -439,7 +438,6 @@ defmodule ImagePipe.Response.CachePolicy do
       %{},
       %{
         source_mount: source_facts.source_mount,
-        source_kind: source_facts.source_kind,
         reason: reason
       }
     )

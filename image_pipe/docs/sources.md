@@ -232,11 +232,15 @@ identity field.
 ## Custom adapters
 
 Implement `ImagePipe.Source` when you need a new fetching/identity boundary.
-The adapter declares the kinds of source it resolves with `source_kinds/0`,
-and owns source access, cleanup, credentials, and source identity.
+The adapter declares the identifiers its `resolve/3` accepts with
+`identifiers/0`, for example `[ImagePipe.Plan.Source.Path]`, and owns source
+access, cleanup, credentials, and source identity.
 `ImagePipe.Source.CacheSettings` provides the standard `stable`,
 `cache_policy`, `internal_cache`, and `http_cache` options and turns them into
-the resolved cache fields, as the built-in adapters do. A custom
+the resolved cache fields, as the built-in adapters do. A source that isn't
+stable is identified by a hash of its contents. Pass `copy?: true` when
+originals come over the network, so ImagePipe keeps a local copy for other
+sizes and formats. A custom
 adapter that resolves paths can be mounted under a prefix, a custom scheme, or
 both, so `asset://catalog/photo-123` and `assets/catalog/photo-123` can reach
 the same adapter. See the [source contract](api_contract.md#sources) and the

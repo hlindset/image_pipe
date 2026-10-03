@@ -3,7 +3,8 @@ defmodule ImagePipe.RunTest.OwnedSource do
   @behaviour ImagePipe.Source
 
   @impl true
-  def source_kinds, do: [:path, :url, :object]
+  def identifiers,
+    do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
   alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Resolved
@@ -19,7 +20,6 @@ defmodule ImagePipe.RunTest.OwnedSource do
 
     {:ok,
      %Resolved{
-       source_kind: :path,
        identity: [kind: :test],
        internal_cache: :disabled,
        http_cache: :validators,

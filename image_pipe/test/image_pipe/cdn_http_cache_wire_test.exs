@@ -21,16 +21,16 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   defmodule StableSource do
     @behaviour ImagePipe.Source
 
-    def source_kinds, do: [:path, :url, :object]
+    def identifiers,
+      do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
-    def validate_options(opts), do: {:ok, Keyword.put_new(opts, :telemetry_kind, :stable_test)}
+    def validate_options(opts), do: {:ok, opts}
 
     def resolve(source, _opts, _runtime_opts) do
       path = source.segments
 
       {:ok,
        %Resolved{
-         source_kind: :path,
          identity: [kind: :path, adapter: :path, root: "wire", path: path],
          internal_cache: :enabled,
          http_cache: :inherit,
@@ -104,10 +104,11 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   defmodule OverridingSource do
     @behaviour ImagePipe.Source
 
-    def source_kinds, do: [:path, :url, :object]
+    def identifiers,
+      do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
     def validate_options(opts),
-      do: {:ok, Keyword.put_new(opts, :telemetry_kind, :overriding_test)}
+      do: {:ok, opts}
 
     def resolve(source, opts, runtime_opts) do
       {:ok, resolved} = StableSource.resolve(source, opts, runtime_opts)

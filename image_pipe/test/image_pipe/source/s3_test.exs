@@ -87,7 +87,6 @@ defmodule ImagePipe.Source.S3Test do
     source = %Object{scheme: "s3", scope: "tenant-a", key: "images/cat.jpg", revision: "abc"}
 
     assert {:ok, %Resolved{} = resolved} = S3.resolve(source, opts, [])
-    assert resolved.source_kind == :object
 
     assert resolved.identity == [
              kind: :object,

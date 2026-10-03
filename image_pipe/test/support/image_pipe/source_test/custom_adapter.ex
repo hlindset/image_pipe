@@ -11,7 +11,8 @@ defmodule ImagePipe.SourceTest.CustomAdapter do
   @behaviour Source
 
   @impl true
-  def source_kinds, do: [:path, :url, :object]
+  def identifiers,
+    do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
   @impl Source
   def validate_options(opts) do
@@ -25,7 +26,6 @@ defmodule ImagePipe.SourceTest.CustomAdapter do
 
     {:ok,
      %Resolved{
-       source_kind: :path,
        identity: [kind: :path, root: "test", path: ["images", "cat.jpg"]],
        internal_cache: Keyword.get(opts, :internal_cache, :enabled),
        http_cache: Keyword.get(opts, :http_cache, :inherit),

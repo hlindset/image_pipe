@@ -42,7 +42,6 @@ defmodule ImagePipe.Source.Input do
     with {:ok, digest} <- digest(kind, value, runtime) do
       {:ok,
        %Resolved{
-         source_kind: :input,
          identity: [kind: :local_input],
          internal_cache: :disabled,
          http_cache: :validators,

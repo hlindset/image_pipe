@@ -19,14 +19,14 @@ defmodule ImagePipe.SourceTest do
     defmodule MissingSemanticsSource do
       @behaviour ImagePipe.Source
 
-      def source_kinds, do: [:path, :url, :object]
+      def identifiers,
+        do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
       def validate_options(opts), do: {:ok, opts}
 
       def resolve(%SourcePath{}, _opts, _runtime_opts) do
         {:ok,
          %Resolved{
-           source_kind: :path,
            identity: [kind: :path, adapter: :path, root: "test", path: ["cat.jpg"]],
            internal_cache: :disabled,
            http_cache: :inherit,
@@ -52,14 +52,14 @@ defmodule ImagePipe.SourceTest do
     defmodule ContradictorySemanticsSource do
       @behaviour ImagePipe.Source
 
-      def source_kinds, do: [:path, :url, :object]
+      def identifiers,
+        do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
       def validate_options(opts), do: {:ok, opts}
 
       def resolve(%SourcePath{}, _opts, _runtime_opts) do
         {:ok,
          %Resolved{
-           source_kind: :path,
            identity: [kind: :path, adapter: :path, root: "test", path: ["cat.jpg"]],
            internal_cache: :disabled,
            http_cache: :inherit,
@@ -88,7 +88,7 @@ defmodule ImagePipe.SourceTest do
     defmodule PathOnlyAdapter do
       @behaviour ImagePipe.Source
 
-      def source_kinds, do: [:path]
+      def identifiers, do: [ImagePipe.Plan.Source.Path]
       def validate_options(opts), do: {:ok, opts}
       def resolve(_source, _opts, _runtime_opts), do: raise("not used")
       def fetch(_resolved, _opts, _runtime_opts), do: raise("not used")
@@ -266,7 +266,6 @@ defmodule ImagePipe.SourceTest do
 
     resolved = %Resolved{
       mount: :path,
-      source_kind: :path,
       identity: [kind: :path, root: "test", path: ["images", "cat.jpg"]],
       internal_cache: :enabled,
       http_cache: :inherit,
@@ -396,7 +395,6 @@ defmodule ImagePipe.SourceTest do
 
     resolved = %Resolved{
       mount: :path,
-      source_kind: :path,
       identity: [kind: :path, root: "test", path: ["images", "cat.jpg"]],
       internal_cache: :enabled,
       http_cache: :inherit,

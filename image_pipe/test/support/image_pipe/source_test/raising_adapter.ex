@@ -1,7 +1,8 @@
 defmodule ImagePipe.SourceTest.RaisingAdapter do
   @moduledoc false
 
-  def source_kinds, do: [:path, :url, :object]
+  def identifiers,
+    do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
   def validate_options(opts), do: {:ok, opts}
   def resolve(_source, _opts, _runtime_opts), do: raise("raw resolve failure")

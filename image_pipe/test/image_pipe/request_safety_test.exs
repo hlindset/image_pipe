@@ -9,7 +9,8 @@ defmodule ImagePipe.RequestSafetyTest do
     @behaviour ImagePipe.Source
 
     @impl true
-    def source_kinds, do: [:path, :url, :object]
+    def identifiers,
+      do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}
@@ -30,7 +31,8 @@ defmodule ImagePipe.RequestSafetyTest do
     @behaviour ImagePipe.Source
 
     @impl true
-    def source_kinds, do: [:path, :url, :object]
+    def identifiers,
+      do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}
@@ -39,7 +41,6 @@ defmodule ImagePipe.RequestSafetyTest do
     def resolve(_source, _opts, _runtime_opts) do
       {:ok,
        %ImagePipe.Source.Resolved{
-         source_kind: :path,
          identity: [kind: :path, root: "test", path: ["missing.jpg"]],
          internal_cache: :enabled,
          http_cache: :inherit,
@@ -59,7 +60,8 @@ defmodule ImagePipe.RequestSafetyTest do
     @behaviour ImagePipe.Source
 
     @impl true
-    def source_kinds, do: [:path, :url, :object]
+    def identifiers,
+      do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}
@@ -68,7 +70,6 @@ defmodule ImagePipe.RequestSafetyTest do
     def resolve(_source, _opts, _runtime_opts) do
       {:ok,
        %ImagePipe.Source.Resolved{
-         source_kind: :path,
          identity: [kind: :path, root: "test", path: ["stream-fails.jpg"]],
          internal_cache: :disabled,
          http_cache: :inherit,
@@ -91,7 +92,8 @@ defmodule ImagePipe.RequestSafetyTest do
     @behaviour ImagePipe.Source
 
     @impl true
-    def source_kinds, do: [:path, :url, :object]
+    def identifiers,
+      do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}
@@ -100,7 +102,6 @@ defmodule ImagePipe.RequestSafetyTest do
     def resolve(_source, _opts, _runtime_opts) do
       {:ok,
        %ImagePipe.Source.Resolved{
-         source_kind: :path,
          identity: [kind: :path, root: "test", path: ["cacheable-stream-fails.jpg"]],
          internal_cache: :enabled,
          http_cache: :inherit,
