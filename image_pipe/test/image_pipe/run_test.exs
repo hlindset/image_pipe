@@ -108,6 +108,14 @@ defmodule ImagePipe.RunTest do
       IP.run(IP.config(), IP.URL.new(), {:binary, bytes}, cache: nil)
     end
 
+    assert_raise ArgumentError, ~r/accept/, fn ->
+      IP.run(IP.config(), IP.URL.new(), {:binary, bytes}, accept: :webp)
+    end
+
+    assert_raise ArgumentError, ~r/request_inputs/, fn ->
+      IP.run(IP.config(), IP.URL.new(), {:binary, bytes}, request_inputs: [headers: :none])
+    end
+
     assert {:error, {:source, :body_too_large}} =
              IP.run(IP.config(), IP.URL.new(), {:binary, bytes}, max_body_bytes: 10)
 
@@ -154,7 +162,7 @@ defmodule ImagePipe.RunTest do
     assert {:ok, source, config} = Source.from_input({:source, "photo.png"}, config)
 
     assert {:ok, context} =
-             Execution.prepare(request, source, [], policy, Inputs.new!([]), config)
+             Execution.prepare(request, source, [], policy, %Inputs{}, config)
 
     try do
       assert {:ok, output} = Execution.open(context)

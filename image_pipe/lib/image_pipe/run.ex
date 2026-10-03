@@ -14,11 +14,45 @@ defmodule ImagePipe.Run do
   alias ImagePipe.Source
   alias ImagePipe.Telemetry
 
+  @options_schema NimbleOptions.new!(
+                    accept: [
+                      type: :string,
+                      default: "",
+                      doc: """
+                      An HTTP `Accept` value, such as `"image/avif,image/webp"`, for \
+                      choosing the output format when the plan has no `format`. An \
+                      empty value keeps the original's format where possible, as for a \
+                      request without `Accept` (see \
+                      [output formats](requesting-images.md#output-formats)). \
+                      `:auto_avif`, `:auto_webp`, and `:format_order` apply as configured.
+                      """
+                    ],
+                    request_inputs: [
+                      type: :keyword_list,
+                      keys: Inputs.schema(),
+                      default: [],
+                      doc: """
+                      The header and cookie values named by the configuration's \
+                      `:storage_inputs`, for `{:source, source}` inputs. They select the \
+                      same stored copy as those values in an HTTP request. Header names \
+                      are case-insensitive, and cookie names are case-sensitive. A \
+                      missing value matches a request without it. They aren't sent to \
+                      the source and don't change the result.
+                      """
+                    ]
+                  )
+
+  @doc false
+  def options_docs, do: NimbleOptions.docs(@options_schema)
+
   def run(%Config{} = shared, %ImagePipe.URL{plan: plan}, input, options) do
-    {accept, options} = Keyword.pop(options, :accept, "")
-    unless is_binary(accept), do: raise(ArgumentError, "accept must be a string")
-    {request_inputs, options} = Keyword.pop(options, :request_inputs, [])
-    inputs = Inputs.new!(request_inputs)
+    {run_options, options} = Keyword.split(options, [:accept, :request_inputs])
+
+    {accept, inputs} =
+      case NimbleOptions.validate(run_options, @options_schema) do
+        {:ok, valid} -> {valid[:accept], Inputs.new(valid[:request_inputs])}
+        {:error, error} -> raise ArgumentError, "invalid run options: #{Exception.message(error)}"
+      end
 
     %Config{options: config} =
       shared |> Config.override(options) |> Config.reject_unsupervised_processes!()

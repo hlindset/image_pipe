@@ -199,21 +199,9 @@ defmodule ImagePipe do
   as `max_input_pixels: 50_000_000`. Invalid options raise `ArgumentError`.
   A configuration from `config!/1` takes the same options, but a bounded
   `:cache` or `:input_cache` raises `ArgumentError` unless it is one of the
-  instance's own caches.
+  instance's own caches. `run/4` and `write/5` also take:
 
-    * `:accept` (`t:String.t/0`) - an HTTP `Accept` value, such as
-      `"image/avif,image/webp"`, for choosing the output format when the plan
-      has no `format`. The default `""` keeps the original's format where
-      possible, as for a request without `Accept` (see
-      [output formats](requesting-images.md#output-formats)). `:auto_avif`,
-      `:auto_webp`, and `:format_order` apply as on a mount.
-    * `:request_inputs` (`t:keyword/0`) - the header and cookie values named
-      by the configuration's `:storage_inputs`, as
-      `[headers: [{"x-tenant", "one"}], cookies: %{"session" => "abc"}]`.
-      They select a stored copy as the same values in an HTTP request would.
-      Header names are case-insensitive, and cookie names are
-      case-sensitive. A missing value matches a request without it. They
-      aren't sent to the source and don't change the result.
+  #{ImagePipe.Run.options_docs()}
 
   The builder's request controls behave as in a URL. `cachebuster` selects a
   separate stored copy. `expires` is compared with the configuration's
