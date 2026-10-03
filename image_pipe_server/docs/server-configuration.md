@@ -99,7 +99,7 @@ options:
 
 Some settings exist only in Elixir: functions (`address_resolver`, the
 function form of `address_policy`, `clock`), `req_options`, custom source
-adapters, caches, detectors, and credential providers. The reference marks
+adapters, detectors, and credential providers. The reference marks
 them. Hosts that need them build their own release on top of `image_pipe`.
 
 ## Errors
