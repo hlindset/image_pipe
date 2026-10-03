@@ -705,9 +705,8 @@ One-shot. Emitted when the response's cache headers are built.
 
 ### `[:http_cache, :conditional, :match]`
 
-One-shot. Emitted when a conditional request matches before the
-output-cache lookup and is answered with `304`. A `304` answered after an
-output-cache hit doesn't emit it.
+One-shot. Emitted when a conditional request is answered with `304`, whether
+it matched before the output-cache lookup or after an output-cache hit.
 
 - Metadata: `:method` (atom), `:get` or `:head`.
 
