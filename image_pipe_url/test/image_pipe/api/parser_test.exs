@@ -796,6 +796,14 @@ defmodule ImagePipe.API.ParserTest do
       assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
     end
 
+    test "encoder options for another format name the format they need" do
+      assert {:error, {:invalid_request, [diagnostic]}} =
+               parse(["format=webp", "jpeg-options=progressive"])
+
+      assert diagnostic.reason == :inert_option
+      assert diagnostic.message =~ "format=jpeg"
+    end
+
     test "trim symmetry without trim is inert" do
       assert {:error, {:invalid_request, diagnostics}} = parse(["trim-symmetry=h"])
       assert Enum.any?(diagnostics, &(&1.reason == :inert_option))

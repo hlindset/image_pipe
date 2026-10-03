@@ -245,7 +245,7 @@ defmodule ImagePipe.Plan.Spec.Validation do
       for {key, format} <- @encoders,
           requested = Map.get(options, :format),
           requested != nil and requested != format and Map.has_key?(options, key),
-          do: issue(:inert_option, :request, [key], {:requires, {:format, requested}})
+          do: issue(:inert_option, :request, [key], {:requires, {:format, format}})
 
     conflict ++ png ++ encoders
   end
