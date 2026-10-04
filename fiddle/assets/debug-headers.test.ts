@@ -57,7 +57,6 @@ describe("parseDebugHeaders", () => {
 
     const groups = parseDebugHeaders(
       {
-        "x-imagepipe-aq-metric": "ssimulacra2",
         "x-imagepipe-aq-score": "78.4",
         "x-imagepipe-aq-target": "78.0",
         "x-imagepipe-aq-quality-min": "60",
@@ -69,7 +68,6 @@ describe("parseDebugHeaders", () => {
       null,
     );
     const aq = group(groups, "Autoquality");
-    expect(aq?.rows).toContainEqual({ label: "Metric", value: "ssimulacra2" });
     expect(aq?.rows).toContainEqual({ label: "Score", value: "78.4" });
     expect(aq?.rows).toContainEqual({ label: "Quality min", value: "60" });
     expect(aq?.rows).toContainEqual({ label: "Tiles", value: "9" });

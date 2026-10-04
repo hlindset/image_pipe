@@ -106,7 +106,7 @@ defmodule ImagePipe.Output.Encoder do
   defp max_resolution_of(:none), do: 0
 
   # Crop scoring only applies to the Ssimulacra2 strategy (it tiles the SSIMULACRA2
-  # metric). A :size, butteraugli, or max_bytes-alone search above the crossover
+  # metric). A max_bytes-alone search above the crossover
   # does no crop scoring, so it stays :full and is not mislabeled :crop in telemetry.
   defp crop?(%RQS.Ssimulacra2{}, megapixels), do: megapixels > CropScore.crossover_megapixels()
   defp crop?(_quality_search, _megapixels), do: false

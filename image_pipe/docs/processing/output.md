@@ -62,9 +62,9 @@ Default: the quality set in the server's configuration, 80 unless changed (see
 [Plug configuration](`ImagePipe.config/1`) and
 [server configuration](../../../image_pipe_server/docs/server-configuration.md#processing)).
 
-`q` sets the encoder quality for every format, overriding `format-q` and
-any automatic quality search the host turns on. Combining `q` with an
-`autoquality` method in the same request fails with `400`.
+`q` sets the encoder quality for every format, overriding `format-q` and a
+search the server turns on. A request that sets both `q` and `autoquality`
+(the bare flag or a target) fails with `400`.
 
 PNG is lossless, so `q` applies to it only when `palette` is on in
 [`png-options`](#png-options) or the host's PNG settings. There it sets the
@@ -123,37 +123,32 @@ ImagePipe.URL.new()
 
 ### autoquality
 
-Accepts `none`, or a method name followed by optional `name:value` fields, as
-a list. Default: no search, unless the server's configuration turns one on
-for every request.
+Accepts the bare flag `autoquality`, a target
+[number](../requesting-images.md#numbers) above `0` and up to `100`, or
+`false`. Default: off, unless the server's configuration turns it on for every
+request.
 
-`autoquality` encodes the image at several qualities and picks one that meets
-the target. The method sets what the target measures:
+`autoquality` encodes the image at several qualities and picks the lowest one
+that reaches the target. The target is an
+[SSIMULACRA2](https://github.com/cloudinary/ssimulacra2) score, which measures
+how close the result looks to the original. Higher is better: 90 is very high
+quality, 70 is high, and 50 is medium.
 
-| Method | `target` | Default target (unless changed) |
-| --- | --- | --- |
-| `size` | File size in bytes, a positive whole number | None |
-| `ssimulacra2` | Visual similarity score from `0` to `100`, higher is better | `78` |
-| `butteraugli` | Visual difference from `0` to `25`, lower is better | `1` |
+- `autoquality` uses the server's target, 75 unless changed.
+- `autoquality=80` sets the target for this request.
+- `autoquality=false` turns off a search the server turns on.
 
-The other fields are:
+The search tries qualities from 25 to 95, or 20 to 80 for AVIF. An image that
+can't reach the target within that range is delivered at the highest quality.
+Each quality tried is encoded and scored, so a request that searches takes
+several times as long as a single encode. Cached responses don't search again.
 
-- `min` and `max`: the lowest and highest quality to try, from `1` to `100`.
-- `error`: how far from the target a result may land, a number of `0` or
-  more. Only `ssimulacra2` and `butteraugli` accept it.
-
-`autoquality=none` turns off a search the host turns on. The request fails
-with `400` when:
+The request fails with `400` when:
 
 - It also sets `q`.
-- A field is unknown, repeated, or out of range, or `min` is greater than
-  `max`.
-- `min` is above the host's `max` for the chosen format, or `max` is below
-  the host's `min`. The body is `invalid output`.
-- `size` has no `target` and the host sets none. The body is
-  `invalid output`.
+- The target is not a number above `0` and up to `100`.
 - It sets `format=png`, or `format=webp` while WebP is lossless (through
-  `webp-options` or the host's defaults). PNG and lossless WebP have no
+  `webp-options` or the server's defaults). PNG and lossless WebP have no
   quality to search. Without `format`, the search applies only when the
   chosen format has a quality setting.
 
@@ -162,7 +157,7 @@ with `400` when:
 ### URL
 
 ```text
-/w=800/autoquality=ssimulacra2,target:80,min:50/src/photos/beach.jpg
+/w=800/autoquality=80/src/photos/beach.jpg
 ```
 
 ### Elixir
@@ -170,7 +165,7 @@ with `400` when:
 ```elixir
 ImagePipe.URL.new()
 |> ImagePipe.URL.group(resize: [width: 800])
-|> ImagePipe.URL.output(autoquality: {:ssimulacra2, target: 80, min_quality: 50})
+|> ImagePipe.URL.output(autoquality: 80)
 ```
 
 <!-- tabs-close -->
@@ -181,9 +176,9 @@ Accepts a positive whole number of bytes. Default: no budget.
 
 When the encoded image is larger than `max-bytes`, ImagePipe lowers the
 quality to the highest one that fits. The budget is best effort. The lowest
-quality tried is the search's `min`, or `10` without `autoquality` (lower if
-`q` is lower). If the image is still too large at that quality, the response
-is larger than the budget.
+quality tried is `10` (lower if `q` is lower). With `autoquality` it is the
+lowest quality the search tries, 25 or 20 for AVIF. If the image is still too
+large at that quality, the response is larger than the budget.
 
 `max-bytes` fails with `400` under the same format rules as `autoquality`:
 with `format=png`, or with `format=webp` while WebP is lossless.

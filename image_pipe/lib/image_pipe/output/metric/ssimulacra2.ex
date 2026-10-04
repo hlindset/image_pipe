@@ -2,17 +2,11 @@ defmodule ImagePipe.Output.Metric.Ssimulacra2 do
   # Thin adapter over the `ssimulacra2` package — the only module that references
   # `Ssimulacra2.*`. `reference/1` precomputes the comparison reference once (from
   # the finalized pre-encode image); the loop calls `score/2` per decoded candidate.
-  # Scores are SSIMULACRA2-native (0–100, 100 = identical), so `direction` is
-  # `:higher_better`.
+  # Scores are SSIMULACRA2-native (0–100, 100 = identical).
   @moduledoc false
   @behaviour ImagePipe.Output.Metric
 
-  alias ImagePipe.Plan.Output.QualitySearch.Metric
-
   @type ref :: Ssimulacra2.Reference.t()
-
-  @impl true
-  def direction, do: Metric.direction(:ssimulacra2)
 
   @impl true
   def leg_name, do: :ssimulacra2

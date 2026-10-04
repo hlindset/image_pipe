@@ -218,7 +218,7 @@ defmodule ImagePipe.Plan.Spec.Validation do
   end
 
   defp output_errors(options) do
-    search? = match?({_method, _fields}, Map.get(options, :autoquality))
+    search? = Map.get(options, :autoquality, false) != false
 
     conflict =
       case Map.has_key?(options, :quality) and search? do

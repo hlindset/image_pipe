@@ -613,17 +613,16 @@ scores.
 ### `[:encode, :search]`
 
 Span. Nested in `[:encode]`. Wraps the search for an encoder quality, run for
-a `size`, `ssimulacra2`, or `butteraugli` autoquality method, or for a
-`max_bytes` limit on a format with a quality setting. The search encodes the
-image at several qualities and delivers one of those encodes.
+`autoquality` or for a `max_bytes` limit on a format with a quality setting.
+The search encodes the image at several qualities and delivers one of those
+encodes.
 
 - Start metadata:
-  - `:objective` (atom): `:size`, `:ssimulacra2`, `:butteraugli`, or `:none`
-    (only a `max_bytes` limit).
-  - `:min_quality` and `:max_quality` (integer): the quality range searched,
-    after per-format limits. Absent for `:none`.
-  - `:target` (number): the target, in bytes for `:size` and in score units
-    otherwise. Absent for `:none`.
+  - `:objective` (atom): `:ssimulacra2` for `autoquality`, or `:none` (only a
+    `max_bytes` limit).
+  - `:min_quality` and `:max_quality` (integer): the quality range searched
+    for the format. Absent for `:none`.
+  - `:target` (number): the SSIMULACRA2 target. Absent for `:none`.
   - `:max_bytes` (integer): the byte limit, when set.
 - Stop metadata:
   - `:result` (atom): `:ok` or `:processing_error`.
@@ -632,12 +631,13 @@ image at several qualities and delivers one of those encodes.
   - `:chosen_bytes` (integer): the delivered size.
   - `:iterations` (integer): encodes performed.
   - `:outcome` (atom): `:hit` (the target or limit was met), `:best_effort`
-    (it wasn't, and the closest quality in range was used).
-  - `:limiting_factor` (atom): with `:best_effort`, why. `:ceiling` or
-    `:floor` (the target was out of range), or `:max_bytes` (the limit
-    couldn't be met even at the lowest quality).
-  - `:final_score` (float): the delivered quality's score, for `ssimulacra2`
-    and `butteraugli`.
+    (it wasn't, and the highest quality in range was used, or the lowest
+    for `max_bytes`).
+  - `:limiting_factor` (atom): with `:best_effort`, why. `:ceiling` (the
+    target needed a higher quality than the range allows), or `:max_bytes`
+    (the limit couldn't be met even at the lowest quality).
+  - `:final_score` (float): the delivered quality's SSIMULACRA2 score, for
+    `:ssimulacra2`.
   - `:scorer` (atom): `:full` when the whole image was scored, or `:crop`
     when crops of a large image were scored instead.
   - `:tiles_scored` (integer): crops scored, at most 16. `:crop` only.
@@ -654,7 +654,7 @@ the search already encoded emits nothing again.
 - Stop metadata:
   - `:bytes` (integer): the encoded size.
   - `:index` (integer): which encode this is, from 1.
-  - `:score` (float): the score computed. Absent for `:size` and `:none`.
+  - `:score` (float): the score computed. Absent for `:none`.
   - `:scorer` (atom): `:full` or `:crop`.
   - `:tiles_scored` (integer): crops scored. `:crop` only.
   - `:result` (atom): `:processing_error`, on failure.
@@ -669,10 +669,9 @@ them.
 - `[:encode, :search, :probe, :encode]`: the encode, for every objective.
   Start metadata `:quality`, stop metadata `:result` and `:bytes`, or
   `:result` and `:error` on failure.
-- `[:encode, :search, :probe, metric, :decode]`: decoding the encoded
-  candidate. `metric` is `:ssimulacra2` or `:butteraugli`. Start metadata
-  `:bytes`, stop metadata `:result`.
-- `[:encode, :search, :probe, metric, :metric]`: computing one score, over
+- `[:encode, :search, :probe, :ssimulacra2, :decode]`: decoding the encoded
+  candidate. Start metadata `:bytes`, stop metadata `:result`.
+- `[:encode, :search, :probe, :ssimulacra2, :metric]`: computing one score, over
   the whole image or over the crops. Start metadata `:tiles_scored` for crop
   scoring, stop metadata `:result` and `:score`.
 
@@ -686,7 +685,7 @@ encode is delivered.
   - `:bytes` (integer): equals `:chosen_bytes`.
   - `:phase` (atom): the phase that encoded it, `:objective` or `:cap`.
   - `:index` (integer): that encode's index.
-  - `:score` (float): its score. Absent for `:size` and `:none`.
+  - `:score` (float): its score. Absent for `:none`.
   - `:scorer` (atom) and `:tiles_scored` (integer): as on the probe.
 
 ## HTTP cache events

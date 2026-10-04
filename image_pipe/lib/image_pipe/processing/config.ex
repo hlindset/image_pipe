@@ -2,7 +2,6 @@ defmodule ImagePipe.Processing.Config do
   @moduledoc false
   alias ImagePipe.Format
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
-  alias ImagePipe.Plan.Output.QualitySearch.Metric
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform
 
@@ -18,19 +17,13 @@ defmodule ImagePipe.Processing.Config do
     preserve_hdr: false,
     skip_processing_formats: [],
     quality: 80,
-    autoquality_method: :none,
-    autoquality_min_quality: 70,
-    autoquality_max_quality: 80,
-    autoquality_max_resolution: 0,
-    autoquality_max_iterations: 6
+    autoquality: false,
+    autoquality_target: 75,
+    autoquality_max_resolution: 0
   ]
 
   @map_defaults [
     format_quality: %{webp: 79, avif: 63},
-    autoquality_target: %{ssimulacra2: 78, butteraugli: 1.0},
-    autoquality_allowed_error: %{ssimulacra2: 1.0, butteraugli: 0.1},
-    autoquality_format_min_quality: %{avif: 60},
-    autoquality_format_max_quality: %{avif: 65},
     jpeg_options: %JpegOptions{},
     png_options: %PngOptions{},
     webp_options: %WebpOptions{},
@@ -179,55 +172,21 @@ defmodule ImagePipe.Processing.Config do
                       is `[]`.
                       """
                     ],
-                    autoquality_method: [
-                      type: {:in, [:none, :size, :ssimulacra2, :butteraugli]},
+                    autoquality: [
+                      type: :boolean,
                       doc: """
-                      Searches for a quality between the minimum and maximum quality: the \
-                      lowest that meets a `:ssimulacra2` or `:butteraugli` target, or the \
-                      highest whose output fits a `:size` byte target. `:none` turns search \
-                      off. Search encodes several candidates. The default value is `:none`.
+                      Picks each image's quality to meet `:autoquality_target` by \
+                      encoding and scoring several qualities. A request can turn it on or \
+                      off and set its own target with \
+                      [`autoquality`](processing/output.md#autoquality). The default value \
+                      is `false`.
                       """
                     ],
                     autoquality_target: [
-                      type: {:map, :atom, {:or, [:integer, :float]}},
-                      type_doc: "`t:map/0`",
+                      type: {:or, [:integer, :float]},
                       doc: """
-                      Target per method. Merged with the defaults, \
-                      `%{ssimulacra2: 78, butteraugli: 1.0}`. SSIMULACRA2 targets are \
-                      `0..100` and Butteraugli targets `0..25`. `autoquality_method: :size` \
-                      needs a target in whole bytes, such as `%{size: 50_000}`, or the \
-                      configuration is rejected.
-                      """
-                    ],
-                    autoquality_allowed_error: [
-                      type: {:map, :atom, {:or, [:integer, :float]}},
-                      type_doc: "`t:map/0`",
-                      doc: """
-                      How far from the target a result may land, per method. Merged with \
-                      the defaults, `%{ssimulacra2: 1.0, butteraugli: 0.1}`.
-                      """
-                    ],
-                    autoquality_min_quality: [
-                      type: :pos_integer,
-                      doc: "Lowest quality the search tries, `1..100`. The default value is `70`."
-                    ],
-                    autoquality_max_quality: [
-                      type: :pos_integer,
-                      doc:
-                        "Highest quality the search tries, `1..100`. The default value is `80`."
-                    ],
-                    autoquality_format_min_quality: [
-                      type: {:map, :atom, :pos_integer},
-                      doc: """
-                      Lowest quality per format, overriding `:autoquality_min_quality`. \
-                      Merged with the defaults, `%{avif: 60}`.
-                      """
-                    ],
-                    autoquality_format_max_quality: [
-                      type: {:map, :atom, :pos_integer},
-                      doc: """
-                      Highest quality per format, overriding `:autoquality_max_quality`. \
-                      Merged with the defaults, `%{avif: 65}`.
+                      The SSIMULACRA2 score auto-quality aims for, above `0` and up to \
+                      `100`. The default value is `75`.
                       """
                     ],
                     autoquality_max_resolution: [
@@ -236,10 +195,6 @@ defmodule ImagePipe.Processing.Config do
                       Results larger than this many megapixels skip the search and use \
                       the normal quality. `0`, the default, searches at every size.
                       """
-                    ],
-                    autoquality_max_iterations: [
-                      type: :pos_integer,
-                      doc: "Most candidates one search encodes. The default value is `6`."
                     ],
                     jpeg_options: [
                       type: {:custom, __MODULE__, :validate_encoder_options, [JpegOptions]},
@@ -386,20 +341,10 @@ defmodule ImagePipe.Processing.Config do
   defp merge_map_value(%mod{} = base, %mod{} = over), do: mod.merge(base, over)
   defp merge_map_value(base, over) when is_map(base) and is_map(over), do: Map.merge(base, over)
 
-  @quality_value_keys [:quality, :autoquality_min_quality, :autoquality_max_quality]
-  @quality_map_keys [
-    :format_quality,
-    :autoquality_format_min_quality,
-    :autoquality_format_max_quality
-  ]
-
   defp range_check!(resolved) do
-    Enum.each(@quality_value_keys, &validate_quality_value!(&1, Keyword.fetch!(resolved, &1)))
-    Enum.each(@quality_map_keys, &validate_quality_map!(&1, Keyword.fetch!(resolved, &1)))
+    validate_quality_value!(:quality, Keyword.fetch!(resolved, :quality))
+    validate_quality_map!(:format_quality, Keyword.fetch!(resolved, :format_quality))
     validate_target!(Keyword.fetch!(resolved, :autoquality_target))
-    validate_size_target!(resolved)
-    validate_allowed_error!(Keyword.fetch!(resolved, :autoquality_allowed_error))
-    validate_brackets!(resolved)
     validate_detector_required!(resolved)
     :ok
   end
@@ -447,82 +392,10 @@ defmodule ImagePipe.Processing.Config do
     end)
   end
 
-  @perceptual_metrics [:ssimulacra2, :butteraugli]
-
-  defp validate_target!(target_map) do
-    Enum.each(target_map, fn {metric, value} -> validate_target_metric!(metric, value) end)
-  end
-
-  defp validate_size_target!(resolved) do
-    if Keyword.fetch!(resolved, :autoquality_method) == :size and
-         not Map.has_key?(Keyword.fetch!(resolved, :autoquality_target), :size) do
+  defp validate_target!(target) do
+    unless target > 0 and target <= 100 do
       raise ArgumentError,
-            "invalid ImagePipe processing options: autoquality_method :size needs a :size " <>
-              "entry in autoquality_target, such as %{size: 50_000}"
+            "invalid ImagePipe processing options: autoquality_target (#{target}) must be above 0 and up to 100"
     end
-  end
-
-  defp validate_target_metric!(:size, value) do
-    unless is_integer(value) and value > 0 do
-      raise ArgumentError,
-            "invalid ImagePipe processing options: autoquality_target :size (#{inspect(value)}) must be a positive integer"
-    end
-  end
-
-  defp validate_target_metric!(metric, value) when metric in @perceptual_metrics do
-    {low, high} = Metric.target_range(metric)
-
-    unless is_number(value) and value >= low and value <= high do
-      raise ArgumentError,
-            "invalid ImagePipe processing options: autoquality_target #{inspect(metric)} (#{inspect(value)}) is out of range #{inspect({low, high})}"
-    end
-  end
-
-  defp validate_target_metric!(metric, _value) do
-    raise ArgumentError,
-          "invalid ImagePipe processing options: autoquality_target has unknown metric #{inspect(metric)}"
-  end
-
-  defp validate_allowed_error!(error_map) do
-    Enum.each(error_map, fn {metric, value} ->
-      unless metric in @perceptual_metrics do
-        raise ArgumentError,
-              "invalid ImagePipe processing options: autoquality_allowed_error has unsupported metric #{inspect(metric)}"
-      end
-
-      unless is_number(value) and value >= 0 do
-        raise ArgumentError,
-              "invalid ImagePipe processing options: autoquality_allowed_error #{inspect(metric)} (#{inspect(value)}) must be a non-negative number"
-      end
-    end)
-  end
-
-  defp validate_brackets!(resolved) do
-    base_min = Keyword.fetch!(resolved, :autoquality_min_quality)
-    base_max = Keyword.fetch!(resolved, :autoquality_max_quality)
-    format_min = Keyword.fetch!(resolved, :autoquality_format_min_quality)
-    format_max = Keyword.fetch!(resolved, :autoquality_format_max_quality)
-
-    if base_min > base_max do
-      raise ArgumentError,
-            "invalid ImagePipe processing options: autoquality_min_quality (#{base_min}) exceeds autoquality_max_quality (#{base_max})"
-    end
-
-    format_min
-    |> Map.keys()
-    |> Enum.concat(Map.keys(format_max))
-    |> Enum.uniq()
-    |> Enum.each(fn format ->
-      effective_min = Map.get(format_min, format, base_min)
-      effective_max = Map.get(format_max, format, base_max)
-
-      if effective_min > effective_max do
-        raise ArgumentError,
-              "invalid ImagePipe processing options: effective autoquality bracket for #{inspect(format)} is inverted " <>
-                "(min #{effective_min} > max #{effective_max})"
-      end
-    end)
-
-    :ok
   end
 end

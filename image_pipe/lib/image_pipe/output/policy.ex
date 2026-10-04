@@ -10,6 +10,13 @@ defmodule ImagePipe.Output.Policy do
   alias ImagePipe.Plan.Output
   alias ImagePipe.Telemetry
 
+  # Qualities the search may try per format, wide enough for the targets people
+  # use (bench/autoquality.md, Part N). They only stop pathological images from
+  # running off to the ends of the scale.
+  @search_rails %{jpeg: {25, 95}, webp: {25, 95}, avif: {20, 80}}
+  @default_search_rails {25, 95}
+  @search_tolerance 0.5
+
   @enforce_keys [
     :mode,
     :modern_candidates,
@@ -25,7 +32,6 @@ defmodule ImagePipe.Output.Policy do
                 flatten_background: Color.white(),
                 default_quality: :default,
                 quality_search: :none,
-                quality_search_max_iterations: 6,
                 max_bytes: nil,
                 dpi: nil,
                 quality_search_offsets: Output.default_quality_search_offsets(),
@@ -59,10 +65,7 @@ defmodule ImagePipe.Output.Policy do
           flatten_background: Color.t(),
           quality_search:
             :none
-            | Output.QualitySearch.Size.t()
-            | Output.QualitySearch.Ssimulacra2.t()
-            | Output.QualitySearch.Butteraugli.t(),
-          quality_search_max_iterations: pos_integer(),
+            | Output.QualitySearch.t(),
           max_bytes: nil | pos_integer(),
           dpi: nil | 1..65_535,
           quality_search_offsets: Output.quality_search_offsets(),
@@ -104,7 +107,6 @@ defmodule ImagePipe.Output.Policy do
       default_quality: policy.default_quality,
       format_qualities: policy.format_qualities,
       quality_search: quality_search_identity(policy.quality_search),
-      quality_search_max_iterations: search_iteration_identity(policy),
       quality_search_offsets: policy.quality_search_offsets,
       max_bytes: policy.max_bytes,
       strip_metadata: policy.strip_metadata,
@@ -234,7 +236,6 @@ defmodule ImagePipe.Output.Policy do
       color_profile: policy.color_profile,
       flatten_background: policy.flatten_background,
       quality_search: resolve_search(policy, format),
-      quality_search_max_iterations: policy.quality_search_max_iterations,
       max_bytes: policy.max_bytes,
       encoder_options: Map.get(policy.encoder_options, format)
     }
@@ -242,42 +243,19 @@ defmodule ImagePipe.Output.Policy do
 
   defp resolve_search(%__MODULE__{quality_search: :none}, _format), do: :none
 
-  defp resolve_search(%__MODULE__{quality_search: %Output.QualitySearch.Size{} = s}, format) do
-    %RQS.Size{
-      target: s.target,
-      min_quality: s.url_min_quality || Map.get(s.format_min, format, s.min_quality),
-      max_quality: s.url_max_quality || Map.get(s.format_max, format, s.max_quality),
-      max_resolution: s.max_resolution
-    }
-  end
+  defp resolve_search(%__MODULE__{quality_search: %Output.QualitySearch{} = s} = policy, format) do
+    {min_quality, max_quality} = Map.get(@search_rails, format, @default_search_rails)
 
-  defp resolve_search(
-         %__MODULE__{quality_search: %Output.QualitySearch.Ssimulacra2{} = s} = policy,
-         format
-       ) do
     %RQS.Ssimulacra2{
       target: s.target,
-      min_quality: s.url_min_quality || Map.get(s.format_min, format, s.min_quality),
-      max_quality: s.url_max_quality || Map.get(s.format_max, format, s.max_quality),
-      allowed_error: s.allowed_error,
+      min_quality: min_quality,
+      max_quality: max_quality,
+      allowed_error: @search_tolerance,
       max_resolution: s.max_resolution,
       quality_search_offsets: %{
         photo: Output.offset_for(policy.quality_search_offsets, format, :photo),
         graphic: Output.offset_for(policy.quality_search_offsets, format, :graphic)
       }
-    }
-  end
-
-  defp resolve_search(
-         %__MODULE__{quality_search: %Output.QualitySearch.Butteraugli{} = s},
-         format
-       ) do
-    %RQS.Butteraugli{
-      target: s.target,
-      min_quality: s.url_min_quality || Map.get(s.format_min, format, s.min_quality),
-      max_quality: s.url_max_quality || Map.get(s.format_max, format, s.max_quality),
-      allowed_error: s.allowed_error,
-      max_resolution: s.max_resolution
     }
   end
 
@@ -321,62 +299,10 @@ defmodule ImagePipe.Output.Policy do
   defp stop_metadata({:error, reason}),
     do: %{result: :output_error, error: Error.tag(reason)}
 
-  defp search_iteration_identity(%__MODULE__{quality_search: :none, max_bytes: nil}), do: nil
-
-  defp search_iteration_identity(%__MODULE__{mode: {:explicit, :png}}), do: nil
-
-  defp search_iteration_identity(%__MODULE__{
-         mode: {:explicit, :webp},
-         encoder_options: %{webp: %Output.WebpOptions{lossless: true}}
-       }),
-       do: nil
-
-  defp search_iteration_identity(%__MODULE__{
-         mode: :source,
-         modern_candidates: [:webp | _rest],
-         encoder_options: %{webp: %Output.WebpOptions{lossless: true}}
-       }),
-       do: nil
-
-  defp search_iteration_identity(%__MODULE__{quality_search_max_iterations: iterations}),
-    do: iterations
-
   defp quality_search_identity(:none), do: :none
 
-  defp quality_search_identity(%Output.QualitySearch.Size{} = s) do
-    [
-      metric: :size,
-      target: s.target,
-      min_quality: s.min_quality,
-      max_quality: s.max_quality,
-      url_min_quality: s.url_min_quality,
-      url_max_quality: s.url_max_quality,
-      max_resolution: s.max_resolution,
-      format_min: Enum.sort(Map.to_list(s.format_min)),
-      format_max: Enum.sort(Map.to_list(s.format_max))
-    ]
-  end
-
-  defp quality_search_identity(%Output.QualitySearch.Ssimulacra2{} = s),
-    do: quality_metric_identity(:ssimulacra2, s)
-
-  defp quality_search_identity(%Output.QualitySearch.Butteraugli{} = s),
-    do: quality_metric_identity(:butteraugli, s)
-
-  defp quality_metric_identity(metric, s) do
-    [
-      metric: metric,
-      target: s.target,
-      min_quality: s.min_quality,
-      max_quality: s.max_quality,
-      url_min_quality: s.url_min_quality,
-      url_max_quality: s.url_max_quality,
-      allowed_error: s.allowed_error,
-      max_resolution: s.max_resolution,
-      format_min: Enum.sort(Map.to_list(s.format_min)),
-      format_max: Enum.sort(Map.to_list(s.format_max))
-    ]
-  end
+  defp quality_search_identity(%Output.QualitySearch{} = s),
+    do: [target: s.target, max_resolution: s.max_resolution]
 
   defp encoder_options_identity(map),
     do: Map.new(map, fn {format, struct} -> {format, Map.from_struct(struct)} end)

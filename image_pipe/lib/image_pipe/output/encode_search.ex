@@ -1,8 +1,7 @@
 defmodule ImagePipe.Output.EncodeSearch do
   # Best-effort binary search over encoder quality.
   #
-  # Given a resolved quality-search objective (`:size`, `:ssimulacra2`, or
-  # `:butteraugli`) and/or a hard `max_bytes` budget, probe candidate qualities
+  # Given a resolved SSIMULACRA2 quality target and/or a hard `max_bytes` budget, probe candidate qualities
   # within `[min_quality, max_quality]` and return the already-encoded buffer for
   # the winning quality, alongside `meta` describing the outcome.
   #
@@ -18,11 +17,8 @@ defmodule ImagePipe.Output.EncodeSearch do
   #
   # ## Monotonicity contract
   #
-  # The binary search assumes encoded byte size is non-decreasing in quality, and
-  # the perceptual score is monotone in quality in the metric's direction —
-  # non-decreasing for `:higher_better` (SSIMULACRA2), non-increasing for
-  # `:lower_better` (butteraugli distance). The loop branches on the metric's
-  # direction. Real encoders can violate monotonicity locally, so the result may
+  # The binary search assumes encoded byte size and the SSIMULACRA2 score are
+  # non-decreasing in quality. Real encoders can violate monotonicity locally, so the result may
   # miss the true optimum. The winning quality is always probed, re-measured,
   # and within `[min_quality, max_quality]`.
   @moduledoc false
@@ -36,17 +32,18 @@ defmodule ImagePipe.Output.EncodeSearch do
   alias ImagePipe.Output.Ssim2Metric.CropScore
   alias ImagePipe.Telemetry
 
-  @default_max_iterations 6
+  # Bisection over the widest rail (25..95) needs 7 probes.
+  @default_max_iterations 8
   @max_bytes_alone_floor 10
   @max_bytes_alone_base 90
 
   @type outcome :: :hit | :best_effort
 
   # Why a `:best_effort` result fell short of the objective/budget. `nil` on a
-  # `:hit`. `:ceiling`/`:floor` — the objective never cleared its band/target and
-  # pinned to the bracket ceiling/floor; `:max_bytes` — the hard budget could not
-  # be met even at the floor.
-  @type limiting_factor :: :ceiling | :floor | :max_bytes
+  # `:hit`. `:ceiling` — the objective never cleared its band and pinned to the
+  # bracket ceiling; `:max_bytes` — the hard budget could not be met even at the
+  # floor.
+  @type limiting_factor :: :ceiling | :max_bytes
 
   @type meta :: %{
           quality: 0..100,
@@ -81,7 +78,7 @@ defmodule ImagePipe.Output.EncodeSearch do
   Searches with injected encoding/scoring callbacks and a bounded iteration count.
   """
   @spec search(
-          :none | RQS.Size.t() | RQS.Ssimulacra2.t() | RQS.Butteraugli.t(),
+          :none | RQS.Ssimulacra2.t(),
           nil | pos_integer(),
           keyword()
         ) ::
@@ -121,8 +118,7 @@ defmodule ImagePipe.Output.EncodeSearch do
   # Product-neutral search descriptor for the span start: objective + bracket +
   # target/budget. `:none` (max_bytes-alone) carries nils for the objective-only
   # fields. No URLs/secrets — derived from the resolved descriptor and budget.
-  defp search_start_meta(%mod{} = rqs, max_bytes)
-       when mod in [RQS.Size, RQS.Ssimulacra2, RQS.Butteraugli] do
+  defp search_start_meta(%RQS.Ssimulacra2{} = rqs, max_bytes) do
     %{
       objective: objective_of(rqs),
       min_quality: rqs.min_quality,
@@ -170,9 +166,7 @@ defmodule ImagePipe.Output.EncodeSearch do
   end
 
   defp objective_of(:none), do: :none
-  defp objective_of(%RQS.Size{}), do: :size
   defp objective_of(%RQS.Ssimulacra2{}), do: :ssimulacra2
-  defp objective_of(%RQS.Butteraugli{}), do: :butteraugli
 
   @doc """
   Production wrapper. Builds the real encode/score closures from an already
@@ -184,7 +178,6 @@ defmodule ImagePipe.Output.EncodeSearch do
     telemetry_opts = Keyword.get(opts, :telemetry_opts, [])
     encode_fun = fn quality -> encode_leg(finalized_image, resolved, quality, telemetry_opts) end
     scorer = Keyword.get(opts, :scorer, :full)
-    max_iterations = resolved.quality_search_max_iterations
 
     with {:ok, search_opts} <- score_opts(finalized_image, resolved, scorer, telemetry_opts) do
       base_quality = base_quality(resolved)
@@ -196,7 +189,6 @@ defmodule ImagePipe.Output.EncodeSearch do
           [
             encode_fun: encode_fun,
             base_quality: base_quality,
-            max_iterations: max_iterations,
             scorer: scorer,
             telemetry_opts: telemetry_opts
           ] ++ search_opts
@@ -225,35 +217,14 @@ defmodule ImagePipe.Output.EncodeSearch do
     {:ok, base, :none, ctx}
   end
 
-  defp objective_phase(%RQS.Size{} = rqs, ctx, _opts) do
-    # Highest q in [min, max] with byte_size <= target.
-    predicate = fn bytes, _score -> bytes <= rqs.target end
+  defp objective_phase(%RQS.Ssimulacra2{} = rqs, ctx, _opts),
+    do: quality_objective_phase(rqs, ctx)
 
-    case search_highest_satisfying(rqs.min_quality, rqs.max_quality, predicate, ctx) do
-      {:error, _} = err ->
-        err
-
-      {best, outcome, ctx} ->
-        # None fit → floor (min_quality), best-effort.
-        chosen = best || rqs.min_quality
-        ctx = set_factor(ctx, if(best, do: nil, else: :floor))
-        with {:ok, ctx} <- ensure_probed(chosen, ctx), do: {:ok, chosen, outcome, ctx}
-    end
-  end
-
-  # Both quality-metric strategies share the band walk and differ only in the
-  # metric's polarity. That polarity is the metric module's to declare
-  # (`Output.Metric.direction/0`); read it through the runtime rather than
-  # restating `:higher_better`/`:lower_better` here, so there is one source of truth.
-  defp objective_phase(%mod{} = rqs, ctx, _opts)
-       when mod in [RQS.Ssimulacra2, RQS.Butteraugli],
-       do: quality_objective_phase(rqs, Metric.runtime(rqs).direction(), ctx)
-
-  defp quality_objective_phase(rqs, direction, ctx) do
+  defp quality_objective_phase(rqs, ctx) do
     band_lo = rqs.target - rqs.allowed_error
     band_hi = rqs.target + rqs.allowed_error
 
-    case search_to_target(rqs.min_quality, rqs.max_quality, band_lo, band_hi, direction, ctx) do
+    case search_to_target(rqs.min_quality, rqs.max_quality, band_lo, band_hi, ctx) do
       {:error, _} = err ->
         err
 
@@ -315,9 +286,7 @@ defmodule ImagePipe.Output.EncodeSearch do
   end
 
   defp cap_floor(:none), do: @max_bytes_alone_floor
-  defp cap_floor(%RQS.Size{min_quality: min_quality}), do: min_quality
   defp cap_floor(%RQS.Ssimulacra2{min_quality: min_quality}), do: min_quality
-  defp cap_floor(%RQS.Butteraugli{min_quality: min_quality}), do: min_quality
 
   # --- binary search primitives ---------------------------------------------
 
@@ -353,12 +322,9 @@ defmodule ImagePipe.Output.EncodeSearch do
     end
   end
 
-  # Walk-to-target: converge toward the symmetric band `[band_lo, band_hi]`,
-  # branching on the metric `direction`. Probe the midpoint; in-band → accept and
-  # stop. The "acceptable overshoot" arm is the side that meets or *exceeds* the
-  # quality target — for `:higher_better` that is `score > band_hi`, for
-  # `:lower_better` (distance) it is `score < band_lo`. An acceptable overshoot is
-  # recorded as the nearest-overshoot fallback and the walk continues *lower* in
+  # Walk-to-target: converge toward the symmetric band `[band_lo, band_hi]`.
+  # Probe the midpoint; in-band → accept and stop. A score above the band is an
+  # acceptable overshoot: it is recorded as the nearest-overshoot fallback and the walk continues *lower* in
   # quality (toward the band); the other arm walks *higher*. Returns
   # {chosen_q, :hit | :best_effort, limiting_factor | nil, ctx}.
   #
@@ -366,21 +332,18 @@ defmodule ImagePipe.Output.EncodeSearch do
   # overshoot — the just-past-band q on the acceptable side — wins, a `:hit`
   # (quality target met). If no q ever reached or overshot the band (every probe
   # undershot up to max_quality), pin to the ceiling as a `:best_effort`/`:ceiling`
-  # result. For both directions the acceptable q are found by walking *down* in
-  # quality and the unreachable pin is the *ceiling* (max_quality, the best quality),
-  # so `resolve_target`'s semantics hold under the `acceptable_overshoot?` flip.
-  # `ceiling` (the original `hi`) is threaded so the fallback can name max_quality
+  # result. `ceiling` (the original `hi`) is threaded so the fallback can name max_quality
   # after `hi` has narrowed.
-  defp search_to_target(lo, hi, band_lo, band_hi, direction, ctx) do
-    do_target(lo, hi, band_lo, band_hi, direction, hi, nil, ctx)
+  defp search_to_target(lo, hi, band_lo, band_hi, ctx) do
+    do_target(lo, hi, band_lo, band_hi, hi, nil, ctx)
   end
 
-  defp do_target(lo, hi, _band_lo, _band_hi, _direction, ceiling, overshoot, ctx)
+  defp do_target(lo, hi, _band_lo, _band_hi, ceiling, overshoot, ctx)
        when lo > hi do
     resolve_target(overshoot, ceiling, ctx)
   end
 
-  defp do_target(lo, hi, band_lo, band_hi, direction, ceiling, overshoot, ctx) do
+  defp do_target(lo, hi, band_lo, band_hi, ceiling, overshoot, ctx) do
     mid = div(lo + hi, 2)
 
     case probe_score(mid, ctx) do
@@ -397,17 +360,14 @@ defmodule ImagePipe.Output.EncodeSearch do
 
           # Acceptable overshoot: a satisfying-or-better q. Record it (each is lower
           # in quality than the last) and search lower for an in-band q.
-          acceptable_overshoot?(direction, score, band_lo, band_hi) ->
-            do_target(lo, mid - 1, band_lo, band_hi, direction, ceiling, mid, ctx)
+          score > band_hi ->
+            do_target(lo, mid - 1, band_lo, band_hi, ceiling, mid, ctx)
 
           true ->
-            do_target(mid + 1, hi, band_lo, band_hi, direction, ceiling, overshoot, ctx)
+            do_target(mid + 1, hi, band_lo, band_hi, ceiling, overshoot, ctx)
         end
     end
   end
-
-  defp acceptable_overshoot?(:higher_better, score, _band_lo, band_hi), do: score > band_hi
-  defp acceptable_overshoot?(:lower_better, score, band_lo, _band_hi), do: score < band_lo
 
   # No overshoot ever seen → undershot to the ceiling (best-effort); else ship the
   # nearest overshoot (quality target met, just above the band).
@@ -527,7 +487,7 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   # Stop metadata for an objective/cap probe: the encode + (estimate) score it just
   # produced. `:tiles_scored`/nil `:score` are stripped by the telemetry layer, so
-  # the full-frame and :size/:none paths carry only the fields they populate.
+  # the full-frame and :none paths carry only the fields they populate.
   defp objective_probe_meta(q, ctx) do
     %{
       bytes: byte_size(Map.fetch!(ctx.encode_memo, q)),
@@ -573,7 +533,7 @@ defmodule ImagePipe.Output.EncodeSearch do
   # folds onto the enclosing `[:encode, :search]` span. `:phase` names the phase
   # that actually encoded the delivered bytes (objective or cap). All
   # product-neutral; nils
-  # (`:score`/`:tiles_scored` on the :size/:none/full-frame paths) are stripped by
+  # (`:score`/`:tiles_scored` on the :none/full-frame paths) are stripped by
   # the telemetry layer, matching the probe-span metadata.
   defp emit_chosen(final_q, binary, ctx) do
     probe = Map.fetch!(ctx.probe_log, final_q)
@@ -608,9 +568,6 @@ defmodule ImagePipe.Output.EncodeSearch do
   defp score_opts(_image, %Resolved{quality_search: :none}, _scorer, _telemetry_opts),
     do: {:ok, []}
 
-  defp score_opts(_image, %Resolved{quality_search: %RQS.Size{}}, _scorer, _t),
-    do: {:ok, []}
-
   # Crop mode (above the crossover): crop score_fun (estimate) only (#369). The
   # per-`{format, content-class}` offset (resolved into
   # `rqs.quality_search_offsets`, #380) baked into the estimate is the crop→full
@@ -633,10 +590,8 @@ defmodule ImagePipe.Output.EncodeSearch do
     end
   end
 
-  # Every quality metric measures the full frame the same way — through its runtime
-  # (`Output.Metric.runtime/1`). This covers Ssimulacra2 below the crop crossover and
-  # butteraugli always (full-frame only this cycle). `:none`/`:size` are matched above
-  # and never reach here.
+  # Below the crop crossover the metric scores the full frame, through its runtime
+  # (`Output.Metric.runtime/1`). `:none` is matched above and never reaches here.
   defp score_opts(image, %Resolved{quality_search: qs}, _scorer, t) do
     full_frame_opts(Metric.runtime(qs), image, t)
   end
@@ -714,7 +669,7 @@ defmodule ImagePipe.Output.EncodeSearch do
   # --- cost legs (emitted from run/3's closures; the pure core never sees them) -
 
   # The codec encode, as a leg nested under the active probe span. Method-neutral:
-  # it fires for every objective (:size/:ssim2/:none), so unlike the scoring legs
+  # it fires for every objective (:ssim2/:none), so unlike the scoring legs
   # it carries no metric-method name segment.
   defp encode_leg(image, resolved, quality, telemetry_opts) do
     Telemetry.span(
@@ -730,10 +685,9 @@ defmodule ImagePipe.Output.EncodeSearch do
     )
   end
 
-  # Candidate decode, as a metric-namespaced leg. The `leg` segment
-  # (`:ssimulacra2`/`:butteraugli`, from the metric's `leg_name/0`) qualifies the
-  # scoring legs so each metric gets distinct span names a backend can group by; a
-  # decode failure throws and surfaces as the leg's `:exception`.
+  # Candidate decode, as a metric-namespaced leg. The `leg` segment (the metric's
+  # `leg_name/0`) names the scoring legs; a decode failure throws and surfaces as
+  # the leg's `:exception`.
   defp decode_leg(leg, bytes, telemetry_opts) do
     Telemetry.span(
       telemetry_opts,
@@ -767,9 +721,8 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   defp base_quality(%Resolved{
          quality: :default,
-         quality_search: %mod{max_quality: max_quality}
-       })
-       when mod in [RQS.Size, RQS.Ssimulacra2, RQS.Butteraugli],
+         quality_search: %RQS.Ssimulacra2{max_quality: max_quality}
+       }),
        do: max_quality
 
   defp base_quality(%Resolved{quality: :default}), do: @max_bytes_alone_base

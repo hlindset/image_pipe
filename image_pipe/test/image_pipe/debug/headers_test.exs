@@ -83,7 +83,6 @@ defmodule ImagePipe.Debug.HeadersTest do
     info = %Info{
       output_format: :avif,
       aq: %{
-        metric: :ssimulacra2,
         score: 78.4,
         target: 78.0,
         min: 60,
@@ -98,7 +97,6 @@ defmodule ImagePipe.Debug.HeadersTest do
 
     headers = Headers.render(info, accept: "", cache: :miss)
 
-    assert header(headers, "x-imagepipe-aq-metric") == {"x-imagepipe-aq-metric", "ssimulacra2"}
     assert header(headers, "x-imagepipe-aq-score") == {"x-imagepipe-aq-score", "78.4"}
     assert header(headers, "x-imagepipe-aq-target") == {"x-imagepipe-aq-target", "78.0"}
     assert header(headers, "x-imagepipe-aq-quality-min") == {"x-imagepipe-aq-quality-min", "60"}

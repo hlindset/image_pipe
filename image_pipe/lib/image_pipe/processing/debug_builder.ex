@@ -56,11 +56,8 @@ defmodule ImagePipe.Processing.DebugBuilder do
   defp aq_from_meta(_resolved_output, nil), do: nil
   defp aq_from_meta(%ResolvedOutput{quality_search: :none}, _search_meta), do: nil
 
-  defp aq_from_meta(%ResolvedOutput{quality_search: %module{} = search}, %{} = metadata) do
-    metric = quality_search_metric(module)
-
+  defp aq_from_meta(%ResolvedOutput{quality_search: search}, %{} = metadata) do
     %{
-      metric: metric,
       score: Map.get(metadata, :score),
       target: Map.get(search, :target),
       min: Map.get(search, :min_quality),
@@ -71,14 +68,5 @@ defmodule ImagePipe.Processing.DebugBuilder do
       scorer: Map.get(metadata, :scorer),
       tiles: Map.get(metadata, :tiles_scored)
     }
-  end
-
-  defp quality_search_metric(module) do
-    case module |> Module.split() |> List.last() do
-      "Ssimulacra2" -> :ssimulacra2
-      "Butteraugli" -> :butteraugli
-      "Size" -> :size
-      _other -> nil
-    end
   end
 end

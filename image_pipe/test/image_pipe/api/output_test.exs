@@ -82,49 +82,34 @@ defmodule ImagePipe.API.OutputTest do
   end
 
   test "explicit quality disables host autoquality" do
-    output = resolve!(["q=42"], autoquality_method: :ssimulacra2)
+    output = resolve!(["q=42"], autoquality: true)
 
     assert output.quality == {:quality, 42}
     assert output.quality_search == :none
   end
 
-  test "URL autoquality disable overrides the host method" do
-    output =
-      resolve!(["autoquality=none"],
-        autoquality_method: :ssimulacra2,
-        autoquality_max_iterations: 4
-      )
+  test "URL autoquality=false turns off the host default" do
+    output = resolve!(["autoquality=false"], autoquality: true)
 
     assert output.quality_search == :none
-    assert output.quality_search_max_iterations == 4
   end
 
-  test "inherits host autoquality when the URL does not select a method" do
-    output =
-      resolve!(["format=jpeg"],
-        autoquality_method: :ssimulacra2,
-        autoquality_max_iterations: 5
-      )
+  test "inherits host autoquality when the URL does not set it" do
+    output = resolve!(["format=jpeg"], autoquality: true, autoquality_max_resolution: 12)
 
-    assert %PlanOutput.QualitySearch.Ssimulacra2{target: 78} = output.quality_search
-    assert output.quality_search_max_iterations == 5
+    assert output.quality_search == %PlanOutput.QualitySearch{target: 75.0, max_resolution: 12}
   end
 
-  test "URL autoquality selects the method and overlays sparse fields on host defaults" do
-    output =
-      resolve!(["format=jpeg", "autoquality=ssimulacra2,target:82,min:55,error:0.5"],
-        autoquality_method: :butteraugli,
-        autoquality_max_quality: 92,
-        autoquality_max_resolution: 12
-      )
+  test "a bare URL autoquality uses the host target" do
+    output = resolve!(["autoquality"], autoquality_target: 80)
 
-    assert %PlanOutput.QualitySearch.Ssimulacra2{} = search = output.quality_search
-    assert search.target == 82
-    assert search.url_min_quality == 55
-    assert search.url_max_quality == nil
-    assert search.max_quality == 92
-    assert search.allowed_error == 0.5
-    assert search.max_resolution == 12
+    assert %PlanOutput.QualitySearch{target: 80.0} = output.quality_search
+  end
+
+  test "a URL target wins over the host target" do
+    output = resolve!(["autoquality=82"], autoquality: true, autoquality_target: 70)
+
+    assert %PlanOutput.QualitySearch{target: 82.0} = output.quality_search
   end
 
   test "URL format qualities and encoder options overlay host fields" do
@@ -220,10 +205,9 @@ defmodule ImagePipe.API.OutputTest do
           {[
              "format=webp",
              "webp-options=lossless",
-             "autoquality=ssimulacra2,target:78"
+             "autoquality=78"
            ], []},
-          {["format=webp", "autoquality=ssimulacra2,target:78"],
-           [webp_options: [lossless: true]]},
+          {["format=webp", "autoquality"], [webp_options: [lossless: true]]},
           {["format=webp", "max-bytes=12000"], [webp_options: [lossless: true]]}
         ] do
       config = Config.validate!(host_opts)
@@ -236,23 +220,21 @@ defmodule ImagePipe.API.OutputTest do
 
   test "allows inactive inherited search defaults for explicit lossless WebP" do
     output =
-      resolve!(["format=webp", "webp-options=lossless"],
-        autoquality_method: :ssimulacra2
-      )
+      resolve!(["format=webp", "webp-options=lossless"], autoquality: true)
 
-    assert %PlanOutput.QualitySearch.Ssimulacra2{} = output.quality_search
+    assert %PlanOutput.QualitySearch{} = output.quality_search
     assert output.encoder_options.webp.lossless
   end
 
   test "allows quality controls when automatic negotiation may select another format" do
     output =
       resolve!(
-        ["webp-options=lossless", "autoquality=ssimulacra2,target:78", "max-bytes=12000"],
+        ["webp-options=lossless", "autoquality=78", "max-bytes=12000"],
         []
       )
 
     assert output.mode == :source
-    assert %PlanOutput.QualitySearch.Ssimulacra2{} = output.quality_search
+    assert %PlanOutput.QualitySearch{} = output.quality_search
     assert output.max_bytes == 12_000
   end
 
@@ -267,7 +249,7 @@ defmodule ImagePipe.API.OutputTest do
   end
 
   test "prepare does not resolve image policy for blurhash" do
-    config = Config.validate!(autoquality_method: :size, autoquality_target: %{size: 10_000})
+    config = Config.validate!(autoquality: true)
     assert {:ok, request} = Parser.parse(lexed(["output=blurhash"]), config)
 
     assert {:ok, _source, [], output} =
@@ -277,7 +259,7 @@ defmodule ImagePipe.API.OutputTest do
   end
 
   test "prepare preserves info presentation intent and bypasses image policy" do
-    config = Config.validate!(autoquality_method: :size, autoquality_target: %{size: 10_000})
+    config = Config.validate!(autoquality: true)
 
     assert {:ok, request} =
              Parser.parse(
@@ -302,37 +284,8 @@ defmodule ImagePipe.API.OutputTest do
     assert ParsedRequest.prepare(request, "images/cat.jpg", config, "") == {:error, :expired}
   end
 
-  test "rejects an explicit format's inverted URL and host autoquality bracket" do
-    config = Config.validate!(autoquality_max_quality: 80)
-
-    assert {:ok, request} =
-             Parser.parse(
-               lexed(["format=jpeg", "autoquality=ssimulacra2,min:90"], "ftp://bad"),
-               config
-             )
-
-    assert {:error, {:invalid_output, {:inverted_autoquality_bracket, :jpeg}}} =
-             ParsedRequest.prepare(request, "images/cat.jpg", config, "")
-  end
-
-  test "validates every quality-capable format that automatic negotiation may select" do
-    config = Config.validate!([])
-    assert {:ok, request} = Parser.parse(lexed(["autoquality=ssimulacra2,min:70"]), config)
-
-    assert {:error, {:invalid_output, {:inverted_autoquality_bracket, :avif}}} =
-             ParsedRequest.prepare(request, "images/cat.jpg", config, "")
-  end
-
-  test "does not validate a modern automatic format disabled by host configuration" do
-    config = Config.validate!(auto_avif: false)
-    assert {:ok, request} = Parser.parse(lexed(["autoquality=ssimulacra2,min:70"]), config)
-
-    assert {:ok, _source, [], _output} =
-             ParsedRequest.prepare(request, "images/cat.jpg", config, "")
-  end
-
   test "renders resolved-output failures as a safe 400 plan error" do
-    reason = {:invalid_output, {:inverted_autoquality_bracket, :jpeg}}
+    reason = {:invalid_output, :lossless_webp_quality_search}
     conn = Errors.send(Plug.Test.conn(:get, "/private/source"), reason)
 
     assert conn.status == 400

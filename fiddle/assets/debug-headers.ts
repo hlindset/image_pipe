@@ -42,7 +42,6 @@ export function parseDebugHeaders(raw: Raw, outputBytes: number | null): DebugGr
   ]);
 
   pushGroup(groups, "Autoquality", [
-    row("Metric", get("x-imagepipe-aq-metric")),
     row("Score", get("x-imagepipe-aq-score")),
     row("Target", get("x-imagepipe-aq-target")),
     row("Quality min", get("x-imagepipe-aq-quality-min")),

@@ -28,7 +28,7 @@ defmodule ImagePipe.API.OptionSpec do
           key: String.t(),
           name: atom() | nil,
           scope: :group | :request,
-          value: :flag | value_parser(),
+          value: :flag | {:flag, value_parser()} | value_parser(),
           summary: String.t(),
           examples: [String.t()]
         }
@@ -586,9 +586,9 @@ defmodule ImagePipe.API.OptionSpec do
         key: "autoquality",
         name: :autoquality,
         scope: :request,
-        value: &__MODULE__.parse_autoquality/1,
-        summary: "Adaptive quality method with optional named controls",
-        examples: ["autoquality=ssimulacra2,target:78,error:2", "autoquality=none"]
+        value: {:flag, &__MODULE__.parse_autoquality/1},
+        summary: "Adaptive quality: bare for the default target, a target, or false",
+        examples: ["autoquality", "autoquality=80", "autoquality=false"]
       },
       %__MODULE__{
         key: "max-bytes",
@@ -1460,7 +1460,7 @@ defmodule ImagePipe.API.OptionSpec do
   end
 
   @doc false
-  @spec parse_autoquality(String.t()) :: {:ok, term()} | {:error, :invalid_autoquality}
+  @spec parse_autoquality(String.t()) :: {:ok, float()} | {:error, :invalid_autoquality}
   def parse_autoquality(string) do
     case OutputOptions.parse_autoquality(string) do
       {:ok, autoquality} -> {:ok, autoquality}

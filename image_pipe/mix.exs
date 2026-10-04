@@ -227,7 +227,6 @@ defmodule ImagePipe.MixProject do
       {:nimble_options, "~> 1.1"},
       {:image, "~> 0.72"},
       {:ssimulacra2, "~> 0.1.0"},
-      {:butteraugli, "~> 0.1.0"},
       {:vix, "~> 0.42"},
       {:req, "~> 0.8.0-rc.0"},
       {:stream_data, "~> 1.0", only: [:test, :dev]},
@@ -236,9 +235,9 @@ defmodule ImagePipe.MixProject do
       {:ex_doc, "~> 0.35", only: :dev, runtime: false},
       {:makeup_syntect, "~> 0.1.4", only: :dev, runtime: false},
       {:makeup_eex, "~> 2.0", only: :dev, runtime: false},
-      # makeup_syntect (docs) pins rustler_precompiled ~> 0.8.2, butteraugli needs
-      # 0.9. An override's `only:` applies to butteraugli's copy too, so it must
-      # cover every env that compiles butteraugli here.
+      # makeup_syntect (docs) pins rustler_precompiled ~> 0.8.2, ssimulacra2 needs
+      # 0.9. The override only matters where makeup_syntect is present, but its
+      # `only:` applies to ssimulacra2's copy too, so it must cover those envs.
       {:rustler_precompiled, "~> 0.9", only: [:dev, :test], override: true},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},

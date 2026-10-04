@@ -342,15 +342,14 @@ defmodule ImagePipe.DebugHeadersWireTest do
     opts =
       large_ssim2_opts(
         allow_debug_headers: true,
-        autoquality_method: :ssimulacra2,
-        autoquality_target: %{ssimulacra2: 85}
+        autoquality: true,
+        autoquality_target: 85
       )
 
     conn = call("/debug/format=jpeg/src/images/large.jpg", opts)
 
     assert conn.status == 200
 
-    assert header(conn, "x-imagepipe-aq-metric") == "ssimulacra2"
     assert header(conn, "x-imagepipe-aq-iterations") =~ ~r/^\d+$/
     outcome = header(conn, "x-imagepipe-aq-outcome")
     assert outcome in ["hit", "best_effort", "skipped", "native"]

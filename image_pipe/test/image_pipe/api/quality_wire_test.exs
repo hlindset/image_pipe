@@ -80,7 +80,7 @@ defmodule ImagePipe.API.QualityWireTest do
   test "lossless WebP rejects explicit search requests before source or cache access" do
     config = mount(webp_options: [lossless: true], cache: {CacheProbe, []})
 
-    for option <- ["autoquality=ssimulacra2", "autoquality=size,target:1000", "max-bytes=1000"] do
+    for option <- ["autoquality", "autoquality=75", "max-bytes=1000"] do
       assert response("format=webp/#{option}", config).status == 400
       refute_received :origin_fetch
       refute_received {:cache_lookup, _key}
@@ -92,10 +92,10 @@ defmodule ImagePipe.API.QualityWireTest do
       mount(
         allow_debug_headers: true,
         webp_options: [lossless: true, effort: 0],
-        autoquality_method: :ssimulacra2
+        autoquality: true
       )
 
-    options = "w=400/autoquality=ssimulacra2/max-bytes=1/debug"
+    options = "w=400/autoquality/max-bytes=1/debug"
     negotiated = response(options, config, "image/webp")
     explicit = response("w=400/format=webp/debug", config)
     baseline = response("w=400/format=webp/webp-options=lossless,effort:0", mount())
@@ -104,8 +104,8 @@ defmodule ImagePipe.API.QualityWireTest do
     assert explicit.status == 200
     assert negotiated.resp_body == baseline.resp_body
     assert explicit.resp_body == baseline.resp_body
-    assert get_resp_header(negotiated, "x-imagepipe-aq-metric") == []
-    assert get_resp_header(explicit, "x-imagepipe-aq-metric") == []
+    assert get_resp_header(negotiated, "x-imagepipe-aq-target") == []
+    assert get_resp_header(explicit, "x-imagepipe-aq-target") == []
   end
 
   test "max-bytes reduces output and returns the quality floor when it cannot fit" do
@@ -133,24 +133,6 @@ defmodule ImagePipe.API.QualityWireTest do
     assert get_resp_header(capped, "x-imagepipe-output-quality") == ["5"]
   end
 
-  test "size search uses its target and URL bounds override host format bounds" do
-    config =
-      mount(
-        allow_debug_headers: true,
-        autoquality_format_min_quality: %{jpeg: 70},
-        autoquality_format_max_quality: %{jpeg: 75}
-      )
-
-    response =
-      response("w=400/format=jpeg/autoquality=size,target:15000,min:40,max:95/debug", config)
-
-    assert_image(response, "image/jpeg", {400, 267})
-    assert byte_size(response.resp_body) <= 15_000
-    assert get_resp_header(response, "x-imagepipe-aq-metric") == ["size"]
-    assert get_resp_header(response, "x-imagepipe-aq-quality-min") == ["40"]
-    assert get_resp_header(response, "x-imagepipe-aq-quality-max") == ["95"]
-  end
-
   test "SSIMULACRA2 search produces a response near the requested target" do
     config = mount(allow_debug_headers: true)
     png = response("w=400/format=png", config)
@@ -159,57 +141,38 @@ defmodule ImagePipe.API.QualityWireTest do
 
     response =
       response(
-        "w=400/format=jpeg/autoquality=ssimulacra2,target:80,min:50,max:95,error:3/debug",
+        "w=400/format=jpeg/autoquality=80/debug",
         config
       )
 
     assert_image(response, "image/jpeg", {400, 267})
-    assert get_resp_header(response, "x-imagepipe-aq-metric") == ["ssimulacra2"]
+    assert get_resp_header(response, "x-imagepipe-aq-target") == ["80.0"]
     {:ok, score} = Ssim2Metric.score(reference, Image.from_binary!(response.resp_body))
     assert score >= 77
     assert score <= 86
   end
 
-  test "Butteraugli searches WebP" do
-    config = mount(allow_debug_headers: true)
-
-    response =
-      response(
-        "w=128/format=webp/webp-options=effort:0/autoquality=butteraugli,target:1,min:1,max:100,error:0.1/debug",
-        config
-      )
-
-    assert_image(response, "image/webp", {128, 85})
-    assert get_resp_header(response, "x-imagepipe-aq-metric") == ["butteraugli"]
-  end
-
-  test "explicit q and autoquality none disable inherited quality search" do
-    config =
-      mount(
-        allow_debug_headers: true,
-        autoquality_method: :ssimulacra2,
-        autoquality_target: %{ssimulacra2: 80}
-      )
+  test "explicit q and autoquality=false disable inherited quality search" do
+    config = mount(allow_debug_headers: true, autoquality: true, autoquality_target: 80)
 
     explicit = response("w=128/format=jpeg/q=45/debug", config)
     assert explicit.status == 200
     assert explicit.resp_body == response("w=128/format=jpeg/q=45", mount()).resp_body
-    assert get_resp_header(explicit, "x-imagepipe-aq-metric") == []
+    assert get_resp_header(explicit, "x-imagepipe-aq-target") == []
 
-    disabled = response("w=128/format=jpeg/autoquality=none/debug", config)
+    disabled = response("w=128/format=jpeg/autoquality=false/debug", config)
     assert disabled.status == 200
     assert disabled.resp_body == response("w=128/format=jpeg", mount()).resp_body
-    assert get_resp_header(disabled, "x-imagepipe-aq-metric") == []
+    assert get_resp_header(disabled, "x-imagepipe-aq-target") == []
   end
 
-  test "active iteration settings change both cache and ETag identity" do
-    options = "w=128/format=jpeg/autoquality=size,target:2000,min:1,max:95"
+  test "the auto-quality target changes both cache and ETag identity" do
     config = [cache: {CacheProbe, []}]
-    first = response(options, mount([autoquality_max_iterations: 1] ++ config))
+    first = response("w=128/format=jpeg/autoquality=70", mount(config))
     assert first.status == 200
     assert [first_key] = Enum.uniq(CacheProbe.lookup_keys())
     assert_receive {:cache_put, _key, _body}
-    second = response(options, mount([autoquality_max_iterations: 12] ++ config))
+    second = response("w=128/format=jpeg/autoquality=80", mount(config))
     assert second.status == 200
     assert [second_key] = Enum.uniq(CacheProbe.lookup_keys())
     assert_receive {:cache_put, _key, _body}
@@ -223,28 +186,23 @@ defmodule ImagePipe.API.QualityWireTest do
     for options <- [
           "format-q=webp:0",
           "format-q=webp:40,webp:50",
-          "autoquality=ssim2",
-          "autoquality=size",
-          "autoquality=size,target:0",
-          "autoquality=size,target:1.5",
-          "autoquality=ssimulacra2,target:101",
-          "autoquality=ssimulacra2,target:-1",
-          "autoquality=butteraugli,target:26",
-          "autoquality=butteraugli,target:-1",
-          "autoquality=size,target:1000,error:1",
-          "autoquality=ssimulacra2,min:90,max:40",
-          "format=jpeg/autoquality=ssimulacra2,min:90",
-          "format=jpeg/q=50/autoquality=ssimulacra2",
+          "autoquality=ssimulacra2",
+          "autoquality=0",
+          "autoquality=101",
+          "autoquality=-1",
+          "autoquality=true",
+          "autoquality=target:75",
+          "format=jpeg/q=50/autoquality",
           "max-bytes=0",
           "format=png/max-bytes=1000",
-          "format=png/autoquality=ssimulacra2",
+          "format=png/autoquality",
           "format=png/q=50",
           "format=png/png-options=filter:paeth/q=50",
           "format=png/format-q=png:50",
           "format-q=png:50",
           "format=jpeg/png-options=palette",
           "jpeg-options=progressive:true",
-          "output=blurhash/q=50/autoquality=ssimulacra2",
+          "output=blurhash/q=50/autoquality",
           "output=blurhash/format=png/max-bytes=1000"
         ] do
       assert response(options, config).status == 400, options
@@ -266,7 +224,7 @@ defmodule ImagePipe.API.QualityWireTest do
   end
 
   test "BlurHash ignores configured image quality search" do
-    config = mount(autoquality_method: :size, autoquality_target: %{size: 10_000})
+    config = mount(autoquality: true)
     response = response("output=blurhash", config)
     assert response.status == 200
     assert get_resp_header(response, "content-type") == ["text/plain; charset=utf-8"]

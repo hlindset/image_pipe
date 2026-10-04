@@ -27,7 +27,9 @@ export type CropDimensionUnit = "px" | "percent" | "full";
 export type ResizeDimensionUnit = "px" | "auto";
 export type OutputFormat = "webp" | "avif" | "jpeg" | "png";
 export type ColorProfile = "none" | "srgb" | "display-p3" | "adobe-rgb";
-export type AutoqualityMethod = "none" | "size" | "ssimulacra2" | "butteraugli";
+// unset sends nothing (the host default applies), on uses the host target,
+// off overrides a host default, target sends its own target.
+export type AutoqualityMode = "unset" | "on" | "off" | "target";
 export type Flip = "none" | "horizontal" | "vertical" | "both";
 export type Rotate = number;
 // COCO-80 object classes in underscore spelling, matching the hardcoded list in
@@ -288,13 +290,8 @@ export type ControlState = {
   format: OutputFormat;
   qualityEnabled: boolean;
   quality: number;
-  autoqualityMethod: AutoqualityMethod;
-  autoqualitySizeTarget: number;
-  autoqualitySsim2Target: number;
-  autoqualityButteraugliTarget: number;
-  autoqualityMinQuality: number;
-  autoqualityMaxQuality: number;
-  autoqualityAllowedError: number;
+  autoqualityMode: AutoqualityMode;
+  autoqualityTarget: number;
   maxBytesEnabled: boolean;
   maxBytes: number;
   stripMetadata: boolean;
@@ -354,11 +351,7 @@ export const controlLimits = {
   gravityOffset: { min: -200, max: 200, step: 0.01 },
   quality: { min: 1, max: 100, step: 1 },
   autoquality: {
-    sizeTarget: { min: 1, max: 5_000_000, step: 1 },
-    ssim2Target: { min: 0, max: 100, step: 0.1 },
-    butteraugliTarget: { min: 0, max: 25, step: 0.1 },
-    quality: { min: 1, max: 100, step: 1 },
-    allowedError: { min: 0, max: 100, step: 0.1 },
+    target: { min: 1, max: 100, step: 0.5 },
   },
   maxBytes: { min: 1, max: 5_000_000, step: 1 },
   dpi: { min: 1, max: 65_535, step: 1 },
@@ -383,10 +376,7 @@ export const controlLimits = {
   focalPoint: NumericControlLimit;
   gravityOffset: NumericControlLimit;
   quality: NumericControlLimit;
-  autoquality: Record<
-    "sizeTarget" | "ssim2Target" | "butteraugliTarget" | "quality" | "allowedError",
-    NumericControlLimit
-  >;
+  autoquality: Record<"target", NumericControlLimit>;
   maxBytes: NumericControlLimit;
   dpi: NumericControlLimit;
   watermark: Record<
@@ -533,13 +523,8 @@ export const defaultControlState: ControlState = {
   format: "jpeg",
   qualityEnabled: false,
   quality: 85,
-  autoqualityMethod: "none",
-  autoqualitySizeTarget: 50000,
-  autoqualitySsim2Target: 78,
-  autoqualityButteraugliTarget: 1,
-  autoqualityMinQuality: 70,
-  autoqualityMaxQuality: 80,
-  autoqualityAllowedError: 1,
+  autoqualityMode: "unset",
+  autoqualityTarget: 75,
   maxBytesEnabled: false,
   maxBytes: 50000,
   stripMetadata: true,
@@ -744,17 +729,9 @@ export function controlOptionSegments(s: ControlState): string[] {
   }
   if (s.formatEnabled) segments.push(`format=${s.format}`);
   if (s.qualityEnabled) segments.push(`q=${s.quality}`);
-  if (s.autoqualityMethod !== "none") {
-    const target =
-      s.autoqualityMethod === "size"
-        ? s.autoqualitySizeTarget
-        : s.autoqualityMethod === "ssimulacra2"
-          ? s.autoqualitySsim2Target
-          : s.autoqualityButteraugliTarget;
-    segments.push(
-      `autoquality=${s.autoqualityMethod},target:${target},min:${s.autoqualityMinQuality},max:${s.autoqualityMaxQuality}${s.autoqualityMethod === "size" ? "" : `,error:${s.autoqualityAllowedError}`}`,
-    );
-  }
+  if (s.autoqualityMode === "on") segments.push("autoquality");
+  else if (s.autoqualityMode === "off") segments.push("autoquality=false");
+  else if (s.autoqualityMode === "target") segments.push(`autoquality=${s.autoqualityTarget}`);
   if (s.maxBytesEnabled) segments.push(`max-bytes=${s.maxBytes}`);
   if (!s.stripMetadata) segments.push("meta=keep");
   else if (!s.keepCopyright) segments.push("meta=strip");
@@ -1088,21 +1065,14 @@ export function controlStateFromOptions(
       case "hdr":
         s.preserveHdr = value === "preserve";
         break;
-      case "autoquality": {
-        s.autoqualityMethod = parts[0] as AutoqualityMethod;
-        const f = fields(parts.slice(1).join(","));
-        if (s.autoqualityMethod === "butteraugli") s.autoqualityAllowedError = 0.1;
-        if (f.target !== undefined) {
-          if (s.autoqualityMethod === "size") s.autoqualitySizeTarget = Number(f.target);
-          else if (s.autoqualityMethod === "ssimulacra2")
-            s.autoqualitySsim2Target = Number(f.target);
-          else s.autoqualityButteraugliTarget = Number(f.target);
+      case "autoquality":
+        if (value === "") s.autoqualityMode = "on";
+        else if (value === "false") s.autoqualityMode = "off";
+        else {
+          s.autoqualityMode = "target";
+          s.autoqualityTarget = Number(value);
         }
-        if (f.min !== undefined) s.autoqualityMinQuality = Number(f.min);
-        if (f.max !== undefined) s.autoqualityMaxQuality = Number(f.max);
-        if (f.error !== undefined) s.autoqualityAllowedError = Number(f.error);
         break;
-      }
       case "jpeg-options": {
         const f = fields(value);
         for (const name of [
@@ -1147,13 +1117,6 @@ export function controlStateFromOptions(
       }
     }
   }
-  const qualityFields =
-    segments.find((segment) => keyOf(segment) === "autoquality")?.split("=")[1] ?? "";
-  if (!fields(qualityFields).min && s.formatEnabled) {
-    if (s.format === "avif") s.autoqualityMinQuality = 60;
-  }
-  if (!fields(qualityFields).max && s.formatEnabled && s.format === "avif")
-    s.autoqualityMaxQuality = 65;
   for (const [key, value] of Object.entries(s)) {
     if (typeof value === "number" && !Number.isFinite(value)) {
       Object.assign(s, { [key]: defaultControlState[key as keyof ControlState] });
@@ -1260,8 +1223,7 @@ export function updateControlOptions(
     const index = group.findIndex((segment) => keyOf(segment) === key);
     const oldValue = previous.get(key)?.split("=")[1] ?? "";
     const newValue = replacement?.split("=")[1] ?? "";
-    const sameSearch = key === "autoquality" && oldValue.split(",")[0] === newValue.split(",")[0];
-    if ((key.endsWith("-options") || sameSearch) && index >= 0) {
+    if (key.endsWith("-options") && index >= 0) {
       const oldFields = fields(oldValue);
       const newFields = fields(newValue);
       const rawFields = group[index]!.split("=")[1]!.split(",");

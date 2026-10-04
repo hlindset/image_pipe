@@ -135,15 +135,11 @@ defmodule ImagePipe.BuilderTest do
           [png_options: [bitdepth: 3]],
           [webp_options: [effort: 7]],
           [format_qualities: [webp: 70, webp: 80]],
-          [autoquality: {:size, target: 0}],
-          [autoquality: {:size, target: 1.5}],
-          [autoquality: {:ssimulacra2, target: 101}],
-          [autoquality: {:ssimulacra2, target: -1}],
-          [autoquality: {:butteraugli, target: -1}],
-          [autoquality: {:size, allowed_error: 1}],
-          [autoquality: {:butteraugli, target: 26}],
-          [autoquality: {:ssimulacra2, min_quality: 90, max_quality: 20}],
-          [autoquality: {:size, target: 100, target: 200}]
+          [autoquality: 0],
+          [autoquality: 101],
+          [autoquality: -1],
+          [autoquality: :none],
+          [autoquality: {:ssimulacra2, target: 75}]
         ] do
       assert_raise ArgumentError, fn -> IP.URL.output(IP.URL.new(), options) end
     end
@@ -237,12 +233,10 @@ defmodule ImagePipe.BuilderTest do
          ], "format=webp/q=82/meta=copyright/profile=display-p3/hdr=preserve"},
         {"quality search",
          [
-           autoquality:
-             {:ssimulacra2, target: 85, min_quality: 30, max_quality: 95, allowed_error: 1},
+           autoquality: 85,
            max_bytes: 12_000,
            format_qualities: [webp: 75, jpeg: 90]
-         ],
-         "autoquality=ssimulacra2,target:85,min:30,max:95,error:1/max-bytes=12000/format-q=webp:75,jpeg:90"},
+         ], "autoquality=85/max-bytes=12000/format-q=webp:75,jpeg:90"},
         {"density", [metadata: :strip, dpi: 300], "meta=strip/dpi=300"},
         {"JPEG",
          [
@@ -334,8 +328,8 @@ defmodule ImagePipe.BuilderTest do
           {[crop: {20, 20}, region: {0, 0, 20, 20}], [], "crop=20,20/region=0,0,20,20"},
           {[crop: {20, 20}, anchor: :smart, anchor_offset: {1, 2}], [],
            "crop=20,20/anchor=smart/anchor-offset=1,2"},
-          {[blur: 1], [terminal: :blurhash, quality: 80, autoquality: {:ssimulacra2, []}],
-           "blur=1/output=blurhash/q=80/autoquality=ssimulacra2"},
+          {[blur: 1], [terminal: :blurhash, quality: 80, autoquality: true],
+           "blur=1/output=blurhash/q=80/autoquality"},
           {[blur: 1], [format: :png, max_bytes: 1000], "blur=1/format=png/max-bytes=1000"},
           {[blur: 1], [format: :webp, jpeg_options: [interlace: true]],
            "blur=1/format=webp/jpeg-options=progressive"}
@@ -388,12 +382,12 @@ defmodule ImagePipe.BuilderTest do
     plan =
       IP.URL.new(@known)
       |> IP.URL.output(quality: 80)
-      |> IP.URL.output(autoquality: {:size, target: 12_000})
+      |> IP.URL.output(autoquality: 80)
 
     assert {:error, [issue]} = IP.URL.validate(plan)
     assert issue.reason == :mutually_exclusive_options
 
-    assert :ok = plan |> IP.URL.output(autoquality: :none) |> IP.URL.validate()
+    assert :ok = plan |> IP.URL.output(autoquality: false) |> IP.URL.validate()
   end
 
   property "detection defaults and redundant class weights share canonical intent" do

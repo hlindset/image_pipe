@@ -266,10 +266,8 @@ describe("visual controls serialize API requests", () => {
       format: "jpeg",
       qualityEnabled: true,
       quality: 82,
-      autoqualityMethod: "ssimulacra2",
-      autoqualityMinQuality: 40,
-      autoqualityMaxQuality: 90,
-      autoqualitySsim2Target: 80,
+      autoqualityMode: "target",
+      autoqualityTarget: 80,
       maxBytesEnabled: true,
       maxBytes: 30000,
       stripMetadata: false,
@@ -281,7 +279,7 @@ describe("visual controls serialize API requests", () => {
     expect(controlOptionSegments(state)).toEqual([
       "format=jpeg",
       "q=82",
-      "autoquality=ssimulacra2,target:80,min:40,max:90,error:1",
+      "autoquality=80",
       "max-bytes=30000",
       "meta=keep",
       "dpi=300",
@@ -334,12 +332,12 @@ describe("deep links and edits", () => {
     );
   });
 
-  it("does not inject quality search defaults when changing just the target", () => {
-    const options = "format=webp/autoquality=butteraugli,target:1";
-    const before = controlStateFromOptions(options, source);
-    expect(
-      updateControlOptions(options, 0, before, { ...before, autoqualityButteraugliTarget: 2 }),
-    ).toBe("format=webp/autoquality=butteraugli,target:2");
+  it("reads every autoquality spelling", () => {
+    expect(controlStateFromOptions("autoquality", source).autoqualityMode).toBe("on");
+    expect(controlStateFromOptions("autoquality=false", source).autoqualityMode).toBe("off");
+    const target = controlStateFromOptions("autoquality=82.5", source);
+    expect(target.autoqualityMode).toBe("target");
+    expect(target.autoqualityTarget).toBe(82.5);
   });
 
   it("removes an encoder option when its final field is unset", () => {
@@ -460,7 +458,9 @@ describe("deep links and edits", () => {
     "progressive-blur=4,-45,0.2,0.8",
     "progressive-blur=2",
     "brightness=-30/contrast=1.4/saturation=0.5/colorize=0.3,blue,keep-alpha/gradient=0.4,black,left,0.1,0.8",
-    "autoquality=butteraugli,target:1/format=webp/meta=copyright/profile=preserve/hdr=preserve",
+    "autoquality=80/format=webp/meta=copyright/profile=preserve/hdr=preserve",
+    "autoquality/format=jpeg",
+    "autoquality=false",
     "format=jpeg/meta=strip/dpi=96",
     "wm=logo",
     "wm=logo/wm-opacity=0.5/wm-scale=0.2/wm-at=top-left/wm-offset=4,8/wm-tile/wm-gap=10,20",

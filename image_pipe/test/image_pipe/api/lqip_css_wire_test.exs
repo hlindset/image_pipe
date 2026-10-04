@@ -135,7 +135,7 @@ defmodule ImagePipe.API.LqipCssWireTest do
           "profile=srgb",
           "hdr=preserve",
           "format-q=webp:60",
-          "autoquality=none",
+          "autoquality=false",
           "max-bytes=1000",
           "jpeg-options=progressive",
           "preset=encoded"

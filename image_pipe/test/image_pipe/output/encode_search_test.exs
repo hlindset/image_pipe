@@ -3,22 +3,6 @@ defmodule ImagePipe.Output.EncodeSearchTest do
   alias ImagePipe.Output.EncodeSearch
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
 
-  test "size picks the highest quality under the byte target" do
-    rs = %RQS.Size{target: 50_000, min_quality: 10, max_quality: 80}
-    enc = fn q -> {:ok, :binary.copy(<<0>>, q * 1000)} end
-
-    assert {:ok, _bin, %{quality: 50, outcome: :hit}} =
-             EncodeSearch.search(rs, nil, encode_fun: enc, max_iterations: 8)
-  end
-
-  test "size best-effort returns min_quality when even the floor exceeds the budget" do
-    rs = %RQS.Size{target: 5_000, min_quality: 10, max_quality: 80}
-    enc = fn q -> {:ok, :binary.copy(<<0>>, q * 1000)} end
-
-    assert {:ok, _bin, %{quality: 10, outcome: :best_effort}} =
-             EncodeSearch.search(rs, nil, encode_fun: enc, max_iterations: 8)
-  end
-
   test "ssim2 lands on the quality matching the target (zero-width band)" do
     rs = %RQS.Ssimulacra2{
       target: 90.0,
@@ -247,67 +231,6 @@ defmodule ImagePipe.Output.EncodeSearchTest do
                  scorer_tiles: 16,
                  max_iterations: 8
                )
-    end
-  end
-
-  describe "lower_better (butteraugli distance) band search" do
-    # bytes == q, so a score_fun keyed on byte_size recovers q. distance score
-    # decreases as quality rises: score(q) = 3.0 - q/50.
-    defp const_encode, do: fn q -> {:ok, :binary.copy(<<0>>, q)} end
-    defp distance_score, do: fn bytes -> 3.0 - byte_size(bytes) / 50 end
-
-    test "lower_better band search converges to in-band quality" do
-      # target 1.0 ± 0.1 → band [0.9, 1.1]; within 70..95 only q95 (score 1.1) is
-      # in-band, so the inverted walk drives upward and lands there.
-      search = %RQS.Butteraugli{target: 1.0, min_quality: 70, max_quality: 95, allowed_error: 0.1}
-
-      assert {:ok, _bin, meta} =
-               EncodeSearch.search(search, nil,
-                 encode_fun: const_encode(),
-                 score_fun: distance_score(),
-                 max_iterations: 12
-               )
-
-      assert meta.outcome in [:hit, :best_effort]
-      assert meta.quality in 70..95
-      assert meta.score <= 1.1
-    end
-
-    test "lower_better: distance above the band never clears → pins to the ceiling" do
-      # target 0.5 ± 0.05 → band [0.45, 0.55]; score(95) = 1.1 > band_hi, so even
-      # max quality is too lossy. No acceptable overshoot ever recorded → ceiling pin.
-      search =
-        %RQS.Butteraugli{target: 0.5, min_quality: 70, max_quality: 95, allowed_error: 0.05}
-
-      assert {:ok, _bin, meta} =
-               EncodeSearch.search(search, nil,
-                 encode_fun: const_encode(),
-                 score_fun: distance_score(),
-                 max_iterations: 12
-               )
-
-      assert meta.quality == 95
-      assert meta.outcome == :best_effort
-      assert meta.limiting_factor in [:ceiling, :floor]
-    end
-
-    test "lower_better straddle: empty band ships the lower-distance (higher-q) side as :hit" do
-      # target 1.51 ± 0.001 → band [1.509, 1.511]. score = 3 - q/50, so the band
-      # crosses between q74 (1.52, above band) and q75 (1.50, below band); no integer
-      # q lands in-band. The acceptable (lower-distance / higher-quality) side wins.
-      search =
-        %RQS.Butteraugli{target: 1.51, min_quality: 70, max_quality: 95, allowed_error: 0.001}
-
-      assert {:ok, _bin, meta} =
-               EncodeSearch.search(search, nil,
-                 encode_fun: const_encode(),
-                 score_fun: distance_score(),
-                 max_iterations: 12
-               )
-
-      assert meta.quality == 75
-      assert meta.outcome == :hit
-      assert meta.score < 1.509
     end
   end
 end

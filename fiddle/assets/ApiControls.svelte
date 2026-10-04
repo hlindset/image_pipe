@@ -105,18 +105,8 @@
     { label: "JPEG quality", options: "w=600/format=jpeg/q=60" },
     { label: "Format quality", options: "w=600/format-q=avif:60,webp:70" },
     { label: "Byte budget", options: "w=600/format=jpeg/max-bytes=20000/debug" },
-    {
-      label: "Size search",
-      options: "w=600/format=jpeg/autoquality=size,target:20000,min:30,max:95/debug",
-    },
-    {
-      label: "Perceptual quality",
-      options: "w=600/format=jpeg/autoquality=ssimulacra2,target:80,min:50,max:95/debug",
-    },
-    {
-      label: "Butteraugli quality",
-      options: "w=600/format=webp/autoquality=butteraugli,target:1/debug",
-    },
+    { label: "Auto quality", options: "w=600/format=jpeg/autoquality/debug" },
+    { label: "Auto quality target", options: "w=600/format=avif/autoquality=85/debug" },
     { label: "Progressive JPEG", options: "w=600/format=jpeg/jpeg-options=progressive" },
     { label: "Palette PNG", options: "w=600/format=png/png-options=palette,bitdepth:4" },
     { label: "Lossless WebP", options: "w=600/format=webp/webp-options=lossless" },

@@ -96,23 +96,6 @@ defmodule ImagePipe.API.Serializer do
     end)
   end
 
-  defp value("autoquality", {method, fields}) do
-    fields =
-      Enum.map(fields, fn {key, value} ->
-        name =
-          case key do
-            :target -> "target"
-            :min_quality -> "min"
-            :max_quality -> "max"
-            :allowed_error -> "error"
-          end
-
-        name <> ":" <> Value.scalar(value)
-      end)
-
-    Enum.join([Atom.to_string(method) | fields], ",")
-  end
-
   defp value("output", {:info, placeholders}),
     do: Enum.map_join(["info" | Enum.sort(placeholders)], ",", &Value.scalar/1)
 

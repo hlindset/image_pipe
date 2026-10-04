@@ -73,15 +73,15 @@ defmodule ImagePipe.Plug.ConfigTest do
       Config.validate!(
         quality: 72,
         format_quality: %{jpeg: 68},
-        autoquality_method: :ssimulacra2,
-        autoquality_max_iterations: 4,
+        autoquality: true,
+        autoquality_target: 82.5,
         jpeg_options: [interlace: true]
       )
 
     assert config[:quality] == 72
     assert config[:format_quality] == %{webp: 79, avif: 63, jpeg: 68}
-    assert config[:autoquality_method] == :ssimulacra2
-    assert config[:autoquality_max_iterations] == 4
+    assert config[:autoquality] == true
+    assert config[:autoquality_target] == 82.5
     assert config[:jpeg_options].interlace == true
   end
 
@@ -114,8 +114,8 @@ defmodule ImagePipe.Plug.ConfigTest do
     assert config[:quality] == 80
     assert config[:preserve_hdr] == false
     assert config[:format_quality] == %{webp: 79, avif: 63}
-    assert config[:autoquality_method] == :none
-    assert config[:autoquality_format_min_quality] == %{avif: 60}
+    assert config[:autoquality] == false
+    assert config[:autoquality_target] == 75
     assert config[:jpeg_options] == %JpegOptions{}
     assert config[:png_options] == %PngOptions{}
     assert config[:webp_options] == %WebpOptions{}
@@ -225,32 +225,24 @@ defmodule ImagePipe.Plug.ConfigTest do
     config =
       Config.validate!(
         format_quality: %{webp: 50},
-        autoquality_target: %{ssimulacra2: 90},
         jpeg_options: [interlace: true],
         avif_options: [subsample_mode: :off]
       )
 
     assert config[:format_quality] == %{webp: 50, avif: 63}
-    assert config[:autoquality_target] == %{ssimulacra2: 90, butteraugli: 1.0}
     assert config[:jpeg_options] == %JpegOptions{interlace: true}
     assert config[:avif_options] == %AvifOptions{subsample_mode: :off, effort: 3}
   end
 
-  test "rejects invalid output ranges, formats, brackets, and encoder settings" do
+  test "rejects invalid output ranges, formats, targets, and encoder settings" do
     invalid_configs = [
       [quality: 0],
       [quality: 101],
       [format_quality: %{wepb: 70}],
-      [autoquality_min_quality: 80, autoquality_max_quality: 70],
-      [autoquality_target: %{ssimulacra2: 150}],
-      [autoquality_target: %{ssimulacra2: -1}],
-      [autoquality_target: %{butteraugli: 26}],
-      [autoquality_target: %{butteraugli: -1}],
-      [autoquality_target: %{size: 0}],
-      [autoquality_target: %{size: 1.5}],
-      [autoquality_method: :size],
-      [autoquality_allowed_error: %{ssimulacra2: -1}],
-      [autoquality_allowed_error: %{size: 1}],
+      [autoquality: :ssimulacra2],
+      [autoquality_target: 0],
+      [autoquality_target: 100.5],
+      [autoquality_target: %{ssimulacra2: 75}],
       [jpeg_options: [quant_table: 9]],
       [png_options: [bitdepth: 3]],
       [webp_options: [preset: :bogus]],
@@ -264,9 +256,7 @@ defmodule ImagePipe.Plug.ConfigTest do
       assert_raise ArgumentError, fn -> Config.validate!(invalid) end
     end
 
-    for key <- [:format_quality, :autoquality_format_min_quality, :autoquality_format_max_quality] do
-      assert_raise ArgumentError, fn -> Config.validate!([{key, %{wepb: 70}}]) end
-    end
+    assert_raise ArgumentError, fn -> Config.validate!(format_quality: %{wepb: 70}) end
   end
 
   test "rejects retired host controls now owned by API request options" do

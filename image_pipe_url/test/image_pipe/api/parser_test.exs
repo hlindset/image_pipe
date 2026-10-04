@@ -500,7 +500,7 @@ defmodule ImagePipe.API.ParserTest do
     test "output policy stays sparse and typed" do
       options = [
         "format-q=webp:70,avif:60",
-        "autoquality=ssimulacra2,error:2,target:78,min:40,max:95",
+        "autoquality=78",
         "max-bytes=12000",
         "dpi=300",
         "jpeg-options=progressive,quant-table:3",
@@ -516,9 +516,7 @@ defmodule ImagePipe.API.ParserTest do
                     webp: {:quality, 70},
                     avif: {:quality, 60}
                   },
-                  autoquality:
-                    {:ssimulacra2,
-                     [target: 78.0, min_quality: 40, max_quality: 95, allowed_error: 2.0]},
+                  autoquality: 78.0,
                   max_bytes: 12_000,
                   dpi: 300,
                   encoder_options: %{
@@ -540,8 +538,8 @@ defmodule ImagePipe.API.ParserTest do
     end
 
     test "q may explicitly disable inherited autoquality" do
-      assert {:ok, %Spec{output: %Output{quality: 80, autoquality: :none}}} =
-               parse(["q=80", "autoquality=none"])
+      assert {:ok, %Spec{output: %Output{quality: 80, autoquality: false}}} =
+               parse(["q=80", "autoquality=false"])
     end
 
     test "expires as a gate field" do
@@ -904,7 +902,7 @@ defmodule ImagePipe.API.ParserTest do
     test "non-image outputs still reject image-only output conflicts" do
       for terminal <- ~w(blurhash lqip-css info) do
         assert {:error, {:invalid_request, diagnostics}} =
-                 parse(["output=" <> terminal, "q=80", "autoquality=ssimulacra2"])
+                 parse(["output=" <> terminal, "q=80", "autoquality"])
 
         assert Enum.any?(diagnostics, &(&1.reason == :mutually_exclusive_options))
 
@@ -966,18 +964,18 @@ defmodule ImagePipe.API.ParserTest do
     end
 
     test "PNG rejects enabled URL quality searches" do
-      for option <- ["autoquality=size,target:10000", "max-bytes=10000"] do
+      for option <- ["autoquality=75", "autoquality", "max-bytes=10000"] do
         assert {:error, {:invalid_request, diagnostics}} = parse(["format=png", option])
         assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
       end
 
-      assert {:ok, %Spec{output: %Output{format: :png, autoquality: :none}}} =
-               parse(["format=png", "autoquality=none"])
+      assert {:ok, %Spec{output: %Output{format: :png, autoquality: false}}} =
+               parse(["format=png", "autoquality=false"])
     end
 
     test "q conflicts with enabled URL autoquality" do
       assert {:error, {:invalid_request, diagnostics}} =
-               parse(["q=80", "autoquality=ssimulacra2,target:78"])
+               parse(["q=80", "autoquality=78"])
 
       assert Enum.any?(diagnostics, &(&1.reason == :mutually_exclusive_options))
     end

@@ -57,8 +57,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
       SSIMULACRA2 score vs the target (the search's own `final_score` telemetry,
       not an ad-hoc baseline), bytes vs a fixed `q90` baseline (savings %), and
       iteration count.
-    * `size` and `max_bytes` to the same byte budget — these skip the
-      decode+metric, so they are far cheaper; the table quantifies the gap.
+    * `max_bytes` to a byte budget — it skips the decode+metric, so it is far
+      cheaper; the table quantifies the gap.
 
   Goal: confirm `:ssim2` lands at/above its target, and surface typical quality /
   savings / iteration counts to validate (or adjust) the shipped defaults.
@@ -596,9 +596,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
     IO.puts("\n== Part B — accuracy + behavior over real sources (native sizes) ==")
     IO.puts("ssim2 target #{@target} [#{@min_q},#{@max_q}]  baseline q#{@baseline_quality}  ")
 
-    IO.puts(
-      "format #{format}  size/max_bytes budget = round(q#{@baseline_quality} bytes * 0.6)\n"
-    )
+    IO.puts("format #{format}  max_bytes budget = round(q#{@baseline_quality} bytes * 0.6)\n")
 
     attach_telemetry()
 
@@ -614,7 +612,6 @@ defmodule Mix.Tasks.Autoquality.Bench do
         pad(["save%", 7]) <>
         pad(["iters", 6]) <>
         pad(["ssim2ms", 9]) <>
-        pad(["sizems", 8]) <>
         pad(["mbms", 8])
 
     IO.puts(header)
@@ -642,7 +639,6 @@ defmodule Mix.Tasks.Autoquality.Bench do
         budget = round(baseline_bytes * 0.6)
 
         ssim2 = run_config(image, ssim2_resolved(format))
-        size = run_config(image, size_resolved(format, budget))
         mb = run_config(image, max_bytes_resolved(format, budget))
 
         savings = pct(baseline_bytes - ssim2.bytes, baseline_bytes)
@@ -660,7 +656,6 @@ defmodule Mix.Tasks.Autoquality.Bench do
             pad(["#{savings}%", 7]) <>
             pad([ssim2.iters, 6]) <>
             pad([ms(ssim2.us), 9]) <>
-            pad([ms(size.us), 8]) <>
             pad([ms(mb.us), 8])
         )
 
@@ -677,8 +672,6 @@ defmodule Mix.Tasks.Autoquality.Bench do
           savings: savings,
           iters: ssim2.iters,
           ssim2_us: ssim2.us,
-          size_us: size.us,
-          size_iters: size.iters,
           mb_us: mb.us,
           mb_iters: mb.iters
         }
@@ -4322,19 +4315,6 @@ defmodule Mix.Tasks.Autoquality.Bench do
     }
   end
 
-  defp size_resolved(format, budget) do
-    %Resolved{
-      base_resolved(format)
-      | quality: :default,
-        quality_search: %RQS.Size{
-          target: budget,
-          min_quality: @min_q,
-          max_quality: @max_q,
-          max_resolution: 0
-        }
-    }
-  end
-
   defp max_bytes_resolved(format, budget) do
     %Resolved{base_resolved(format) | quality: :default, max_bytes: budget}
   end
@@ -4460,10 +4440,9 @@ defmodule Mix.Tasks.Autoquality.Bench do
     avg_save = scored |> Enum.map(& &1.savings) |> avg() |> round()
     avg_iters = scored |> Enum.map(& &1.iters) |> avg() |> Float.round(1)
     avg_ssim2_ms = scored |> Enum.map(& &1.ssim2_us) |> avg() |> ms()
-    avg_size_ms = rows |> Enum.map(& &1.size_us) |> avg() |> ms()
     avg_mb_ms = rows |> Enum.map(& &1.mb_us) |> avg() |> ms()
 
-    speedup = ratio(avg(Enum.map(scored, & &1.ssim2_us)), avg(Enum.map(rows, & &1.size_us)))
+    speedup = ratio(avg(Enum.map(scored, & &1.ssim2_us)), avg(Enum.map(rows, & &1.mb_us)))
 
     IO.puts("Part B — accuracy + behavior:")
     IO.puts("  * ssim2 hit target #{@target}: #{hits}/#{length(scored)} scored sources")
@@ -4474,11 +4453,9 @@ defmodule Mix.Tasks.Autoquality.Bench do
 
     IO.puts("  * avg iterations: #{avg_iters} (cap #{@max_iter})")
 
-    IO.puts(
-      "  * avg cost: ssim2 #{avg_ssim2_ms} ms vs size #{avg_size_ms} ms vs max_bytes #{avg_mb_ms} ms"
-    )
+    IO.puts("  * avg cost: ssim2 #{avg_ssim2_ms} ms vs max_bytes #{avg_mb_ms} ms")
 
-    IO.puts("  * ssim2 is ~#{speedup}x the cost of size (the decode+metric overhead)\n")
+    IO.puts("  * ssim2 is ~#{speedup}x the cost of max_bytes (the decode+metric overhead)\n")
   end
 
   # Two error directions, judged against the FULL-res search (the achievable
@@ -4552,13 +4529,13 @@ defmodule Mix.Tasks.Autoquality.Bench do
 
     head =
       "source,width,height,mp,quality,score,hit,bytes,baseline_bytes,savings,iters," <>
-        "ssim2_us,size_us,size_iters,mb_us,mb_iters\n"
+        "ssim2_us,mb_us,mb_iters\n"
 
     body =
       Enum.map_join(rows, fn r ->
         "#{r.source},#{r.w},#{r.h},#{r.mp},#{r.quality},#{fmt_score(r.score)},#{r.hit?}," <>
           "#{r.bytes},#{r.baseline_bytes},#{r.savings},#{r.iters},#{r.ssim2_us}," <>
-          "#{r.size_us},#{r.size_iters},#{r.mb_us},#{r.mb_iters}\n"
+          "#{r.mb_us},#{r.mb_iters}\n"
       end)
 
     File.write!(path, head <> body)

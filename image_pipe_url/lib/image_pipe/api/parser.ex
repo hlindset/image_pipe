@@ -207,6 +207,12 @@ defmodule ImagePipe.API.Parser do
   defp dispatch_value(%OptionSpec{key: key}, "unset") when key != "preset", do: {:ok, :unset}
   defp dispatch_value(%OptionSpec{value: :flag}, nil), do: {:ok, true}
   defp dispatch_value(%OptionSpec{value: :flag}, value), do: Value.flag(value)
+  defp dispatch_value(%OptionSpec{value: {:flag, _fun}}, nil), do: {:ok, true}
+
+  defp dispatch_value(%OptionSpec{value: {:flag, _fun}}, value) when value in ["false", "true"],
+    do: Value.flag(value)
+
+  defp dispatch_value(%OptionSpec{value: {:flag, fun}}, value), do: fun.(value)
   defp dispatch_value(%OptionSpec{}, nil), do: {:error, :missing_value}
   defp dispatch_value(%OptionSpec{value: fun}, value), do: fun.(value)
 
@@ -612,7 +618,10 @@ defmodule ImagePipe.API.Parser do
 
   def message_for(:invalid_hdr), do: "invalid value: expected tonemap or preserve"
   def message_for(:invalid_format_qualities), do: "invalid per-format quality list"
-  def message_for(:invalid_autoquality), do: "invalid autoquality method or named fields"
+
+  def message_for(:invalid_autoquality),
+    do: "invalid value: expected a target above 0 and up to 100, false, or the bare flag"
+
   def message_for(:invalid_max_bytes), do: "invalid value: expected a positive integer"
   def message_for(:invalid_dpi), do: "invalid value: expected an integer 1-65535"
   def message_for(:invalid_encoder_options), do: "invalid encoder option list"

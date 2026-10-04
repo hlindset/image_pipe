@@ -2,9 +2,7 @@ defmodule ImagePipe.Plan.Builder.OutputOptions do
   @moduledoc false
 
   alias ImagePipe.Plan.Builder.Options
-  alias ImagePipe.Plan.Builder.Values
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
-  alias ImagePipe.Plan.Output.QualitySearch.Metric
 
   @formats [:jpeg, :png, :webp, :avif]
   @quality [type: {:in, 1..100}]
@@ -65,53 +63,12 @@ defmodule ImagePipe.Plan.Builder.OutputOptions do
     end
   end
 
-  def autoquality(:none), do: {:ok, :none}
+  def autoquality(enabled) when is_boolean(enabled), do: {:ok, enabled}
 
-  def autoquality({method, options}) when method in [:size, :ssimulacra2, :butteraugli] do
-    with {:ok, fields} <- Options.validate(options, quality_schema(method)),
-         :ok <- quality_bracket(fields) do
-      fields =
-        for key <- [:target, :min_quality, :max_quality, :allowed_error],
-            Keyword.has_key?(fields, key),
-            do: {key, Keyword.fetch!(fields, key)}
+  def autoquality(target) when is_number(target) and target > 0 and target <= 100,
+    do: {:ok, target * 1.0}
 
-      {:ok, {method, fields}}
-    end
-  end
-
-  def autoquality(_value), do: {:error, "expected :none or {method, options}"}
-
-  defp quality_schema(method) do
-    [min_quality: @quality, max_quality: @quality] ++ quality_target_schema(method)
-  end
-
-  defp quality_target_schema(:size), do: [target: [type: :pos_integer]]
-
-  defp quality_target_schema(method) do
-    [
-      target: [type: {:custom, __MODULE__, :metric_target, [method]}],
-      allowed_error: [type: {:custom, Values, :cast, [:nonnegative]}]
-    ]
-  end
-
-  def metric_target(value, method) do
-    {lo, hi} = Metric.target_range(method)
-
-    case is_number(value) and value >= lo and value <= hi do
-      true -> Values.cast(value, :nonnegative)
-      false -> {:error, "target is outside the metric range"}
-    end
-  end
-
-  defp quality_bracket(fields) do
-    case {Keyword.get(fields, :min_quality), Keyword.get(fields, :max_quality)} do
-      {min, max} when is_integer(min) and is_integer(max) and min > max ->
-        {:error, "min_quality must not exceed max_quality"}
-
-      _valid ->
-        :ok
-    end
-  end
+  def autoquality(_value), do: {:error, "expected a boolean or a target above 0 and up to 100"}
 
   def encoder([], _format), do: {:error, "expected at least one option; use :unset to clear"}
 
