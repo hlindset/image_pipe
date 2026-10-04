@@ -69,8 +69,15 @@ defmodule ImagePipe.Security.Signature do
 
   # -- signature decode/encode -----------------------------------------------
 
+  # Base64url decoding ignores the two unused bits of the last character, so
+  # re-encode and require the exact spelling: one MAC has one valid signature.
   defp decode_signature(sig) when byte_size(sig) == @signature_size do
-    Base.url_decode64(sig, padding: false)
+    with {:ok, decoded} <- Base.url_decode64(sig, padding: false),
+         ^sig <- Base.url_encode64(decoded, padding: false) do
+      {:ok, decoded}
+    else
+      _non_canonical -> :error
+    end
   end
 
   defp decode_signature(_sig), do: :error

@@ -116,6 +116,25 @@ defmodule ImagePipe.Security.SignatureTest do
                {:error, :invalid_signature}
     end
 
+    test "a signature whose last character sets the unused trailing bits is rejected" do
+      signed_path = "/w=800/src/x"
+      sig = Signature.sign(signed_path, config([@key_a]))
+      alphabet = ~c"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+      {prefix, <<last>>} = String.split_at(sig, 42)
+      index = Enum.find_index(alphabet, &(&1 == last))
+      group = Enum.slice(alphabet, div(index, 4) * 4, 4)
+
+      for char <- group, char != last do
+        variant = prefix <> <<char>>
+
+        assert Base.url_decode64!(variant, padding: false) ==
+                 Base.url_decode64!(sig, padding: false)
+
+        assert Signature.verify(variant, signed_path, config([@key_a])) ==
+                 {:error, :invalid_signature}
+      end
+    end
+
     test "a valid canonical signature is exactly 43 characters" do
       sig = Signature.sign("/w=800/src/x", config([@key_a]))
 
