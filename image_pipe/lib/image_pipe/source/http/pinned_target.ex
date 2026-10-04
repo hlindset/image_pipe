@@ -50,7 +50,45 @@ defmodule ImagePipe.Source.HTTP.PinnedTarget do
       |> Keyword.put(:conn_opts, conn_opts)
       |> Keyword.put(:pool_tag, {:image_pipe, hostname})
 
-    Req.merge(%{req | url: %{req.url | host: address}}, finch: finch)
+    Req.merge(%{req | url: %{req.url | host: address}}, finch: named_pool(finch))
+  end
+
+  # Given pool options, Req starts or finds their Finch instance through its
+  # one DynamicSupervisor on every request. A pool started here once, under
+  # ImagePipe's supervisor, is passed to Req by name instead. Req accepts only
+  # its build and request options alongside a name.
+  @pools ImagePipe.Source.HTTP.Pools
+  @request_options [
+    :pool_tag,
+    :unix_socket,
+    :pool_timeout,
+    :receive_timeout,
+    :request_timeout,
+    :pool_strategy
+  ]
+
+  defp named_pool(finch) do
+    {request_options, pool_options} = Keyword.split(finch, @request_options)
+    name = pool_name(pool_options)
+
+    if Process.whereis(name) == nil do
+      case DynamicSupervisor.start_child(
+             @pools,
+             {Finch, name: name, pools: %{default: pool_options}}
+           ) do
+        {:ok, _pid} -> :ok
+        {:error, {:already_started, _pid}} -> :ok
+      end
+    end
+
+    [name: name] ++ request_options
+  end
+
+  defp pool_name(pool_options) do
+    hash =
+      pool_options |> :erlang.term_to_binary() |> :erlang.md5() |> Base.encode32(padding: false)
+
+    Module.concat(@pools, hash)
   end
 
   defp connection_identity(opts, %URI{scheme: "https", host: hostname}) do

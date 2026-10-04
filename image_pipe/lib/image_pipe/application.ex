@@ -21,6 +21,7 @@ defmodule ImagePipe.Application do
     children = [
       {Task.Supervisor, name: ImagePipe.ProcessingPool.Tasks},
       {DynamicSupervisor, name: ImagePipe.Source.Downloads, strategy: :one_for_one},
+      {DynamicSupervisor, name: ImagePipe.Source.HTTP.Pools, strategy: :one_for_one},
       ImagePipe.Cache.Resources,
       {Task.Supervisor, name: ImagePipe.Cache.RefreshTasks},
       ImagePipe.Cache.Work,

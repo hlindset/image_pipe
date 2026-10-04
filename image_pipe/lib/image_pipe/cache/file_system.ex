@@ -73,14 +73,16 @@ defmodule ImagePipe.Cache.FileSystem do
   @doc """
   Reads a cached response and materializes its complete body as a binary.
 
-  Returns `{:hit, entry}`, `:miss`, or `{:error, reason}`. The cached file is
-  verified before reading, and its descriptor is closed before returning.
+  Returns `{:hit, entry}`, `:miss`, or `{:error, reason}`. The cached file's
+  size is checked before reading, and its descriptor is closed before returning.
   """
   @impl true
+  # Hosts call this with their own options. The Plug reads through `open/2`
+  # with options validated once with the cache configuration.
   def get(key, opts) do
-    case open(key, opts) do
-      {:hit, entry} -> materialize(entry)
-      other -> other
+    with {:ok, opts} <- validate_options(opts),
+         {:hit, entry} <- open(key, opts) do
+      materialize(entry)
     end
   end
 

@@ -561,7 +561,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   defp read_entry(paths) do
     with {:ok, metadata} <- read_metadata(paths),
          {:ok, body_path} <- body_path_from_metadata(paths, metadata),
-         {:ok, file} <- CacheFile.open(body_path, metadata.body_byte_size, metadata.body_sha256) do
+         {:ok, file} <- CacheFile.open(body_path, metadata.body_byte_size) do
       {:hit, file, metadata}
     end
   end
@@ -793,11 +793,12 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   def paths(%Key{hash: hash}, opts), do: paths_from_hash(hash, opts)
 
   @doc false
+  # The options were validated with the cache configuration.
   def paths_from_hash(hash, opts) when is_binary(hash) and is_list(opts) do
-    with {:ok, opts} <- validate_filesystem_options(opts),
-         root = Keyword.fetch!(opts, :root),
-         path_prefix = Keyword.fetch!(opts, :path_prefix),
-         {:ok, {first_partition, second_partition}} <- partitions(hash) do
+    root = Keyword.fetch!(opts, :root)
+    path_prefix = Keyword.get(opts, :path_prefix, "")
+
+    with {:ok, {first_partition, second_partition}} <- partitions(hash) do
       dir = Path.join([root, path_prefix, first_partition, second_partition])
       meta_path = Path.join(dir, hash <> ".meta")
 
