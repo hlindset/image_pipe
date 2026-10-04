@@ -144,7 +144,7 @@ background checks (see
 
 - Up to 64 originals can be fetched or checked at once, with up to 1,024
   requests waiting for them. Past either limit, a request fetches its
-  original itself, without waiting and without caching it.
+  original itself, without waiting.
 - Up to 16 background checks run at once. Each has a 60-second deadline.
   After a check of an original finishes, that original isn't checked in the
   background again for one second.

@@ -4,6 +4,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
   import Plug.Test
   alias ImagePipe, as: IP
   alias ImagePipe.Cache.FileSystem
+  alias ImagePipe.Cache.Work
 
   setup do
     root =
@@ -108,6 +109,35 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     assert {cached.width, cached.height} == {6, 4}
     refute_received :transformed
     refute_received {:origin, _, _}
+  end
+
+  test "a fetch past the coordinator's key limit still stores the original", %{
+    config: config
+  } do
+    test_pid = self()
+
+    holders =
+      for index <- 1..64 do
+        Task.async(fn ->
+          Work.run({:busy_test, index}, fn _coordination ->
+            send(test_pid, {:holding, index})
+
+            receive do
+              :release -> :ok
+            end
+          end)
+        end)
+      end
+
+    for index <- 1..64, do: assert_receive({:holding, ^index})
+
+    assert request(config, 12).status == 200
+    assert_receive {:origin, _, []}
+    assert request(config, 6).status == 200
+    refute_received {:origin, _, _}
+
+    for holder <- holders, do: send(holder.pid, :release)
+    Task.await_many(holders)
   end
 
   test "native cache hits revalidate origin freshness and observe changed bytes", %{

@@ -46,7 +46,7 @@ defmodule ImagePipe.Execution.SourceCache do
       fn coordination ->
         opts =
           case coordination do
-            false -> Keyword.drop(config, [:cache, :input_cache])
+            false -> config
             ref -> Keyword.put(config, :source_lease, ref)
           end
 
@@ -87,7 +87,7 @@ defmodule ImagePipe.Execution.SourceCache do
   end
 
   defp open_or_fetch(source, key, record, preparation, config, false),
-    do: fetch(source, key, nil, preparation, Keyword.drop(config, [:cache, :input_cache]), record)
+    do: fetch(source, key, nil, preparation, config, record)
 
   defp checked_input(record, path, lease, config) do
     limit = Keyword.fetch!(config, :max_body_bytes)
