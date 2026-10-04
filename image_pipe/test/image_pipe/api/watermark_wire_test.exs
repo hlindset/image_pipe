@@ -211,6 +211,21 @@ defmodule ImagePipe.API.WatermarkWireTest do
       refute_received {:origin_fetch, _path}
     end
 
+    test "a concealed watermark from a preset on a mount without encryption keys is a 400",
+         %{origin: origin} do
+      url = ImagePipe.URL.config(keys: [@signing_key], source_encryption_keys: [@source_key])
+      {:ok, token} = ImagePipe.Security.encrypt_source("mark.png", url.options, [])
+      plain = mount(origin, presets: %{"wm" => "wm-enc=#{token}"})
+      response = conn(:get, "/preset=wm/format=png/src/image.png") |> ImagePipe.Plug.call(plain)
+
+      assert response.status == 400
+
+      assert response.resp_body =~
+               "wm-enc is not accepted: no source encryption keys are configured"
+
+      refute_received {:origin_fetch, _path}
+    end
+
     test "parse failures return before any source access", %{origin: origin, config: config} do
       gated = mount(origin, request_watermarks: false)
       source = Base.url_encode64("mark.png", padding: false)
