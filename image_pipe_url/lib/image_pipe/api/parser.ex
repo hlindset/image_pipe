@@ -382,10 +382,19 @@ defmodule ImagePipe.API.Parser do
 
       {:error, issues} ->
         diagnostics = Enum.map(issues, &preset_diagnostic(&1, occurrences, fallback_span))
-        groups = Map.new(clean_group_maps, fn {i, opts} -> {i, Map.delete(opts, "preset")} end)
-        {groups, clean_request_map, diagnostics, occurrences}
+
+        groups =
+          Map.new(clean_group_maps, fn {i, opts} ->
+            {i, opts |> Map.delete("preset") |> drop_unset()}
+          end)
+
+        {groups, drop_unset(clean_request_map), diagnostics, occurrences}
     end
   end
+
+  # Successful expansion drops `:unset` inside `Presets.expand/4`; cross-option
+  # validation expects the same shape when expansion fails.
+  defp drop_unset(options), do: Map.reject(options, &match?({_key, :unset}, &1))
 
   defp preset_occurrence(index, key, span),
     do: occurrence(index, key, nil, span, span, span, {:ok, :from_preset})
