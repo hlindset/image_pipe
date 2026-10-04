@@ -4,17 +4,14 @@ defmodule ImagePipeServer.Application do
   use Application
 
   alias ImagePipeServer.Config
+  alias ImagePipeServer.ConfigError
 
   @listener __MODULE__.Listener
   @instance ImagePipeServer.ImagePipe
 
   @impl Application
   def start(_type, _args) do
-    config =
-      Config.load!(
-        System.get_env(),
-        Application.fetch_env!(:image_pipe_server, :default_config_path)
-      )
+    config = config!()
 
     if config.telemetry, do: ImagePipe.Telemetry.attach_default_logger(config.telemetry)
 
@@ -26,6 +23,19 @@ defmodule ImagePipeServer.Application do
       strategy: :one_for_one,
       name: ImagePipeServer.Supervisor
     )
+  end
+
+  # An invalid configuration stops the node with its message alone, without
+  # a crash report.
+  defp config! do
+    Config.load!(
+      System.get_env(),
+      Application.fetch_env!(:image_pipe_server, :default_config_path)
+    )
+  rescue
+    error in ConfigError ->
+      IO.puts(:stderr, Exception.message(error))
+      System.halt(1)
   end
 
   @doc false

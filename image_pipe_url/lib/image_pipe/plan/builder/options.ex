@@ -19,7 +19,7 @@ defmodule ImagePipe.Plan.Builder.Options do
 
   @docs "https://hexdocs.pm/image_pipe"
 
-  def request!(options), do: validate!(options, unsettable(request_schema()))
+  def request!(options), do: validate_unsettable!(options, request_schema())
 
   def request_schema do
     [
@@ -81,30 +81,43 @@ defmodule ImagePipe.Plan.Builder.Options do
   end
 
   def group!(options) do
-    {resize, group} = options |> validate!(group_schema()) |> Map.pop(:resize, [])
+    {resize, group} =
+      options
+      |> validate_unsettable!(group_schema(), Keyword.keys(transform_schema()))
+      |> Map.pop(:resize, [])
+
     group = if Map.get(group, :presets) == [], do: Map.delete(group, :presets), else: group
 
-    case Map.merge(group, Map.new(resize)) do
+    case Map.merge(group, validate_unsettable!(resize, resize_schema())) do
       values when map_size(values) > 0 -> values
       _empty -> raise ArgumentError, "a group must contain at least one option"
     end
   end
 
-  def output!(options), do: validate!(options, unsettable(OutputOptions.schema()))
+  def output!(options), do: validate_unsettable!(options, OutputOptions.schema())
 
   # Every option accepts `:unset`, which clears it from presets and request
-  # defaults.
-  defp unsettable(schema) do
-    Enum.map(schema, fn {key, spec} ->
-      {key, Keyword.update!(spec, :type, &{:or, [{:in, [:unset]}, &1]})}
-    end)
+  # defaults. Unset options skip validation, so an error lists only the
+  # values the option really takes.
+  defp validate_unsettable!(options, schema, unsettable \\ nil) do
+    unsettable = unsettable || Keyword.keys(schema)
+
+    with :ok <- unique_keywords(options),
+         {unset, set} = Enum.split_with(options, &unset?(&1, unsettable)),
+         {:ok, values} <- validate(set, schema) do
+      Map.merge(Map.new(values), Map.new(unset))
+    else
+      {:error, message} -> raise ArgumentError, message
+    end
   end
+
+  defp unset?({key, value}, unsettable), do: value == :unset and key in unsettable
 
   defp group_schema do
     [
       presets: [type: {:list, {:custom, Values, :cast, [:preset_name]}}],
-      resize: [type: :keyword_list, keys: unsettable(resize_schema())]
-    ] ++ unsettable(transform_schema())
+      resize: [type: :keyword_list]
+    ] ++ transform_schema()
   end
 
   defp transform_schema do
@@ -165,13 +178,6 @@ defmodule ImagePipe.Plan.Builder.Options do
   end
 
   defp custom(kind), do: {:custom, Values, :cast, [kind]}
-
-  defp validate!(options, schema) do
-    case validate(options, schema) do
-      {:ok, values} -> Map.new(values)
-      {:error, message} -> raise ArgumentError, message
-    end
-  end
 
   # NimbleOptions accepts repeated keywords; a plan's explicit options must
   # have an unambiguous value at every nesting level.

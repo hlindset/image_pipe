@@ -82,11 +82,11 @@ If the page doesn't load, the server didn't start. A mistake in
 docker logs image-server
 ```
 
-The log names the setting. Leaving out `match`, for example, logs this line
-among others:
+The log ends with a line that names the setting. Leaving out `match`, for
+example, ends the log with:
 
 ```text
-** (ImagePipeServer.ConfigError) invalid configuration: sources.photos.match: required
+invalid configuration: sources.photos.match: required
 ```
 
 Fix `config.toml`, remove the stopped container with
@@ -127,9 +127,15 @@ GET /w=800/src/photo.jpg
 Files you add to `images` can be requested right away, without restarting
 the server.
 
-If you mistype the file name, the server answers `404` with the body
-`source not found`. If you leave out `src/`, as in `/w=400/photo.jpg`, it
-answers `400` with the body `invalid transformation options`.
+If a request fails, the status and body say why:
+
+- `404` with `source not found`: the file name is mistyped.
+- `400` with `invalid transformation options`: the URL leaves out `src/`, as
+  in `/w=400/photo.jpg`. The body ends with
+  `missing src/, src64/, or enc/ before the image path`.
+- `500` with `source unavailable`: the server can't read the file, for
+  example because only your user can read it. Make it readable with
+  `chmod a+r images/photo.jpg`.
 
 ## Fitting an image in a box
 

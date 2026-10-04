@@ -26,17 +26,29 @@ defmodule ImagePipe.Security.SourceEncryption do
     do: {:error, "expected iv_mode to be :deterministic or :random"}
 
   def new(keys, iv_mode) when is_list(keys) do
-    case Enum.all?(keys, &(is_binary(&1) and byte_size(&1) == @key_bytes)) do
-      true ->
-        {:ok, %__MODULE__{keys: keys, derived_keys: Enum.map(keys, &derive/1), iv_mode: iv_mode}}
+    decoded = Enum.map(keys, &decode_key/1)
 
+    case :error in decoded do
       false ->
-        {:error, "expected source encryption keys to be 32-byte binaries"}
+        {:ok,
+         %__MODULE__{keys: decoded, derived_keys: Enum.map(decoded, &derive/1), iv_mode: iv_mode}}
+
+      true ->
+        {:error, "expected source encryption keys to be hex-encoded 32-byte keys"}
     end
   end
 
   def new(_keys, _iv_mode),
-    do: {:error, "expected source encryption keys to be a list of 32-byte binaries"}
+    do: {:error, "expected source encryption keys to be a list of hex-encoded 32-byte keys"}
+
+  defp decode_key(key) when is_binary(key) do
+    case Base.decode16(key, case: :mixed) do
+      {:ok, <<_::binary-size(@key_bytes)>> = decoded} -> decoded
+      _invalid -> :error
+    end
+  end
+
+  defp decode_key(_key), do: :error
 
   @doc false
   @spec disabled?(t()) :: boolean()
@@ -87,7 +99,10 @@ defmodule ImagePipe.Security.SourceEncryption do
 
   def encrypt_salted(source, keyring, _salt), do: encrypt(source, keyring, iv: :invalid)
 
-  @spec decrypt(term(), t()) :: {:ok, String.t()} | {:error, :invalid_concealed_source}
+  @spec decrypt(term(), t()) ::
+          {:ok, String.t()} | {:error, :invalid_concealed_source | :source_encryption_disabled}
+  def decrypt(_token, %__MODULE__{keys: []}), do: {:error, :source_encryption_disabled}
+
   def decrypt(token, %__MODULE__{derived_keys: keys}) when is_binary(token) do
     with {:ok, payload} <- decode_token(token),
          {:ok, iv, ciphertext, tag} <- split_payload(payload),

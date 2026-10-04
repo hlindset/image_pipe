@@ -80,8 +80,8 @@ defmodule ImagePipe.APITest do
     end
 
     test "raises on a URL config that already describes mount presets" do
-      assert_raise ArgumentError, ~r/mount_presets/, fn ->
-        ImagePipe.Plug.init(url: ImagePipe.URL.config(mount_presets: []))
+      assert_raise ArgumentError, ~r/validate_against/, fn ->
+        ImagePipe.Plug.init(url: ImagePipe.URL.config(validate_against: []))
       end
     end
 

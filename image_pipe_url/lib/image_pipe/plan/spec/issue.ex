@@ -29,8 +29,10 @@ defmodule ImagePipe.Plan.Spec.Issue do
       combined with options or presets it can't be combined with.
     * `:unknown_watermark`, `:watermark_source_disabled` - the plan names a
       watermark the server doesn't define, or uses `watermark_source` where
-      the server doesn't allow it. Returned only by `ImagePipe.validate/2`
-      and `ImagePipe.run/4`, which know the configured watermarks.
+      the server doesn't allow it. `ImagePipe.validate/2` and
+      `ImagePipe.run/4` return both. `ImagePipe.URL.validate/1` and
+      `ImagePipe.URL.url/3` return `:unknown_watermark` when the URL
+      configuration's `:validate_against` lists the watermark names.
 
   `detail` describes the failed constraint, such as `{:requires, :resize}`
   or `%{preset: "card"}`.

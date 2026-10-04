@@ -6,7 +6,7 @@ defmodule ImagePipeFiddle.Application do
   use Application
 
   @demo_signing_key String.duplicate("a1", 32)
-  @demo_source_encryption_key :binary.copy(<<42, 73>>, 16)
+  @demo_source_encryption_key String.duplicate("2a49", 16)
   @presets %{
     "card" => "w=400/h=400/fit=cover",
     "frame" => "pad=20/bg=fff",

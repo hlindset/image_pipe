@@ -299,8 +299,8 @@ or padding validation.
 
 Encryption keys are a separate ordered list of 32-byte keys: encrypt with
 the first, authenticate/decrypt against the configured list during rotation.
-Set `source_encryption_keys: [key, previous_key]` using raw binary keys;
-signing `keys` use hex-encoded strings. An empty encryption list disables
+Set `source_encryption_keys: [key, previous_key]` as hex-encoded strings,
+like signing `keys`. An empty encryption list disables
 concealment. Encryption keys must differ from the signing keys.
 Choose generation with `iv_mode: :deterministic` (default) or `:random`.
 Deterministic generation uses the first 16 bytes of HMAC-SHA256 of the
@@ -366,7 +366,7 @@ brightness first.
 | `pixelate` | Integer block size at least 1; 1 disables the effect | `pixelate=8` |
 | `gray`, `bitonal` | Bare flag; `=false` disables it | `gray` |
 | `monochrome` | Intensity from 0 to 1, optional color (default `b3b3b3`) | `monochrome=0.8,704214` |
-| `duotone` | Intensity from 0 to 1, optionally both shadow and highlight colors (default black and white) | `duotone=1,123456,efab89` |
+| `duotone` | Intensity from 0 to 1, optional shadow color, optional highlight color (default black and white) | `duotone=1,123456,efab89` |
 | `brightness` | Integer additive adjustment from -255 to 255 on the 8-bit scale, scaled to the working bit depth; 0 is identity | `brightness=30` |
 | `contrast`, `saturation` | Positive factors; 1 is identity | `contrast=1.5/saturation=0.7` |
 | `colorize` | Opacity from 0 to 1, required color, optional literal `keep-alpha` | `colorize=0.3,red,keep-alpha` |
@@ -637,9 +637,10 @@ responses are not written to the output cache.
 
 ### Request delivery controls
 
-`filename=photo` supplies a response filename stem. `attachment` (or
-`attachment=true`) selects download disposition; `attachment=false` selects
-inline disposition and overrides an inherited preset value. Both apply to image,
+`filename=photo` supplies a response filename stem. `attachment` selects
+download disposition; `attachment=false` selects inline disposition and
+overrides an inherited preset value. As with every bare flag,
+`attachment=true` is rejected. Both apply to image,
 BlurHash, LQIP CSS, and info responses. ImagePipe adds the actual response's extension,
 including `.txt` for BlurHash and LQIP CSS and `.json` for info. Filename and attachment
 settings are applied from the current request on cache hits as well as misses.

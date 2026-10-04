@@ -21,6 +21,36 @@ defmodule ImagePipe.Source.S3.ContainerCredentialsTest do
     assert expiry == ~U[2026-06-26 12:00:00Z]
   end
 
+  @tag :tmp_dir
+  test "reads the auth token file on every fetch, ahead of auth_token", %{tmp_dir: dir} do
+    test = self()
+
+    plug = fn conn ->
+      send(test, {:authorization, Plug.Conn.get_req_header(conn, "authorization")})
+      Plug.Conn.send_resp(conn, 200, @creds_json)
+    end
+
+    path = Path.join(dir, "token")
+
+    opts = [
+      full_uri: "http://169.254.170.23/v1/credentials",
+      auth_token_file: path,
+      auth_token: "static",
+      plug: plug
+    ]
+
+    for token <- ["first", "rotated"] do
+      File.write!(path, token <> "\n")
+      assert {:ok, _creds, _expiry} = ContainerCredentials.fetch_credentials("b", opts, [])
+      assert_received {:authorization, [^token]}
+    end
+
+    File.rm!(path)
+
+    assert {:error, :container_token_unreadable} =
+             ContainerCredentials.fetch_credentials("b", opts, [])
+  end
+
   test "joins the relative URI to the ECS base" do
     plug = fn conn ->
       assert conn.host == "169.254.170.2"

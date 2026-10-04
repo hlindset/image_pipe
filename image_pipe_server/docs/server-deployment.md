@@ -42,6 +42,9 @@ docker run --read-only --tmpfs /tmp -p 8080:8080 -v ./config.toml:/etc/image_pip
   filesystem can be read-only. Mount `/tmp` as a `tmpfs`.
 - Put caches under `/var/cache/image_pipe`, which is writable by the server's
   user.
+- Make your images and their directories readable by uid 10001, for example
+  with `chmod -R a+rX images`. A request for a file the server can't read
+  gets `500` with the body `source unavailable`.
 - Pass secrets as `_FILE` variables pointing at mounted secret files, for
   example `IPS_URL__KEYS_FILE=/run/secrets/signing_keys`.
 
@@ -63,6 +66,7 @@ services:
       - signing_keys
     volumes:
       - ./config.toml:/etc/image_pipe/config.toml:ro
+      - ./images:/data/images:ro
       - image-cache:/var/cache/image_pipe
 
 secrets:

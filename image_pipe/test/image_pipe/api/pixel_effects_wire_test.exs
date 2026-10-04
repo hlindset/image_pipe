@@ -262,7 +262,8 @@ defmodule ImagePipe.API.PixelEffectsWireTest do
           {"gradient=0.5,black,right", "gradient=0.50,000,-90.0,0.0,1.0"},
           {"monochrome=1", "monochrome=1.0,b3b3b3"},
           {"progressive-blur=3,right", "progressive-blur=3.0,-90,0,1"},
-          {"duotone=1", "duotone=1.0,black,white"}
+          {"duotone=1", "duotone=1.0,black,white"},
+          {"duotone=1,123456", "duotone=1,123456,ffffff"}
         ] do
       first = response(a, config)
       second = response(b, config)
@@ -351,7 +352,7 @@ defmodule ImagePipe.API.PixelEffectsWireTest do
           "contrast=0",
           "saturation=-1",
           "monochrome=1.1",
-          "duotone=1,red",
+          "duotone=1,red,",
           "colorize=0.5",
           "colorize=0.5,red,true",
           "gradient=0,notacolor",

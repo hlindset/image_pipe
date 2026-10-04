@@ -49,9 +49,10 @@ On a mismatch:
 
 ## Source encryption keys
 
-The 32-byte keys that encrypt the source into an `enc/<token>` segment. The
-builder encrypts with the first key. The server decrypts with any key in its
-list. See [source concealment](urls.md#source-concealment).
+The 32-byte keys, written as 64 hex digits, that encrypt the source into an
+`enc/<token>` segment. Generate one with `openssl rand -hex 32`. The builder
+encrypts with the first key. The server decrypts with any key in its list.
+See [source concealment](urls.md#source-concealment).
 
 <!-- tabs-open -->
 
@@ -59,39 +60,42 @@ list. See [source concealment](urls.md#source-concealment).
 
 ```elixir
 ImagePipe.URL.config(
-  keys: [signing_key],
-  source_encryption_keys: [Base.decode64!(System.fetch_env!("IMAGE_PIPE_SOURCE_KEY"))],
+  keys: [System.fetch_env!("IMAGE_PIPE_SIGNING_KEY")],
+  source_encryption_keys: [System.fetch_env!("IMAGE_PIPE_SOURCE_KEY")],
   encrypt_source: true
 )
 ```
-
-The builder takes raw 32-byte binaries.
 
 ### image_pipe_server
 
 ```toml
 [url]
 keys = ["0123abcd…"]
-source_encryption_keys = ["base64:…"]
+source_encryption_keys = ["89abcdef…"]
 ```
 
-Or `IPS_URL__SOURCE_ENCRYPTION_KEYS=base64:…`. Each key is the same 32 bytes,
-written with a `base64:` or `hex:` prefix. See
-[`[url]`](../../image_pipe_server/docs/server-configuration.md#url).
+Or `IPS_URL__SOURCE_ENCRYPTION_KEYS=89abcdef…`, comma-separated for several
+keys. See [`[url]`](../../image_pipe_server/docs/server-configuration.md#url).
 
 <!-- tabs-close -->
 
-`encrypt_source` and `iv_mode` only change the URLs the builder generates.
-The server decrypts every token without them. Encrypted watermark sources
-(`wm-enc`) use the same keys. `ImagePipe.URL.config/1` raises, and the server
-stops at boot, for encryption keys without signing keys or an encryption key
-equal to a signing key.
+`encrypt_source` (encrypt every source) and `iv_mode` (whether a source
+always encrypts to the same token) are builder settings. The server decrypts
+every token without them. Its `[url]` doesn't accept them, and the server
+stops at boot with `url.encrypt_source: unknown setting`.
+
+Encrypted watermark sources (`wm-enc`) use the same keys.
+`ImagePipe.URL.config/1` raises, and the server stops at boot, for
+encryption keys without signing keys or an encryption key equal to a signing
+key.
 
 On a mismatch:
 
 - A token that no server key decrypts answers `404` with the body
-  `not found`. A server without source encryption keys answers the same for
-  every `enc/` URL.
+  `not found`.
+- An `enc/` URL sent to a server without source encryption keys answers
+  `400`. The body points at the token with `enc/ is not accepted: no source
+  encryption keys are configured`.
 
 ## Base URL and mount path
 
@@ -153,18 +157,19 @@ answers `400` to a URL with a preset it doesn't have. See
 ```elixir
 ImagePipe.URL.config(
   keys: keys,
-  mount_presets: [
+  validate_against: [
     presets: %{"card" => "w=400/h=300/fit=cover"},
     request_defaults: "q=80"
   ]
 )
 ```
 
-`mount_presets` is optional. It lets `ImagePipe.URL.validate/1` and
+`validate_against`, a copy of the server's presets, request defaults, and
+watermark names, is optional. It lets `ImagePipe.URL.validate/1` and
 `ImagePipe.URL.url/3` check plans against the server's presets and request
-defaults. It never changes a generated URL. `preset_lookup: true` says the server
-resolves names missing from `presets` with a lookup, so the builder leaves
-them to it. See `ImagePipe.URL.validate/1`.
+defaults. It never changes a generated URL. `preset_lookup: true` says the
+server resolves names missing from `presets` with a lookup, so the builder
+leaves them to it. See `ImagePipe.URL.validate/1`.
 
 ### image_pipe_server
 
@@ -188,8 +193,8 @@ On a mismatch:
 
 - A name the server doesn't define answers `400`. The body points at the
   `preset=` option with `unknown preset: card`.
-- A `mount_presets` copy that differs from the server gives wrong validation
-  results in the builder. The URLs stay the same, and the server checks them
+- A `validate_against` copy that differs from the server gives wrong
+  validation results in the builder. The URLs stay the same, and the server checks them
   against its own definitions.
 
 ## Source prefixes and schemes
@@ -242,8 +247,7 @@ On a mismatch:
 
 ## Watermarks
 
-`wm=<name>` selects a watermark image the server defines. The builder can't
-check these names, since `mount_presets` doesn't carry them. See
+`wm=<name>` selects a watermark image the server defines. See
 [watermark assets](processing/watermark.md#watermark-assets).
 
 <!-- tabs-open -->
@@ -251,9 +255,25 @@ check these names, since `mount_presets` doesn't carry them. See
 ### Elixir (URL builder)
 
 ```elixir
+config =
+  ImagePipe.URL.config(
+    keys: keys,
+    validate_against: [
+      presets: %{"card" => "w=400/h=300/fit=cover"},
+      watermarks: [:logo]
+    ]
+  )
+
+builder = ImagePipe.URL.new(config)
 ImagePipe.URL.group(builder, watermark: :logo)
 ImagePipe.URL.group(builder, watermark_source: "brand/badge.png")
 ```
+
+`watermarks` in [`validate_against`](#preset-names) is optional. With it,
+`ImagePipe.URL.validate/1` and `ImagePipe.URL.url/3` check `watermark:` names
+against the server's. They don't check whether the server takes watermark
+sources from the URL. `validate_against` always checks presets too, so list
+the server's presets next to the watermark names.
 
 ### image_pipe_server
 
@@ -270,13 +290,15 @@ See [`[processing]`](../../image_pipe_server/docs/server-configuration.md#proces
 <!-- tabs-close -->
 
 A Plug host defines them as `watermarks:` and `request_watermarks:` in
-`ImagePipe.config/1`. `request_watermarks` lets URLs name their own watermark
-source (`watermark_source:` in the builder, `wm-src64` or `wm-enc` in the
-URL).
+`ImagePipe.config/1`, and its builder gets the names filled in with
+`ImagePipe.url_config/1`. `request_watermarks` lets URLs name their own
+watermark source (`watermark_source:` in the builder, `wm-src64` or `wm-enc`
+in the URL).
 
 On a mismatch:
 
 - A name the server doesn't define answers `400`. The body points at the
-  `wm=` option with `unknown watermark`.
+  `wm=` option with `unknown watermark`. A builder whose `validate_against`
+  lists the names returns an `:unknown_watermark` issue instead of a URL.
 - A watermark source in the URL, on a server without `request_watermarks`,
   answers `400` with `request watermark sources are not enabled`.

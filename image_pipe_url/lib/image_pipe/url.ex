@@ -59,7 +59,6 @@ defmodule ImagePipe.URL do
   | --- | --- |
   | `flip=h`, `v`, `hv` | `flip: :horizontal`, `:vertical`, `:both` |
   | `trim-symmetry=h`, `v`, `hv` | `trim_symmetry: :horizontal`, `:vertical`, `:both` |
-  | `gradient` and `progressive-blur` directions `down`, `left`, `up`, `right` | `angle: 0`, `90`, `180`, `270` |
   | `profile=preserve` | `color_profile: :preserve_source` |
   | `profile=srgb`, `display-p3`, `adobe-rgb` | `color_profile: {:convert, :srgb}`, `{:convert, :display_p3}`, `{:convert, :adobe_rgb}` |
   | `hdr=tonemap` | `hdr: :tone_map` |
@@ -68,7 +67,7 @@ defmodule ImagePipe.URL do
 
   An option with several comma-separated values in the URL, such as
   `gradient`, takes a keyword list, as in
-  `gradient: [opacity: 0.8, color: "black", angle: 90]`. With
+  `gradient: [opacity: 0.8, color: "black", direction: :left]`. With
   `encrypt_source: true` in the configuration, `watermark_source:` is
   written as `wm-enc`. Lengths, percentages, and colors are described under
   [option values](https://hexdocs.pm/image_pipe/requesting-images.html#option-values).
@@ -187,15 +186,15 @@ defmodule ImagePipe.URL do
 
     * `{:ok, url}`.
     * `{:error, {:invalid_request, issues}}` - the configuration has
-      `:mount_presets` and the plan fails `validate/1`. Without
-      `:mount_presets`, the server checks the plan when it serves the URL.
+      `:validate_against` and the plan fails `validate/1`. Without
+      `:validate_against`, the server checks the plan when it serves the URL.
     * `{:error, :invalid_source}` - the source is empty or not valid UTF-8.
     * `{:error, :too_many_options}` - the plan has more than 64 option and
       `-` segments, the most the server accepts.
-    * `{:error, :source_encryption_disabled}` - options were given and the
-      configuration doesn't have `encrypt_source: true`.
+    * `{:error, :source_encryption_disabled}` - a valid `:iv` was given and
+      the configuration doesn't have `encrypt_source: true`.
     * `{:error, :invalid_encryption_options}` - an option other than `:iv`,
-      or a malformed `:iv`, with `encrypt_source: true`.
+      or a malformed `:iv`.
   """
   @spec url(t(), String.t(), keyword()) ::
           {:ok, String.t()}
@@ -322,13 +321,16 @@ defmodule ImagePipe.URL do
   structs. The check applies the server's request defaults and the presets the
   plan names, then checks how the options combine: options that need another
   option, options that conflict, and options that have no effect, such as
-  `fit: :cover` without a width or height. It reads no source or cache, so a
-  plan that passes can still fail on a particular image.
+  `fit: :cover` without a width or height. When `:validate_against` lists
+  `:watermarks`, it also checks `watermark:` names against them. It reads no
+  source or cache, so a plan that passes can still fail on a particular image.
 
-  The check needs `:mount_presets` in the URL configuration. Without it,
-  `validate/1` returns `:ok`. With `preset_lookup: true`, a plan that names a
-  preset missing from `:mount_presets` also returns `:ok`, because only the
-  server can resolve the name. In an app that serves its own URLs,
+  The check needs `:validate_against` in the URL configuration. Without it,
+  `validate/1` returns `:ok`. With `preset_lookup: true`, only the server can
+  resolve a preset missing from `:presets`, and that preset can set any
+  option of its group and of the request. For a plan that names one, the
+  check skips the groups that name it and the request-wide options, and
+  checks the other groups. In an app that serves its own URLs,
   `ImagePipe.validate/2` runs the full check, including the lookup.
   """
   @spec validate(t()) :: :ok | {:error, [Issue.t()]}

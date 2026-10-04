@@ -14,22 +14,19 @@ defmodule ImagePipeServer.ConfigTest do
       assert error(fn -> Config.options!(%{"servr" => %{}}) end) =~ "servr: unknown setting"
     end
 
-    test "converts [url], decoding prefixed source-encryption keys" do
+    test "converts [url], keeping hex source-encryption keys as given" do
+      hex = Base.encode16(@key32, case: :lower)
+
       url =
         Config.options!(%{
           "url" => %{
             "keys" => {:env, "aa,bb"},
-            "source_encryption_keys" => [
-              "base64:" <> Base.encode64(@key32),
-              "hex:" <> Base.encode16(@key32)
-            ],
-            "iv_mode" => "random"
+            "source_encryption_keys" => [hex, String.upcase(hex)]
           }
         })[:url]
 
       assert url[:keys] == ["aa", "bb"]
-      assert url[:source_encryption_keys] == [@key32, @key32]
-      assert url[:iv_mode] == :random
+      assert url[:source_encryption_keys] == [hex, String.upcase(hex)]
     end
 
     test "converts presets and request defaults in [processing]" do
@@ -45,20 +42,29 @@ defmodule ImagePipeServer.ConfigTest do
       assert processing[:request_defaults] == "q=80"
     end
 
-    test "rejects unprefixed or undecodable source-encryption keys without echoing them" do
-      for key <- ["c2VrcmV0", "base64:!!sekrit!!", "hex:sekritzz"] do
+    test "rejects source-encryption keys that aren't 32 hex-encoded bytes without echoing them" do
+      for key <- ["sekritzz", String.duplicate("ab", 31), "base64:" <> Base.encode64(@key32)] do
         message =
           error(fn -> Config.options!(%{"url" => %{"source_encryption_keys" => [key]}}) end)
 
-        assert message =~ "url.source_encryption_keys[0]"
-        refute message =~ "sekrit"
-        refute message =~ "c2VrcmV0"
+        assert message ==
+                 "invalid configuration: url.source_encryption_keys[0]: expected a hex-encoded 32-byte key"
+
+        refute message =~ key
       end
     end
 
-    test "keeps base_url out of [url]" do
-      assert error(fn -> Config.options!(%{"url" => %{"base_url" => "/x"}}) end) =~
-               "url.base_url: unknown setting"
+    test "keeps builder-only settings out of [url]" do
+      for {key, value} <- [{"base_url", "/x"}, {"encrypt_source", true}, {"iv_mode", "random"}] do
+        assert error(fn -> Config.options!(%{"url" => %{key => value}}) end) =~
+                 "url.#{key}: unknown setting"
+      end
+    end
+
+    test "rejects output_capabilities in [processing]" do
+      assert error(fn ->
+               Config.options!(%{"processing" => %{"output_capabilities" => %{"avif" => true}}})
+             end) =~ "processing.output_capabilities: unknown setting"
     end
 
     test "converts [cache] to FileSystem caches and storage inputs" do
@@ -98,9 +104,11 @@ defmodule ImagePipeServer.ConfigTest do
       assert processing[:source_cache_policy] == [freshness: :origin]
     end
 
-    test "keeps function-valued processing settings Elixir-only" do
-      assert error(fn -> Config.options!(%{"processing" => %{"clock" => 1}}) end) =~
-               "processing.clock: not supported in the configuration file"
+    test "keeps Elixir-only processing settings out of the file" do
+      for key <- ["clock", "preset_lookup", "max_preset_lookups"] do
+        assert error(fn -> Config.options!(%{"processing" => %{key => 1}}) end) =~
+                 "processing.#{key}: not supported in the configuration file"
+      end
     end
   end
 
@@ -307,6 +315,78 @@ defmodule ImagePipeServer.ConfigTest do
 
       assert config.server[:port] == 9000
       assert config.image_pipe.options[:quality] == 75
+    end
+
+    defp s3_provider_config(dir, provider) do
+      path = Path.join(dir, "config.toml")
+
+      File.write!(path, """
+      [sources.media]
+      adapter = "s3"
+      match = { scheme = "s3" }
+      region = "us-east-1"
+      endpoint = "https://s3.example.com"
+      credentials = #{provider}
+      buckets = { photos = {} }
+      """)
+
+      path
+    end
+
+    defp warmup_options(path, env) do
+      [warmup] = Config.load!(Map.put(env, "IPS_CONFIG", path), "absent.toml").credential_warmups
+      Keyword.fetch!(warmup, :opts)
+    end
+
+    test "fills container credentials from the AWS variables", %{tmp_dir: dir} do
+      env = %{
+        "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI" => "/v2/credentials/abc",
+        "AWS_CONTAINER_CREDENTIALS_FULL_URI" => "http://127.0.0.1:1234/creds",
+        "AWS_CONTAINER_AUTHORIZATION_TOKEN" => "token",
+        "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE" => "/var/run/token"
+      }
+
+      path = s3_provider_config(dir, ~s|{ provider = "container_credentials" }|)
+
+      assert Enum.sort(warmup_options(path, env)) == [
+               auth_token: "token",
+               auth_token_file: "/var/run/token",
+               full_uri: "http://127.0.0.1:1234/creds",
+               relative_uri: "/v2/credentials/abc"
+             ]
+
+      path =
+        s3_provider_config(
+          dir,
+          ~s|{ provider = "container_credentials", relative_uri = "/mine" }|
+        )
+
+      assert warmup_options(path, env) == [relative_uri: "/mine"]
+    end
+
+    test "fills web identity options from the AWS variables", %{tmp_dir: dir} do
+      env = %{
+        "AWS_WEB_IDENTITY_TOKEN_FILE" => "/var/run/token",
+        "AWS_ROLE_ARN" => "arn:aws:iam::1:role/env",
+        "AWS_REGION" => "eu-west-1",
+        "AWS_ROLE_SESSION_NAME" => "session"
+      }
+
+      path =
+        s3_provider_config(
+          dir,
+          ~s|{ provider = "assume_role", role_arn = "arn:aws:iam::1:role/target", region = "us-east-1", base = { provider = "web_identity", role_arn = "arn:aws:iam::1:role/mine" } }|
+        )
+
+      assert {:provider, ImagePipe.Source.S3.WebIdentity, base} =
+               Keyword.fetch!(warmup_options(path, env), :base)
+
+      assert Enum.sort(base) == [
+               region: "eu-west-1",
+               role_arn: "arn:aws:iam::1:role/mine",
+               role_session_name: "session",
+               token_file: "/var/run/token"
+             ]
     end
   end
 end

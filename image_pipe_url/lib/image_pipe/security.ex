@@ -19,15 +19,26 @@ defmodule ImagePipe.Security do
                       are unsigned and the server rejects signed ones.
                       """
                     ],
+                    encrypt_source: [
+                      type: :boolean,
+                      default: false,
+                      doc: """
+                      Encrypts the source, and any watermark source, in generated URLs,
+                      which then use `enc/<token>` instead of `src/<path>`. Requires
+                      `:source_encryption_keys`. A server with encryption keys
+                      decrypts `enc/` sources regardless of this option.
+                      """
+                    ],
                     source_encryption_keys: [
                       type: {:list, :string},
                       default: [],
-                      type_doc: "list of 32-byte `t:binary/0`",
+                      type_doc: "list of hex-encoded `t:String.t/0`",
                       doc: """
-                      Raw 32-byte keys that encrypt and decrypt sources. The first key
-                      encrypts. The server decrypts with any key in the list. They must
-                      differ from the signing keys, and setting them requires
-                      `:keys`.
+                      Keys that encrypt and decrypt sources, each 32 bytes written as
+                      64 hex digits in either case, such as the output of
+                      `openssl rand -hex 32`. The first key encrypts. The server
+                      decrypts with any key in the list. The keys must differ from
+                      the signing keys, and setting them requires `:keys`.
                       """
                     ],
                     iv_mode: [
@@ -39,16 +50,6 @@ defmodule ImagePipe.Security do
                       encrypted source. `:deterministic` derives it from the source with
                       a secret key, so one source always gives the same URL.
                       `:random` gives a new URL on every call.
-                      """
-                    ],
-                    encrypt_source: [
-                      type: :boolean,
-                      default: false,
-                      doc: """
-                      Encrypts the source, and any watermark source, in generated URLs,
-                      which then use `enc/<token>` instead of `src/<path>`. Requires
-                      `:source_encryption_keys`. A server with encryption keys
-                      decrypts `enc/` sources regardless of this option.
                       """
                     ]
                   )

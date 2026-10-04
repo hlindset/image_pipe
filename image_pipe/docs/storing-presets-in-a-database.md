@@ -3,8 +3,8 @@
 Load preset definitions from a database or another service while ImagePipe
 serves a request, so editors can add or change presets without a restart.
 This assumes `ImagePipe.Plug` or `ImagePipe.run/4` in your Elixir
-application. `image_pipe_server` reads presets only from its configuration
-file. [Presets](presets.md#stored-presets) explains how stored presets
+application. `image_pipe_server` has no preset lookup. Its presets come only
+from its configuration file. [Presets](presets.md#stored-presets) explains how stored presets
 combine with the ones in the configuration.
 
 ## Implement the lookup
@@ -88,7 +88,7 @@ builder = ImagePipe.URL.new(ImagePipe.url_config(config)) |> ImagePipe.URL.group
 ```
 
 A builder in another application passes `preset_lookup: true` in its
-[`:mount_presets`](shared-url-settings.md#preset-names).
+[`:validate_against`](shared-url-settings.md#preset-names).
 
 ## Retire a stored preset
 

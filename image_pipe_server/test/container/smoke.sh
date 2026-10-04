@@ -51,6 +51,12 @@ fi
 
 curl -fsS "http://127.0.0.1:${port}/health" | grep -qx ok
 
+if docker logs "$name" 2>&1 | grep -q 'WARNING'; then
+  echo "the server logged a warning at startup" >&2
+  docker logs "$name" >&2
+  exit 1
+fi
+
 check_png() {
   local source=$1
   local content_type
@@ -68,5 +74,20 @@ check_png() {
 
 check_png pic.png
 check_png pic.jxl
+
+# An invalid configuration stops the server with one line naming the setting.
+printf '[sources.photos]\nadapter = "file"\nroot = "/data/images"\n' > "$work/invalid.toml"
+set +e
+output=$(docker run --rm --read-only --tmpfs /tmp \
+  -v "$work/invalid.toml:/etc/image_pipe/config.toml:ro" "$image" 2>&1)
+exit_status=$?
+set -e
+[ "$exit_status" = 1 ] \
+  && grep -qx 'invalid configuration: sources.photos.match: required' <<<"$output" \
+  && ! grep -Eq 'crash|\*\*' <<<"$output" || {
+  echo "invalid configuration: unexpected exit status $exit_status or output:" >&2
+  echo "$output" >&2
+  exit 1
+}
 
 echo "smoke test passed ($variant)"

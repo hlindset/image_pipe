@@ -24,7 +24,7 @@ defmodule ImagePipeServer.Config.ReferenceTest do
 
   test "documents explicit conversions", %{reference: reference} do
     assert reference =~
-             "| `source_encryption_keys` | array of string with a `base64:` or `hex:` prefix |"
+             "| `source_encryption_keys` | array of hex strings, each a 32-byte key | `[]` |"
 
     assert reference =~ "| `path_pattern` | string (regular expression) |"
 
@@ -44,7 +44,9 @@ defmodule ImagePipeServer.Config.ReferenceTest do
   end
 
   test "names the settings only Elixir can set", %{reference: reference} do
-    assert reference =~ "Elixir only: `telemetry_prefix`, `clock`"
+    assert reference =~
+             "Elixir only: `max_preset_lookups`, `preset_lookup`, `telemetry_prefix`, `clock`"
+
     assert reference =~ "`req_options`"
   end
 

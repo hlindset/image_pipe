@@ -315,7 +315,10 @@ defmodule ImagePipe.API.Path do
 
   defp message_for(:non_empty_query_string), do: "query strings are not supported"
   defp message_for(:sig_only_valid_first), do: "sig must be the first segment"
-  defp message_for(:missing_source_marker), do: "missing src, src64, or enc marker"
+
+  defp message_for(:missing_source_marker),
+    do: "missing src/, src64/, or enc/ before the image path"
+
   defp message_for(:missing_source), do: "missing source after src/src64 marker"
   defp message_for(:malformed_percent_escape), do: "malformed percent escape"
   defp message_for(:src64_embedded_slash), do: "src64 value may not contain a slash"

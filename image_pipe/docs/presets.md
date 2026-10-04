@@ -121,8 +121,9 @@ preset lookup.
 
 ## Stored presets
 
-A server can also load presets from a database or another service while it
-serves a request, through a preset lookup in an Elixir application. Stored
+The Plug and `ImagePipe.run/4` can also load presets from a database or
+another service while they serve a request, through a preset lookup.
+`image_pipe_server` reads presets only from its configuration. Stored
 presets follow the same rules as presets in the configuration, with three
 differences:
 

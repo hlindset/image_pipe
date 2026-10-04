@@ -667,7 +667,7 @@ defmodule ImagePipe.API.OptionSpec do
         name: :expires,
         scope: :request,
         value: &__MODULE__.parse_expires/1,
-        summary: "Unix timestamp after which the URL is invalid (404)",
+        summary: "Unix timestamp after which the URL is invalid (410)",
         examples: ["expires=1999999999"]
       },
       %__MODULE__{
@@ -1088,6 +1088,12 @@ defmodule ImagePipe.API.OptionSpec do
         [intensity] ->
           with {:ok, intensity} <- Value.fraction(intensity) do
             {:ok, %{intensity: intensity, shadow: {0, 0, 0}, highlight: {255, 255, 255}}}
+          end
+
+        [intensity, shadow] ->
+          with {:ok, intensity} <- Value.fraction(intensity),
+               {:ok, shadow} <- Value.color(shadow) do
+            {:ok, %{intensity: intensity, shadow: shadow, highlight: {255, 255, 255}}}
           end
 
         [intensity, shadow, highlight] ->

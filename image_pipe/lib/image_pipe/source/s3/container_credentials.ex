@@ -17,8 +17,9 @@ defmodule ImagePipe.Source.S3.ContainerCredentials do
                    type: :string,
                    doc: """
                    Full credentials URL, from `AWS_CONTAINER_CREDENTIALS_FULL_URI`. \
-                   Takes precedence over `:relative_uri`. Must use `https` or a \
-                   loopback host, so the token can't be sent to another host.
+                   Takes precedence over `:relative_uri`. Must use `https`, a loopback \
+                   host, or the ECS or EKS credential endpoint, so the token can't be \
+                   sent to another host.
                    """
                  ],
                  relative_uri: [
@@ -32,9 +33,16 @@ defmodule ImagePipe.Source.S3.ContainerCredentials do
                    type: :string,
                    doc: """
                    `Authorization` header value, from \
-                   `AWS_CONTAINER_AUTHORIZATION_TOKEN`. When the platform sets \
-                   `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE` instead, pass the file's \
-                   contents.
+                   `AWS_CONTAINER_AUTHORIZATION_TOKEN`.
+                   """
+                 ],
+                 auth_token_file: [
+                   type: :string,
+                   doc: """
+                   Path of a file holding the `Authorization` header value, from \
+                   `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE`. The file is read again on \
+                   every refresh, since the platform rotates it. Takes precedence over \
+                   `:auth_token`.
                    """
                  ],
                  receive_timeout: [
@@ -112,7 +120,8 @@ defmodule ImagePipe.Source.S3.ContainerCredentials do
   @impl true
   def fetch_credentials(_scope, opts, _runtime_opts) do
     with {:ok, url} <- resolve_url(opts),
-         {:ok, body} <- get(opts, url) do
+         {:ok, headers} <- auth_headers(opts),
+         {:ok, body} <- get(opts, url, headers) do
       parse_credentials(body)
     end
   end
@@ -125,8 +134,8 @@ defmodule ImagePipe.Source.S3.ContainerCredentials do
     end
   end
 
-  defp get(opts, url) do
-    case MetadataRequest.request(opts, method: :get, url: url, headers: auth_headers(opts)) do
+  defp get(opts, url, headers) do
+    case MetadataRequest.request(opts, method: :get, url: url, headers: headers) do
       {:ok, %{status: 200, body: body}} -> {:ok, body}
       _other -> {:error, :container_credentials_unavailable}
     end
@@ -160,9 +169,19 @@ defmodule ImagePipe.Source.S3.ContainerCredentials do
   defp decode_json(_), do: {:error, :container_invalid_credentials}
 
   defp auth_headers(opts) do
-    case Keyword.get(opts, :auth_token) do
-      nil -> []
-      token -> [{"authorization", token}]
+    case {Keyword.get(opts, :auth_token_file), Keyword.get(opts, :auth_token)} do
+      {nil, nil} -> {:ok, []}
+      {nil, token} -> {:ok, [{"authorization", token}]}
+      {path, _token} -> read_token(path)
+    end
+  end
+
+  defp read_token(path) do
+    with {:ok, contents} <- File.read(path),
+         token when token != "" <- String.trim(contents) do
+      {:ok, [{"authorization", token}]}
+    else
+      _unreadable -> {:error, :container_token_unreadable}
     end
   end
 

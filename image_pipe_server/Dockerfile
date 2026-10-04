@@ -90,10 +90,11 @@ RUN mkdir -p "${XDG_CACHE_HOME}" \
 FROM ${RUNTIME_IMAGE}
 
 COPY --from=build /usr/local/lib/vips-runtime-packages /tmp/vips-runtime-packages
+# OTP's socket support loads libsctp at startup and logs a warning without it.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       $(cat /tmp/vips-runtime-packages) \
       libheif-plugin-aomdec libheif-plugin-aomenc \
-      libstdc++6 libncurses6 openssl ca-certificates curl \
+      libstdc++6 libncurses6 libsctp1 openssl ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* /tmp/vips-runtime-packages
 
 COPY --from=build /usr/local/lib/libvips* /usr/local/lib/

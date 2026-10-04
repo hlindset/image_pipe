@@ -9,9 +9,8 @@ defmodule ImagePipeServer.Config do
     * `[server]` - the listener: `port`, `bind`, `mount_path`,
       `shutdown_timeout`, `read_timeout`, `max_connections`, and an optional
       `auth_token` that image requests must send as a bearer token.
-    * `[url]` - `ImagePipe.URL.config/1`. Source-encryption keys take a
-      `base64:` or `hex:` prefix. `base_url` only affects URL generation and
-      is not accepted.
+    * `[url]` - `ImagePipe.URL.config/1`. `base_url`, `encrypt_source`, and
+      `iv_mode` only affect URL generation and are not accepted.
     * `[sources.<name>]` - named source mounts
       (see `ImagePipeServer.Config.Sources`).
     * `[cache]` - `output` and `input` `ImagePipe.Cache.FileSystem` caches, and
@@ -99,7 +98,11 @@ defmodule ImagePipeServer.Config do
   @doc "Reads, converts, and validates the configuration."
   @spec load!(%{String.t() => String.t()}, Path.t()) :: t()
   def load!(env, default_path) do
-    env |> Tree.read!(default_path) |> options!() |> build!()
+    env
+    |> Tree.read!(default_path)
+    |> options!()
+    |> Keyword.replace_lazy(:sources, &Sources.with_aws_environment(&1, env))
+    |> build!()
   end
 
   @doc "Converts the configuration tree to per-section options."
@@ -126,27 +129,24 @@ defmodule ImagePipeServer.Config do
     ]
   end
 
+  # The server never builds URLs, so the builder-only settings are left out.
   defp url_schema do
-    Keyword.merge(ImagePipe.Security.options_schema(),
+    ImagePipe.Security.options_schema()
+    |> Keyword.drop([:encrypt_source, :iv_mode])
+    |> Keyword.merge(
       source_encryption_keys: [
-        type: {:list, {:convert, &encryption_key/2, "string with a `base64:` or `hex:` prefix"}}
+        type: {:list, {:convert, &encryption_key/2, "hex strings, each a 32-byte key"}},
+        default: []
       ]
     )
   end
 
+  # Checked here so the error names the setting. The library decodes the key.
   defp encryption_key(value, path) do
     with {:ok, key} <- Convert.string(value, path) do
-      decoded =
-        case key do
-          "base64:" <> encoded -> Base.decode64(encoded)
-          "hex:" <> encoded -> Base.decode16(encoded, case: :mixed)
-          _unprefixed -> :prefix
-        end
-
-      case decoded do
-        {:ok, key} -> {:ok, key}
-        :prefix -> {:error, path, "expected a base64: or hex: prefix"}
-        :error -> {:error, path, "cannot decode the key"}
+      case Base.decode16(key, case: :mixed) do
+        {:ok, <<_::binary-size(32)>>} -> {:ok, key}
+        _invalid -> {:error, path, "expected a hex-encoded 32-byte key"}
       end
     end
   end
@@ -189,7 +189,7 @@ defmodule ImagePipeServer.Config do
 
     ImagePipe.Processing.Config.schema()
     |> Keyword.drop([:sources, :processing_pool])
-    |> elixir_only([:clock, :telemetry_prefix])
+    |> elixir_only([:clock, :telemetry_prefix, :preset_lookup, :max_preset_lookups])
     |> Enum.map(fn {key, spec} ->
       case Keyword.fetch(defaults, key) do
         {:ok, default} -> {key, Keyword.put_new(spec, :default, default)}

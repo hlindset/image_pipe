@@ -84,9 +84,10 @@ defmodule ImagePipe.Plan do
   end
 
   @doc false
-  @spec validate(t(), map(), map() | nil) :: :ok | {:error, [Issue.t()]}
-  def validate(%__MODULE__{} = plan, presets \\ %{}, defaults \\ nil) do
-    case to_spec(plan, presets, defaults) do
+  @spec validate(t(), map(), map() | nil, Spec.Validation.watermarks()) ::
+          :ok | {:error, [Issue.t()]}
+  def validate(%__MODULE__{} = plan, presets \\ %{}, defaults \\ nil, watermarks \\ nil) do
+    case to_spec(plan, presets, defaults, watermarks) do
       {:ok, _request} -> :ok
       {:error, _issues} = error -> error
     end
@@ -105,6 +106,67 @@ defmodule ImagePipe.Plan do
         [] -> {:ok, Spec.build(groups, expanded.request)}
         issues -> {:error, issues}
       end
+    end
+  end
+
+  # Validates a plan whose presets a request-time lookup may resolve. When the
+  # plan names a preset missing from `presets`, only the groups that name no
+  # such preset are checked: a missing preset can supply any option of its
+  # group and of the request.
+  @doc false
+  @spec validate_known(t(), map(), map() | nil, Spec.Validation.watermarks()) ::
+          :ok | {:error, [Issue.t()]}
+  def validate_known(%__MODULE__{} = plan, presets, defaults, watermarks) do
+    indexed = plan |> groups() |> Enum.with_index() |> Map.new(fn {group, i} -> {i, group} end)
+
+    unknown =
+      for {index, group} <- indexed,
+          name <- Map.get(group, :presets, []),
+          not Map.has_key?(presets, name),
+          do: {index, name}
+
+    case unknown do
+      [] ->
+        validate(plan, presets, defaults, watermarks)
+
+      unknown ->
+        validate_known_groups(indexed, plan.options, presets, defaults, watermarks, unknown)
+    end
+  end
+
+  defp validate_known_groups(indexed, request, presets, defaults, watermarks, unknown) do
+    stubs =
+      Map.new(unknown, fn {_index, name} -> {name, %{groups: %{0 => %{}}, request: %{}}} end)
+
+    tainted = MapSet.new(unknown, &elem(&1, 0))
+
+    with {:ok, expanded} <-
+           Presets.expand(indexed, request, Map.merge(presets, stubs), defaults) do
+      groups = expanded.groups |> Enum.sort() |> Enum.map(&elem(&1, 1))
+
+      groups
+      |> Spec.errors(expanded.request, MapSet.new(), watermarks)
+      |> Enum.flat_map(&in_plan_groups(&1, expanded.origins, tainted))
+      |> case do
+        [] -> :ok
+        issues -> {:error, issues}
+      end
+    end
+  end
+
+  # Keeps an issue only when every location is in a group without an unknown
+  # preset, numbered as the plan numbers its groups.
+  defp in_plan_groups(issue, origins, tainted) do
+    locations =
+      Enum.map(issue.locations, fn
+        {:group, index, key} -> {:group, Map.fetch!(origins, index), key}
+        {:request, _key} -> nil
+      end)
+
+    case Enum.all?(locations, &match?({:group, _, _}, &1)) and
+           not Enum.any?(locations, fn {:group, origin, _key} -> origin in tainted end) do
+      true -> [%{issue | locations: locations}]
+      false -> []
     end
   end
 

@@ -121,7 +121,14 @@ defmodule ImagePipeServer.Config.Reference do
 
     #{table(Enum.map(static, fn {key, spec} -> {:"static.#{key}", spec} end))}
     Or a credential `provider` and its options. `assume_role` takes `base`
-    credentials in the same forms.
+    credentials in the same forms. `container_credentials` without
+    `relative_uri`, `full_uri`, `auth_token`, or `auth_token_file` takes each
+    one whose variable is set from `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`,
+    `AWS_CONTAINER_CREDENTIALS_FULL_URI`, `AWS_CONTAINER_AUTHORIZATION_TOKEN`,
+    and `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE`. `web_identity` fills each of
+    `token_file`, `role_arn`, `region`, and `role_session_name` that the
+    table leaves out, from `AWS_WEB_IDENTITY_TOKEN_FILE`, `AWS_ROLE_ARN`,
+    `AWS_REGION`, and `AWS_ROLE_SESSION_NAME` respectively.
 
     #{provider_tables}
     """

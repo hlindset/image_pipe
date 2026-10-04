@@ -50,6 +50,24 @@ defmodule ImagePipeServer.ApplicationTest do
     end
   end
 
+  describe "booting with invalid configuration" do
+    test "prints the error alone and exits with status 1", %{tmp_dir: dir} do
+      path = Path.join(dir, "config.toml")
+      File.write!(path, "[sources.photos]\nadapter = \"file\"\nroot = \"#{dir}\"\n")
+
+      {output, status} =
+        System.cmd("mix", ["run", "--no-compile", "--no-deps-check", "-e", ""],
+          env: [{"MIX_ENV", "test"}, {"IPS_CONFIG", path}, {"ERL_CRASH_DUMP", ""}],
+          stderr_to_stdout: true
+        )
+
+      assert status == 1
+      assert output =~ ~r/^invalid configuration: sources.photos.match: required$/m
+      refute output =~ "**"
+      refute output =~ "exited"
+    end
+  end
+
   describe "tracer_options/1" do
     test "ignores an inbound traceparent by default" do
       options = App.tracer_options(Config.build!([]))

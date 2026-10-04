@@ -6,7 +6,7 @@ defmodule ImagePipe.Plug.SourceEncryptionTest do
   alias ImagePipe.Plug.Request, as: ParsedRequest
   alias ImagePipe.Security.Signature
 
-  @key_a :binary.list_to_bin(Enum.to_list(0..31))
+  @key_a Base.encode16(:binary.list_to_bin(Enum.to_list(0..31)))
   @source "https://example.test/a.jpg"
 
   setup do
@@ -29,6 +29,14 @@ defmodule ImagePipe.Plug.SourceEncryptionTest do
              ParsedRequest.parse(conn, config)
 
     assert source == @source
+  end
+
+  test "an unsigned request leaves the signing key out of the parse metadata" do
+    config = Config.validate!(url: ImagePipe.URL.config([]))
+    conn = Plug.Test.conn(:get, "/w=12/src/a.jpg")
+
+    assert {{:ok, _request, _source}, metadata} = ParsedRequest.parse(conn, config)
+    assert metadata == %{result: :ok}
   end
 
   test "signature validation precedes token validation", %{config: config} do

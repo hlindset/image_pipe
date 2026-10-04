@@ -643,7 +643,7 @@ defmodule ImagePipe.API.ParserTest do
             {"sharpen=-1", :invalid_sharpen},
             {"pixelate=0", :invalid_pixelate},
             {"monochrome=0.5,red,blue", :invalid_monochrome},
-            {"duotone=0.5,black", :invalid_duotone},
+            {"duotone=0.5,black,", :invalid_duotone},
             {"brightness=1.5", :invalid_brightness},
             {"contrast=0", :invalid_contrast},
             {"saturation=-1", :invalid_saturation},

@@ -555,7 +555,7 @@ defmodule ImagePipe.API.Parser do
     do: "invalid value: expected intensity[,color]"
 
   def message_for(:invalid_duotone),
-    do: "invalid value: expected intensity or intensity,shadow,highlight"
+    do: "invalid value: expected intensity[,shadow[,highlight]]"
 
   def message_for(:invalid_brightness), do: "invalid value: expected an integer from -255 to 255"
   def message_for(:invalid_contrast), do: "invalid value: expected a positive finite factor"
@@ -620,16 +620,6 @@ defmodule ImagePipe.API.Parser do
 
   def message_for(:invalid_preset_name),
     do: "invalid value: expected names matching [A-Za-z0-9._-]+"
-
-  def message_for(:unknown_preset), do: "unknown preset"
-
-  def message_for(:pipeline_preset_with_group_options),
-    do: "a pipeline preset cannot be combined with group options"
-
-  def message_for(:pipeline_preset_with_preset),
-    do: "a pipeline preset cannot be combined with a preset that sets group options"
-
-  def message_for(:multiple_pipeline_presets), do: "pipeline presets cannot be combined"
 
   def message_for(:true_spelled_bare),
     do: "invalid value: write the bare flag instead of key=true"

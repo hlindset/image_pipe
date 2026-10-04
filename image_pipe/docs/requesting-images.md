@@ -57,7 +57,8 @@ Two other markers can take the place of `src/`:
   trailing `=` characters.
 - `enc/` followed by an encrypted token that hides the image path. These
   tokens need the server's encryption key, so they are created server-side,
-  for example by the application that builds your URLs. A token that can't be decrypted answers `404`.
+  for example by the application that builds your URLs. A token that no server key decrypts answers `404`.
+  A server without source encryption keys answers `400` for every `enc/` path.
 
 ## Processing groups
 

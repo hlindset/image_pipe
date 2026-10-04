@@ -74,7 +74,7 @@ defmodule ImagePipe.API.SerializerTest do
       IP.URL.new()
       |> IP.URL.group(
         blur: 0.2,
-        progressive_blur: [sigma: 4, angle: -45, start: 0.2, stop: 0.8],
+        progressive_blur: [sigma: 4, direction: -45, start: 0.2, stop: 0.8],
         sharpen: 1,
         pixelate: 2,
         brightness: -10,
@@ -89,7 +89,7 @@ defmodule ImagePipe.API.SerializerTest do
       IP.URL.new()
       |> IP.URL.group(
         colorize: [opacity: 0.2, color: "green", keep_alpha: true],
-        gradient: [opacity: 0.3, color: "black", angle: 35, start: 0.1, stop: 0.8]
+        gradient: [opacity: 0.3, color: "black", direction: 35, start: 0.1, stop: 0.8]
       ),
       IP.URL.new() |> IP.URL.group(padding: {1, 2, 3, 4}, background: {"white", 0.5}),
       IP.URL.new()

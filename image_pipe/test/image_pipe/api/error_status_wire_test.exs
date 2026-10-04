@@ -15,6 +15,21 @@ defmodule ImagePipe.API.ErrorStatusWireTest do
       do: Plug.Conn.send_resp(conn, Keyword.fetch!(opts, :status), "origin says no")
   end
 
+  test "a path without src/ points past its end and names the marker" do
+    config = ImagePipe.Plug.init([])
+
+    for path <- ["/w=400/photo.jpg", "/photo.jpg"] do
+      conn = conn(:get, path) |> ImagePipe.Plug.call(config)
+      pad = String.duplicate(" ", byte_size(path))
+
+      assert conn.status == 400
+
+      assert conn.resp_body =~
+               path <>
+                 "\n" <> pad <> "^\n" <> pad <> "|\n" <> pad <> "missing src/, src64/, or enc/"
+    end
+  end
+
   describe "local file sources" do
     setup %{tmp_dir: dir} do
       File.mkdir_p!(Path.join(dir, "album"))

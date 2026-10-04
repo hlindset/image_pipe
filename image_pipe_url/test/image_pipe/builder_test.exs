@@ -8,7 +8,7 @@ defmodule ImagePipe.BuilderTest do
   alias ImagePipe.Plan
 
   # Semantic checks need to know the mount's presets; this mount has none.
-  @known IP.URL.config(mount_presets: [])
+  @known IP.URL.config(validate_against: [])
 
   test "builds reusable, source-independent plans with explicit groups" do
     plan =
@@ -51,7 +51,7 @@ defmodule ImagePipe.BuilderTest do
           [blur: -1],
           [progressive_blur: [sigma: -1]],
           [progressive_blur: [sigma: 0, start: 2]],
-          [progressive_blur: [angle: 90]],
+          [progressive_blur: [direction: 90]],
           [dpr: 0],
           [crop: {0, 20}],
           [region: {-1, 0, 20, 20}],
@@ -59,7 +59,9 @@ defmodule ImagePipe.BuilderTest do
           [gray: "true"],
           [mystery: 1],
           [blur: 1, blur: 2],
-          [resize: [width: 2, width: 3]]
+          [blur: :unset, blur: 2],
+          [resize: [width: 2, width: 3]],
+          [resize: [fit: :unset, fit: :cover]]
         ] do
       assert_raise ArgumentError, fn -> IP.URL.group(IP.URL.new(), options) end
     end
@@ -69,6 +71,47 @@ defmodule ImagePipe.BuilderTest do
     assert_raise ArgumentError, fn -> IP.URL.output(IP.URL.new(), dpi: 65_536) end
     assert_raise ArgumentError, fn -> IP.URL.new(orient: :sideways) end
     assert_raise ArgumentError, fn -> IP.URL.new(page: -1) end
+  end
+
+  test "effect directions take the URL's names or degrees" do
+    for {name, degrees} <- [down: 0, left: 90, up: 180, right: 270] do
+      named =
+        IP.URL.new()
+        |> IP.URL.group(
+          gradient: [opacity: 1, color: "red", direction: name],
+          progressive_blur: [sigma: 2, direction: name]
+        )
+
+      numeric =
+        IP.URL.new()
+        |> IP.URL.group(
+          gradient: [opacity: 1, color: "red", direction: degrees],
+          progressive_blur: [sigma: 2, direction: degrees]
+        )
+
+      assert IP.URL.url!(named, "a.jpg") == IP.URL.url!(numeric, "a.jpg")
+    end
+
+    assert_raise ArgumentError, fn ->
+      IP.URL.group(IP.URL.new(), gradient: [opacity: 1, color: "red", direction: :sideways])
+    end
+  end
+
+  test "an invalid value's error lists only the values the option accepts" do
+    for {build, expected} <- [
+          {fn -> IP.URL.group(IP.URL.new(), resize: [width: 300, fit: :fill]) end,
+           "expected one of [:contain, :cover, :stretch, :auto], got: :fill"},
+          {fn -> IP.URL.group(IP.URL.new(), flip: :diag) end,
+           "expected one of [:horizontal, :vertical, :both], got: :diag"},
+          {fn -> IP.URL.output(IP.URL.new(), format: :bmp) end,
+           "expected one of [:jpeg, :png, :webp, :avif], got: :bmp"},
+          {fn -> IP.URL.new(orient: :sideways) end,
+           "expected one of [:auto, :none], got: :sideways"}
+        ] do
+      message = Exception.message(assert_raise(ArgumentError, build))
+      assert message =~ expected
+      refute message =~ ":unset"
+    end
   end
 
   test "rejects empty groups, malformed nested values, and duplicate nested settings" do
@@ -151,7 +194,8 @@ defmodule ImagePipe.BuilderTest do
          ], "w=100/h=80/fit=cover/focus=0.3,0.7/extend-ratio"},
         {"weighted detection", [crop: {100, 100}, detect: [{:all, 2}, {"face", 3}, "person"]],
          "crop=100,100/detect=all:2,face:3,person"},
-        {"progressive blur", [progressive_blur: [sigma: 4, angle: -90, start: 0.2, stop: 0.8]],
+        {"progressive blur",
+         [progressive_blur: [sigma: 4, direction: -90, start: 0.2, stop: 0.8]],
          "progressive-blur=4,right,0.2,0.8"},
         {"default progressive blur", [progressive_blur: [sigma: 2]], "progressive-blur=2"},
         {"pixel effects",
@@ -171,7 +215,7 @@ defmodule ImagePipe.BuilderTest do
            monochrome: [intensity: 0.2],
            duotone: [intensity: 0.5, shadow: "red", highlight: "blue"],
            colorize: [opacity: 0.4, color: "green", keep_alpha: true],
-           gradient: [opacity: 0.7, color: "black", angle: -90, start: 0.2, stop: 0.8]
+           gradient: [opacity: 0.7, color: "black", direction: -90, start: 0.2, stop: 0.8]
          ],
          "monochrome=0.2/duotone=0.5,red,blue/colorize=0.4,green,keep-alpha/gradient=0.7,black,270,0.2,0.8"}
       ] do

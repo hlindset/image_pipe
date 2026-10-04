@@ -9,7 +9,7 @@ defmodule ImagePipe.API.WatermarkTest do
   alias ImagePipe.Security
 
   @signing_key Base.encode16(:binary.copy(<<31>>, 32))
-  @source_key :binary.copy(<<42>>, 32)
+  @source_key String.duplicate("2a", 32)
   @hosted [watermarks: %{"logo" => [], "badge" => []}, request_watermarks: true]
 
   defp parse(segments, config \\ @hosted) do

@@ -122,8 +122,8 @@ credentials = { provider = "instance_role" }
 ## Use container credentials
 
 Give the ECS task a task role that can read the bucket. ECS sets
-`AWS_CONTAINER_CREDENTIALS_RELATIVE_URI` in the container, and ImagePipe
-needs its value:
+`AWS_CONTAINER_CREDENTIALS_RELATIVE_URI` in the container, which locates the
+task role's credentials:
 
 <!-- tabs-open -->
 
@@ -137,7 +137,10 @@ credentials:
 
 If the platform sets `AWS_CONTAINER_CREDENTIALS_FULL_URI` instead, pass it
 as `full_uri:`, with the token from `AWS_CONTAINER_AUTHORIZATION_TOKEN` as
-`auth_token:`.
+`auth_token:`. EKS Pod Identity sets `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE`
+instead of `AWS_CONTAINER_AUTHORIZATION_TOKEN`. Pass that path as
+`auth_token_file:`. The file is read again on every refresh, since EKS
+rotates the token.
 
 ### image_pipe_server
 
@@ -145,17 +148,12 @@ as `full_uri:`, with the token from `AWS_CONTAINER_AUTHORIZATION_TOKEN` as
 credentials = { provider = "container_credentials" }
 ```
 
-The server doesn't read `AWS_` variables, so the value has to be copied
-into the setting when the container starts. The image's entrypoint starts
-the server directly. Replace it with a shell that sets the variable first,
-as in this excerpt of an ECS container definition:
-
-```json
-"entryPoint": ["sh", "-c"],
-"command": [
-  "IPS_SOURCES__MEDIA__CREDENTIALS__RELATIVE_URI=\"$AWS_CONTAINER_CREDENTIALS_RELATIVE_URI\" exec /app/bin/image_pipe_server start"
-]
-```
+The server fills `relative_uri`, `full_uri`, `auth_token`, and
+`auth_token_file` from `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`,
+`AWS_CONTAINER_CREDENTIALS_FULL_URI`, `AWS_CONTAINER_AUTHORIZATION_TOKEN`, and
+`AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE`, so the same setting works on ECS
+and with EKS Pod Identity. Setting any of the four in `credentials` stops it filling the
+others.
 
 <!-- tabs-close -->
 
@@ -179,12 +177,12 @@ credentials:
 ### image_pipe_server
 
 ```toml
-[sources.media.credentials]
-provider = "web_identity"
-token_file = "/var/run/secrets/eks.amazonaws.com/serviceaccount/token"
-role_arn = "arn:aws:iam::123456789012:role/image-read"
-region = "eu-west-1"
+credentials = { provider = "web_identity" }
 ```
+
+The server reads `token_file`, `role_arn`, and `region` from
+`AWS_WEB_IDENTITY_TOKEN_FILE`, `AWS_ROLE_ARN`, and `AWS_REGION`, which EKS
+sets. Settings in `credentials` override these variables.
 
 <!-- tabs-close -->
 

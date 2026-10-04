@@ -9,7 +9,7 @@ defmodule ImagePipe.URLTest do
   alias ImagePipe.Security.Signature
 
   @signing_key Base.encode16(:binary.copy(<<31>>, 32))
-  @source_key :binary.copy(<<42>>, 32)
+  @source_key String.duplicate("2a", 32)
 
   property "root-relative paths have the same plain, signed, and encrypted URLs with a leading slash" do
     check all segments <-
@@ -90,10 +90,15 @@ defmodule ImagePipe.URLTest do
     assert IP.URL.url(IP.URL.new(), "secret-source", iv: :random) ==
              {:error, :source_encryption_disabled}
 
+    for options <- [[iv: nil], [unknown: "private"], [iv: :random, unknown: 1]] do
+      assert IP.URL.url(IP.URL.new(), "secret-source", options) ==
+               {:error, :invalid_encryption_options}
+    end
+
     assert_raise ArgumentError, fn -> IP.URL.config(encrypt_source: true) end
     assert_raise ArgumentError, fn -> encrypted_config(iv_mode: <<0::128>>) end
     assert_raise ArgumentError, fn -> encrypted_config(keys: []) end
-    assert_raise ArgumentError, fn -> encrypted_config(keys: [Base.encode16(@source_key)]) end
+    assert_raise ArgumentError, fn -> encrypted_config(keys: [@source_key]) end
     refute inspect(encrypted_config()) =~ @signing_key
     refute inspect(encrypted_config()) =~ @source_key
   end
@@ -132,7 +137,7 @@ defmodule ImagePipe.URLTest do
       assert IP.URL.url(IP.URL.new(), source) == {:error, :invalid_source}
     end
 
-    known = IP.URL.config(mount_presets: [])
+    known = IP.URL.config(validate_against: [])
     invalid = IP.URL.new(known) |> IP.URL.group(extend: true)
     assert {:error, {:invalid_request, [_issue]}} = IP.URL.url(invalid, "photo.jpg")
     assert_raise ArgumentError, fn -> IP.URL.url!(invalid, "private-source") end
@@ -218,7 +223,7 @@ defmodule ImagePipe.URLTest do
 
   defp encrypted_token(path), do: path |> String.split("/enc/") |> List.last()
 
-  describe "mount_presets" do
+  describe "validate_against" do
     test "without it the builder checks values only" do
       plan = IP.URL.new() |> IP.URL.group(resize: [fit: :cover])
       assert IP.URL.validate(plan) == :ok
@@ -228,21 +233,23 @@ defmodule ImagePipe.URLTest do
     test "known request defaults and presets take part in the check" do
       config =
         IP.URL.config(
-          mount_presets: [presets: %{"cover" => "fit=cover"}, request_defaults: "w=400"]
+          validate_against: [presets: %{"cover" => "fit=cover"}, request_defaults: "w=400"]
         )
 
       assert :ok = IP.URL.validate(IP.URL.new(config) |> IP.URL.group(resize: [fit: :cover]))
       assert :ok = IP.URL.validate(IP.URL.new(config) |> IP.URL.group(presets: ["cover"]))
 
-      bare = IP.URL.config(mount_presets: [presets: %{"cover" => "fit=cover"}])
+      bare = IP.URL.config(validate_against: [presets: %{"cover" => "fit=cover"}])
 
       assert {:error, [_ | _]} =
                IP.URL.validate(IP.URL.new(bare) |> IP.URL.group(presets: ["cover"]))
     end
 
-    test "a name the known presets lack is unknown unless the mount has a lookup" do
-      static = IP.URL.config(mount_presets: [presets: %{"card" => "w=30"}])
-      lookup = IP.URL.config(mount_presets: [presets: %{"card" => "w=30"}, preset_lookup: true])
+    test "a name the known presets lack is unknown unless the server has a lookup" do
+      static = IP.URL.config(validate_against: [presets: %{"card" => "w=30"}])
+
+      lookup =
+        IP.URL.config(validate_against: [presets: %{"card" => "w=30"}, preset_lookup: true])
 
       assert {:error, [%{reason: :unknown_preset}]} =
                IP.URL.validate(IP.URL.new(static) |> IP.URL.group(presets: ["remote"]))
@@ -256,12 +263,64 @@ defmodule ImagePipe.URLTest do
                IP.URL.url(IP.URL.new(lookup) |> IP.URL.group(presets: ["remote"]), "photo.jpg")
     end
 
+    test "under a lookup, groups without an unknown preset are still checked" do
+      lookup =
+        IP.URL.config(validate_against: [presets: %{"card" => "w=30"}, preset_lookup: true])
+
+      bad =
+        IP.URL.new(lookup)
+        |> IP.URL.group(presets: ["remote"])
+        |> IP.URL.group(resize: [fit: :cover])
+
+      assert {:error, [%{reason: :inert_option, locations: [{:group, 1, :fit}]}]} =
+               IP.URL.validate(bad)
+
+      assert {:error, {:invalid_request, [%{reason: :inert_option}]}} =
+               IP.URL.url(bad, "photo.jpg")
+
+      # With every named preset known, request-wide options are checked too.
+      assert {:error, [%{locations: [{:request, :jpeg_options}]}]} =
+               IP.URL.new(lookup)
+               |> IP.URL.group(presets: ["card"])
+               |> IP.URL.output(format: :webp, jpeg_options: [interlace: true])
+               |> IP.URL.validate()
+
+      # The unknown preset may supply the width that `fit` needs.
+      assert :ok =
+               IP.URL.validate(
+                 IP.URL.new(lookup)
+                 |> IP.URL.group(presets: ["remote"], resize: [fit: :cover])
+               )
+    end
+
+    test "watermark names are checked when validate_against lists them" do
+      named = IP.URL.config(validate_against: [watermarks: [:logo]])
+      unnamed = IP.URL.config(validate_against: [])
+
+      assert :ok = IP.URL.new(named) |> IP.URL.group(watermark: :logo) |> IP.URL.validate()
+
+      other = &(IP.URL.new(&1) |> IP.URL.group(watermark: :other))
+
+      assert {:error, [%{reason: :unknown_watermark, locations: [{:group, 0, :watermark}]}]} =
+               IP.URL.validate(other.(named))
+
+      assert {:error, {:invalid_request, [%{reason: :unknown_watermark}]}} =
+               IP.URL.url(other.(named), "photo.jpg")
+
+      assert :ok = IP.URL.validate(other.(unnamed))
+
+      assert :ok =
+               IP.URL.new(named)
+               |> IP.URL.group(watermark_source: "brand/mark.png")
+               |> IP.URL.validate()
+    end
+
     test "builder values match their fragment spelling" do
       card = IP.URL.new() |> IP.URL.group(resize: [width: 30, height: 20, fit: :cover])
-      as_builder = IP.URL.config(mount_presets: [presets: %{"card" => card}])
-      as_string = IP.URL.config(mount_presets: [presets: %{"card" => "w=30/h=20/fit=cover"}])
+      as_builder = IP.URL.config(validate_against: [presets: %{"card" => card}])
+      as_string = IP.URL.config(validate_against: [presets: %{"card" => "w=30/h=20/fit=cover"}])
 
-      assert as_builder.options[:mount_presets] == as_string.options[:mount_presets]
+      assert as_builder.options[:validate_against] == as_string.options[:validate_against]
     end
 
     test "request defaults with groups or presets, and unknown references, fail at init" do
@@ -271,8 +330,8 @@ defmodule ImagePipe.URLTest do
             [presets: %{"card" => "preset=missing"}],
             [presets: %{"card" => "w=nope"}]
           ] do
-        assert_raise ArgumentError, ~r/mount_presets/, fn ->
-          IP.URL.config(mount_presets: options)
+        assert_raise ArgumentError, ~r/validate_against/, fn ->
+          IP.URL.config(validate_against: options)
         end
       end
     end
@@ -280,7 +339,7 @@ defmodule ImagePipe.URLTest do
     test "unset options are written as key=unset and clear presets" do
       config =
         IP.URL.config(
-          mount_presets: [
+          validate_against: [
             request_defaults: "jpeg-options=progressive/format=webp",
             presets: %{"brand" => "w=300/h=200/fit=cover/wm=logo"}
           ]

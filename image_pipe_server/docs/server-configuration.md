@@ -10,10 +10,13 @@ listed in [shared URL settings](../../image_pipe/docs/shared-url-settings.md).
 ## Sources and precedence
 
 1. The library's defaults.
-2. The TOML file named by `IPS_CONFIG`, or `/etc/image_pipe/config.toml`. The
+2. Standard `AWS_` variables, for the S3 credential options that
+   `container_credentials` and `web_identity` leave out (see
+   [S3 `credentials`](#s3-credentials)).
+3. The TOML file named by `IPS_CONFIG`, or `/etc/image_pipe/config.toml`. The
    default file is optional, so a deployment can use only environment
    variables. A missing file named by `IPS_CONFIG` stops the server.
-3. Environment variables, which override single settings in the file.
+4. `IPS_` environment variables, which override single settings in the file.
 
 A small file:
 
@@ -88,7 +91,6 @@ options:
 - `match` is `"path"` or a table of `prefix` and `scheme` rules, each a string
   or an array.
 - `path_pattern` is a regular expression, anchored by the adapter.
-- `source_encryption_keys` are 32-byte keys with a `base64:` or `hex:` prefix.
 - HTTP mounts take `request_headers` (a table of header names to values) and
   `bearer_token` for origins behind an API key or a static token. Both can
   come from `_FILE` variables.
@@ -104,14 +106,14 @@ them. Hosts that need them build their own release on top of `image_pipe`.
 
 ## Errors
 
-Invalid configuration stops the server at boot with a message that names the
-setting. Errors about the file's shape and types never quote a value; the
-library's own checks may quote a non-secret value, such as an out-of-range
-`quality` or a cache root, but never a key, credential, token, or the
-contents of a `_FILE`:
+Invalid configuration stops the server at boot. The server prints the error,
+which names the setting or variable, and exits with status 1. Errors about
+the file's shape and types never quote a value. The library's own checks
+may quote a non-secret value, such as an out-of-range `quality` or a cache
+root, but never a key, credential, token, or the contents of a `_FILE`:
 
 ```text
-invalid configuration: url.source_encryption_keys[0]: expected a base64: or hex: prefix
+invalid configuration: url.source_encryption_keys[0]: expected a hex-encoded 32-byte key
 invalid configuration: processing.qualty: unknown setting
 ```
 
@@ -153,9 +155,7 @@ How the server checks request URLs: the signing keys and the keys that decrypt `
 | Key | Type | Default |
 | --- | --- | --- |
 | `keys` | array of string | `[]` |
-| `iv_mode` | `"deterministic"` or `"random"` | `"deterministic"` |
-| `encrypt_source` | boolean | `false` |
-| `source_encryption_keys` | array of string with a `base64:` or `hex:` prefix |  |
+| `source_encryption_keys` | array of hex strings, each a 32-byte key | `[]` |
 
 ### `[sources.<name>]`
 
@@ -247,7 +247,14 @@ Static credentials:
 | `static.token` | string |  |
 
 Or a credential `provider` and its options. `assume_role` takes `base`
-credentials in the same forms.
+credentials in the same forms. `container_credentials` without
+`relative_uri`, `full_uri`, `auth_token`, or `auth_token_file` takes each
+one whose variable is set from `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`,
+`AWS_CONTAINER_CREDENTIALS_FULL_URI`, `AWS_CONTAINER_AUTHORIZATION_TOKEN`,
+and `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE`. `web_identity` fills each of
+`token_file`, `role_arn`, `region`, and `role_session_name` that the
+table leaves out, from `AWS_WEB_IDENTITY_TOKEN_FILE`, `AWS_ROLE_ARN`,
+`AWS_REGION`, and `AWS_ROLE_SESSION_NAME` respectively.
 
 `provider = "assume_role"`:
 
@@ -269,6 +276,7 @@ credentials in the same forms.
 | `full_uri` | string |  |
 | `relative_uri` | string |  |
 | `auth_token` | string |  |
+| `auth_token_file` | string |  |
 | `receive_timeout` | integer ≥ 0 |  |
 | `connect_timeout` | integer ≥ 0 |  |
 
@@ -347,7 +355,6 @@ Defaults and limits for every image the server processes. The limits on original
 | `max_result_pixels` | integer > 0 | `40000000` |
 | `auto_avif` | boolean | `true` |
 | `auto_webp` | boolean | `true` |
-| `output_capabilities` | table of boolean |  |
 | `quality` | integer > 0 | `80` |
 | `format_quality` | table of integer > 0 | `{ avif = 63, webp = 79 }` |
 | `strip_metadata` | boolean | `true` |
@@ -394,7 +401,7 @@ Defaults and limits for every image the server processes. The limits on original
 | `presets` | table of string |  |
 | `request_defaults` | string |  |
 
-Elixir only: `telemetry_prefix`, `clock`.
+Elixir only: `max_preset_lookups`, `preset_lookup`, `telemetry_prefix`, `clock`.
 
 ### `[pool]`
 

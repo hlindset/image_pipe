@@ -75,6 +75,28 @@ defmodule ImagePipe.API.DiagnosticRendererTest do
     end
   end
 
+  describe "zero-width spans" do
+    test "a span at the end of the path gets a caret after its last byte" do
+      path = "/w=400/photo.jpg"
+      pad = String.duplicate(" ", byte_size(path))
+
+      expected =
+        "invalid transformation options\n" <>
+          "\n" <>
+          path <>
+          "\n" <>
+          pad <> "^\n" <> pad <> "|\n" <> pad <> "missing source\n"
+
+      assert render(path, [diag(:missing_source_marker, "missing source", [{16, 0}])]) == expected
+    end
+
+    test "a span inside the path gets one caret" do
+      rendered = render("/w=1//src/x", [diag(:empty_segment, "empty segment", [{6, 0}])])
+      assert rendered =~ "\n      ^\n"
+      assert rendered =~ "\n      empty segment\n"
+    end
+  end
+
   describe "multi-span underline" do
     test "a diagnostic with two spans (e.g. a duplicate key) underlines both, with one label" do
       path = "AAAAA12345BBBBB"

@@ -1,6 +1,7 @@
 defmodule ImagePipe.Plug.Request do
   @moduledoc false
 
+  alias ImagePipe.API.Diagnostic
   alias ImagePipe.API.Parser
   alias ImagePipe.API.Path
   alias ImagePipe.Execution
@@ -22,12 +23,15 @@ defmodule ImagePipe.Plug.Request do
            {:ok, lexed} <- decrypt_source(lexed, config),
            {:ok, config} <- presets(lexed, config),
            {:ok, request} <- Parser.parse(lexed, config),
-           {:ok, request} <- decrypt_watermarks(request, config) do
+           {:ok, request} <- decrypt_watermarks(request, path, config) do
         {_marker, source, _span} = lexed.source
         {request, source, key_index}
       end
 
     case result do
+      {%Spec{} = request, source, nil} ->
+        {{:ok, request, source}, %{result: :ok}}
+
       {%Spec{} = request, source, key_index} ->
         {{:ok, request, source}, %{result: :ok, sig_key_index: key_index}}
 
@@ -55,19 +59,35 @@ defmodule ImagePipe.Plug.Request do
   defp normalize_lex_error({:error, diagnostics}), do: {:error, {:invalid_request, diagnostics}}
   defp normalize_lex_error({:ok, _lexed} = ok), do: ok
 
+  # A mount without source encryption keys rejects concealed sources as a
+  # malformed request, as it does a signature without signing keys. A token no
+  # key decrypts reads as a missing source, so tokens can't be probed.
   defp decrypt_source(%{source: {:enc, token, span}} = lexed, config) do
     case Security.decrypt_source(token, config) do
       {:ok, source} -> {:ok, %{lexed | source: {:enc, source, span}}}
       {:error, :invalid_concealed_source} = error -> error
+      {:error, :source_encryption_disabled} -> encryption_disabled("enc/", span)
     end
   end
 
   defp decrypt_source(lexed, _config), do: {:ok, lexed}
 
-  defp decrypt_watermarks(%Spec{groups: groups} = request, config) do
+  defp encryption_disabled(marker, span) do
+    {:error,
+     {:invalid_request,
+      [
+        %Diagnostic{
+          reason: :source_encryption_disabled,
+          message: "#{marker} is not accepted: no source encryption keys are configured",
+          spans: [span]
+        }
+      ]}}
+  end
+
+  defp decrypt_watermarks(%Spec{groups: groups} = request, path, config) do
     groups
     |> Enum.reduce_while({:ok, []}, fn group, {:ok, groups} ->
-      case decrypt_watermark(group, config) do
+      case decrypt_watermark(group, path, config) do
         {:ok, group} -> {:cont, {:ok, [group | groups]}}
         {:error, _reason} = error -> {:halt, error}
       end
@@ -78,13 +98,24 @@ defmodule ImagePipe.Plug.Request do
     end
   end
 
-  defp decrypt_watermark(%{watermark: %{asset: {:enc, token}} = watermark} = group, config) do
-    with {:ok, source} <- Security.decrypt_source(token, config) do
-      {:ok, %{group | watermark: %{watermark | asset: {:src, source}}}}
+  defp decrypt_watermark(%{watermark: %{asset: {:enc, token}} = watermark} = group, path, config) do
+    case Security.decrypt_source(token, config) do
+      {:ok, source} -> {:ok, %{group | watermark: %{watermark | asset: {:src, source}}}}
+      {:error, :invalid_concealed_source} = error -> error
+      {:error, :source_encryption_disabled} -> encryption_disabled("wm-enc", wm_enc_span(path))
     end
   end
 
-  defp decrypt_watermark(group, _config), do: {:ok, group}
+  defp decrypt_watermark(group, _path, _config), do: {:ok, group}
+
+  defp wm_enc_span(path) do
+    {offset, _len} = :binary.match(path, "/wm-enc=")
+
+    [segment | _rest] =
+      :binary.split(binary_part(path, offset + 1, byte_size(path) - offset - 1), "/")
+
+    {offset + 1, byte_size(segment)}
+  end
 
   # Strips `conn.script_name` from `conn.request_path` as a raw prefix.
   # Because Plug decodes `script_name`, mount paths must use canonical

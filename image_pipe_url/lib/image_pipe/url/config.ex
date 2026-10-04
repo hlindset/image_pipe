@@ -9,6 +9,7 @@ defmodule ImagePipe.URL.Config do
   """
 
   alias ImagePipe.API.Presets
+  alias ImagePipe.Plan.Builder.Values
   alias ImagePipe.Security
 
   @enforce_keys [:options]
@@ -30,10 +31,10 @@ defmodule ImagePipe.URL.Config do
               URLs start with `/`, such as `/w=400/src/cat.jpg`.
               """
             ],
-            mount_presets: [
+            validate_against: [
               type: :keyword_list,
               doc: """
-              The server's presets, so `ImagePipe.URL.validate/1` and
+              What the server has configured, so `ImagePipe.URL.validate/1` and
               `ImagePipe.URL.url/3` check plans as the server does. It never changes
               a generated URL, but a copy that differs from the server gives wrong
               validation results. In an app that serves its own URLs,
@@ -60,9 +61,21 @@ defmodule ImagePipe.URL.Config do
                   type: :boolean,
                   default: false,
                   doc: """
-                  Set to `true` when the server has a preset lookup. A plan that
-                  names a preset missing from `:presets` is then not checked at all,
-                  because only the server can resolve the name.
+                  Set to `true` when the server has a preset lookup. For a plan
+                  that names a preset missing from `:presets`, the groups that
+                  name it and the request-wide options are not checked, because
+                  only the server can resolve the name. The other groups are
+                  still checked.
+                  """
+                ],
+                watermarks: [
+                  type: {:list, {:custom, Values, :cast, [:watermark_name]}},
+                  type_doc: "list of `t:atom/0`",
+                  doc: """
+                  The server's watermark names, such as `[:logo]`. A `watermark:`
+                  name missing from the list fails the check. Without this
+                  option, watermark names aren't checked. The check covers
+                  presets too, so list the server's `:presets` as well.
                   """
                 ]
               ]
@@ -73,9 +86,8 @@ defmodule ImagePipe.URL.Config do
   # Every option `ImagePipe.URL.config/1` accepts, in documentation order.
   @spec schema() :: keyword()
   def schema do
-    options = Security.options_schema() ++ @schema.schema
-    order = [:base_url, :keys, :encrypt_source, :source_encryption_keys, :iv_mode, :mount_presets]
-    Enum.map(order, &{&1, Keyword.fetch!(options, &1)})
+    {base_url, options} = Keyword.split(@schema.schema, [:base_url])
+    base_url ++ Security.options_schema() ++ options
   end
 
   @doc false
@@ -87,7 +99,9 @@ defmodule ImagePipe.URL.Config do
       {:ok, validated} ->
         base_url = validated |> Keyword.fetch!(:base_url) |> base_url!()
 
-        options = security ++ [base_url: base_url] ++ mount_presets!(validated[:mount_presets])
+        options =
+          security ++ [base_url: base_url] ++ validate_against!(validated[:validate_against])
+
         %__MODULE__{options: options}
 
       {:error, %NimbleOptions.ValidationError{key: :base_url}} ->
@@ -98,27 +112,39 @@ defmodule ImagePipe.URL.Config do
     end
   end
 
-  # What the builder knows about the serving mount's presets, used only for
-  # validation. `ImagePipe.config/1` injects its own with `put_mount_presets/2`.
-  @type mount_presets :: %{presets: map(), request_defaults: map() | nil, lookup?: boolean()}
+  # What the builder knows about the server, used only for validation.
+  # `watermarks` is nil when the names aren't known. `ImagePipe.config/1`
+  # injects its own with `put_validate_against/2`.
+  @type validate_against :: %{
+          presets: map(),
+          request_defaults: map() | nil,
+          lookup?: boolean(),
+          watermarks: [String.t()] | nil
+        }
 
   @doc false
-  @spec put_mount_presets(t(), mount_presets()) :: t()
-  def put_mount_presets(%__MODULE__{options: options} = config, mount_presets),
-    do: %{config | options: Keyword.put(options, :mount_presets, mount_presets)}
+  @spec put_validate_against(t(), validate_against()) :: t()
+  def put_validate_against(%__MODULE__{options: options} = config, validate_against),
+    do: %{config | options: Keyword.put(options, :validate_against, validate_against)}
 
-  defp mount_presets!(nil), do: []
+  defp validate_against!(nil), do: []
 
-  defp mount_presets!(options) do
+  defp validate_against!(options) do
     presets =
       Map.new(Keyword.fetch!(options, :presets), fn {name, value} -> {name, plan(value)} end)
 
     case Presets.compile(presets, plan(options[:request_defaults])) do
       {:ok, compiled} ->
-        [mount_presets: Map.put(compiled, :lookup?, Keyword.fetch!(options, :preset_lookup))]
+        [
+          validate_against:
+            Map.merge(compiled, %{
+              lookup?: Keyword.fetch!(options, :preset_lookup),
+              watermarks: options[:watermarks]
+            })
+        ]
 
       {:error, message} ->
-        raise ArgumentError, "invalid ImagePipe.URL configuration: mount_presets: #{message}"
+        raise ArgumentError, "invalid ImagePipe.URL configuration: validate_against: #{message}"
     end
   end
 

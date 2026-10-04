@@ -38,7 +38,9 @@ defmodule ImagePipe.API.DiagnosticRenderer do
     {kept, omitted_count} = cap_diagnostics(diagnostics)
     {path_text, truncated?} = truncate_path(raw_path)
     echoed_line = if truncated?, do: path_text <> @path_truncation_marker, else: path_text
-    width = byte_size(path_text)
+    # A whole path also has the column just past its end, where a missing
+    # trailing part such as the source marker points.
+    width = if truncated?, do: byte_size(path_text), else: byte_size(path_text) + 1
 
     lines =
       [@header, "", echoed_line] ++
@@ -112,11 +114,11 @@ defmodule ImagePipe.API.DiagnosticRenderer do
   # Unlike a label (which may legitimately run past the path's own byte
   # length), a caret run underlines specific path bytes — clip it so a
   # span reaching past a truncated echoed path never grows carets into
-  # the truncation marker.
+  # the truncation marker. A zero-width span gets one caret at its column.
   defp clipped_caret({offset, _len}, width) when offset >= width, do: []
 
   defp clipped_caret({offset, len}, width) do
-    [{offset, String.duplicate("^", min(len, width - offset))}]
+    [{offset, String.duplicate("^", len |> min(width - offset) |> max(1))}]
   end
 
   # One "all bars" connector row, then one row per diagnostic, closest

@@ -8,7 +8,7 @@ defmodule ImagePipe.Plug.ConfigTest do
   alias ImagePipe.Test.DetectorFixtures.PartialDetector
   alias ImagePipe.Test.DetectorFixtures.UnavailableDetector
 
-  @source_key :binary.copy(<<42>>, 32)
+  @source_key String.duplicate("2a", 32)
   @signing_key String.duplicate("a1", 32)
 
   defmodule CustomDetector do
@@ -188,14 +188,12 @@ defmodule ImagePipe.Plug.ConfigTest do
         telemetry_prefix: [:private, :image_pipe],
         allow_origin: "https://images.example",
         allow_debug_headers: true,
-        output_capabilities: %{avif: false},
         storage_inputs: [{:header, "accept-language"}, {:cookie, "variant"}]
       )
 
     assert config[:telemetry_prefix] == [:private, :image_pipe]
     assert config[:allow_origin] == "https://images.example"
     assert config[:allow_debug_headers] == true
-    assert config[:output_capabilities] == %{avif: false}
 
     assert config[:storage_inputs] == [
              {:header, "accept-language"},
@@ -220,10 +218,6 @@ defmodule ImagePipe.Plug.ConfigTest do
 
     assert_raise ArgumentError, ~r/storage_inputs/, fn ->
       Config.validate!(storage_inputs: [{:header, ""}])
-    end
-
-    assert_raise ArgumentError, ~r/output_capabilities/, fn ->
-      Config.validate!(output_capabilities: %{avif: :sometimes})
     end
   end
 
@@ -338,7 +332,7 @@ defmodule ImagePipe.Plug.ConfigTest do
     assert_raise ArgumentError, ~r/bogus/, fn -> Config.validate!(bogus: 1) end
   end
 
-  test "normalizes exact 32-byte source encryption keys into a redacted keyring" do
+  test "normalizes hex-encoded 32-byte source encryption keys into a redacted keyring" do
     config =
       Config.validate!(
         url: ImagePipe.URL.config(keys: [@signing_key], source_encryption_keys: [@source_key])
@@ -364,14 +358,14 @@ defmodule ImagePipe.Plug.ConfigTest do
       Config.validate!(url: ImagePipe.URL.config(source_encryption_keys: [@source_key]))
     end
 
-    shared_key = :binary.copy(<<7>>, 32)
+    shared_key = String.duplicate("A7", 32)
 
     assert_raise ArgumentError, "signing and source encryption keys must be independent", fn ->
       Config.validate!(
         url:
           ImagePipe.URL.config(
-            keys: [Base.encode16(shared_key)],
-            source_encryption_keys: [shared_key]
+            keys: [shared_key],
+            source_encryption_keys: [String.downcase(shared_key)]
           )
       )
     end

@@ -52,8 +52,12 @@ defmodule ImagePipe.API.URL do
   defp source_segments(source, _config, [], false),
     do: {:ok, source_segments(source)}
 
+  defp source_segments(_source, _config, [iv: iv], false)
+       when iv in [:deterministic, :random] or (is_binary(iv) and byte_size(iv) == 16),
+       do: {:error, :source_encryption_disabled}
+
   defp source_segments(_source, _config, _options, false),
-    do: {:error, :source_encryption_disabled}
+    do: {:error, :invalid_encryption_options}
 
   # Browsers normalize dot path segments even when the dots are percent-encoded.
   defp source_segments(source) when source in [".", ".."],
@@ -92,23 +96,29 @@ defmodule ImagePipe.API.URL do
     end
   end
 
-  # Semantic checks run only when the builder knows the mount's presets. A name
-  # the known map lacks defers to the mount when it has a lookup.
+  # Semantic checks run only when the builder knows the server's presets.
+  # Under a lookup, a name the known map lacks defers to the server, and only
+  # groups without such a name are checked. Watermark names are checked when
+  # known. Whether the server takes request watermark sources isn't known, so
+  # those pass.
   @doc false
   @spec check(Plan.t(), keyword()) :: :ok | {:error, [ImagePipe.Plan.Spec.Issue.t()]}
   def check(plan, config) do
-    case config[:mount_presets] do
+    case config[:validate_against] do
       nil ->
         :ok
 
-      %{presets: presets, request_defaults: defaults, lookup?: lookup?} ->
-        names = Plan.preset_names(plan)
+      %{presets: presets, request_defaults: defaults, lookup?: lookup?} = known ->
+        watermarks = watermarks(known.watermarks)
 
-        if lookup? and not Enum.all?(names, &Map.has_key?(presets, &1)),
-          do: :ok,
-          else: Plan.validate(plan, presets, defaults)
+        if lookup?,
+          do: Plan.validate_known(plan, presets, defaults, watermarks),
+          else: Plan.validate(plan, presets, defaults, watermarks)
     end
   end
+
+  defp watermarks(nil), do: nil
+  defp watermarks(names), do: %{names: names, request_sources?: true}
 
   defp segments(plan) do
     segments = Serializer.segments(plan)

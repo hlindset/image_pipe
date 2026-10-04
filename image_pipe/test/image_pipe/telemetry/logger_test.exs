@@ -937,6 +937,21 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "preset lookup: error (lookup_unavailable)"
   end
 
+  test "renders the signing key that verified a request on the parse span" do
+    prefix = [__MODULE__, :parse]
+    Telemetry.attach_default_logger(prefix: prefix, events: [:parse], level: :info)
+
+    log =
+      capture_log(fn ->
+        for meta <- [%{result: :ok, sig_key_index: 1}, %{result: :ok}] do
+          :telemetry.execute(prefix ++ [:parse, :stop], %{duration: 1000}, meta)
+        end
+      end)
+
+    assert log =~ "image_pipe parse: ok (signing key 1)"
+    assert log =~ ~r/image_pipe parse: ok$/m
+  end
+
   test "renders the per-model detect span with its region count and outcome" do
     prefix = [__MODULE__, :model_success]
     Telemetry.attach_default_logger(level: :info, prefix: prefix)
