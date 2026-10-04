@@ -104,6 +104,19 @@ CDN in front of it.
 server is listening. Invalid configuration stops the server before it
 listens, so use it for both readiness and liveness checks.
 
+The image's Docker health check requests `/health` on `127.0.0.1`, at the
+port in `IPS_SERVER__PORT` (8080 when it's unset). Set a custom port with
+`IPS_SERVER__PORT` rather than `[server] port` in the file, and the check
+follows it. If `[server] bind` is an address other than `0.0.0.0` or
+`127.0.0.1`, override the check, for example in Compose:
+
+```yaml
+services:
+  images:
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://10.0.0.5:8080/health"]
+```
+
 On `SIGTERM` the server stops accepting connections and gives in-flight
 requests `[server] shutdown_timeout` milliseconds (default 15 seconds) to
 finish. Give the platform a longer grace period, or it kills requests first:
