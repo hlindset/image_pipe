@@ -25,7 +25,12 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
       start_supervised!(
         {Agent,
          fn ->
-           %{now: 1_000, block_main: false, versions: %{"image.png" => 1, "mark.png" => 1}}
+           %{
+             now: 1_000,
+             block_main: false,
+             versions: %{"image.png" => 1, "mark.png" => 1},
+             cache_control: %{}
+           }
          end}
       )
 
@@ -50,7 +55,10 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
       conn =
         conn
         |> put_resp_header("etag", tag)
-        |> put_resp_header("cache-control", "public, max-age=60")
+        |> put_resp_header(
+          "cache-control",
+          Map.get(current.cache_control, path, "public, max-age=60")
+        )
         |> put_resp_header(
           "date",
           Calendar.strftime(DateTime.from_unix!(current.now), "%a, %d %b %Y %H:%M:%S GMT")
@@ -150,6 +158,41 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
     assert again.status == 200
     assert_received {:origin, "mark.png", [~s("mark.png-v1")]}
     assert get_resp_header(again, "etag") == [etag]
+  end
+
+  test "the response keeps the shorter stale window of its sources", %{
+    config: config,
+    state: state
+  } do
+    Agent.update(state, fn current ->
+      %{
+        current
+        | cache_control: %{"mark.png" => "public, max-age=30, stale-while-revalidate=86400"}
+      }
+    end)
+
+    assert get_resp_header(get(@path, config), "cache-control") == [
+             "public, max-age=30, stale-while-revalidate=30"
+           ]
+  end
+
+  test "the response keeps the strictest revalidation of its sources", %{
+    config: config,
+    state: state
+  } do
+    Agent.update(state, fn current ->
+      %{
+        current
+        | cache_control: %{
+            "image.png" => "public, max-age=60, must-revalidate",
+            "mark.png" => "public, max-age=30"
+          }
+      }
+    end)
+
+    assert get_resp_header(get(@path, config), "cache-control") == [
+             "public, max-age=30, must-revalidate"
+           ]
   end
 
   defp get(path, config), do: conn(:get, path) |> IP.Plug.call(config)
