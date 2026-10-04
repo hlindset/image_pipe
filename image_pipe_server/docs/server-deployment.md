@@ -218,6 +218,8 @@ docker run -e OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318 -e OTEL_SERVICE_
 - `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` turns
   on OTLP export (HTTP/protobuf by default).
 - `OTEL_TRACES_EXPORTER=none` or `OTEL_SDK_DISABLED=true` turns it off.
+- An empty variable counts as unset, so `OTEL_EXPORTER_OTLP_ENDPOINT=` leaves
+  export off.
 - The service name defaults to `image_pipe_server`. The SDK reads the other
   variables itself, such as `OTEL_EXPORTER_OTLP_HEADERS`,
   `OTEL_EXPORTER_OTLP_PROTOCOL`, and `OTEL_TRACES_SAMPLER`.
