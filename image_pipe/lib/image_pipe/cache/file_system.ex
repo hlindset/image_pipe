@@ -77,10 +77,12 @@ defmodule ImagePipe.Cache.FileSystem do
   size is checked before reading, and its descriptor is closed before returning.
   """
   @impl true
+  # Hosts call this with their own options. The Plug reads through `open/2`
+  # with options validated once with the cache configuration.
   def get(key, opts) do
-    case open(key, opts) do
-      {:hit, entry} -> materialize(entry)
-      other -> other
+    with {:ok, opts} <- validate_options(opts),
+         {:hit, entry} <- open(key, opts) do
+      materialize(entry)
     end
   end
 
