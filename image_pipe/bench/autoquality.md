@@ -26,6 +26,7 @@ mise exec -- mix autoquality.bench --part l --corpus DIR  # crop K × tile opera
 mise exec -- mix autoquality.corpus.capture              # grow the >6 MP screen-content half (Part M/L)
 mise exec -- mix autoquality.bench --part m --corpus DIR  # content-classifier feasibility (#359)
 mise exec -- mix autoquality.bench --part m --corpus DIR --downsample 512  # smaller classifier downsample
+mise exec -- mix autoquality.bench --part n --corpus DIR --corpus-cap 6  # target-only calibration (~10 min)
 mise exec -- mix autoquality.bench --part all # A + B + C + D + E + F + G + … + M
 mise exec -- mix autoquality.bench --mps 1,4  # custom Part A megapixels
 mise exec -- mix autoquality.bench --proxy-factors 2,4 --proxy-mp 25  # Part C knobs
@@ -999,6 +1000,53 @@ photo-recall (85%→76%) — the benign direction (a few more photos conservativ
 screen offset). **512 px is the production sweet spot**: ~all the accuracy of 1024 at
 ~60 % the cost; drop to 384 if cost dominates. (The Part M tables above use the 1024
 default.)
+
+### Part N — target-only calibration (image_plug-08wt)
+
+Calibration data for `docs/plans/autoquality-target-only.md`. Each image is
+downscaled to a long edge of at most 1600 px, classified with
+`ContentClassifier`, and encoded at the production encoder defaults (AVIF
+effort 3) over q 20..96 step 4 plus the fixed default quality. Qualities are
+oracle values interpolated from that grid, not search results. Codec-corpus
+`bb1da43`, `--corpus-cap 6`: 53 images (22 photo, 31 graphic), libvips 8.18.2,
+2026-10-04.
+
+Quality needed to reach the target, p1 / p5 / p50 / p95 / p99:
+
+| format | class | target 72 | target 75 | target 78 |
+|---|---|---|---|---|
+| jpeg | photo | 52/57/70/74/75 | 61/63/75/79/81 | 68/71/81/84/85 |
+| jpeg | graphic | 35/43/72/85/85 | 42/61/78/88/88 | 61/67/84/89/89 |
+| webp | photo | 60/62/77/83/83 | 73/73/80/85/86 | 78/79/84/88/89 |
+| webp | graphic | 28/29/62/83/83 | 38/42/76/86/88 | 44/53/81/89/90 |
+| avif | photo | 45/46/56/60/62 | 49/50/61/64/66 | 54/55/66/68/71 |
+| avif | graphic | 25/30/49/58/59 | 28/36/54/62/64 | 34/41/58/67/69 |
+
+No image reached a target below q20. Some WebP graphics never reach it by
+q96: 3% at 72 and 75, 10% at 78.
+
+Each target against today's fixed defaults, on the same images:
+
+| format | fixed q | fixed score p10/p50/p90 | bytes× at 72 | at 75 | at 78 |
+|---|---|---|---|---|---|
+| jpeg | 80 | 70.2 / 77.0 / 81.6 | 0.81 | 0.91 | 1.05 |
+| webp | 79 | 68.7 / 75.4 / 80.5 | 0.88 | 1.01 | 1.19 |
+| avif | 63 | 74.7 / 77.9 / 82.9 | 0.72 | 0.84 | 0.99 |
+
+bytes× is the geomean of bytes at the target over bytes at the fixed default.
+
+Reading:
+
+- **Target 75 is byte-neutral or better for every format** (WebP 1.01, JPEG
+  0.91, AVIF 0.84) and lifts the worst tenth of images from a score of about
+  69–75 to 75. Target 78 keeps JPEG and AVIF neutral but costs WebP 19%.
+- **Rails.** Across targets 72–78 the needed quality spans JPEG 35–89, WebP
+  28–90, and AVIF 25–72 (p1–p99). Rails of 25–95 for JPEG and WebP and 20–80
+  for AVIF hold all of it with margin.
+- **Priors.** Photos cluster tightly (AVIF p5–p95 at 75: 50–64), so a
+  photo prior lands within a few steps. Graphics spread widely (WebP p5–p95 at
+  75: 42–86), so the search must converge quickly from a poor start, not rely
+  on the prior.
 
 ## Findings & recommendations
 

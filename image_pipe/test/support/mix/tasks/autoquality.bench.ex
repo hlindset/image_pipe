@@ -26,6 +26,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
       mise exec -- mix autoquality.bench --part j --corpus DIR  # sweep allowed_error: on-target vs byte cost
       mise exec -- mix autoquality.bench --part k --corpus DIR  # sweep crop→full offset on the confirm-skipped large-image verdict
       mise exec -- mix autoquality.bench --part k --corpus DIR --offsets 0,0.5,1.5,2.5  # custom offset ladder
+      mise exec -- mix autoquality.bench --part n --corpus DIR --corpus-cap 6  # target-only calibration
       mise exec -- mix autoquality.bench --part all      # A + B + C + D + E + F + G + H + I + J + K
       mise exec -- mix autoquality.bench --mps 1,4,9     # custom Part A megapixels
       mise exec -- mix autoquality.bench --proxy-factors 2,4 --proxy-mp 25  # Part C knobs
@@ -310,6 +311,22 @@ defmodule Mix.Tasks.Autoquality.Bench do
   is safe against baseline regressions and removes the unbounded full-frame cost, but a
   conservative offset (≈p90, not the median) is needed to cover the screen-content tail,
   and the residual under-target is a Part I (raise-the-cap) lever, not a confirm one.
+
+  ## Part N — target-only calibration
+
+  Calibration data for making the target the only auto-quality setting
+  (`docs/plans/autoquality-target-only.md`). Each corpus image is downscaled to a
+  long edge of at most #{1600} px and classified `:photo`/`:graphic` with
+  `ContentClassifier`. Then each format is encoded at the production encoder
+  defaults (read from the config, so AVIF uses its default effort) over a quality
+  grid of 20..96 step 4 plus the fixed default quality, scoring every encode with
+  SSIMULACRA2. Reports, per format, class, and target (72, 75, 78): the share of
+  images that reach the target below the grid or not at all, and percentiles of
+  the lowest quality reaching it. Those set the safety rails and the search's
+  starting quality. A second table compares each target against today's fixed
+  defaults on the same images: the score the fixed default delivers, and the
+  geomean byte ratio at the target, to pick the default target. Qualities are
+  oracle values from the grid, not a search result.
   """
   use Mix.Task
   use Boundary, top_level?: true, check: [out: false]
@@ -321,6 +338,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
   alias ImagePipe.Output.Ssim2Metric.CropScore
+  alias ImagePipe.Processing.Config, as: ProcessingConfig
   alias ImagePipe.Test.Autoquality.TileSelection
   alias ImagePipe.Test.SourceInventory
   alias Vix.Vips.Image, as: VixImage
@@ -436,7 +454,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
       j: run.(["j", "all"], fn -> corpus.(&run_part_j/4) end),
       k: run.(["k", "all"], fn -> corpus.(&run_part_k(&1, &2, &3, &4, ctx.offsets)) end),
       l: run.(["l", "all"], fn -> corpus.(&run_part_l(&1, &2, &3, &4, ctx.ks, ctx.tiles)) end),
-      m: run.(["m", "all"], fn -> corpus.(&run_part_m(&1, &2, &3, &4, ctx.downsample)) end)
+      m: run.(["m", "all"], fn -> corpus.(&run_part_m(&1, &2, &3, &4, ctx.downsample)) end),
+      n: run.(["n", "all"], fn -> corpus.(&run_part_n/4) end)
     }
   end
 
@@ -457,7 +476,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
       {parts.j, &write_part_j_csv/1},
       {parts.k, &write_part_k_csv/1},
       {parts.l, &write_part_l_csv/1},
-      {parts.m, &write_part_m_csv/1}
+      {parts.m, &write_part_m_csv/1},
+      {parts.n, &write_part_n_csv/1}
     ]
     |> Enum.each(fn {rows, writer} -> if rows, do: writer.(rows) end)
   end
@@ -4306,6 +4326,261 @@ defmodule Mix.Tasks.Autoquality.Bench do
     IO.puts("wrote #{resid_path}")
   end
 
+  # --- Part N: target-only calibration (image_plug-08wt) -----------------------
+
+  @n_targets [72, 75, 78]
+  @n_grid Enum.to_list(20..96//4)
+  @n_max_edge 1600
+
+  defp run_part_n(corpus_dir, fallback_files, cap, synth_mp) do
+    defaults = ProcessingConfig.resolve!([])
+    fixed = n_fixed_defaults(defaults)
+
+    IO.puts("\n== Part N — target-only calibration: quality needed per target ==")
+
+    IO.puts(
+      "production encoder defaults, q grid #{List.first(@n_grid)}..#{List.last(@n_grid)} " <>
+        "step 4 + fixed defaults #{inspect(Map.new(fixed, fn {f, {q, _}} -> {f, q} end))}  " <>
+        "long edge ≤#{@n_max_edge}  ≤#{cap}/source\n"
+    )
+
+    sources = discover_sources(corpus_dir, fallback_files, cap, synth_mp)
+
+    Enum.flat_map(sources, fn {sname, subjects} ->
+      Enum.flat_map(subjects, fn {label, base} ->
+        IO.puts("  #{sname}/#{label}")
+        n_bench_subject(sname, label, n_fit(base), fixed)
+      end)
+    end)
+  end
+
+  # Fixed (non-search) quality and encoder options per format, read from the
+  # production config defaults so the calibration tracks them.
+  defp n_fixed_defaults(defaults) do
+    format_quality = Keyword.fetch!(defaults, :format_quality)
+
+    %{
+      jpeg: {Map.get(format_quality, :jpeg, defaults[:quality]), defaults[:jpeg_options]},
+      webp: {Map.get(format_quality, :webp, defaults[:quality]), defaults[:webp_options]},
+      avif: {Map.get(format_quality, :avif, defaults[:quality]), defaults[:avif_options]}
+    }
+  end
+
+  defp n_fit(base) do
+    if max(Image.width(base), Image.height(base)) > @n_max_edge do
+      {:ok, small} = Image.thumbnail(base, @n_max_edge, resize: :down)
+      {:ok, mem} = VixImage.copy_memory(small)
+      mem
+    else
+      base
+    end
+  end
+
+  defp n_bench_subject(source, label, base, fixed) do
+    {class, _features} = ContentClassifier.classify(base)
+    {:ok, ref} = Ssim2Metric.reference(base)
+    mp = Image.width(base) * Image.height(base) / 1_000_000
+
+    Enum.flat_map(@g_formats, fn format ->
+      {fixed_q, options} = Map.fetch!(fixed, format)
+      resolved = %Resolved{base_resolved(format) | encoder_options: options}
+
+      try do
+        points =
+          [fixed_q | @n_grid]
+          |> Enum.uniq()
+          |> Enum.sort()
+          |> Enum.map(&n_point(base, ref, resolved, format, &1))
+
+        [
+          %{
+            source: source,
+            label: label,
+            class: class,
+            mp: mp,
+            format: format,
+            fixed_q: fixed_q,
+            points: points
+          }
+        ]
+      catch
+        {:g_unsupported, ^format, _reason} ->
+          IO.puts("    #{format}: skipped (encode unsupported)")
+          []
+      end
+    end)
+  end
+
+  defp n_point(base, ref, %Resolved{} = resolved, format, q) do
+    {enc_us, enc} =
+      timed(fn ->
+        Encoder.encode_to_buffer(base, %Resolved{resolved | quality: {:quality, q}}, q)
+      end)
+
+    bin = g_unwrap_encode(enc, format)
+    {:ok, cand} = Image.from_binary(bin)
+    {met_us, {:ok, score}} = timed(fn -> Ssim2Metric.score(ref, cand) end)
+    %{q: q, bytes: byte_size(bin), score: score, encode_us: enc_us, metric_us: met_us}
+  end
+
+  # Lowest quality reaching `target`, interpolated between the last grid point
+  # below it and the first at or above it (bytes in log space). `:below` when
+  # the lowest grid quality already reaches it, `:above` when none does.
+  defp n_at_target(points, target) do
+    case Enum.split_while(points, &(&1.score < target)) do
+      {_, []} ->
+        :above
+
+      {[], _} ->
+        :below
+
+      {under, [hit | _]} ->
+        prev = List.last(under)
+        f = (target - prev.score) / (hit.score - prev.score)
+        log_bytes = :math.log(prev.bytes) + f * (:math.log(hit.bytes) - :math.log(prev.bytes))
+        {:ok, %{q: prev.q + f * (hit.q - prev.q), bytes: :math.exp(log_bytes)}}
+    end
+  end
+
+  defp n_fixed_point(row), do: Enum.find(row.points, &(&1.q == row.fixed_q))
+
+  defp findings_part_n([]), do: IO.puts("Part N — calibration: no subjects processed\n")
+
+  defp findings_part_n(rows) do
+    IO.puts("Part N — quality needed to reach each target (lowest satisfying, interpolated):")
+
+    IO.puts(
+      "  below/above = target reached at q#{List.first(@n_grid)} / not by q#{List.last(@n_grid)}\n"
+    )
+
+    IO.puts(
+      "    " <>
+        pad(["format", 7]) <>
+        pad(["class", 9]) <>
+        pad(["target", 7]) <>
+        pad(["n", 5]) <>
+        pad(["below%", 8]) <>
+        pad(["above%", 8]) <>
+        pad(["p1", 6]) <>
+        pad(["p5", 6]) <>
+        pad(["p50", 6]) <>
+        pad(["p95", 6]) <>
+        pad(["p99", 6])
+    )
+
+    for format <- @g_formats, class <- [:photo, :graphic, :all], target <- @n_targets do
+      frows = Enum.filter(rows, &(&1.format == format and (class == :all or &1.class == class)))
+      if frows != [], do: n_print_quality_row(format, class, target, frows)
+    end
+
+    IO.puts("\nPart N — target vs today's fixed defaults (same images, oracle quality):")
+
+    IO.puts(
+      "  bytes× = geomean of bytes at the target over bytes at the fixed default; " <>
+        "smaller% = images that get smaller\n"
+    )
+
+    IO.puts(
+      "    " <>
+        pad(["format", 7]) <>
+        pad(["fixed q", 8]) <>
+        pad(["fixed score p10/p50/p90", 25]) <>
+        pad(["target", 7]) <>
+        pad(["n", 5]) <>
+        pad(["bytes×", 8]) <>
+        pad(["smaller%", 9])
+    )
+
+    for format <- @g_formats do
+      frows = Enum.filter(rows, &(&1.format == format))
+      if frows != [], do: n_print_default_rows(format, frows)
+    end
+
+    IO.puts("")
+  end
+
+  defp n_print_quality_row(format, class, target, frows) do
+    results = Enum.map(frows, &n_at_target(&1.points, target))
+    n = length(results)
+
+    qs =
+      results
+      |> Enum.flat_map(fn
+        {:ok, r} -> [r.q]
+        _ -> []
+      end)
+      |> Enum.sort()
+
+    pct = fn tag -> Float.round(Enum.count(results, &(&1 == tag)) / n * 100, 0) end
+    pq = fn p -> if qs == [], do: "-", else: round(percentile(qs, p)) end
+
+    IO.puts(
+      "    " <>
+        pad([format, 7]) <>
+        pad([class, 9]) <>
+        pad([target, 7]) <>
+        pad([n, 5]) <>
+        pad([pct.(:below), 8]) <>
+        pad([pct.(:above), 8]) <>
+        pad([pq.(0.01), 6]) <>
+        pad([pq.(0.05), 6]) <>
+        pad([pq.(0.5), 6]) <>
+        pad([pq.(0.95), 6]) <>
+        pad([pq.(0.99), 6])
+    )
+  end
+
+  defp n_print_default_rows(format, frows) do
+    fixed_scores = frows |> Enum.map(&n_fixed_point(&1).score) |> Enum.sort()
+
+    fixed_label =
+      Enum.map_join([0.1, 0.5, 0.9], "/", &Float.round(percentile(fixed_scores, &1), 1))
+
+    Enum.each(@n_targets, fn target ->
+      ratios = Enum.flat_map(frows, &n_byte_ratio(&1, target))
+
+      geomean =
+        if ratios == [],
+          do: "-",
+          else: Float.round(:math.exp(avg(Enum.map(ratios, &:math.log/1))), 3)
+
+      smaller = Float.round(Enum.count(ratios, &(&1 < 1)) / max(length(ratios), 1) * 100, 0)
+
+      IO.puts(
+        "    " <>
+          pad([format, 7]) <>
+          pad([List.first(frows).fixed_q, 8]) <>
+          pad([fixed_label, 25]) <>
+          pad([target, 7]) <>
+          pad([length(ratios), 5]) <>
+          pad([geomean, 8]) <>
+          pad([smaller, 9])
+      )
+    end)
+  end
+
+  defp n_byte_ratio(row, target) do
+    case n_at_target(row.points, target) do
+      {:ok, r} -> [r.bytes / n_fixed_point(row).bytes]
+      _ -> []
+    end
+  end
+
+  defp write_part_n_csv(rows) do
+    path = "/tmp/autoquality_bench_part_n.csv"
+    head = "source,label,class,mp,format,fixed_q,q,bytes,score,encode_us,metric_us\n"
+
+    body =
+      for row <- rows, pt <- row.points, into: "" do
+        "#{row.source},#{row.label},#{row.class},#{Float.round(row.mp, 3)},#{row.format}," <>
+          "#{row.fixed_q},#{pt.q},#{pt.bytes},#{fmt_score(pt.score)},#{pt.encode_us}," <>
+          "#{pt.metric_us}\n"
+      end
+
+    File.write!(path, head <> body)
+    IO.puts("wrote #{path}")
+  end
+
   # --- resolved descriptors --------------------------------------------------
 
   defp ssim2_resolved(format) do
@@ -4427,7 +4702,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
       {parts.i, &findings_part_i/1},
       {parts.j, &findings_part_j/1},
       {parts.k, &findings_part_k/1},
-      {parts.l, &findings_part_l/1}
+      {parts.l, &findings_part_l/1},
+      {parts.n, &findings_part_n/1}
     ]
     |> Enum.each(fn {rows, finder} -> if rows, do: finder.(rows) end)
 
