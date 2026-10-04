@@ -90,14 +90,18 @@ defmodule ImagePipe.API.ObjectCropWireTest do
     refute_received :origin_fetch
   end
 
+  # Detectors such as image_vision's autorotate by the orientation tag, so the
+  # pixels they get must not carry one that doesn't describe them.
   test "detectors receive display or storage pixels according to orientation policy" do
     body = Image.new!(40, 80, color: :red) |> Image.write!(:memory, suffix: ".png")
     opts = mount(detector: RecordingDetector, origin: {OrientedFrameOrigin, {body, 6}})
 
     assert response("orient=auto/crop=30,30/detect=face", opts).status == 200
-    assert_receive {:detect_input, 80, 40, ["face"]}
+    assert_receive {:detect_input, 80, 40, ["face"], orientation}
+    assert orientation in [nil, 1]
     assert response("orient=none/crop=30,30/detect=face", opts).status == 200
-    assert_receive {:detect_input, 40, 80, ["face"]}
+    assert_receive {:detect_input, 40, 80, ["face"], orientation}
+    assert orientation in [nil, 1]
   end
 
   test "equivalent class orders and weight spellings share identity" do

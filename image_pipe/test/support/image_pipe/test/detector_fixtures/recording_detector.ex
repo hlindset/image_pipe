@@ -2,6 +2,8 @@ defmodule ImagePipe.Test.DetectorFixtures.RecordingDetector do
   @moduledoc false
   @behaviour ImagePipe.Transform.Detector
 
+  alias Vix.Vips.Image, as: VipsImage
+
   @impl true
   def supported_classes(_opts), do: ["face"]
 
@@ -19,7 +21,17 @@ defmodule ImagePipe.Test.DetectorFixtures.RecordingDetector do
         _ -> self()
       end
 
-    send(target, {:detect_input, Image.width(image), Image.height(image), opts[:classes]})
+    orientation =
+      case VipsImage.header_value(image, "orientation") do
+        {:ok, value} -> value
+        {:error, _reason} -> nil
+      end
+
+    send(
+      target,
+      {:detect_input, Image.width(image), Image.height(image), opts[:classes], orientation}
+    )
+
     {:ok, []}
   end
 end
