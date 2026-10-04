@@ -192,7 +192,7 @@ defmodule ImagePipeServer.Config do
 
     ImagePipe.Processing.Config.schema()
     |> Keyword.drop([:sources, :processing_pool])
-    |> elixir_only([:clock, :telemetry_prefix])
+    |> elixir_only([:clock, :telemetry_prefix, :preset_lookup, :max_preset_lookups])
     |> Enum.map(fn {key, spec} ->
       case Keyword.fetch(defaults, key) do
         {:ok, default} -> {key, Keyword.put_new(spec, :default, default)}

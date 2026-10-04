@@ -391,7 +391,7 @@ Defaults and limits for every image the server processes. The limits on original
 | `presets` | table of string |  |
 | `request_defaults` | string |  |
 
-Elixir only: `telemetry_prefix`, `clock`.
+Elixir only: `max_preset_lookups`, `preset_lookup`, `telemetry_prefix`, `clock`.
 
 ### `[pool]`
 

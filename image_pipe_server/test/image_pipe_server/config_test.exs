@@ -104,9 +104,11 @@ defmodule ImagePipeServer.ConfigTest do
       assert processing[:source_cache_policy] == [freshness: :origin]
     end
 
-    test "keeps function-valued processing settings Elixir-only" do
-      assert error(fn -> Config.options!(%{"processing" => %{"clock" => 1}}) end) =~
-               "processing.clock: not supported in the configuration file"
+    test "keeps Elixir-only processing settings out of the file" do
+      for key <- ["clock", "preset_lookup", "max_preset_lookups"] do
+        assert error(fn -> Config.options!(%{"processing" => %{key => 1}}) end) =~
+                 "processing.#{key}: not supported in the configuration file"
+      end
     end
   end
 

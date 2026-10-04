@@ -44,7 +44,9 @@ defmodule ImagePipeServer.Config.ReferenceTest do
   end
 
   test "names the settings only Elixir can set", %{reference: reference} do
-    assert reference =~ "Elixir only: `telemetry_prefix`, `clock`"
+    assert reference =~
+             "Elixir only: `max_preset_lookups`, `preset_lookup`, `telemetry_prefix`, `clock`"
+
     assert reference =~ "`req_options`"
   end
 
