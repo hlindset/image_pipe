@@ -131,7 +131,8 @@ If a request fails, the status and body say why:
 
 - `404` with `source not found`: the file name is mistyped.
 - `400` with `invalid transformation options`: the URL leaves out `src/`, as
-  in `/w=400/photo.jpg`.
+  in `/w=400/photo.jpg`. The body ends with
+  `missing src/, src64/, or enc/ before the image path`.
 - `500` with `source unavailable`: the server can't read the file, for
   example because only your user can read it. Make it readable with
   `chmod a+r images/photo.jpg`.
