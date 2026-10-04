@@ -18,8 +18,8 @@ defmodule ImagePipeServer.Config do
     * `[processing]` - the processing options of `ImagePipe.config/1`,
       including `watermarks.<name>` asset tables, `request_watermarks`,
       `presets.<name>` option fragments, and `request_defaults`.
-    * `[pool]` - `ImagePipe.ProcessingPool` options. Without it, requests are
-      unbounded.
+    * `[pool]` - `ImagePipe.ProcessingPool` options. `max_concurrency`
+      defaults to the VM's online schedulers.
     * `[http]` - the delivery options of `ImagePipe.Plug.init/1`.
     * `[telemetry]` - `log_level` attaches the default Logger.
       `trust_traceparent` continues an inbound W3C `traceparent` when tracing
@@ -58,7 +58,7 @@ defmodule ImagePipeServer.Config do
       `traceparent` (its `extract_inbound` option).
     * `:image_pipe` - the `ImagePipe.Config` the server's instance runs.
     * `:http` - the delivery options of `ImagePipe.Plug.init/1`.
-    * `:pool` - `ImagePipe.ProcessingPool` options with the pool's name, or `nil`.
+    * `:pool` - `ImagePipe.ProcessingPool` options with the pool's name.
     * `:telemetry` - default Logger options, or `nil`.
     * `:credential_warmups` - `ImagePipe.Source.S3.CredentialWarmup` options,
       one per named S3 bucket whose credentials come from a provider.
@@ -68,7 +68,7 @@ defmodule ImagePipeServer.Config do
           trust_traceparent: boolean(),
           image_pipe: ImagePipe.Config.t(),
           http: keyword(),
-          pool: keyword() | nil,
+          pool: keyword(),
           telemetry: keyword() | nil,
           credential_warmups: [keyword()]
         }
@@ -210,7 +210,11 @@ defmodule ImagePipeServer.Config do
     )
   end
 
-  defp pool_schema, do: Keyword.delete(ImagePipe.ProcessingPool.options_schema(), :name)
+  defp pool_schema do
+    ImagePipe.ProcessingPool.options_schema()
+    |> Keyword.delete(:name)
+    |> Keyword.update!(:max_concurrency, &Keyword.delete(&1, :required))
+  end
 
   defp http_schema, do: ImagePipe.Plug.Config.options_schema()
 
@@ -317,7 +321,6 @@ defmodule ImagePipeServer.Config do
   defp sources(nil), do: []
   defp sources(sources), do: [sources: sources]
 
-  defp processing_pool(nil), do: []
   defp processing_pool(pool), do: [processing_pool: Keyword.fetch!(pool, :name)]
 
   # The library names the setting in its errors and keeps secret values out.
@@ -327,9 +330,11 @@ defmodule ImagePipeServer.Config do
     error in ArgumentError -> reraise ConfigError, [message: error.message], __STACKTRACE__
   end
 
-  defp pool!(nil), do: nil
-
+  # The server always bounds processing, so a burst waits or gets a 503
+  # instead of exhausting memory. The VM's online schedulers follow the
+  # container's CPU quota.
   defp pool!(options) do
+    options = Keyword.merge([max_concurrency: System.schedulers_online()], options || [])
     validate!([name: @pool] ++ options, ImagePipe.ProcessingPool.options_schema(), "pool")
   end
 

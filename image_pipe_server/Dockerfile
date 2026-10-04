@@ -16,7 +16,8 @@ ARG RUNTIME_IMAGE=debian:trixie-20260918-slim
 FROM ${ELIXIR_IMAGE} AS build
 
 # libvips is built from source for JPEG XL decoding, which the libvips bundled
-# with the precompiled vix NIF lacks, and PNG palette quantization. Loaders for
+# with the precompiled vix NIF lacks, PNG palette quantization, and highway
+# SIMD (about twice as fast resizing and blurring as the orc fallback). Loaders for
 # families ImagePipe rejects are disabled explicitly, so a dependency appearing
 # in the base image can't add one.
 ARG VIPS_VERSION=8.18.7
@@ -26,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential meson ninja-build pkg-config curl ca-certificates git xz-utils \
       libglib2.0-dev libexpat1-dev libjpeg62-turbo-dev libpng-dev libwebp-dev \
       libtiff-dev libgif-dev libheif-dev liborc-0.4-dev liblcms2-dev \
-      libjxl-dev libcgif-dev libexif-dev libimagequant-dev \
+      libjxl-dev libcgif-dev libexif-dev libimagequant-dev libhwy-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL -o /tmp/vips.tar.xz \
@@ -35,7 +36,7 @@ RUN curl -fsSL -o /tmp/vips.tar.xz \
     && tar -xJf /tmp/vips.tar.xz -C /tmp \
     && cd "/tmp/vips-${VIPS_VERSION}" \
     && meson setup build --prefix=/usr/local --libdir=lib --buildtype=release \
-         -Dimagequant=enabled -Dmodules=disabled \
+         -Dimagequant=enabled -Dhighway=enabled -Dmodules=disabled \
          -Dmagick=disabled -Dpoppler=disabled -Dpdfium=disabled -Drsvg=disabled \
          -Draw=disabled -Dopenslide=disabled -Dopenexr=disabled -Dcfitsio=disabled \
          -Dmatio=disabled -Dnifti=disabled -Dppm=false -Danalyze=false -Dradiance=false \
@@ -92,11 +93,17 @@ FROM ${RUNTIME_IMAGE}
 
 COPY --from=build /usr/local/lib/vips-runtime-packages /tmp/vips-runtime-packages
 # OTP's socket support loads libsctp at startup and logs a warning without it.
+# libheif decodes AVIF with dav1d when its plugin is present, faster than aom.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       $(cat /tmp/vips-runtime-packages) \
-      libheif-plugin-aomdec libheif-plugin-aomenc \
-      libstdc++6 libncurses6 libsctp1 openssl ca-certificates curl \
+      libheif-plugin-aomdec libheif-plugin-aomenc libheif-plugin-dav1d \
+      libstdc++6 libncurses6 libsctp1 openssl ca-certificates curl libjemalloc2 \
     && rm -rf /var/lib/apt/lists/* /tmp/vips-runtime-packages
+
+# rel/env.sh preloads jemalloc from this path, which is the same on every
+# architecture.
+RUN ln -s "$(dpkg -L libjemalloc2 | grep '/libjemalloc.so.2$')" /usr/local/lib/libjemalloc.so.2 \
+    && LD_PRELOAD=/usr/local/lib/libjemalloc.so.2 /bin/true
 
 COPY --from=build /usr/local/lib/libvips* /usr/local/lib/
 RUN ldconfig

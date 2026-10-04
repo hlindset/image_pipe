@@ -3,7 +3,8 @@
 A processing pool limits how many images ImagePipe processes at once. Requests
 beyond the limit wait in a queue or get a `503`, and each image gets a
 deadline. Without a pool, every request starts processing right away, so a
-burst of requests can use all the CPU and memory.
+burst of requests can use all the CPU and memory. `image_pipe_server` always
+runs one.
 
 This guide assumes ImagePipe is running in your app (see
 [Getting started with Phoenix](phoenix-getting-started.md)) or as
@@ -22,7 +23,7 @@ instance's `processing_pool`:
 ```elixir
 # lib/my_app/application.ex
 children = [
-  {ImagePipe.ProcessingPool, name: MyApp.Pool, max_concurrency: 8, max_queue: 64},
+  {ImagePipe.ProcessingPool, name: MyApp.Pool, max_concurrency: 8, max_queue: 16},
   {ImagePipe, name: MyApp.Images, processing_pool: MyApp.Pool, sources: [...]},
   MyAppWeb.Endpoint
 ]
@@ -33,12 +34,13 @@ pool, so jobs and requests share its capacity.
 
 ### image_pipe_server
 
-Add a `[pool]` section to `config.toml`:
+The server always runs a pool. Change its limits in a `[pool]` section of
+`config.toml`:
 
 ```toml
 [pool]
 max_concurrency = 8
-max_queue = 64
+max_queue = 16
 ```
 
 <!-- tabs-close -->
@@ -46,11 +48,11 @@ max_queue = 64
 ## Choosing the limits
 
 - `max_concurrency` is how many images are processed at once. Start with
-  about the number of CPU cores.
-- `max_queue` is how many requests may wait for a turn. A request that finds
-  the queue full gets a `503`. The default, `0`, sends a `503` to every
-  request beyond `max_concurrency`.
-- `queue_timeout`, 1 second by default, is how long a request waits for a
+  about the number of CPU cores, which is the server's default.
+- `max_queue` is how many requests may wait for a turn, 64 by default. A
+  request that finds the queue full gets a `503`. With `0`, every request
+  beyond `max_concurrency` gets a `503` straight away.
+- `queue_timeout`, 10 seconds by default, is how long a request waits for a
   turn before it gets a `503`.
 - `processing_timeout`, 30 seconds by default, is how long one image may take
   once it has a turn.

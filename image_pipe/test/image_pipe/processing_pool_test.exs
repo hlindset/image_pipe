@@ -22,13 +22,27 @@ defmodule ImagePipe.ProcessingPoolTest do
   end
 
   test "bounds running jobs and rejects overflow", %{tasks: tasks} do
-    pool = pool(max_concurrency: 1)
+    pool = pool(max_concurrency: 1, max_queue: 0)
     first = blocked(tasks, pool, :first)
     assert_receive {:started, :first, worker}
     assert {:error, {:processing, :overloaded}} = ProcessingPool.run(pool, fn -> flunk() end, [])
     send(worker, :continue)
     assert Task.await(first) == :ok
     assert ProcessingPool.run(pool, fn -> :ok end, []) == :ok
+  end
+
+  test "queues a job beyond max_concurrency by default", %{tasks: tasks} do
+    pool = pool(max_concurrency: 1)
+    first = blocked(tasks, pool, :first)
+    assert_receive {:started, :first, worker1}
+    second = blocked(tasks, pool, :second)
+    await_queued(pool, 1)
+
+    send(worker1, :continue)
+    assert Task.await(first) == :ok
+    assert_receive {:started, :second, worker2}
+    send(worker2, :continue)
+    assert Task.await(second) == :ok
   end
 
   test "admits queued jobs in FIFO order", %{tasks: tasks} do

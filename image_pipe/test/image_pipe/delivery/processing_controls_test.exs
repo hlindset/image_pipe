@@ -22,7 +22,7 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
   end
 
   test "retains a slot until EOF cleanup and explicit cancellation", context do
-    pool = start_supervised!({ProcessingPool, max_concurrency: 1})
+    pool = start_supervised!({ProcessingPool, max_concurrency: 1, max_queue: 0})
     config = [processing_pool: pool, telemetry_prefix: context.prefix]
     test = self()
 

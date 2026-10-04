@@ -36,8 +36,8 @@ defmodule ImagePipeServer.Config.Reference do
         "[limiting work per request](../../image_pipe/docs/deployment.md).",
     pool:
       "How many images are processed at once, and how long requests wait for a turn. " <>
-        "Times are in milliseconds. Without this section, every request is processed " <>
-        "immediately. See [limiting concurrent processing](../../image_pipe/docs/processing-controls.md).",
+        "Times are in milliseconds. `max_concurrency` defaults to the number of CPU " <>
+        "cores the server can use. See [limiting concurrent processing](../../image_pipe/docs/processing-controls.md).",
     http:
       "Response settings: the CORS origin, whether requests may ask for debug headers, " <>
         "and the HTTP cache headers. See [serving images through a CDN](../../image_pipe/docs/serving-through-a-cdn.md).",

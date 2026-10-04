@@ -129,8 +129,9 @@ defmodule ImagePipeServer.ApplicationTest do
       assert length(config.credential_warmups) == 2
     end
 
-    test "starts only the ImagePipe instance and the listener by default" do
-      assert [{ImagePipe, _instance}, {Bandit, _http}] = App.children(Config.build!([]))
+    test "starts the processing pool, the ImagePipe instance and the listener by default" do
+      assert [{ImagePipe.ProcessingPool, _pool}, {ImagePipe, _instance}, {Bandit, _http}] =
+               App.children(Config.build!([]))
     end
   end
 

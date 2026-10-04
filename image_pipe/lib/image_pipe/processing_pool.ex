@@ -19,7 +19,7 @@ defmodule ImagePipe.ProcessingPool do
             ],
             max_queue: [
               type: :non_neg_integer,
-              default: 0,
+              default: 64,
               doc: """
               Most requests waiting for a turn. A request that finds the queue full \
               fails with `{:processing, :overloaded}`. With `0`, requests never wait.
@@ -27,7 +27,7 @@ defmodule ImagePipe.ProcessingPool do
             ],
             queue_timeout: [
               type: :pos_integer,
-              default: 1_000,
+              default: 10_000,
               doc: """
               Longest wait for a turn, in milliseconds. A request that waits longer \
               fails with `{:processing, :queue_timeout}`.
@@ -49,7 +49,7 @@ defmodule ImagePipe.ProcessingPool do
   wait for a turn and a deadline for each image.
 
       children = [
-        {ImagePipe.ProcessingPool, name: MyApp.Pool, max_concurrency: 8, max_queue: 64},
+        {ImagePipe.ProcessingPool, name: MyApp.Pool, max_concurrency: 8, max_queue: 16},
         {ImagePipe, name: MyApp.Images, processing_pool: MyApp.Pool, sources: [...]},
         MyAppWeb.Endpoint
       ]
