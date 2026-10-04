@@ -26,6 +26,12 @@ docker build -f image_pipe_server/Dockerfile -t image_pipe_server .
 The image runs as user `image_pipe` (uid 10001), listens on port 8080, and
 checks `GET /health` for its Docker health status.
 
+Erlang distribution is off in the image and the release, so
+`bin/image_pipe_server remote` can't connect. To use it, set
+`RELEASE_DISTRIBUTION=sname` and a `RELEASE_COOKIE` secret of your own, and
+keep epmd (port 4369) and the node's distribution port off untrusted
+networks.
+
 ## Running
 
 To try the server locally first, follow
