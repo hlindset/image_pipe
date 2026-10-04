@@ -2494,6 +2494,19 @@
       },
       fixture_sha256: "1a36b442593a4c27919fe48d5192a60a26a2a9f08e5cf40f9cabd7d8039230ba"
     },
+    "region_odd_origin" => %{
+      structure: %{
+        depth: 8,
+        metadata: [],
+        icc: nil,
+        content_type: "image/png",
+        bands: 3,
+        interpretation: :VIPS_INTERPRETATION_sRGB,
+        orientation: 1,
+        alpha?: false
+      },
+      fixture_sha256: "d54921c8c2133aceac6439eaa6206fdf17572374c205b171764053920c368444"
+    },
     "exif3_rot180_identity" => %{
       structure: %{
         depth: 8,
