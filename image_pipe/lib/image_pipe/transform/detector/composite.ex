@@ -20,6 +20,7 @@ defmodule ImagePipe.Transform.Detector.Composite do
   @behaviour ImagePipe.Transform.Detector
 
   alias ImagePipe.Telemetry
+  alias ImagePipe.Telemetry.RequestContext
   alias ImagePipe.Transform.Detector
   alias ImagePipe.Transform.Detector.ImageVision
 
@@ -81,10 +82,29 @@ defmodule ImagePipe.Transform.Detector.Composite do
 
     composite
     |> routed(classes)
-    |> Enum.map(fn {child, child_classes} ->
-      run_child(child, child_classes, image, opts, telemetry_opts)
-    end)
+    |> run_children(image, opts, telemetry_opts)
     |> merge_results()
+  end
+
+  # Children are independent models, so two or more run in their own processes,
+  # each carrying the request's trace context and Logger metadata. Results keep
+  # the child order.
+  defp run_children([{child, child_classes}], image, opts, telemetry_opts) do
+    [run_child(child, child_classes, image, opts, telemetry_opts)]
+  end
+
+  defp run_children(routed, image, opts, telemetry_opts) do
+    context = RequestContext.capture()
+
+    routed
+    |> Task.async_stream(
+      fn {child, child_classes} ->
+        RequestContext.adopt(context)
+        run_child(child, child_classes, image, opts, telemetry_opts)
+      end,
+      timeout: :infinity
+    )
+    |> Enum.map(fn {:ok, result} -> result end)
   end
 
   # Any child error other than an unavailable child fails the detection, so the
