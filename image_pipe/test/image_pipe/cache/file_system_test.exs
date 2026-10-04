@@ -473,18 +473,20 @@ defmodule ImagePipe.Cache.FileSystemTest do
              {:error, {:invalid_metadata, :invalid_headers}}
   end
 
-  test "metadata from an earlier concurrent writer still points at its own body", %{root: root} do
+  test "replacing an entry with a new body removes the old body", %{root: root} do
     cache_key = key("ababab" <> String.duplicate("1", 58))
 
     assert put_entry(cache_key, entry("body-one"), root: root) == :ok
-    assert {:ok, paths} = FileSystem.paths(cache_key, root: root)
-    metadata_one = File.read!(paths.meta_path)
-
     assert put_entry(cache_key, entry("body-two"), root: root) == :ok
-    File.write!(paths.meta_path, metadata_one)
+    assert put_entry(cache_key, entry("body-two"), root: root) == :ok
+
+    assert {:ok, paths} = FileSystem.paths(cache_key, root: root)
+
+    assert File.ls!(paths.dir) |> Enum.filter(&String.ends_with?(&1, ".body")) ==
+             [body_filename(cache_key, "body-two")]
 
     assert {:hit, cached_entry} = FileSystem.get(cache_key, root: root)
-    assert cached_entry.body == "body-one"
+    assert cached_entry.body == "body-two"
   end
 
   test "put succeeds when the content-addressed body already exists", %{root: root} do
