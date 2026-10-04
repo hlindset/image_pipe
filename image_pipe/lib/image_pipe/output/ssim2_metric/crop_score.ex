@@ -18,17 +18,14 @@ defmodule ImagePipe.Output.Ssim2Metric.CropScore do
   @subsample_k 16
   @crossover_megapixels 6
 
+  @typedoc "A tile window paired with the SSIMULACRA2 reference of the base tile."
+  @type tile_reference ::
+          {{non_neg_integer(), non_neg_integer(), pos_integer(), pos_integer()},
+           Ssim2Metric.ref()}
+
   @doc "Megapixel crossover above which the search uses crop scoring."
   @spec crossover_megapixels() :: pos_integer()
   def crossover_megapixels, do: @crossover_megapixels
-
-  @doc """
-  How many tiles `p10/2` will actually score for a `w`×`h` frame — the sub-sampled
-  tile count (`<= @subsample_k`). Deterministic from dimensions; used for the
-  `tiles_scored` telemetry field without doing any scoring.
-  """
-  @spec tile_count(pos_integer(), pos_integer()) :: pos_integer()
-  def tile_count(w, h), do: length(subsample(tile_coords(w, h)))
 
   @doc """
   Tile windows covering a `w`×`h` frame with full-size `t`×`t` windows. The last
@@ -76,33 +73,47 @@ defmodule ImagePipe.Output.Ssim2Metric.CropScore do
   end
 
   @doc """
-  p10 of the per-tile SSIMULACRA2 scores between a finalized `base` image and a
-  decoded `candidate` image, sub-sampled to `@subsample_k` tiles. Returns
-  `{:ok, score}` or `{:error, reason}` (any `extract_area`/score failure).
+  Per-tile SSIMULACRA2 references for a finalized `base` image, one per
+  sub-sampled tile (`<= @subsample_k`). The base and its tiles are fixed for the
+  whole quality search, so the search builds these once and every probe reuses
+  them through `p10/2`. Returns `{:error, reason}` on any `extract_area` or
+  reference failure.
   """
-  @spec p10(Vix.Vips.Image.t(), Vix.Vips.Image.t()) :: {:ok, float()} | {:error, term()}
-  def p10(%Vix.Vips.Image{} = base, %Vix.Vips.Image{} = candidate) do
-    coords = tile_coords(Image.width(base), Image.height(base))
-
-    with {:ok, scores} <- tile_scores(base, candidate, subsample(coords)) do
-      {:ok, percentile(Enum.sort(scores), 0.10)}
-    end
-  end
-
-  defp tile_scores(base, candidate, coords) do
-    Enum.reduce_while(coords, {:ok, []}, fn coord, {:ok, acc} ->
-      case tile_score(base, candidate, coord) do
-        {:ok, score} -> {:cont, {:ok, [score | acc]}}
+  @spec references(Vix.Vips.Image.t()) :: {:ok, [tile_reference()]} | {:error, term()}
+  def references(%Vix.Vips.Image{} = base) do
+    base
+    |> then(&tile_coords(Image.width(&1), Image.height(&1)))
+    |> subsample()
+    |> Enum.reduce_while({:ok, []}, fn {x, y, w, h} = coord, {:ok, acc} ->
+      with {:ok, tile} <- Image.crop(base, x, y, w, h),
+           {:ok, ref} <- Ssim2Metric.reference(tile) do
+        {:cont, {:ok, [{coord, ref} | acc]}}
+      else
         {:error, _} = err -> {:halt, err}
       end
     end)
   end
 
-  defp tile_score(base, candidate, {x, y, w, h}) do
-    with {:ok, bt} <- Image.crop(base, x, y, w, h),
-         {:ok, ct} <- Image.crop(candidate, x, y, w, h),
-         {:ok, ref} <- Ssim2Metric.reference(bt) do
-      Ssim2Metric.score(ref, ct)
+  @doc """
+  p10 of the per-tile SSIMULACRA2 scores between the tile `references/1` built
+  from a finalized base image and a decoded `candidate` image. Returns
+  `{:ok, score}` or `{:error, reason}` (any `extract_area`/score failure).
+  """
+  @spec p10([tile_reference()], Vix.Vips.Image.t()) :: {:ok, float()} | {:error, term()}
+  def p10(references, %Vix.Vips.Image{} = candidate) do
+    with {:ok, scores} <- tile_scores(references, candidate) do
+      {:ok, percentile(Enum.sort(scores), 0.10)}
     end
+  end
+
+  defp tile_scores(references, candidate) do
+    Enum.reduce_while(references, {:ok, []}, fn {{x, y, w, h}, ref}, {:ok, acc} ->
+      with {:ok, tile} <- Image.crop(candidate, x, y, w, h),
+           {:ok, score} <- Ssim2Metric.score(ref, tile) do
+        {:cont, {:ok, [score | acc]}}
+      else
+        {:error, _} = err -> {:halt, err}
+      end
+    end)
   end
 end
