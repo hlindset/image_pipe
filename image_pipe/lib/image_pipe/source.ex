@@ -106,12 +106,13 @@ defmodule ImagePipe.Source do
   @type error :: {:source, atom() | tuple()}
 
   @doc """
-  The identifier structs the adapter's `c:resolve/3` accepts, from
+  Receives the options returned by `c:validate_options/1` and returns the
+  identifier structs `c:resolve/3` accepts with them, from
   `ImagePipe.Plan.Source.Path`, `ImagePipe.Plan.Source.URL`, and
   `ImagePipe.Plan.Source.Object`. A mount whose match rules would route another
   identifier to the adapter fails configuration.
   """
-  @callback identifiers() :: [module()]
+  @callback identifiers(options :: keyword()) :: [module()]
 
   @doc """
   Checks the mount's `:options` when the configuration is built. The options
@@ -123,7 +124,7 @@ defmodule ImagePipe.Source do
   @doc """
   Describes a source without fetching it.
 
-  The source is one of the structs from `c:identifiers/0`, with the mount's
+  The source is one of the structs from `c:identifiers/1`, with the mount's
   prefix or custom scheme removed. The returned `ImagePipe.Source.Resolved`
   holds:
 

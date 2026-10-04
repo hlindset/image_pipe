@@ -237,10 +237,8 @@ On a mismatch:
   source, answers `404` with `source not found`. With a `match = "path"`
   source, that source looks the path up and answers `404` when nothing is
   there.
-- An `http`, `https`, or `s3` URL with no source for its scheme answers `500`
-  with `configuration error`.
-- Any other scheme, such as `asset://…`, with no source for it answers `400`
-  with `invalid source`.
+- A URL whose scheme no source matches, such as `https://…`, `s3://…`, or
+  `asset://…`, answers `400` with `invalid source`.
 
 ## Watermarks
 

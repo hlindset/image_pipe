@@ -12,7 +12,7 @@ defmodule ImagePipe.Source.WithFetchedTest do
     @behaviour ImagePipe.Source
 
     @impl true
-    def identifiers,
+    def identifiers(_options),
       do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
     @impl ImagePipe.Source
@@ -32,7 +32,7 @@ defmodule ImagePipe.Source.WithFetchedTest do
     @behaviour ImagePipe.Source
 
     @impl true
-    def identifiers,
+    def identifiers(_options),
       do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
     @impl ImagePipe.Source
@@ -50,7 +50,7 @@ defmodule ImagePipe.Source.WithFetchedTest do
     @behaviour ImagePipe.Source
 
     @impl true
-    def identifiers,
+    def identifiers(_options),
       do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
     @impl ImagePipe.Source

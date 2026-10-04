@@ -40,9 +40,8 @@ defmodule ImagePipe.Source.Mounts do
     do: {:error, {:source, {:invalid_sources, "expected a keyword list of named mounts"}}}
 
   @doc false
-  @spec custom_schemes(t()) :: [String.t()]
-  def custom_schemes(%__MODULE__{schemes: schemes}),
-    do: schemes |> Map.keys() |> Enum.reject(&Map.has_key?(@builtin_scheme_identifiers, &1))
+  @spec scheme?(t(), String.t()) :: boolean()
+  def scheme?(%__MODULE__{schemes: schemes}, scheme), do: Map.has_key?(schemes, scheme)
 
   @doc false
   @spec fetch(t(), atom()) :: {:ok, module(), keyword()} | {:error, {:source, :missing_adapter}}
@@ -79,14 +78,9 @@ defmodule ImagePipe.Source.Mounts do
   def route(%Object{scheme: scheme} = source, %__MODULE__{} = mounts),
     do: scheme_route(scheme, source, mounts)
 
-  def route(_source, _mounts), do: {:error, {:source, :missing_adapter}}
-
-  defp scheme_route(scheme, source, mounts) do
-    case mounts.schemes do
-      %{^scheme => name} -> {:ok, name, source}
-      _schemes -> {:error, {:source, :missing_adapter}}
-    end
-  end
+  # The source parser rejects URL and object schemes no mount matches.
+  defp scheme_route(scheme, source, mounts),
+    do: {:ok, Map.fetch!(mounts.schemes, scheme), source}
 
   # Origins may normalize dot segments, and a bare prefix names no source.
   defp path_route(name, %Path{segments: segments} = source) do
@@ -110,8 +104,8 @@ defmodule ImagePipe.Source.Mounts do
     with {:ok, mount} <- validate_mount_shape(name, mount),
          {:ok, rules} <- parse_match(name, Keyword.fetch!(mount, :match)),
          module = Keyword.fetch!(mount, :adapter),
-         :ok <- check_identifiers(name, module, rules),
          {:ok, opts} <- validate_adapter_options(module, Keyword.fetch!(mount, :options)),
+         :ok <- check_identifiers(name, module, opts, rules),
          {:ok, mounts} <- add_rules(mounts, name, rules) do
       {:ok, %{mounts | mounts: Map.put(mounts.mounts, name, {module, opts})}}
     end
@@ -158,13 +152,13 @@ defmodule ImagePipe.Source.Mounts do
   defp rule_identifier({:scheme, scheme}), do: Map.get(@builtin_scheme_identifiers, scheme, Path)
   defp rule_identifier(_rule), do: Path
 
-  defp check_identifiers(name, module, rules) do
-    supported = module.identifiers()
+  defp check_identifiers(name, module, opts, rules) do
+    supported = module.identifiers(opts)
     needed = rules |> Enum.map(&rule_identifier/1) |> Enum.uniq()
 
     cond do
       not (is_list(supported) and Enum.all?(supported, &(&1 in @identifiers))) ->
-        invalid_mount(name, "#{inspect(module)}.identifiers/0 returned #{inspect(supported)}")
+        invalid_mount(name, "#{inspect(module)}.identifiers/1 returned #{inspect(supported)}")
 
       Enum.all?(needed, &(&1 in supported)) ->
         :ok

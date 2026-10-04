@@ -24,7 +24,7 @@ defmodule MyApp.BlobSource do
   @schema NimbleOptions.new!([bucket: [type: :string, required: true]] ++ CacheSettings.schema())
 
   @impl true
-  def identifiers, do: [Path]
+  def identifiers(_options), do: [Path]
 
   @impl true
   def validate_options(opts) do

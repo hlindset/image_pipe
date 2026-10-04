@@ -258,7 +258,8 @@ decoding:
   as `versionId`; it is not written as a `versionId=` parameter. Empty keys,
   userinfo, fragments, and ports are rejected.
 - Any other `scheme://rest` goes to the mount matching that scheme as the path
-  `rest`, split on `/` with no further decoding. A scheme no mount matches is
+  `rest`, split on `/` with no further decoding.
+- Any scheme no mount matches, including `http`, `https`, and `s3`, is
   rejected as an invalid source before any source access.
 
 Paths with nothing after their prefix or scheme, or with empty, `.`, or `..`

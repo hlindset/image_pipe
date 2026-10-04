@@ -237,14 +237,33 @@ defmodule ImagePipe.Source.S3Test do
                ]
              )
 
+    assert {:ok, _options} =
+             S3.validate_options(
+               default: [
+                 region: "us-east-1",
+                 endpoint: "https://s3.amazonaws.com",
+                 credentials: {:static, access_key_id: "A", secret_access_key: "S", token: nil}
+               ]
+             )
+
     assert {:error, {:invalid_source_config, _reason}} =
              S3.validate_options(
                default: [
                  region: "us-east-1",
                  endpoint: "https://s3.amazonaws.com",
-                 credentials: {:provider, NotLoadedProvider, []}
+                 credentials: {:static, access_key_id: "A", secret_access_key: "S", token: ""}
                ]
              )
+
+    assert_raise UndefinedFunctionError, ~r/NotLoadedProvider.validate_options/, fn ->
+      S3.validate_options(
+        default: [
+          region: "us-east-1",
+          endpoint: "https://s3.amazonaws.com",
+          credentials: {:provider, NotLoadedProvider, []}
+        ]
+      )
+    end
 
     for endpoint <- [
           "s3.amazonaws.com",
@@ -551,6 +570,12 @@ defmodule ImagePipe.Source.S3Test do
 
   test "credential failures are safe source errors" do
     defmodule FailingProvider do
+      @behaviour ImagePipe.Source.S3.CredentialProvider
+
+      @impl true
+      def validate_options(_opts), do: :ok
+
+      @impl true
       def fetch_credentials(_scope, _provider_opts, _runtime_opts),
         do: {:error, {:source, :credentials_unavailable}}
     end

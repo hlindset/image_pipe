@@ -84,14 +84,14 @@ Requests that no source serves fail:
 - A path that no source matches answers `404 source not found`, like a
   missing image. So does a path with nothing after its prefix or scheme, or
   with an empty, `.`, or `..` segment.
-- An HTTP, HTTPS, or S3 URL without a source for its scheme answers `500`.
-- Any other `scheme://` that no source matches answers `400 invalid source`.
+- A `scheme://` URL that no source matches, including `http`, `https`, and
+  `s3`, answers `400 invalid source`.
 
 The configuration fails to load when two sources claim the same prefix or
-scheme, when more than one source matches `path`, or when a file or S3
-source matches sources it can't read, such as a file source matching
-`https` or an S3 source matching a prefix. An HTTP source can match paths only with a `base_url`. Without one,
-the configuration loads, but every path it matches answers `500`.
+scheme, when more than one source matches `path`, or when a source matches
+requests its adapter can't serve, such as a file source matching `https`,
+an S3 source matching a prefix, or an HTTP source without a `base_url`
+matching paths or a custom scheme.
 
 ## Adapters
 

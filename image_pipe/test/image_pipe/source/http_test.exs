@@ -607,6 +607,23 @@ defmodule ImagePipe.Source.HTTPTest do
       end
     end
 
+    test "rejects a Req adapter or unix socket in req_options, since they skip address pinning" do
+      adapter = fn request -> {request, Req.Response.new(status: 200)} end
+
+      for {option, value} <- [adapter: adapter, unix_socket: "/tmp/origin.sock"] do
+        assert {:error, {:invalid_source_config, message}} =
+                 HTTP.validate_options(allowed_hosts: ["x"], req_options: [{option, value}])
+
+        assert message =~ inspect(option)
+      end
+
+      assert {:ok, _opts} =
+               HTTP.validate_options(
+                 allowed_hosts: ["x"],
+                 req_options: [plug: fn conn -> conn end]
+               )
+    end
+
     test "rejects a non-list :allow without raising" do
       assert {:error, {:invalid_source_config, _}} =
                HTTP.validate_options(allowed_hosts: ["x"], address_policy: [allow: "10.0.0.0/8"])
@@ -968,13 +985,6 @@ defmodule ImagePipe.Source.HTTPTest do
 
       assert {:strong, _seed} = identity.()
       assert identity.() == identity.()
-    end
-
-    test "path sources need a base URL" do
-      {:ok, opts} = HTTP.validate_options(allowed_hosts: ["assets.example.com"])
-
-      assert HTTP.resolve(%SourcePath{segments: ["cat.jpg"]}, opts, []) ==
-               {:error, {:source, :missing_adapter}}
     end
 
     test "fetches the mapped URL through a prefix mount" do

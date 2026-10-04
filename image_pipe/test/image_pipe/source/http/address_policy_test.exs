@@ -102,6 +102,20 @@ defmodule ImagePipe.Source.HTTP.AddressPolicyTest do
       refute AddressPolicy.allow?(pred, [{10, 0, 6, 7}])
     end
 
+    test "CIDR allow matches IPv4-mapped IPv6 addresses like the IPv4 address" do
+      pred = AddressPolicy.compile(allow: ["10.0.5.0/24"])
+      assert AddressPolicy.allow?(pred, [{0, 0, 0, 0, 0, 0xFFFF, 0x0A00, 0x0507}])
+      refute AddressPolicy.allow?(pred, [{0, 0, 0, 0, 0, 0xFFFF, 0x0A00, 0x0607}])
+
+      v6_pred = AddressPolicy.compile(allow: ["::ffff:10.0.5.0/120"])
+      assert AddressPolicy.allow?(v6_pred, [{0, 0, 0, 0, 0, 0xFFFF, 0x0A00, 0x0507}])
+    end
+
+    test "CIDR allow doesn't match 6to4 addresses that embed an allowed IPv4 address" do
+      pred = AddressPolicy.compile(allow: ["10.0.5.0/24"])
+      refute AddressPolicy.allow?(pred, [{0x2002, 0x0A00, 0x0507, 0, 0, 0, 0, 1}])
+    end
+
     test "block-if-any: one bad address denies the whole set" do
       pred = AddressPolicy.compile([])
       refute AddressPolicy.allow?(pred, [{93, 184, 216, 34}, {10, 0, 0, 1}])

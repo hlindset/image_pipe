@@ -114,7 +114,7 @@ options: [
 ```
 
 `req_options` takes `Req` options. `ImagePipe.Source.HTTP` lists the ones
-the adapter drops.
+the adapter drops or rejects.
 
 ### image_pipe_server
 

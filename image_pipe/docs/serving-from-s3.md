@@ -80,9 +80,8 @@ credentials:
    secret_access_key: System.fetch_env!("AWS_SECRET_ACCESS_KEY")}
 ```
 
-For temporary keys, add `token: System.fetch_env!("AWS_SESSION_TOKEN")`.
-Leave `token` out when there is none, since a `nil` token fails the
-configuration.
+For temporary keys, add `token: System.get_env("AWS_SESSION_TOKEN")`. When
+`AWS_SESSION_TOKEN` is unset, the keys are used without a session token.
 
 ### image_pipe_server
 
@@ -274,37 +273,31 @@ instead:
 
 ### Plug
 
-Add a `ImagePipe.Source.S3.CredentialWarmup` per bucket to your supervision
-tree, with the same provider and options as the source:
+Add an `ImagePipe.Source.S3.CredentialWarmup` for each bucket to your
+supervision tree, with the same provider and options as the source:
 
 ```elixir
 # lib/my_app/application.ex
 children = [
   {ImagePipe.Source.S3.CredentialWarmup,
    provider: ImagePipe.Source.S3.InstanceRole, opts: [], scope: "photos"},
+  {ImagePipe.Source.S3.CredentialWarmup,
+   provider: ImagePipe.Source.S3.InstanceRole, opts: [], scope: "archive"},
   MyAppWeb.Endpoint
 ]
 ```
-
-To warm more than one bucket, give each child its own id with
-`Supervisor.child_spec/2`.
 
 ### image_pipe_server
 
 The server fetches credentials at startup for each bucket listed under
 `buckets` whose credentials come from a provider.
 
-> #### One warmed bucket per server {: .warning}
->
-> Two or more such buckets stop the server at boot, because their warmup
-> processes share one id. List at most one bucket with provider
-> credentials, or leave `buckets` out.
-
 <!-- tabs-close -->
 
-A failed fetch at startup is retried by the first request. Credentials that
-no request uses are dropped after five to ten minutes, and the next request
-fetches them again.
+The fetched credentials are kept, and refreshed before they expire, until the
+first request for the bucket. After that, credentials that no request uses
+are dropped after five to ten minutes. A failed fetch at startup is retried
+by the first request.
 
 ## Request object versions
 

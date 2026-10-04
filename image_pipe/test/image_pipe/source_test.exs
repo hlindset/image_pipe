@@ -19,7 +19,7 @@ defmodule ImagePipe.SourceTest do
     defmodule MissingSemanticsSource do
       @behaviour ImagePipe.Source
 
-      def identifiers,
+      def identifiers(_options),
         do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
       def validate_options(opts), do: {:ok, opts}
@@ -52,7 +52,7 @@ defmodule ImagePipe.SourceTest do
     defmodule ContradictorySemanticsSource do
       @behaviour ImagePipe.Source
 
-      def identifiers,
+      def identifiers(_options),
         do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
       def validate_options(opts), do: {:ok, opts}
@@ -88,7 +88,7 @@ defmodule ImagePipe.SourceTest do
     defmodule PathOnlyAdapter do
       @behaviour ImagePipe.Source
 
-      def identifiers, do: [ImagePipe.Plan.Source.Path]
+      def identifiers(_options), do: [ImagePipe.Plan.Source.Path]
       def validate_options(opts), do: {:ok, opts}
       def resolve(_source, _opts, _runtime_opts), do: raise("not used")
       def fetch(_resolved, _opts, _runtime_opts), do: raise("not used")
@@ -197,9 +197,6 @@ defmodule ImagePipe.SourceTest do
 
       assert Source.resolve(%Path{segments: ["other", "cat.jpg"]}, config, []) ==
                {:error, {:source, :not_found}}
-
-      assert Source.resolve(%URL{scheme: :https, host: "example.com", path: []}, config, []) ==
-               {:error, {:source, :missing_adapter}}
 
       assert {:ok, empty} = Source.validate_config(sources: [])
 

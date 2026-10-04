@@ -73,6 +73,31 @@ defmodule ImagePipeServer.ApplicationTest do
       assert {Bandit, _opts} = http
     end
 
+    test "gives each warmed S3 bucket its own child id" do
+      config =
+        Config.build!(
+          Config.options!(%{
+            "sources" => %{
+              "media" => %{
+                "adapter" => "s3",
+                "match" => %{"scheme" => "s3"},
+                "region" => "us-east-1",
+                "endpoint" => "https://s3.example.com",
+                "credentials" => %{"provider" => "instance_role"},
+                "buckets" => %{"photos" => %{}, "avatars" => %{}}
+              }
+            }
+          })
+        )
+
+      ids =
+        for child <- App.children(config),
+            do: Supervisor.child_spec(child, []).id
+
+      assert length(Enum.uniq(ids)) == length(ids)
+      assert length(config.credential_warmups) == 2
+    end
+
     test "starts only the ImagePipe instance and the listener by default" do
       assert [{ImagePipe, _instance}, {Bandit, _http}] = App.children(Config.build!([]))
     end
