@@ -140,6 +140,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.API,
       ImagePipe.Cache,
       ImagePipe.Processing,
+      ImagePipe.Security,
       ImagePipe.Source,
       ImagePipe.URL
     ])

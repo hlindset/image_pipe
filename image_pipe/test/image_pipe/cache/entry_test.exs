@@ -60,13 +60,18 @@ defmodule ImagePipe.Cache.EntryTest do
     assert Entry.cacheable_headers([{"vary", :not_binary}]) ==
              {:error, {:invalid_headers, [{"vary", :not_binary}]}}
 
-    for invalid_header_value <- ["Accept\r\nSet-Cookie: session=1", "public\nmax-age=60", <<0>>] do
+    for invalid_header_value <- [
+          "Accept\r\nSet-Cookie: session=1",
+          "public\nmax-age=60",
+          "Accept\n",
+          <<0>>
+        ] do
       headers = [{"Vary", invalid_header_value}]
 
       assert Entry.cacheable_headers(headers) == {:error, {:invalid_headers, headers}}
     end
 
-    for invalid_header_name <- ["", "bad header", "vary:"] do
+    for invalid_header_name <- ["", "bad header", "vary:", "vary\n"] do
       headers = [{invalid_header_name, "value"}]
 
       assert Entry.cacheable_headers(headers) == {:error, {:invalid_headers, headers}}

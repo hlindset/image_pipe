@@ -371,6 +371,16 @@ defmodule ImagePipe.Plug.ConfigTest do
     end
   end
 
+  test "rejects a static wm-enc without source encryption keys" do
+    for {options, owner} <- [
+          {[presets: %{"wm" => "wm-enc=AQID"}], ~s(preset "wm")},
+          {[request_defaults: "wm-enc=AQID"], "request_defaults"}
+        ] do
+      error = assert_raise ArgumentError, fn -> ImagePipe.config(options) end
+      assert error.message =~ "#{owner} uses wm-enc, which needs source_encryption_keys"
+    end
+  end
+
   test "rejects malformed secret configuration without including its value" do
     malformed_source_key = "private-source-encryption-key"
 

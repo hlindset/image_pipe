@@ -108,13 +108,19 @@ defmodule ImagePipe.Plug.Request do
 
   defp decrypt_watermark(group, _path, _config), do: {:ok, group}
 
+  # A `wm-enc` a preset contributed has no segment in the path, so the
+  # diagnostic spans the whole path.
   defp wm_enc_span(path) do
-    {offset, _len} = :binary.match(path, "/wm-enc=")
+    case :binary.match(path, "/wm-enc=") do
+      {offset, _len} ->
+        [segment | _rest] =
+          :binary.split(binary_part(path, offset + 1, byte_size(path) - offset - 1), "/")
 
-    [segment | _rest] =
-      :binary.split(binary_part(path, offset + 1, byte_size(path) - offset - 1), "/")
+        {offset + 1, byte_size(segment)}
 
-    {offset + 1, byte_size(segment)}
+      :nomatch ->
+        {0, byte_size(path)}
+    end
   end
 
   # Strips `conn.script_name` from `conn.request_path` as a raw prefix.

@@ -7,8 +7,8 @@ defmodule ImagePipe.Cache.Entry do
 
   @allowed_headers ~w(vary cache-control)
   @enforce_keys [:body, :content_type, :headers, :created_at]
-  @header_name_pattern ~r/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
-  @header_value_pattern ~r/^[^\x00-\x1F\x7F]*$/
+  @header_name_pattern ~r/\A[!#$%&'*+\-.^_`|~0-9A-Za-z]+\z/
+  @header_value_pattern ~r/\A[^\x00-\x1F\x7F]*\z/
   @content_type_pattern ~r{\A[!#$%&'*+\-.^_`|~0-9A-Za-z]+/[!#$%&'*+\-.^_`|~0-9A-Za-z]+( *;[^\x00-\x1F\x7F]*)?\z}
 
   defstruct @enforce_keys ++ [representation: nil, debug: nil, source_record: nil]

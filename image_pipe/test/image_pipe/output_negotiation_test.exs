@@ -125,6 +125,18 @@ defmodule ImagePipe.Output.NegotiationTest do
       assert Negotiation.modern_candidates("image/webp;q=0,image/webp;q=1", []) == []
       assert Negotiation.modern_candidates("image/avif;q=0", []) == []
     end
+
+    test "every RFC 9110 spelling of a zero weight excludes" do
+      for q <- ["0.", "0.0", "0.000"] do
+        assert Negotiation.modern_candidates("image/webp;q=#{q}", []) == [], q
+      end
+    end
+
+    test "a weight outside the RFC 9110 grammar is ignored" do
+      for q <- ["0.0001", "-0", "0e0", ".0"] do
+        assert Negotiation.modern_candidates("image/webp;q=#{q}", []) == [:webp], q
+      end
+    end
   end
 
   describe "modern_candidates/2 capability filtering" do

@@ -883,6 +883,24 @@ defmodule ImagePipe.PlugTest do
     refute_received {:cache_put, _key, _entry}
   end
 
+  test "errors after processing starts keep the host's Vary names" do
+    for {host_vary, expected} <- [{"Accept-Encoding", "Accept-Encoding, Accept"}, {"*", "*"}] do
+      conn =
+        :get
+        |> conn("/src/images/beach.jpg")
+        |> put_req_header("accept", "image/jpeg")
+        |> put_resp_header("vary", host_vary)
+        |> call_image_pipe(
+          root_url: "http://origin.test",
+          image_module: FailingStreamBeforeHeaderImage,
+          origin_req_options: [plug: {CountingOriginImage, test_pid: self()}]
+        )
+
+      assert conn.status == 500
+      assert get_resp_header(conn, "vary") == [expected]
+    end
+  end
+
   test "does not fetch origin when parse validation fails" do
     conn = conn(:get, "/w=bad/format=jpeg/src/images/beach.jpg")
 

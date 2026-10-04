@@ -9,9 +9,9 @@ defmodule ImagePipe.API.Value do
 
   alias ImagePipe.Plan.Color, as: PlanColor
 
-  @css_name_pattern ~r/^[a-z]+$/
-  @number_pattern ~r/^-?[0-9]+(\.[0-9]+)?$/
-  @nonneg_integer_pattern ~r/^[0-9]+$/
+  @css_name_pattern ~r/\A[a-z]+\z/
+  @number_pattern ~r/\A-?[0-9]+(\.[0-9]+)?\z/
+  @nonneg_integer_pattern ~r/\A[0-9]+\z/
 
   @doc """
   Parses a plain decimal: an optional leading `-`, digits, and an optional
