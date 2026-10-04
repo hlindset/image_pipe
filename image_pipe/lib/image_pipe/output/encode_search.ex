@@ -32,8 +32,15 @@ defmodule ImagePipe.Output.EncodeSearch do
   alias ImagePipe.Output.Ssim2Metric.CropScore
   alias ImagePipe.Telemetry
 
-  # Bisection over the widest rail (25..95) needs 7 probes.
-  @default_max_iterations 8
+  @default_max_iterations 6
+
+  # Target search tuning (bench/autoquality.md, Part O): accept a score up to
+  # this far above the target, assume this score gain per quality step until two
+  # probes measure it, and step at most this many qualities at once.
+  @accept_above 1.0
+  @default_slope 1.0
+  @min_slope 0.05
+  @max_step 20
   @max_bytes_alone_floor 10
   @max_bytes_alone_base 90
 
@@ -221,10 +228,7 @@ defmodule ImagePipe.Output.EncodeSearch do
     do: quality_objective_phase(rqs, ctx)
 
   defp quality_objective_phase(rqs, ctx) do
-    band_lo = rqs.target - rqs.allowed_error
-    band_hi = rqs.target + rqs.allowed_error
-
-    case search_to_target(rqs.min_quality, rqs.max_quality, band_lo, band_hi, ctx) do
+    case search_to_target(rqs, ctx) do
       {:error, _} = err ->
         err
 
@@ -322,57 +326,92 @@ defmodule ImagePipe.Output.EncodeSearch do
     end
   end
 
-  # Walk-to-target: converge toward the symmetric band `[band_lo, band_hi]`.
-  # Probe the midpoint; in-band → accept and stop. A score above the band is an
-  # acceptable overshoot: it is recorded as the nearest-overshoot fallback and the walk continues *lower* in
-  # quality (toward the band); the other arm walks *higher*. Returns
-  # {chosen_q, :hit | :best_effort, limiting_factor | nil, ctx}.
+  # Search toward the target: accept the first probe scoring in
+  # `[target - allowed_error, target + @accept_above]`. The first probe is
+  # `start_quality` (a calibrated guess, else the bracket midpoint). Each later
+  # probe interpolates score(q) between the highest failing and lowest passing
+  # qualities seen, or extrapolates from the nearest probes when only one side
+  # is known, so a good start converges in two or three probes.
   #
-  # On an empty band (integer-quality granularity straddles it) the recorded
-  # overshoot — the just-past-band q on the acceptable side — wins, a `:hit`
-  # (quality target met). If no q ever reached or overshot the band (every probe
-  # undershot up to max_quality), pin to the ceiling as a `:best_effort`/`:ceiling`
-  # result. `ceiling` (the original `hi`) is threaded so the fallback can name max_quality
-  # after `hi` has narrowed.
-  defp search_to_target(lo, hi, band_lo, band_hi, ctx) do
-    do_target(lo, hi, band_lo, band_hi, hi, nil, ctx)
+  # Without an in-band probe the search stops when the failing and passing
+  # qualities are adjacent, a bracket edge is reached, or the iteration cap hits.
+  # It then ships the lowest passing quality (a `:hit`), or the ceiling as a
+  # `:best_effort`/`:ceiling` result when nothing passed. Returns
+  # {chosen_q, :hit | :best_effort, limiting_factor | nil, ctx}.
+  defp search_to_target(rqs, ctx) do
+    start = rqs.start_quality || div(rqs.min_quality + rqs.max_quality, 2)
+    do_target(start, rqs, %{}, ctx)
   end
 
-  defp do_target(lo, hi, _band_lo, _band_hi, ceiling, overshoot, ctx)
-       when lo > hi do
-    resolve_target(overshoot, ceiling, ctx)
-  end
-
-  defp do_target(lo, hi, band_lo, band_hi, ceiling, overshoot, ctx) do
-    mid = div(lo + hi, 2)
-
-    case probe_score(mid, ctx) do
+  defp do_target(q, rqs, seen, ctx) do
+    case probe_score(q, ctx) do
       {:error, _} = err ->
         err
 
       {:capped, ctx} ->
-        resolve_target(overshoot, ceiling, ctx)
+        ship_target(seen, rqs, ctx)
 
       {:ok, score, ctx} ->
-        cond do
-          score >= band_lo and score <= band_hi ->
-            {mid, :hit, nil, ctx}
+        seen = Map.put(seen, q, score)
+        accept_lo = rqs.target - rqs.allowed_error
 
-          # Acceptable overshoot: a satisfying-or-better q. Record it (each is lower
-          # in quality than the last) and search lower for an in-band q.
-          score > band_hi ->
-            do_target(lo, mid - 1, band_lo, band_hi, ceiling, mid, ctx)
+        cond do
+          score >= accept_lo and score <= rqs.target + @accept_above ->
+            {q, :hit, nil, ctx}
+
+          converged?(failing(seen, accept_lo), passing(seen, accept_lo), rqs) ->
+            ship_target(seen, rqs, ctx)
 
           true ->
-            do_target(mid + 1, hi, band_lo, band_hi, ceiling, overshoot, ctx)
+            next = next_quality(failing(seen, accept_lo), passing(seen, accept_lo), seen, rqs)
+            do_target(next, rqs, seen, ctx)
         end
     end
   end
 
-  # No overshoot ever seen → undershot to the ceiling (best-effort); else ship the
-  # nearest overshoot (quality target met, just above the band).
-  defp resolve_target(nil, ceiling, ctx), do: {ceiling, :best_effort, :ceiling, ctx}
-  defp resolve_target(overshoot, _ceiling, ctx), do: {overshoot, :hit, nil, ctx}
+  # Highest quality scoring below the band, and lowest scoring at or above it.
+  defp failing(seen, accept_lo),
+    do: seen |> Enum.filter(fn {_q, s} -> s < accept_lo end) |> Enum.max(fn -> nil end)
+
+  defp passing(seen, accept_lo),
+    do: seen |> Enum.filter(fn {_q, s} -> s >= accept_lo end) |> Enum.min(fn -> nil end)
+
+  defp converged?({fail_q, _}, {pass_q, _}, _rqs), do: pass_q - fail_q <= 1
+  defp converged?(nil, {pass_q, _}, rqs), do: pass_q <= rqs.min_quality
+  defp converged?({fail_q, _}, nil, rqs), do: fail_q >= rqs.max_quality
+
+  defp ship_target(seen, rqs, ctx) do
+    case passing(seen, rqs.target - rqs.allowed_error) do
+      nil -> {rqs.max_quality, :best_effort, :ceiling, ctx}
+      {pass_q, _} -> {pass_q, :hit, nil, ctx}
+    end
+  end
+
+  defp next_quality({fail_q, fail_s}, {pass_q, pass_s}, _seen, rqs) do
+    q = fail_q + (rqs.target - fail_s) / (pass_s - fail_s) * (pass_q - fail_q)
+    q |> round() |> max(fail_q + 1) |> min(pass_q - 1)
+  end
+
+  defp next_quality(nil, {pass_q, pass_s}, seen, rqs) do
+    step = clamp_step((pass_s - rqs.target) / slope(seen))
+    (pass_q - step) |> max(rqs.min_quality) |> min(pass_q - 1)
+  end
+
+  defp next_quality({fail_q, fail_s}, nil, seen, rqs) do
+    step = clamp_step((rqs.target - fail_s) / slope(seen))
+    (fail_q + step) |> min(rqs.max_quality) |> max(fail_q + 1)
+  end
+
+  # Score gained per quality step, from the two highest probed qualities.
+  defp slope(seen) when map_size(seen) < 2, do: @default_slope
+
+  defp slope(seen) do
+    [{q1, s1}, {q2, s2}] = seen |> Enum.sort() |> Enum.take(-2)
+    slope = (s2 - s1) / (q2 - q1)
+    if slope > @min_slope, do: slope, else: @default_slope
+  end
+
+  defp clamp_step(step), do: step |> round() |> max(1) |> min(@max_step)
 
   # Encode (and, for ssim2, score) `q`, memoizing both, then evaluate the
   # predicate. Returns :satisfied/:unsatisfied, or :capped when the encode cap

@@ -17,6 +17,14 @@ defmodule ImagePipe.Output.Policy do
   @default_search_rails {25, 95}
   @search_tolerance 0.5
 
+  # Median quality that reaches each target, per format (Part N). The search
+  # starts there, interpolating between targets and extending the end segments.
+  @start_quality %{
+    jpeg: [{72, 71}, {75, 76}, {78, 82}],
+    webp: [{72, 74}, {75, 78}, {78, 83}],
+    avif: [{72, 52}, {75, 56}, {78, 63}]
+  }
+
   @enforce_keys [
     :mode,
     :modern_candidates,
@@ -250,6 +258,7 @@ defmodule ImagePipe.Output.Policy do
       target: s.target,
       min_quality: min_quality,
       max_quality: max_quality,
+      start_quality: start_quality(format, s.target, min_quality, max_quality),
       allowed_error: @search_tolerance,
       max_resolution: s.max_resolution,
       quality_search_offsets: %{
@@ -258,6 +267,21 @@ defmodule ImagePipe.Output.Policy do
       }
     }
   end
+
+  defp start_quality(format, target, min_quality, max_quality) do
+    case Map.fetch(@start_quality, format) do
+      {:ok, points} ->
+        points |> interpolate(target) |> round() |> max(min_quality) |> min(max_quality)
+
+      :error ->
+        nil
+    end
+  end
+
+  defp interpolate([{t1, q1}, {t2, q2} | rest], target) when target <= t2 or rest == [],
+    do: q1 + (target - t1) * (q2 - q1) / (t2 - t1)
+
+  defp interpolate([_ | rest], target), do: interpolate(rest, target)
 
   # libvips uses a PNG quality only to quantize a palette.
   defp effective_quality(%__MODULE__{} = policy, :png) do

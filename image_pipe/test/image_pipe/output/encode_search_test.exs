@@ -3,6 +3,41 @@ defmodule ImagePipe.Output.EncodeSearchTest do
   alias ImagePipe.Output.EncodeSearch
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
 
+  test "ssim2 accepts a start quality that already lands in the band" do
+    rs = %RQS.Ssimulacra2{
+      target: 75.0,
+      min_quality: 25,
+      max_quality: 95,
+      start_quality: 55,
+      allowed_error: 0.5
+    }
+
+    enc = fn q -> {:ok, :binary.copy(<<0>>, q * 100)} end
+    score = fn bin -> byte_size(bin) / 100 + 20.0 end
+
+    assert {:ok, _bin, %{quality: 55, outcome: :hit, iterations: 1}} =
+             EncodeSearch.search(rs, nil, encode_fun: enc, score_fun: score)
+  end
+
+  test "ssim2 steps from a poor start toward the target instead of bisecting" do
+    # score = 0.5q + 40 reaches 75 at q70. From a start at q30 (score 55) the
+    # first step assumes one point per quality (q50, score 65), the second
+    # measures the real slope and lands on q70.
+    rs = %RQS.Ssimulacra2{
+      target: 75.0,
+      min_quality: 25,
+      max_quality: 95,
+      start_quality: 30,
+      allowed_error: 0.5
+    }
+
+    enc = fn q -> {:ok, :binary.copy(<<0>>, q * 100)} end
+    score = fn bin -> byte_size(bin) / 100 * 0.5 + 40.0 end
+
+    assert {:ok, _bin, %{quality: 70, outcome: :hit, iterations: 3}} =
+             EncodeSearch.search(rs, nil, encode_fun: enc, score_fun: score)
+  end
+
   test "ssim2 lands on the quality matching the target (zero-width band)" do
     rs = %RQS.Ssimulacra2{
       target: 90.0,
@@ -183,8 +218,9 @@ defmodule ImagePipe.Output.EncodeSearchTest do
 
   describe "crop scorer" do
     test "the objective converges toward the target within the band" do
-      # target 90, allowed_error 5 → band [85, 95]; estimate = q + 25. The walk lands
-      # on q63 (estimate 88, in band), not the band floor q60 (estimate 85).
+      # target 90, allowed_error 5 → band [85, 91]; estimate = q + 25. The search
+      # steps from the midpoint (q45, estimate 70) to q65 (estimate 90, the
+      # target), not to the band floor q60 (estimate 85).
       rs = %RQS.Ssimulacra2{
         target: 90.0,
         min_quality: 10,
@@ -203,7 +239,7 @@ defmodule ImagePipe.Output.EncodeSearchTest do
                  scorer_tiles: 16
                )
 
-      assert meta.quality == 63
+      assert meta.quality == 65
       assert meta.outcome == :hit
     end
 

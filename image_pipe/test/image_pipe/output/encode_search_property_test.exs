@@ -46,6 +46,7 @@ defmodule ImagePipe.Output.EncodeSearchPropertyTest do
     check all {lo, hi} <- bracket(),
               target <- float_in(1.0, 100.0),
               allowed_error <- float_in(0.0, 10.0),
+              start_quality <- one_of([constant(nil), integer(lo..hi)]),
               score_curve <- curve(lo, hi, 0, 100),
               max_iterations <- integer(1..12),
               max_runs: 80 do
@@ -53,6 +54,7 @@ defmodule ImagePipe.Output.EncodeSearchPropertyTest do
         target: target,
         min_quality: lo,
         max_quality: hi,
+        start_quality: start_quality,
         allowed_error: allowed_error
       }
 

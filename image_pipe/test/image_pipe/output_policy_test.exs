@@ -301,6 +301,29 @@ defmodule ImagePipe.Output.PolicyTest do
       assert {jpeg.min_quality, jpeg.max_quality} == {25, 95}
     end
 
+    test "starts each format's search at its calibrated quality for the target" do
+      search = %QualitySearch{target: 75.0, max_resolution: 0}
+
+      for {format, start} <- [jpeg: 76, webp: 78, avif: 56] do
+        assert {:ok, %Resolved{quality_search: rs}} =
+                 Policy.resolve(policy_with(search, format: format), nil)
+
+        assert rs.start_quality == start
+      end
+    end
+
+    test "extends the calibration past its targets and keeps the start inside the rails" do
+      high = %QualitySearch{target: 95.0, max_resolution: 0}
+
+      assert {:ok, %Resolved{quality_search: %{start_quality: 80}}} =
+               Policy.resolve(policy_with(high, format: :avif), nil)
+
+      low = %QualitySearch{target: 73.5, max_resolution: 0}
+
+      assert {:ok, %Resolved{quality_search: %{start_quality: 54}}} =
+               Policy.resolve(policy_with(low, format: :avif), nil)
+    end
+
     test "carries target and max_resolution through" do
       search = %QualitySearch{target: 90.0, max_resolution: 16}
 
