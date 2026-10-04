@@ -73,6 +73,10 @@ defmodule ImagePipe do
   [Elixir configuration](configuration.md) shows which settings belong here and
   which belong to a mount, a source, or a request.
 
+  `keys` and `source_encryption_keys` set which URLs an `ImagePipe.Plug`
+  mount accepts. `base_url`, `encrypt_source`, and `iv_mode` only affect URLs
+  built from the configuration with `url_config/1`.
+
   ## Options
 
   #{ImagePipe.Config.options_docs()}
@@ -126,9 +130,8 @@ defmodule ImagePipe do
       config = ImagePipe.config!(MyApp.Images)
       {:ok, result} = ImagePipe.run(config, builder, {:source, "images/cat.jpg"})
 
-  The configuration uses the instance's `:url`. The named `:urls` are
-  available only to mounts, so `url_config/1` returns the default URL
-  settings.
+  The configuration uses the instance's own URL options, not those in its
+  `:mounts`.
   Raises `ArgumentError` if no instance with that name is running.
   """
   @spec config!(atom()) :: Config.t()

@@ -18,7 +18,7 @@ Configure sources and a cache on the instance in
 children = [
   {ImagePipe,
    name: MyApp.Images,
-   url: ImagePipe.URL.config(base_url: "/images"),
+   base_url: "/images",
    sources: [
      media: [
        adapter: ImagePipe.Source.File,
@@ -63,8 +63,8 @@ end
 ```
 
 `thumbnail_url("photos/beach.jpg")` returns
-`"/images/w=400/h=300/fit=cover/src/photos/beach.jpg"`. With signing keys in
-the instance's `url`, the URL also carries a signature. A builder that uses
+`"/images/w=400/h=300/fit=cover/src/photos/beach.jpg"`. When the instance
+sets `keys:`, the URL also carries a signature. A builder that uses
 `presets:` is checked against the instance's presets when you build it.
 
 ## Processing in a job

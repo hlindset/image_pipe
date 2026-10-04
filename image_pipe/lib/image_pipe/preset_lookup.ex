@@ -7,7 +7,6 @@ defmodule ImagePipe.PresetLookup do
   `{ImagePipe, ...}` child spec:
 
       ImagePipe.config(
-        url: url_config,
         presets: %{"card" => "w=400/h=300/fit=cover"},
         preset_lookup: {MyApp.Presets, repo: MyApp.Repo},
         sources: [...]

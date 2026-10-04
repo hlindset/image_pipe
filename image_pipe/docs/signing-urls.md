@@ -35,17 +35,15 @@ The server reads it at startup. See
 
 ### Plug
 
-Give the instance a URL configuration with the key:
+Give the instance the key. `base_url`, the path the router forwards to
+`ImagePipe.Plug`, lets the builder in the next step produce full URLs:
 
 ```elixir
 # lib/my_app/application.ex
 {ImagePipe,
  name: MyApp.Images,
- url:
-   ImagePipe.URL.config(
-     base_url: "/images",
-     keys: [System.fetch_env!("IMAGE_PIPE_SIGNING_KEY")]
-   ),
+ base_url: "/images",
+ keys: [System.fetch_env!("IMAGE_PIPE_SIGNING_KEY")],
  sources: [...]}
 ```
 

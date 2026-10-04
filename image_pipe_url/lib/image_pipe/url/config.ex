@@ -3,8 +3,9 @@ defmodule ImagePipe.URL.Config do
   URL settings shared by a builder and the server that serves its URLs.
 
   Build one with `ImagePipe.URL.config/1`, which lists the options. On the
-  serving side, pass the same value to `ImagePipe.config/1` as `:url`, so the
-  server verifies signatures and decrypts sources with the same keys.
+  serving side, pass the same options, except `:validate_against`, to
+  `ImagePipe.config/1`, so the server verifies signatures and decrypts
+  sources with the same keys.
   Inspecting the struct hides its values.
   """
 
@@ -39,8 +40,7 @@ defmodule ImagePipe.URL.Config do
               a generated URL, but a copy that differs from the server gives wrong
               validation results. In an app that serves its own URLs,
               `ImagePipe.url_config/1` returns the URL configuration with this
-              filled in, and `ImagePipe.config/1` raises for a URL configuration
-              that sets it.
+              filled in, and `ImagePipe.config/1` doesn't accept it.
               """,
               keys: [
                 presets: [

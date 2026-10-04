@@ -32,6 +32,10 @@ defmodule ImagePipe.Plug do
       forward "/images", ImagePipe.Plug, instance: MyApp.Images, http_cache: :auto
       forward "/signed", ImagePipe.Plug, instance: MyApp.Images, mount: :signed
 
+  `mount: :signed` picks the URL settings named `signed` in the instance's
+  `:mounts`, such as `mounts: [signed: [keys: [key]]]` (see
+  `ImagePipe.child_spec/1`).
+
   The configuration belongs to the instance, so with `:instance` a mount
   accepts only the mount options below and `:mount`. Other options raise
   `ArgumentError`. A request to a mount whose

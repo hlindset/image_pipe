@@ -6,8 +6,9 @@ them. A mismatch makes the server reject URLs the builder produced.
 [Building URLs for the server](building-server-urls.md) walks through
 setting up both sides.
 
-`ImagePipe.Plug` takes the builder's settings unchanged: pass the
-value from `ImagePipe.URL.config/1` as `url:` to `ImagePipe.config/1`. Where
+`ImagePipe.Plug` takes the builder's settings under the same names: pass
+the same `keys` and source encryption options to `ImagePipe.config/1`, and a
+`base_url` for URLs it builds itself. Where
 a Plug host spells a setting differently, the entry says so.
 
 ## Signing keys
@@ -84,10 +85,10 @@ always encrypts to the same token) are builder settings. The server decrypts
 every token without them. Its `[url]` doesn't accept them, and the server
 stops at boot with `url.encrypt_source: unknown setting`.
 
-Encrypted watermark sources (`wm-enc`) use the same keys.
-`ImagePipe.URL.config/1` raises, and the server stops at boot, for
-encryption keys without signing keys or an encryption key equal to a signing
-key.
+Encrypted watermark sources (`wm-enc`) use the same keys. Encryption keys
+without signing keys, or an encryption key equal to a signing key, make
+`ImagePipe.URL.config/1` and `ImagePipe.config/1` raise, and stop
+`image_pipe_server` at boot.
 
 On a mismatch:
 
@@ -127,7 +128,8 @@ with `url.base_url: unknown setting`. See
 <!-- tabs-close -->
 
 A Plug host's prefix is the path its router mounts `ImagePipe.Plug` at, such
-as `forward "/images", ImagePipe.Plug, …`.
+as `forward "/images", ImagePipe.Plug, …`. Its `base_url` only prefixes URLs
+built with `ImagePipe.url_config/1`. The Plug doesn't check it.
 
 On a mismatch:
 
