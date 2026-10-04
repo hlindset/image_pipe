@@ -74,6 +74,19 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         imgproxy: "c:120:90/g:nowe",
         tolerance: {2, 64}
       },
+      # A region's origin is exact: an odd width and height must not move it. imgproxy's
+      # north-west crop places the window at its integer pixel offsets
+      # (calc_position.go:37-54), so the odd 121×91 window at 37:23 is the same pixels.
+      # Lossless crop on the placement grid ⇒ maxΔ=0 when correct; the 1px shift of
+      # image_plug-e4a.1.1 is maxΔ≈255.
+      %{
+        id: "region_odd_origin",
+        kind: :png,
+        source: "placement.png",
+        native: "region=37,23,121,91",
+        imgproxy: "c:121:91:nowe:37:23",
+        tolerance: {2, 64}
+      },
       # Gravity × offset matrix: every imgproxy common gravity type, with and without an
       # x/y offset, as a lossless inline crop on the aperiodic `:placement` grid. Each
       # direction is a distinct `calc_position.go` branch and the offset is applied with a
