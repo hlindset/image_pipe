@@ -67,7 +67,9 @@ IPS_PROCESSING__QUALITY=82
 
 - Levels are lowercased, so a mount written as `[sources.TMDB]` in the file
   can't be overridden from the environment. Use lowercase mount names.
-- Lists are comma-separated: `IPS_URL__KEYS=0123abcd…,4567ef01…`.
+- Lists are comma-separated: `IPS_URL__KEYS=0123abcd…,4567ef01…`. A list
+  variable or file with no entries is an error, so an empty signing-keys
+  secret stops the server instead of leaving URLs unsigned.
 - A variable ending in `_FILE` reads the value from that file, without
   trailing whitespace, for Docker and Kubernetes secrets:
   `IPS_URL__KEYS_FILE=/run/secrets/signing_keys`. Setting both `IPS_URL__KEYS`
@@ -140,7 +142,7 @@ The HTTP listener. Times are in milliseconds. `read_timeout` closes connections 
 
 | Key | Type | Default |
 | --- | --- | --- |
-| `port` | integer ≥ 0 | `8080` |
+| `port` | integer 0–65535 | `8080` |
 | `bind` | string | `"0.0.0.0"` |
 | `mount_path` | string | `"/"` |
 | `shutdown_timeout` | integer ≥ 0 | `15000` |

@@ -229,6 +229,14 @@ defmodule ImagePipeServer.ConfigTest do
                "server.auth_token"
     end
 
+    test "rejects a port above 65535" do
+      assert error(fn -> Config.build!(Config.options!(%{"server" => %{"port" => 70_000}})) end) =~
+               "server.port"
+
+      assert Config.build!(Config.options!(%{"server" => %{"port" => 65_535}})).server[:port] ==
+               65_535
+    end
+
     test "takes the shutdown grace period from [server]" do
       config = Config.build!(Config.options!(%{"server" => %{"shutdown_timeout" => 30_000}}))
       assert config.server[:shutdown_timeout] == 30_000
@@ -362,6 +370,29 @@ defmodule ImagePipeServer.ConfigTest do
         )
 
       assert warmup_options(path, env) == [relative_uri: "/mine"]
+    end
+
+    test "rejects an empty signing-keys file", %{tmp_dir: dir} do
+      keys = Path.join(dir, "keys")
+      File.write!(keys, "\n")
+
+      assert error(fn ->
+               Config.load!(%{"IPS_URL__KEYS_FILE" => keys}, Path.join(dir, "absent.toml"))
+             end) =~ "url.keys: expected at least one entry"
+    end
+
+    test "takes a container credentials token file as a path, read at refresh", %{tmp_dir: dir} do
+      token = Path.join(dir, "token")
+      File.write!(token, "rotating")
+
+      env = %{
+        "IPS_SOURCES__MEDIA__CREDENTIALS__AUTH_TOKEN_FILE" => token,
+        "AWS_CONTAINER_CREDENTIALS_FULL_URI" => "http://127.0.0.1:1234/creds"
+      }
+
+      path = s3_provider_config(dir, ~s|{ provider = "container_credentials" }|)
+
+      assert warmup_options(path, env) == [auth_token_file: token]
     end
 
     test "fills web identity options from the AWS variables", %{tmp_dir: dir} do

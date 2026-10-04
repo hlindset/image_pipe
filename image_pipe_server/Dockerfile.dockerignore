@@ -11,3 +11,4 @@
 !image_pipe_server/mix.lock
 !image_pipe_server/config
 !image_pipe_server/lib
+!image_pipe_server/rel
