@@ -82,6 +82,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.Focal
   alias ImagePipe.Transform.State
+  alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
 
   @default_gravity {:anchor, :center, :center}
@@ -357,10 +358,25 @@ defmodule ImagePipe.Transform.Operation.Crop do
       fn ->
         detect_opts = [classes: classes, telemetry_opts: state.telemetry_opts]
 
-        result = validate_detect_result(state.detector.detect(state.image, detect_opts))
+        result =
+          with {:ok, image} <- detector_image(state.image) do
+            validate_detect_result(state.detector.detect(image, detect_opts))
+          end
+
         {result, %{regions: region_count(result), result: detect_reason(result)}}
       end
     )
+  end
+
+  # Detectors such as image_vision's autorotate by the orientation tag. With
+  # `orient=none` the pixels stay in the storage frame and keep the tag, so
+  # detectors get the image without it. Detect crops run on materialized
+  # pixels, so removing the tag reads no source data.
+  defp detector_image(image) do
+    case VipsImage.header_value(image, "orientation") do
+      {:ok, orientation} when orientation != 1 -> Image.remove_metadata(image, ["orientation"])
+      _normal_or_absent -> {:ok, image}
+    end
   end
 
   # No detector means attention fallback. Emit a skipped marker rather than
