@@ -23,7 +23,7 @@ instance's `processing_pool`:
 ```elixir
 # lib/my_app/application.ex
 children = [
-  {ImagePipe.ProcessingPool, name: MyApp.Pool, max_concurrency: 8, max_queue: 64},
+  {ImagePipe.ProcessingPool, name: MyApp.Pool, max_concurrency: 8, max_queue: 16},
   {ImagePipe, name: MyApp.Images, processing_pool: MyApp.Pool, sources: [...]},
   MyAppWeb.Endpoint
 ]
@@ -49,10 +49,10 @@ max_queue = 16
 
 - `max_concurrency` is how many images are processed at once. Start with
   about the number of CPU cores, which is the server's default.
-- `max_queue` is how many requests may wait for a turn. A request that finds
-  the queue full gets a `503`. With the Plug it defaults to `0`, which sends a
-  `503` to every request beyond `max_concurrency`. The server defaults to 64.
-- `queue_timeout`, 1 second by default, is how long a request waits for a
+- `max_queue` is how many requests may wait for a turn, 64 by default. A
+  request that finds the queue full gets a `503`. With `0`, every request
+  beyond `max_concurrency` gets a `503` straight away.
+- `queue_timeout`, 10 seconds by default, is how long a request waits for a
   turn before it gets a `503`.
 - `processing_timeout`, 30 seconds by default, is how long one image may take
   once it has a turn.

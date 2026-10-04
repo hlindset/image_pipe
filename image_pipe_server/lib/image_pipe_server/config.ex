@@ -19,7 +19,7 @@ defmodule ImagePipeServer.Config do
       including `watermarks.<name>` asset tables, `request_watermarks`,
       `presets.<name>` option fragments, and `request_defaults`.
     * `[pool]` - `ImagePipe.ProcessingPool` options. `max_concurrency`
-      defaults to the VM's online schedulers and `max_queue` to 64.
+      defaults to the VM's online schedulers.
     * `[http]` - the delivery options of `ImagePipe.Plug.init/1`.
     * `[telemetry]` - `log_level` attaches the default Logger.
       `trust_traceparent` continues an inbound W3C `traceparent` when tracing
@@ -74,7 +74,6 @@ defmodule ImagePipeServer.Config do
         }
 
   @pool ImagePipeServer.ProcessingPool
-  @default_max_queue 64
 
   @server_schema [
     port: [type: {:in, 0..65_535}, default: 8080],
@@ -215,7 +214,6 @@ defmodule ImagePipeServer.Config do
     ImagePipe.ProcessingPool.options_schema()
     |> Keyword.delete(:name)
     |> Keyword.update!(:max_concurrency, &Keyword.delete(&1, :required))
-    |> Keyword.update!(:max_queue, &Keyword.put(&1, :default, @default_max_queue))
   end
 
   defp http_schema, do: ImagePipe.Plug.Config.options_schema()
@@ -336,8 +334,7 @@ defmodule ImagePipeServer.Config do
   # instead of exhausting memory. The VM's online schedulers follow the
   # container's CPU quota.
   defp pool!(options) do
-    defaults = [max_concurrency: System.schedulers_online(), max_queue: @default_max_queue]
-    options = Keyword.merge(defaults, options || [])
+    options = Keyword.merge([max_concurrency: System.schedulers_online()], options || [])
     validate!([name: @pool] ++ options, ImagePipe.ProcessingPool.options_schema(), "pool")
   end
 

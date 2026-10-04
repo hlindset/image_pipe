@@ -202,7 +202,7 @@ Whether a response is cached also depends on its source mount:
 
 The server processes as many images at once as it has CPU cores, counting a
 container's CPU limit, and up to 64 more requests wait for a turn. A request
-that finds the queue full, or waits longer than `queue_timeout` (one second),
+that finds the queue full, or waits longer than `queue_timeout` (10 seconds),
 gets a `503`. Change the limits with `max_concurrency`, `max_queue`, and
 `queue_timeout` in `[pool]`. See
 [limiting concurrent processing](../../image_pipe/docs/processing-controls.md).

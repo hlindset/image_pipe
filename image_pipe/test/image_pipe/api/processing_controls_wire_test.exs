@@ -15,7 +15,7 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
   end
 
   test "concurrent Plug and Elixir requests share admission across all terminals", context do
-    pool = start_supervised!({ProcessingPool, max_concurrency: 1})
+    pool = start_supervised!({ProcessingPool, max_concurrency: 1, max_queue: 0})
     config = config(pool, context.prefix)
     mount = ImagePipe.Plug.init(config: config)
 
