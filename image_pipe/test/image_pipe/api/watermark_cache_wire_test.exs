@@ -31,7 +31,7 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
 
     test_pid = self()
 
-    plug = fn conn ->
+    serve = fn conn ->
       current = Agent.get(state, & &1)
       path = Enum.join(conn.path_info, "/")
       version = Map.fetch!(current.versions, path)
@@ -67,6 +67,14 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
       end
     end
 
+    # Paths the origin doesn't hold answer 404.
+    plug = fn conn ->
+      case Map.has_key?(Agent.get(state, & &1.versions), Enum.join(conn.path_info, "/")) do
+        true -> serve.(conn)
+        false -> send_resp(conn, 404, "")
+      end
+    end
+
     shared =
       IP.config(
         sources: [
@@ -83,7 +91,10 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
         cache: {FileSystem, root: Path.join(root, "output")},
         input_cache: {FileSystem, root: Path.join(root, "input")},
         clock: fn -> Agent.get(state, & &1.now) end,
-        watermarks: %{logo: [source: "https://origin.test/mark.png"]}
+        watermarks: %{
+          logo: [source: "https://origin.test/mark.png"],
+          missing: [source: "https://origin.test/missing.png"]
+        }
       )
 
     %{config: IP.Plug.init(config: shared, http_cache: :auto), state: state}
@@ -152,7 +163,22 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
     assert get_resp_header(again, "etag") == [etag]
   end
 
+  test "a failed watermark releases the staged main source", %{config: config} do
+    response = get("/wm=missing/format=png/src/https://origin.test/image.png", config)
+
+    assert response.status >= 400
+    assert_received {:origin, "image.png", []}
+    assert leased_paths() == []
+  end
+
   defp get(path, config), do: conn(:get, path) |> IP.Plug.call(config)
+
+  # Files leased by this process, which is the request's owner: a staged
+  # source stays leased until the request releases it.
+  defp leased_paths do
+    %{table: table} = :sys.get_state(ImagePipe.Cache.Resources)
+    :ets.match(table, {:_, self(), :"$1", :_})
+  end
 
   defp center(response) do
     image = Image.from_binary!(response.resp_body)
