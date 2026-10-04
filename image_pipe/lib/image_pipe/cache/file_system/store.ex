@@ -376,8 +376,12 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     end
   end
 
+  # The body reaches the disk before its rename publishes it, so a crash can't
+  # leave a published body at full length with lost blocks. Hits check only
+  # the size, which wouldn't catch that.
   defp prepare_sink_commit(state) do
-    with :ok <- close_body_io(state),
+    with :ok <- :file.datasync(state.body_io),
+         :ok <- close_body_io(state),
          body_sha256 = finalize_body_sha256(state.hash_context),
          body_filename = body_filename(state.paths.hash, body_sha256),
          encoded_metadata = sink_metadata(state, body_sha256, body_filename),
@@ -563,6 +567,19 @@ defmodule ImagePipe.Cache.FileSystem.Store do
          {:ok, body_path} <- body_path_from_metadata(paths, metadata),
          {:ok, file} <- CacheFile.open(body_path, metadata.body_byte_size) do
       {:hit, file, metadata}
+    end
+  end
+
+  @doc false
+  # Hashes the stored body against its metadata. Returns `:miss` when nothing
+  # is stored, and an error for a body that differs or can't be read.
+  def verify(%Key{} = key, opts) do
+    with {:ok, paths} <- paths(key, opts),
+         {:ok, metadata} <- read_metadata(paths),
+         {:ok, body_path} <- body_path_from_metadata(paths, metadata) do
+      if matching_body_file?(body_path, metadata.body_filename),
+        do: :ok,
+        else: {:error, {:invalid_metadata, :body_digest_mismatch}}
     end
   end
 

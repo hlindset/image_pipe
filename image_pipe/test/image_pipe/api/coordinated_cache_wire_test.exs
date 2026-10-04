@@ -5,6 +5,8 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
   alias ImagePipe, as: IP
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.Work
+  alias Vix.Vips.Image, as: VipsImage
+  alias Vix.Vips.Operation
 
   setup do
     root =
@@ -365,6 +367,60 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
 
     send(worker, :continue)
     Task.await(leader)
+  end
+
+  test "a decode failure in one variant keeps the original other variants share", %{
+    config: config
+  } do
+    # CMYK is imported through its embedded profile, so preserving a corrupt
+    # one fails while stripping it succeeds.
+    {:ok, cmyk} = Operation.black(16, 16, bands: 4)
+    {:ok, cmyk} = Operation.linear(cmyk, [1.0], [60.0])
+    {:ok, cmyk} = Operation.cast(cmyk, :VIPS_FORMAT_UCHAR)
+    {:ok, cmyk} = Operation.copy(cmyk, interpretation: :VIPS_INTERPRETATION_CMYK)
+    {:ok, <<0xFF, 0xD8, jpeg::binary>>} = VipsImage.write_to_buffer(cmyk, ".jpg")
+    payload = <<"ICC_PROFILE", 0, 1, 1, 1, 2, 3, 4>>
+    body = <<0xFF, 0xD8, 0xFF, 0xE2, byte_size(payload) + 2::16, payload::binary, jpeg::binary>>
+    test_pid = self()
+
+    origin = fn conn ->
+      send(test_pid, :origin)
+
+      conn
+      |> put_resp_header("cache-control", "public, max-age=60")
+      |> put_resp_content_type("image/jpeg")
+      |> send_resp(200, body)
+    end
+
+    config =
+      update_url_mount(config, fn opts ->
+        Keyword.update!(opts, :req_options, &Keyword.put(&1, :plug, origin))
+      end)
+
+    get = fn options ->
+      ImagePipe.Plug.call(conn(:get, "/#{options}/src/https://origin.test/cmyk.jpg"), config)
+    end
+
+    assert get.("format=png/profile=strip").status == 200
+    assert_receive :origin
+    assert get.("format=png/profile=preserve").status == 415
+    assert get.("w=8/format=png/profile=strip").status == 200
+    refute_received :origin
+  end
+
+  test "a stored original whose bytes are corrupt is discarded after a decode failure", %{
+    config: config,
+    root: root
+  } do
+    assert request(config, 12).status == 200
+    assert_receive {:origin, _, []}
+    [body] = Path.wildcard(Path.join([root, "input", "**", "*.body"]))
+    File.write!(body, :binary.copy(<<0>>, File.stat!(body).size))
+
+    assert request(config, 6).status == 415
+    refute_received {:origin, _, _}
+    assert request(config, 6).status == 200
+    assert_receive {:origin, _, []}
   end
 
   test "variants reuse original bytes and fresh conditionals avoid origin work", %{config: config} do

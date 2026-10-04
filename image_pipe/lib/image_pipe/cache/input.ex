@@ -188,6 +188,13 @@ defmodule ImagePipe.Cache.Input do
     Store.abort_sink(sink, pool)
   end
 
+  def verify(key, opts) do
+    case Keyword.get(opts, :input_cache) do
+      nil -> :miss
+      {_adapter, pool} -> Store.verify(key, pool)
+    end
+  end
+
   def discard(key, opts) do
     case Keyword.get(opts, :input_cache) do
       nil ->

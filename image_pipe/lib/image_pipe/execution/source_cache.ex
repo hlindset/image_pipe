@@ -238,7 +238,19 @@ defmodule ImagePipe.Execution.SourceCache do
   defp untimed(%Record{origin: origin} = record),
     do: %{record | received_at: nil, origin: %{origin | requested_at: nil, received_at: nil}}
 
-  def invalidate(key, config) do
+  # A decode failure can come from the request (an output profile libvips
+  # can't apply) as easily as from the source, and libvips is lazy, so a
+  # corrupt source often fails only in the encoder. Refetching helps only when
+  # the stored original no longer matches what was fetched, so the original
+  # and its record are dropped only then.
+  def check(key, config) do
+    case Input.verify(key, config) do
+      {:error, _reason} -> invalidate(key, config)
+      _intact_or_missing -> :ok
+    end
+  end
+
+  defp invalidate(key, config) do
     Input.discard(key, config)
     Cache.remember_source(key, nil, config)
   end

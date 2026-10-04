@@ -111,7 +111,10 @@ image from the cache doesn't count as a request for its original.
 - Local files are copied in only when their source sets `copy: :keep` (see
   [copy files from network storage](serving-local-files.md#copy-files-from-network-storage)).
 - A download is stored only once it completes.
-- An original that fails to decode is removed from the cache.
+- When a request fails to decode a stored original, the cache hashes it
+  again and removes it only if it no longer matches the SHA-256 hash
+  recorded when it was stored. An intact original stays cached for the other
+  sizes and formats made from it.
 - Making a new processed image from a stored original applies the current
   `max_body_bytes` and pixel limits. Processed images already in the cache
   are still served after you lower those limits.
@@ -161,6 +164,8 @@ background checks (see
 `ImagePipe.Cache.FileSystem` names files by hash. Paths never contain request
 paths, source identifiers, header values, or cookie values. Each entry is a
 body file and a metadata file holding the body's size and SHA-256 hash.
+Each body is flushed to disk before it appears in the cache, so a crash or
+power loss can't leave a cached body with missing data.
 
 Before reading a cached body, the cache checks that its size matches its
 metadata. An entry that fails the check, has invalid metadata, or can't be
