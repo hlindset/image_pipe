@@ -275,7 +275,10 @@ defmodule ImagePipe.API.OptionSpecTest do
         assert OptionSpec.parse_monochrome(value) == {:error, :invalid_monochrome}
       end
 
-      for value <- ["0.5,black", "0.5,,white", "0.5,black,"] do
+      assert OptionSpec.parse_duotone("0.5,112233") ==
+               {:ok, %{intensity: 0.5, shadow: {17, 34, 51}, highlight: {255, 255, 255}}}
+
+      for value <- ["0.5,", "0.5,,white", "0.5,black,", "0.5,black,white,red"] do
         assert OptionSpec.parse_duotone(value) == {:error, :invalid_duotone}
       end
     end

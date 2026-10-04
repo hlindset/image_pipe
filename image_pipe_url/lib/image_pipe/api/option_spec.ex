@@ -1090,6 +1090,12 @@ defmodule ImagePipe.API.OptionSpec do
             {:ok, %{intensity: intensity, shadow: {0, 0, 0}, highlight: {255, 255, 255}}}
           end
 
+        [intensity, shadow] ->
+          with {:ok, intensity} <- Value.fraction(intensity),
+               {:ok, shadow} <- Value.color(shadow) do
+            {:ok, %{intensity: intensity, shadow: shadow, highlight: {255, 255, 255}}}
+          end
+
         [intensity, shadow, highlight] ->
           with {:ok, intensity} <- Value.fraction(intensity),
                {:ok, shadow} <- Value.color(shadow),

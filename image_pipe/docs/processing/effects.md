@@ -100,7 +100,7 @@ direction, as in `progressive-blur=4,down,0.5`. An empty value, such as
 ### Elixir
 
 ```elixir
-ImagePipe.URL.group(builder, progressive_blur: [sigma: 4, start: 0.2, stop: 0.8])
+ImagePipe.URL.group(builder, progressive_blur: [sigma: 4, direction: :down, start: 0.2, stop: 0.8])
 ```
 
 <!-- tabs-close -->
@@ -229,15 +229,14 @@ ImagePipe.URL.group(builder, monochrome: [intensity: 0.8, color: "704214"])
 
 ### duotone
 
-Accepts `intensity` or `intensity,shadow,highlight`:
+Accepts `intensity`, `intensity,shadow`, or `intensity,shadow,highlight`:
 
 - `intensity` is a fraction. `0` has no effect, and `1` applies the full
   effect.
 - `shadow` and `highlight` are colors. They default to black and white.
 
 Default: none. Recolors the image with two colors: dark areas take the shadow
-color and light areas the highlight color. Give both colors or neither:
-`duotone=1,123456` fails with `400`.
+color and light areas the highlight color.
 
 <!-- tabs-open -->
 
@@ -393,7 +392,7 @@ empty value, such as `gradient=0.8,black,,0.5`, fails with `400`.
 
 ```elixir
 ImagePipe.URL.group(builder,
-  gradient: [opacity: 0.8, color: "black", angle: 0, start: 0.2, stop: 0.9]
+  gradient: [opacity: 0.8, color: "black", direction: :down, start: 0.2, stop: 0.9]
 )
 ```
 

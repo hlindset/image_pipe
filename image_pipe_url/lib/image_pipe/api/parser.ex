@@ -555,7 +555,7 @@ defmodule ImagePipe.API.Parser do
     do: "invalid value: expected intensity[,color]"
 
   def message_for(:invalid_duotone),
-    do: "invalid value: expected intensity or intensity,shadow,highlight"
+    do: "invalid value: expected intensity[,shadow[,highlight]]"
 
   def message_for(:invalid_brightness), do: "invalid value: expected an integer from -255 to 255"
   def message_for(:invalid_contrast), do: "invalid value: expected a positive finite factor"

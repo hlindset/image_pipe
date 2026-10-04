@@ -59,7 +59,6 @@ defmodule ImagePipe.URL do
   | --- | --- |
   | `flip=h`, `v`, `hv` | `flip: :horizontal`, `:vertical`, `:both` |
   | `trim-symmetry=h`, `v`, `hv` | `trim_symmetry: :horizontal`, `:vertical`, `:both` |
-  | `gradient` and `progressive-blur` directions `down`, `left`, `up`, `right` | `angle: 0`, `90`, `180`, `270` |
   | `profile=preserve` | `color_profile: :preserve_source` |
   | `profile=srgb`, `display-p3`, `adobe-rgb` | `color_profile: {:convert, :srgb}`, `{:convert, :display_p3}`, `{:convert, :adobe_rgb}` |
   | `hdr=tonemap` | `hdr: :tone_map` |
@@ -68,7 +67,7 @@ defmodule ImagePipe.URL do
 
   An option with several comma-separated values in the URL, such as
   `gradient`, takes a keyword list, as in
-  `gradient: [opacity: 0.8, color: "black", angle: 90]`. With
+  `gradient: [opacity: 0.8, color: "black", direction: :left]`. With
   `encrypt_source: true` in the configuration, `watermark_source:` is
   written as `wm-enc`. Lengths, percentages, and colors are described under
   [option values](https://hexdocs.pm/image_pipe/requesting-images.html#option-values).

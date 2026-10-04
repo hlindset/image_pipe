@@ -5,6 +5,7 @@ defmodule ImagePipe.Plan.Builder.Values do
   alias ImagePipe.Plan.Color
 
   @max_axis 2_147_483_647
+  @directions %{down: 0.0, left: 90.0, up: 180.0, right: 270.0}
 
   def cast(value, kind) do
     case normalize(value, kind) do
@@ -61,7 +62,10 @@ defmodule ImagePipe.Plan.Builder.Values do
     end
   end
 
-  defp normalize(value, :angle) when is_number(value) do
+  defp normalize(value, :direction) when is_map_key(@directions, value),
+    do: {:ok, Map.fetch!(@directions, value)}
+
+  defp normalize(value, :direction) when is_number(value) do
     with {:ok, value} <- float(value) do
       angle = :math.fmod(value, 360.0)
 
@@ -180,12 +184,16 @@ defmodule ImagePipe.Plan.Builder.Values do
   defp normalize(value, effect)
        when effect in [:monochrome, :duotone, :colorize, :gradient, :progressive_blur] do
     with {:ok, fields} <- Options.validate(value, effect_schema(effect)),
-         do: {:ok, Map.new(fields)}
+         do: {:ok, Map.new(fields, &plan_field/1)}
   end
 
   defp normalize(:all, :detect), do: {:ok, [{:all, 1.0}]}
   defp normalize(classes, :detect) when is_list(classes) and classes != [], do: detect(classes)
   defp normalize(_value, _kind), do: :error
+
+  # The plan keeps the direction as an angle in degrees.
+  defp plan_field({:direction, angle}), do: {:angle, angle}
+  defp plan_field(field), do: field
 
   defp pair(x, y, kind) do
     with {:ok, x} <- normalize(x, kind), {:ok, y} <- normalize(y, kind), do: {:ok, {x, y}}
@@ -243,7 +251,7 @@ defmodule ImagePipe.Plan.Builder.Values do
     do: [
       opacity: field(:fraction, required: true),
       color: field(:color, required: true),
-      angle: field(:angle, default: 0.0),
+      direction: field(:direction, default: 0.0),
       start: field(:fraction, default: 0.0),
       stop: field(:fraction, default: 1.0)
     ]
@@ -251,7 +259,7 @@ defmodule ImagePipe.Plan.Builder.Values do
   defp effect_schema(:progressive_blur),
     do: [
       sigma: field(:nonnegative, required: true),
-      angle: field(:angle, default: 0.0),
+      direction: field(:direction, default: 0.0),
       start: field(:fraction, default: 0.0),
       stop: field(:fraction, default: 1.0)
     ]
