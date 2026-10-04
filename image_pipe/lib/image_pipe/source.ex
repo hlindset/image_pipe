@@ -3,10 +3,10 @@ defmodule ImagePipe.Source do
   Behaviour for source adapters, and the shape of the `:sources` option of
   `ImagePipe.config/1`.
 
-  ## Mounts
+  ## Configuring sources
 
-  `:sources` is a keyword list of named mounts. Each one names an adapter, the
-  sources it serves, and the adapter's options:
+  `:sources` is a keyword list of sources. Each has a name, an adapter, the
+  image paths it serves, and the adapter's options:
 
       sources: [
         media: [
@@ -23,15 +23,15 @@ defmodule ImagePipe.Source do
 
     * `:adapter` - `ImagePipe.Source.File`, `ImagePipe.Source.HTTP`,
       `ImagePipe.Source.S3`, or a module implementing this behaviour.
-    * `:match` - which sources reach the mount: `:path`, or a keyword list of
-      `:prefix` and `:scheme` rules. The rules are listed in
+    * `:match` - which image paths reach the source: `:path`, or a keyword
+      list of `:prefix` and `:scheme` rules. The rules are listed in
       [routing image paths to sources](sources.md#routing-image-paths-to-sources).
     * `:options` - the adapter's options, checked by its
       `c:validate_options/1`. The default value is `[]`.
 
-  Invalid mounts raise `ArgumentError` when the configuration is built. The
-  mount name appears in [telemetry events](telemetry-events.md#common-metadata)
-  as `:source_mount`.
+  Building a configuration with an invalid source raises `ArgumentError`.
+  The source's name appears in
+  [telemetry events](telemetry-events.md#common-metadata) as `:source_mount`.
 
   ## Adapters
 
@@ -109,23 +109,24 @@ defmodule ImagePipe.Source do
   Receives the options returned by `c:validate_options/1` and returns the
   identifier structs `c:resolve/3` accepts with them, from
   `ImagePipe.Plan.Source.Path`, `ImagePipe.Plan.Source.URL`, and
-  `ImagePipe.Plan.Source.Object`. A mount whose match rules would route another
+  `ImagePipe.Plan.Source.Object`. A source whose match rules would route another
   identifier to the adapter fails configuration.
   """
   @callback identifiers(options :: keyword()) :: [module()]
 
   @doc """
-  Checks the mount's `:options` when the configuration is built. The options
+  Checks the source's `:options` when the configuration is built. The options
   it returns are passed to `c:resolve/3` and `c:fetch/3`. An error fails the
   configuration with `ArgumentError`.
   """
   @callback validate_options(keyword()) :: {:ok, keyword()} | {:error, term()}
 
   @doc """
-  Describes a source without fetching it.
+  Describes an image without fetching it.
 
-  The source is one of the structs from `c:identifiers/1`, with the mount's
-  prefix or custom scheme removed. The returned `ImagePipe.Source.Resolved`
+  The first argument is the requested image as one of the structs from
+  `c:identifiers/1`, with the source's matching prefix or custom scheme
+  removed. The returned `ImagePipe.Source.Resolved`
   holds:
 
     * `identity` - a keyword list that names the original, with atom keys
@@ -231,7 +232,7 @@ defmodule ImagePipe.Source do
   defp prepare_cache_source(_module, source, _opts, _runtime), do: {:ok, source}
 
   @doc false
-  @spec validate_config(keyword()) :: {:ok, keyword()} | {:error, error()}
+  @spec validate_config(keyword()) :: {:ok, keyword()} | {:error, error() | String.t()}
   def validate_config(opts) when is_list(opts) do
     with {:ok, policy} <- CachePolicy.validate(Keyword.get(opts, :source_cache_policy, [])),
          {:ok, sources} <- Mounts.validate(Keyword.get(opts, :sources, [])) do
@@ -247,9 +248,18 @@ defmodule ImagePipe.Source do
         opts
 
       {:error, reason} ->
-        raise ArgumentError, "invalid ImagePipe source options: #{inspect(reason)}"
+        raise ArgumentError, config_error_message(reason)
     end
   end
+
+  defp config_error_message({:source, {:invalid_source, name, message}}),
+    do: "invalid source #{inspect(name)}: #{message}"
+
+  defp config_error_message({:source, {:invalid_sources, message}}),
+    do: "invalid sources: #{message}"
+
+  defp config_error_message(message) when is_binary(message),
+    do: "invalid source_cache_policy: #{message}"
 
   # Translates a host-configured source string into a plan source that a
   # configured mount serves. `opts` holds validated mounts.

@@ -158,8 +158,12 @@ defmodule ImagePipe.URLTest do
       refute Exception.message(error) =~ "secret"
     end
 
-    error = assert_raise ArgumentError, fn -> IP.URL.config(keys: ["secret!"]) end
-    refute Exception.message(error) =~ "secret!"
+    for keys <- [["secret!"], [""]] do
+      error = assert_raise ArgumentError, fn -> IP.URL.config(keys: keys) end
+      assert Exception.message(error) =~ "signing keys must be a list of non-empty hex strings"
+      refute Exception.message(error) =~ "secret!"
+    end
+
     assert_raise ArgumentError, fn -> IP.URL.config(unknown: true) end
   end
 

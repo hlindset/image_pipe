@@ -49,6 +49,8 @@ defmodule ImagePipe.URL do
   | `q`, `format-q` | `quality:`, `format_qualities:` |
   | `meta` | `metadata:` |
   | `profile` | `color_profile:` |
+  | `progressive` in `jpeg-options` | `interlace:` |
+  | `subsample` in `jpeg-options` and `avif-options` | `subsample_mode:` |
 
   Named values are atoms, with an underscore for a hyphen: `fit=cover-down`
   is `fit: :cover_down`. These values differ:

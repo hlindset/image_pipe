@@ -75,7 +75,7 @@ defmodule ImagePipe.Plug.ConfigTest do
         format_quality: %{jpeg: 68},
         autoquality_method: :ssimulacra2,
         autoquality_max_iterations: 4,
-        jpeg_options: %ImagePipe.Plan.Output.JpegOptions{interlace: true}
+        jpeg_options: [interlace: true]
       )
 
     assert config[:quality] == 72
@@ -227,12 +227,12 @@ defmodule ImagePipe.Plug.ConfigTest do
     end
   end
 
-  test "merges sparse output maps and encoder structs onto API defaults" do
+  test "merges sparse output maps and builds encoder options from keyword lists" do
     config =
       Config.validate!(
         format_quality: %{webp: 50},
         autoquality_target: %{ssimulacra2: 90},
-        jpeg_options: %JpegOptions{interlace: true}
+        jpeg_options: [interlace: true]
       )
 
     assert config[:format_quality] == %{webp: 50, avif: 63}
@@ -254,11 +254,13 @@ defmodule ImagePipe.Plug.ConfigTest do
       [autoquality_target: %{size: 1.5}],
       [autoquality_allowed_error: %{ssimulacra2: -1}],
       [autoquality_allowed_error: %{size: 1}],
-      [jpeg_options: %JpegOptions{quant_table: 9}],
-      [png_options: %PngOptions{bitdepth: 3}],
-      [webp_options: %WebpOptions{preset: :bogus}],
-      [webp_options: %WebpOptions{effort: 7}],
-      [jpeg_options: %JpegOptions{interlace: "yes"}]
+      [jpeg_options: [quant_table: 9]],
+      [png_options: [bitdepth: 3]],
+      [webp_options: [preset: :bogus]],
+      [webp_options: [effort: 7]],
+      [jpeg_options: [interlace: "yes"]],
+      [avif_options: [lossless: true]],
+      [jpeg_options: %JpegOptions{interlace: true}]
     ]
 
     for invalid <- invalid_configs do
@@ -460,6 +462,26 @@ defmodule ImagePipe.Plug.ConfigTest do
       assert config[:quality] == quality
       assert config[:strip_metadata] == true
       assert config[:auto_webp] == true
+    end
+  end
+
+  test "source configuration errors name the source and the problem" do
+    file = [adapter: ImagePipe.Source.File, options: [root: "/srv/images", root_id: "media"]]
+
+    cases = [
+      {[photos: file],
+       "invalid source :photos: required :match option not found, " <>
+         "received options: [:adapter, :options]"},
+      {[photos: [adapter: ImagePipe.Source.File, match: :path, options: [root: "/srv"]]],
+       "invalid source :photos: required :root_id option not found, " <>
+         "received options: [:root]"},
+      {[photos: [match: :path] ++ file, archive: [match: :path] ++ file],
+       "invalid source :archive: match :path is already used by source :photos"},
+      {:photos, "invalid sources: expected a keyword list of named sources"}
+    ]
+
+    for {sources, message} <- cases do
+      assert_raise ArgumentError, message, fn -> ImagePipe.config(sources: sources) end
     end
   end
 end

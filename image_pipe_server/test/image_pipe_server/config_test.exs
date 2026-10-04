@@ -2,7 +2,6 @@ defmodule ImagePipeServer.ConfigTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Cache.FileSystem
-  alias ImagePipe.Plan.Output.JpegOptions
   alias ImagePipeServer.Config
   alias ImagePipeServer.ConfigError
 
@@ -78,7 +77,7 @@ defmodule ImagePipeServer.ConfigTest do
       assert cache[:storage_inputs] == [{:header, "x-tenant"}]
     end
 
-    test "converts [processing], including encoder option structs" do
+    test "converts [processing], including encoder options" do
       processing =
         Config.options!(%{
           "processing" => %{
@@ -95,7 +94,7 @@ defmodule ImagePipeServer.ConfigTest do
       assert processing[:format_quality] == %{webp: 80}
       assert processing[:format_order] == [:webp, :avif]
       assert processing[:skip_processing_formats] == [:gif, :jpeg_xl]
-      assert processing[:jpeg_options] == %JpegOptions{interlace: true, quant_table: 3}
+      assert processing[:jpeg_options] == [interlace: true, quant_table: 3]
       assert processing[:source_cache_policy] == [freshness: :origin]
     end
 

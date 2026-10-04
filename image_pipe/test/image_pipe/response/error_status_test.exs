@@ -72,7 +72,7 @@ defmodule ImagePipe.Response.ErrorStatusTest do
     end
 
     test "host-side source failures map to 500" do
-      for reason <- [:unreadable, :credentials_unavailable, :invalid_adapter_config] do
+      for reason <- [:unreadable, :credentials_unavailable, :missing_adapter] do
         assert {500, _} = ErrorStatus.resolve_status({:source, reason}), inspect(reason)
       end
 

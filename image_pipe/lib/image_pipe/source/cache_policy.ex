@@ -1,31 +1,33 @@
 defmodule ImagePipe.Source.CachePolicy do
-  @moduledoc """
-  Host policy shared by source and derived-response caches.
-
-  `:storage` is `:origin` (default), `:allow`, or `:deny`. Freshness never
-  overrides storage permission. `:freshness` is `:origin`, `{:fallback, seconds}`,
-  or `{:force, seconds}`. Fallback applies only when the origin supplies no
-  freshness; force explicitly replaces it. `:stale_while_revalidate` is
-  `:origin`, `:disabled`, or `{:force, seconds}`.
-
-  Omitted fields inherit the mount policy. A immutable source has no
-  freshness deadline, including when it inherits a finite mount default, but
-  still needs permission to store. Explicit source TTL/SWR overrides conflict
-  with `stable: :immutable` and are rejected. All durations are
-  seconds. These are host settings, never request URL options.
-  """
-
   @type t :: keyword()
 
   @schema NimbleOptions.new!(
-            storage: [type: {:in, [:origin, :allow, :deny]}],
+            storage: [
+              type: {:in, [:origin, :allow, :deny]},
+              type_doc: "`:origin`, `:allow`, or `:deny`",
+              doc: """
+              Whether originals and processed images may be stored. `:origin`, the \
+              default, stores unless the origin sends `no-store` or `private`. \
+              `:allow` stores despite them, and `:deny` never stores. `Vary: *` from \
+              the origin prevents storage in every mode.
+              """
+            ],
             freshness: [
               type:
                 {:or,
                  [
                    {:in, [:origin]},
                    {:tuple, [{:in, [:fallback, :force]}, :non_neg_integer]}
-                 ]}
+                 ]},
+              type_doc: "`:origin`, `{:fallback, seconds}`, or `{:force, seconds}`",
+              doc: """
+              How long a stored copy stays fresh. `:origin`, the default, uses the \
+              origin's lifetime and revalidates on every request when there is none. \
+              `{:fallback, seconds}` applies only when the origin sends no lifetime. \
+              `{:force, seconds}` replaces the origin's lifetime, including \
+              `no-cache`. Neither makes a \
+              response storable that `:storage` doesn't allow.
+              """
             ],
             stale_while_revalidate: [
               type:
@@ -33,9 +35,41 @@ defmodule ImagePipe.Source.CachePolicy do
                  [
                    {:in, [:origin, :disabled]},
                    {:tuple, [{:in, [:force]}, :non_neg_integer]}
-                 ]}
+                 ]},
+              type_doc: "`:origin`, `:disabled`, or `{:force, seconds}`",
+              doc: """
+              How long an expired copy may still be served while it is refreshed. \
+              `:origin`, the default, uses the origin's `stale-while-revalidate`, \
+              which an origin `no-cache`, `must-revalidate`, `proxy-revalidate`, or \
+              `s-maxage` turns off. `:disabled` serves no expired copies. \
+              `{:force, seconds}` sets the window, whatever the origin sends.
+              """
             ]
           )
+
+  @moduledoc """
+  Cache storage and freshness policy for originals and processed images.
+
+      ImagePipe.config(
+        source_cache_policy: [storage: :origin, freshness: {:fallback, 300}],
+        sources: [...]
+      )
+
+  `:source_cache_policy` in `ImagePipe.config/1` sets the policy for every
+  source. A source's own `:cache_policy` replaces it field by field. All
+  durations are in seconds. See
+  [source cache settings](cache.md#source-cache-settings) and
+  [caching and freshness](caching-and-freshness.md).
+
+  An [immutable source](caching-and-freshness.md#immutable-sources) has no
+  freshness deadline, even when it inherits a finite `:freshness`, but still
+  needs `:storage` to allow storing. Its own `:cache_policy` can't set a
+  `:freshness` duration or a `:stale_while_revalidate` window.
+
+  ## Options
+
+  #{NimbleOptions.docs(@schema)}
+  """
 
   @doc false
   def options_schema, do: @schema.schema
