@@ -126,8 +126,9 @@ defmodule ImagePipeServer.ConfigTest do
                auth_token_hash: nil
              ]
 
-      assert config.pool == nil
-      assert config.image_pipe.options[:processing_pool] == nil
+      assert config.pool[:max_concurrency] == System.schedulers_online()
+      assert config.pool[:max_queue] == 64
+      assert config.image_pipe.options[:processing_pool] == config.pool[:name]
       assert config.telemetry == nil
       assert config.trust_traceparent == false
     end
@@ -192,7 +193,13 @@ defmodule ImagePipeServer.ConfigTest do
       assert config.telemetry == [level: :debug]
       assert config.trust_traceparent == true
 
-      assert error(fn -> Config.build!(Config.options!(%{"pool" => %{"max_queue" => 1}})) end) =~
+      queue_only = Config.build!(Config.options!(%{"pool" => %{"max_queue" => 1}}))
+      assert queue_only.pool[:max_concurrency] == System.schedulers_online()
+      assert queue_only.pool[:max_queue] == 1
+
+      assert error(fn ->
+               Config.build!(Config.options!(%{"pool" => %{"max_concurrency" => 0}}))
+             end) =~
                "pool"
     end
 

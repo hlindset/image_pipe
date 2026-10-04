@@ -55,8 +55,10 @@ defmodule ImagePipeServer.Application do
   @doc false
   @spec children(Config.t()) :: [Supervisor.child_spec() | {module(), term()}]
   def children(%Config{} = config) do
-    pool(config.pool) ++
-      [{ImagePipe, name: @instance, config: config.image_pipe}] ++
+    [
+      {ImagePipe.ProcessingPool, config.pool},
+      {ImagePipe, name: @instance, config: config.image_pipe}
+    ] ++
       Enum.map(config.credential_warmups, &{ImagePipe.Source.S3.CredentialWarmup, &1}) ++
       [http_child(config, {ImagePipeServer.Router, router_options(config)})]
   end
@@ -96,7 +98,4 @@ defmodule ImagePipeServer.Application do
        supervisor_options: [name: @listener]
      ]}
   end
-
-  defp pool(nil), do: []
-  defp pool(options), do: [{ImagePipe.ProcessingPool, options}]
 end

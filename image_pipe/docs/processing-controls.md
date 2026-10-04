@@ -3,7 +3,8 @@
 A processing pool limits how many images ImagePipe processes at once. Requests
 beyond the limit wait in a queue or get a `503`, and each image gets a
 deadline. Without a pool, every request starts processing right away, so a
-burst of requests can use all the CPU and memory.
+burst of requests can use all the CPU and memory. `image_pipe_server` always
+runs one.
 
 This guide assumes ImagePipe is running in your app (see
 [Getting started with Phoenix](phoenix-getting-started.md)) or as
@@ -33,7 +34,9 @@ pool, so jobs and requests share its capacity.
 
 ### image_pipe_server
 
-Add a `[pool]` section to `config.toml`:
+The server runs a pool by default, with `max_concurrency` set to its CPU
+cores and `max_queue` to 64. Change the limits in a `[pool]` section of
+`config.toml`:
 
 ```toml
 [pool]
@@ -46,10 +49,10 @@ max_queue = 64
 ## Choosing the limits
 
 - `max_concurrency` is how many images are processed at once. Start with
-  about the number of CPU cores.
+  about the number of CPU cores, which is the server's default.
 - `max_queue` is how many requests may wait for a turn. A request that finds
-  the queue full gets a `503`. The default, `0`, sends a `503` to every
-  request beyond `max_concurrency`.
+  the queue full gets a `503`. In an app it defaults to `0`, which sends a
+  `503` to every request beyond `max_concurrency`. The server defaults to 64.
 - `queue_timeout`, 1 second by default, is how long a request waits for a
   turn before it gets a `503`.
 - `processing_timeout`, 30 seconds by default, is how long one image may take
