@@ -67,10 +67,14 @@ defmodule ImagePipe.Source.S3.CredentialWarmup do
       {:error, %NimbleOptions.ValidationError{} = error} ->
         raise ArgumentError, Exception.message(error)
 
-      {:error, _reason} ->
-        raise ArgumentError, "invalid credential provider configuration"
+      {:error, {:invalid_source_config, reason}} ->
+        raise ArgumentError, "invalid credential provider options: #{reason_message(reason)}"
     end
   end
+
+  # Rendered like a source's own option errors, which show the provider's reason too.
+  defp reason_message(reason) when is_binary(reason), do: reason
+  defp reason_message(reason), do: inspect(reason)
 
   @impl true
   def init(state), do: {:ok, state, {:continue, :warm_then_stop}}

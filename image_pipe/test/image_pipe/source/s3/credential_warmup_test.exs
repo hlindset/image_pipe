@@ -51,13 +51,12 @@ defmodule ImagePipe.Source.S3.CredentialWarmupTest do
     end
   end
 
-  test "delegates provider option validation before fetching credentials" do
-    assert_raise RuntimeError, ~r/ArgumentError/, fn ->
-      start_supervised!(
-        {CredentialWarmup,
-         provider: ImagePipe.Source.S3.InstanceRole,
-         scope: "warmup-invalid-provider",
-         opts: [unknown: true]}
+  test "delegates provider option validation before fetching credentials, keeping its reason" do
+    assert_raise ArgumentError, ~r/invalid credential provider options: .*unknown/, fn ->
+      CredentialWarmup.start_link(
+        provider: ImagePipe.Source.S3.InstanceRole,
+        scope: "warmup-invalid-provider",
+        opts: [unknown: true]
       )
     end
   end
