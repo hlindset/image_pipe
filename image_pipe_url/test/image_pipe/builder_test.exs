@@ -59,7 +59,9 @@ defmodule ImagePipe.BuilderTest do
           [gray: "true"],
           [mystery: 1],
           [blur: 1, blur: 2],
-          [resize: [width: 2, width: 3]]
+          [blur: :unset, blur: 2],
+          [resize: [width: 2, width: 3]],
+          [resize: [fit: :unset, fit: :cover]]
         ] do
       assert_raise ArgumentError, fn -> IP.URL.group(IP.URL.new(), options) end
     end
@@ -69,6 +71,23 @@ defmodule ImagePipe.BuilderTest do
     assert_raise ArgumentError, fn -> IP.URL.output(IP.URL.new(), dpi: 65_536) end
     assert_raise ArgumentError, fn -> IP.URL.new(orient: :sideways) end
     assert_raise ArgumentError, fn -> IP.URL.new(page: -1) end
+  end
+
+  test "an invalid value's error lists only the values the option accepts" do
+    for {build, expected} <- [
+          {fn -> IP.URL.group(IP.URL.new(), resize: [width: 300, fit: :fill]) end,
+           "expected one of [:contain, :cover, :stretch, :auto], got: :fill"},
+          {fn -> IP.URL.group(IP.URL.new(), flip: :diag) end,
+           "expected one of [:horizontal, :vertical, :both], got: :diag"},
+          {fn -> IP.URL.output(IP.URL.new(), format: :bmp) end,
+           "expected one of [:jpeg, :png, :webp, :avif], got: :bmp"},
+          {fn -> IP.URL.new(orient: :sideways) end,
+           "expected one of [:auto, :none], got: :sideways"}
+        ] do
+      message = Exception.message(assert_raise(ArgumentError, build))
+      assert message =~ expected
+      refute message =~ ":unset"
+    end
   end
 
   test "rejects empty groups, malformed nested values, and duplicate nested settings" do
