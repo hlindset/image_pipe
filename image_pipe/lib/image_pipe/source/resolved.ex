@@ -3,11 +3,11 @@ defmodule ImagePipe.Source.Resolved do
   Validated source information returned by an adapter's `c:ImagePipe.Source.resolve/3`.
 
   Source adapters construct this value from canonical source intent. The
-  `identity` and `cache_semantics` fields describe cache-safe source identity;
+  `identity` and `cache_semantics` fields describe cache-safe source identity.
   `fetch` contains adapter-private data needed by the later fetch callback.
-  `mount` is the name of the mount that resolved the source, set by
-  ImagePipe after resolution (`nil` for direct `{:file, _}` and
-  `{:binary, _}` inputs); adapters leave it unset.
+  `name` is the configured source that resolved this value. ImagePipe sets it
+  after resolution, and it is `nil` for `{:file, _}` and `{:binary, _}`
+  inputs. Adapters leave it unset.
   """
 
   alias ImagePipe.Source.CacheSemantics
@@ -19,13 +19,13 @@ defmodule ImagePipe.Source.Resolved do
     :cache_semantics,
     :fetch
   ]
-  defstruct [:mount | @enforce_keys]
+  defstruct [:name | @enforce_keys]
 
   @type internal_cache :: :enabled | :disabled
   @type http_cache :: :inherit | :validators | :auto | :public | :private
 
   @type t :: %__MODULE__{
-          mount: atom() | nil,
+          name: atom() | nil,
           identity: term(),
           internal_cache: internal_cache(),
           http_cache: http_cache(),

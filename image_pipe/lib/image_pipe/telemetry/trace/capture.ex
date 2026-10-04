@@ -94,7 +94,7 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     :batches,
     :cache,
     :output_mode,
-    :source_mount,
+    :source_name,
     :detector,
     :model,
     :classes,

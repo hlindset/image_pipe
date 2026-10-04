@@ -108,7 +108,7 @@ defmodule ImagePipe.SourceTest do
       assert_receive {:validate_options, [label: "root", depth: 1]}
       assert {:ok, resolved} = Source.resolve(%Path{segments: ["media", "cat.jpg"]}, config, [])
       assert_receive {:resolve, _source, [label: "root", depth: 1, validated: true], []}
-      assert resolved.mount == :media
+      assert resolved.name == :media
     end
 
     test "routes bare paths by prefix, stripping it, and the rest to the :path mount" do
@@ -116,11 +116,11 @@ defmodule ImagePipe.SourceTest do
 
       assert {:ok, media} = Source.resolve(%Path{segments: ["media", "a", "cat.jpg"]}, config, [])
       assert_receive {:resolve, %Path{segments: ["a", "cat.jpg"]}, _opts, []}
-      assert media.mount == :media
+      assert media.name == :media
 
       assert {:ok, static} = Source.resolve(%Path{segments: ["other", "cat.jpg"]}, config, [])
       assert_receive {:resolve, %Path{segments: ["other", "cat.jpg"]}, _opts, []}
-      assert static.mount == :static
+      assert static.name == :static
     end
 
     test "custom schemes reach their mount as plain paths" do
@@ -132,7 +132,7 @@ defmodule ImagePipe.SourceTest do
           ] do
         assert {:ok, resolved} = Source.resolve(source, config, [])
         assert_receive {:resolve, %Path{scheme: nil, segments: ["catalog", "42"]}, _opts, []}
-        assert resolved.mount == :assets
+        assert resolved.name == :assets
       end
     end
 
@@ -145,11 +145,11 @@ defmodule ImagePipe.SourceTest do
 
       for scheme <- [:http, :https] do
         source = %URL{scheme: scheme, host: "example.com", path: ["cat.jpg"]}
-        assert {:ok, %Resolved{mount: :web}} = Source.resolve(source, config, [])
+        assert {:ok, %Resolved{name: :web}} = Source.resolve(source, config, [])
       end
 
       object = %ImagePipe.Plan.Source.Object{scheme: "s3", scope: "bucket", key: "cat.jpg"}
-      assert {:ok, %Resolved{mount: :buckets}} = Source.resolve(object, config, [])
+      assert {:ok, %Resolved{name: :buckets}} = Source.resolve(object, config, [])
     end
 
     test "fetch and cache preparation dispatch through the resolving mount" do
@@ -291,7 +291,7 @@ defmodule ImagePipe.SourceTest do
              )
 
     resolved = %Resolved{
-      mount: :path,
+      name: :path,
       identity: [kind: :path, root: "test", path: ["images", "cat.jpg"]],
       internal_cache: :enabled,
       http_cache: :inherit,
@@ -420,7 +420,7 @@ defmodule ImagePipe.SourceTest do
              )
 
     resolved = %Resolved{
-      mount: :path,
+      name: :path,
       identity: [kind: :path, root: "test", path: ["images", "cat.jpg"]],
       internal_cache: :enabled,
       http_cache: :inherit,

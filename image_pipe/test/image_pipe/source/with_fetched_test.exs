@@ -67,7 +67,7 @@ defmodule ImagePipe.Source.WithFetchedTest do
 
   defp resolved(adapter, fetch) do
     %Resolved{
-      mount: adapter,
+      name: adapter,
       identity: [kind: :path, root: "test", path: ["images", "cat.jpg"]],
       internal_cache: :enabled,
       http_cache: :inherit,

@@ -31,7 +31,7 @@ defmodule ImagePipe.Source do
 
   Building a configuration with an invalid source raises `ArgumentError`.
   The source's name appears in
-  [telemetry events](telemetry-events.md#common-metadata) as `:source_mount`.
+  [telemetry events](telemetry-events.md#common-metadata) as `:source_name`.
 
   ## Adapters
 
@@ -192,7 +192,7 @@ defmodule ImagePipe.Source do
   # cached request.
   @doc false
   def prepare_cache_context(source, config) do
-    {:ok, module, opts} = mount_config(source, config)
+    {:ok, module, opts} = adapter_config(source, config)
 
     with {:ok, prepared} <- prepare_cache_source(module, source, opts, runtime_opts(config)) do
       # Cache and admission settings don't change fetched bytes. path_pattern
@@ -300,14 +300,14 @@ defmodule ImagePipe.Source do
   end
 
   defp resolve_with(module, adapter_opts, name, source, runtime_opts, policy) do
-    source_metadata = %{source_mount: name}
+    source_metadata = %{source_name: name}
     telemetry_opts = Telemetry.telemetry_opts(runtime_opts)
 
     Telemetry.span(telemetry_opts, [:source, :resolve], source_metadata, fn ->
       result =
         module
         |> run_resolve(source, adapter_opts, runtime_opts)
-        |> put_mount(name, module, adapter_opts)
+        |> put_name(name, module, adapter_opts)
         |> apply_cache_policy(policy)
 
       {result, result_metadata(result)}
@@ -324,14 +324,14 @@ defmodule ImagePipe.Source do
   @builtin_adapters [ImagePipe.Source.File, ImagePipe.Source.HTTP, ImagePipe.Source.S3]
   @cache_setting_keys Keyword.keys(ImagePipe.Source.CacheSettings.schema())
 
-  defp put_mount({:ok, resolved}, nil, _module, _opts), do: {:ok, resolved}
+  defp put_name({:ok, resolved}, nil, _module, _opts), do: {:ok, resolved}
 
-  defp put_mount({:ok, resolved}, name, module, opts),
+  defp put_name({:ok, resolved}, name, module, opts),
     do:
       {:ok,
-       %{resolved | mount: name, identity: resolved.identity ++ adapter_identity(module, opts)}}
+       %{resolved | name: name, identity: resolved.identity ++ adapter_identity(module, opts)}}
 
-  defp put_mount(error, _name, _module, _opts), do: error
+  defp put_name(error, _name, _module, _opts), do: error
 
   defp adapter_identity(module, _opts) when module in @builtin_adapters, do: [source: module]
 
@@ -358,8 +358,8 @@ defmodule ImagePipe.Source do
   defp stable_terms(map) when is_map(map), do: Map.new(map, fn {k, v} -> {k, stable_terms(v)} end)
   defp stable_terms(term), do: term
 
-  defp mount_config(%Resolved{mount: nil}, _opts), do: {:ok, Input, []}
-  defp mount_config(%Resolved{mount: name}, opts), do: Routes.fetch(routes(opts), name)
+  defp adapter_config(%Resolved{name: nil}, _opts), do: {:ok, Input, []}
+  defp adapter_config(%Resolved{name: name}, opts), do: Routes.fetch(routes(opts), name)
 
   defp apply_cache_policy({:ok, resolved}, defaults) do
     semantics = resolved.cache_semantics
@@ -389,8 +389,8 @@ defmodule ImagePipe.Source do
   @spec fetch(Resolved.t(), keyword(), keyword()) ::
           {:ok, Response.t()} | {:not_modified, Origin.t()} | {:error, error()}
   def fetch(%Resolved{} = resolved, opts, runtime_opts) do
-    with {:ok, module, adapter_opts} <- mount_config(resolved, opts) do
-      source_metadata = %{source_mount: resolved.mount}
+    with {:ok, module, adapter_opts} <- adapter_config(resolved, opts) do
+      source_metadata = %{source_name: resolved.name}
 
       telemetry_opts = Telemetry.telemetry_opts(runtime_opts)
 

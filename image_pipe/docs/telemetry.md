@@ -25,7 +25,7 @@ end
 Each request stage then logs one line, such as:
 
 ```text
-image_pipe source fetch: ok (mount images)
+image_pipe source fetch: ok (source images)
 image_pipe output negotiate: ok (webp)
 image_pipe request: ok
 ```
