@@ -104,11 +104,11 @@ them. Hosts that need them build their own release on top of `image_pipe`.
 
 ## Errors
 
-Invalid configuration stops the server at boot with a message that names the
-setting. Errors about the file's shape and types never quote a value; the
-library's own checks may quote a non-secret value, such as an out-of-range
-`quality` or a cache root, but never a key, credential, token, or the
-contents of a `_FILE`:
+Invalid configuration stops the server at boot. The server prints the error,
+which names the setting or variable, and exits with status 1. Errors about
+the file's shape and types never quote a value. The library's own checks
+may quote a non-secret value, such as an out-of-range `quality` or a cache
+root, but never a key, credential, token, or the contents of a `_FILE`:
 
 ```text
 invalid configuration: url.source_encryption_keys[0]: expected a base64: or hex: prefix

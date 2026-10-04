@@ -82,11 +82,11 @@ If the page doesn't load, the server didn't start. A mistake in
 docker logs image-server
 ```
 
-The log names the setting. Leaving out `match`, for example, logs this line
-among others:
+The log ends with a line that names the setting. Leaving out `match`, for
+example, ends the log with:
 
 ```text
-** (ImagePipeServer.ConfigError) invalid configuration: sources.photos.match: required
+invalid configuration: sources.photos.match: required
 ```
 
 Fix `config.toml`, remove the stopped container with
