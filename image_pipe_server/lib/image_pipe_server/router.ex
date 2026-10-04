@@ -61,9 +61,12 @@ defmodule ImagePipeServer.Router do
   end
 
   # Comparing digests keeps the comparison constant-time for any token length.
+  # The scheme is case-insensitive (RFC 9110 §11.1).
   defp authorized?(conn, hash) do
-    case get_req_header(conn, "authorization") do
-      ["Bearer " <> token] -> Plug.Crypto.secure_compare(:crypto.hash(:sha256, token), hash)
+    with [<<scheme::binary-size(7), token::binary>>] <- get_req_header(conn, "authorization"),
+         "bearer " <- String.downcase(scheme) do
+      Plug.Crypto.secure_compare(:crypto.hash(:sha256, token), hash)
+    else
       _other -> false
     end
   end
