@@ -7,7 +7,6 @@ defmodule ImagePipe.API.RequestSafetyTest do
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.PlugFixture.CacheProbe
   alias ImagePipe.Test.PlugFixture.CountingOriginImage
-  alias ImagePipe.Test.PlugFixture.OriginShouldNotFetch
 
   @signing_key "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 
@@ -69,22 +68,6 @@ defmodule ImagePipe.API.RequestSafetyTest do
     Keyword.merge(config, output_capabilities: %{avif: true, webp: true})
   end
 
-  defp no_fetch_config(opts) do
-    no_fetch_sources = [
-      path: [
-        adapter: RootHTTPAdapter,
-        match: :path,
-        options: [
-          root_url: "http://contract-kit-request-safety.test",
-          byte_identity: :strong,
-          req_options: [plug: OriginShouldNotFetch]
-        ]
-      ]
-    ]
-
-    build_config(Keyword.put(opts, :sources, no_fetch_sources))
-  end
-
   # ── generated-test bodies ────────────────────────────────────────────────
 
   defp assert_rejectable_requests(cases) do
@@ -123,13 +106,11 @@ defmodule ImagePipe.API.RequestSafetyTest do
     conditional_conn =
       conn(:get, path)
       |> put_req_header("if-none-match", etag)
-      |> then(&ImagePipe.Plug.call(&1, no_fetch_config(base_opts())))
+      |> then(&ImagePipe.Plug.call(&1, config))
 
     assert conditional_conn.status == 304
     assert conditional_conn.resp_body == ""
-    # No `refute_received :origin_fetch` here: `no_fetch_config`'s origin is
-    # `OriginShouldNotFetch`, which raises (rather than sending a message) on
-    # any fetch attempt — a fetch would already have crashed this test above.
+    refute_received :origin_fetch
   end
 
   defp assert_telemetry_stages(path) do

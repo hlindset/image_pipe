@@ -22,8 +22,10 @@ all sources or per source. Request URLs can't change them:
 Each processed image belongs to one version of its original. Most sources
 identify a version by the original's content. An
 [immutable source](#immutable-sources) identifies it by the original's path,
-URL, or S3 object instead. Each configured source keeps its own processed
-images, so two configured sources that serve the same file don't share them.
+URL, or S3 object instead. A source's name isn't part of the version, so
+renaming a source keeps its processed images. Two configured sources that
+read the same original share its processed images when its content matches.
+Immutable sources share them only when their settings match too.
 
 - When the origin starts serving different bytes for `cat.jpg`, requests make
   new processed images from the new version. Copies made from the old bytes
@@ -132,7 +134,8 @@ over the network again.
 The cache identifies files by the source's `root_id` and their path, not by
 the directory's `root`. Moving the directory to a new `root` keeps cached
 originals, processed images, and their `ETag`s, as long as `root_id` stays
-the same.
+the same. Two file sources with the same `root_id` share these entries, so
+they must use the same `root`. Otherwise the configuration fails to load.
 
 ## Request coalescing
 

@@ -300,7 +300,7 @@ defmodule ImagePipe.Source do
       result =
         module
         |> run_resolve(source, adapter_opts, runtime_opts)
-        |> put_mount(name)
+        |> put_mount(name, module, adapter_opts)
         |> apply_cache_policy(policy)
 
       {result, result_metadata(result)}
@@ -309,14 +309,47 @@ defmodule ImagePipe.Source do
 
   defp mounts(opts), do: Keyword.get(opts, :sources, %Mounts{})
 
-  # Mounts never share cache entries, even when their adapters build the same
-  # identity for the path they receive.
-  defp put_mount({:ok, resolved}, nil), do: {:ok, resolved}
+  # Sources that read the same originals share cache entries, so a source's
+  # name stays out of the identity. Built-in adapters name every setting that
+  # changes bytes in their identity or byte identity. A custom adapter's
+  # identity may not, so a digest of its options, apart from the cache
+  # settings, keeps two differently configured sources apart.
+  @builtin_adapters [ImagePipe.Source.File, ImagePipe.Source.HTTP, ImagePipe.Source.S3]
+  @cache_setting_keys Keyword.keys(ImagePipe.Source.CacheSettings.schema())
 
-  defp put_mount({:ok, resolved}, name),
-    do: {:ok, %{resolved | mount: name, identity: resolved.identity ++ [mount: name]}}
+  defp put_mount({:ok, resolved}, nil, _module, _opts), do: {:ok, resolved}
 
-  defp put_mount(error, _name), do: error
+  defp put_mount({:ok, resolved}, name, module, opts),
+    do:
+      {:ok,
+       %{resolved | mount: name, identity: resolved.identity ++ adapter_identity(module, opts)}}
+
+  defp put_mount(error, _name, _module, _opts), do: error
+
+  defp adapter_identity(module, _opts) when module in @builtin_adapters, do: [source: module]
+
+  defp adapter_identity(module, opts) do
+    digest =
+      opts
+      |> Keyword.drop(@cache_setting_keys)
+      |> stable_terms()
+      |> ImagePipe.MaterialDigest.of()
+
+    [source: module, options: Base.encode16(digest, case: :lower)]
+  end
+
+  # A compiled regex serializes differently each time it is compiled.
+  defp stable_terms(%Regex{} = regex), do: {Regex, Regex.source(regex), Regex.opts(regex)}
+  defp stable_terms(list) when is_list(list), do: Enum.map(list, &stable_terms/1)
+
+  defp stable_terms(tuple) when is_tuple(tuple),
+    do: tuple |> Tuple.to_list() |> stable_terms() |> List.to_tuple()
+
+  defp stable_terms(%module{} = struct),
+    do: struct(module, struct |> Map.from_struct() |> stable_terms())
+
+  defp stable_terms(map) when is_map(map), do: Map.new(map, fn {k, v} -> {k, stable_terms(v)} end)
+  defp stable_terms(term), do: term
 
   defp mount_config(%Resolved{mount: nil}, _opts), do: {:ok, Input, []}
   defp mount_config(%Resolved{mount: name}, opts), do: Mounts.fetch(mounts(opts), name)
