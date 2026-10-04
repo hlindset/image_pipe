@@ -193,11 +193,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
     crop_width = resolve_dimension(params.width, image_width)
     crop_height = resolve_dimension(params.height, image_height)
 
-    center_x = round(left_px + crop_width / 2)
-    center_y = round(top_px + crop_height / 2)
-
-    left = max(0, min(image_width - crop_width, round(center_x - crop_width / 2)))
-    top = max(0, min(image_height - crop_height, round(center_y - crop_height / 2)))
+    left = max(0, min(image_width - crop_width, left_px))
+    top = max(0, min(image_height - crop_height, top_px))
 
     %{left: left, top: top, width: crop_width, height: crop_height}
   end
