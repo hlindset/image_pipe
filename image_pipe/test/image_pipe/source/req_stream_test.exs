@@ -290,6 +290,38 @@ defmodule ImagePipe.Source.ReqStreamTest do
     assert stream == {:error, {:source, :redirect_not_followed}}
   end
 
+  test "a body that trickles past fetch_timeout surfaces as :receive_timeout" do
+    {url, server} = start_trickling_origin(20)
+    server_ref = Process.monitor(server)
+    started = System.monotonic_time(:millisecond)
+
+    stream =
+      open_body!(
+        [url: url],
+        validate_target: fn _ -> :ok end,
+        receive_timeout: 5_000,
+        fetch_timeout: 200
+      )
+
+    error = assert_raise StreamError, fn -> Enum.to_list(stream) end
+    assert error.reason == :receive_timeout
+    assert System.monotonic_time(:millisecond) - started < 3_000
+
+    Process.exit(server, :kill)
+    assert_receive {:DOWN, ^server_ref, :process, ^server, _reason}
+  end
+
+  test "an origin that stalls before its headers fails at fetch_timeout" do
+    {url, server} = start_silent_origin()
+    started = System.monotonic_time(:millisecond)
+
+    assert {:error, {:source, _reason}} =
+             ReqStream.open([url: url], validate_target: fn _ -> :ok end, fetch_timeout: 200)
+
+    assert System.monotonic_time(:millisecond) - started < 3_000
+    Process.exit(server, :kill)
+  end
+
   test "a mid-body receive timeout surfaces as :receive_timeout" do
     {url, server} = start_stalling_origin()
     server_ref = Process.monitor(server)
@@ -349,6 +381,54 @@ defmodule ImagePipe.Source.ReqStreamTest do
   # A raw origin that returns a chunked 200 head and then never sends a body
   # chunk, holding the connection open until the client gives up — the mid-body
   # receive-timeout path.
+  # Reads the request and never answers.
+  defp start_silent_origin do
+    {:ok, listen_socket} =
+      :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true])
+
+    {:ok, {_address, port}} = :inet.sockname(listen_socket)
+
+    server =
+      spawn(fn ->
+        {:ok, socket} = :gen_tcp.accept(listen_socket)
+        {:ok, _request} = :gen_tcp.recv(socket, 0)
+        :gen_tcp.recv(socket, 0, :infinity)
+      end)
+
+    {"http://127.0.0.1:#{port}", server}
+  end
+
+  # Sends one body byte every `interval` milliseconds, forever.
+  defp start_trickling_origin(interval) do
+    {:ok, listen_socket} =
+      :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true])
+
+    {:ok, {_address, port}} = :inet.sockname(listen_socket)
+
+    server =
+      spawn(fn ->
+        {:ok, socket} = :gen_tcp.accept(listen_socket)
+        {:ok, _request} = :gen_tcp.recv(socket, 0)
+        :ok = :gen_tcp.send(socket, "HTTP/1.1 200 OK\r\ncontent-length: 1000000\r\n\r\n")
+        trickle(socket, interval)
+      end)
+
+    {"http://127.0.0.1:#{port}", server}
+  end
+
+  defp trickle(socket, interval) do
+    case :gen_tcp.send(socket, "x") do
+      :ok ->
+        receive do
+        after
+          interval -> trickle(socket, interval)
+        end
+
+      {:error, _reason} ->
+        :ok
+    end
+  end
+
   defp start_stalling_origin do
     {:ok, listen_socket} =
       :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true])

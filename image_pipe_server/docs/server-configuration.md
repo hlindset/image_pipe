@@ -194,6 +194,7 @@ One table per source. The table name is the source's name. Besides
 | `allowed_hosts` | array of string |  |
 | `base_url` | string |  |
 | `receive_timeout` | integer ≥ 0 |  |
+| `fetch_timeout` | integer > 0 |  |
 | `connect_timeout` | integer ≥ 0 |  |
 | `pool_timeout` | integer ≥ 0 |  |
 | `max_redirects` | integer ≥ 0 | `0` |
@@ -226,6 +227,7 @@ Elixir only: `req_options`, `address_resolver`.
 | `region` | string |  |
 | `endpoint` | string |  |
 | `receive_timeout` | integer ≥ 0 |  |
+| `fetch_timeout` | integer > 0 |  |
 | `connect_timeout` | integer ≥ 0 |  |
 | `pool_timeout` | integer ≥ 0 |  |
 | `stable` | `"auto"` or `"immutable"` | `"auto"` |

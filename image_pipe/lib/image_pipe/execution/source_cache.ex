@@ -57,8 +57,9 @@ defmodule ImagePipe.Execution.SourceCache do
           _validate -> fetch(source, key, record, preparation, opts)
         end
       end,
-      Telemetry.telemetry_opts(config)
+      work_opts(source, config)
     )
+    |> waited()
   end
 
   def input(source, key, record, preparation, config) do
@@ -72,10 +73,25 @@ defmodule ImagePipe.Execution.SourceCache do
           fn coordination ->
             open_or_fetch(source, key, record, preparation, config, coordination)
           end,
-          Telemetry.telemetry_opts(config)
+          work_opts(source, config)
         )
+        |> waited()
     end
   end
+
+  # A request waiting behind another one's download gives up a second after
+  # that download's own deadline, with the same timeout error.
+  defp work_opts(%{fetch: fetch}, config) when is_list(fetch) do
+    case Keyword.get(fetch, :fetch_timeout) do
+      nil -> Telemetry.telemetry_opts(config)
+      timeout -> Keyword.put(Telemetry.telemetry_opts(config), :wait, timeout + 1_000)
+    end
+  end
+
+  defp work_opts(_source, config), do: Telemetry.telemetry_opts(config)
+
+  defp waited(:timeout), do: {:error, {:source, :receive_timeout}}
+  defp waited(result), do: result
 
   defp open_or_fetch(source, key, record, preparation, config, ref) when is_reference(ref) do
     config = Keyword.put(config, :source_lease, ref)

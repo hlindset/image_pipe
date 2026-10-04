@@ -49,8 +49,9 @@ Large results don't fail. `max_result_width`, `max_result_height`, and
 ## Timeouts for origins
 
 HTTP and S3 sources wait at most 5 seconds for a connection
-(`connect_timeout`) and 5 seconds for each part of the response
-(`receive_timeout`). Both are set per source:
+(`connect_timeout`), 5 seconds for each part of the response
+(`receive_timeout`), and 30 seconds for the whole download
+(`fetch_timeout`). All three are set per source:
 
 <!-- tabs-open -->
 
@@ -61,7 +62,11 @@ sources: [
   web: [
     adapter: ImagePipe.Source.HTTP,
     match: [scheme: ["https"]],
-    options: [allowed_hosts: ["assets.example.com"], receive_timeout: 3_000]
+    options: [
+      allowed_hosts: ["assets.example.com"],
+      receive_timeout: 3_000,
+      fetch_timeout: 10_000
+    ]
   ]
 ]
 ```
@@ -74,17 +79,16 @@ adapter = "http"
 match = { scheme = ["https"] }
 allowed_hosts = ["assets.example.com"]
 receive_timeout = 3000
+fetch_timeout = 10000
 ```
 
 <!-- tabs-close -->
 
-An origin that sends a little data just within each timeout can still keep a
-fetch open for a long time. When the original is read while the image is
-processed, the [processing pool](processing-controls.md)'s
-`processing_timeout` bounds the whole fetch. With an
-[originals cache](cache.md#originals-cache), the original is fetched before
-processing starts, so only the source's own timeouts apply. Give the proxy
-or load balancer in front a total request timeout as well.
+A download that runs past `fetch_timeout` fails, even when the origin keeps
+sending a little data within each `receive_timeout`. Other requests waiting
+for the same original give up after waiting `fetch_timeout` plus one second,
+with `504`. Give the proxy or load balancer in front a total request timeout
+as well.
 
 ## Slow clients
 

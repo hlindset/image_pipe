@@ -183,7 +183,7 @@ defmodule ImagePipe.Telemetry.Logger do
   defp level_for([:debug, :collect, :error | _], _metadata, _base), do: :warning
 
   defp level_for([:cache, :coordination], %{result: result}, _base)
-       when result in [:busy, :bypass], do: :warning
+       when result in [:busy, :bypass, :timeout], do: :warning
 
   defp level_for([:processing | _], %{result: result}, _base)
        when result in [

@@ -24,7 +24,7 @@ defmodule ImagePipe.Source.S3 do
     :aws_sigv4
   ]
   @signed_header_names ["authorization", "host", "x-amz-content-sha256", "x-amz-security-token"]
-  @timeout_keys [:receive_timeout, :connect_timeout, :pool_timeout]
+  @timeout_keys [:receive_timeout, :fetch_timeout, :connect_timeout, :pool_timeout]
   @config_schema NimbleOptions.new!(
                    [
                      region: [
@@ -73,6 +73,16 @@ defmodule ImagePipe.Source.S3 do
                        doc: """
                        Milliseconds to wait for the response and between body \
                        chunks. The default value is `5000`.
+                       """
+                     ],
+                     fetch_timeout: [
+                       type: :pos_integer,
+                       doc: """
+                       Milliseconds for the whole download, from the request to the \
+                       last body byte. A connection attempt can run past it by up \
+                       to `connect_timeout`. Requests waiting for the same object \
+                       give up after waiting this long plus one second. The default \
+                       value is `30000`.
                        """
                      ],
                      connect_timeout: [
@@ -219,6 +229,7 @@ defmodule ImagePipe.Source.S3 do
           strip_byte_headers: stable? or cache[:internal_cache] == :enabled
         ]
         |> Keyword.merge(Keyword.take(config, @timeout_keys))
+        |> Keyword.put_new(:fetch_timeout, 30_000)
 
       {:ok, struct!(Resolved, [identity: identity, fetch: fetch] ++ cache)}
     end

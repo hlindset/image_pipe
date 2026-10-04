@@ -348,6 +348,25 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     refute_received {:origin, _, _}
   end
 
+  test "a request waiting behind a stalled download gives up after the fetch deadline", %{
+    config: config,
+    state: state
+  } do
+    config = update_url_mount(config, &Keyword.put(&1, :fetch_timeout, 100))
+    supervisor = start_supervised!(Task.Supervisor)
+    Agent.update(state, &%{&1 | block: true})
+    leader = Task.Supervisor.async_nolink(supervisor, fn -> request(config, 12) end)
+    assert_receive {:blocked, worker}
+    assert_receive {:origin, _, []}
+
+    waiter = request(config, 6)
+    assert waiter.status == 504
+    refute_received {:origin, _, _}
+
+    send(worker, :continue)
+    Task.await(leader)
+  end
+
   test "variants reuse original bytes and fresh conditionals avoid origin work", %{config: config} do
     first = request(config, 12)
     assert first.status == 200

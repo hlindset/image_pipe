@@ -144,7 +144,10 @@ background checks (see
 
 - Up to 64 originals can be fetched or checked at once, with up to 1,024
   requests waiting for them. Past either limit, a request fetches its
-  original itself, without waiting.
+  original itself, without waiting. A request waiting for an HTTP or S3
+  original gives up after waiting that source's `fetch_timeout` (see
+  `ImagePipe.Source.HTTP` and `ImagePipe.Source.S3`) plus one second, and
+  answers `504`.
 - Up to 16 background checks run at once. Each has a 60-second deadline.
   After a check of an original finishes, that original isn't checked in the
   background again for one second.

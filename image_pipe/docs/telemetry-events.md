@@ -348,10 +348,11 @@ are coordinated (see [request coalescing](caching-and-freshness.md#request-coale
   - `:pool` (atom): `:input` for `:source` and `:refresh`, `:output` for
     `:output`.
   - `:result` (atom): for `:source` and `:refresh`, one of `:acquired`,
-    `:started`, `:coalesced`, `:backoff`, or `:busy`. For `:output`,
-    `:acquired` (this request generates), `:waiting` (it waits for another),
-    `:ready` (it can check the cache again), `:bypass` (it generates on its
-    own), or `:busy` (coordination is at capacity).
+    `:started`, `:coalesced`, `:backoff`, or `:busy`, and for `:source`
+    also `:timeout` (it stopped waiting for another request's download).
+    For `:output`, `:acquired` (this request generates), `:waiting` (it
+    waits for another), `:ready` (it can check the cache again), `:bypass`
+    (it generates on its own), or `:busy` (coordination is at capacity).
 
 ### `[:cache, :warm_start]`
 
