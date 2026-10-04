@@ -26,7 +26,7 @@ defmodule ImagePipe.Cache.FileSystemPropertyTest do
     check all prefix <- unsafe_prefix(),
               max_runs: 100 do
       assert {:error, {:invalid_path_prefix, ^prefix}} =
-               FileSystem.paths(key(), root: unique_root(), path_prefix: prefix)
+               FileSystem.validate_options(root: unique_root(), path_prefix: prefix)
     end
   end
 

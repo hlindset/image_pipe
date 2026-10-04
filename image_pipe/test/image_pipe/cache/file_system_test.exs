@@ -88,11 +88,6 @@ defmodule ImagePipe.Cache.FileSystemTest do
   end
 
   test "requires an absolute root" do
-    assert FileSystem.get(key(), []) == {:error, {:missing_required_option, :root}}
-
-    assert FileSystem.get(key(), root: "relative/cache") ==
-             {:error, {:invalid_root, "relative/cache"}}
-
     assert FileSystem.validate_options([]) == {:error, {:missing_required_option, :root}}
 
     assert FileSystem.validate_options(root: "relative/cache") ==
@@ -100,19 +95,16 @@ defmodule ImagePipe.Cache.FileSystemTest do
   end
 
   test "rejects traversal-shaped path prefixes", %{root: root} do
-    assert FileSystem.get(key(), root: root, path_prefix: "../outside") ==
-             {:error, {:invalid_path_prefix, "../outside"}}
-
-    assert FileSystem.get(key(), root: root, path_prefix: "/absolute") ==
+    assert FileSystem.validate_options(root: root, path_prefix: "/absolute") ==
              {:error, {:invalid_path_prefix, "/absolute"}}
 
-    assert FileSystem.get(key(), root: root, path_prefix: "processed/./images") ==
+    assert FileSystem.validate_options(root: root, path_prefix: "processed/./images") ==
              {:error, {:invalid_path_prefix, "processed/./images"}}
 
-    assert FileSystem.get(key(), root: root, path_prefix: "processed//images") ==
+    assert FileSystem.validate_options(root: root, path_prefix: "processed//images") ==
              {:error, {:invalid_path_prefix, "processed//images"}}
 
-    assert FileSystem.get(key(), root: root, path_prefix: "processed\\..\\outside") ==
+    assert FileSystem.validate_options(root: root, path_prefix: "processed\\..\\outside") ==
              {:error, {:invalid_path_prefix, "processed\\..\\outside"}}
 
     assert FileSystem.validate_options(root: root, path_prefix: "../outside") ==
@@ -126,9 +118,6 @@ defmodule ImagePipe.Cache.FileSystemTest do
 
   test "rejects unknown filesystem adapter options", %{root: root} do
     assert FileSystem.validate_options(root: root, path_prefx: "processed") ==
-             {:error, {:unknown_options, [:path_prefx]}}
-
-    assert FileSystem.get(key(), root: root, path_prefx: "processed") ==
              {:error, {:unknown_options, [:path_prefx]}}
 
     assert FileSystem.validate_options(root: root, fail_on_cache_error: true) ==
