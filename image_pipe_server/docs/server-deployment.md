@@ -26,12 +26,6 @@ docker build -f image_pipe_server/Dockerfile -t image_pipe_server .
 The image runs as user `image_pipe` (uid 10001), listens on port 8080, and
 checks `GET /health` for its Docker health status.
 
-Erlang distribution is off in the image and the release, so
-`bin/image_pipe_server remote` can't connect. To use it, set
-`RELEASE_DISTRIBUTION=sname` and a `RELEASE_COOKIE` secret of your own, and
-keep epmd (port 4369) and the node's distribution port off untrusted
-networks.
-
 ## Running
 
 To try the server locally first, follow
@@ -106,9 +100,10 @@ listens, so use it for both readiness and liveness checks.
 
 The image's Docker health check requests `/health` on `127.0.0.1`, at the
 port in `IPS_SERVER__PORT` (8080 when it's unset). Set a custom port with
-`IPS_SERVER__PORT` rather than `[server] port` in the file, and the check
-follows it. If `[server] bind` is an address other than `0.0.0.0` or
-`127.0.0.1`, override the check, for example in Compose:
+`IPS_SERVER__PORT`, and the check follows it. The check doesn't see
+`[server] port` in the file or `IPS_SERVER__PORT_FILE`. If the server doesn't
+listen on `127.0.0.1`, such as when `[server] bind` names one specific
+address, override the check in Compose:
 
 ```yaml
 services:
@@ -237,8 +232,6 @@ docker run -e OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318 -e OTEL_SERVICE_
 - `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` turns
   on OTLP export (HTTP/protobuf by default).
 - `OTEL_TRACES_EXPORTER=none` or `OTEL_SDK_DISABLED=true` turns it off.
-- An empty variable counts as unset, so `OTEL_EXPORTER_OTLP_ENDPOINT=` leaves
-  export off.
 - The service name defaults to `image_pipe_server`. The SDK reads the other
   variables itself, such as `OTEL_EXPORTER_OTLP_HEADERS`,
   `OTEL_EXPORTER_OTLP_PROTOCOL`, and `OTEL_TRACES_SAMPLER`.
@@ -266,6 +259,25 @@ and point `OTEL_EXPORTER_OTLP_ENDPOINT` at its port 4318.
 form a trace, and the
 [telemetry event reference](../../image_pipe/docs/telemetry-events.md) lists
 the metadata spans draw their attributes from.
+
+## Remote console
+
+The release's remote console, `bin/image_pipe_server remote`, needs Erlang
+distribution (the network connection between Erlang nodes). It's off by
+default, because anyone who can reach a node and knows its cookie can run
+code on it.
+
+Add `RELEASE_DISTRIBUTION: sname` and `RELEASE_COOKIE: <long random value>`
+to the service's `environment` and restart it. The release reads the cookie
+only from `RELEASE_COOKIE`, not from a `_FILE` variable. Then open the
+console, here with the Compose service from [Running](#running):
+
+```bash
+docker compose exec images bin/image_pipe_server remote
+```
+
+Keep port 4369 (epmd) and the node's distribution port unreachable from
+outside the container, including other containers on the same network.
 
 ## Without Docker
 

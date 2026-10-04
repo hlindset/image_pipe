@@ -67,13 +67,14 @@ IPS_PROCESSING__QUALITY=82
 
 - Levels are lowercased, so a mount written as `[sources.TMDB]` in the file
   can't be overridden from the environment. Use lowercase mount names.
-- Lists are comma-separated: `IPS_URL__KEYS=0123abcd…,4567ef01…`. A list
-  variable or file with no entries is an error, so an empty signing-keys
-  secret stops the server instead of leaving URLs unsigned.
+- Lists are comma-separated: `IPS_URL__KEYS=0123abcd…,4567ef01…`.
 - A variable ending in `_FILE` reads the value from that file, without
   trailing whitespace, for Docker and Kubernetes secrets:
   `IPS_URL__KEYS_FILE=/run/secrets/signing_keys`. Setting both `IPS_URL__KEYS`
   and `IPS_URL__KEYS_FILE` is an error.
+- A list variable with no entries, or a `_FILE` variable whose file has none,
+  is an error, so an empty signing-keys secret stops the server instead of
+  turning off signature checks.
 - Settings whose own name ends in `_file`, such as the `web_identity`
   provider's `token_file`, take the variable's value as the path instead:
   `IPS_SOURCES__MEDIA__CREDENTIALS__TOKEN_FILE=/var/run/secrets/eks.amazonaws.com/serviceaccount/token`.

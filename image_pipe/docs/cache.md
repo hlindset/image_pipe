@@ -76,10 +76,12 @@ Each stored response is selected by:
 - The URL's cachebuster.
 - The values of the request headers and cookies named in `storage_inputs`.
 - The credentials and headers the source sends to its origin, as a hash.
-  For S3 these are the configured credentials: static keys, or the provider
-  and its options. Temporary credentials from a provider don't change the
-  key when they rotate. For an HTTP auth callback it's the callback's result,
-  resolved once per request.
+  - `ImagePipe.Source.S3` uses the configured credentials: static keys, or
+    the provider and its options. Temporary credentials from a provider don't
+    change the key when they rotate.
+  - `ImagePipe.Source.HTTP` uses the resolved `auth:` value in its
+    `req_options`. A function, MFA tuple, or `:netrc` is resolved once per
+    request, so a new token selects new entries.
 
 The URL's expiry, signature, filename, `attachment` option, and `debug`
 option don't select a different entry.
@@ -157,12 +159,12 @@ background checks (see
 paths, source identifiers, header values, or cookie values. Each entry is a
 body file and a metadata file holding the body's size and SHA-256 hash.
 
-Before sending a cached response, the cache checks that the body's size
-matches its metadata. An entry that fails the check, has invalid metadata, or
-can't be read is logged and treated as a miss. The hash isn't checked when a
-body is served, so don't change cache files in place: a changed body of the
-same size is served as it is. A body deleted after the size check fails the
-response midway.
+Before reading a cached body, the cache checks that its size matches its
+metadata. An entry that fails the check, has invalid metadata, or can't be
+read is logged and treated as a miss. Only the size is checked when a body is
+read, so never change cache files in place: a changed body of the same size
+is served as it is. A body removed after the check but before it is sent,
+for example by eviction in bounded mode, aborts the response.
 
 A path that leads outside `root` through a symlink fails as a cache error.
 `ImagePipe.Cache.FileSystem.get/2` returns the whole body as a binary, for
