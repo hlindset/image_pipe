@@ -155,10 +155,12 @@ background checks (see
 paths, source identifiers, header values, or cookie values. Each entry is a
 body file and a metadata file holding the body's size and SHA-256 hash.
 
-Before sending a cached response, the cache checks the body's size and hash.
-An entry that fails the check, has invalid metadata, or can't be read is
-logged and treated as a miss. Files must not be changed in place after they
-are written: a change made after the check can fail the response midway.
+Before sending a cached response, the cache checks that the body's size
+matches its metadata. An entry that fails the check, has invalid metadata, or
+can't be read is logged and treated as a miss. The hash is checked when the
+body is written, not when it is served, so files must not be changed in place.
+A changed body of the same size is served as it is, and a body removed after
+the check fails the response midway.
 
 A path that leads outside `root` through a symlink fails as a cache error.
 `ImagePipe.Cache.FileSystem.get/2` returns the whole body as a binary, for
