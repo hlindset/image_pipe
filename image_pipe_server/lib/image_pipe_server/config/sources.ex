@@ -44,7 +44,8 @@ defmodule ImagePipeServer.Config.Sources do
   @container_variables [
     relative_uri: "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
     full_uri: "AWS_CONTAINER_CREDENTIALS_FULL_URI",
-    auth_token: "AWS_CONTAINER_AUTHORIZATION_TOKEN"
+    auth_token: "AWS_CONTAINER_AUTHORIZATION_TOKEN",
+    auth_token_file: "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE"
   ]
   @web_identity_variables [
     token_file: "AWS_WEB_IDENTITY_TOKEN_FILE",
@@ -99,10 +100,12 @@ defmodule ImagePipeServer.Config.Sources do
   Fills credential provider options from the standard AWS variables in `env`,
   as ECS and EKS set them.
 
-    * `container_credentials` without `relative_uri`, `full_uri`, or
-      `auth_token` takes all three from `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`,
-      `AWS_CONTAINER_CREDENTIALS_FULL_URI`, and
-      `AWS_CONTAINER_AUTHORIZATION_TOKEN`.
+    * `container_credentials` without `relative_uri`, `full_uri`,
+      `auth_token`, or `auth_token_file` takes each one whose variable is
+      set from `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`,
+      `AWS_CONTAINER_CREDENTIALS_FULL_URI`,
+      `AWS_CONTAINER_AUTHORIZATION_TOKEN`, and
+      `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE`.
     * `web_identity` takes each option it leaves out from its variable:
       `token_file` from `AWS_WEB_IDENTITY_TOKEN_FILE`, `role_arn` from
       `AWS_ROLE_ARN`, `region` from `AWS_REGION`, and `role_session_name`

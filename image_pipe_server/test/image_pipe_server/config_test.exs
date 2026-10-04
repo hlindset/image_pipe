@@ -342,13 +342,15 @@ defmodule ImagePipeServer.ConfigTest do
       env = %{
         "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI" => "/v2/credentials/abc",
         "AWS_CONTAINER_CREDENTIALS_FULL_URI" => "http://127.0.0.1:1234/creds",
-        "AWS_CONTAINER_AUTHORIZATION_TOKEN" => "token"
+        "AWS_CONTAINER_AUTHORIZATION_TOKEN" => "token",
+        "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE" => "/var/run/token"
       }
 
       path = s3_provider_config(dir, ~s|{ provider = "container_credentials" }|)
 
       assert Enum.sort(warmup_options(path, env)) == [
                auth_token: "token",
+               auth_token_file: "/var/run/token",
                full_uri: "http://127.0.0.1:1234/creds",
                relative_uri: "/v2/credentials/abc"
              ]

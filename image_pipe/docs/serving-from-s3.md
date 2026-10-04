@@ -137,7 +137,10 @@ credentials:
 
 If the platform sets `AWS_CONTAINER_CREDENTIALS_FULL_URI` instead, pass it
 as `full_uri:`, with the token from `AWS_CONTAINER_AUTHORIZATION_TOKEN` as
-`auth_token:`.
+`auth_token:`. EKS Pod Identity sets `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE`
+instead of `AWS_CONTAINER_AUTHORIZATION_TOKEN`. Pass that path as
+`auth_token_file:`. The file is read again on every refresh, since EKS
+rotates the token.
 
 ### image_pipe_server
 
@@ -145,10 +148,12 @@ as `full_uri:`, with the token from `AWS_CONTAINER_AUTHORIZATION_TOKEN` as
 credentials = { provider = "container_credentials" }
 ```
 
-The server fills `relative_uri`, `full_uri`, and `auth_token` from
-`AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`, `AWS_CONTAINER_CREDENTIALS_FULL_URI`,
-and `AWS_CONTAINER_AUTHORIZATION_TOKEN`. Setting any of the three in
-`credentials` stops it filling the others.
+The server fills `relative_uri`, `full_uri`, `auth_token`, and
+`auth_token_file` from `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`,
+`AWS_CONTAINER_CREDENTIALS_FULL_URI`, `AWS_CONTAINER_AUTHORIZATION_TOKEN`, and
+`AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE`, so the same setting works on ECS
+and with EKS Pod Identity. Setting any of the four in `credentials` stops it filling the
+others.
 
 <!-- tabs-close -->
 

@@ -249,9 +249,10 @@ Static credentials:
 
 Or a credential `provider` and its options. `assume_role` takes `base`
 credentials in the same forms. `container_credentials` without
-`relative_uri`, `full_uri`, or `auth_token` takes all three from
-`AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`, `AWS_CONTAINER_CREDENTIALS_FULL_URI`,
-and `AWS_CONTAINER_AUTHORIZATION_TOKEN`. `web_identity` fills each of
+`relative_uri`, `full_uri`, `auth_token`, or `auth_token_file` takes each
+one whose variable is set from `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`,
+`AWS_CONTAINER_CREDENTIALS_FULL_URI`, `AWS_CONTAINER_AUTHORIZATION_TOKEN`,
+and `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE`. `web_identity` fills each of
 `token_file`, `role_arn`, `region`, and `role_session_name` that the
 table leaves out, from `AWS_WEB_IDENTITY_TOKEN_FILE`, `AWS_ROLE_ARN`,
 `AWS_REGION`, and `AWS_ROLE_SESSION_NAME` respectively.
@@ -276,6 +277,7 @@ table leaves out, from `AWS_WEB_IDENTITY_TOKEN_FILE`, `AWS_ROLE_ARN`,
 | `full_uri` | string |  |
 | `relative_uri` | string |  |
 | `auth_token` | string |  |
+| `auth_token_file` | string |  |
 | `receive_timeout` | integer ≥ 0 |  |
 | `connect_timeout` | integer ≥ 0 |  |
 
