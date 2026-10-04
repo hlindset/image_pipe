@@ -34,7 +34,7 @@ defmodule ImagePipe.Processing.Config do
     jpeg_options: %JpegOptions{},
     png_options: %PngOptions{},
     webp_options: %WebpOptions{},
-    avif_options: %AvifOptions{}
+    avif_options: %AvifOptions{effort: 3}
   ]
 
   @map_keys Keyword.keys(@map_defaults)
@@ -261,12 +261,14 @@ defmodule ImagePipe.Processing.Config do
                     webp_options: [
                       type: {:custom, __MODULE__, :validate_encoder_options, [WebpOptions]},
                       type_doc: "`t:keyword/0`",
-                      doc: "Default WebP encoder settings, as for `:jpeg_options`."
+                      doc:
+                        "Default WebP encoder settings, as for `:jpeg_options`. `:effort` defaults to `4`."
                     ],
                     avif_options: [
                       type: {:custom, __MODULE__, :validate_encoder_options, [AvifOptions]},
                       type_doc: "`t:keyword/0`",
-                      doc: "Default AVIF encoder settings, as for `:jpeg_options`."
+                      doc:
+                        "Default AVIF encoder settings, as for `:jpeg_options`. `:effort` defaults to `3`."
                     ],
                     detector: [
                       type: {:or, [{:in, [:default, nil]}, :atom]},

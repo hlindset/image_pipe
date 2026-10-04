@@ -60,7 +60,7 @@ defmodule ImagePipe.API.OutputTest do
     assert {:ok, resolved} = Policy.resolve(policy, :jpeg)
     assert resolved.encoder_options == %PlanOutput.AvifOptions{effort: 4}
     assert {:ok, resolved} = Policy.resolve(resolve!(["format=avif"], []), :jpeg)
-    assert resolved.encoder_options == nil
+    assert resolved.encoder_options == %PlanOutput.AvifOptions{effort: 3}
   end
 
   test "resolves explicit format and quality over host output defaults" do
@@ -145,7 +145,7 @@ defmodule ImagePipe.API.OutputTest do
              quant_table: 3
            }
 
-    assert resolve!([], []).encoder_options == %{}
+    assert resolve!([], []).encoder_options == %{avif: %PlanOutput.AvifOptions{effort: 3}}
   end
 
   test "explicit quality keeps precedence over a URL format quality" do

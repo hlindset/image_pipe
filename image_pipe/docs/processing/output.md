@@ -287,7 +287,10 @@ Accepts these fields. Default: the host's WebP encoder settings.
 | `near-lossless` | boolean | Near-lossless WebP |
 | `smart-subsample` | boolean | Sharper chroma subsampling |
 | `preset` | `default`, `photo`, `picture`, `drawing`, `icon`, `text` | Encoder tuning for the image type |
-| `effort` | `0` to `6` | Higher is slower and smaller |
+| `effort` | `0` to `6` | Higher is slower and smaller. Default `4`, unless the server's configuration changes it |
+
+At the same visual quality, WebP at effort `2` takes half the time of `4` and
+makes files about 6% larger than at `4`.
 
 <!-- tabs-open -->
 
@@ -313,7 +316,13 @@ Accepts these fields. Default: the host's AVIF encoder settings.
 | Field | Values | Effect |
 | --- | --- | --- |
 | `subsample` | `auto`, `on`, `off` | Chroma subsampling |
-| `effort` | `0` to `9` | Higher is slower and smaller |
+| `effort` | `0` to `9` | Higher is slower and smaller. Default `3`, unless the server's configuration changes it |
+
+At the same visual quality, AVIF at effort `4` takes three to five times as
+long as at `3` and makes files about 5% smaller. Effort `1` takes less than
+half the time of `3` and makes files about 10% larger.
+[`autoquality`](#autoquality) encodes once for each quality it tries, so it
+multiplies the encode time.
 
 <!-- tabs-open -->
 
