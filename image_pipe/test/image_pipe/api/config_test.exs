@@ -119,7 +119,7 @@ defmodule ImagePipe.Plug.ConfigTest do
     assert config[:jpeg_options] == %JpegOptions{}
     assert config[:png_options] == %PngOptions{}
     assert config[:webp_options] == %WebpOptions{}
-    assert config[:avif_options] == %AvifOptions{effort: 3}
+    assert config[:avif_options] == %AvifOptions{effort: 3, subsample_mode: :off}
     refute Keyword.has_key?(config, :format_order)
     refute Keyword.has_key?(config, :allow_origin)
   end
@@ -226,12 +226,12 @@ defmodule ImagePipe.Plug.ConfigTest do
       Config.validate!(
         format_quality: %{webp: 50},
         jpeg_options: [interlace: true],
-        avif_options: [subsample_mode: :off]
+        avif_options: [subsample_mode: :on]
       )
 
     assert config[:format_quality] == %{webp: 50, avif: 63}
     assert config[:jpeg_options] == %JpegOptions{interlace: true}
-    assert config[:avif_options] == %AvifOptions{subsample_mode: :off, effort: 3}
+    assert config[:avif_options] == %AvifOptions{subsample_mode: :on, effort: 3}
   end
 
   test "rejects invalid output ranges, formats, targets, and encoder settings" do

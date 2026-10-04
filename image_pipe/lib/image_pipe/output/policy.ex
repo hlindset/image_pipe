@@ -17,12 +17,13 @@ defmodule ImagePipe.Output.Policy do
   @default_search_rails {25, 95}
   @search_tolerance 0.5
 
-  # Median quality that reaches each target, per format (Part N). The search
+  # Median quality that reaches each target, per format (Part N; AVIF without
+  # chroma subsampling, Part P). The search
   # starts there, interpolating between targets and extending the end segments.
   @start_quality %{
     jpeg: [{70, 67}, {72, 71}, {75, 76}, {78, 82}, {80, 85}, {85, 90}],
     webp: [{70, 67}, {72, 74}, {75, 78}, {78, 83}, {80, 85}, {85, 90}],
-    avif: [{70, 50}, {72, 52}, {75, 56}, {78, 63}, {80, 68}, {85, 81}]
+    avif: [{70, 49}, {72, 50}, {75, 53}, {78, 56}, {80, 59}, {85, 71}]
   }
 
   @enforce_keys [

@@ -441,7 +441,7 @@ defmodule ImagePipe.PlugTest do
         blue: 255,
         alpha: [unit: :ratio, numerator: 1, denominator: 1]
       ],
-      encoder_options: %{avif: %{effort: 3, subsample_mode: nil}},
+      encoder_options: %{avif: %{effort: 3, subsample_mode: :off}},
       skip_formats: []
     ]
   end

@@ -304,7 +304,7 @@ defmodule ImagePipe.Output.PolicyTest do
     test "starts each format's search at its calibrated quality for the target" do
       search = %QualitySearch{target: 75.0}
 
-      for {format, start} <- [jpeg: 76, webp: 78, avif: 56] do
+      for {format, start} <- [jpeg: 76, webp: 78, avif: 53] do
         assert {:ok, %Resolved{quality_search: rs}} =
                  Policy.resolve(policy_with(search, format: format), nil)
 
@@ -320,7 +320,7 @@ defmodule ImagePipe.Output.PolicyTest do
 
       low = %QualitySearch{target: 73.5}
 
-      assert {:ok, %Resolved{quality_search: %{start_quality: 54}}} =
+      assert {:ok, %Resolved{quality_search: %{start_quality: 52}}} =
                Policy.resolve(policy_with(low, format: :avif), nil)
     end
 

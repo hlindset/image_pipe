@@ -77,6 +77,17 @@ defmodule ImagePipe.API.QualityWireTest do
     assert_image(response, "image/avif", {128, 85})
   end
 
+  test "AVIF encodes full-resolution color unless chroma subsampling is requested" do
+    config = mount()
+    default = response("w=128/format=avif", config)
+    full = response("w=128/format=avif/avif-options=subsample:off", config)
+    subsampled = response("w=128/format=avif/avif-options=subsample:on", config)
+
+    assert_image(default, "image/avif", {128, 85})
+    assert default.resp_body == full.resp_body
+    refute default.resp_body == subsampled.resp_body
+  end
+
   test "lossless WebP rejects explicit search requests before source or cache access" do
     config = mount(webp_options: [lossless: true], cache: {CacheProbe, []})
 
