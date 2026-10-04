@@ -251,14 +251,19 @@ defmodule ImagePipe.Plug.Runner do
     }
   end
 
-  defp put_resp_headers(conn, headers) do
-    Enum.reduce(headers, conn, fn {name, value}, acc ->
-      Plug.Conn.put_resp_header(acc, name, value)
+  defp with_policy_headers(conn, %Policy{headers: headers}) do
+    Enum.reduce(headers, conn, fn
+      {"vary", value}, acc ->
+        Plug.Conn.put_resp_header(
+          acc,
+          "vary",
+          CacheHeaders.merge_vary(acc, CacheHeaders.split_vary(value))
+        )
+
+      {name, value}, acc ->
+        Plug.Conn.put_resp_header(acc, name, value)
     end)
   end
-
-  defp with_policy_headers(conn, %Policy{headers: headers}),
-    do: put_resp_headers(conn, headers)
 
   defp with_policy_headers(conn, nil), do: conn
 
