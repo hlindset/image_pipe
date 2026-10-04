@@ -609,14 +609,14 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     refute File.exists?(root)
   end
 
-  test "a corrupt original fails open while a surviving output remains usable", %{
+  test "a truncated original fails open while a surviving output remains usable", %{
     config: config,
     root: root
   } do
     first = request(config, 12)
     assert_receive {:origin, _, []}
     [body] = Path.wildcard(Path.join(root, "input/**/*.body"))
-    File.write!(body, String.duplicate("x", File.stat!(body).size))
+    File.write!(body, binary_part(File.read!(body), 0, 100))
     assert request(config, 12).resp_body == first.resp_body
     refute_received {:origin, _, _}
     assert request(config, 8).status == 200
