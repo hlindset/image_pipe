@@ -380,8 +380,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
             outcome: :hit,
             final_score: 90.42,
             scorer: :crop,
-            tiles_scored: 16,
-            confirm_passes: 1
+            tiles_scored: 16
           }
         )
       end)
@@ -443,12 +442,12 @@ defmodule ImagePipe.Telemetry.LoggerTest do
         :telemetry.execute(
           [:image_pipe, :encode, :search, :probe, :stop],
           %{duration: System.convert_time_unit(1, :millisecond, :native)},
-          %{result: :ok, phase: :confirm, quality: 65, bytes: 6500, score: 90.42}
+          %{result: :ok, phase: :cap, quality: 65, bytes: 6500, score: 90.42}
         )
       end)
 
     refute log =~ "[warning]"
-    assert log =~ "encode search probe: ok (confirm q65 6500b score 90.42)"
+    assert log =~ "encode search probe: ok (cap q65 6500b score 90.42)"
   end
 
   test "renders the delivered-probe chosen marker with quality, bytes, phase, score" do

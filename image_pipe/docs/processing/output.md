@@ -66,9 +66,12 @@ Default: the quality set in the server's configuration, 80 unless changed (see
 any automatic quality search the host turns on. Combining `q` with an
 `autoquality` method in the same request fails with `400`.
 
-PNG has no default quality and ignores `q` unless `palette` is on in
-[`png-options`](#png-options), where `q` sets the quantization quality. For
-lossless WebP, `q` sets compression effort rather than image quality.
+PNG is lossless, so `q` applies to it only when `palette` is on in
+[`png-options`](#png-options) or the host's PNG settings. There it sets the
+quantization quality: a lower `q` allows less accurate colors for a smaller
+file. Without a palette, `format=png` with `q` fails with `400`, and any
+other PNG response ignores `q`. For lossless WebP, `q` sets compression effort
+rather than image quality.
 
 <!-- tabs-open -->
 
@@ -97,7 +100,8 @@ qualities set in the server's configuration.
 
 Only the entry for the format the response uses applies, so one URL can set
 qualities for every format the browser might get. Formats you leave out keep
-their host quality. `q`, when present, wins.
+their host quality. `q`, when present, wins. A `png` entry fails with `400`
+unless `palette` is on, even when the response isn't PNG.
 
 <!-- tabs-open -->
 
@@ -252,7 +256,7 @@ Accepts these fields. Default: the host's PNG encoder settings.
 | Field | Values | Effect |
 | --- | --- | --- |
 | `interlace` | boolean | Interlaced PNG |
-| `palette` | boolean | Palette (indexed color) PNG |
+| `palette` | boolean | Palette (indexed color) PNG. [`q`](#q) sets its quantization quality |
 | `bitdepth` | `1`, `2`, `4`, `8`, `16` | Bits per channel |
 | `filter` | `none`, `sub`, `up`, `avg`, `paeth`, `all` | Row filter |
 
@@ -501,10 +505,12 @@ the image the same URL returns. Use the `lqip-css` value as
 - `blurhash` and `lqip_css` appear when named after `info`, with the same
   values `output=blurhash` and `output=lqip-css` return.
 
-Placeholders and info ignore the image options (`format`, `q`, `profile`,
-and the rest of this page), so a URL that works for an image keeps working
-when you switch it to a placeholder or `info`. These responses have a fixed
-content type and no `Vary: Accept`.
+Placeholders and info check the image options (`format`, `q`, `profile`,
+and the rest of this page) as an image request would, then ignore them. A URL
+that works for an image keeps working when you switch it to a placeholder or
+`info`. A URL an image request rejects, such as `profile=srgb/hdr=preserve`,
+fails with `400` for them too. These responses have a fixed content type and
+no `Vary: Accept`.
 
 <!-- tabs-open -->
 

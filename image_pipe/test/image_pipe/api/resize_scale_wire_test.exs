@@ -39,7 +39,6 @@ defmodule ImagePipe.API.ResizeScaleWireTest do
         {"w=100/dpr=0.00000001", {150, 150}, {1, 1}},
         {"rotate=90/w=50/dpr=2/pad=10", {150, 100}, {140, 190}},
         {"w=100/h=100/fit=cover/dpr=2", {150, 100}, {100, 100}},
-        {"w=100/h=100/fit=cover-down/dpr=2/enlarge", {150, 100}, {100, 100}},
         {"w=300/h=200/extend", {120, 90}, {300, 200}},
         {"w=300/h=200/extend/dpr=2", {120, 90}, {300, 200}},
         {"w=300/h=200/extend/dpr=0.5", {120, 90}, {150, 100}}

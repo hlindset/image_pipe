@@ -28,7 +28,7 @@ defmodule ImagePipe.Processing.DebugBuilder do
       output_height: Image.height(ctx.image),
       output_quality: output_quality(ctx.resolved_output, ctx.search_meta),
       output_stripped?: ctx.resolved_output.strip_metadata,
-      output_color_profile: ctx.resolved_output.color_profile,
+      output_color_profile: color_profile(ctx.resolved_output.color_profile),
       aq: aq_from_meta(ctx.resolved_output, ctx.search_meta),
       pipeline: ctx.operations,
       timings: ctx.timings
@@ -39,6 +39,9 @@ defmodule ImagePipe.Processing.DebugBuilder do
   def build_terminal(operations, total_us) do
     %Info{pipeline: operations, timings: %{total: total_us}}
   end
+
+  defp color_profile({:convert, profile}), do: profile
+  defp color_profile(policy), do: policy
 
   defp negotiated?(%Policy{mode: {:explicit, _format}}), do: false
   defp negotiated?(%Policy{mode: :source}), do: true

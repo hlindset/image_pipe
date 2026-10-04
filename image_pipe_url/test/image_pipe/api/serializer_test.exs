@@ -32,7 +32,7 @@ defmodule ImagePipe.API.SerializerTest do
       |> IP.URL.group(
         trim: {"white", 12},
         trim_symmetry: :horizontal,
-        region: {-1, 2, {:pct, 80}, 20}
+        region: {1, 2, {:pct, 80}, 20}
       ),
       IP.URL.new()
       |> IP.URL.group(
@@ -54,7 +54,7 @@ defmodule ImagePipe.API.SerializerTest do
           height: 60,
           min_width: 20,
           min_height: 10,
-          fit: :cover_down,
+          fit: :cover,
           enlarge: true,
           zoom: {1.2, 2}
         ],

@@ -640,7 +640,6 @@ image at several qualities and delivers one of those encodes.
   - `:scorer` (atom): `:full` when the whole image was scored, or `:crop`
     when crops of a large image were scored instead.
   - `:tiles_scored` (integer): crops scored, at most 16. `:crop` only.
-  - `:confirm_passes` (integer): always `0`.
 
 ### `[:encode, :search, :probe]`
 

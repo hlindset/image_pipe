@@ -155,7 +155,7 @@ plan, before any image is read. With `fit: :fill`:
 ```text
 ** (ArgumentError) expected :fit option to match at least one given type, but didn't match any. Here are the reasons why it didn't match each of the allowed types:
 
-  * invalid value for :fit option: expected one of [:contain, :cover, :cover_down, :stretch, :auto], got: :fill
+  * invalid value for :fit option: expected one of [:contain, :cover, :stretch, :auto], got: :fill
   * invalid value for :fit option: expected one of [:unset], got: :fill (in options [:resize])
 ```
 

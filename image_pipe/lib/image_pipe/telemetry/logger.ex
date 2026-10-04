@@ -171,7 +171,7 @@ defmodule ImagePipe.Telemetry.Logger do
 
   # A best-effort encode-quality search (the objective/budget could not be met
   # within the bracket) degrades the result; surface it, and any search
-  # exception, as a warning. Other outcomes (:hit, :skipped) log at the base level.
+  # exception, as a warning. A :hit logs at the base level.
   defp level_for([:encode, :search | _] = suffix, metadata, base) do
     cond do
       List.last(suffix) == :exception -> :warning

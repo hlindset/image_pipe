@@ -308,7 +308,7 @@ defmodule ImagePipe.Plan.Presets do
         is_integer(Map.get(options, key))
       end)
 
-    resize_intent? and Map.get(options, :fit) in [:cover, :cover_down, :auto]
+    resize_intent? and Validation.cover_fit?(options)
   end
 
   defp issue(reason, index, name, other \\ nil) do

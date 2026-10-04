@@ -195,9 +195,9 @@ defmodule ImagePipe.Processing.Config do
                       doc: """
                       Target per method. Merged with the defaults, \
                       `%{ssimulacra2: 78, butteraugli: 1.0}`. SSIMULACRA2 targets are \
-                      `0..100` and Butteraugli targets `0..25`. `:size` search needs a \
-                      byte target, such as `%{size: 50_000}`. Without one, requests that \
-                      use it fail.
+                      `0..100` and Butteraugli targets `0..25`. `autoquality_method: :size` \
+                      needs a target in whole bytes, such as `%{size: 50_000}`, or the \
+                      configuration is rejected.
                       """
                     ],
                     autoquality_allowed_error: [
@@ -378,6 +378,7 @@ defmodule ImagePipe.Processing.Config do
     Enum.each(@quality_value_keys, &validate_quality_value!(&1, Keyword.fetch!(resolved, &1)))
     Enum.each(@quality_map_keys, &validate_quality_map!(&1, Keyword.fetch!(resolved, &1)))
     validate_target!(Keyword.fetch!(resolved, :autoquality_target))
+    validate_size_target!(resolved)
     validate_allowed_error!(Keyword.fetch!(resolved, :autoquality_allowed_error))
     validate_brackets!(resolved)
     validate_encoder_options!(resolved)
@@ -450,6 +451,15 @@ defmodule ImagePipe.Processing.Config do
 
   defp validate_target!(target_map) do
     Enum.each(target_map, fn {metric, value} -> validate_target_metric!(metric, value) end)
+  end
+
+  defp validate_size_target!(resolved) do
+    if Keyword.fetch!(resolved, :autoquality_method) == :size and
+         not Map.has_key?(Keyword.fetch!(resolved, :autoquality_target), :size) do
+      raise ArgumentError,
+            "invalid ImagePipe processing options: autoquality_method :size needs a :size " <>
+              "entry in autoquality_target, such as %{size: 50_000}"
+    end
   end
 
   defp validate_target_metric!(:size, value) do

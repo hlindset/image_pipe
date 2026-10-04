@@ -63,7 +63,6 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
     assert stop_meta.final_score == score_value
     assert is_integer(stop_meta.iterations)
     assert stop_meta.scorer == :full
-    assert stop_meta.confirm_passes == 0
     # :hit carries no limiting factor; nil metadata is stripped by the layer.
     refute Map.has_key?(stop_meta, :limiting_factor)
     # nil metadata is stripped, so the full-frame path emits no tiles_scored key.
@@ -124,7 +123,7 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
     assert stop_meta.error == :encode
   end
 
-  test "confirm/bump probes carry the phase + the crop→full residual fields" do
+  test "crop probes and the chosen marker carry the scorer and tile count" do
     rs = %RQS.Ssimulacra2{
       target: 90.0,
       min_quality: 10,
@@ -133,10 +132,7 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
     }
 
     enc = fn q -> {:ok, :binary.copy(<<0>>, q * 100)} end
-    # estimate over-reports by +1: objective picks q64 (est 90), true at 64 is 89
-    # (undershoot), true at 65 is 90 (clears) -> one confirm + one bump.
-    estimate = fn bin -> byte_size(bin) / 100 + 26.0 end
-    confirm = fn bin -> byte_size(bin) / 100 + 25.0 end
+    estimate = fn bin -> byte_size(bin) / 100 + 25.0 end
 
     telemetry_opts = Telemetry.telemetry_opts(telemetry_prefix: @prefix)
 
@@ -144,10 +140,6 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
              EncodeSearch.search(rs, nil,
                encode_fun: enc,
                score_fun: estimate,
-               confirm_fun: confirm,
-               confirm_band: 90.0,
-               confirm_max_quality: 80,
-               max_bump_passes: 2,
                scorer: :crop,
                scorer_tiles: 12,
                telemetry_opts: telemetry_opts
@@ -155,28 +147,12 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
 
     {probes, _durations} = collect_probes()
 
-    confirm_probes = Enum.filter(probes, &(&1.phase in [:confirm, :bump]))
-    assert Enum.map(confirm_probes, & &1.phase) == [:confirm, :bump]
-
-    for probe <- confirm_probes do
+    for probe <- probes do
+      assert probe.phase == :objective
       assert probe.scorer == :crop
       assert probe.tiles_scored == 12
-      # estimate (q+26) and authoritative full-frame (q+25) differ by exactly 1.0:
-      # the crop→full residual, surfaced for shadow calibration.
-      assert_in_delta probe.full_frame_score - probe.crop_estimate, -1.0, 0.001
-      assert probe.score == probe.full_frame_score
-      assert is_boolean(probe.passed?)
     end
 
-    # confirm@64 undershoots (q64 -> 89 < 90); bump@65 clears (q65 -> 90).
-    [confirm64, bump65] = confirm_probes
-    assert confirm64.quality == 64 and confirm64.passed? == false
-    assert bump65.quality == 65 and bump65.passed? == true
-
-    # the delivered q65 was first encoded during the objective walk (probed as an
-    # overshoot); the bump only re-scored those already-memoized bytes. So the
-    # chosen marker names :objective — the phase that produced the shipped bytes,
-    # not the phase that re-validated them.
     assert_receive {:telemetry, @chosen, _m, chosen}
     assert chosen.quality == 65
     assert chosen.phase == :objective

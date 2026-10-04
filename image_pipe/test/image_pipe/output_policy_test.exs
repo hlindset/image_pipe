@@ -4,6 +4,7 @@ defmodule ImagePipe.Output.PolicyTest do
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch
+  alias ImagePipe.Plan.Output.PngOptions
   alias ImagePipe.Plan.Output.QualitySearch
 
   describe "resolve/2" do
@@ -199,7 +200,8 @@ defmodule ImagePipe.Output.PolicyTest do
         format_qualities: %{jpeg: {:quality, 82}, png: {:quality, 70}},
         strip_metadata: true,
         keep_copyright: true,
-        color_profile: :strip
+        color_profile: :strip,
+        encoder_options: %{png: %PngOptions{palette: true}}
       }
 
       assert negotiate_alpha(policy, false) ==
@@ -219,7 +221,8 @@ defmodule ImagePipe.Output.PolicyTest do
                  response_headers: [{"vary", "Accept"}],
                  strip_metadata: true,
                  keep_copyright: true,
-                 color_profile: :strip
+                 color_profile: :strip,
+                 encoder_options: %PngOptions{palette: true}
                }
     end
   end
@@ -499,9 +502,12 @@ defmodule ImagePipe.Output.PolicyTest do
       assert {:ok, %{quality: :default}} = Policy.resolve(policy, nil)
     end
 
-    test "explicit URL q wins for all formats incl png" do
+    test "explicit URL q applies to png only with a palette" do
       policy = policy_for(:png, quality: {:quality, 50}, default_quality: {:quality, 80})
-      assert {:ok, %{quality: {:quality, 50}}} = Policy.resolve(policy, nil)
+      assert {:ok, %{quality: :default}} = Policy.resolve(policy, nil)
+
+      palette = %{policy | encoder_options: %{png: %PngOptions{palette: true}}}
+      assert {:ok, %{quality: {:quality, 50}}} = Policy.resolve(palette, nil)
     end
   end
 

@@ -252,6 +252,7 @@ defmodule ImagePipe.Plug.ConfigTest do
       [autoquality_target: %{butteraugli: -1}],
       [autoquality_target: %{size: 0}],
       [autoquality_target: %{size: 1.5}],
+      [autoquality_method: :size],
       [autoquality_allowed_error: %{ssimulacra2: -1}],
       [autoquality_allowed_error: %{size: 1}],
       [jpeg_options: %JpegOptions{quant_table: 9}],

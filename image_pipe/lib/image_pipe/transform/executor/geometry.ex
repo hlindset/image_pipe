@@ -21,7 +21,7 @@ defmodule ImagePipe.Transform.Executor.Geometry do
     base = %{width: base.width * scale, height: base.height * scale}
 
     scale =
-      case resize.enlarge and mode != :cover_down do
+      case resize.enlarge do
         true -> dpr
         false -> min(dpr, min(width / base.width, height / base.height))
       end
@@ -39,7 +39,7 @@ defmodule ImagePipe.Transform.Executor.Geometry do
   @spec resize_dimensions(atom(), map(), {pos_integer(), pos_integer()}) ::
           {pos_integer(), pos_integer()}
   def resize_dimensions(mode, target, {width, height})
-      when mode in [:cover, :cover_down, :auto_cover] do
+      when mode in [:cover, :auto_cover] do
     source_ratio = width / height
 
     case source_ratio > target.width / target.height do

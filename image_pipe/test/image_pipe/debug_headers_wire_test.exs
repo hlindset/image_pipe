@@ -277,6 +277,21 @@ defmodule ImagePipe.DebugHeadersWireTest do
     assert server_timing =~ "encode;dur="
   end
 
+  test "a named output color profile renders as its name" do
+    for {value, rendered} <- [
+          {"srgb", "srgb"},
+          {"display-p3", "display_p3"},
+          {"adobe-rgb", "adobe_rgb"},
+          {"preserve", "preserve_source"}
+        ] do
+      path = with_debug("/w=40/profile=#{value}/format=jpeg/src/images/beach.jpg")
+      conn = call(path, base_opts(allow_debug_headers: true))
+
+      assert conn.status == 200
+      assert header(conn, "x-imagepipe-output-color-profile") == rendered
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # G2 — ETag / cache-key invariance
   # Uses StableOrigin so the HTTP cache issues an ETag on the miss path.

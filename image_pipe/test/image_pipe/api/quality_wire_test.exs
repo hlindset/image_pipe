@@ -240,6 +240,10 @@ defmodule ImagePipe.API.QualityWireTest do
           "max-bytes=0",
           "format=png/max-bytes=1000",
           "format=png/autoquality=ssimulacra2",
+          "format=png/q=50",
+          "format=png/png-options=filter:paeth/q=50",
+          "format=png/format-q=png:50",
+          "format-q=png:50",
           "format=jpeg/png-options=palette",
           "jpeg-options=progressive:true",
           "output=blurhash/q=50/autoquality=ssimulacra2",
@@ -252,8 +256,19 @@ defmodule ImagePipe.API.QualityWireTest do
     end
   end
 
+  test "PNG quality sets palette quantization and needs palette" do
+    config = mount()
+    low = response("w=200/format=png/png-options=palette/q=5", config)
+    high = response("w=200/format=png/png-options=palette/q=95", config)
+    assert low.status == 200 and high.status == 200
+    assert byte_size(low.resp_body) < byte_size(high.resp_body)
+
+    format_q = response("w=200/format=png/png-options=palette/format-q=png:5", config)
+    assert format_q.resp_body == low.resp_body
+  end
+
   test "BlurHash ignores configured image quality search" do
-    config = mount(autoquality_method: :size)
+    config = mount(autoquality_method: :size, autoquality_target: %{size: 10_000})
     response = response("output=blurhash", config)
     assert response.status == 200
     assert get_resp_header(response, "content-type") == ["text/plain; charset=utf-8"]

@@ -89,14 +89,13 @@ defmodule ImagePipe.Run do
   end
 
   defp result(:image, data, content_type, debug) do
-    with {:ok, format} <- format(content_type),
-         {:ok, {width, height}} <- dimensions(data, debug) do
+    with {:ok, {width, height}} <- dimensions(data, debug) do
       {:ok,
        %Result{
          terminal: :image,
          data: data,
          content_type: content_type,
-         format: format,
+         format: format(content_type),
          width: width,
          height: height
        }}
@@ -117,12 +116,8 @@ defmodule ImagePipe.Run do
     do: {:ok, %Result{terminal: terminal, content_type: content_type, data: data}}
 
   # A skipped source keeps its own format, which may be a source-only one.
-  defp format(content_type) do
-    case Enum.find(Format.source_formats(), &(Format.mime_type!(&1) == content_type)) do
-      nil -> {:error, {:unsupported_output_format, content_type}}
-      format -> {:ok, format}
-    end
-  end
+  defp format(content_type),
+    do: Enum.find(Format.source_formats(), &(Format.mime_type!(&1) == content_type))
 
   defp dimensions(_data, %{output_width: width, output_height: height})
        when is_integer(width) and is_integer(height), do: {:ok, {width, height}}

@@ -796,6 +796,14 @@ defmodule ImagePipe.API.ParserTest do
       assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
     end
 
+    test "encoder options for another format name the format they need" do
+      assert {:error, {:invalid_request, [diagnostic]}} =
+               parse(["format=webp", "jpeg-options=progressive"])
+
+      assert diagnostic.reason == :inert_option
+      assert diagnostic.message =~ "format=jpeg"
+    end
+
     test "trim symmetry without trim is inert" do
       assert {:error, {:invalid_request, diagnostics}} = parse(["trim-symmetry=h"])
       assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
@@ -866,19 +874,30 @@ defmodule ImagePipe.API.ParserTest do
       assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
     end
 
-    test "fit=auto counts as a valid guide consumer at parse time" do
-      assert {:ok, %Spec{groups: [%Group{guide: {:anchor, :center}}]}} =
-               parse(["w=800", "fit=auto"])
+    test "fit=auto with both w and h counts as a guide consumer" do
+      assert {:ok, %Spec{groups: [%Group{guide: {:anchor, :top}}]}} =
+               parse(["w=800", "h=600", "fit=auto", "anchor=top"])
     end
 
-    test "non-image outputs accept image-only output options and drop them" do
+    test "fit=auto without both w and h resizes as contain, so a guide is inert" do
+      for size <- [["w=800"], ["h=600"], ["w=800", "min-h=600"]],
+          guide <- ["anchor=top", "focus=0.5,0.5", "detect=face"] do
+        assert {:error, {:invalid_request, diagnostics}} =
+                 parse(size ++ ["fit=auto", guide])
+
+        assert Enum.any?(diagnostics, &(&1.reason == :inert_option)), inspect({size, guide})
+      end
+
+      assert {:ok, %Spec{groups: [%Group{guide: nil}]}} = parse(["w=800", "fit=auto"])
+    end
+
+    test "non-image outputs accept image-only output options" do
       for terminal <- ~w(blurhash lqip-css info),
           key <-
             ~w(format q format-q meta dpi profile hdr autoquality max-bytes jpeg-options png-options webp-options avif-options),
           spec = OptionSpec.fetch(key) do
-        assert {:ok, request} = parse(["output=" <> terminal, hd(spec.examples)])
-        assert {:ok, bare} = parse(["output=" <> terminal])
-        assert request == bare, "#{terminal} #{key}"
+        assert {:ok, _request} = parse(["output=" <> terminal, hd(spec.examples)]),
+               "#{terminal} #{key}"
       end
     end
 

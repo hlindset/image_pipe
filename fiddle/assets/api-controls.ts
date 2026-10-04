@@ -1,7 +1,7 @@
 import { sampleImages, type SourceImage } from "./source";
 export type { SourceImage } from "./source";
 
-export type ResizeMode = "contain" | "cover" | "cover-down" | "stretch" | "auto";
+export type ResizeMode = "contain" | "cover" | "stretch" | "auto";
 export type Gravity =
   | "center"
   | "top"
@@ -1162,6 +1162,12 @@ export function controlStateFromOptions(
   return s;
 }
 
+// fit=auto resizes as contain unless both w and h are numbers.
+function coverResize(s: ControlState): boolean {
+  if (s.resizeMode === "auto") return s.resizeWidthUnit === "px" && s.resizeHeightUnit === "px";
+  return s.resizeMode === "cover";
+}
+
 // Keep prerequisites in sync when a user switches a visual tool on or off.
 export function normalizeControlEdit(before: ControlState, after: ControlState): ControlState {
   const s = { ...after };
@@ -1193,13 +1199,12 @@ export function normalizeControlEdit(before: ControlState, after: ControlState):
   if (s.cropAspectRatioEnabled && !before.cropAspectRatioEnabled) s.cropEnabled = true;
   if (!s.cropEnabled && before.cropEnabled) {
     s.cropAspectRatioEnabled = false;
-    if (!s.resizeEnabled || !["cover", "cover-down", "auto"].includes(s.resizeMode))
-      s.gravityEnabled = false;
+    if (!s.resizeEnabled || !coverResize(s)) s.gravityEnabled = false;
   }
   if (s.gravityEnabled && !before.gravityEnabled && !s.cropEnabled) {
     s.resizeEnabled = true;
-    if (!["cover", "cover-down", "auto"].includes(s.resizeMode)) s.resizeMode = "cover";
     if (s.resizeWidthUnit === "auto" && s.resizeHeightUnit === "auto") s.resizeWidthUnit = "px";
+    if (!coverResize(s)) s.resizeMode = "cover";
   }
   if (
     s.zoomEnabled &&
@@ -1209,16 +1214,13 @@ export function normalizeControlEdit(before: ControlState, after: ControlState):
     !s.minHeightEnabled
   )
     s.resizeEnabled = true;
-  if (
-    s.resizeMode !== before.resizeMode &&
-    !s.cropEnabled &&
-    !["cover", "cover-down", "auto"].includes(s.resizeMode)
-  )
+  if (s.resizeMode !== before.resizeMode && !s.cropEnabled && !coverResize(s))
     s.gravityEnabled = false;
   if (
     s.resizeWidthUnit !== before.resizeWidthUnit ||
     s.resizeHeightUnit !== before.resizeHeightUnit
   ) {
+    if (!s.cropEnabled && !coverResize(s)) s.gravityEnabled = false;
     if (s.resizeWidthUnit === "auto" || s.resizeHeightUnit === "auto") {
       s.aspectCanvasEnabled = false;
       s.resizeExtendEnabled = false;

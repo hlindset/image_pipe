@@ -219,7 +219,7 @@ ImagePipe.URL.group(builder, resize: [enlarge: false])
 
 ### Named values
 
-Lowercase names, with hyphens between words: `fit=cover-down`, `flip=hv`,
+Lowercase names, with hyphens between words: `anchor=top-left`, `flip=hv`,
 `format=webp`. Each option page lists the names it accepts.
 
 <!-- tabs-open -->
@@ -227,13 +227,13 @@ Lowercase names, with hyphens between words: `fit=cover-down`, `flip=hv`,
 ### URL
 
 ```text
-fit=cover-down
+anchor=top-left
 ```
 
 ### Elixir
 
 ```elixir
-ImagePipe.URL.group(builder, resize: [fit: :cover_down])
+ImagePipe.URL.group(builder, anchor: :top_left)
 ```
 
 <!-- tabs-close -->
@@ -328,7 +328,7 @@ invalid transformation options
 /w=400/fit=fill/src/photos/beach.jpg
            ^^^^
            |
-           invalid value: expected contain, cover, cover-down, stretch, or auto
+           invalid value: expected contain, cover, stretch, or auto
 ```
 
 | Status | Meaning |

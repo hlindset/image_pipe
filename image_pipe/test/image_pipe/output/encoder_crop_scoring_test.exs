@@ -66,7 +66,7 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
     }
   end
 
-  test "stream_output crop-scores a >6 MP output with no full-frame confirm (ladder picks :crop)" do
+  test "stream_output crop-scores a >6 MP output (ladder picks :crop)" do
     attach_stop()
 
     {:ok, [_bin], _mime, _meta} =
@@ -77,9 +77,6 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
     assert_receive {:stop, meta}
     assert meta.scorer == :crop
     assert meta.tiles_scored == 16
-    # Above the crossover the search ships the crop objective winner with no
-    # full-frame confirm/bump — the O(pixels) cost the crop path exists to avoid.
-    assert meta.confirm_passes == 0
   end
 
   test "stream_output full-frame-scores a <6 MP output (ladder picks :full)" do
@@ -104,11 +101,9 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
     {:ok, _crop_bin, crop} = EncodeSearch.run(image, resolved, scorer: :crop)
 
     assert crop.scorer == :crop
-    # No full-frame confirm above the crossover: the crop objective winner ships as-is.
-    assert crop.confirm_passes == 0
     # The conservative offset biases the estimate down, so the crop walk can land a
     # step or two higher than the full-frame pick; 4 is the robust bound. This bound
-    # tracks @crop_confirm_skipped_offset — retune it together with the offset.
+    # tracks the crop offset — retune it together with the offset.
     assert abs(crop.quality - full.quality) <= 4
     # meta.score is the offset-corrected crop estimate the walk converged to; by
     # construction it sits at/above the band floor.
@@ -150,12 +145,9 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
     legs = drain_legs()
     by_stage = Enum.group_by(legs, &elem(&1, 0), &elem(&1, 1))
 
-    # probe spans tag their phase; above the crossover crop mode runs the objective
-    # walk only — no confirm/bump phase fires.
+    # probe spans tag their phase.
     probe_phases = by_stage |> Map.fetch!([:encode, :search, :probe]) |> Enum.map(& &1.phase)
     assert :objective in probe_phases
-    refute :confirm in probe_phases
-    refute :bump in probe_phases
 
     # every objective/cap probe encodes -> an encode leg with the produced byte size.
     encode_legs = Map.fetch!(by_stage, [:encode, :search, :probe, :encode])
@@ -167,8 +159,7 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
     metric_legs = Map.fetch!(by_stage, [:encode, :search, :probe, :ssimulacra2, :metric])
     assert metric_legs != []
     assert Enum.all?(metric_legs, &is_float(&1.score))
-    # Every probe crop-scores K tiles (tiles_scored: 16); there is no whole-frame
-    # confirm leg above the crossover.
+    # Every probe crop-scores K tiles (tiles_scored: 16).
     assert Enum.all?(metric_legs, &(Map.get(&1, :tiles_scored) == 16))
   end
 

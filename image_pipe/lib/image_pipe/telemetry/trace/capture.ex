@@ -130,20 +130,16 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     :outcome,
     :iterations,
     :tiles_scored,
-    :confirm_passes,
     # content classification for the per-class crop offset (#380): all product-neutral
     # (a class atom, a constant offset, two image statistics)
     :content_class,
     :applied_offset,
     :palette_ent,
     :nat_var,
-    # per-probe span attributes: phase, the search-level limiting factor, and the
-    # crop→full confirm residual (all product-neutral numbers/atoms)
+    # per-probe span attributes: phase and the search-level limiting factor (both
+    # product-neutral atoms)
     :phase,
     :limiting_factor,
-    :crop_estimate,
-    :full_frame_score,
-    :passed?,
     # fetch/decode shape
     :load_option,
     :loaded_dims,

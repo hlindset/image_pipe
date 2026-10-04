@@ -36,7 +36,6 @@ defmodule ImagePipe.API.OptionSpec do
   @fit_map %{
     "contain" => :contain,
     "cover" => :cover,
-    "cover-down" => :cover_down,
     "stretch" => :stretch,
     "auto" => :auto
   }
@@ -189,7 +188,7 @@ defmodule ImagePipe.API.OptionSpec do
         name: :fit,
         scope: :group,
         value: &__MODULE__.parse_fit/1,
-        summary: "Resize mode: contain, cover, cover-down, stretch, or auto",
+        summary: "Resize mode: contain, cover, stretch, or auto",
         examples: ["fit=cover"]
       },
       %__MODULE__{
@@ -357,7 +356,7 @@ defmodule ImagePipe.API.OptionSpec do
         name: :brightness,
         scope: :group,
         value: &__MODULE__.parse_brightness/1,
-        summary: "Additive brightness adjustment from -255 to 255",
+        summary: "Additive brightness adjustment from -255 to 255 (8-bit scale)",
         examples: ["brightness=-20"]
       },
       %__MODULE__{
@@ -764,7 +763,7 @@ defmodule ImagePipe.API.OptionSpec do
 
   @doc false
   @spec parse_fit(String.t()) ::
-          {:ok, :contain | :cover | :cover_down | :stretch | :auto} | {:error, :invalid_fit}
+          {:ok, :contain | :cover | :stretch | :auto} | {:error, :invalid_fit}
   def parse_fit(string) do
     case Map.fetch(@fit_map, string) do
       {:ok, fit} -> {:ok, fit}
@@ -866,13 +865,20 @@ defmodule ImagePipe.API.OptionSpec do
           | {:error, atom()}
   def parse_region(string) do
     case Value.csv(string, 4..4, [
-           &Value.length/1,
-           &Value.length/1,
+           &non_negative_length/1,
+           &non_negative_length/1,
            &positive_length/1,
            &positive_length/1
          ]) do
       {:ok, [x, y, w, h]} -> {:ok, {x, y, w, h}}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp non_negative_length(string) do
+    case Value.length(string) do
+      {:ok, {_unit, value} = length} when value >= 0 -> {:ok, length}
+      _invalid -> {:error, :invalid_length}
     end
   end
 

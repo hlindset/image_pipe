@@ -35,6 +35,30 @@ defmodule ImagePipe.API.CropFrameWireTest do
     end
   end
 
+  test "a negative region origin is rejected before fetching a source" do
+    config =
+      ImagePipe.Plug.init(
+        sources: [
+          path: [
+            adapter: RootHTTPAdapter,
+            match: :path,
+            options: [
+              root_url: "http://origin.test",
+              req_options: [plug: fn _conn -> flunk("negative region fetched a source") end]
+            ]
+          ]
+        ]
+      )
+
+    for region <- ["-500,-500,10,10", "0,-1,10,10", "-5pct,0,10,10"] do
+      response =
+        conn(:get, "/region=#{region}/src/image.png")
+        |> ImagePipe.Plug.call(config)
+
+      assert response.status == 400, region
+    end
+  end
+
   test "percentage crops use the trimmed input and preserve its pixel coordinates" do
     content =
       Image.new!(80, 40, color: [220, 20, 60])

@@ -230,6 +230,18 @@ defmodule ImagePipe.API.InfoWireTest do
     end
   end
 
+  test "image options an image request rejects fail non-image outputs before fetch", %{
+    body: body
+  } do
+    config = mount(body)
+
+    for output <- ["image", "info", "blurhash", "lqip-css"] do
+      response = request("output=#{output}/profile=srgb/hdr=preserve", config)
+      assert response.status == 400, output
+      refute_received :origin_fetch
+    end
+  end
+
   test "host image encoding policies do not change info", %{body: body} do
     plain = request("output=info", mount(body))
 

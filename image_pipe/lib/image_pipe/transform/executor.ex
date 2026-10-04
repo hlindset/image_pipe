@@ -331,7 +331,7 @@ defmodule ImagePipe.Transform.Executor do
   end
 
   defp resize_tail(mode, target, guide, offset)
-       when mode in [:cover, :cover_down, :auto_cover] do
+       when mode in [:cover, :auto_cover] do
     {x_offset, y_offset} = resize_offsets(offset, target.dpr)
 
     %Crop{

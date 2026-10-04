@@ -75,7 +75,7 @@ Each header carries one value. A header whose value is unknown is left out.
 | `X-ImagePipe-Output-Height` | `900` | Height of the response image |
 | `X-ImagePipe-Output-Quality` | `72` | Encoder quality used, or `default` when the encoder's own default applied |
 | `X-ImagePipe-Output-Stripped` | `true` | Whether metadata was removed |
-| `X-ImagePipe-Output-Color-Profile` | `strip` | What happened to the color profile: `strip` (removed) or `preserve_source` (kept) |
+| `X-ImagePipe-Output-Color-Profile` | `strip` | The [`profile`](processing/output.md#profile) the response used: `strip`, `preserve_source` (for `profile=preserve`), `srgb`, `display_p3`, or `adobe_rgb` |
 
 ### Automatic quality
 
