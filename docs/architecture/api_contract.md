@@ -637,9 +637,10 @@ responses are not written to the output cache.
 
 ### Request delivery controls
 
-`filename=photo` supplies a response filename stem. `attachment` (or
-`attachment=true`) selects download disposition; `attachment=false` selects
-inline disposition and overrides an inherited preset value. Both apply to image,
+`filename=photo` supplies a response filename stem. `attachment` selects
+download disposition; `attachment=false` selects inline disposition and
+overrides an inherited preset value. As with every bare flag,
+`attachment=true` is rejected. Both apply to image,
 BlurHash, LQIP CSS, and info responses. ImagePipe adds the actual response's extension,
 including `.txt` for BlurHash and LQIP CSS and `.json` for info. Filename and attachment
 settings are applied from the current request on cache hits as well as misses.
