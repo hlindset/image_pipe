@@ -95,8 +95,13 @@ COPY --from=build /usr/local/lib/vips-runtime-packages /tmp/vips-runtime-package
 RUN apt-get update && apt-get install -y --no-install-recommends \
       $(cat /tmp/vips-runtime-packages) \
       libheif-plugin-aomdec libheif-plugin-aomenc \
-      libstdc++6 libncurses6 libsctp1 openssl ca-certificates curl \
+      libstdc++6 libncurses6 libsctp1 openssl ca-certificates curl libjemalloc2 \
     && rm -rf /var/lib/apt/lists/* /tmp/vips-runtime-packages
+
+# rel/env.sh preloads jemalloc from this path, which is the same on every
+# architecture.
+RUN ln -s "$(dpkg -L libjemalloc2 | grep '/libjemalloc.so.2$')" /usr/local/lib/libjemalloc.so.2 \
+    && LD_PRELOAD=/usr/local/lib/libjemalloc.so.2 /bin/true
 
 COPY --from=build /usr/local/lib/libvips* /usr/local/lib/
 RUN ldconfig

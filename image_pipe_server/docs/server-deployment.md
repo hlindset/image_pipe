@@ -208,6 +208,15 @@ server out of memory. Change the limits with `max_concurrency`, `max_queue`
 and `queue_timeout` in `[pool]`. See
 [limiting concurrent processing](../../image_pipe/docs/processing-controls.md).
 
+## Memory allocator
+
+The image runs the server with the jemalloc memory allocator, which returns
+memory that image processing frees. glibc's default allocator keeps much of
+it. Set `IMAGE_PIPE_ALLOCATOR=glibc` to use glibc instead. The server also
+uses glibc when jemalloc can't load on the host. With glibc, the server sets
+`MALLOC_ARENA_MAX=2`, which limits how much freed memory glibc keeps, unless
+you set it yourself.
+
 ## Detection
 
 Face and object detection need the `0.1.0-vision` image. Enabling it,
