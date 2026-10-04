@@ -607,13 +607,15 @@ defmodule ImagePipe.Source.HTTPTest do
       end
     end
 
-    test "rejects a Req adapter in req_options, since it would skip address pinning" do
+    test "rejects a Req adapter or unix socket in req_options, since they skip address pinning" do
       adapter = fn request -> {request, Req.Response.new(status: 200)} end
 
-      assert {:error, {:invalid_source_config, message}} =
-               HTTP.validate_options(allowed_hosts: ["x"], req_options: [adapter: adapter])
+      for {option, value} <- [adapter: adapter, unix_socket: "/tmp/origin.sock"] do
+        assert {:error, {:invalid_source_config, message}} =
+                 HTTP.validate_options(allowed_hosts: ["x"], req_options: [{option, value}])
 
-      assert message =~ "adapter"
+        assert message =~ inspect(option)
+      end
 
       assert {:ok, _opts} =
                HTTP.validate_options(
