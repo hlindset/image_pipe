@@ -310,7 +310,7 @@ defmodule ImagePipe.URL do
   @doc """
   Checks the plan as the server would, without generating a URL.
 
-      ImagePipe.URL.new(ImagePipe.url_config(config))
+      ImagePipe.URL.new(config)
       |> ImagePipe.URL.group(resize: [fit: :cover])
       |> ImagePipe.URL.validate()
       # {:error,

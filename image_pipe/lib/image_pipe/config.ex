@@ -193,7 +193,7 @@ defmodule ImagePipe.Config do
   end
 
   # Compiles static presets and request defaults; returns the resolved options
-  # and the builder's view of them for `ImagePipe.url_config/1`.
+  # and the builder's view of them for `ImagePipe.url_config/2`.
   defp presets!(options) do
     presets =
       Map.new(Keyword.fetch!(options, :presets), fn {name, value} -> {name, plan(value)} end)

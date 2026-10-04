@@ -112,8 +112,7 @@ defmodule ImagePipeFiddle.Application do
     ] ++ api_opts()
   end
 
-  @doc false
-  def signed_url_options do
+  defp signed_url_options do
     [keys: [@demo_signing_key], source_encryption_keys: [@demo_source_encryption_key]]
   end
 

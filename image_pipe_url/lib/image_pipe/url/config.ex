@@ -39,7 +39,7 @@ defmodule ImagePipe.URL.Config do
               `ImagePipe.URL.url/3` check plans as the server does. It never changes
               a generated URL, but a copy that differs from the server gives wrong
               validation results. In an app that serves its own URLs,
-              `ImagePipe.url_config/1` returns the URL configuration with this
+              `ImagePipe.url_config/2` returns the URL configuration with this
               filled in, and `ImagePipe.config/1` doesn't accept it.
               """,
               keys: [

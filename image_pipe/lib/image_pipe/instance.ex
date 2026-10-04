@@ -16,7 +16,8 @@ defmodule ImagePipe.Instance do
               type: :atom,
               required: true,
               doc: """
-              Name that `ImagePipe.Plug` mounts and `ImagePipe.config!/1` use to find the instance. It \
+              Name that `ImagePipe.Plug` mounts, `ImagePipe.run/4`, `ImagePipe.write/5`, \
+              `ImagePipe.validate/2`, and `ImagePipe.url_config/2` use to find the instance. It \
               also names the instance's supervisor.
               """
             ],

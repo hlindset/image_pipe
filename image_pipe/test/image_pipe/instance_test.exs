@@ -47,51 +47,109 @@ defmodule ImagePipe.InstanceTest do
   describe "direct execution" do
     test "stores in a bounded cache started by the instance", ctx do
       start_instance(ctx)
-      config = ImagePipe.config!(ctx.name)
 
       builder =
-        ImagePipe.URL.new(ImagePipe.url_config(config))
+        ImagePipe.URL.new(ImagePipe.url_config(ctx.name))
         |> ImagePipe.URL.group(resize: [width: 8])
         |> ImagePipe.URL.output(format: :png)
 
-      assert {:ok, _result} = ImagePipe.run(config, builder, {:source, "red.png"})
+      assert {:ok, _result} = ImagePipe.run(ctx.name, builder, {:source, "red.png"})
       assert [_ | _] = stored_bodies(ctx.cache_root)
     end
 
     test "per-call options keep the instance's cache", ctx do
       start_instance(ctx)
-      config = ImagePipe.config!(ctx.name)
-      builder = ImagePipe.URL.new(ImagePipe.url_config(config))
+      builder = ImagePipe.URL.new(ImagePipe.url_config(ctx.name))
 
-      assert {:ok, _result} = ImagePipe.run(config, builder, {:source, "red.png"}, quality: 50)
+      assert {:ok, _result} = ImagePipe.run(ctx.name, builder, {:source, "red.png"}, quality: 50)
       assert [_ | _] = stored_bodies(ctx.cache_root)
     end
 
     test "per-call caches the instance already runs, or that need no processes", ctx do
       start_instance(ctx)
-      config = ImagePipe.config!(ctx.name)
-      builder = ImagePipe.URL.new(ImagePipe.url_config(config))
+      builder = ImagePipe.URL.new(ImagePipe.url_config(ctx.name))
       unbounded = {FileSystem, root: ctx.cache_root <> "-unbounded"}
 
       for cache <- [{FileSystem, ctx.bounded}, unbounded] do
         assert {:ok, _result} =
-                 ImagePipe.run(config, builder, {:source, "red.png"}, cache: cache)
+                 ImagePipe.run(ctx.name, builder, {:source, "red.png"}, cache: cache)
       end
     end
 
     test "rejects a per-call cache that needs processes", ctx do
       start_instance(ctx)
-      config = ImagePipe.config!(ctx.name)
-      builder = ImagePipe.URL.new(ImagePipe.url_config(config))
+      builder = ImagePipe.URL.new(ImagePipe.url_config(ctx.name))
       other = Keyword.put(ctx.bounded, :root, ctx.cache_root <> "-other")
 
       assert_raise ArgumentError, ~r/ImagePipe instance/, fn ->
-        ImagePipe.run(config, builder, {:source, "red.png"}, cache: {FileSystem, other})
+        ImagePipe.run(ctx.name, builder, {:source, "red.png"}, cache: {FileSystem, other})
       end
     end
 
-    test "config!/1 raises for an instance that isn't running", ctx do
-      assert_raise ArgumentError, ~r/not running/, fn -> ImagePipe.config!(ctx.name) end
+    test "validate/2 checks a plan against the instance's presets", ctx do
+      start_instance(ctx, presets: %{"thumb" => "w=8"})
+      builder = ImagePipe.URL.new(ImagePipe.url_config(ctx.name))
+
+      assert ImagePipe.validate(ctx.name, ImagePipe.URL.group(builder, presets: ["thumb"])) == :ok
+
+      assert {:error, {:invalid_request, _issues}} =
+               ImagePipe.validate(ctx.name, ImagePipe.URL.group(builder, presets: ["nope"]))
+    end
+
+    test "an instance name that isn't running raises", ctx do
+      builder = ImagePipe.URL.new()
+
+      for call <- [
+            fn -> ImagePipe.url_config(ctx.name) end,
+            fn -> ImagePipe.run(ctx.name, builder, {:source, "red.png"}) end,
+            fn -> ImagePipe.validate(ctx.name, builder) end
+          ] do
+        assert_raise ArgumentError, ~r/not running/, call
+      end
+    end
+  end
+
+  describe "url_config/2" do
+    test "builds URLs with the instance's presets", ctx do
+      start_instance(ctx, presets: %{"thumb" => "w=8"})
+      builder = ImagePipe.URL.new(ImagePipe.url_config(ctx.name))
+
+      assert {:ok, _path} =
+               builder |> ImagePipe.URL.group(presets: ["thumb"]) |> ImagePipe.URL.url("red.png")
+
+      assert {:error, _reason} =
+               builder |> ImagePipe.URL.group(presets: ["nope"]) |> ImagePipe.URL.url("red.png")
+    end
+
+    test "mount: builds URLs the named mount accepts", ctx do
+      start_instance(ctx, mounts: [signed: [keys: [@signing_key]]])
+
+      path =
+        ImagePipe.url_config(ctx.name, mount: :signed)
+        |> ImagePipe.URL.new()
+        |> ImagePipe.URL.group(resize: [width: 8])
+        |> ImagePipe.URL.url!("red.png")
+
+      assert request(path, instance: ctx.name, mount: :signed).status == 200
+      assert request(path, instance: ctx.name).status != 200
+    end
+
+    test "rejects an unknown mount, and mount: with a configuration", ctx do
+      start_instance(ctx)
+
+      assert_raise ArgumentError, ~r/no mount named :missing/, fn ->
+        ImagePipe.url_config(ctx.name, mount: :missing)
+      end
+
+      config = ImagePipe.config(sources: ctx.sources)
+
+      assert_raise ArgumentError, ~r/mount/, fn ->
+        ImagePipe.url_config(config, mount: :signed)
+      end
+
+      assert_raise ArgumentError, ~r/unknown options \[:foo\]/, fn ->
+        ImagePipe.url_config(config, foo: 1)
+      end
     end
   end
 
@@ -175,7 +233,7 @@ defmodule ImagePipe.InstanceTest do
 
       assert request("/w=8/format=png/src/red.png", instance: ctx.name).status == 200
       assert [_ | _] = stored_bodies(ctx.cache_root)
-      assert ImagePipe.config!(ctx.name).options[:quality] == 40
+      assert ImagePipe.Config.fetch_instance!(ctx.name, nil).options[:quality] == 40
     end
 
     test "invalid options raise when the child spec is built", ctx do
