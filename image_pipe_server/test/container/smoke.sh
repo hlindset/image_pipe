@@ -51,6 +51,12 @@ fi
 
 curl -fsS "http://127.0.0.1:${port}/health" | grep -qx ok
 
+if docker logs "$name" 2>&1 | grep -q 'WARNING'; then
+  echo "the server logged a warning at startup" >&2
+  docker logs "$name" >&2
+  exit 1
+fi
+
 check_png() {
   local source=$1
   local content_type
