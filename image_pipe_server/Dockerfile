@@ -94,7 +94,7 @@ COPY --from=build /usr/local/lib/vips-runtime-packages /tmp/vips-runtime-package
 RUN apt-get update && apt-get install -y --no-install-recommends \
       $(cat /tmp/vips-runtime-packages) \
       libheif-plugin-aomdec libheif-plugin-aomenc \
-      libstdc++6 libncurses6 libsctp1 openssl ca-certificates curl \
+      libstdc++6 libncurses6 libsctp1 openssl ca-certificates \
     && rm -rf /var/lib/apt/lists/* /tmp/vips-runtime-packages
 
 COPY --from=build /usr/local/lib/libvips* /usr/local/lib/
@@ -123,8 +123,10 @@ WORKDIR /app
 EXPOSE 8080
 VOLUME ["/var/cache/image_pipe"]
 
+# The check reads the server's configuration, so it follows the port and bind
+# address wherever they're set.
 HEALTHCHECK --interval=10s --timeout=3s --start-period=10s \
-  CMD curl -fsS "http://127.0.0.1:${IPS_SERVER__PORT:-8080}/health" || exit 1
+  CMD ["/app/bin/image_pipe_server", "eval", "ImagePipeServer.Health.check()"]
 
 ENTRYPOINT ["/app/bin/image_pipe_server"]
 CMD ["start"]
