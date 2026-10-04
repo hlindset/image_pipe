@@ -50,6 +50,11 @@ URL-encode the image path, keeping its slashes:
 and the full URL `https://assets.example.com/a.jpg?v=2` becomes
 `src/https://assets.example.com/a.jpg%3Fv=2`.
 
+The server holding the image receives a full URL's path unchanged, so
+`https://assets.example.com/w_100,h_100/a+b.jpg` keeps its `,` and `+`. To
+send an escape such as `%2B`, URL-encode its `%` too:
+`src/https://assets.example.com/a%252Bb.jpg` requests `/a%2Bb.jpg`.
+
 Two other markers can take the place of `src/`:
 
 - `src64/` followed by the image path in unpadded base64url, for example
