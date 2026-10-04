@@ -84,9 +84,10 @@ defmodule ImagePipe.Plan do
   end
 
   @doc false
-  @spec validate(t(), map(), map() | nil) :: :ok | {:error, [Issue.t()]}
-  def validate(%__MODULE__{} = plan, presets \\ %{}, defaults \\ nil) do
-    case to_spec(plan, presets, defaults) do
+  @spec validate(t(), map(), map() | nil, Spec.Validation.watermarks()) ::
+          :ok | {:error, [Issue.t()]}
+  def validate(%__MODULE__{} = plan, presets \\ %{}, defaults \\ nil, watermarks \\ nil) do
+    case to_spec(plan, presets, defaults, watermarks) do
       {:ok, _request} -> :ok
       {:error, _issues} = error -> error
     end
@@ -113,8 +114,9 @@ defmodule ImagePipe.Plan do
   # such preset are checked: a missing preset can supply any option of its
   # group and of the request.
   @doc false
-  @spec validate_known(t(), map(), map() | nil) :: :ok | {:error, [Issue.t()]}
-  def validate_known(%__MODULE__{} = plan, presets, defaults) do
+  @spec validate_known(t(), map(), map() | nil, Spec.Validation.watermarks()) ::
+          :ok | {:error, [Issue.t()]}
+  def validate_known(%__MODULE__{} = plan, presets, defaults, watermarks) do
     indexed = plan |> groups() |> Enum.with_index() |> Map.new(fn {group, i} -> {i, group} end)
 
     unknown =
@@ -124,12 +126,15 @@ defmodule ImagePipe.Plan do
           do: {index, name}
 
     case unknown do
-      [] -> validate(plan, presets, defaults)
-      unknown -> validate_known_groups(indexed, plan.options, presets, defaults, unknown)
+      [] ->
+        validate(plan, presets, defaults, watermarks)
+
+      unknown ->
+        validate_known_groups(indexed, plan.options, presets, defaults, watermarks, unknown)
     end
   end
 
-  defp validate_known_groups(indexed, request, presets, defaults, unknown) do
+  defp validate_known_groups(indexed, request, presets, defaults, watermarks, unknown) do
     stubs =
       Map.new(unknown, fn {_index, name} -> {name, %{groups: %{0 => %{}}, request: %{}}} end)
 
@@ -140,7 +145,7 @@ defmodule ImagePipe.Plan do
       groups = expanded.groups |> Enum.sort() |> Enum.map(&elem(&1, 1))
 
       groups
-      |> Spec.errors(expanded.request)
+      |> Spec.errors(expanded.request, MapSet.new(), watermarks)
       |> Enum.flat_map(&in_plan_groups(&1, expanded.origins, tainted))
       |> case do
         [] -> :ok

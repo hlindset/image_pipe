@@ -153,13 +153,17 @@ defmodule ImagePipe.Config do
     case NimbleOptions.validate(resolved, @schema) do
       {:ok, validated} ->
         {preset_options, validated} = Keyword.split(validated, @preset_keys)
-        {presets, mount_presets} = presets!(preset_options)
-        url = URLConfig.put_mount_presets(url, mount_presets)
+        {presets, validate_against} = presets!(preset_options)
 
         validated =
           validated
           |> Keyword.put_new(:clock, &ProcessingConfig.system_time/0)
           |> Keyword.update!(:watermarks, &watermarks!(&1, validated))
+
+        validate_against =
+          Map.put(validate_against, :watermarks, Map.keys(Keyword.fetch!(validated, :watermarks)))
+
+        url = URLConfig.put_validate_against(url, validate_against)
 
         resolved =
           validated
@@ -175,10 +179,10 @@ defmodule ImagePipe.Config do
   end
 
   defp url_config!(%URLConfig{options: options} = url) do
-    case Keyword.has_key?(options, :mount_presets) do
+    case Keyword.has_key?(options, :validate_against) do
       true ->
         raise ArgumentError,
-              "url must not set mount_presets; configure presets on ImagePipe.config/1"
+              "url must not set validate_against; configure presets and watermarks on ImagePipe.config/1"
 
       false ->
         url

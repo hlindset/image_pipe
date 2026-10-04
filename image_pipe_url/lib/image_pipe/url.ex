@@ -186,8 +186,8 @@ defmodule ImagePipe.URL do
 
     * `{:ok, url}`.
     * `{:error, {:invalid_request, issues}}` - the configuration has
-      `:mount_presets` and the plan fails `validate/1`. Without
-      `:mount_presets`, the server checks the plan when it serves the URL.
+      `:validate_against` and the plan fails `validate/1`. Without
+      `:validate_against`, the server checks the plan when it serves the URL.
     * `{:error, :invalid_source}` - the source is empty or not valid UTF-8.
     * `{:error, :too_many_options}` - the plan has more than 64 option and
       `-` segments, the most the server accepts.
@@ -321,10 +321,11 @@ defmodule ImagePipe.URL do
   structs. The check applies the server's request defaults and the presets the
   plan names, then checks how the options combine: options that need another
   option, options that conflict, and options that have no effect, such as
-  `fit: :cover` without a width or height. It reads no source or cache, so a
-  plan that passes can still fail on a particular image.
+  `fit: :cover` without a width or height. When `:validate_against` lists
+  `:watermarks`, it also checks `watermark:` names against them. It reads no
+  source or cache, so a plan that passes can still fail on a particular image.
 
-  The check needs `:mount_presets` in the URL configuration. Without it,
+  The check needs `:validate_against` in the URL configuration. Without it,
   `validate/1` returns `:ok`. With `preset_lookup: true`, only the server can
   resolve a preset missing from `:presets`, and that preset can set any
   option of its group and of the request. For a plan that names one, the

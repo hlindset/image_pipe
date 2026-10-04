@@ -137,9 +137,10 @@ defmodule ImagePipe do
   @doc """
   Returns the configuration's URL settings for building URLs it will serve.
 
-  The result carries this configuration's presets and request defaults as
-  `:mount_presets`, so `ImagePipe.URL.validate/1` and `ImagePipe.URL.url/3`
-  check plans against them.
+  The result carries a copy of this configuration's presets, request
+  defaults, and watermark names as its `:validate_against` option, so
+  `ImagePipe.URL.validate/1` and `ImagePipe.URL.url/3` check plans against
+  them.
   """
   @spec url_config(Config.t()) :: ImagePipe.URL.Config.t()
   def url_config(%Config{url: url}), do: url

@@ -88,7 +88,7 @@ builder = ImagePipe.URL.new(ImagePipe.url_config(config)) |> ImagePipe.URL.group
 ```
 
 A builder in another application passes `preset_lookup: true` in its
-[`:mount_presets`](shared-url-settings.md#preset-names).
+[`:validate_against`](shared-url-settings.md#preset-names).
 
 ## Retire a stored preset
 

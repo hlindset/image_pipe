@@ -8,7 +8,7 @@ defmodule ImagePipe.BuilderTest do
   alias ImagePipe.Plan
 
   # Semantic checks need to know the mount's presets; this mount has none.
-  @known IP.URL.config(mount_presets: [])
+  @known IP.URL.config(validate_against: [])
 
   test "builds reusable, source-independent plans with explicit groups" do
     plan =
