@@ -43,7 +43,8 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     [:cache, :refresh],
     [:cache, :write],
     [:cache, :admission],
-    [:cache, :warm_start]
+    [:cache, :warm_start],
+    [:cache, :sweep]
   ]
 
   # One-shot (terminal) events — folded as annotations onto the current span.
@@ -74,6 +75,11 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
   # here would invert the telemetry dependency boundary.
   @safe_keys [
     :pool,
+    # files the startup sweep removed, per kind
+    :pins,
+    :temps,
+    :bodies,
+    :staged,
     :active,
     :queued,
     :operation,

@@ -42,6 +42,7 @@ defmodule ImagePipe.Telemetry.Logger do
       [:cache, :write],
       [:cache, :admission],
       [:cache, :warm_start],
+      [:cache, :sweep],
       [:cache, :input],
       [:cache, :refresh]
     ],

@@ -6,6 +6,7 @@ defmodule ImagePipe.Cache.InputRefreshTest do
   alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.Input
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Cache.Resources
   alias ImagePipe.Source
   alias ImagePipe.Source.Record
 
@@ -33,6 +34,18 @@ defmodule ImagePipe.Cache.InputRefreshTest do
       tasks: tasks,
       original: original
     }
+  end
+
+  test "an opened original is pinned under a name carrying its creation time", ctx do
+    before = System.os_time(:millisecond)
+    assert {:ok, pinned, lease} = Input.open(ctx.key, ctx.original, ctx.config)
+
+    [created] =
+      Regex.run(~r/\A\.image-pipe-pin-(\d+)-/, Path.basename(pinned), capture: :all_but_first)
+
+    assert String.to_integer(created) >= before
+    assert File.read!(pinned) == "image"
+    Resources.release(lease)
   end
 
   test "refresh preserves stored bytes and cost while updating source evidence", ctx do

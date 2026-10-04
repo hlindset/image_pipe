@@ -4,6 +4,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   alias ImagePipe.Cache.File, as: CacheFile
   alias ImagePipe.Cache.FileSystem.Admission
+  alias ImagePipe.Cache.FileSystem.Sweep
   alias ImagePipe.Cache.Key
 
   @metadata_version 1
@@ -190,6 +191,23 @@ defmodule ImagePipe.Cache.FileSystem.Store do
         id: {__MODULE__, Keyword.fetch!(opts, :root)},
         start: {Supervisor, :start_link, [children, [strategy: :one_for_all]]},
         type: :supervisor
+      }
+    end
+  end
+
+  @doc false
+  # An unbounded pool has no Admission scan, so an instance runs this one-shot
+  # sweep at start. A bounded pool sweeps after its scan.
+  def sweep_spec(opts) do
+    if not Keyword.has_key?(opts, :max_size_bytes) do
+      root = Path.join(Keyword.fetch!(opts, :root), Keyword.get(opts, :path_prefix, ""))
+      pool = Keyword.get(opts, :pool, :output)
+      telemetry = Keyword.take(opts, [:telemetry_prefix])
+
+      %{
+        id: {Sweep, Keyword.fetch!(opts, :root)},
+        start: {Task, :start_link, [Sweep, :run, [root, pool, telemetry]]},
+        restart: :temporary
       }
     end
   end
@@ -731,7 +749,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   end
 
   defp commit_body_file(body_tmp_path, body_path, body_filename) do
-    if matching_body_file?(body_path, body_filename) do
+    if adopt_body_file?(body_path, body_filename) do
       # Existing matching body content wins. The new temp body is no longer
       # needed, and cleanup is best-effort cache housekeeping.
       cleanup_temp_files([body_tmp_path])
@@ -746,12 +764,21 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   end
 
   defp use_existing_body_file(body_tmp_path, body_path, body_filename) do
-    if matching_body_file?(body_path, body_filename) do
+    if adopt_body_file?(body_path, body_filename) do
       cleanup_temp_files([body_tmp_path])
       :ok
     else
       {:error, :body_file_exists}
     end
+  end
+
+  # A body no metadata names yet looks like a leftover to the sweep once it is
+  # an hour old. Moving its mtime before reusing it keeps the sweep away while
+  # the new metadata is written. change_time fails on a missing body rather
+  # than creating an empty one, and the commit then renames its own body in.
+  defp adopt_body_file?(body_path, body_filename) do
+    :file.change_time(body_path, :calendar.local_time()) == :ok and
+      matching_body_file?(body_path, body_filename)
   end
 
   defp matching_body_file?(body_path, body_filename) do

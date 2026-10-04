@@ -365,6 +365,24 @@ its saved state at startup.
     restored.
   - `:peer_state_files` (integer): state files of other nodes present.
 
+### `[:cache, :sweep]`
+
+Span. Emitted when ImagePipe deletes the
+[files a crash left behind](cache.md#files-left-by-a-crash): once per
+`ImagePipe.Cache.FileSystem` cache when an instance starts, and once for
+staged originals when the `:image_pipe` application starts.
+
+- Start metadata: `:pool` (atom): `:output` or `:input` for a cache, `:staging`
+  for staged originals.
+- Stop metadata:
+  - `:result` (atom): `:ok`.
+  - `:bytes` (integer): total size of the deleted files.
+  - For a cache, `:pins`, `:temps` and `:bodies` (integer): how many
+    originals held open by requests, temporary writes, and bodies no
+    metadata named were deleted.
+  - For `:staging`, `:staged` (integer): how many staged originals were
+    deleted.
+
 ### `[:cache, :admission]`
 
 Span. Emitted by a bounded cache when it decides whether to keep a new entry.

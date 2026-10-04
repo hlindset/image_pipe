@@ -208,6 +208,20 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "[warning] image_pipe cache coordination: bypass (output pool)"
   end
 
+  test "logs the cache sweep span" do
+    prefix = [__MODULE__, :cache_sweep]
+    Telemetry.attach_default_logger(prefix: prefix, level: :info)
+
+    log =
+      capture_log(fn ->
+        Telemetry.span([telemetry_prefix: prefix], [:cache, :sweep], %{pool: :input}, fn ->
+          {:ok, %{result: :ok, pins: 1, temps: 0, bodies: 0, bytes: 5}}
+        end)
+      end)
+
+    assert log =~ "cache sweep: ok"
+  end
+
   test "warns when a request stops waiting for another's source download" do
     prefix = [__MODULE__, :source_wait_timeout]
     Telemetry.attach_default_logger(prefix: prefix, level: :info)

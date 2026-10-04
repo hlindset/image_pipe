@@ -27,6 +27,8 @@ defmodule ImagePipe.Cache do
 
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
+  alias ImagePipe.Cache.FileSystem.Store
+  alias ImagePipe.Cache.FileSystem.Sweep
   alias ImagePipe.Cache.Input
   alias ImagePipe.Cache.Key
   alias ImagePipe.Cache.Sink
@@ -91,6 +93,22 @@ defmodule ImagePipe.Cache do
 
   @doc false
   def shared_option_keys, do: @shared_cache_option_keys
+
+  @doc false
+  # Removes staged originals a VM that died left behind.
+  def sweep_staged, do: Sweep.run_staged(Input.staging_dir(), [])
+
+  @doc false
+  # One-shot cleanup an instance runs at start. A cache used without an
+  # instance isn't swept.
+  @spec startup_specs(keyword()) :: [Supervisor.child_spec()]
+  def startup_specs(options) do
+    for key <- [:cache, :input_cache],
+        {FileSystem, cache_opts} <- [Keyword.get(options, key)],
+        spec = Store.sweep_spec(cache_opts),
+        spec != nil,
+        do: spec
+  end
 
   @doc false
   # Processes the configured caches need, from the adapters' optional

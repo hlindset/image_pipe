@@ -295,7 +295,9 @@ defmodule ImagePipe.Execution.SourceCache do
   end
 
   defp stage(response, source, preparation, config, _known) do
-    path = Input.temporary_path(System.tmp_dir!())
+    dir = Input.staging_dir()
+    _result = File.mkdir_p(dir)
+    path = Input.temporary_path(dir)
     lease = Resources.track(path)
 
     try do

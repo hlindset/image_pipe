@@ -3,6 +3,7 @@ defmodule ImagePipe.Cache.Input do
   @moduledoc false
   alias ImagePipe.Cache.File, as: CacheFile
   alias ImagePipe.Cache.FileSystem.Store
+  alias ImagePipe.Cache.FileSystem.Sweep
   alias ImagePipe.Cache.Resources
   alias ImagePipe.Source.Record
   alias ImagePipe.Telemetry
@@ -115,7 +116,7 @@ defmodule ImagePipe.Cache.Input do
   end
 
   defp pin(path) do
-    pinned = temporary_path(Path.dirname(path))
+    pinned = Path.join(Path.dirname(path), Sweep.pin_name(random()))
     ref = Resources.track(pinned)
     pin(path, pinned, ref)
   end
@@ -133,12 +134,13 @@ defmodule ImagePipe.Cache.Input do
     end
   end
 
-  def temporary_path(root) do
-    Path.join(
-      root,
-      ".image-pipe-#{Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)}.tmp"
-    )
-  end
+  def temporary_path(root), do: Path.join(root, ".image-pipe-#{random()}.tmp")
+
+  # Staged originals live in their own directory, so the startup sweep lists
+  # only them, not the whole tmp directory.
+  def staging_dir, do: Path.join(System.tmp_dir!(), "image_pipe")
+
+  defp random, do: Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
 
   def put(key, path, record, cost, opts) do
     case Keyword.get(opts, :input_cache) do
