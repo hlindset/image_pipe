@@ -188,14 +188,12 @@ defmodule ImagePipe.Plug.ConfigTest do
         telemetry_prefix: [:private, :image_pipe],
         allow_origin: "https://images.example",
         allow_debug_headers: true,
-        output_capabilities: %{avif: false},
         storage_inputs: [{:header, "accept-language"}, {:cookie, "variant"}]
       )
 
     assert config[:telemetry_prefix] == [:private, :image_pipe]
     assert config[:allow_origin] == "https://images.example"
     assert config[:allow_debug_headers] == true
-    assert config[:output_capabilities] == %{avif: false}
 
     assert config[:storage_inputs] == [
              {:header, "accept-language"},
@@ -220,10 +218,6 @@ defmodule ImagePipe.Plug.ConfigTest do
 
     assert_raise ArgumentError, ~r/storage_inputs/, fn ->
       Config.validate!(storage_inputs: [{:header, ""}])
-    end
-
-    assert_raise ArgumentError, ~r/output_capabilities/, fn ->
-      Config.validate!(output_capabilities: %{avif: :sometimes})
     end
   end
 

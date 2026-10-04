@@ -61,6 +61,12 @@ defmodule ImagePipeServer.ConfigTest do
                "url.base_url: unknown setting"
     end
 
+    test "rejects output_capabilities in [processing]" do
+      assert error(fn ->
+               Config.options!(%{"processing" => %{"output_capabilities" => %{"avif" => true}}})
+             end) =~ "processing.output_capabilities: unknown setting"
+    end
+
     test "converts [cache] to FileSystem caches and storage inputs" do
       cache =
         Config.options!(%{

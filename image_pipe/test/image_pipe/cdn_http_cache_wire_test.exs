@@ -119,10 +119,10 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       do: StableSource.fetch(resolved, opts, runtime_opts)
   end
 
-  # `identity` is a detector-adapter option, not a mount option, so the dialect
-  # config rejects it as unknown. It is spliced onto the validated config after
-  # `ImagePipe.Plug.init/1`, where the detector reads it.
-  @post_init_keys [:identity]
+  # `identity` is a detector-adapter option and `output_capabilities` a test
+  # seam, not mount options, so the dialect config rejects them as unknown.
+  # They are spliced onto the validated config after `ImagePipe.Plug.init/1`.
+  @post_init_keys [:identity, :output_capabilities]
 
   defp init(opts) do
     {post_init, known} = Keyword.split(opts, @post_init_keys)

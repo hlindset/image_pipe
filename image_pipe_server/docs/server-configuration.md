@@ -347,7 +347,6 @@ Defaults and limits for every image the server processes. The limits on original
 | `max_result_pixels` | integer > 0 | `40000000` |
 | `auto_avif` | boolean | `true` |
 | `auto_webp` | boolean | `true` |
-| `output_capabilities` | table of boolean |  |
 | `quality` | integer > 0 | `80` |
 | `format_quality` | table of integer > 0 | `{ avif = 63, webp = 79 }` |
 | `strip_metadata` | boolean | `true` |

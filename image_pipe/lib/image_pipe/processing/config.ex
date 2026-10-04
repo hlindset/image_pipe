@@ -123,7 +123,6 @@ defmodule ImagePipe.Processing.Config do
                       `[:avif, :webp]`.
                       """
                     ],
-                    output_capabilities: [type: {:map, :atom, :boolean}, doc: false],
                     quality: [
                       type: :pos_integer,
                       doc:

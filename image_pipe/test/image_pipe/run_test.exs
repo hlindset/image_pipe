@@ -179,7 +179,7 @@ defmodule ImagePipe.RunTest do
     assert_closed()
   end
 
-  test "preflight rejects semantic, output, expiry and capability failures before resolving a source",
+  test "preflight rejects semantic, output, and expiry failures before resolving a source",
        %{bytes: bytes} do
     input = {:source, "photo.png"}
     options = owned_source(bytes)
@@ -198,14 +198,6 @@ defmodule ImagePipe.RunTest do
                IP.URL.new(expires: 999),
                input,
                Keyword.put(options, :clock, fn -> 1000 end)
-             )
-
-    assert {:error, {:unsupported_output_format, :webp}} =
-             IP.run(
-               IP.config(),
-               IP.URL.output(IP.URL.new(), format: :webp),
-               input,
-               Keyword.put(options, :output_capabilities, %{webp: false})
              )
 
     refute_received :source_resolved
