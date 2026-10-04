@@ -101,11 +101,11 @@ ImagePipe.URL.new(url_config)
 <!-- tabs-close -->
 
 In an app that serves its own URLs, build `url_config` with
-`ImagePipe.url_config(ImagePipe.config!(MyApp.Images))`. The builder then
-includes the presets and request defaults, and `ImagePipe.URL.url/3` returns an
-error for a plan the server would reject, such as an unknown preset name. A
-builder in another application needs a copy of the presets for the same
-check, described under [preset names](shared-url-settings.md#preset-names).
+`ImagePipe.url_config(MyApp.Images)`. The builder then includes the presets
+and request defaults, and `ImagePipe.URL.url/3` returns an error for a plan
+the server would reject, such as an unknown preset name. A builder in
+another application needs a copy of the presets for the same check,
+described under [preset names](shared-url-settings.md#preset-names).
 
 ## Check the result
 

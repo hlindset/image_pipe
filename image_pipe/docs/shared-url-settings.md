@@ -129,7 +129,7 @@ with `url.base_url: unknown setting`. See
 
 A Plug host's prefix is the path its router mounts `ImagePipe.Plug` at, such
 as `forward "/images", ImagePipe.Plug, …`. Its `base_url` only prefixes URLs
-built with `ImagePipe.url_config/1`. The Plug doesn't check it.
+built with `ImagePipe.url_config/2`. The Plug doesn't check it.
 
 On a mismatch:
 
@@ -189,7 +189,7 @@ See [`[processing]`](../../image_pipe_server/docs/server-configuration.md#proces
 
 A Plug host defines them as `presets:` and `request_defaults:` in
 `ImagePipe.config/1`, and may add a `preset_lookup:`. Its builder gets them
-filled in with `ImagePipe.url_config/1`.
+filled in with `ImagePipe.url_config/2`.
 
 On a mismatch:
 
@@ -293,7 +293,7 @@ See [`[processing]`](../../image_pipe_server/docs/server-configuration.md#proces
 
 A Plug host defines them as `watermarks:` and `request_watermarks:` in
 `ImagePipe.config/1`, and its builder gets the names filled in with
-`ImagePipe.url_config/1`. `request_watermarks` lets URLs name their own
+`ImagePipe.url_config/2`. `request_watermarks` lets URLs name their own
 watermark source (`watermark_source:` in the builder, `wm-src64` or `wm-enc`
 in the URL).
 

@@ -38,9 +38,10 @@ configuration. Invalid options raise `ArgumentError` when you build it.
 | A direct call | The `Accept` value, header and cookie values for cached copies | `accept:` and `request_inputs:` on `ImagePipe.run/4` |
 
 A mount checks request URLs against the configuration's URL settings, or
-those of the named set it picks with `mount:`. To
-build URLs in the same app, get those settings with `ImagePipe.url_config/1`.
-A separate app needs the same keys (see
+those of the named set it picks with `mount:`. To build URLs in the same
+app, get those settings with `ImagePipe.url_config/2`, adding
+`mount: :signed` for a mount that picks the named set `:signed`. A separate
+app needs the same keys (see
 [shared URL settings](shared-url-settings.md)).
 
 ## Which setting wins

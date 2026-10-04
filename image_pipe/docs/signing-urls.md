@@ -58,7 +58,7 @@ In an app that serves its own URLs, build them from the instance's URL
 configuration, which already has the key:
 
 ```elixir
-url_config = ImagePipe.url_config(ImagePipe.config!(MyApp.Images))
+url_config = ImagePipe.url_config(MyApp.Images)
 ```
 
 An application that builds URLs for a separate server uses the same key:

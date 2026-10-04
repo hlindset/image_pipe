@@ -29,8 +29,8 @@ children = [
 ]
 ```
 
-Calls to `ImagePipe.run/4` with the instance's configuration use the same
-pool, so jobs and requests share its capacity.
+Calls to `ImagePipe.run/4` with the instance's name use the same pool, so
+jobs and requests share its capacity.
 
 ### image_pipe_server
 

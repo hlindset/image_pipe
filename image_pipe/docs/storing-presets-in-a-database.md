@@ -75,16 +75,18 @@ names one request may look up. A request that needs more answers `500`.
 
 ## Build URLs for stored presets
 
-The URL configuration from `ImagePipe.url_config/1` records that the
-configuration has a lookup, so the builder accepts names missing from `:presets` and leaves them to the server.
+The URL configuration from `ImagePipe.url_config/2` has
+`preset_lookup: true` in its `:validate_against`, so the builder accepts
+names missing from `:presets` and leaves them to the server.
 `ImagePipe.validate/2` runs the lookup, for a full check before you hand out
 a URL:
 
 ```elixir
-config = ImagePipe.config!(MyApp.Images)
-builder = ImagePipe.URL.new(ImagePipe.url_config(config)) |> ImagePipe.URL.group(presets: ["spring-sale"])
+builder =
+  ImagePipe.URL.new(ImagePipe.url_config(MyApp.Images))
+  |> ImagePipe.URL.group(presets: ["spring-sale"])
 
-:ok = ImagePipe.validate(config, builder)
+:ok = ImagePipe.validate(MyApp.Images, builder)
 ```
 
 A builder in another application passes `preset_lookup: true` in its
