@@ -667,7 +667,7 @@ defmodule ImagePipe.API.OptionSpec do
         name: :expires,
         scope: :request,
         value: &__MODULE__.parse_expires/1,
-        summary: "Unix timestamp after which the URL is invalid (404)",
+        summary: "Unix timestamp after which the URL is invalid (410)",
         examples: ["expires=1999999999"]
       },
       %__MODULE__{
