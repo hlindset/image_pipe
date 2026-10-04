@@ -19,6 +19,16 @@ defmodule ImagePipe.Security do
                       are unsigned and the server rejects signed ones.
                       """
                     ],
+                    encrypt_source: [
+                      type: :boolean,
+                      default: false,
+                      doc: """
+                      Encrypts the source, and any watermark source, in generated URLs,
+                      which then use `enc/<token>` instead of `src/<path>`. Requires
+                      `:source_encryption_keys`. A server with encryption keys
+                      decrypts `enc/` sources regardless of this option.
+                      """
+                    ],
                     source_encryption_keys: [
                       type: {:list, :string},
                       default: [],
@@ -39,16 +49,6 @@ defmodule ImagePipe.Security do
                       encrypted source. `:deterministic` derives it from the source with
                       a secret key, so one source always gives the same URL.
                       `:random` gives a new URL on every call.
-                      """
-                    ],
-                    encrypt_source: [
-                      type: :boolean,
-                      default: false,
-                      doc: """
-                      Encrypts the source, and any watermark source, in generated URLs,
-                      which then use `enc/<token>` instead of `src/<path>`. Requires
-                      `:source_encryption_keys`. A server with encryption keys
-                      decrypts `enc/` sources regardless of this option.
                       """
                     ]
                   )

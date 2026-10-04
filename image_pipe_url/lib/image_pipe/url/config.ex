@@ -73,9 +73,8 @@ defmodule ImagePipe.URL.Config do
   # Every option `ImagePipe.URL.config/1` accepts, in documentation order.
   @spec schema() :: keyword()
   def schema do
-    options = Security.options_schema() ++ @schema.schema
-    order = [:base_url, :keys, :encrypt_source, :source_encryption_keys, :iv_mode, :mount_presets]
-    Enum.map(order, &{&1, Keyword.fetch!(options, &1)})
+    {base_url, options} = Keyword.split(@schema.schema, [:base_url])
+    base_url ++ Security.options_schema() ++ options
   end
 
   @doc false
