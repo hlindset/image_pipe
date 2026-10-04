@@ -68,12 +68,21 @@ defmodule ImagePipe.Execution do
       end
 
     with {:ok, context} <- prepared,
-         {:ok, watermarks} <- Watermarks.await(tasks) do
+         {:ok, watermarks} <- watermarks(tasks, context) do
       {:ok, with_watermarks(context, watermarks)}
     else
       {:error, _reason} = error ->
         Watermarks.cancel(tasks)
         error
+    end
+  end
+
+  # Callers close a prepared context only after a successful prepare, so a
+  # failed watermark releases the source lease here.
+  defp watermarks(tasks, context) do
+    with {:error, _reason} = error <- Watermarks.await(tasks) do
+      close(context)
+      error
     end
   end
 
