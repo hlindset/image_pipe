@@ -118,14 +118,16 @@ defmodule ImagePipe.Plug.Runner do
     end
   end
 
+  # The headers built here only answer an early 304, so a request without
+  # `If-None-Match` skips them. `serve_output/2` builds the response's own.
   defp serve_context(conn, context) do
-    headers = context_headers(conn, context)
+    headers = not context.stale? and conditional?(conn) and context_headers(conn, context)
 
-    case not context.stale? and Conditional.not_modified?(conn, headers.etag) do
+    case headers && Conditional.not_modified?(conn, headers.etag) do
       true ->
         send_not_modified(conn, headers, context.config)
 
-      false ->
+      _no_early_match ->
         case Execution.open(context) do
           {:ok, output} ->
             serve_output(conn, output)
@@ -135,6 +137,8 @@ defmodule ImagePipe.Plug.Runner do
         end
     end
   end
+
+  defp conditional?(conn), do: Plug.Conn.get_req_header(conn, "if-none-match") != []
 
   defp serve_output(conn, output) do
     context = output.context
