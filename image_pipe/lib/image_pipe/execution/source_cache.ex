@@ -121,7 +121,7 @@ defmodule ImagePipe.Execution.SourceCache do
       stage = &stage(&1, source, preparation, config, known)
       result = fetch_response(source, previous, config, stage)
       cost = System.monotonic_time(:microsecond) - started
-      result = publish_coordinated(result, source, key, previous, cost, config)
+      result = publish_coordinated(result, source, key, previous || known, cost, config)
       {result, stop_metadata(result)}
     end)
   end
@@ -146,7 +146,10 @@ defmodule ImagePipe.Execution.SourceCache do
 
   defp publish({:not_modified, origin}, source, key, previous, _cost, config) do
     record = Record.refresh(previous, origin)
-    remember(source, key, record, config)
+
+    if not unchanged_record?(previous, record, source, config),
+      do: remember(source, key, record, config)
+
     {:ok, %Acquisition{record: record}}
   end
 
@@ -154,7 +157,7 @@ defmodule ImagePipe.Execution.SourceCache do
          {:ok, %Acquisition{record: record, response: response}} = result,
          source,
          key,
-         _previous,
+         previous,
          cost,
          config
        ) do
@@ -163,7 +166,8 @@ defmodule ImagePipe.Execution.SourceCache do
         if response.path != nil and source.cache_semantics.copy?,
           do: Input.put(key, response.path, record, cost, config)
 
-        Cache.remember_source(key, record, config)
+        if not unchanged_record?(previous, record, source, config),
+          do: Cache.remember_source(key, record, config)
 
       # Nothing is stored for a source that isn't cached internally.
       source.internal_cache == :disabled ->
@@ -201,6 +205,22 @@ defmodule ImagePipe.Execution.SourceCache do
         invalidate(key, config)
     end
   end
+
+  # A check that moved only the receipt times of a record that must be
+  # validated on every use leaves the stored record as useful as the new one,
+  # so it isn't rewritten. A record with remaining freshness is always stored.
+  defp unchanged_record?(nil, _record, _source, _config), do: false
+
+  defp unchanged_record?(previous, record, source, config) do
+    untimed(previous) == untimed(record) and
+      status(previous, source, config) == :requires_validation and
+      status(record, source, config) == :requires_validation
+  end
+
+  defp untimed(%Record{origin: nil} = record), do: %{record | received_at: nil}
+
+  defp untimed(%Record{origin: origin} = record),
+    do: %{record | received_at: nil, origin: %{origin | requested_at: nil, received_at: nil}}
 
   def invalidate(key, config) do
     Input.discard(key, config)

@@ -11,7 +11,11 @@ defmodule ImagePipe.API.InputCacheFailureWireTest do
     on_exit(fn -> File.rm_rf!(root) end)
     pool = [root: root, node_id: "test", max_size_bytes: 1_000_000]
     tasks = start_supervised!(Task.Supervisor)
-    origin_status = start_supervised!({Agent, fn -> 200 end})
+    origin_status = start_supervised!({Agent, fn -> 200 end}, id: :origin_status)
+
+    cache_control =
+      start_supervised!({Agent, fn -> "public, max-age=0" end}, id: :cache_control)
+
     body = Image.new!(24, 16, color: :red) |> Image.write!(:memory, suffix: ".png")
 
     origin = fn conn ->
@@ -21,7 +25,7 @@ defmodule ImagePipe.API.InputCacheFailureWireTest do
       conn =
         conn
         |> put_resp_header("etag", ~s("source"))
-        |> put_resp_header("cache-control", "public, max-age=0")
+        |> put_resp_header("cache-control", Agent.get(cache_control, & &1))
         |> put_resp_content_type("image/png")
 
       cond do
@@ -54,7 +58,13 @@ defmodule ImagePipe.API.InputCacheFailureWireTest do
     assert :ok = Admission.await_scan(admission)
     config = ImagePipe.Plug.init(instance: name)
 
-    %{config: config, admission: admission, tasks: tasks, origin_status: origin_status}
+    %{
+      config: config,
+      admission: admission,
+      tasks: tasks,
+      origin_status: origin_status,
+      cache_control: cache_control
+    }
   end
 
   @tag capture_log: true
@@ -68,8 +78,20 @@ defmodule ImagePipe.API.InputCacheFailureWireTest do
   @tag capture_log: true
   test "input metadata refresh failure still delivers revalidated bytes", ctx do
     assert %{status: 200, resp_body: original} = request(ctx.config)
+    Agent.update(ctx.cache_control, fn _ -> "public, max-age=0, must-revalidate" end)
     result = fail_admission(ctx, :refresh_source_record)
     assert %Plug.Conn{status: 200, resp_body: ^original} = result
+  end
+
+  test "a revalidation that changes nothing leaves the stored metadata alone", ctx do
+    assert %{status: 200, resp_body: original} = request(ctx.config)
+    :erlang.trace(ctx.admission, true, [:receive])
+    assert %{status: 200, resp_body: ^original} = request(ctx.config)
+    _ = :sys.get_state(ctx.admission)
+    :erlang.trace(ctx.admission, false, [:receive])
+
+    refute_received {:trace, _, :receive, {:"$gen_call", _, {:refresh_source_record, _, _, _}}}
+    refute_received {:trace, _, :receive, {:"$gen_call", _, {:commit, _, _}}}
   end
 
   @tag capture_log: true
