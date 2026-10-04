@@ -44,8 +44,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
   for JPEG, so the search uses its full iteration budget — worst-case cost. The
   encode / decode / metric phases are wrapped (injected `encode_fun`/`score_fun`
   over `Encoder.encode_to_buffer` + `Ssim2Metric`) and timed separately, so the
-  table shows where the wall-clock goes as a function of pixel count. This is the
-  data that sets a sane `autoquality_max_resolution` default.
+  table shows where the wall-clock goes as a function of pixel count.
 
   ## Part B — accuracy + behavior over real content
 
@@ -2344,8 +2343,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
           target: @g_target,
           min_quality: lo,
           max_quality: hi,
-          allowed_error: @g_allowed_error,
-          max_resolution: 0
+          allowed_error: @g_allowed_error
         }
     }
   end
@@ -4309,8 +4307,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
           target: @target,
           min_quality: @min_q,
           max_quality: @max_q,
-          allowed_error: 0,
-          max_resolution: 0
+          allowed_error: 0
         }
     }
   end
@@ -4426,8 +4423,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
     IO.puts("  * first size over 500ms total:  #{budget_note(over_500)}")
     IO.puts("  * first size over 1000ms total: #{budget_note(over_1000)}")
     IO.puts("  * first size over 2000ms total: #{budget_note(over_2000)}")
-    IO.puts("  -> recommended autoquality_max_resolution: pick the MP under your")
-    IO.puts("     per-request budget from the column above (full 6x pass cost).\n")
+    IO.puts("")
   end
 
   defp budget_note(nil), do: "none in tested range"

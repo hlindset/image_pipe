@@ -137,14 +137,14 @@ defmodule ImagePipe.Output.PolicyIdentityTest do
     end
 
     test "quality_search struct is flattened so it can safely reach a digest" do
-      search = %QualitySearch{target: 78.0, max_resolution: 4}
+      search = %QualitySearch{target: 78.0}
 
       policy = %{base_policy() | quality_search: search}
       material = Policy.identity_material(policy)
 
       quality_search_material = Keyword.fetch!(material, :quality_search)
       refute is_struct(quality_search_material)
-      assert quality_search_material == [target: 78.0, max_resolution: 4]
+      assert quality_search_material == [target: 78.0]
     end
 
     test "encoder_options structs are flattened so they can safely reach a digest" do

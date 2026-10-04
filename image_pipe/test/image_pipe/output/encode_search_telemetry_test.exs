@@ -289,7 +289,6 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
         min_quality: 40,
         max_quality: 95,
         allowed_error: 1.0,
-        max_resolution: 0,
         quality_search_offsets: %{photo: 2.4, graphic: 6.0}
       }
     }

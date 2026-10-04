@@ -18,8 +18,7 @@ defmodule ImagePipe.Processing.Config do
     skip_processing_formats: [],
     quality: 80,
     autoquality: false,
-    autoquality_target: 75,
-    autoquality_max_resolution: 0
+    autoquality_target: 75
   ]
 
   @map_defaults [
@@ -187,13 +186,6 @@ defmodule ImagePipe.Processing.Config do
                       doc: """
                       The SSIMULACRA2 score auto-quality aims for, above `0` and up to \
                       `100`. The default value is `75`.
-                      """
-                    ],
-                    autoquality_max_resolution: [
-                      type: :non_neg_integer,
-                      doc: """
-                      Results larger than this many megapixels skip the search and use \
-                      the normal quality. `0`, the default, searches at every size.
                       """
                     ],
                     jpeg_options: [

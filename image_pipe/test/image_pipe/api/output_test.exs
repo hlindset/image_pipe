@@ -95,9 +95,9 @@ defmodule ImagePipe.API.OutputTest do
   end
 
   test "inherits host autoquality when the URL does not set it" do
-    output = resolve!(["format=jpeg"], autoquality: true, autoquality_max_resolution: 12)
+    output = resolve!(["format=jpeg"], autoquality: true)
 
-    assert output.quality_search == %PlanOutput.QualitySearch{target: 75.0, max_resolution: 12}
+    assert output.quality_search == %PlanOutput.QualitySearch{target: 75.0}
   end
 
   test "a bare URL autoquality uses the host target" do

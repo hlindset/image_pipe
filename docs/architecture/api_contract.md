@@ -487,9 +487,8 @@ search defaults are inactive for these outputs. Under automatic format
 negotiation, search and byte budgets apply when the selected encoder supports
 them. WebP lossless `q` controls compression effort rather than pixel quality.
 
-Host controls are `autoquality` (off by default), `autoquality_target`
-(default 75), and `autoquality_max_resolution`. The effective target
-participates in storage and ETag identity.
+Host controls are `autoquality` (off by default) and `autoquality_target`
+(default 75). The effective target participates in storage and ETag identity.
 
 Each encoder option is a comma-separated list of bare boolean flags and
 `name:value` pairs. Use `flag:false` to override a host-enabled flag. Sparse

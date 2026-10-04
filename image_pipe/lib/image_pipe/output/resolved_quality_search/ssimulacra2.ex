@@ -11,7 +11,6 @@ defmodule ImagePipe.Output.ResolvedQualitySearch.Ssimulacra2 do
               [
                 start_quality: nil,
                 allowed_error: 0,
-                max_resolution: 0,
                 quality_search_offsets: %{}
               ]
 
@@ -21,7 +20,6 @@ defmodule ImagePipe.Output.ResolvedQualitySearch.Ssimulacra2 do
           max_quality: 1..100,
           start_quality: nil | 1..100,
           allowed_error: number(),
-          max_resolution: non_neg_integer(),
           quality_search_offsets: %{optional(content_class()) => number()}
         }
 end

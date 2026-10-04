@@ -206,15 +206,6 @@ defmodule ImagePipe.Output.EncodeSearch do
     end
   end
 
-  @doc """
-  Whether to skip the search entirely because the image is too large. True only
-  when `max_resolution` is positive and the image megapixels exceed it. The
-  caller then encodes once at the resolved quality.
-  """
-  @spec skip?(%{max_resolution: non_neg_integer()}, number()) :: boolean()
-  def skip?(%{max_resolution: max_resolution}, megapixels),
-    do: max_resolution > 0 and megapixels > max_resolution
-
   # --- objective phase ------------------------------------------------------
 
   # No objective: the caller is running a max_bytes-alone search. The "objective

@@ -368,7 +368,6 @@ Defaults and limits for every image the server processes. The limits on original
 | `skip_processing_formats` | array of `"avif"` or `"webp"` or `"jpeg"` or `"png"` or `"jpeg_xl"` or `"heif"` or `"tiff"` or `"jpeg2000"` or `"gif"` | `[]` |
 | `autoquality` | boolean | `false` |
 | `autoquality_target` | integer or number | `75` |
-| `autoquality_max_resolution` | integer ≥ 0 | `0` |
 | `detector` | `"default"` | `"default"` |
 | `detector_required` | boolean | `false` |
 | `source_cache_policy.storage` | `"origin"` or `"allow"` or `"deny"` |  |

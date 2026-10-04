@@ -288,7 +288,7 @@ defmodule ImagePipe.Output.PolicyTest do
     end
 
     test "searches each format within its rails" do
-      search = %QualitySearch{target: 75.0, max_resolution: 0}
+      search = %QualitySearch{target: 75.0}
 
       assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch.Ssimulacra2{} = avif}} =
                Policy.resolve(policy_with(search, format: :avif), nil)
@@ -302,7 +302,7 @@ defmodule ImagePipe.Output.PolicyTest do
     end
 
     test "starts each format's search at its calibrated quality for the target" do
-      search = %QualitySearch{target: 75.0, max_resolution: 0}
+      search = %QualitySearch{target: 75.0}
 
       for {format, start} <- [jpeg: 76, webp: 78, avif: 56] do
         assert {:ok, %Resolved{quality_search: rs}} =
@@ -313,29 +313,28 @@ defmodule ImagePipe.Output.PolicyTest do
     end
 
     test "extends the calibration past its targets and keeps the start inside the rails" do
-      high = %QualitySearch{target: 95.0, max_resolution: 0}
+      high = %QualitySearch{target: 95.0}
 
       assert {:ok, %Resolved{quality_search: %{start_quality: 80}}} =
                Policy.resolve(policy_with(high, format: :avif), nil)
 
-      low = %QualitySearch{target: 73.5, max_resolution: 0}
+      low = %QualitySearch{target: 73.5}
 
       assert {:ok, %Resolved{quality_search: %{start_quality: 54}}} =
                Policy.resolve(policy_with(low, format: :avif), nil)
     end
 
-    test "carries target and max_resolution through" do
-      search = %QualitySearch{target: 90.0, max_resolution: 16}
+    test "carries the target through" do
+      search = %QualitySearch{target: 90.0}
 
       assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch.Ssimulacra2{} = rs}} =
                Policy.resolve(policy_with(search), nil)
 
       assert rs.target == 90.0
-      assert rs.max_resolution == 16
     end
 
     test "resolves quality_search_offsets to the per-class map for an avif negotiation" do
-      search = %QualitySearch{target: 78.0, max_resolution: 0}
+      search = %QualitySearch{target: 78.0}
 
       assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch.Ssimulacra2{} = rs}} =
                Policy.resolve(policy_with(search, format: :avif), nil)
@@ -345,7 +344,7 @@ defmodule ImagePipe.Output.PolicyTest do
     end
 
     test "a non-avif format keeps the lean default for both classes" do
-      search = %QualitySearch{target: 78.0, max_resolution: 0}
+      search = %QualitySearch{target: 78.0}
 
       assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch.Ssimulacra2{} = rs}} =
                Policy.resolve(policy_with(search, format: :jpeg), nil)

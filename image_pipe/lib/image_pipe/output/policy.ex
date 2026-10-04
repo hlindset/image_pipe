@@ -260,7 +260,6 @@ defmodule ImagePipe.Output.Policy do
       max_quality: max_quality,
       start_quality: start_quality(format, s.target, min_quality, max_quality),
       allowed_error: @search_tolerance,
-      max_resolution: s.max_resolution,
       quality_search_offsets: %{
         photo: Output.offset_for(policy.quality_search_offsets, format, :photo),
         graphic: Output.offset_for(policy.quality_search_offsets, format, :graphic)
@@ -326,7 +325,7 @@ defmodule ImagePipe.Output.Policy do
   defp quality_search_identity(:none), do: :none
 
   defp quality_search_identity(%Output.QualitySearch{} = s),
-    do: [target: s.target, max_resolution: s.max_resolution]
+    do: [target: s.target]
 
   defp encoder_options_identity(map),
     do: Map.new(map, fn {format, struct} -> {format, Map.from_struct(struct)} end)

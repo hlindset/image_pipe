@@ -210,11 +210,6 @@ defmodule ImagePipe.Output.EncodeSearchTest do
   end
 
   # Task 13b
-  test "skip?/2 true when megapixels exceed a positive max_resolution" do
-    assert EncodeSearch.skip?(%{max_resolution: 2}, 5)
-    refute EncodeSearch.skip?(%{max_resolution: 0}, 100)
-    refute EncodeSearch.skip?(%{max_resolution: 10}, 5)
-  end
 
   describe "crop scorer" do
     test "the objective converges toward the target within the band" do
