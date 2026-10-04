@@ -219,8 +219,8 @@ defmodule ImagePipe.Source.File do
   # The bytes are read later, during staging, where a failure would read as an
   # incomplete body. Opening the file here reports it as unreadable.
   defp readable(path) do
-    case File.open(path, [:read]) do
-      {:ok, device} -> File.close(device)
+    case :file.open(path, [:read, :raw]) do
+      {:ok, device} -> :file.close(device)
       {:error, _reason} -> {:error, {:source, :unreadable}}
     end
   end
