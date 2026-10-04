@@ -163,8 +163,9 @@ Before reading a cached body, the cache checks that its size matches its
 metadata. An entry that fails the check, has invalid metadata, or can't be
 read is logged and treated as a miss. Only the size is checked when a body is
 read, so never change cache files in place: a changed body of the same size
-is served as it is. A body removed after the check but before it is sent,
-for example by eviction in bounded mode, aborts the response.
+is served as it is. A body removed after the check, for example by eviction in
+[bounded mode](#bounded-mode), is still sent in full from the file already
+opened, as a chunked response without `content-length`.
 
 A path that leads outside `root` through a symlink fails as a cache error.
 `ImagePipe.Cache.FileSystem.get/2` returns the whole body as a binary, for
