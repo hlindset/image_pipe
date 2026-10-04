@@ -229,6 +229,14 @@ defmodule ImagePipeServer.ConfigTest do
                "server.auth_token"
     end
 
+    test "rejects a port above 65535" do
+      assert error(fn -> Config.build!(Config.options!(%{"server" => %{"port" => 70_000}})) end) =~
+               "server.port"
+
+      assert Config.build!(Config.options!(%{"server" => %{"port" => 65_535}})).server[:port] ==
+               65_535
+    end
+
     test "takes the shutdown grace period from [server]" do
       config = Config.build!(Config.options!(%{"server" => %{"shutdown_timeout" => 30_000}}))
       assert config.server[:shutdown_timeout] == 30_000
