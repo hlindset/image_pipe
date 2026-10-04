@@ -123,6 +123,125 @@ defmodule ImagePipe.API.SourceWireTest do
     refute_receive :object_fetch
   end
 
+  defmodule RotatingProvider do
+    @behaviour ImagePipe.Source.S3.CredentialProvider
+
+    @impl true
+    def validate_options(_opts), do: :ok
+
+    # Hands out the next token on every fetch, as a temporary-credential
+    # provider does after each rotation.
+    @impl true
+    def fetch_credentials(_scope, opts, _runtime_opts) do
+      token =
+        Agent.get_and_update(Keyword.fetch!(opts, :tokens), fn [next | rest] -> {next, rest} end)
+
+      send(Keyword.fetch!(opts, :report_to), {:credentials_token, token})
+      {:ok, [access_key_id: "AKIA_TEST", secret_access_key: "SECRET_TEST", token: token], :never}
+    end
+  end
+
+  # Stops the cached provider results, so the next request fetches new
+  # credentials.
+  defp rotate_credentials do
+    supervisor = ImagePipe.Source.S3.RefreshCache.DynamicSupervisor
+
+    for {_id, pid, _type, _modules} <- DynamicSupervisor.which_children(supervisor) do
+      ref = Process.monitor(pid)
+      :ok = DynamicSupervisor.terminate_child(supervisor, pid)
+      assert_receive {:DOWN, ^ref, :process, ^pid, _reason}
+    end
+  end
+
+  test "rotated S3 credentials keep cached results and the ETag" do
+    store = :ets.new(:api_s3_rotation_cache, [:set, :public])
+    tokens = start_supervised!({Agent, fn -> ["TOKEN_1", "TOKEN_2"] end})
+    owner = self()
+
+    origin = fn conn ->
+      send(owner, :object_fetch)
+
+      conn
+      |> put_resp_header("x-amz-version-id", "v1")
+      |> put_resp_header("cache-control", "public, max-age=60")
+      |> put_resp_content_type("image/jpeg")
+      |> send_resp(200, @image)
+    end
+
+    config =
+      mount(
+        sources: [
+          s3: [
+            adapter: S3,
+            match: [scheme: "s3"],
+            options: [
+              default: [
+                endpoint: "https://objects.example.com",
+                region: "eu-west-1",
+                credentials: {:provider, RotatingProvider, tokens: tokens, report_to: owner},
+                req_options: [plug: origin]
+              ]
+            ]
+          ]
+        ],
+        cache: {CacheProbe, store: store}
+      )
+
+    first = request("format=jpeg", "s3://bucket/images/cat.jpg?v1", config)
+    assert first.status == 200
+    assert_receive {:credentials_token, "TOKEN_1"}
+    assert_receive :object_fetch
+
+    rotate_credentials()
+    second = request("format=jpeg", "s3://bucket/images/cat.jpg?v1", config)
+    assert second.status == 200
+    assert_receive {:credentials_token, "TOKEN_2"}
+    refute_receive :object_fetch
+    assert get_resp_header(second, "etag") == get_resp_header(first, "etag")
+    assert second.resp_body == first.resp_body
+  end
+
+  test "S3 mounts with different configured credentials keep separate cached results" do
+    store = :ets.new(:api_s3_partition_cache, [:set, :public])
+    owner = self()
+
+    origin = fn conn ->
+      send(owner, :object_fetch)
+
+      conn
+      |> put_resp_header("x-amz-version-id", "v1")
+      |> put_resp_header("cache-control", "public, max-age=60")
+      |> put_resp_content_type("image/jpeg")
+      |> send_resp(200, @image)
+    end
+
+    configs =
+      for key_id <- ["AKIA_ONE", "AKIA_TWO"] do
+        mount(
+          sources: [
+            s3: [
+              adapter: S3,
+              match: [scheme: "s3"],
+              options: [
+                default: [
+                  endpoint: "https://objects.example.com",
+                  region: "eu-west-1",
+                  credentials: {:static, access_key_id: key_id, secret_access_key: "S"},
+                  req_options: [plug: origin]
+                ]
+              ]
+            ]
+          ],
+          cache: {CacheProbe, store: store}
+        )
+      end
+
+    for config <- configs do
+      assert request("format=jpeg", "s3://bucket/images/cat.jpg?v1", config).status == 200
+      assert_receive :object_fetch
+    end
+  end
+
   test "malformed URL sources reject before source resolution or cache access" do
     config =
       mount(

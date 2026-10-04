@@ -75,9 +75,11 @@ Each stored response is selected by:
 - The content detector and model, when the crop uses detection.
 - The URL's cachebuster.
 - The values of the request headers and cookies named in `storage_inputs`.
-- The credentials and headers the source sends to its origin, such as an S3
-  access key or the result of an HTTP auth callback. They are resolved once
-  per request and enter the key only as a hash.
+- The credentials and headers the source sends to its origin, as a hash.
+  For S3 these are the configured credentials: static keys, or the provider
+  and its options. Temporary credentials from a provider don't change the
+  key when they rotate. For an HTTP auth callback it's the callback's result,
+  resolved once per request.
 
 The URL's expiry, signature, filename, `attachment` option, and `debug`
 option don't select a different entry.
