@@ -36,6 +36,7 @@ defmodule ImagePipe.MixProject do
       "docs/defining-presets.md",
       "docs/enabling-detection.md",
       "docs/processing-controls.md",
+      "docs/choosing-an-autoquality-target.md",
       "docs/telemetry.md",
       "docs/cookbook/opentelemetry-jaeger.md",
       "docs/combined-usage.md",
@@ -72,7 +73,8 @@ defmodule ImagePipe.MixProject do
   # Sidebar labels for pages whose H1 is too long for the sidebar.
   @guide_titles %{
     "docs/serving-from-http.md" => "Serving from an HTTP origin",
-    "docs/enabling-detection.md" => "Enabling detection"
+    "docs/enabling-detection.md" => "Enabling detection",
+    "docs/choosing-an-autoquality-target.md" => "Choosing a quality target"
   }
   @internal_doc_references [
     "ImagePipe.Error.tag/1",

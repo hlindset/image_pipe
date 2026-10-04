@@ -88,7 +88,7 @@ searched for a quality.
 | `X-ImagePipe-AQ-Target` | `75.0` | The target score |
 | `X-ImagePipe-AQ-Quality-Min` | `20` | Lowest quality the search could choose |
 | `X-ImagePipe-AQ-Quality-Max` | `90` | Highest quality the search could choose |
-| `X-ImagePipe-AQ-Iterations` | `5` | Number of encodes the search made |
+| `X-ImagePipe-AQ-Iterations` | `3` | Number of encodes the search made |
 | `X-ImagePipe-AQ-Outcome` | `hit` | `hit` (target met) or `best_effort` (not met: the highest quality the search tries, or the lowest for `max-bytes`) |
 | `X-ImagePipe-AQ-Limiting-Factor` | `ceiling` | With `best_effort`, why: `ceiling` (the target needed a higher quality than the range allows), or `max_bytes` (the byte limit couldn't be met) |
 | `X-ImagePipe-AQ-Scorer` | `crop` | `full` when the whole image was scored, `crop` when sample areas of a large image were scored instead |
