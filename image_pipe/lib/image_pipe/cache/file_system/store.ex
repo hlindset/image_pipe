@@ -561,7 +561,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   defp read_entry(paths) do
     with {:ok, metadata} <- read_metadata(paths),
          {:ok, body_path} <- body_path_from_metadata(paths, metadata),
-         {:ok, file} <- CacheFile.open(body_path, metadata.body_byte_size, metadata.body_sha256) do
+         {:ok, file} <- CacheFile.open(body_path, metadata.body_byte_size) do
       {:hit, file, metadata}
     end
   end

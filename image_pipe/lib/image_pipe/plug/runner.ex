@@ -38,12 +38,12 @@ defmodule ImagePipe.Plug.Runner do
     |> abort_failed_stream()
   end
 
-  # Returning a chunked conn lets the server end the body as if it were
-  # complete. Raising makes it drop the connection instead, so clients and
-  # CDNs see the truncation.
+  # Returning the conn lets the server end the body as if it were complete.
+  # Raising makes it drop the connection instead, so clients and CDNs see the
+  # truncation. A cached body that failed in the adapter may have had its
+  # headers written even though the conn still reads as unsent.
   defp abort_failed_stream(
-         %Plug.Conn{state: :chunked, private: %{image_pipe_send_result: :processing_error}} =
-           conn
+         %Plug.Conn{private: %{image_pipe_send_result: :processing_error}} = conn
        ),
        do: raise_abort(conn.adapter, Plug.Conn.get_http_protocol(conn))
 

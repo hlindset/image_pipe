@@ -473,17 +473,6 @@ defmodule ImagePipe.Cache.FileSystemTest do
              {:error, {:invalid_metadata, :invalid_headers}}
   end
 
-  test "cache hits reject same-size body corruption", %{root: root} do
-    cache_key = key("eeeeee" <> String.duplicate("1", 58))
-    assert put_entry(cache_key, entry("body-one"), root: root) == :ok
-
-    dir = Path.join([root, "ee", "ee"])
-    File.write!(Path.join(dir, body_filename(cache_key, "body-one")), "body-two")
-
-    assert {:error, {:invalid_metadata, :body_digest_mismatch}} =
-             FileSystem.get(cache_key, root: root)
-  end
-
   test "metadata from an earlier concurrent writer still points at its own body", %{root: root} do
     cache_key = key("ababab" <> String.duplicate("1", 58))
 

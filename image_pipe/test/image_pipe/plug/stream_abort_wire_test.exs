@@ -31,8 +31,8 @@ defmodule ImagePipe.Plug.StreamAbortWireTest do
     def call(conn, config), do: ImagePipe.Plug.call(conn, config)
   end
 
-  # A cache that always hits. With `unreadable: true` the body's file is closed
-  # after it was opened and verified, as if the disk failed mid-delivery.
+  # A cache that always hits. With `unreadable: true` the body's file is
+  # removed after it was opened, as if it was evicted before delivery.
   defmodule HitCache do
     @moduledoc false
     @behaviour ImagePipe.Cache
@@ -40,10 +40,8 @@ defmodule ImagePipe.Plug.StreamAbortWireTest do
     @impl true
     def get(_key, opts) do
       path = Keyword.fetch!(opts, :path)
-      body = File.read!(path)
-      sha256 = :sha256 |> :crypto.hash(body) |> Base.encode16(case: :lower)
-      {:ok, file} = ImagePipe.Cache.File.open(path, byte_size(body), sha256)
-      if Keyword.get(opts, :unreadable, false), do: :ok = ImagePipe.Cache.File.close(file)
+      {:ok, file} = ImagePipe.Cache.File.open(path, File.stat!(path).size)
+      if Keyword.get(opts, :unreadable, false), do: File.rm!(path)
 
       {:hit,
        %Entry{
@@ -74,6 +72,10 @@ defmodule ImagePipe.Plug.StreamAbortWireTest do
     @moduledoc false
     def send_chunked(state, _status, _headers), do: {:ok, nil, state}
     def chunk(_state, _body), do: {:error, :closed}
+
+    def send_file(_state, _status, _headers, _path, _offset, _length),
+      do: raise(Bandit.TransportError, message: "closed", error: :closed)
+
     def get_peer_data(_state), do: %{address: {127, 0, 0, 1}, port: 0, ssl_cert: nil}
     def get_http_protocol(_state), do: :"HTTP/1.1"
   end
@@ -136,6 +138,39 @@ defmodule ImagePipe.Plug.StreamAbortWireTest do
     assert log =~ "cached_body_read_error"
   end
 
+  describe "a cache hit over a real connection" do
+    setup do
+      path = Path.join(System.tmp_dir!(), "stream-abort-#{System.unique_integer([:positive])}")
+      File.write!(path, :crypto.strong_rand_bytes(200_000))
+      on_exit(fn -> File.rm(path) end)
+      %{path: path}
+    end
+
+    test "delivers the whole body over HTTP/1.1", %{path: path} do
+      body = File.read!(path)
+      socket = serve(config(cache: {HitCache, path: path}))
+      response = read_until(socket, &String.ends_with?(&1, body))
+
+      assert response =~ "HTTP/1.1 200"
+      assert response =~ "content-length: #{byte_size(body)}\r\n"
+      assert String.ends_with?(response, "\r\n\r\n" <> body)
+    end
+
+    test "delivers the whole body over HTTP/2", %{path: path} do
+      bandit = start_bandit(config(cache: {HitCache, path: path}))
+      {:ok, {_ip, port}} = ThousandIsland.listener_info(bandit)
+      {:ok, http2} = Mint.HTTP2.connect(:http, "127.0.0.1", port)
+      {:ok, http2, ref} = Mint.HTTP2.request(http2, "GET", @path, [], nil)
+
+      responses = receive_stream(http2, ref, [])
+
+      assert {:status, ref, 200} in responses
+      assert {:done, ref} in responses
+      data = for {:data, ^ref, bytes} <- responses, into: "", do: bytes
+      assert data == File.read!(path)
+    end
+  end
+
   test "a client that disconnects during a cache hit doesn't abort the response" do
     path = Path.join(System.tmp_dir!(), "stream-abort-#{System.unique_integer([:positive])}")
     File.write!(path, "cached image bytes")
@@ -144,7 +179,7 @@ defmodule ImagePipe.Plug.StreamAbortWireTest do
     config = config(cache: {HitCache, path: path})
     conn = :get |> conn(@path) |> Map.put(:adapter, {ClosedClientAdapter, nil})
 
-    assert %Plug.Conn{state: :chunked} = ImagePipe.Plug.call(conn, config)
+    assert %Plug.Conn{state: :file} = ImagePipe.Plug.call(conn, config)
   end
 
   defp config(extra) do

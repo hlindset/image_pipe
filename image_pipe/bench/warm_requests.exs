@@ -1,8 +1,10 @@
 # Run from image_pipe/, one mode per VM:
-# mise exec -- mix run bench/warm_requests.exs get|head|get-concurrent [IMAGE]
+# mise exec -- mix run bench/warm_requests.exs get|head|get-concurrent|bandit [WIDTH] [IMAGE]
 #
 # Times warm output-cache hits through ImagePipe.Plug for a local file source
 # and a bounded filesystem cache, after one cold request fills the cache.
+# `bandit` serves the mount over loopback HTTP/1.1 and reads each response
+# on one keep-alive connection; the other modes call the Plug directly.
 defmodule WarmRequestsBench do
   import Plug.Test
 
@@ -10,7 +12,8 @@ defmodule WarmRequestsBench do
   @concurrency 8
 
   def run([mode | rest]) do
-    image = List.first(rest, "priv/static/images/waterfall.jpg")
+    width = rest |> Enum.at(0, "300") |> String.to_integer()
+    image = Enum.at(rest, 1, "priv/static/images/waterfall.jpg")
     root = Path.join(System.tmp_dir!(), "warm-bench-#{System.unique_integer([:positive])}")
     sources = Path.join(root, "sources")
     File.mkdir_p!(sources)
@@ -45,11 +48,17 @@ defmodule WarmRequestsBench do
 
     mount = ImagePipe.Plug.init(instance: WarmRequestsBench.Instance)
 
-    path = "/w=300/format=webp/src/image.jpg"
+    path = "/w=#{width}/format=webp/src/image.jpg"
     method = if mode == "head", do: :head, else: :get
-    %{status: 200} = ImagePipe.Plug.call(conn(:get, path), mount)
+    %{status: 200, resp_body: body} = ImagePipe.Plug.call(conn(:get, path), mount)
     request = fn -> %{status: 200} = ImagePipe.Plug.call(conn(method, path), mount) end
     Enum.each(1..100, fn _ -> request.() end)
+
+    request =
+      case mode do
+        "bandit" -> bandit_client(mount, path)
+        _plug -> request
+      end
 
     {elapsed, _} =
       :timer.tc(fn ->
@@ -70,13 +79,53 @@ defmodule WarmRequestsBench do
     IO.puts(
       JSON.encode!(%{
         mode: mode,
+        body_bytes: byte_size(body),
         requests: @requests,
         total_ms: elapsed / 1_000,
         us_per_request: elapsed / @requests
       })
     )
   after
-    File.rm_rf!(Path.join(System.tmp_dir!(), "warm-bench-*"))
+    System.tmp_dir!() |> Path.join("warm-bench-*") |> Path.wildcard() |> Enum.each(&File.rm_rf!/1)
+  end
+
+  defmodule Mounted do
+    def init(mount), do: mount
+    def call(conn, mount), do: ImagePipe.Plug.call(conn, mount)
+  end
+
+  defp bandit_client(mount, path) do
+    {:ok, bandit} =
+      Bandit.start_link(plug: {Mounted, mount}, port: 0, ip: :loopback, startup_log: false)
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(bandit)
+    {:ok, socket} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, active: false])
+    request = "GET #{path} HTTP/1.1\r\nhost: localhost\r\n\r\n"
+
+    fn ->
+      :ok = :gen_tcp.send(socket, request)
+      read_response(socket, "")
+    end
+  end
+
+  defp read_response(socket, acc) do
+    case :binary.split(acc, "\r\n\r\n") do
+      [head, body] ->
+        "HTTP/1.1 200" <> _ = head
+        [_, length] = Regex.run(~r/content-length: (\d+)/, head)
+        read_body(socket, body, String.to_integer(length))
+
+      [_partial] ->
+        {:ok, data} = :gen_tcp.recv(socket, 0, 5_000)
+        read_response(socket, acc <> data)
+    end
+  end
+
+  defp read_body(_socket, body, length) when byte_size(body) == length, do: :ok
+
+  defp read_body(socket, body, length) do
+    {:ok, data} = :gen_tcp.recv(socket, 0, 5_000)
+    read_body(socket, body <> data, length)
   end
 end
 

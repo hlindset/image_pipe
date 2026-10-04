@@ -8,6 +8,7 @@ defmodule ImagePipe.Response.Sender do
       put_resp_content_type: 3,
       put_resp_header: 3,
       send_chunked: 2,
+      send_file: 5,
       send_resp: 3
     ]
 
@@ -132,31 +133,23 @@ defmodule ImagePipe.Response.Sender do
     conn |> put_resp_header("content-length", Integer.to_string(size)) |> send_resp(200, "")
   end
 
+  # The kernel copies the body to the socket. A body that disappears before
+  # the copy starts, such as one evicted meanwhile, aborts the response.
   def send_body(conn, %ImagePipe.Cache.File{} = file) do
-    conn =
-      conn |> put_resp_header("content-length", Integer.to_string(file.size)) |> send_chunked(200)
-
-    send_file_chunks(conn, file)
+    send_file(conn, 200, file.path, 0, file.size)
+  rescue
+    exception ->
+      if client_gone?(exception) do
+        Logger.info("cached_body_client_closed: #{Exception.message(exception)}")
+        # The adapter already wrote the headers; nothing more can be sent.
+        %{conn | state: :file}
+      else
+        Logger.error("cached_body_read_error: #{Exception.message(exception)}")
+        mark_send_processing_error(conn)
+      end
   end
 
   def send_body(conn, body), do: send_resp(conn, 200, body)
-
-  defp send_file_chunks(conn, file) do
-    Enum.reduce_while(ImagePipe.Cache.File.stream(file), conn, fn bytes, conn ->
-      case chunk(conn, bytes) do
-        {:ok, conn} ->
-          {:cont, conn}
-
-        {:error, reason} ->
-          Logger.info("cached_body_client_closed: #{inspect(reason)}")
-          {:halt, conn}
-      end
-    end)
-  rescue
-    exception ->
-      Logger.error("cached_body_read_error: #{Exception.message(exception)}")
-      mark_send_processing_error(conn)
-  end
 
   def send_prepared_stream(
         %Plug.Conn{} = conn,

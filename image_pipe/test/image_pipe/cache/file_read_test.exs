@@ -25,10 +25,10 @@ defmodule ImagePipe.Cache.FileReadTest do
     Cache.Entry.close(entry)
   end
 
-  test "same-size corruption is rejected before delivery", %{root: root} do
+  test "a truncated body is rejected before delivery", %{root: root} do
     key = put(root, "image")
     [body] = Path.wildcard(Path.join(root, "**/*.body"))
-    File.write!(body, "wrong")
+    File.write!(body, "imag")
 
     assert {:miss, ^key, {:cache_read, _}} =
              Cache.lookup_entry(key, cache: {FileSystem, root: root})
