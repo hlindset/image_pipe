@@ -93,9 +93,10 @@ FROM ${RUNTIME_IMAGE}
 
 COPY --from=build /usr/local/lib/vips-runtime-packages /tmp/vips-runtime-packages
 # OTP's socket support loads libsctp at startup and logs a warning without it.
+# libheif decodes AVIF with dav1d when its plugin is present, faster than aom.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       $(cat /tmp/vips-runtime-packages) \
-      libheif-plugin-aomdec libheif-plugin-aomenc \
+      libheif-plugin-aomdec libheif-plugin-aomenc libheif-plugin-dav1d \
       libstdc++6 libncurses6 libsctp1 openssl ca-certificates curl libjemalloc2 \
     && rm -rf /var/lib/apt/lists/* /tmp/vips-runtime-packages
 
