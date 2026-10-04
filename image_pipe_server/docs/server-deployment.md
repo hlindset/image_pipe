@@ -208,6 +208,11 @@ server out of memory. Change the limits with `max_concurrency`, `max_queue`
 and `queue_timeout` in `[pool]`. See
 [limiting concurrent processing](../../image_pipe/docs/processing-controls.md).
 
+Each image also uses several threads in libvips, the image library. Under a
+container CPU limit, the server sets `VIPS_CONCURRENCY` to that limit, so an
+image uses at most that many threads. Set `VIPS_CONCURRENCY` yourself to
+change it.
+
 ## Memory allocator
 
 The image runs the server with the jemalloc memory allocator, which returns
