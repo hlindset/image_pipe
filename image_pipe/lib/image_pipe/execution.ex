@@ -517,9 +517,28 @@ defmodule ImagePipe.Execution do
     |> Enum.map(fn {record, semantics} -> record_state(record, semantics, now) end)
     |> case do
       [] -> nil
-      states -> {Enum.min_by(states, &freshness(&1, now)), now}
+      states -> {combine(states, now), now}
     end
   end
+
+  # The earliest freshness deadline (with its age), the earliest stale
+  # deadline, and the strictest revalidation, so the response is never cached
+  # longer or more loosely than one of its sources allows.
+  defp combine(states, now) do
+    %{
+      Enum.min_by(states, &freshness(&1, now))
+      | stale_until: states |> Enum.map(& &1.stale_until) |> Enum.min_by(&deadline/1),
+        revalidation: states |> Enum.map(& &1.revalidation) |> Enum.max_by(&strictness/1)
+    }
+  end
+
+  defp deadline(nil), do: {0, 0}
+  defp deadline(:infinity), do: {2, 0}
+  defp deadline(seconds), do: {1, seconds}
+
+  defp strictness(:none), do: 0
+  defp strictness(:stale), do: 1
+  defp strictness(:always), do: 2
 
   defp record_state(record, semantics, now) do
     age =

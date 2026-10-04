@@ -204,7 +204,7 @@ defmodule ImagePipe.Source.S3 do
       ]
 
       # A version ID pins the object's bytes, so a revision makes it stable.
-      stable? = CacheSettings.immutable?(config) or revision not in [nil, ""]
+      stable? = CacheSettings.immutable?(config) or revision != nil
       cache = CacheSettings.fields(config, stable?: stable?, seed: identity, copy?: true)
 
       fetch =
@@ -258,7 +258,7 @@ defmodule ImagePipe.Source.S3 do
 
   # A pinned revision is treated as immutable, so a store that ignores
   # versionId and returns the current object must not be cached as that version.
-  defp put_version_check(stream_options, revision) when revision in [nil, ""],
+  defp put_version_check(stream_options, nil),
     do: stream_options
 
   defp put_version_check(stream_options, revision) do

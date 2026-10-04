@@ -89,7 +89,7 @@ defmodule ImagePipe.Source.Parser do
     with :ok <- validate_uri_authority(uri),
          :ok <- reject_object_port(source),
          {:ok, key} <- object_key(uri.path),
-         {:ok, revision} <- decode_optional(uri.query) do
+         {:ok, revision} <- object_revision(uri.query) do
       {:ok,
        %Object{
          scheme: "s3",
@@ -121,9 +121,24 @@ defmodule ImagePipe.Source.Parser do
     |> percent_decode()
     |> case do
       {:ok, ""} -> {:error, :missing_object_key}
-      result -> result
+      {:ok, key} -> reject_dot_segments(key)
+      error -> error
     end
   end
+
+  # A proxy or S3-compatible gateway that normalizes paths would resolve `.`
+  # and `..` segments, reaching keys or buckets outside the allowlist. This
+  # isn't `Path.safe_relative/1`: S3 keys are literal, and empty segments
+  # (`images//cat.jpg`) name distinct objects.
+  defp reject_dot_segments(key) do
+    if key |> String.split("/") |> Enum.any?(&(&1 in [".", ".."])),
+      do: {:error, :dot_segment_in_object_key},
+      else: {:ok, key}
+  end
+
+  # An empty query (`cat.jpg?`) names no version.
+  defp object_revision(query) when query in [nil, ""], do: {:ok, nil}
+  defp object_revision(query), do: percent_decode(query)
 
   defp reject_object_port(source) do
     case source_port(source) do
@@ -196,9 +211,6 @@ defmodule ImagePipe.Source.Parser do
       {:error, _reason} = error -> error
     end
   end
-
-  defp decode_optional(nil), do: {:ok, nil}
-  defp decode_optional(value), do: percent_decode(value)
 
   defp percent_decode(value) do
     with :ok <- validate_percent_encoding(value) do
