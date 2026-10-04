@@ -20,6 +20,8 @@ defmodule ImagePipeServer.Config.Sources do
       token } }` or `{ provider = "<name>", ...options }`, where the provider
       is `instance_role`, `container_credentials`, `web_identity`, or
       `assume_role`. `assume_role` takes its `base` credentials the same way.
+    * `container_credentials` and `web_identity` options can come from the
+      standard AWS variables (see `with_aws_environment/2`).
   """
 
   alias ImagePipe.Source.CachePolicy
@@ -39,6 +41,17 @@ defmodule ImagePipeServer.Config.Sources do
     "web_identity" => WebIdentity,
     "assume_role" => AssumeRole
   }
+  @container_variables [
+    relative_uri: "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+    full_uri: "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+    auth_token: "AWS_CONTAINER_AUTHORIZATION_TOKEN"
+  ]
+  @web_identity_variables [
+    token_file: "AWS_WEB_IDENTITY_TOKEN_FILE",
+    role_arn: "AWS_ROLE_ARN",
+    region: "AWS_REGION",
+    role_session_name: "AWS_ROLE_SESSION_NAME"
+  ]
   @rules {:or, [{:list, :string}, :string]}
   @static_credentials_schema [
     access_key_id: [type: :string],
@@ -81,6 +94,67 @@ defmodule ImagePipeServer.Config.Sources do
   end
 
   def convert(_value, path), do: {:error, path, "expected a table"}
+
+  @doc """
+  Fills credential provider options from the standard AWS variables in `env`,
+  as ECS and EKS set them.
+
+    * `container_credentials` without `relative_uri`, `full_uri`, or
+      `auth_token` takes all three from `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`,
+      `AWS_CONTAINER_CREDENTIALS_FULL_URI`, and
+      `AWS_CONTAINER_AUTHORIZATION_TOKEN`.
+    * `web_identity` takes each option it leaves out from its variable:
+      `token_file` from `AWS_WEB_IDENTITY_TOKEN_FILE`, `role_arn` from
+      `AWS_ROLE_ARN`, `region` from `AWS_REGION`, and `role_session_name`
+      from `AWS_ROLE_SESSION_NAME`.
+  """
+  @spec with_aws_environment(keyword(), %{String.t() => String.t()}) :: keyword()
+  def with_aws_environment(sources, env) do
+    Enum.map(sources, fn {name, mount} ->
+      if Keyword.fetch!(mount, :adapter) == S3,
+        do: {name, Keyword.update!(mount, :options, &s3_aws_environment(&1, env))},
+        else: {name, mount}
+    end)
+  end
+
+  defp s3_aws_environment(options, env) do
+    options
+    |> Keyword.update!(:default, &settings_aws_environment(&1, env))
+    |> Keyword.replace_lazy(:buckets, fn buckets ->
+      Map.new(buckets, fn {bucket, settings} ->
+        {bucket, settings_aws_environment(settings, env)}
+      end)
+    end)
+  end
+
+  defp settings_aws_environment(settings, env),
+    do: Keyword.replace_lazy(settings, :credentials, &credentials_aws_environment(&1, env))
+
+  defp credentials_aws_environment({:provider, AssumeRole, options}, env),
+    do:
+      {:provider, AssumeRole,
+       Keyword.replace_lazy(options, :base, &credentials_aws_environment(&1, env))}
+
+  # The URIs and the token belong together, so a configured one keeps the
+  # environment's out.
+  defp credentials_aws_environment({:provider, ContainerCredentials, options}, env) do
+    if Enum.any?(Keyword.keys(@container_variables), &Keyword.has_key?(options, &1)),
+      do: {:provider, ContainerCredentials, options},
+      else: {:provider, ContainerCredentials, options ++ env_options(env, @container_variables)}
+  end
+
+  defp credentials_aws_environment({:provider, WebIdentity, options}, env),
+    do:
+      {:provider, WebIdentity, Keyword.merge(env_options(env, @web_identity_variables), options)}
+
+  defp credentials_aws_environment(credentials, _env), do: credentials
+
+  defp env_options(env, variables) do
+    for {key, variable} <- variables,
+        value = Map.get(env, variable),
+        value not in [nil, ""],
+        do: {key, value}
+  end
 
   defp mount(%{} = table, path) do
     with {:ok, name} <- required(table, "adapter", path),

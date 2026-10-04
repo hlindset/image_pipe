@@ -316,5 +316,75 @@ defmodule ImagePipeServer.ConfigTest do
       assert config.server[:port] == 9000
       assert config.image_pipe.options[:quality] == 75
     end
+
+    defp s3_provider_config(dir, provider) do
+      path = Path.join(dir, "config.toml")
+
+      File.write!(path, """
+      [sources.media]
+      adapter = "s3"
+      match = { scheme = "s3" }
+      region = "us-east-1"
+      endpoint = "https://s3.example.com"
+      credentials = #{provider}
+      buckets = { photos = {} }
+      """)
+
+      path
+    end
+
+    defp warmup_options(path, env) do
+      [warmup] = Config.load!(Map.put(env, "IPS_CONFIG", path), "absent.toml").credential_warmups
+      Keyword.fetch!(warmup, :opts)
+    end
+
+    test "fills container credentials from the AWS variables", %{tmp_dir: dir} do
+      env = %{
+        "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI" => "/v2/credentials/abc",
+        "AWS_CONTAINER_CREDENTIALS_FULL_URI" => "http://127.0.0.1:1234/creds",
+        "AWS_CONTAINER_AUTHORIZATION_TOKEN" => "token"
+      }
+
+      path = s3_provider_config(dir, ~s|{ provider = "container_credentials" }|)
+
+      assert Enum.sort(warmup_options(path, env)) == [
+               auth_token: "token",
+               full_uri: "http://127.0.0.1:1234/creds",
+               relative_uri: "/v2/credentials/abc"
+             ]
+
+      path =
+        s3_provider_config(
+          dir,
+          ~s|{ provider = "container_credentials", relative_uri = "/mine" }|
+        )
+
+      assert warmup_options(path, env) == [relative_uri: "/mine"]
+    end
+
+    test "fills web identity options from the AWS variables", %{tmp_dir: dir} do
+      env = %{
+        "AWS_WEB_IDENTITY_TOKEN_FILE" => "/var/run/token",
+        "AWS_ROLE_ARN" => "arn:aws:iam::1:role/env",
+        "AWS_REGION" => "eu-west-1",
+        "AWS_ROLE_SESSION_NAME" => "session"
+      }
+
+      path =
+        s3_provider_config(
+          dir,
+          ~s|{ provider = "assume_role", role_arn = "arn:aws:iam::1:role/target", region = "us-east-1", base = { provider = "web_identity", role_arn = "arn:aws:iam::1:role/mine" } }|
+        )
+
+      assert {:provider, ImagePipe.Source.S3.WebIdentity, base} =
+               Keyword.fetch!(warmup_options(path, env), :base)
+
+      assert Enum.sort(base) == [
+               region: "eu-west-1",
+               role_arn: "arn:aws:iam::1:role/mine",
+               role_session_name: "session",
+               token_file: "/var/run/token"
+             ]
+    end
   end
 end

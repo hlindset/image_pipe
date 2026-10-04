@@ -99,7 +99,11 @@ defmodule ImagePipeServer.Config do
   @doc "Reads, converts, and validates the configuration."
   @spec load!(%{String.t() => String.t()}, Path.t()) :: t()
   def load!(env, default_path) do
-    env |> Tree.read!(default_path) |> options!() |> build!()
+    env
+    |> Tree.read!(default_path)
+    |> options!()
+    |> Keyword.replace_lazy(:sources, &Sources.with_aws_environment(&1, env))
+    |> build!()
   end
 
   @doc "Converts the configuration tree to per-section options."

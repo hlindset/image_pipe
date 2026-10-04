@@ -10,10 +10,13 @@ listed in [shared URL settings](../../image_pipe/docs/shared-url-settings.md).
 ## Sources and precedence
 
 1. The library's defaults.
-2. The TOML file named by `IPS_CONFIG`, or `/etc/image_pipe/config.toml`. The
+2. Standard `AWS_` variables, for the S3 credential options that
+   `container_credentials` and `web_identity` leave out (see
+   [S3 `credentials`](#s3-credentials)).
+3. The TOML file named by `IPS_CONFIG`, or `/etc/image_pipe/config.toml`. The
    default file is optional, so a deployment can use only environment
    variables. A missing file named by `IPS_CONFIG` stops the server.
-3. Environment variables, which override single settings in the file.
+4. `IPS_` environment variables, which override single settings in the file.
 
 A small file:
 
@@ -245,7 +248,13 @@ Static credentials:
 | `static.token` | string |  |
 
 Or a credential `provider` and its options. `assume_role` takes `base`
-credentials in the same forms.
+credentials in the same forms. `container_credentials` without
+`relative_uri`, `full_uri`, or `auth_token` takes all three from
+`AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`, `AWS_CONTAINER_CREDENTIALS_FULL_URI`,
+and `AWS_CONTAINER_AUTHORIZATION_TOKEN`. `web_identity` fills each of
+`token_file`, `role_arn`, `region`, and `role_session_name` that the
+table leaves out, from `AWS_WEB_IDENTITY_TOKEN_FILE`, `AWS_ROLE_ARN`,
+`AWS_REGION`, and `AWS_ROLE_SESSION_NAME` respectively.
 
 `provider = "assume_role"`:
 
