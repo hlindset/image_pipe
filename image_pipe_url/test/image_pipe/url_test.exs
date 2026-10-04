@@ -256,6 +256,35 @@ defmodule ImagePipe.URLTest do
                IP.URL.url(IP.URL.new(lookup) |> IP.URL.group(presets: ["remote"]), "photo.jpg")
     end
 
+    test "under a lookup, groups without an unknown preset are still checked" do
+      lookup = IP.URL.config(mount_presets: [presets: %{"card" => "w=30"}, preset_lookup: true])
+
+      bad =
+        IP.URL.new(lookup)
+        |> IP.URL.group(presets: ["remote"])
+        |> IP.URL.group(resize: [fit: :cover])
+
+      assert {:error, [%{reason: :inert_option, locations: [{:group, 1, :fit}]}]} =
+               IP.URL.validate(bad)
+
+      assert {:error, {:invalid_request, [%{reason: :inert_option}]}} =
+               IP.URL.url(bad, "photo.jpg")
+
+      # With every named preset known, request-wide options are checked too.
+      assert {:error, [%{locations: [{:request, :jpeg_options}]}]} =
+               IP.URL.new(lookup)
+               |> IP.URL.group(presets: ["card"])
+               |> IP.URL.output(format: :webp, jpeg_options: [interlace: true])
+               |> IP.URL.validate()
+
+      # The unknown preset may supply the width that `fit` needs.
+      assert :ok =
+               IP.URL.validate(
+                 IP.URL.new(lookup)
+                 |> IP.URL.group(presets: ["remote"], resize: [fit: :cover])
+               )
+    end
+
     test "builder values match their fragment spelling" do
       card = IP.URL.new() |> IP.URL.group(resize: [width: 30, height: 20, fit: :cover])
       as_builder = IP.URL.config(mount_presets: [presets: %{"card" => card}])

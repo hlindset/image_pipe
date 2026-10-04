@@ -60,9 +60,11 @@ defmodule ImagePipe.URL.Config do
                   type: :boolean,
                   default: false,
                   doc: """
-                  Set to `true` when the server has a preset lookup. A plan that
-                  names a preset missing from `:presets` is then not checked at all,
-                  because only the server can resolve the name.
+                  Set to `true` when the server has a preset lookup. For a plan
+                  that names a preset missing from `:presets`, the groups that
+                  name it and the request-wide options are not checked, because
+                  only the server can resolve the name. The other groups are
+                  still checked.
                   """
                 ]
               ]

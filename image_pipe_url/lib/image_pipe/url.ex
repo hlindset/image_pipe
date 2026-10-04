@@ -326,9 +326,11 @@ defmodule ImagePipe.URL do
   plan that passes can still fail on a particular image.
 
   The check needs `:mount_presets` in the URL configuration. Without it,
-  `validate/1` returns `:ok`. With `preset_lookup: true`, a plan that names a
-  preset missing from `:mount_presets` also returns `:ok`, because only the
-  server can resolve the name. In an app that serves its own URLs,
+  `validate/1` returns `:ok`. With `preset_lookup: true`, only the server can
+  resolve a preset missing from `:presets`, and that preset can set any
+  option of its group and of the request. For a plan that names one, the
+  check skips the groups that name it and the request-wide options, and
+  checks the other groups. In an app that serves its own URLs,
   `ImagePipe.validate/2` runs the full check, including the lookup.
   """
   @spec validate(t()) :: :ok | {:error, [Issue.t()]}

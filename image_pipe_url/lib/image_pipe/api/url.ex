@@ -92,8 +92,9 @@ defmodule ImagePipe.API.URL do
     end
   end
 
-  # Semantic checks run only when the builder knows the mount's presets. A name
-  # the known map lacks defers to the mount when it has a lookup.
+  # Semantic checks run only when the builder knows the mount's presets. Under
+  # a lookup, a name the known map lacks defers to the mount, and only groups
+  # without such a name are checked.
   @doc false
   @spec check(Plan.t(), keyword()) :: :ok | {:error, [ImagePipe.Plan.Spec.Issue.t()]}
   def check(plan, config) do
@@ -101,12 +102,11 @@ defmodule ImagePipe.API.URL do
       nil ->
         :ok
 
-      %{presets: presets, request_defaults: defaults, lookup?: lookup?} ->
-        names = Plan.preset_names(plan)
+      %{presets: presets, request_defaults: defaults, lookup?: true} ->
+        Plan.validate_known(plan, presets, defaults)
 
-        if lookup? and not Enum.all?(names, &Map.has_key?(presets, &1)),
-          do: :ok,
-          else: Plan.validate(plan, presets, defaults)
+      %{presets: presets, request_defaults: defaults} ->
+        Plan.validate(plan, presets, defaults)
     end
   end
 
