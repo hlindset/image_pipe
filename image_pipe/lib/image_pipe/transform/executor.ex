@@ -744,6 +744,12 @@ defmodule ImagePipe.Transform.Executor do
        when min_width != nil or min_height != nil,
        do: nil
 
+  # Stretch keeps an :auto axis at the source size, and shrink-on-load shrinks
+  # both axes, so the decode can't shrink.
+  defp decode_resize_target(%{fit: :stretch, w: width, h: height}, _dpr)
+       when width == :auto or height == :auto,
+       do: nil
+
   defp decode_resize_target(%{w: width, h: height, zoom: {zoom_x, zoom_y}}, dpr) do
     case {decode_axis(width, zoom_x * dpr), decode_axis(height, zoom_y * dpr)} do
       {nil, nil} -> nil

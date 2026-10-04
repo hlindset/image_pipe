@@ -912,6 +912,19 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         imgproxy: "rs:force:300:200",
         tolerance: {2, 64}
       },
+      # Single-axis stretch keeps the other axis at the source size, so the decode
+      # must not shrink on load: imgproxy pre-shrinks by the smaller of the two axis
+      # ratios (scale_on_load.go:51), here 1. Shrinking by the width ratio alone decodes
+      # 200×150 and stretches it back to 1200 rows, blurring the high-frequency
+      # pattern (image_plug-e4a.1.2).
+      %{
+        id: "force_single_axis_no_preshrink",
+        kind: :png,
+        source: "high_freq.jpg",
+        native: "w=200/fit=stretch",
+        imgproxy: "rs:force:200:0",
+        tolerance: {2, 64}
+      },
       # T2.13: auto resize (picks fit/fill by source vs target orientation), untested
       # entirely. Landscape source into a portrait target.
       %{
