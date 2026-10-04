@@ -132,6 +132,8 @@ defmodule ImagePipe.PresetLookupTest do
       {[reply: :nonsense], 503},
       {[reply: {:ok, %{"card" => 42}}], 503},
       {[presets: %{"card" => "w=nope"}], 500},
+      {[presets: %{"card" => "w=400\n"}], 500},
+      {[presets: %{"card" => "pad=1\n"}], 500},
       {[presets: %{"card" => "preset=missing"}], 500},
       {[presets: %{"card" => "preset=loop", "loop" => "preset=card"}], 500}
     ]

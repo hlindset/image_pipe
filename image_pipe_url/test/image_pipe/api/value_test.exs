@@ -32,7 +32,9 @@ defmodule ImagePipe.API.ValueTest do
       " 5",
       "5 ",
       "1.2.3",
-      "5px"
+      "5px",
+      "5\n",
+      "-0.5\n"
     ]
 
     for input <- invalid do
@@ -97,7 +99,8 @@ defmodule ImagePipe.API.ValueTest do
       "Auto",
       "auto1",
       "1auto",
-      " 5"
+      " 5",
+      "10\n"
     ]
 
     for input <- invalid do
@@ -206,7 +209,9 @@ defmodule ImagePipe.API.ValueTest do
       "gray1",
       "White",
       "RED",
-      "12345"
+      "12345",
+      "red\n",
+      "fff\n"
     ]
 
     for input <- invalid do
@@ -276,7 +281,9 @@ defmodule ImagePipe.API.ValueTest do
       "10,abc",
       "10.5",
       "-1",
-      "10, 20"
+      "10, 20",
+      "1\n",
+      "10,20\n"
     ]
 
     for input <- invalid do
