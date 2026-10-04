@@ -140,7 +140,7 @@ The HTTP listener. Times are in milliseconds. `read_timeout` closes connections 
 
 | Key | Type | Default |
 | --- | --- | --- |
-| `port` | integer ≥ 0 | `8080` |
+| `port` | integer 0–65535 | `8080` |
 | `bind` | string | `"0.0.0.0"` |
 | `mount_path` | string | `"/"` |
 | `shutdown_timeout` | integer ≥ 0 | `15000` |

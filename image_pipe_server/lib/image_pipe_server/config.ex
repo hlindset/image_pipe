@@ -76,7 +76,7 @@ defmodule ImagePipeServer.Config do
   @pool ImagePipeServer.ProcessingPool
 
   @server_schema [
-    port: [type: :non_neg_integer, default: 8080],
+    port: [type: {:in, 0..65_535}, default: 8080],
     bind: [type: :string, default: "0.0.0.0"],
     mount_path: [type: :string, default: "/"],
     shutdown_timeout: [type: :non_neg_integer, default: 15_000],

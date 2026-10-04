@@ -10,7 +10,7 @@ defmodule ImagePipeServer.Config.ReferenceTest do
   end
 
   test "lists settings with their TOML types and defaults", %{reference: reference} do
-    assert reference =~ "| `port` | integer ≥ 0 | `8080` |"
+    assert reference =~ "| `port` | integer 0–65535 | `8080` |"
     assert reference =~ "| `quality` | integer > 0 | `80` |"
 
     assert reference =~
