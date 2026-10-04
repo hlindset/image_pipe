@@ -9,8 +9,9 @@ defmodule ImagePipeServer.Config do
     * `[server]` - the listener: `port`, `bind`, `mount_path`,
       `shutdown_timeout`, `read_timeout`, `max_connections`, and an optional
       `auth_token` that image requests must send as a bearer token.
-    * `[url]` - `ImagePipe.URL.config/1`. `base_url`, `encrypt_source`, and
-      `iv_mode` only affect URL generation and are not accepted.
+    * `[url]` - the signing and source-encryption options of
+      `ImagePipe.config/1`. `base_url`, `encrypt_source`, and `iv_mode` only
+      affect URL generation and are not accepted.
     * `[sources.<name>]` - named source mounts
       (see `ImagePipeServer.Config.Sources`).
     * `[cache]` - `output` and `input` `ImagePipe.Cache.FileSystem` caches, and
@@ -284,10 +285,8 @@ defmodule ImagePipeServer.Config do
 
   defp image_pipe!(sections, pool) do
     library!(fn ->
-      url = ImagePipe.URL.config(Keyword.get(sections, :url, []))
-
       shared =
-        [url: url] ++
+        Keyword.get(sections, :url, []) ++
           processing(Keyword.get(sections, :processing, [])) ++
           Keyword.get(sections, :cache, []) ++
           sources(Keyword.get(sections, :sources)) ++
