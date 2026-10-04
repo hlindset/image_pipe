@@ -10,6 +10,9 @@ defmodule ImagePipe.Output.Negotiation do
   # Server preference order; hosts may override it with `:format_order`.
   @default_order [:avif, :webp]
 
+  # RFC 9110 §12.4.2: qvalue = ( "0" [ "." 0*3DIGIT ] ) / ( "1" [ "." 0*3("0") ] )
+  @qvalue_pattern ~r/\A(0(\.[0-9]{0,3})?|1(\.0{0,3})?)\z/
+
   @spec modern_candidates(String.t() | nil, keyword()) :: [:avif | :webp]
   def modern_candidates(accept_header, opts \\ []) do
     case parse_accept(accept_header) do
@@ -96,11 +99,16 @@ defmodule ImagePipe.Output.Negotiation do
 
   # An invalid or out-of-range weight (`q=1.5`, `q=abc`) is ignored, not treated
   # as an explicit `q=0` exclusion: drop the parameter and fall back to the
-  # default q=1 (RFC 9110 §12.4.2). Only a well-formed in-range `q=0` excludes.
+  # default q=1 (RFC 9110 §12.4.2). Only a well-formed zero (`q=0`, `q=0.`,
+  # `q=0.000`) excludes.
   defp parse_quality(value) do
-    case value |> String.trim() |> Float.parse() do
-      {quality, ""} when quality >= 0.0 and quality <= 1.0 -> quality
-      _ -> 1.0
+    value = String.trim(value)
+
+    if Regex.match?(@qvalue_pattern, value) do
+      {quality, _rest} = Float.parse(value)
+      quality
+    else
+      1.0
     end
   end
 end
