@@ -45,11 +45,11 @@ defmodule ImagePipe.Plug.Config do
                        configuration the mount serves.
                        """
                      ],
-                     url: [
+                     mount: [
                        type: :atom,
                        doc: """
-                       Name of one of the instance's `:urls` to check request URLs with. \
-                       Defaults to the instance's `:url` option (see `ImagePipe.config/1`).
+                       Name of one of the instance's `:mounts`, whose URL options check \
+                       request URLs. Defaults to the instance's own URL options.
                        """
                      ]
                    )
@@ -74,17 +74,17 @@ defmodule ImagePipe.Plug.Config do
   @doc false
   # Resolves a mount on a supervised instance for one request.
   @spec resolve({:instance, atom(), atom() | nil, keyword()}) :: keyword()
-  def resolve({:instance, name, url, mount}),
-    do: Keyword.merge(mount, SharedConfig.fetch_instance!(name, url).options)
+  def resolve({:instance, name, mount_name, mount}),
+    do: Keyword.merge(mount, SharedConfig.fetch_instance!(name, mount_name).options)
 
   # Shared configuration belongs to the instance, so only mount-only options
-  # and the name of one of the instance's URL configurations are accepted.
+  # and the name of one of the instance's named mounts are accepted.
   defp validate_instance!(opts) do
-    {instance, opts} = Keyword.split(opts, [:instance, :url])
+    {instance, opts} = Keyword.split(opts, [:instance, :mount])
 
     case NimbleOptions.validate(instance, @instance_schema) do
       {:ok, instance} ->
-        {:instance, instance[:instance], instance[:url], validate_known_opts!(opts)}
+        {:instance, instance[:instance], instance[:mount], validate_known_opts!(opts)}
 
       {:error, error} ->
         raise ArgumentError, "invalid ImagePipe.Plug options: #{Exception.message(error)}"

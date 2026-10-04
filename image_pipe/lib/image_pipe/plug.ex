@@ -30,12 +30,12 @@ defmodule ImagePipe.Plug do
   mount the instance by name:
 
       forward "/images", ImagePipe.Plug, instance: MyApp.Images, http_cache: :auto
-      forward "/signed", ImagePipe.Plug, instance: MyApp.Images, url: :signed
+      forward "/signed", ImagePipe.Plug, instance: MyApp.Images, mount: :signed
 
   The configuration belongs to the instance, so with `:instance` a mount
-  accepts only the mount options below and `:url`. Other options raise
+  accepts only the mount options below and `:mount`. Other options raise
   `ArgumentError`. A request to a mount whose
-  instance isn't running, or whose `:url` the instance doesn't define, raises
+  instance isn't running, or whose `:mount` the instance doesn't define, raises
   `ArgumentError`.
 
   #{NimbleOptions.docs(ImagePipe.Plug.Config.instance_schema())}
@@ -47,7 +47,7 @@ defmodule ImagePipe.Plug do
   #{NimbleOptions.docs(ImagePipe.Plug.Config.options_schema())}
 
   `init/1` validates the options. An instance mount looks up its instance and
-  `:url` per request.
+  `:mount` per request.
   """
 
   use Boundary,
@@ -76,7 +76,7 @@ defmodule ImagePipe.Plug do
   def init(opts), do: Config.validate!(opts)
 
   @impl Plug
-  def call(%Plug.Conn{} = conn, {:instance, _name, _url, _mount} = mount) do
+  def call(%Plug.Conn{} = conn, {:instance, _name, _mount_name, _mount} = mount) do
     Runner.run(conn, Config.resolve(mount))
   end
 

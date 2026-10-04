@@ -222,7 +222,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
     opts =
       base_opts(
         allow_debug_headers: true,
-        url: ImagePipe.URL.config(keys: [Base.encode16("debug-signing-key")])
+        keys: [Base.encode16("debug-signing-key")]
       )
 
     config = ImagePipe.Plug.init(opts)

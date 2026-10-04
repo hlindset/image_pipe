@@ -10,10 +10,9 @@ defmodule ImagePipe.Plug.SourceEncryptionTest do
   @source "https://example.test/a.jpg"
 
   setup do
-    url_config =
-      ImagePipe.URL.config(keys: [String.duplicate("a1", 32)], source_encryption_keys: [@key_a])
+    url_options = [keys: [String.duplicate("a1", 32)], source_encryption_keys: [@key_a]]
 
-    %{config: Config.validate!(url: url_config), url_config: url_config}
+    %{config: Config.validate!(url_options), url_config: ImagePipe.URL.config(url_options)}
   end
 
   test "the public helper returns a token that parse authenticates into plaintext", %{
@@ -32,7 +31,7 @@ defmodule ImagePipe.Plug.SourceEncryptionTest do
   end
 
   test "an unsigned request leaves the signing key out of the parse metadata" do
-    config = Config.validate!(url: ImagePipe.URL.config([]))
+    config = Config.validate!([])
     conn = Plug.Test.conn(:get, "/w=12/src/a.jpg")
 
     assert {{:ok, _request, _source}, metadata} = ParsedRequest.parse(conn, config)

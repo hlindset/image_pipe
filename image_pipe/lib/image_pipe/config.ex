@@ -3,9 +3,9 @@ defmodule ImagePipe.Config do
   Reusable host configuration shared by the Plug and direct execution.
 
   Construct with `ImagePipe.config/1`. Configuration owns sources, caches,
-  processing defaults, storage partitions, presets, and request defaults, and
-  takes URL settings (signing, source encryption) as an `ImagePipe.URL.Config`
-  value. Inspection excludes its values.
+  processing defaults, storage partitions, presets, request defaults, and URL
+  settings (signing, source encryption, base URL). Inspection excludes its
+  values.
   """
   use Boundary,
     top_level?: true,
@@ -39,16 +39,10 @@ defmodule ImagePipe.Config do
 
   @preset_keys [:presets, :request_defaults, :preset_lookup, :max_preset_lookups]
 
-  @url_option_doc [
-    url: [
-      type: {:struct, URLConfig},
-      doc: """
-      Signing keys, source encryption keys, and the base URL, from \
-      `ImagePipe.URL.config/1`. A mount accepts only URLs signed with these keys. \
-      Without it, URLs aren't signed.
-      """
-    ]
-  ]
+  # The URL options are validated by `ImagePipe.URL.Config`, which also owns
+  # `:validate_against`; this configuration fills that in itself.
+  @url_option_doc Keyword.delete(URLConfig.schema(), :validate_against)
+  @url_keys Keyword.keys(@url_option_doc)
 
   @schema NimbleOptions.new!(
             ProcessingConfig.schema() ++
@@ -141,15 +135,16 @@ defmodule ImagePipe.Config do
           )
 
   @doc false
-  # The option list for `ImagePipe.config/1`. `:url` is validated before the
-  # schema, so it is documented here.
+  # The option list for `ImagePipe.config/1`. The URL options are validated
+  # before the schema, so they are documented here.
   def options_docs, do: NimbleOptions.docs(@url_option_doc ++ @schema.schema)
 
   @doc false
   @spec new!(keyword()) :: t()
   def new!(options) do
-    {url, remaining} = Keyword.pop_lazy(options, :url, fn -> URLConfig.new!([]) end)
-    url = url_config!(url)
+    known_options!(options)
+    {url_options, remaining} = Keyword.split(options, @url_keys)
+    url = URLConfig.new!(url_options)
     resolved = remaining |> Cache.validate_config!() |> Source.validate_config!()
 
     case NimbleOptions.validate(resolved, @schema) do
@@ -181,19 +176,21 @@ defmodule ImagePipe.Config do
     end
   end
 
-  defp url_config!(%URLConfig{options: options} = url) do
-    case Keyword.has_key?(options, :validate_against) do
-      true ->
-        raise ArgumentError,
-              "url must not set validate_against; configure presets and watermarks on ImagePipe.config/1"
+  # The URL options are split off before the schema validates the rest, so the
+  # schema's own unknown-option error would leave them out of the valid list.
+  defp known_options!(options) do
+    known = @url_keys ++ Keyword.keys(@schema.schema)
 
-      false ->
-        url
+    case Keyword.keys(options) -- known do
+      [] ->
+        :ok
+
+      unknown ->
+        raise ArgumentError,
+              "invalid ImagePipe configuration: unknown options #{inspect(Enum.uniq(unknown))}, " <>
+                "valid options are: #{inspect(known)}"
     end
   end
-
-  defp url_config!(_url),
-    do: raise(ArgumentError, "url must be built with ImagePipe.URL.config/1")
 
   # Compiles static presets and request defaults; returns the resolved options
   # and the builder's view of them for `ImagePipe.url_config/1`.
@@ -304,7 +301,8 @@ defmodule ImagePipe.Config do
   # Supervised instances store their configuration here, keyed by name, so
   # mounts can look it up per request.
   @spec publish(atom(), t(), %{atom() => t()}) :: :ok
-  def publish(name, config, urls), do: :persistent_term.put({__MODULE__, name}, {config, urls})
+  def publish(name, config, mounts),
+    do: :persistent_term.put({__MODULE__, name}, {config, mounts})
 
   @doc false
   @spec unpublish(atom()) :: :ok
@@ -315,22 +313,22 @@ defmodule ImagePipe.Config do
 
   @doc false
   @spec fetch_instance!(atom(), atom() | nil) :: t()
-  def fetch_instance!(name, url) do
-    case {:persistent_term.get({__MODULE__, name}, nil), url} do
-      {nil, _url} ->
+  def fetch_instance!(name, mount) do
+    case {:persistent_term.get({__MODULE__, name}, nil), mount} do
+      {nil, _mount} ->
         raise ArgumentError, "ImagePipe instance #{inspect(name)} is not running"
 
-      {{config, _urls}, nil} ->
+      {{config, _mounts}, nil} ->
         config
 
-      {{_config, urls}, url} ->
-        case Map.fetch(urls, url) do
+      {{_config, mounts}, mount} ->
+        case Map.fetch(mounts, mount) do
           {:ok, config} ->
             config
 
           :error ->
             raise ArgumentError,
-                  "ImagePipe instance #{inspect(name)} has no url named #{inspect(url)}"
+                  "ImagePipe instance #{inspect(name)} has no mount named #{inspect(mount)}"
         end
     end
   end
@@ -341,7 +339,15 @@ defmodule ImagePipe.Config do
 
   # The result keeps the instance only while the instance runs every cache
   # process it needs.
+  # URL options alone leave the caches and everything else as they are.
   def override(%__MODULE__{} = config, options) do
+    case Keyword.keys(options) -- @url_keys do
+      [] -> put_url_options(config, options)
+      _other -> override_all(config, options)
+    end
+  end
+
+  defp override_all(config, options) do
     overridden = new!(Keyword.merge(config.raw, options))
     running = Cache.child_specs(config.options)
 
@@ -349,6 +355,40 @@ defmodule ImagePipe.Config do
          Enum.all?(Cache.child_specs(overridden.options), &(&1 in running)),
        do: %{overridden | instance: config.instance},
        else: overridden
+  end
+
+  @doc false
+  # The URL option names, which a named mount or an override can set.
+  @spec url_keys() :: [atom()]
+  def url_keys, do: @url_keys
+
+  @doc false
+  # The URL options' schema, which a named mount's options are validated with.
+  @spec url_options_schema() :: keyword()
+  def url_options_schema, do: @url_option_doc
+
+  @doc false
+  # Applies URL options on top of the configuration's own, for a named mount
+  # or a URL-only override. Only the URL settings are rebuilt: the presets and
+  # watermarks they're checked against stay the same, and so do the caches, so
+  # the result keeps the instance.
+  @spec put_url_options(t(), keyword()) :: t()
+  def put_url_options(%__MODULE__{} = config, url_options) do
+    url_options = config.raw |> Keyword.take(@url_keys) |> Keyword.merge(url_options)
+
+    url =
+      url_options
+      |> URLConfig.new!()
+      |> URLConfig.put_validate_against(Keyword.fetch!(config.url.options, :validate_against))
+
+    concealed_watermarks!(config.options, url)
+
+    %{
+      config
+      | options: Keyword.merge(config.options, url.options),
+        raw: Keyword.merge(config.raw, url_options),
+        url: url
+    }
   end
 
   @watermark_schema NimbleOptions.new!(

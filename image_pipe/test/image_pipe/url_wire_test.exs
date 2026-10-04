@@ -75,7 +75,7 @@ defmodule ImagePipe.URLWireTest do
     sources: sources
   } do
     url_config = IP.URL.config(keys: [@key])
-    config = IP.config(url: url_config, sources: sources)
+    config = IP.config(keys: [@key], sources: sources)
     mount = IP.Plug.init(config)
     signed = IP.URL.sign_path("/w=30/format=png/src/photo%2ejpg", url_config)
     refute_received :source_fetch
@@ -104,18 +104,13 @@ defmodule ImagePipe.URLWireTest do
        %{
          sources: sources
        } do
-    url_config =
-      IP.URL.config(
+    config =
+      IP.config(
         base_url: "https://cdn.test/images",
         keys: [@key],
         source_encryption_keys: [@encryption_key],
         encrypt_source: true,
-        iv_mode: :deterministic
-      )
-
-    config =
-      IP.config(
-        url: url_config,
+        iv_mode: :deterministic,
         presets: %{"thumb" => "w=30/format=png"},
         sources: sources,
         quality: 71
@@ -163,15 +158,15 @@ defmodule ImagePipe.URLWireTest do
           {true, [iv: :random]},
           {true, [iv: <<7::128>>]}
         ] do
-      url_config =
-        IP.URL.config(
-          base_url: "https://cdn.test/images",
-          keys: [@key],
-          source_encryption_keys: [@encryption_key],
-          encrypt_source: encrypt?
-        )
+      url_options = [
+        base_url: "https://cdn.test/images",
+        keys: [@key],
+        source_encryption_keys: [@encryption_key],
+        encrypt_source: encrypt?
+      ]
 
-      config = IP.config(url: url_config, sources: sources)
+      url_config = IP.URL.config(url_options)
+      config = IP.config(url_options ++ [sources: sources])
 
       plan =
         IP.URL.new(url_config, expires: 2_000_000_000)
@@ -196,11 +191,11 @@ defmodule ImagePipe.URLWireTest do
   end
 
   test "tampering and expiry fail before source or cache access", %{sources: sources} do
-    url_config =
-      IP.URL.config(keys: [@key], source_encryption_keys: [@encryption_key], encrypt_source: true)
+    url_options = [keys: [@key], source_encryption_keys: [@encryption_key], encrypt_source: true]
+    url_config = IP.URL.config(url_options)
 
     config =
-      IP.config(url: url_config, sources: sources, cache: {CacheProbe, []}, clock: fn -> 100 end)
+      IP.config(url_options ++ [sources: sources, cache: {CacheProbe, []}, clock: fn -> 100 end])
 
     mount = IP.Plug.init(config)
     expired = IP.URL.url!(IP.URL.new(url_config, expires: 99), "photo.jpg")

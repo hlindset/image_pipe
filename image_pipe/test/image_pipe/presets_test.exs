@@ -20,7 +20,7 @@ defmodule ImagePipe.PresetsTest do
 
     config =
       IP.config(
-        url: IP.URL.config(keys: [Base.encode16(:binary.copy(<<71>>, 32))]),
+        keys: [Base.encode16(:binary.copy(<<71>>, 32))],
         request_defaults: "gray/format=png",
         presets: %{"base" => "w=30", "poster" => "preset=base/brightness=10"},
         sources: [
@@ -173,14 +173,13 @@ defmodule ImagePipe.PresetsTest do
   end
 
   test "encrypted preset URLs preserve references and round trip sources" do
-    url_config =
-      IP.URL.config(
+    config =
+      IP.config(
         keys: [Base.encode16(:binary.copy(<<71>>, 32))],
         source_encryption_keys: [String.duplicate("48", 32)],
-        encrypt_source: true
+        encrypt_source: true,
+        presets: %{"poster" => "w=30"}
       )
-
-    config = IP.config(url: url_config, presets: %{"poster" => "w=30"})
 
     builder = IP.URL.new(IP.url_config(config)) |> IP.URL.group(presets: ["poster"])
     source = "https://origin.test/a b.jpg?token=secret"
