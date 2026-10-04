@@ -14,22 +14,13 @@ defmodule ImagePipe.Plug do
   setting up a mount.
 
   An inline mount accepts every option of `ImagePipe.config/1`, or a
-  `:config` built with it, plus the mount options below. It can't start the
-  processes a bounded cache needs, so `init/1` raises `ArgumentError` for one. Building the
-  configuration once lets URL building and `ImagePipe.run/4` share it:
+  `:config` built with it, plus the mount options below. It can't start the processes a bounded cache needs, so
+  `init/1` raises `ArgumentError` for one. To read runtime values, use a
+  bounded cache, or share the configuration with `ImagePipe.run/4`, mount an
+  instance instead.
 
-      url_config = ImagePipe.URL.config(keys: [signing_key])
-      config = ImagePipe.config(url: url_config, presets: presets, sources: [...], quality: 82)
-      mount = ImagePipe.Plug.init(config: config, http_cache: :auto)
-
-      url =
-        ImagePipe.URL.new(ImagePipe.url_config(config))
-        |> ImagePipe.URL.url!("images/cat.jpg")
-
-  ImagePipe URLs use options such as `/w=300/format=webp/src/images/photo.jpg`.
-  Options within a group have a fixed processing order. A `-` starts the
-  next group. Invalid requests are rejected before source fetching or cache
-  access.
+  The URLs a mount serves are described in
+  [Requesting images](requesting-images.md).
 
   ## Mounting an instance
 

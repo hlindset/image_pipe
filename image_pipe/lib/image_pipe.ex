@@ -1,19 +1,19 @@
 defmodule ImagePipe do
   @moduledoc """
-  Executes processing plans and holds the host configuration shared with `ImagePipe.Plug`.
-
-  Build plans and URLs with `ImagePipe.URL`. Execute a plan in-process with
-  `run/4` or `write/5`, using a server configuration from `config/1`:
-
-      url_config = ImagePipe.URL.config(keys: [signing_key])
-      config = ImagePipe.config(url: url_config, presets: presets, sources: [...], quality: 82)
+  Processes images in your own code, and holds the configuration that
+  `ImagePipe.Plug` serves images with.
 
       builder =
-        ImagePipe.URL.new(ImagePipe.url_config(config))
+        ImagePipe.URL.new()
         |> ImagePipe.URL.group(resize: [width: 400, height: 300, fit: :cover])
         |> ImagePipe.URL.output(format: :webp)
 
-      {:ok, result} = ImagePipe.run(config, builder, {:source, "images/cat.jpg"})
+      {:ok, result} = ImagePipe.run(ImagePipe.config(), builder, {:file, "cat.jpg"})
+
+  `config/1` builds a configuration, `ImagePipe.URL` describes what to do to
+  the image, and `run/4` returns the result. `write/5` writes it to a file
+  instead. [Processing images in Elixir](processing-in-elixir.md) walks
+  through it.
 
   An instance is a supervised process that holds a configuration and starts
   the processes its caches need. Run one with `child_spec/1` when a mount's
