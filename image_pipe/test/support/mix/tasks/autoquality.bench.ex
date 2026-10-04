@@ -229,8 +229,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
   meaningful cohort is the >6 MP images (where crop actually engages); below the
   crossover production uses full-frame and the comparison is moot. Reports, over the
   crop-regime cohort: full-frame vs crop+confirm target-hit rate, **regressions** (full
-  hit, crop missed), the delivered `crop − full` score delta (median + worst), and how
-  often the bump fired / exhausted. A low absolute hit rate is the bracket ceiling on
+  hit, crop missed), and the delivered `crop − full` score delta (median + worst). A low absolute hit rate is the bracket ceiling on
   hard content (large photos / screenshots can't reach #{78} in the bracket), not crop
   error — the crop-vs-full *delta* is the confidence signal.
 
@@ -1493,7 +1492,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
 
     # Baseline: production-today crop path (even + full-frame confirm at K=16).
     {:ok, _b, bmeta} =
-      EncodeSearch.search(resolved.quality_search, nil,
+      confirmed_search(resolved.quality_search,
         encode_fun: encode_fun,
         score_fun: crop_fun.(:even, @subsample_k),
         confirm_fun: fn bytes -> qdata.(bytes).full_score end,
@@ -2336,9 +2335,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
       full_score: full.score,
       crop_score: crop.score,
       score_delta: crop.score - full.score,
-      byte_delta: crop.bytes - full.bytes,
-      confirm_passes: crop.confirm_passes,
-      bump_exhausted?: crop.limiting_factor == :bump_exhausted
+      byte_delta: crop.bytes - full.bytes
     }
   end
 
@@ -2402,8 +2399,6 @@ defmodule Mix.Tasks.Autoquality.Bench do
     regress = Enum.filter(crop, &(&1.full_hit? and not &1.crop_hit?))
     improve = Enum.count(crop, &(&1.crop_hit? and not &1.full_hit?))
     deltas = Enum.map(crop, & &1.score_delta)
-    bumped = Enum.count(crop, &(&1.confirm_passes > 1))
-    exhausted = Enum.count(crop, & &1.bump_exhausted?)
 
     IO.puts(
       "  over #{n} crop-regime images (>#{CropScore.crossover_megapixels()} MP), all formats:"
@@ -2420,10 +2415,6 @@ defmodule Mix.Tasks.Autoquality.Bench do
     IO.puts(
       "    delivered Δscore (crop − full): median #{Float.round(median(deltas), 2)}, " <>
         "worst undershoot #{Float.round(Enum.min(deltas), 2)}, worst over #{Float.round(Enum.max(deltas), 2)}"
-    )
-
-    IO.puts(
-      "    bump fired (>1 confirm pass): #{bumped}/#{n}  |  bump exhausted (best-effort under): #{exhausted}/#{n}"
     )
 
     h_verdict(regress, deltas)
@@ -2461,14 +2452,13 @@ defmodule Mix.Tasks.Autoquality.Bench do
 
     head =
       "source,label,format,mp,crop_regime,full_hit,crop_hit,full_q,crop_q," <>
-        "full_score,crop_score,score_delta,byte_delta,confirm_passes,bump_exhausted\n"
+        "full_score,crop_score,score_delta,byte_delta\n"
 
     body =
       Enum.map_join(rows, fn r ->
         "#{r.source},#{r.label},#{r.format},#{r.mp},#{r.crop_regime?},#{r.full_hit?}," <>
           "#{r.crop_hit?},#{r.full_q},#{r.crop_q},#{fmt_score(r.full_score)}," <>
-          "#{fmt_score(r.crop_score)},#{Float.round(r.score_delta, 3)},#{r.byte_delta}," <>
-          "#{r.confirm_passes},#{r.bump_exhausted?}\n"
+          "#{fmt_score(r.crop_score)},#{Float.round(r.score_delta, 3)},#{r.byte_delta}\n"
       end)
 
     File.write!(path, head <> body)
@@ -2930,7 +2920,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
   # against, and the raw systematic residual (p10 − full at the pick) an offset covers.
   defp k_baseline(subj, funs) do
     {:ok, _b, bmeta} =
-      EncodeSearch.search(funs.resolved.quality_search, nil,
+      confirmed_search(funs.resolved.quality_search,
         encode_fun: funs.encode_fun,
         score_fun: k_crop_score_fun(funs.qdata, @crop_macro_offset),
         confirm_fun: fn bytes -> funs.qdata.(bytes).full_score end,
@@ -3313,7 +3303,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
   # verdict is measured against. Shared across combos for the case.
   defp l_baseline(funs) do
     {:ok, _b, m} =
-      EncodeSearch.search(funs.resolved.quality_search, nil,
+      confirmed_search(funs.resolved.quality_search,
         encode_fun: funs.encode_fun,
         score_fun: fn bytes ->
           l_even_p10(funs.cov_at.(@l_ship_tile, bytes), @l_ship_k) - @crop_macro_offset
@@ -4775,4 +4765,46 @@ defmodule Mix.Tasks.Autoquality.Bench do
   defp fmt_score(score), do: Float.round(score, 2)
 
   defp pad([value, width]), do: value |> to_string() |> String.pad_trailing(width)
+
+  # The pre-#369 crop baseline: run the crop search, then confirm the winner against
+  # the full-frame score and bump linearly on undershoot, up to `max_bump_passes`
+  # qualities above it (bounded by `confirm_max_quality`). Exhaustion ships the
+  # highest quality tried as best-effort.
+  defp confirmed_search(quality_search, opts) do
+    {confirm_fun, opts} = Keyword.pop!(opts, :confirm_fun)
+    {band, opts} = Keyword.pop!(opts, :confirm_band)
+    {max_quality, opts} = Keyword.pop!(opts, :confirm_max_quality)
+    {passes, opts} = Keyword.pop!(opts, :max_bump_passes)
+    {:ok, bytes, meta} = EncodeSearch.search(quality_search, nil, opts)
+    last = min(meta.quality + passes, max_quality)
+
+    confirm(
+      meta.quality,
+      bytes,
+      last,
+      meta,
+      1,
+      Keyword.fetch!(opts, :encode_fun),
+      confirm_fun,
+      band
+    )
+  end
+
+  defp confirm(quality, bytes, last, meta, passes, encode_fun, confirm_fun, band) do
+    score = confirm_fun.(bytes)
+    meta = %{meta | quality: quality, bytes: byte_size(bytes), score: score}
+    meta = Map.put(meta, :confirm_passes, passes)
+
+    cond do
+      score >= band ->
+        {:ok, bytes, %{meta | outcome: :hit, limiting_factor: nil}}
+
+      quality >= last ->
+        {:ok, bytes, %{meta | outcome: :best_effort, limiting_factor: :bump_exhausted}}
+
+      true ->
+        {:ok, next} = encode_fun.(quality + 1)
+        confirm(quality + 1, next, last, meta, passes + 1, encode_fun, confirm_fun, band)
+    end
+  end
 end

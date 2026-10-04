@@ -7,6 +7,8 @@ defmodule ImagePipe.Source.HTTPTest do
   alias ImagePipe.Source.HTTP
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
+  alias ImagePipe.Telemetry
+  alias ImagePipe.Telemetry.Trace.TestExporter
 
   @public_ip {93, 184, 216, 34}
 
@@ -178,6 +180,45 @@ defmodule ImagePipe.Source.HTTPTest do
              )
 
     assert Enum.join(response.stream) == "image bytes"
+  end
+
+  describe "traceparent on origin requests" do
+    setup do
+      on_exit(fn ->
+        Telemetry.detach_tracer()
+        TestExporter.clear_receiver()
+      end)
+    end
+
+    defp origin_traceparent do
+      plug = fn conn ->
+        send(self(), {:traceparent, Plug.Conn.get_req_header(conn, "traceparent")})
+        Plug.Conn.send_resp(conn, 200, "image bytes")
+      end
+
+      source = %URL{scheme: :https, host: "assets.example.com", path: ["cat.jpg"]}
+
+      opts = [
+        allowed_hosts: ["assets.example.com"],
+        address_resolver: stub_resolver(),
+        req_options: [plug: plug]
+      ]
+
+      assert Enum.join(fetch_stream(opts, source)) == "image bytes"
+      assert_receive {:traceparent, header}
+      header
+    end
+
+    test "isn't sent when no tracer is attached" do
+      Telemetry.detach_tracer()
+      assert origin_traceparent() == []
+    end
+
+    test "names the client span when a tracer is attached" do
+      TestExporter.attach(self())
+      assert [traceparent] = origin_traceparent()
+      assert traceparent =~ ~r/\A00-[0-9a-f]{32}-[0-9a-f]{16}-01\z/
+    end
   end
 
   test "req options cannot override adapter request controls" do

@@ -16,17 +16,13 @@ defmodule ImagePipe.Output.RequestPolicy do
   }
 
   @spec resolve(SpecOutput.t(), keyword(), String.t()) ::
-          {:ok, Policy.t() | nil} | {:error, {:invalid_output, term()}}
-  def resolve(%SpecOutput{terminal: terminal}, _config, _accept_header)
-      when terminal in [:blurhash, :lqip_css, :info] do
-    {:ok, nil}
-  end
-
+          {:ok, Policy.t()} | {:error, {:invalid_output, term()}}
   def resolve(%SpecOutput{} = request, config, accept_header) do
     with {:ok, quality_search} <- resolve_quality_search(request, config),
          output = policy(request, config, accept_header, quality_search),
          :ok <- validate_hdr_profile(output),
          :ok <- validate_lossless_webp_request(output, request),
+         :ok <- validate_png_quality(output, request),
          :ok <- validate_brackets(output, config) do
       {:ok, output}
     else
@@ -153,6 +149,19 @@ defmodule ImagePipe.Output.RequestPolicy do
   end
 
   defp validate_lossless_webp_request(%Policy{}, %SpecOutput{}), do: :ok
+
+  # A PNG quality only sets palette quantization.
+  defp validate_png_quality(%Policy{} = output, %SpecOutput{} = request) do
+    png_quality? =
+      Map.has_key?(request.format_qualities, :png) or
+        (output.mode == {:explicit, :png} and not is_nil(request.quality))
+
+    if png_quality? and not Policy.png_palette?(output) do
+      {:error, :png_quality_without_palette}
+    else
+      :ok
+    end
+  end
 
   defp enabled_url_autoquality?({_method, _fields}), do: true
 

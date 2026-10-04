@@ -79,7 +79,7 @@ defmodule ImagePipe.Plan.Builder.Values do
   defp normalize({width, height}, :crop), do: pair(width, height, :positive_length)
 
   defp normalize({x, y, width, height}, :region) do
-    with {:ok, {x, y}} <- pair(x, y, :length),
+    with {:ok, {x, y}} <- pair(x, y, :non_negative_length),
          {:ok, {width, height}} <- pair(width, height, :positive_length) do
       {:ok, {x, y, width, height}}
     end
@@ -89,6 +89,13 @@ defmodule ImagePipe.Plan.Builder.Values do
     do: {:ok, {unit, value}}
 
   defp normalize(value, :length) when is_number(value), do: {:ok, {:px, value}}
+
+  defp normalize(value, :non_negative_length) do
+    with {:ok, {_unit, origin} = length} <- normalize(value, :length),
+         true <- origin >= 0 do
+      {:ok, length}
+    end
+  end
 
   defp normalize(value, :positive_length) do
     with {:ok, {_unit, size} = length} <- normalize(value, :length),

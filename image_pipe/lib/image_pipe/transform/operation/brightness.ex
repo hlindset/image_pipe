@@ -1,12 +1,13 @@
 defmodule ImagePipe.Transform.Operation.Brightness do
   # Executable brightness adjustment operation: additive offset on the 0–255 scale
-  # (imgproxy `brightness`, integer -255..255).
+  # (imgproxy `brightness`, integer -255..255), scaled to the image's band format.
   @moduledoc false
 
   use ImagePipe.Transform
 
   import ImagePipe.Transform.State
 
+  alias ImagePipe.Transform.Alpha
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
@@ -29,8 +30,11 @@ defmodule ImagePipe.Transform.Operation.Brightness do
 
   defp apply_brightness(%VipsImage{} = image, value) do
     Image.without_alpha_band(image, fn image ->
-      with {:ok, shifted} <- Operation.linear(image, [1.0], [value * 1.0]) do
-        Operation.cast(shifted, VipsImage.format(image))
+      format = VipsImage.format(image)
+      offset = value * Alpha.opaque(format) / 255
+
+      with {:ok, shifted} <- Operation.linear(image, [1.0], [offset]) do
+        Operation.cast(shifted, format)
       end
     end)
   end

@@ -43,7 +43,9 @@ defmodule ImagePipeServer.Config.Reference do
         "and the HTTP cache headers. See [serving images through a CDN](../../image_pipe/docs/serving-through-a-cdn.md).",
     telemetry:
       "`log_level` logs each request and its stages at that level. Failures log at " <>
-        "`warning`."
+        "`warning`. With `trust_traceparent`, a request with a W3C `traceparent` " <>
+        "header joins the caller's trace when [tracing](server-deployment.md#tracing) " <>
+        "is on. Any client can send that header."
   ]
 
   @doc "The reference as Markdown."

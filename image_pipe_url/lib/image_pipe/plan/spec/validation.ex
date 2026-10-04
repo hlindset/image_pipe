@@ -123,13 +123,21 @@ defmodule ImagePipe.Plan.Spec.Validation do
   end
 
   defp guide_requirements(group, index, invalid) do
-    guide? =
-      Map.has_key?(group, :crop) or
-        (resize_intent?(group) and Map.get(group, :fit) in [:cover, :cover_down, :auto])
+    guide? = Map.has_key?(group, :crop) or (resize_intent?(group) and cover_fit?(group))
 
     missing? = not guide? and not invalid?(invalid, index, @dimensions ++ [:crop, :fit])
     Enum.map([:anchor, :focus, :detect], &{&1, missing?, :guide})
   end
+
+  @doc """
+  Whether a group's `fit` resizes as cover, so a crop guide can apply to it.
+  `fit=auto` resizes as contain unless both `width` and `height` are numbers.
+  """
+  @spec cover_fit?(map()) :: boolean()
+  def cover_fit?(%{fit: :auto} = group),
+    do: is_integer(Map.get(group, :width)) and is_integer(Map.get(group, :height))
+
+  def cover_fit?(group), do: Map.get(group, :fit) == :cover
 
   defp crop_requirements(group, index, invalid) do
     [
@@ -237,7 +245,7 @@ defmodule ImagePipe.Plan.Spec.Validation do
       for {key, format} <- @encoders,
           requested = Map.get(options, :format),
           requested != nil and requested != format and Map.has_key?(options, key),
-          do: issue(:inert_option, :request, [key], {:requires, {:format, requested}})
+          do: issue(:inert_option, :request, [key], {:requires, {:format, format}})
 
     conflict ++ png ++ encoders
   end

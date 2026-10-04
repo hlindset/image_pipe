@@ -121,6 +121,7 @@ defmodule ImagePipeServer.ConfigTest do
       assert config.pool == nil
       assert config.image_pipe.options[:processing_pool] == nil
       assert config.telemetry == nil
+      assert config.trust_traceparent == false
     end
 
     test "parses the bind address and checks the mount path" do
@@ -174,13 +175,14 @@ defmodule ImagePipeServer.ConfigTest do
         Config.build!(
           Config.options!(%{
             "pool" => %{"max_concurrency" => 4},
-            "telemetry" => %{"log_level" => "debug"}
+            "telemetry" => %{"log_level" => "debug", "trust_traceparent" => true}
           })
         )
 
       assert config.pool[:max_concurrency] == 4
       assert config.image_pipe.options[:processing_pool] == config.pool[:name]
       assert config.telemetry == [level: :debug]
+      assert config.trust_traceparent == true
 
       assert error(fn -> Config.build!(Config.options!(%{"pool" => %{"max_queue" => 1}})) end) =~
                "pool"

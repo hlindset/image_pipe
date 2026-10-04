@@ -281,10 +281,25 @@ defmodule ImagePipe.Output.Policy do
     }
   end
 
-  defp effective_quality(%__MODULE__{quality: {:quality, _value} = quality}, _format),
+  # libvips uses a PNG quality only to quantize a palette.
+  defp effective_quality(%__MODULE__{} = policy, :png) do
+    case png_palette?(policy) do
+      true -> requested_quality(policy, :png)
+      false -> :default
+    end
+  end
+
+  defp effective_quality(policy, format), do: requested_quality(policy, format)
+
+  @doc false
+  @spec png_palette?(t()) :: boolean()
+  def png_palette?(%__MODULE__{encoder_options: %{png: %{palette: true}}}), do: true
+  def png_palette?(%__MODULE__{}), do: false
+
+  defp requested_quality(%__MODULE__{quality: {:quality, _value} = quality}, _format),
     do: quality
 
-  defp effective_quality(
+  defp requested_quality(
          %__MODULE__{quality: :default, format_qualities: format_qualities} = policy,
          format
        ) do

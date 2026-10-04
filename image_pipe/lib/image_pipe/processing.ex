@@ -39,16 +39,23 @@ defmodule ImagePipe.Processing do
   def prepare(%Spec{} = request, config, accept) do
     with :ok <- check_expires(request, Keyword.fetch!(config, :clock).()),
          {:ok, policy} <- RequestPolicy.resolve(request.output, config, accept),
-         :ok <- ensure_output_capable(policy, config),
+         :ok <- Policy.ensure_capable(policy, config),
          :ok <- check_detector(request, config) do
-      {:ok, skip_formats(policy, request, config)}
+      {:ok, image_policy(request.output.terminal, policy, request, config)}
     end
   end
 
+  # Placeholders and info validate the image options like an image request,
+  # then ignore them.
+  defp image_policy(terminal, _policy, _request, _config)
+       when terminal in [:blurhash, :lqip_css, :info],
+       do: nil
+
+  defp image_policy(_terminal, policy, request, config),
+    do: skip_formats(policy, request, config)
+
   # A watermark protects the image, so a request that draws one is never
   # delivered unprocessed.
-  defp skip_formats(nil, _request, _config), do: nil
-
   defp skip_formats(policy, %Spec{groups: groups}, config) do
     formats =
       case Enum.any?(groups, &(&1.watermark != nil)) do
@@ -62,9 +69,6 @@ defmodule ImagePipe.Processing do
   defp check_expires(%Spec{expires: nil}, _now), do: :ok
   defp check_expires(%Spec{expires: expires}, now) when expires < now, do: {:error, :expired}
   defp check_expires(%Spec{}, _now), do: :ok
-
-  defp ensure_output_capable(nil, _config), do: :ok
-  defp ensure_output_capable(policy, config), do: Policy.ensure_capable(policy, config)
 
   defp check_detector(request, config) do
     detector = Keyword.get(config, :detector, :default)

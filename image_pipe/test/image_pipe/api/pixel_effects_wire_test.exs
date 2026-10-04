@@ -8,6 +8,7 @@ defmodule ImagePipe.API.PixelEffectsWireTest do
   alias ImagePipe.Test.Orientation1TwinOrigin
   alias ImagePipe.Test.OrientedFrameOrigin
   alias Vix.Vips.Image, as: VipsImage
+  alias Vix.Vips.Operation
 
   setup do
     source =
@@ -36,6 +37,52 @@ defmodule ImagePipe.API.PixelEffectsWireTest do
       changed = image(unquote(effect), config)
       assert dimensions(changed) == dimensions(baseline)
       refute pixels(changed) == pixels(baseline)
+    end
+  end
+
+  test "brightness has the same effect on a 16-bit image" do
+    source = Image.new!(8, 8, color: [80, 120, 160])
+    eight_bit = source |> Image.write!(:memory, suffix: ".png") |> png_origin() |> mount()
+
+    sixteen_bit =
+      source
+      |> Operation.cast!(:VIPS_FORMAT_USHORT)
+      |> Operation.linear!([257.0], [0.0])
+      |> Operation.cast!(:VIPS_FORMAT_USHORT)
+      |> Operation.copy!(interpretation: :VIPS_INTERPRETATION_RGB16)
+      |> Image.write!(:memory, suffix: ".png")
+      |> png_origin()
+      |> mount()
+
+    assert image("brightness=40", eight_bit) |> Image.get_pixel!(4, 4) == [120, 160, 200]
+
+    deep = image("hdr=preserve/brightness=40", sixteen_bit)
+    assert VipsImage.format(deep) == :VIPS_FORMAT_USHORT
+    assert Image.get_pixel!(deep, 4, 4) == [120 * 257, 160 * 257, 200 * 257]
+  end
+
+  for effect <- ["monochrome=0.8", "duotone=0.8,202020,f0f0f0"] do
+    test "#{effect} with neutral colors keeps a gray image gray" do
+      gray = Image.new!(8, 8, color: [100]) |> Image.Draw.rect!(0, 0, 4, 8, color: [200])
+
+      rgb =
+        Image.new!(8, 8, color: [100, 100, 100])
+        |> Image.Draw.rect!(0, 0, 4, 8, color: [200, 200, 200])
+
+      gray_config = gray |> Image.write!(:memory, suffix: ".png") |> png_origin() |> mount()
+      rgb_config = rgb |> Image.write!(:memory, suffix: ".png") |> png_origin() |> mount()
+
+      toned = image(unquote(effect), gray_config)
+      reference = image(unquote(effect), rgb_config)
+
+      assert Image.bands(toned) == 1
+      refute pixels(toned) == pixels(image("", gray_config))
+
+      for x <- [1, 6] do
+        [value] = Image.get_pixel!(toned, x, 4)
+        [red, _green, _blue] = Image.get_pixel!(reference, x, 4)
+        assert abs(value - red) <= 1
+      end
     end
   end
 

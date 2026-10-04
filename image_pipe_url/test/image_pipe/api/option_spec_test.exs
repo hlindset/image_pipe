@@ -83,7 +83,6 @@ defmodule ImagePipe.API.OptionSpecTest do
     test "parse_fit translates hyphenated URL spellings to atoms" do
       assert OptionSpec.parse_fit("contain") == {:ok, :contain}
       assert OptionSpec.parse_fit("cover") == {:ok, :cover}
-      assert OptionSpec.parse_fit("cover-down") == {:ok, :cover_down}
       assert OptionSpec.parse_fit("stretch") == {:ok, :stretch}
       assert OptionSpec.parse_fit("auto") == {:ok, :auto}
       assert OptionSpec.parse_fit("bogus") == {:error, :invalid_fit}
@@ -136,6 +135,12 @@ defmodule ImagePipe.API.OptionSpecTest do
     test "parse_region parses an x,y,w,h length quad" do
       assert OptionSpec.parse_region("0,0,600,400") ==
                {:ok, {{:px, 0}, {:px, 0}, {:px, 600}, {:px, 400}}}
+    end
+
+    test "parse_region rejects a negative origin" do
+      for region <- ["-1,0,600,400", "0,-1,600,400", "-10pct,0,600,400", "0,-0.5,600,400"] do
+        assert OptionSpec.parse_region(region) == {:error, :invalid_element}, region
+      end
     end
 
     test "parse_anchor translates named positions and smart modes" do

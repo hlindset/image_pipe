@@ -52,8 +52,8 @@ defmodule ImagePipe.URL do
   | `progressive` in `jpeg-options` | `interlace:` |
   | `subsample` in `jpeg-options` and `avif-options` | `subsample_mode:` |
 
-  Named values are atoms, with an underscore for a hyphen: `fit=cover-down`
-  is `fit: :cover_down`. These values differ:
+  Named values are atoms, with an underscore for a hyphen: `anchor=top-left`
+  is `anchor: :top_left`. These values differ:
 
   | URL | Builder |
   | --- | --- |

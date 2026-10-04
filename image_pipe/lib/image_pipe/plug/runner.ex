@@ -123,7 +123,6 @@ defmodule ImagePipe.Plug.Runner do
 
     case not context.stale? and Conditional.not_modified?(conn, headers.etag) do
       true ->
-        CachePolicy.conditional_matched(conn, context.config)
         send_not_modified(conn, headers, context.config)
 
       false ->
@@ -286,6 +285,8 @@ defmodule ImagePipe.Plug.Runner do
   end
 
   defp send_not_modified(conn, %CacheHeaders{} = cache_headers, config) do
+    CachePolicy.conditional_matched(conn, config)
+
     conn =
       send_with_span(conn, config, :not_modified, fn ->
         Sender.send_not_modified(conn, cache_headers)

@@ -12,10 +12,11 @@ defmodule ImagePipe.Transform.Operation.DuotoneTest do
   @monochrome %Monochrome{intensity: 0.8, color: [179, 179, 179]}
 
   test "gray and bitonal outputs feed monochrome and duotone while preserving alpha" do
+    # A neutral color keeps the gray frame, a colored one promotes it to RGB.
     source = Image.new!(7, 5, color: [120, 80, 40, 97], bands: 4)
 
     for %producer_module{} = producer <- [%Gray{}, %Bitonal{}],
-        %effect_module{} = effect <- [@monochrome, @duotone] do
+        {%effect_module{} = effect, bands} <- [{@monochrome, 2}, {@duotone, 4}] do
       assert {:ok, %State{image: one_colour}} =
                producer_module.execute(producer, %State{image: source})
 
@@ -24,7 +25,7 @@ defmodule ImagePipe.Transform.Operation.DuotoneTest do
       assert {:ok, %State{image: output}} =
                effect_module.execute(effect, %State{image: one_colour})
 
-      assert VipsImage.bands(output) == 4
+      assert VipsImage.bands(output) == bands
       assert List.last(Image.get_pixel!(output, 3, 2)) == 97
     end
   end

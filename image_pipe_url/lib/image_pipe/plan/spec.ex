@@ -267,19 +267,21 @@ defmodule ImagePipe.Plan.Spec do
   defp assemble_bg({{r, g, b}, nil}), do: {r, g, b, 1.0}
   defp assemble_bg({{r, g, b}, alpha}), do: {r, g, b, alpha}
 
-  # Image-only output options were validated as for an image request; other
-  # terminals ignore them, so they leave no trace in canonical data.
+  # Other terminals keep the image options so runtime output checks validate
+  # them as for an image request. Their identity leaves them out.
   defp assemble_output(options) do
     case Map.get(options, :terminal, :image) do
-      :image -> assemble_image_output(options)
-      {:info, placeholders} -> %Output{terminal: :info, placeholders: Enum.sort(placeholders)}
-      terminal -> %Output{terminal: terminal}
+      {:info, placeholders} ->
+        %{assemble_image_output(options, :info) | placeholders: Enum.sort(placeholders)}
+
+      terminal ->
+        assemble_image_output(options, terminal)
     end
   end
 
-  defp assemble_image_output(options) do
+  defp assemble_image_output(options, terminal) do
     %Output{
-      terminal: :image,
+      terminal: terminal,
       format: Map.get(options, :format),
       quality: Map.get(options, :quality),
       metadata: Map.get(options, :metadata),
@@ -314,7 +316,6 @@ defmodule ImagePipe.Plan.Spec do
   end
 
   defp guide_consumer?(options, resize_intent?) do
-    Map.has_key?(options, :crop) or
-      (resize_intent? and Map.get(options, :fit) in [:cover, :cover_down, :auto])
+    Map.has_key?(options, :crop) or (resize_intent? and Validation.cover_fit?(options))
   end
 end

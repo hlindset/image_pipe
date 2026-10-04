@@ -19,7 +19,7 @@ Sources, detectors, and telemetry exporters are host extension points.
 | --- | --- |
 | Validation | Reject duplicate, conflicting, inert, or invalid options before side effects; ignore valid image-only output options on non-image outputs; canonicalize equivalent requests |
 | Requests | Presets, signing, expiry, GET/HEAD/OPTIONS, conditional GET, negotiation, caching, and streamed delivery |
-| Resize | Contain, cover, cover-down, stretch, auto, enlargement, minimum dimensions, independent zoom axes, and DPR |
+| Resize | Contain, cover, stretch, auto, enlargement, minimum dimensions, independent zoom axes, and DPR |
 | Crop | Guided and explicit regions, anchors, focal points, attention, face/object detection, offsets, and ratio correction |
 | Geometry | EXIF policy, arbitrary rotation, flips, symmetric trim, canvas placement, padding, and alpha-aware background |
 | Watermarks | Host-named or opt-in request-supplied image assets with opacity, scale, anchored placement, offsets, and tiling |
@@ -74,8 +74,11 @@ rotation, flip, and trim. Trimming a 1000px-wide input to 800px and then
 applying `crop=50pct,100pct` requests 400px in width. Decode shrink-on-load
 preserves these source-pixel coordinates. Region coordinates are
 relative to the trimmed image, with no hidden original-image offset.
-Crop and region widths and heights must be positive; invalid sizes fail
-during request parsing before source resolution or cache access.
+Crop and region widths and heights must be positive, and region origins
+must not be negative. Invalid values fail during request parsing before
+source resolution or cache access. A region that starts at or beyond the
+right or bottom edge fails after decode; one that runs past an edge moves
+inside the image, keeping its size up to the image's size.
 
 Each `-` group receives the previous group's complete result, including
 canvas, padding, background, and watermark. Group parameters do not carry forward:
@@ -137,9 +140,11 @@ clamping does not change the requested target aspect ratio.
 
 Default resize mode is `contain`, enlargement is off, DPR and zoom are 1,
 the default crop anchor is center, and alpha is preserved unless a
-background is requested. `auto` selects cover when source and target
-orientation match on display axes, contain otherwise. All geometry is
-resolved before final integer-pixel rounding.
+background is requested. `auto` with numbers in both `w` and `h` selects
+cover when the source and the zoomed target have the same orientation on
+display axes, contain otherwise. It is contain with fewer dimensions, so crop
+guides apply to it only with both. All geometry is resolved before final
+integer-pixel rounding.
 
 `dpr` accepts a positive decimal. `zoom` accepts a positive decimal for both
 axes, or an `x,y` pair. It scales the requested box before the resize mode
@@ -362,7 +367,7 @@ brightness first.
 | `gray`, `bitonal` | Bare flag; `=false` disables it | `gray` |
 | `monochrome` | Intensity from 0 to 1, optional color (default `b3b3b3`) | `monochrome=0.8,704214` |
 | `duotone` | Intensity from 0 to 1, optionally both shadow and highlight colors (default black and white) | `duotone=1,123456,efab89` |
-| `brightness` | Integer additive adjustment from -255 to 255; 0 is identity | `brightness=30` |
+| `brightness` | Integer additive adjustment from -255 to 255 on the 8-bit scale, scaled to the working bit depth; 0 is identity | `brightness=30` |
 | `contrast`, `saturation` | Positive factors; 1 is identity | `contrast=1.5/saturation=0.7` |
 | `colorize` | Opacity from 0 to 1, required color, optional literal `keep-alpha` | `colorize=0.3,red,keep-alpha` |
 | `gradient` | Opacity from 0 to 1, required color, optional direction, start, stop | `gradient=0.8,black,down,0.2,0.9` |
@@ -437,10 +442,11 @@ encoder.
 `hdr=preserve` retains a high-bit-depth working space when the selected
 output format supports it. `hdr=tonemap` selects the standard working
 space and is the default; host `preserve_hdr: true` changes that default.
-JPEG falls back to standard output even under `hdr=preserve`. Named profile
-conversion produces 8-bit output and cannot be combined with effective HDR
-preservation; use `hdr=tonemap` with a named target. Conflicting URL and host
-settings fail before source or cache access.
+Only AVIF and PNG keep high bit depth. JPEG and WebP fall back to standard
+output even under `hdr=preserve`. Named profile conversion produces 8-bit
+output and cannot be combined with effective HDR preservation; use
+`hdr=tonemap` with a named target. Conflicting URL and host settings fail
+before source or cache access.
 
 These policies enter image output identity. Non-image outputs validate them
 and then ignore them, as described under [image quality and encoders](#image-quality-and-encoders).
@@ -454,8 +460,10 @@ sets per-format qualities, using the same format names as `format`. Explicit
 Sparse host and URL format maps preserve other configured formats.
 A format-quality table may be shared across requests; only the selected
 format's entry applies.
-PNG ignores the implicit global quality default; an explicit quality can
-request quantization.
+PNG quality applies only to palette quantization, so a PNG ignores quality
+unless its encoder options enable `palette`. An explicit `q` with
+`format=png`, or a `png` entry in `format-q`, fails before source or cache
+access when `palette` is off.
 
 `autoquality` starts with a metric name followed by optional named fields:
 

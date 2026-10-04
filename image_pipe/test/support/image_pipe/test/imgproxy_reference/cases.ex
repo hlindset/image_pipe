@@ -310,13 +310,13 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         tolerance: {2, 64}
       },
       # fill-down with target > source: fill-down never upscales (!enlarge), so the
-      # asymmetric result-crop branch fires (prepare.go:182-202) — distinct from fill,
-      # which would scale the 120×90 source up to the 600×400 box.
+      # asymmetric result-crop branch fires (prepare.go:182-202) and keeps the box's
+      # aspect ratio, as fit=cover does without enlarge.
       %{
         id: "fill_down_target_gt_source_small",
         kind: :png,
         source: "small.png",
-        native: "w=600/h=400/fit=cover-down",
+        native: "w=600/h=400/fit=cover",
         imgproxy: "rs:fill-down:600:400",
         tolerance: {2, 64}
       },
@@ -459,7 +459,7 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         id: "fill_down_marker",
         kind: :png,
         source: "marker.png",
-        native: "w=500/h=500/fit=cover-down",
+        native: "w=500/h=500/fit=cover",
         imgproxy: "rs:fill-down:500:500",
         tolerance: {2, 256}
       },
@@ -885,7 +885,7 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         id: "fill_down_corner_gravity_marker",
         kind: :png,
         source: "marker.png",
-        native: "w=500/h=500/fit=cover-down/anchor=bottom-right",
+        native: "w=500/h=500/fit=cover/anchor=bottom-right",
         imgproxy: "rs:fill-down:500:500/g:soea",
         tolerance: {2, 256}
       },

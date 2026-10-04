@@ -719,6 +719,29 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       assert event == prefix ++ [:http_cache, :conditional, :match]
     end
 
+    test "a wildcard conditional answered from an output-cache hit emits the conditional-match event",
+         %{prefix: prefix} do
+      entry = %Entry{
+        body: "cached body",
+        content_type: "image/jpeg",
+        headers: [{"cache-control", "public, max-age=60"}],
+        created_at: DateTime.utc_now()
+      }
+
+      opts =
+        mount(cache: {CacheHitProbe, test_pid: self(), entry: entry}, telemetry_prefix: prefix)
+
+      conn =
+        :head
+        |> conn(@image_path)
+        |> put_req_header("if-none-match", "*")
+        |> ImagePipe.Plug.call(opts)
+
+      assert conn.status == 304
+      match = prefix ++ [:http_cache, :conditional, :match]
+      assert_received {:http_cache, ^match, %{method: :head}}
+    end
+
     test "a mount's :validators emits only the ETag",
          %{prefix: prefix} do
       opts =

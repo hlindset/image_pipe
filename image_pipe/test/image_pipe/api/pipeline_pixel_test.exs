@@ -143,13 +143,6 @@ defmodule ImagePipe.API.PipelinePixelTest do
       assert {Image.width(image), Image.height(image)} == {300, 400}
     end
 
-    test "cover-down: behaves like cover when the source is larger than the box" do
-      request = request("w=300/h=400/fit=cover-down")
-
-      assert {:ok, %State{image: image}} = run_api(LandscapeOrigin, request)
-      assert {Image.width(image), Image.height(image)} == {300, 400}
-    end
-
     test "stretch: forces the exact box regardless of aspect" do
       request = request("w=300/h=400/fit=stretch")
 

@@ -55,8 +55,6 @@ Default: `contain`.
 - `cover` fills the box and cuts off what doesn't fit. The center is kept
   unless [`anchor`, `focus`, or `detect`](crop.md#crop-guides) sets another
   part.
-- `cover-down` works like `cover`, but never enlarges the image, even with
-  [`enlarge`](#enlarge). Without `enlarge`, it gives the same result as `cover`.
 - `stretch` resizes the width and height separately to the box, which
   distorts the image when the aspect ratios differ. With only `w`, the height
   stays at the source height, and with only `h`, the width does.
@@ -96,7 +94,6 @@ Allows the result to be larger than the source. Without it, a source smaller
 than the requested size keeps its own size, or shrinks to keep the box's aspect
 ratio under [`fit=cover`](#fit). `enlarge` needs a number in `w`, `h`, `min-w`,
 or `min-h` in the same group, otherwise the request fails with `400`.
-`fit=cover-down` ignores it.
 
 <!-- tabs-open -->
 
