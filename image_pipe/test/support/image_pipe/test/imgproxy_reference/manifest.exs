@@ -1642,6 +1642,19 @@
       },
       fixture_sha256: "e94d29d26fea3e9828f883d73b3a04b1cf311a831dcb89b108c2ff738c954628"
     },
+    "force_single_axis_no_preshrink" => %{
+      structure: %{
+        depth: 8,
+        metadata: [],
+        icc: nil,
+        content_type: "image/png",
+        bands: 3,
+        interpretation: :VIPS_INTERPRETATION_sRGB,
+        orientation: 1,
+        alpha?: false
+      },
+      fixture_sha256: "29150b537c3755582f17f70e21d88e4c86d1fbf49dc24c296e3390e68d11b404"
+    },
     "rgb16_tonemap_8bit" => %{
       structure: %{
         depth: 8,

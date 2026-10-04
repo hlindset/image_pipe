@@ -6,6 +6,7 @@ defmodule ImagePipe.API.ResizeScaleWireTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias Vix.Vips.Operation
 
   for {options, source, expected} <- [
         {"w=100/h=100/dpr=2/pad=10", {150, 150}, {180, 180}},
@@ -111,9 +112,29 @@ defmodule ImagePipe.API.ResizeScaleWireTest do
     end
   end
 
+  test "single-axis stretch keeps every source row instead of shrinking on load" do
+    jpeg = File.read!("test/support/image_pipe/test/sources/high_freq.jpg")
+    stretched = request("w=200/fit=stretch", jpeg, "image/jpeg") |> decode()
+    full_height = request("w=200/h=1200/fit=stretch", jpeg, "image/jpeg") |> decode()
+
+    assert {Image.width(stretched), Image.height(stretched)} == {200, 1200}
+    assert max_difference(stretched, full_height) <= 2
+  end
+
+  defp max_difference(left, right) do
+    {:ok, difference} = Operation.subtract(left, right)
+    {:ok, magnitude} = Operation.abs(difference)
+    {:ok, {max, _position}} = Operation.max(magnitude)
+    max
+  end
+
   defp request(options, {width, height}) do
     body = Image.new!(width, height, color: [20, 40, 60]) |> Image.write!(:memory, suffix: ".png")
-    origin = fn conn -> conn |> put_resp_content_type("image/png") |> send_resp(200, body) end
+    request(options, body, "image/png")
+  end
+
+  defp request(options, body, content_type) do
+    origin = fn conn -> conn |> put_resp_content_type(content_type) |> send_resp(200, body) end
 
     config =
       ImagePipe.Plug.init(
