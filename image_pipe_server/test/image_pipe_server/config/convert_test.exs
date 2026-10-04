@@ -85,6 +85,15 @@ defmodule ImagePipeServer.Config.ConvertTest do
       assert error(%{"sizes" => [1, "x"]}, sizes: [type: {:list, :pos_integer}]) =~
                "section.sizes[1]: expected an integer"
     end
+
+    test "reject an environment list with no entries" do
+      for raw <- ["", ",", " , "] do
+        assert error(%{"keys" => {:env, raw}}, keys: [type: {:list, :string}]) =~
+                 "section.keys: expected at least one entry"
+      end
+
+      assert convert(%{"keys" => []}, keys: [type: {:list, :string}]) == [keys: []]
+    end
   end
 
   describe "tables" do
@@ -197,6 +206,22 @@ defmodule ImagePipeServer.Config.ConvertTest do
 
       assert convert(%{"token" => file, "token_file" => "/other"}, schema) ==
                [token_file: "/var/run/token"]
+    end
+
+    test "reject a list file with no entries", %{tmp_dir: dir} do
+      path = Path.join(dir, "keys")
+      File.write!(path, " \n")
+      file = {:env_file, "IPS_URL__KEYS_FILE", path}
+
+      assert error(%{"keys" => file}, keys: [type: {:list, :string}]) =~
+               "section.keys: expected at least one entry"
+    end
+
+    test "set a *_file setting the schema has alongside the setting itself" do
+      file = {:env_file, "IPS_X__TOKEN_FILE", "/var/run/token"}
+      schema = [token: [type: :string], token_file: [type: :string]]
+
+      assert convert(%{"token" => file}, schema) == [token_file: "/var/run/token"]
     end
 
     test "are unknown when the schema has neither setting" do
