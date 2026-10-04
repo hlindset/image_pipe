@@ -81,11 +81,15 @@ written with a `base64:` or `hex:` prefix. See
 
 <!-- tabs-close -->
 
-`encrypt_source` and `iv_mode` only change the URLs the builder generates.
-The server decrypts every token without them. Encrypted watermark sources
-(`wm-enc`) use the same keys. `ImagePipe.URL.config/1` raises, and the server
-stops at boot, for encryption keys without signing keys or an encryption key
-equal to a signing key.
+`encrypt_source` (encrypt every source) and `iv_mode` (whether a source
+always encrypts to the same token) are builder settings. The server decrypts
+every token without them. Its `[url]` doesn't accept them, and the server
+stops at boot with `url.encrypt_source: unknown setting`.
+
+Encrypted watermark sources (`wm-enc`) use the same keys.
+`ImagePipe.URL.config/1` raises, and the server stops at boot, for
+encryption keys without signing keys or an encryption key equal to a signing
+key.
 
 On a mismatch:
 

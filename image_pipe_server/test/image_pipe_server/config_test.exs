@@ -22,14 +22,12 @@ defmodule ImagePipeServer.ConfigTest do
             "source_encryption_keys" => [
               "base64:" <> Base.encode64(@key32),
               "hex:" <> Base.encode16(@key32)
-            ],
-            "iv_mode" => "random"
+            ]
           }
         })[:url]
 
       assert url[:keys] == ["aa", "bb"]
       assert url[:source_encryption_keys] == [@key32, @key32]
-      assert url[:iv_mode] == :random
     end
 
     test "converts presets and request defaults in [processing]" do
@@ -56,9 +54,11 @@ defmodule ImagePipeServer.ConfigTest do
       end
     end
 
-    test "keeps base_url out of [url]" do
-      assert error(fn -> Config.options!(%{"url" => %{"base_url" => "/x"}}) end) =~
-               "url.base_url: unknown setting"
+    test "keeps builder-only settings out of [url]" do
+      for {key, value} <- [{"base_url", "/x"}, {"encrypt_source", true}, {"iv_mode", "random"}] do
+        assert error(fn -> Config.options!(%{"url" => %{key => value}}) end) =~
+                 "url.#{key}: unknown setting"
+      end
     end
 
     test "rejects output_capabilities in [processing]" do

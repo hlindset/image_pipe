@@ -153,8 +153,6 @@ How the server checks request URLs: the signing keys and the keys that decrypt `
 | Key | Type | Default |
 | --- | --- | --- |
 | `keys` | array of string | `[]` |
-| `iv_mode` | `"deterministic"` or `"random"` | `"deterministic"` |
-| `encrypt_source` | boolean | `false` |
 | `source_encryption_keys` | array of string with a `base64:` or `hex:` prefix |  |
 
 ### `[sources.<name>]`

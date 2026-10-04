@@ -10,8 +10,8 @@ defmodule ImagePipeServer.Config do
       `shutdown_timeout`, `read_timeout`, `max_connections`, and an optional
       `auth_token` that image requests must send as a bearer token.
     * `[url]` - `ImagePipe.URL.config/1`. Source-encryption keys take a
-      `base64:` or `hex:` prefix. `base_url` only affects URL generation and
-      is not accepted.
+      `base64:` or `hex:` prefix. `base_url`, `encrypt_source`, and `iv_mode`
+      only affect URL generation and are not accepted.
     * `[sources.<name>]` - named source mounts
       (see `ImagePipeServer.Config.Sources`).
     * `[cache]` - `output` and `input` `ImagePipe.Cache.FileSystem` caches, and
@@ -126,8 +126,11 @@ defmodule ImagePipeServer.Config do
     ]
   end
 
+  # The server never builds URLs, so the builder-only settings are left out.
   defp url_schema do
-    Keyword.merge(ImagePipe.Security.options_schema(),
+    ImagePipe.Security.options_schema()
+    |> Keyword.drop([:encrypt_source, :iv_mode])
+    |> Keyword.merge(
       source_encryption_keys: [
         type: {:list, {:convert, &encryption_key/2, "string with a `base64:` or `hex:` prefix"}}
       ]
