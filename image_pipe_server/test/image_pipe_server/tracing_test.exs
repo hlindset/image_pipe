@@ -29,6 +29,28 @@ defmodule ImagePipeServer.TracingTest do
            }) == %{enabled?: false, sdk: []}
   end
 
+  test "treats empty variables as unset" do
+    for var <- [
+          "OTEL_EXPORTER_OTLP_ENDPOINT",
+          "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+          "OTEL_TRACES_EXPORTER"
+        ] do
+      assert Tracing.settings(%{var => ""}) == %{enabled?: false, sdk: []}
+    end
+
+    assert Tracing.settings(%{
+             "OTEL_TRACES_EXPORTER" => "",
+             "OTEL_EXPORTER_OTLP_ENDPOINT" => "http://collector:4318"
+           }) == %{enabled?: true, sdk: [traces_exporter: :otlp]}
+  end
+
+  test "matches OTEL_TRACES_EXPORTER=none case-insensitively" do
+    assert Tracing.settings(%{
+             "OTEL_TRACES_EXPORTER" => "NONE",
+             "OTEL_EXPORTER_OTLP_ENDPOINT" => "http://collector:4318"
+           }) == %{enabled?: false, sdk: []}
+  end
+
   test "OTEL_SDK_DISABLED turns it off" do
     assert Tracing.settings(%{
              "OTEL_SDK_DISABLED" => "true",
