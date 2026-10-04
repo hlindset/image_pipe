@@ -154,8 +154,8 @@ Apply these settings to the CDN route that serves your images:
   lifetime, or the CDN will cache `no-store` and `private` responses. A URL
   signed with an [expiry](urls.md#expiry) gets a lifetime that
   ends when the URL does, and an edge lifetime would outlast it.
-- **Add `Accept` to the cache key.** URLs without a `format` option get WebP
-  or AVIF chosen from the browser's `Accept` header, and carry
+- **Add `Accept` to the cache key.** URLs without a `format` option can get
+  WebP or AVIF chosen from the browser's `Accept` header, and then carry
   `Vary: Accept`. Look for the CDN setting that adds request headers to the
   cache key. If you'd rather not, put a `format` in every URL. Those
   responses don't vary.

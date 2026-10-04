@@ -1223,7 +1223,7 @@ defmodule ImagePipe.PlugTest do
     refute_received :origin_was_called
   end
 
-  test "disabled automatic modern formats still set Vary for negotiated source output" do
+  test "disabled automatic modern formats omit Vary for source output" do
     conn = conn(:get, "/src/images/beach.jpg")
 
     conn =
@@ -1235,7 +1235,7 @@ defmodule ImagePipe.PlugTest do
       )
 
     assert conn.status == 200
-    assert get_resp_header(conn, "vary") == ["Accept"]
+    assert get_resp_header(conn, "vary") == []
   end
 
   test "disabled automatic modern formats use source output despite baseline Accept exclusions" do
@@ -1254,7 +1254,7 @@ defmodule ImagePipe.PlugTest do
 
     assert conn.status == 200
     assert get_resp_header(conn, "content-type") == ["image/jpeg"]
-    assert get_resp_header(conn, "vary") == ["Accept"]
+    assert get_resp_header(conn, "vary") == []
   end
 
   test "source-format automatic negotiation ignores baseline Accept and uses decoded source format" do

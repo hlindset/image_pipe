@@ -107,8 +107,7 @@ defmodule ImagePipe.Execution.Identity do
   end
 
   defp varies_by_accept?(nil), do: false
-  defp varies_by_accept?(%Policy{mode: {:explicit, _format}}), do: false
-  defp varies_by_accept?(%Policy{}), do: true
+  defp varies_by_accept?(%Policy{headers: headers}), do: {"vary", "Accept"} in headers
 
   defp detector_material(nil), do: []
   defp detector_material(identity), do: [detector: identity]

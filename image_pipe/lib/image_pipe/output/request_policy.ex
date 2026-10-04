@@ -74,8 +74,12 @@ defmodule ImagePipe.Output.RequestPolicy do
     }
   end
 
-  defp negotiation(nil, accept_header, config),
-    do: {Negotiation.modern_candidates(accept_header, config), [{"vary", "Accept"}]}
+  defp negotiation(nil, accept_header, config) do
+    case Negotiation.negotiable?(config) do
+      true -> {Negotiation.modern_candidates(accept_header, config), [{"vary", "Accept"}]}
+      false -> {[], []}
+    end
+  end
 
   defp negotiation(_format, _accept_header, _config), do: {[], []}
 
