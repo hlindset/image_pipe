@@ -368,6 +368,7 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
         assert result in [:ok, {:ok, :rejected}]
         assert total_body_bytes(cache_root) <= 100
         assert tracked_bytes(admission_pid(cache_root)) == total_body_bytes(cache_root)
+        assert tracked_hashes(admission_pid(cache_root)) == meta_hashes(cache_root)
 
         case {result, FileSystem.get(cache_key, opts)} do
           {:ok, {:hit, hit}} -> assert hit.body == body
@@ -468,6 +469,21 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
   defp tracked_bytes(pid) do
     state = :sys.get_state(pid)
     state.window_bytes + state.probationary_bytes + state.protected_bytes
+  end
+
+  defp tracked_hashes(pid) do
+    state = :sys.get_state(pid)
+
+    for table <- [state.window, state.probationary, state.protected],
+        {{_position, hash}, _descriptor} <- :ets.tab2list(table),
+        into: MapSet.new(),
+        do: hash
+  end
+
+  defp meta_hashes(root) do
+    for path <- walk_files(root), String.ends_with?(path, ".meta"), into: MapSet.new() do
+      Path.basename(path, ".meta")
+    end
   end
 
   # Build a persisted Admission state payload for a peer node whose sketch has

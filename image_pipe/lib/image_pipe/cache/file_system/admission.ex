@@ -40,6 +40,9 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       window: nil,
       probationary: nil,
       protected: nil,
+      # key_hash -> {queue, position}, so hash lookups avoid scanning the
+      # position-ordered queues.
+      index: nil,
       window_bytes: 0,
       probationary_bytes: 0,
       protected_bytes: 0,
@@ -124,7 +127,8 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       # Only the GenServer writes; :protected permits cross-process inspection.
       window: :ets.new(:window, [:ordered_set, :protected]),
       probationary: :ets.new(:probationary, [:ordered_set, :protected]),
-      protected: :ets.new(:protected, [:ordered_set, :protected])
+      protected: :ets.new(:protected, [:ordered_set, :protected]),
+      index: :ets.new(:index, [:set, :protected])
     }
 
     state =
@@ -375,7 +379,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   defp insert_scan_descriptor(state, entry) do
     descriptor = Map.delete(entry, :mtime)
     {pos, state} = next_position(state)
-    :ets.insert(state.probationary, {{pos, descriptor.key_hash}, descriptor})
+    put_entry(state, :probationary, pos, descriptor)
     Map.update!(state, :probationary_bytes, &(&1 + descriptor.size_bytes))
   end
 
@@ -442,8 +446,8 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
           false -> state
         end
 
-      _located ->
-        promote_on_hit(state, descriptor.key_hash)
+      located ->
+        promote_on_hit(state, located)
     end
   end
 
@@ -569,7 +573,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
           # have the same shape regardless of which queue they land in.
           descriptor = Map.delete(entry, :mtime)
           {pos, state} = next_position(state)
-          :ets.insert(state.protected, {{pos, hash}, descriptor})
+          put_entry(state, :protected, pos, descriptor)
           Map.update!(state, :protected_bytes, &(&1 + descriptor.size_bytes))
         end
 
@@ -615,7 +619,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   defp insert_into_window(state, descriptor) do
     {position, state} = next_position(state)
-    :ets.insert(state.window, {{position, descriptor.key_hash}, descriptor})
+    put_entry(state, :window, position, descriptor)
     state = %{state | window_bytes: state.window_bytes + descriptor.size_bytes}
     drain_window_overflow(state, [])
   end
@@ -636,7 +640,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
         # Pop window LRU
         first_key = :ets.first(state.window)
         [{{pos, hash}, descriptor}] = :ets.lookup(state.window, first_key)
-        :ets.delete(state.window, {pos, hash})
+        drop_entry(state, :window, pos, hash)
         state = %{state | window_bytes: state.window_bytes - descriptor.size_bytes}
 
         {gate_result, state} = run_main_gate(state, descriptor)
@@ -668,15 +672,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     }
   end
 
-  defp already_tracked?(state, key_hash) do
-    # Search across all queues.
-    in_queue?(state.window, key_hash) or in_queue?(state.probationary, key_hash) or
-      in_queue?(state.protected, key_hash)
-  end
-
-  defp in_queue?(table, key_hash) do
-    :ets.match_object(table, {{:_, key_hash}, :_}) != []
-  end
+  defp already_tracked?(state, key_hash), do: :ets.member(state.index, key_hash)
 
   defp run_main_gate(state, descriptor) do
     needed_bytes =
@@ -691,15 +687,17 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   defp insert_into_probationary(state, descriptor) do
     {position, state} = next_position(state)
-    :ets.insert(state.probationary, {{position, descriptor.key_hash}, descriptor})
+    put_entry(state, :probationary, position, descriptor)
     state = %{state | probationary_bytes: state.probationary_bytes + descriptor.size_bytes}
     {{:admit, []}, state}
   end
 
   defp identify_and_score(state, descriptor, needed_bytes) do
-    probationary_list = ordered_set_to_list(state.probationary)
-    protected_list = ordered_set_to_list(state.protected)
     limit = state.eviction_victim_limit
+    # The walk never takes more than `limit` victims, so `limit + 1` LRU
+    # entries per queue reproduce its result over the full queues.
+    probationary_list = lru_descriptors(state.probationary, limit + 1)
+    protected_list = lru_descriptors(state.protected, limit + 1)
 
     case Policy.victim_walk(
            probationary_list,
@@ -730,6 +728,16 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     end
   end
 
+  defp lru_descriptors(table, count), do: lru_descriptors(table, :ets.first(table), count, [])
+
+  defp lru_descriptors(_table, :"$end_of_table", _count, acc), do: Enum.reverse(acc)
+  defp lru_descriptors(_table, _key, 0, acc), do: Enum.reverse(acc)
+
+  defp lru_descriptors(table, key, count, acc) do
+    [{_key, descriptor}] = :ets.lookup(table, key)
+    lru_descriptors(table, :ets.next(table, key), count - 1, [descriptor | acc])
+  end
+
   defp ordered_set_to_list(table) do
     :ets.foldr(fn {_pos_and_hash, descriptor}, acc -> [descriptor | acc] end, [], table)
   end
@@ -748,30 +756,21 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   defp remove_descriptor(state, descriptor) do
-    # Search all queues for the descriptor and remove it. Update byte counters.
-    Enum.reduce_while([:window, :probationary, :protected], state, fn queue, acc ->
-      table = Map.fetch!(acc, queue)
+    case locate(state, descriptor.key_hash) do
+      nil ->
+        state
 
-      case :ets.match_object(table, {{:_, descriptor.key_hash}, :_}) do
-        [] ->
-          {:cont, acc}
-
-        [{key, _value}] ->
-          :ets.delete(table, key)
-          bytes_field = :"#{queue}_bytes"
-          acc = Map.update!(acc, bytes_field, &(&1 - descriptor.size_bytes))
-          {:halt, acc}
-      end
-    end)
+      {queue, pos, _descriptor} ->
+        drop_entry(state, queue, pos, descriptor.key_hash)
+        Map.update!(state, :"#{queue}_bytes", &(&1 - descriptor.size_bytes))
+    end
   end
 
   defp same_key_replace(state, descriptor, {queue, old_position, old_descriptor}) do
-    table = Map.fetch!(state, queue)
-
     # Remove the old entry's bytes from accounting.
     bytes_field = :"#{queue}_bytes"
     state = Map.update!(state, bytes_field, &(&1 - old_descriptor.size_bytes))
-    :ets.delete(table, {old_position, descriptor.key_hash})
+    drop_entry(state, queue, old_position, descriptor.key_hash)
 
     # Body-only victim when content changed; otherwise no victim.
     victims =
@@ -793,7 +792,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       case descriptor.size_bytes <= old_descriptor.size_bytes do
         true ->
           {position, state} = next_position(state)
-          :ets.insert(table, {{position, descriptor.key_hash}, descriptor})
+          put_entry(state, queue, position, descriptor)
           state = Map.update!(state, bytes_field, &(&1 + descriptor.size_bytes))
           {{:admit, []}, state}
 
@@ -840,33 +839,42 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     end
   end
 
-  # Scan the three queues for a key_hash and return `{queue, position,
-  # descriptor}`, or nil when the key is untracked. The queue atom lets
-  # callers (e.g. promote_on_hit/2) act on the located entry's home queue.
+  # Return `{queue, position, descriptor}` for a tracked key_hash, or nil when
+  # the key is untracked. The queue atom lets callers (e.g. promote_on_hit/2)
+  # act on the located entry's home queue.
   defp locate(state, key_hash) do
-    Enum.find_value([:window, :probationary, :protected], fn queue ->
-      table = Map.fetch!(state, queue)
+    case :ets.lookup(state.index, key_hash) do
+      [] ->
+        nil
 
-      case :ets.match_object(table, {{:_, key_hash}, :_}) do
-        [] -> nil
-        [{{pos, _hash}, descriptor}] -> {queue, pos, descriptor}
-      end
-    end)
+      [{^key_hash, queue, pos}] ->
+        [{_key, descriptor}] = :ets.lookup(Map.fetch!(state, queue), {pos, key_hash})
+        {queue, pos, descriptor}
+    end
+  end
+
+  # Every queue write goes through these two helpers so the index stays in
+  # step with the queues.
+  defp put_entry(state, queue, pos, descriptor) do
+    :ets.insert(Map.fetch!(state, queue), {{pos, descriptor.key_hash}, descriptor})
+    :ets.insert(state.index, {descriptor.key_hash, queue, pos})
+  end
+
+  defp drop_entry(state, queue, pos, key_hash) do
+    :ets.delete(Map.fetch!(state, queue), {pos, key_hash})
+    :ets.delete(state.index, key_hash)
   end
 
   defp next_position(state),
     do: {state.next_position, %{state | next_position: state.next_position + 1}}
 
-  defp promote_on_hit(state, key_hash) do
-    case locate(state, key_hash) do
-      nil ->
-        state
-
+  defp promote_on_hit(state, located) do
+    case located do
       {:window, pos, descriptor} ->
         move_to_mru(state, :window, pos, descriptor)
 
       {:probationary, pos, descriptor} ->
-        :ets.delete(state.probationary, {pos, key_hash})
+        drop_entry(state, :probationary, pos, descriptor.key_hash)
         state = Map.update!(state, :probationary_bytes, &(&1 - descriptor.size_bytes))
         insert_into_protected(state, descriptor)
 
@@ -876,16 +884,15 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   defp move_to_mru(state, queue, old_pos, descriptor) do
-    table = Map.fetch!(state, queue)
-    :ets.delete(table, {old_pos, descriptor.key_hash})
+    drop_entry(state, queue, old_pos, descriptor.key_hash)
     {pos, state} = next_position(state)
-    :ets.insert(table, {{pos, descriptor.key_hash}, descriptor})
+    put_entry(state, queue, pos, descriptor)
     state
   end
 
   defp insert_into_protected(state, descriptor) do
     {pos, state} = next_position(state)
-    :ets.insert(state.protected, {{pos, descriptor.key_hash}, descriptor})
+    put_entry(state, :protected, pos, descriptor)
     state = Map.update!(state, :protected_bytes, &(&1 + descriptor.size_bytes))
     enforce_protected_target(state)
   end
@@ -896,12 +903,12 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
     if state.protected_bytes > target and :ets.info(state.protected, :size) > 0 do
       first_key = :ets.first(state.protected)
-      [{key, descriptor}] = :ets.lookup(state.protected, first_key)
-      :ets.delete(state.protected, key)
+      [{{old_pos, key_hash}, descriptor}] = :ets.lookup(state.protected, first_key)
+      drop_entry(state, :protected, old_pos, key_hash)
       state = Map.update!(state, :protected_bytes, &(&1 - descriptor.size_bytes))
 
       {pos, state} = next_position(state)
-      :ets.insert(state.probationary, {{pos, descriptor.key_hash}, descriptor})
+      put_entry(state, :probationary, pos, descriptor)
       Map.update!(state, :probationary_bytes, &(&1 + descriptor.size_bytes))
     else
       state
@@ -1064,7 +1071,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     bytes_field = :"#{queue}_bytes"
     {pos, hash} = :ets.first(table)
     [{_key, descriptor}] = :ets.lookup(table, {pos, hash})
-    :ets.delete(table, {pos, hash})
+    drop_entry(state, queue, pos, hash)
     state = Map.update!(state, bytes_field, &(&1 - descriptor.size_bytes))
     {descriptor, state}
   end
