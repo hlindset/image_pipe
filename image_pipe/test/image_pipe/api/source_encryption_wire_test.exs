@@ -95,8 +95,16 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
       refute_received {:cache_put, _key, _entry}
     end
 
-    disabled = mount(source_encryption_keys: [])
-    assert request("/format=png/enc/#{token}", disabled).status == 404
+    refute_received :origin_fetch
+    refute_received {:cache_lookup, _key}
+  end
+
+  test "enc/ on a mount without source encryption keys is a 400 before source access" do
+    token = encrypt_source(@source, mount())
+    response = request("/format=png/enc/#{token}", mount(source_encryption_keys: []))
+
+    assert response.status == 400
+    assert response.resp_body =~ "enc/ is not accepted: no source encryption keys are configured"
     refute_received :origin_fetch
     refute_received {:cache_lookup, _key}
   end

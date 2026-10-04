@@ -32,9 +32,9 @@ detail than the response, which deliberately says less.
 
 | Status | When |
 | --- | --- |
-| `400` | The URL doesn't parse, fails validation, or names a source scheme that no configured source serves. Validation fails for `sig` on a server without signing keys, or a `detect` class that the configured detector doesn't support. The body lists the problems. |
+| `400` | The URL doesn't parse, fails validation, or names a source scheme that no configured source serves. Validation fails for `sig` on a server without signing keys, `enc/` or `wm-enc` on a server without source encryption keys, or a `detect` class that the configured detector doesn't support. The body lists the problems. |
 | `403` | A required signature is missing or wrong. The body is always `invalid signature`. |
-| `404` | An encrypted source token fails to decrypt. |
+| `404` | No key on the server decrypts an encrypted source token. |
 | `405` | The method isn't `GET`, `HEAD`, or `OPTIONS`. The response carries `Allow`. |
 | `410` | The request's `expires` time has passed. |
 | `500` | A looked-up preset definition is invalid, or the request looks up more presets than the configuration allows. |

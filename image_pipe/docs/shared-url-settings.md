@@ -92,8 +92,10 @@ key.
 On a mismatch:
 
 - A token that no server key decrypts answers `404` with the body
-  `not found`. A server without source encryption keys answers the same for
-  every `enc/` URL.
+  `not found`.
+- An `enc/` URL sent to a server without source encryption keys answers
+  `400`. The body points at the token with `enc/ is not accepted: no source
+  encryption keys are configured`.
 
 ## Base URL and mount path
 

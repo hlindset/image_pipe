@@ -99,7 +99,10 @@ defmodule ImagePipe.Security.SourceEncryption do
 
   def encrypt_salted(source, keyring, _salt), do: encrypt(source, keyring, iv: :invalid)
 
-  @spec decrypt(term(), t()) :: {:ok, String.t()} | {:error, :invalid_concealed_source}
+  @spec decrypt(term(), t()) ::
+          {:ok, String.t()} | {:error, :invalid_concealed_source | :source_encryption_disabled}
+  def decrypt(_token, %__MODULE__{keys: []}), do: {:error, :source_encryption_disabled}
+
   def decrypt(token, %__MODULE__{derived_keys: keys}) when is_binary(token) do
     with {:ok, payload} <- decode_token(token),
          {:ok, iv, ciphertext, tag} <- split_payload(payload),
