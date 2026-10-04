@@ -3,7 +3,7 @@ defmodule ImagePipe.Test.ProcessingSource do
   @behaviour ImagePipe.Source
 
   @impl true
-  def identifiers,
+  def identifiers(_options),
     do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
   alias ImagePipe.Source.{CacheSemantics, Resolved, Response}

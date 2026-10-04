@@ -3,10 +3,10 @@ defmodule ImagePipe.Source do
   Behaviour for source adapters, and the shape of the `:sources` option of
   `ImagePipe.config/1`.
 
-  ## Mounts
+  ## Configuring sources
 
-  `:sources` is a keyword list of named mounts. Each one names an adapter, the
-  sources it serves, and the adapter's options:
+  `:sources` is a keyword list of sources. Each has a name, an adapter, the
+  image paths it serves, and the adapter's options:
 
       sources: [
         media: [
@@ -23,15 +23,15 @@ defmodule ImagePipe.Source do
 
     * `:adapter` - `ImagePipe.Source.File`, `ImagePipe.Source.HTTP`,
       `ImagePipe.Source.S3`, or a module implementing this behaviour.
-    * `:match` - which sources reach the mount: `:path`, or a keyword list of
-      `:prefix` and `:scheme` rules. The rules are listed in
+    * `:match` - which image paths reach the source: `:path`, or a keyword
+      list of `:prefix` and `:scheme` rules. The rules are listed in
       [routing image paths to sources](sources.md#routing-image-paths-to-sources).
     * `:options` - the adapter's options, checked by its
       `c:validate_options/1`. The default value is `[]`.
 
-  Invalid mounts raise `ArgumentError` when the configuration is built. The
-  mount name appears in [telemetry events](telemetry-events.md#common-metadata)
-  as `:source_mount`.
+  Building a configuration with an invalid source raises `ArgumentError`.
+  The source's name appears in
+  [telemetry events](telemetry-events.md#common-metadata) as `:source_mount`.
 
   ## Adapters
 
@@ -106,25 +106,27 @@ defmodule ImagePipe.Source do
   @type error :: {:source, atom() | tuple()}
 
   @doc """
-  The identifier structs the adapter's `c:resolve/3` accepts, from
+  Receives the options returned by `c:validate_options/1` and returns the
+  identifier structs `c:resolve/3` accepts with them, from
   `ImagePipe.Plan.Source.Path`, `ImagePipe.Plan.Source.URL`, and
-  `ImagePipe.Plan.Source.Object`. A mount whose match rules would route another
+  `ImagePipe.Plan.Source.Object`. A source whose match rules would route another
   identifier to the adapter fails configuration.
   """
-  @callback identifiers() :: [module()]
+  @callback identifiers(options :: keyword()) :: [module()]
 
   @doc """
-  Checks the mount's `:options` when the configuration is built. The options
+  Checks the source's `:options` when the configuration is built. The options
   it returns are passed to `c:resolve/3` and `c:fetch/3`. An error fails the
   configuration with `ArgumentError`.
   """
   @callback validate_options(keyword()) :: {:ok, keyword()} | {:error, term()}
 
   @doc """
-  Describes a source without fetching it.
+  Describes an image without fetching it.
 
-  The source is one of the structs from `c:identifiers/0`, with the mount's
-  prefix or custom scheme removed. The returned `ImagePipe.Source.Resolved`
+  The first argument is the requested image as one of the structs from
+  `c:identifiers/1`, with the source's matching prefix or custom scheme
+  removed. The returned `ImagePipe.Source.Resolved`
   holds:
 
     * `identity` - a keyword list that names the original, with atom keys
@@ -230,7 +232,7 @@ defmodule ImagePipe.Source do
   defp prepare_cache_source(_module, source, _opts, _runtime), do: {:ok, source}
 
   @doc false
-  @spec validate_config(keyword()) :: {:ok, keyword()} | {:error, error()}
+  @spec validate_config(keyword()) :: {:ok, keyword()} | {:error, error() | String.t()}
   def validate_config(opts) when is_list(opts) do
     with {:ok, policy} <- CachePolicy.validate(Keyword.get(opts, :source_cache_policy, [])),
          {:ok, sources} <- Mounts.validate(Keyword.get(opts, :sources, [])) do
@@ -246,9 +248,18 @@ defmodule ImagePipe.Source do
         opts
 
       {:error, reason} ->
-        raise ArgumentError, "invalid ImagePipe source options: #{inspect(reason)}"
+        raise ArgumentError, config_error_message(reason)
     end
   end
+
+  defp config_error_message({:source, {:invalid_source, name, message}}),
+    do: "invalid source #{inspect(name)}: #{message}"
+
+  defp config_error_message({:source, {:invalid_sources, message}}),
+    do: "invalid sources: #{message}"
+
+  defp config_error_message(message) when is_binary(message),
+    do: "invalid source_cache_policy: #{message}"
 
   # Translates a host-configured source string into a plan source that a
   # configured mount serves. `opts` holds validated mounts.
@@ -289,7 +300,7 @@ defmodule ImagePipe.Source do
       result =
         module
         |> run_resolve(source, adapter_opts, runtime_opts)
-        |> put_mount(name)
+        |> put_mount(name, module, adapter_opts)
         |> apply_cache_policy(policy)
 
       {result, result_metadata(result)}
@@ -298,14 +309,47 @@ defmodule ImagePipe.Source do
 
   defp mounts(opts), do: Keyword.get(opts, :sources, %Mounts{})
 
-  # Mounts never share cache entries, even when their adapters build the same
-  # identity for the path they receive.
-  defp put_mount({:ok, resolved}, nil), do: {:ok, resolved}
+  # Sources that read the same originals share cache entries, so a source's
+  # name stays out of the identity. Built-in adapters name every setting that
+  # changes bytes in their identity or byte identity. A custom adapter's
+  # identity may not, so a digest of its options, apart from the cache
+  # settings, keeps two differently configured sources apart.
+  @builtin_adapters [ImagePipe.Source.File, ImagePipe.Source.HTTP, ImagePipe.Source.S3]
+  @cache_setting_keys Keyword.keys(ImagePipe.Source.CacheSettings.schema())
 
-  defp put_mount({:ok, resolved}, name),
-    do: {:ok, %{resolved | mount: name, identity: resolved.identity ++ [mount: name]}}
+  defp put_mount({:ok, resolved}, nil, _module, _opts), do: {:ok, resolved}
 
-  defp put_mount(error, _name), do: error
+  defp put_mount({:ok, resolved}, name, module, opts),
+    do:
+      {:ok,
+       %{resolved | mount: name, identity: resolved.identity ++ adapter_identity(module, opts)}}
+
+  defp put_mount(error, _name, _module, _opts), do: error
+
+  defp adapter_identity(module, _opts) when module in @builtin_adapters, do: [source: module]
+
+  defp adapter_identity(module, opts) do
+    digest =
+      opts
+      |> Keyword.drop(@cache_setting_keys)
+      |> stable_terms()
+      |> ImagePipe.MaterialDigest.of()
+
+    [source: module, options: Base.encode16(digest, case: :lower)]
+  end
+
+  # A compiled regex serializes differently each time it is compiled.
+  defp stable_terms(%Regex{} = regex), do: {Regex, Regex.source(regex), Regex.opts(regex)}
+  defp stable_terms(list) when is_list(list), do: Enum.map(list, &stable_terms/1)
+
+  defp stable_terms(tuple) when is_tuple(tuple),
+    do: tuple |> Tuple.to_list() |> stable_terms() |> List.to_tuple()
+
+  defp stable_terms(%module{} = struct),
+    do: struct(module, struct |> Map.from_struct() |> stable_terms())
+
+  defp stable_terms(map) when is_map(map), do: Map.new(map, fn {k, v} -> {k, stable_terms(v)} end)
+  defp stable_terms(term), do: term
 
   defp mount_config(%Resolved{mount: nil}, _opts), do: {:ok, Input, []}
   defp mount_config(%Resolved{mount: name}, opts), do: Mounts.fetch(mounts(opts), name)

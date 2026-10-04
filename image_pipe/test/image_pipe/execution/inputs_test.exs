@@ -4,7 +4,7 @@ defmodule ImagePipe.Execution.InputsTest do
 
   describe "storage_material/2" do
     test "a header contributes its value to storage_only and its name to vary" do
-      inputs = Inputs.new!(headers: [{"save-data", "on"}])
+      inputs = Inputs.new(headers: [{"save-data", "on"}])
 
       {storage_only, vary} = Inputs.storage_material(inputs, [{:header, "Save-Data"}])
 
@@ -14,7 +14,7 @@ defmodule ImagePipe.Execution.InputsTest do
     end
 
     test "a cookie contributes its value to storage_only and nothing to vary" do
-      inputs = Inputs.new!(cookies: %{"session" => "abc"})
+      inputs = Inputs.new(cookies: %{"session" => "abc"})
 
       {storage_only, vary} = Inputs.storage_material(inputs, [{:cookie, "session"}])
 
@@ -24,7 +24,7 @@ defmodule ImagePipe.Execution.InputsTest do
     end
 
     test "a missing cookie is omitted from storage_only" do
-      inputs = Inputs.new!([])
+      inputs = %Inputs{}
 
       {storage_only, _vary} = Inputs.storage_material(inputs, [{:cookie, "session"}])
 
@@ -32,7 +32,7 @@ defmodule ImagePipe.Execution.InputsTest do
     end
 
     test "header names are normalized, deduplicated, and deterministically ordered" do
-      inputs = Inputs.new!(headers: [{"save-data", "on"}])
+      inputs = Inputs.new(headers: [{"save-data", "on"}])
 
       {storage_only_a, vary_a} =
         Inputs.storage_material(inputs, [{:header, "Save-Data"}, {:header, "save-data"}])
@@ -46,7 +46,7 @@ defmodule ImagePipe.Execution.InputsTest do
     end
 
     test "output order does not depend on the configured list's order" do
-      inputs = Inputs.new!(headers: [{"save-data", "on"}, {"dpr", "2"}])
+      inputs = Inputs.new(headers: [{"save-data", "on"}, {"dpr", "2"}])
 
       forward = Inputs.storage_material(inputs, [{:header, "save-data"}, {:header, "dpr"}])
       backward = Inputs.storage_material(inputs, [{:header, "dpr"}, {:header, "save-data"}])

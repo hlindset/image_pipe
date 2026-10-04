@@ -26,7 +26,8 @@ defmodule ImagePipe.Source.File do
                         Stable name for the directory. Caches identify the source's \
                         files by `:root_id` and path instead of by `:root`, so keep \
                         the name when the directory moves, and change it when the \
-                        directory holds different files.
+                        directory holds different files. File sources with the same \
+                        `:root_id` share cache entries and must have the same `:root`.
                         """
                       ],
                       verify: [
@@ -86,7 +87,7 @@ defmodule ImagePipe.Source.File do
   def options_schema, do: @options_schema.schema
 
   @impl Source
-  def identifiers, do: [SourcePath]
+  def identifiers(_options), do: [SourcePath]
 
   @impl Source
   def validate_options(opts) do

@@ -9,6 +9,9 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
   #     wait on the one fetch (they queue as waiters),
   #   * warm-on-init: a fetch is kicked in `init/1`, so the process warms as soon
   #     as it is created,
+  #   * idle retirement: an entry no `get/2` used for a whole idle interval
+  #     stops. An entry started with `warm: true` is exempt until its first
+  #     `get/2`, or until its first fetch fails,
   #   * background refresh: a timer fires `refresh_margin_ms` before expiry,
   #     with at least five seconds between successful background fetches; a
   #     refresh that fails while the value is still fresh re-arms a bounded retry,
@@ -61,6 +64,7 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
       refresh_margin_ms: Keyword.get(opts, :refresh_margin_ms, @default_refresh_margin_ms),
       idle_interval_ms: Keyword.get(opts, :idle_interval_ms, @default_idle_interval_ms),
       accessed?: false,
+      warm?: Keyword.get(opts, :warm, false),
       now_fun: Keyword.get(opts, :now_fun, &DateTime.utc_now/0),
       value: nil,
       expires_at: nil,
@@ -75,7 +79,7 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
 
   @impl true
   def handle_call(:get, from, state) do
-    state = %{state | accessed?: true}
+    state = %{state | accessed?: true, warm?: false}
 
     if fresh?(state) do
       {:reply, {:ok, state.value}, state}
@@ -85,7 +89,7 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
   end
 
   @impl true
-  def handle_info(:check_idle, %{accessed?: false, task: nil, waiters: []} = state) do
+  def handle_info(:check_idle, %{warm?: false, accessed?: false, task: nil, waiters: []} = state) do
     Registry.unregister(ImagePipe.Source.S3.RefreshCache.Registry, state.key)
     {:stop, :normal, state}
   end
@@ -174,7 +178,7 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
       state = reply_waiters({:ok, state.value}, state)
       schedule_retry(state)
     else
-      reply_waiters({:error, reason}, state)
+      reply_waiters({:error, reason}, %{state | warm?: false})
     end
   end
 

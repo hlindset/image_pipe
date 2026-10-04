@@ -10,7 +10,9 @@ defmodule ImagePipe.Source.S3.CredentialProvider do
   ImagePipe caches each result per provider, options, and bucket, and shares
   it across requests. Temporary credentials are refreshed five minutes before
   they expire. A cache entry is dropped after at least five minutes without a
-  request, and the next request fetches again. The built-in providers are listed under
+  request, and the next request fetches again. Credentials fetched by
+  `ImagePipe.Source.S3.CredentialWarmup` aren't dropped before their first
+  request. The built-in providers are listed under
   [Credentials](`m:ImagePipe.Source.S3#module-credentials`).
   """
 
@@ -35,9 +37,8 @@ defmodule ImagePipe.Source.S3.CredentialProvider do
 
   @doc """
   Checks the provider's options when the source is configured, so bad options
-  fail at startup instead of on the first request. Optional.
+  fail at startup instead of on the first request. Return `:ok` when the
+  provider takes no options.
   """
   @callback validate_options(keyword()) :: :ok | {:error, term()}
-
-  @optional_callbacks validate_options: 1
 end

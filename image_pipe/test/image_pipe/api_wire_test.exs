@@ -201,7 +201,7 @@ defmodule ImagePipe.APIWireTest do
       cached_config =
         opts(
           http_cache: :auto,
-          sources: should_not_fetch_sources(),
+          sources: counting_sources(),
           cache: {CacheProbe, []}
         )
 
@@ -349,10 +349,11 @@ defmodule ImagePipe.APIWireTest do
 
   describe "conditional GET is evaluated before the cache lookup" do
     test "matching If-None-Match: 304, empty body, no cache lookup, no source fetch" do
-      plain_conn = get("/w=64/src/images/cat.jpg", opts())
+      plain_conn = get("/w=64/src/images/cat.jpg", opts(sources: counting_sources()))
       [etag] = get_resp_header(plain_conn, "etag")
+      assert_received :origin_fetch
 
-      config = opts(sources: should_not_fetch_sources(), cache: {CacheProbe, []})
+      config = opts(sources: counting_sources(), cache: {CacheProbe, []})
       conn = get("/w=64/src/images/cat.jpg", config, [{"if-none-match", etag}])
 
       assert conn.status == 304
@@ -463,10 +464,11 @@ defmodule ImagePipe.APIWireTest do
     end
 
     test "conditional GET with a matching etag is 304 before any source fetch" do
-      plain_conn = get("/output=blurhash/src/images/cat.jpg", opts())
+      plain_conn = get("/output=blurhash/src/images/cat.jpg", opts(sources: counting_sources()))
       [etag] = get_resp_header(plain_conn, "etag")
+      assert_received :origin_fetch
 
-      config = opts(sources: should_not_fetch_sources(), cache: {CacheProbe, []})
+      config = opts(sources: counting_sources(), cache: {CacheProbe, []})
       conn = get("/output=blurhash/src/images/cat.jpg", config, [{"if-none-match", etag}])
 
       assert conn.status == 304

@@ -7,14 +7,14 @@ defmodule ImagePipe.Source.Parser do
   #   * no `scheme://` prefix — a root-relative `%Plan.Source.Path{}`. The
   #     decoded string is split into segments on `/` with no further decoding.
   #     An optional leading slash is normalized for ordinary root-relative paths.
-  #   * `http://` or `https://` — an absolute `%Plan.Source.URL{}`. Inner URL
+  #   * `http://` or `https://` (when a mount matches the scheme) — an absolute `%Plan.Source.URL{}`. Inner URL
   #     path escapes are decoded once here and re-encoded by the HTTP adapter.
-  #   * `s3://` — an `%Plan.Source.Object{}` with the query carried as its
+  #   * `s3://` (when a mount matches the scheme) — an `%Plan.Source.Object{}` with the query carried as its
   #     immutable revision.
   #   * a custom scheme a mount matches — a `%Plan.Source.Path{}` tagged with
   #     that scheme, holding the part after `scheme://` split on `/`.
-  #   * anything else (an unknown scheme, an empty source, or a malformed
-  #     authority) — `{:error, {:invalid_source, reason}}`.
+  #   * anything else (a scheme no mount matches, built-in or custom, an empty
+  #     source, or a malformed authority) — `{:error, {:invalid_source, reason}}`.
   #
   # `ImagePipe.Source.resolve/3` consumes the returned `Plan.Source.t()`
   # unchanged.
@@ -48,21 +48,23 @@ defmodule ImagePipe.Source.Parser do
     %Path{segments: String.split(source, "/")}
   end
 
-  defp url_translate(scheme, source, _config) when is_map_key(@http_schemes, scheme) do
+  defp url_translate(scheme, source, config) do
+    if Mounts.scheme?(Keyword.get(config, :sources, %Mounts{}), scheme),
+      do: scheme_translate(scheme, source),
+      else: {:error, {:invalid_source, {:unsupported_scheme, scheme}}}
+  end
+
+  defp scheme_translate(scheme, source) when is_map_key(@http_schemes, scheme) do
     build_url(Map.fetch!(@http_schemes, scheme), source, URI.parse(source))
   end
 
-  defp url_translate("s3", source, _config) do
+  defp scheme_translate("s3", source) do
     build_s3(source, URI.parse(source))
   end
 
-  defp url_translate(scheme, source, config) do
-    if scheme in Mounts.custom_schemes(Keyword.get(config, :sources, %Mounts{})) do
-      rest = binary_part(source, byte_size(scheme) + 3, byte_size(source) - byte_size(scheme) - 3)
-      {:ok, %Path{scheme: scheme, segments: String.split(rest, "/")}}
-    else
-      {:error, {:invalid_source, {:unsupported_scheme, scheme}}}
-    end
+  defp scheme_translate(scheme, source) do
+    rest = binary_part(source, byte_size(scheme) + 3, byte_size(source) - byte_size(scheme) - 3)
+    {:ok, %Path{scheme: scheme, segments: String.split(rest, "/")}}
   end
 
   defp build_url(scheme, source, %URI{} = uri) do

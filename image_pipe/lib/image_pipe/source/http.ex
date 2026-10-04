@@ -67,7 +67,10 @@ defmodule ImagePipe.Source.HTTP do
                         Options for `Req.request/1`, such as `headers:` or `auth:`. \
                         The adapter drops `:url`, `:base_url`, `:method`, `:body`, \
                         `:params`, `:into`, `:retry`, `:redirect`, and `:max_redirects`, \
-                        and a `host` header. \
+                        and a `host` header. Setting Req's `:adapter` or `:unix_socket` is \
+                        a configuration error, because both connect somewhere other than \
+                        the address the source checked \
+                        ([Source network policy](source-network-policy.md)). \
                         It also drops `range`, `accept`, and `accept-encoding` headers, \
                         except on a source with `internal_cache: :disabled` that isn't \
                         immutable. Requests for one URL must always return the same \
@@ -148,9 +151,7 @@ defmodule ImagePipe.Source.HTTP do
   TLS verification. Why is explained in
   [Source network policy](source-network-policy.md). A denied fetch fails
   with `{:source, :denied_scheme}`, `{:source, :denied_host}`, or
-  `{:source, :denied_address}`, which answer `404`. Connecting to a checked
-  address applies to Req's default transport. A Req adapter given in
-  `:req_options` makes its own connections.
+  `{:source, :denied_address}`, which answer `404`.
 
   ## Options
 
@@ -177,8 +178,10 @@ defmodule ImagePipe.Source.HTTP do
       documentation ranges, `240.0.0.0/4`, NAT64 `64:ff9b::/96`, and IPv6
       addresses outside `2000::/3`.
 
-  Each category takes `true` or `false`. IPv4-mapped and 6to4 IPv6 addresses
-  are checked as the IPv4 address they contain.
+  Each category takes `true` or `false`. Categories treat IPv4-mapped and
+  6to4 IPv6 addresses as the IPv4 address they contain. An IPv4 range in
+  `:allow` also matches an address in IPv4-mapped form, such as
+  `::ffff:10.0.5.7`, but not in 6to4 form.
 
   Or pass a function that receives each resolved address as a tuple and its
   category (`:public`, or one of the categories above without `allow_`) and
@@ -192,15 +195,29 @@ defmodule ImagePipe.Source.HTTP do
   def options_schema, do: @options_schema.schema
 
   @impl Source
-  def identifiers, do: [SourcePath, URL]
+  def identifiers(options) do
+    if Keyword.has_key?(options, :base_url), do: [SourcePath, URL], else: [URL]
+  end
 
   @impl Source
   def validate_options(opts) do
     with {:ok, validated} <- validate_schema(opts),
+         :ok <- reject_req_transport(validated),
          {:ok, validated} <- validate_base_url(validated) do
       validated
       |> Keyword.update!(:allowed_hosts, fn hosts -> Enum.map(hosts, &String.downcase/1) end)
       |> CacheSettings.validate()
+    end
+  end
+
+  # A Req adapter or unix socket connects somewhere other than the checked address.
+  defp reject_req_transport(opts) do
+    case Enum.find(
+           [:adapter, :unix_socket],
+           &Keyword.has_key?(Keyword.fetch!(opts, :req_options), &1)
+         ) do
+      nil -> :ok
+      option -> {:error, {:invalid_source_config, "req_options can't set #{inspect(option)}"}}
     end
   end
 
@@ -322,9 +339,8 @@ defmodule ImagePipe.Source.HTTP do
 
   @impl Source
   def resolve(%SourcePath{segments: segments}, opts, runtime_opts) do
-    with {:ok, base} <- fetch_base_url(opts),
-         :ok <- validate_path(segments, opts) do
-      resolve(base_source(base, segments), opts, runtime_opts)
+    with :ok <- validate_path(segments, opts) do
+      resolve(base_source(Keyword.fetch!(opts, :base_url), segments), opts, runtime_opts)
     end
   end
 
@@ -367,13 +383,6 @@ defmodule ImagePipe.Source.HTTP do
        )}
     else
       {:error, {:source, :denied_host}}
-    end
-  end
-
-  defp fetch_base_url(opts) do
-    case Keyword.fetch(opts, :base_url) do
-      {:ok, base} -> {:ok, base}
-      :error -> {:error, {:source, :missing_adapter}}
     end
   end
 

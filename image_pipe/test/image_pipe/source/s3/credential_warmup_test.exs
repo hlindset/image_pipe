@@ -17,6 +17,9 @@ defmodule ImagePipe.Source.S3.CredentialWarmupTest do
     @behaviour ImagePipe.Source.S3.CredentialProvider
 
     @impl true
+    def validate_options(_opts), do: :ok
+
+    @impl true
     def fetch_credentials(scope, opts, _runtime) do
       send(Keyword.fetch!(opts, :test), {:warmed, scope})
       {:ok, [access_key_id: "A", secret_access_key: "S", token: "T"], :never}
@@ -31,7 +34,6 @@ defmodule ImagePipe.Source.S3.CredentialWarmupTest do
           Keyword.delete(valid, :scope),
           Keyword.put(valid, :unknown, true),
           Keyword.put(valid, :provider, "provider"),
-          Keyword.put(valid, :provider, nil),
           Keyword.put(valid, :scope, :bucket),
           Keyword.put(valid, :opts, %{test: self()})
         ] do
@@ -43,13 +45,18 @@ defmodule ImagePipe.Source.S3.CredentialWarmupTest do
     end
   end
 
-  test "delegates provider option validation before fetching credentials" do
-    assert_raise RuntimeError, ~r/ArgumentError/, fn ->
-      start_supervised!(
-        {CredentialWarmup,
-         provider: ImagePipe.Source.S3.InstanceRole,
-         scope: "warmup-invalid-provider",
-         opts: [unknown: true]}
+  test "a provider that isn't a provider module raises before fetching credentials" do
+    assert_raise RuntimeError, ~r/UndefinedFunctionError/, fn ->
+      start_supervised!({CredentialWarmup, provider: nil, scope: "warmup-nil", opts: []})
+    end
+  end
+
+  test "delegates provider option validation before fetching credentials, keeping its reason" do
+    assert_raise ArgumentError, ~r/invalid credential provider options: .*unknown/, fn ->
+      CredentialWarmup.start_link(
+        provider: ImagePipe.Source.S3.InstanceRole,
+        scope: "warmup-invalid-provider",
+        opts: [unknown: true]
       )
     end
   end
@@ -71,5 +78,16 @@ defmodule ImagePipe.Source.S3.CredentialWarmupTest do
     # cache is warm: fetching does not invoke the provider again
     assert {:ok, _} = Credentials.fetch(scope, {:provider, OnceProvider, opts}, [])
     refute_received {:warmed, ^scope}
+  end
+
+  test "warmups for different buckets start side by side without explicit ids" do
+    opts = [test: self()]
+    scopes = for n <- 1..2, do: "bucket-#{n}-#{System.unique_integer([:positive])}"
+
+    for scope <- scopes,
+        do:
+          start_supervised!({CredentialWarmup, provider: OnceProvider, opts: opts, scope: scope})
+
+    for scope <- scopes, do: assert_receive({:warmed, ^scope})
   end
 end

@@ -31,8 +31,15 @@ defmodule ImagePipe.Source.HTTP.AddressPolicy do
 
   def parse_cidr(_value), do: :error
 
+  # A 6to4 address reaches a relay, not the embedded IPv4 host, so only
+  # IPv4-mapped addresses also match IPv4 ranges.
   @spec in_cidr?(:inet.ip_address(), cidr()) :: boolean()
-  def in_cidr?(ip, {net_int, prefix, bits}) do
+  def in_cidr?({0, 0, 0, 0, 0, 0xFFFF, g, h} = ip, cidr),
+    do: bits_in_cidr?(ip, cidr) or bits_in_cidr?(embed_v4(g, h), cidr)
+
+  def in_cidr?(ip, cidr), do: bits_in_cidr?(ip, cidr)
+
+  defp bits_in_cidr?(ip, {net_int, prefix, bits}) do
     if tuple_bits(ip) == bits do
       shift = bits - prefix
       Bitwise.bsr(tuple_to_int(ip), shift) == Bitwise.bsr(net_int, shift)

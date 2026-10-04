@@ -29,20 +29,21 @@ defmodule ImagePipe.Source.Mounts do
 
   @spec validate(term()) :: {:ok, t()} | {:error, {:source, term()}}
   def validate(sources) when is_list(sources) do
-    if Keyword.keyword?(sources) and unique_names?(sources),
-      do: add_mounts(sources),
-      else:
-        {:error,
-         {:source, {:invalid_sources, "expected a keyword list of uniquely named mounts"}}}
+    if Keyword.keyword?(sources) and unique_names?(sources) do
+      with {:ok, mounts} <- add_mounts(sources),
+           :ok <- unique_file_roots(mounts),
+           do: {:ok, mounts}
+    else
+      {:error, {:source, {:invalid_sources, "expected a keyword list of uniquely named sources"}}}
+    end
   end
 
   def validate(_sources),
-    do: {:error, {:source, {:invalid_sources, "expected a keyword list of named mounts"}}}
+    do: {:error, {:source, {:invalid_sources, "expected a keyword list of named sources"}}}
 
   @doc false
-  @spec custom_schemes(t()) :: [String.t()]
-  def custom_schemes(%__MODULE__{schemes: schemes}),
-    do: schemes |> Map.keys() |> Enum.reject(&Map.has_key?(@builtin_scheme_identifiers, &1))
+  @spec scheme?(t(), String.t()) :: boolean()
+  def scheme?(%__MODULE__{schemes: schemes}, scheme), do: Map.has_key?(schemes, scheme)
 
   @doc false
   @spec fetch(t(), atom()) :: {:ok, module(), keyword()} | {:error, {:source, :missing_adapter}}
@@ -79,20 +80,39 @@ defmodule ImagePipe.Source.Mounts do
   def route(%Object{scheme: scheme} = source, %__MODULE__{} = mounts),
     do: scheme_route(scheme, source, mounts)
 
-  def route(_source, _mounts), do: {:error, {:source, :missing_adapter}}
-
-  defp scheme_route(scheme, source, mounts) do
-    case mounts.schemes do
-      %{^scheme => name} -> {:ok, name, source}
-      _schemes -> {:error, {:source, :missing_adapter}}
-    end
-  end
+  # The source parser rejects URL and object schemes no mount matches.
+  defp scheme_route(scheme, source, mounts),
+    do: {:ok, Map.fetch!(mounts.schemes, scheme), source}
 
   # Origins may normalize dot segments, and a bare prefix names no source.
   defp path_route(name, %Path{segments: segments} = source) do
     if segments == [] or Enum.any?(segments, &(&1 in ["", ".", ".."])),
       do: {:error, {:source, :denied_path}},
       else: {:ok, name, source}
+  end
+
+  # File caches identify files by root_id, so one root_id naming two
+  # directories would serve one directory's cached files for the other's.
+  defp unique_file_roots(%__MODULE__{mounts: mounts}) do
+    roots =
+      for {_name, {ImagePipe.Source.File, opts}} <- mounts,
+          uniq: true,
+          do: {opts[:root_id], opts[:root]}
+
+    duplicate =
+      roots
+      |> Enum.frequencies_by(&elem(&1, 0))
+      |> Enum.find(fn {_root_id, count} -> count > 1 end)
+
+    case duplicate do
+      nil ->
+        :ok
+
+      {root_id, _count} ->
+        {:error,
+         {:source,
+          {:invalid_sources, "root_id #{inspect(root_id)} names more than one directory"}}}
+    end
   end
 
   defp unique_names?(sources), do: sources |> Keyword.keys() |> then(&(Enum.uniq(&1) == &1))
@@ -110,20 +130,20 @@ defmodule ImagePipe.Source.Mounts do
     with {:ok, mount} <- validate_mount_shape(name, mount),
          {:ok, rules} <- parse_match(name, Keyword.fetch!(mount, :match)),
          module = Keyword.fetch!(mount, :adapter),
-         :ok <- check_identifiers(name, module, rules),
-         {:ok, opts} <- validate_adapter_options(module, Keyword.fetch!(mount, :options)),
+         {:ok, opts} <- validate_adapter_options(name, module, Keyword.fetch!(mount, :options)),
+         :ok <- check_identifiers(name, module, opts, rules),
          {:ok, mounts} <- add_rules(mounts, name, rules) do
       {:ok, %{mounts | mounts: Map.put(mounts.mounts, name, {module, opts})}}
     end
   end
 
   defp add_mount(_mounts, name, _mount),
-    do: invalid_mount(name, "expected a keyword list with :adapter, :match, and :options")
+    do: invalid_source(name, "expected a keyword list with :adapter, :match, and :options")
 
   defp validate_mount_shape(name, mount) do
     case NimbleOptions.validate(mount, @mount_schema) do
       {:ok, validated} -> {:ok, validated}
-      {:error, error} -> invalid_mount(name, Exception.message(error))
+      {:error, error} -> invalid_source(name, Exception.message(error))
     end
   end
 
@@ -136,14 +156,14 @@ defmodule ImagePipe.Source.Mounts do
 
       if rules != [] and Enum.all?(rules, &valid_rule?/1),
         do: {:ok, rules},
-        else: invalid_mount(name, "invalid match rule #{inspect(match)}")
+        else: invalid_source(name, "invalid match rule #{inspect(match)}")
     else
-      invalid_mount(name, "match must be :path or a keyword list of :prefix and :scheme")
+      invalid_source(name, "match must be :path or a keyword list of :prefix and :scheme")
     end
   end
 
   defp parse_match(name, _match),
-    do: invalid_mount(name, "match must be :path or a keyword list of :prefix and :scheme")
+    do: invalid_source(name, "match must be :path or a keyword list of :prefix and :scheme")
 
   defp valid_rule?({:prefix, prefix}) when is_binary(prefix),
     do: prefix not in ["", ".", ".."] and not String.contains?(prefix, "/")
@@ -158,31 +178,38 @@ defmodule ImagePipe.Source.Mounts do
   defp rule_identifier({:scheme, scheme}), do: Map.get(@builtin_scheme_identifiers, scheme, Path)
   defp rule_identifier(_rule), do: Path
 
-  defp check_identifiers(name, module, rules) do
-    supported = module.identifiers()
+  defp check_identifiers(name, module, opts, rules) do
+    supported = module.identifiers(opts)
     needed = rules |> Enum.map(&rule_identifier/1) |> Enum.uniq()
 
     cond do
       not (is_list(supported) and Enum.all?(supported, &(&1 in @identifiers))) ->
-        invalid_mount(name, "#{inspect(module)}.identifiers/0 returned #{inspect(supported)}")
+        invalid_source(name, "#{inspect(module)}.identifiers/1 returned #{inspect(supported)}")
 
       Enum.all?(needed, &(&1 in supported)) ->
         :ok
 
       true ->
-        invalid_mount(
+        invalid_source(
           name,
           "#{inspect(module)} resolves #{inspect(supported)}, but match needs #{inspect(needed)}"
         )
     end
   end
 
-  defp validate_adapter_options(module, options) do
+  defp validate_adapter_options(name, module, options) do
     case module.validate_options(options) do
-      {:ok, validated} when is_list(validated) -> {:ok, order_like(options, validated)}
-      {:error, {:source, _reason}} = error -> error
-      {:error, reason} -> {:error, {:source, reason}}
-      _other -> {:error, {:source, :invalid_adapter_config}}
+      {:ok, validated} when is_list(validated) ->
+        {:ok, order_like(options, validated)}
+
+      {:error, {:invalid_source_config, message}} when is_binary(message) ->
+        invalid_source(name, message)
+
+      {:error, reason} ->
+        invalid_source(name, inspect(reason))
+
+      other ->
+        invalid_source(name, "#{inspect(module)}.validate_options/1 returned #{inspect(other)}")
     end
   end
 
@@ -205,14 +232,14 @@ defmodule ImagePipe.Source.Mounts do
   defp add_rule(%{path: nil} = mounts, name, {:path, nil}), do: {:ok, %{mounts | path: name}}
 
   defp add_rule(%{path: other}, name, {:path, nil}),
-    do: invalid_mount(name, "match :path is already used by mount #{inspect(other)}")
+    do: invalid_source(name, "match :path is already used by source #{inspect(other)}")
 
   defp add_rule(mounts, name, {:prefix, prefix}) do
     case mounts.prefixes do
       %{^prefix => other} ->
-        invalid_mount(
+        invalid_source(
           name,
-          "prefix #{inspect(prefix)} is already used by mount #{inspect(other)}"
+          "prefix #{inspect(prefix)} is already used by source #{inspect(other)}"
         )
 
       prefixes ->
@@ -223,9 +250,9 @@ defmodule ImagePipe.Source.Mounts do
   defp add_rule(mounts, name, {:scheme, scheme}) do
     case mounts.schemes do
       %{^scheme => other} ->
-        invalid_mount(
+        invalid_source(
           name,
-          "scheme #{inspect(scheme)} is already used by mount #{inspect(other)}"
+          "scheme #{inspect(scheme)} is already used by source #{inspect(other)}"
         )
 
       schemes ->
@@ -233,5 +260,5 @@ defmodule ImagePipe.Source.Mounts do
     end
   end
 
-  defp invalid_mount(name, reason), do: {:error, {:source, {:invalid_mount, name, reason}}}
+  defp invalid_source(name, reason), do: {:error, {:source, {:invalid_source, name, reason}}}
 end

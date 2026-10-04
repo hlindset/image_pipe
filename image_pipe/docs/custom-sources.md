@@ -24,7 +24,7 @@ defmodule MyApp.BlobSource do
   @schema NimbleOptions.new!([bucket: [type: :string, required: true]] ++ CacheSettings.schema())
 
   @impl true
-  def identifiers, do: [Path]
+  def identifiers(_options), do: [Path]
 
   @impl true
   def validate_options(opts) do
@@ -66,7 +66,13 @@ it when no cached copy can be used. Three things matter most, and the
 
 - `identity` must name everything that selects different bytes, here the
   bucket and the ID. Two originals with the same identity share cache
-  entries. Keep secrets out of it.
+  entries. Keep secrets out of it. ImagePipe adds a hash of the source's
+  options, apart from the cache settings, so two sources with different
+  options never share entries. An option that holds an anonymous function,
+  a pid, or a reference can hash differently after a restart or redeploy,
+  and the source's cache entries are then not reused. Pass a function
+  capture such as `&MyApp.Blobs.get/2` or a `{module, options}` tuple
+  instead.
 - `CacheSettings.fields/2` fills in the cache fields from the standard
   `stable`, `cache_policy`, `internal_cache`, and `http_cache` options, which
   `CacheSettings.schema/0` adds to your schema. `copy?: true` keeps a copy of

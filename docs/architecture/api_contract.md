@@ -258,7 +258,8 @@ decoding:
   as `versionId`; it is not written as a `versionId=` parameter. Empty keys,
   userinfo, fragments, and ports are rejected.
 - Any other `scheme://rest` goes to the mount matching that scheme as the path
-  `rest`, split on `/` with no further decoding. A scheme no mount matches is
+  `rest`, split on `/` with no further decoding.
+- Any scheme no mount matches, including `http`, `https`, and `s3`, is
   rejected as an invalid source before any source access.
 
 Paths with nothing after their prefix or scheme, or with empty, `.`, or `..`
@@ -508,9 +509,9 @@ Under negotiation, per-format options are conditionally active.
 
 For example, `format=jpeg/jpeg-options=progressive,quant-table:3` requests a
 progressive JPEG. Host keys `jpeg_options`, `png_options`, `webp_options`,
-and `avif_options` accept their corresponding
-`ImagePipe.Plan.Output.*Options` structs. JPEG's host struct calls its
-progressive flag `interlace`.
+and `avif_options` accept keyword lists with the fields of the matching
+`ImagePipe.URL.output/2` options. Those fields call JPEG's progressive flag
+`interlace` and the subsample field `subsample_mode`.
 
 Image-only output options (`format`, `q`, `format-q`, `meta`, `dpi`, `profile`,
 `hdr`, `autoquality`, `max-bytes`, and the encoder options) apply only to image

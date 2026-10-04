@@ -32,7 +32,7 @@ detail than the response, which deliberately says less.
 
 | Status | When |
 | --- | --- |
-| `400` | The URL doesn't parse or fails validation, including `sig` on a server without signing keys, or a `detect` class that the configured detector doesn't support. The body lists the problems. |
+| `400` | The URL doesn't parse, fails validation, or names a source scheme that no configured source serves. Validation fails for `sig` on a server without signing keys, or a `detect` class that the configured detector doesn't support. The body lists the problems. |
 | `403` | A required signature is missing or wrong. The body is always `invalid signature`. |
 | `404` | An encrypted source token fails to decrypt. |
 | `405` | The method isn't `GET`, `HEAD`, or `OPTIONS`. The response carries `Allow`. |
@@ -49,7 +49,7 @@ All of these return before source resolution, fetch, or cache access.
 | --- | --- |
 | `404` | Nothing exists at the source path, or the source's rules refuse it: a path that doesn't match the source's allowed paths, a denied host, address, scheme, or bucket, a directory where a file was expected. Also when the origin answers `401`, `403`, `404`, or `410`. |
 | `413` | The source body exceeds `max_body_bytes`. |
-| `500` | A local file or a cached original exists but can't be read, source credentials are unavailable, or a source adapter is misconfigured. |
+| `500` | A local file or a cached original exists but can't be read, source credentials are unavailable, or a custom source adapter returns an invalid result. |
 | `502` | The origin is unreachable, answers any other error status, redirects badly, or sends a truncated or malformed response. |
 | `504` | The origin doesn't answer in time. |
 

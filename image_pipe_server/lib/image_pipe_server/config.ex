@@ -190,23 +190,15 @@ defmodule ImagePipeServer.Config do
     |> Keyword.merge(
       source_cache_policy: [type: Sources.cache_policy_type()],
       format_order: [type: {:list, {:in, ImagePipe.Format.modern_formats()}}],
-      jpeg_options: [type: encoder(JpegOptions)],
-      png_options: [type: encoder(PngOptions)],
-      webp_options: [type: encoder(WebpOptions)],
-      avif_options: [type: encoder(AvifOptions)],
+      jpeg_options: [type: Convert.table(JpegOptions.schema())],
+      png_options: [type: Convert.table(PngOptions.schema())],
+      webp_options: [type: Convert.table(WebpOptions.schema())],
+      avif_options: [type: Convert.table(AvifOptions.schema())],
       watermarks: [type: {:map, :string, Convert.table(@watermark_schema)}],
       request_watermarks: [type: :boolean, default: false],
       presets: [type: {:map, :string, :string}],
       request_defaults: [type: :string]
     )
-  end
-
-  defp encoder(module) do
-    {:convert,
-     fn value, path ->
-       with {:ok, options} <- Convert.options(value, module.schema(), path),
-            do: {:ok, struct!(module, options)}
-     end, module.schema()}
   end
 
   defp pool_schema, do: Keyword.delete(ImagePipe.ProcessingPool.options_schema(), :name)

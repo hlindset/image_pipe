@@ -1,5 +1,5 @@
 defmodule ImagePipe.Source.S3.CredentialWarmup do
-  use GenServer, restart: :transient
+  use GenServer
 
   alias ImagePipe.Source.S3.Credentials
 
@@ -19,8 +19,9 @@ defmodule ImagePipe.Source.S3.CredentialWarmup do
                       default: [],
                       doc: """
                       The provider's options. They must equal the options in the \
-                      mount's `:credentials`, or requests use a different cache \
-                      entry and the warmup has no effect.
+                      mount's `:credentials`. Otherwise requests use a different \
+                      cache entry, and the warmed credentials are refreshed in \
+                      the background without ever being used.
                       """
                     ]
                   )
@@ -35,14 +36,26 @@ defmodule ImagePipe.Source.S3.CredentialWarmup do
         MyAppWeb.Endpoint
       ]
 
-  ImagePipe doesn't start it. It fetches once without blocking startup, then
-  stops. If the fetch fails, the first request fetches the credentials
-  instead. Invalid options raise `ArgumentError` from `start_link/1`.
+  ImagePipe doesn't start it. Add one per bucket. The children need no
+  explicit ids. Each warmup starts the fetch without blocking startup, then
+  stops. The credentials aren't dropped before the first request for the
+  bucket uses them. If the fetch fails, the first request fetches the
+  credentials instead.
+
+  Invalid options raise `ArgumentError` from `start_link/1`. A `:provider`
+  without `validate_options/1` raises `UndefinedFunctionError`.
 
   ## Options
 
   #{NimbleOptions.docs(@options_schema)}
   """
+
+  # The options can hold secrets, so the id carries only their hash.
+  @doc false
+  def child_spec(opts) do
+    id = {__MODULE__, opts[:provider], opts[:scope], :erlang.phash2(opts[:opts])}
+    %{id: id, start: {__MODULE__, :start_link, [opts]}, restart: :transient}
+  end
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
@@ -54,17 +67,21 @@ defmodule ImagePipe.Source.S3.CredentialWarmup do
       {:error, %NimbleOptions.ValidationError{} = error} ->
         raise ArgumentError, Exception.message(error)
 
-      {:error, _reason} ->
-        raise ArgumentError, "invalid credential provider configuration"
+      {:error, {:invalid_source_config, reason}} ->
+        raise ArgumentError, "invalid credential provider options: #{reason_message(reason)}"
     end
   end
+
+  # Rendered like a source's own option errors, which show the provider's reason too.
+  defp reason_message(reason) when is_binary(reason), do: reason
+  defp reason_message(reason), do: inspect(reason)
 
   @impl true
   def init(state), do: {:ok, state, {:continue, :warm_then_stop}}
 
   @impl true
   def handle_continue(:warm_then_stop, state) do
-    _ = Credentials.fetch(state.scope, {:provider, state.provider, state.opts}, [])
+    _ = Credentials.warm(state.scope, {:provider, state.provider, state.opts})
     {:stop, :normal, state}
   end
 end

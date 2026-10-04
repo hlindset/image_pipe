@@ -15,19 +15,9 @@ defmodule ImagePipe.Source.S3.Credentials do
 
   def validate({:provider, provider, opts})
       when is_atom(provider) and is_list(opts) do
-    cond do
-      not (Code.ensure_loaded?(provider) and
-               function_exported?(provider, :fetch_credentials, 3)) ->
-        {:error, {:invalid_source_config, :invalid_credential_provider}}
-
-      function_exported?(provider, :validate_options, 1) ->
-        case provider.validate_options(opts) do
-          :ok -> {:ok, {:provider, provider, opts}}
-          {:error, reason} -> {:error, {:invalid_source_config, reason}}
-        end
-
-      true ->
-        {:ok, {:provider, provider, opts}}
+    case provider.validate_options(opts) do
+      :ok -> {:ok, {:provider, provider, opts}}
+      {:error, reason} -> {:error, {:invalid_source_config, reason}}
     end
   end
 
@@ -40,15 +30,7 @@ defmodule ImagePipe.Source.S3.Credentials do
   end
 
   def fetch(scope, {:provider, provider, opts}, _runtime_opts) do
-    key =
-      :crypto.hash(
-        :sha256,
-        :erlang.term_to_binary({:s3_credentials, provider, opts, scope}, [:deterministic])
-      )
-
-    fetch_fun = fn -> resolve_provider(provider, scope, opts) end
-
-    case RefreshCache.fetch(key, fetch_fun) do
+    case RefreshCache.fetch(cache_key(provider, opts, scope), fetch_fun(provider, opts, scope)) do
       {:ok, credentials} -> {:ok, credentials}
       {:error, _reason} -> {:error, {:source, :credentials_unavailable}}
     end
@@ -56,6 +38,20 @@ defmodule ImagePipe.Source.S3.Credentials do
 
   def fetch(_scope, _credentials, _runtime_opts),
     do: {:error, {:source, :credentials_unavailable}}
+
+  # Starts fetching provider credentials before any request needs them.
+  @spec warm(String.t(), {:provider, module(), keyword()}) :: :ok | {:error, term()}
+  def warm(scope, {:provider, provider, opts}),
+    do: RefreshCache.warm(cache_key(provider, opts, scope), fetch_fun(provider, opts, scope))
+
+  defp cache_key(provider, opts, scope) do
+    :crypto.hash(
+      :sha256,
+      :erlang.term_to_binary({:s3_credentials, provider, opts, scope}, [:deterministic])
+    )
+  end
+
+  defp fetch_fun(provider, opts, scope), do: fn -> resolve_provider(provider, scope, opts) end
 
   defp resolve_provider(provider, scope, opts) do
     case provider.fetch_credentials(scope, opts, []) do
@@ -96,6 +92,7 @@ defmodule ImagePipe.Source.S3.Credentials do
   defp optional_binary(opts, key) do
     case Keyword.fetch(opts, key) do
       {:ok, value} when is_binary(value) and value != "" -> {:ok, value}
+      {:ok, nil} -> {:ok, nil}
       {:ok, _value} -> {:error, {:invalid_credential, key}}
       :error -> {:ok, nil}
     end

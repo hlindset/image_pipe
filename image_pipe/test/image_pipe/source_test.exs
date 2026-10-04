@@ -19,7 +19,7 @@ defmodule ImagePipe.SourceTest do
     defmodule MissingSemanticsSource do
       @behaviour ImagePipe.Source
 
-      def identifiers,
+      def identifiers(_options),
         do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
       def validate_options(opts), do: {:ok, opts}
@@ -52,7 +52,7 @@ defmodule ImagePipe.SourceTest do
     defmodule ContradictorySemanticsSource do
       @behaviour ImagePipe.Source
 
-      def identifiers,
+      def identifiers(_options),
         do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
 
       def validate_options(opts), do: {:ok, opts}
@@ -88,7 +88,7 @@ defmodule ImagePipe.SourceTest do
     defmodule PathOnlyAdapter do
       @behaviour ImagePipe.Source
 
-      def identifiers, do: [ImagePipe.Plan.Source.Path]
+      def identifiers(_options), do: [ImagePipe.Plan.Source.Path]
       def validate_options(opts), do: {:ok, opts}
       def resolve(_source, _opts, _runtime_opts), do: raise("not used")
       def fetch(_resolved, _opts, _runtime_opts), do: raise("not used")
@@ -152,20 +152,6 @@ defmodule ImagePipe.SourceTest do
       assert {:ok, %Resolved{mount: :buckets}} = Source.resolve(object, config, [])
     end
 
-    test "each mount contributes its name to the source identity" do
-      config = mounted([mount(:a, prefix: "a"), mount(:b, prefix: "b")])
-
-      identities =
-        for segments <- [["a", "cat.jpg"], ["b", "cat.jpg"]] do
-          {:ok, resolved} = Source.resolve(%Path{segments: segments}, config, [])
-          resolved.identity
-        end
-
-      assert [[_ | _] = a, [_ | _] = b] = identities
-      assert a[:mount] == :a
-      assert b[:mount] == :b
-    end
-
     test "fetch and cache preparation dispatch through the resolving mount" do
       config = mounted([mount(:a, [prefix: "a"], name: :a), mount(:b, [prefix: "b"], name: :b)])
 
@@ -197,9 +183,6 @@ defmodule ImagePipe.SourceTest do
 
       assert Source.resolve(%Path{segments: ["other", "cat.jpg"]}, config, []) ==
                {:error, {:source, :not_found}}
-
-      assert Source.resolve(%URL{scheme: :https, host: "example.com", path: []}, config, []) ==
-               {:error, {:source, :missing_adapter}}
 
       assert {:ok, empty} = Source.validate_config(sources: [])
 
@@ -241,11 +224,54 @@ defmodule ImagePipe.SourceTest do
     end
   end
 
+  test "custom sources share originals only when their options match, apart from cache settings" do
+    adapter = ImagePipe.SourceTest.ValidAdapter
+
+    source = fn prefix, options ->
+      [adapter: adapter, match: [prefix: prefix], options: options]
+    end
+
+    assert {:ok, config} =
+             Source.validate_config(
+               sources: [
+                 photos: source.("photos", bucket: "photos"),
+                 avatars: source.("avatars", bucket: "avatars"),
+                 cached: source.("cached", bucket: "photos", http_cache: :inherit)
+               ]
+             )
+
+    identity = fn prefix ->
+      {:ok, resolved} = Source.resolve(%Path{segments: [prefix, "cat.jpg"]}, config, [])
+      resolved.identity
+    end
+
+    refute identity.("photos") == identity.("avatars")
+    assert identity.("photos") == identity.("cached")
+  end
+
+  test "a custom source's regex option keeps its identity when compiled again" do
+    identity = fn pattern ->
+      source = [
+        adapter: ImagePipe.SourceTest.ValidAdapter,
+        match: [prefix: "photos"],
+        options: [pattern: Regex.compile!(pattern, "i")]
+      ]
+
+      {:ok, config} = Source.validate_config(sources: [photos: source])
+      {:ok, resolved} = Source.resolve(%Path{segments: ["photos", "cat.jpg"]}, config, [])
+      resolved.identity
+    end
+
+    assert identity.("a+") == identity.("a+")
+    refute identity.("a+") == identity.("b+")
+  end
+
   test "validate_config preserves adapter validation error context" do
     assert Source.validate_config(
              sources: [path: [adapter: InvalidConfigAdapter, match: :path, options: []]]
            ) ==
-             {:error, {:source, {:invalid_source_config, :bad_option}}}
+             {:error,
+              {:source, {:invalid_source, :path, "{:invalid_source_config, :bad_option}"}}}
   end
 
   test "malformed adapter callback results become source errors" do

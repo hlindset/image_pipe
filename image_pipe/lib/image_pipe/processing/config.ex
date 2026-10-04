@@ -243,22 +243,30 @@ defmodule ImagePipe.Processing.Config do
                       doc: "Most candidates one search encodes. The default value is `6`."
                     ],
                     jpeg_options: [
-                      type: {:struct, JpegOptions},
+                      type: {:custom, __MODULE__, :validate_encoder_options, [JpegOptions]},
+                      type_doc: "`t:keyword/0`",
                       doc: """
-                      Default JPEG encoder settings. A request's settings win field by \
-                      field. See [encoder options](processing/output.md#encoder-options).
+                      Default JPEG encoder settings, as a keyword list with the fields \
+                      of the `jpeg_options:` option of `ImagePipe.URL.output/2`, such as \
+                      `[interlace: true]`. A request's settings win field by field. See \
+                      [encoder options](processing/output.md#encoder-options) and the \
+                      builder names in \
+                      [URL option names](`ImagePipe.URL#module-url-option-names`).
                       """
                     ],
                     png_options: [
-                      type: {:struct, PngOptions},
+                      type: {:custom, __MODULE__, :validate_encoder_options, [PngOptions]},
+                      type_doc: "`t:keyword/0`",
                       doc: "Default PNG encoder settings, as for `:jpeg_options`."
                     ],
                     webp_options: [
-                      type: {:struct, WebpOptions},
+                      type: {:custom, __MODULE__, :validate_encoder_options, [WebpOptions]},
+                      type_doc: "`t:keyword/0`",
                       doc: "Default WebP encoder settings, as for `:jpeg_options`."
                     ],
                     avif_options: [
-                      type: {:struct, AvifOptions},
+                      type: {:custom, __MODULE__, :validate_encoder_options, [AvifOptions]},
+                      type_doc: "`t:keyword/0`",
                       doc: "Default AVIF encoder settings, as for `:jpeg_options`."
                     ],
                     detector: [
@@ -318,6 +326,16 @@ defmodule ImagePipe.Processing.Config do
   end
 
   def validate_telemetry_prefix(_prefix), do: {:error, "expected a non-empty list of atoms"}
+
+  @doc false
+  def validate_encoder_options(options, module) when is_list(options) do
+    case NimbleOptions.validate(options, module.schema()) do
+      {:ok, options} -> {:ok, struct!(module, options)}
+      {:error, error} -> {:error, Exception.message(error)}
+    end
+  end
+
+  def validate_encoder_options(_options, _module), do: {:error, "expected a keyword list"}
 
   @doc false
   def validate_format_order(order) do
@@ -380,7 +398,6 @@ defmodule ImagePipe.Processing.Config do
     validate_target!(Keyword.fetch!(resolved, :autoquality_target))
     validate_allowed_error!(Keyword.fetch!(resolved, :autoquality_allowed_error))
     validate_brackets!(resolved)
-    validate_encoder_options!(resolved)
     validate_detector_required!(resolved)
     :ok
   end
@@ -405,24 +422,6 @@ defmodule ImagePipe.Processing.Config do
       module ->
         Enum.any?(module.supported_classes([]), &module.available?(classes: [&1]))
     end
-  end
-
-  defp validate_encoder_options!(resolved) do
-    Enum.each([:jpeg_options, :png_options, :webp_options, :avif_options], fn key ->
-      %module{} = options = Keyword.fetch!(resolved, key)
-
-      fields =
-        options |> Map.from_struct() |> Enum.reject(fn {_field, value} -> is_nil(value) end)
-
-      case NimbleOptions.validate(fields, module.schema()) do
-        {:ok, _fields} ->
-          :ok
-
-        {:error, error} ->
-          raise ArgumentError,
-                "invalid ImagePipe processing options: #{key}: #{Exception.message(error)}"
-      end
-    end)
   end
 
   defp validate_quality_value!(key, value) do

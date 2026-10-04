@@ -5,7 +5,7 @@ defmodule ImagePipe.API.OutputTest do
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.RequestPolicy, as: Output
   alias ImagePipe.Plan.Output, as: PlanOutput
-  alias ImagePipe.Plan.Output.{JpegOptions, WebpOptions}
+  alias ImagePipe.Plan.Output.JpegOptions
   alias ImagePipe.Plug.Config
   alias ImagePipe.Plug.Errors
   alias ImagePipe.Plug.Request, as: ParsedRequest
@@ -140,7 +140,7 @@ defmodule ImagePipe.API.OutputTest do
       resolve!(
         ["format-q=jpeg:61,avif:57", "jpeg-options=progressive,quant-table:3"],
         format_quality: %{jpeg: 68, webp: 74},
-        jpeg_options: %JpegOptions{optimize_scans: true}
+        jpeg_options: [optimize_scans: true]
       )
 
     assert output.format_qualities.jpeg == {:quality, 61}
@@ -231,8 +231,8 @@ defmodule ImagePipe.API.OutputTest do
              "autoquality=ssimulacra2,target:78"
            ], []},
           {["format=webp", "autoquality=ssimulacra2,target:78"],
-           [webp_options: %WebpOptions{lossless: true}]},
-          {["format=webp", "max-bytes=12000"], [webp_options: %WebpOptions{lossless: true}]}
+           [webp_options: [lossless: true]]},
+          {["format=webp", "max-bytes=12000"], [webp_options: [lossless: true]]}
         ] do
       config = Config.validate!(host_opts)
       assert {:ok, request} = Parser.parse(lexed(segments), config)

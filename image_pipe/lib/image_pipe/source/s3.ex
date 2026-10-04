@@ -152,8 +152,8 @@ defmodule ImagePipe.Source.S3 do
   ## Credentials
 
     * `{:static, access_key_id: id, secret_access_key: secret}` - fixed keys.
-      Add `token:` for temporary credentials with a session token. Leave
-      `token` out when there is none, since an empty or `nil` token is
+      Add `token:` for temporary credentials with a session token. A `nil`
+      token is the same as leaving `token:` out, and an empty string is
       rejected.
     * `{:provider, module, options}` - a module implementing
       `ImagePipe.Source.S3.CredentialProvider`, which fetches credentials
@@ -169,7 +169,7 @@ defmodule ImagePipe.Source.S3 do
   """
 
   @impl Source
-  def identifiers, do: [Object]
+  def identifiers(_options), do: [Object]
 
   @impl Source
   def validate_options(opts) when is_list(opts) do

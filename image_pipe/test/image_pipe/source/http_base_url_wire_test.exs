@@ -56,4 +56,16 @@ defmodule ImagePipe.Source.HTTPBaseURLWireTest do
       refute_received {:origin, _host, _path}
     end
   end
+
+  test "a path match without a base URL fails configuration" do
+    for match <- [:path, [prefix: "img"]] do
+      assert_raise ArgumentError, ~r/match needs/, fn ->
+        ImagePipe.Plug.init(
+          sources: [
+            path: [adapter: HTTP, match: match, options: [allowed_hosts: ["images.example.com"]]]
+          ]
+        )
+      end
+    end
+  end
 end

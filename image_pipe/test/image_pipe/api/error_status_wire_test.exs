@@ -45,6 +45,19 @@ defmodule ImagePipe.API.ErrorStatusWireTest do
       end
     end
 
+    test "a URL whose built-in scheme no source matches is an invalid source", %{
+      config: config
+    } do
+      for source <- [
+            "https://example.com/cat.png",
+            "http://example.com/cat.png",
+            "s3://b/cat.png"
+          ] do
+        conn = conn(:get, "/format=png/src/" <> source) |> ImagePipe.Plug.call(config)
+        assert {conn.status, conn.resp_body} == {400, "invalid source"}, source
+      end
+    end
+
     test "a file the server can't read is a server error", %{config: config, dir: dir} do
       locked = Path.join(dir, "locked.png")
       File.chmod!(locked, 0o000)

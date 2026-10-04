@@ -7,6 +7,9 @@ defmodule ImagePipe.Source.S3.CredentialsCacheTest do
     @behaviour ImagePipe.Source.S3.CredentialProvider
 
     @impl true
+    def validate_options(_opts), do: :ok
+
+    @impl true
     def fetch_credentials(scope, opts, _runtime_opts) do
       send(Keyword.fetch!(opts, :test), {:fetched, scope})
 
@@ -16,6 +19,9 @@ defmodule ImagePipe.Source.S3.CredentialsCacheTest do
 
   defmodule ExpiryProvider do
     @behaviour ImagePipe.Source.S3.CredentialProvider
+
+    @impl true
+    def validate_options(_opts), do: :ok
     @impl true
     def fetch_credentials(_scope, opts, _runtime) do
       {:ok, [access_key_id: "AKIA", secret_access_key: "SECRET"], Keyword.fetch!(opts, :expiry)}
@@ -71,6 +77,9 @@ defmodule ImagePipe.Source.S3.CredentialsCacheTest do
   test "fails closed as :credentials_unavailable when the provider errors" do
     defmodule FailingProvider do
       @behaviour ImagePipe.Source.S3.CredentialProvider
+
+      @impl true
+      def validate_options(_opts), do: :ok
       @impl true
       def fetch_credentials(_scope, _opts, _runtime), do: {:error, :nope}
     end

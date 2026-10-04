@@ -2,6 +2,7 @@ defmodule ImagePipe.Source.S3.RefreshCache do
   @moduledoc false
   # Generic, value-agnostic refresh cache.
   #
+  # `warm(key, fetch_fun)` starts an entry ahead of its first use.
   # `fetch(key, fetch_fun)` returns `{:ok, value}` or `{:error, reason}`, starting
   # a per-key `Entry` process on first use (registered in `@registry`, supervised
   # by `@supervisor`). The cache itself never interprets `value` — credential
@@ -41,6 +42,17 @@ defmodule ImagePipe.Source.S3.RefreshCache do
     end
   end
 
+  # Starts the entry, which fetches at once, without waiting for the value.
+  # The entry isn't retired for being idle before its first fetch/3.
+  @spec warm(term(), (-> {:ok, term(), term()} | {:error, term()}), keyword()) ::
+          :ok | {:error, :cache_entry_unavailable}
+  def warm(key, fetch_fun, opts \\ []) when is_function(fetch_fun, 0) do
+    case ensure_entry(key, fetch_fun, Keyword.put(opts, :warm, true)) do
+      {:ok, _server} -> :ok
+      :error -> {:error, :cache_entry_unavailable}
+    end
+  end
+
   defp fetch_entry(key, fetch_fun, opts) do
     case ensure_entry(key, fetch_fun, opts) do
       {:ok, server} ->
@@ -59,7 +71,7 @@ defmodule ImagePipe.Source.S3.RefreshCache do
       [] ->
         entry_opts =
           opts
-          |> Keyword.take([:refresh_margin_ms, :now_fun, :idle_interval_ms])
+          |> Keyword.take([:refresh_margin_ms, :now_fun, :idle_interval_ms, :warm])
           |> Keyword.merge(
             key: key,
             fetch_fun: fetch_fun,
