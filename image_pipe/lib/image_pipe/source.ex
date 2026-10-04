@@ -188,7 +188,8 @@ defmodule ImagePipe.Source do
   # seed alone, whether or not it is copied.
   @settings_versioned [ImagePipe.Source.HTTP, ImagePipe.Source.S3]
 
-  # Freezes dynamic origin credentials before partitioning a cached request.
+  # Freezes dynamic origin credentials for the fetch before partitioning a
+  # cached request.
   @doc false
   def prepare_cache_context(source, config) do
     {:ok, module, opts} = mount_config(source, config)
@@ -202,7 +203,7 @@ defmodule ImagePipe.Source do
            opts,
            [:cache_policy, :stable, :internal_cache, :http_cache, :path_pattern, :verify, :copy] ++
              location_options(module)
-         ), prepared.fetch}
+         ), identity_fetch(module, source, prepared)}
 
       identity =
         case prepared.cache_semantics.byte_identity do
@@ -219,6 +220,12 @@ defmodule ImagePipe.Source do
   rescue
     _exception -> {:error, {:source, :credentials_unavailable}}
   end
+
+  # S3 partitions by its configured credentials, not the temporary ones a
+  # provider returns, so a rotation keeps cached originals, results and ETags.
+  # The fetch still uses the frozen credentials.
+  defp identity_fetch(ImagePipe.Source.S3, source, _prepared), do: source.fetch
+  defp identity_fetch(_module, _source, prepared), do: prepared.fetch
 
   # A File source's `root_id` names its directory, so moving the directory to a
   # new `root` keeps its cached originals and results.
