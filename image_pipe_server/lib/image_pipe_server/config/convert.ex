@@ -5,11 +5,10 @@ defmodule ImagePipeServer.Config.Convert do
 
   File values keep their TOML types; environment values arrive as
   `{:env, string}` and are parsed to the target type. Lists in the environment
-  are comma-separated. A `_FILE` variable arrives as
-  `{:env_file, variable, path}`: for a setting the schema knows, its value is
-  the file's contents without trailing whitespace; otherwise, when the schema
-  has `<name>_file` (such as `token_file`), the variable sets that setting to
-  `path` itself.
+  are comma-separated and must have at least one entry. A `_FILE` variable
+  arrives as `{:env_file, variable, path}`: when the schema has `<name>_file`
+  (such as `token_file`), the variable sets that setting to `path` itself;
+  otherwise its value is the file's contents without trailing whitespace.
 
   Settings the schema types as simple values convert here: strings, integers,
   floats, booleans, enumerated atoms, lists, keyword lists with known keys,
@@ -119,11 +118,17 @@ defmodule ImagePipeServer.Config.Convert do
     end
   end
 
+  # An empty variable or secret file is a mistake, not a request for no
+  # entries: an empty `url.keys` would turn signing off.
   def value({:list, type}, {:env, raw}, path) do
     raw
-    |> String.split(",", trim: true)
-    |> Enum.map(&{:env, String.trim(&1)})
-    |> value_list(type, path)
+    |> String.split(",")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> case do
+      [] -> {:error, path, "expected at least one entry"}
+      entries -> entries |> Enum.map(&{:env, &1}) |> value_list(type, path)
+    end
   end
 
   def value({:list, type}, value, path) when is_list(value), do: value_list(value, type, path)
@@ -162,14 +167,15 @@ defmodule ImagePipeServer.Config.Convert do
 
   def value(_type, _value, path), do: {:error, path, @unsupported}
 
-  # A `_FILE` variable for an unknown `name` sets `name_file` when the schema
-  # has it, overriding that setting from the file.
+  # A `_FILE` variable for `name` sets `name_file` when the schema has it,
+  # overriding that setting from the file. The library reads such a file
+  # itself, as often as it needs, which a rotating token relies on.
   defp file_settings(table, schema) do
     Enum.reduce(table, table, fn
       {key, {:env_file, _variable, file}}, acc ->
         file_key = key <> "_file"
 
-        if find_key(schema, key) == :error and find_key(schema, file_key) != :error,
+        if find_key(schema, file_key) != :error,
           do: acc |> Map.delete(key) |> Map.put(file_key, {:env, file}),
           else: acc
 
