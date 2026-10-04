@@ -63,16 +63,7 @@ defmodule ImagePipe.Output.Ssim2Metric.CropScoreTest do
     assert CropScore.crossover_megapixels() == 6
   end
 
-  describe "tile_count/2" do
-    test "is the number of sub-sampled tiles actually scored (<= k)" do
-      # 7 MP square (~2646px) tiles into a 6x6 grid = 36 tiles, sub-sampled to 16.
-      assert CropScore.tile_count(2646, 2646) == 16
-      # A small frame just over one tile on one axis: full count below k.
-      assert CropScore.tile_count(1100, 600) == 6
-    end
-  end
-
-  describe "p10/2" do
+  describe "references/1 and p10/2" do
     setup do
       # A 1100x600 sRGB zone-plate base (multi-tile on x, single-clamped pair on y).
       {:ok, z} = Operation.zone(1100, 600)
@@ -84,15 +75,23 @@ defmodule ImagePipe.Output.Ssim2Metric.CropScoreTest do
       %{base: base}
     end
 
+    test "builds one reference per sub-sampled tile", %{base: base} do
+      # 1100x600 tiles into a 3x2 grid, below k, so every tile is kept.
+      assert {:ok, refs} = CropScore.references(base)
+      assert length(refs) == 6
+    end
+
     test "identical candidate scores ~100 (perfect)", %{base: base} do
-      assert {:ok, p10} = CropScore.p10(base, base)
+      {:ok, refs} = CropScore.references(base)
+      assert {:ok, p10} = CropScore.p10(refs, base)
       assert p10 > 99.0
     end
 
     test "a degraded candidate scores below a perfect one", %{base: base} do
+      {:ok, refs} = CropScore.references(base)
       {:ok, blurred} = Operation.gaussblur(base, 3.0)
-      assert {:ok, p10_blur} = CropScore.p10(base, blurred)
-      assert {:ok, p10_same} = CropScore.p10(base, base)
+      assert {:ok, p10_blur} = CropScore.p10(refs, blurred)
+      assert {:ok, p10_same} = CropScore.p10(refs, base)
       assert p10_blur < p10_same
     end
   end

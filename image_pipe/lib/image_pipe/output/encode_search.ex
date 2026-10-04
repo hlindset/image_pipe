@@ -617,14 +617,20 @@ defmodule ImagePipe.Output.EncodeSearch do
   # correction; the content class is classified here once, lazily,
   # from the finalized pixels. The objective walk's verdict ships as-is, bounding the
   # large-image search to a flat ~4.2 MP metric sample. No whole-frame reference is
-  # built — `crop_estimate` references per-tile via `CropScore.p10/2`, so the
-  # O(pixels) full-frame reference (the very cost this path avoids) never runs; a
-  # per-tile reference failure surfaces through the score closure's throw.
+  # built: the per-tile references are built once here and every probe's
+  # `crop_estimate` reuses them, so the O(pixels) full-frame reference (the very
+  # cost this path avoids) never runs.
   defp score_opts(image, %Resolved{quality_search: %RQS.Ssimulacra2{} = rqs}, :crop, t) do
-    tiles = CropScore.tile_count(Image.width(image), Image.height(image))
-    offset = classify_offset(image, rqs.quality_search_offsets, t)
-    crop = fn bytes -> crop_estimate(image, bytes, tiles, offset, t) end
-    {:ok, [score_fun: crop, scorer_tiles: tiles]}
+    case CropScore.references(image) do
+      {:ok, refs} ->
+        tiles = length(refs)
+        offset = classify_offset(image, rqs.quality_search_offsets, t)
+        crop = fn bytes -> crop_estimate(refs, bytes, tiles, offset, t) end
+        {:ok, [score_fun: crop, scorer_tiles: tiles]}
+
+      {:error, reason} ->
+        {:error, {:encode, reason}}
+    end
   end
 
   # Every quality metric measures the full frame the same way — through its runtime
@@ -691,14 +697,14 @@ defmodule ImagePipe.Output.EncodeSearch do
   # Decode the candidate once; crop-score its tiles vs the base; subtract the
   # conservative offset so the objective's walk-to-target band comparison
   # reproduces the full-frame decision.
-  defp crop_estimate(base, bytes, tiles, offset, telemetry_opts) do
+  defp crop_estimate(refs, bytes, tiles, offset, telemetry_opts) do
     # Crop scoring is SSIMULACRA2-only (Encoder.crop?/2 lets only the Ssimulacra2
     # strategy crop), so the legs carry the `:ssimulacra2` segment.
     leg = Metric.Ssimulacra2.leg_name()
     candidate = decode_leg(leg, bytes, telemetry_opts)
 
     metric_leg(leg, telemetry_opts, tiles, fn ->
-      case CropScore.p10(base, candidate) do
+      case CropScore.p10(refs, candidate) do
         {:ok, p10} -> p10 - offset
         {:error, reason} -> throw({:image_pipe_score_error, reason})
       end
