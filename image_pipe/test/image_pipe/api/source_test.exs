@@ -152,6 +152,11 @@ defmodule ImagePipe.API.SourceTest do
                Source.translate("s3://bucket//cat.jpg", url_config())
     end
 
+    test "an empty object query carries no revision" do
+      assert {:ok, %Object{key: "cat.jpg", revision: nil}} =
+               Source.translate("s3://bucket/cat.jpg?", url_config())
+    end
+
     test "rejects object sources that cannot be represented by the S3 adapter" do
       for source <- [
             "s3:///cat.jpg",
@@ -160,7 +165,11 @@ defmodule ImagePipe.API.SourceTest do
             "s3://user@bucket/cat.jpg",
             "s3://bucket:9000/cat.jpg",
             "s3://bucket/cat.jpg#fragment",
-            "s3://bucket/cat%zz.jpg"
+            "s3://bucket/cat%zz.jpg",
+            "s3://bucket/../other/cat.jpg",
+            "s3://bucket/..%2Fother%2Fcat.jpg",
+            "s3://bucket/images/./cat.jpg",
+            "s3://bucket/images/.."
           ] do
         assert {:error, {:invalid_source, _reason}} = Source.translate(source, url_config()),
                source

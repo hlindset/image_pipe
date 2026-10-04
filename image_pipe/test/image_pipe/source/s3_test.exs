@@ -49,25 +49,6 @@ defmodule ImagePipe.Source.S3Test do
     assert resolved.cache_semantics.byte_identity == :content
   end
 
-  test "empty s3 revision isn't stable under auto mode" do
-    assert {:ok, opts} =
-             S3.validate_options(
-               default: [
-                 region: "us-east-1",
-                 endpoint: "https://s3.amazonaws.com",
-                 credentials: {:static, access_key_id: "A", secret_access_key: "S"}
-               ]
-             )
-
-    source = %Object{scheme: "s3", scope: "bucket", key: "cat.jpg", revision: ""}
-
-    assert {:ok, resolved} = S3.resolve(source, opts, [])
-
-    assert resolved.internal_cache == :enabled
-    assert resolved.cache_semantics.byte_identity == :content
-    assert resolved.cache_semantics.stable? == false
-  end
-
   test "per-bucket config overrides defaults and identity includes endpoint bucket key revision" do
     assert {:ok, opts} =
              S3.validate_options(
