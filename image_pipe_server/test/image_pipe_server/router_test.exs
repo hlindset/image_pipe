@@ -116,6 +116,17 @@ defmodule ImagePipeServer.RouterTest do
       assert conn.status == 200
     end
 
+    test "matches the scheme case-insensitively", %{opts: opts} do
+      for header <- ["bearer t0k", "BEARER t0k"] do
+        conn =
+          conn(:get, "/w=2/format=png/src/pic.png")
+          |> put_req_header("authorization", header)
+          |> Router.call(Router.init(opts))
+
+        assert conn.status == 200
+      end
+    end
+
     test "rejects requests without it or with another token", %{opts: opts} do
       for header <- [nil, "Bearer other", "Basic dDBr", "Bearer"] do
         conn = conn(:get, "/w=2/format=png/src/pic.png")
