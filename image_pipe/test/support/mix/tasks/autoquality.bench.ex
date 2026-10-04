@@ -321,7 +321,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
   `ContentClassifier`. Then each format is encoded at the production encoder
   defaults (read from the config, so AVIF uses its default effort) over a quality
   grid of 20..96 step 4 plus the fixed default quality, scoring every encode with
-  SSIMULACRA2. Reports, per format, class, and target (72, 75, 78): the share of
+  SSIMULACRA2. Reports, per format, class, and target (70 to 85): the share of
   images that reach the target below the grid or not at all, and percentiles of
   the lowest quality reaching it. Those set the safety rails and the search's
   starting quality. A second table compares each target against today's fixed
@@ -4350,7 +4350,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
 
   # --- Part N: target-only calibration (image_plug-08wt) -----------------------
 
-  @n_targets [72, 75, 78]
+  @n_targets [70, 72, 75, 78, 80, 85]
   @n_grid Enum.to_list(20..96//4)
   @n_max_edge 1600
 

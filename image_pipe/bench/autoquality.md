@@ -1049,6 +1049,37 @@ Reading:
   75: 42–86), so the search must converge quickly from a poor start, not rely
   on the prior.
 
+#### Part N follow-up — targets 70 to 85
+
+The same run with `@n_targets [70, 72, 75, 78, 80, 85]`, all 53 images (photo
+and graphic together). Quality needed, p5 / p50 / p95:
+
+| format | 70 | 80 | 85 |
+|---|---|---|---|
+| jpeg | 40/67/81 | 73/85/90 | 84/90/91 |
+| webp | 30/67/81 | 68/85/91 | 81/90/96 |
+| avif | 27/50/58 | 46/68/83 | 62/81/90 |
+
+bytes× against the fixed defaults:
+
+| format | 70 | 80 | 85 |
+|---|---|---|---|
+| jpeg | 0.76 | 1.16 | 1.53 |
+| webp | 0.82 | 1.33 | 1.87 |
+| avif | 0.66 | 1.14 | 1.66 |
+
+WebP can't reach the higher targets by q96 for 13% of the images at 80 and
+38% at 85 (screenshots). Those are left out of its bytes×.
+
+Reading:
+
+- **AVIF's rail moves to 20–90.** At 80 and 85 AVIF needs q83 and q90 at p95,
+  past the 80 ceiling set from targets 72–78. JPEG and WebP stay inside 95
+  (p95 91 and 96).
+- **The starting quality uses these medians** for 70, 80, and 85 instead of
+  extending the 72–78 line, which would start JPEG at 95 for target 85 where
+  the median is 90.
+
 ### Part O — target-only search vs today's search (image_plug-08wt)
 
 Held-out images: each source's images after Part N's first 6, 40 images (15
