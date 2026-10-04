@@ -299,8 +299,8 @@ or padding validation.
 
 Encryption keys are a separate ordered list of 32-byte keys: encrypt with
 the first, authenticate/decrypt against the configured list during rotation.
-Set `source_encryption_keys: [key, previous_key]` using raw binary keys;
-signing `keys` use hex-encoded strings. An empty encryption list disables
+Set `source_encryption_keys: [key, previous_key]` as hex-encoded strings,
+like signing `keys`. An empty encryption list disables
 concealment. Encryption keys must differ from the signing keys.
 Choose generation with `iv_mode: :deterministic` (default) or `:random`.
 Deterministic generation uses the first 16 bytes of HMAC-SHA256 of the

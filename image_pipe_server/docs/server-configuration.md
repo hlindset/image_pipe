@@ -91,7 +91,6 @@ options:
 - `match` is `"path"` or a table of `prefix` and `scheme` rules, each a string
   or an array.
 - `path_pattern` is a regular expression, anchored by the adapter.
-- `source_encryption_keys` are 32-byte keys with a `base64:` or `hex:` prefix.
 - HTTP mounts take `request_headers` (a table of header names to values) and
   `bearer_token` for origins behind an API key or a static token. Both can
   come from `_FILE` variables.
@@ -114,7 +113,7 @@ may quote a non-secret value, such as an out-of-range `quality` or a cache
 root, but never a key, credential, token, or the contents of a `_FILE`:
 
 ```text
-invalid configuration: url.source_encryption_keys[0]: expected a base64: or hex: prefix
+invalid configuration: url.source_encryption_keys[0]: expected a hex-encoded 32-byte key
 invalid configuration: processing.qualty: unknown setting
 ```
 
@@ -156,7 +155,7 @@ How the server checks request URLs: the signing keys and the keys that decrypt `
 | Key | Type | Default |
 | --- | --- | --- |
 | `keys` | array of string | `[]` |
-| `source_encryption_keys` | array of string with a `base64:` or `hex:` prefix |  |
+| `source_encryption_keys` | array of hex strings, each a 32-byte key | `[]` |
 
 ### `[sources.<name>]`
 

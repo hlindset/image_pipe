@@ -9,7 +9,7 @@ defmodule ImagePipe.URLTest do
   alias ImagePipe.Security.Signature
 
   @signing_key Base.encode16(:binary.copy(<<31>>, 32))
-  @source_key :binary.copy(<<42>>, 32)
+  @source_key String.duplicate("2a", 32)
 
   property "root-relative paths have the same plain, signed, and encrypted URLs with a leading slash" do
     check all segments <-
@@ -93,7 +93,7 @@ defmodule ImagePipe.URLTest do
     assert_raise ArgumentError, fn -> IP.URL.config(encrypt_source: true) end
     assert_raise ArgumentError, fn -> encrypted_config(iv_mode: <<0::128>>) end
     assert_raise ArgumentError, fn -> encrypted_config(keys: []) end
-    assert_raise ArgumentError, fn -> encrypted_config(keys: [Base.encode16(@source_key)]) end
+    assert_raise ArgumentError, fn -> encrypted_config(keys: [@source_key]) end
     refute inspect(encrypted_config()) =~ @signing_key
     refute inspect(encrypted_config()) =~ @source_key
   end

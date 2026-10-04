@@ -24,7 +24,7 @@ defmodule ImagePipeServer.Config.ReferenceTest do
 
   test "documents explicit conversions", %{reference: reference} do
     assert reference =~
-             "| `source_encryption_keys` | array of string with a `base64:` or `hex:` prefix |"
+             "| `source_encryption_keys` | array of hex strings, each a 32-byte key | `[]` |"
 
     assert reference =~ "| `path_pattern` | string (regular expression) |"
 

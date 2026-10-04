@@ -6,7 +6,7 @@ defmodule ImagePipe.Plug.SourceEncryptionTest do
   alias ImagePipe.Plug.Request, as: ParsedRequest
   alias ImagePipe.Security.Signature
 
-  @key_a :binary.list_to_bin(Enum.to_list(0..31))
+  @key_a Base.encode16(:binary.list_to_bin(Enum.to_list(0..31)))
   @source "https://example.test/a.jpg"
 
   setup do

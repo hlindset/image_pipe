@@ -5,14 +5,16 @@ defmodule ImagePipe.Security.SourceEncryptionTest do
 
   @key_a :binary.list_to_bin(Enum.to_list(0..31))
   @key_b :binary.list_to_bin(Enum.to_list(32..63))
+  @hex_a Base.encode16(@key_a)
+  @hex_b Base.encode16(@key_b, case: :lower)
   @source "https://example.test/a.jpg"
   # Independently generated using Python HMAC/HKDF and OpenSSL AES-CBC.
   @known_token "AZ1fjKX4xjZg9njW30WToe5U7cKt6833f7NiBT7SbOLlwPOyqrXwSHKDr2mx7rg8q7NyIO290mFAYXP7mYnm9b4kx6zFyOrfGZLTr111BmbT"
 
   describe "new/1" do
-    test "accepts an ordered list of exact 32-byte raw keys" do
-      assert {:ok, keyring} = SourceEncryption.new([@key_a, @key_b])
-      refute inspect(keyring) =~ Base.encode16(@key_a)
+    test "accepts an ordered list of hex-encoded 32-byte keys in either case" do
+      assert {:ok, keyring} = SourceEncryption.new([@hex_a, @hex_b])
+      refute inspect(keyring) =~ @hex_a
       refute inspect(keyring) =~ @key_a
     end
 
@@ -24,23 +26,23 @@ defmodule ImagePipe.Security.SourceEncryptionTest do
     end
 
     test "rejects malformed key configuration without echoing key material" do
-      for invalid <- [@key_a <> <<0>>, binary_part(@key_a, 0, 31), "secret", 32, nil] do
+      for invalid <- [@hex_a <> "00", binary_part(@hex_a, 0, 62), @key_a, "secret", 32, nil] do
         assert {:error, message} = SourceEncryption.new([invalid])
-        assert message == "expected source encryption keys to be 32-byte binaries"
+        assert message == "expected source encryption keys to be hex-encoded 32-byte keys"
 
         if is_binary(invalid) do
           refute message =~ invalid
         end
       end
 
-      assert {:error, "expected source encryption keys to be a list of 32-byte binaries"} =
-               SourceEncryption.new(@key_a)
+      assert {:error, "expected source encryption keys to be a list of hex-encoded 32-byte keys"} =
+               SourceEncryption.new(@hex_a)
     end
   end
 
   describe "encrypt/2 and decrypt/2" do
     setup do
-      {:ok, keyring} = SourceEncryption.new([@key_a])
+      {:ok, keyring} = SourceEncryption.new([@hex_a])
       %{keyring: keyring}
     end
 
@@ -79,7 +81,7 @@ defmodule ImagePipe.Security.SourceEncryptionTest do
     end
 
     test "supports a random default and per-call explicit IV", %{keyring: keyring} do
-      {:ok, random} = SourceEncryption.new([@key_a], :random)
+      {:ok, random} = SourceEncryption.new([@hex_a], :random)
       assert {:ok, first} = SourceEncryption.encrypt(@source, random)
       assert {:ok, second} = SourceEncryption.encrypt(@source, random)
       refute first == second
@@ -90,9 +92,9 @@ defmodule ImagePipe.Security.SourceEncryptionTest do
     end
 
     test "encrypts with the first key and decrypts through a rotation keyring" do
-      {:ok, old_keyring} = SourceEncryption.new([@key_a])
-      {:ok, rotated_keyring} = SourceEncryption.new([@key_b, @key_a])
-      {:ok, new_only_keyring} = SourceEncryption.new([@key_b])
+      {:ok, old_keyring} = SourceEncryption.new([@hex_a])
+      {:ok, rotated_keyring} = SourceEncryption.new([@hex_b, @hex_a])
+      {:ok, new_only_keyring} = SourceEncryption.new([@hex_b])
 
       assert {:ok, old_token} = SourceEncryption.encrypt(@source, old_keyring)
       assert SourceEncryption.decrypt(old_token, rotated_keyring) == {:ok, @source}
@@ -152,7 +154,7 @@ defmodule ImagePipe.Security.SourceEncryptionTest do
 
   test "ImagePipe.URL.encrypt_source/3 rejects disabled, empty, and invalid UTF-8 sources" do
     config =
-      ImagePipe.URL.config(keys: [String.duplicate("a1", 32)], source_encryption_keys: [@key_a])
+      ImagePipe.URL.config(keys: [String.duplicate("a1", 32)], source_encryption_keys: [@hex_a])
 
     assert ImagePipe.URL.encrypt_source(@source, ImagePipe.URL.config()) ==
              {:error, :source_encryption_disabled}

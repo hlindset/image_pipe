@@ -11,8 +11,8 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
   alias ImagePipe.Test.PlugFixture.CacheProbe
 
   @signing_key String.duplicate("a1", 32)
-  @encryption_key :binary.copy(<<42, 73>>, 16)
-  @old_key :binary.copy(<<19>>, 32)
+  @encryption_key String.duplicate("2a49", 16)
+  @old_key String.duplicate("13", 32)
   @source "private-customer-image.jpg"
   @prefix [:api_source_encryption_wire]
 
@@ -202,7 +202,7 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
     aad = "image-pipe:source:v1"
 
     <<key::binary-size(64), _::binary>> =
-      HKDF.derive(@encryption_key, aad, "A256CBC-HS512+IV", 96)
+      HKDF.derive(Base.decode16!(@encryption_key, case: :mixed), aad, "A256CBC-HS512+IV", 96)
 
     {ciphertext, tag} =
       CBC.encrypt(<<255>>, key, <<0::128>>, aad)

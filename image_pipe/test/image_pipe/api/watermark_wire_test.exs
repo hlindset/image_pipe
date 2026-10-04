@@ -12,7 +12,7 @@ defmodule ImagePipe.API.WatermarkWireTest do
   @blue [0, 0, 255]
   @red [255, 0, 0]
   @green [0, 255, 0]
-  @source_key :binary.copy(<<42>>, 32)
+  @source_key String.duplicate("2a", 32)
   @signing_key Base.encode16(:binary.copy(<<31>>, 32))
 
   setup do

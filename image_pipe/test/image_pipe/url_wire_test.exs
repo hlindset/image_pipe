@@ -10,7 +10,7 @@ defmodule ImagePipe.URLWireTest do
   alias Vix.Vips.Image, as: VipsImage
 
   @key Base.encode16(:binary.copy(<<71>>, 32))
-  @encryption_key :binary.copy(<<72>>, 32)
+  @encryption_key String.duplicate("48", 32)
 
   test "file sources with a leading slash work through builder and raw Plug paths" do
     root =

@@ -14,20 +14,19 @@ defmodule ImagePipeServer.ConfigTest do
       assert error(fn -> Config.options!(%{"servr" => %{}}) end) =~ "servr: unknown setting"
     end
 
-    test "converts [url], decoding prefixed source-encryption keys" do
+    test "converts [url], keeping hex source-encryption keys as given" do
+      hex = Base.encode16(@key32, case: :lower)
+
       url =
         Config.options!(%{
           "url" => %{
             "keys" => {:env, "aa,bb"},
-            "source_encryption_keys" => [
-              "base64:" <> Base.encode64(@key32),
-              "hex:" <> Base.encode16(@key32)
-            ]
+            "source_encryption_keys" => [hex, String.upcase(hex)]
           }
         })[:url]
 
       assert url[:keys] == ["aa", "bb"]
-      assert url[:source_encryption_keys] == [@key32, @key32]
+      assert url[:source_encryption_keys] == [hex, String.upcase(hex)]
     end
 
     test "converts presets and request defaults in [processing]" do
@@ -43,14 +42,15 @@ defmodule ImagePipeServer.ConfigTest do
       assert processing[:request_defaults] == "q=80"
     end
 
-    test "rejects unprefixed or undecodable source-encryption keys without echoing them" do
-      for key <- ["c2VrcmV0", "base64:!!sekrit!!", "hex:sekritzz"] do
+    test "rejects source-encryption keys that aren't 32 hex-encoded bytes without echoing them" do
+      for key <- ["sekritzz", String.duplicate("ab", 31), "base64:" <> Base.encode64(@key32)] do
         message =
           error(fn -> Config.options!(%{"url" => %{"source_encryption_keys" => [key]}}) end)
 
-        assert message =~ "url.source_encryption_keys[0]"
-        refute message =~ "sekrit"
-        refute message =~ "c2VrcmV0"
+        assert message ==
+                 "invalid configuration: url.source_encryption_keys[0]: expected a hex-encoded 32-byte key"
+
+        refute message =~ key
       end
     end
 

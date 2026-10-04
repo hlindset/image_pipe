@@ -32,12 +32,13 @@ defmodule ImagePipe.Security do
                     source_encryption_keys: [
                       type: {:list, :string},
                       default: [],
-                      type_doc: "list of 32-byte `t:binary/0`",
+                      type_doc: "list of hex-encoded `t:String.t/0`",
                       doc: """
-                      Raw 32-byte keys that encrypt and decrypt sources. The first key
-                      encrypts. The server decrypts with any key in the list. They must
-                      differ from the signing keys, and setting them requires
-                      `:keys`.
+                      Keys that encrypt and decrypt sources, each 32 bytes written as
+                      64 hex digits in either case, such as the output of
+                      `openssl rand -hex 32`. The first key encrypts. The server
+                      decrypts with any key in the list. The keys must differ from
+                      the signing keys, and setting them requires `:keys`.
                       """
                     ],
                     iv_mode: [

@@ -176,7 +176,7 @@ defmodule ImagePipe.PresetsTest do
     url_config =
       IP.URL.config(
         keys: [Base.encode16(:binary.copy(<<71>>, 32))],
-        source_encryption_keys: [:binary.copy(<<72>>, 32)],
+        source_encryption_keys: [String.duplicate("48", 32)],
         encrypt_source: true
       )
 

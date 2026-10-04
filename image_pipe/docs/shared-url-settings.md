@@ -49,9 +49,10 @@ On a mismatch:
 
 ## Source encryption keys
 
-The 32-byte keys that encrypt the source into an `enc/<token>` segment. The
-builder encrypts with the first key. The server decrypts with any key in its
-list. See [source concealment](urls.md#source-concealment).
+The 32-byte keys, written as 64 hex digits, that encrypt the source into an
+`enc/<token>` segment. Generate one with `openssl rand -hex 32`. The builder
+encrypts with the first key. The server decrypts with any key in its list.
+See [source concealment](urls.md#source-concealment).
 
 <!-- tabs-open -->
 
@@ -59,25 +60,22 @@ list. See [source concealment](urls.md#source-concealment).
 
 ```elixir
 ImagePipe.URL.config(
-  keys: [signing_key],
-  source_encryption_keys: [Base.decode64!(System.fetch_env!("IMAGE_PIPE_SOURCE_KEY"))],
+  keys: [System.fetch_env!("IMAGE_PIPE_SIGNING_KEY")],
+  source_encryption_keys: [System.fetch_env!("IMAGE_PIPE_SOURCE_KEY")],
   encrypt_source: true
 )
 ```
-
-The builder takes raw 32-byte binaries.
 
 ### image_pipe_server
 
 ```toml
 [url]
 keys = ["0123abcd…"]
-source_encryption_keys = ["base64:…"]
+source_encryption_keys = ["89abcdef…"]
 ```
 
-Or `IPS_URL__SOURCE_ENCRYPTION_KEYS=base64:…`. Each key is the same 32 bytes,
-written with a `base64:` or `hex:` prefix. See
-[`[url]`](../../image_pipe_server/docs/server-configuration.md#url).
+Or `IPS_URL__SOURCE_ENCRYPTION_KEYS=89abcdef…`, comma-separated for several
+keys. See [`[url]`](../../image_pipe_server/docs/server-configuration.md#url).
 
 <!-- tabs-close -->
 
