@@ -17,7 +17,7 @@ defmodule ImagePipeFiddleWeb.Router do
   @image_mount [instance: ImagePipeFiddle.Images, allow_origin: "*", allow_debug_headers: true]
 
   forward "/image", ImagePipe.Plug, @image_mount
-  forward "/image-signed", ImagePipe.Plug, [url: :signed] ++ @image_mount
+  forward "/image-signed", ImagePipe.Plug, [mount: :signed] ++ @image_mount
 
   scope "/api", ImagePipeFiddleWeb do
     pipe_through(:api)
