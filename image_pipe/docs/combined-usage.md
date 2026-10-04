@@ -18,7 +18,7 @@ Configure sources and a cache on the instance in
 children = [
   {ImagePipe,
    name: MyApp.Images,
-   url: ImagePipe.URL.config(base_url: "/images"),
+   base_url: "/images",
    sources: [
      media: [
        adapter: ImagePipe.Source.File,
@@ -43,14 +43,12 @@ forward "/images", ImagePipe.Plug, instance: MyApp.Images
 
 ## Building URLs for pages
 
-`ImagePipe.config!/1` returns the instance's configuration, and
-`ImagePipe.url_config/1` its URL settings. Build URLs from them, so they
-carry the right base URL and signature:
+`ImagePipe.url_config/2` returns the instance's URL settings. Build URLs
+from them, so they carry the right base URL and signature:
 
 ```elixir
 def thumbnail_url(path) do
   MyApp.Images
-  |> ImagePipe.config!()
   |> ImagePipe.url_config()
   |> ImagePipe.URL.new()
   |> ImagePipe.URL.group(resize: [width: 400, height: 300, fit: :cover])
@@ -63,24 +61,22 @@ end
 ```
 
 `thumbnail_url("photos/beach.jpg")` returns
-`"/images/w=400/h=300/fit=cover/src/photos/beach.jpg"`. With signing keys in
-the instance's `url`, the URL also carries a signature. A builder that uses
+`"/images/w=400/h=300/fit=cover/src/photos/beach.jpg"`. When the instance
+sets `keys:`, the URL also carries a signature. A builder that uses
 `presets:` is checked against the instance's presets when you build it.
 
 ## Processing in a job
 
-Pass the same configuration to `ImagePipe.run/4`, and read the original
+Pass the instance's name to `ImagePipe.run/4`, and read the original
 through the instance's sources with `{:source, path}`:
 
 ```elixir
-config = ImagePipe.config!(MyApp.Images)
-
 builder =
-  ImagePipe.URL.new(ImagePipe.url_config(config))
+  ImagePipe.URL.new()
   |> ImagePipe.URL.group(resize: [width: 400, height: 300, fit: :cover])
 
 {:ok, result} =
-  ImagePipe.run(config, builder, {:source, "photos/beach.jpg"},
+  ImagePipe.run(MyApp.Images, builder, {:source, "photos/beach.jpg"},
     accept: "image/avif,image/webp"
   )
 ```

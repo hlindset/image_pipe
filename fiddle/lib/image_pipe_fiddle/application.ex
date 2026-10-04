@@ -53,10 +53,10 @@ defmodule ImagePipeFiddle.Application do
   end
 
   @doc false
-  # Source adapters mounted for the image endpoint. The local File source is
+  # Sources configured for the image endpoint. The local File source is
   # always available; s3 (via the opt-in s3proxy compose service) lets the demo
   # compare source adapters on byte-identical sample images.
-  def source_mounts do
+  def sources do
     static_root = Application.app_dir(:image_pipe_fiddle, "priv/static")
     s3 = Application.fetch_env!(:image_pipe_fiddle, :s3_source)
 
@@ -103,27 +103,23 @@ defmodule ImagePipeFiddle.Application do
   end
 
   # One instance serves both mounts; the signed mount picks the `:signed` URL
-  # configuration, so both share the cache.
+  # options, so both share the cache.
   defp image_pipe_opts do
     [
       name: ImagePipeFiddle.Images,
-      urls: [signed: signed_url_config()],
+      mounts: [signed: signed_url_options()],
       detector_warmup: ["face"]
     ] ++ api_opts()
   end
 
-  @doc false
-  def signed_url_config do
-    ImagePipe.URL.config(
-      keys: [@demo_signing_key],
-      source_encryption_keys: [@demo_source_encryption_key]
-    )
+  defp signed_url_options do
+    [keys: [@demo_signing_key], source_encryption_keys: [@demo_source_encryption_key]]
   end
 
   defp api_opts do
     [
       presets: @presets,
-      sources: source_mounts(),
+      sources: sources(),
       watermarks: %{
         logo: [source: "watermarks/logo.png"],
         mark: [source: "watermarks/mark.png"],

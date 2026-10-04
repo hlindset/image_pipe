@@ -123,8 +123,8 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "[warning]"
   end
 
-  test "names the source mount on resolve and fetch lines" do
-    prefix = [__MODULE__, :source_mount]
+  test "names the source on resolve and fetch lines" do
+    prefix = [__MODULE__, :source_name]
     Telemetry.attach_default_logger(prefix: prefix)
 
     log =
@@ -132,18 +132,18 @@ defmodule ImagePipe.Telemetry.LoggerTest do
         for stage <- [:resolve, :fetch] do
           :telemetry.execute(prefix ++ [:source, stage, :stop], %{duration: 1000}, %{
             result: :ok,
-            source_mount: :media
+            source_name: :media
           })
         end
 
         :telemetry.execute(prefix ++ [:source, :resolve, :stop], %{duration: 1000}, %{
           result: :source_error,
-          source_mount: nil
+          source_name: nil
         })
       end)
 
-    assert log =~ "source resolve: ok (mount media)"
-    assert log =~ "source fetch: ok (mount media)"
+    assert log =~ "source resolve: ok (source media)"
+    assert log =~ "source fetch: ok (source media)"
     assert log =~ "source resolve: source_error\n"
   end
 
@@ -1030,12 +1030,12 @@ defmodule ImagePipe.Telemetry.LoggerTest do
         :telemetry.execute(
           [:image_pipe, :http_cache, :fallback, :no_store],
           %{},
-          %{source_mount: :web, reason: :detection_failed}
+          %{source_name: :web, reason: :detection_failed}
         )
       end)
 
     refute log =~ "[warning]"
-    assert log =~ "http_cache fallback no_store: detection_failed (mount web)"
+    assert log =~ "http_cache fallback no_store: detection_failed (source web)"
   end
 
   test "logs the http_cache cache-hit headers one-shot" do

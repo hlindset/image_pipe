@@ -1,15 +1,15 @@
 # Elixir configuration
 
 An ImagePipe configuration holds the settings that apply to every image you
-serve or process: sources, caches, limits, output defaults, and presets. You
-build it with `ImagePipe.config/1`, which lists every option with its default.
+serve or process: sources, caches, limits, output defaults, presets, and URL
+settings such as signing keys. You build it with `ImagePipe.config/1`,
+which lists every option with its default.
 
 ```elixir
-url_config = ImagePipe.URL.config(base_url: "/images", keys: [signing_key])
-
 config =
   ImagePipe.config(
-    url: url_config,
+    base_url: "/images",
+    keys: [signing_key],
     sources: [
       media: [
         adapter: ImagePipe.Source.File,
@@ -30,17 +30,18 @@ configuration. Invalid options raise `ArgumentError` when you build it.
 
 | Setting | Examples | Set with |
 | --- | --- | --- |
-| URL settings | Signing keys, source encryption keys, base URL | `ImagePipe.URL.config/1`, passed as `url:` |
-| Configuration | Sources, caches, limits, output defaults, presets | `ImagePipe.config/1` |
+| Configuration | Sources, caches, limits, output defaults, presets, and URL settings (signing keys, source encryption keys, base URL) | `ImagePipe.config/1` |
 | A source | Root directory, allowed hosts, timeouts, S3 credentials | The source's `options:`, listed in its adapter's docs, such as `ImagePipe.Source.HTTP` |
 | A mount | CORS, HTTP cache headers, debug headers | `ImagePipe.Plug` options on the `forward` |
-| An instance | Its name, named URL settings for mounts with different keys (`urls:`), and which detection models load at startup (`detector_warmup:`) | `ImagePipe.child_spec/1` |
+| An instance | Its name, URL settings for mounts with different keys (`mounts:`), and which detection models load at startup (`detector_warmup:`) | `ImagePipe.child_spec/1` |
 | A request | Size, crop, effects, format, quality | URL options, or `ImagePipe.URL.group/2` and `ImagePipe.URL.output/2` |
 | A direct call | The `Accept` value, header and cookie values for cached copies | `accept:` and `request_inputs:` on `ImagePipe.run/4` |
 
-A mount checks request URLs against the configuration's URL settings. To
-build URLs in the same app, get those settings with `ImagePipe.url_config/1`.
-A separate app needs the same keys (see
+A mount checks request URLs against the configuration's URL settings, or
+those of the named set it picks with `mount:`. To build URLs in the same
+app, get those settings with `ImagePipe.url_config/2`, adding
+`mount: :signed` for a mount that picks the named set `:signed`. A separate
+app needs the same keys (see
 [shared URL settings](shared-url-settings.md)).
 
 ## Which setting wins
@@ -49,7 +50,13 @@ When the same setting is given in more than one place:
 
 - Options passed to an inline mount next to `config:` replace that
   configuration's options. A mount of an instance accepts only mount options
-  and `url:`, which names one of the instance's `urls:`.
+  and `mount:`, which picks one of the named sets of URL settings in the
+  instance's `mounts:`.
+- Each entry in an instance's `mounts:` applies its URL settings on top of
+  the instance's. A setting the entry leaves out keeps the instance's value,
+  so a mount that sets only `source_encryption_keys` still checks the
+  instance's signing keys. For a mount that doesn't check signatures, set
+  `keys: []`, and `source_encryption_keys: []` if the instance has them.
 - Options passed to an instance next to `config:` replace that
   configuration's options.
 - Options passed to `ImagePipe.run/4` or `ImagePipe.write/5` replace the

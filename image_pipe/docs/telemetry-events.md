@@ -47,7 +47,7 @@ would be `nil` is left out of the metadata.
 - `:cache` (atom): the cache outcome, on cache events.
 - `:pool` (`:input` or `:output`): which cache pool emitted the event.
 - `:output_format` (atom): the output format, such as `:webp`.
-- `:source_mount` (atom): the source that served the request. Absent for
+- `:source_name` (atom): the source that served the request. Absent for
   `{:file, _}` and `{:binary, _}` inputs.
 - `:telemetry_span_context` (reference): added by `:telemetry.span/3` to
   correlate the events of one span.
@@ -178,7 +178,7 @@ encoded chunks to the client, not encoding them.
 Span. Wraps routing the request to a source and the source adapter's
 `resolve/3`.
 
-- Start metadata: `:source_mount` (atom).
+- Start metadata: `:source_name` (atom).
 - Stop metadata:
   - `:result` (atom): `:ok` or `:source_error`.
   - `:error` (atom): the error category, on failure.
@@ -188,7 +188,7 @@ Span. Wraps routing the request to a source and the source adapter's
 Span. Wraps the source adapter's `fetch/3`. For HTTP and S3 sources it nests
 in `[:source, :stage]`, and for file sources in `[:source, :fetch_decode]`.
 
-- Start metadata: `:source_mount` (atom).
+- Start metadata: `:source_name` (atom).
 - Stop metadata:
   - `:result` (atom): `:ok`, `:not_modified` when the origin confirmed a
     cached original with `304`, or `:source_error`.
@@ -720,7 +720,7 @@ fallback.
 - Metadata:
   - `:reason` (atom): `:detection_failed`, when a crop used attention because
     detection failed.
-  - `:source_mount` (atom).
+  - `:source_name` (atom).
 
 ### `[:http_cache, :cache_hit, :headers]`
 

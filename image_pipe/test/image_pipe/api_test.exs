@@ -26,12 +26,12 @@ defmodule ImagePipe.APITest do
 
     test "raises on a non-hex key" do
       assert_raise ArgumentError, fn ->
-        ImagePipe.Plug.init(url: ImagePipe.URL.config(keys: ["not-hex"]))
+        ImagePipe.Plug.init(keys: ["not-hex"])
       end
     end
 
     test "accepts valid hex keys" do
-      opts = ImagePipe.Plug.init(url: ImagePipe.URL.config(keys: ["deadbeef"]))
+      opts = ImagePipe.Plug.init(keys: ["deadbeef"])
 
       signature = Signature.sign("/src/a.jpg", opts)
       assert Signature.verify(signature, "/src/a.jpg", opts) == {:ok, 0}
@@ -79,9 +79,9 @@ defmodule ImagePipe.APITest do
       end
     end
 
-    test "raises on a URL config that already describes mount presets" do
+    test "rejects validate_against, which the configuration fills in itself" do
       assert_raise ArgumentError, ~r/validate_against/, fn ->
-        ImagePipe.Plug.init(url: ImagePipe.URL.config(validate_against: []))
+        ImagePipe.Plug.init(validate_against: [])
       end
     end
 

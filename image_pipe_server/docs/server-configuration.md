@@ -65,8 +65,8 @@ IPS_SOURCES__TMDB__BASE_URL=https://image.tmdb.org/t/p/original
 IPS_PROCESSING__QUALITY=82
 ```
 
-- Levels are lowercased, so a mount written as `[sources.TMDB]` in the file
-  can't be overridden from the environment. Use lowercase mount names.
+- Levels are lowercased, so a source written as `[sources.TMDB]` in the file
+  can't be overridden from the environment. Use lowercase source names.
 - Lists are comma-separated: `IPS_URL__KEYS=0123abcd…,4567ef01…`.
 - A variable ending in `_FILE` reads the value from that file, without
   trailing whitespace, for Docker and Kubernetes secrets:
@@ -94,7 +94,7 @@ options:
 - `match` is `"path"` or a table of `prefix` and `scheme` rules, each a string
   or an array.
 - `path_pattern` is a regular expression, anchored by the adapter.
-- HTTP mounts take `request_headers` (a table of header names to values) and
+- HTTP sources take `request_headers` (a table of header names to values) and
   `bearer_token` for origins behind an API key or a static token. Both can
   come from `_FILE` variables.
 - S3 `credentials` are `{ static = { access_key_id = "…", secret_access_key = "…" } }`

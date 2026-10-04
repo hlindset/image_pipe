@@ -236,15 +236,9 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
       conn |> put_resp_content_type("image/png") |> send_resp(200, body)
     end
 
-    {url_options, overrides} = Keyword.split(overrides, [:keys, :source_encryption_keys])
-
-    url =
-      [keys: [@signing_key], source_encryption_keys: [@encryption_key]]
-      |> Keyword.merge(url_options)
-      |> ImagePipe.URL.config()
-
     [
-      url: url,
+      keys: [@signing_key],
+      source_encryption_keys: [@encryption_key],
       sources: [
         path: [
           adapter: RootHTTPAdapter,

@@ -1,6 +1,6 @@
 defmodule ImagePipeServer.Config.Sources do
   @moduledoc """
-  Converts `[sources.<name>]` tables to named source mounts.
+  Converts `[sources.<name>]` tables to the named sources of `ImagePipe.config/1`.
 
   Each table names a built-in `adapter` (`"file"`, `"http"`, or `"s3"`) and a
   `match` (`"path"`, or a table of `prefix` and `scheme` rules). Its other

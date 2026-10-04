@@ -288,7 +288,7 @@ defmodule ImagePipe.TelemetryTest do
     for stage <- [[:source, :resolve], [:source, :fetch]] do
       assert_event(events, @prefix ++ stage ++ [:start], fn measurements, metadata ->
         assert is_integer(measurements.system_time)
-        assert metadata.source_mount == :path
+        assert metadata.source_name == :path
         refute Map.has_key?(metadata, :source_kind)
         refute Map.has_key?(metadata, :source_adapter)
         refute inspect(metadata) =~ "images/beach.jpg"
@@ -298,7 +298,7 @@ defmodule ImagePipe.TelemetryTest do
       assert_event(events, @prefix ++ stage ++ [:stop], fn measurements, metadata ->
         assert is_integer(measurements.duration)
         assert metadata.result == :ok
-        assert metadata.source_mount == :path
+        assert metadata.source_name == :path
         refute Map.has_key?(metadata, :source_adapter)
         refute inspect(metadata) =~ "images/beach.jpg"
         refute inspect(metadata) =~ "origin.test"
@@ -322,7 +322,7 @@ defmodule ImagePipe.TelemetryTest do
       assert is_integer(measurements.duration)
       assert metadata.result == :source_error
       assert metadata.error == :denied_path
-      assert metadata.source_mount == :path
+      assert metadata.source_name == :path
     end)
   end
 

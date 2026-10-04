@@ -1,4 +1,4 @@
-defmodule ImagePipe.Source.MountsWireTest do
+defmodule ImagePipe.Source.RoutesWireTest do
   use ExUnit.Case, async: true
 
   import Plug.Test

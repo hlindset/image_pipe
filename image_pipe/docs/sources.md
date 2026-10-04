@@ -79,7 +79,7 @@ named like a prefix. Renaming a source keeps its cache entries, and sources
 that read the same originals can share them (see
 [originals and processed images](caching-and-freshness.md#originals-and-processed-images)).
 The source's name appears in
-[telemetry events](telemetry-events.md#common-metadata) as `:source_mount`.
+[telemetry events](telemetry-events.md#common-metadata) as `:source_name`.
 
 Requests that no source serves fail:
 

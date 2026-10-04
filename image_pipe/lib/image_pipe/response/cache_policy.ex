@@ -36,7 +36,7 @@ defmodule ImagePipe.Response.CachePolicy do
           optional(:storage) => :origin | :allow | :deny,
           byte_identity: {:strong, term()},
           stable?: boolean(),
-          source_mount: atom() | nil
+          source_name: atom() | nil
         }
 
   @typedoc """
@@ -431,7 +431,7 @@ defmodule ImagePipe.Response.CachePolicy do
       [:http_cache, :fallback, :no_store],
       %{},
       %{
-        source_mount: source_facts.source_mount,
+        source_name: source_facts.source_name,
         reason: reason
       }
     )

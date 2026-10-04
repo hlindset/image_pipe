@@ -25,7 +25,7 @@ defmodule ImagePipe.Telemetry.Trace.AttrSafetyTest do
       %{
         source_url: signed,
         source_path: "/img.jpg?sig=SECRET123",
-        source_mount: :media
+        source_name: :media
       },
       fn ->
         {:ok, %{result: :ok}}
@@ -37,7 +37,7 @@ defmodule ImagePipe.Telemetry.Trace.AttrSafetyTest do
     refute flat =~ "SECRET123"
     refute flat =~ "cdn.example.com"
     # product-neutral key is allowed through
-    assert span.attributes[:source_mount] == :media
+    assert span.attributes[:source_name] == :media
   end
 
   property "no secret-bearing key ever reaches attributes, for any value" do
@@ -57,7 +57,7 @@ defmodule ImagePipe.Telemetry.Trace.AttrSafetyTest do
       # (e.g. ":http" contains "p").
       secret = "SECRET_" <> body
 
-      Telemetry.span([], [:source, :fetch], %{key => secret, :source_mount => :media}, fn ->
+      Telemetry.span([], [:source, :fetch], %{key => secret, :source_name => :media}, fn ->
         {:ok, %{result: :ok}}
       end)
 

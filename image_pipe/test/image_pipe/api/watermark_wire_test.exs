@@ -180,8 +180,9 @@ defmodule ImagePipe.API.WatermarkWireTest do
     end
 
     test "a concealed source decrypts like the main source", %{origin: origin} do
-      url = ImagePipe.URL.config(keys: [@signing_key], source_encryption_keys: [@source_key])
-      config = mount(origin, url: url)
+      url_options = [keys: [@signing_key], source_encryption_keys: [@source_key]]
+      url = ImagePipe.URL.config(url_options)
+      config = mount(origin, url_options)
       {:ok, token} = ImagePipe.Security.encrypt_source("mark.png", url.options, [])
 
       signed = fn options ->
@@ -199,7 +200,7 @@ defmodule ImagePipe.API.WatermarkWireTest do
       url = ImagePipe.URL.config(keys: [@signing_key], source_encryption_keys: [@source_key])
       {:ok, token} = ImagePipe.Security.encrypt_source("mark.png", url.options, [])
       plain_url = ImagePipe.URL.config(keys: [@signing_key])
-      plain = mount(origin, url: plain_url)
+      plain = mount(origin, keys: [@signing_key])
       path = ImagePipe.URL.sign_path("/wm-enc=#{token}/format=png/src/image.png", plain_url)
       response = conn(:get, path) |> ImagePipe.Plug.call(plain)
 

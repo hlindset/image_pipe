@@ -1,17 +1,17 @@
-defmodule ImagePipe.Source.Mounts do
+defmodule ImagePipe.Source.Routes do
   @moduledoc false
 
-  # Validated source mounts and the routing tables built from their match
-  # rules. See `ImagePipe.Source` for the configuration shape.
+  # Validated sources and the routing tables built from their match rules.
+  # See `ImagePipe.Source` for the configuration shape.
 
   alias ImagePipe.Plan.Source.Object
   alias ImagePipe.Plan.Source.Path
   alias ImagePipe.Plan.Source.URL
 
-  defstruct mounts: %{}, prefixes: %{}, schemes: %{}, path: nil
+  defstruct sources: %{}, prefixes: %{}, schemes: %{}, path: nil
 
   @type t :: %__MODULE__{
-          mounts: %{atom() => {module(), keyword()}},
+          sources: %{atom() => {module(), keyword()}},
           prefixes: %{String.t() => atom()},
           schemes: %{String.t() => atom()},
           path: atom() | nil
@@ -21,18 +21,18 @@ defmodule ImagePipe.Source.Mounts do
   @identifiers [Path, URL, Object]
   @scheme_pattern ~r/\A[a-z][a-z0-9+.\-]*\z/
 
-  @mount_schema NimbleOptions.new!(
-                  adapter: [type: :atom, required: true],
-                  match: [type: :any, required: true],
-                  options: [type: :keyword_list, default: []]
-                )
+  @source_schema NimbleOptions.new!(
+                   adapter: [type: :atom, required: true],
+                   match: [type: :any, required: true],
+                   options: [type: :keyword_list, default: []]
+                 )
 
   @spec validate(term()) :: {:ok, t()} | {:error, {:source, term()}}
   def validate(sources) when is_list(sources) do
     if Keyword.keyword?(sources) and unique_names?(sources) do
-      with {:ok, mounts} <- add_mounts(sources),
-           :ok <- unique_file_roots(mounts),
-           do: {:ok, mounts}
+      with {:ok, routes} <- add_sources(sources),
+           :ok <- unique_file_roots(routes),
+           do: {:ok, routes}
     else
       {:error, {:source, {:invalid_sources, "expected a keyword list of uniquely named sources"}}}
     end
@@ -47,42 +47,43 @@ defmodule ImagePipe.Source.Mounts do
 
   @doc false
   @spec fetch(t(), atom()) :: {:ok, module(), keyword()} | {:error, {:source, :missing_adapter}}
-  def fetch(%__MODULE__{mounts: mounts}, name) do
-    case mounts do
+  def fetch(%__MODULE__{sources: sources}, name) do
+    case sources do
       %{^name => {module, opts}} -> {:ok, module, opts}
-      _mounts -> {:error, {:source, :missing_adapter}}
+      _sources -> {:error, {:source, :missing_adapter}}
     end
   end
 
   @doc """
-  Selects the mount for a plan source. Returns the mount name and the source as
-  the adapter receives it (prefix or custom scheme removed).
+  Selects the configured source for a plan source. Returns that source's name
+  and the plan source as its adapter receives it (prefix or custom scheme
+  removed).
   """
   @spec route(struct(), t()) :: {:ok, atom(), struct()} | {:error, {:source, atom()}}
-  def route(%Path{scheme: nil, segments: [first | rest]} = source, %__MODULE__{} = mounts) do
-    case mounts.prefixes do
+  def route(%Path{scheme: nil, segments: [first | rest]} = source, %__MODULE__{} = routes) do
+    case routes.prefixes do
       %{^first => name} -> path_route(name, %{source | segments: rest})
-      _prefixes when is_nil(mounts.path) -> {:error, {:source, :not_found}}
-      _prefixes -> path_route(mounts.path, source)
+      _prefixes when is_nil(routes.path) -> {:error, {:source, :not_found}}
+      _prefixes -> path_route(routes.path, source)
     end
   end
 
-  def route(%Path{scheme: scheme} = source, %__MODULE__{} = mounts) when is_binary(scheme) do
-    case mounts.schemes do
+  def route(%Path{scheme: scheme} = source, %__MODULE__{} = routes) when is_binary(scheme) do
+    case routes.schemes do
       %{^scheme => name} -> path_route(name, %{source | scheme: nil})
       _schemes -> {:error, {:source, :not_found}}
     end
   end
 
-  def route(%URL{scheme: scheme} = source, %__MODULE__{} = mounts),
-    do: scheme_route(Atom.to_string(scheme), source, mounts)
+  def route(%URL{scheme: scheme} = source, %__MODULE__{} = routes),
+    do: scheme_route(Atom.to_string(scheme), source, routes)
 
-  def route(%Object{scheme: scheme} = source, %__MODULE__{} = mounts),
-    do: scheme_route(scheme, source, mounts)
+  def route(%Object{scheme: scheme} = source, %__MODULE__{} = routes),
+    do: scheme_route(scheme, source, routes)
 
-  # The source parser rejects URL and object schemes no mount matches.
-  defp scheme_route(scheme, source, mounts),
-    do: {:ok, Map.fetch!(mounts.schemes, scheme), source}
+  # The source parser rejects URL and object schemes no configured source matches.
+  defp scheme_route(scheme, source, routes),
+    do: {:ok, Map.fetch!(routes.schemes, scheme), source}
 
   # Origins may normalize dot segments, and a bare prefix names no source.
   defp path_route(name, %Path{segments: segments} = source) do
@@ -93,9 +94,9 @@ defmodule ImagePipe.Source.Mounts do
 
   # File caches identify files by root_id, so one root_id naming two
   # directories would serve one directory's cached files for the other's.
-  defp unique_file_roots(%__MODULE__{mounts: mounts}) do
+  defp unique_file_roots(%__MODULE__{sources: sources}) do
     roots =
-      for {_name, {ImagePipe.Source.File, opts}} <- mounts,
+      for {_name, {ImagePipe.Source.File, opts}} <- sources,
           uniq: true,
           do: {opts[:root_id], opts[:root]}
 
@@ -117,31 +118,31 @@ defmodule ImagePipe.Source.Mounts do
 
   defp unique_names?(sources), do: sources |> Keyword.keys() |> then(&(Enum.uniq(&1) == &1))
 
-  defp add_mounts(sources) do
-    Enum.reduce_while(sources, {:ok, %__MODULE__{}}, fn {name, mount}, {:ok, mounts} ->
-      case add_mount(mounts, name, mount) do
-        {:ok, mounts} -> {:cont, {:ok, mounts}}
+  defp add_sources(sources) do
+    Enum.reduce_while(sources, {:ok, %__MODULE__{}}, fn {name, config}, {:ok, routes} ->
+      case add_source(routes, name, config) do
+        {:ok, routes} -> {:cont, {:ok, routes}}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
   end
 
-  defp add_mount(mounts, name, mount) when is_list(mount) do
-    with {:ok, mount} <- validate_mount_shape(name, mount),
-         {:ok, rules} <- parse_match(name, Keyword.fetch!(mount, :match)),
-         module = Keyword.fetch!(mount, :adapter),
-         {:ok, opts} <- validate_adapter_options(name, module, Keyword.fetch!(mount, :options)),
+  defp add_source(routes, name, config) when is_list(config) do
+    with {:ok, config} <- validate_source_shape(name, config),
+         {:ok, rules} <- parse_match(name, Keyword.fetch!(config, :match)),
+         module = Keyword.fetch!(config, :adapter),
+         {:ok, opts} <- validate_adapter_options(name, module, Keyword.fetch!(config, :options)),
          :ok <- check_identifiers(name, module, opts, rules),
-         {:ok, mounts} <- add_rules(mounts, name, rules) do
-      {:ok, %{mounts | mounts: Map.put(mounts.mounts, name, {module, opts})}}
+         {:ok, routes} <- add_rules(routes, name, rules) do
+      {:ok, %{routes | sources: Map.put(routes.sources, name, {module, opts})}}
     end
   end
 
-  defp add_mount(_mounts, name, _mount),
+  defp add_source(_routes, name, _config),
     do: invalid_source(name, "expected a keyword list with :adapter, :match, and :options")
 
-  defp validate_mount_shape(name, mount) do
-    case NimbleOptions.validate(mount, @mount_schema) do
+  defp validate_source_shape(name, config) do
+    case NimbleOptions.validate(config, @source_schema) do
       {:ok, validated} -> {:ok, validated}
       {:error, error} -> invalid_source(name, Exception.message(error))
     end
@@ -220,8 +221,8 @@ defmodule ImagePipe.Source.Mounts do
     ordered ++ Enum.reject(validated, fn {key, _value} -> key in keys end)
   end
 
-  defp add_rules(mounts, name, rules) do
-    Enum.reduce_while(rules, {:ok, mounts}, fn rule, {:ok, acc} ->
+  defp add_rules(routes, name, rules) do
+    Enum.reduce_while(rules, {:ok, routes}, fn rule, {:ok, acc} ->
       case add_rule(acc, name, rule) do
         {:ok, acc} -> {:cont, {:ok, acc}}
         {:error, _reason} = error -> {:halt, error}
@@ -229,13 +230,13 @@ defmodule ImagePipe.Source.Mounts do
     end)
   end
 
-  defp add_rule(%{path: nil} = mounts, name, {:path, nil}), do: {:ok, %{mounts | path: name}}
+  defp add_rule(%{path: nil} = routes, name, {:path, nil}), do: {:ok, %{routes | path: name}}
 
   defp add_rule(%{path: other}, name, {:path, nil}),
     do: invalid_source(name, "match :path is already used by source #{inspect(other)}")
 
-  defp add_rule(mounts, name, {:prefix, prefix}) do
-    case mounts.prefixes do
+  defp add_rule(routes, name, {:prefix, prefix}) do
+    case routes.prefixes do
       %{^prefix => other} ->
         invalid_source(
           name,
@@ -243,12 +244,12 @@ defmodule ImagePipe.Source.Mounts do
         )
 
       prefixes ->
-        {:ok, %{mounts | prefixes: Map.put(prefixes, prefix, name)}}
+        {:ok, %{routes | prefixes: Map.put(prefixes, prefix, name)}}
     end
   end
 
-  defp add_rule(mounts, name, {:scheme, scheme}) do
-    case mounts.schemes do
+  defp add_rule(routes, name, {:scheme, scheme}) do
+    case routes.schemes do
       %{^scheme => other} ->
         invalid_source(
           name,
@@ -256,7 +257,7 @@ defmodule ImagePipe.Source.Mounts do
         )
 
       schemes ->
-        {:ok, %{mounts | schemes: Map.put(schemes, scheme, name)}}
+        {:ok, %{routes | schemes: Map.put(schemes, scheme, name)}}
     end
   end
 

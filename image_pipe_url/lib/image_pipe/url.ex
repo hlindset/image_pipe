@@ -18,8 +18,8 @@ defmodule ImagePipe.URL do
   with ordinary functions. Building and generating URLs reads no source,
   image, or cache.
 
-  An app that serves its own URLs passes the same configuration to
-  `ImagePipe.config(url: config, ...)`. Preset definitions belong to the
+  An app that serves its own URLs passes the same `base_url`, `keys`, and
+  source encryption options to `ImagePipe.config/1`. Preset definitions belong to the
   server, and URLs carry only preset names. An app that builds URLs for an
   image service running elsewhere must match the settings listed in
   [Shared URL settings](https://hexdocs.pm/image_pipe/shared-url-settings.html).
@@ -98,9 +98,9 @@ defmodule ImagePipe.URL do
           keys: [System.fetch_env!("IMAGE_PIPE_SIGNING_KEY")]
         )
 
-  An app that serves its own URLs passes the same value to
-  `ImagePipe.config(url: config)`, so the server verifies signatures and
-  decrypts sources with the same keys. Invalid
+  An app that serves its own URLs passes the same options, except
+  `:validate_against`, to `ImagePipe.config/1`, so the server verifies
+  signatures and decrypts sources with the same keys. Invalid
   options raise `ArgumentError`, and the message never includes a key.
 
   ## Options
@@ -310,7 +310,7 @@ defmodule ImagePipe.URL do
   @doc """
   Checks the plan as the server would, without generating a URL.
 
-      ImagePipe.URL.new(ImagePipe.url_config(config))
+      ImagePipe.URL.new(config)
       |> ImagePipe.URL.group(resize: [fit: :cover])
       |> ImagePipe.URL.validate()
       # {:error,

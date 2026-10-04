@@ -18,8 +18,8 @@ defmodule ImagePipe do
   An instance is a supervised process that holds a configuration and starts
   the processes its caches need. Run one with `child_spec/1` when a mount's
   configuration reads runtime values, such as environment variables, or when
-  the configuration uses a bounded cache. `ImagePipe.Plug` mounts and
-  `config!/1` find it by name.
+  the configuration uses a bounded cache. `ImagePipe.Plug` mounts, `run/4`,
+  `write/5`, `validate/2`, and `url_config/2` find it by name.
   """
 
   use Boundary,
@@ -49,6 +49,16 @@ defmodule ImagePipe do
 
   alias ImagePipe.Config
 
+  @url_config_schema NimbleOptions.new!(
+                       mount: [
+                         type: :atom,
+                         doc: """
+                         One of the instance's `:mounts`, whose URL options the \
+                         result uses instead of the instance's own.
+                         """
+                       ]
+                     )
+
   @doc """
   Builds the configuration that `ImagePipe.Plug` mounts, instances, and
   `run/4` use.
@@ -72,6 +82,10 @@ defmodule ImagePipe do
 
   [Elixir configuration](configuration.md) shows which settings belong here and
   which belong to a mount, a source, or a request.
+
+  `keys` and `source_encryption_keys` set which URLs an `ImagePipe.Plug`
+  mount accepts. `base_url`, `encrypt_source`, and `iv_mode` only affect URLs
+  built from the configuration with `url_config/2`.
 
   ## Options
 
@@ -99,8 +113,8 @@ defmodule ImagePipe do
         MyAppWeb.Endpoint
       ]
 
-  Mount it with the `:instance` option of `ImagePipe.Plug`, and get its
-  configuration for `run/4` with `config!/1`.
+  Mount it with the `:instance` option of `ImagePipe.Plug`, and pass its name
+  to `run/4`, `write/5`, `validate/2`, and `url_config/2`.
 
   A bounded `ImagePipe.Cache.FileSystem` runs processes that track the
   cache's size, and only an instance starts them. A configuration with such a
@@ -121,29 +135,43 @@ defmodule ImagePipe do
   def child_spec(options), do: ImagePipe.Instance.child_spec(options)
 
   @doc """
-  Returns the configuration of a running instance, for `run/4` and `write/5`.
+  Returns the URL settings a configuration or a running instance serves, for
+  building URLs with `ImagePipe.URL.new/1`.
 
-      config = ImagePipe.config!(MyApp.Images)
-      {:ok, result} = ImagePipe.run(config, builder, {:source, "images/cat.jpg"})
+      MyApp.Images
+      |> ImagePipe.url_config()
+      |> ImagePipe.URL.new()
+      |> ImagePipe.URL.group(resize: [width: 400])
+      |> ImagePipe.URL.url!("images/cat.jpg")
 
-  The configuration uses the instance's `:url`. The named `:urls` are
-  available only to mounts, so `url_config/1` returns the default URL
-  settings.
-  Raises `ArgumentError` if no instance with that name is running.
-  """
-  @spec config!(atom()) :: Config.t()
-  def config!(name), do: Config.fetch_instance!(name, nil)
-
-  @doc """
-  Returns the configuration's URL settings for building URLs it will serve.
-
-  The result carries a copy of this configuration's presets, request
-  defaults, and watermark names as its `:validate_against` option, so
+  The result carries the configuration's presets, request defaults, and
+  watermark names as its `:validate_against` option, so
   `ImagePipe.URL.validate/1` and `ImagePipe.URL.url/3` check plans against
   them.
+
+  ## Options
+
+  #{NimbleOptions.docs(@url_config_schema)}
+
+  Raises `ArgumentError` for an invalid option, when no instance with the
+  name is running or it has no mount with that name, or when `:mount` comes
+  with a configuration.
   """
-  @spec url_config(Config.t()) :: ImagePipe.URL.Config.t()
-  def url_config(%Config{url: url}), do: url
+  @spec url_config(Config.t() | atom(), keyword()) :: ImagePipe.URL.Config.t()
+  def url_config(config_or_name, options \\ []) do
+    case NimbleOptions.validate(options, @url_config_schema) do
+      {:ok, options} -> fetch_url_config(config_or_name, options[:mount])
+      {:error, error} -> raise ArgumentError, Exception.message(error)
+    end
+  end
+
+  defp fetch_url_config(%Config{url: url}, nil), do: url
+
+  defp fetch_url_config(%Config{}, _mount),
+    do: raise(ArgumentError, "url_config/2 takes :mount only with an instance name")
+
+  defp fetch_url_config(name, mount) when is_atom(name),
+    do: Config.fetch_instance!(name, mount).url
 
   @doc """
   Checks a builder's plan as this configuration would serve it.
@@ -152,8 +180,8 @@ defmodule ImagePipe do
   checks the request and its output policy. Returns `:ok` or the error
   `run/4` would return, without reading a source or accessing a cache.
   """
-  @spec validate(Config.t(), ImagePipe.URL.t()) :: :ok | {:error, term()}
-  def validate(config, builder), do: ImagePipe.Run.validate(config, builder)
+  @spec validate(Config.t() | atom(), ImagePipe.URL.t()) :: :ok | {:error, term()}
+  def validate(config, builder), do: ImagePipe.Run.validate(resolve(config), builder)
 
   @doc """
   Runs a builder's plan on an image and returns the encoded result.
@@ -167,27 +195,28 @@ defmodule ImagePipe do
       result.content_type
       #=> "image/webp"
 
-  `config` comes from `config/1`, or from `config!/1` when the configuration
-  has a bounded cache. Presets and request defaults come from `config`, as
-  for a request to an `ImagePipe.Plug` mount. The builder's own URL
-  configuration isn't used. Matching source bytes, plans, settings, and
-  `Accept` preferences give the same result as an HTTP request.
+  `config` comes from `config/1`, or is the name of a running instance. A
+  configuration with a bounded cache must be passed by its instance's name.
+  Presets and request defaults come from `config`, as for a request to an
+  `ImagePipe.Plug` mount. The builder's own URL configuration isn't used.
+  Matching source bytes, plans, settings, and `Accept` preferences give the
+  same result as an HTTP request.
 
   ## Inputs
 
     * `{:source, source}` - a source the configuration's
-      [source mounts](sources.md#routing-image-paths-to-sources) resolve, as for an HTTP
+      [configured sources](sources.md#routing-image-paths-to-sources) resolve, as for an HTTP
       request: a path, an HTTP(S) URL such as
       `"https://assets.example.com/cat.jpg"`, an S3 identifier, or a custom
       scheme. Pass the source without the `src/` marker or the URL escaping
-      of the request path. The mount's network, redirect, timeout, and
+      of the request path. The source's network, redirect, timeout, and
       content-type policies apply. These inputs use the configuration's
       caches, so `run/4` and HTTP requests reuse each other's stored copies
       when the plan, `Accept` preferences, and request inputs match.
     * `{:file, path}` - a local file, by absolute path or relative to the
       current working directory. Symlinks are followed, and the path must
       end at a regular file. The path isn't confined to a directory. Use a
-      `{:source, path}` with an `ImagePipe.Source.File` mount for that.
+      `{:source, path}` with an `ImagePipe.Source.File` source for that.
     * `{:binary, bytes}` - an encoded image in memory, such as an upload.
 
   `{:file, path}` and `{:binary, bytes}` inputs are never cached. Every input
@@ -198,9 +227,9 @@ defmodule ImagePipe do
 
   Every option of `config/1` overrides the configuration for this call, such
   as `max_input_pixels: 50_000_000`. Invalid options raise `ArgumentError`.
-  A configuration from `config!/1` takes the same options, but a bounded
-  `:cache` or `:input_cache` raises `ArgumentError` unless it is one of the
-  instance's own caches. `run/4` and `write/5` also take:
+  An instance name takes the same options, but a bounded `:cache` or
+  `:input_cache` raises `ArgumentError` unless it is one of the instance's
+  own caches. `run/4` and `write/5` also take:
 
   #{ImagePipe.Run.options_docs()}
 
@@ -231,7 +260,7 @@ defmodule ImagePipe do
       the plan can't be parsed.
     * `{:source, reason}` - the source or a watermark source couldn't be
       read, such as `{:source, :enoent}` for a missing file,
-      `{:source, :not_found}` for a source no mount matches, or
+      `{:source, :not_found}` for a path no configured source matches, or
       `{:source, :body_too_large}`.
     * `{:input_limit, reason}` - the decoded image exceeds
       `:max_input_pixels` or `:max_input_frames`.
@@ -257,10 +286,14 @@ defmodule ImagePipe do
   success and on failure. The result is held in memory, so running large
   outputs concurrently needs memory for each complete result.
   """
-  @spec run(Config.t(), ImagePipe.URL.t(), {:file | :binary | :source, binary()}, keyword()) ::
-          {:ok, ImagePipe.Result.t()} | {:error, term()}
+  @spec run(
+          Config.t() | atom(),
+          ImagePipe.URL.t(),
+          {:file | :binary | :source, binary()},
+          keyword()
+        ) :: {:ok, ImagePipe.Result.t()} | {:error, term()}
   def run(config, builder, input, options \\ []),
-    do: ImagePipe.Run.run(config, builder, input, options)
+    do: ImagePipe.Run.run(resolve(config), builder, input, options)
 
   @doc """
   Runs a builder's plan like `run/4`, then writes the result to `path`.
@@ -281,12 +314,17 @@ defmodule ImagePipe do
   directory. The file is written after source resources are closed.
   """
   @spec write(
-          Config.t(),
+          Config.t() | atom(),
           ImagePipe.URL.t(),
           {:file | :binary | :source, binary()},
           Path.t(),
           keyword()
         ) :: {:ok, ImagePipe.Result.t()} | {:error, term()}
   def write(config, builder, input, path, options \\ []),
-    do: ImagePipe.Run.write(config, builder, input, path, options)
+    do: ImagePipe.Run.write(resolve(config), builder, input, path, options)
+
+  # An instance name stands for the configuration the running instance
+  # published. It raises when the instance isn't running.
+  defp resolve(%Config{} = config), do: config
+  defp resolve(name) when is_atom(name), do: Config.fetch_instance!(name, nil)
 end

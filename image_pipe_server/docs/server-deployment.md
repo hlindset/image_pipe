@@ -180,16 +180,16 @@ To set up `[cache.output]` for processed images and `[cache.input]` for
 originals, and to bound their size, see
 [Caching processed images](../../image_pipe/docs/caching-processed-images.md).
 
-Whether a response is cached also depends on its source mount:
+Whether a response is cached also depends on its source:
 
-- HTTP and S3 mounts follow the origin's cache headers by default. Set
+- HTTP and S3 sources follow the origin's cache headers by default. Set
   `cache_policy` to override them.
-- File mounts check each file for changes. Set `stable = "immutable"` for
+- File sources check each file for changes. Set `stable = "immutable"` for
   [immutable](../../image_pipe/docs/caching-and-freshness.md#immutable-sources)
   files to skip the check. On a network filesystem such as EFS, `copy = "keep"` keeps
   local copies of originals in the `[cache] input` pool.
-- A file mount's `root_id` is part of the cache key of every result from that
-  mount. Keep it the same across restarts and replicas, or cached results
+- A file source's `root_id` is part of the cache key of every result from that
+  source. Keep it the same across restarts and replicas, or cached results
   aren't reused. The `root` path can differ between replicas or change over
   time.
 

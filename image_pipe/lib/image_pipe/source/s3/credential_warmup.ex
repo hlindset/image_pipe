@@ -7,7 +7,7 @@ defmodule ImagePipe.Source.S3.CredentialWarmup do
                     provider: [
                       type: :atom,
                       required: true,
-                      doc: "The provider module, as in the mount's `:credentials`."
+                      doc: "The provider module, as in the source's `:credentials`."
                     ],
                     scope: [
                       type: :string,
@@ -19,7 +19,7 @@ defmodule ImagePipe.Source.S3.CredentialWarmup do
                       default: [],
                       doc: """
                       The provider's options. They must equal the options in the \
-                      mount's `:credentials`. Otherwise requests use a different \
+                      source's `:credentials`. Otherwise requests use a different \
                       cache entry, and the warmed credentials are refreshed in \
                       the background without ever being used.
                       """

@@ -31,7 +31,7 @@ defmodule ImagePipe.Source do
 
   Building a configuration with an invalid source raises `ArgumentError`.
   The source's name appears in
-  [telemetry events](telemetry-events.md#common-metadata) as `:source_mount`.
+  [telemetry events](telemetry-events.md#common-metadata) as `:source_name`.
 
   ## Adapters
 
@@ -89,11 +89,11 @@ defmodule ImagePipe.Source do
   alias ImagePipe.Source.CachePolicy
   alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Input
-  alias ImagePipe.Source.Mounts
   alias ImagePipe.Source.Origin
   alias ImagePipe.Source.Parser
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
+  alias ImagePipe.Source.Routes
   alias ImagePipe.Source.WrappedStream
   alias ImagePipe.Telemetry
 
@@ -161,7 +161,7 @@ defmodule ImagePipe.Source do
   @http_cache_policies [:inherit, :validators, :auto, :public, :private]
 
   # Adapter runtime options: body limit, transport timeouts, and telemetry.
-  # HTTP and S3 honor these timeout overrides when called directly; mount
+  # HTTP and S3 honor these timeout overrides when called directly; source
   # configuration rejects them as unknown keys.
   @runtime_option_keys [
     :max_body_bytes,
@@ -192,7 +192,7 @@ defmodule ImagePipe.Source do
   # cached request.
   @doc false
   def prepare_cache_context(source, config) do
-    {:ok, module, opts} = mount_config(source, config)
+    {:ok, module, opts} = adapter_config(source, config)
 
     with {:ok, prepared} <- prepare_cache_source(module, source, opts, runtime_opts(config)) do
       # Cache and admission settings don't change fetched bytes. path_pattern
@@ -242,7 +242,7 @@ defmodule ImagePipe.Source do
   @spec validate_config(keyword()) :: {:ok, keyword()} | {:error, error() | String.t()}
   def validate_config(opts) when is_list(opts) do
     with {:ok, policy} <- CachePolicy.validate(Keyword.get(opts, :source_cache_policy, [])),
-         {:ok, sources} <- Mounts.validate(Keyword.get(opts, :sources, [])) do
+         {:ok, sources} <- Routes.validate(Keyword.get(opts, :sources, [])) do
       {:ok, opts |> Keyword.put(:sources, sources) |> Keyword.put(:source_cache_policy, policy)}
     end
   end
@@ -269,12 +269,12 @@ defmodule ImagePipe.Source do
     do: "invalid source_cache_policy: #{message}"
 
   # Translates a host-configured source string into a plan source that a
-  # configured mount serves. `opts` holds validated mounts.
+  # configured source serves. `opts` holds the validated sources.
   @doc false
   @spec translate_configured(String.t(), keyword()) :: {:ok, PlanSource.t()} | {:error, term()}
   def translate_configured(source, opts) when is_binary(source) do
     with {:ok, plan_source} <- Parser.translate(source, opts),
-         {:ok, _name, _source} <- Mounts.route(plan_source, mounts(opts)) do
+         {:ok, _name, _source} <- Routes.route(plan_source, routes(opts)) do
       {:ok, plan_source}
     end
   end
@@ -286,8 +286,8 @@ defmodule ImagePipe.Source do
     do: resolve_with(Input, [], nil, source, runtime_opts, [])
 
   def resolve(source, opts, runtime_opts) do
-    with {:ok, name, source} <- Mounts.route(source, mounts(opts)),
-         {:ok, module, adapter_opts} <- Mounts.fetch(mounts(opts), name) do
+    with {:ok, name, source} <- Routes.route(source, routes(opts)),
+         {:ok, module, adapter_opts} <- Routes.fetch(routes(opts), name) do
       resolve_with(
         module,
         adapter_opts,
@@ -300,21 +300,21 @@ defmodule ImagePipe.Source do
   end
 
   defp resolve_with(module, adapter_opts, name, source, runtime_opts, policy) do
-    source_metadata = %{source_mount: name}
+    source_metadata = %{source_name: name}
     telemetry_opts = Telemetry.telemetry_opts(runtime_opts)
 
     Telemetry.span(telemetry_opts, [:source, :resolve], source_metadata, fn ->
       result =
         module
         |> run_resolve(source, adapter_opts, runtime_opts)
-        |> put_mount(name, module, adapter_opts)
+        |> put_name(name, module, adapter_opts)
         |> apply_cache_policy(policy)
 
       {result, result_metadata(result)}
     end)
   end
 
-  defp mounts(opts), do: Keyword.get(opts, :sources, %Mounts{})
+  defp routes(opts), do: Keyword.get(opts, :sources, %Routes{})
 
   # Sources that read the same originals share cache entries, so a source's
   # name stays out of the identity. Built-in adapters name every setting that
@@ -324,14 +324,14 @@ defmodule ImagePipe.Source do
   @builtin_adapters [ImagePipe.Source.File, ImagePipe.Source.HTTP, ImagePipe.Source.S3]
   @cache_setting_keys Keyword.keys(ImagePipe.Source.CacheSettings.schema())
 
-  defp put_mount({:ok, resolved}, nil, _module, _opts), do: {:ok, resolved}
+  defp put_name({:ok, resolved}, nil, _module, _opts), do: {:ok, resolved}
 
-  defp put_mount({:ok, resolved}, name, module, opts),
+  defp put_name({:ok, resolved}, name, module, opts),
     do:
       {:ok,
-       %{resolved | mount: name, identity: resolved.identity ++ adapter_identity(module, opts)}}
+       %{resolved | name: name, identity: resolved.identity ++ adapter_identity(module, opts)}}
 
-  defp put_mount(error, _name, _module, _opts), do: error
+  defp put_name(error, _name, _module, _opts), do: error
 
   defp adapter_identity(module, _opts) when module in @builtin_adapters, do: [source: module]
 
@@ -358,8 +358,8 @@ defmodule ImagePipe.Source do
   defp stable_terms(map) when is_map(map), do: Map.new(map, fn {k, v} -> {k, stable_terms(v)} end)
   defp stable_terms(term), do: term
 
-  defp mount_config(%Resolved{mount: nil}, _opts), do: {:ok, Input, []}
-  defp mount_config(%Resolved{mount: name}, opts), do: Mounts.fetch(mounts(opts), name)
+  defp adapter_config(%Resolved{name: nil}, _opts), do: {:ok, Input, []}
+  defp adapter_config(%Resolved{name: name}, opts), do: Routes.fetch(routes(opts), name)
 
   defp apply_cache_policy({:ok, resolved}, defaults) do
     semantics = resolved.cache_semantics
@@ -389,8 +389,8 @@ defmodule ImagePipe.Source do
   @spec fetch(Resolved.t(), keyword(), keyword()) ::
           {:ok, Response.t()} | {:not_modified, Origin.t()} | {:error, error()}
   def fetch(%Resolved{} = resolved, opts, runtime_opts) do
-    with {:ok, module, adapter_opts} <- mount_config(resolved, opts) do
-      source_metadata = %{source_mount: resolved.mount}
+    with {:ok, module, adapter_opts} <- adapter_config(resolved, opts) do
+      source_metadata = %{source_name: resolved.name}
 
       telemetry_opts = Telemetry.telemetry_opts(runtime_opts)
 

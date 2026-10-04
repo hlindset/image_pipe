@@ -10,26 +10,30 @@ defmodule ImagePipe.Instance do
   alias ImagePipe.Instance.Publisher
   alias ImagePipe.Transform
   alias ImagePipe.Transform.Detector.Warmup
-  alias ImagePipe.URL.Config, as: URLConfig
 
   @schema NimbleOptions.new!(
             name: [
               type: :atom,
               required: true,
               doc: """
-              Name that mounts and `ImagePipe.config!/1` use to find the instance. It \
+              Name that `ImagePipe.Plug` mounts, `ImagePipe.run/4`, `ImagePipe.write/5`, \
+              `ImagePipe.validate/2`, and `ImagePipe.url_config/2` use to find the instance. It \
               also names the instance's supervisor.
               """
             ],
-            urls: [
-              type: {:custom, __MODULE__, :validate_urls, []},
+            mounts: [
+              type: {:custom, __MODULE__, :validate_mounts, []},
               type_doc: "`t:keyword/0`",
               default: [],
               doc: """
-              Named URL configurations from `ImagePipe.URL.config/1`, such as \
-              `[signed: ImagePipe.URL.config(keys: [key])]`. A mount picks one with its \
-              `:url` option, so mounts with different signing keys share one instance \
-              and its caches.
+              Named sets of URL options, such as `[signed: [keys: [key]]]`. An \
+              `ImagePipe.Plug` mount picks one with its `:mount` option, so mounts \
+              with different signing keys share one instance and its caches. Each \
+              set takes the URL options of `ImagePipe.config/1` \
+              (#{Enum.map_join(ImagePipe.Config.url_keys(), ", ", &"`#{inspect(&1)}`")}) and \
+              applies them on top of the instance's own, so an option a set leaves out \
+              keeps the instance's value. For a mount that doesn't check signatures, set \
+              `keys: []`, and `source_encryption_keys: []` if the instance has them.
               """
             ],
             config: [
@@ -58,7 +62,7 @@ defmodule ImagePipe.Instance do
   # Validates and builds the configuration up front, so invalid options raise
   # in the caller, as `ImagePipe.Plug.init/1` does.
   def child_spec(options) do
-    {instance, options} = Keyword.split(options, [:name, :urls, :config, :detector_warmup])
+    {instance, options} = Keyword.split(options, [:name, :mounts, :config, :detector_warmup])
 
     case NimbleOptions.validate(instance, @schema) do
       {:ok, instance} ->
@@ -66,14 +70,14 @@ defmodule ImagePipe.Instance do
         config = %{base_config(instance[:config], options) | instance: name}
         check_warmup_classes!(config, instance[:detector_warmup])
 
-        urls =
-          Map.new(instance[:urls], fn {url_name, url} ->
-            {url_name, %{Config.override(config, url: url) | instance: name}}
+        mounts =
+          Map.new(instance[:mounts], fn {mount, url_options} ->
+            {mount, mount_config!(config, mount, url_options)}
           end)
 
         %{
           id: name,
-          start: {__MODULE__, :start_link, [{name, config, urls, instance[:detector_warmup]}]},
+          start: {__MODULE__, :start_link, [{name, config, mounts, instance[:detector_warmup]}]},
           type: :supervisor
         }
 
@@ -82,20 +86,31 @@ defmodule ImagePipe.Instance do
     end
   end
 
+  # Cross-option checks, such as `encrypt_source` without keys, run when the
+  # mount's configuration is built, so name the mount in their errors.
+  defp mount_config!(config, mount, url_options) do
+    Config.put_url_options(config, url_options)
+  rescue
+    error in ArgumentError ->
+      reraise ArgumentError,
+              [message: "invalid ImagePipe instance: mounts.#{mount}: #{error.message}"],
+              __STACKTRACE__
+  end
+
   defp base_config(nil, options), do: Config.new!(options)
   defp base_config(config, options), do: Config.override(config, options)
 
-  def start_link({name, _config, _urls, _warmup} = instance),
+  def start_link({name, _config, _mounts, _warmup} = instance),
     do: Supervisor.start_link(__MODULE__, instance, name: name)
 
   @impl true
-  def init({name, config, urls, warmup}) do
+  def init({name, config, mounts, warmup}) do
     # The publisher starts after the caches, so a published configuration
     # always has its cache processes. A cache restart leaves the publisher
     # running.
     children =
       Cache.child_specs(config.options) ++
-        [{Publisher, {name, config, urls}}] ++ warmup_children(config, warmup)
+        [{Publisher, {name, config, mounts}}] ++ warmup_children(config, warmup)
 
     Supervisor.init(children, strategy: :one_for_one)
   end
@@ -131,9 +146,30 @@ defmodule ImagePipe.Instance do
   end
 
   @doc false
-  def validate_urls(urls) do
-    if Keyword.keyword?(urls) and Enum.all?(urls, &match?({_name, %URLConfig{}}, &1)),
-      do: {:ok, urls},
-      else: {:error, "expected a keyword list of ImagePipe.URL.config/1 values"}
+  def validate_mounts(mounts) do
+    names = if Keyword.keyword?(mounts), do: Keyword.keys(mounts), else: []
+
+    cond do
+      not Keyword.keyword?(mounts) ->
+        {:error, "expected a keyword list of named sets of URL options"}
+
+      nil in names ->
+        {:error, "a mount can't be named nil"}
+
+      names != Enum.uniq(names) ->
+        {:error, "mount names must be unique, got #{inspect(names -- Enum.uniq(names))} twice"}
+
+      true ->
+        Enum.reduce_while(mounts, {:ok, mounts}, &validate_mount/2)
+    end
+  end
+
+  defp validate_mount({name, options}, acc) do
+    case Keyword.keyword?(options) and
+           NimbleOptions.validate(options, Config.url_options_schema()) do
+      {:ok, _options} -> {:cont, acc}
+      {:error, error} -> {:halt, {:error, "#{name}: #{Exception.message(error)}"}}
+      false -> {:halt, {:error, "#{name}: expected a keyword list of URL options"}}
+    end
   end
 end

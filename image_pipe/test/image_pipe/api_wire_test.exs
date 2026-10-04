@@ -74,9 +74,7 @@ defmodule ImagePipe.APIWireTest do
   # already documents) — appended AFTER `ImagePipe.Plug.init/1`'s validation,
   # which would reject them as unknown options.
   defp opts(extra) do
-    {url_options, extra} = Keyword.split(extra, [:keys])
-    url = ImagePipe.URL.config(url_options)
-    base = ImagePipe.Plug.init(Keyword.merge([url: url, sources: @default_sources], extra))
+    base = ImagePipe.Plug.init(Keyword.merge([sources: @default_sources], extra))
 
     Keyword.merge(base, output_capabilities: %{avif: true, webp: true})
   end
@@ -182,7 +180,7 @@ defmodule ImagePipe.APIWireTest do
 
       assert_raise ArgumentError, fn ->
         ImagePipe.Plug.init(
-          url: ImagePipe.URL.config(keys: ["not a hex key"]),
+          keys: ["not a hex key"],
           sources: @default_sources
         )
       end
@@ -609,7 +607,7 @@ defmodule ImagePipe.APIWireTest do
       config = opts(keys: [@source_key_a, @source_key_b])
 
       second_key_signs =
-        ImagePipe.Plug.init(url: ImagePipe.URL.config(keys: [@source_key_b, @source_key_a]))
+        ImagePipe.Plug.init(keys: [@source_key_b, @source_key_a])
 
       sig = ImagePipe.Security.sign("/w=64/src/images/cat.jpg", second_key_signs)
 
