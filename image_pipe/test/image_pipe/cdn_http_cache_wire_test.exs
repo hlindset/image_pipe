@@ -700,9 +700,11 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
       assert conn.status == 200
 
-      assert_received {:http_cache, event, metadata}
-      assert event == prefix ++ [:http_cache, :prepare]
+      prepare = prefix ++ [:http_cache, :prepare]
+      assert_received {:http_cache, ^prepare, metadata}
       assert metadata == %{effective_mode: :auto, byte_identity: :strong, etag: true}
+      # A response prepares its headers once, so metrics count it once.
+      refute_received {:http_cache, ^prepare, _metadata}
     end
 
     test "a matching conditional request emits the conditional-match event", %{prefix: prefix} do
