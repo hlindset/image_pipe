@@ -89,11 +89,11 @@ defmodule ImagePipe.Source do
   alias ImagePipe.Source.CachePolicy
   alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Input
-  alias ImagePipe.Source.Mounts
   alias ImagePipe.Source.Origin
   alias ImagePipe.Source.Parser
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
+  alias ImagePipe.Source.Routes
   alias ImagePipe.Source.WrappedStream
   alias ImagePipe.Telemetry
 
@@ -161,7 +161,7 @@ defmodule ImagePipe.Source do
   @http_cache_policies [:inherit, :validators, :auto, :public, :private]
 
   # Adapter runtime options: body limit, transport timeouts, and telemetry.
-  # HTTP and S3 honor these timeout overrides when called directly; mount
+  # HTTP and S3 honor these timeout overrides when called directly; source
   # configuration rejects them as unknown keys.
   @runtime_option_keys [
     :max_body_bytes,
@@ -242,7 +242,7 @@ defmodule ImagePipe.Source do
   @spec validate_config(keyword()) :: {:ok, keyword()} | {:error, error() | String.t()}
   def validate_config(opts) when is_list(opts) do
     with {:ok, policy} <- CachePolicy.validate(Keyword.get(opts, :source_cache_policy, [])),
-         {:ok, sources} <- Mounts.validate(Keyword.get(opts, :sources, [])) do
+         {:ok, sources} <- Routes.validate(Keyword.get(opts, :sources, [])) do
       {:ok, opts |> Keyword.put(:sources, sources) |> Keyword.put(:source_cache_policy, policy)}
     end
   end
@@ -269,12 +269,12 @@ defmodule ImagePipe.Source do
     do: "invalid source_cache_policy: #{message}"
 
   # Translates a host-configured source string into a plan source that a
-  # configured mount serves. `opts` holds validated mounts.
+  # configured source serves. `opts` holds the validated sources.
   @doc false
   @spec translate_configured(String.t(), keyword()) :: {:ok, PlanSource.t()} | {:error, term()}
   def translate_configured(source, opts) when is_binary(source) do
     with {:ok, plan_source} <- Parser.translate(source, opts),
-         {:ok, _name, _source} <- Mounts.route(plan_source, mounts(opts)) do
+         {:ok, _name, _source} <- Routes.route(plan_source, routes(opts)) do
       {:ok, plan_source}
     end
   end
@@ -286,8 +286,8 @@ defmodule ImagePipe.Source do
     do: resolve_with(Input, [], nil, source, runtime_opts, [])
 
   def resolve(source, opts, runtime_opts) do
-    with {:ok, name, source} <- Mounts.route(source, mounts(opts)),
-         {:ok, module, adapter_opts} <- Mounts.fetch(mounts(opts), name) do
+    with {:ok, name, source} <- Routes.route(source, routes(opts)),
+         {:ok, module, adapter_opts} <- Routes.fetch(routes(opts), name) do
       resolve_with(
         module,
         adapter_opts,
@@ -314,7 +314,7 @@ defmodule ImagePipe.Source do
     end)
   end
 
-  defp mounts(opts), do: Keyword.get(opts, :sources, %Mounts{})
+  defp routes(opts), do: Keyword.get(opts, :sources, %Routes{})
 
   # Sources that read the same originals share cache entries, so a source's
   # name stays out of the identity. Built-in adapters name every setting that
@@ -359,7 +359,7 @@ defmodule ImagePipe.Source do
   defp stable_terms(term), do: term
 
   defp mount_config(%Resolved{mount: nil}, _opts), do: {:ok, Input, []}
-  defp mount_config(%Resolved{mount: name}, opts), do: Mounts.fetch(mounts(opts), name)
+  defp mount_config(%Resolved{mount: name}, opts), do: Routes.fetch(routes(opts), name)
 
   defp apply_cache_policy({:ok, resolved}, defaults) do
     semantics = resolved.cache_semantics

@@ -179,18 +179,18 @@ defmodule ImagePipe do
   ## Inputs
 
     * `{:source, source}` - a source the configuration's
-      [source mounts](sources.md#routing-image-paths-to-sources) resolve, as for an HTTP
+      [configured sources](sources.md#routing-image-paths-to-sources) resolve, as for an HTTP
       request: a path, an HTTP(S) URL such as
       `"https://assets.example.com/cat.jpg"`, an S3 identifier, or a custom
       scheme. Pass the source without the `src/` marker or the URL escaping
-      of the request path. The mount's network, redirect, timeout, and
+      of the request path. The source's network, redirect, timeout, and
       content-type policies apply. These inputs use the configuration's
       caches, so `run/4` and HTTP requests reuse each other's stored copies
       when the plan, `Accept` preferences, and request inputs match.
     * `{:file, path}` - a local file, by absolute path or relative to the
       current working directory. Symlinks are followed, and the path must
       end at a regular file. The path isn't confined to a directory. Use a
-      `{:source, path}` with an `ImagePipe.Source.File` mount for that.
+      `{:source, path}` with an `ImagePipe.Source.File` source for that.
     * `{:binary, bytes}` - an encoded image in memory, such as an upload.
 
   `{:file, path}` and `{:binary, bytes}` inputs are never cached. Every input
@@ -234,7 +234,7 @@ defmodule ImagePipe do
       the plan can't be parsed.
     * `{:source, reason}` - the source or a watermark source couldn't be
       read, such as `{:source, :enoent}` for a missing file,
-      `{:source, :not_found}` for a source no mount matches, or
+      `{:source, :not_found}` for a path no configured source matches, or
       `{:source, :body_too_large}`.
     * `{:input_limit, reason}` - the decoded image exceeds
       `:max_input_pixels` or `:max_input_frames`.

@@ -731,7 +731,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
 
   # Changes the validated options of the `url` mount in place.
   defp update_url_mount(config, fun) do
-    update_in(config, [:sources, Access.key!(:mounts), :url], fn {module, opts} ->
+    update_in(config, [:sources, Access.key!(:sources), :url], fn {module, opts} ->
       {module, fun.(opts)}
     end)
   end

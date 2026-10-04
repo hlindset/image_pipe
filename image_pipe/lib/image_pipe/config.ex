@@ -432,7 +432,7 @@ defmodule ImagePipe.Config do
           {Atom.to_string(name), %{source: source, opacity: Keyword.fetch!(entry, :opacity)}}
 
         {:error, _reason} ->
-          raise_watermark!(name, "source does not reach a configured mount")
+          raise_watermark!(name, "no configured source serves this path")
       end
     end)
   end

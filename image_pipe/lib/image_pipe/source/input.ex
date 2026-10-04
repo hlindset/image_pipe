@@ -2,7 +2,7 @@ defmodule ImagePipe.Source.Input do
   @moduledoc false
 
   # Direct `{:file, path}` and `{:binary, bytes}` inputs. `ImagePipe.Source`
-  # resolves and fetches them here without a mount.
+  # resolves and fetches them here without a configured source.
 
   alias ImagePipe.Source
   alias ImagePipe.Source.CacheSemantics

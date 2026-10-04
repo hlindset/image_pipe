@@ -1,7 +1,7 @@
 defmodule ImagePipe.Execution.Watermarks do
   @moduledoc false
   # Watermark assets are additional request inputs. Each distinct asset
-  # resolves through the configured source mounts and, for remote sources, the
+  # resolves through the configured sources and, for remote sources, the
   # input cache, exactly like the main source. Assets are acquired in tasks
   # that run while the caller acquires the main source.
   #

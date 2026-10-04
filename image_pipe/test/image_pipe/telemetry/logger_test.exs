@@ -123,7 +123,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "[warning]"
   end
 
-  test "names the source mount on resolve and fetch lines" do
+  test "names the source on resolve and fetch lines" do
     prefix = [__MODULE__, :source_mount]
     Telemetry.attach_default_logger(prefix: prefix)
 

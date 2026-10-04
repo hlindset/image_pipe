@@ -7,14 +7,18 @@ defmodule ImagePipe.Source.Parser do
   #   * no `scheme://` prefix — a root-relative `%Plan.Source.Path{}`. The
   #     decoded string is split into segments on `/` with no further decoding.
   #     An optional leading slash is normalized for ordinary root-relative paths.
-  #   * `http://` or `https://` (when a mount matches the scheme) — an absolute `%Plan.Source.URL{}`. Inner URL
-  #     path escapes are decoded once here and re-encoded by the HTTP adapter.
-  #   * `s3://` (when a mount matches the scheme) — an `%Plan.Source.Object{}` with the query carried as its
-  #     immutable revision.
-  #   * a custom scheme a mount matches — a `%Plan.Source.Path{}` tagged with
-  #     that scheme, holding the part after `scheme://` split on `/`.
-  #   * anything else (a scheme no mount matches, built-in or custom, an empty
-  #     source, or a malformed authority) — `{:error, {:invalid_source, reason}}`.
+  #   * `http://` or `https://` (when a configured source matches the scheme) —
+  #     an absolute `%Plan.Source.URL{}`. Inner URL path escapes are decoded
+  #     once here and re-encoded by the HTTP adapter.
+  #   * `s3://` (when a configured source matches the scheme) — an
+  #     `%Plan.Source.Object{}` with the query carried as its immutable
+  #     revision.
+  #   * a custom scheme a configured source matches — a `%Plan.Source.Path{}`
+  #     tagged with that scheme, holding the part after `scheme://` split on
+  #     `/`.
+  #   * anything else (a scheme no configured source matches, built-in or
+  #     custom, an empty source, or a malformed authority) —
+  #     `{:error, {:invalid_source, reason}}`.
   #
   # `ImagePipe.Source.resolve/3` consumes the returned `Plan.Source.t()`
   # unchanged.
@@ -24,7 +28,7 @@ defmodule ImagePipe.Source.Parser do
   alias ImagePipe.Plan.Source.Object
   alias ImagePipe.Plan.Source.Path
   alias ImagePipe.Plan.Source.URL
-  alias ImagePipe.Source.Mounts
+  alias ImagePipe.Source.Routes
 
   @http_schemes %{"http" => :http, "https" => :https}
   @scheme_prefix ~r/^([a-zA-Z][a-zA-Z0-9+.\-]*):\/\//
@@ -49,7 +53,7 @@ defmodule ImagePipe.Source.Parser do
   end
 
   defp url_translate(scheme, source, config) do
-    if Mounts.scheme?(Keyword.get(config, :sources, %Mounts{}), scheme),
+    if Routes.scheme?(Keyword.get(config, :sources, %Routes{}), scheme),
       do: scheme_translate(scheme, source),
       else: {:error, {:invalid_source, {:unsupported_scheme, scheme}}}
   end

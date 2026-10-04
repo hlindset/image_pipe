@@ -12,7 +12,7 @@ defmodule ImagePipeServer.Config do
     * `[url]` - the signing and source-encryption options of
       `ImagePipe.config/1`. `base_url`, `encrypt_source`, and `iv_mode` only
       affect URL generation and are not accepted.
-    * `[sources.<name>]` - named source mounts
+    * `[sources.<name>]` - named sources
       (see `ImagePipeServer.Config.Sources`).
     * `[cache]` - `output` and `input` `ImagePipe.Cache.FileSystem` caches, and
       `storage_inputs` as `[{ header = "..." }, { cookie = "..." }]`.

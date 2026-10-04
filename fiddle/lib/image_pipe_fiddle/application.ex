@@ -53,10 +53,10 @@ defmodule ImagePipeFiddle.Application do
   end
 
   @doc false
-  # Source adapters mounted for the image endpoint. The local File source is
+  # Sources configured for the image endpoint. The local File source is
   # always available; s3 (via the opt-in s3proxy compose service) lets the demo
   # compare source adapters on byte-identical sample images.
-  def source_mounts do
+  def sources do
     static_root = Application.app_dir(:image_pipe_fiddle, "priv/static")
     s3 = Application.fetch_env!(:image_pipe_fiddle, :s3_source)
 
@@ -120,7 +120,7 @@ defmodule ImagePipeFiddle.Application do
   defp api_opts do
     [
       presets: @presets,
-      sources: source_mounts(),
+      sources: sources(),
       watermarks: %{
         logo: [source: "watermarks/logo.png"],
         mark: [source: "watermarks/mark.png"],
