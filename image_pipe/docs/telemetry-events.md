@@ -105,6 +105,7 @@ preset lookup, and URL parsing. Why a request was rejected is on the
   - `:result` (atom): `:ok` or `:error`.
   - `:sig_key_index` (integer): the position in the key list of the key that
     verified the signature (`0` for the first key), on success. Absent for an unsigned request.
+    The default Logger shows it as `(signing key 1)`.
 
 ### `[:preset, :lookup]`
 

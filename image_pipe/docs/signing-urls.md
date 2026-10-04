@@ -142,9 +142,22 @@ nodes run the app, deploy `keys: [old, new]` to every node first, then
 `keys: [new, old]`, so no node signs with a key another node doesn't accept
 yet.
 
-To see which key verified a request, read `:sig_key_index` from the
-`[:image_pipe, :parse]` stop event (see [telemetry events](telemetry-events.md)).
-It is `1` for a URL signed with the key second in the list.
+To see which key verified each request, turn on request logging. Set
+`log_level` in the server's
+[`[telemetry]`](../../image_pipe_server/docs/server-configuration.md#telemetry),
+or call `ImagePipe.Telemetry.attach_default_logger/1` for the Plug. Each
+signed request logs the position of its key in the server's list, counting
+from `0`:
+
+```text
+image_pipe parse: ok (signing key 1)
+```
+
+During step 4, the server's list is `[old, new]`, so `signing key 0` means a
+URL signed with the old key was requested. With one shared `[new, old]`
+list, the old key is `signing key 1`. In your app, a custom handler reads the
+same number as `:sig_key_index` from the `[:image_pipe, :parse]` stop event
+(see [telemetry events](telemetry-events.md)).
 
 ## Next steps
 

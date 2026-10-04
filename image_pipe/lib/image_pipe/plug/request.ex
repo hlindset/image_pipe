@@ -28,6 +28,9 @@ defmodule ImagePipe.Plug.Request do
       end
 
     case result do
+      {%Spec{} = request, source, nil} ->
+        {{:ok, request, source}, %{result: :ok}}
+
       {%Spec{} = request, source, key_index} ->
         {{:ok, request, source}, %{result: :ok, sig_key_index: key_index}}
 

@@ -410,6 +410,9 @@ defmodule ImagePipe.Telemetry.Logger do
     end
   end
 
+  defp message([:parse | _], _m, %{sig_key_index: index} = meta),
+    do: "image_pipe parse: #{outcome(meta)} (signing key #{index})"
+
   defp message([:preset, :lookup | _], _m, %{result: :error} = meta),
     do: "image_pipe preset lookup: error (#{meta[:reason]})"
 

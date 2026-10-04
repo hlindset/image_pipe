@@ -31,6 +31,14 @@ defmodule ImagePipe.Plug.SourceEncryptionTest do
     assert source == @source
   end
 
+  test "an unsigned request leaves the signing key out of the parse metadata" do
+    config = Config.validate!(url: ImagePipe.URL.config([]))
+    conn = Plug.Test.conn(:get, "/w=12/src/a.jpg")
+
+    assert {{:ok, _request, _source}, metadata} = ParsedRequest.parse(conn, config)
+    assert metadata == %{result: :ok}
+  end
+
   test "signature validation precedes token validation", %{config: config} do
     invalid_conn = Plug.Test.conn(:get, "/sig=invalid/w=12/enc/not/a/token")
 
