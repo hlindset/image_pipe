@@ -462,9 +462,9 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
       Telemetry.span(
         [],
         [:encode, :search, :probe],
-        %{quality: 62, phase: :confirm},
+        %{quality: 62, phase: :objective},
         fn ->
-          {:ok, %{bytes: 12_345, index: 1, score: 90.42, full_frame_score: 90.42, passed?: true}}
+          {:ok, %{bytes: 12_345, index: 1, score: 90.42}}
         end
       )
 
@@ -479,13 +479,11 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert probe.trace_id == search.trace_id
     assert is_integer(probe.duration_native)
 
-    assert probe.attributes[:phase] == :confirm
+    assert probe.attributes[:phase] == :objective
     assert probe.attributes[:quality] == 62
     assert probe.attributes[:bytes] == 12_345
     assert probe.attributes[:index] == 1
     assert probe.attributes[:score] == 90.42
-    assert probe.attributes[:full_frame_score] == 90.42
-    assert probe.attributes[:passed?] == true
   end
 
   test "folds the delivered-probe chosen marker onto the enclosing search span" do
