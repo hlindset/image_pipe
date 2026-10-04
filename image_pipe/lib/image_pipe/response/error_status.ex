@@ -80,6 +80,7 @@ defmodule ImagePipe.Response.ErrorStatus do
       do: :unavailable
 
   def classify({:session, :timeout}), do: :unavailable
+  def classify({:preset, :too_many_presets}), do: :bad_request
   def classify({:preset, :lookup_unavailable}), do: :unavailable
 
   def classify(_other), do: :server_error
@@ -200,6 +201,7 @@ defmodule ImagePipe.Response.ErrorStatus do
   def message_for({:processing, :queue_timeout}), do: "image processing queue timeout"
   def message_for({:processing, :overloaded}), do: "image processing overloaded"
   def message_for({:processing, :unavailable}), do: "image processing unavailable"
+  def message_for({:preset, :too_many_presets}), do: "too many presets"
   def message_for({:preset, :lookup_unavailable}), do: "preset lookup unavailable"
   def message_for({:preset, :invalid_definition}), do: "configuration error"
 

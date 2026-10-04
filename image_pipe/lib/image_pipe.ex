@@ -254,7 +254,9 @@ defmodule ImagePipe do
       `:unavailable` or `:not_ready`, or the plan names detection classes
       the detector lacks (`{:unknown_classes, names}`).
     * `{:preset, reason}` - the configuration's preset lookup failed:
-      `:lookup_unavailable`, or `:invalid_definition`.
+      `:too_many_presets` when the plan names more presets to look up than
+      `:max_preset_lookups` allows, `:lookup_unavailable`, or
+      `:invalid_definition`.
     * `{:invalid_source, reason}` - the input isn't one of the tuples above,
       the source isn't valid UTF-8, or the source or a `watermark_source` in
       the plan can't be parsed.

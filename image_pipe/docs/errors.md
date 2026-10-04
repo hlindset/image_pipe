@@ -32,12 +32,12 @@ detail than the response, which deliberately says less.
 
 | Status | When |
 | --- | --- |
-| `400` | The URL doesn't parse, fails validation, or names a source scheme that no configured source serves. Validation fails for `sig` on a server without signing keys, `enc/` or `wm-enc` on a server without source encryption keys, or a `detect` class that the configured detector doesn't support. The body lists the problems. |
+| `400` | The URL doesn't parse, fails validation, names more [stored presets](storing-presets-in-a-database.md) than the configuration allows, or names a source scheme that no configured source serves. Validation fails for `sig` on a server without signing keys, `enc/` or `wm-enc` on a server without source encryption keys, or a `detect` class that the configured detector doesn't support. The body lists the problems. |
 | `403` | A required signature is missing or wrong. The body is always `invalid signature`. |
 | `404` | No key on the server decrypts an encrypted source token. |
 | `405` | The method isn't `GET`, `HEAD`, or `OPTIONS`. The response carries `Allow`. |
 | `410` | The request's `expires` time has passed. |
-| `500` | A looked-up preset definition is invalid, or the request looks up more presets than the configuration allows. |
+| `500` | A looked-up preset definition is invalid, or the presets that stored definitions reference bring the request above the number of lookups the configuration allows. |
 | `501` | Detection was requested, the configuration requires it, and the detector can't detect the requested classes in this build. When detection isn't required, such requests [fall back to attention cropping](content-aware-gravity.md#missing-or-failed-detection). |
 | `503` | The preset lookup is unavailable, or detection was requested, the configuration requires it, and the detection models aren't downloaded yet. |
 

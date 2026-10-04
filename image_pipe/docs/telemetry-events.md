@@ -119,8 +119,8 @@ define, so `ImagePipe.PresetLookup` is called. Nested in `[:parse]`, or in
   - `:result` (atom): `:ok` or `:error`.
   - `:fetched` (integer): definitions the lookup returned.
   - `:batches` (integer): calls to `fetch/2`.
-  - `:reason` (atom): `:lookup_unavailable` or `:invalid_definition`, on
-    failure.
+  - `:reason` (atom): `:too_many_presets`, `:lookup_unavailable`, or
+    `:invalid_definition`, on failure.
 
 ### `[:processing, :admission]`
 

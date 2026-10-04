@@ -29,7 +29,8 @@ defmodule ImagePipe.PresetLookup do
   always before any source or cache access. Each call receives the unresolved
   names for one nesting level, so a request without nested looked-up
   references makes one call. `:max_preset_lookups` (default `32`) caps the
-  distinct names one request may look up. The URL builder never calls the
+  distinct names one request may look up, counting the names in the request
+  and the names their definitions reference. The URL builder never calls the
   lookup.
 
   ## Results and statuses
@@ -39,7 +40,8 @@ defmodule ImagePipe.PresetLookup do
   | A requested name is missing from the map | `400` | `{:invalid_request, issues}` |
   | `{:error, reason}`, a raise, an exit, a value other than `{:ok, map}`, or a non-string fragment | `503` | `{:preset, :lookup_unavailable}` |
   | A fragment that doesn't parse, references an unknown preset, or forms a cycle | `500` | `{:preset, :invalid_definition}` |
-  | More than `:max_preset_lookups` distinct names | `500` | `{:preset, :invalid_definition}` |
+  | The request itself names more than `:max_preset_lookups` presets to look up | `400` | `{:preset, :too_many_presets}` |
+  | References in looked-up definitions bring the total above `:max_preset_lookups` | `500` | `{:preset, :invalid_definition}` |
 
   Names in the returned map that were not requested are ignored. Each call
   emits the `[:image_pipe, :preset, :lookup]` telemetry span.
