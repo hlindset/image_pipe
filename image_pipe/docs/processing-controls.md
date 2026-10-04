@@ -34,14 +34,13 @@ pool, so jobs and requests share its capacity.
 
 ### image_pipe_server
 
-The server runs a pool by default, with `max_concurrency` set to its CPU
-cores and `max_queue` to 64. Change the limits in a `[pool]` section of
+The server always runs a pool. Change its limits in a `[pool]` section of
 `config.toml`:
 
 ```toml
 [pool]
 max_concurrency = 8
-max_queue = 64
+max_queue = 16
 ```
 
 <!-- tabs-close -->
@@ -51,7 +50,7 @@ max_queue = 64
 - `max_concurrency` is how many images are processed at once. Start with
   about the number of CPU cores, which is the server's default.
 - `max_queue` is how many requests may wait for a turn. A request that finds
-  the queue full gets a `503`. In an app it defaults to `0`, which sends a
+  the queue full gets a `503`. With the Plug it defaults to `0`, which sends a
   `503` to every request beyond `max_concurrency`. The server defaults to 64.
 - `queue_timeout`, 1 second by default, is how long a request waits for a
   turn before it gets a `503`.

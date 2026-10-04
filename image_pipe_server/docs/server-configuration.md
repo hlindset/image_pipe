@@ -48,7 +48,7 @@ quality = 82
 
 [pool]
 max_concurrency = 8
-max_queue = 64
+max_queue = 16
 ```
 
 ## Environment variables

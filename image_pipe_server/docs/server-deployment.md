@@ -201,24 +201,24 @@ Whether a response is cached also depends on its source mount:
 ## Processing capacity
 
 The server processes as many images at once as it has CPU cores, counting a
-container's CPU limit, and up to 64 more requests wait for a slot. A request
+container's CPU limit, and up to 64 more requests wait for a turn. A request
 that finds the queue full, or waits longer than `queue_timeout` (one second),
-gets a `503`, so a burst of traffic is turned away instead of running the
-server out of memory. Change the limits with `max_concurrency`, `max_queue`
-and `queue_timeout` in `[pool]`. See
+gets a `503`. Change the limits with `max_concurrency`, `max_queue`, and
+`queue_timeout` in `[pool]`. See
 [limiting concurrent processing](../../image_pipe/docs/processing-controls.md).
 
 Each image also uses several threads in libvips, the image library. Under a
-container CPU limit, the server sets `VIPS_CONCURRENCY` to that limit, so an
-image uses at most that many threads. Set `VIPS_CONCURRENCY` yourself to
-change it.
+container CPU limit, the server sets `VIPS_CONCURRENCY` to that limit, rounded
+up, which sets how many threads libvips uses for each image. Set
+`VIPS_CONCURRENCY` yourself to change it.
 
 ## Memory allocator
 
-The image runs the server with the jemalloc memory allocator, which returns
+The Docker image runs the server with the jemalloc memory allocator, which returns
 memory that image processing frees. glibc's default allocator keeps much of
 it. Set `IMAGE_PIPE_ALLOCATOR=glibc` to use glibc instead. The server also
-uses glibc when jemalloc can't load on the host. With glibc, the server sets
+uses glibc when jemalloc can't load on the host, and logs a line saying so.
+With glibc, the server sets
 `MALLOC_ARENA_MAX=2`, which limits how much freed memory glibc keeps, unless
 you set it yourself.
 
