@@ -249,6 +249,23 @@ defmodule ImagePipe.SourceTest do
     assert identity.("photos") == identity.("cached")
   end
 
+  test "a custom source's regex option keeps its identity when compiled again" do
+    identity = fn pattern ->
+      source = [
+        adapter: ImagePipe.SourceTest.ValidAdapter,
+        match: [prefix: "photos"],
+        options: [pattern: Regex.compile!(pattern, "i")]
+      ]
+
+      {:ok, config} = Source.validate_config(sources: [photos: source])
+      {:ok, resolved} = Source.resolve(%Path{segments: ["photos", "cat.jpg"]}, config, [])
+      resolved.identity
+    end
+
+    assert identity.("a+") == identity.("a+")
+    refute identity.("a+") == identity.("b+")
+  end
+
   test "validate_config preserves adapter validation error context" do
     assert Source.validate_config(
              sources: [path: [adapter: InvalidConfigAdapter, match: :path, options: []]]

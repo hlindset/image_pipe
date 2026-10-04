@@ -329,9 +329,27 @@ defmodule ImagePipe.Source do
   defp adapter_identity(module, _opts) when module in @builtin_adapters, do: [source: module]
 
   defp adapter_identity(module, opts) do
-    digest = opts |> Keyword.drop(@cache_setting_keys) |> ImagePipe.MaterialDigest.of()
+    digest =
+      opts
+      |> Keyword.drop(@cache_setting_keys)
+      |> stable_terms()
+      |> ImagePipe.MaterialDigest.of()
+
     [source: module, options: Base.encode16(digest, case: :lower)]
   end
+
+  # A compiled regex serializes differently each time it is compiled.
+  defp stable_terms(%Regex{} = regex), do: {Regex, Regex.source(regex), Regex.opts(regex)}
+  defp stable_terms(list) when is_list(list), do: Enum.map(list, &stable_terms/1)
+
+  defp stable_terms(tuple) when is_tuple(tuple),
+    do: tuple |> Tuple.to_list() |> stable_terms() |> List.to_tuple()
+
+  defp stable_terms(%module{} = struct),
+    do: struct(module, struct |> Map.from_struct() |> stable_terms())
+
+  defp stable_terms(map) when is_map(map), do: Map.new(map, fn {k, v} -> {k, stable_terms(v)} end)
+  defp stable_terms(term), do: term
 
   defp mount_config(%Resolved{mount: nil}, _opts), do: {:ok, Input, []}
   defp mount_config(%Resolved{mount: name}, opts), do: Mounts.fetch(mounts(opts), name)
