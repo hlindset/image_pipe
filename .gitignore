@@ -43,6 +43,9 @@ image_pipe/config/*.test.exs
 # Setup log written by the WorktreeCreate hook (scripts/worktree-create.sh)
 .worktree-setup.log
 
+# Setup log written by the cloud SessionStart hook (scripts/cloud-session-start.sh)
+.cloud-setup.log
+
 # Various local deploy files
 local
 

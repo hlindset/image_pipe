@@ -4,8 +4,9 @@
       {
         "hooks": [
           {
-            "command": "bd prime --hook-json",
-            "type": "command"
+            "command": "\"$CLAUDE_PROJECT_DIR/scripts/cloud-session-start.sh\"; bd prime --hook-json",
+            "type": "command",
+            "timeout": 1200
           }
         ],
         "matcher": ""
