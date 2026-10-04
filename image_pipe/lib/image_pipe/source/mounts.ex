@@ -29,11 +29,13 @@ defmodule ImagePipe.Source.Mounts do
 
   @spec validate(term()) :: {:ok, t()} | {:error, {:source, term()}}
   def validate(sources) when is_list(sources) do
-    if Keyword.keyword?(sources) and unique_names?(sources),
-      do: add_mounts(sources),
-      else:
-        {:error,
-         {:source, {:invalid_sources, "expected a keyword list of uniquely named sources"}}}
+    if Keyword.keyword?(sources) and unique_names?(sources) do
+      with {:ok, mounts} <- add_mounts(sources),
+           :ok <- unique_file_roots(mounts),
+           do: {:ok, mounts}
+    else
+      {:error, {:source, {:invalid_sources, "expected a keyword list of uniquely named sources"}}}
+    end
   end
 
   def validate(_sources),
@@ -87,6 +89,30 @@ defmodule ImagePipe.Source.Mounts do
     if segments == [] or Enum.any?(segments, &(&1 in ["", ".", ".."])),
       do: {:error, {:source, :denied_path}},
       else: {:ok, name, source}
+  end
+
+  # File caches identify files by root_id, so one root_id naming two
+  # directories would serve one directory's cached files for the other's.
+  defp unique_file_roots(%__MODULE__{mounts: mounts}) do
+    roots =
+      for {_name, {ImagePipe.Source.File, opts}} <- mounts,
+          uniq: true,
+          do: {opts[:root_id], opts[:root]}
+
+    duplicate =
+      roots
+      |> Enum.frequencies_by(&elem(&1, 0))
+      |> Enum.find(fn {_root_id, count} -> count > 1 end)
+
+    case duplicate do
+      nil ->
+        :ok
+
+      {root_id, _count} ->
+        {:error,
+         {:source,
+          {:invalid_sources, "root_id #{inspect(root_id)} names more than one directory"}}}
+    end
   end
 
   defp unique_names?(sources), do: sources |> Keyword.keys() |> then(&(Enum.uniq(&1) == &1))

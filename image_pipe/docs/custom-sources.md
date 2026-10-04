@@ -66,7 +66,9 @@ it when no cached copy can be used. Three things matter most, and the
 
 - `identity` must name everything that selects different bytes, here the
   bucket and the ID. Two originals with the same identity share cache
-  entries. Keep secrets out of it.
+  entries. Keep secrets out of it. ImagePipe adds a hash of the source's
+  options, apart from the cache settings, so two sources with different
+  options never share entries.
 - `CacheSettings.fields/2` fills in the cache fields from the standard
   `stable`, `cache_policy`, `internal_cache`, and `http_cache` options, which
   `CacheSettings.schema/0` adds to your schema. `copy?: true` keeps a copy of

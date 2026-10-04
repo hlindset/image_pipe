@@ -743,13 +743,14 @@ defmodule ImagePipe.PlugTest do
     assert get_resp_header(conn, "connection") == []
     assert_received {:cache_get, key}
 
-    assert key.data[:source_identity] == [
+    assert [
              kind: :path,
              adapter: :test_http_root,
              root: "http://origin.test",
              path: ["images", "beach.jpg"],
-             mount: :path
-           ]
+             source: ImagePipe.SourceTest.RootHTTPAdapter,
+             options: <<_::binary-size(64)>>
+           ] = key.data[:source_identity]
 
     refute_received :origin_was_called
   end

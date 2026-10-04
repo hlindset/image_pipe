@@ -152,20 +152,6 @@ defmodule ImagePipe.SourceTest do
       assert {:ok, %Resolved{mount: :buckets}} = Source.resolve(object, config, [])
     end
 
-    test "each mount contributes its name to the source identity" do
-      config = mounted([mount(:a, prefix: "a"), mount(:b, prefix: "b")])
-
-      identities =
-        for segments <- [["a", "cat.jpg"], ["b", "cat.jpg"]] do
-          {:ok, resolved} = Source.resolve(%Path{segments: segments}, config, [])
-          resolved.identity
-        end
-
-      assert [[_ | _] = a, [_ | _] = b] = identities
-      assert a[:mount] == :a
-      assert b[:mount] == :b
-    end
-
     test "fetch and cache preparation dispatch through the resolving mount" do
       config = mounted([mount(:a, [prefix: "a"], name: :a), mount(:b, [prefix: "b"], name: :b)])
 
@@ -236,6 +222,31 @@ defmodule ImagePipe.SourceTest do
                  ]
                )
     end
+  end
+
+  test "custom sources share originals only when their options match, apart from cache settings" do
+    adapter = ImagePipe.SourceTest.ValidAdapter
+
+    source = fn prefix, options ->
+      [adapter: adapter, match: [prefix: prefix], options: options]
+    end
+
+    assert {:ok, config} =
+             Source.validate_config(
+               sources: [
+                 photos: source.("photos", bucket: "photos"),
+                 avatars: source.("avatars", bucket: "avatars"),
+                 cached: source.("cached", bucket: "photos", http_cache: :inherit)
+               ]
+             )
+
+    identity = fn prefix ->
+      {:ok, resolved} = Source.resolve(%Path{segments: [prefix, "cat.jpg"]}, config, [])
+      resolved.identity
+    end
+
+    refute identity.("photos") == identity.("avatars")
+    assert identity.("photos") == identity.("cached")
   end
 
   test "validate_config preserves adapter validation error context" do

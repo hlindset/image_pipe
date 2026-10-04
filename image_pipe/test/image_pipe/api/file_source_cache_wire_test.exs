@@ -166,6 +166,49 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
     refute_received {:fetch, _result}
   end
 
+  test "two sources over one root_id share cached images and ETags", ctx do
+    file_source = fn prefix ->
+      [
+        adapter: ImagePipe.Source.File,
+        match: [prefix: prefix],
+        options: [root: ctx.root, root_id: "media", stable: :immutable]
+      ]
+    end
+
+    opts = mount(ctx, sources: [media: file_source.("media"), photos: file_source.("photos")])
+
+    first = get(@path, opts)
+    assert_received {:cache_put, _key, _body}
+    flush_fetches()
+
+    second = get("/w=12/format=png/src/photos/beach.jpg", opts)
+    assert second.resp_body == first.resp_body
+    assert get_resp_header(second, "etag") == get_resp_header(first, "etag")
+    refute_received {:cache_put, _key, _body}
+    refute_received {:fetch, _result}
+  end
+
+  test "one root_id for two directories fails configuration", ctx do
+    other = Path.join(ctx.root, "other")
+
+    assert_raise ArgumentError, ~r/root_id/, fn ->
+      mount(ctx,
+        sources: [
+          media: [
+            adapter: ImagePipe.Source.File,
+            match: [prefix: "media"],
+            options: [root: ctx.root, root_id: "media"]
+          ],
+          other: [
+            adapter: ImagePipe.Source.File,
+            match: [prefix: "other"],
+            options: [root: other, root_id: "media"]
+          ]
+        ]
+      )
+    end
+  end
+
   test "a watermark from a file mount keeps the response cacheable", ctx do
     File.cp!("priv/static/images/beach.jpg", Path.join(ctx.root, "mark.jpg"))
     opts = mount(ctx, watermarks: %{mark: [source: "media/mark.jpg"]})

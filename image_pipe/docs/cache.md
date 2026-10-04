@@ -87,9 +87,13 @@ The originals cache uses the original's identifier, the cachebuster, the
 output format don't, so every size and format of one original shares one
 stored copy.
 
-A custom source adapter must include everything that selects different
-origin bytes in the identity it returns from `resolve/3`, or two different
-originals can share cache entries (see [Writing a custom source](custom-sources.md)).
+A source's name isn't part of the key, so renaming a source keeps its
+entries. For a custom source, every option apart from the cache settings
+`stable`, `cache_policy`, `internal_cache`, and `http_cache` is part of the
+key. Within one source, the identity a custom adapter returns from
+`resolve/3` must name everything that selects different origin bytes, or
+two different originals can share cache entries (see
+[Writing a custom source](custom-sources.md)).
 
 ## Originals cache
 

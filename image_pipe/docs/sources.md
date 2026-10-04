@@ -75,8 +75,10 @@ of a prefix: `asset://photos/beach.jpg` reaches its source as the path
 sources.
 
 A prefix always wins, so the `path` source can't serve a top-level folder
-named like a prefix. Each source has its own cache entries, even when two
-sources read the same files. The source's name appears in
+named like a prefix. Renaming a source keeps its cache entries, and sources
+that read the same originals can share them (see
+[originals and processed images](caching-and-freshness.md#originals-and-processed-images)).
+The source's name appears in
 [telemetry events](telemetry-events.md#common-metadata) as `:source_mount`.
 
 Requests that no source serves fail:
