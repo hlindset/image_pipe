@@ -42,10 +42,17 @@ defmodule ImagePipe.Plug.Request do
   end
 
   # Request-time preset lookup replaces the static map with the request's
-  # compiled closure. Static-only requests skip it.
+  # compiled closure. Static-only requests skip it, and the option pass that
+  # finds the names, which `Parser.parse/2` would repeat.
   defp presets(lexed, config) do
-    with {:ok, presets} <- Presets.for_request(Parser.preset_names(lexed), config),
-         do: {:ok, Keyword.put(config, :presets, presets)}
+    case config[:preset_lookup] do
+      nil ->
+        {:ok, config}
+
+      _lookup ->
+        with {:ok, presets} <- Presets.for_request(Parser.preset_names(lexed), config),
+             do: {:ok, Keyword.put(config, :presets, presets)}
+    end
   end
 
   def prepare(%Spec{} = request, source, config, accept_header) do
