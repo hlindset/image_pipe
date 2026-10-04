@@ -1,54 +1,24 @@
 # Building URLs for the server
 
-In this guide we'll run `image_pipe_server` so that it serves only signed
-URLs, then create an Elixir app that builds signed URLs for it with
+In this guide we'll configure `image_pipe_server` to serve only signed URLs,
+then create an Elixir app that builds signed URLs for it with
 `image_pipe_url`.
 
-You need Docker, port 8080 free, Elixir 1.18 or newer, and a JPEG photo.
+Work through
 [Getting started with the server](../../image_pipe_server/docs/server-getting-started.md)
-covers the server's basics in more detail.
+first. You also need Elixir 1.18 or newer.
 
-## Starting the server
+## Adding a signing key
 
-Create a working directory with an `images` folder, and copy your photo into
-it as `photo.jpg`:
-
-```bash
-mkdir -p image-server/images
-cd image-server
-cp /path/to/your/photo.jpg images/photo.jpg
-```
-
-The examples below use a 4000×2667 photo. With your photo, the widths match
-and the heights follow its proportions.
-
-The server and the app share a secret signing key. Generate one into an
-environment variable, and keep this terminal open, since the app needs the
-same key later:
+The server and the app share a secret signing key. In the `image-server`
+directory from the server guide, generate one into an environment variable.
+Keep this terminal open, since the app needs the same key later:
 
 ```bash
 export IMAGE_PIPE_SIGNING_KEY="$(openssl rand -hex 32)"
 ```
 
-Create `config.toml` in the `image-server` directory:
-
-```toml
-# config.toml
-[sources.photos]
-adapter = "file"
-match = "path"
-root = "/data/images"
-root_id = "photos"
-
-[processing.presets]
-card = "w=400/h=300/fit=cover"
-```
-
-The `photos` source reads originals from the folder we mount at
-`/data/images`. `card` is a preset, a named set of options that URLs can
-refer to as `preset=card`.
-
-Start the server with the key in `IPS_URL__KEYS`:
+Start the server as before, now with the key in `IPS_URL__KEYS`:
 
 ```bash
 docker run -d --name image-server -p 8080:8080 \
@@ -58,15 +28,9 @@ docker run -d --name image-server -p 8080:8080 \
   ghcr.io/hlindset/image_pipe_server:0.1.0
 ```
 
-Open <http://localhost:8080/health>. Within a second or two it shows `ok`.
-
 With a signing key set, the server refuses URLs without a valid signature.
-Open <http://localhost:8080/w=400/src/photo.jpg>:
-
-```text
-GET /w=400/src/photo.jpg
-403 Forbidden, body: invalid signature
-```
+<http://localhost:8080/w=400/src/photo.jpg>, which worked before, now
+answers `403` with the body `invalid signature`.
 
 ## Creating the app
 
@@ -116,36 +80,32 @@ iex> url_config =
 ...>   )
 ```
 
-Let's build a URL that uses the `card` preset:
+Let's build a signed URL for a 400×300 crop of the photo:
 
 ```elixir
-iex> card = ImagePipe.URL.new(url_config) |> ImagePipe.URL.group(presets: ["card"])
-iex> ImagePipe.URL.url!(card, "photo.jpg")
-"http://localhost:8080/sig=1D5In_g8YgQxxxZDqgkAoZM2uKmZllppEO6bExfkft4/preset=card/src/photo.jpg"
+iex> thumbnail =
+...>   ImagePipe.URL.new(url_config)
+...>   |> ImagePipe.URL.group(resize: [width: 400, height: 300, fit: :cover])
+iex> ImagePipe.URL.url!(thumbnail, "photo.jpg")
+"http://localhost:8080/sig=4awb0-qKf4y4nPx6pMtsC7tzfn2MAY3gYzpUJ1ZeUGQ/w=400/h=300/fit=cover/src/photo.jpg"
 ```
 
-Your signature differs, since your key does. Open the URL in a browser:
+The `sig=` value is computed from your key, so yours is different. Open
+your URL in a browser:
 
 ```text
-GET /sig=.../preset=card/src/photo.jpg (in Chrome)
+GET /sig=.../w=400/h=300/fit=cover/src/photo.jpg (in Chrome)
 200 OK, content-type: image/avif, 400×300
 ```
 
-Notice that:
-
-- The `sig=` segment signs everything after it. The server checks it with
-  the same key and serves the image.
-- `preset=card` names the preset, and the server applies its definition,
-  `w=400/h=300/fit=cover`. The app needs only the name.
-- The app can put this URL in an `<img>` tag. The browser gets the URL, never
-  the key.
+Notice that the `sig=` segment signs everything after it, and the server
+checks it with the same key before serving the image.
 
 ## Changing the options
 
-Edit the URL in the browser and add `w=800/` after `preset=card/`. The
-server answers `403` with the body `invalid signature`, because the
-signature no longer matches the options. Every change needs a URL built
-with the key:
+Edit the URL in the browser and change `w=400` to `w=800`. The server
+answers `403` with the body `invalid signature`, because the signature no
+longer matches the options. Every change needs a URL built with the key:
 
 ```elixir
 iex> wide = ImagePipe.URL.new(url_config) |> ImagePipe.URL.group(resize: [width: 800])
@@ -158,21 +118,6 @@ Open it:
 ```text
 GET /sig=.../w=800/src/photo.jpg
 200 OK, content-type: image/avif, 800×533
-```
-
-`resize: [width: 800]` becomes `w=800` in the URL.
-
-The builder signs any preset name, but only the server has the preset
-definitions. A URL with `presets: ["cards"]` is signed correctly, and the server
-answers `400`:
-
-```text
-invalid transformation options
-
-/sig=*******************************************/preset=cards/src/photo.jpg
-                                                 ^^^^^^^^^^^^
-                                                 |
-                                                 unknown preset: cards
 ```
 
 When you're done, stop and remove the container:

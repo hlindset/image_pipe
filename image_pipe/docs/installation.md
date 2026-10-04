@@ -34,7 +34,7 @@ with `415`, even if the installed libvips has a loader for them.
 ## Installing only the URL builder
 
 An application that only generates URLs for a separate image service can depend
-on the URL builder alone. It needs no libvips or NIFs:
+on the pure Elixir URL builder alone:
 
 ```elixir
 {:image_pipe_url, "~> 0.1.0"}
