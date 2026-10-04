@@ -90,6 +90,11 @@ defmodule ImagePipe.URLTest do
     assert IP.URL.url(IP.URL.new(), "secret-source", iv: :random) ==
              {:error, :source_encryption_disabled}
 
+    for options <- [[iv: nil], [unknown: "private"], [iv: :random, unknown: 1]] do
+      assert IP.URL.url(IP.URL.new(), "secret-source", options) ==
+               {:error, :invalid_encryption_options}
+    end
+
     assert_raise ArgumentError, fn -> IP.URL.config(encrypt_source: true) end
     assert_raise ArgumentError, fn -> encrypted_config(iv_mode: <<0::128>>) end
     assert_raise ArgumentError, fn -> encrypted_config(keys: []) end

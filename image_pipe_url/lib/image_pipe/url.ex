@@ -191,10 +191,10 @@ defmodule ImagePipe.URL do
     * `{:error, :invalid_source}` - the source is empty or not valid UTF-8.
     * `{:error, :too_many_options}` - the plan has more than 64 option and
       `-` segments, the most the server accepts.
-    * `{:error, :source_encryption_disabled}` - options were given and the
-      configuration doesn't have `encrypt_source: true`.
+    * `{:error, :source_encryption_disabled}` - a valid `:iv` was given and
+      the configuration doesn't have `encrypt_source: true`.
     * `{:error, :invalid_encryption_options}` - an option other than `:iv`,
-      or a malformed `:iv`, with `encrypt_source: true`.
+      or a malformed `:iv`.
   """
   @spec url(t(), String.t(), keyword()) ::
           {:ok, String.t()}

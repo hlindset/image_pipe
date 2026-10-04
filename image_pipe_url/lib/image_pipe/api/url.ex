@@ -52,8 +52,12 @@ defmodule ImagePipe.API.URL do
   defp source_segments(source, _config, [], false),
     do: {:ok, source_segments(source)}
 
+  defp source_segments(_source, _config, [iv: iv], false)
+       when iv in [:deterministic, :random] or (is_binary(iv) and byte_size(iv) == 16),
+       do: {:error, :source_encryption_disabled}
+
   defp source_segments(_source, _config, _options, false),
-    do: {:error, :source_encryption_disabled}
+    do: {:error, :invalid_encryption_options}
 
   # Browsers normalize dot path segments even when the dots are percent-encoded.
   defp source_segments(source) when source in [".", ".."],
