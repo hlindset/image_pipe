@@ -469,7 +469,7 @@ access when `palette` is off.
 the host target, `autoquality=80` sets a SSIMULACRA2 target above 0 and up to
 100, and `autoquality=false` disables a configured search. The search picks
 the lowest quality that reaches the target within internal per-format rails
-(25–95, AVIF 20–80) and delivers the highest rail quality when the target is
+(25–95, AVIF 20–90) and delivers the highest rail quality when the target is
 out of reach. Large-image searches use crop scoring with a content-dependent
 correction.
 

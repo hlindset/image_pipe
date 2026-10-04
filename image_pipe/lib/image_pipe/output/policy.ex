@@ -13,16 +13,16 @@ defmodule ImagePipe.Output.Policy do
   # Qualities the search may try per format, wide enough for the targets people
   # use (bench/autoquality.md, Part N). They only stop pathological images from
   # running off to the ends of the scale.
-  @search_rails %{jpeg: {25, 95}, webp: {25, 95}, avif: {20, 80}}
+  @search_rails %{jpeg: {25, 95}, webp: {25, 95}, avif: {20, 90}}
   @default_search_rails {25, 95}
   @search_tolerance 0.5
 
   # Median quality that reaches each target, per format (Part N). The search
   # starts there, interpolating between targets and extending the end segments.
   @start_quality %{
-    jpeg: [{72, 71}, {75, 76}, {78, 82}],
-    webp: [{72, 74}, {75, 78}, {78, 83}],
-    avif: [{72, 52}, {75, 56}, {78, 63}]
+    jpeg: [{70, 67}, {72, 71}, {75, 76}, {78, 82}, {80, 85}, {85, 90}],
+    webp: [{70, 67}, {72, 74}, {75, 78}, {78, 83}, {80, 85}, {85, 90}],
+    avif: [{70, 50}, {72, 52}, {75, 56}, {78, 63}, {80, 68}, {85, 81}]
   }
 
   @enforce_keys [

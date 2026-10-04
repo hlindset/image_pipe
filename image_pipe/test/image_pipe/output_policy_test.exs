@@ -293,7 +293,7 @@ defmodule ImagePipe.Output.PolicyTest do
       assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch.Ssimulacra2{} = avif}} =
                Policy.resolve(policy_with(search, format: :avif), nil)
 
-      assert {avif.min_quality, avif.max_quality} == {20, 80}
+      assert {avif.min_quality, avif.max_quality} == {20, 90}
 
       assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch.Ssimulacra2{} = jpeg}} =
                Policy.resolve(policy_with(search, format: :jpeg), nil)
@@ -315,7 +315,7 @@ defmodule ImagePipe.Output.PolicyTest do
     test "extends the calibration past its targets and keeps the start inside the rails" do
       high = %QualitySearch{target: 95.0}
 
-      assert {:ok, %Resolved{quality_search: %{start_quality: 80}}} =
+      assert {:ok, %Resolved{quality_search: %{start_quality: 90}}} =
                Policy.resolve(policy_with(high, format: :avif), nil)
 
       low = %QualitySearch{target: 73.5}

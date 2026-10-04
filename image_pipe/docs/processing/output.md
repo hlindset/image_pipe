@@ -138,7 +138,7 @@ quality, 70 is high, and 50 is medium.
 - `autoquality=80` sets the target for this request.
 - `autoquality=false` turns off a search the server turns on.
 
-The search tries qualities from 25 to 95, or 20 to 80 for AVIF. An image that
+The search tries qualities from 25 to 95, or 20 to 90 for AVIF. An image that
 can't reach the target within that range is delivered at the highest quality.
 Each quality tried is encoded and scored, so a request that searches takes
 several times as long as a single encode. Cached responses don't search again.
