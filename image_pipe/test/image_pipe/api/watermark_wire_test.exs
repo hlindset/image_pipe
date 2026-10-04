@@ -211,11 +211,12 @@ defmodule ImagePipe.API.WatermarkWireTest do
       refute_received {:origin_fetch, _path}
     end
 
-    test "a concealed watermark from a preset on a mount without encryption keys is a 400",
+    test "a concealed watermark from a looked-up preset on a mount without encryption keys is a 400",
          %{origin: origin} do
       url = ImagePipe.URL.config(keys: [@signing_key], source_encryption_keys: [@source_key])
       {:ok, token} = ImagePipe.Security.encrypt_source("mark.png", url.options, [])
-      plain = mount(origin, presets: %{"wm" => "wm-enc=#{token}"})
+      lookup = [presets: %{"wm" => "wm-enc=#{token}"}, test_pid: self()]
+      plain = mount(origin, preset_lookup: {ImagePipe.Test.PresetLookup, lookup})
       response = conn(:get, "/preset=wm/format=png/src/image.png") |> ImagePipe.Plug.call(plain)
 
       assert response.status == 400

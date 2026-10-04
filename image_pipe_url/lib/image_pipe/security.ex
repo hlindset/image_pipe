@@ -75,6 +75,9 @@ defmodule ImagePipe.Security do
   def decrypt_source(token, config),
     do: SourceEncryption.decrypt(token, Keyword.fetch!(config, :source_encryption))
 
+  def source_encryption?(config),
+    do: not SourceEncryption.disabled?(Keyword.fetch!(config, :source_encryption))
+
   def extract!(options) do
     {security, options} = Keyword.split(options, Keyword.keys(@options_schema.schema))
 

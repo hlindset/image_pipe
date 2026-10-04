@@ -13,6 +13,7 @@ defmodule ImagePipe.Config do
       ImagePipe.API,
       ImagePipe.Cache,
       ImagePipe.Processing,
+      ImagePipe.Security,
       ImagePipe.Source,
       ImagePipe.URL
     ],
@@ -21,6 +22,7 @@ defmodule ImagePipe.Config do
   alias ImagePipe.API.Presets
   alias ImagePipe.Cache
   alias ImagePipe.Processing.Config, as: ProcessingConfig
+  alias ImagePipe.Security
   alias ImagePipe.Source
   alias ImagePipe.URL.Config, as: URLConfig
 
@@ -164,6 +166,7 @@ defmodule ImagePipe.Config do
           Map.put(validate_against, :watermarks, Map.keys(Keyword.fetch!(validated, :watermarks)))
 
         url = URLConfig.put_validate_against(url, validate_against)
+        concealed_watermarks!(presets, url)
 
         resolved =
           validated
@@ -209,6 +212,33 @@ defmodule ImagePipe.Config do
         raise ArgumentError, "invalid ImagePipe configuration: #{message}"
     end
   end
+
+  # A static wm-enc can only be decrypted with source encryption keys, so a
+  # configuration without them would answer every request using it with a 400.
+  defp concealed_watermarks!(presets, url) do
+    if not Security.source_encryption?(url.options) do
+      defaults = Keyword.fetch!(presets, :request_defaults)
+
+      [
+        {"request_defaults", defaults}
+        | Enum.map(presets[:presets], fn {name, preset} -> {~s(preset "#{name}"), preset} end)
+      ]
+      |> Enum.find(fn {_owner, preset} -> concealed_watermark?(preset) end)
+      |> case do
+        nil ->
+          :ok
+
+        {owner, _preset} ->
+          raise ArgumentError,
+                "invalid ImagePipe configuration: #{owner} uses wm-enc, which needs source_encryption_keys"
+      end
+    end
+  end
+
+  defp concealed_watermark?(%{groups: groups}),
+    do: Enum.any?(groups, fn {_index, group} -> Map.has_key?(group, :watermark_token) end)
+
+  defp concealed_watermark?(nil), do: false
 
   defp lookup_options!(options) do
     case {options[:preset_lookup], options[:max_preset_lookups]} do
