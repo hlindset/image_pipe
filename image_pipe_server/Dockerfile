@@ -75,6 +75,7 @@ COPY image_pipe_url/lib /src/image_pipe_url/lib
 COPY image_pipe/lib /src/image_pipe/lib
 COPY image_pipe/priv/icc /src/image_pipe/priv/icc
 COPY image_pipe_server/lib lib
+COPY image_pipe_server/rel rel
 RUN mix compile && mix release
 
 # Models land under $XDG_CACHE_HOME/image_vision, which the runtime keeps.
