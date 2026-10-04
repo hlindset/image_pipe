@@ -27,6 +27,7 @@ mise exec -- mix autoquality.corpus.capture              # grow the >6 MP screen
 mise exec -- mix autoquality.bench --part m --corpus DIR  # content-classifier feasibility (#359)
 mise exec -- mix autoquality.bench --part m --corpus DIR --downsample 512  # smaller classifier downsample
 mise exec -- mix autoquality.bench --part n --corpus DIR --corpus-cap 6  # target-only calibration (~10 min)
+mise exec -- mix autoquality.bench --part o --corpus DIR --corpus-cap 6  # target-only search vs today (~5 min)
 mise exec -- mix autoquality.bench --part all # A + B + C + D + E + F + G + … + M
 mise exec -- mix autoquality.bench --mps 1,4  # custom Part A megapixels
 mise exec -- mix autoquality.bench --proxy-factors 2,4 --proxy-mp 25  # Part C knobs
@@ -1047,6 +1048,50 @@ Reading:
   photo prior lands within a few steps. Graphics spread widely (WebP p5–p95 at
   75: 42–86), so the search must converge quickly from a poor start, not rely
   on the prior.
+
+### Part O — target-only search vs today's search (image_plug-08wt)
+
+Held-out images: each source's images after Part N's first 6, 40 images (15
+photo, 25 graphic), long edge ≤1600 px, production encoder defaults. All
+variants share one encode/score cache per image and format. `today` is the
+production walk with today's defaults (target 78 ± 1, brackets 70–80, AVIF
+60–65). The others target 75 within rails of 25–95 (AVIF 20–80): `walk-wide`
+is today's walk, `secant` starts at Part N's per-class median and interpolates,
+`secant-noclass` uses one starting quality per format. Hit means delivered ≥
+target − tolerance (1 for `today`, 0.5 for the rest).
+
+| format | variant | hit% | score p10/p50/p90 | probes avg/max | search ms p50 | bytes vs today |
+|---|---|---|---|---|---|---|
+| jpeg | today | 60 | 69.1 / 77.2 / 78.5 | 3.0 / 4 | 201 | 1.00 |
+| jpeg | walk-wide | 100 | 74.7 / 75.4 / 75.9 | 4.0 / 6 | 221 | 0.99 |
+| jpeg | secant | 100 | 74.8 / 75.4 / 76.0 | 2.9 / 6 | 141 | 1.00 |
+| jpeg | secant-noclass | 100 | 74.7 / 75.1 / 76.1 | 2.7 / 6 | 181 | 1.00 |
+| webp | today | 43 | 69.0 / 74.8 / 81.1 | 3.5 / 4 | 263 | 1.00 |
+| webp | walk-wide | 90 | 73.4 / 75.2 / 75.9 | 4.6 / 7 | 349 | 1.04 |
+| webp | secant | 90 | 73.4 / 75.3 / 75.9 | 3.0 / 6 | 332 | 1.04 |
+| webp | secant-noclass | 90 | 73.4 / 75.3 / 75.9 | 3.0 / 6 | 330 | 1.04 |
+| avif | today | 73 | 71.9 / 78.1 / 83.3 | 2.0 / 3 | 202 | 1.00 |
+| avif | walk-wide | 93 | 74.5 / 75.2 / 75.9 | 4.0 / 6 | 376 | 0.87 |
+| avif | secant | 93 | 74.5 / 75.2 / 75.9 | 3.0 / 6 | 265 | 0.87 |
+| avif | secant-noclass | 93 | 74.5 / 75.2 / 75.9 | 2.7 / 6 | 265 | 0.87 |
+
+Reading:
+
+- **The target now decides the result.** Hit rates rise from 43–73% to
+  90–100%, and the delivered score's p10–p90 shrinks from about 12 points to
+  about 2.
+- **Secant matches the wide walk's results with a third fewer probes** (about
+  3 instead of 4–4.6), roughly today's count, and costs about the same time as
+  today's narrow search.
+- **The content-class prior adds nothing.** `secant-noclass` matches `secant`
+  on hits and needs as few or fewer probes, so the search doesn't need
+  `ContentClassifier`.
+- **Every miss is at the rail ceiling** (7 of 120 cases, all graphics:
+  `windows95.png`, `phoboslab.org.png`, `news.ycombinator.com.png`, one CLIC
+  screenshot). Those images can't reach 75 at WebP q95 or AVIF q80. The search
+  isn't failing them, the format is.
+- **Bytes.** AVIF −13%, JPEG unchanged, WebP +4%. WebP photos cost +9%
+  because today ships most of them below target (13% hit, median 74.2).
 
 ## Findings & recommendations
 
