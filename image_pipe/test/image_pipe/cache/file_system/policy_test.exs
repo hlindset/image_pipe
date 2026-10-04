@@ -1,5 +1,6 @@
 defmodule ImagePipe.Cache.FileSystem.PolicyTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias ImagePipe.Cache.FileSystem.Policy
 
@@ -142,6 +143,27 @@ defmodule ImagePipe.Cache.FileSystem.PolicyTest do
     test "admits unconditionally when victim list is empty (no comparison needed)" do
       candidate = descriptor(size_bytes: 100, cost_us: 1)
       assert Policy.admit?(candidate, [], fn _ -> 0 end) == true
+    end
+  end
+
+  # Admission hands the walk only the first `limit + 1` LRU entries of each
+  # queue instead of copying whole queues.
+  property "victim_walk/4 needs at most limit + 1 entries from each queue" do
+    check all(
+            probationary <- list_of(integer(1..50), max_length: 12),
+            protected <- list_of(integer(1..50), max_length: 12),
+            needed <- integer(0..400),
+            limit <- integer(1..6)
+          ) do
+      probationary = Enum.map(probationary, &descriptor(size_bytes: &1))
+      protected = Enum.map(protected, &descriptor(size_bytes: &1))
+
+      assert Policy.victim_walk(
+               Enum.take(probationary, limit + 1),
+               Enum.take(protected, limit + 1),
+               needed,
+               limit
+             ) == Policy.victim_walk(probationary, protected, needed, limit)
     end
   end
 end
