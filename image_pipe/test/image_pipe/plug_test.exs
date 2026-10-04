@@ -426,7 +426,7 @@ defmodule ImagePipe.PlugTest do
       quality_search: :none,
       quality_search_offsets: %{
         default: 2.4,
-        overrides: %{{:avif, :graphic} => 6.0}
+        overrides: %{}
       },
       max_bytes: nil,
       strip_metadata: true,

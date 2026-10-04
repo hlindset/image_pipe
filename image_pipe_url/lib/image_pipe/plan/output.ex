@@ -7,11 +7,11 @@ defmodule ImagePipe.Plan.Output do
   # The confirm-skipped crop-estimate correction per `{format, content-class}`
   # (#380). Above the 6 MP crop crossover the `:ssim2` search ships the crop verdict
   # minus this offset (the full-frame confirm #369 removed); a larger offset biases
-  # the estimate down so the search climbs to higher quality. AVIF × `:graphic`
-  # (dense graphic content) overshoots full-frame by ~6 and draws the big offset;
-  # every other cell stays at the lean 2.4 default. A defaulted seam (like
-  # `flatten_background`): no parser overrides it today.
-  @default_quality_search_offsets %{default: 2.4, overrides: %{{:avif, :graphic} => 6.0}}
+  # the estimate down so the search climbs to higher quality. Every cell uses
+  # 2.4: with AVIF encoded without chroma subsampling, AVIF × `:graphic` no
+  # longer needs its own offset (residual p90 2.14, bench Part M rerun). A
+  # defaulted seam (like `flatten_background`): no parser overrides it today.
+  @default_quality_search_offsets %{default: 2.4, overrides: %{}}
 
   @type format :: :avif | :webp | :jpeg | :png
   @type quality :: :default | {:quality, 1..100}

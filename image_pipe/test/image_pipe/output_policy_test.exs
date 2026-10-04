@@ -339,8 +339,7 @@ defmodule ImagePipe.Output.PolicyTest do
       assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch.Ssimulacra2{} = rs}} =
                Policy.resolve(policy_with(search, format: :avif), nil)
 
-      # avif × graphic draws the big offset; photo keeps the lean default.
-      assert rs.quality_search_offsets == %{photo: 2.4, graphic: 6.0}
+      assert rs.quality_search_offsets == %{photo: 2.4, graphic: 2.4}
     end
 
     test "a non-avif format keeps the lean default for both classes" do
