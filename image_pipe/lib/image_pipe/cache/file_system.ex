@@ -73,8 +73,8 @@ defmodule ImagePipe.Cache.FileSystem do
   @doc """
   Reads a cached response and materializes its complete body as a binary.
 
-  Returns `{:hit, entry}`, `:miss`, or `{:error, reason}`. The cached file is
-  verified before reading, and its descriptor is closed before returning.
+  Returns `{:hit, entry}`, `:miss`, or `{:error, reason}`. The cached file's
+  size is checked before reading, and its descriptor is closed before returning.
   """
   @impl true
   def get(key, opts) do
