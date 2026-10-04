@@ -66,6 +66,7 @@ services:
       - signing_keys
     volumes:
       - ./config.toml:/etc/image_pipe/config.toml:ro
+      - ./images:/data/images:ro
       - image-cache:/var/cache/image_pipe
 
 secrets:
