@@ -133,19 +133,25 @@ defmodule ImagePipe.Response.Sender do
     conn |> put_resp_header("content-length", Integer.to_string(size)) |> send_resp(200, "")
   end
 
-  # The kernel copies the body to the socket. A body that disappears before
-  # the copy starts, such as one evicted meanwhile, aborts the response.
+  # The kernel copies the body to the socket. send_file reopens the body by
+  # path, so a body evicted since it was opened fails there, before any
+  # headers go out. The open descriptor still reads it.
   def send_body(conn, %ImagePipe.Cache.File{} = file) do
     send_file(conn, 200, file.path, 0, file.size)
   rescue
     exception ->
-      if client_gone?(exception) do
-        Logger.info("cached_body_client_closed: #{Exception.message(exception)}")
-        # The adapter already wrote the headers; nothing more can be sent.
-        %{conn | state: :file}
-      else
-        Logger.error("cached_body_read_error: #{Exception.message(exception)}")
-        mark_send_processing_error(conn)
+      cond do
+        client_gone?(exception) ->
+          Logger.info("cached_body_client_closed: #{Exception.message(exception)}")
+          # The adapter already wrote the headers; nothing more can be sent.
+          %{conn | state: :file}
+
+        transport_error?(exception) ->
+          Logger.error("cached_body_read_error: #{Exception.message(exception)}")
+          mark_send_processing_error(conn)
+
+        true ->
+          send_open_file(conn, file)
       end
   end
 
@@ -254,6 +260,27 @@ defmodule ImagePipe.Response.Sender do
     do: error in @client_closure_errors
 
   defp client_gone?(_exception), do: false
+
+  # Bandit raises this only once the headers are on the wire.
+  defp transport_error?(%{__struct__: Bandit.TransportError}), do: true
+  defp transport_error?(_exception), do: false
+
+  defp send_open_file(conn, file) do
+    conn |> send_chunked(200) |> send_open_file_chunks(file)
+  end
+
+  defp send_open_file_chunks(conn, file) do
+    Enum.reduce_while(ImagePipe.Cache.File.stream(file), conn, fn bytes, conn ->
+      case chunk(conn, bytes) do
+        {:ok, conn} -> {:cont, conn}
+        {:error, _reason} -> {:halt, conn}
+      end
+    end)
+  rescue
+    exception ->
+      Logger.error("cached_body_read_error: #{Exception.message(exception)}")
+      mark_send_processing_error(conn)
+  end
 
   defp prepare_chunked_conn(%Plug.Conn{} = conn, %PreparedStream{} = prepared_stream) do
     conn

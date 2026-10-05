@@ -121,21 +121,16 @@ defmodule ImagePipe.Plug.StreamAbortWireTest do
     end
   end
 
-  test "a cache hit whose body can't be read aborts the response" do
+  test "a cache hit whose body is evicted before delivery is still served" do
     path = Path.join(System.tmp_dir!(), "stream-abort-#{System.unique_integer([:positive])}")
     File.write!(path, "cached image bytes")
     on_exit(fn -> File.rm(path) end)
 
-    config = config(cache: {HitCache, path: path, unreadable: true})
+    socket = serve(config(cache: {HitCache, path: path, unreadable: true}))
+    response = read_until(socket, &String.ends_with?(&1, "0\r\n\r\n"))
 
-    log =
-      capture_log(fn ->
-        assert_raise ImagePipe.Plug.StreamAbortedError, fn ->
-          :get |> conn(@path) |> ImagePipe.Plug.call(config)
-        end
-      end)
-
-    assert log =~ "cached_body_read_error"
+    assert response =~ "HTTP/1.1 200"
+    assert response =~ "\r\n\r\n12\r\ncached image bytes\r\n0\r\n\r\n"
   end
 
   describe "a cache hit over a real connection" do
