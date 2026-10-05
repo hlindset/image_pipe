@@ -804,6 +804,23 @@ defmodule ImagePipe.API.ParserTest do
       assert request == elem(parse(["format=webp", "blur=2"]), 1)
     end
 
+    test "an inert issue reports only the locations the URL wrote" do
+      assert {:ok, %Spec{ignored: [issue]} = request} =
+               parse(["w=auto"], "images/cat.jpg", request_defaults: "h=auto")
+
+      assert issue.locations == [{:group, 0, :width}]
+      assert Parser.ignored_keys(request) == ["w"]
+    end
+
+    test "a malformed prerequisite still suppresses inertness after other options drop" do
+      assert {:error, {:invalid_request, diagnostics}} =
+               parse(["w=invalid", "fit=cover", "-", "enlarge"])
+
+      inert = Enum.filter(diagnostics, &(&1.reason == :inert_option))
+      assert [%Diagnostic{message: message}] = inert
+      assert message =~ "enlarge"
+    end
+
     test "an error response also lists the URL's inert options" do
       assert {:error, {:invalid_request, diagnostics}} =
                parse(["crop=600,400", "anchor=top", "focus=0.5,0.5", "trim-symmetry=h"])

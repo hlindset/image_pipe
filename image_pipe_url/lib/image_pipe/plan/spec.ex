@@ -49,10 +49,12 @@ defmodule ImagePipe.Plan.Spec do
 
   # Validates merged request options and drops the inert ones. Dropping one
   # can leave another without its prerequisite, so it repeats until none is
-  # left, and a group left empty is dropped. `explicit?` tells whether the
-  # request itself wrote the option at a location: only those inert options
-  # are returned, as warnings, or alongside the errors. Inherited ones drop
-  # silently, since presets and request defaults are written for many requests.
+  # left, and a group left empty is dropped. Options whose prerequisite is
+  # malformed (`invalid`) stay unreported in every pass. `explicit?` tells
+  # whether the request itself wrote the option at a location: only those
+  # locations are returned, as warnings, or alongside the errors. Inherited
+  # ones drop silently, since presets and request defaults are written for
+  # many requests.
   @doc false
   @spec settle(
           [map()],
@@ -69,7 +71,7 @@ defmodule ImagePipe.Plan.Spec do
 
     case errors do
       [] ->
-        {groups, options, dropped} = drop_inert(groups, options, inert, [])
+        {groups, options, dropped} = drop_inert(groups, options, invalid, inert, [])
         {:ok, groups, options, explicit(dropped, explicit?)}
 
       errors ->
@@ -77,17 +79,21 @@ defmodule ImagePipe.Plan.Spec do
     end
   end
 
-  defp explicit(issues, explicit?),
-    do: Enum.filter(issues, fn issue -> Enum.any?(issue.locations, explicit?) end)
+  defp explicit(issues, explicit?) do
+    for issue <- issues,
+        locations = Enum.filter(issue.locations, explicit?),
+        locations != [],
+        do: %{issue | locations: locations}
+  end
 
-  defp drop_inert(groups, options, [], dropped) do
+  defp drop_inert(groups, options, _invalid, [], dropped) do
     case Enum.reject(groups, &(&1 == %{})) do
       [] -> {[%{}], options, dropped}
       groups -> {groups, options, dropped}
     end
   end
 
-  defp drop_inert(groups, options, inert, dropped) do
+  defp drop_inert(groups, options, invalid, inert, dropped) do
     locations = Enum.flat_map(inert, & &1.locations)
 
     groups =
@@ -101,10 +107,10 @@ defmodule ImagePipe.Plan.Spec do
 
     next =
       groups
-      |> Validation.errors(options, MapSet.new(), nil)
+      |> Validation.errors(options, invalid, nil)
       |> Enum.filter(&(&1.severity == :warning))
 
-    drop_inert(groups, options, next, dropped ++ inert)
+    drop_inert(groups, options, invalid, next, dropped ++ inert)
   end
 
   @doc false

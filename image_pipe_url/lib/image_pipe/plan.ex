@@ -144,15 +144,28 @@ defmodule ImagePipe.Plan do
            Presets.expand(indexed, request, Map.merge(presets, stubs), defaults) do
       groups = expanded.groups |> Enum.sort() |> Enum.map(&elem(&1, 1))
 
-      groups
-      |> Spec.errors(expanded.request, MapSet.new(), watermarks)
-      |> Enum.flat_map(&in_plan_groups(&1, expanded.origins, tainted))
-      |> Enum.reject(&(&1.severity == :warning and not written_in_plan?(&1, indexed)))
-      |> Enum.split_with(&(&1.severity == :warning))
-      |> case do
-        {warnings, []} -> {:ok, warnings}
-        {warnings, errors} -> {:error, errors ++ warnings}
+      # Every location counts as written here; the plan's own are kept once
+      # locations are numbered as the plan numbers its groups.
+      checked = fn issues ->
+        issues
+        |> Enum.flat_map(&in_plan_groups(&1, expanded.origins, tainted))
+        |> Enum.flat_map(&written_in_plan(&1, indexed))
       end
+
+      groups
+      |> Spec.settle(expanded.request, MapSet.new(), watermarks, &any_location/1)
+      |> known_result(checked)
+    end
+  end
+
+  defp any_location(_location), do: true
+
+  defp known_result({:ok, _groups, _options, warnings}, checked), do: {:ok, checked.(warnings)}
+
+  defp known_result({:error, issues}, checked) do
+    case Enum.split_with(checked.(issues), &(&1.severity == :warning)) do
+      {warnings, []} -> {:ok, warnings}
+      {warnings, errors} -> {:error, errors ++ warnings}
     end
   end
 
@@ -172,12 +185,18 @@ defmodule ImagePipe.Plan do
     end
   end
 
-  # Locations here are already numbered as the plan numbers its groups.
-  defp written_in_plan?(issue, indexed) do
-    Enum.any?(issue.locations, fn {:group, index, key} ->
-      indexed |> Map.fetch!(index) |> Map.has_key?(key)
-    end)
+  # Keeps a warning's locations that the plan sets itself. Locations here are
+  # already numbered as the plan numbers its groups.
+  defp written_in_plan(%Issue{severity: :warning} = issue, indexed) do
+    case Enum.filter(issue.locations, fn {:group, index, key} ->
+           indexed |> Map.fetch!(index) |> Map.has_key?(key)
+         end) do
+      [] -> []
+      locations -> [%{issue | locations: locations}]
+    end
   end
+
+  defp written_in_plan(issue, _indexed), do: [issue]
 
   # Referenced preset names in reading order, for request-time lookup.
   @doc false

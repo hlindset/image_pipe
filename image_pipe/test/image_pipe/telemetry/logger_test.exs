@@ -487,7 +487,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
       end)
 
     assert log =~ "[info]"
-    assert log =~ "request ignored options: fit, enlarge"
+    assert log =~ "request ignored options: ok (fit, enlarge)"
   end
 
   test "escalates an encode-search probe exception to warning" do

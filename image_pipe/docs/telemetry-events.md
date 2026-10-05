@@ -114,7 +114,7 @@ effect, which the request [ignores](requesting-images.md#ignored-options).
 `ImagePipe.run/4` emits it too, for options the plan sets. Options that a
 preset or the request defaults supply aren't reported. The default Logger
 logs it at its base level, as
-`image_pipe request ignored options: fit, enlarge`.
+`image_pipe request ignored options: ok (fit, enlarge)`.
 
 - Metadata:
   - `:options` (list of strings): the URL keys of the ignored options, such

@@ -407,7 +407,8 @@ defmodule ImagePipe.Telemetry.Logger do
   end
 
   defp message([:request, :ignored_options | _], _m, meta),
-    do: "image_pipe request ignored options: #{Enum.join(meta[:options], ", ")}"
+    do:
+      "image_pipe request ignored options: #{outcome(meta)} (#{Enum.join(meta[:options], ", ")})"
 
   defp message([:parse | _], _m, %{sig_key_index: index} = meta),
     do: "image_pipe parse: #{outcome(meta)} (signing key #{index})"

@@ -286,6 +286,16 @@ defmodule ImagePipe.URLTest do
                |> IP.URL.output(format: :webp, jpeg_options: [interlace: true])
                |> IP.URL.validate()
 
+      # Validation drops inert options as serving does, so dependents cascade.
+      assert {:ok, warnings} =
+               IP.URL.new(lookup)
+               |> IP.URL.group(presets: ["remote"])
+               |> IP.URL.group(crop_ratio: {3, 2}, crop_ratio_enlarge: true)
+               |> IP.URL.validate()
+
+      assert warnings |> Enum.flat_map(& &1.locations) |> Enum.sort() ==
+               [{:group, 1, :crop_ratio}, {:group, 1, :crop_ratio_enlarge}]
+
       # The unknown preset may supply the width that `fit` needs.
       assert {:ok, []} =
                IP.URL.validate(
