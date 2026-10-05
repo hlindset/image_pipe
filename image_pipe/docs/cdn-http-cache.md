@@ -134,14 +134,19 @@ with `private` in place of `public` when `storage_inputs` names a cookie.
 
 ## Vary
 
-A URL without a `format` option gets its format chosen from the request's
-`Accept` header, and its response carries:
+A URL without a `format` option can get AVIF or WebP chosen from the
+request's `Accept` header. Its response then carries:
 
 ```http
 Vary: Accept
 ```
 
-A URL with a `format` option doesn't vary by `Accept`.
+A URL with a `format` option doesn't vary by `Accept`. Neither does any URL
+when the server can return neither AVIF nor WebP, because they're turned off
+or the server can't encode them. The `auto_avif` and `auto_webp` settings
+turn them off
+([Plug](`ImagePipe.config/1`),
+[server](../../image_pipe_server/docs/server-configuration.md#processing)).
 
 Headers named in `storage_inputs` are added to `Vary` too, in lower case,
 sorted, without duplicates, and ahead of `Accept`. With these settings and no

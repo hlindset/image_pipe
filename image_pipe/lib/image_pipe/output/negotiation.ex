@@ -26,6 +26,10 @@ defmodule ImagePipe.Output.Negotiation do
     end
   end
 
+  # Whether `Accept` can change the format at all, which decides `Vary: Accept`.
+  @spec negotiable?(keyword()) :: boolean()
+  def negotiable?(opts), do: enabled_modern_formats(opts) != []
+
   defp enabled_modern_formats(opts) do
     opts
     |> server_order()

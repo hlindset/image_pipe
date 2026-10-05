@@ -1310,6 +1310,16 @@ defmodule ImagePipe.API.ParserTest do
       end
     end
 
+    test "key=unset next to an unknown preset reports the unknown preset, for every option" do
+      for %OptionSpec{key: key} <- OptionSpec.all(), key != "preset" do
+        assert {:error, {:invalid_request, diagnostics}} =
+                 parse(["preset=nope", key <> "=unset"], "images/cat.jpg", presets: %{}),
+               "expected #{key}=unset with an unknown preset to be rejected"
+
+        assert Enum.any?(diagnostics, &(&1.reason == :unknown_preset))
+      end
+    end
+
     test "unset removes a preset's option and the options that depend on it" do
       config = [presets: %{"brand" => "w=300/wm=logo/wm-opacity=0.5/wm-at=top"}]
 

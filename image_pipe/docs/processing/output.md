@@ -23,7 +23,8 @@ With `format`, the response is always that format. Without it:
 - Otherwise JPEG and PNG originals keep their format, and any other original
   becomes PNG if the result has transparency, JPEG if not.
 - The response carries `Vary: Accept`, because the same URL can return
-  different formats.
+  different formats. If the server can't return AVIF or WebP, the response
+  has no `Vary: Accept`.
 
 The server's configuration can list source formats, such as GIF, that are
 delivered unprocessed. An image request for such an original without

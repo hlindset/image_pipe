@@ -348,7 +348,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     assert get_resp_header(conn, "vary") == ["x-tenant"]
   end
 
-  test "automatic output varies by Accept even with no modern candidates left" do
+  test "automatic output does not vary by Accept when no modern format is available" do
     for extra <- [
           [auto_avif: false, auto_webp: false],
           [output_capabilities: %{avif: false, webp: false}]
@@ -359,14 +359,12 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
       assert conn.status == 200
 
-      # Proof the lever bit: the client accepted AVIF and WebP, and the response
-      # is neither — so `modern_candidates` really was emptied and the selection
-      # deferred to the source format.
+      # The client accepted AVIF and WebP and got neither, so no Accept value
+      # can change the response.
       assert [content_type] = get_resp_header(conn, "content-type")
       assert content_type =~ "image/jpeg", "#{inspect(extra)} did not empty the candidates"
 
-      assert get_resp_header(conn, "vary") == ["Accept"],
-             "lost Vary: Accept for #{inspect(extra)}"
+      assert get_resp_header(conn, "vary") == [], "sent Vary for #{inspect(extra)}"
 
       flush_messages()
     end

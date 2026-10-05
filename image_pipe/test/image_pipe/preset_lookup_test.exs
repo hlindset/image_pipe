@@ -163,6 +163,41 @@ defmodule ImagePipe.PresetLookupTest do
              200
   end
 
+  test "a URL naming more presets than max_preset_lookups is a 400 before any lookup",
+       %{body: body} do
+    config =
+      config(body,
+        presets: %{"static" => "format=png"},
+        preset_lookup: lookup(presets: %{"a" => "w=30", "b" => "blur=1"}),
+        max_preset_lookups: 1,
+        cache: {CacheProbe, []}
+      )
+
+    response = get(config, "/preset=a,b,static/src/photo.png")
+    assert response.status == 400
+    refute_received {:preset_fetch, _names}
+    refute_received :source_fetch
+    refute_received :cache_lookup
+
+    assert IP.validate(config, IP.URL.new() |> IP.URL.group(presets: ["a", "b"])) ==
+             {:error, {:preset, :too_many_presets}}
+
+    assert get(config, "/preset=a,static/src/photo.png").status == 200
+  end
+
+  test "an option unset next to a missing looked-up preset is a 400", %{body: body} do
+    config = config(body, preset_lookup: lookup(presets: %{}), cache: {CacheProbe, []})
+
+    for path <- [
+          "/extend=unset/preset=gone/src/photo.png",
+          "/preset=gone/wm-tile=unset/src/photo.png"
+        ] do
+      assert get(config, path).status == 400, path
+      refute_received :source_fetch
+      refute_received :cache_lookup
+    end
+  end
+
   test "lookup options are validated at init", %{body: body} do
     assert_raise ArgumentError, ~r/requires preset_lookup/, fn ->
       config(body, max_preset_lookups: 4)
