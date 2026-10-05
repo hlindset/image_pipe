@@ -276,11 +276,17 @@ win over the preset's options in the same group, so with a `card` preset of
   request. A `format` you write yourself wins over every preset.
 - Some options replace a related set rather than one value. Writing
   `anchor`, `focus`, or `detect` replaces the preset's whole crop target,
-  `region` replaces its `crop`, `q` replaces its `autoquality`, and `wm`
-  replaces its watermark.
+  `region` replaces its `crop`, `q` replaces its `autoquality` and
+  `format-q`, and `wm` replaces its watermark. A `format-q` in your own URL
+  still wins over your `q` for the formats it lists.
+- `format-q` and the encoder options combine field by field. Your
+  `jpeg-options=quant-table:3` keeps a preset's `progressive`, and a field
+  set in both takes your value.
 - `unset` removes a preset's value as if it had never been set:
   `/preset=brand/wm=unset` removes the watermark. Every option except
-  `preset` accepts `unset`.
+  `preset` accepts `unset`. In `format-q` and the encoder options, `unset`
+  can come first: `jpeg-options=unset,progressive` drops the preset's JPEG
+  settings, then turns on `progressive`.
 
 The server's configuration can also set defaults for the first group of every
 request. Presets and your own options win over them, and `unset` removes them
@@ -322,6 +328,22 @@ Without a `format` option, ImagePipe picks AVIF or WebP when the browser's
 and any other format becomes PNG if the image has transparency, JPEG if not. With
 `format=webp` (or `avif`, `jpeg`, `png`) you always get that format. See
 [formats](processing/output.md#formats) for the details.
+
+## Ignored options
+
+An option that has no effect where it is written is ignored, and the request
+is served as if the URL left it out. `/fit=cover/src/photos/beach.jpg` has no
+width or height for `fit` to use, so it serves the same image as
+`/src/photos/beach.jpg` and shares its cached copy. Each option's reference
+says what it needs.
+
+With the [`debug`](processing/request.md#debug) option, on a server that
+allows debug headers, the response lists the ignored options in
+`X-ImagePipe-Ignored-Options`. Options that a preset or the server's defaults
+supply are ignored without being listed.
+
+Options that contradict each other, such as `crop` and `region` in one group,
+still fail with `400`.
 
 ## Request errors
 

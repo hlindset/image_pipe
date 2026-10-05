@@ -53,9 +53,16 @@ defmodule ImagePipe.Plan.Builder.OutputOptions do
       {:error,
        "expected :image, :blurhash, :lqip_css, :info, or {:info, placeholders} with distinct :blurhash/:lqip_css"}
 
-  def format_qualities([]), do: {:error, "expected at least one format; use :unset to clear"}
+  def format_qualities([:unset | values]) do
+    with {:ok, qualities} <- qualities(values), do: {:ok, {:unset, qualities}}
+  end
 
-  def format_qualities(values) do
+  def format_qualities(values), do: qualities(values)
+
+  defp qualities([]), do: {:error, "expected at least one format; use :unset to clear"}
+  defp qualities([:unset | _values]), do: {:error, "expected :unset at most once, first"}
+
+  defp qualities(values) do
     schema = Enum.map(@formats, &{&1, @quality})
 
     with {:ok, values} <- Options.validate(values, schema) do
@@ -70,9 +77,19 @@ defmodule ImagePipe.Plan.Builder.OutputOptions do
 
   def autoquality(_value), do: {:error, "expected a boolean or a target above 0 and up to 100"}
 
-  def encoder([], _format), do: {:error, "expected at least one option; use :unset to clear"}
+  def encoder([:unset | options], format) do
+    with {:ok, options} <- encoder_options(options, format), do: {:ok, {:unset, options}}
+  end
 
-  def encoder(options, format) do
+  def encoder(options, format), do: encoder_options(options, format)
+
+  defp encoder_options([], _format),
+    do: {:error, "expected at least one option; use :unset to clear"}
+
+  defp encoder_options([:unset | _options], _format),
+    do: {:error, "expected :unset at most once, first"}
+
+  defp encoder_options(options, format) do
     module = encoder_module(format)
 
     with {:ok, values} <- Options.validate(options, module.schema()),

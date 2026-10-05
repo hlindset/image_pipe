@@ -6,6 +6,7 @@ defmodule ImagePipe.BuilderTest do
   alias ImagePipe.API.Parser
   alias ImagePipe.API.Path
   alias ImagePipe.Plan
+  alias ImagePipe.Plan.Spec
 
   # Semantic checks need to know the mount's presets; this mount has none.
   @known IP.URL.config(validate_against: [])
@@ -17,7 +18,7 @@ defmodule ImagePipe.BuilderTest do
       |> IP.URL.group(trim: :auto, padding: 20, background: "#ffffff")
       |> IP.URL.output(format: :webp, quality: 82)
 
-    assert :ok = IP.URL.validate(plan)
+    assert {:ok, []} = IP.URL.validate(plan)
     assert {:ok, first} = Plan.to_spec(plan.plan)
     assert first.orient == :none
     assert first.output.format == :webp
@@ -319,6 +320,13 @@ defmodule ImagePipe.BuilderTest do
              )
   end
 
+  defp reasons({:ok, %Spec{ignored: issues}}),
+    do: {:ok, issues |> Enum.map(& &1.reason) |> Enum.sort()}
+
+  defp reasons({:ok, issues}), do: {:ok, issues |> Enum.map(& &1.reason) |> Enum.sort()}
+  defp reasons({:error, {:invalid_request, diagnostics}}), do: reasons({:error, diagnostics})
+  defp reasons({:error, issues}), do: {:error, issues |> Enum.map(& &1.reason) |> Enum.sort()}
+
   test "semantic failures agree across the two public input boundaries" do
     for {group, output, path} <- [
           {[resize: [fit: :cover]], [], "fit=cover"},
@@ -335,11 +343,7 @@ defmodule ImagePipe.BuilderTest do
            "blur=1/format=webp/jpeg-options=progressive"}
         ] do
       plan = IP.URL.new(@known) |> IP.URL.group(group) |> IP.URL.output(output)
-      assert {:error, issues} = IP.URL.validate(plan)
-      assert {:error, {:invalid_request, diagnostics}} = parse(path)
-
-      assert Enum.sort(Enum.map(issues, & &1.reason)) ==
-               Enum.sort(Enum.map(diagnostics, & &1.reason))
+      assert reasons(IP.URL.validate(plan)) == reasons(parse(path)), path
     end
   end
 
@@ -358,7 +362,7 @@ defmodule ImagePipe.BuilderTest do
       |> IP.URL.group(blur: 1)
       |> IP.URL.output(terminal: :lqip_css, format: :webp, quality: 80)
 
-    assert :ok = IP.URL.validate(plan)
+    assert {:ok, []} = IP.URL.validate(plan)
     assert IP.URL.url!(plan, "cat.jpg") =~ "format=webp/q=80"
 
     assert {:ok,
@@ -387,7 +391,7 @@ defmodule ImagePipe.BuilderTest do
     assert {:error, [issue]} = IP.URL.validate(plan)
     assert issue.reason == :mutually_exclusive_options
 
-    assert :ok = plan |> IP.URL.output(autoquality: false) |> IP.URL.validate()
+    assert {:ok, []} = plan |> IP.URL.output(autoquality: false) |> IP.URL.validate()
   end
 
   property "detection defaults and redundant class weights share canonical intent" do

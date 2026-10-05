@@ -58,7 +58,7 @@ defmodule ImagePipe.PresetLookupTest do
     config = config(body, preset_lookup: lookup(presets: %{"card" => "w=30/format=png"}))
     builder = IP.URL.new(IP.url_config(config)) |> IP.URL.group(presets: ["card"])
 
-    assert :ok = IP.URL.validate(builder)
+    assert {:ok, []} = IP.URL.validate(builder)
     url = IP.URL.url!(builder, "photo.png")
     refute_received {:preset_fetch, _names}
 
@@ -251,7 +251,7 @@ defmodule ImagePipe.PresetLookupTest do
 
     without = config(body, presets: %{"card" => "w=30"})
 
-    assert :ok =
+    assert {:ok, []} =
              IP.URL.validate(
                IP.URL.new(IP.url_config(with_lookup))
                |> IP.URL.group(presets: ["remote"])
@@ -279,7 +279,7 @@ defmodule ImagePipe.PresetLookupTest do
         preset_lookup: lookup(presets: %{"card" => "w=30"})
       )
 
-    assert :ok = IP.validate(config, IP.URL.new() |> IP.URL.group(presets: ["card"]))
+    assert {:ok, []} = IP.validate(config, IP.URL.new() |> IP.URL.group(presets: ["card"]))
     assert_received {:preset_fetch, ["card"]}
 
     assert {:error, {:invalid_request, _issues}} =

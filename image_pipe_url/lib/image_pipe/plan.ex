@@ -81,12 +81,10 @@ defmodule ImagePipe.Plan do
 
   @doc false
   @spec validate(t(), map(), map() | nil, Spec.Validation.watermarks()) ::
-          :ok | {:error, [Issue.t()]}
+          {:ok, [Issue.t()]} | {:error, [Issue.t()]}
   def validate(%__MODULE__{} = plan, presets \\ %{}, defaults \\ nil, watermarks \\ nil) do
-    case to_spec(plan, presets, defaults, watermarks) do
-      {:ok, _request} -> :ok
-      {:error, _issues} = error -> error
-    end
+    with {:ok, request} <- to_spec(plan, presets, defaults, watermarks),
+         do: {:ok, request.ignored}
   end
 
   @doc false
@@ -95,15 +93,21 @@ defmodule ImagePipe.Plan do
   def to_spec(%__MODULE__{} = plan, presets \\ %{}, defaults \\ nil, watermarks \\ nil) do
     indexed = plan |> groups() |> Enum.with_index() |> Map.new(fn {group, i} -> {i, group} end)
 
-    with {:ok, expanded} <- Presets.expand(indexed, plan.options, presets, defaults) do
-      groups = expanded.groups |> Enum.sort() |> Enum.map(&elem(&1, 1))
-
-      case Spec.errors(groups, expanded.request, MapSet.new(), watermarks) do
-        [] -> {:ok, Spec.build(groups, expanded.request)}
-        issues -> {:error, issues}
-      end
+    with {:ok, expanded} <- Presets.expand(indexed, plan.options, presets, defaults),
+         groups = expanded.groups |> Enum.sort() |> Enum.map(&elem(&1, 1)),
+         written? = &written?(&1, indexed, expanded.origins, plan.options),
+         {:ok, groups, options, warnings} <-
+           Spec.settle(groups, expanded.request, MapSet.new(), watermarks, written?) do
+      {:ok, %{Spec.build(groups, options) | ignored: warnings}}
     end
   end
+
+  # Whether the plan itself sets the option, rather than a preset or the
+  # request defaults.
+  defp written?({:group, index, key}, indexed, origins, _options),
+    do: indexed |> Map.fetch!(Map.fetch!(origins, index)) |> Map.has_key?(key)
+
+  defp written?({:request, key}, _indexed, _origins, options), do: Map.has_key?(options, key)
 
   # Validates a plan whose presets a request-time lookup may resolve. When the
   # plan names a preset missing from `presets`, only the groups that name no
@@ -111,7 +115,7 @@ defmodule ImagePipe.Plan do
   # group and of the request.
   @doc false
   @spec validate_known(t(), map(), map() | nil, Spec.Validation.watermarks()) ::
-          :ok | {:error, [Issue.t()]}
+          {:ok, [Issue.t()]} | {:error, [Issue.t()]}
   def validate_known(%__MODULE__{} = plan, presets, defaults, watermarks) do
     indexed = plan |> groups() |> Enum.with_index() |> Map.new(fn {group, i} -> {i, group} end)
 
@@ -140,13 +144,28 @@ defmodule ImagePipe.Plan do
            Presets.expand(indexed, request, Map.merge(presets, stubs), defaults) do
       groups = expanded.groups |> Enum.sort() |> Enum.map(&elem(&1, 1))
 
-      groups
-      |> Spec.errors(expanded.request, MapSet.new(), watermarks)
-      |> Enum.flat_map(&in_plan_groups(&1, expanded.origins, tainted))
-      |> case do
-        [] -> :ok
-        issues -> {:error, issues}
+      # Every location counts as written here; the plan's own are kept once
+      # locations are numbered as the plan numbers its groups.
+      checked = fn issues ->
+        issues
+        |> Enum.flat_map(&in_plan_groups(&1, expanded.origins, tainted))
+        |> Enum.flat_map(&written_in_plan(&1, indexed))
       end
+
+      groups
+      |> Spec.settle(expanded.request, MapSet.new(), watermarks, &any_location/1)
+      |> known_result(checked)
+    end
+  end
+
+  defp any_location(_location), do: true
+
+  defp known_result({:ok, _groups, _options, warnings}, checked), do: {:ok, checked.(warnings)}
+
+  defp known_result({:error, issues}, checked) do
+    case Enum.split_with(checked.(issues), &(&1.severity == :warning)) do
+      {warnings, []} -> {:ok, warnings}
+      {warnings, errors} -> {:error, errors ++ warnings}
     end
   end
 
@@ -165,6 +184,19 @@ defmodule ImagePipe.Plan do
       false -> []
     end
   end
+
+  # Keeps a warning's locations that the plan sets itself. Locations here are
+  # already numbered as the plan numbers its groups.
+  defp written_in_plan(%Issue{severity: :warning} = issue, indexed) do
+    case Enum.filter(issue.locations, fn {:group, index, key} ->
+           indexed |> Map.fetch!(index) |> Map.has_key?(key)
+         end) do
+      [] -> []
+      locations -> [%{issue | locations: locations}]
+    end
+  end
+
+  defp written_in_plan(issue, _indexed), do: [issue]
 
   # Referenced preset names in reading order, for request-time lookup.
   @doc false

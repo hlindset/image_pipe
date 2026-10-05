@@ -88,7 +88,7 @@ builder =
   ImagePipe.URL.new(ImagePipe.url_config(MyApp.Images))
   |> ImagePipe.URL.group(presets: ["spring-sale"])
 
-:ok = ImagePipe.validate(MyApp.Images, builder)
+{:ok, _warnings} = ImagePipe.validate(MyApp.Images, builder)
 ```
 
 A builder in another application passes `preset_lookup: true` in its

@@ -228,28 +228,7 @@ defmodule ImagePipe.Output.PolicyTest do
   end
 
   describe "quality resolution" do
-    test "explicit global quality wins over matching format quality" do
-      policy =
-        policy(%{
-          mode: {:explicit, :webp},
-          quality: {:quality, 80},
-          format_qualities: %{webp: {:quality, 70}}
-        })
-
-      assert Policy.resolve(policy, :jpeg) ==
-               {:ok,
-                %Resolved{
-                  format: :webp,
-                  quality: {:quality, 80},
-                  response_headers: [],
-                  strip_metadata: true,
-                  keep_copyright: true,
-                  color_profile: :strip,
-                  encoder_options: nil
-                }}
-    end
-
-    test "format quality supplies default only when global quality is default" do
+    test "format quality applies when global quality is default" do
       policy =
         policy(%{
           mode: {:explicit, :webp},
@@ -426,6 +405,20 @@ defmodule ImagePipe.Output.PolicyTest do
         )
 
       assert {:ok, %{quality: {:quality, 63}}} = Policy.resolve(policy, nil)
+    end
+
+    test "format in format_qualities wins over an explicit quality" do
+      policy =
+        policy_for(:avif,
+          quality: {:quality, 90},
+          format_qualities: %{avif: {:quality, 50}},
+          default_quality: {:quality, 80}
+        )
+
+      assert {:ok, %{quality: {:quality, 50}}} = Policy.resolve(policy, nil)
+
+      assert {:ok, %{quality: {:quality, 90}}} =
+               Policy.resolve(%{policy | mode: {:explicit, :webp}}, nil)
     end
 
     test "format absent from map falls to the global default" do

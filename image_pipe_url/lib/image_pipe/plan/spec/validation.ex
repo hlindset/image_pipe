@@ -252,8 +252,11 @@ defmodule ImagePipe.Plan.Spec.Validation do
 
   defp issue(reason, scope, keys, detail) do
     locations = Enum.map(keys, &location(scope, &1))
-    %Issue{reason: reason, locations: locations, detail: detail}
+    %Issue{reason: reason, locations: locations, detail: detail, severity: severity(reason)}
   end
+
+  defp severity(:inert_option), do: :warning
+  defp severity(_reason), do: :error
 
   defp location(:request, key), do: {:request, key}
   defp location(index, key), do: {:group, index, key}

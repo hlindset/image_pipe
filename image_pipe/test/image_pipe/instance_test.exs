@@ -90,7 +90,8 @@ defmodule ImagePipe.InstanceTest do
       start_instance(ctx, presets: %{"thumb" => "w=8"})
       builder = ImagePipe.URL.new(ImagePipe.url_config(ctx.name))
 
-      assert ImagePipe.validate(ctx.name, ImagePipe.URL.group(builder, presets: ["thumb"])) == :ok
+      assert ImagePipe.validate(ctx.name, ImagePipe.URL.group(builder, presets: ["thumb"])) ==
+               {:ok, []}
 
       assert {:error, {:invalid_request, _issues}} =
                ImagePipe.validate(ctx.name, ImagePipe.URL.group(builder, presets: ["nope"]))

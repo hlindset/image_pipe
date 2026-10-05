@@ -134,17 +134,14 @@ defmodule ImagePipe.API.ObjectCropWireTest do
     end
   end
 
-  test "inert or malformed detection guides reject before source access" do
+  test "conflicting or malformed detection guides reject before source access" do
     opts = mount(detector: RecordingDetector)
 
     for options <- [
-          "detect=face",
-          "anchor=smart-face",
           "crop=20,20/detect=face/anchor=center",
           "crop=20,20/detect=face/focus=0.5,0.5",
           "crop=20,20/detect=face:0",
-          "crop=20,20/detect=face:1000001",
-          "crop=20,20/anchor=smart-face/anchor-offset=1,2"
+          "crop=20,20/detect=face:1000001"
         ] do
       assert response(options, opts).status == 400
       refute_received :origin_fetch

@@ -360,6 +360,17 @@ defmodule ImagePipe.Telemetry do
     |> :telemetry.execute(Map.new(measurements), clean_metadata(metadata))
   end
 
+  # Inert options the request wrote, which parsing dropped: their URL keys and
+  # locations. Never their values, which come from the URL.
+  @doc false
+  @spec ignored_options(keyword(), [String.t()], [struct()]) :: :ok
+  def ignored_options(telemetry_opts, keys, issues) do
+    execute(telemetry_opts, [:request, :ignored_options], %{}, %{
+      options: keys,
+      locations: Enum.flat_map(issues, & &1.locations)
+    })
+  end
+
   @doc false
   @spec telemetry_opts(keyword()) :: keyword()
   def telemetry_opts(opts) when is_list(opts) do

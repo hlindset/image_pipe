@@ -33,6 +33,13 @@ defmodule ImagePipe.Plan.Presets do
   ]
   @crop_modifiers [:crop_ratio, :crop_ratio_enlarge]
   @request_override_families [[:quality, :autoquality]]
+  @field_merged_options [
+    :format_qualities,
+    :jpeg_options,
+    :png_options,
+    :webp_options,
+    :avif_options
+  ]
 
   @type compiled :: %{groups: %{non_neg_integer() => map()}, request: map()}
 
@@ -252,8 +259,34 @@ defmodule ImagePipe.Plan.Presets do
   defp merge_request(next, previous) do
     previous
     |> prune_families(next, @request_override_families)
-    |> Map.merge(next)
+    |> prune_format_qualities(next)
+    |> Map.merge(next, &merge_request_value/3)
   end
+
+  # `q` sets every format, so a layer's `q` replaces lower layers' per-format
+  # qualities. Within one layer, `format-q` wins for the formats it lists.
+  defp prune_format_qualities(previous, %{quality: quality}) when quality != :unset,
+    do: Map.delete(previous, :format_qualities)
+
+  defp prune_format_qualities(previous, _next), do: previous
+
+  # Options holding several values merge field by field, so a layer changes
+  # only the fields it names. `{:unset, value}` clears lower layers before
+  # applying `value`, and keeps clearing when merged into a compiled preset.
+  defp merge_request_value(key, previous, next) when key in @field_merged_options do
+    case {previous, next} do
+      {_previous, :unset} -> :unset
+      {_previous, {:unset, _value}} -> next
+      {:unset, next} -> {:unset, next}
+      {{:unset, previous}, next} -> {:unset, merge_fields(previous, next)}
+      {previous, next} -> merge_fields(previous, next)
+    end
+  end
+
+  defp merge_request_value(_key, _previous, next), do: next
+
+  defp merge_fields(%module{} = previous, next), do: module.merge(previous, next)
+  defp merge_fields(previous, next), do: Map.merge(previous, next)
 
   # Inherited options made inert by this layer's unsets are cleared with them.
   # Options that were already inert, or that this layer sets, stay so that
@@ -277,7 +310,17 @@ defmodule ImagePipe.Plan.Presets do
     end
   end
 
-  defp drop_unset(options), do: Map.reject(options, &match?({_key, :unset}, &1))
+  # Removes `:unset` values and the reset marker of `{:unset, value}`, leaving
+  # the options a request carries once its layers are merged.
+  @doc false
+  def drop_unset(options) do
+    for {key, value} <- options, value != :unset, into: %{} do
+      case {key in @field_merged_options, value} do
+        {true, {:unset, value}} -> {key, value}
+        {_field_merged?, value} -> {key, value}
+      end
+    end
+  end
 
   defp prune_override_families(previous, next) do
     prune_families(previous, next, @group_override_families)

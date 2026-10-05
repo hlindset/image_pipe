@@ -166,10 +166,8 @@ defmodule ImagePipe.API.PresetCompositionTest do
 
     assert {:ok, ^cover_expected} = parse("/preset=cover/region=10,20,30,40", presets)
 
-    assert {:error, {:invalid_request, diagnostics}} =
+    assert {:ok, %{ignored: [%{reason: :inert_option, locations: [{:group, 0, :anchor}]}]}} =
              parse("/preset=crop/region=10,20,30,40/anchor=bottom-right", presets)
-
-    assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
   end
 
   test "a crop replacement removes an earlier region" do
@@ -203,16 +201,16 @@ defmodule ImagePipe.API.PresetCompositionTest do
     assert {:ok, ^ratio_expected} = parse("/preset=nested", presets)
   end
 
-  test "same-layer canvas contradictions and stranded dependents remain errors" do
-    for {fragment, reason} <- [
-          {"w=60/h=40/extend/extend-ratio", :mutually_exclusive_options},
-          {"w=60/h=40/extend=false/extend-at=top", :inert_option}
-        ] do
-      assert {:error, {:invalid_request, diagnostics}} =
-               parse("/preset=bad", %{"bad" => fragment})
+  test "same-layer canvas contradictions remain errors and stranded dependents drop" do
+    assert {:error, {:invalid_request, diagnostics}} =
+             parse("/preset=bad", %{"bad" => "w=60/h=40/extend/extend-ratio"})
 
-      assert Enum.any?(diagnostics, &(&1.reason == reason))
-    end
+    assert Enum.any?(diagnostics, &(&1.reason == :mutually_exclusive_options))
+
+    assert {:ok, %{ignored: []} = request} =
+             parse("/preset=bad", %{"bad" => "w=60/h=40/extend=false/extend-at=top"})
+
+    assert {:ok, ^request} = parse("/w=60/h=40", %{})
   end
 
   test "contradictory alternatives in one layer remain errors" do
@@ -408,9 +406,9 @@ defmodule ImagePipe.API.PresetCompositionTest do
   end
 
   test "validation runs against expanded request-scoped options" do
-    assert {:error, {:invalid_request, diagnostics}} =
+    assert {:ok, %{ignored: []} = request} =
              parse("/preset=text", %{"text" => "output=blurhash/format=png/max-bytes=1000"})
 
-    assert [%{reason: :inert_option, spans: [{1, 11}]}] = diagnostics
+    assert {:ok, ^request} = parse("/output=blurhash/format=png", %{})
   end
 end

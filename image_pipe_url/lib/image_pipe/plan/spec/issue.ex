@@ -7,8 +7,15 @@ defmodule ImagePipe.Plan.Spec.Issue do
       %ImagePipe.Plan.Spec.Issue{
         reason: :inert_option,
         locations: [{:group, 0, :fit}],
-        detail: {:requires, :resize}
+        detail: {:requires, :resize},
+        severity: :warning
       }
+
+  `severity` is `:error` or `:warning`. An error fails the request. A warning
+  marks an option the request ignores because it has no effect. The checks
+  return warnings alone as `{:ok, warnings}`, and list them after the errors
+  in `{:error, issues}`. They report only options the plan sets itself, not
+  ones that a preset or the request defaults supply.
 
   `locations` lists the options involved. `{:group, index, key}` is an option
   of the group at the zero-based `index`, and `{:request, key}` is a
@@ -17,8 +24,9 @@ defmodule ImagePipe.Plan.Spec.Issue do
 
   `reason` is one of:
 
-    * `:inert_option` - the option has no effect, such as `fit` without a
-      width or height, or `jpeg_options` with `format: :webp`.
+    * `:inert_option` - a warning: the option has no effect, such as `fit`
+      without a width or height, or `jpeg_options` with `format: :webp`, so
+      the request ignores it.
     * `:mutually_exclusive_options` - the options can't be combined, such as
       `extend` and `extend_ratio`.
     * `:invalid_offset` - a pixel offset is too large to multiply by the
@@ -39,8 +47,13 @@ defmodule ImagePipe.Plan.Spec.Issue do
   """
 
   @enforce_keys [:reason, :locations, :detail]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [severity: :error]
 
   @type location :: {:group, non_neg_integer(), atom()} | {:request, atom()}
-  @type t :: %__MODULE__{reason: atom(), locations: [location()], detail: term()}
+  @type t :: %__MODULE__{
+          reason: atom(),
+          locations: [location()],
+          detail: term(),
+          severity: :error | :warning
+        }
 end

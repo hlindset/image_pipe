@@ -73,12 +73,8 @@ defmodule ImagePipe.API.OutputTest do
     assert output.mode == {:explicit, :jpeg}
     assert output.quality == {:quality, 42}
     assert output.default_quality == {:quality, 71}
-
-    assert output.format_qualities == %{
-             jpeg: {:quality, 68},
-             webp: {:quality, 79},
-             avif: {:quality, 63}
-           }
+    assert output.format_qualities == %{}
+    assert {:ok, %{quality: {:quality, 42}}} = Policy.resolve(output, :jpeg)
   end
 
   test "explicit quality disables host autoquality" do
@@ -135,11 +131,11 @@ defmodule ImagePipe.API.OutputTest do
            }
   end
 
-  test "explicit quality keeps precedence over a URL format quality" do
+  test "a URL format quality wins over explicit quality for its format" do
     output = resolve!(["format=jpeg", "q=42", "format-q=jpeg:61"], [])
 
     assert {:ok, resolved} = Policy.resolve(output, :jpeg)
-    assert resolved.quality == {:quality, 42}
+    assert resolved.quality == {:quality, 61}
   end
 
   test "carries a request byte cap" do

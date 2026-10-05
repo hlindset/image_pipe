@@ -177,10 +177,13 @@ defmodule ImagePipe do
   Checks a builder's plan as this configuration would serve it.
 
   Applies request defaults and presets, including the preset lookup, then
-  checks the request and its output policy. Returns `:ok` or the error
-  `run/4` would return, without reading a source or accessing a cache.
+  checks the request and its output policy. Returns `{:ok, warnings}`, the
+  `ImagePipe.Plan.Spec.Issue` warnings for options `run/4` would ignore, or
+  the error `run/4` would return, without reading a source or accessing a
+  cache.
   """
-  @spec validate(Config.t() | atom(), ImagePipe.URL.t()) :: :ok | {:error, term()}
+  @spec validate(Config.t() | atom(), ImagePipe.URL.t()) ::
+          {:ok, [ImagePipe.Plan.Spec.Issue.t()]} | {:error, term()}
   def validate(config, builder), do: ImagePipe.Run.validate(resolve(config), builder)
 
   @doc """
@@ -237,6 +240,11 @@ defmodule ImagePipe do
   separate stored copy. `expires` is compared with the configuration's
   `:clock`, and a plan is still valid at its exact `expires` second.
   `filename`, `attachment`, and `debug` don't change the result.
+
+  Options that have no effect, such as `fit: :cover` without a width or
+  height, are ignored. The `[:request, :ignored_options]`
+  [telemetry event](telemetry-events.md#request-ignored_options) reports the
+  ones the builder sets.
 
   ## Return values
 

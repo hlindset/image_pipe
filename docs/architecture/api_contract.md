@@ -17,7 +17,7 @@ Sources, detectors, and telemetry exporters are host extension points.
 
 | Area | Supported behavior |
 | --- | --- |
-| Validation | Reject duplicate, conflicting, inert, or invalid options before side effects; ignore valid image-only output options on non-image outputs; canonicalize equivalent requests |
+| Validation | Reject duplicate, conflicting, or invalid options before side effects; drop inert options from the canonical request, reporting those the request itself wrote; ignore valid image-only output options on non-image outputs; canonicalize equivalent requests |
 | Requests | Presets, signing, expiry, GET/HEAD/OPTIONS, conditional GET, negotiation, caching, and streamed delivery |
 | Resize | Contain, cover, stretch, auto, enlargement, minimum dimensions, independent zoom axes, and DPR |
 | Crop | Guided and explicit regions, anchors, focal points, attention, face/object detection, offsets, and ratio correction |
@@ -205,10 +205,10 @@ take the main source's input color management. Their metadata is dropped. On a
 color frame the asset is color-managed into the frame's profile, or into sRGB
 when the frame has none; an untagged asset is sRGB. A color asset promotes a
 gray frame to RGB. The asset is then converted to the frame's band format and
-composited `over` it; a frame without alpha keeps none. Unknown names,
-disabled request sources, and inert options fail before source or cache
-access. Asset fetch failures use the main source's statuses and decode failures
-return `415`. Identity takes each asset's source identity, byte identity, and
+composited `over` it; a frame without alpha keeps none. Unknown names and
+disabled request sources fail before source or cache access; inert watermark
+options are dropped. Asset fetch failures use the main source's statuses and
+decode failures return `415`. Identity takes each asset's source identity, byte identity, and
 effective opacity, never the host entry name.
 
 ### Object and face guides
@@ -454,10 +454,14 @@ and then ignore them, as described under [image quality and encoders](#image-qua
 ### Image quality and encoders
 
 `q=80` sets one explicit quality from 1 to 100. `format-q=avif:60,webp:70`
-sets per-format qualities, using the same format names as `format`. Explicit
-`q` wins over a matching `format-q`. Duplicate formats are invalid. Host
-`quality` defaults to 80; `format_quality` defaults to WebP 79 and AVIF 63.
-Sparse host and URL format maps preserve other configured formats.
+sets per-format qualities, using the same format names as `format`. Within one
+layer, `format-q` wins for the formats it lists and `q` covers the rest. Across
+layers (host, request defaults, presets, URL), the later layer wins format by
+format: a layer's `q` replaces every lower per-format quality, and a layer's
+`format-q` replaces only the formats it lists. Duplicate formats are invalid.
+Host `quality` defaults to 80; `format_quality` defaults to WebP 79 and AVIF 63.
+A sparse `format-q` keeps lower layers' qualities for the formats it doesn't
+list; a `q` keeps none.
 A format-quality table may be shared across requests; only the selected
 format's entry applies.
 PNG quality applies only to palette quantization, so a PNG ignores quality
@@ -475,14 +479,15 @@ correction.
 
 An explicit `q` also disables inherited host search; combining it with an
 enabled URL `autoquality` is an error. Presets treat `q` and `autoquality` as
-one override family.
+one override family, and a layer's `q` also replaces lower layers' `format-q`.
 
 `max-bytes=8000` adds a byte budget to fixed quality or quality search. Budgets
 are best effort: if the minimum-quality encode cannot fit, ImagePipe still
 returns the best available image. A byte budget without a quality-search
 objective uses a quality floor of 10, or the requested quality when it is lower.
-PNG and lossless WebP cannot use quality search. An explicit selection of
-either with an enabled URL search or byte budget is rejected. Inherited
+PNG and lossless WebP cannot use quality search. An explicit `format=png`
+makes an enabled URL search or byte budget inert; explicitly selected
+lossless WebP with either is rejected. Inherited
 search defaults are inactive for these outputs. Under automatic format
 negotiation, search and byte budgets apply when the selected encoder supports
 them. WebP lossless `q` controls compression effort rather than pixel quality.
@@ -493,7 +498,7 @@ Host controls are `autoquality` (off by default) and `autoquality_target`
 Each encoder option is a comma-separated list of bare boolean flags and
 `name:value` pairs. Use `flag:false` to override a host-enabled flag. Sparse
 URL fields override the corresponding host option struct. Unknown or repeated
-fields are invalid, as are options for another explicitly selected format.
+fields are invalid. Options for another explicitly selected format are inert.
 Under negotiation, per-format options are conditionally active.
 
 | Option | Fields |
@@ -516,6 +521,22 @@ including their conflicts, and then ignore them: a URL is valid with a
 non-image output exactly when it is valid with `output=image`, and requests
 that differ only in these options share cache entries and ETags. Non-image
 outputs also ignore configured image output policy.
+
+### Inert options
+
+An option whose requirement its group or the request doesn't meet is inert:
+`fit` without a size, `anchor` without a crop or cover resize, encoder options
+for another format under an explicit `format`, `autoquality` or `max-bytes`
+with `format=png`. Inertness is decided after presets and request defaults
+merge. Inert options are dropped before canonicalization, repeating until none
+is left since dropping one can strand another, and a group left empty adds no
+group; the cache key and ETag never see them. Inert options the request itself
+wrote are reported as warnings: `Issue` severity `:warning`, the
+`[:request, :ignored_options]` telemetry event, and, with debug headers,
+`X-ImagePipe-Ignored-Options`. Inherited ones drop silently. Inert options
+never cause a failure by themselves. When other errors exist, they are listed
+after the errors.
+An option whose prerequisite is malformed is not reported as inert.
 
 ### Presets and terminals
 
@@ -540,7 +561,10 @@ every lower layer as if none had set it: a group option becomes neutral, and a
 request option returns to the host configuration. An unset clears its override
 family and the inherited options whose requirement the merged group no longer
 meets; explicit options in the same layer stay and are validated. A preset's
-unset also clears request defaults. `unset` never reaches canonical data, so
+unset also clears request defaults. `format-q` and the encoder options merge
+across layers entry by entry instead of replacing whole, and accept a leading
+`unset` (`jpeg-options=unset,progressive`) that clears every lower layer before
+applying the listed entries. `unset` never reaches canonical data, so
 `key=unset` without presets is the same request as an absent `key`. It is
 reserved: no watermark asset or detection class can be named `unset`.
 Nested references anchor to their group within the fragment. A preset

@@ -256,8 +256,7 @@ defmodule ImagePipe.API.WatermarkWireTest do
 
       for {options, config} <- [
             {"wm=unknown", config},
-            {"wm-src64=#{source}", gated},
-            {"wm-opacity=0.5", config}
+            {"wm-src64=#{source}", gated}
           ] do
         assert response(options, config).status == 400, options
         refute_received {:origin_fetch, _path}

@@ -186,8 +186,9 @@ defmodule ImagePipe.URL do
 
     * `{:ok, url}`.
     * `{:error, {:invalid_request, issues}}` - the configuration has
-      `:validate_against` and the plan fails `validate/1`. Without
-      `:validate_against`, the server checks the plan when it serves the URL.
+      `:validate_against` and `validate/1` returns an error. Warnings don't
+      stop the URL. Without `:validate_against`, the server checks the plan
+      when it serves the URL.
     * `{:error, :invalid_source}` - the source is empty or not valid UTF-8.
     * `{:error, :too_many_options}` - the plan has more than 64 option and
       `-` segments, the most the server accepts.
@@ -301,7 +302,10 @@ defmodule ImagePipe.URL do
   the URL is served. `:unset` removes a value set by a preset or the request
   defaults, so the configured default applies. `format_qualities:` and the
   encoder options such as `jpeg_options:` need at least one entry. Clear them
-  with `:unset`. A malformed value raises `ArgumentError`.
+  with `:unset`. When the URL is served, their entries combine with a
+  preset's and the request defaults' entry by entry. A leading `:unset`, as in
+  `jpeg_options: [:unset, interlace: true]`, drops those inherited entries
+  first. A malformed value raises `ArgumentError`.
   """
   @spec output(t(), keyword()) :: t()
   def output(%__MODULE__{} = builder, options),
@@ -313,27 +317,30 @@ defmodule ImagePipe.URL do
       ImagePipe.URL.new(config)
       |> ImagePipe.URL.group(resize: [fit: :cover])
       |> ImagePipe.URL.validate()
-      # {:error,
+      # {:ok,
       #  [%ImagePipe.Plan.Spec.Issue{reason: :inert_option,
-      #     locations: [{:group, 0, :fit}], detail: {:requires, :resize}}]}
+      #     locations: [{:group, 0, :fit}], detail: {:requires, :resize},
+      #     severity: :warning}]}
 
-  Returns `:ok` or `{:error, issues}`, a list of `ImagePipe.Plan.Spec.Issue`
-  structs. The check applies the server's request defaults and the presets the
-  plan names, then checks how the options combine: options that need another
-  option, options that conflict, and options that have no effect, such as
-  `fit: :cover` without a width or height. When `:validate_against` lists
-  `:watermarks`, it also checks `watermark:` names against them. It reads no
+  Returns `{:ok, warnings}` or `{:error, issues}`, lists of
+  `ImagePipe.Plan.Spec.Issue` structs. The check applies the server's request
+  defaults and the presets the plan names, then checks how the options
+  combine. Options that conflict are errors. Options that have no effect, such
+  as `fit: :cover` without a width or height, are warnings: the server ignores
+  them, and `{:error, issues}` lists them after the errors. When
+  `:validate_against` lists `:watermarks`, it also checks `watermark:` names
+  against them. It reads no
   source or cache, so a plan that passes can still fail on a particular image.
 
   The check needs `:validate_against` in the URL configuration. Without it,
-  `validate/1` returns `:ok`. With `preset_lookup: true`, only the server can
-  resolve a preset missing from `:presets`, and that preset can set any
-  option of its group and of the request. For a plan that names one, the
+  `validate/1` returns `{:ok, []}`. With `preset_lookup: true`, only the
+  server can resolve a preset missing from `:presets`, and that preset can set
+  any option of its group and of the request. For a plan that names one, the
   check skips the groups that name it and the request-wide options, and
   checks the other groups. In an app that serves its own URLs,
   `ImagePipe.validate/2` runs the full check, including the lookup.
   """
-  @spec validate(t()) :: :ok | {:error, [Issue.t()]}
+  @spec validate(t()) :: {:ok, [Issue.t()]} | {:error, [Issue.t()]}
   def validate(%__MODULE__{plan: plan, config: %Config{options: options}}),
     do: Generator.check(plan, options)
 end

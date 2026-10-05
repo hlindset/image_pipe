@@ -4,7 +4,9 @@ defmodule ImagePipe.Plan.Spec do
   # Groups express fixed-order transform intent. Output holds sparse request
   # policy before format negotiation. `build/2` normalizes typed, validated
   # intent supplied by request frontends. Delivery controls and request gates travel
-  # with this data without contributing to pixel identity.
+  # with this data without contributing to pixel identity. `ignored` lists the
+  # inert options the request itself wrote, which `settle/5` dropped; it is a
+  # report, not request data.
   @moduledoc false
 
   alias ImagePipe.Plan.Spec.Group
@@ -23,7 +25,8 @@ defmodule ImagePipe.Plan.Spec do
             attachment?: false,
             cachebuster: nil,
             expires: nil,
-            debug?: false
+            debug?: false,
+            ignored: []
 
   @type t :: %__MODULE__{
           groups: [Group.t()],
@@ -34,7 +37,8 @@ defmodule ImagePipe.Plan.Spec do
           attachment?: boolean(),
           cachebuster: String.t() | nil,
           expires: pos_integer() | nil,
-          debug?: boolean()
+          debug?: boolean(),
+          ignored: [Issue.t()]
         }
 
   @doc false
@@ -42,6 +46,72 @@ defmodule ImagePipe.Plan.Spec do
           [Issue.t()]
   def errors(groups, options, invalid \\ MapSet.new(), watermarks \\ nil),
     do: Validation.errors(groups, options, invalid, watermarks)
+
+  # Validates merged request options and drops the inert ones. Dropping one
+  # can leave another without its prerequisite, so it repeats until none is
+  # left, and a group left empty is dropped. Options whose prerequisite is
+  # malformed (`invalid`) stay unreported in every pass. `explicit?` tells
+  # whether the request itself wrote the option at a location: only those
+  # locations are returned, as warnings, or alongside the errors. Inherited
+  # ones drop silently, since presets and request defaults are written for
+  # many requests.
+  @doc false
+  @spec settle(
+          [map()],
+          map(),
+          MapSet.t(Issue.location()),
+          Validation.watermarks(),
+          (Issue.location() -> boolean())
+        ) :: {:ok, [map()], map(), [Issue.t()]} | {:error, [Issue.t()]}
+  def settle(groups, options, invalid, watermarks, explicit?) do
+    {inert, errors} =
+      groups
+      |> Validation.errors(options, invalid, watermarks)
+      |> Enum.split_with(&(&1.severity == :warning))
+
+    case errors do
+      [] ->
+        {groups, options, dropped} = drop_inert(groups, options, invalid, inert, [])
+        {:ok, groups, options, explicit(dropped, explicit?)}
+
+      errors ->
+        {:error, errors ++ explicit(inert, explicit?)}
+    end
+  end
+
+  defp explicit(issues, explicit?) do
+    for issue <- issues,
+        locations = Enum.filter(issue.locations, explicit?),
+        locations != [],
+        do: %{issue | locations: locations}
+  end
+
+  defp drop_inert(groups, options, _invalid, [], dropped) do
+    case Enum.reject(groups, &(&1 == %{})) do
+      [] -> {[%{}], options, dropped}
+      groups -> {groups, options, dropped}
+    end
+  end
+
+  defp drop_inert(groups, options, invalid, inert, dropped) do
+    locations = Enum.flat_map(inert, & &1.locations)
+
+    groups =
+      groups
+      |> Enum.with_index()
+      |> Enum.map(fn {group, index} ->
+        Map.drop(group, for({:group, ^index, key} <- locations, do: key))
+      end)
+
+    options = Map.drop(options, for({:request, key} <- locations, do: key))
+
+    next =
+      groups
+      |> Validation.errors(options, invalid, nil)
+      |> Enum.filter(&(&1.severity == :warning))
+
+    drop_inert(groups, options, invalid, next, dropped ++ inert)
+  end
 
   @doc false
   @spec build([map()], map()) :: t()

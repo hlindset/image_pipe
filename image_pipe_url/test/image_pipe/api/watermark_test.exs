@@ -22,7 +22,7 @@ defmodule ImagePipe.API.WatermarkTest do
   end
 
   defp reasons({:error, {:invalid_request, diagnostics}}), do: Enum.map(diagnostics, & &1.reason)
-  defp reasons({:ok, _request}), do: []
+  defp reasons({:ok, request}), do: Enum.map(request.ignored, & &1.reason)
 
   defp watermark(segments, config \\ @hosted) do
     {:ok, %Spec{groups: [%Group{watermark: watermark}]}} = parse(segments, config)

@@ -59,13 +59,16 @@ ImagePipe.URL.new()
 ### q
 
 Accepts a whole [number](../requesting-images.md#numbers) from `1` to `100`.
-Default: the quality set in the server's configuration, 80 unless changed (see
-[Plug configuration](`ImagePipe.config/1`) and
+Default: the quality set in the server's configuration, 80 unless changed,
+except for formats with their own quality, such as AVIF at 63 and WebP at 79
+(see [`format-q`](#format-q), [Plug configuration](`ImagePipe.config/1`), and
 [server configuration](../../../image_pipe_server/docs/server-configuration.md#processing)).
 
-`q` sets the encoder quality for every format, overriding `format-q` and a
-search the server turns on. A request that sets both `q` and `autoquality`
-(the bare flag or a target) fails with `400`.
+`q` sets the encoder quality for every format that the URL's `format-q`
+doesn't list. It replaces the per-format qualities from the server's
+configuration, the request defaults, and presets, and turns off a search they
+turn on. A URL that sets both `q` and `autoquality` (the bare flag or a
+target) fails with `400`.
 
 PNG is lossless, so `q` applies to it only when `palette` is on in
 [`png-options`](#png-options) or the host's PNG settings. There it sets the
@@ -100,9 +103,15 @@ qualities from `1` to `100`. Each format may appear once. Default: per-format
 qualities set in the server's configuration.
 
 Only the entry for the format the response uses applies, so one URL can set
-qualities for every format the browser might get. Formats you leave out keep
-their host quality. `q`, when present, wins. A `png` entry fails with `400`
-unless `palette` is on, even when the response isn't PNG.
+qualities for every format the browser might get. A listed format wins over
+`q`, so `q=80/format-q=avif:50` encodes AVIF at 50 and every other format at
+80. Formats you leave out use the URL's `q`. Without `q`, they keep their
+quality from presets, the request defaults, or the server's configuration. A
+`png` entry fails with `400` unless `palette` is on, even when the response
+isn't PNG.
+
+Write `unset` first, as in `format-q=unset,avif:50`, to drop the qualities
+that presets and the request defaults set.
 
 <!-- tabs-open -->
 
@@ -148,10 +157,13 @@ The request fails with `400` when:
 
 - It also sets `q`.
 - The target is not a number above `0` and up to `100`.
-- It sets `format=png`, or `format=webp` while WebP is lossless (through
-  `webp-options` or the server's defaults). PNG and lossless WebP have no
-  quality to search. Without `format`, the search applies only when the
-  chosen format has a quality setting.
+- It sets `format=webp` while WebP is lossless (through `webp-options` or
+  the server's defaults). Lossless WebP has no quality to search.
+
+With `format=png`, `autoquality` is
+[ignored](../requesting-images.md#ignored-options), since PNG has no quality
+to search. Without `format`, the search applies only when the chosen format
+has a quality setting.
 
 <!-- tabs-open -->
 
@@ -181,8 +193,9 @@ quality tried is `10` (lower if `q` is lower). With `autoquality` it is the
 lowest quality the search tries, 25 or 20 for AVIF. If the image is still too
 large at that quality, the response is larger than the budget.
 
-`max-bytes` fails with `400` under the same format rules as `autoquality`:
-with `format=png`, or with `format=webp` while WebP is lossless.
+`max-bytes` follows the same format rules as `autoquality`. With
+`format=webp` while WebP is lossless, it fails with `400`. With `format=png`,
+it is ignored.
 
 <!-- tabs-open -->
 
@@ -207,11 +220,13 @@ ImagePipe.URL.new()
 Each encoder option takes a list of fields. A field is either a boolean
 written by its name, such as `progressive`, or a `name:value` pair, such as
 `effort:6`. Write `progressive:false` to turn off a boolean that the server's
-configuration or a [preset](../requesting-images.md#named-presets) turned on. Each field may
-appear once. Fields you leave out keep the encoder defaults configured on the
-server.
+configuration or a [preset](../requesting-images.md#named-presets) turned
+on. Each field may appear once. Fields you leave out keep their value from a
+preset or the server's configuration. A field set in both takes your value.
+Write `unset` first, as in `jpeg-options=unset,progressive`, to drop the
+fields that presets and the request defaults set.
 
-With an explicit `format`, options for any other encoder fail with `400`.
+With an explicit `format`, options for any other encoder are ignored.
 Without `format`, each encoder's options apply only when the response uses
 that format, so one URL can carry options for several encoders.
 

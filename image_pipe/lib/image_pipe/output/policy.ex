@@ -291,16 +291,11 @@ defmodule ImagePipe.Output.Policy do
   def png_palette?(%__MODULE__{encoder_options: %{png: %{palette: true}}}), do: true
   def png_palette?(%__MODULE__{}), do: false
 
-  defp requested_quality(%__MODULE__{quality: {:quality, _value} = quality}, _format),
-    do: quality
-
-  defp requested_quality(
-         %__MODULE__{quality: :default, format_qualities: format_qualities} = policy,
-         format
-       ) do
-    case Map.get(format_qualities, format) do
-      {:quality, _value} = quality -> quality
-      _other -> default_for(policy, format)
+  defp requested_quality(%__MODULE__{format_qualities: format_qualities} = policy, format) do
+    case {Map.get(format_qualities, format), policy.quality} do
+      {{:quality, _value} = quality, _quality} -> quality
+      {nil, {:quality, _value} = quality} -> quality
+      {nil, :default} -> default_for(policy, format)
     end
   end
 
