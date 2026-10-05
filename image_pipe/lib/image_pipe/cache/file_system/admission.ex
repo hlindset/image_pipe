@@ -398,6 +398,13 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     {:noreply, state}
   end
 
+  def handle_info({:recheck_gone, key_hash}, state) do
+    case locate(state, key_hash) do
+      nil -> {:noreply, state}
+      located -> {:noreply, resync(state, located)}
+    end
+  end
+
   def handle_info(:reconcile, state) do
     # Reclaim soft-cap overshoot, especially larger same-key replacements that
     # bypass the main gate. Reconciliation evicts by LRU and deletes victim files
@@ -450,11 +457,16 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   @impl true
+  # A node evicting an entry renames its metadata aside for a moment to check
+  # it (Store.delete_victims/2), so a miss is checked again later rather than
+  # trusted at once.
+  @gone_recheck_ms 1_000
+
   def handle_cast({:gone, key_hash}, state) do
-    case locate(state, key_hash) do
-      nil -> {:noreply, state}
-      located -> {:noreply, resync(state, located)}
-    end
+    if already_tracked?(state, key_hash),
+      do: Process.send_after(self(), {:recheck_gone, key_hash}, @gone_recheck_ms)
+
+    {:noreply, state}
   end
 
   def handle_cast({:hit, descriptor}, state) do

@@ -510,6 +510,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
       :ok = Store.delete(ctx.key, root: ctx.tmp_dir)
 
       assert Store.get(ctx.key, ctx.read_opts) == :miss
+      recheck_gone(ctx)
       assert tracked_bytes(ctx.pid) == 0
     end
 
@@ -517,6 +518,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
       :ok = Store.delete(ctx.key, root: ctx.tmp_dir)
 
       assert Store.metadata_hit(ctx.key, ctx.read_opts) == :miss
+      recheck_gone(ctx)
       assert tracked_bytes(ctx.pid) == 0
     end
 
@@ -528,12 +530,34 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
       assert tracked_bytes(ctx.pid) == 200
     end
 
+    test "a miss while another node checks the entry keeps counting it", ctx do
+      # An evicting node renames the metadata aside for a moment, and puts it
+      # back when it describes another body.
+      {:ok, paths} = FileSystem.paths_from_hash(ctx.key.hash, root: ctx.tmp_dir)
+      taken = paths.meta_path <> ".taken"
+      File.rename!(paths.meta_path, taken)
+      assert Store.get(ctx.key, ctx.read_opts) == :miss
+      # Admission has handled the miss before the metadata is back.
+      _ = :sys.get_state(ctx.pid)
+      File.rename!(taken, paths.meta_path)
+
+      recheck_gone(ctx)
+      assert tracked_bytes(ctx.pid) == 100
+    end
+
     test "a late miss for an entry that is back on disk keeps counting it", ctx do
       # A read can miss just before this node commits the key again, and its
       # report then arrives after the commit.
       Admission.gone(ctx.pid, ctx.key.hash)
+      recheck_gone(ctx)
       assert tracked_bytes(ctx.pid) == 100
     end
+  end
+
+  # Delivers the delayed recheck a miss schedules, instead of waiting for it.
+  defp recheck_gone(ctx) do
+    _ = :sys.get_state(ctx.pid)
+    send(ctx.pid, {:recheck_gone, ctx.key.hash})
   end
 
   test "protected entries are restored in LRU-to-MRU order from persisted state", %{
