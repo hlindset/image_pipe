@@ -112,7 +112,8 @@ RUN useradd --uid 10001 --no-create-home --home-dir /app --shell /usr/sbin/nolog
     && mkdir -p /var/cache/image_pipe /etc/image_pipe \
     && chown image_pipe /var/cache/image_pipe
 
-COPY --from=build --chown=image_pipe /src/image_pipe_server/_build/prod/rel/image_pipe_server /app
+# The release stays root-owned, so the server can't rewrite its own code.
+COPY --from=build /src/image_pipe_server/_build/prod/rel/image_pipe_server /app
 COPY --from=build /opt/image_pipe/cache /opt/image_pipe/cache
 
 # Everything the release writes goes to /tmp, so the root filesystem can be
