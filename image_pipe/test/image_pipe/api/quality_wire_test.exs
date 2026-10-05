@@ -24,8 +24,19 @@ defmodule ImagePipe.API.QualityWireTest do
 
     overrides = response("w=200/format=webp/format-q=webp:35", mount(format_quality: %{webp: 60}))
     assert overrides.resp_body == explicit.resp_body
-    q_wins = response("w=200/format=webp/format-q=webp:35/q=60", mount())
-    assert q_wins.resp_body == response("w=200/format=webp/q=60", mount()).resp_body
+    format_q_wins = response("w=200/format=webp/format-q=webp:35/q=60", mount())
+    assert format_q_wins.resp_body == explicit.resp_body
+    q_fallback = response("w=200/format=jpeg/format-q=webp:35/q=60", mount())
+    assert q_fallback.resp_body == response("w=200/format=jpeg/q=60", mount()).resp_body
+  end
+
+  test "a later layer's q replaces lower layers' per-format qualities" do
+    defaults = mount(request_defaults: "format-q=webp:60")
+    explicit = response("w=200/format=webp/q=35", mount())
+    assert response("w=200/format=webp/q=35", defaults).resp_body == explicit.resp_body
+
+    host = mount(format_quality: %{webp: 60})
+    assert response("w=200/format=webp/q=35", host).resp_body == explicit.resp_body
   end
 
   test "quality controls preserve automatic negotiation and canonical Accept identity" do

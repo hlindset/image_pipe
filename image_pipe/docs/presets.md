@@ -82,7 +82,8 @@ only request-wide options adds no group: with `webp` defined as
 `format-q` and the [encoder options](processing/output.md#encoder-options)
 combine field by field instead. With a preset of `jpeg-options=progressive`,
 a URL's `jpeg-options=quant-table:3` keeps `progressive`. A field set in both
-takes the later value.
+takes the later value. `q` sets every format, so a later `q` replaces the
+inherited `format-q`.
 
 ## Single-group and pipeline presets
 

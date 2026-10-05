@@ -124,7 +124,7 @@ defmodule ImagePipe.Processing.Config do
                       type: {:map, :atom, :pos_integer},
                       doc: """
                       Quality per output format, `1..100`. Merged with the defaults, \
-                      `%{webp: 79, avif: 63}`. A request's `q` wins over both.
+                      `%{webp: 79, avif: 63}`. A request's `q` or `format-q` wins over both.
                       """
                     ],
                     strip_metadata: [

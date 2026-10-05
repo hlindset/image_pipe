@@ -454,8 +454,11 @@ and then ignore them, as described under [image quality and encoders](#image-qua
 ### Image quality and encoders
 
 `q=80` sets one explicit quality from 1 to 100. `format-q=avif:60,webp:70`
-sets per-format qualities, using the same format names as `format`. Explicit
-`q` wins over a matching `format-q`. Duplicate formats are invalid. Host
+sets per-format qualities, using the same format names as `format`. Within one
+layer, `format-q` wins for the formats it lists and `q` covers the rest. Across
+layers (host, request defaults, presets, URL), the later layer wins format by
+format: a layer's `q` replaces every lower per-format quality, and a layer's
+`format-q` replaces only the formats it lists. Duplicate formats are invalid. Host
 `quality` defaults to 80; `format_quality` defaults to WebP 79 and AVIF 63.
 Sparse host and URL format maps preserve other configured formats.
 A format-quality table may be shared across requests; only the selected

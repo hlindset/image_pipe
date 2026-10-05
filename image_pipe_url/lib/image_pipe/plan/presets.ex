@@ -259,8 +259,16 @@ defmodule ImagePipe.Plan.Presets do
   defp merge_request(next, previous) do
     previous
     |> prune_families(next, @request_override_families)
+    |> prune_format_qualities(next)
     |> Map.merge(next, &merge_request_value/3)
   end
+
+  # `q` sets every format, so a layer's `q` replaces lower layers' per-format
+  # qualities. Within one layer, `format-q` wins for the formats it lists.
+  defp prune_format_qualities(previous, %{quality: quality}) when quality != :unset,
+    do: Map.delete(previous, :format_qualities)
+
+  defp prune_format_qualities(previous, _next), do: previous
 
   # Options holding several values merge field by field, so a layer changes
   # only the fields it names. `{:unset, value}` clears lower layers before

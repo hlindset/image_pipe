@@ -53,11 +53,7 @@ defmodule ImagePipe.Output.RequestPolicy do
       headers: headers,
       quality: output_quality(request.quality),
       default_quality: {:quality, Keyword.fetch!(config, :quality)},
-      format_qualities:
-        Map.merge(
-          normalize_format_qualities(Keyword.fetch!(config, :format_quality)),
-          request.format_qualities
-        ),
+      format_qualities: format_qualities(request, config),
       strip_metadata: strip_metadata,
       keep_copyright: keep_copyright,
       dpi: dpi(request.dpi, strip_metadata, config),
@@ -89,6 +85,17 @@ defmodule ImagePipe.Output.RequestPolicy do
         into: %{},
         do: {format, struct}
   end
+
+  # A request's `q` replaces the host's per-format qualities, and the request's
+  # own `format-q` wins over its `q`.
+  defp format_qualities(%SpecOutput{quality: nil} = request, config) do
+    config
+    |> Keyword.fetch!(:format_quality)
+    |> normalize_format_qualities()
+    |> Map.merge(request.format_qualities)
+  end
+
+  defp format_qualities(request, _config), do: request.format_qualities
 
   defp normalize_format_qualities(map),
     do: Map.new(map, fn {format, quality} -> {format, {:quality, quality}} end)

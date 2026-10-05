@@ -1481,6 +1481,26 @@ defmodule ImagePipe.API.ParserTest do
       assert jpeg == %JpegOptions{interlace: true}
     end
 
+    test "a later layer's q clears lower layers' format-q" do
+      config = [request_defaults: "format-q=webp:70", presets: %{"hi" => "q=90"}]
+
+      assert {:ok, %Spec{output: output}} =
+               parse(["preset=hi", "w=800", "format-q=avif:50"], "images/cat.jpg", config)
+
+      assert output.quality == 90
+      assert output.format_qualities == %{avif: {:quality, 50}}
+    end
+
+    test "a later layer's format-q keeps lower layers' q" do
+      config = [request_defaults: "q=90"]
+
+      assert {:ok, %Spec{output: output}} =
+               parse(["w=800", "format-q=avif:50"], "images/cat.jpg", config)
+
+      assert output.quality == 90
+      assert output.format_qualities == %{avif: {:quality, 50}}
+    end
+
     test "unset must lead and be followed by values" do
       for value <- ["jpeg-options=progressive,unset", "jpeg-options=unset,", "format-q=unset,"] do
         assert {:error, {:invalid_request, [_diagnostic]}} = parse(["w=800", value]), value
