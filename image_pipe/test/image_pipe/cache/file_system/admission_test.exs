@@ -394,21 +394,17 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert located.body_sha256 == runtime_descriptor.body_sha256
   end
 
-  # The scan reads a FIFO named like metadata, so it holds its snapshot and
-  # can't apply or finish until the test writes to the FIFO.
-  defp during_scan(ctx, opts, fun) do
-    fifo = Path.join([ctx.tmp_dir, "ff", "ff", String.duplicate("f", 64) <> ".meta"])
-    File.mkdir_p!(Path.dirname(fifo))
-    {_, 0} = System.cmd("mkfifo", [fifo])
+  # Puts Admission back in the state it keeps while a startup scan runs, so the
+  # test can change entries and then apply the snapshot the scan would hold.
+  defp during_scan(_ctx, opts, fun) do
     pid = start_supervised!({Admission, opts})
+    Admission.await_scan(pid)
 
-    try do
-      fun.(pid)
-    after
-      File.write!(fifo, "not metadata")
-      Admission.await_scan(pid)
-    end
+    :sys.replace_state(pid, fn state ->
+      %{state | scan_changes: :ets.new(:scan_changes, [:set, :private])}
+    end)
 
+    fun.(pid)
     pid
   end
 
