@@ -1009,9 +1009,17 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   defp restore_meta(taken, meta_path) do
     case :file.make_link(taken, meta_path) do
-      :ok -> rm_tolerant(taken)
-      {:error, :eexist} -> rm_tolerant(taken)
-      {:error, _no_links} -> File.rename(taken, meta_path)
+      :ok ->
+        rm_tolerant(taken)
+
+      {:error, :eexist} ->
+        rm_tolerant(taken)
+
+      # Without hard links there's no rename that refuses to replace a file,
+      # so this checks first. Metadata written between the check and the
+      # rename is replaced.
+      {:error, _no_links} ->
+        if File.exists?(meta_path), do: rm_tolerant(taken), else: File.rename(taken, meta_path)
     end
   end
 
