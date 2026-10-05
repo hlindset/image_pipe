@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Starts an image_pipe_server container with a read-only root filesystem and
-# checks /health, a PNG request, and a JPEG XL source (which needs the libvips
-# the image builds from source).
+# checks the health checks, a PNG request, a JPEG XL source (which needs the
+# libvips the image builds from source), and draining on shutdown.
 #
 #     test/container/smoke.sh IMAGE [vision]
 #
@@ -49,7 +49,8 @@ if [ "$status" != "healthy" ]; then
   exit 1
 fi
 
-curl -fsS "http://127.0.0.1:${port}/health" | grep -qx ok
+curl -fsS "http://127.0.0.1:${port}/health/live" | grep -qx ok
+curl -fsS "http://127.0.0.1:${port}/health/ready" | grep -qx ok
 
 if docker logs "$name" 2>&1 | grep -q 'WARNING'; then
   echo "the server logged a warning at startup" >&2
@@ -74,6 +75,33 @@ check_png() {
 
 check_png pic.png
 check_png pic.jxl
+
+# On SIGTERM the server reports not ready but keeps serving, and Docker sees
+# the container turn unhealthy before it stops listening.
+docker stop -t 30 "$name" >/dev/null &
+stopping=$!
+ready=200
+for _ in $(seq 1 20); do
+  ready=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${port}/health/ready" || true)
+  [ "$ready" = "503" ] && break
+  sleep 0.2
+done
+[ "$ready" = "503" ] || {
+  echo "draining: /health/ready answered $ready, expected 503" >&2
+  exit 1
+}
+check_png pic.png
+health=starting
+for _ in $(seq 1 20); do
+  health=$(docker inspect -f '{{.State.Health.Status}}' "$name" 2>/dev/null || echo exited)
+  [ "$health" = "unhealthy" ] && break
+  sleep 0.25
+done
+[ "$health" = "unhealthy" ] || {
+  echo "draining: container health is $health, expected unhealthy" >&2
+  exit 1
+}
+wait "$stopping"
 
 # An invalid configuration stops the server with one line naming the setting.
 printf '[sources.photos]\nadapter = "file"\nroot = "/data/images"\n' > "$work/invalid.toml"

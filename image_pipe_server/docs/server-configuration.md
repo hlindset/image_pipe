@@ -67,17 +67,24 @@ IPS_PROCESSING__QUALITY=82
 
 - Levels are lowercased, so a source written as `[sources.TMDB]` in the file
   can't be overridden from the environment. Use lowercase source names.
-- Lists are comma-separated: `IPS_URL__KEYS=0123abcd…,4567ef01…`.
+- Lists are comma-separated, such as `IPS_URL__KEYS=0123abcd…,4567ef01…`, or
+  have one entry per line.
 - A variable ending in `_FILE` reads the value from that file, without
   trailing whitespace, for Docker and Kubernetes secrets:
-  `IPS_URL__KEYS_FILE=/run/secrets/signing_keys`. Setting both `IPS_URL__KEYS`
-  and `IPS_URL__KEYS_FILE` is an error.
+  `IPS_URL__KEYS_FILE=/run/secrets/signing_keys`. A secret file can hold one
+  list entry per line.
+- Setting the same value twice is an error, such as `IPS_URL__KEYS` together
+  with `IPS_URL__KEYS_FILE`, or with `IPS_url__keys`, since levels are
+  lowercased.
 - A list variable with no entries, or a `_FILE` variable whose file has none,
   is an error, so an empty signing-keys secret stops the server instead of
   turning off signature checks.
 - Settings whose own name ends in `_file`, such as the `web_identity`
   provider's `token_file`, take the variable's value as the path instead:
   `IPS_SOURCES__MEDIA__CREDENTIALS__TOKEN_FILE=/var/run/secrets/eks.amazonaws.com/serviceaccount/token`.
+- Variables that Kubernetes sets for a Service named `ips` or `ips-…`, such
+  as `IPS_SERVICE_HOST` and `IPS_PORT`, are ignored. Every setting has a
+  `__` in its name, and these never do.
 - Settings that are awkward as variables, such as S3 `buckets`,
   `address_policy`, or `storage_inputs`, belong in the file.
 
@@ -96,7 +103,11 @@ options:
 - `path_pattern` is a regular expression, anchored by the adapter.
 - HTTP sources take `request_headers` (a table of header names to values) and
   `bearer_token` for origins behind an API key or a static token. Both can
-  come from `_FILE` variables.
+  come from `_FILE` variables. A shell can't export a variable named after a
+  header with a `-`, such as
+  `IPS_SOURCES__TMDB__REQUEST_HEADERS__X-API-KEY_FILE`. Docker, Compose, and
+  Kubernetes accept the name, so set it there. Otherwise, set the header under
+  `request_headers` in the TOML file.
 - S3 `credentials` are `{ static = { access_key_id = "…", secret_access_key = "…" } }`
   or a provider: `{ provider = "instance_role" }`, `"container_credentials"`,
   `"web_identity"`, or `"assume_role"`, with the provider's options in the same
@@ -112,8 +123,8 @@ them. Hosts that need them build their own release on top of `image_pipe`.
 Invalid configuration stops the server at boot. The server prints the error,
 which names the setting or variable, and exits with status 1. Errors about
 the file's shape and types never quote a value. The library's own checks
-may quote a non-secret value, such as an out-of-range `quality` or a cache
-root, but never a key, credential, token, or the contents of a `_FILE`:
+may quote a non-secret value, such as an out-of-range `quality`, but never
+a key, credential, token, or the contents of a `_FILE`:
 
 ```text
 invalid configuration: url.source_encryption_keys[0]: expected a hex-encoded 32-byte key
@@ -139,17 +150,19 @@ TOML types; defaults are the library's.
 
 ### `[server]`
 
-The HTTP listener. Times are in milliseconds. `read_timeout` closes connections that send nothing for that long, idle keep-alive connections included. `max_connections` rounds up to a multiple of 100 above 100 connections. With `auth_token`, requests other than `/health` must send `Authorization: Bearer <token>`.
+The HTTP listener. Times are in milliseconds. `read_timeout` closes connections that send nothing for that long, idle keep-alive connections included. `max_connections` rounds up to a multiple of 100 above 100 connections. With `auth_token`, requests other than the health checks must send `Authorization: Bearer <token>`. On shutdown, `/health/ready` answers `503` while the server keeps serving for `shutdown_delay`. Then in-flight requests get `shutdown_timeout` to finish. `health_port` serves the health checks on a separate listener, outside `max_connections`. See [health and shutdown](server-deployment.md#health-and-shutdown).
 
 | Key | Type | Default |
 | --- | --- | --- |
 | `port` | integer 0–65535 | `8080` |
 | `bind` | string | `"0.0.0.0"` |
 | `mount_path` | string | `"/"` |
+| `shutdown_delay` | integer ≥ 0 | `5000` |
 | `shutdown_timeout` | integer ≥ 0 | `15000` |
 | `read_timeout` | integer > 0 | `10000` |
 | `max_connections` | integer > 0 | `2048` |
 | `auth_token` | string |  |
+| `health_port` | integer 0–65535 |  |
 
 ### `[url]`
 
@@ -157,7 +170,7 @@ How the server checks request URLs: the signing keys and the keys that decrypt `
 
 | Key | Type | Default |
 | --- | --- | --- |
-| `keys` | array of string | `[]` |
+| `keys` | array of hex strings | `[]` |
 | `source_encryption_keys` | array of hex strings, each a 32-byte key | `[]` |
 
 ### `[sources.<name>]`
@@ -311,7 +324,6 @@ Caches on the local filesystem: `output` for processed images, `input` for origi
 
 | Key | Type | Default |
 | --- | --- | --- |
-| `output.root` | string |  |
 | `output.path_prefix` | string | `""` |
 | `output.max_size_bytes` | integer > 0 |  |
 | `output.node_id` | string |  |
@@ -325,10 +337,10 @@ Caches on the local filesystem: `output` for processed images, `input` for origi
 | `output.cleanup_interval` | integer > 0 |  |
 | `output.reconcile_interval` | integer > 0 |  |
 | `output.state_ttl` | integer > 0 |  |
+| `output.root` | string (absolute path) |  |
 | `output.window_ratio` | number |  |
 | `output.doorkeeper_fpr` | number |  |
 | `output.max_body_bytes` | integer ≥ 0 |  |
-| `input.root` | string |  |
 | `input.path_prefix` | string | `""` |
 | `input.max_size_bytes` | integer > 0 |  |
 | `input.node_id` | string |  |
@@ -342,6 +354,7 @@ Caches on the local filesystem: `output` for processed images, `input` for origi
 | `input.cleanup_interval` | integer > 0 |  |
 | `input.reconcile_interval` | integer > 0 |  |
 | `input.state_ttl` | integer > 0 |  |
+| `input.root` | string (absolute path) |  |
 | `input.window_ratio` | number |  |
 | `input.doorkeeper_fpr` | number |  |
 | `storage_inputs` | array of `{ header = … }` or `{ cookie = … }` (string) |  |
@@ -398,6 +411,7 @@ Defaults and limits for every image the server processes. The limits on original
 | `request_watermarks` | boolean | `false` |
 | `presets` | table of string |  |
 | `request_defaults` | string |  |
+| `detector_warmup` | `"all"` or `false` or array of string | `"all"` |
 
 Elixir only: `max_preset_lookups`, `preset_lookup`, `telemetry_prefix`, `clock`.
 
@@ -424,11 +438,13 @@ Response settings: the CORS origin, whether requests may ask for debug headers, 
 
 ### `[telemetry]`
 
-`log_level` logs each request and its stages at that level. Failures log at `warning`. With `trust_traceparent`, a request with a W3C `traceparent` header joins the caller's trace when [tracing](server-deployment.md#tracing) is on. Any client can send that header.
+`log_level` is the lowest level the server logs. `log_requests` logs each request and its stages at `info`, and failures and degraded results at `warning`. With `trust_traceparent`, a request with a W3C `traceparent` header joins the caller's trace when [tracing](server-deployment.md#tracing) is on. Any client can send that header. With `trust_request_id`, an incoming `x-request-id` of 1 to 200 letters, digits, and `-_.:+/=` tags the request's log lines instead of a generated ID.
 
 | Key | Type | Default |
 | --- | --- | --- |
-| `log_level` | `"error"` or `"info"` or `"debug"` or `"emergency"` or `"alert"` or `"critical"` or `"warning"` or `"notice"` |  |
+| `log_level` | `"error"` or `"info"` or `"debug"` or `"emergency"` or `"alert"` or `"critical"` or `"warning"` or `"notice"` | `"info"` |
+| `log_requests` | boolean | `false` |
 | `trust_traceparent` | boolean | `false` |
+| `trust_request_id` | boolean | `false` |
 
 <!-- reference:end -->

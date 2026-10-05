@@ -7,8 +7,10 @@ defmodule ImagePipeServer.Config do
   options the library already validates:
 
     * `[server]` - the listener: `port`, `bind`, `mount_path`,
-      `shutdown_timeout`, `read_timeout`, `max_connections`, and an optional
-      `auth_token` that image requests must send as a bearer token.
+      `shutdown_delay`, `shutdown_timeout`, `read_timeout`,
+      `max_connections`, an optional `health_port` for a separate health
+      listener, and an optional `auth_token` that image requests must send as
+      a bearer token.
     * `[url]` - the signing and source-encryption options of
       `ImagePipe.config/1`. `base_url`, `encrypt_source`, and `iv_mode` only
       affect URL generation and are not accepted.
@@ -18,13 +20,15 @@ defmodule ImagePipeServer.Config do
       `storage_inputs` as `[{ header = "..." }, { cookie = "..." }]`.
     * `[processing]` - the processing options of `ImagePipe.config/1`,
       including `watermarks.<name>` asset tables, `request_watermarks`,
-      `presets.<name>` option fragments, and `request_defaults`.
+      `presets.<name>` option fragments, `request_defaults`, and
+      `detector_warmup`, the instance option of `ImagePipe`.
     * `[pool]` - `ImagePipe.ProcessingPool` options. `max_concurrency`
       defaults to the VM's online schedulers.
     * `[http]` - the delivery options of `ImagePipe.Plug.init/1`.
-    * `[telemetry]` - `log_level` attaches the default Logger.
-      `trust_traceparent` continues an inbound W3C `traceparent` when tracing
-      is on.
+    * `[telemetry]` - `log_level` is the lowest level the server logs.
+      `log_requests` attaches the default Logger. `trust_traceparent`
+      continues an inbound W3C `traceparent` when tracing is on, and
+      `trust_request_id` keeps an inbound `x-request-id`.
 
   Invalid configuration raises `ImagePipeServer.ConfigError` (see there for
   which values a message may quote).
@@ -41,9 +45,12 @@ defmodule ImagePipeServer.Config do
   @enforce_keys [
     :server,
     :trust_traceparent,
+    :trust_request_id,
     :image_pipe,
+    :detector_warmup,
     :http,
     :pool,
+    :log_level,
     :telemetry,
     :credential_warmups
   ]
@@ -52,24 +59,34 @@ defmodule ImagePipeServer.Config do
   @typedoc """
   The validated configuration.
 
-    * `:server` - `:port`, `:ip`, `:mount_path`, `:shutdown_timeout`,
-      `:read_timeout`, `:max_connections`, and `:auth_token_hash`, the SHA-256
-      of the auth token (or `nil`). The token itself isn't kept.
+    * `:server` - `:port`, `:ip`, `:mount_path`, `:shutdown_delay`,
+      `:shutdown_timeout`, `:read_timeout`, `:max_connections`, `:health_port`
+      (or `nil`), and `:auth_token_hash`, the SHA-256 of the auth token (or
+      `nil`). The token itself isn't kept.
+    * `:trust_request_id` - whether a request keeps an inbound
+      `x-request-id`.
     * `:trust_traceparent` - whether the tracer continues an inbound
       `traceparent` (its `extract_inbound` option).
     * `:image_pipe` - the `ImagePipe.Config` the server's instance runs.
+    * `:detector_warmup` - which detector classes the instance loads models
+      for at boot: `:all`, `false`, or a list of class names.
     * `:http` - the delivery options of `ImagePipe.Plug.init/1`.
     * `:pool` - `ImagePipe.ProcessingPool` options with the pool's name.
-    * `:telemetry` - default Logger options, or `nil`.
+    * `:log_level` - the lowest level the server logs.
+    * `:telemetry` - default Logger options when requests are logged, or
+      `nil`.
     * `:credential_warmups` - `ImagePipe.Source.S3.CredentialWarmup` options,
       one per named S3 bucket whose credentials come from a provider.
   """
   @type t :: %__MODULE__{
           server: keyword(),
           trust_traceparent: boolean(),
+          trust_request_id: boolean(),
           image_pipe: ImagePipe.Config.t(),
+          detector_warmup: :all | false | [String.t()],
           http: keyword(),
           pool: keyword(),
+          log_level: Logger.level(),
           telemetry: keyword() | nil,
           credential_warmups: [keyword()]
         }
@@ -80,15 +97,19 @@ defmodule ImagePipeServer.Config do
     port: [type: {:in, 0..65_535}, default: 8080],
     bind: [type: :string, default: "0.0.0.0"],
     mount_path: [type: :string, default: "/"],
+    shutdown_delay: [type: :non_neg_integer, default: 5_000],
     shutdown_timeout: [type: :non_neg_integer, default: 15_000],
     read_timeout: [type: :pos_integer, default: 10_000],
     max_connections: [type: :pos_integer, default: 2048],
-    auth_token: [type: :string]
+    auth_token: [type: :string],
+    health_port: [type: {:in, 0..65_535}]
   ]
 
   @telemetry_schema [
-    log_level: [type: {:in, Logger.levels()}],
-    trust_traceparent: [type: :boolean, default: false]
+    log_level: [type: {:in, Logger.levels()}, default: :info],
+    log_requests: [type: :boolean, default: false],
+    trust_traceparent: [type: :boolean, default: false],
+    trust_request_id: [type: :boolean, default: false]
   ]
 
   @watermark_schema [
@@ -135,11 +156,21 @@ defmodule ImagePipeServer.Config do
     ImagePipe.Security.options_schema()
     |> Keyword.drop([:encrypt_source, :iv_mode])
     |> Keyword.merge(
+      keys: [type: {:list, {:convert, &signing_key/2, "hex strings"}}, default: []],
       source_encryption_keys: [
         type: {:list, {:convert, &encryption_key/2, "hex strings, each a 32-byte key"}},
         default: []
       ]
     )
+  end
+
+  defp signing_key(value, path) do
+    with {:ok, key} <- Convert.string(value, path) do
+      case Base.decode16(key, case: :mixed) do
+        {:ok, <<_::binary-size(1), _rest::binary>>} -> {:ok, key}
+        _invalid -> {:error, path, "expected a non-empty hex string"}
+      end
+    end
   end
 
   # Checked here so the error names the setting. The library decodes the key.
@@ -172,14 +203,29 @@ defmodule ImagePipeServer.Config do
   end
 
   defp file_system(value, schema, path) do
-    with {:ok, options} <- Convert.options(value, schema, path), do: {:ok, {FileSystem, options}}
+    with {:ok, options} <- Convert.options(value, schema, path),
+         {:ok, options} <- Convert.require_keys(options, [:root], path),
+         do: {:ok, {FileSystem, options}}
   end
 
   defp store_schema do
     Store.options_schema()
     |> Keyword.delete(:pool)
-    |> Keyword.merge(window_ratio: [type: :float], doorkeeper_fpr: [type: :float])
+    |> Keyword.merge(
+      root: [type: {:convert, &cache_root/2, "string (absolute path)"}, required: true],
+      window_ratio: [type: :float],
+      doorkeeper_fpr: [type: :float]
+    )
   end
+
+  defp cache_root(value, path) do
+    case Convert.string(value, path) do
+      {:ok, root} = ok -> if Path.type(root) == :absolute, do: ok, else: absolute_path(path)
+      {:error, _path, _message} -> absolute_path(path)
+    end
+  end
+
+  defp absolute_path(path), do: {:error, path, "expected an absolute path"}
 
   defp output_schema, do: store_schema() ++ ImagePipe.Cache.shared_options_schema()
 
@@ -207,8 +253,20 @@ defmodule ImagePipeServer.Config do
       watermarks: [type: {:map, :string, Convert.table(@watermark_schema)}],
       request_watermarks: [type: :boolean, default: false],
       presets: [type: {:map, :string, :string}],
-      request_defaults: [type: :string]
+      request_defaults: [type: :string],
+      detector_warmup: [
+        type: {:convert, &detector_warmup/2, ~s(`"all"` or `false` or array of string)},
+        default: :all
+      ]
     )
+  end
+
+  # Convert skips boolean choices, so `false` is matched on its own.
+  defp detector_warmup(value, path) do
+    case Convert.value(:boolean, value, path) do
+      {:ok, false} -> {:ok, false}
+      _not_false -> Convert.value({:or, [{:in, [:all]}, {:list, :string}]}, value, path)
+    end
   end
 
   defp pool_schema do
@@ -227,14 +285,23 @@ defmodule ImagePipeServer.Config do
   @spec build!(keyword()) :: t()
   def build!(sections) do
     pool = pool!(Keyword.get(sections, :pool))
-    image_pipe = image_pipe!(sections, pool)
+
+    {detector_warmup, processing} =
+      sections |> Keyword.get(:processing, []) |> Keyword.pop(:detector_warmup, :all)
+
+    image_pipe = image_pipe!(Keyword.put(sections, :processing, processing), pool)
+    instance!(image_pipe, detector_warmup)
 
     %__MODULE__{
       server: server!(Keyword.get(sections, :server, [])),
       trust_traceparent: trust_traceparent(Keyword.get(sections, :telemetry, [])),
+      trust_request_id:
+        Keyword.get(Keyword.get(sections, :telemetry, []), :trust_request_id, false),
       image_pipe: image_pipe,
+      detector_warmup: detector_warmup,
       http: http!(Keyword.get(sections, :http, [])),
       pool: pool,
+      log_level: Keyword.get(Keyword.get(sections, :telemetry, []), :log_level, :info),
       telemetry: telemetry(Keyword.get(sections, :telemetry, [])),
       credential_warmups: credential_warmups(Keyword.get(sections, :sources, []))
     }
@@ -249,11 +316,27 @@ defmodule ImagePipeServer.Config do
       port: Keyword.fetch!(options, :port),
       ip: ip!(Keyword.fetch!(options, :bind)),
       mount_path: mount_path!(Keyword.fetch!(options, :mount_path)),
+      shutdown_delay: Keyword.fetch!(options, :shutdown_delay),
       shutdown_timeout: Keyword.fetch!(options, :shutdown_timeout),
       read_timeout: Keyword.fetch!(options, :read_timeout),
       max_connections: Keyword.fetch!(options, :max_connections),
+      health_port: health_port!(options),
       auth_token_hash: auth_token_hash!(auth_token)
     ]
+  end
+
+  # Port 0 picks a free port for each listener, so only a fixed port clashes.
+  defp health_port!(options) do
+    health_port = Keyword.get(options, :health_port)
+
+    if health_port not in [nil, 0] and health_port == Keyword.fetch!(options, :port),
+      do:
+        raise(
+          ConfigError,
+          "invalid configuration: server.health_port: must differ from server.port"
+        )
+
+    health_port
   end
 
   defp auth_token_hash!(nil), do: nil
@@ -296,6 +379,13 @@ defmodule ImagePipeServer.Config do
     end)
   end
 
+  # Checks warmup classes against the build's detector.
+  defp instance!(image_pipe, detector_warmup) do
+    library!(fn ->
+      ImagePipe.child_spec(name: __MODULE__, config: image_pipe, detector_warmup: detector_warmup)
+    end)
+  end
+
   # Validates the mount options; the instance name is not looked up here.
   defp http!(options) do
     library!(fn -> ImagePipe.Plug.init([instance: __MODULE__] ++ options) end)
@@ -323,10 +413,19 @@ defmodule ImagePipeServer.Config do
   defp processing_pool(pool), do: [processing_pool: Keyword.fetch!(pool, :name)]
 
   # The library names the setting in its errors and keeps secret values out.
+  # It names a source as `:name`, which the file spells `sources.name`.
   defp library!(fun) do
     fun.()
   rescue
-    error in ArgumentError -> reraise ConfigError, [message: error.message], __STACKTRACE__
+    error in ArgumentError ->
+      message =
+        Regex.replace(
+          ~r/\Ainvalid source :([a-z0-9_]+): /,
+          error.message,
+          "invalid configuration: sources.\\1: "
+        )
+
+      reraise ConfigError, [message: message], __STACKTRACE__
   end
 
   # The server always bounds processing, so a burst waits or gets a 503
@@ -351,11 +450,10 @@ defmodule ImagePipeServer.Config do
 
   defp trust_traceparent(options), do: Keyword.get(options, :trust_traceparent, false)
 
+  # Request lines log at `info` and failures at `warning`, so `log_level`
+  # can keep only the failures.
   defp telemetry(options) do
-    case Keyword.fetch(options, :log_level) do
-      {:ok, level} -> [level: level]
-      :error -> nil
-    end
+    if Keyword.get(options, :log_requests, false), do: [level: :info]
   end
 
   defp validate!(options, schema, section) do

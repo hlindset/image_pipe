@@ -61,12 +61,58 @@ defmodule ImagePipeServer.Config.TreeTest do
       refute message =~ "sekrit"
     end
 
+    test "redacts all of a line inside a multi-line string", %{tmp_dir: dir} do
+      message = toml_error(dir, ~s(auth_token = """\nSEKRITAA=\\qSEKRITBB\n"""\n))
+
+      assert message =~ "\n    <redacted value>\n"
+      refute message =~ "SEKRIT"
+    end
+
+    test "redacts all of a line inside a multi-line array", %{tmp_dir: dir} do
+      message = toml_error(dir, ~s(a = [\n  "x",\n  SEKRITAA=1\n]\n))
+
+      assert message =~ "\n      <redacted value>\n"
+      refute message =~ "SEKRIT"
+    end
+
+    test "redacts bytes the summary quotes", %{tmp_dir: dir} do
+      message = toml_error(dir, ~s(token = "\\uD800"\n))
+
+      assert message =~ "token = <redacted value>"
+      refute message =~ "0x44"
+    end
+
     test "keeps table headers", %{tmp_dir: dir} do
       assert toml_error(dir, "[sources.x\n") =~ "    [sources.x\n"
     end
 
     test "keeps key paths", %{tmp_dir: dir} do
       assert toml_error(dir, "a = 1\na = 2\n") =~ "cannot redefine key in path 'a'"
+    end
+
+    test "names the line of a byte that isn't UTF-8 and quotes nothing", %{tmp_dir: dir} do
+      message = toml_error(dir, "port = 8080 # caf\xE9\n[url]\nkeys = [\"sekrit\"]\n")
+
+      assert message =~ "config.toml is not valid UTF-8 on line 1"
+      refute message =~ "sekrit"
+      refute message =~ "115, 101, 107"
+    end
+
+    test "reports a number the parser can't read as invalid TOML", %{tmp_dir: dir} do
+      message = toml_error(dir, "port = 0xZZ\n")
+
+      assert message =~ ~r/\Ainvalid TOML in .*config\.toml/
+      refute message =~ "cannot read"
+    end
+  end
+
+  @tag skip: System.cmd("id", ["-u"]) == {"0\n", 0} && "chmod doesn't stop root reading the file"
+  test "an unreadable IPS_CONFIG file names the reason", %{tmp_dir: dir} do
+    path = write!(dir, "config.toml", "")
+    File.chmod!(path, 0o000)
+
+    assert_raise ConfigError, ~r/cannot read .*config\.toml: permission denied/, fn ->
+      read!(%{"IPS_CONFIG" => path}, dir)
     end
   end
 
@@ -111,6 +157,39 @@ defmodule ImagePipeServer.Config.TreeTest do
     assert_raise ConfigError, ~r/IPS_URL__KEYS.*IPS_URL__KEYS_FILE/, fn ->
       read!(%{"IPS_URL__KEYS" => "a", "IPS_URL__KEYS_FILE" => secret}, dir)
     end
+  end
+
+  test "two variables that differ only in case are an error", %{tmp_dir: dir} do
+    assert_raise ConfigError, ~r/both IPS_SERVER__PORT and IPS_Server__Port are set/, fn ->
+      read!(%{"IPS_SERVER__PORT" => "1", "IPS_Server__Port" => "2"}, dir)
+    end
+  end
+
+  test "a _FILE variable and a differently cased plain variable are an error", %{tmp_dir: dir} do
+    assert_raise ConfigError, ~r/both IPS_URL__KEYS_FILE and IPS_url__keys are set/, fn ->
+      read!(%{"IPS_url__keys" => "a", "IPS_URL__KEYS_FILE" => "/run/keys"}, dir)
+    end
+  end
+
+  test "Kubernetes service-link variables are ignored", %{tmp_dir: dir} do
+    env = %{
+      "IPS_SERVICE_HOST" => "10.0.0.1",
+      "IPS_SERVICE_PORT" => "8080",
+      "IPS_SERVICE_PORT_HTTP" => "8080",
+      "IPS_PORT" => "tcp://10.0.0.1:8080",
+      "IPS_PORT_8080_TCP" => "tcp://10.0.0.1:8080",
+      "IPS_PORT_8080_TCP_ADDR" => "10.0.0.1",
+      "IPS_CACHE_PORT_6379_UDP_PROTO" => "udp",
+      "IPS_PROCESSING__QUALITY" => "70"
+    }
+
+    assert read!(env, dir) == %{"processing" => %{"quality" => {:env, "70"}}}
+  end
+
+  test "a single-underscore variable is still read as a setting", %{tmp_dir: dir} do
+    assert read!(%{"IPS_PROCESSING_QUALITY" => "70"}, dir) == %{
+             "processing_quality" => {:env, "70"}
+           }
   end
 
   test "a variable with an empty level is an error", %{tmp_dir: dir} do

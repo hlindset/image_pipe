@@ -19,7 +19,7 @@ defmodule ImagePipeServer.Config.ReferenceTest do
     assert reference =~
              ~s(| `http_cache` | `"validators"` or `"auto"` or `"public"` or `"private"` | `"validators"` |)
 
-    assert reference =~ "| `keys` | array of string | `[]` |"
+    assert reference =~ "| `keys` | array of hex strings | `[]` |"
   end
 
   test "documents explicit conversions", %{reference: reference} do

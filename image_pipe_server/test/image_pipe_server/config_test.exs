@@ -3,6 +3,7 @@ defmodule ImagePipeServer.ConfigTest do
 
   alias ImagePipe.Cache.FileSystem
   alias ImagePipeServer.Config
+  alias ImagePipeServer.Config.Tree
   alias ImagePipeServer.ConfigError
 
   @key32 :binary.copy(<<7>>, 32)
@@ -120,9 +121,11 @@ defmodule ImagePipeServer.ConfigTest do
                port: 8080,
                ip: {0, 0, 0, 0},
                mount_path: "/",
+               shutdown_delay: 5_000,
                shutdown_timeout: 15_000,
                read_timeout: 10_000,
                max_connections: 2048,
+               health_port: nil,
                auth_token_hash: nil
              ]
 
@@ -184,14 +187,21 @@ defmodule ImagePipeServer.ConfigTest do
         Config.build!(
           Config.options!(%{
             "pool" => %{"max_concurrency" => 4},
-            "telemetry" => %{"log_level" => "debug", "trust_traceparent" => true}
+            "telemetry" => %{
+              "log_level" => "warning",
+              "log_requests" => true,
+              "trust_traceparent" => true,
+              "trust_request_id" => true
+            }
           })
         )
 
       assert config.pool[:max_concurrency] == 4
       assert config.image_pipe.options[:processing_pool] == config.pool[:name]
-      assert config.telemetry == [level: :debug]
+      assert config.log_level == :warning
+      assert config.telemetry == [level: :info]
       assert config.trust_traceparent == true
+      assert config.trust_request_id == true
 
       queue_only = Config.build!(Config.options!(%{"pool" => %{"max_queue" => 1}}))
       assert queue_only.pool[:max_concurrency] == System.schedulers_online()
@@ -201,6 +211,14 @@ defmodule ImagePipeServer.ConfigTest do
                Config.build!(Config.options!(%{"pool" => %{"max_concurrency" => 0}}))
              end) =~
                "pool"
+    end
+
+    test "defaults [telemetry] to info, no request lines, and no inbound IDs" do
+      config = Config.build!([])
+
+      assert config.log_level == :info
+      assert config.telemetry == nil
+      assert config.trust_request_id == false
     end
 
     test "builds validated mount options" do
@@ -215,6 +233,34 @@ defmodule ImagePipeServer.ConfigTest do
       assert config.image_pipe.options[:quality] == 70
       assert config.http[:allow_origin] == "*"
       assert config.http[:http_cache] == :auto
+    end
+
+    test "names url.keys in a signing-key error without quoting the key" do
+      message = error(fn -> Config.options!(%{"url" => %{"keys" => ["0123", "zzsekrit"]}}) end)
+
+      assert message == "invalid configuration: url.keys[1]: expected a non-empty hex string"
+    end
+
+    test "names the cache root setting" do
+      assert error(fn -> Config.options!(%{"cache" => %{"output" => %{"root" => 5}}}) end) =~
+               "invalid configuration: cache.output.root: expected an absolute path"
+
+      assert error(fn ->
+               Config.options!(%{"cache" => %{"input" => %{"max_size_bytes" => 1}}})
+             end) ==
+               "invalid configuration: cache.input.root: required"
+    end
+
+    test "names the source in the library's source errors" do
+      assert error(fn ->
+               Config.build!(
+                 Config.options!(%{
+                   "sources" => %{
+                     "h" => %{"adapter" => "http", "match" => "path", "base_url" => "ftp://x"}
+                   }
+                 })
+               )
+             end) =~ ~r/\Ainvalid configuration: sources\.h: base_url must be/
     end
 
     test "reports library validation errors" do
@@ -244,6 +290,13 @@ defmodule ImagePipeServer.ConfigTest do
                65_535
     end
 
+    test "rejects a health_port equal to port" do
+      assert error(fn -> Config.build!(server: [port: 9000, health_port: 9000]) end) ==
+               "invalid configuration: server.health_port: must differ from server.port"
+
+      assert Config.build!(server: [port: 0, health_port: 0]).server[:health_port] == 0
+    end
+
     test "takes the shutdown grace period from [server]" do
       config = Config.build!(Config.options!(%{"server" => %{"shutdown_timeout" => 30_000}}))
       assert config.server[:shutdown_timeout] == 30_000
@@ -253,6 +306,21 @@ defmodule ImagePipeServer.ConfigTest do
       assert error(fn ->
                Config.build!(Config.options!(%{"processing" => %{"detector_required" => true}}))
              end) =~ "detector_required: the detector is not available in this build"
+    end
+
+    test "takes detector warmup from [processing], loading every model by default" do
+      assert Config.build!([]).detector_warmup == :all
+
+      for {value, expected} <- [{false, false}, {["face"], ["face"]}, {"all", :all}] do
+        config = Config.build!(Config.options!(%{"processing" => %{"detector_warmup" => value}}))
+        assert config.detector_warmup == expected
+      end
+    end
+
+    test "rejects a detector warmup that isn't all, false, or a list" do
+      assert error(fn ->
+               Config.options!(%{"processing" => %{"detector_warmup" => true}})
+             end) =~ "processing.detector_warmup: invalid value"
     end
 
     test "warms S3 credential providers for each named bucket" do
@@ -386,6 +454,14 @@ defmodule ImagePipeServer.ConfigTest do
       assert error(fn ->
                Config.load!(%{"IPS_URL__KEYS_FILE" => keys}, Path.join(dir, "absent.toml"))
              end) =~ "url.keys: expected at least one entry"
+    end
+
+    test "reads one signing key per line from a keys file", %{tmp_dir: dir} do
+      keys = Path.join(dir, "keys")
+      File.write!(keys, "0123abcd\n4567ef01\n")
+
+      tree = Tree.read!(%{"IPS_URL__KEYS_FILE" => keys}, dir)
+      assert Config.options!(tree)[:url][:keys] == ["0123abcd", "4567ef01"]
     end
 
     test "takes a container credentials token file as a path, read at refresh", %{tmp_dir: dir} do

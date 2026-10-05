@@ -20,6 +20,11 @@ defmodule ImagePipeServer.Config.Tree do
   @prefix "IPS_"
   @config_var "IPS_CONFIG"
 
+  # Kubernetes sets these for every Service in the namespace, so a Service
+  # named `ips` or `ips-...` gives the pod `IPS_SERVICE_HOST`, `IPS_PORT`, and
+  # so on. Settings always have a `__`, which these never do.
+  @service_link ~r/\A(?:[A-Z0-9_]+_)?(?:SERVICE_HOST|SERVICE_PORT(?:_[A-Z0-9_]+)?|PORT(?:_\d+_(?:TCP|UDP|SCTP)(?:_(?:PROTO|PORT|ADDR))?)?)\z/
+
   @type t :: %{String.t() => term()}
 
   @spec read!(%{String.t() => String.t()}, Path.t()) :: t()
@@ -40,29 +45,53 @@ defmodule ImagePipeServer.Config.Tree do
   end
 
   defp decode!(path) do
-    case Toml.decode_file(path) do
+    case File.read(path) do
+      {:ok, contents} -> decode!(contents, path)
+      {:error, reason} -> raise ConfigError, "cannot read #{path}: #{:file.format_error(reason)}"
+    end
+  end
+
+  # The parser crashes on bytes that aren't UTF-8, and its other non-TOML
+  # errors carry parts of the file, so neither is quoted.
+  defp decode!(contents, path) do
+    if not String.valid?(contents),
+      do: raise(ConfigError, "#{path} is not valid UTF-8 on line #{invalid_line(contents)}")
+
+    case Toml.decode(contents, filename: path) do
       {:ok, tree} ->
         tree
 
       {:error, {:invalid_toml, reason}} ->
-        raise ConfigError, TomlError.message(reason, path)
+        raise ConfigError, TomlError.message(reason, path, contents)
 
-      {:error, reason} ->
-        raise ConfigError, "cannot read #{path}: #{inspect(reason)}"
+      {:error, _reason} ->
+        raise ConfigError, "invalid TOML in #{path}: a value can't be read"
     end
+  end
+
+  defp invalid_line(contents) do
+    {_invalid_or_incomplete, valid, _rest} = :unicode.characters_to_binary(contents)
+    length(:binary.matches(valid, "\n")) + 1
   end
 
   defp env!(env) do
     env
-    |> Enum.filter(fn {name, _value} ->
-      String.starts_with?(name, @prefix) and name != @config_var
-    end)
+    |> Enum.filter(fn {name, _value} -> setting?(name) end)
     |> Enum.sort()
-    |> Enum.map(&env_entry!(&1, env))
-    |> Enum.reduce(%{}, fn {path, value}, tree -> put_leaf!(tree, path, value, []) end)
+    |> Enum.map(&env_entry!/1)
+    |> reject_duplicates!()
+    |> Enum.reduce(%{}, fn {_name, path, value}, tree -> put_leaf!(tree, path, value, []) end)
   end
 
-  defp env_entry!({name, value}, env) do
+  defp setting?(name) do
+    case name do
+      @config_var -> false
+      @prefix <> rest -> String.contains?(rest, "__") or not Regex.match?(@service_link, rest)
+      _other -> false
+    end
+  end
+
+  defp env_entry!({name, value}) do
     levels = name |> String.replace_prefix(@prefix, "") |> String.split("__")
 
     if Enum.any?(levels, &(&1 == "")),
@@ -70,21 +99,26 @@ defmodule ImagePipeServer.Config.Tree do
 
     path = Enum.map(levels, &String.downcase/1)
 
-    case String.split(name, ~r/_FILE\z/) do
-      [plain, ""] -> {file_path!(path), file_reference!(name, plain, value, env)}
-      [_name] -> {path, {:env, value}}
-    end
+    if String.ends_with?(name, "_FILE"),
+      do: {name, file_path!(path), {:env_file, name, value}},
+      else: {name, path, {:env, value}}
   end
 
   defp file_path!(path) do
     List.update_at(path, -1, &String.replace_suffix(&1, "_file", ""))
   end
 
-  defp file_reference!(name, plain, path, env) do
-    if Map.has_key?(env, plain),
-      do: raise(ConfigError, "both #{plain} and #{name} are set")
+  # Levels are case-insensitive, and `X_FILE` sets the same leaf as `X`.
+  defp reject_duplicates!(entries) do
+    duplicate =
+      entries
+      |> Enum.group_by(fn {_name, path, _value} -> path end, fn {name, _path, _value} -> name end)
+      |> Enum.find(fn {_path, names} -> length(names) > 1 end)
 
-    {:env_file, name, path}
+    case duplicate do
+      nil -> entries
+      {_path, [first, second | _rest]} -> raise ConfigError, "both #{first} and #{second} are set"
+    end
   end
 
   defp put_leaf!(tree, [key], value, parents) do

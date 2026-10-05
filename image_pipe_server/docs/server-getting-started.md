@@ -68,7 +68,7 @@ docker run -d --name image-server -p 8080:8080 \
 ```
 
 The server reads `/etc/image_pipe/config.toml` at startup. Open
-<http://localhost:8080/health> in your browser. Within a second or two it
+<http://localhost:8080/health/ready> in your browser. Within a second or two it
 shows:
 
 ```text

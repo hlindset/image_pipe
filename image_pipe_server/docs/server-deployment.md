@@ -15,6 +15,11 @@ There are two variants:
 
 Both read every input format ImagePipe supports, including JPEG XL.
 
+The `-vision` image loads the models for every detection class when it
+starts. To save memory, load only the ones your URLs use by setting
+[`detector_warmup`](server-configuration.md#processing) in `[processing]`,
+such as `detector_warmup = ["face"]`.
+
 To build an image yourself, run from the repository root, since the server
 depends on its sibling projects. Add `--build-arg IMAGE_VISION=1` for the
 detection variant:
@@ -24,7 +29,7 @@ docker build -f image_pipe_server/Dockerfile -t image_pipe_server .
 ```
 
 The image runs as user `image_pipe` (uid 10001), listens on port 8080, and
-checks `GET /health` for its Docker health status.
+checks `GET /health/ready` for its Docker health status.
 
 ## Running
 
@@ -88,20 +93,54 @@ CDN in front of it.
 - `[server] max_connections` (2048) caps concurrent connections. Beyond it,
   new connections wait up to five seconds for room, then are closed.
 - `[server] auth_token` requires `Authorization: Bearer <token>` on every
-  request except `/health`, answering `401` otherwise. Use it when a trusted
+  request except the health checks, answering `401` otherwise. Use it when a trusted
   edge adds the header, for example with unsigned URLs. Pass it as a secret:
   `IPS_SERVER__AUTH_TOKEN_FILE=/run/secrets/auth_token`.
 
 ## Health and shutdown
 
-`GET /health` answers `200 ok` once the configuration was accepted and the
-server is listening. Invalid configuration stops the server before it
-listens, so use it for both readiness and liveness checks.
+The server has two health checks:
 
-The image's Docker health check requests `/health` on `127.0.0.1`, at the
-port in `IPS_SERVER__PORT` (8080 when it's unset). Set a custom port with
-`IPS_SERVER__PORT`, and the check follows it. The check doesn't see
-`[server] port` in the file or `IPS_SERVER__PORT_FILE`. If the server doesn't
+- `GET /health/live` answers `200 ok` while the server runs. Use it where a
+  failed check restarts the server, such as a Kubernetes liveness probe.
+- `GET /health/ready` answers `200 ok` while the server takes traffic, and
+  `503` while it shuts down. Use it where a failed check stops traffic, such
+  as a Kubernetes readiness probe, a proxy's active health check (Caddy,
+  Traefik), or a platform that routes on Docker's health status, such as
+  [uncloud](https://uncloud.run).
+
+Invalid configuration stops the server before it listens, so neither check
+passes with a configuration the server rejected.
+
+Both checks share the image listener and its `max_connections`, so under
+heavy load a check can wait for a free connection and time out. For
+readiness that moves traffic to other replicas, as it should. Set
+`[server] health_port` to also serve the checks on a separate listener with
+its own small connection cap, and point liveness checks there, so load can't
+fail them.
+
+On `SIGTERM` the server shuts down in two steps:
+
+1. For `[server] shutdown_delay` milliseconds (default 5 seconds),
+   `/health/ready` answers `503` and every response closes its connection,
+   but the server keeps serving. Load balancers notice and move traffic to
+   other replicas before the server stops listening.
+2. The server stops accepting connections and gives in-flight requests
+   `[server] shutdown_timeout` milliseconds (default 15 seconds) to finish.
+
+Give the platform a grace period longer than both together (20 seconds by
+default), or it kills requests first. Docker's default is 10 seconds. Raise
+it with `docker stop -t 25` or `stop_grace_period` in Compose. Kubernetes'
+default is 30 seconds (`terminationGracePeriodSeconds`). With no load
+balancer in front, set `shutdown_delay = 0`.
+
+The image's Docker health check requests `/health/ready` on `127.0.0.1` every
+two seconds, so the container turns unhealthy within the default delay. It
+uses the port in `IPS_SERVER__HEALTH_PORT` when that names a fixed port, and
+otherwise the one in `IPS_SERVER__PORT` (8080 when it's unset). With a health
+port, load can't fail the check, so platforms that restart unhealthy
+containers, such as Docker Swarm, don't restart a busy server. The check
+reads only these variables, not the ports in the file or `_FILE` variables. If the server doesn't
 listen on `127.0.0.1`, such as when `[server] bind` names one specific
 address, override the check in Compose:
 
@@ -109,14 +148,8 @@ address, override the check in Compose:
 services:
   images:
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://10.0.0.5:8080/health"]
+      test: ["CMD", "curl", "-fsS", "http://10.0.0.5:8080/health/ready"]
 ```
-
-On `SIGTERM` the server stops accepting connections and gives in-flight
-requests `[server] shutdown_timeout` milliseconds (default 15 seconds) to
-finish. Give the platform a longer grace period, or it kills requests first:
-Docker's default is 10 seconds (`docker stop -t 20`, or `stop_grace_period`
-in Compose), and Kubernetes' is 30 seconds (`terminationGracePeriodSeconds`).
 
 ## Kubernetes
 
@@ -131,17 +164,20 @@ spec:
       image: ghcr.io/hlindset/image_pipe_server:0.1.0
       ports:
         - containerPort: 8080
+        - containerPort: 8081
       env:
         - name: IPS_URL__KEYS_FILE
           value: /run/secrets/image-pipe/signing_keys
+        - name: IPS_SERVER__HEALTH_PORT
+          value: "8081"
       readinessProbe:
         httpGet:
-          path: /health
+          path: /health/ready
           port: 8080
       livenessProbe:
         httpGet:
-          path: /health
-          port: 8080
+          path: /health/live
+          port: 8081
       securityContext:
         readOnlyRootFilesystem: true
       volumeMounts:
@@ -225,15 +261,22 @@ requiring it, and checking that it runs are covered in
 
 ## Logging
 
-`[telemetry] log_level` turns on request logging: one line per request
-stage at that level, with failures and degraded results at `warning`. The
+`[telemetry] log_requests = true` turns on request logging: one line per
+request stage at `info`, with failures and degraded results at `warning`. The
 [telemetry event reference](../../image_pipe/docs/telemetry-events.md)
 describes each stage.
 
+`[telemetry] log_level` is the lowest level the server logs, `"info"` by
+default. With request logging on, `log_level = "warning"` keeps only the
+failed and degraded requests.
+
 Every response carries an `x-request-id` header, and every log line for that
-request is tagged `request_id=<id>`. The server keeps a valid incoming
-`x-request-id` (20 to 200 characters), so an ID set by a proxy or CDN carries
-through; otherwise it generates one.
+request is tagged `request_id=<id>`. The server generates the ID. Behind a
+proxy or CDN that sets `x-request-id`, set `[telemetry] trust_request_id = true`
+to keep its ID, so its logs and the server's share one ID. Only do this when
+the proxy replaces any `x-request-id` a client sends. The server still
+replaces an ID longer than 200 characters or with characters other than
+letters, digits, and `-_.:+/=`.
 
 ## Tracing
 

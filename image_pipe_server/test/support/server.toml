@@ -3,6 +3,7 @@
 [server]
 port = 0
 bind = "127.0.0.1"
+shutdown_delay = 0
 
 [sources.static]
 adapter = "file"
@@ -11,4 +12,4 @@ root = "test/support/images"
 root_id = "static"
 
 [telemetry]
-log_level = "debug"
+log_requests = true
