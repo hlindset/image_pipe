@@ -83,6 +83,7 @@ defmodule ImagePipe.Cache.WorkTest do
         end)
       end)
 
+    await_waiter(key)
     Task.shutdown(leader, :brutal_kill)
     assert Task.await(follower) == :released
   end
@@ -126,5 +127,14 @@ defmodule ImagePipe.Cache.WorkTest do
     assert first == 1
     assert_receive {:published, second}
     assert second == 2
+  end
+
+  # The follower's lock request reaches Work some time after it starts, so
+  # the leader goes away only once Work holds the follower as a waiter.
+  defp await_waiter(key) do
+    case :sys.get_state(Work).locks do
+      %{^key => %{waiters: [_ | _]}} -> :ok
+      _not_queued -> await_waiter(key)
+    end
   end
 end
