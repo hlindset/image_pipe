@@ -307,6 +307,49 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     :exit, reason -> {:error, reason, state}
   end
 
+  @doc false
+  # Opens a sink over a complete file the caller already hashed, hard-linking it
+  # instead of copying. The caller's file keeps its own name. Linking fails
+  # across filesystems, and the caller then copies the bytes into a sink.
+  def open_linked_sink(%Key{} = key, metadata, path, body_sha256, opts) when is_list(opts) do
+    with {:ok, paths} <- paths(key, opts),
+         :ok <- File.mkdir_p(paths.dir),
+         temp_body_path = temp_path(paths),
+         :ok <- :file.make_link(path, temp_body_path) do
+      case open_linked_body(temp_body_path) do
+        {:ok, body_io, size} ->
+          {:ok,
+           %{
+             paths: paths,
+             temp_body_path: temp_body_path,
+             temp_meta_path: nil,
+             body_io: body_io,
+             size: size,
+             body_sha256: Base.encode16(body_sha256, case: :lower),
+             metadata: metadata
+           }}
+
+        {:error, reason} ->
+          cleanup_temp_files([temp_body_path])
+          {:error, reason}
+      end
+    end
+  end
+
+  # The descriptor is kept for the datasync before the commit's rename.
+  defp open_linked_body(path) do
+    with {:ok, body_io} <- :file.open(path, [:read, :raw, :binary]) do
+      case :file.read_file_info(body_io) do
+        {:ok, info} ->
+          {:ok, body_io, File.Stat.from_record(info).size}
+
+        {:error, reason} ->
+          :file.close(body_io)
+          {:error, reason}
+      end
+    end
+  end
+
   def commit_sink(state, opts) when is_map(state) do
     case lookup_admission(opts) do
       :unbounded ->
@@ -405,7 +448,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   defp prepare_sink_commit(state) do
     with :ok <- :file.datasync(state.body_io),
          :ok <- close_body_io(state),
-         body_sha256 = finalize_body_sha256(state.hash_context),
+         body_sha256 = sink_body_sha256(state),
          body_filename = body_filename(state.paths.hash, body_sha256),
          encoded_metadata = sink_metadata(state, body_sha256, body_filename),
          {:ok, temp_meta_path} <- write_sink_metadata(state.paths, encoded_metadata) do
@@ -847,6 +890,9 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   catch
     :exit, reason -> {:error, {:close_failed, reason}}
   end
+
+  defp sink_body_sha256(%{body_sha256: body_sha256}), do: body_sha256
+  defp sink_body_sha256(state), do: finalize_body_sha256(state.hash_context)
 
   defp finalize_body_sha256(hash_context) do
     hash_context

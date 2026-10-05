@@ -142,14 +142,15 @@ defmodule ImagePipe.Cache.Input do
 
   defp random, do: Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
 
-  def put(key, path, record, cost, opts) do
+  # `sha256` is the digest of the bytes at `path`, computed while staging them.
+  def put(key, path, sha256, record, cost, opts) do
     case Keyword.get(opts, :input_cache) do
       nil ->
         :ok
 
       {_adapter, pool} ->
         Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], %{pool: :input}, fn ->
-          result = store(key, path, record, cost, pool)
+          result = store(key, path, sha256, record, cost, pool)
 
           {result, write_metadata(result)}
         end)
@@ -162,8 +163,25 @@ defmodule ImagePipe.Cache.Input do
   defp write_metadata({:ok, :rejected}), do: %{result: :ok, cache: :stage_skipped}
   defp write_metadata(:ok), do: %{result: :ok, cache: :write}
 
-  defp store(key, path, record, cost, pool) do
-    case Store.open_sink(key, %{source_record: record, cost_us: cost}, pool) do
+  # A staged file on the pool's filesystem is linked into place, not re-read
+  # and rehashed. Elsewhere, its bytes are copied.
+  defp store(key, path, sha256, record, cost, pool) do
+    metadata = %{source_record: record, cost_us: cost}
+
+    case Store.open_linked_sink(key, metadata, path, sha256, pool) do
+      {:ok, sink} -> commit(sink, pool)
+      {:error, _reason} -> copy(key, metadata, path, pool)
+    end
+  end
+
+  defp commit(sink, pool) do
+    Store.commit_sink(sink, pool)
+  after
+    Store.abort_sink(sink, pool)
+  end
+
+  defp copy(key, metadata, path, pool) do
+    case Store.open_sink(key, metadata, pool) do
       {:ok, sink} -> write(sink, path, pool)
       {:error, reason} -> {:error, reason}
     end
