@@ -144,13 +144,17 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
     assert shrink in [2, 4, 8],
            "expected JPEG shrink to fire for #{label}, got #{inspect(shrink)}"
 
+    assert_same_output(jpeg_img, png_img, "#{label} (shrink #{shrink})")
+  end
+
+  defp assert_same_output(jpeg_img, png_img, label) do
     jw = Image.width(jpeg_img)
     jh = Image.height(jpeg_img)
     pw = Image.width(png_img)
     ph = Image.height(png_img)
 
     assert abs(jw - pw) <= 1 and abs(jh - ph) <= 1,
-           "shrink path #{jw}x#{jh} drifted >1px from full-decode #{pw}x#{ph} for #{label} (shrink #{shrink})"
+           "shrink path #{jw}x#{jh} drifted >1px from full-decode #{pw}x#{ph} for #{label}"
 
     mae = coarse_mae(jpeg_img, png_img)
 
@@ -260,6 +264,21 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
 
       assert no_shrink == nil
       assert_equivalent(jpeg_img, png_img, shrink, "rot:10 + gravity crop -> fit:400")
+    end
+
+    test "rotate=10 + resize through the Plug delivers the full-decode result" do
+      jpeg = structured(3200, 2400, ".jpg")
+      png = structured(3200, 2400, ".png")
+      path = "/rotate=10/w=400/format=png/src/rot.img"
+
+      [jpeg_img, png_img] =
+        for body <- [jpeg, png] do
+          response = ImagePipe.Plug.call(Plug.Test.conn(:get, path), opts(body))
+          assert response.status == 200
+          Image.from_binary!(response.resp_body)
+        end
+
+      assert_same_output(jpeg_img, png_img, "Plug rot:10 -> fit:400")
     end
 
     test "region crop after rotate=10 lands on the same content" do
