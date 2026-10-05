@@ -82,6 +82,9 @@ IPS_PROCESSING__QUALITY=82
 - Settings whose own name ends in `_file`, such as the `web_identity`
   provider's `token_file`, take the variable's value as the path instead:
   `IPS_SOURCES__MEDIA__CREDENTIALS__TOKEN_FILE=/var/run/secrets/eks.amazonaws.com/serviceaccount/token`.
+- Variables that Kubernetes sets for a Service named `ips` or `ips-…`, such
+  as `IPS_SERVICE_HOST` and `IPS_PORT`, are ignored. Every setting has a
+  `__` in its name, and these never do.
 - Settings that are awkward as variables, such as S3 `buckets`,
   `address_policy`, or `storage_inputs`, belong in the file.
 

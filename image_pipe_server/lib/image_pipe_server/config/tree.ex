@@ -20,6 +20,11 @@ defmodule ImagePipeServer.Config.Tree do
   @prefix "IPS_"
   @config_var "IPS_CONFIG"
 
+  # Kubernetes sets these for every Service in the namespace, so a Service
+  # named `ips` or `ips-...` gives the pod `IPS_SERVICE_HOST`, `IPS_PORT`, and
+  # so on. Settings always have a `__`, which these never do.
+  @service_link ~r/\A(?:[A-Z0-9_]+_)?(?:SERVICE_HOST|SERVICE_PORT(?:_[A-Z0-9_]+)?|PORT(?:_\d+_(?:TCP|UDP|SCTP)(?:_(?:PROTO|PORT|ADDR))?)?)\z/
+
   @type t :: %{String.t() => term()}
 
   @spec read!(%{String.t() => String.t()}, Path.t()) :: t()
@@ -71,13 +76,19 @@ defmodule ImagePipeServer.Config.Tree do
 
   defp env!(env) do
     env
-    |> Enum.filter(fn {name, _value} ->
-      String.starts_with?(name, @prefix) and name != @config_var
-    end)
+    |> Enum.filter(fn {name, _value} -> setting?(name) end)
     |> Enum.sort()
     |> Enum.map(&env_entry!/1)
     |> reject_duplicates!()
     |> Enum.reduce(%{}, fn {_name, path, value}, tree -> put_leaf!(tree, path, value, []) end)
+  end
+
+  defp setting?(name) do
+    case name do
+      @config_var -> false
+      @prefix <> rest -> String.contains?(rest, "__") or not Regex.match?(@service_link, rest)
+      _other -> false
+    end
   end
 
   defp env_entry!({name, value}) do

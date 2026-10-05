@@ -171,6 +171,27 @@ defmodule ImagePipeServer.Config.TreeTest do
     end
   end
 
+  test "Kubernetes service-link variables are ignored", %{tmp_dir: dir} do
+    env = %{
+      "IPS_SERVICE_HOST" => "10.0.0.1",
+      "IPS_SERVICE_PORT" => "8080",
+      "IPS_SERVICE_PORT_HTTP" => "8080",
+      "IPS_PORT" => "tcp://10.0.0.1:8080",
+      "IPS_PORT_8080_TCP" => "tcp://10.0.0.1:8080",
+      "IPS_PORT_8080_TCP_ADDR" => "10.0.0.1",
+      "IPS_CACHE_PORT_6379_UDP_PROTO" => "udp",
+      "IPS_PROCESSING__QUALITY" => "70"
+    }
+
+    assert read!(env, dir) == %{"processing" => %{"quality" => {:env, "70"}}}
+  end
+
+  test "a single-underscore variable is still read as a setting", %{tmp_dir: dir} do
+    assert read!(%{"IPS_PROCESSING_QUALITY" => "70"}, dir) == %{
+             "processing_quality" => {:env, "70"}
+           }
+  end
+
   test "a variable with an empty level is an error", %{tmp_dir: dir} do
     assert_raise ConfigError, ~r/IPS_URL____KEYS/, fn ->
       read!(%{"IPS_URL____KEYS" => "a"}, dir)
