@@ -466,6 +466,28 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     end)
   end
 
+  test "evicting an entry another node replaced leaves the replacement in place", ctx do
+    hash = hex_hash("f")
+    key = %Key{hash: hash, data: []}
+    opts = base_opts(registry: ctx.registry, tmp_dir: ctx.tmp_dir, max_size_bytes: 50)
+    pid = start_supervised!({Admission, opts})
+    Admission.await_scan(pid)
+
+    put_disk_entry(ctx.tmp_dir, hash, String.duplicate("x", 100))
+    {_paths, descriptor, _entry} = snapshot(ctx.tmp_dir, hash)
+    Admission.hit(pid, descriptor)
+    assert tracked_bytes(pid) == 100
+
+    # Writing without this node's Admission is what another node sharing the
+    # root does.
+    put_disk_entry(ctx.tmp_dir, hash, String.duplicate("y", 200))
+    assert :ok = GenServer.call(pid, :reconcile_to_cap)
+    assert tracked_bytes(pid) == 0
+
+    assert {:ok, %{body_byte_size: 200}} = Store.metadata(key, root: ctx.tmp_dir)
+    assert Store.verify(key, root: ctx.tmp_dir) == :ok
+  end
+
   test "protected entries are restored in LRU-to-MRU order from persisted state", %{
     registry: registry,
     tmp_dir: tmp_dir

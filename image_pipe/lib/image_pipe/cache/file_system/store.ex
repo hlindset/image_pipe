@@ -975,7 +975,43 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     end
 
     if victim.delete_meta? do
-      rm_tolerant(victim_paths.meta_path)
+      delete_victim_meta(victim, victim_paths)
+    end
+  end
+
+  # Another node sharing the root may have replaced the entry since this node
+  # tracked it. The metadata is taken with a rename before it's read, so only
+  # metadata naming the victim's body is deleted. Any other metadata is put
+  # back, unless something newer has been written there in the meantime.
+  defp delete_victim_meta(victim, paths) do
+    taken = temp_path(paths)
+
+    case :file.rename(paths.meta_path, taken) do
+      :ok ->
+        if names_body?(taken, victim.body_sha256),
+          do: rm_tolerant(taken),
+          else: restore_meta(taken, paths.meta_path)
+
+      {:error, :enoent} ->
+        :ok
+
+      {:error, reason} ->
+        log_delete_failure(reason)
+    end
+  end
+
+  defp names_body?(meta_path, body_sha256) do
+    case read_cache_file(meta_path, :metadata) do
+      {:ok, binary} -> match?({:ok, %{body_sha256: ^body_sha256}}, decode_metadata(binary))
+      _missing_or_unreadable -> false
+    end
+  end
+
+  defp restore_meta(taken, meta_path) do
+    case :file.make_link(taken, meta_path) do
+      :ok -> rm_tolerant(taken)
+      {:error, :eexist} -> rm_tolerant(taken)
+      {:error, _no_links} -> File.rename(taken, meta_path)
     end
   end
 
@@ -988,12 +1024,16 @@ defmodule ImagePipe.Cache.FileSystem.Store do
         :ok
 
       {:error, reason} ->
-        require Logger
-        # Path omitted: victim body/meta filenames embed the cache key
-        # hash (a cache-adapter internal). Log the reason only.
-        Logger.warning("cache: victim delete failed: reason=#{inspect(reason)}")
-        :ok
+        log_delete_failure(reason)
     end
+  end
+
+  # Path omitted: victim body/meta filenames embed the cache key hash (a
+  # cache-adapter internal). Log the reason only.
+  defp log_delete_failure(reason) do
+    require Logger
+    Logger.warning("cache: victim delete failed: reason=#{inspect(reason)}")
+    :ok
   end
 
   defp partitions(hash) do
