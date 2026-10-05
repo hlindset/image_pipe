@@ -15,6 +15,11 @@ There are two variants:
 
 Both read every input format ImagePipe supports, including JPEG XL.
 
+The `-vision` image loads the models for every detection class when it
+starts. To save memory, load only the ones your URLs use by setting
+[`detector_warmup`](server-configuration.md#processing) in `[processing]`,
+such as `detector_warmup = ["face"]`.
+
 To build an image yourself, run from the repository root, since the server
 depends on its sibling projects. Add `--build-arg IMAGE_VISION=1` for the
 detection variant:

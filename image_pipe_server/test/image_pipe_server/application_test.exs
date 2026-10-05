@@ -101,6 +101,7 @@ defmodule ImagePipeServer.ApplicationTest do
       assert pool_opts[:max_concurrency] == 2
       assert {ImagePipe, instance_opts} = instance
       assert instance_opts[:config] == config.image_pipe
+      assert instance_opts[:detector_warmup] == :all
       assert {Bandit, _opts} = http
     end
 

@@ -255,6 +255,21 @@ defmodule ImagePipeServer.ConfigTest do
              end) =~ "detector_required: the detector is not available in this build"
     end
 
+    test "takes detector warmup from [processing], loading every model by default" do
+      assert Config.build!([]).detector_warmup == :all
+
+      for {value, expected} <- [{false, false}, {["face"], ["face"]}, {"all", :all}] do
+        config = Config.build!(Config.options!(%{"processing" => %{"detector_warmup" => value}}))
+        assert config.detector_warmup == expected
+      end
+    end
+
+    test "rejects a detector warmup that isn't all, false, or a list" do
+      assert error(fn ->
+               Config.options!(%{"processing" => %{"detector_warmup" => true}})
+             end) =~ "processing.detector_warmup: invalid value"
+    end
+
     test "warms S3 credential providers for each named bucket" do
       provider = %{"provider" => "instance_role", "ttl_seconds" => 300}
 

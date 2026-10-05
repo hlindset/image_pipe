@@ -399,6 +399,7 @@ Defaults and limits for every image the server processes. The limits on original
 | `request_watermarks` | boolean | `false` |
 | `presets` | table of string |  |
 | `request_defaults` | string |  |
+| `detector_warmup` | `"all"` or `false` or array of string | `"all"` |
 
 Elixir only: `max_preset_lookups`, `preset_lookup`, `telemetry_prefix`, `clock`.
 

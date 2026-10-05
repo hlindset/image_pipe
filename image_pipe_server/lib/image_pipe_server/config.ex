@@ -18,7 +18,8 @@ defmodule ImagePipeServer.Config do
       `storage_inputs` as `[{ header = "..." }, { cookie = "..." }]`.
     * `[processing]` - the processing options of `ImagePipe.config/1`,
       including `watermarks.<name>` asset tables, `request_watermarks`,
-      `presets.<name>` option fragments, and `request_defaults`.
+      `presets.<name>` option fragments, `request_defaults`, and
+      `detector_warmup`, the instance option of `ImagePipe`.
     * `[pool]` - `ImagePipe.ProcessingPool` options. `max_concurrency`
       defaults to the VM's online schedulers.
     * `[http]` - the delivery options of `ImagePipe.Plug.init/1`.
@@ -42,6 +43,7 @@ defmodule ImagePipeServer.Config do
     :server,
     :trust_traceparent,
     :image_pipe,
+    :detector_warmup,
     :http,
     :pool,
     :telemetry,
@@ -58,6 +60,8 @@ defmodule ImagePipeServer.Config do
     * `:trust_traceparent` - whether the tracer continues an inbound
       `traceparent` (its `extract_inbound` option).
     * `:image_pipe` - the `ImagePipe.Config` the server's instance runs.
+    * `:detector_warmup` - which detector classes the instance loads models
+      for at boot: `:all`, `false`, or a list of class names.
     * `:http` - the delivery options of `ImagePipe.Plug.init/1`.
     * `:pool` - `ImagePipe.ProcessingPool` options with the pool's name.
     * `:telemetry` - default Logger options, or `nil`.
@@ -68,6 +72,7 @@ defmodule ImagePipeServer.Config do
           server: keyword(),
           trust_traceparent: boolean(),
           image_pipe: ImagePipe.Config.t(),
+          detector_warmup: :all | false | [String.t()],
           http: keyword(),
           pool: keyword(),
           telemetry: keyword() | nil,
@@ -207,8 +212,20 @@ defmodule ImagePipeServer.Config do
       watermarks: [type: {:map, :string, Convert.table(@watermark_schema)}],
       request_watermarks: [type: :boolean, default: false],
       presets: [type: {:map, :string, :string}],
-      request_defaults: [type: :string]
+      request_defaults: [type: :string],
+      detector_warmup: [
+        type: {:convert, &detector_warmup/2, ~s(`"all"` or `false` or array of string)},
+        default: :all
+      ]
     )
+  end
+
+  # Convert skips boolean choices, so `false` is matched on its own.
+  defp detector_warmup(value, path) do
+    case Convert.value(:boolean, value, path) do
+      {:ok, false} -> {:ok, false}
+      _not_false -> Convert.value({:or, [{:in, [:all]}, {:list, :string}]}, value, path)
+    end
   end
 
   defp pool_schema do
@@ -227,12 +244,18 @@ defmodule ImagePipeServer.Config do
   @spec build!(keyword()) :: t()
   def build!(sections) do
     pool = pool!(Keyword.get(sections, :pool))
-    image_pipe = image_pipe!(sections, pool)
+
+    {detector_warmup, processing} =
+      sections |> Keyword.get(:processing, []) |> Keyword.pop(:detector_warmup, :all)
+
+    image_pipe = image_pipe!(Keyword.put(sections, :processing, processing), pool)
+    instance!(image_pipe, detector_warmup)
 
     %__MODULE__{
       server: server!(Keyword.get(sections, :server, [])),
       trust_traceparent: trust_traceparent(Keyword.get(sections, :telemetry, [])),
       image_pipe: image_pipe,
+      detector_warmup: detector_warmup,
       http: http!(Keyword.get(sections, :http, [])),
       pool: pool,
       telemetry: telemetry(Keyword.get(sections, :telemetry, [])),
@@ -293,6 +316,13 @@ defmodule ImagePipeServer.Config do
           processing_pool(pool)
 
       ImagePipe.config(shared)
+    end)
+  end
+
+  # Checks warmup classes against the build's detector.
+  defp instance!(image_pipe, detector_warmup) do
+    library!(fn ->
+      ImagePipe.child_spec(name: __MODULE__, config: image_pipe, detector_warmup: detector_warmup)
     end)
   end
 
