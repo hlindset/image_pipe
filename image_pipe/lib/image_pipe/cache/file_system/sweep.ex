@@ -22,9 +22,18 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   def pin_name(random), do: ".image-pipe-pin-#{System.os_time(:millisecond)}-#{random}.tmp"
 
   @doc false
-  def run(root, pool, telemetry_opts) do
+  def run(root, pool, telemetry_opts),
+    do: span(pool, telemetry_opts, fn -> sweep_root(root) end)
+
+  @doc false
+  # Sweeps `listings`, the `{partition_dir, names}` of a pool's tree, so a
+  # caller that already listed the tree doesn't list it again.
+  def run_listings(listings, pool, telemetry_opts),
+    do: span(pool, telemetry_opts, fn -> sweep_listings(listings) end)
+
+  defp span(pool, telemetry_opts, sweep) do
     Telemetry.span(telemetry_opts, [:cache, :sweep], %{pool: pool}, fn ->
-      counts = sweep_root(root)
+      counts = sweep.()
       {counts, Map.put(counts, :result, :ok)}
     end)
   end
@@ -39,13 +48,28 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
 
   @doc false
   def sweep_root(root) do
+    sweep_listings(
+      for dir <- partitions(root), partition <- partitions(dir), do: listing(partition)
+    )
+  end
+
+  defp sweep_listings(listings) do
     cutoff = cutoff()
 
-    root
-    |> subdirs()
-    |> Enum.flat_map(&subdirs/1)
-    |> Enum.reduce(%{pins: 0, temps: 0, bodies: 0, bytes: 0}, &sweep_partition(&1, cutoff, &2))
+    Enum.reduce(listings, %{pins: 0, temps: 0, bodies: 0, bytes: 0}, fn {dir, names}, counts ->
+      sweep_partition(dir, names, cutoff, counts)
+    end)
   end
+
+  @doc false
+  # The partition directories directly under `dir`, matched by name. A
+  # non-directory with a partition name lists as empty.
+  def partitions(dir) do
+    for name <- list(dir), Regex.match?(@partition, name), do: Path.join(dir, name)
+  end
+
+  @doc false
+  def listing(dir), do: {dir, list(dir)}
 
   @doc false
   def sweep_staged(dir) do
@@ -62,14 +86,6 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
 
   defp cutoff, do: System.os_time(:millisecond) - @grace_ms
 
-  defp subdirs(dir) do
-    for name <- list(dir),
-        Regex.match?(@partition, name),
-        path = Path.join(dir, name),
-        File.dir?(path),
-        do: path
-  end
-
   defp list(dir) do
     case File.ls(dir) do
       {:ok, names} -> names
@@ -77,8 +93,7 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
     end
   end
 
-  defp sweep_partition(dir, cutoff, counts) do
-    names = list(dir)
+  defp sweep_partition(dir, names, cutoff, counts) do
     metas = for name <- names, String.ends_with?(name, ".meta"), into: MapSet.new(), do: name
 
     Enum.reduce(names, counts, fn name, counts ->

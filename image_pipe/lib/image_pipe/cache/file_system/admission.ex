@@ -313,7 +313,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   defp scan_directory(state, admission_pid) do
     entry_root = Path.join(state.root, state.path_prefix)
-    descriptor_map = build_descriptor_map(entry_root)
+    {listings, descriptor_map} = read_entries(entry_root)
 
     # Phase A: insert protected entries in persisted LRU→MRU order.
     protected_hashes = state.persisted_protected_hashes
@@ -339,48 +339,38 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     GenServer.call(admission_pid, :reconcile_to_cap)
 
     # Phase D: remove files a VM that died left behind.
-    Sweep.run(entry_root, state.pool, tel_opts(state))
+    Sweep.run_listings(listings, state.pool, tel_opts(state))
 
     GenServer.call(admission_pid, :scan_complete)
   end
 
-  defp build_descriptor_map(entry_root) do
-    walk_meta_files(entry_root)
-    |> Enum.flat_map(fn meta_path ->
-      case FileSystem.read_descriptor(meta_path) do
-        {:ok, descriptor, mtime} ->
-          [{descriptor.key_hash, Map.put(descriptor, :mtime, mtime)}]
-
-        {:error, _} ->
-          []
-      end
+  # One pass lists each two-level partition once, a first-level group per
+  # task. The listings feed both the descriptor reads and the leftover sweep.
+  defp read_entries(entry_root) do
+    entry_root
+    |> Sweep.partitions()
+    |> Task.async_stream(&read_partition_group/1,
+      max_concurrency: System.schedulers_online(),
+      ordered: false,
+      timeout: :infinity
+    )
+    |> Enum.reduce({[], %{}}, fn {:ok, {listings, descriptors}}, {all_listings, all} ->
+      {listings ++ all_listings, Map.merge(all, descriptors)}
     end)
-    |> Map.new()
   end
 
-  defp walk_meta_files(entry_root) do
-    # Recursively walk <entry_root>/AB/CD/ for *.meta files. Skip the
-    # `.cache_state` subdirectory at the root (a sibling, not a child,
-    # but defensively skipped in case path_prefix is empty).
-    case File.ls(entry_root) do
-      {:ok, entries} ->
-        entries
-        |> Enum.reject(&(&1 == ".cache_state"))
-        |> Enum.flat_map(&meta_files_in(entry_root, &1))
+  defp read_partition_group(dir) do
+    listings = for partition <- Sweep.partitions(dir), do: Sweep.listing(partition)
 
-      {:error, _} ->
-        []
-    end
-  end
+    descriptors =
+      for {partition, names} <- listings,
+          name <- names,
+          String.ends_with?(name, ".meta"),
+          {:ok, descriptor, mtime} <- [FileSystem.read_descriptor(Path.join(partition, name))],
+          into: %{},
+          do: {descriptor.key_hash, Map.put(descriptor, :mtime, mtime)}
 
-  defp meta_files_in(entry_root, entry) do
-    path = Path.join(entry_root, entry)
-
-    cond do
-      File.dir?(path) -> walk_meta_files(path)
-      String.ends_with?(entry, ".meta") -> [path]
-      true -> []
-    end
+    {listings, descriptors}
   end
 
   # mtime determines scan insertion order but is not part of queued descriptors.
