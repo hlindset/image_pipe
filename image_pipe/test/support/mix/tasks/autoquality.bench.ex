@@ -5325,8 +5325,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
   defp r_bench_subject(source, label, base, offsets) do
     {ref_us, {:ok, ref}} = timed(fn -> Ssim2Metric.reference(base) end)
     {refs_us, {:ok, refs}} = timed(fn -> CropScore.references(base) end)
-    scored = Enum.sum(Enum.map(refs, fn {{_x, _y, w, h}, _ref} -> w * h end))
-    coverage = scored / (Image.width(base) * Image.height(base))
+    coverage = r_scored_area(refs) / (Image.width(base) * Image.height(base))
     mp = Float.round(megapixels(base), 2)
 
     Enum.flat_map(@g_formats, fn format ->
@@ -5374,6 +5373,23 @@ defmodule Mix.Tasks.Autoquality.Bench do
   # Runs the production search core with `score` (:truth = full frame, :p10 =
   # crop tiles minus `offset`). Cost is the reference build plus each probed
   # quality's encode + decode + metric, summed from memoized timings.
+  # Pixels covered by at least one tile: edge-clamped tiles overlap their
+  # neighbours, so summing tile areas would count those pixels twice.
+  defp r_scored_area(refs) do
+    rects = Enum.map(refs, fn {rect, _ref} -> rect end)
+    xs = rects |> Enum.flat_map(fn {x, _y, w, _h} -> [x, x + w] end) |> Enum.uniq() |> Enum.sort()
+    ys = rects |> Enum.flat_map(fn {_x, y, _w, h} -> [y, y + h] end) |> Enum.uniq() |> Enum.sort()
+
+    for [x0, x1] <- Enum.chunk_every(xs, 2, 1, :discard),
+        [y0, y1] <- Enum.chunk_every(ys, 2, 1, :discard),
+        Enum.any?(rects, fn {x, y, w, h} ->
+          x <= x0 and x1 <= x + w and y <= y0 and y1 <= y + h
+        end),
+        reduce: 0 do
+      area -> area + (x1 - x0) * (y1 - y0)
+    end
+  end
+
   defp r_search(%Resolved{} = resolved, probe, score, offset, ref_us) do
     {:ok, probed} = Agent.start_link(fn -> MapSet.new() end)
 
@@ -5384,24 +5400,28 @@ defmodule Mix.Tasks.Autoquality.Bench do
 
     score_fun = fn bytes -> r_score(probe.(r_q_of(bytes, probed, probe)), score) - offset end
 
-    {:ok, _bin, meta} =
-      EncodeSearch.search(resolved.quality_search, nil,
-        encode_fun: encode_fun,
-        score_fun: score_fun,
-        telemetry_opts: []
-      )
+    # A probe the encoder rejects throws out of the search; stop the agent anyway.
+    try do
+      {:ok, _bin, meta} =
+        EncodeSearch.search(resolved.quality_search, nil,
+          encode_fun: encode_fun,
+          score_fun: score_fun,
+          telemetry_opts: []
+        )
 
-    qs = Agent.get(probed, &MapSet.to_list/1)
-    Agent.stop(probed)
-    point = probe.(meta.quality)
+      qs = Agent.get(probed, &MapSet.to_list/1)
+      point = probe.(meta.quality)
 
-    %{
-      q: meta.quality,
-      bytes: byte_size(point.bytes),
-      truth: point.truth,
-      probes: length(qs),
-      cost_us: ref_us + Enum.sum(Enum.map(qs, &r_probe_cost(probe.(&1), score)))
-    }
+      %{
+        q: meta.quality,
+        bytes: byte_size(point.bytes),
+        truth: point.truth,
+        probes: length(qs),
+        cost_us: ref_us + Enum.sum(Enum.map(qs, &r_probe_cost(probe.(&1), score)))
+      }
+    after
+      Agent.stop(probed)
+    end
   end
 
   defp r_q_of(bytes, probed, probe) do
