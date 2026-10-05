@@ -24,7 +24,7 @@ defmodule ImagePipe.Cache.InputRefreshTest do
     key = %Key{hash: String.duplicate("a", 64), data: []}
     config = [input_cache: {FileSystem, pool}]
     original = record("image", 1000)
-    assert :ok = Input.put(key, path, original, 25, config)
+    assert :ok = Input.put(key, path, sha256("image"), original, 25, config)
 
     %{
       pool: pool,
@@ -48,6 +48,21 @@ defmodule ImagePipe.Cache.InputRefreshTest do
     Resources.release(lease)
   end
 
+  test "a stored original stays readable after its staged file is removed", ctx do
+    path = Path.join(Keyword.fetch!(ctx.pool, :root), "staged")
+    File.write!(path, "staged image")
+    staged = record("staged image", 1060)
+    assert :ok = Input.put(ctx.key, path, sha256("staged image"), staged, 25, ctx.config)
+    File.rm!(path)
+
+    assert {:ok, pinned, lease} = Input.open(ctx.key, staged, ctx.config)
+    assert File.read!(pinned) == "staged image"
+    Resources.release(lease)
+
+    assert {:ok, %{body_sha256: body_sha256}} = Store.metadata(ctx.key, ctx.pool)
+    assert body_sha256 == Base.encode16(sha256("staged image"), case: :lower)
+  end
+
   test "refresh preserves stored bytes and cost while updating source evidence", ctx do
     {:ok, before} = Store.metadata(ctx.key, ctx.pool)
     refreshed = record("image", 1060)
@@ -66,7 +81,7 @@ defmodule ImagePipe.Cache.InputRefreshTest do
     replacement = record("new image", 1060)
     path = Path.join(Keyword.fetch!(ctx.pool, :root), "source")
     File.write!(path, "new image")
-    assert :ok = Input.put(ctx.key, path, replacement, 25, ctx.config)
+    assert :ok = Input.put(ctx.key, path, sha256("new image"), replacement, 25, ctx.config)
 
     assert :ok =
              Store.refresh_source_record(ctx.key, previous, record("image", 1060), ctx.pool)
@@ -106,6 +121,8 @@ defmodule ImagePipe.Cache.InputRefreshTest do
       fun.()
     end)
   end
+
+  defp sha256(bytes), do: :crypto.hash(:sha256, bytes)
 
   defp record(bytes, now) do
     {:ok, source, _config} = Source.from_input({:binary, bytes}, sources: %{})

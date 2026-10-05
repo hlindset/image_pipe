@@ -175,7 +175,7 @@ defmodule ImagePipe.Execution.SourceCache do
   end
 
   defp publication(
-         {:ok, %Acquisition{record: record, response: response}} = result,
+         {:ok, %Acquisition{record: record, response: response, source_sha256: sha256}} = result,
          source,
          key,
          previous,
@@ -185,7 +185,7 @@ defmodule ImagePipe.Execution.SourceCache do
     write =
       cond do
         storable?(record, source) ->
-          store(source, key, previous, record, response, cost, config)
+          store(source, key, previous, record, {response, sha256}, cost, config)
 
         # Nothing is stored for a source that isn't cached internally.
         source.internal_cache == :disabled ->
@@ -211,19 +211,19 @@ defmodule ImagePipe.Execution.SourceCache do
 
   defp publication(error, _source, _key, _previous, _cost, _config), do: {error, nil}
 
-  defp store(source, key, previous, record, response, cost, config) do
+  defp store(source, key, previous, record, {response, sha256}, cost, config) do
     copy? = response.path != nil and source.cache_semantics.copy?
     remember? = not unchanged_record?(previous, record, source, config)
 
     cond do
       copy? and remember? ->
         fn ->
-          Input.put(key, response.path, record, cost, config)
+          Input.put(key, response.path, sha256, record, cost, config)
           Cache.remember_source(key, record, config)
         end
 
       copy? ->
-        fn -> Input.put(key, response.path, record, cost, config) end
+        fn -> Input.put(key, response.path, sha256, record, cost, config) end
 
       remember? ->
         fn -> Cache.remember_source(key, record, config) end
@@ -344,6 +344,7 @@ defmodule ImagePipe.Execution.SourceCache do
          response: prepared,
          lease: lease,
          source_bytes: size,
+         source_sha256: digest,
          processing: processing
        }}
     rescue
