@@ -142,15 +142,17 @@ defmodule ImagePipe.Execution.SourceCache do
     end)
   end
 
+  # Only writes take the publication lock, so a check that changes nothing,
+  # the steady state for a local file, doesn't. A lease that is no longer
+  # current skips the writes.
   defp publish_coordinated(result, source, key, previous, cost, config) do
-    publish = fn -> publish(result, source, key, previous, cost, config) end
-
-    case Work.publish(key.hash, Keyword.get(config, :source_lease), publish) do
-      {:ok, result} ->
+    case publication(result, source, key, previous, cost, config) do
+      {result, nil} ->
         result
 
-      _unavailable ->
-        publish(result, source, key, previous, cost, Keyword.drop(config, [:cache, :input_cache]))
+      {result, write} ->
+        Work.publish(key.hash, Keyword.get(config, :source_lease), write)
+        result
     end
   end
 
@@ -160,16 +162,19 @@ defmodule ImagePipe.Execution.SourceCache do
   defp fetch_response(source, _previous, config, fun),
     do: Source.with_fetched(source, config, fun)
 
-  defp publish({:not_modified, origin}, source, key, previous, _cost, config) do
+  # The result of a fetch and the cache writes it calls for, or `nil` when it
+  # calls for none.
+  defp publication({:not_modified, origin}, source, key, previous, _cost, config) do
     record = Record.refresh(previous, origin)
 
-    if not unchanged_record?(previous, record, source, config),
-      do: remember(source, key, record, config)
+    write =
+      if not unchanged_record?(previous, record, source, config),
+        do: fn -> remember(source, key, record, config) end
 
-    {:ok, %Acquisition{record: record}}
+    {{:ok, %Acquisition{record: record}}, write}
   end
 
-  defp publish(
+  defp publication(
          {:ok, %Acquisition{record: record, response: response}} = result,
          source,
          key,
@@ -177,26 +182,23 @@ defmodule ImagePipe.Execution.SourceCache do
          cost,
          config
        ) do
-    cond do
-      storable?(record, source) ->
-        if response.path != nil and source.cache_semantics.copy?,
-          do: Input.put(key, response.path, record, cost, config)
+    write =
+      cond do
+        storable?(record, source) ->
+          store(source, key, previous, record, response, cost, config)
 
-        if not unchanged_record?(previous, record, source, config),
-          do: Cache.remember_source(key, record, config)
+        # Nothing is stored for a source that isn't cached internally.
+        source.internal_cache == :disabled ->
+          nil
 
-      # Nothing is stored for a source that isn't cached internally.
-      source.internal_cache == :disabled ->
-        :ok
+        true ->
+          fn -> invalidate(key, config) end
+      end
 
-      true ->
-        invalidate(key, config)
-    end
-
-    result
+    {result, write}
   end
 
-  defp publish(
+  defp publication(
          {:error, {:source, {:bad_status, status}}} = error,
          _source,
          key,
@@ -204,12 +206,32 @@ defmodule ImagePipe.Execution.SourceCache do
          _cost,
          config
        )
-       when status in [401, 403, 404, 410] do
-    invalidate(key, config)
-    error
-  end
+       when status in [401, 403, 404, 410],
+       do: {error, fn -> invalidate(key, config) end}
 
-  defp publish(error, _source, _key, _previous, _cost, _config), do: error
+  defp publication(error, _source, _key, _previous, _cost, _config), do: {error, nil}
+
+  defp store(source, key, previous, record, response, cost, config) do
+    copy? = response.path != nil and source.cache_semantics.copy?
+    remember? = not unchanged_record?(previous, record, source, config)
+
+    cond do
+      copy? and remember? ->
+        fn ->
+          Input.put(key, response.path, record, cost, config)
+          Cache.remember_source(key, record, config)
+        end
+
+      copy? ->
+        fn -> Input.put(key, response.path, record, cost, config) end
+
+      remember? ->
+        fn -> Cache.remember_source(key, record, config) end
+
+      true ->
+        nil
+    end
+  end
 
   defp remember(source, key, record, config) do
     case storable?(record, source) do
