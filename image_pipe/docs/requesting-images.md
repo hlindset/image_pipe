@@ -277,7 +277,8 @@ win over the preset's options in the same group, so with a `card` preset of
 - Some options replace a related set rather than one value. Writing
   `anchor`, `focus`, or `detect` replaces the preset's whole crop target,
   `region` replaces its `crop`, `q` replaces its `autoquality` and
-  `format-q`, and `wm` replaces its watermark.
+  `format-q`, and `wm` replaces its watermark. A `format-q` in your own URL
+  still wins over your `q` for the formats it lists.
 - `format-q` and the encoder options combine field by field. Your
   `jpeg-options=quant-table:3` keeps a preset's `progressive`, and a field
   set in both takes your value.

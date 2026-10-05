@@ -458,9 +458,10 @@ sets per-format qualities, using the same format names as `format`. Within one
 layer, `format-q` wins for the formats it lists and `q` covers the rest. Across
 layers (host, request defaults, presets, URL), the later layer wins format by
 format: a layer's `q` replaces every lower per-format quality, and a layer's
-`format-q` replaces only the formats it lists. Duplicate formats are invalid. Host
-`quality` defaults to 80; `format_quality` defaults to WebP 79 and AVIF 63.
-Sparse host and URL format maps preserve other configured formats.
+`format-q` replaces only the formats it lists. Duplicate formats are invalid.
+Host `quality` defaults to 80; `format_quality` defaults to WebP 79 and AVIF 63.
+A sparse `format-q` keeps lower layers' qualities for the formats it doesn't
+list; a `q` keeps none.
 A format-quality table may be shared across requests; only the selected
 format's entry applies.
 PNG quality applies only to palette quantization, so a PNG ignores quality
@@ -478,7 +479,7 @@ correction.
 
 An explicit `q` also disables inherited host search; combining it with an
 enabled URL `autoquality` is an error. Presets treat `q` and `autoquality` as
-one override family.
+one override family, and a layer's `q` also replaces lower layers' `format-q`.
 
 `max-bytes=8000` adds a byte budget to fixed quality or quality search. Budgets
 are best effort: if the minimum-quality encode cannot fit, ImagePipe still

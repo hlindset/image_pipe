@@ -82,8 +82,12 @@ only request-wide options adds no group: with `webp` defined as
 `format-q` and the [encoder options](processing/output.md#encoder-options)
 combine field by field instead. With a preset of `jpeg-options=progressive`,
 a URL's `jpeg-options=quant-table:3` keeps `progressive`. A field set in both
-takes the later value. `q` sets every format, so a later `q` replaces the
-inherited `format-q`.
+takes the later value.
+
+`q` covers every format that a `format-q` in the same layer doesn't list, so
+a URL's `q` replaces the `format-q` of presets and the request defaults. In
+`/preset=print/q=80/format-q=avif:50`, AVIF is encoded at 50 and every other
+format at 80, whatever qualities `print` sets.
 
 ## Single-group and pipeline presets
 

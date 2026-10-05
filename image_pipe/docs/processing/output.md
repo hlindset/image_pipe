@@ -59,14 +59,16 @@ ImagePipe.URL.new()
 ### q
 
 Accepts a whole [number](../requesting-images.md#numbers) from `1` to `100`.
-Default: the quality set in the server's configuration, 80 unless changed (see
-[Plug configuration](`ImagePipe.config/1`) and
+Default: the quality set in the server's configuration, 80 unless changed,
+except for formats with their own quality, such as AVIF at 63 and WebP at 79
+(see [`format-q`](#format-q), [Plug configuration](`ImagePipe.config/1`), and
 [server configuration](../../../image_pipe_server/docs/server-configuration.md#processing)).
 
 `q` sets the encoder quality for every format that the URL's `format-q`
-doesn't list. It replaces the per-format qualities of presets and the
-server's configuration, and turns off a search the server turns on. A request that sets both `q` and `autoquality`
-(the bare flag or a target) fails with `400`.
+doesn't list. It replaces the per-format qualities from the server's
+configuration, the request defaults, and presets, and turns off a search they
+turn on. A URL that sets both `q` and `autoquality` (the bare flag or a
+target) fails with `400`.
 
 PNG is lossless, so `q` applies to it only when `palette` is on in
 [`png-options`](#png-options) or the host's PNG settings. There it sets the
@@ -103,9 +105,10 @@ qualities set in the server's configuration.
 Only the entry for the format the response uses applies, so one URL can set
 qualities for every format the browser might get. A listed format wins over
 `q`, so `q=80/format-q=avif:50` encodes AVIF at 50 and every other format at
-80. Formats you leave out use `q`, or without `q` the quality from a preset
-or the server's configuration. A `png` entry fails with `400` unless `palette` is on, even
-when the response isn't PNG.
+80. Formats you leave out use the URL's `q`. Without `q`, they keep their
+quality from presets, the request defaults, or the server's configuration. A
+`png` entry fails with `400` unless `palette` is on, even when the response
+isn't PNG.
 
 Write `unset` first, as in `format-q=unset,avif:50`, to drop the qualities
 that presets and the request defaults set.
