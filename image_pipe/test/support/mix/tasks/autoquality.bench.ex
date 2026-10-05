@@ -26,6 +26,10 @@ defmodule Mix.Tasks.Autoquality.Bench do
       mise exec -- mix autoquality.bench --part j --corpus DIR  # sweep allowed_error: on-target vs byte cost
       mise exec -- mix autoquality.bench --part k --corpus DIR  # sweep crop→full offset on the confirm-skipped large-image verdict
       mise exec -- mix autoquality.bench --part k --corpus DIR --offsets 0,0.5,1.5,2.5  # custom offset ladder
+      mise exec -- mix autoquality.bench --part n --corpus DIR --corpus-cap 6  # target-only calibration
+      mise exec -- mix autoquality.bench --part o --corpus DIR --corpus-cap 6  # target-only search vs today
+      mise exec -- mix autoquality.bench --part p --corpus DIR --corpus-cap 6  # subsampling auto vs off
+      mise exec -- mix autoquality.bench --part q --corpus DIR --corpus-cap 6  # low-effort probes
       mise exec -- mix autoquality.bench --part all      # A + B + C + D + E + F + G + H + I + J + K
       mise exec -- mix autoquality.bench --mps 1,4,9     # custom Part A megapixels
       mise exec -- mix autoquality.bench --proxy-factors 2,4 --proxy-mp 25  # Part C knobs
@@ -309,6 +313,60 @@ defmodule Mix.Tasks.Autoquality.Bench do
   is safe against baseline regressions and removes the unbounded full-frame cost, but a
   conservative offset (≈p90, not the median) is needed to cover the screen-content tail,
   and the residual under-target is a Part I (raise-the-cap) lever, not a confirm one.
+
+  ## Part N — target-only calibration
+
+  Calibration data for making the target the only auto-quality setting
+  (`docs/plans/autoquality-target-only.md`). Each corpus image is downscaled to a
+  long edge of at most #{1600} px and classified `:photo`/`:graphic` with
+  `ContentClassifier`. Then each format is encoded at the production encoder
+  defaults (read from the config, so AVIF uses its default effort) over a quality
+  grid of 20..96 step 4 plus the fixed default quality, scoring every encode with
+  SSIMULACRA2. Reports, per format, class, and target (70 to 85): the share of
+  images that reach the target below the grid or not at all, and percentiles of
+  the lowest quality reaching it. Those set the safety rails and the search's
+  starting quality. A second table compares each target against today's fixed
+  defaults on the same images: the score the fixed default delivers, and the
+  geomean byte ratio at the target, to pick the default target. Qualities are
+  oracle values from the grid, not a search result.
+
+  ## Part O — target-only search vs today's search
+
+  Runs on held-out images (each source's images after Part N's first #{6}), so
+  Part N's priors aren't tested on the images they came from. Per image and
+  format, all variants share one encode/score cache at the production encoder
+  defaults:
+
+    * `today` — the production walk (`EncodeSearch.search_to_target/6`) with
+      today's defaults: target #{78} ± 1, brackets 70–80 (AVIF 60–65).
+    * `walk-wide` — the same walk at target #{75} on the wide rails, isolating the
+      bracket change from the algorithm change.
+    * `secant` — starts at Part N's median quality for the format and content
+      class, steps by secant interpolation, accepts a score in
+      [target − 0.5, target + 1], and ships the lowest passing quality.
+    * `secant-noclass` — the same with a format-only prior.
+
+  Reports hit rate, delivered score percentiles, probes, summed search cost
+  (encode + decode + metric + reference), and bytes against `today`.
+
+  ## Part P — chroma subsampling for graphics
+
+  For JPEG and AVIF, sweeps the same quality grid as Part N twice per image: at
+  libvips' `subsample_mode: :auto` (4:2:0 below q90, the production default)
+  and at `:off` (4:4:4). Per format, content class, and target (72, 75, 78) it
+  reports how many images reach the target either way, the median quality
+  needed, the geomean byte ratio off/auto over images that reach it both ways,
+  and the encode-time ratio. Decides whether subsampling should be off for
+  graphics only, or for everything.
+
+  ## Part Q — low-effort probes
+
+  On Part O's held-out images, sweeps WebP and AVIF over Part N's grid twice:
+  at the production effort and at a cheaper probe effort (WebP 2, AVIF 1).
+  For target #{75} it reports the quality shift between the two curves, then
+  simulates searching the probe curve and shipping the final effort at the
+  found quality plus 0–3: hit rate and bytes against the final-effort oracle.
+  It also reports median encode and score times, which decide the saving.
   """
   use Mix.Task
   use Boundary, top_level?: true, check: [out: false]
@@ -320,6 +378,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
   alias ImagePipe.Output.Ssim2Metric.CropScore
+  alias ImagePipe.Processing.Config, as: ProcessingConfig
   alias ImagePipe.Test.Autoquality.TileSelection
   alias ImagePipe.Test.SourceInventory
   alias Vix.Vips.Image, as: VixImage
@@ -435,7 +494,11 @@ defmodule Mix.Tasks.Autoquality.Bench do
       j: run.(["j", "all"], fn -> corpus.(&run_part_j/4) end),
       k: run.(["k", "all"], fn -> corpus.(&run_part_k(&1, &2, &3, &4, ctx.offsets)) end),
       l: run.(["l", "all"], fn -> corpus.(&run_part_l(&1, &2, &3, &4, ctx.ks, ctx.tiles)) end),
-      m: run.(["m", "all"], fn -> corpus.(&run_part_m(&1, &2, &3, &4, ctx.downsample)) end)
+      m: run.(["m", "all"], fn -> corpus.(&run_part_m(&1, &2, &3, &4, ctx.downsample)) end),
+      n: run.(["n", "all"], fn -> corpus.(&run_part_n/4) end),
+      o: run.(["o", "all"], fn -> corpus.(&run_part_o/4) end),
+      p: run.(["p", "all"], fn -> corpus.(&run_part_p/4) end),
+      q: run.(["q", "all"], fn -> corpus.(&run_part_q/4) end)
     }
   end
 
@@ -456,7 +519,11 @@ defmodule Mix.Tasks.Autoquality.Bench do
       {parts.j, &write_part_j_csv/1},
       {parts.k, &write_part_k_csv/1},
       {parts.l, &write_part_l_csv/1},
-      {parts.m, &write_part_m_csv/1}
+      {parts.m, &write_part_m_csv/1},
+      {parts.n, &write_part_n_csv/1},
+      {parts.o, &write_part_o_csv/1},
+      {parts.p, &write_part_p_csv/1},
+      {parts.q, &write_part_q_csv/1}
     ]
     |> Enum.each(fn {rows, writer} -> if rows, do: writer.(rows) end)
   end
@@ -4297,6 +4364,881 @@ defmodule Mix.Tasks.Autoquality.Bench do
     IO.puts("wrote #{resid_path}")
   end
 
+  # --- Part N: target-only calibration (image_plug-08wt) -----------------------
+
+  @n_targets [70, 72, 75, 78, 80, 85]
+  @n_grid Enum.to_list(20..96//4)
+  @n_max_edge 1600
+
+  defp run_part_n(corpus_dir, fallback_files, cap, synth_mp) do
+    defaults = ProcessingConfig.resolve!([])
+    fixed = n_fixed_defaults(defaults)
+
+    IO.puts("\n== Part N — target-only calibration: quality needed per target ==")
+
+    IO.puts(
+      "production encoder defaults, q grid #{List.first(@n_grid)}..#{List.last(@n_grid)} " <>
+        "step 4 + fixed defaults #{inspect(Map.new(fixed, fn {f, {q, _}} -> {f, q} end))}  " <>
+        "long edge ≤#{@n_max_edge}  ≤#{cap}/source\n"
+    )
+
+    sources = discover_sources(corpus_dir, fallback_files, cap, synth_mp)
+
+    Enum.flat_map(sources, fn {sname, subjects} ->
+      Enum.flat_map(subjects, fn {label, base} ->
+        IO.puts("  #{sname}/#{label}")
+        n_bench_subject(sname, label, n_fit(base), fixed)
+      end)
+    end)
+  end
+
+  # Fixed (non-search) quality and encoder options per format, read from the
+  # production config defaults so the calibration tracks them.
+  defp n_fixed_defaults(defaults) do
+    format_quality = Keyword.fetch!(defaults, :format_quality)
+
+    %{
+      jpeg: {Map.get(format_quality, :jpeg, defaults[:quality]), defaults[:jpeg_options]},
+      webp: {Map.get(format_quality, :webp, defaults[:quality]), defaults[:webp_options]},
+      avif: {Map.get(format_quality, :avif, defaults[:quality]), defaults[:avif_options]}
+    }
+  end
+
+  defp n_fit(base) do
+    if max(Image.width(base), Image.height(base)) > @n_max_edge do
+      {:ok, small} = Image.thumbnail(base, @n_max_edge, resize: :down)
+      {:ok, mem} = VixImage.copy_memory(small)
+      mem
+    else
+      base
+    end
+  end
+
+  defp n_bench_subject(source, label, base, fixed) do
+    {class, _features} = ContentClassifier.classify(base)
+    {:ok, ref} = Ssim2Metric.reference(base)
+    mp = Image.width(base) * Image.height(base) / 1_000_000
+
+    Enum.flat_map(@g_formats, fn format ->
+      {fixed_q, options} = Map.fetch!(fixed, format)
+      resolved = %Resolved{base_resolved(format) | encoder_options: options}
+
+      try do
+        points =
+          [fixed_q | @n_grid]
+          |> Enum.uniq()
+          |> Enum.sort()
+          |> Enum.map(&n_point(base, ref, resolved, format, &1))
+
+        [
+          %{
+            source: source,
+            label: label,
+            class: class,
+            mp: mp,
+            format: format,
+            fixed_q: fixed_q,
+            points: points
+          }
+        ]
+      catch
+        {:g_unsupported, ^format, _reason} ->
+          IO.puts("    #{format}: skipped (encode unsupported)")
+          []
+      end
+    end)
+  end
+
+  defp n_point(base, ref, %Resolved{} = resolved, format, q) do
+    {enc_us, enc} =
+      timed(fn ->
+        Encoder.encode_to_buffer(base, %Resolved{resolved | quality: {:quality, q}}, q)
+      end)
+
+    bin = g_unwrap_encode(enc, format)
+    {:ok, cand} = Image.from_binary(bin)
+    {met_us, {:ok, score}} = timed(fn -> Ssim2Metric.score(ref, cand) end)
+    %{q: q, bytes: byte_size(bin), score: score, encode_us: enc_us, metric_us: met_us}
+  end
+
+  # Lowest quality reaching `target`, interpolated between the last grid point
+  # below it and the first at or above it (bytes in log space). `:below` when
+  # the lowest grid quality already reaches it, `:above` when none does.
+  defp n_at_target(points, target) do
+    case Enum.split_while(points, &(&1.score < target)) do
+      {_, []} ->
+        :above
+
+      {[], _} ->
+        :below
+
+      {under, [hit | _]} ->
+        prev = List.last(under)
+        f = (target - prev.score) / (hit.score - prev.score)
+        log_bytes = :math.log(prev.bytes) + f * (:math.log(hit.bytes) - :math.log(prev.bytes))
+        {:ok, %{q: prev.q + f * (hit.q - prev.q), bytes: :math.exp(log_bytes)}}
+    end
+  end
+
+  defp n_fixed_point(row), do: Enum.find(row.points, &(&1.q == row.fixed_q))
+
+  defp findings_part_n([]), do: IO.puts("Part N — calibration: no subjects processed\n")
+
+  defp findings_part_n(rows) do
+    IO.puts("Part N — quality needed to reach each target (lowest satisfying, interpolated):")
+
+    IO.puts(
+      "  below/above = target reached at q#{List.first(@n_grid)} / not by q#{List.last(@n_grid)}\n"
+    )
+
+    IO.puts(
+      "    " <>
+        pad(["format", 7]) <>
+        pad(["class", 9]) <>
+        pad(["target", 7]) <>
+        pad(["n", 5]) <>
+        pad(["below%", 8]) <>
+        pad(["above%", 8]) <>
+        pad(["p1", 6]) <>
+        pad(["p5", 6]) <>
+        pad(["p50", 6]) <>
+        pad(["p95", 6]) <>
+        pad(["p99", 6])
+    )
+
+    for format <- @g_formats, class <- [:photo, :graphic, :all], target <- @n_targets do
+      frows = Enum.filter(rows, &(&1.format == format and (class == :all or &1.class == class)))
+      if frows != [], do: n_print_quality_row(format, class, target, frows)
+    end
+
+    IO.puts("\nPart N — target vs today's fixed defaults (same images, oracle quality):")
+
+    IO.puts(
+      "  bytes× = geomean of bytes at the target over bytes at the fixed default; " <>
+        "smaller% = images that get smaller\n"
+    )
+
+    IO.puts(
+      "    " <>
+        pad(["format", 7]) <>
+        pad(["fixed q", 8]) <>
+        pad(["fixed score p10/p50/p90", 25]) <>
+        pad(["target", 7]) <>
+        pad(["n", 5]) <>
+        pad(["bytes×", 8]) <>
+        pad(["smaller%", 9])
+    )
+
+    for format <- @g_formats do
+      frows = Enum.filter(rows, &(&1.format == format))
+      if frows != [], do: n_print_default_rows(format, frows)
+    end
+
+    IO.puts("")
+  end
+
+  defp n_print_quality_row(format, class, target, frows) do
+    results = Enum.map(frows, &n_at_target(&1.points, target))
+    n = length(results)
+
+    qs =
+      results
+      |> Enum.flat_map(fn
+        {:ok, r} -> [r.q]
+        _ -> []
+      end)
+      |> Enum.sort()
+
+    pct = fn tag -> Float.round(Enum.count(results, &(&1 == tag)) / n * 100, 0) end
+    pq = fn p -> if qs == [], do: "-", else: round(percentile(qs, p)) end
+
+    IO.puts(
+      "    " <>
+        pad([format, 7]) <>
+        pad([class, 9]) <>
+        pad([target, 7]) <>
+        pad([n, 5]) <>
+        pad([pct.(:below), 8]) <>
+        pad([pct.(:above), 8]) <>
+        pad([pq.(0.01), 6]) <>
+        pad([pq.(0.05), 6]) <>
+        pad([pq.(0.5), 6]) <>
+        pad([pq.(0.95), 6]) <>
+        pad([pq.(0.99), 6])
+    )
+  end
+
+  defp n_print_default_rows(format, frows) do
+    fixed_scores = frows |> Enum.map(&n_fixed_point(&1).score) |> Enum.sort()
+
+    fixed_label =
+      Enum.map_join([0.1, 0.5, 0.9], "/", &Float.round(percentile(fixed_scores, &1), 1))
+
+    Enum.each(@n_targets, fn target ->
+      ratios = Enum.flat_map(frows, &n_byte_ratio(&1, target))
+
+      geomean =
+        if ratios == [],
+          do: "-",
+          else: Float.round(:math.exp(avg(Enum.map(ratios, &:math.log/1))), 3)
+
+      smaller = Float.round(Enum.count(ratios, &(&1 < 1)) / max(length(ratios), 1) * 100, 0)
+
+      IO.puts(
+        "    " <>
+          pad([format, 7]) <>
+          pad([List.first(frows).fixed_q, 8]) <>
+          pad([fixed_label, 25]) <>
+          pad([target, 7]) <>
+          pad([length(ratios), 5]) <>
+          pad([geomean, 8]) <>
+          pad([smaller, 9])
+      )
+    end)
+  end
+
+  defp n_byte_ratio(row, target) do
+    case n_at_target(row.points, target) do
+      {:ok, r} -> [r.bytes / n_fixed_point(row).bytes]
+      _ -> []
+    end
+  end
+
+  defp write_part_n_csv(rows) do
+    path = "/tmp/autoquality_bench_part_n.csv"
+    head = "source,label,class,mp,format,fixed_q,q,bytes,score,encode_us,metric_us\n"
+
+    body =
+      for row <- rows, pt <- row.points, into: "" do
+        "#{row.source},#{row.label},#{row.class},#{Float.round(row.mp, 3)},#{row.format}," <>
+          "#{row.fixed_q},#{pt.q},#{pt.bytes},#{fmt_score(pt.score)},#{pt.encode_us}," <>
+          "#{pt.metric_us}\n"
+      end
+
+    File.write!(path, head <> body)
+    IO.puts("wrote #{path}")
+  end
+
+  # --- Part O: target-only search vs today's search (image_plug-08wt) ----------
+
+  # Part N skips: Part O runs on the images after Part N's first 6 per source.
+  @o_skip 6
+  @o_target 75
+  @o_tolerance 0.5
+  @o_accept_hi 1.0
+  @o_max_iter 6
+  @o_default_slope 1.0
+  @o_rails %{jpeg: {25, 95}, webp: {25, 95}, avif: {20, 80}}
+  # Part N median quality at target 75 (photo, graphic, all).
+  @o_priors %{
+    jpeg: %{photo: 75, graphic: 78, all: 76},
+    webp: %{photo: 80, graphic: 76, all: 78},
+    avif: %{photo: 61, graphic: 54, all: 56}
+  }
+
+  defp run_part_o(corpus_dir, fallback_files, cap, synth_mp) do
+    fixed = n_fixed_defaults(ProcessingConfig.resolve!([]))
+
+    IO.puts("\n== Part O — target-only search vs today's search ==")
+
+    IO.puts(
+      "today: target #{@g_target}±#{@g_allowed_error}, brackets jpeg/webp " <>
+        "#{@g_min_q}-#{@g_max_q} avif #{@g_format_min.avif}-#{@g_format_max.avif}  " <>
+        "new: target #{@o_target} (accept ≥#{@o_target - @o_tolerance}), rails " <>
+        "#{inspect(@o_rails)}  held out: images after the first #{@o_skip}/source, ≤#{cap}/source\n"
+    )
+
+    corpus_dir
+    |> o_sources(fallback_files, cap, synth_mp)
+    |> Enum.flat_map(fn {sname, subjects} ->
+      Enum.flat_map(subjects, fn {label, base} ->
+        IO.puts("  #{sname}/#{label}")
+        o_bench_subject(sname, label, n_fit(base), fixed)
+      end)
+    end)
+  end
+
+  defp o_sources(nil, fallback_files, cap, synth_mp),
+    do: discover_sources(nil, fallback_files, cap, synth_mp)
+
+  defp o_sources(corpus_dir, _fallback, cap, _synth_mp) do
+    for d <- corpus_dir |> Path.join("*") |> Path.wildcard() |> Enum.sort(),
+        File.dir?(d),
+        imgs = d |> images_in(@o_skip + cap) |> Enum.drop(@o_skip),
+        imgs != [],
+        do: {Path.basename(d), load_bases(imgs)}
+  end
+
+  defp o_bench_subject(source, label, base, fixed) do
+    {class, _features} = ContentClassifier.classify(base)
+    {ref_us, {:ok, ref}} = timed(fn -> Ssim2Metric.reference(base) end)
+
+    Enum.flat_map(@g_formats, fn format ->
+      {_q, options} = Map.fetch!(fixed, format)
+      resolved = %Resolved{base_resolved(format) | encoder_options: options}
+      {:ok, cache} = Agent.start_link(fn -> %{} end)
+      id = %{source: source, label: label, class: class, format: format}
+
+      try do
+        score_of = fn q -> o_probe(cache, base, ref, resolved, format, q).score end
+
+        Enum.map(o_variants(format, class), fn {variant, target, search} ->
+          {chosen, probed} = search.(score_of)
+          o_row(id, {variant, target}, {chosen, probed}, cache, ref_us)
+        end)
+      catch
+        {:g_unsupported, ^format, _reason} ->
+          IO.puts("    #{format}: skipped (encode unsupported)")
+          []
+      after
+        Agent.stop(cache)
+      end
+    end)
+  end
+
+  # {variant, target, fn score_of -> {chosen_q, probed_qs}}.
+  defp o_variants(format, class) do
+    {today_lo, today_hi} = g_bracket(format)
+    {rail_lo, rail_hi} = Map.fetch!(@o_rails, format)
+    priors = Map.fetch!(@o_priors, format)
+    new = %{target: @o_target, lo: rail_lo, hi: rail_hi}
+
+    [
+      {"today", @g_target,
+       &o_walk(&1, today_lo, today_hi, @g_target - @g_allowed_error, @g_target + @g_allowed_error)},
+      {"walk-wide", @o_target,
+       &o_walk(&1, rail_lo, rail_hi, @o_target - @o_tolerance, @o_target + @o_accept_hi)},
+      {"secant", @o_target, &o_secant(&1, Map.put(new, :prior, Map.fetch!(priors, class)))},
+      {"secant-noclass", @o_target, &o_secant(&1, Map.put(new, :prior, priors.all))}
+    ]
+  end
+
+  # Mirror of EncodeSearch.search_to_target/6: bisect, ship the first in-band
+  # quality, else the nearest overshoot, else the ceiling.
+  defp o_walk(score_of, lo, hi, band_lo, band_hi),
+    do: do_o_walk(score_of, lo, hi, band_lo, band_hi, hi, nil, [])
+
+  defp do_o_walk(_score_of, lo, hi, _band_lo, _band_hi, ceiling, overshoot, probed)
+       when lo > hi,
+       do: o_finish(overshoot || ceiling, probed)
+
+  defp do_o_walk(score_of, lo, hi, band_lo, band_hi, ceiling, overshoot, probed) do
+    mid = div(lo + hi, 2)
+    probed = [mid | probed]
+    score = score_of.(mid)
+
+    cond do
+      score >= band_lo and score <= band_hi -> {mid, probed}
+      score > band_hi -> do_o_walk(score_of, lo, mid - 1, band_lo, band_hi, ceiling, mid, probed)
+      true -> do_o_walk(score_of, mid + 1, hi, band_lo, band_hi, ceiling, overshoot, probed)
+    end
+  end
+
+  defp o_finish(chosen, probed), do: {chosen, Enum.uniq([chosen | probed])}
+
+  # Start at the prior, then step by secant interpolation on score(q). Accept a
+  # probe scoring in [target - tolerance, target + accept_hi]. Otherwise stop when
+  # the passing and failing qualities are adjacent or a rail is reached, and ship
+  # the lowest passing quality (the rail ceiling when none passed).
+  defp o_secant(score_of, opts), do: do_o_secant(score_of, opts, opts.prior, %{})
+
+  defp do_o_secant(score_of, opts, q, seen) do
+    score = score_of.(q)
+    seen = Map.put(seen, q, score)
+    accept_lo = opts.target - @o_tolerance
+
+    under =
+      seen
+      |> Enum.filter(fn {_, s} -> s < accept_lo end)
+      |> Enum.max_by(&elem(&1, 0), fn -> nil end)
+
+    over =
+      seen
+      |> Enum.filter(fn {_, s} -> s >= accept_lo end)
+      |> Enum.min_by(&elem(&1, 0), fn -> nil end)
+
+    probed = Map.keys(seen)
+
+    cond do
+      score >= accept_lo and score <= opts.target + @o_accept_hi ->
+        {q, probed}
+
+      o_converged?(under, over, opts) or map_size(seen) >= @o_max_iter ->
+        o_secant_ship(over, opts, probed)
+
+      true ->
+        do_o_secant(score_of, opts, o_next(under, over, seen, opts), seen)
+    end
+  end
+
+  defp o_converged?({uq, _}, {oq, _}, _opts) when oq - uq <= 1, do: true
+  defp o_converged?(nil, {oq, _}, opts), do: oq <= opts.lo
+  defp o_converged?({uq, _}, nil, opts), do: uq >= opts.hi
+  defp o_converged?(_under, _over, _opts), do: false
+
+  # No passing probe: ship the ceiling (one more encode, as today's walk does).
+  defp o_secant_ship(nil, opts, probed), do: o_finish(opts.hi, probed)
+  defp o_secant_ship({oq, _}, _opts, probed), do: {oq, probed}
+
+  defp o_next({uq, us}, {oq, os}, _seen, opts) do
+    q = uq + (opts.target - us) / (os - us) * (oq - uq)
+    q |> round() |> max(uq + 1) |> min(oq - 1)
+  end
+
+  defp o_next(nil, {oq, os}, seen, opts) do
+    step = (os - opts.target) / o_slope(seen)
+    (oq - o_step(step)) |> max(opts.lo) |> min(oq - 1)
+  end
+
+  defp o_next({uq, us}, nil, seen, opts) do
+    step = (opts.target - us) / o_slope(seen)
+    (uq + o_step(step)) |> min(opts.hi) |> max(uq + 1)
+  end
+
+  # Score gain per quality step from the two highest-quality probes, else a default.
+  defp o_slope(seen) when map_size(seen) < 2, do: @o_default_slope
+
+  defp o_slope(seen) do
+    [{q1, s1}, {q2, s2}] = seen |> Enum.sort() |> Enum.take(-2)
+    slope = (s2 - s1) / (q2 - q1)
+    if slope > 0.05, do: slope, else: @o_default_slope
+  end
+
+  defp o_step(step), do: step |> round() |> max(1) |> min(20)
+
+  defp o_probe(cache, base, ref, resolved, format, q) do
+    case Agent.get(cache, &Map.get(&1, q)) do
+      nil ->
+        data = o_compute(base, ref, resolved, format, q)
+        Agent.update(cache, &Map.put(&1, q, data))
+        data
+
+      data ->
+        data
+    end
+  end
+
+  defp o_compute(base, ref, %Resolved{} = resolved, format, q) do
+    {enc_us, enc} =
+      timed(fn ->
+        Encoder.encode_to_buffer(base, %Resolved{resolved | quality: {:quality, q}}, q)
+      end)
+
+    bin = g_unwrap_encode(enc, format)
+    {dec_us, {:ok, cand}} = timed(fn -> Image.from_binary(bin) end)
+    {met_us, {:ok, score}} = timed(fn -> Ssim2Metric.score(ref, cand) end)
+
+    %{
+      bytes: byte_size(bin),
+      score: score,
+      encode_us: enc_us,
+      decode_us: dec_us,
+      metric_us: met_us
+    }
+  end
+
+  defp o_row(id, {variant, target}, {chosen, probed}, cache, ref_us) do
+    data = Agent.get(cache, & &1)
+    delivered = Map.fetch!(data, chosen)
+    qs = Enum.uniq([chosen | probed])
+
+    cost =
+      Enum.sum(
+        Enum.map(qs, fn q -> data[q].encode_us + data[q].decode_us + data[q].metric_us end)
+      )
+
+    %{
+      source: id.source,
+      label: id.label,
+      class: id.class,
+      format: id.format,
+      variant: variant,
+      target: target,
+      chosen: chosen,
+      score: delivered.score,
+      bytes: delivered.bytes,
+      hit?: delivered.score >= target - o_tolerance(variant),
+      probes: length(qs),
+      search_us: cost + ref_us
+    }
+  end
+
+  defp o_tolerance("today"), do: @g_allowed_error
+  defp o_tolerance(_variant), do: @o_tolerance
+
+  defp findings_part_o([]), do: IO.puts("Part O — search comparison: no subjects processed\n")
+
+  defp findings_part_o(rows) do
+    IO.puts("Part O — search comparison (hit = delivered ≥ target − tolerance):")
+    IO.puts("  bytes× = geomean vs the `today` variant on the same image\n")
+
+    IO.puts(
+      "    " <>
+        pad(["format", 7]) <>
+        pad(["class", 9]) <>
+        pad(["variant", 16]) <>
+        pad(["n", 5]) <>
+        pad(["hit%", 6]) <>
+        pad(["score p10/p50/p90", 20]) <>
+        pad(["probes avg/max", 15]) <>
+        pad(["search ms p50", 14]) <>
+        pad(["bytes×", 7])
+    )
+
+    today =
+      rows
+      |> Enum.filter(&(&1.variant == "today"))
+      |> Map.new(&{{&1.source, &1.label, &1.format}, &1})
+
+    for format <- @g_formats,
+        class <- [:all, :photo, :graphic],
+        variant <- ["today", "walk-wide", "secant", "secant-noclass"] do
+      vrows =
+        Enum.filter(
+          rows,
+          &(&1.format == format and &1.variant == variant and (class == :all or &1.class == class))
+        )
+
+      if vrows != [], do: o_print_row(format, class, variant, vrows, today)
+    end
+
+    IO.puts("")
+  end
+
+  defp o_print_row(format, class, variant, vrows, today) do
+    n = length(vrows)
+    scores = vrows |> Enum.map(& &1.score) |> Enum.sort()
+    probes = Enum.map(vrows, & &1.probes)
+    ms = vrows |> Enum.map(fn r -> r.search_us / 1000 end) |> Enum.sort()
+
+    ratios =
+      Enum.map(vrows, fn r -> r.bytes / today[{r.source, r.label, r.format}].bytes end)
+
+    IO.puts(
+      "    " <>
+        pad([format, 7]) <>
+        pad([class, 9]) <>
+        pad([variant, 16]) <>
+        pad([n, 5]) <>
+        pad([round(Enum.count(vrows, & &1.hit?) / n * 100), 6]) <>
+        pad([Enum.map_join([0.1, 0.5, 0.9], "/", &Float.round(percentile(scores, &1), 1)), 20]) <>
+        pad(["#{Float.round(avg(probes), 1)}/#{Enum.max(probes)}", 15]) <>
+        pad([round(percentile(ms, 0.5)), 14]) <>
+        pad([Float.round(:math.exp(avg(Enum.map(ratios, &:math.log/1))), 3), 7])
+    )
+  end
+
+  defp write_part_o_csv(rows) do
+    path = "/tmp/autoquality_bench_part_o.csv"
+    head = "source,label,class,format,variant,target,chosen,score,bytes,hit,probes,search_us\n"
+
+    body =
+      Enum.map_join(rows, fn r ->
+        "#{r.source},#{r.label},#{r.class},#{r.format},#{r.variant},#{r.target},#{r.chosen}," <>
+          "#{fmt_score(r.score)},#{r.bytes},#{r.hit?},#{r.probes},#{r.search_us}\n"
+      end)
+
+    File.write!(path, head <> body)
+    IO.puts("wrote #{path}")
+  end
+
+  # --- Part P: chroma subsampling for graphics (image_plug-gwvf) ---------------
+
+  @p_formats [:jpeg, :avif]
+  @p_targets [72, 75, 78]
+
+  defp run_part_p(corpus_dir, fallback_files, cap, synth_mp) do
+    fixed = n_fixed_defaults(ProcessingConfig.resolve!([]))
+
+    IO.puts("\n== Part P — chroma subsampling: libvips auto vs off, at matched score ==")
+
+    IO.puts(
+      "production encoder defaults, q grid #{List.first(@n_grid)}..#{List.last(@n_grid)} " <>
+        "step 4, formats #{inspect(@p_formats)}  long edge ≤#{@n_max_edge}  ≤#{cap}/source\n"
+    )
+
+    corpus_dir
+    |> discover_sources(fallback_files, cap, synth_mp)
+    |> Enum.flat_map(fn {sname, subjects} ->
+      Enum.flat_map(subjects, fn {label, base} ->
+        IO.puts("  #{sname}/#{label}")
+        p_bench_subject(sname, label, n_fit(base), fixed)
+      end)
+    end)
+  end
+
+  defp p_bench_subject(source, label, base, fixed) do
+    {class, _features} = ContentClassifier.classify(base)
+    {:ok, ref} = Ssim2Metric.reference(base)
+
+    for format <- @p_formats, mode <- [:auto, :off] do
+      {_q, options} = Map.fetch!(fixed, format)
+      options = %{options | subsample_mode: mode}
+      resolved = %Resolved{base_resolved(format) | encoder_options: options}
+      points = Enum.map(@n_grid, &n_point(base, ref, resolved, format, &1))
+      %{source: source, label: label, class: class, format: format, mode: mode, points: points}
+    end
+  end
+
+  defp findings_part_p([]), do: IO.puts("Part P — subsampling: no subjects processed\n")
+
+  defp findings_part_p(rows) do
+    IO.puts("Part P — subsampling off vs libvips auto (4:2:0 below q90), at matched score:")
+
+    IO.puts(
+      "  reach = images reaching the target by q#{List.last(@n_grid)}; bytes× = geomean " <>
+        "off/auto over images reaching it both ways; enc× = median encode-time ratio\n"
+    )
+
+    IO.puts(
+      "    " <>
+        pad(["format", 7]) <>
+        pad(["class", 9]) <>
+        pad(["target", 7]) <>
+        pad(["n", 4]) <>
+        pad(["reach auto/off", 15]) <>
+        pad(["q p50 auto/off", 15]) <>
+        pad(["bytes×", 8]) <>
+        pad(["smaller%", 9]) <>
+        pad(["enc×", 6])
+    )
+
+    pairs = p_pairs(rows)
+
+    for format <- @p_formats, class <- [:photo, :graphic, :all], target <- @p_targets do
+      fpairs =
+        Enum.filter(pairs, fn {auto, _off} ->
+          auto.format == format and (class == :all or auto.class == class)
+        end)
+
+      if fpairs != [], do: p_print_row(format, class, target, fpairs)
+    end
+
+    IO.puts("")
+  end
+
+  defp p_pairs(rows) do
+    rows
+    |> Enum.group_by(&{&1.source, &1.label, &1.format})
+    |> Enum.map(fn {_key, group} ->
+      {Enum.find(group, &(&1.mode == :auto)), Enum.find(group, &(&1.mode == :off))}
+    end)
+  end
+
+  defp p_print_row(format, class, target, fpairs) do
+    results =
+      Enum.map(fpairs, fn {auto, off} ->
+        {n_at_target(auto.points, target), n_at_target(off.points, target), auto, off}
+      end)
+
+    n = length(results)
+    reach = fn pick -> Enum.count(results, &match?({:ok, _}, pick.(&1))) end
+    both = for {{:ok, a}, {:ok, o}, _, _} <- results, do: {a, o}
+    ratios = Enum.map(both, fn {a, o} -> o.bytes / a.bytes end)
+
+    q50 = fn pick ->
+      case Enum.sort(Enum.map(both, &pick.(&1).q)) do
+        [] -> "-"
+        qs -> round(percentile(qs, 0.5))
+      end
+    end
+
+    enc =
+      fpairs
+      |> Enum.map(fn {auto, off} -> p_encode_us(off) / p_encode_us(auto) end)
+      |> Enum.sort()
+      |> percentile(0.5)
+
+    geomean =
+      if ratios == [],
+        do: "-",
+        else: Float.round(:math.exp(avg(Enum.map(ratios, &:math.log/1))), 3)
+
+    IO.puts(
+      "    " <>
+        pad([format, 7]) <>
+        pad([class, 9]) <>
+        pad([target, 7]) <>
+        pad([n, 4]) <>
+        pad(["#{reach.(&elem(&1, 0))}/#{reach.(&elem(&1, 1))}", 15]) <>
+        pad(["#{q50.(&elem(&1, 0))}/#{q50.(&elem(&1, 1))}", 15]) <>
+        pad([geomean, 8]) <>
+        pad([round(Enum.count(ratios, &(&1 < 1)) / max(length(ratios), 1) * 100), 9]) <>
+        pad([Float.round(enc, 2), 6])
+    )
+  end
+
+  defp p_encode_us(row), do: row.points |> Enum.map(& &1.encode_us) |> Enum.sum()
+
+  defp write_part_p_csv(rows) do
+    path = "/tmp/autoquality_bench_part_p.csv"
+    head = "source,label,class,format,mode,q,bytes,score,encode_us\n"
+
+    body =
+      for row <- rows, pt <- row.points, into: "" do
+        "#{row.source},#{row.label},#{row.class},#{row.format},#{row.mode},#{pt.q}," <>
+          "#{pt.bytes},#{fmt_score(pt.score)},#{pt.encode_us}\n"
+      end
+
+    File.write!(path, head <> body)
+    IO.puts("wrote #{path}")
+  end
+
+  # --- Part Q: low-effort probes (image_plug-e4a.6.8) ---------------------------
+
+  # Probe effort per format; the final encode uses the production effort.
+  @q_probe_effort %{webp: 2, avif: 1}
+  @q_offsets [0, 1, 2, 3]
+
+  defp run_part_q(corpus_dir, fallback_files, cap, synth_mp) do
+    IO.puts("\n== Part Q — low-effort probes: offset accuracy and time saved ==")
+
+    IO.puts(
+      "probe effort #{inspect(@q_probe_effort)}, final at production effort, " <>
+        "target #{@o_target}, held-out images (after the first #{@o_skip}/source), " <>
+        "≤#{cap}/source\n"
+    )
+
+    corpus_dir
+    |> o_sources(fallback_files, cap, synth_mp)
+    |> Enum.flat_map(fn {sname, subjects} ->
+      Enum.flat_map(subjects, fn {label, base} ->
+        IO.puts("  #{sname}/#{label}")
+        q_bench_subject(sname, label, n_fit(base))
+      end)
+    end)
+  end
+
+  defp q_bench_subject(source, label, base) do
+    {class, _features} = ContentClassifier.classify(base)
+    {:ok, ref} = Ssim2Metric.reference(base)
+
+    Enum.map(Map.keys(@q_probe_effort), fn format ->
+      final = base_resolved(format)
+
+      probe = %{
+        final
+        | encoder_options: %{final.encoder_options | effort: @q_probe_effort[format]}
+      }
+
+      %{
+        source: source,
+        label: label,
+        class: class,
+        format: format,
+        final: Enum.map(@n_grid, &n_point(base, ref, final, format, &1)),
+        probe: Enum.map(@n_grid, &n_point(base, ref, probe, format, &1))
+      }
+    end)
+  end
+
+  defp findings_part_q([]), do: IO.puts("Part Q — low-effort probes: no subjects processed\n")
+
+  defp findings_part_q(rows) do
+    IO.puts("Part Q — search the probe-effort curve, ship at the final effort with +k quality:")
+
+    IO.puts(
+      "  hit = final score ≥ target − 0.5; bytes× = geomean vs the final-effort " <>
+        "oracle quality; Δq = oracle final q − oracle probe q\n"
+    )
+
+    for format <- Map.keys(@q_probe_effort) do
+      frows = Enum.filter(rows, &(&1.format == format))
+      if frows != [], do: q_report_format(format, frows)
+    end
+  end
+
+  defp q_report_format(format, frows) do
+    cases =
+      Enum.flat_map(frows, fn row ->
+        with {:ok, p} <- n_at_target(row.probe, @o_target),
+             {:ok, f} <- n_at_target(row.final, @o_target) do
+          [%{row: row, probe_q: p.q, final_q: f.q, final_bytes: f.bytes}]
+        else
+          _ -> []
+        end
+      end)
+
+    deltas = cases |> Enum.map(&(&1.final_q - &1.probe_q)) |> Enum.sort()
+
+    IO.puts(
+      "  #{format} (n=#{length(cases)} reaching the target both ways): Δq p10/p50/p90 " <>
+        Enum.map_join([0.1, 0.5, 0.9], "/", &Float.round(percentile(deltas, &1), 1))
+    )
+
+    for k <- @q_offsets do
+      shipped = Enum.map(cases, &q_ship(&1, k))
+      hits = Enum.count(shipped, & &1.hit?)
+      ratios = Enum.map(shipped, & &1.bytes_ratio)
+
+      IO.puts(
+        "    +#{k}: hit #{round(hits / max(length(shipped), 1) * 100)}%  bytes× " <>
+          "#{Float.round(:math.exp(avg(Enum.map(ratios, &:math.log/1))), 3)}"
+      )
+    end
+
+    {enc_final, enc_probe, score} = q_times(frows)
+
+    IO.puts(
+      "    median per point at q≈60: final encode #{enc_final} ms, probe encode " <>
+        "#{enc_probe} ms, score #{score} ms\n"
+    )
+  end
+
+  # Ship the grid point at or just above probe_q + k on the final-effort curve.
+  defp q_ship(c, k) do
+    want = c.probe_q + k
+
+    point =
+      Enum.find(c.row.final, List.last(c.row.final), fn pt -> pt.q >= want end)
+      |> q_interpolated(c.row.final, want)
+
+    %{hit?: point.score >= @o_target - @o_tolerance, bytes_ratio: point.bytes / c.final_bytes}
+  end
+
+  defp q_interpolated(%{q: q} = pt, _points, want) when q == want, do: pt
+
+  defp q_interpolated(hi, points, want) do
+    case Enum.filter(points, &(&1.q < hi.q)) |> List.last() do
+      nil ->
+        hi
+
+      lo ->
+        f = min(max((want - lo.q) / (hi.q - lo.q), 0.0), 1.0)
+
+        %{
+          score: lo.score + f * (hi.score - lo.score),
+          bytes: :math.exp(:math.log(lo.bytes) + f * (:math.log(hi.bytes) - :math.log(lo.bytes)))
+        }
+    end
+  end
+
+  defp q_times(frows) do
+    at = fn points -> Enum.find(points, &(&1.q == 60)) || Enum.at(points, 10) end
+    med = fn xs -> xs |> Enum.sort() |> percentile(0.5) |> Kernel./(1000) |> Float.round(1) end
+
+    {med.(Enum.map(frows, &at.(&1.final).encode_us)),
+     med.(Enum.map(frows, &at.(&1.probe).encode_us)),
+     med.(Enum.map(frows, &at.(&1.final).metric_us))}
+  end
+
+  defp write_part_q_csv(rows) do
+    path = "/tmp/autoquality_bench_part_q.csv"
+    head = "source,label,class,format,effort_kind,q,bytes,score,encode_us,metric_us\n"
+
+    body =
+      for row <- rows,
+          {kind, points} <- [final: row.final, probe: row.probe],
+          pt <- points,
+          into: "" do
+        "#{row.source},#{row.label},#{row.class},#{row.format},#{kind},#{pt.q},#{pt.bytes}," <>
+          "#{fmt_score(pt.score)},#{pt.encode_us},#{pt.metric_us}\n"
+      end
+
+    File.write!(path, head <> body)
+    IO.puts("wrote #{path}")
+  end
+
   # --- resolved descriptors --------------------------------------------------
 
   defp ssim2_resolved(format) do
@@ -4320,6 +5262,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
     %Resolved{base_resolved(format) | quality: {:quality, quality}}
   end
 
+  # Every part encodes with the production encoder defaults (AVIF effort and
+  # chroma subsampling included), so results track what requests ship.
   defp base_resolved(format) do
     %Resolved{
       format: format,
@@ -4327,8 +5271,27 @@ defmodule Mix.Tasks.Autoquality.Bench do
       response_headers: [],
       strip_metadata: true,
       keep_copyright: false,
-      color_profile: :strip
+      color_profile: :strip,
+      encoder_options: production_encoder_options(format)
     }
+  end
+
+  defp production_encoder_options(format) do
+    key = {__MODULE__, :encoder_options}
+
+    options =
+      case :persistent_term.get(key, nil) do
+        nil ->
+          fixed = n_fixed_defaults(ProcessingConfig.resolve!([]))
+          options = Map.new(fixed, fn {format, {_q, options}} -> {format, options} end)
+          :persistent_term.put(key, options)
+          options
+
+        options ->
+          options
+      end
+
+    Map.get(options, format)
   end
 
   # --- telemetry capture -----------------------------------------------------
@@ -4404,7 +5367,11 @@ defmodule Mix.Tasks.Autoquality.Bench do
       {parts.i, &findings_part_i/1},
       {parts.j, &findings_part_j/1},
       {parts.k, &findings_part_k/1},
-      {parts.l, &findings_part_l/1}
+      {parts.l, &findings_part_l/1},
+      {parts.n, &findings_part_n/1},
+      {parts.o, &findings_part_o/1},
+      {parts.p, &findings_part_p/1},
+      {parts.q, &findings_part_q/1}
     ]
     |> Enum.each(fn {rows, finder} -> if rows, do: finder.(rows) end)
 

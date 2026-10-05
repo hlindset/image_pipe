@@ -26,6 +26,10 @@ mise exec -- mix autoquality.bench --part l --corpus DIR  # crop K × tile opera
 mise exec -- mix autoquality.corpus.capture              # grow the >6 MP screen-content half (Part M/L)
 mise exec -- mix autoquality.bench --part m --corpus DIR  # content-classifier feasibility (#359)
 mise exec -- mix autoquality.bench --part m --corpus DIR --downsample 512  # smaller classifier downsample
+mise exec -- mix autoquality.bench --part n --corpus DIR --corpus-cap 6  # target-only calibration (~10 min)
+mise exec -- mix autoquality.bench --part o --corpus DIR --corpus-cap 6  # target-only search vs today (~5 min)
+mise exec -- mix autoquality.bench --part p --corpus DIR --corpus-cap 6  # subsampling auto vs off (~12 min)
+mise exec -- mix autoquality.bench --part q --corpus DIR --corpus-cap 6  # low-effort probes (~8 min)
 mise exec -- mix autoquality.bench --part all # A + B + C + D + E + F + G + … + M
 mise exec -- mix autoquality.bench --mps 1,4  # custom Part A megapixels
 mise exec -- mix autoquality.bench --proxy-factors 2,4 --proxy-mp 25  # Part C knobs
@@ -999,6 +1003,195 @@ photo-recall (85%→76%) — the benign direction (a few more photos conservativ
 screen offset). **512 px is the production sweet spot**: ~all the accuracy of 1024 at
 ~60 % the cost; drop to 384 if cost dominates. (The Part M tables above use the 1024
 default.)
+
+### Part N — target-only calibration (image_plug-08wt)
+
+Calibration data for `docs/plans/autoquality-target-only.md`. Each image is
+downscaled to a long edge of at most 1600 px, classified with
+`ContentClassifier`, and encoded at the production encoder defaults (AVIF
+effort 3) over q 20..96 step 4 plus the fixed default quality. Qualities are
+oracle values interpolated from that grid, not search results. Codec-corpus
+`bb1da43`, `--corpus-cap 6`: 53 images (22 photo, 31 graphic), libvips 8.18.2,
+2026-10-04.
+
+Quality needed to reach the target, p1 / p5 / p50 / p95 / p99:
+
+| format | class | target 72 | target 75 | target 78 |
+|---|---|---|---|---|
+| jpeg | photo | 52/57/70/74/75 | 61/63/75/79/81 | 68/71/81/84/85 |
+| jpeg | graphic | 35/43/72/85/85 | 42/61/78/88/88 | 61/67/84/89/89 |
+| webp | photo | 60/62/77/83/83 | 73/73/80/85/86 | 78/79/84/88/89 |
+| webp | graphic | 28/29/62/83/83 | 38/42/76/86/88 | 44/53/81/89/90 |
+| avif | photo | 45/46/56/60/62 | 49/50/61/64/66 | 54/55/66/68/71 |
+| avif | graphic | 25/30/49/58/59 | 28/36/54/62/64 | 34/41/58/67/69 |
+
+No image reached a target below q20. Some WebP graphics never reach it by
+q96: 3% at 72 and 75, 10% at 78.
+
+Each target against today's fixed defaults, on the same images:
+
+| format | fixed q | fixed score p10/p50/p90 | bytes× at 72 | at 75 | at 78 |
+|---|---|---|---|---|---|
+| jpeg | 80 | 70.2 / 77.0 / 81.6 | 0.81 | 0.91 | 1.05 |
+| webp | 79 | 68.7 / 75.4 / 80.5 | 0.88 | 1.01 | 1.19 |
+| avif | 63 | 74.7 / 77.9 / 82.9 | 0.72 | 0.84 | 0.99 |
+
+bytes× is the geomean of bytes at the target over bytes at the fixed default.
+
+Reading:
+
+- **Target 75 is byte-neutral or better for every format** (WebP 1.01, JPEG
+  0.91, AVIF 0.84) and lifts the worst tenth of images from a score of about
+  69–75 to 75. Target 78 keeps JPEG and AVIF neutral but costs WebP 19%.
+- **Rails.** Across targets 72–78 the needed quality spans JPEG 35–89, WebP
+  28–90, and AVIF 25–72 (p1–p99). Rails of 25–95 for JPEG and WebP and 20–80
+  for AVIF hold all of it with margin.
+- **Priors.** Photos cluster tightly (AVIF p5–p95 at 75: 50–64), so a
+  photo prior lands within a few steps. Graphics spread widely (WebP p5–p95 at
+  75: 42–86), so the search must converge quickly from a poor start, not rely
+  on the prior.
+
+#### Part N follow-up — targets 70 to 85
+
+The same run with `@n_targets [70, 72, 75, 78, 80, 85]`, all 53 images (photo
+and graphic together). Quality needed, p5 / p50 / p95:
+
+| format | 70 | 80 | 85 |
+|---|---|---|---|
+| jpeg | 40/67/81 | 73/85/90 | 84/90/91 |
+| webp | 30/67/81 | 68/85/91 | 81/90/96 |
+| avif | 27/50/58 | 46/68/83 | 62/81/90 |
+
+bytes× against the fixed defaults:
+
+| format | 70 | 80 | 85 |
+|---|---|---|---|
+| jpeg | 0.76 | 1.16 | 1.53 |
+| webp | 0.82 | 1.33 | 1.87 |
+| avif | 0.66 | 1.14 | 1.66 |
+
+WebP can't reach the higher targets by q96 for 13% of the images at 80 and
+38% at 85 (screenshots). Those are left out of its bytes×.
+
+Reading:
+
+- **AVIF's rail moves to 20–90.** At 80 and 85 AVIF needs q83 and q90 at p95,
+  past the 80 ceiling set from targets 72–78. JPEG and WebP stay inside 95
+  (p95 91 and 96).
+- **The starting quality uses these medians** for 70, 80, and 85 instead of
+  extending the 72–78 line, which would start JPEG at 95 for target 85 where
+  the median is 90.
+
+#### Part N rerun — AVIF without chroma subsampling
+
+After AVIF moved to `subsample_mode: :off` (Part P), the fixed default `q63`
+delivers a higher median score, 81.6 (p10/p90 75.5/86.9, was 77.9), so every
+target saves more against it. AVIF bytes× at targets 70/72/75/78/80/85: 0.62,
+0.67, 0.76, 0.88, 0.99, 1.34. JPEG and WebP are unchanged. The median score of
+the old default, about 78, now takes about q56, so the fixed AVIF default could
+drop from 63 to about 56 at the same median quality.
+
+### Part O — target-only search vs today's search (image_plug-08wt)
+
+Held-out images: each source's images after Part N's first 6, 40 images (15
+photo, 25 graphic), long edge ≤1600 px, production encoder defaults. All
+variants share one encode/score cache per image and format. `today` is the
+production walk with today's defaults (target 78 ± 1, brackets 70–80, AVIF
+60–65). The others target 75 within rails of 25–95 (AVIF 20–80): `walk-wide`
+is today's walk, `secant` starts at Part N's per-class median and interpolates,
+`secant-noclass` uses one starting quality per format. Hit means delivered ≥
+target − tolerance (1 for `today`, 0.5 for the rest).
+
+| format | variant | hit% | score p10/p50/p90 | probes avg/max | search ms p50 | bytes vs today |
+|---|---|---|---|---|---|---|
+| jpeg | today | 60 | 69.1 / 77.2 / 78.5 | 3.0 / 4 | 201 | 1.00 |
+| jpeg | walk-wide | 100 | 74.7 / 75.4 / 75.9 | 4.0 / 6 | 221 | 0.99 |
+| jpeg | secant | 100 | 74.8 / 75.4 / 76.0 | 2.9 / 6 | 141 | 1.00 |
+| jpeg | secant-noclass | 100 | 74.7 / 75.1 / 76.1 | 2.7 / 6 | 181 | 1.00 |
+| webp | today | 43 | 69.0 / 74.8 / 81.1 | 3.5 / 4 | 263 | 1.00 |
+| webp | walk-wide | 90 | 73.4 / 75.2 / 75.9 | 4.6 / 7 | 349 | 1.04 |
+| webp | secant | 90 | 73.4 / 75.3 / 75.9 | 3.0 / 6 | 332 | 1.04 |
+| webp | secant-noclass | 90 | 73.4 / 75.3 / 75.9 | 3.0 / 6 | 330 | 1.04 |
+| avif | today | 73 | 71.9 / 78.1 / 83.3 | 2.0 / 3 | 202 | 1.00 |
+| avif | walk-wide | 93 | 74.5 / 75.2 / 75.9 | 4.0 / 6 | 376 | 0.87 |
+| avif | secant | 93 | 74.5 / 75.2 / 75.9 | 3.0 / 6 | 265 | 0.87 |
+| avif | secant-noclass | 93 | 74.5 / 75.2 / 75.9 | 2.7 / 6 | 265 | 0.87 |
+
+Reading:
+
+- **The target now decides the result.** Hit rates rise from 43–73% to
+  90–100%, and the delivered score's p10–p90 shrinks from about 12 points to
+  about 2.
+- **Secant matches the wide walk's results with a third fewer probes** (about
+  3 instead of 4–4.6), roughly today's count, and costs about the same time as
+  today's narrow search.
+- **The content-class prior adds nothing.** `secant-noclass` matches `secant`
+  on hits and needs as few or fewer probes, so the search doesn't need
+  `ContentClassifier`.
+- **Every miss is at the rail ceiling** (7 of 120 cases, all graphics:
+  `windows95.png`, `phoboslab.org.png`, `news.ycombinator.com.png`, one CLIC
+  screenshot). Those images can't reach 75 at WebP q95 or AVIF q80. The search
+  isn't failing them, the format is.
+- **Bytes.** AVIF −13%, JPEG unchanged, WebP +4%. WebP photos cost +9%
+  because today ships most of them below target (13% hit, median 74.2).
+
+### Part P — chroma subsampling for graphics (image_plug-gwvf)
+
+Same 53 images and grid as Part N, JPEG and AVIF, each swept at libvips'
+`subsample_mode: :auto` (4:2:0 below q90) and `:off` (4:4:4). bytes× is the
+geomean off/auto over images reaching the target both ways (all 53 did).
+
+| format | class | target 72 | target 75 | target 78 | encode time |
+|---|---|---|---|---|---|
+| jpeg | photo | 1.08 | 1.07 | 1.04 | 1.4× |
+| jpeg | graphic | 1.04 | 1.02 | 0.99 | 1.4× |
+| avif | photo | 0.98 | 0.98 | 0.96 | 1.12× |
+| avif | graphic | 0.94 | 0.92 | 0.90 | 1.13× |
+
+Median quality needed for AVIF drops with subsampling off: 50/53/56 at targets
+72/75/78 (auto 52/56/63), and 59 and 71 at 80 and 85 (auto 68 and 81).
+
+Reading:
+
+- **AVIF without subsampling is smaller for photos too**, so it needs no
+  content classifier: AVIF defaults to `subsample_mode: :off`, and the AVIF
+  starting qualities use these medians.
+- **JPEG keeps `auto`.** Photos pay 4–8% for full-resolution color, and
+  graphics break even.
+- Apple ImageIO (Safari's decoder) decodes 4:4:4 AVIF to within ±1 of libvips.
+
+### Part M rerun — crop offsets with full-color AVIF (2026-10-05)
+
+All bench parts now encode with the production encoder options
+(`base_resolved/1`), so earlier parts ran at libvips' own defaults (AVIF effort
+4, 4:2:0). Rerunning Part M with AVIF at effort 3 and 4:4:4, the >6 MP crop
+residual (p90 over baseline-hit cases) is AVIF × screen 2.14 (was 6.07), AVIF
+× photo 0.34, and JPEG and WebP at or below 0. Every cell fits the 2.4 default,
+so the AVIF × graphic 6.0 override is dropped.
+
+### Part Q — low-effort probes (image_plug-e4a.6.8)
+
+Held-out images as in Part O, target 75. Each image is swept at the production
+effort and at a probe effort (WebP 2, AVIF 1). The simulation searches the
+probe curve and ships the production effort at the found quality plus k.
+
+| format | Δq p10/p50/p90 | hit / bytes× at +0 | +1 | +2 | encode final / probe, score (ms) |
+|---|---|---|---|---|---|
+| avif | −10.2 / −1.7 / −0.5 | 97% / 1.09 | 100% / 1.12 | 100% / 1.16 | 46 / 19, 70 |
+| webp | −3.0 / −0.4 / 1.1 | 80% / 1.01 | 91% / 1.04 | 91% / 1.08 | 32 / 16, 56 |
+
+Reading:
+
+- **Scoring dominates the search.** Three probes plus one final
+  production-effort encode save about 10% (AVIF) and 6% (WebP) of search time.
+  Scoring the final encode to confirm it would cost more than it saves.
+- **The effort gap varies per image.** AVIF's production effort reaches the
+  target up to 10 qualities lower than the probe effort, so shipping at the
+  probe's quality costs 9% more bytes. WebP's gap spans −3 to +1, so a fixed
+  offset trades hit rate for bytes.
+- **Not worth shipping.** Results are cached, so the bytes go out on every
+  delivery while the search time is paid once. Cheaper scoring would be the
+  lever, and Parts C and D found no cheaper metric that tracks SSIMULACRA2.
 
 ## Findings & recommendations
 
