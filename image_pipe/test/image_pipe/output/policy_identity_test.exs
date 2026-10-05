@@ -109,7 +109,6 @@ defmodule ImagePipe.Output.PolicyIdentityTest do
       assert Keyword.fetch!(material, :color_profile) == :keep
       assert Keyword.fetch!(material, :hdr) == :preserve
       assert Keyword.fetch!(material, :quality_search) == :none
-      assert Keyword.fetch!(material, :quality_search_offsets) == policy.quality_search_offsets
       assert Keyword.fetch!(material, :flatten_background) == Color.key_data(Color.white())
       assert Keyword.fetch!(material, :encoder_options) == %{}
     end

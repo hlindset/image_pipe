@@ -592,24 +592,6 @@ forces the image's pixel work. Nested in the request span, or in
   - `:output_format` (atom).
   - `:error` (atom): the error category, such as `:empty_stream`, on failure.
 
-### `[:encode, :classify]`
-
-Span. Nested in `[:encode]`, before `[:encode, :search]`. Emitted when an
-`ssimulacra2` quality search scores crops of a large image. Classifies the
-image as a photo or a graphic, which sets the correction applied to the crop
-scores.
-
-- Start metadata: none.
-- Stop metadata:
-  - `:result` (atom): always `:ok`.
-  - `:content_class` (atom): `:photo`, or `:graphic` (screenshots, text,
-    charts, line art).
-  - `:applied_offset` (float): the score correction for this format and
-    class.
-  - `:palette_ent` (float): the brightness-histogram entropy feature, divided
-    by 8.
-  - `:nat_var` (float): the mid-band gradient feature.
-
 ### `[:encode, :search]`
 
 Span. Nested in `[:encode]`. Wraps the search for an encoder quality, run for

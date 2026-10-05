@@ -333,24 +333,6 @@ defmodule ImagePipe.Output.PolicyTest do
       assert rs.target == 90.0
     end
 
-    test "resolves quality_search_offsets to the per-class map for an avif negotiation" do
-      search = %QualitySearch{target: 78.0}
-
-      assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch.Ssimulacra2{} = rs}} =
-               Policy.resolve(policy_with(search, format: :avif), nil)
-
-      assert rs.quality_search_offsets == %{photo: 2.4, graphic: 2.4}
-    end
-
-    test "a non-avif format keeps the lean default for both classes" do
-      search = %QualitySearch{target: 78.0}
-
-      assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch.Ssimulacra2{} = rs}} =
-               Policy.resolve(policy_with(search, format: :jpeg), nil)
-
-      assert rs.quality_search_offsets == %{photo: 2.4, graphic: 2.4}
-    end
-
     test "none stays none" do
       assert {:ok, %Resolved{quality_search: :none}} = Policy.resolve(policy_with(:none), nil)
     end

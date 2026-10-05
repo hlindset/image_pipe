@@ -43,7 +43,6 @@ defmodule ImagePipe.Output.Policy do
                 quality_search: :none,
                 max_bytes: nil,
                 dpi: nil,
-                quality_search_offsets: Output.default_quality_search_offsets(),
                 encoder_options: %{},
                 hdr: :tone_map,
                 skip_formats: []
@@ -77,7 +76,6 @@ defmodule ImagePipe.Output.Policy do
             | Output.QualitySearch.t(),
           max_bytes: nil | pos_integer(),
           dpi: nil | 1..65_535,
-          quality_search_offsets: Output.quality_search_offsets(),
           encoder_options: %{optional(format()) => struct()},
           hdr: Output.hdr(),
           skip_formats: [source_format()]
@@ -116,7 +114,6 @@ defmodule ImagePipe.Output.Policy do
       default_quality: policy.default_quality,
       format_qualities: policy.format_qualities,
       quality_search: quality_search_identity(policy.quality_search),
-      quality_search_offsets: policy.quality_search_offsets,
       max_bytes: policy.max_bytes,
       strip_metadata: policy.strip_metadata,
       keep_copyright: policy.keep_copyright,
@@ -252,7 +249,7 @@ defmodule ImagePipe.Output.Policy do
 
   defp resolve_search(%__MODULE__{quality_search: :none}, _format), do: :none
 
-  defp resolve_search(%__MODULE__{quality_search: %Output.QualitySearch{} = s} = policy, format) do
+  defp resolve_search(%__MODULE__{quality_search: %Output.QualitySearch{} = s}, format) do
     {min_quality, max_quality} = Map.get(@search_rails, format, @default_search_rails)
 
     %RQS.Ssimulacra2{
@@ -260,11 +257,7 @@ defmodule ImagePipe.Output.Policy do
       min_quality: min_quality,
       max_quality: max_quality,
       start_quality: start_quality(format, s.target, min_quality, max_quality),
-      allowed_error: @search_tolerance,
-      quality_search_offsets: %{
-        photo: Output.offset_for(policy.quality_search_offsets, format, :photo),
-        graphic: Output.offset_for(policy.quality_search_offsets, format, :graphic)
-      }
+      allowed_error: @search_tolerance
     }
   end
 
