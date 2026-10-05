@@ -185,6 +185,17 @@ defmodule ImagePipeServer.Config.SourcesTest do
   end
 
   describe "S3 mounts" do
+    test "require both static credential keys" do
+      assert error(%{
+               "s" => %{
+                 "adapter" => "s3",
+                 "match" => "path",
+                 "credentials" => %{"static" => %{"secret_access_key" => "sekrit"}}
+               }
+             }) ==
+               "invalid configuration: sources.s.credentials.static.access_key_id: required"
+    end
+
     test "put shared settings under default and keep buckets by name" do
       [media: mount] =
         convert(%{

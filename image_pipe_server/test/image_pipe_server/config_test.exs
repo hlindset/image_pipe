@@ -3,6 +3,7 @@ defmodule ImagePipeServer.ConfigTest do
 
   alias ImagePipe.Cache.FileSystem
   alias ImagePipeServer.Config
+  alias ImagePipeServer.Config.Tree
   alias ImagePipeServer.ConfigError
 
   @key32 :binary.copy(<<7>>, 32)
@@ -217,6 +218,34 @@ defmodule ImagePipeServer.ConfigTest do
       assert config.http[:http_cache] == :auto
     end
 
+    test "names url.keys in a signing-key error without quoting the key" do
+      message = error(fn -> Config.options!(%{"url" => %{"keys" => ["0123", "zzsekrit"]}}) end)
+
+      assert message == "invalid configuration: url.keys[1]: expected a non-empty hex string"
+    end
+
+    test "names the cache root setting" do
+      assert error(fn -> Config.options!(%{"cache" => %{"output" => %{"root" => 5}}}) end) =~
+               "invalid configuration: cache.output.root: expected an absolute path"
+
+      assert error(fn ->
+               Config.options!(%{"cache" => %{"input" => %{"max_size_bytes" => 1}}})
+             end) ==
+               "invalid configuration: cache.input.root: required"
+    end
+
+    test "names the source in the library's source errors" do
+      assert error(fn ->
+               Config.build!(
+                 Config.options!(%{
+                   "sources" => %{
+                     "h" => %{"adapter" => "http", "match" => "path", "base_url" => "ftp://x"}
+                   }
+                 })
+               )
+             end) =~ ~r/\Ainvalid configuration: sources\.h: base_url must be/
+    end
+
     test "reports library validation errors" do
       assert error(fn ->
                Config.build!(Config.options!(%{"processing" => %{"quality" => 500}}))
@@ -401,6 +430,14 @@ defmodule ImagePipeServer.ConfigTest do
       assert error(fn ->
                Config.load!(%{"IPS_URL__KEYS_FILE" => keys}, Path.join(dir, "absent.toml"))
              end) =~ "url.keys: expected at least one entry"
+    end
+
+    test "reads one signing key per line from a keys file", %{tmp_dir: dir} do
+      keys = Path.join(dir, "keys")
+      File.write!(keys, "0123abcd\n4567ef01\n")
+
+      tree = Tree.read!(%{"IPS_URL__KEYS_FILE" => keys}, dir)
+      assert Config.options!(tree)[:url][:keys] == ["0123abcd", "4567ef01"]
     end
 
     test "takes a container credentials token file as a path, read at refresh", %{tmp_dir: dir} do

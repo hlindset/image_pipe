@@ -140,11 +140,21 @@ defmodule ImagePipeServer.Config do
     ImagePipe.Security.options_schema()
     |> Keyword.drop([:encrypt_source, :iv_mode])
     |> Keyword.merge(
+      keys: [type: {:list, {:convert, &signing_key/2, "hex strings"}}, default: []],
       source_encryption_keys: [
         type: {:list, {:convert, &encryption_key/2, "hex strings, each a 32-byte key"}},
         default: []
       ]
     )
+  end
+
+  defp signing_key(value, path) do
+    with {:ok, key} <- Convert.string(value, path) do
+      case Base.decode16(key, case: :mixed) do
+        {:ok, <<_::binary-size(1), _rest::binary>>} -> {:ok, key}
+        _invalid -> {:error, path, "expected a non-empty hex string"}
+      end
+    end
   end
 
   # Checked here so the error names the setting. The library decodes the key.
@@ -177,14 +187,29 @@ defmodule ImagePipeServer.Config do
   end
 
   defp file_system(value, schema, path) do
-    with {:ok, options} <- Convert.options(value, schema, path), do: {:ok, {FileSystem, options}}
+    with {:ok, options} <- Convert.options(value, schema, path),
+         {:ok, options} <- Convert.require_keys(options, [:root], path),
+         do: {:ok, {FileSystem, options}}
   end
 
   defp store_schema do
     Store.options_schema()
     |> Keyword.delete(:pool)
-    |> Keyword.merge(window_ratio: [type: :float], doorkeeper_fpr: [type: :float])
+    |> Keyword.merge(
+      root: [type: {:convert, &cache_root/2, "string (absolute path)"}, required: true],
+      window_ratio: [type: :float],
+      doorkeeper_fpr: [type: :float]
+    )
   end
+
+  defp cache_root(value, path) do
+    case Convert.string(value, path) do
+      {:ok, root} = ok -> if Path.type(root) == :absolute, do: ok, else: absolute_path(path)
+      {:error, _path, _message} -> absolute_path(path)
+    end
+  end
+
+  defp absolute_path(path), do: {:error, path, "expected an absolute path"}
 
   defp output_schema, do: store_schema() ++ ImagePipe.Cache.shared_options_schema()
 
@@ -353,10 +378,19 @@ defmodule ImagePipeServer.Config do
   defp processing_pool(pool), do: [processing_pool: Keyword.fetch!(pool, :name)]
 
   # The library names the setting in its errors and keeps secret values out.
+  # It names a source as `:name`, which the file spells `sources.name`.
   defp library!(fun) do
     fun.()
   rescue
-    error in ArgumentError -> reraise ConfigError, [message: error.message], __STACKTRACE__
+    error in ArgumentError ->
+      message =
+        Regex.replace(
+          ~r/\Ainvalid source :([a-z0-9_]+): /,
+          error.message,
+          "invalid configuration: sources.\\1: "
+        )
+
+      reraise ConfigError, [message: message], __STACKTRACE__
   end
 
   # The server always bounds processing, so a burst waits or gets a 503

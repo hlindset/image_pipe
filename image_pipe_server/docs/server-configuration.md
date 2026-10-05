@@ -67,12 +67,15 @@ IPS_PROCESSING__QUALITY=82
 
 - Levels are lowercased, so a source written as `[sources.TMDB]` in the file
   can't be overridden from the environment. Use lowercase source names.
-- Lists are comma-separated: `IPS_URL__KEYS=0123abcd…,4567ef01…`.
+- Lists are comma-separated, such as `IPS_URL__KEYS=0123abcd…,4567ef01…`, or
+  have one entry per line.
 - A variable ending in `_FILE` reads the value from that file, without
   trailing whitespace, for Docker and Kubernetes secrets:
-  `IPS_URL__KEYS_FILE=/run/secrets/signing_keys`.
-- Two variables for the same setting are an error, such as `IPS_URL__KEYS`
-  with `IPS_URL__KEYS_FILE`, or `IPS_URL__KEYS` with `IPS_url__keys`.
+  `IPS_URL__KEYS_FILE=/run/secrets/signing_keys`. A secret file can hold one
+  list entry per line.
+- Setting the same value twice is an error, such as `IPS_URL__KEYS` together
+  with `IPS_URL__KEYS_FILE`, or with `IPS_url__keys`, since levels are
+  lowercased.
 - A list variable with no entries, or a `_FILE` variable whose file has none,
   is an error, so an empty signing-keys secret stops the server instead of
   turning off signature checks.
@@ -117,8 +120,8 @@ them. Hosts that need them build their own release on top of `image_pipe`.
 Invalid configuration stops the server at boot. The server prints the error,
 which names the setting or variable, and exits with status 1. Errors about
 the file's shape and types never quote a value. The library's own checks
-may quote a non-secret value, such as an out-of-range `quality` or a cache
-root, but never a key, credential, token, or the contents of a `_FILE`:
+may quote a non-secret value, such as an out-of-range `quality`, but never
+a key, credential, token, or the contents of a `_FILE`:
 
 ```text
 invalid configuration: url.source_encryption_keys[0]: expected a hex-encoded 32-byte key
@@ -162,7 +165,7 @@ How the server checks request URLs: the signing keys and the keys that decrypt `
 
 | Key | Type | Default |
 | --- | --- | --- |
-| `keys` | array of string | `[]` |
+| `keys` | array of hex strings | `[]` |
 | `source_encryption_keys` | array of hex strings, each a 32-byte key | `[]` |
 
 ### `[sources.<name>]`
@@ -316,7 +319,6 @@ Caches on the local filesystem: `output` for processed images, `input` for origi
 
 | Key | Type | Default |
 | --- | --- | --- |
-| `output.root` | string |  |
 | `output.path_prefix` | string | `""` |
 | `output.max_size_bytes` | integer > 0 |  |
 | `output.node_id` | string |  |
@@ -330,10 +332,10 @@ Caches on the local filesystem: `output` for processed images, `input` for origi
 | `output.cleanup_interval` | integer > 0 |  |
 | `output.reconcile_interval` | integer > 0 |  |
 | `output.state_ttl` | integer > 0 |  |
+| `output.root` | string (absolute path) |  |
 | `output.window_ratio` | number |  |
 | `output.doorkeeper_fpr` | number |  |
 | `output.max_body_bytes` | integer ≥ 0 |  |
-| `input.root` | string |  |
 | `input.path_prefix` | string | `""` |
 | `input.max_size_bytes` | integer > 0 |  |
 | `input.node_id` | string |  |
@@ -347,6 +349,7 @@ Caches on the local filesystem: `output` for processed images, `input` for origi
 | `input.cleanup_interval` | integer > 0 |  |
 | `input.reconcile_interval` | integer > 0 |  |
 | `input.state_ttl` | integer > 0 |  |
+| `input.root` | string (absolute path) |  |
 | `input.window_ratio` | number |  |
 | `input.doorkeeper_fpr` | number |  |
 | `storage_inputs` | array of `{ header = … }` or `{ cookie = … }` (string) |  |

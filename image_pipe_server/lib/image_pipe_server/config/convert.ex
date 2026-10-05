@@ -66,6 +66,16 @@ defmodule ImagePipeServer.Config.Convert do
 
   def options(_value, _schema, path), do: {:error, path, "expected a table"}
 
+  @doc "Checks that converted `options` hold each of `keys`."
+  @spec require_keys(keyword(), [atom()], path()) ::
+          {:ok, keyword()} | {:error, path(), String.t()}
+  def require_keys(options, keys, path) do
+    case Enum.find(keys, &(not Keyword.has_key?(options, &1))) do
+      nil -> {:ok, options}
+      key -> {:error, path ++ [Atom.to_string(key)], "required"}
+    end
+  end
+
   @doc "An explicit conversion of a table with `schema`."
   @spec table(keyword()) :: {:convert, function(), keyword()}
   def table(schema), do: {:convert, &options(&1, schema, &2), schema}
@@ -122,7 +132,7 @@ defmodule ImagePipeServer.Config.Convert do
   # entries: an empty `url.keys` would turn signing off.
   def value({:list, type}, {:env, raw}, path) do
     raw
-    |> String.split(",")
+    |> String.split([",", "\n"])
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
     |> case do

@@ -330,8 +330,10 @@ defmodule ImagePipeServer.Config.Sources do
   end
 
   defp credentials(%{"static" => static} = table, path) when map_size(table) == 1 do
-    with {:ok, static} <-
-           Convert.options(static, @static_credentials_schema, path ++ ["static"]),
+    path = path ++ ["static"]
+
+    with {:ok, static} <- Convert.options(static, @static_credentials_schema, path),
+         {:ok, static} <- Convert.require_keys(static, [:access_key_id, :secret_access_key], path),
          do: {:ok, {:static, static}}
   end
 
