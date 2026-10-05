@@ -4,7 +4,7 @@
       {
         "hooks": [
           {
-            "command": "\"$CLAUDE_PROJECT_DIR/scripts/cloud-session-start.sh\"; bd prime --hook-json",
+            "command": "\"$CLAUDE_PROJECT_DIR/scripts/cloud-session-start.sh\"; PATH=\"$PATH:$HOME/.local/share/mise/shims\" bd prime --hook-json",
             "type": "command",
             "timeout": 1200
           }
