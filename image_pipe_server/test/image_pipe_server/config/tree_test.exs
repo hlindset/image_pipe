@@ -61,6 +61,27 @@ defmodule ImagePipeServer.Config.TreeTest do
       refute message =~ "sekrit"
     end
 
+    test "redacts all of a line inside a multi-line string", %{tmp_dir: dir} do
+      message = toml_error(dir, ~s(auth_token = """\nSEKRITAA=\\qSEKRITBB\n"""\n))
+
+      assert message =~ "\n    <redacted value>\n"
+      refute message =~ "SEKRIT"
+    end
+
+    test "redacts all of a line inside a multi-line array", %{tmp_dir: dir} do
+      message = toml_error(dir, ~s(a = [\n  "x",\n  SEKRITAA=1\n]\n))
+
+      assert message =~ "\n      <redacted value>\n"
+      refute message =~ "SEKRIT"
+    end
+
+    test "redacts bytes the summary quotes", %{tmp_dir: dir} do
+      message = toml_error(dir, ~s(token = "\\uD800"\n))
+
+      assert message =~ "token = <redacted value>"
+      refute message =~ "0x44"
+    end
+
     test "keeps table headers", %{tmp_dir: dir} do
       assert toml_error(dir, "[sources.x\n") =~ "    [sources.x\n"
     end

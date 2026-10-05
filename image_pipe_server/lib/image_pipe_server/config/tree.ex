@@ -53,9 +53,14 @@ defmodule ImagePipeServer.Config.Tree do
       do: raise(ConfigError, "#{path} is not valid UTF-8 on line #{invalid_line(contents)}")
 
     case Toml.decode(contents, filename: path) do
-      {:ok, tree} -> tree
-      {:error, {:invalid_toml, reason}} -> raise ConfigError, TomlError.message(reason, path)
-      {:error, _reason} -> raise ConfigError, "invalid TOML in #{path}: a value can't be read"
+      {:ok, tree} ->
+        tree
+
+      {:error, {:invalid_toml, reason}} ->
+        raise ConfigError, TomlError.message(reason, path, contents)
+
+      {:error, _reason} ->
+        raise ConfigError, "invalid TOML in #{path}: a value can't be read"
     end
   end
 
