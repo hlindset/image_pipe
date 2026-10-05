@@ -1,5 +1,6 @@
 defmodule ImagePipe.API.SourceTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias ImagePipe.Plan.Source.Object
   alias ImagePipe.Plan.Source.Path
@@ -279,5 +280,26 @@ defmodule ImagePipe.API.SourceTest do
       assert {:ok, %URL{scheme: :https, host: "example.com", path: ["cat.jpg"], query: "v=2"}} =
                Source.translate("https://example.com/cat.jpg?v=2", url_config())
     end
+  end
+
+  # The pattern the scan replaced, kept as the reference.
+  @malformed_percent ~r/%($|[^0-9A-Fa-f]|[0-9A-Fa-f]$|[0-9A-Fa-f][^0-9A-Fa-f])/
+
+  property "a URL query is rejected exactly when it has a malformed percent escape" do
+    check all query <- percent_bytes(), max_runs: 500 do
+      rejected? =
+        Source.translate("https://example.com/cat.jpg?" <> query, url_config()) ==
+          {:error, {:invalid_source, :invalid_percent_encoding}}
+
+      assert rejected? == Regex.match?(@malformed_percent, query)
+    end
+  end
+
+  defp percent_bytes do
+    ["%", "a", "F", "0", "9", "g", "z", "=", "&", "%2", "%41"]
+    |> Enum.map(&constant/1)
+    |> one_of()
+    |> list_of(min_length: 1, max_length: 10)
+    |> map(&Enum.join/1)
   end
 end

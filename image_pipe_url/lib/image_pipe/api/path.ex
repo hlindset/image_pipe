@@ -29,9 +29,6 @@ defmodule ImagePipe.API.Path do
   @doc false
   def max_option_segments, do: @max_option_segments
 
-  # Any "%" not followed by exactly two hex digits is a malformed escape.
-  @malformed_percent ~r/%($|[^0-9A-Fa-f]|[0-9A-Fa-f]$|[0-9A-Fa-f][^0-9A-Fa-f])/
-
   @doc """
   Raw byte inspection only: if the first segment of the mount-relative
   `path` starts with `sig=`, returns its value and the raw remainder from the
@@ -300,10 +297,26 @@ defmodule ImagePipe.API.Path do
   # -- percent-decoding (src tail only, exactly once) ----------------------
 
   defp percent_decode(value) do
-    if Regex.match?(@malformed_percent, value) do
+    if malformed_percent?(value) do
       {:error, :malformed_percent_escape}
     else
       {:ok, URI.decode(value)}
+    end
+  end
+
+  defguardp hex?(byte) when byte in ?0..?9 or byte in ?A..?F or byte in ?a..?f
+
+  # Any "%" not followed by exactly two hex digits is a malformed escape.
+  defp malformed_percent?(value) do
+    case :binary.match(value, "%") do
+      :nomatch ->
+        false
+
+      {at, 1} ->
+        case binary_part(value, at + 1, byte_size(value) - at - 1) do
+          <<a, b, rest::binary>> when hex?(a) and hex?(b) -> malformed_percent?(rest)
+          _malformed -> true
+        end
     end
   end
 

@@ -363,4 +363,27 @@ defmodule ImagePipe.API.PathTest do
       end
     end
   end
+
+  # The pattern the scan replaced, kept as the reference.
+  @malformed_percent ~r/%($|[^0-9A-Fa-f]|[0-9A-Fa-f]$|[0-9A-Fa-f][^0-9A-Fa-f])/
+
+  property "a src tail is rejected exactly when it has a malformed percent escape" do
+    check all tail <- percent_bytes(), max_runs: 500 do
+      malformed? =
+        match?(
+          {:error, [%{reason: :malformed_percent_escape}]},
+          Path.extract("/src/x" <> tail, "")
+        )
+
+      assert malformed? == Regex.match?(@malformed_percent, tail)
+    end
+  end
+
+  defp percent_bytes do
+    ["%", "a", "F", "0", "9", "g", "z", ".", "\n", "%2", "%41"]
+    |> Enum.map(&constant/1)
+    |> one_of()
+    |> list_of(max_length: 10)
+    |> map(&Enum.join/1)
+  end
 end
