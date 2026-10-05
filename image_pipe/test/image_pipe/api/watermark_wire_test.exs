@@ -21,6 +21,7 @@ defmodule ImagePipe.API.WatermarkWireTest do
       "mark.png" => png(Image.new!(10, 10, color: @red)),
       "alpha.png" => png(Image.new!(10, 10, color: @red ++ [128])),
       "gray_mark.png" => png(gray_mark()),
+      "mid_mark.png" => png(Image.new!(10, 10, color: [1, 128, 200])),
       "tagged_gray.png" => png(tagged_gray()),
       "rotated.jpg" => rotated_jpeg(),
       "corrupt.png" => "not an image",
@@ -167,6 +168,13 @@ defmodule ImagePipe.API.WatermarkWireTest do
     assert VipsImage.format(marked) == :VIPS_FORMAT_USHORT
     assert pixel(marked, 30, 20) == [65_535, 0, 0]
     assert pixel(marked, 0, 0) == [0, 0, 65_535]
+  end
+
+  test "8-bit asset values scale to the full 16-bit range", %{config: config} do
+    marked =
+      Image.from_binary!(response("hdr=preserve/wm=mid_logo", config, "src/deep.png").resp_body)
+
+    assert pixel(marked, 30, 20) == [257, 128 * 257, 200 * 257]
   end
 
   test "EXIF orientation applies to the asset", %{config: config} do
@@ -403,6 +411,7 @@ defmodule ImagePipe.API.WatermarkWireTest do
           logo: [source: "mark.png"],
           ghost: [source: "alpha.png", opacity: 0.5],
           gray_logo: [source: "gray_mark.png"],
+          mid_logo: [source: "mid_mark.png"],
           turned: [source: "rotated.jpg"],
           corrupt: [source: "corrupt.png"]
         },

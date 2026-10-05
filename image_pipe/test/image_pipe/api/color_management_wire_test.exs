@@ -211,6 +211,13 @@ defmodule ImagePipe.API.ColorManagementWireTest do
     end
   end
 
+  test "request colours scale to the full 16-bit range" do
+    output = response("pad=2/bg=0180c8/format=png/hdr=preserve", "rgb16.png") |> decoded()
+
+    assert VipsImage.format(output) == :VIPS_FORMAT_USHORT
+    assert Image.get_pixel!(output, 0, 0) == [257, 128 * 257, 200 * 257]
+  end
+
   test "bitonal keeps 16-bit colour and alpha on the same scale" do
     {:ok, black} = Operation.black(8, 8, bands: 4)
     {:ok, light} = Operation.linear(black, [1.0], [50_000.0, 50_000.0, 50_000.0, 40_000.0])

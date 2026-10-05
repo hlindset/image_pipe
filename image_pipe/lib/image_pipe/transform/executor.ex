@@ -507,7 +507,7 @@ defmodule ImagePipe.Transform.Executor do
         {:ok, asset}
 
       _other ->
-        case VipsOperation.colourspace(asset, interpretation) do
+        case WorkingColor.to_space(asset, interpretation) do
           {:ok, asset} -> {:ok, asset}
           {:error, reason} -> {:error, {:transform, {Watermark, reason}}}
         end
