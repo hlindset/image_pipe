@@ -35,19 +35,13 @@ defmodule ImagePipe.MaterialDigest do
   def of_canonical(canonical),
     do: :crypto.hash(:sha256, :erlang.term_to_binary(canonical, [:deterministic]))
 
-  defp canonicalize(value) when is_list(value) do
-    if Keyword.keyword?(value) do
-      value
-      |> Enum.map(fn {key, item} -> {canonicalize(key), canonicalize(item)} end)
-      |> Enum.sort_by(fn {key, _item} -> key end)
-    else
-      canonicalize_list(value)
-    end
-  end
+  defp canonicalize(value) when is_list(value), do: canonicalize_keyword(value, value, [])
 
   defp canonicalize(value) when is_map(value) do
     :maps.map(fn _key, item -> canonicalize(item) end, value)
   end
+
+  defp canonicalize({first, second}), do: {canonicalize(first), canonicalize(second)}
 
   defp canonicalize(value) when is_tuple(value) do
     value
@@ -57,6 +51,14 @@ defmodule ImagePipe.MaterialDigest do
   end
 
   defp canonicalize(value), do: value
+
+  # A keyword list is sorted by key, stably. Pairs are canonicalized while the
+  # list still reads as one; anything else canonicalizes it as a plain list.
+  defp canonicalize_keyword([{key, item} | rest], list, acc) when is_atom(key),
+    do: canonicalize_keyword(rest, list, [{key, canonicalize(item)} | acc])
+
+  defp canonicalize_keyword([], _list, acc), do: acc |> :lists.reverse() |> List.keysort(0)
+  defp canonicalize_keyword(_other, list, _acc), do: canonicalize_list(list)
 
   defp canonicalize_list([]), do: []
   defp canonicalize_list([head | tail]), do: [canonicalize(head) | canonicalize_list(tail)]
