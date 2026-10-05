@@ -293,6 +293,14 @@ defmodule ImagePipe.PresetLookupTest do
     assert IP.validate(failing, IP.URL.new() |> IP.URL.group(presets: ["card"])) ==
              {:error, {:preset, :lookup_unavailable}}
 
+    drain_fetches()
+    invalid = IP.URL.new() |> IP.URL.group(presets: ["card"], blur: -1)
+
+    assert {:error, {:invalid_request, [%{reason: :invalid_value}]}} =
+             IP.validate(failing, invalid)
+
+    refute_received {:preset_fetch, _names}
+
     assert get(failing, "/preset=card/src/photo.png").status == 503
     refute_received :source_fetch
   end
@@ -325,5 +333,13 @@ defmodule ImagePipe.PresetLookupTest do
 
     assert_received {:span, @prefix ++ [:preset, :lookup, :stop],
                      %{result: :error, reason: :lookup_unavailable}}
+  end
+
+  defp drain_fetches do
+    receive do
+      {:preset_fetch, _names} -> drain_fetches()
+    after
+      0 -> :ok
+    end
   end
 end

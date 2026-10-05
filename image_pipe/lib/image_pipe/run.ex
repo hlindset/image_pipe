@@ -104,11 +104,20 @@ defmodule ImagePipe.Run do
 
     names = Plan.preset_names(plan)
 
-    with {:ok, presets} <- Presets.for_request(names, config) do
+    # The builder's own errors need no lookup, so they return before one.
+    with {:ok, _warnings} <- built(plan),
+         {:ok, presets} <- Presets.for_request(names, config) do
       case Plan.to_spec(plan, presets, config[:request_defaults], watermarks) do
         {:ok, request} -> {:ok, request}
         {:error, issues} -> {:error, {:invalid_request, issues}}
       end
+    end
+  end
+
+  defp built(plan) do
+    case Plan.built(plan) do
+      {:ok, warnings} -> {:ok, warnings}
+      {:error, issues} -> {:error, {:invalid_request, issues}}
     end
   end
 
@@ -117,7 +126,8 @@ defmodule ImagePipe.Run do
 
     with {:ok, request} <- request(plan, config),
          {:ok, _policy} <- Processing.prepare(request, config, ""),
-         do: {:ok, request.ignored}
+         {:ok, warnings} <- Plan.built(plan),
+         do: {:ok, warnings ++ request.ignored}
   end
 
   defp render(context) do

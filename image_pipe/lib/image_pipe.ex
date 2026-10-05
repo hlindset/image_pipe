@@ -178,9 +178,9 @@ defmodule ImagePipe do
 
   Applies request defaults and presets, including the preset lookup, then
   checks the request and its output policy. Returns `{:ok, warnings}`, the
-  `ImagePipe.Plan.Spec.Issue` warnings for options `run/4` would ignore, or
-  the error `run/4` would return, without reading a source or accessing a
-  cache.
+  `ImagePipe.Plan.Spec.Issue` warnings for options `run/4` would ignore and
+  for mistakes the builder repaired, or the error `run/4` would return,
+  without reading a source or accessing a cache.
   """
   @spec validate(Config.t() | atom(), ImagePipe.URL.t()) ::
           {:ok, [ImagePipe.Plan.Spec.Issue.t()]} | {:error, term()}
@@ -250,8 +250,9 @@ defmodule ImagePipe do
 
   Returns `{:ok, %ImagePipe.Result{}}`, or `{:error, reason}`:
 
-    * `{:invalid_request, issues}` - the builder's options don't combine, or
-      it names an unknown preset or watermark. `issues` is a list of
+    * `{:invalid_request, issues}` - an option is unknown or has an invalid
+      value, the builder's options don't combine, or it names an unknown
+      preset or watermark. `issues` is a list of
       `ImagePipe.Plan.Spec.Issue`.
     * `:expired` - the plan's `expires` time has passed.
     * `{:invalid_output, reason}` - the output options can't be combined,

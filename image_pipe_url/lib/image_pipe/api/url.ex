@@ -107,7 +107,7 @@ defmodule ImagePipe.API.URL do
   def check(plan, config) do
     case config[:validate_against] do
       nil ->
-        {:ok, []}
+        Plan.built(plan)
 
       %{presets: presets, request_defaults: defaults, lookup?: lookup?} = known ->
         watermarks = watermarks(known.watermarks)

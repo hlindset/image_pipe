@@ -35,13 +35,18 @@ defmodule ImagePipe.Plan do
   alias ImagePipe.Plan.Spec
   alias ImagePipe.Plan.Spec.Issue
 
-  defstruct groups: [], options: %{}
+  # `issues` holds the builder's own findings: options it rejected, and
+  # mistakes it repaired.
+  defstruct groups: [], options: %{}, issues: []
 
-  @opaque t :: %__MODULE__{groups: [map()], options: map()}
+  @opaque t :: %__MODULE__{groups: [map()], options: map(), issues: [Issue.t()]}
 
   @doc false
   @spec new(keyword()) :: t()
-  def new(options), do: %__MODULE__{options: Options.request!(options)}
+  def new(options) do
+    {options, issues} = Options.request(options)
+    %__MODULE__{options: options, issues: issues}
+  end
 
   # The request controls `new/1` accepts, for generated documentation.
   @doc false
@@ -51,14 +56,58 @@ defmodule ImagePipe.Plan do
   @doc false
   @spec group(t(), keyword()) :: t()
   def group(%__MODULE__{} = plan, options) do
-    group = Options.group!(options)
-    %{plan | groups: plan.groups ++ [group]}
+    case Options.group(options, length(plan.groups)) do
+      {:empty, issues} ->
+        empty = %Issue{reason: :empty_group, locations: [], detail: nil, severity: :warning}
+        %{plan | issues: plan.issues ++ issues ++ [empty]}
+
+      {group, issues} ->
+        %{plan | groups: plan.groups ++ [group], issues: plan.issues ++ issues}
+    end
   end
 
   @doc false
   @spec output(t(), keyword()) :: t()
   def output(%__MODULE__{} = plan, options) do
-    %{plan | options: Map.merge(plan.options, Options.output!(options))}
+    {values, issues} = Options.output(options)
+    given = Keyword.keys(options)
+
+    # An option given again replaces its earlier value, rejected or not.
+    kept =
+      Enum.reject(plan.issues, fn issue ->
+        Enum.any?(issue.locations, fn location ->
+          match?({:request, _key}, location) and elem(location, 1) in given
+        end)
+      end)
+
+    %{
+      plan
+      | options: plan.options |> Map.drop(given) |> Map.merge(values),
+        issues: kept ++ issues
+    }
+  end
+
+  # The builder's own issues: `{:ok, warnings}`, or `{:error, issues}` with
+  # the errors first.
+  @doc false
+  @spec built(t()) :: {:ok, [Issue.t()]} | {:error, [Issue.t()]}
+  def built(%__MODULE__{issues: issues}), do: split(issues)
+
+  defp split(issues) do
+    case Enum.split_with(issues, &(&1.severity == :warning)) do
+      {warnings, []} -> {:ok, warnings}
+      {warnings, errors} -> {:error, errors ++ warnings}
+    end
+  end
+
+  # Adds the builder's warnings to a check's result.
+  defp with_built(%__MODULE__{} = plan, check) do
+    with {:ok, warnings} <- built(plan) do
+      case check.() do
+        {:ok, more} -> {:ok, warnings ++ more}
+        {:error, issues} -> split(issues ++ warnings)
+      end
+    end
   end
 
   # Rewrites each group in order, stopping at the first error.
@@ -83,14 +132,20 @@ defmodule ImagePipe.Plan do
   @spec validate(t(), map(), map() | nil, Spec.Validation.watermarks()) ::
           {:ok, [Issue.t()]} | {:error, [Issue.t()]}
   def validate(%__MODULE__{} = plan, presets \\ %{}, defaults \\ nil, watermarks \\ nil) do
-    with {:ok, request} <- to_spec(plan, presets, defaults, watermarks),
-         do: {:ok, request.ignored}
+    with_built(plan, fn ->
+      with {:ok, request} <- spec(plan, presets, defaults, watermarks),
+           do: {:ok, request.ignored}
+    end)
   end
 
   @doc false
   @spec to_spec(t(), map(), map() | nil, Spec.Validation.watermarks()) ::
           {:ok, Spec.t()} | {:error, [Issue.t()]}
   def to_spec(%__MODULE__{} = plan, presets \\ %{}, defaults \\ nil, watermarks \\ nil) do
+    with {:ok, _warnings} <- built(plan), do: spec(plan, presets, defaults, watermarks)
+  end
+
+  defp spec(plan, presets, defaults, watermarks) do
     indexed = plan |> groups() |> Enum.with_index() |> Map.new(fn {group, i} -> {i, group} end)
 
     with {:ok, expanded} <- Presets.expand(indexed, plan.options, presets, defaults),
@@ -116,7 +171,10 @@ defmodule ImagePipe.Plan do
   @doc false
   @spec validate_known(t(), map(), map() | nil, Spec.Validation.watermarks()) ::
           {:ok, [Issue.t()]} | {:error, [Issue.t()]}
-  def validate_known(%__MODULE__{} = plan, presets, defaults, watermarks) do
+  def validate_known(%__MODULE__{} = plan, presets, defaults, watermarks),
+    do: with_built(plan, fn -> known(plan, presets, defaults, watermarks) end)
+
+  defp known(plan, presets, defaults, watermarks) do
     indexed = plan |> groups() |> Enum.with_index() |> Map.new(fn {group, i} -> {i, group} end)
 
     unknown =
@@ -127,7 +185,8 @@ defmodule ImagePipe.Plan do
 
     case unknown do
       [] ->
-        validate(plan, presets, defaults, watermarks)
+        with {:ok, request} <- spec(plan, presets, defaults, watermarks),
+             do: {:ok, request.ignored}
 
       unknown ->
         validate_known_groups(indexed, plan.options, presets, defaults, watermarks, unknown)

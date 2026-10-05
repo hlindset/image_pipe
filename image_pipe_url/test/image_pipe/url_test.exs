@@ -144,6 +144,21 @@ defmodule ImagePipe.URLTest do
     assert_raise ArgumentError, fn -> IP.URL.url!(IP.URL.new(), {:binary, "private-source"}) end
   end
 
+  test "url!/3 names the issues without the source or option values" do
+    builder = IP.URL.new(filename: "private name") |> IP.URL.group(blur: -1)
+
+    message =
+      Exception.message(
+        assert_raise(ArgumentError, fn -> IP.URL.url!(builder, "private-source") end)
+      )
+
+    assert message =~ "invalid_value"
+    assert message =~ ":blur"
+    assert message =~ ":filename"
+    refute message =~ "private"
+    refute message =~ "-1"
+  end
+
   test "base URL and credentials are validated without reflecting secret values" do
     for base <- [
           nil,
@@ -339,7 +354,9 @@ defmodule ImagePipe.URLTest do
             [request_defaults: "w=10/-/blur=1"],
             [request_defaults: "preset=card", presets: %{"card" => "w=10"}],
             [presets: %{"card" => "preset=missing"}],
-            [presets: %{"card" => "w=nope"}]
+            [presets: %{"card" => "w=nope"}],
+            [presets: %{"card" => IP.URL.new() |> IP.URL.group(blur: -1)}],
+            [request_defaults: IP.URL.new() |> IP.URL.output(quality: 101)]
           ] do
         assert_raise ArgumentError, ~r/validate_against/, fn ->
           IP.URL.config(validate_against: options)
@@ -382,15 +399,10 @@ defmodule ImagePipe.URLTest do
     end
 
     test "empty encoder options and format qualities are rejected" do
-      for options <- [
-            [jpeg_options: []],
-            [format_qualities: []],
-            [jpeg_options: [:unset]],
-            [format_qualities: [:unset]],
-            [jpeg_options: [:unset, :unset, interlace: true]],
-            [format_qualities: [:unset, :unset, avif: 50]]
-          ] do
-        assert_raise ArgumentError, ~r/:unset/, fn -> IP.URL.new() |> IP.URL.output(options) end
+      for options <- [[jpeg_options: []], [format_qualities: []]] do
+        builder = IP.URL.new() |> IP.URL.output(options)
+        assert {:error, [%{reason: :invalid_value, detail: detail}]} = IP.URL.validate(builder)
+        assert detail =~ ":unset"
       end
     end
   end

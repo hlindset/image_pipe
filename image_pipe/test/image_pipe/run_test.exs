@@ -104,6 +104,19 @@ defmodule ImagePipe.RunTest do
              IP.run(IP.config(), plan, {:file, "/missing/photo.png"})
   end
 
+  test "rejects options the builder recorded as errors, and reports its warnings" do
+    invalid = IP.URL.new() |> IP.URL.group(blur: -1)
+
+    assert {:error, {:invalid_request, [%{reason: :invalid_value}]}} =
+             IP.run(IP.config(), invalid, {:file, "/missing/photo.png"})
+
+    assert {:error, {:invalid_request, [%{reason: :invalid_value}]}} =
+             IP.validate(IP.config(), invalid)
+
+    repaired = IP.URL.new() |> IP.URL.group(blur: 1, blur: 2)
+    assert {:ok, [%{reason: :repeated_option}]} = IP.validate(IP.config(), repaired)
+  end
+
   test "validates configuration separately from runtime failures", %{bytes: bytes} do
     assert_raise ArgumentError, fn ->
       IP.run(IP.config(), IP.URL.new(), {:binary, bytes}, unknown: true)

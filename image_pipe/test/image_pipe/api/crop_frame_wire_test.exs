@@ -29,9 +29,10 @@ defmodule ImagePipe.API.CropFrameWireTest do
 
       assert response.status == 400
 
-      assert_raise ArgumentError, fn ->
-        ImagePipe.URL.new() |> ImagePipe.URL.group(crop: {20, 20}, focus: {x, y})
-      end
+      builder = ImagePipe.URL.new() |> ImagePipe.URL.group(crop: {20, 20}, focus: {x, y})
+
+      assert {:error, [%{reason: :invalid_value, locations: [{:group, 0, :focus}]}]} =
+               ImagePipe.URL.validate(builder)
     end
   end
 

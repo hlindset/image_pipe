@@ -1,6 +1,6 @@
 defmodule ImagePipe.Plan.Spec.Issue do
   @moduledoc """
-  A problem with how a plan's options combine, returned by
+  A problem with a plan's options, returned by
   `ImagePipe.URL.validate/1` and `ImagePipe.URL.url/3`, and by
   `ImagePipe.validate/2` and `ImagePipe.run/4` in `image_pipe`.
 
@@ -12,7 +12,8 @@ defmodule ImagePipe.Plan.Spec.Issue do
       }
 
   `severity` is `:error` or `:warning`. An error fails the request. A warning
-  marks an option the request ignores because it has no effect. The checks
+  marks an option the request ignores because it has no effect, or a
+  builder mistake with one clear meaning, which the builder repairs. The checks
   return warnings alone as `{:ok, warnings}`, and list them after the errors
   in `{:error, issues}`. They report only options the plan sets itself, not
   ones that a preset or the request defaults supply.
@@ -24,6 +25,18 @@ defmodule ImagePipe.Plan.Spec.Issue do
 
   `reason` is one of:
 
+    * `:unknown_option` - the name isn't a builder option.
+    * `:invalid_value` - the builder rejects the option's value. `detail` is
+      the reason, such as
+      `"invalid value for :fit option: expected one of [:contain, :cover, :stretch, :auto], got: :fill"`.
+    * `:repeated_option` - a warning: the option was given twice in one
+      builder call, and the URL uses the last value.
+    * `:empty_group` - a warning: an `ImagePipe.URL.group/2` call has no
+      options and adds no group. `locations` is empty.
+    * `:redundant_unset` - a warning: in `format_qualities:` or an encoder
+      option such as `jpeg_options:`, `[:unset]` alone, which the builder
+      writes as `:unset`, or a repeated leading `:unset`, which it writes
+      once.
     * `:inert_option` - a warning: the option has no effect, such as `fit`
       without a width or height, or `jpeg_options` with `format: :webp`, so
       the request ignores it.
@@ -56,4 +69,16 @@ defmodule ImagePipe.Plan.Spec.Issue do
           detail: term(),
           severity: :error | :warning
         }
+
+  # Names each error's reason and locations, never its values: a value such
+  # as `watermark_source:` can be a private path.
+  @doc false
+  @spec summary([t()]) :: String.t()
+  def summary(issues) do
+    issues
+    |> Enum.filter(&(&1.severity == :error))
+    |> Enum.map_join("; ", fn issue ->
+      "#{issue.reason} at #{Enum.map_join(issue.locations, ", ", &inspect/1)}"
+    end)
+  end
 end
