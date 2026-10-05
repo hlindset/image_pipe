@@ -2102,13 +2102,16 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         imgproxy: "rs:fit:300:300/ex:1",
         tolerance: {8, 64}
       },
+      # imgproxy casts the premultiplied image back to uchar before blurring
+      # (vips.c), truncating low-alpha colours; ImagePipe blurs the float
+      # premultiplied image. maxΔ 5 premultiplied, spread over the alpha ramp.
       %{
         id: "gray_alpha_blur",
         kind: :png,
         source: "gray_alpha.png",
         native: "w=200/h=150/fit=contain/blur=3",
         imgproxy: "rs:fit:200:150/bl:3",
-        tolerance: {2, 64},
+        tolerance: {6, 64},
         structure_differs: %{
           bands:
             "ImagePipe keeps the gray result gray; imgproxy promotes it to sRGB with the same values",

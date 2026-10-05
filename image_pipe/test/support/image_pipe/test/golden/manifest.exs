@@ -623,7 +623,7 @@
       }
     },
     "contrast" => %{
-      fixture_sha256: "bfb07655927b5c1ea0923e64847764999ac14214b960b890146a4630d4bdd518",
+      fixture_sha256: "02f9845cec9c29b82325260c8aec33dd2e7fc2b28864a26335cc2399e8614265",
       structure: %{
         depth: 8,
         metadata: [],

@@ -21,6 +21,8 @@ defmodule ImagePipe.API.WatermarkWireTest do
       "mark.png" => png(Image.new!(10, 10, color: @red)),
       "alpha.png" => png(Image.new!(10, 10, color: @red ++ [128])),
       "gray_mark.png" => png(gray_mark()),
+      "mid_mark.png" => png(Image.new!(10, 10, color: [1, 128, 200])),
+      "tagged_gray.png" => png(tagged_gray()),
       "rotated.jpg" => rotated_jpeg(),
       "corrupt.png" => "not an image",
       "deep.png" => deep_png()
@@ -140,6 +142,19 @@ defmodule ImagePipe.API.WatermarkWireTest do
     assert pixel(marked, 0, 0) == List.duplicate(hd(pixel(gray, 0, 0)), 3)
   end
 
+  for policy <- ["", "/profile=preserve"] do
+    test "a color asset promotes a tagged grayscale frame to untagged sRGB (#{policy})", %{
+      config: config
+    } do
+      response = response("wm=logo" <> unquote(policy), config, "src/tagged_gray.png")
+      marked = Image.from_binary!(response.resp_body)
+
+      assert VipsImage.interpretation(marked) == :VIPS_INTERPRETATION_sRGB
+      assert VipsImage.header_value(marked, "icc-profile-data") |> elem(0) == :error
+      assert pixel(marked, 30, 20) == @red
+    end
+  end
+
   test "a grayscale asset keeps a grayscale frame gray", %{config: config} do
     marked = image("gray/wm=gray_logo", config)
     assert VipsImage.interpretation(marked) == :VIPS_INTERPRETATION_B_W
@@ -153,6 +168,13 @@ defmodule ImagePipe.API.WatermarkWireTest do
     assert VipsImage.format(marked) == :VIPS_FORMAT_USHORT
     assert pixel(marked, 30, 20) == [65_535, 0, 0]
     assert pixel(marked, 0, 0) == [0, 0, 65_535]
+  end
+
+  test "8-bit asset values scale to the full 16-bit range", %{config: config} do
+    marked =
+      Image.from_binary!(response("hdr=preserve/wm=mid_logo", config, "src/deep.png").resp_body)
+
+    assert pixel(marked, 30, 20) == [257, 128 * 257, 200 * 257]
   end
 
   test "EXIF orientation applies to the asset", %{config: config} do
@@ -350,6 +372,14 @@ defmodule ImagePipe.API.WatermarkWireTest do
     mark
   end
 
+  defp tagged_gray do
+    {:ok, gray} =
+      VipsOperation.colourspace(Image.new!(60, 40, color: @blue), :VIPS_INTERPRETATION_B_W)
+
+    {:ok, tagged} = VipsOperation.icc_transform(gray, "sGrey", input_profile: "sGrey")
+    tagged
+  end
+
   defp pixel(image, {x, y}), do: pixel(image, x, y)
   defp pixel(image, x, y), do: image |> Image.get_pixel!(x, y) |> Enum.map(&round/1)
   defp dimensions(image), do: {Image.width(image), Image.height(image)}
@@ -381,6 +411,7 @@ defmodule ImagePipe.API.WatermarkWireTest do
           logo: [source: "mark.png"],
           ghost: [source: "alpha.png", opacity: 0.5],
           gray_logo: [source: "gray_mark.png"],
+          mid_logo: [source: "mid_mark.png"],
           turned: [source: "rotated.jpg"],
           corrupt: [source: "corrupt.png"]
         },

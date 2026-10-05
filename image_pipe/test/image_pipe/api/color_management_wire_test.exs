@@ -197,6 +197,40 @@ defmodule ImagePipe.API.ColorManagementWireTest do
     assert pixels(alpha(mapped)) == pixels(alpha(expected))
   end
 
+  for effect <- ["gray", "bitonal"], profile <- ["", "profile=preserve/"] do
+    test "#{effect} leaves a tagged source as untagged sRGB for later colours (#{profile})" do
+      output =
+        response(
+          "#{unquote(effect)}/colorize=1,3366cc/#{unquote(profile)}format=png",
+          "icc_p3.png"
+        )
+        |> decoded()
+
+      assert header(output, "icc-profile-data") == nil
+      assert Image.get_pixel!(output, 4, 4) == [51, 102, 204]
+    end
+  end
+
+  test "request colours scale to the full 16-bit range" do
+    output = response("pad=2/bg=0180c8/format=png/hdr=preserve", "rgb16.png") |> decoded()
+
+    assert VipsImage.format(output) == :VIPS_FORMAT_USHORT
+    assert Image.get_pixel!(output, 0, 0) == [257, 128 * 257, 200 * 257]
+  end
+
+  test "bitonal keeps 16-bit colour and alpha on the same scale" do
+    {:ok, black} = Operation.black(8, 8, bands: 4)
+    {:ok, light} = Operation.linear(black, [1.0], [50_000.0, 50_000.0, 50_000.0, 40_000.0])
+    {:ok, light} = Operation.cast(light, :VIPS_FORMAT_USHORT)
+    {:ok, input} = Operation.copy(light, interpretation: :VIPS_INTERPRETATION_RGB16)
+    opts = body_source(Image.write!(input, :memory, suffix: ".png"), "image/png")
+
+    output = response("bitonal/format=png/hdr=preserve", "alpha.png", opts) |> decoded()
+
+    assert VipsImage.format(output) == :VIPS_FORMAT_USHORT
+    assert Image.get_pixel!(output, 4, 4) == [65_535, 40_000]
+  end
+
   test "URL profile and HDR policies override host defaults and canonicalize their identity" do
     opts = [strip_color_profile: false, preserve_hdr: true]
     configured = response("format=png", "rgb16.png", opts)

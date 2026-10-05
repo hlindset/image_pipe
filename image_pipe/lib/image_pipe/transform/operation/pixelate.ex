@@ -7,6 +7,7 @@ defmodule ImagePipe.Transform.Operation.Pixelate do
   import ImagePipe.Transform.Geometry
   import ImagePipe.Transform.State
 
+  alias ImagePipe.Transform.Operation.AlphaPremultiply
   alias ImagePipe.Transform.State
   alias Vix.Vips.Operation
 
@@ -35,14 +36,16 @@ defmodule ImagePipe.Transform.Operation.Pixelate do
     target_height = ceil(height / size) * size
 
     with {:ok, image} <- mirror_embed(image, width, height, target_width, target_height),
-         {:ok, image} <- box_pixelate(image, size) do
+         {:ok, image} <-
+           AlphaPremultiply.with_alpha_premultiplied(image, &box_pixelate(&1, size)) do
       crop_to_original_dimensions(image, width, height, target_width, target_height)
     end
   end
 
   # Mirror padding makes each axis divisible by size. Shrink with a box mean,
   # then enlarge with nearest-neighbor zoom. The mean stays within each band's
-  # input range, avoiding the edge halos of Lanczos resampling.
+  # input range, avoiding the edge halos of Lanczos resampling. It runs on
+  # premultiplied alpha so transparent pixels add no colour to a block.
   defp box_pixelate(image, size) do
     with {:ok, shrunk} <- Operation.shrink(image, size * 1.0, size * 1.0) do
       Operation.zoom(shrunk, size, size)

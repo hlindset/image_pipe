@@ -12,6 +12,7 @@ defmodule ImagePipe.Transform.WorkingColor do
   # with the sRGB transfer curve (128). It also ignores embedded profiles.
   @moduledoc false
 
+  alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.MutableImage
   alias Vix.Vips.Operation
@@ -27,10 +28,30 @@ defmodule ImagePipe.Transform.WorkingColor do
   def values(image, [_red, _green, _blue] = rgb) do
     with {:ok, pixel} <- Image.new(1, 1, color: rgb),
          {:ok, pixel} <- into_profile(pixel, profile(image), image),
-         {:ok, pixel} <- Operation.colourspace(pixel, VipsImage.interpretation(image)) do
+         {:ok, pixel} <- to_space(pixel, VipsImage.interpretation(image)) do
       Operation.getpoint(pixel, 0, 0)
     end
   end
+
+  @doc """
+  Converts `image` to `interpretation`. libvips widens 8-bit sRGB to RGB16 by
+  256 (with 255 special-cased), so that step scales by 257 instead, matching
+  its gray conversion.
+  """
+  @spec to_space(VipsImage.t(), atom()) :: {:ok, VipsImage.t()} | {:error, term()}
+  def to_space(image, :VIPS_INTERPRETATION_RGB16) do
+    if VipsImage.format(image) == :VIPS_FORMAT_UCHAR do
+      with {:ok, srgb} <- Operation.colourspace(image, :VIPS_INTERPRETATION_sRGB),
+           {:ok, scaled} <- Operation.linear(srgb, [257.0], [0.0]),
+           {:ok, wide} <- Operation.cast(scaled, :VIPS_FORMAT_USHORT) do
+        Operation.copy(wide, interpretation: :VIPS_INTERPRETATION_RGB16)
+      end
+    else
+      Operation.colourspace(image, :VIPS_INTERPRETATION_RGB16)
+    end
+  end
+
+  def to_space(image, interpretation), do: Operation.colourspace(image, interpretation)
 
   @doc """
   Converts a tagged image to sRGB (or 16-bit RGB) through its embedded profile
@@ -46,6 +67,24 @@ defmodule ImagePipe.Transform.WorkingColor do
         with {:ok, srgb} <-
                Operation.icc_transform(image, "sRGB", embedded: true, depth: depth(image)) do
           Image.remove_metadata(srgb, ["icc-profile-data"])
+        end
+    end
+  end
+
+  @doc """
+  Converts a tagged frame to sRGB like `to_srgb/1` and clears the state's
+  source-profile backup, since the frame no longer holds values in the source's
+  space. Untagged frames are returned unchanged.
+  """
+  @spec to_srgb_frame(State.t()) :: {:ok, State.t()} | {:error, term()}
+  def to_srgb_frame(%State{image: image} = state) do
+    case profile(image) do
+      nil ->
+        {:ok, state}
+
+      _profile ->
+        with {:ok, srgb} <- to_srgb(image) do
+          {:ok, %State{State.set_image(state, srgb) | source_color_profile: nil}}
         end
     end
   end

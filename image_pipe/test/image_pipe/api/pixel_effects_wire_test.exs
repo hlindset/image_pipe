@@ -196,6 +196,49 @@ defmodule ImagePipe.API.PixelEffectsWireTest do
     assert blue > 240 and alpha > 0 and alpha < 255
   end
 
+  test "contrast spreads tones around the midtone and keeps it in place" do
+    source =
+      Image.new!(3, 1, color: [64, 64, 64])
+      |> Image.Draw.rect!(1, 0, 1, 1, color: [128, 128, 128])
+      |> Image.Draw.rect!(2, 0, 1, 1, color: [192, 192, 192])
+
+    config = mount(png_origin(Image.write!(source, :memory, suffix: ".png")))
+    output = image("contrast=1.5", config)
+
+    assert Enum.map(0..2, &Image.get_pixel!(output, &1, 0)) == [
+             [32, 32, 32],
+             [128, 128, 128],
+             [224, 224, 224]
+           ]
+  end
+
+  test "pixelate averages premultiplied alpha without transparent colour bleed" do
+    source =
+      Image.new!(8, 8, color: [255, 0, 0, 0], bands: 4)
+      |> Image.Draw.rect!(2, 0, 6, 8, color: [0, 0, 255, 255])
+
+    config = mount(png_origin(Image.write!(source, :memory, suffix: ".png")))
+    [red, green, blue, alpha] = image("pixelate=4", config) |> Image.get_pixel!(0, 0)
+
+    assert {red, green, blue} == {0, 0, 255}
+    assert_in_delta alpha, 128, 1
+  end
+
+  for effect <- ["blur=0.5", "blur=5", "sharpen=0.5", "progressive-blur=5,down,0,1"],
+      alpha <- [5, 20, 100] do
+    test "#{effect} keeps the colour of a uniform image at alpha #{alpha}" do
+      source = Image.new!(40, 40, color: [200, 120, 37, unquote(alpha)], bands: 4)
+      config = mount(png_origin(Image.write!(source, :memory, suffix: ".png")))
+
+      [red, green, blue, alpha] = image(unquote(effect), config) |> Image.get_pixel!(20, 20)
+
+      assert alpha == unquote(alpha)
+      assert_in_delta red, 200, 1
+      assert_in_delta green, 120, 1
+      assert_in_delta blue, 37, 1
+    end
+  end
+
   test "progressive blur leaves semitransparent pixels before start unchanged" do
     body =
       Image.new!(9, 9, color: [200, 100, 50, 128], bands: 4)

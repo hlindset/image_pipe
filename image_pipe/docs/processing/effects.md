@@ -285,8 +285,10 @@ ImagePipe.URL.group(builder, brightness: -20)
 Accepts a number greater than 0, a contrast factor with no upper limit.
 Default: none. `contrast=1` has no effect.
 
-Values above 1 increase contrast, and values below 1 reduce it. `contrast=0`
-fails with `400`.
+Multiplies every color channel's distance from 128 on a 0 to 255 scale, so
+mid-gray keeps its value. With `contrast=2`, 64 becomes 0 and 192 clips to 255.
+A 16-bit image scales around the same point in its range. Values above 1
+increase contrast, and values below 1 reduce it. `contrast=0` fails with `400`.
 
 <!-- tabs-open -->
 
