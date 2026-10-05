@@ -138,7 +138,7 @@ defmodule ImagePipe.URLTest do
     end
 
     known = IP.URL.config(validate_against: [])
-    invalid = IP.URL.new(known) |> IP.URL.group(extend: true)
+    invalid = IP.URL.new(known) |> IP.URL.group(crop: {20, 20}, region: {0, 0, 20, 20})
     assert {:error, {:invalid_request, [_issue]}} = IP.URL.url(invalid, "photo.jpg")
     assert_raise ArgumentError, fn -> IP.URL.url!(invalid, "private-source") end
     assert_raise ArgumentError, fn -> IP.URL.url!(IP.URL.new(), {:binary, "private-source"}) end
@@ -226,7 +226,7 @@ defmodule ImagePipe.URLTest do
   describe "validate_against" do
     test "without it the builder checks values only" do
       plan = IP.URL.new() |> IP.URL.group(resize: [fit: :cover])
-      assert IP.URL.validate(plan) == :ok
+      assert IP.URL.validate(plan) == {:ok, []}
       assert {:ok, "/fit=cover/src/photo.jpg"} = IP.URL.url(plan, "photo.jpg")
     end
 
@@ -236,13 +236,15 @@ defmodule ImagePipe.URLTest do
           validate_against: [presets: %{"cover" => "fit=cover"}, request_defaults: "w=400"]
         )
 
-      assert :ok = IP.URL.validate(IP.URL.new(config) |> IP.URL.group(resize: [fit: :cover]))
-      assert :ok = IP.URL.validate(IP.URL.new(config) |> IP.URL.group(presets: ["cover"]))
+      assert {:ok, []} =
+               IP.URL.validate(IP.URL.new(config) |> IP.URL.group(resize: [fit: :cover]))
+
+      assert {:ok, []} = IP.URL.validate(IP.URL.new(config) |> IP.URL.group(presets: ["cover"]))
 
       bare = IP.URL.config(validate_against: [presets: %{"cover" => "fit=cover"}])
 
-      assert {:error, [_ | _]} =
-               IP.URL.validate(IP.URL.new(bare) |> IP.URL.group(presets: ["cover"]))
+      assert {:ok, [_ | _]} =
+               IP.URL.validate(IP.URL.new(bare) |> IP.URL.group(resize: [fit: :cover]))
     end
 
     test "a name the known presets lack is unknown unless the server has a lookup" do
@@ -257,7 +259,7 @@ defmodule ImagePipe.URLTest do
       assert {:error, {:invalid_request, _issues}} =
                IP.URL.url(IP.URL.new(static) |> IP.URL.group(presets: ["remote"]), "photo.jpg")
 
-      assert :ok = IP.URL.validate(IP.URL.new(lookup) |> IP.URL.group(presets: ["remote"]))
+      assert {:ok, []} = IP.URL.validate(IP.URL.new(lookup) |> IP.URL.group(presets: ["remote"]))
 
       assert {:ok, _url} =
                IP.URL.url(IP.URL.new(lookup) |> IP.URL.group(presets: ["remote"]), "photo.jpg")
@@ -272,21 +274,20 @@ defmodule ImagePipe.URLTest do
         |> IP.URL.group(presets: ["remote"])
         |> IP.URL.group(resize: [fit: :cover])
 
-      assert {:error, [%{reason: :inert_option, locations: [{:group, 1, :fit}]}]} =
+      assert {:ok, [%{reason: :inert_option, locations: [{:group, 1, :fit}]}]} =
                IP.URL.validate(bad)
 
-      assert {:error, {:invalid_request, [%{reason: :inert_option}]}} =
-               IP.URL.url(bad, "photo.jpg")
+      assert {:ok, _url} = IP.URL.url(bad, "photo.jpg")
 
       # With every named preset known, request-wide options are checked too.
-      assert {:error, [%{locations: [{:request, :jpeg_options}]}]} =
+      assert {:ok, [%{locations: [{:request, :jpeg_options}]}]} =
                IP.URL.new(lookup)
                |> IP.URL.group(presets: ["card"])
                |> IP.URL.output(format: :webp, jpeg_options: [interlace: true])
                |> IP.URL.validate()
 
       # The unknown preset may supply the width that `fit` needs.
-      assert :ok =
+      assert {:ok, []} =
                IP.URL.validate(
                  IP.URL.new(lookup)
                  |> IP.URL.group(presets: ["remote"], resize: [fit: :cover])
@@ -297,7 +298,7 @@ defmodule ImagePipe.URLTest do
       named = IP.URL.config(validate_against: [watermarks: [:logo]])
       unnamed = IP.URL.config(validate_against: [])
 
-      assert :ok = IP.URL.new(named) |> IP.URL.group(watermark: :logo) |> IP.URL.validate()
+      assert {:ok, []} = IP.URL.new(named) |> IP.URL.group(watermark: :logo) |> IP.URL.validate()
 
       other = &(IP.URL.new(&1) |> IP.URL.group(watermark: :other))
 
@@ -307,9 +308,9 @@ defmodule ImagePipe.URLTest do
       assert {:error, {:invalid_request, [%{reason: :unknown_watermark}]}} =
                IP.URL.url(other.(named), "photo.jpg")
 
-      assert :ok = IP.URL.validate(other.(unnamed))
+      assert {:ok, []} = IP.URL.validate(other.(unnamed))
 
-      assert :ok =
+      assert {:ok, []} =
                IP.URL.new(named)
                |> IP.URL.group(watermark_source: "brand/mark.png")
                |> IP.URL.validate()
@@ -350,7 +351,7 @@ defmodule ImagePipe.URLTest do
         |> IP.URL.group(presets: ["brand"], resize: [width: :unset], watermark: :unset)
         |> IP.URL.output(jpeg_options: :unset, format: :unset)
 
-      assert :ok = IP.URL.validate(builder)
+      assert {:ok, []} = IP.URL.validate(builder)
 
       assert IP.URL.url(builder, "photo.jpg") ==
                {:ok,

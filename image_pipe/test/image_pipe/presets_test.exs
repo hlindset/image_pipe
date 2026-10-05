@@ -38,7 +38,7 @@ defmodule ImagePipe.PresetsTest do
           IP.URL.new(url_config),
           IP.URL.new(url_config) |> IP.URL.group(presets: ["poster"], gray: false)
         ] do
-      assert :ok = IP.URL.validate(builder)
+      assert {:ok, []} = IP.URL.validate(builder)
       url = IP.URL.url!(builder, "photo.jpg")
       refute_received :source_fetch
       assert {:ok, result} = IP.run(config, builder, {:binary, body})
@@ -108,7 +108,7 @@ defmodule ImagePipe.PresetsTest do
     url_config =
       IP.url_config(IP.config(presets: %{"pipeline" => "w=30/-/gray", "box" => "w=30/h=20"}))
 
-    assert :ok =
+    assert {:ok, []} =
              IP.URL.validate(
                IP.URL.new(url_config)
                |> IP.URL.group(presets: ["pipeline"])
@@ -116,7 +116,7 @@ defmodule ImagePipe.PresetsTest do
              )
 
     builder = IP.URL.new(url_config) |> IP.URL.group(presets: ["box"], resize: [fit: :cover])
-    assert :ok = IP.URL.validate(builder)
+    assert {:ok, []} = IP.URL.validate(builder)
     assert IP.URL.url!(builder, "photo.jpg") =~ "fit=cover"
   end
 
@@ -133,7 +133,7 @@ defmodule ImagePipe.PresetsTest do
     builder =
       IP.URL.new(url_config) |> IP.URL.output(jpeg_options: :unset, format_qualities: :unset)
 
-    assert :ok = IP.URL.validate(builder)
+    assert {:ok, []} = IP.URL.validate(builder)
 
     assert IP.URL.url(builder, "photo.jpg") ==
              {:ok, "/format-q=unset/jpeg-options=unset/src/photo.jpg"}

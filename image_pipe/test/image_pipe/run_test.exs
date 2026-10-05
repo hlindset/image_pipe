@@ -98,7 +98,7 @@ defmodule ImagePipe.RunTest do
   end
 
   test "rejects invalid plans before reading a file" do
-    plan = IP.URL.new() |> IP.URL.group(extend: true)
+    plan = IP.URL.new() |> IP.URL.group(crop: {20, 20}, region: {0, 0, 20, 20})
 
     assert {:error, {:invalid_request, [_issue]}} =
              IP.run(IP.config(), plan, {:file, "/missing/photo.png"})
@@ -190,7 +190,12 @@ defmodule ImagePipe.RunTest do
     options = owned_source(bytes)
 
     assert {:error, {:invalid_request, _}} =
-             IP.run(IP.config(), IP.URL.group(IP.URL.new(), extend: true), input, options)
+             IP.run(
+               IP.config(),
+               IP.URL.group(IP.URL.new(), crop: {20, 20}, region: {0, 0, 20, 20}),
+               input,
+               options
+             )
 
     invalid_output =
       IP.URL.new() |> IP.URL.output(hdr: :preserve, color_profile: {:convert, :srgb})
@@ -235,7 +240,8 @@ defmodule ImagePipe.RunTest do
     on_exit(fn -> :telemetry.detach(id) end)
 
     cases = [
-      {IP.URL.group(IP.URL.new(), extend: true), {:binary, bytes}, [], %{result: :parser_error}},
+      {IP.URL.group(IP.URL.new(), crop: {20, 20}, region: {0, 0, 20, 20}), {:binary, bytes}, [],
+       %{result: :parser_error}},
       {IP.URL.new(expires: 999), {:binary, bytes}, [clock: fn -> 1000 end],
        %{result: :parser_error}},
       {IP.URL.output(IP.URL.new(), hdr: :preserve, color_profile: {:convert, :srgb}),

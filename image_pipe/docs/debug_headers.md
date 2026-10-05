@@ -102,6 +102,12 @@ searched for a quality.
 | `X-ImagePipe-Cache-Key` | `a1b2c3…` | The response's cache key, 64 hexadecimal characters. Absent on a generated image that won't be stored, such as when no cache is configured |
 | `X-ImagePipe-Pipeline` | `resize,crop,sharpen` | The operations applied, in order |
 
+### Ignored options
+
+| Header | Example | Meaning |
+|---|---|---|
+| `X-ImagePipe-Ignored-Options` | `fit,enlarge` | Options the URL wrote that have no effect, so the request [ignored them](requesting-images.md#ignored-options). Absent when there are none |
+
 ### Info and placeholder responses
 
 `output=info`, `output=blurhash`, and `output=lqip-css` responses have the

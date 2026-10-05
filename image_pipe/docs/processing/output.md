@@ -157,10 +157,13 @@ The request fails with `400` when:
 
 - It also sets `q`.
 - The target is not a number above `0` and up to `100`.
-- It sets `format=png`, or `format=webp` while WebP is lossless (through
-  `webp-options` or the server's defaults). PNG and lossless WebP have no
-  quality to search. Without `format`, the search applies only when the
-  chosen format has a quality setting.
+- It sets `format=webp` while WebP is lossless (through `webp-options` or
+  the server's defaults). Lossless WebP has no quality to search.
+
+With `format=png`, `autoquality` is
+[ignored](../requesting-images.md#ignored-options), since PNG has no quality
+to search. Without `format`, the search applies only when the chosen format
+has a quality setting.
 
 <!-- tabs-open -->
 
@@ -190,8 +193,9 @@ quality tried is `10` (lower if `q` is lower). With `autoquality` it is the
 lowest quality the search tries, 25 or 20 for AVIF. If the image is still too
 large at that quality, the response is larger than the budget.
 
-`max-bytes` fails with `400` under the same format rules as `autoquality`:
-with `format=png`, or with `format=webp` while WebP is lossless.
+`max-bytes` follows the same format rules as `autoquality`. With
+`format=webp` while WebP is lossless, it fails with `400`. With `format=png`,
+it is ignored.
 
 <!-- tabs-open -->
 
@@ -222,7 +226,7 @@ preset or the server's configuration. A field set in both takes your value.
 Write `unset` first, as in `jpeg-options=unset,progressive`, to drop the
 fields that presets and the request defaults set.
 
-With an explicit `format`, options for any other encoder fail with `400`.
+With an explicit `format`, options for any other encoder are ignored.
 Without `format`, each encoder's options apply only when the response uses
 that format, so one URL can carry options for several encoders.
 

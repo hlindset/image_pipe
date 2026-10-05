@@ -215,16 +215,7 @@ defmodule ImagePipe.API.OffsetCanvasWireTest do
     huge = "1" <> String.duplicate("0", 200)
 
     for options <- [
-          "crop=10,10/anchor-offset=1,2",
-          "crop=10,10/anchor=smart/anchor-offset=1,2",
-          "w=20/extend",
-          "w=20/h=auto/extend",
-          "w=20/extend-ratio",
           "w=20/h=20/extend/extend-ratio",
-          "w=20/h=20/extend-at=top",
-          "w=20/h=20/extend-offset=1,2",
-          "w=20/h=20/extend=false/extend-at=top",
-          "w=20/h=20/extend-ratio=false/extend-offset=1,2",
           "crop=10,10/anchor=top-left/anchor-offset=#{huge},0/dpr=#{huge}",
           "w=20/h=20/extend/extend-offset=0,#{huge}/dpr=#{huge}"
         ] do

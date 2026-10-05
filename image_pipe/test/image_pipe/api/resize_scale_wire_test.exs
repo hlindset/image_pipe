@@ -92,7 +92,7 @@ defmodule ImagePipe.API.ResizeScaleWireTest do
         ]
       )
 
-    for options <- ["dpr=0", "dpr=-1", "zoom=0", "zoom=2", "min-w=0", "min-h=auto"] do
+    for options <- ["dpr=0", "dpr=-1", "zoom=0", "min-w=0", "min-h=auto"] do
       response = conn(:get, "/#{options}/src/image.png") |> ImagePipe.Plug.call(config)
       assert response.status == 400
     end

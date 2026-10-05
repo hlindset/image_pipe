@@ -674,6 +674,18 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert span.attributes[:imported?] == true
   end
 
+  test "folds the ignored-options one-shot onto the request span with the option keys" do
+    Telemetry.span([], [:request], %{}, fn ->
+      Telemetry.ignored_options([], ["fit"], [%{locations: [{:group, 0, :fit}]}])
+      {:ok, %{result: :ok}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.request"} = span}
+    event = Enum.find(span.events, &(&1.name == "image_pipe.request.ignored_options"))
+    assert event.attributes[:options] == ["fit"]
+    refute Map.has_key?(event.attributes, :locations)
+  end
+
   test "folds the clamp one-shot onto the enclosing span with its dimension/limit attributes" do
     Telemetry.span([], [:encode], %{}, fn ->
       Telemetry.execute(

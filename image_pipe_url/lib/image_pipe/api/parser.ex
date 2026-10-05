@@ -47,21 +47,28 @@ defmodule ImagePipe.API.Parser do
     {clean_group_maps, clean_request_map, preset_errors, occurrences_for_cross} =
       expand_presets(parsed.groups, parsed.request, occurrences, config, whole_path_span)
 
-    cross_errors =
-      collect_cross_option_errors(
-        clean_group_maps,
-        clean_request_map,
-        occurrences_for_cross,
-        config
-      )
+    settled = settle(clean_group_maps, clean_request_map, occurrences_for_cross, config)
 
-    errors = parse_errors ++ preset_errors ++ cross_errors
+    case {parse_errors ++ preset_errors, settled} do
+      {[], {:ok, groups, options, warnings}} ->
+        {:ok, %{Spec.build(groups, options) | ignored: warnings}}
 
-    if errors == [] do
-      {:ok, build_request(clean_group_maps, clean_request_map)}
-    else
-      {:error, {:invalid_request, errors}}
+      {errors, {:ok, _groups, _options, warnings}} ->
+        {:error, {:invalid_request, errors ++ diagnostics(warnings, occurrences_for_cross)}}
+
+      {errors, {:error, issues}} ->
+        {:error, {:invalid_request, errors ++ diagnostics(issues, occurrences_for_cross)}}
     end
+  end
+
+  # The URL keys of the inert options a request wrote and parsing dropped.
+  @doc false
+  @spec ignored_keys(Spec.t()) :: [String.t()]
+  def ignored_keys(%Spec{ignored: ignored}) do
+    for %{locations: locations} <- ignored,
+        location <- locations,
+        uniq: true,
+        do: location_key(location)
   end
 
   # The preset names a lexed request selects, for request-time lookup before
@@ -427,7 +434,7 @@ defmodule ImagePipe.API.Parser do
     end
   end
 
-  defp collect_cross_option_errors(group_maps, request_map, occurrences, config) do
+  defp settle(group_maps, request_map, occurrences, config) do
     invalid =
       for %{group_index: index, key: key, result: {:error, _}} <- occurrences,
           {:ok, name} <- [Map.fetch(@intent_keys, key)],
@@ -436,9 +443,28 @@ defmodule ImagePipe.API.Parser do
 
     group_maps
     |> typed_groups()
-    |> Spec.errors(typed_options(request_map), invalid, watermark_context(config))
-    |> Enum.map(&semantic_diagnostic(&1, occurrences))
+    |> Spec.settle(
+      typed_options(request_map),
+      invalid,
+      watermark_context(config),
+      &written?(&1, occurrences)
+    )
   end
+
+  # Whether the URL itself wrote the option, rather than a preset or the
+  # request defaults, whose occurrences carry no option spec.
+  defp written?({:group, index, name}, occurrences) do
+    key = Map.fetch!(@url_keys, name)
+    Enum.any?(occurrences, &match?(%{group_index: ^index, key: ^key, spec: %OptionSpec{}}, &1))
+  end
+
+  defp written?({:request, name}, occurrences) do
+    key = Map.fetch!(@url_keys, name)
+    Enum.any?(occurrences, &match?(%{key: ^key, spec: %OptionSpec{}}, &1))
+  end
+
+  defp diagnostics(issues, occurrences),
+    do: Enum.map(issues, &semantic_diagnostic(&1, occurrences))
 
   defp semantic_diagnostic(issue, occurrences) do
     spans = Enum.map(issue.locations, &semantic_span(&1, occurrences))
@@ -489,9 +515,6 @@ defmodule ImagePipe.API.Parser do
   defp requirement_message(:watermark_tile), do: "wm-tile"
   defp requirement_message(:quality_format), do: "a quality-bearing output format"
   defp requirement_message({:format, format}), do: "format=#{format}"
-
-  defp build_request(group_maps, request_map),
-    do: Spec.build(typed_groups(group_maps), typed_options(request_map))
 
   defp typed_groups(group_maps) do
     group_maps

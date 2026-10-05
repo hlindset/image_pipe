@@ -329,6 +329,22 @@ and any other format becomes PNG if the image has transparency, JPEG if not. Wit
 `format=webp` (or `avif`, `jpeg`, `png`) you always get that format. See
 [formats](processing/output.md#formats) for the details.
 
+## Ignored options
+
+An option that has no effect where it is written is ignored, and the request
+is served as if the URL left it out. `/fit=cover/src/photos/beach.jpg` has no
+width or height for `fit` to use, so it serves the same image as
+`/src/photos/beach.jpg` and shares its cached copy. Each option's reference
+says what it needs.
+
+With the [`debug`](processing/request.md#debug) option, on a server that
+allows debug headers, the response lists the ignored options in
+`X-ImagePipe-Ignored-Options`. Options that a preset or the server's defaults
+supply are ignored without being listed.
+
+Options that contradict each other, such as `crop` and `region` in one group,
+still fail with `400`.
+
 ## Request errors
 
 A request that fails answers with a status and a short plain-text body. For a

@@ -2,6 +2,7 @@ defmodule ImagePipe.Plug.Runner do
   @moduledoc false
   require Logger
 
+  alias ImagePipe.API.Parser
   alias ImagePipe.Error
   alias ImagePipe.Execution
   alias ImagePipe.Execution.Inputs
@@ -98,6 +99,7 @@ defmodule ImagePipe.Plug.Runner do
   end
 
   defp handle_request(conn, request, source, config) do
+    conn = report_ignored_options(conn, request, config)
     accept = conn |> Plug.Conn.get_req_header("accept") |> Enum.join(",")
     conn = Plug.Conn.fetch_cookies(conn)
     inputs = %Inputs{headers: conn.req_headers, cookies: conn.req_cookies}
@@ -270,6 +272,18 @@ defmodule ImagePipe.Plug.Runner do
   end
 
   defp with_policy_headers(conn, nil), do: conn
+
+  defp report_ignored_options(conn, %Spec{ignored: []}, _config), do: conn
+
+  defp report_ignored_options(conn, %Spec{} = request, config) do
+    keys = Parser.ignored_keys(request)
+    Telemetry.ignored_options(Telemetry.telemetry_opts(config), keys, request.ignored)
+
+    case delivery_config(request, config)[:debug?] do
+      true -> Plug.Conn.put_resp_header(conn, "x-imagepipe-ignored-options", Enum.join(keys, ","))
+      false -> conn
+    end
+  end
 
   defp delivery_config(%Spec{} = request, config) do
     Keyword.put(

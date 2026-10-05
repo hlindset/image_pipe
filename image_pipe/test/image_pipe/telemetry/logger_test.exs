@@ -474,6 +474,22 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "encode search chosen: q64 12345b (objective score 90.42)"
   end
 
+  test "renders the ignored options of a request at the base level" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :request, :ignored_options],
+          %{},
+          %{options: ["fit", "enlarge"], locations: [{:group, 0, :fit}, {:group, 0, :enlarge}]}
+        )
+      end)
+
+    assert log =~ "[info]"
+    assert log =~ "request ignored options: fit, enlarge"
+  end
+
   test "escalates an encode-search probe exception to warning" do
     Telemetry.attach_default_logger(level: :info)
 

@@ -49,6 +49,8 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     # naming the winning quality/phase that produced the shipped bytes. All keys
     # (quality, bytes, phase, index, score, scorer, tiles_scored) are in @safe_keys.
     [:encode, :search, :probe, :chosen],
+    # Inert options the URL wrote and parsing dropped: their URL keys (:options).
+    [:request, :ignored_options],
     [:cache, :stage],
     [:cache, :eviction, :stop],
     [:cache, :flush, :stop],
@@ -91,6 +93,8 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     :sig_key_index,
     # preset lookup: host-chosen preset names and counts
     :names,
+    # URL keys of the inert options a request wrote, never their values
+    :options,
     :fetched,
     :batches,
     :cache,

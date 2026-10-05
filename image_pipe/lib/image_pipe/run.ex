@@ -1,6 +1,7 @@
 defmodule ImagePipe.Run do
   @moduledoc false
 
+  alias ImagePipe.API.Parser
   alias ImagePipe.Config
   alias ImagePipe.Error
   alias ImagePipe.Execution
@@ -72,6 +73,7 @@ defmodule ImagePipe.Run do
 
   defp execute(plan, input, config, accept, inputs) do
     with {:ok, request} <- request(plan, config),
+         :ok <- report_ignored_options(request, config),
          {:ok, policy} <- Processing.prepare(request, config, accept),
          {:ok, watermarks} <- Execution.watermark_sources(request, config),
          {:ok, source, config} <- Source.from_input(input, config),
@@ -82,6 +84,16 @@ defmodule ImagePipe.Run do
         Execution.close(context)
       end
     end
+  end
+
+  defp report_ignored_options(%{ignored: []}, _config), do: :ok
+
+  defp report_ignored_options(request, config) do
+    Telemetry.ignored_options(
+      Telemetry.telemetry_opts(config),
+      Parser.ignored_keys(request),
+      request.ignored
+    )
   end
 
   defp request(plan, config) do
@@ -105,7 +117,7 @@ defmodule ImagePipe.Run do
 
     with {:ok, request} <- request(plan, config),
          {:ok, _policy} <- Processing.prepare(request, config, ""),
-         do: :ok
+         do: {:ok, request.ignored}
   end
 
   defp render(context) do

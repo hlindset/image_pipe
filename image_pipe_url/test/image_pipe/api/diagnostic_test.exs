@@ -128,7 +128,7 @@ defmodule ImagePipe.API.DiagnosticTest do
       {["w=800", "w=900"], :duplicate_option},
       {["-", "w=800"], :empty_pipeline_group},
       {["crop=600,400", "region=0,0,600,400"], :mutually_exclusive_options},
-      {["fit=cover"], :inert_option}
+      {["fit=cover", "blur=x"], :inert_option}
     ]
 
     for {segments, reason} <- @parser_reasons do

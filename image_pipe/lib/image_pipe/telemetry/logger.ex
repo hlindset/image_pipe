@@ -52,7 +52,8 @@ defmodule ImagePipe.Telemetry.Logger do
 
   # request one-shot events (already terminal; not spans)
   @request_oneshot [
-    [:encode, :search, :probe, :chosen]
+    [:encode, :search, :probe, :chosen],
+    [:request, :ignored_options]
   ]
 
   # cache one-shot events (already terminal; not spans)
@@ -404,6 +405,9 @@ defmodule ImagePipe.Telemetry.Logger do
       notes -> "image_pipe source fetch_decode: #{result(meta)} (#{Enum.join(notes, ", ")})"
     end
   end
+
+  defp message([:request, :ignored_options | _], _m, meta),
+    do: "image_pipe request ignored options: #{Enum.join(meta[:options], ", ")}"
 
   defp message([:parse | _], _m, %{sig_key_index: index} = meta),
     do: "image_pipe parse: #{outcome(meta)} (signing key #{index})"

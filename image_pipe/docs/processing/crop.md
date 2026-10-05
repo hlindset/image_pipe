@@ -133,8 +133,8 @@ Accepts `h`, `v`, or `hv`. Default: none.
 
 Removes the same amount from opposite edges: left and right (`h`), top and
 bottom (`v`), or both (`hv`). It uses the smaller of the two borders, so no
-content is lost. `trim-symmetry` needs `trim` in the same group, otherwise the
-request fails with `400`.
+content is lost. `trim-symmetry` needs `trim` in the same group, and is
+[ignored](../requesting-images.md#ignored-options) without it.
 
 <!-- tabs-open -->
 
@@ -198,8 +198,8 @@ positive decimal, such as `1.5`. Default: none.
 shrinking one side. With `crop-ratio-enlarge`, it grows the other side
 instead. A corrected size larger than the image is scaled down to fit,
 keeping the ratio. `crop-ratio` needs `crop` in the same group, and
-`crop-ratio-enlarge` needs `crop-ratio`. Otherwise the request fails with
-`400`.
+`crop-ratio-enlarge` needs `crop-ratio`. `crop-ratio` is ignored without
+`crop`, and `crop-ratio-enlarge` without `crop-ratio`.
 
 This example keeps the largest 16:9 area of the image.
 
@@ -256,7 +256,7 @@ A cover resize is [`fit=cover`](resize.md#fit) with a number in `w`, `h`,
 `min-w`, or `min-h`, or `fit=auto` with numbers in both `w` and `h`.
 
 Use one of them per group, since two fail with `400`. Each needs a `crop` or
-a cover resize in the same group. Otherwise the request fails with `400`.
+a cover resize in the same group, and is ignored without one.
 With `fit=auto`, a guide has no effect on the resize when it picks contain,
 which happens when the image and the box differ in orientation. With both a
 `crop` and a cover resize, the guide applies to each.
@@ -296,8 +296,7 @@ negative. Default: `0,0`.
 Moves the crop from its anchor. Positive values move it right and down from a
 left, top, or center anchor, and inward from a right or bottom anchor. The
 crop always stays inside the image. `anchor-offset` needs an `anchor` other
-than `smart` or `smart-face` in the same group, otherwise the request fails
-with `400`.
+than `smart` or `smart-face` in the same group, and is ignored without one.
 
 Percentages are of the image being cropped. On a `crop`, pixels are pixels
 of the image being cropped, like the crop size. On a cover resize, pixels are

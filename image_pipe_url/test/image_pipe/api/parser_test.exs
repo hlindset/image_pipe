@@ -3,13 +3,13 @@ defmodule ImagePipe.API.ParserTest do
   use ExUnitProperties
 
   alias ImagePipe.API.Diagnostic
-  alias ImagePipe.API.DiagnosticRenderer
   alias ImagePipe.API.OptionSpec
   alias ImagePipe.API.Parser
   alias ImagePipe.API.Presets
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
   alias ImagePipe.Plan.Spec
   alias ImagePipe.Plan.Spec.Group
+  alias ImagePipe.Plan.Spec.Issue
   alias ImagePipe.Plan.Spec.Output
 
   # `parse/2` consumes Task 4's lexed map directly — never a conn — so
@@ -21,6 +21,9 @@ defmodule ImagePipe.API.ParserTest do
   defp lexed(segments, source) do
     %{segments: Enum.map(segments, &seg/1), source: {:src, source, {0, byte_size(source)}}}
   end
+
+  defp ignores_option?({:ok, %Spec{ignored: ignored}}),
+    do: Enum.any?(ignored, &(&1.reason == :inert_option and &1.severity == :warning))
 
   defp parse(segments, source \\ "images/cat.jpg", config \\ []) do
     Parser.parse(lexed(segments, source), mount(config))
@@ -761,20 +764,65 @@ defmodule ImagePipe.API.ParserTest do
     end
   end
 
-  describe "400s: Tier-2 inertness (locked probe decisions)" do
+  describe "Tier-2 inertness (locked probe decisions)" do
+    test "an inert option is dropped from the request and reported" do
+      assert {:ok, request} = parse(["w=800", "anchor=center"])
+      assert {:ok, clean} = parse(["w=800"])
+      assert %{request | ignored: []} == clean
+
+      assert [
+               %Issue{
+                 reason: :inert_option,
+                 severity: :warning,
+                 locations: [{:group, 0, :anchor}]
+               }
+             ] =
+               request.ignored
+    end
+
+    test "dropping an inert option drops the options that depended on it" do
+      assert {:ok, %Spec{ignored: ignored} = request} =
+               parse(["w=800", "crop-ratio=3:2", "crop-ratio-enlarge"])
+
+      assert %{request | ignored: []} == elem(parse(["w=800"]), 1)
+
+      assert Enum.flat_map(ignored, & &1.locations) |> Enum.sort() ==
+               [{:group, 0, :crop_ratio}, {:group, 0, :crop_ratio_enlarge}]
+    end
+
+    test "a group left empty by dropped options adds no group" do
+      assert {:ok, %Spec{groups: [_group], ignored: [_issue]}} =
+               parse(["w=800", "-", "fit=cover"])
+    end
+
+    test "inherited inert options are dropped without a report" do
+      config = [request_defaults: "jpeg-options=progressive", presets: %{"cover" => "fit=cover"}]
+
+      assert {:ok, %Spec{ignored: []} = request} =
+               parse(["preset=cover", "format=webp", "blur=2"], "images/cat.jpg", config)
+
+      assert request == elem(parse(["format=webp", "blur=2"]), 1)
+    end
+
+    test "an error response also lists the URL's inert options" do
+      assert {:error, {:invalid_request, diagnostics}} =
+               parse(["crop=600,400", "anchor=top", "focus=0.5,0.5", "trim-symmetry=h"])
+
+      reasons = Enum.map(diagnostics, & &1.reason)
+      assert :mutually_exclusive_options in reasons
+      assert :inert_option in reasons
+    end
+
     test "fit without a resize intent is inert" do
-      assert {:error, {:invalid_request, diagnostics}} = parse(["fit=cover"])
-      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+      assert ignores_option?(parse(["fit=cover"]))
     end
 
     test "enlarge without a resize intent is inert" do
-      assert {:error, {:invalid_request, diagnostics}} = parse(["enlarge"])
-      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+      assert ignores_option?(parse(["enlarge"]))
     end
 
     test "non-unit zoom without a resize intent is inert" do
-      assert {:error, {:invalid_request, diagnostics}} = parse(["zoom=1,2"])
-      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+      assert ignores_option?(parse(["zoom=1,2"]))
     end
 
     test "minimum dimensions satisfy fit and enlarge resize intent" do
@@ -783,28 +831,20 @@ defmodule ImagePipe.API.ParserTest do
     end
 
     test "crop ratio without crop is inert" do
-      assert {:error, {:invalid_request, diagnostics}} = parse(["crop-ratio=3:2"])
-      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+      assert ignores_option?(parse(["crop-ratio=3:2"]))
     end
 
     test "true crop ratio enlargement without crop ratio is inert" do
-      assert {:error, {:invalid_request, diagnostics}} =
-               parse(["crop=600,400", "crop-ratio-enlarge"])
-
-      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+      assert ignores_option?(parse(["crop=600,400", "crop-ratio-enlarge"]))
     end
 
     test "encoder options for another format name the format they need" do
-      assert {:error, {:invalid_request, [diagnostic]}} =
-               parse(["format=webp", "jpeg-options=progressive"])
-
-      assert diagnostic.reason == :inert_option
-      assert diagnostic.message =~ "format=jpeg"
+      assert {:ok, %Spec{ignored: [issue]}} = parse(["format=webp", "jpeg-options=progressive"])
+      assert issue.detail == {:requires, {:format, :jpeg}}
     end
 
     test "trim symmetry without trim is inert" do
-      assert {:error, {:invalid_request, diagnostics}} = parse(["trim-symmetry=h"])
-      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+      assert ignores_option?(parse(["trim-symmetry=h"]))
     end
 
     test "enabled canvas requires concrete w and h" do
@@ -814,8 +854,7 @@ defmodule ImagePipe.API.ParserTest do
             ["w=300", "h=auto", "extend"],
             ["h=200", "extend-ratio"]
           ] do
-        assert {:error, {:invalid_request, diagnostics}} = parse(options)
-        assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+        assert ignores_option?(parse(options))
       end
     end
 
@@ -826,8 +865,7 @@ defmodule ImagePipe.API.ParserTest do
             ["extend=false", "extend-at=top-left"],
             ["extend-ratio=false", "extend-offset=10,20"]
           ] do
-        assert {:error, {:invalid_request, diagnostics}} = parse(options)
-        assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+        assert ignores_option?(parse(options))
       end
     end
 
@@ -837,39 +875,32 @@ defmodule ImagePipe.API.ParserTest do
             ["crop=600,400", "anchor=smart", "anchor-offset=10,20"],
             ["crop=600,400", "anchor=smart-face", "anchor-offset=10,20"]
           ] do
-        assert {:error, {:invalid_request, diagnostics}} = parse(options)
-        assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+        assert ignores_option?(parse(options))
       end
     end
 
     test "a lone auto dimension is inert" do
-      assert {:error, {:invalid_request, diagnostics}} = parse(["w=auto"])
-      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+      assert ignores_option?(parse(["w=auto"]))
     end
 
     test "a doubled auto dimension is inert" do
-      assert {:error, {:invalid_request, diagnostics}} = parse(["w=auto", "h=auto"])
-      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+      assert ignores_option?(parse(["w=auto", "h=auto"]))
     end
 
     test "anchor without a consumer is inert" do
-      assert {:error, {:invalid_request, diagnostics}} = parse(["anchor=center"])
-      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+      assert ignores_option?(parse(["anchor=center"]))
     end
 
     test "focus without a consumer is inert" do
-      assert {:error, {:invalid_request, diagnostics}} = parse(["focus=0.5,0.5"])
-      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+      assert ignores_option?(parse(["focus=0.5,0.5"]))
     end
 
     test "detect without a consumer is inert" do
-      assert {:error, {:invalid_request, diagnostics}} = parse(["detect=face"])
-      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+      assert ignores_option?(parse(["detect=face"]))
     end
 
     test "anchor with a contain-fit resize is still inert (not a guide consumer)" do
-      assert {:error, {:invalid_request, diagnostics}} = parse(["w=800", "anchor=center"])
-      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+      assert ignores_option?(parse(["w=800", "anchor=center"]))
     end
 
     test "fit=auto with both w and h counts as a guide consumer" do
@@ -880,10 +911,7 @@ defmodule ImagePipe.API.ParserTest do
     test "fit=auto without both w and h resizes as contain, so a guide is inert" do
       for size <- [["w=800"], ["h=600"], ["w=800", "min-h=600"]],
           guide <- ["anchor=top", "focus=0.5,0.5", "detect=face"] do
-        assert {:error, {:invalid_request, diagnostics}} =
-                 parse(size ++ ["fit=auto", guide])
-
-        assert Enum.any?(diagnostics, &(&1.reason == :inert_option)), inspect({size, guide})
+        assert ignores_option?(parse(size ++ ["fit=auto", guide])), inspect({size, guide})
       end
 
       assert {:ok, %Spec{groups: [%Group{guide: nil}]}} = parse(["w=800", "fit=auto"])
@@ -906,10 +934,9 @@ defmodule ImagePipe.API.ParserTest do
 
         assert Enum.any?(diagnostics, &(&1.reason == :mutually_exclusive_options))
 
-        assert {:error, {:invalid_request, diagnostics}} =
+        assert ignores_option?(
                  parse(["output=" <> terminal, "format=webp", "jpeg-options=progressive"])
-
-        assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+               )
       end
     end
 
@@ -950,10 +977,7 @@ defmodule ImagePipe.API.ParserTest do
     end
 
     test "an explicit format rejects another codec's URL options" do
-      assert {:error, {:invalid_request, diagnostics}} =
-               parse(["format=webp", "jpeg-options=progressive"])
-
-      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+      assert ignores_option?(parse(["format=webp", "jpeg-options=progressive"]))
     end
 
     test "negotiated output accepts options for multiple codecs" do
@@ -965,8 +989,7 @@ defmodule ImagePipe.API.ParserTest do
 
     test "PNG rejects enabled URL quality searches" do
       for option <- ["autoquality=75", "autoquality", "max-bytes=10000"] do
-        assert {:error, {:invalid_request, diagnostics}} = parse(["format=png", option])
-        assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+        assert ignores_option?(parse(["format=png", option]))
       end
 
       assert {:ok, %Spec{output: %Output{format: :png, autoquality: false}}} =
@@ -1081,8 +1104,7 @@ defmodule ImagePipe.API.ParserTest do
     end
 
     test "a genuinely absent prerequisite still triggers the dependent's inertness (no w/h at all)" do
-      assert {:error, {:invalid_request, diagnostics}} = parse(["enlarge"])
-      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+      assert ignores_option?(parse(["enlarge"]))
     end
   end
 
@@ -1153,12 +1175,10 @@ defmodule ImagePipe.API.ParserTest do
 
     test "diagnostics in later groups keep their spans" do
       {:ok, lexed} =
-        ImagePipe.API.Path.extract("/format=webp/-/w=800/-/fit=cover/src/cat.jpg", "")
+        ImagePipe.API.Path.extract("/format=webp/-/w=800/-/fit=cover/blur=x/src/cat.jpg", "")
 
-      assert {:error, {:invalid_request, [%Diagnostic{reason: :inert_option, spans: spans}]}} =
-               Parser.parse(lexed, mount([]))
-
-      assert {23, 9} in spans
+      assert {:error, {:invalid_request, diagnostics}} = Parser.parse(lexed, mount([]))
+      assert %Diagnostic{spans: [{23, 9}]} = Enum.find(diagnostics, &(&1.reason == :inert_option))
     end
   end
 
@@ -1218,46 +1238,11 @@ defmodule ImagePipe.API.ParserTest do
       assert Enum.any?(diagnostics, &(&1.reason == :unknown_preset))
     end
 
-    test "a preset-contributed key can still trigger Tier-2 inertness on the merged group" do
-      # `fit=cover` alone (no resize intent from either the preset or the
-      # URL) is inert — cross-option validation runs over the *merged*
-      # group, not just the URL's own explicit segments.
-      config = [presets: %{"cover" => "fit=cover"}]
-
-      assert {:error, {:invalid_request, diagnostics}} =
-               parse(["preset=cover"], "images/cat.jpg", config)
-
-      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
-    end
-
     test "a preset combined with an explicit dimension satisfies its own inertness prerequisite" do
       config = [presets: %{"cover" => "fit=cover"}]
 
       assert {:ok, %Spec{groups: [%Group{resize: %{fit: :cover}}]}} =
                parse(["preset=cover", "w=800"], "images/cat.jpg", config)
-    end
-
-    test "a request-defaults-only inertness diagnostic anchors to the whole raw path, not {0, 0}" do
-      # No `preset=` segment at all — the request defaults apply purely
-      # from config, so there is no real segment for the resulting
-      # cross-option diagnostic to anchor to. It must fall back to the
-      # whole raw path, not a zero-length {0, 0} span.
-      config = [request_defaults: "fit=cover"]
-      raw_path = "/src/images/cat.jpg"
-      lexed = %{segments: [], source: {:src, "images/cat.jpg", {5, 14}}}
-
-      assert {:error, {:invalid_request, diagnostics}} =
-               Parser.parse(lexed, mount(config))
-
-      assert [%Diagnostic{reason: :inert_option, spans: [{0, 19}]}] = diagnostics
-      assert byte_size(raw_path) == 19
-
-      rendered =
-        raw_path
-        |> DiagnosticRenderer.render(diagnostics)
-        |> IO.iodata_to_binary()
-
-      assert rendered =~ String.duplicate("^", 19)
     end
 
     test "a preset named default applies only when selected" do
@@ -1394,10 +1379,9 @@ defmodule ImagePipe.API.ParserTest do
     test "unset does not clear explicit options that depend on it" do
       config = [presets: %{"card" => "w=800"}]
 
-      assert {:error, {:invalid_request, diagnostics}} =
+      assert ignores_option?(
                parse(["preset=card", "w=unset", "fit=cover"], "images/cat.jpg", config)
-
-      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+             )
     end
 
     test "a request watermark source replaces a preset's watermark" do

@@ -22,8 +22,8 @@ Sets the width and height of the box the image is resized into. How the image
 fills the box is set by [`fit`](#fit), which defaults to `contain`. With only
 one of them, or with the other set to `auto`, the other dimension follows the
 image's aspect ratio, except under `fit=stretch`. `auto` needs a number in the
-other dimension or in [`min-w` or `min-h`](#min-w-and-min-h), otherwise the
-request fails with `400`.
+other dimension or in [`min-w` or `min-h`](#min-w-and-min-h), and is
+[ignored](../requesting-images.md#ignored-options) without one.
 
 Without [`enlarge`](#enlarge), the resized image is never larger than the
 source. A 300-pixel-wide source requested with `w=400` comes out 300 pixels
@@ -62,8 +62,8 @@ Default: `contain`.
   portrait, and `contain` otherwise. A square counts as landscape. With only
   one of `w` and `h`, it uses `contain`.
 
-`fit` needs a number in `w`, `h`, `min-w`, or `min-h` in the same group,
-otherwise the request fails with `400`.
+`fit` needs a number in `w`, `h`, `min-w`, or `min-h` in the same group, and
+is ignored without one.
 
 Without `enlarge`, a `cover` result for a small source keeps the box's aspect
 ratio at a smaller size, because the box is scaled down to fit the source
@@ -93,7 +93,7 @@ A [boolean](../requesting-images.md#booleans). Default: `false`.
 Allows the result to be larger than the source. Without it, a source smaller
 than the requested size keeps its own size, or shrinks to keep the box's aspect
 ratio under [`fit=cover`](#fit). `enlarge` needs a number in `w`, `h`, `min-w`,
-or `min-h` in the same group, otherwise the request fails with `400`.
+or `min-h` in the same group, and is ignored without one.
 
 <!-- tabs-open -->
 
@@ -154,8 +154,8 @@ by its own. With only `min-w` or `min-h`, it multiplies the source's size. An
 800-pixel-wide image that keeps its aspect ratio.
 
 Zoom doesn't change the [canvas](#extend-and-extend-ratio), padding, or
-offsets. A `zoom` other than `1` needs a number in `w`, `h`,
-`min-w`, or `min-h` in the same group, otherwise the request fails with `400`.
+offsets. A `zoom` other than `1` needs a number in `w`, `h`, `min-w`, or
+`min-h` in the same group, and is ignored without one.
 
 <!-- tabs-open -->
 
@@ -229,7 +229,7 @@ Each is a [boolean](../requesting-images.md#booleans). Default: `false`.
 canvas, the center by default.
 
 Neither scales nor crops the image. Each needs numbers in both `w` and `h`,
-and they can't be used together. Otherwise the request fails with `400`. The
+and is ignored without them. Using both in one group fails with `400`. The
 canvas is never smaller than the image, so `extend` changes nothing when the
 image already fills the box, as with `fit=cover`.
 
@@ -266,8 +266,8 @@ multiplied by `dpr`. Default: `0,0`.
 `extend-at` sets where the image sits on the canvas, and `extend-offset` moves
 it from there. Positive values move it right and down from a left, top, or
 center anchor, and inward from a right or bottom anchor. The image always stays
-inside the canvas. Both need `extend` or `extend-ratio` in the same group,
-otherwise the request fails with `400`.
+inside the canvas. Both need `extend` or `extend-ratio` in the same group, and
+are ignored without one.
 
 <!-- tabs-open -->
 

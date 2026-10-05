@@ -91,7 +91,7 @@ defmodule ImagePipe.API.URL do
 
   defp validate_plan(plan, config) do
     case check(plan, config) do
-      :ok -> :ok
+      {:ok, _warnings} -> :ok
       {:error, issues} -> {:error, {:invalid_request, issues}}
     end
   end
@@ -102,11 +102,12 @@ defmodule ImagePipe.API.URL do
   # known. Whether the server takes request watermark sources isn't known, so
   # those pass.
   @doc false
-  @spec check(Plan.t(), keyword()) :: :ok | {:error, [ImagePipe.Plan.Spec.Issue.t()]}
+  @spec check(Plan.t(), keyword()) ::
+          {:ok, [ImagePipe.Plan.Spec.Issue.t()]} | {:error, [ImagePipe.Plan.Spec.Issue.t()]}
   def check(plan, config) do
     case config[:validate_against] do
       nil ->
-        :ok
+        {:ok, []}
 
       %{presets: presets, request_defaults: defaults, lookup?: lookup?} = known ->
         watermarks = watermarks(known.watermarks)

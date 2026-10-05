@@ -107,6 +107,21 @@ preset lookup, and URL parsing. Why a request was rejected is on the
     verified the signature (`0` for the first key), on success. Absent for an unsigned request.
     The default Logger shows it as `(signing key 1)`.
 
+### `[:request, :ignored_options]`
+
+One-shot. Emitted after parsing when the URL wrote options that have no
+effect, which the request [ignores](requesting-images.md#ignored-options).
+`ImagePipe.run/4` emits it too, for options the plan sets. Options that a
+preset or the request defaults supply aren't reported. The default Logger
+logs it at its base level, as
+`image_pipe request ignored options: fit, enlarge`.
+
+- Metadata:
+  - `:options` (list of strings): the URL keys of the ignored options, such
+    as `["fit", "enlarge"]`. Never their values.
+  - `:locations` (list): where each option is, as in
+    `ImagePipe.Plan.Spec.Issue`. Not copied to trace spans.
+
 ### `[:preset, :lookup]`
 
 Span. Emitted when a request names presets the static preset map doesn't

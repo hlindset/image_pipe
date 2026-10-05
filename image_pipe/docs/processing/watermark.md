@@ -7,7 +7,8 @@ The watermark is the last step of its group, after effects, canvas, padding,
 and background, so it covers the whole frame, padding included (see
 [processing order](../processing.md#processing-order)). Each group starts
 without a watermark. The other `wm-*` options need [`wm`](#wm),
-[`wm-src64`, or `wm-enc`](#wm-src64-and-wm-enc) in the same group.
+[`wm-src64`, or `wm-enc`](#wm-src64-and-wm-enc) in the same group, and are
+[ignored](../requesting-images.md#ignored-options) without one.
 
 <!-- tabs-open -->
 
@@ -241,8 +242,7 @@ Accepts `x,y`, each a pixel length or a percentage, not negative. Default:
 
 Adds space to the right of and below each tiled copy. Pixels are multiplied by
 the group's `dpr`, and percentages are of the frame width (`x`) and height
-(`y`). Requires [`wm-tile`](#wm-tile). Without it, the request fails with `400`
-and `wm-gap requires wm-tile`.
+(`y`). Requires [`wm-tile`](#wm-tile), and is ignored without it.
 
 <!-- tabs-open -->
 
@@ -282,8 +282,6 @@ These fail with `400` before any image is fetched:
 - An unknown `wm` name, or `wm-src64` or `wm-enc` when request-named watermarks
   aren't allowed.
 - Two of `wm`, `wm-src64`, and `wm-enc` in one group.
-- Another `wm-*` option without a watermark in its group, such as
-  `wm-opacity requires wm, wm-src64, or wm-enc`.
 
 A watermark image that can't be fetched fails the whole request with the same
 status as a main image would, such as `404` when it doesn't exist or `413` when
