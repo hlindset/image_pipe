@@ -22,7 +22,7 @@ defmodule ImagePipeURL.MixProject do
         source_url_pattern: "#{@source_url}/blob/v#{@version}/image_pipe_url/%{path}#L%{line}",
         extras: ["README.md", "CHANGELOG.md", "LICENSE.md"],
         groups_for_modules: [
-          "URL builder": [ImagePipe.URL, ImagePipe.URL.Config],
+          "URL builder": [ImagePipe.URL, ImagePipe.URL.Config, ImagePipe.URL.Helpers],
           "Plan model": [ImagePipe.Plan, ImagePipe.Plan.Spec.Issue],
           Sources: [ImagePipe.Plan.Source, ~r/ImagePipe\.Plan\.Source\..*/],
           "Encoder options": [~r/ImagePipe\.Plan\.Output\..*Options/]
@@ -36,7 +36,7 @@ defmodule ImagePipeURL.MixProject do
   end
 
   def application do
-    [extra_applications: [:crypto]]
+    [extra_applications: [:crypto, :logger]]
   end
 
   def ex_dna_options do
@@ -69,6 +69,7 @@ defmodule ImagePipeURL.MixProject do
       {:mime, "~> 2.0"},
       {:boundary, "~> 0.10", runtime: false},
       {:stream_data, "~> 1.0", only: [:test, :dev]},
+      {:phoenix_live_view, "~> 1.2", only: :test},
       {:ex_doc, "~> 0.35", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},

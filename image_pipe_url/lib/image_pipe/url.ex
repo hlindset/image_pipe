@@ -111,7 +111,7 @@ defmodule ImagePipe.URL do
   use Boundary,
     top_level?: true,
     deps: [ImagePipe.API, ImagePipe.Plan, ImagePipe.Security],
-    exports: [Config]
+    exports: [Config, Helpers]
 
   alias ImagePipe.API.URL, as: Generator
   alias ImagePipe.Plan
