@@ -43,24 +43,18 @@ defmodule ImagePipe.Output.Ssim2Metric.CropScorePropertyTest do
     |> Enum.each(fn [a, b] -> assert b - a <= tile end)
   end
 
-  property "subsample keeps <= k items, preserves order, and keeps both endpoints when it cuts" do
+  property "sample_tiles picks min(k, grid) distinct tiles from the grid" do
     check all(
-            n <- integer(1..400),
+            w <- integer(512..12_000),
+            h <- integer(512..12_000),
             k <- integer(1..32)
           ) do
-      items = Enum.to_list(0..(n - 1))
-      sub = CropScore.subsample(items, k)
+      grid = CropScore.tile_coords(w, h, 512)
+      sample = CropScore.sample_tiles(w, h, 512, k)
 
-      assert length(sub) == min(n, k)
-      # values == indices, so order preservation == a non-decreasing result.
-      assert sub == Enum.sort(sub)
-
-      cond do
-        n <= k -> assert sub == items
-        # A single sample can't span both ends — it keeps the leading item.
-        k == 1 -> assert sub == [hd(items)]
-        true -> assert hd(sub) == hd(items) and List.last(sub) == List.last(items)
-      end
+      assert length(sample) == min(k, length(grid))
+      assert sample == Enum.uniq(sample)
+      assert Enum.all?(sample, &(&1 in grid))
     end
   end
 

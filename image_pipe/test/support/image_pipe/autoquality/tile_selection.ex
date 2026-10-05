@@ -95,9 +95,7 @@ defmodule ImagePipe.Test.Autoquality.TileSelection do
 
   # --- selection primitives -------------------------------------------------
 
-  # Index-spanning sub-sample: `k` items spanning both endpoints (mirrors
-  # ImagePipe.Output.Ssim2Metric.CropScore.subsample so `:even` is the shipped
-  # baseline exactly).
+  # Index-spanning sub-sample: `k` items spanning both endpoints.
   defp even_pick(tiles, k) do
     n = length(tiles)
 

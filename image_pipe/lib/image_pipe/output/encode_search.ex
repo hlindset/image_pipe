@@ -41,6 +41,10 @@ defmodule ImagePipe.Output.EncodeSearch do
   @min_slope 0.05
   @max_step 20
 
+  # Above the crop crossover the search ships a crop estimate minus this offset,
+  # biasing it down so the search climbs to a quality whose full frame reaches
+  # the target (bench Part R).
+  @crop_offset 1.0
   @max_bytes_alone_floor 10
   @max_bytes_alone_base 90
 
@@ -599,7 +603,7 @@ defmodule ImagePipe.Output.EncodeSearch do
     do: {:ok, []}
 
   # Crop mode (above the crossover): crop score_fun (estimate) only (#369).
-  # `CropScore.offset/2`, baked into the estimate, is the crop→full correction. The
+  # `@crop_offset` baked into the estimate is the crop→full correction. The
   # objective's verdict ships as-is, bounding the
   # large-image search to a flat ~4.2 MP metric sample. No whole-frame reference is
   # built: the per-tile references are built once here and every probe's
@@ -609,8 +613,7 @@ defmodule ImagePipe.Output.EncodeSearch do
     case CropScore.references(image) do
       {:ok, refs} ->
         tiles = length(refs)
-        offset = CropScore.offset(Image.width(image), Image.height(image))
-        crop = fn bytes -> crop_estimate(refs, bytes, tiles, offset, t) end
+        crop = fn bytes -> crop_estimate(refs, bytes, tiles, @crop_offset, t) end
         {:ok, [score_fun: crop, scorer_tiles: tiles]}
 
       {:error, reason} ->

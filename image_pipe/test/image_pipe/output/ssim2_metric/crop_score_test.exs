@@ -33,18 +33,27 @@ defmodule ImagePipe.Output.Ssim2Metric.CropScoreTest do
     end
   end
 
-  describe "subsample/2" do
-    test "returns all tiles when count <= k" do
-      tiles = Enum.to_list(1..10)
-      assert CropScore.subsample(tiles, 16) == tiles
+  describe "sample_tiles/4" do
+    test "returns every tile when the grid has at most k tiles" do
+      assert CropScore.sample_tiles(1100, 600, 512, 16) == CropScore.tile_coords(1100, 600, 512)
     end
 
-    test "picks k evenly-spaced tiles spanning both endpoints when count > k" do
-      tiles = Enum.to_list(0..99)
-      sub = CropScore.subsample(tiles, 16)
-      assert length(sub) == 16
-      assert hd(sub) == 0
-      assert List.last(sub) == 99
+    test "spreads a tall page's sample over every column and row" do
+      # 4 × 15 tiles. Stepping through the row-major list by 59/15 ≈ 4 would
+      # land almost every pick in one column.
+      sample = CropScore.sample_tiles(1619, 7411, 512, 16)
+
+      assert length(sample) == 16
+      assert sample |> Enum.map(&elem(&1, 0)) |> Enum.uniq() |> length() == 4
+      assert sample |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> length() == 15
+    end
+
+    test "spreads a landscape frame's sample over every column and row" do
+      # 8 × 6 tiles.
+      sample = CropScore.sample_tiles(4000, 3000, 512, 16)
+
+      assert sample |> Enum.map(&elem(&1, 0)) |> Enum.uniq() |> length() == 8
+      assert sample |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> length() == 6
     end
   end
 
@@ -61,18 +70,6 @@ defmodule ImagePipe.Output.Ssim2Metric.CropScoreTest do
 
   test "crossover_megapixels/0 is the documented 6 MP operating point" do
     assert CropScore.crossover_megapixels() == 6
-  end
-
-  describe "offset/2" do
-    test "is 1.0 while the tiles score at least 40% of the frame" do
-      # 16 tiles × 512² ≈ 4.19 MP of an 8.75 MP frame: 48% coverage.
-      assert CropScore.offset(3500, 2500) == 1.0
-    end
-
-    test "is 2.4 once the tiles score less than 40% of the frame" do
-      # 4.19 MP of a 12 MP frame: 35% coverage.
-      assert CropScore.offset(4000, 3000) == 2.4
-    end
   end
 
   describe "references/1 and p10/2" do

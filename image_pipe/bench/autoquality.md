@@ -1194,7 +1194,7 @@ Reading:
   delivery while the search time is paid once. Cheaper scoring would be the
   lever, and Parts C and D found no cheaper metric that tracks SSIMULACRA2.
 
-### Part R — crop offset by tile coverage (image_plug-e4a.6.10)
+### Part R — crop offset and tile sampling (image_plug-e4a.6.10, image_plug-e4a.6.16)
 
 Part K set the crop offset to 2.4 under the old bisection search with a
 [70, 80] bracket, where a larger offset cost almost no bytes. The target-only
@@ -1202,35 +1202,39 @@ search (Part O) climbs to whatever quality the offset asks for, so Part R
 re-measures it. Each image is downscaled to 2, 4, 6, 8, 10 and 12 MP (and kept
 at native size), then searched with the production settings for
 `format=<f>/autoquality` (target 75): once scoring the full frame, and once
-per crop offset, scoring the shipped pick against the full frame. Results are
-grouped by tile coverage, the share of the frame the 16 tiles score. Held-out
+per crop offset, scoring the shipped pick against the full frame. Held-out
 images (each source after the first 6, plus all of `large` and `grafana_sc`),
-577 image × format cases.
+577 image × format cases, 250 of them above the 6 MP crossover.
+
+The first run exposed a sampling bug. The 16 tiles were picked by stepping
+through the row-major tile list, which aliases onto one column when the step
+is close to the row width. On tall documentation pages at 12 MP, 15 of 16
+tiles landed in the blank right margin, and pages shipped at 43–68 against a
+target of 75 at every offset. `CropScore.sample_tiles/4` now picks the tiles
+with a Fibonacci lattice, which covers every row and column of the tile grid.
+The numbers below are with the lattice.
 
 "Misses" counts cases the full-frame search hits (≥ 74.5) and the crop pick
-misses. Bytes are the geomean against the full-frame pick.
+misses. Bytes are the geomean against the full-frame pick. Above the crossover
+(250 cases):
 
-| coverage (production size) | format | n | misses at 0.5 / 1.0 / 2.4 | bytes at 1.0 / 2.4 |
-|---|---|---:|---|---|
-| 0.4–1.0 (6–10.5 MP) | JPEG | 71 | 0 / 0 / 0 | ×1.107 / ×1.166 |
-| | WebP | 71 | 2 / 0 / 0 | ×1.107 / ×1.177 |
-| | AVIF | 71 | 0 / 0 / 0 | ×1.115 / ×1.170 |
-| < 0.4 (> 10.5 MP) | JPEG | 38 | 8 / 8 / 4 | ×0.998 / ×1.052 |
-| | WebP | 37 | 5 / 5 / 3 | ×1.041 / ×1.115 |
-| | AVIF | 37 | 3 / 3 / 3 | ×0.990 / ×1.032 |
+| offset | misses | misses below 73.5 | bytes JPEG / WebP / AVIF |
+|---|---:|---:|---|
+| 0.0 | 7 | 2 | ×1.096 / ×1.079 / ×1.082 |
+| 0.5 | 4 | 2 | ×1.099 / ×1.101 / ×1.097 |
+| **1.0** | 3 | 0 | ×1.118 / ×1.121 / ×1.107 |
+| 1.5 | 2 | 0 | ×1.153 / ×1.148 / ×1.128 |
+| 2.4 | 2 | 0 | ×1.205 / ×1.192 / ×1.164 |
 
 Reading:
 
-- **The tile p10 is pessimistic where the tiles cover much of the frame.**
-  Even at offset 0 the crop pick lands 1.5–2.4 points above target. At
-  40% coverage or more, offset 1.0 misses nothing and ships 5–6% fewer bytes
-  than 2.4. Shipped: `CropScore.offset/2` uses 1.0 there and 2.4 below.
-- **Below 40% coverage, sampling misses dense regions.** Tall documentation
-  screenshots at 12 MP ship 43–71 against a target of 75 at every offset
-  (image_plug-e4a.6.16). No offset fixes them.
-- **Crop scoring overshoots at every size.** Below the 6 MP crossover the crop
-  pick still ships 10–12% more bytes than full-frame scoring at offset 1.0, so
-  the crossover stays.
+- **Offset 1.0 is the operating point.** It ships 6–8% fewer bytes than 2.4,
+  and its extra miss is under a point below the cut-off. Shipped:
+  `@crop_offset 1.0`.
+- **The tile p10 is pessimistic.** Even at offset 0 the crop pick lands about
+  2 points above target. Crop scoring stays a large-image tool.
+- **The crossover stays at 6 MP.** Below it the crop pick still ships 11–13%
+  more bytes than full-frame scoring at offset 1.0.
 
 ## Findings & recommendations
 
@@ -1350,7 +1354,7 @@ on big images" into "autoquality on, affordably."
 > crop **+ full-frame confirm/bump** path #354 shipped. #369 *removed* the confirm
 > above the crossover: production now ships the crop objective winner directly with a
 > conservative offset (`@crop_confirm_skipped_offset = 2.4`, the Part-K residual p90;
-> Part R lowered it to 1.0 while the tiles cover at least 40% of the frame)
+> Part R lowered it to 1.0)
 > and **no confirm**. The `@crop_macro_offset = 0.22` calibration below and the
 > confirm/bump bullets are retained as the historical record and now live only in the
 > `mix autoquality.bench` crop+confirm baseline; the live correction lever is Part K's
