@@ -230,10 +230,14 @@ requiring it, and checking that it runs are covered in
 
 ## Logging
 
-`[telemetry] log_level` turns on request logging: one line per request
-stage at that level, with failures and degraded results at `warning`. The
+`[telemetry] log_requests = true` turns on request logging: one line per
+request stage at `info`, with failures and degraded results at `warning`. The
 [telemetry event reference](../../image_pipe/docs/telemetry-events.md)
 describes each stage.
+
+`[telemetry] log_level` is the lowest level the server logs, `"info"` by
+default. With request logging on, `log_level = "warning"` keeps only the
+failed and degraded requests.
 
 Every response carries an `x-request-id` header, and every log line for that
 request is tagged `request_id=<id>`. The server keeps a valid incoming

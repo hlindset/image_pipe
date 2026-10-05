@@ -13,6 +13,7 @@ defmodule ImagePipeServer.Application do
   def start(_type, _args) do
     config = config!()
 
+    Logger.configure(level: config.log_level)
     if config.telemetry, do: ImagePipe.Telemetry.attach_default_logger(config.telemetry)
 
     if Application.fetch_env!(:image_pipe_server, :tracing) do

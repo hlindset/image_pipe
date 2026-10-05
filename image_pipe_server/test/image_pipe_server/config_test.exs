@@ -185,13 +185,18 @@ defmodule ImagePipeServer.ConfigTest do
         Config.build!(
           Config.options!(%{
             "pool" => %{"max_concurrency" => 4},
-            "telemetry" => %{"log_level" => "debug", "trust_traceparent" => true}
+            "telemetry" => %{
+              "log_level" => "warning",
+              "log_requests" => true,
+              "trust_traceparent" => true
+            }
           })
         )
 
       assert config.pool[:max_concurrency] == 4
       assert config.image_pipe.options[:processing_pool] == config.pool[:name]
-      assert config.telemetry == [level: :debug]
+      assert config.log_level == :warning
+      assert config.telemetry == [level: :info]
       assert config.trust_traceparent == true
 
       queue_only = Config.build!(Config.options!(%{"pool" => %{"max_queue" => 1}}))
@@ -202,6 +207,13 @@ defmodule ImagePipeServer.ConfigTest do
                Config.build!(Config.options!(%{"pool" => %{"max_concurrency" => 0}}))
              end) =~
                "pool"
+    end
+
+    test "logs at info and above without request lines by default" do
+      config = Config.build!([])
+
+      assert config.log_level == :info
+      assert config.telemetry == nil
     end
 
     test "builds validated mount options" do

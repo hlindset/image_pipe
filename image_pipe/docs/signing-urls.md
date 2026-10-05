@@ -141,7 +141,7 @@ nodes run the app, deploy `keys: [old, new]` to every node first, then
 yet.
 
 To see which key verified each request, turn on request logging. Set
-`log_level` in the server's
+`log_requests = true` in the server's
 [`[telemetry]`](../../image_pipe_server/docs/server-configuration.md#telemetry),
 or call `ImagePipe.Telemetry.attach_default_logger/1` for the Plug. Each
 signed request logs the position of its key in the server's list, counting

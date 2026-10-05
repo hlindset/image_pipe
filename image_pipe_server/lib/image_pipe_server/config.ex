@@ -23,9 +23,9 @@ defmodule ImagePipeServer.Config do
     * `[pool]` - `ImagePipe.ProcessingPool` options. `max_concurrency`
       defaults to the VM's online schedulers.
     * `[http]` - the delivery options of `ImagePipe.Plug.init/1`.
-    * `[telemetry]` - `log_level` attaches the default Logger.
-      `trust_traceparent` continues an inbound W3C `traceparent` when tracing
-      is on.
+    * `[telemetry]` - `log_level` is the lowest level the server logs.
+      `log_requests` attaches the default Logger. `trust_traceparent`
+      continues an inbound W3C `traceparent` when tracing is on.
 
   Invalid configuration raises `ImagePipeServer.ConfigError` (see there for
   which values a message may quote).
@@ -46,6 +46,7 @@ defmodule ImagePipeServer.Config do
     :detector_warmup,
     :http,
     :pool,
+    :log_level,
     :telemetry,
     :credential_warmups
   ]
@@ -64,7 +65,9 @@ defmodule ImagePipeServer.Config do
       for at boot: `:all`, `false`, or a list of class names.
     * `:http` - the delivery options of `ImagePipe.Plug.init/1`.
     * `:pool` - `ImagePipe.ProcessingPool` options with the pool's name.
-    * `:telemetry` - default Logger options, or `nil`.
+    * `:log_level` - the lowest level the server logs.
+    * `:telemetry` - default Logger options when requests are logged, or
+      `nil`.
     * `:credential_warmups` - `ImagePipe.Source.S3.CredentialWarmup` options,
       one per named S3 bucket whose credentials come from a provider.
   """
@@ -75,6 +78,7 @@ defmodule ImagePipeServer.Config do
           detector_warmup: :all | false | [String.t()],
           http: keyword(),
           pool: keyword(),
+          log_level: Logger.level(),
           telemetry: keyword() | nil,
           credential_warmups: [keyword()]
         }
@@ -92,7 +96,8 @@ defmodule ImagePipeServer.Config do
   ]
 
   @telemetry_schema [
-    log_level: [type: {:in, Logger.levels()}],
+    log_level: [type: {:in, Logger.levels()}, default: :info],
+    log_requests: [type: :boolean, default: false],
     trust_traceparent: [type: :boolean, default: false]
   ]
 
@@ -283,6 +288,7 @@ defmodule ImagePipeServer.Config do
       detector_warmup: detector_warmup,
       http: http!(Keyword.get(sections, :http, [])),
       pool: pool,
+      log_level: Keyword.get(Keyword.get(sections, :telemetry, []), :log_level, :info),
       telemetry: telemetry(Keyword.get(sections, :telemetry, [])),
       credential_warmups: credential_warmups(Keyword.get(sections, :sources, []))
     }
@@ -415,11 +421,10 @@ defmodule ImagePipeServer.Config do
 
   defp trust_traceparent(options), do: Keyword.get(options, :trust_traceparent, false)
 
+  # Request lines log at `info` and failures at `warning`, so `log_level`
+  # can keep only the failures.
   defp telemetry(options) do
-    case Keyword.fetch(options, :log_level) do
-      {:ok, level} -> [level: level]
-      :error -> nil
-    end
+    if Keyword.get(options, :log_requests, false), do: [level: :info]
   end
 
   defp validate!(options, schema, section) do

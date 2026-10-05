@@ -11,4 +11,4 @@ root = "test/support/images"
 root_id = "static"
 
 [telemetry]
-log_level = "debug"
+log_requests = true

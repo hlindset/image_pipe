@@ -3,7 +3,7 @@
 Log each stage of ImagePipe's requests, and send them to your own metrics
 or logging handlers. This guide assumes ImagePipe runs in your app, as a
 Plug or through `ImagePipe.run/4`. When you run `image_pipe_server`, set
-`log_level` in its [telemetry settings](../../image_pipe_server/docs/server-configuration.md#telemetry)
+`log_requests = true` in its [telemetry settings](../../image_pipe_server/docs/server-configuration.md#telemetry)
 instead.
 
 ImagePipe emits [`:telemetry`](https://hexdocs.pm/telemetry) events and

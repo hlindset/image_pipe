@@ -178,7 +178,7 @@ ImagePipe.Telemetry.attach_default_logger()
 
 ```toml
 [telemetry]
-log_level = "info"
+log_requests = true
 ```
 
 <!-- tabs-close -->
