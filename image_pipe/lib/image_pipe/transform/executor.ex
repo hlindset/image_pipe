@@ -462,10 +462,13 @@ defmodule ImagePipe.Transform.Executor do
   end
 
   # A color asset promotes a gray frame to RGB rather than being reduced to gray.
+  # A tagged frame converts through its profile, which also clears the backup.
   defp promote_gray_frame(%State{image: frame} = state, asset) do
     if GrayFrame.gray?(frame) and not GrayFrame.gray?(asset) do
-      case GrayFrame.promote(frame) do
-        {:ok, frame} -> {:ok, %State{state | image: frame}}
+      with {:ok, %State{} = state} <- WorkingColor.to_srgb_frame(state),
+           {:ok, frame} <- GrayFrame.promote(state.image) do
+        {:ok, %State{state | image: frame}}
+      else
         {:error, reason} -> {:error, {:transform, {Watermark, reason}}}
       end
     else

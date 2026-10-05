@@ -25,8 +25,10 @@ defmodule ImagePipe.Transform.Operation.Bitonal do
 
   @impl ImagePipe.Transform
   def execute(%__MODULE__{}, %State{} = state) do
-    case to_bitonal(state.image) do
-      {:ok, image} -> {:ok, set_image(state, image)}
+    with {:ok, state} <- WorkingColor.to_srgb_frame(state),
+         {:ok, image} <- to_bitonal(state.image) do
+      {:ok, set_image(state, image)}
+    else
       {:error, error} -> {:error, {__MODULE__, error}}
     end
   end
@@ -39,8 +41,7 @@ defmodule ImagePipe.Transform.Operation.Bitonal do
   @dialyzer [{:no_fail_call, to_bitonal: 1}, {:no_unused, to_format: 2}]
   defp to_bitonal(image) do
     Image.without_alpha_band(image, fn colour ->
-      with {:ok, colour} <- WorkingColor.to_srgb(colour),
-           {:ok, gray} <- Image.to_colorspace(colour, :bw),
+      with {:ok, gray} <- Image.to_colorspace(colour, :bw),
            {:ok, bitonal} <-
              VixOperation.relational_const(gray, :VIPS_OPERATION_RELATIONAL_MOREEQ, [@threshold]) do
         to_format(bitonal, VipsImage.format(colour))

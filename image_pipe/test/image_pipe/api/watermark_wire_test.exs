@@ -21,6 +21,7 @@ defmodule ImagePipe.API.WatermarkWireTest do
       "mark.png" => png(Image.new!(10, 10, color: @red)),
       "alpha.png" => png(Image.new!(10, 10, color: @red ++ [128])),
       "gray_mark.png" => png(gray_mark()),
+      "tagged_gray.png" => png(tagged_gray()),
       "rotated.jpg" => rotated_jpeg(),
       "corrupt.png" => "not an image",
       "deep.png" => deep_png()
@@ -138,6 +139,19 @@ defmodule ImagePipe.API.WatermarkWireTest do
     assert VipsImage.interpretation(marked) == :VIPS_INTERPRETATION_sRGB
     assert pixel(marked, 30, 20) == @red
     assert pixel(marked, 0, 0) == List.duplicate(hd(pixel(gray, 0, 0)), 3)
+  end
+
+  for policy <- ["", "/profile=preserve"] do
+    test "a color asset promotes a tagged grayscale frame to untagged sRGB (#{policy})", %{
+      config: config
+    } do
+      response = response("wm=logo" <> unquote(policy), config, "src/tagged_gray.png")
+      marked = Image.from_binary!(response.resp_body)
+
+      assert VipsImage.interpretation(marked) == :VIPS_INTERPRETATION_sRGB
+      assert VipsImage.header_value(marked, "icc-profile-data") |> elem(0) == :error
+      assert pixel(marked, 30, 20) == @red
+    end
   end
 
   test "a grayscale asset keeps a grayscale frame gray", %{config: config} do
@@ -348,6 +362,14 @@ defmodule ImagePipe.API.WatermarkWireTest do
     {:ok, mark} = VipsOperation.cast(mark, :VIPS_FORMAT_UCHAR)
     {:ok, mark} = VipsOperation.copy(mark, interpretation: :VIPS_INTERPRETATION_B_W)
     mark
+  end
+
+  defp tagged_gray do
+    {:ok, gray} =
+      VipsOperation.colourspace(Image.new!(60, 40, color: @blue), :VIPS_INTERPRETATION_B_W)
+
+    {:ok, tagged} = VipsOperation.icc_transform(gray, "sGrey", input_profile: "sGrey")
+    tagged
   end
 
   defp pixel(image, {x, y}), do: pixel(image, x, y)

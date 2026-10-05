@@ -197,6 +197,20 @@ defmodule ImagePipe.API.ColorManagementWireTest do
     assert pixels(alpha(mapped)) == pixels(alpha(expected))
   end
 
+  for effect <- ["gray", "bitonal"], profile <- ["", "profile=preserve/"] do
+    test "#{effect} leaves a tagged source as untagged sRGB for later colours (#{profile})" do
+      output =
+        response(
+          "#{unquote(effect)}/colorize=1,3366cc/#{unquote(profile)}format=png",
+          "icc_p3.png"
+        )
+        |> decoded()
+
+      assert header(output, "icc-profile-data") == nil
+      assert Image.get_pixel!(output, 4, 4) == [51, 102, 204]
+    end
+  end
+
   test "bitonal keeps 16-bit colour and alpha on the same scale" do
     {:ok, black} = Operation.black(8, 8, bands: 4)
     {:ok, light} = Operation.linear(black, [1.0], [50_000.0, 50_000.0, 50_000.0, 40_000.0])

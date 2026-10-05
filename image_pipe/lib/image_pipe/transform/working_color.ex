@@ -12,6 +12,7 @@ defmodule ImagePipe.Transform.WorkingColor do
   # with the sRGB transfer curve (128). It also ignores embedded profiles.
   @moduledoc false
 
+  alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.MutableImage
   alias Vix.Vips.Operation
@@ -46,6 +47,24 @@ defmodule ImagePipe.Transform.WorkingColor do
         with {:ok, srgb} <-
                Operation.icc_transform(image, "sRGB", embedded: true, depth: depth(image)) do
           Image.remove_metadata(srgb, ["icc-profile-data"])
+        end
+    end
+  end
+
+  @doc """
+  Converts a tagged frame to sRGB like `to_srgb/1` and clears the state's
+  source-profile backup, since the frame no longer holds values in the source's
+  space. Untagged frames are returned unchanged.
+  """
+  @spec to_srgb_frame(State.t()) :: {:ok, State.t()} | {:error, term()}
+  def to_srgb_frame(%State{image: image} = state) do
+    case profile(image) do
+      nil ->
+        {:ok, state}
+
+      _profile ->
+        with {:ok, srgb} <- to_srgb(image) do
+          {:ok, %State{State.set_image(state, srgb) | source_color_profile: nil}}
         end
     end
   end
