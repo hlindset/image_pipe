@@ -70,8 +70,9 @@ IPS_PROCESSING__QUALITY=82
 - Lists are comma-separated: `IPS_URL__KEYS=0123abcd…,4567ef01…`.
 - A variable ending in `_FILE` reads the value from that file, without
   trailing whitespace, for Docker and Kubernetes secrets:
-  `IPS_URL__KEYS_FILE=/run/secrets/signing_keys`. Setting both `IPS_URL__KEYS`
-  and `IPS_URL__KEYS_FILE` is an error.
+  `IPS_URL__KEYS_FILE=/run/secrets/signing_keys`.
+- Two variables for the same setting are an error, such as `IPS_URL__KEYS`
+  with `IPS_URL__KEYS_FILE`, or `IPS_URL__KEYS` with `IPS_url__keys`.
 - A list variable with no entries, or a `_FILE` variable whose file has none,
   is an error, so an empty signing-keys secret stops the server instead of
   turning off signature checks.

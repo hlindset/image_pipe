@@ -70,11 +70,12 @@ defmodule ImagePipeServer.Config.Tree do
       String.starts_with?(name, @prefix) and name != @config_var
     end)
     |> Enum.sort()
-    |> Enum.map(&env_entry!(&1, env))
-    |> Enum.reduce(%{}, fn {path, value}, tree -> put_leaf!(tree, path, value, []) end)
+    |> Enum.map(&env_entry!/1)
+    |> reject_duplicates!()
+    |> Enum.reduce(%{}, fn {_name, path, value}, tree -> put_leaf!(tree, path, value, []) end)
   end
 
-  defp env_entry!({name, value}, env) do
+  defp env_entry!({name, value}) do
     levels = name |> String.replace_prefix(@prefix, "") |> String.split("__")
 
     if Enum.any?(levels, &(&1 == "")),
@@ -82,21 +83,26 @@ defmodule ImagePipeServer.Config.Tree do
 
     path = Enum.map(levels, &String.downcase/1)
 
-    case String.split(name, ~r/_FILE\z/) do
-      [plain, ""] -> {file_path!(path), file_reference!(name, plain, value, env)}
-      [_name] -> {path, {:env, value}}
-    end
+    if String.ends_with?(name, "_FILE"),
+      do: {name, file_path!(path), {:env_file, name, value}},
+      else: {name, path, {:env, value}}
   end
 
   defp file_path!(path) do
     List.update_at(path, -1, &String.replace_suffix(&1, "_file", ""))
   end
 
-  defp file_reference!(name, plain, path, env) do
-    if Map.has_key?(env, plain),
-      do: raise(ConfigError, "both #{plain} and #{name} are set")
+  # Levels are case-insensitive, and `X_FILE` sets the same leaf as `X`.
+  defp reject_duplicates!(entries) do
+    duplicate =
+      entries
+      |> Enum.group_by(fn {_name, path, _value} -> path end, fn {name, _path, _value} -> name end)
+      |> Enum.find(fn {_path, names} -> length(names) > 1 end)
 
-    {:env_file, name, path}
+    case duplicate do
+      nil -> entries
+      {_path, [first, second | _rest]} -> raise ConfigError, "both #{first} and #{second} are set"
+    end
   end
 
   defp put_leaf!(tree, [key], value, parents) do

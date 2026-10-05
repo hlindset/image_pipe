@@ -138,6 +138,18 @@ defmodule ImagePipeServer.Config.TreeTest do
     end
   end
 
+  test "two variables that differ only in case are an error", %{tmp_dir: dir} do
+    assert_raise ConfigError, ~r/both IPS_SERVER__PORT and IPS_Server__Port are set/, fn ->
+      read!(%{"IPS_SERVER__PORT" => "1", "IPS_Server__Port" => "2"}, dir)
+    end
+  end
+
+  test "a _FILE variable and a differently cased plain variable are an error", %{tmp_dir: dir} do
+    assert_raise ConfigError, ~r/both IPS_URL__KEYS_FILE and IPS_url__keys are set/, fn ->
+      read!(%{"IPS_url__keys" => "a", "IPS_URL__KEYS_FILE" => "/run/keys"}, dir)
+    end
+  end
+
   test "a variable with an empty level is an error", %{tmp_dir: dir} do
     assert_raise ConfigError, ~r/IPS_URL____KEYS/, fn ->
       read!(%{"IPS_URL____KEYS" => "a"}, dir)
