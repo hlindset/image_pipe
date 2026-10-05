@@ -1501,8 +1501,14 @@ defmodule ImagePipe.API.ParserTest do
       assert output.format_qualities == %{avif: {:quality, 50}}
     end
 
-    test "unset must lead and be followed by values" do
-      for value <- ["jpeg-options=progressive,unset", "jpeg-options=unset,", "format-q=unset,"] do
+    test "unset must lead once and be followed by values" do
+      for value <- [
+            "jpeg-options=progressive,unset",
+            "jpeg-options=unset,",
+            "format-q=unset,",
+            "jpeg-options=unset,unset,progressive",
+            "format-q=unset,unset,avif:50"
+          ] do
         assert {:error, {:invalid_request, [_diagnostic]}} = parse(["w=800", value]), value
       end
     end

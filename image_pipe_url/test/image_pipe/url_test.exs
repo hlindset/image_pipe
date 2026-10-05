@@ -375,7 +375,9 @@ defmodule ImagePipe.URLTest do
             [jpeg_options: []],
             [format_qualities: []],
             [jpeg_options: [:unset]],
-            [format_qualities: [:unset]]
+            [format_qualities: [:unset]],
+            [jpeg_options: [:unset, :unset, interlace: true]],
+            [format_qualities: [:unset, :unset, avif: 50]]
           ] do
         assert_raise ArgumentError, ~r/:unset/, fn -> IP.URL.new() |> IP.URL.output(options) end
       end
