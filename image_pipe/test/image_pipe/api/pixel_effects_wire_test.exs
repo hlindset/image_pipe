@@ -196,6 +196,22 @@ defmodule ImagePipe.API.PixelEffectsWireTest do
     assert blue > 240 and alpha > 0 and alpha < 255
   end
 
+  test "contrast spreads tones around the midtone and keeps it in place" do
+    source =
+      Image.new!(3, 1, color: [64, 64, 64])
+      |> Image.Draw.rect!(1, 0, 1, 1, color: [128, 128, 128])
+      |> Image.Draw.rect!(2, 0, 1, 1, color: [192, 192, 192])
+
+    config = mount(png_origin(Image.write!(source, :memory, suffix: ".png")))
+    output = image("contrast=1.5", config)
+
+    assert Enum.map(0..2, &Image.get_pixel!(output, &1, 0)) == [
+             [32, 32, 32],
+             [128, 128, 128],
+             [224, 224, 224]
+           ]
+  end
+
   test "pixelate averages premultiplied alpha without transparent colour bleed" do
     source =
       Image.new!(8, 8, color: [255, 0, 0, 0], bands: 4)
