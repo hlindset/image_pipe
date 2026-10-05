@@ -40,16 +40,28 @@ defmodule ImagePipeServer.Config.Tree do
   end
 
   defp decode!(path) do
-    case Toml.decode_file(path) do
-      {:ok, tree} ->
-        tree
-
-      {:error, {:invalid_toml, reason}} ->
-        raise ConfigError, TomlError.message(reason, path)
-
-      {:error, reason} ->
-        raise ConfigError, "cannot read #{path}: #{inspect(reason)}"
+    case File.read(path) do
+      {:ok, contents} -> decode!(contents, path)
+      {:error, reason} -> raise ConfigError, "cannot read #{path}: #{:file.format_error(reason)}"
     end
+  end
+
+  # The parser crashes on bytes that aren't UTF-8, and its other non-TOML
+  # errors carry parts of the file, so neither is quoted.
+  defp decode!(contents, path) do
+    if not String.valid?(contents),
+      do: raise(ConfigError, "#{path} is not valid UTF-8 on line #{invalid_line(contents)}")
+
+    case Toml.decode(contents, filename: path) do
+      {:ok, tree} -> tree
+      {:error, {:invalid_toml, reason}} -> raise ConfigError, TomlError.message(reason, path)
+      {:error, _reason} -> raise ConfigError, "invalid TOML in #{path}: a value can't be read"
+    end
+  end
+
+  defp invalid_line(contents) do
+    {_invalid_or_incomplete, valid, _rest} = :unicode.characters_to_binary(contents)
+    length(:binary.matches(valid, "\n")) + 1
   end
 
   defp env!(env) do

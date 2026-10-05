@@ -68,6 +68,31 @@ defmodule ImagePipeServer.Config.TreeTest do
     test "keeps key paths", %{tmp_dir: dir} do
       assert toml_error(dir, "a = 1\na = 2\n") =~ "cannot redefine key in path 'a'"
     end
+
+    test "names the line of a byte that isn't UTF-8 and quotes nothing", %{tmp_dir: dir} do
+      message = toml_error(dir, "port = 8080 # caf\xE9\n[url]\nkeys = [\"sekrit\"]\n")
+
+      assert message =~ "config.toml is not valid UTF-8 on line 1"
+      refute message =~ "sekrit"
+      refute message =~ "115, 101, 107"
+    end
+
+    test "reports a number the parser can't read as invalid TOML", %{tmp_dir: dir} do
+      message = toml_error(dir, "port = 0xZZ\n")
+
+      assert message =~ ~r/\Ainvalid TOML in .*config\.toml/
+      refute message =~ "cannot read"
+    end
+  end
+
+  @tag skip: System.cmd("id", ["-u"]) == {"0\n", 0} && "chmod doesn't stop root reading the file"
+  test "an unreadable IPS_CONFIG file names the reason", %{tmp_dir: dir} do
+    path = write!(dir, "config.toml", "")
+    File.chmod!(path, 0o000)
+
+    assert_raise ConfigError, ~r/cannot read .*config\.toml: permission denied/, fn ->
+      read!(%{"IPS_CONFIG" => path}, dir)
+    end
   end
 
   test "environment variables flatten the tree with __ between levels", %{tmp_dir: dir} do
