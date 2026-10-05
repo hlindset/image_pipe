@@ -87,4 +87,61 @@ defmodule ImagePipe.MaterialDigestTest do
   end
 
   defp path_segment, do: string(:alphanumeric, min_length: 1, max_length: 16)
+
+  # The canonical form digests were defined by when this property was
+  # written. A faster canonicalization must give byte-identical digests, or
+  # every stored cache key and issued ETag would change.
+  property "digests match the reference canonicalization" do
+    check all material <- identity_term(), max_runs: 500 do
+      assert MaterialDigest.of(material) ==
+               :crypto.hash(
+                 :sha256,
+                 :erlang.term_to_binary(reference(material), [:deterministic])
+               )
+    end
+  end
+
+  defp reference(value) when is_list(value) do
+    if Keyword.keyword?(value) do
+      value
+      |> Enum.map(fn {key, item} -> {reference(key), reference(item)} end)
+      |> Enum.sort_by(fn {key, _item} -> key end)
+    else
+      reference_list(value)
+    end
+  end
+
+  defp reference(value) when is_map(value),
+    do: :maps.map(fn _key, item -> reference(item) end, value)
+
+  defp reference(value) when is_tuple(value),
+    do: value |> Tuple.to_list() |> Enum.map(&reference/1) |> List.to_tuple()
+
+  defp reference(value), do: value
+
+  defp reference_list([]), do: []
+  defp reference_list([head | tail]), do: [reference(head) | reference_list(tail)]
+  defp reference_list(tail), do: reference(tail)
+
+  # Keyword lists (including duplicate keys and near-keywords that end in a
+  # non-pair), plain lists, improper lists, maps and tuples, nested.
+  defp identity_term do
+    leaf =
+      one_of([atom(:alphanumeric), integer(), string(:alphanumeric, max_length: 4), boolean()])
+
+    tree(leaf, fn child ->
+      key = member_of([:a, :b, :c, :storage_only])
+
+      one_of([
+        list_of(tuple({key, child}), max_length: 4),
+        map({list_of(tuple({key, child}), max_length: 3), child}, fn {pairs, last} ->
+          pairs ++ [last]
+        end),
+        list_of(child, max_length: 4),
+        map({child, child}, fn {head, tail} -> [head | tail] end),
+        map(list_of(tuple({key, child}), max_length: 3), &Map.new/1),
+        tuple({child, child})
+      ])
+    end)
+  end
 end

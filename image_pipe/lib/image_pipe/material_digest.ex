@@ -20,29 +20,28 @@ defmodule ImagePipe.MaterialDigest do
   digest; callers encode it.
   """
   @spec of(term()) :: binary()
-  def of(material), do: :crypto.hash(:sha256, bytes(material))
+  def of(material), do: material |> canonicalize() |> of_canonical()
 
-  # Deterministic serialization preserves map structure and orders map keys;
-  # keyword lists are normalized recursively before encoding.
-  defp bytes(material) do
-    material
-    |> canonicalize()
-    |> :erlang.term_to_binary([:deterministic])
-  end
+  @doc """
+  The order-stable form of `material` that `of/1` digests. A caller digesting
+  several views of one term canonicalizes it once and digests each view with
+  `of_canonical/1`. Keyword lists come back sorted by key.
+  """
+  @spec canonical(term()) :: term()
+  def canonical(material), do: canonicalize(material)
 
-  defp canonicalize(value) when is_list(value) do
-    if Keyword.keyword?(value) do
-      value
-      |> Enum.map(fn {key, item} -> {canonicalize(key), canonicalize(item)} end)
-      |> Enum.sort_by(fn {key, _item} -> key end)
-    else
-      canonicalize_list(value)
-    end
-  end
+  @doc "Digest of a term `canonical/1` returned, or a view of one."
+  @spec of_canonical(term()) :: binary()
+  def of_canonical(canonical),
+    do: :crypto.hash(:sha256, :erlang.term_to_binary(canonical, [:deterministic]))
+
+  defp canonicalize(value) when is_list(value), do: canonicalize_keyword(value, [])
 
   defp canonicalize(value) when is_map(value) do
     :maps.map(fn _key, item -> canonicalize(item) end, value)
   end
+
+  defp canonicalize({first, second}), do: {canonicalize(first), canonicalize(second)}
 
   defp canonicalize(value) when is_tuple(value) do
     value
@@ -52,6 +51,15 @@ defmodule ImagePipe.MaterialDigest do
   end
 
   defp canonicalize(value), do: value
+
+  # A keyword list is sorted by key, stably. Pairs are canonicalized while the
+  # list still reads as one. At anything else it's a plain list: the pairs
+  # already done keep their order and the rest continues as a plain list.
+  defp canonicalize_keyword([{key, item} | rest], acc) when is_atom(key),
+    do: canonicalize_keyword(rest, [{key, canonicalize(item)} | acc])
+
+  defp canonicalize_keyword([], acc), do: acc |> :lists.reverse() |> List.keysort(0)
+  defp canonicalize_keyword(rest, acc), do: :lists.reverse(acc, canonicalize_list(rest))
 
   defp canonicalize_list([]), do: []
   defp canonicalize_list([head | tail]), do: [canonicalize(head) | canonicalize_list(tail)]
