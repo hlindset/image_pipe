@@ -84,13 +84,10 @@ defmodule ImagePipe.Output.Ssim2Metric.CropScore do
     base
     |> then(&tile_coords(Image.width(&1), Image.height(&1)))
     |> subsample()
-    |> Enum.reduce_while({:ok, []}, fn {x, y, w, h} = coord, {:ok, acc} ->
+    |> each_tile(fn {x, y, w, h} = coord ->
       with {:ok, tile} <- Image.crop(base, x, y, w, h),
-           {:ok, ref} <- Ssim2Metric.reference(tile) do
-        {:cont, {:ok, [{coord, ref} | acc]}}
-      else
-        {:error, _} = err -> {:halt, err}
-      end
+           {:ok, ref} <- Ssim2Metric.reference(tile),
+           do: {:ok, {coord, ref}}
     end)
   end
 
@@ -107,13 +104,26 @@ defmodule ImagePipe.Output.Ssim2Metric.CropScore do
   end
 
   defp tile_scores(references, candidate) do
-    Enum.reduce_while(references, {:ok, []}, fn {{x, y, w, h}, ref}, {:ok, acc} ->
+    each_tile(references, fn {{x, y, w, h}, ref} ->
       with {:ok, tile} <- Image.crop(candidate, x, y, w, h),
-           {:ok, score} <- Ssim2Metric.score(ref, tile) do
-        {:cont, {:ok, [score | acc]}}
-      else
-        {:error, _} = err -> {:halt, err}
-      end
+           do: Ssim2Metric.score(ref, tile)
+    end)
+  end
+
+  # Each tile is an independent single-threaded NIF call on a dirty CPU
+  # scheduler, so the tiles run concurrently, capped at the dirty CPU scheduler
+  # count. Results come back in completion order; callers don't depend on it.
+  # The first error halts the stream, which shuts down the remaining tasks.
+  defp each_tile(items, fun) do
+    items
+    |> Task.async_stream(fun,
+      max_concurrency: :erlang.system_info(:dirty_cpu_schedulers),
+      ordered: false,
+      timeout: :infinity
+    )
+    |> Enum.reduce_while({:ok, []}, fn
+      {:ok, {:ok, value}}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
+      {:ok, {:error, _} = err}, _acc -> {:halt, err}
     end)
   end
 end
