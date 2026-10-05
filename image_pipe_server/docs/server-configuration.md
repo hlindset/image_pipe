@@ -97,7 +97,11 @@ options:
 - `path_pattern` is a regular expression, anchored by the adapter.
 - HTTP sources take `request_headers` (a table of header names to values) and
   `bearer_token` for origins behind an API key or a static token. Both can
-  come from `_FILE` variables.
+  come from `_FILE` variables. A shell can't export a variable named after a
+  header with a `-`, such as
+  `IPS_SOURCES__TMDB__REQUEST_HEADERS__X-API-KEY_FILE`. Docker, Compose, and
+  Kubernetes accept the name, so set it there. Otherwise, set the header under
+  `request_headers` in the TOML file.
 - S3 `credentials` are `{ static = { access_key_id = "…", secret_access_key = "…" } }`
   or a provider: `{ provider = "instance_role" }`, `"container_credentials"`,
   `"web_identity"`, or `"assume_role"`, with the provider's options in the same
