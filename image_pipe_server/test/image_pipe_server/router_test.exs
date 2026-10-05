@@ -58,14 +58,35 @@ defmodule ImagePipeServer.RouterTest do
       end
     end
 
-    test "keeps an incoming one", %{image_pipe: image_pipe} do
-      conn =
-        conn(:get, "/w=2/format=png/src/pic.png")
-        |> put_req_header("x-request-id", "edge-request-0123456789")
-        |> Router.call(Router.init(mount_path: "/", image_pipe: image_pipe))
+    defp request_id(incoming, opts) do
+      conn(:get, "/health")
+      |> put_req_header("x-request-id", incoming)
+      |> Router.call(Router.init([mount_path: "/"] ++ opts))
+      |> get_resp_header("x-request-id")
+    end
 
-      assert conn.status == 200
-      assert get_resp_header(conn, "x-request-id") == ["edge-request-0123456789"]
+    test "replaces an incoming one by default", %{image_pipe: image_pipe} do
+      assert [id] = request_id("edge-request-0123456789", image_pipe: image_pipe)
+      assert id != "edge-request-0123456789"
+    end
+
+    test "keeps an incoming one with trust_request_id", %{image_pipe: image_pipe} do
+      opts = [image_pipe: image_pipe, trust_request_id: true]
+
+      for id <- ["a", "edge-req_1.2:3", "Root=1-5759e988-bd862e3fe1be46a994272793", "YWJj+/=="] do
+        assert request_id(id, opts) == [id]
+      end
+    end
+
+    test "replaces a trusted one with other characters or over 200 long", %{
+      image_pipe: image_pipe
+    } do
+      opts = [image_pipe: image_pipe, trust_request_id: true]
+
+      for id <- ["edge request level=error", ~s(say"hi"), String.duplicate("a", 201)] do
+        assert [generated] = request_id(id, opts)
+        assert generated != id
+      end
     end
   end
 

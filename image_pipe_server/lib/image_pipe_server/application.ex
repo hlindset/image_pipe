@@ -71,7 +71,8 @@ defmodule ImagePipeServer.Application do
     [
       mount_path: Keyword.fetch!(config.server, :mount_path),
       image_pipe: ImagePipe.Plug.init([instance: @instance] ++ config.http),
-      auth_token_hash: Keyword.fetch!(config.server, :auth_token_hash)
+      auth_token_hash: Keyword.fetch!(config.server, :auth_token_hash),
+      trust_request_id: config.trust_request_id
     ]
   end
 

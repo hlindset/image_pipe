@@ -25,7 +25,8 @@ defmodule ImagePipeServer.Config do
     * `[http]` - the delivery options of `ImagePipe.Plug.init/1`.
     * `[telemetry]` - `log_level` is the lowest level the server logs.
       `log_requests` attaches the default Logger. `trust_traceparent`
-      continues an inbound W3C `traceparent` when tracing is on.
+      continues an inbound W3C `traceparent` when tracing is on, and
+      `trust_request_id` keeps an inbound `x-request-id`.
 
   Invalid configuration raises `ImagePipeServer.ConfigError` (see there for
   which values a message may quote).
@@ -42,6 +43,7 @@ defmodule ImagePipeServer.Config do
   @enforce_keys [
     :server,
     :trust_traceparent,
+    :trust_request_id,
     :image_pipe,
     :detector_warmup,
     :http,
@@ -58,6 +60,8 @@ defmodule ImagePipeServer.Config do
     * `:server` - `:port`, `:ip`, `:mount_path`, `:shutdown_timeout`,
       `:read_timeout`, `:max_connections`, and `:auth_token_hash`, the SHA-256
       of the auth token (or `nil`). The token itself isn't kept.
+    * `:trust_request_id` - whether a request keeps an inbound
+      `x-request-id`.
     * `:trust_traceparent` - whether the tracer continues an inbound
       `traceparent` (its `extract_inbound` option).
     * `:image_pipe` - the `ImagePipe.Config` the server's instance runs.
@@ -74,6 +78,7 @@ defmodule ImagePipeServer.Config do
   @type t :: %__MODULE__{
           server: keyword(),
           trust_traceparent: boolean(),
+          trust_request_id: boolean(),
           image_pipe: ImagePipe.Config.t(),
           detector_warmup: :all | false | [String.t()],
           http: keyword(),
@@ -98,7 +103,8 @@ defmodule ImagePipeServer.Config do
   @telemetry_schema [
     log_level: [type: {:in, Logger.levels()}, default: :info],
     log_requests: [type: :boolean, default: false],
-    trust_traceparent: [type: :boolean, default: false]
+    trust_traceparent: [type: :boolean, default: false],
+    trust_request_id: [type: :boolean, default: false]
   ]
 
   @watermark_schema [
@@ -284,6 +290,8 @@ defmodule ImagePipeServer.Config do
     %__MODULE__{
       server: server!(Keyword.get(sections, :server, [])),
       trust_traceparent: trust_traceparent(Keyword.get(sections, :telemetry, [])),
+      trust_request_id:
+        Keyword.get(Keyword.get(sections, :telemetry, []), :trust_request_id, false),
       image_pipe: image_pipe,
       detector_warmup: detector_warmup,
       http: http!(Keyword.get(sections, :http, [])),

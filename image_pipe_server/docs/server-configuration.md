@@ -436,12 +436,13 @@ Response settings: the CORS origin, whether requests may ask for debug headers, 
 
 ### `[telemetry]`
 
-`log_level` is the lowest level the server logs. `log_requests` logs each request and its stages at `info`, and failures at `warning`. With `trust_traceparent`, a request with a W3C `traceparent` header joins the caller's trace when [tracing](server-deployment.md#tracing) is on. Any client can send that header.
+`log_level` is the lowest level the server logs. `log_requests` logs each request and its stages at `info`, and failures and degraded results at `warning`. With `trust_traceparent`, a request with a W3C `traceparent` header joins the caller's trace when [tracing](server-deployment.md#tracing) is on. Any client can send that header. With `trust_request_id`, an incoming `x-request-id` of 1 to 200 letters, digits, and `-_.:+/=` tags the request's log lines instead of a generated ID.
 
 | Key | Type | Default |
 | --- | --- | --- |
 | `log_level` | `"error"` or `"info"` or `"debug"` or `"emergency"` or `"alert"` or `"critical"` or `"warning"` or `"notice"` | `"info"` |
 | `log_requests` | boolean | `false` |
 | `trust_traceparent` | boolean | `false` |
+| `trust_request_id` | boolean | `false` |
 
 <!-- reference:end -->

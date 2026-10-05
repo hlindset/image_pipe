@@ -9,18 +9,22 @@ defmodule ImagePipeServer.Router do
   With `:auth_token_hash` (the SHA-256 of the auth token), requests other than
   `/health` must send `Authorization: Bearer <token>`, or get a 401.
 
-  Every response carries an `x-request-id`, kept from the request when valid,
-  which is also the `:request_id` Logger metadata for the request.
+  Every response carries an `x-request-id`, which is also the `:request_id`
+  Logger metadata for the request. With `:trust_request_id`, an incoming ID
+  of 1 to 200 letters, digits, and `-_.:+/=` is kept. Otherwise the router
+  generates one, so a client can't add fields to log lines.
   """
 
   @behaviour Plug
 
   import Plug.Conn
 
+  @request_id ~r"\A[A-Za-z0-9\-_.:+/=]{1,200}\z"
+
   @impl Plug
   def init(opts) do
     %{
-      request_id: Plug.RequestId.init([]),
+      trust_request_id: Keyword.get(opts, :trust_request_id, false),
       mount: Plug.Router.Utils.split(Keyword.fetch!(opts, :mount_path)),
       image_pipe: Keyword.fetch!(opts, :image_pipe),
       auth_token_hash: Keyword.get(opts, :auth_token_hash)
@@ -29,10 +33,22 @@ defmodule ImagePipeServer.Router do
 
   @impl Plug
   def call(conn, opts) do
+    request_id = request_id(conn, opts.trust_request_id)
+    Logger.metadata(request_id: request_id)
+
     conn
-    |> Plug.RequestId.call(opts.request_id)
+    |> put_resp_header("x-request-id", request_id)
     |> dispatch(opts)
   end
+
+  defp request_id(conn, true) do
+    case get_req_header(conn, "x-request-id") do
+      [id | _rest] -> if Regex.match?(@request_id, id), do: id, else: Plug.RequestId.generate()
+      [] -> Plug.RequestId.generate()
+    end
+  end
+
+  defp request_id(_conn, false), do: Plug.RequestId.generate()
 
   defp dispatch(%Plug.Conn{method: method, path_info: ["health"]} = conn, _opts)
        when method in ["GET", "HEAD"] do

@@ -188,7 +188,8 @@ defmodule ImagePipeServer.ConfigTest do
             "telemetry" => %{
               "log_level" => "warning",
               "log_requests" => true,
-              "trust_traceparent" => true
+              "trust_traceparent" => true,
+              "trust_request_id" => true
             }
           })
         )
@@ -198,6 +199,7 @@ defmodule ImagePipeServer.ConfigTest do
       assert config.log_level == :warning
       assert config.telemetry == [level: :info]
       assert config.trust_traceparent == true
+      assert config.trust_request_id == true
 
       queue_only = Config.build!(Config.options!(%{"pool" => %{"max_queue" => 1}}))
       assert queue_only.pool[:max_concurrency] == System.schedulers_online()
@@ -209,11 +211,12 @@ defmodule ImagePipeServer.ConfigTest do
                "pool"
     end
 
-    test "logs at info and above without request lines by default" do
+    test "defaults [telemetry] to info, no request lines, and no inbound IDs" do
       config = Config.build!([])
 
       assert config.log_level == :info
       assert config.telemetry == nil
+      assert config.trust_request_id == false
     end
 
     test "builds validated mount options" do

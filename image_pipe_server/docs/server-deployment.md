@@ -240,9 +240,12 @@ default. With request logging on, `log_level = "warning"` keeps only the
 failed and degraded requests.
 
 Every response carries an `x-request-id` header, and every log line for that
-request is tagged `request_id=<id>`. The server keeps a valid incoming
-`x-request-id` (20 to 200 characters), so an ID set by a proxy or CDN carries
-through; otherwise it generates one.
+request is tagged `request_id=<id>`. The server generates the ID. Behind a
+proxy or CDN that sets `x-request-id`, set `[telemetry] trust_request_id = true`
+to keep its ID, so its logs and the server's share one ID. Only do this when
+the proxy replaces any `x-request-id` a client sends. The server still
+replaces an ID longer than 200 characters or with characters other than
+letters, digits, and `-_.:+/=`.
 
 ## Tracing
 
