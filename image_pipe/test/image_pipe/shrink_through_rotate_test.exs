@@ -224,6 +224,55 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
     end
   end
 
+  describe "arbitrary-angle rotate then resize" do
+    # The decode plans against the rotated bounding box with twice the target as
+    # headroom, so the rotate itself runs at about twice the output size.
+    # rotate=10 on 3200×2400: bounding box ≈ 3568 wide, target 400 → 800 with
+    # headroom → load shrink 4 (8 without the headroom).
+    test "rotate=10 + resize shrinks with 2x headroom and stays pixel-equivalent" do
+      {jpeg_img, shrink} = run(structured(3200, 2400, ".jpg"), "rotate=10/w=400")
+      {png_img, no_shrink} = run(structured(3200, 2400, ".png"), "rotate=10/w=400")
+
+      assert no_shrink == nil
+      assert shrink == 4
+      assert_equivalent(jpeg_img, png_img, shrink, "rot:10 -> fit:400")
+    end
+
+    # EXIF-6 displays the stored 3200×2400 as 2400×3200. The display frame's
+    # bounding box is ≈ 3678 wide; against 480 × 2 that's shrink 2. The stored
+    # frame's (≈ 3971) would give 4.
+    test "EXIF-6 + rotate=30 sizes the bounding box from the display frame" do
+      {jpeg_img, shrink} = run(oriented(3200, 2400, 6, ".jpg"), "rotate=30/w=480")
+      {png_img, no_shrink} = run(oriented(3200, 2400, 6, ".png"), "rotate=30/w=480")
+
+      assert no_shrink == nil
+      assert shrink == 2
+      assert_equivalent(jpeg_img, png_img, shrink, "EXIF-6 + rot:30 -> fit:480")
+    end
+
+    # Crops resolve in the rotated frame, so their pixel offsets are rescaled by
+    # the decode shrink after an arbitrary rotate too.
+    test "gravity crop after rotate=10 lands on the same content" do
+      options = "rotate=10/crop=1600,1200/anchor=top-left/anchor-offset=600,400/w=400"
+
+      {jpeg_img, shrink} = run(structured(3200, 2400, ".jpg"), options)
+      {png_img, no_shrink} = run(structured(3200, 2400, ".png"), options)
+
+      assert no_shrink == nil
+      assert_equivalent(jpeg_img, png_img, shrink, "rot:10 + gravity crop -> fit:400")
+    end
+
+    test "region crop after rotate=10 lands on the same content" do
+      options = "rotate=10/region=800,600,1600,1200/w=400"
+
+      {jpeg_img, shrink} = run(structured(3200, 2400, ".jpg"), options)
+      {png_img, no_shrink} = run(structured(3200, 2400, ".png"), options)
+
+      assert no_shrink == nil
+      assert_equivalent(jpeg_img, png_img, shrink, "rot:10 + region -> fit:400")
+    end
+  end
+
   describe "decode-limit guardrail" do
     # An over-limit source with a rotate+resize that WOULD shrink must STILL fail the
     # input-pixel gate: validate_original_pixels keys off the un-shrunk header dims
