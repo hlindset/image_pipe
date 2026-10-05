@@ -753,4 +753,17 @@ defmodule ImagePipe.Cache.FileSystemTest do
     assert {:hit, cached_entry} = FileSystem.get(cache_key, root: root)
     assert cached_entry.body in ["body-one", "body-two"]
   end
+
+  test "a source record is read from metadata, without the body", %{root: root} do
+    opts = ImagePipe.Cache.validate_config!(cache: {FileSystem, root: root})
+    input_key = key(String.duplicate("b", 64))
+    {:ok, source, _config} = ImagePipe.Source.from_input({:binary, "bytes"}, sources: %{})
+    record = ImagePipe.Source.Record.new(source, :crypto.hash(:sha256, "bytes"), nil, 0)
+
+    :ok = ImagePipe.Cache.remember_source(input_key, record, opts)
+    assert ImagePipe.Cache.source_record(input_key, opts) == record
+
+    for body <- Path.wildcard(Path.join(root, "**/*.body")), do: File.rm!(body)
+    assert ImagePipe.Cache.source_record(input_key, opts) == record
+  end
 end

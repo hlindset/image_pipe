@@ -129,13 +129,36 @@ defmodule ImagePipe.Cache do
 
   @doc false
   def source_record(input_key, opts) do
-    case lookup_entry(source_index_key(input_key), opts) do
-      {:hit, entry} ->
+    case lookup_source_record(source_index_key(input_key), opts) do
+      {:hit, %Entry{} = entry} ->
         Entry.close(entry)
         entry.source_record
 
+      {:hit, record} ->
+        record
+
       _miss ->
         nil
+    end
+  end
+
+  # The file system reads the record from metadata alone. Other adapters
+  # return it on a whole entry.
+  defp lookup_source_record(key, opts) do
+    case Keyword.get(opts, :cache) do
+      {FileSystem, cache_opts} ->
+        traced_lookup(opts, fn -> read_source_record(key, cache_opts) end)
+
+      _other ->
+        lookup_entry(key, opts)
+    end
+  end
+
+  defp read_source_record(key, cache_opts) do
+    case FileSystem.source_record(key, cache_opts) do
+      :miss -> {:miss, key}
+      {:error, reason} -> handle_read_error(reason, key, cache_opts)
+      hit -> hit
     end
   end
 
@@ -163,20 +186,21 @@ defmodule ImagePipe.Cache do
   """
   @spec lookup_entry(Key.t(), keyword()) :: entry_lookup_result()
   def lookup_entry(%Key{} = key, opts) when is_list(opts) do
+    traced_lookup(opts, fn ->
+      case Keyword.get(opts, :cache) do
+        nil -> :disabled
+        {adapter, cache_opts} -> get_entry_configured(adapter, key, cache_opts)
+      end
+    end)
+  end
+
+  defp traced_lookup(opts, lookup) do
     Telemetry.span(
       Telemetry.telemetry_opts(opts),
       [:cache, :lookup],
       entry_lookup_start_metadata(opts),
       fn ->
-        result =
-          case Keyword.get(opts, :cache) do
-            nil ->
-              :disabled
-
-            {adapter, cache_opts} ->
-              get_entry_configured(adapter, key, cache_opts)
-          end
-
+        result = lookup.()
         {result, entry_lookup_stop_metadata(result)}
       end
     )
@@ -368,7 +392,7 @@ defmodule ImagePipe.Cache do
   end
 
   defp entry_lookup_stop_metadata(:disabled), do: %{result: :ok, cache: :disabled}
-  defp entry_lookup_stop_metadata({:hit, %Entry{}}), do: %{result: :ok, cache: :hit}
+  defp entry_lookup_stop_metadata({:hit, _entry_or_record}), do: %{result: :ok, cache: :hit}
   defp entry_lookup_stop_metadata({:miss, %Key{}}), do: %{result: :ok, cache: :miss}
 
   defp entry_lookup_stop_metadata({:miss, %Key{}, {:cache_read, error}}),
