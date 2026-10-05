@@ -394,30 +394,80 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert located.body_sha256 == runtime_descriptor.body_sha256
   end
 
-  for queue <- [:probationary, :protected] do
-    test "stale #{queue} scan snapshot does not restore deleted accounting", ctx do
-      opts = base_opts(registry: ctx.registry, tmp_dir: ctx.tmp_dir)
-      pid = start_supervised!({Admission, opts})
+  # The scan reads a FIFO named like metadata, so it holds its snapshot and
+  # can't apply or finish until the test writes to the FIFO.
+  defp during_scan(ctx, opts, fun) do
+    fifo = Path.join([ctx.tmp_dir, "ff", "ff", String.duplicate("f", 64) <> ".meta"])
+    File.mkdir_p!(Path.dirname(fifo))
+    {_, 0} = System.cmd("mkfifo", [fifo])
+    pid = start_supervised!({Admission, opts})
+
+    try do
+      fun.(pid)
+    after
+      File.write!(fifo, "not metadata")
       Admission.await_scan(pid)
-      hash = hex_hash("d")
-      put_disk_entry(ctx.tmp_dir, hash, "old body")
-      {:ok, paths} = FileSystem.paths_from_hash(hash, root: ctx.tmp_dir)
-      {:ok, descriptor, mtime} = FileSystem.read_descriptor(paths.meta_path)
-      entry = Map.put(descriptor, :mtime, mtime)
-      cache_key = %Key{hash: hash, data: []}
-      :ok = Store.delete(cache_key, root: ctx.tmp_dir)
-
-      message =
-        case unquote(queue) do
-          :probationary -> {:apply_scan_batch, [entry]}
-          :protected -> {:apply_protected_batch, [hash], %{hash => entry}}
-        end
-
-      assert :ok = GenServer.call(pid, message)
-      state = :sys.get_state(pid)
-      assert state.probationary_bytes + state.protected_bytes + state.window_bytes == 0
-      assert FileSystem.get(cache_key, root: ctx.tmp_dir) == :miss
     end
+
+    pid
+  end
+
+  defp snapshot(root, hash) do
+    {:ok, paths} = FileSystem.paths_from_hash(hash, root: root)
+    {:ok, descriptor, mtime} = FileSystem.read_descriptor(paths.meta_path)
+    {paths, descriptor, Map.put(descriptor, :mtime, mtime)}
+  end
+
+  defp apply_snapshot(pid, :probationary, entry),
+    do: GenServer.call(pid, {:apply_scan_batch, [entry]})
+
+  defp apply_snapshot(pid, :protected, entry),
+    do:
+      GenServer.call(pid, {:apply_protected_batch, [entry.key_hash], %{entry.key_hash => entry}})
+
+  defp tracked_bytes(pid) do
+    state = :sys.get_state(pid)
+    state.probationary_bytes + state.protected_bytes + state.window_bytes
+  end
+
+  for queue <- [:probationary, :protected] do
+    test "a #{queue} scan snapshot of an entry deleted mid-scan is skipped", ctx do
+      hash = hex_hash("d")
+      opts = base_opts(registry: ctx.registry, tmp_dir: ctx.tmp_dir)
+
+      pid =
+        during_scan(ctx, opts, fn pid ->
+          put_disk_entry(ctx.tmp_dir, hash, "old body")
+          {paths, _descriptor, entry} = snapshot(ctx.tmp_dir, hash)
+          assert Admission.delete(pid, paths) == :ok
+
+          assert :ok = apply_snapshot(pid, unquote(queue), entry)
+          assert tracked_bytes(pid) == 0
+        end)
+
+      assert tracked_bytes(pid) == 0
+      assert FileSystem.get(%Key{hash: hash, data: []}, root: ctx.tmp_dir) == :miss
+    end
+  end
+
+  test "a scan snapshot of an entry evicted mid-scan is skipped", ctx do
+    hash = hex_hash("e")
+    opts = base_opts(registry: ctx.registry, tmp_dir: ctx.tmp_dir, max_size_bytes: 50)
+
+    during_scan(ctx, opts, fn pid ->
+      put_disk_entry(ctx.tmp_dir, hash, String.duplicate("x", 100))
+      {_paths, descriptor, entry} = snapshot(ctx.tmp_dir, hash)
+
+      # A hit tracks the entry before the scan reaches it, and the over-cap
+      # entry is then evicted.
+      Admission.hit(pid, descriptor)
+      assert tracked_bytes(pid) == 100
+      assert :ok = GenServer.call(pid, :reconcile_to_cap)
+      assert tracked_bytes(pid) == 0
+
+      assert :ok = apply_snapshot(pid, :probationary, entry)
+      assert tracked_bytes(pid) == 0
+    end)
   end
 
   test "protected entries are restored in LRU-to-MRU order from persisted state", %{

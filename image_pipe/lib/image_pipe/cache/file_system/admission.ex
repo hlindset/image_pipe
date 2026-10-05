@@ -44,6 +44,9 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       # key_hash -> {queue, position}, so hash lookups avoid scanning the
       # position-ordered queues.
       index: nil,
+      # Keys dropped, deleted or committed while the startup scan runs, so a
+      # stale scanned descriptor for them is skipped. nil once the scan ends.
+      scan_changes: nil,
       window_bytes: 0,
       probationary_bytes: 0,
       protected_bytes: 0,
@@ -129,7 +132,8 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       window: :ets.new(:window, [:ordered_set, :protected]),
       probationary: :ets.new(:probationary, [:ordered_set, :protected]),
       protected: :ets.new(:protected, [:ordered_set, :protected]),
-      index: :ets.new(:index, [:set, :protected])
+      index: :ets.new(:index, [:set, :protected]),
+      scan_changes: :ets.new(:scan_changes, [:set, :private])
     }
 
     state =
@@ -410,9 +414,17 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       require Logger
       Logger.warning("cache: directory scan crashed before completion: reason=#{inspect(reason)}")
       Enum.each(state.scan_waiters, &GenServer.reply(&1, :ok))
+      :ets.delete(state.scan_changes)
 
       {:noreply,
-       %{state | scan_complete?: true, scan_waiters: [], scan_task: nil, scan_task_ref: nil}}
+       %{
+         state
+         | scan_complete?: true,
+           scan_waiters: [],
+           scan_task: nil,
+           scan_task_ref: nil,
+           scan_changes: nil
+       }}
     else
       {:noreply, %{state | scan_task: nil, scan_task_ref: nil}}
     end
@@ -505,6 +517,8 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   def handle_call({:delete, paths}, _from, state) do
+    note_scan_change(state, paths.hash)
+
     case FileSystem.delete_entry(paths) do
       {:ok, result} -> {:reply, result, forget_entry(state, paths.hash)}
       :miss -> {:reply, :miss, forget_entry(state, paths.hash)}
@@ -515,6 +529,8 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   def handle_call({:commit, prepared, body_filename}, _from, state) do
     # Publication, accounting and eviction share the same serialized owner.
     # Failed publication leaves admission queues unchanged.
+    note_scan_change(state, prepared.paths.hash)
+
     case FileSystem.publish_sink(prepared, body_filename) do
       {:ok, descriptor} ->
         {result, state} = admit_descriptor(state, descriptor)
@@ -536,13 +552,14 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   def handle_call(:scan_complete, _from, state) do
     Enum.each(state.scan_waiters, &GenServer.reply(&1, :ok))
-    {:reply, :ok, %{state | scan_complete?: true, scan_waiters: []}}
+    :ets.delete(state.scan_changes)
+    {:reply, :ok, %{state | scan_complete?: true, scan_waiters: [], scan_changes: nil}}
   end
 
   def handle_call({:apply_scan_batch, batch}, _from, state) do
     state =
       Enum.reduce(batch, state, fn entry, acc ->
-        if already_tracked?(acc, entry.key_hash) or not current_descriptor?(acc, entry) do
+        if already_tracked?(acc, entry.key_hash) or scan_changed?(acc, entry.key_hash) do
           acc
         else
           insert_scan_descriptor(acc, entry)
@@ -564,7 +581,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   defp apply_protected_hash(hash, state, descriptor_map) do
     case Map.fetch(descriptor_map, hash) do
       {:ok, entry} ->
-        if already_tracked?(state, hash) or not current_descriptor?(state, entry) do
+        if already_tracked?(state, hash) or scan_changed?(state, hash) do
           state
         else
           # Drop the scan-only `:mtime` field so queued descriptors
@@ -859,9 +876,16 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   defp drop_entry(state, queue, pos, key_hash) do
+    note_scan_change(state, key_hash)
     :ets.delete(Map.fetch!(state, queue), {pos, key_hash})
     :ets.delete(state.index, key_hash)
   end
+
+  defp note_scan_change(%{scan_changes: nil}, _key_hash), do: :ok
+  defp note_scan_change(state, key_hash), do: :ets.insert(state.scan_changes, {key_hash})
+
+  defp scan_changed?(%{scan_changes: nil}, _key_hash), do: false
+  defp scan_changed?(state, key_hash), do: :ets.member(state.scan_changes, key_hash)
 
   defp next_position(state),
     do: {state.next_position, %{state | next_position: state.next_position + 1}}
