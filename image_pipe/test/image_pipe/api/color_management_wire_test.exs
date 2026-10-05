@@ -197,6 +197,19 @@ defmodule ImagePipe.API.ColorManagementWireTest do
     assert pixels(alpha(mapped)) == pixels(alpha(expected))
   end
 
+  test "bitonal keeps 16-bit colour and alpha on the same scale" do
+    {:ok, black} = Operation.black(8, 8, bands: 4)
+    {:ok, light} = Operation.linear(black, [1.0], [50_000.0, 50_000.0, 50_000.0, 40_000.0])
+    {:ok, light} = Operation.cast(light, :VIPS_FORMAT_USHORT)
+    {:ok, input} = Operation.copy(light, interpretation: :VIPS_INTERPRETATION_RGB16)
+    opts = body_source(Image.write!(input, :memory, suffix: ".png"), "image/png")
+
+    output = response("bitonal/format=png/hdr=preserve", "alpha.png", opts) |> decoded()
+
+    assert VipsImage.format(output) == :VIPS_FORMAT_USHORT
+    assert Image.get_pixel!(output, 4, 4) == [65_535, 40_000]
+  end
+
   test "URL profile and HDR policies override host defaults and canonicalize their identity" do
     opts = [strip_color_profile: false, preserve_hdr: true]
     configured = response("format=png", "rgb16.png", opts)
