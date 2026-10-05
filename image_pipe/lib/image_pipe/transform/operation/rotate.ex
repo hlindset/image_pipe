@@ -41,10 +41,11 @@ defmodule ImagePipe.Transform.Operation.Rotate do
   end
 
   # Add alpha for transparent corners: without a background, `Image.rotate/3`
-  # fills with zeros, which is transparent once the image has alpha.
+  # fills with zeros, which is transparent once the image has alpha. Bicubic
+  # keeps edges slightly crisper than libvips' default bilinear.
   defp rotate(image, angle) do
     with {:ok, with_alpha} <- Alpha.ensure(image) do
-      Image.rotate(with_alpha, angle)
+      Image.rotate(with_alpha, angle, interpolate: :bicubic)
     end
   end
 end
