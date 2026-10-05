@@ -246,6 +246,14 @@ Counts of responses requested only once are not saved.
   until a startup at least an hour after the crash deletes it.
 - Two writes to the same key at once both store their body. The last one
   wins, and the other body is deleted.
+- Nodes that share a `root` count entry sizes separately. When one node
+  deletes or replaces an entry, the other nodes keep counting its old size
+  until they evict, delete, or rewrite that entry, or restart. Until then a
+  node's count is off by the difference, so it evicts too early or too
+  late.
+- A node that evicts an entry another node has replaced also deletes the
+  replacement's metadata. The replacement's body stays on disk, untracked,
+  until a startup at least an hour later deletes it.
 
 The bounded-mode telemetry events are listed in
 [cache events](telemetry-events.md#cache-events).
