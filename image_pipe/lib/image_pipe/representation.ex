@@ -65,9 +65,13 @@ defmodule ImagePipe.Representation do
       storage_only: material.storage_only
     ]
 
+    # The ETag digests the key data without storage_only, so both come from one
+    # canonical form.
+    canonical = MaterialDigest.canonical(key_data)
+
     %__MODULE__{
-      cache_key: %Key{hash: digest_hex(key_data), data: key_data},
-      etag: etag(Keyword.delete(key_data, :storage_only)),
+      cache_key: %Key{hash: hex(canonical), data: key_data},
+      etag: etag(Keyword.delete(canonical, :storage_only)),
       vary: material.vary_header_names
     }
   end
@@ -93,10 +97,13 @@ defmodule ImagePipe.Representation do
     %Key{hash: digest_hex([pool: :input] ++ data), data: data}
   end
 
-  defp digest_hex(data), do: data |> MaterialDigest.of() |> Base.encode16(case: :lower)
+  defp digest_hex(data), do: data |> MaterialDigest.canonical() |> hex()
 
-  defp etag(data) do
-    digest = data |> MaterialDigest.of() |> Base.url_encode64(padding: false)
+  defp hex(canonical),
+    do: canonical |> MaterialDigest.of_canonical() |> Base.encode16(case: :lower)
+
+  defp etag(canonical) do
+    digest = canonical |> MaterialDigest.of_canonical() |> Base.url_encode64(padding: false)
     ~s("#{@etag_schema}-#{digest}")
   end
 end

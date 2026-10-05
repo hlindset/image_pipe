@@ -20,15 +20,20 @@ defmodule ImagePipe.MaterialDigest do
   digest; callers encode it.
   """
   @spec of(term()) :: binary()
-  def of(material), do: :crypto.hash(:sha256, bytes(material))
+  def of(material), do: material |> canonicalize() |> of_canonical()
 
-  # Deterministic serialization preserves map structure and orders map keys;
-  # keyword lists are normalized recursively before encoding.
-  defp bytes(material) do
-    material
-    |> canonicalize()
-    |> :erlang.term_to_binary([:deterministic])
-  end
+  @doc """
+  The order-stable form of `material` that `of/1` digests. A caller digesting
+  several views of one term canonicalizes it once and digests each view with
+  `of_canonical/1`. Keyword lists come back sorted by key.
+  """
+  @spec canonical(term()) :: term()
+  def canonical(material), do: canonicalize(material)
+
+  @doc "Digest of a term `canonical/1` returned, or a view of one."
+  @spec of_canonical(term()) :: binary()
+  def of_canonical(canonical),
+    do: :crypto.hash(:sha256, :erlang.term_to_binary(canonical, [:deterministic]))
 
   defp canonicalize(value) when is_list(value) do
     if Keyword.keyword?(value) do
