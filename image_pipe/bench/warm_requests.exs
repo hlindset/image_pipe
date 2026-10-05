@@ -51,7 +51,13 @@ defmodule WarmRequestsBench do
     path = "/w=#{width}/format=webp/src/image.jpg"
     method = if mode == "head", do: :head, else: :get
     %{status: 200, resp_body: body} = ImagePipe.Plug.call(conn(:get, path), mount)
-    request = fn -> %{status: 200} = ImagePipe.Plug.call(conn(method, path), mount) end
+    drain_sent()
+
+    request = fn ->
+      %{status: 200} = ImagePipe.Plug.call(conn(method, path), mount)
+      drain_sent()
+    end
+
     Enum.each(1..100, fn _ -> request.() end)
 
     request =
@@ -87,6 +93,17 @@ defmodule WarmRequestsBench do
     )
   after
     System.tmp_dir!() |> Path.join("warm-bench-*") |> Path.wildcard() |> Enum.each(&File.rm_rf!/1)
+  end
+
+  # Plug.Test sends each response, body included, to the calling process.
+  # Left unread, they pile up and slow later requests.
+  defp drain_sent do
+    receive do
+      {:plug_conn, :sent} -> drain_sent()
+      {ref, _response} when is_reference(ref) -> drain_sent()
+    after
+      0 -> :ok
+    end
   end
 
   defmodule Mounted do
