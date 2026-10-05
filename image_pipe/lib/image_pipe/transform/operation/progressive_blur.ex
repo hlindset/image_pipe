@@ -10,6 +10,7 @@ defmodule ImagePipe.Transform.Operation.ProgressiveBlur do
 
   alias ImagePipe.Transform.DirectionalMask
   alias ImagePipe.Transform.Operation.AlphaPremultiply
+  alias ImagePipe.Transform.Operation.GaussianBlur
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
@@ -64,7 +65,7 @@ defmodule ImagePipe.Transform.Operation.ProgressiveBlur do
   end
 
   defp add_level({:ok, acc}, image, ramp, sigma, level) do
-    with {:ok, blurred} <- Image.blur(image, sigma: sigma * level / @levels),
+    with {:ok, blurred} <- GaussianBlur.blur(image, sigma * level / @levels),
          {:ok, weight} <- level_weight(ramp, level),
          {:ok, term} <- Operation.multiply(blurred, weight),
          {:ok, sum} <- Operation.add(acc, term) do
