@@ -498,6 +498,19 @@ defmodule ImagePipe.Cache.FileSystemTest do
     assert cached_entry.body == "body"
   end
 
+  test "reusing an existing body moves its mtime", %{root: root} do
+    cache_key = key("aeaeae" <> String.duplicate("1", 58))
+    assert {:ok, paths} = FileSystem.paths(cache_key, root: root)
+    File.mkdir_p!(paths.dir)
+    body = Path.join(paths.dir, body_filename(cache_key, "body"))
+    File.write!(body, "body")
+    old = System.os_time(:second) - 7_200
+    File.touch!(body, old)
+
+    assert put_entry(cache_key, entry("body"), root: root) == :ok
+    assert File.stat!(body, time: :posix).mtime > old
+  end
+
   test "unexpected body read error is returned", %{root: root} do
     cache_key = key("fafafa" <> String.duplicate("2", 58))
     assert put_entry(cache_key, entry("body"), root: root) == :ok
@@ -603,6 +616,20 @@ defmodule ImagePipe.Cache.FileSystemTest do
 
     test "returns nil for unbounded mode" do
       assert FileSystem.child_spec(root: "/tmp") == nil
+    end
+
+    test "an instance sweeps an unbounded pool once at start", %{root: root} do
+      dir = Path.join([root, "aa", "aa"])
+      File.mkdir_p!(dir)
+      leftover = Path.join(dir, ".#{String.duplicate("a", 64)}.Ab_c-dE.tmp")
+      File.write!(leftover, "bytes")
+      File.touch!(leftover, System.os_time(:second) - 7_200)
+
+      [spec] = ImagePipe.Cache.startup_specs(cache: {FileSystem, root: root})
+      pid = start_supervised!(spec)
+      ref = Process.monitor(pid)
+      assert_receive {:DOWN, ^ref, :process, ^pid, reason} when reason in [:normal, :noproc]
+      refute File.exists?(leftover)
     end
   end
 

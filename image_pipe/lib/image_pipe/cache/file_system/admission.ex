@@ -6,6 +6,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   alias ImagePipe.Cache.FileSystem.Policy
   alias ImagePipe.Cache.FileSystem.Sketch
   alias ImagePipe.Cache.FileSystem.Store, as: FileSystem
+  alias ImagePipe.Cache.FileSystem.Sweep
   alias ImagePipe.Telemetry
 
   defmodule State do
@@ -282,6 +283,10 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   @impl true
   def handle_continue(:schedule_tickers, state) do
+    # Only this process writes its own state temps, and it hasn't flushed yet,
+    # so any left over are from a previous run.
+    remove_own_state_temps(state)
+
     # Capture Admission's pid before spawning. An unlinked, monitored scan can
     # fail without crashing Admission; its :DOWN releases await_scan waiters.
     # This short-lived worker needs no per-cache Task.Supervisor registration.
@@ -332,6 +337,9 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     # evict by LRU until under budget. No score gate — these are
     # already-cached entries with no candidate to compare against.
     GenServer.call(admission_pid, :reconcile_to_cap)
+
+    # Phase D: remove files a VM that died left behind.
+    Sweep.run(entry_root, state.pool, tel_opts(state))
 
     GenServer.call(admission_pid, :scan_complete)
   end
@@ -999,12 +1007,33 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   # Returns true when a stale peer file was removed (so the caller can count
   # removals for telemetry), false otherwise.
+  defp remove_own_state_temps(state) do
+    prefix = "#{state.node_id}.state.tmp."
+
+    for file <- ls(state.state_dir),
+        String.starts_with?(file, prefix),
+        do: File.rm(Path.join(state.state_dir, file))
+  end
+
+  defp ls(dir) do
+    case File.ls(dir) do
+      {:ok, files} -> files
+      {:error, _reason} -> []
+    end
+  end
+
   defp maybe_remove_stale_peer_file(state, file, own, now) do
-    if String.ends_with?(file, ".state") and file != own do
+    if peer_state_file?(file, own) do
       remove_if_stale(Path.join(state.state_dir, file), now, state.state_ttl_ms)
     else
       false
     end
+  end
+
+  # A peer's state file, or a temp a peer left mid-flush.
+  defp peer_state_file?(file, own) do
+    (String.ends_with?(file, ".state") and file != own) or
+      (String.contains?(file, ".state.tmp.") and not String.starts_with?(file, own <> ".tmp."))
   end
 
   defp remove_if_stale(path, now, ttl_ms) do

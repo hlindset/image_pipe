@@ -46,7 +46,7 @@ defmodule ImagePipe.Execution.SourceCache do
       fn coordination ->
         opts =
           case coordination do
-            false -> Keyword.drop(config, [:cache, :input_cache])
+            false -> config
             ref -> Keyword.put(config, :source_lease, ref)
           end
 
@@ -57,8 +57,9 @@ defmodule ImagePipe.Execution.SourceCache do
           _validate -> fetch(source, key, record, preparation, opts)
         end
       end,
-      Telemetry.telemetry_opts(config)
+      work_opts(source, config)
     )
+    |> waited()
   end
 
   def input(source, key, record, preparation, config) do
@@ -72,10 +73,25 @@ defmodule ImagePipe.Execution.SourceCache do
           fn coordination ->
             open_or_fetch(source, key, record, preparation, config, coordination)
           end,
-          Telemetry.telemetry_opts(config)
+          work_opts(source, config)
         )
+        |> waited()
     end
   end
+
+  # A request waiting behind another one's download gives up a second after
+  # that download's own deadline, with the same timeout error.
+  defp work_opts(%{fetch: fetch}, config) when is_list(fetch) do
+    case Keyword.get(fetch, :fetch_timeout) do
+      nil -> Telemetry.telemetry_opts(config)
+      timeout -> Keyword.put(Telemetry.telemetry_opts(config), :wait, timeout + 1_000)
+    end
+  end
+
+  defp work_opts(_source, config), do: Telemetry.telemetry_opts(config)
+
+  defp waited(:timeout), do: {:error, {:source, :receive_timeout}}
+  defp waited(result), do: result
 
   defp open_or_fetch(source, key, record, preparation, config, ref) when is_reference(ref) do
     config = Keyword.put(config, :source_lease, ref)
@@ -87,7 +103,7 @@ defmodule ImagePipe.Execution.SourceCache do
   end
 
   defp open_or_fetch(source, key, record, preparation, config, false),
-    do: fetch(source, key, nil, preparation, Keyword.drop(config, [:cache, :input_cache]), record)
+    do: fetch(source, key, nil, preparation, config, record)
 
   defp checked_input(record, path, lease, config) do
     limit = Keyword.fetch!(config, :max_body_bytes)
@@ -222,7 +238,19 @@ defmodule ImagePipe.Execution.SourceCache do
   defp untimed(%Record{origin: origin} = record),
     do: %{record | received_at: nil, origin: %{origin | requested_at: nil, received_at: nil}}
 
-  def invalidate(key, config) do
+  # A decode failure can come from the request (an output profile libvips
+  # can't apply) as easily as from the source, and libvips is lazy, so a
+  # corrupt source often fails only in the encoder. Refetching helps only when
+  # the stored original no longer matches what was fetched, so the original
+  # and its record are dropped only then.
+  def check(key, config) do
+    case Input.verify(key, config) do
+      {:error, _reason} -> invalidate(key, config)
+      _intact_or_missing -> :ok
+    end
+  end
+
+  defp invalidate(key, config) do
     Input.discard(key, config)
     Cache.remember_source(key, nil, config)
   end
@@ -267,7 +295,9 @@ defmodule ImagePipe.Execution.SourceCache do
   end
 
   defp stage(response, source, preparation, config, _known) do
-    path = Input.temporary_path(System.tmp_dir!())
+    dir = Input.staging_dir()
+    _result = File.mkdir_p(dir)
+    path = Input.temporary_path(dir)
     lease = Resources.track(path)
 
     try do

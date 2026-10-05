@@ -497,10 +497,10 @@ defmodule ImagePipe.Execution do
   def finish(%Context{input_key: nil}, _result), do: :ok
 
   def finish(context, {:error, {:decode, _reason}}),
-    do: SourceCache.invalidate(context.input_key, context.config)
+    do: SourceCache.check(context.input_key, context.config)
 
   def finish(context, {:error, :source_format_required}),
-    do: SourceCache.invalidate(context.input_key, context.config)
+    do: SourceCache.check(context.input_key, context.config)
 
   def finish(_context, _result), do: :ok
 

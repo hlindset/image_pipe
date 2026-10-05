@@ -111,7 +111,10 @@ image from the cache doesn't count as a request for its original.
 - Local files are copied in only when their source sets `copy: :keep` (see
   [copy files from network storage](serving-local-files.md#copy-files-from-network-storage)).
 - A download is stored only once it completes.
-- An original that fails to decode is removed from the cache.
+- When a request fails to decode a stored original, the cache hashes it
+  again and removes it only if it no longer matches the SHA-256 hash
+  recorded when it was stored. An intact original stays cached for the other
+  sizes and formats made from it.
 - Making a new processed image from a stored original applies the current
   `max_body_bytes` and pixel limits. Processed images already in the cache
   are still served after you lower those limits.
@@ -144,7 +147,10 @@ background checks (see
 
 - Up to 64 originals can be fetched or checked at once, with up to 1,024
   requests waiting for them. Past either limit, a request fetches its
-  original itself, without waiting and without caching it.
+  original itself, without waiting. A request waiting for an HTTP or S3
+  original gives up after waiting that source's `fetch_timeout` (see
+  `ImagePipe.Source.HTTP` and `ImagePipe.Source.S3`) plus one second, and
+  answers `504`.
 - Up to 16 background checks run at once. Each has a 60-second deadline.
   After a check of an original finishes, that original isn't checked in the
   background again for one second.
@@ -158,6 +164,8 @@ background checks (see
 `ImagePipe.Cache.FileSystem` names files by hash. Paths never contain request
 paths, source identifiers, header values, or cookie values. Each entry is a
 body file and a metadata file holding the body's size and SHA-256 hash.
+Each body is flushed to disk before it appears in the cache, so a crash or
+power loss can't leave a cached body with missing data.
 
 Before reading a cached body, the cache checks that its size matches its
 metadata. An entry that fails the check, has invalid metadata, or can't be
@@ -169,6 +177,21 @@ for example by eviction in bounded mode, aborts the response.
 A path that leads outside `root` through a symlink fails as a cache error.
 `ImagePipe.Cache.FileSystem.get/2` returns the whole body as a binary, for
 callers outside the Plug.
+
+### Files left by a crash
+
+A node that stops abruptly, for example after a crash or `kill -9`, can leave
+temporary entry files behind, and bodies that no metadata file names.
+ImagePipe deletes them in the background once they are more than an hour old,
+so nodes that share a `root` can clean it while the others keep running:
+
+- In each cache's `root`, when an ImagePipe instance starts (see
+  `ImagePipe.child_spec/1`). `image_pipe_server` always runs one. A cache
+  without an instance, which only an unbounded cache can be, isn't cleaned.
+- In the `image_pipe` directory under the system temporary directory
+  (`TMPDIR`, or `/tmp`), where originals are staged while they download,
+  when the `:image_pipe` application starts. The `[:cache, :sweep]` event reports what each cleanup removed (see
+[cache events](telemetry-events.md#cache-events)).
 
 ## Bounded mode
 
@@ -198,7 +221,8 @@ instance, which starts that process (see `ImagePipe.child_spec/1` and
   disk.
 - An entry larger than `max_size_bytes` is always rejected.
 - On startup the process scans the entries already on disk in the
-  background, then evicts until the cache is at or under the cap.
+  background, evicts until the cache is at or under the cap, and then
+  deletes [files left by a crash](#files-left-by-a-crash).
 - Every `reconcile_interval` (60 seconds by default) it evicts again until
   the cache is at or under the cap. Evictions from this pass and the
   startup scan are reported with `trigger: :reconcile`.
@@ -209,14 +233,16 @@ Each node writes its request counts to `<node_id>.state` in `state_dir`
 every `flush_interval`. On startup a node merges the counts from every peer
 state file younger than `state_ttl`, so a new node keeps entries that are
 popular across the cluster. Older peer files are deleted every
-`cleanup_interval`. Counts of responses requested only once are not saved.
+`cleanup_interval`. On startup a node deletes state files it left half
+written. Peers' half-written files are deleted with their old state files.
+Counts of responses requested only once are not saved.
 
 ### Bounded-mode limitations
 
 - All writes to one `root` and `node_id` go through one process.
 - A crash between writing a body and writing its metadata can leave a body
-  file the cache doesn't track. The startup scan reads metadata files only,
-  so that body doesn't count against `max_size_bytes`.
+  file the cache doesn't track. It doesn't count against `max_size_bytes`
+  until a startup at least an hour after the crash deletes it.
 - Two writes to the same key at once both store their body. The last one
   wins, and the other body is deleted.
 

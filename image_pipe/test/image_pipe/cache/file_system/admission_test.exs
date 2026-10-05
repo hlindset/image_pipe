@@ -221,6 +221,51 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert Sketch.estimate(state.boot_cms, "global-hot") >= 1
   end
 
+  test "boot removes its own state temps and sweeps leftovers after the scan", %{
+    registry: registry,
+    tmp_dir: tmp_dir
+  } do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
+    state_dir = Keyword.fetch!(opts, :state_dir)
+    File.mkdir_p!(state_dir)
+    own_temp = Path.join(state_dir, "test-node.state.tmp.7")
+    peer_temp = Path.join(state_dir, "peer-1.state.tmp.7")
+    for path <- [own_temp, peer_temp], do: File.write!(path, "partial")
+
+    dir = Path.join([tmp_dir, "aa", "aa"])
+    File.mkdir_p!(dir)
+    leftover = Path.join(dir, ".#{String.duplicate("a", 64)}.Ab_c-dE.tmp")
+    File.write!(leftover, "bytes")
+    File.touch!(leftover, System.os_time(:second) - 7_200)
+
+    pid = start_supervised!({Admission, opts})
+    :ok = Admission.await_scan(pid)
+
+    refute File.exists?(own_temp)
+    assert File.exists?(peer_temp)
+    refute File.exists?(leftover)
+  end
+
+  test "cleanup removes a peer's state temp once it outlives state_ttl", %{
+    registry: registry,
+    tmp_dir: tmp_dir
+  } do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir) ++ [state_ttl_ms: 60_000]
+    state_dir = Keyword.fetch!(opts, :state_dir)
+    File.mkdir_p!(state_dir)
+    stale = Path.join(state_dir, "peer-1.state.tmp.7")
+    fresh = Path.join(state_dir, "peer-2.state.tmp.7")
+    for path <- [stale, fresh], do: File.write!(path, "partial")
+    File.touch!(stale, System.os_time(:second) - 120)
+
+    pid = start_supervised!({Admission, opts})
+    send(pid, :cleanup)
+    _state = :sys.get_state(pid)
+
+    refute File.exists?(stale)
+    assert File.exists?(fresh)
+  end
+
   test "boot tolerates a corrupt own state file and cold-boots", %{
     registry: registry,
     tmp_dir: tmp_dir

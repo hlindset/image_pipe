@@ -85,6 +85,16 @@ defmodule ImagePipe.Source.HTTP do
                         chunks. The default value is `5000`.
                         """
                       ],
+                      fetch_timeout: [
+                        type: :pos_integer,
+                        doc: """
+                        Milliseconds for the whole download, from the first request \
+                        to the last body byte, including redirects. A connection \
+                        attempt can run past it by up to `connect_timeout`. Requests \
+                        waiting for the same original give up after waiting this long \
+                        plus one second. The default value is `30000`.
+                        """
+                      ],
                       connect_timeout: [
                         type: :non_neg_integer,
                         doc: "Milliseconds to wait for a connection. The default value is `5000`."
@@ -377,7 +387,8 @@ defmodule ImagePipe.Source.HTTP do
            identity: identity,
            fetch: [
              url: build_url(%{source | host: host, port: port}),
-             strip_byte_headers: stable? or cache[:internal_cache] == :enabled
+             strip_byte_headers: stable? or cache[:internal_cache] == :enabled,
+             fetch_timeout: Keyword.get(opts, :fetch_timeout, 30_000)
            ]
          ] ++ cache
        )}
@@ -420,6 +431,7 @@ defmodule ImagePipe.Source.HTTP do
 
     stream_options =
       Keyword.take(opts, [:receive_timeout, :pool_timeout, :connect_timeout])
+      |> Keyword.put(:fetch_timeout, fetch[:fetch_timeout])
       |> Keyword.merge(runtime_opts)
       |> Keyword.put(:validate_target, build_target_guard(opts))
       |> Keyword.put(:max_redirects, Keyword.fetch!(opts, :max_redirects))

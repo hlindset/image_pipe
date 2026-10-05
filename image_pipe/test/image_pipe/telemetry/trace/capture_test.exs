@@ -293,6 +293,19 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert root.end_time >= root.start_time
   end
 
+  test "captures the cache sweep span with its removal counts" do
+    Telemetry.span([], [:cache, :sweep], %{pool: :input}, fn ->
+      {:ok, %{result: :ok, pins: 1, temps: 2, bodies: 0, bytes: 10}}
+    end)
+
+    assert_receive {:span,
+                    %Span{
+                      name: "image_pipe.cache.sweep",
+                      status: :ok,
+                      attributes: %{pool: :input, pins: 1, temps: 2, bodies: 0, bytes: 10}
+                    }}
+  end
+
   test "maps an error result to :error status" do
     Telemetry.span([], [:request], %{}, fn -> {:ok, %{result: :processing_error}} end)
     assert_receive {:span, %Span{name: "image_pipe.request", status: :error}}

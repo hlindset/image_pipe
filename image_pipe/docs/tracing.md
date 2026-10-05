@@ -29,9 +29,10 @@ are set.
 Each span event becomes a span named after its event, so
 `[:source, :fetch_decode]` becomes `image_pipe.source.fetch_decode`. A
 request's trace has `image_pipe.request` as its root. Background cache work,
-such as refreshing a stale original or a bounded cache's admission decisions,
-forms its own traces. A one-shot event, such as
-`[:output, :clamp]`, becomes an event on the span that is open when it fires.
+such as refreshing a stale original, a bounded cache's admission decisions, or
+deleting files a crash left behind, forms its own traces. A one-shot event,
+such as `[:output, :clamp]`, becomes an event on the span that is open when it
+fires.
 
 A span's parent is the span that was open when it started. That works within
 one process, and ImagePipe carries the request's trace into the other

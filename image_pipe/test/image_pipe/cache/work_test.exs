@@ -28,6 +28,29 @@ defmodule ImagePipe.Cache.WorkTest do
              end)
   end
 
+  test "a waiter stops waiting after its wait limit and leaves the lock usable" do
+    key = make_ref()
+    parent = self()
+
+    leader =
+      Task.async(fn ->
+        Work.run(key, fn _lease ->
+          send(parent, :locked)
+
+          receive do
+            :finish -> :led
+          end
+        end)
+      end)
+
+    assert_receive :locked
+    assert Work.run(key, fn _lease -> flunk("timed-out waiter ran") end, wait: 50) == :timeout
+
+    send(leader.pid, :finish)
+    assert Task.await(leader) == :led
+    assert Work.run(key, fn lease -> is_reference(lease) end, wait: 50)
+  end
+
   test "owner cancellation releases the key for waiting work" do
     supervisor = start_supervised!(Task.Supervisor)
     key = make_ref()

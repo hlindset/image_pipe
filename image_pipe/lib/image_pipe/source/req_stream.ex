@@ -14,8 +14,13 @@ defmodule ImagePipe.Source.ReqStream do
   @spec open(keyword(), keyword()) ::
           {:ok, Response.t()} | {:not_modified, Origin.t()} | {:error, ImagePipe.Source.error()}
   def open(req_options, runtime_opts) do
+    deadline = deadline(option(req_options, runtime_opts, :fetch_timeout, :infinity))
+    runtime_opts = Keyword.put(runtime_opts, :deadline, deadline)
+
     case open_response(req_options, runtime_opts) do
       %{response: response, origin: origin} = state ->
+        state = Map.put(state, :deadline, deadline)
+
         {:ok,
          %Response{
            stream: body_stream(state),
@@ -236,7 +241,7 @@ defmodule ImagePipe.Source.ReqStream do
   defp stream_response(
          %{response: %Req.Response{body: %Req.Response.Async{ref: ref}} = response} = state
        ) do
-    with {:ok, message} <- next_message(ref, state.receive_timeout),
+    with {:ok, message} <- next_message(ref, wait_time(state)),
          {:ok, chunks} <- parse_message(response, message) do
       data_chunks = for {:data, data} <- chunks, do: data
 
@@ -250,6 +255,16 @@ defmodule ImagePipe.Source.ReqStream do
       :unknown -> stream_response(state)
     end
   end
+
+  defp deadline(:infinity), do: :infinity
+  defp deadline(timeout), do: System.monotonic_time(:millisecond) + timeout
+
+  # The body must also finish by the deadline, however steadily the origin
+  # sends, so the wait for each chunk is cut short near it.
+  defp wait_time(%{deadline: :infinity, receive_timeout: timeout}), do: timeout
+
+  defp wait_time(%{deadline: deadline, receive_timeout: timeout}),
+    do: min(timeout, remaining(deadline))
 
   defp next_message(ref, receive_timeout) do
     receive do
@@ -295,7 +310,9 @@ defmodule ImagePipe.Source.ReqStream do
       retry: false,
       redirect: false,
       receive_timeout:
-        option(req_options, runtime_opts, :receive_timeout, @default_receive_timeout),
+        req_options
+        |> option(runtime_opts, :receive_timeout, @default_receive_timeout)
+        |> within_deadline(runtime_opts),
       finch: finch_options(req_options, runtime_opts)
     )
   end
@@ -311,7 +328,9 @@ defmodule ImagePipe.Source.ReqStream do
     |> Req.Finch.pool_options()
     |> Keyword.put(
       :pool_timeout,
-      option(req_options, runtime_opts, :pool_timeout, @default_pool_timeout)
+      req_options
+      |> option(runtime_opts, :pool_timeout, @default_pool_timeout)
+      |> within_deadline(runtime_opts)
     )
   end
 
@@ -323,6 +342,18 @@ defmodule ImagePipe.Source.ReqStream do
       option(req_options, runtime_opts, :connect_timeout, @default_connect_timeout)
     )
   end
+
+  # Waiting for a pooled connection and for the response, on every redirect
+  # hop, ends by the deadline. The connect timeout is part of a pinned pool's
+  # identity, so it stays fixed.
+  defp within_deadline(timeout, runtime_opts) do
+    case Keyword.fetch!(runtime_opts, :deadline) do
+      :infinity -> timeout
+      deadline -> min(timeout, remaining(deadline))
+    end
+  end
+
+  defp remaining(deadline), do: max(deadline - System.monotonic_time(:millisecond), 0)
 
   defp option(req_options, runtime_opts, key, default) do
     Keyword.get(runtime_opts, key, Keyword.get(req_options, key, default))

@@ -348,10 +348,11 @@ are coordinated (see [request coalescing](caching-and-freshness.md#request-coale
   - `:pool` (atom): `:input` for `:source` and `:refresh`, `:output` for
     `:output`.
   - `:result` (atom): for `:source` and `:refresh`, one of `:acquired`,
-    `:started`, `:coalesced`, `:backoff`, or `:busy`. For `:output`,
-    `:acquired` (this request generates), `:waiting` (it waits for another),
-    `:ready` (it can check the cache again), `:bypass` (it generates on its
-    own), or `:busy` (coordination is at capacity).
+    `:started`, `:coalesced`, `:backoff`, or `:busy`, and for `:source`
+    also `:timeout` (it stopped waiting for another request's download).
+    For `:output`, `:acquired` (this request generates), `:waiting` (it
+    waits for another), `:ready` (it can check the cache again), `:bypass`
+    (it generates on its own), or `:busy` (coordination is at capacity).
 
 ### `[:cache, :warm_start]`
 
@@ -363,6 +364,24 @@ its saved state at startup.
   - `:own_state_loaded` (boolean): `true` when this node's state file was
     restored.
   - `:peer_state_files` (integer): state files of other nodes present.
+
+### `[:cache, :sweep]`
+
+Span. Emitted when ImagePipe deletes the
+[files a crash left behind](cache.md#files-left-by-a-crash): once per
+`ImagePipe.Cache.FileSystem` cache when an instance starts, and once for
+staged originals when the `:image_pipe` application starts.
+
+- Start metadata: `:pool` (atom): `:output` or `:input` for a cache, `:staging`
+  for staged originals.
+- Stop metadata:
+  - `:result` (atom): `:ok`.
+  - `:bytes` (integer): total size of the deleted files.
+  - For a cache, `:pins`, `:temps` and `:bodies` (integer): how many
+    originals held open by requests, temporary writes, and bodies no
+    metadata named were deleted.
+  - For `:staging`, `:staged` (integer): how many staged originals were
+    deleted.
 
 ### `[:cache, :admission]`
 

@@ -11,16 +11,45 @@ defmodule ImagePipe.Cache.Work do
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
+  # `wait:` bounds how long to wait behind another holder of the key, after
+  # which the work doesn't run and `run/3` returns `:timeout`.
   def run(key, fun, opts \\ []) do
-    case call({:lock, key}, :infinity) do
+    case lock(key, Keyword.get(opts, :wait, :infinity)) do
       {:ok, ref, outcome} ->
         report(outcome, :source, opts)
         locked(ref, fun)
+
+      :timeout ->
+        report(:timeout, :source, opts)
+        :timeout
 
       :busy ->
         report(:busy, :source, opts)
         fun.(false)
     end
+  end
+
+  defp lock(key, wait) do
+    request = :gen_server.send_request(__MODULE__, {:lock, key})
+
+    case :gen_server.receive_response(request, wait) do
+      {:reply, reply} -> reply
+      :timeout -> cancel_wait(key, request)
+      {:error, _reason} -> :busy
+    end
+  end
+
+  # The lock may have been granted after the wait ran out but before the
+  # coordinator handled the cancellation. Its reply is then already here.
+  defp cancel_wait(key, request) do
+    _result = call({:cancel_wait, key}, 5_000)
+
+    case :gen_server.receive_response(request, 0) do
+      {:reply, {:ok, ref, _outcome}} -> call({:unlock, ref}, 5_000)
+      _no_grant -> :ok
+    end
+
+    :timeout
   end
 
   defp locked(ref, fun) do
@@ -44,6 +73,13 @@ defmodule ImagePipe.Cache.Work do
   end
 
   def current?(ref), do: call({:current, ref}, 5_000) == true
+
+  # Work that ran without a lease, because the coordinator was busy or
+  # unavailable, still publishes inside the same lock, so its writes never
+  # interleave with a leased publication for the key.
+  def publish(key, nil, fun) do
+    :global.trans({{__MODULE__, :publication, key}, self()}, fn -> {:ok, fun.()} end, [node()])
+  end
 
   def publish(key, lease, fun) do
     # Kernel owns this node-local lock, independently of this coordinator's
@@ -86,6 +122,16 @@ defmodule ImagePipe.Cache.Work do
   end
 
   def handle_call({:unlock, ref}, _from, state), do: {:reply, :ok, release(state, ref)}
+
+  def handle_call({:cancel_wait, key}, {pid, _tag}, state) do
+    waiters =
+      case Map.get(state.locks, key) do
+        nil -> []
+        lock -> for {ref, {^pid, _tag}} <- lock.waiters, do: ref
+      end
+
+    {:reply, :ok, Enum.reduce(waiters, state, &release(&2, &1))}
+  end
 
   def handle_call({:current, ref}, _from, state),
     do: {:reply, Map.has_key?(state.refs, ref), state}

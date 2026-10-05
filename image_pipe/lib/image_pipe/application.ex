@@ -27,7 +27,8 @@ defmodule ImagePipe.Application do
       ImagePipe.Cache.Work,
       ImagePipe.Cache.OutputWork,
       ImagePipe.Telemetry.Trace.OtelReplay,
-      ImagePipe.Source.S3.RefreshCache
+      ImagePipe.Source.S3.RefreshCache,
+      {Task, &ImagePipe.Cache.sweep_staged/0}
     ]
 
     opts = [strategy: :one_for_one, name: ImagePipe.Supervisor]
