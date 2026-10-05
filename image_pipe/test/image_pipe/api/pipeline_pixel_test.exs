@@ -287,5 +287,23 @@ defmodule ImagePipe.API.PipelinePixelTest do
 
       assert decode_request.terminal_reduction == {32, 32}
     end
+
+    test "output=lqip-css sets the terminal reduction for a single-group request" do
+      request = request("output=lqip-css")
+      decode_request = Executor.decode_request(request, geometry({1600, 1200}))
+
+      assert decode_request.terminal_reduction == {32, 32}
+    end
+
+    # These effects take sizes in pixels, which a reduced decode would make
+    # relatively larger.
+    for effect <- ["pad=200", "blur=5", "sharpen=2", "pixelate=10", "progressive-blur=5"] do
+      test "#{effect} keeps a placeholder decode at full size" do
+        request = request("#{unquote(effect)}/output=blurhash")
+        decode_request = Executor.decode_request(request, geometry({1600, 1200}))
+
+        assert decode_request.terminal_reduction == nil
+      end
+    end
   end
 end

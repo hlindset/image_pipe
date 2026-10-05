@@ -229,8 +229,11 @@ and frame limits. It stops before transforms run. libvips decodes lazily, so
 decode outcomes are reported here, and pixel work is timed by
 `[:transform, :materialize]` and `[:encode]`.
 
-`output=info` with the `blurhash` flag decodes the original twice and emits
-this span twice. The second one wraps only the decode.
+`output=info` decodes the original a second time, and emits this span twice,
+when it has the `blurhash` flag. It does the same for the `lqip-css` flag when
+the request has one group, no resize, and no effects sized in pixels, because
+that placeholder can then use a smaller decode. Both flags share the second
+decode, and its span wraps only the decode.
 
 - Start metadata: none.
 - Stop metadata on success:

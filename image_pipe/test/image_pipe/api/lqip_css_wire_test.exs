@@ -27,6 +27,18 @@ defmodule ImagePipe.API.LqipCssWireTest do
     assert get_resp_header(response, "vary") == []
   end
 
+  test "a large JPEG decoded smaller gives the full-size value" do
+    body =
+      Image.new!(1600, 1200, color: :red)
+      |> Image.Draw.rect!(533, 0, 534, 1200, color: :lime)
+      |> Image.Draw.rect!(1067, 0, 533, 1200, color: :blue)
+      |> Image.write!(:memory, suffix: ".jpg")
+
+    response = request("output=lqip-css", mount(body, [], "image/jpeg"))
+
+    assert response.resp_body == Css.encode!(Image.from_binary!(body))
+  end
+
   test "effects without geometry and grouped transforms reach the placeholder", %{body: body} do
     config = mount(body)
     plain = request("output=lqip-css", config)
@@ -58,9 +70,14 @@ defmodule ImagePipe.API.LqipCssWireTest do
     assert oriented.resp_body != stored.resp_body
   end
 
+  # PNG has no shrink-on-load, so the placeholder reads the full-size frame.
   test "streamed photographic input matches Image's encoder" do
-    body = File.read!("priv/static/images/beach.jpg")
-    response = request("output=lqip-css", mount(body, [], "image/jpeg"))
+    body =
+      "priv/static/images/beach.jpg"
+      |> Image.thumbnail!(1200)
+      |> Image.write!(:memory, suffix: ".png")
+
+    response = request("output=lqip-css", mount(body))
     reference = Image.from_binary!(body)
 
     assert response.status == 200
