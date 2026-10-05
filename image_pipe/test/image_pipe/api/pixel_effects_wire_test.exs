@@ -183,17 +183,20 @@ defmodule ImagePipe.API.PixelEffectsWireTest do
     end
   end
 
-  test "progressive blur filters premultiplied alpha without transparent color fringes" do
-    source =
-      Image.new!(33, 33, color: [255, 0, 0, 0], bands: 4)
-      |> Image.Draw.rect!(12, 0, 9, 33, color: [0, 0, 255, 255])
+  # Large sigmas take libvips' approximate convolution.
+  for effect <- ["progressive-blur=4", "progressive-blur=20", "blur=20"] do
+    test "#{effect} filters premultiplied alpha without transparent color fringes" do
+      source =
+        Image.new!(33, 33, color: [255, 0, 0, 0], bands: 4)
+        |> Image.Draw.rect!(12, 0, 9, 33, color: [0, 0, 255, 255])
 
-    config = mount(png_origin(Image.write!(source, :memory, suffix: ".png")))
-    output = image("progressive-blur=4", config)
-    assert Image.has_alpha?(output)
-    [red, green, blue, alpha] = Image.get_pixel!(output, 11, 32)
-    assert red == 0 and green == 0
-    assert blue > 240 and alpha > 0 and alpha < 255
+      config = mount(png_origin(Image.write!(source, :memory, suffix: ".png")))
+      output = image(unquote(effect), config)
+      assert Image.has_alpha?(output)
+      [red, green, blue, alpha] = Image.get_pixel!(output, 11, 32)
+      assert red == 0 and green == 0
+      assert blue > 240 and alpha > 0 and alpha < 255
+    end
   end
 
   test "contrast spreads tones around the midtone and keeps it in place" do
