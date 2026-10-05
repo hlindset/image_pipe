@@ -24,7 +24,7 @@ Sources, detectors, and telemetry exporters are host extension points.
 | Geometry | EXIF policy, arbitrary rotation, flips, symmetric trim, canvas placement, padding, and alpha-aware background |
 | Watermarks | Host-named or opt-in request-supplied image assets with opacity, scale, anchored placement, offsets, and tiling |
 | Effects | Blur, progressive blur, sharpen, pixelate, grayscale, bitonal, monochrome, duotone, brightness, contrast, saturation, colorize, and gradient |
-| Encoding | Explicit or negotiated formats, quality and per-format quality, byte budgets, SSIMULACRA2/Butteraugli/size search, and JPEG/PNG/WebP/AVIF controls |
+| Encoding | Explicit or negotiated formats, quality and per-format quality, byte budgets, SSIMULACRA2-target quality search, and JPEG/PNG/WebP/AVIF controls |
 | Color and metadata | Copyright and metadata policy, ICC conversion and preservation, and HDR preservation |
 | Sources | Filesystem, HTTP(S), S3, host adapters, custom schemes, and authenticated source concealment |
 | Delivery | Images, BlurHash, LQIP CSS, info JSON, filenames, attachments, cachebusters, opt-in debug headers, and clock injection |
@@ -465,24 +465,17 @@ unless its encoder options enable `palette`. An explicit `q` with
 `format=png`, or a `png` entry in `format-q`, fails before source or cache
 access when `palette` is off.
 
-`autoquality` starts with a metric name followed by optional named fields:
+`autoquality` is a flag with an optional value. The bare flag searches toward
+the host target, `autoquality=80` sets a SSIMULACRA2 target above 0 and up to
+100, and `autoquality=false` disables a configured search. The search picks
+the lowest quality that reaches the target within internal per-format rails
+(25–95, AVIF 20–90) and delivers the highest rail quality when the target is
+out of reach. Large-image searches use crop scoring with a content-dependent
+correction.
 
-| Metric | Target | Example |
-| --- | --- | --- |
-| `size` | Positive byte count, required unless supplied by the host | `autoquality=size,target:15000,min:40,max:95` |
-| `ssimulacra2` | Score from 0 to 100; default 78 | `autoquality=ssimulacra2,target:80,min:50,max:95,error:3` |
-| `butteraugli` | Distance from 0 to 25; default 1 | `autoquality=butteraugli,target:1,error:0.1` |
-
-`min` and `max` bound quality from 1 to 100. URL bounds override per-format
-host bounds, which override the global host bounds. `error` is a non-negative
-perceptual tolerance; size search does not accept it. Repeated or unknown
-fields and inverted effective bounds are rejected before source access.
-Supported formats use iterative search. Large-image SSIMULACRA2 searches use
-crop scoring with a content-dependent correction.
-
-`autoquality=none` disables a configured search. An explicit `q` also disables
-inherited host search; combining it with an enabled URL `autoquality` is an
-error. Presets treat `q` and `autoquality` as one override family.
+An explicit `q` also disables inherited host search; combining it with an
+enabled URL `autoquality` is an error. Presets treat `q` and `autoquality` as
+one override family.
 
 `max-bytes=8000` adds a byte budget to fixed quality or quality search. Budgets
 are best effort: if the minimum-quality encode cannot fit, ImagePipe still
@@ -494,13 +487,8 @@ search defaults are inactive for these outputs. Under automatic format
 negotiation, search and byte budgets apply when the selected encoder supports
 them. WebP lossless `q` controls compression effort rather than pixel quality.
 
-Host controls include `autoquality_method`, `autoquality_target`,
-`autoquality_allowed_error`, global `autoquality_min_quality` and
-`autoquality_max_quality`, per-format `autoquality_format_min_quality` and
-`autoquality_format_max_quality`, `autoquality_max_resolution`, and
-`autoquality_max_iterations`. The iteration budget defaults to 6 and bounds
-the encoder search. Active search settings participate in storage and ETag
-identity; changing an unused iteration budget leaves identity stable.
+Host controls are `autoquality` (off by default) and `autoquality_target`
+(default 75). The effective target participates in storage and ETag identity.
 
 Each encoder option is a comma-separated list of bare boolean flags and
 `name:value` pairs. Use `flag:false` to override a host-enabled flag. Sparse

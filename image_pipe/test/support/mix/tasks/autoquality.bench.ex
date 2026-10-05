@@ -44,8 +44,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
   for JPEG, so the search uses its full iteration budget — worst-case cost. The
   encode / decode / metric phases are wrapped (injected `encode_fun`/`score_fun`
   over `Encoder.encode_to_buffer` + `Ssim2Metric`) and timed separately, so the
-  table shows where the wall-clock goes as a function of pixel count. This is the
-  data that sets a sane `autoquality_max_resolution` default.
+  table shows where the wall-clock goes as a function of pixel count.
 
   ## Part B — accuracy + behavior over real content
 
@@ -57,8 +56,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
       SSIMULACRA2 score vs the target (the search's own `final_score` telemetry,
       not an ad-hoc baseline), bytes vs a fixed `q90` baseline (savings %), and
       iteration count.
-    * `size` and `max_bytes` to the same byte budget — these skip the
-      decode+metric, so they are far cheaper; the table quantifies the gap.
+    * `max_bytes` to a byte budget — it skips the decode+metric, so it is far
+      cheaper; the table quantifies the gap.
 
   Goal: confirm `:ssim2` lands at/above its target, and surface typical quality /
   savings / iteration counts to validate (or adjust) the shipped defaults.
@@ -596,9 +595,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
     IO.puts("\n== Part B — accuracy + behavior over real sources (native sizes) ==")
     IO.puts("ssim2 target #{@target} [#{@min_q},#{@max_q}]  baseline q#{@baseline_quality}  ")
 
-    IO.puts(
-      "format #{format}  size/max_bytes budget = round(q#{@baseline_quality} bytes * 0.6)\n"
-    )
+    IO.puts("format #{format}  max_bytes budget = round(q#{@baseline_quality} bytes * 0.6)\n")
 
     attach_telemetry()
 
@@ -614,7 +611,6 @@ defmodule Mix.Tasks.Autoquality.Bench do
         pad(["save%", 7]) <>
         pad(["iters", 6]) <>
         pad(["ssim2ms", 9]) <>
-        pad(["sizems", 8]) <>
         pad(["mbms", 8])
 
     IO.puts(header)
@@ -642,7 +638,6 @@ defmodule Mix.Tasks.Autoquality.Bench do
         budget = round(baseline_bytes * 0.6)
 
         ssim2 = run_config(image, ssim2_resolved(format))
-        size = run_config(image, size_resolved(format, budget))
         mb = run_config(image, max_bytes_resolved(format, budget))
 
         savings = pct(baseline_bytes - ssim2.bytes, baseline_bytes)
@@ -660,7 +655,6 @@ defmodule Mix.Tasks.Autoquality.Bench do
             pad(["#{savings}%", 7]) <>
             pad([ssim2.iters, 6]) <>
             pad([ms(ssim2.us), 9]) <>
-            pad([ms(size.us), 8]) <>
             pad([ms(mb.us), 8])
         )
 
@@ -677,8 +671,6 @@ defmodule Mix.Tasks.Autoquality.Bench do
           savings: savings,
           iters: ssim2.iters,
           ssim2_us: ssim2.us,
-          size_us: size.us,
-          size_iters: size.iters,
           mb_us: mb.us,
           mb_iters: mb.iters
         }
@@ -2351,8 +2343,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
           target: @g_target,
           min_quality: lo,
           max_quality: hi,
-          allowed_error: @g_allowed_error,
-          max_resolution: 0
+          allowed_error: @g_allowed_error
         }
     }
   end
@@ -4316,21 +4307,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
           target: @target,
           min_quality: @min_q,
           max_quality: @max_q,
-          allowed_error: 0,
-          max_resolution: 0
-        }
-    }
-  end
-
-  defp size_resolved(format, budget) do
-    %Resolved{
-      base_resolved(format)
-      | quality: :default,
-        quality_search: %RQS.Size{
-          target: budget,
-          min_quality: @min_q,
-          max_quality: @max_q,
-          max_resolution: 0
+          allowed_error: 0
         }
     }
   end
@@ -4446,8 +4423,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
     IO.puts("  * first size over 500ms total:  #{budget_note(over_500)}")
     IO.puts("  * first size over 1000ms total: #{budget_note(over_1000)}")
     IO.puts("  * first size over 2000ms total: #{budget_note(over_2000)}")
-    IO.puts("  -> recommended autoquality_max_resolution: pick the MP under your")
-    IO.puts("     per-request budget from the column above (full 6x pass cost).\n")
+    IO.puts("")
   end
 
   defp budget_note(nil), do: "none in tested range"
@@ -4460,10 +4436,9 @@ defmodule Mix.Tasks.Autoquality.Bench do
     avg_save = scored |> Enum.map(& &1.savings) |> avg() |> round()
     avg_iters = scored |> Enum.map(& &1.iters) |> avg() |> Float.round(1)
     avg_ssim2_ms = scored |> Enum.map(& &1.ssim2_us) |> avg() |> ms()
-    avg_size_ms = rows |> Enum.map(& &1.size_us) |> avg() |> ms()
     avg_mb_ms = rows |> Enum.map(& &1.mb_us) |> avg() |> ms()
 
-    speedup = ratio(avg(Enum.map(scored, & &1.ssim2_us)), avg(Enum.map(rows, & &1.size_us)))
+    speedup = ratio(avg(Enum.map(scored, & &1.ssim2_us)), avg(Enum.map(rows, & &1.mb_us)))
 
     IO.puts("Part B — accuracy + behavior:")
     IO.puts("  * ssim2 hit target #{@target}: #{hits}/#{length(scored)} scored sources")
@@ -4474,11 +4449,9 @@ defmodule Mix.Tasks.Autoquality.Bench do
 
     IO.puts("  * avg iterations: #{avg_iters} (cap #{@max_iter})")
 
-    IO.puts(
-      "  * avg cost: ssim2 #{avg_ssim2_ms} ms vs size #{avg_size_ms} ms vs max_bytes #{avg_mb_ms} ms"
-    )
+    IO.puts("  * avg cost: ssim2 #{avg_ssim2_ms} ms vs max_bytes #{avg_mb_ms} ms")
 
-    IO.puts("  * ssim2 is ~#{speedup}x the cost of size (the decode+metric overhead)\n")
+    IO.puts("  * ssim2 is ~#{speedup}x the cost of max_bytes (the decode+metric overhead)\n")
   end
 
   # Two error directions, judged against the FULL-res search (the achievable
@@ -4552,13 +4525,13 @@ defmodule Mix.Tasks.Autoquality.Bench do
 
     head =
       "source,width,height,mp,quality,score,hit,bytes,baseline_bytes,savings,iters," <>
-        "ssim2_us,size_us,size_iters,mb_us,mb_iters\n"
+        "ssim2_us,mb_us,mb_iters\n"
 
     body =
       Enum.map_join(rows, fn r ->
         "#{r.source},#{r.w},#{r.h},#{r.mp},#{r.quality},#{fmt_score(r.score)},#{r.hit?}," <>
           "#{r.bytes},#{r.baseline_bytes},#{r.savings},#{r.iters},#{r.ssim2_us}," <>
-          "#{r.size_us},#{r.size_iters},#{r.mb_us},#{r.mb_iters}\n"
+          "#{r.mb_us},#{r.mb_iters}\n"
       end)
 
     File.write!(path, head <> body)

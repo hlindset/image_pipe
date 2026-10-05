@@ -138,7 +138,7 @@ defmodule ImagePipe.API.CanonicalPropertyTest do
         "meta=copyright",
         "profile=display-p3",
         "hdr=tonemap",
-        "autoquality=ssimulacra2,target:78,min:40,max:95,error:2",
+        "autoquality=78",
         "max-bytes=12000",
         "jpeg-options=progressive,quant-table:3",
         "webp-options=near-lossless,effort:6"
@@ -256,7 +256,7 @@ defmodule ImagePipe.API.CanonicalPropertyTest do
         "meta=copyright",
         "profile=display-p3",
         "hdr=tonemap",
-        "autoquality=ssimulacra2,error:2,target:78,min:40,max:95",
+        "autoquality=78",
         "jpeg-options=quant-table:3,progressive",
         "webp-options=effort:6,near-lossless"
       ]
@@ -267,7 +267,7 @@ defmodule ImagePipe.API.CanonicalPropertyTest do
         "profile=display-p3",
         "meta=copyright",
         "jpeg-options=progressive,quant-table:3",
-        "autoquality=ssimulacra2,max:95,min:40,target:78.0,error:2.0",
+        "autoquality=78.0",
         "format-q=avif:60,webp:70"
       ]
 
@@ -277,15 +277,12 @@ defmodule ImagePipe.API.CanonicalPropertyTest do
       assert :erlang.term_to_binary(first_request) == :erlang.term_to_binary(second_request)
     end
 
-    test "autoquality positive and negative zero spellings have identical serialized identity" do
-      assert {:ok, positive_zero} =
-               parse(["autoquality=ssimulacra2,target:0.0,error:0.0"])
+    test "autoquality integer and decimal spellings have identical serialized identity" do
+      assert {:ok, integer} = parse(["autoquality=75"])
+      assert {:ok, decimal} = parse(["autoquality=75.0"])
 
-      assert {:ok, negative_zero} =
-               parse(["autoquality=ssimulacra2,target:-0.0,error:-0.0"])
-
-      assert positive_zero === negative_zero
-      assert :erlang.term_to_binary(positive_zero) == :erlang.term_to_binary(negative_zero)
+      assert integer === decimal
+      assert :erlang.term_to_binary(integer) == :erlang.term_to_binary(decimal)
     end
   end
 

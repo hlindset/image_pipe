@@ -366,15 +366,8 @@ Defaults and limits for every image the server processes. The limits on original
 | `strip_color_profile` | boolean | `true` |
 | `preserve_hdr` | boolean | `false` |
 | `skip_processing_formats` | array of `"avif"` or `"webp"` or `"jpeg"` or `"png"` or `"jpeg_xl"` or `"heif"` or `"tiff"` or `"jpeg2000"` or `"gif"` | `[]` |
-| `autoquality_method` | `"none"` or `"size"` or `"ssimulacra2"` or `"butteraugli"` | `"none"` |
-| `autoquality_target` | table of integer or number | `{ butteraugli = 1.0, ssimulacra2 = 78 }` |
-| `autoquality_allowed_error` | table of integer or number | `{ butteraugli = 0.1, ssimulacra2 = 1.0 }` |
-| `autoquality_min_quality` | integer > 0 | `70` |
-| `autoquality_max_quality` | integer > 0 | `80` |
-| `autoquality_format_min_quality` | table of integer > 0 | `{ avif = 60 }` |
-| `autoquality_format_max_quality` | table of integer > 0 | `{ avif = 65 }` |
-| `autoquality_max_resolution` | integer ≥ 0 | `0` |
-| `autoquality_max_iterations` | integer > 0 | `6` |
+| `autoquality` | boolean | `false` |
+| `autoquality_target` | integer or number | `75` |
 | `detector` | `"default"` | `"default"` |
 | `detector_required` | boolean | `false` |
 | `source_cache_policy.storage` | `"origin"` or `"allow"` or `"deny"` |  |

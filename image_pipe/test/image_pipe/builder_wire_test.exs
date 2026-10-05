@@ -69,7 +69,7 @@ defmodule ImagePipe.BuilderWireTest do
           "extend",
           "fit=cover",
           "output=info/format=png/max-bytes=1000",
-          "q=80/autoquality=size"
+          "q=80/autoquality"
         ] do
       response = conn(:get, "/#{path}/src/photo.png") |> IP.Plug.call(config)
       assert response.status == 400

@@ -68,7 +68,6 @@ defmodule ImagePipe.Debug.Headers do
 
   defp aq_headers(%{} = aq) do
     [
-      kv("x-imagepipe-aq-metric", Map.get(aq, :metric)),
       kv("x-imagepipe-aq-score", Map.get(aq, :score)),
       kv("x-imagepipe-aq-target", Map.get(aq, :target)),
       kv("x-imagepipe-aq-quality-min", Map.get(aq, :min)),

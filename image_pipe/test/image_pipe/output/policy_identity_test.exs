@@ -109,7 +109,6 @@ defmodule ImagePipe.Output.PolicyIdentityTest do
       assert Keyword.fetch!(material, :color_profile) == :keep
       assert Keyword.fetch!(material, :hdr) == :preserve
       assert Keyword.fetch!(material, :quality_search) == :none
-      assert Keyword.fetch!(material, :quality_search_offsets) == policy.quality_search_offsets
       assert Keyword.fetch!(material, :flatten_background) == Color.key_data(Color.white())
       assert Keyword.fetch!(material, :encoder_options) == %{}
     end
@@ -137,22 +136,14 @@ defmodule ImagePipe.Output.PolicyIdentityTest do
     end
 
     test "quality_search struct is flattened so it can safely reach a digest" do
-      search = %QualitySearch.Ssimulacra2{
-        target: 78.0,
-        min_quality: 1,
-        max_quality: 100,
-        allowed_error: 1.0,
-        format_min: %{avif: 1, webp: 2},
-        format_max: %{}
-      }
+      search = %QualitySearch{target: 78.0}
 
       policy = %{base_policy() | quality_search: search}
       material = Policy.identity_material(policy)
 
       quality_search_material = Keyword.fetch!(material, :quality_search)
       refute is_struct(quality_search_material)
-      assert Keyword.fetch!(quality_search_material, :metric) == :ssimulacra2
-      assert Keyword.fetch!(quality_search_material, :format_min) == [avif: 1, webp: 2]
+      assert quality_search_material == [target: 78.0]
     end
 
     test "encoder_options structs are flattened so they can safely reach a digest" do

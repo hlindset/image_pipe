@@ -1,18 +1,13 @@
 defmodule ImagePipe.Output.ContentClassifier do
-  # Cheap content classifier for the autoquality crop-offset policy.
-  #
-  # Returns `:photo` (continuous-tone photographic content) or `:graphic`
-  # (discrete-tone synthetic content: screenshots, UI, text, charts, line art).
-  # Derived entirely from runtime image inspection on a 512 px downsample, like
-  # EXIF auto-orient and input color management.
-  #
-  # `:graphic` is the **safe fallback**: misclassification is asymmetric (a photo
-  # read as graphic only inflates a file slightly; a graphic read as photo ships
-  # visible text/edge damage at the lean offset), so any internal libvips error
-  # returns `:graphic` rather than failing the request. The graphic→photo error is
-  # the one that must stay at zero (validated on the labeled cohort by
-  # `mix autoquality.bench --part m`).
-  @moduledoc false
+  @moduledoc """
+  Benchmark-only content classifier for `mix autoquality.bench`.
+
+  Returns `:photo` (continuous-tone photographic content) or `:graphic`
+  (discrete-tone synthetic content: screenshots, UI, text, charts, line art)
+  from two features on a 512 px downsample. Part M measures how well it
+  separates the labeled cohort, and Parts N to Q report results per class.
+  Any internal libvips error returns `:graphic`.
+  """
 
   alias Vix.Vips.Image, as: VixImage
   alias Vix.Vips.Operation

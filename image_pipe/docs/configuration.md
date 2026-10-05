@@ -92,6 +92,13 @@ under their URL names. Hyphens become underscores, and `progressive` and
 `subsample` have different builder names, listed in
 [URL option names](`ImagePipe.URL#module-url-option-names`).
 
+WebP encodes at `effort: 4` and AVIF at `effort: 3` unless `:webp_options` or
+`:avif_options` set another `:effort`. AVIF also encodes without chroma
+subsampling (`subsample_mode: :off`) unless `:avif_options` sets another
+`:subsample_mode`. See
+[WebP options](processing/output.md#webp-options) and
+[AVIF options](processing/output.md#avif-options) for the time and size tradeoff.
+
 ## Limits and cached images
 
 The limits, such as `max_input_pixels` and `max_result_width`, set the largest

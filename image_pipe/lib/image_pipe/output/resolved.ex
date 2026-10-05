@@ -18,7 +18,6 @@ defmodule ImagePipe.Output.Resolved do
               [
                 flatten_background: Color.white(),
                 quality_search: :none,
-                quality_search_max_iterations: 6,
                 max_bytes: nil,
                 dpi: nil,
                 encoder_options: nil,
@@ -37,10 +36,7 @@ defmodule ImagePipe.Output.Resolved do
           flatten_background: Color.t(),
           quality_search:
             :none
-            | ImagePipe.Output.ResolvedQualitySearch.Size.t()
-            | ImagePipe.Output.ResolvedQualitySearch.Ssimulacra2.t()
-            | ImagePipe.Output.ResolvedQualitySearch.Butteraugli.t(),
-          quality_search_max_iterations: pos_integer(),
+            | ImagePipe.Output.ResolvedQualitySearch.Ssimulacra2.t(),
           max_bytes: nil | pos_integer(),
           dpi: nil | 1..65_535,
           encoder_options:

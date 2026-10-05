@@ -107,12 +107,13 @@ defmodule ImagePipe.API.SerializerTest do
       IP.URL.new()
       |> IP.URL.output(
         format_qualities: [jpeg: 70, png: 90],
-        autoquality:
-          {:ssimulacra2, [target: 85, min_quality: 20, max_quality: 90, allowed_error: 0.3]},
+        autoquality: 85,
         max_bytes: 50_000
       ),
       IP.URL.new()
-      |> IP.URL.output(autoquality: :none, color_profile: :preserve_source, hdr: :preserve),
+      |> IP.URL.output(autoquality: false, color_profile: :preserve_source, hdr: :preserve),
+      IP.URL.new()
+      |> IP.URL.output(autoquality: true),
       IP.URL.new()
       |> IP.URL.output(
         jpeg_options: [

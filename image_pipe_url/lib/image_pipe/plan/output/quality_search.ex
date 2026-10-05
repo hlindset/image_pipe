@@ -1,95 +1,23 @@
 defmodule ImagePipe.Plan.Output.QualitySearch do
-  # Builds a per-request autoquality search struct
-  # (`Size`/`Ssimulacra2`/`Butteraugli`) from resolved neutral config, optionally
-  # overlaid with URL-supplied fields through `build/3`. `from_config/1` uses only
-  # the host configuration. The struct shape and per-metric fallbacks live here.
-  #
-  # Per-metric target and `allowed_error` fallbacks come from the config maps
-  # (processing configuration seeds `autoquality_target`/`autoquality_allowed_error` for
-  # the perceptual metrics), so there are no built-in constants here. `:size` has no
-  # default target — a byte budget must be supplied (URL or config) or `build/3`
-  # returns a missing-target error.
+  # A request's auto-quality search: a SSIMULACRA2 target from the request or
+  # the host configuration. `resolve/2` returns `:none` when auto-quality is off.
   @moduledoc false
 
-  alias ImagePipe.Plan.Output.QualitySearch.{Butteraugli, Size, Ssimulacra2}
+  @enforce_keys [:target]
+  defstruct @enforce_keys
+
+  @type t :: %__MODULE__{target: float()}
 
   @doc """
-  Config-only entry point: select the metric from `autoquality_method` and build.
-  `:none` short-circuits to `{:ok, :none}`. No URL fields.
+  Resolve the request's `autoquality` value over the host configuration.
+
+  `nil` (unset) follows the host's `autoquality` toggle, `false` turns the
+  search off, `true` uses the host's `autoquality_target`, and a number is the
+  target itself.
   """
-  @spec from_config(keyword()) :: {:ok, struct() | :none} | {:error, term()}
-  def from_config(config) do
-    case Keyword.get(config, :autoquality_method, :none) do
-      :none -> {:ok, :none}
-      metric -> build(metric, [], config)
-    end
-  end
-
-  @doc """
-  Build a search struct for an already-decided metric, URL fields over config.
-
-  Requires a `config` carrying the seeded per-metric `autoquality_target` and
-  `autoquality_allowed_error` maps from validated processing configuration —
-  for a perceptual metric without them, `allowed_error` would be `nil` and the
-  target would be missing. All in-repo callers pass resolved config.
-  """
-  @spec build(:size | :ssimulacra2 | :butteraugli, keyword(), keyword()) ::
-          {:ok, struct()} | {:error, term()}
-  def build(:size, fields, config) do
-    with {:ok, target} <- resolve_target(:size, fields, config) do
-      {:ok,
-       %Size{
-         target: target,
-         min_quality: Keyword.get(config, :autoquality_min_quality, 70),
-         max_quality: Keyword.get(config, :autoquality_max_quality, 80),
-         url_min_quality: Keyword.get(fields, :min_quality),
-         url_max_quality: Keyword.get(fields, :max_quality),
-         format_min: Keyword.get(config, :autoquality_format_min_quality, %{}),
-         format_max: Keyword.get(config, :autoquality_format_max_quality, %{}),
-         max_resolution: Keyword.get(config, :autoquality_max_resolution, 0)
-       }}
-    end
-  end
-
-  def build(:ssimulacra2, fields, config),
-    do: build_perceptual(Ssimulacra2, :ssimulacra2, fields, config)
-
-  def build(:butteraugli, fields, config),
-    do: build_perceptual(Butteraugli, :butteraugli, fields, config)
-
-  defp build_perceptual(struct_mod, metric, fields, config) do
-    with {:ok, target} <- resolve_target(metric, fields, config) do
-      {:ok,
-       struct(struct_mod, %{
-         target: target,
-         min_quality: Keyword.get(config, :autoquality_min_quality, 70),
-         max_quality: Keyword.get(config, :autoquality_max_quality, 80),
-         url_min_quality: Keyword.get(fields, :min_quality),
-         url_max_quality: Keyword.get(fields, :max_quality),
-         allowed_error: resolve_allowed_error(metric, fields, config),
-         format_min: Keyword.get(config, :autoquality_format_min_quality, %{}),
-         format_max: Keyword.get(config, :autoquality_format_max_quality, %{}),
-         max_resolution: Keyword.get(config, :autoquality_max_resolution, 0)
-       })}
-    end
-  end
-
-  # URL arg → per-metric config map. The config map is always seeded for the
-  # perceptual metrics, so no built-in constant fallback remains. 0/0.0 are truthy
-  # in Elixir, so a configured 0 is honored by the `||`.
-  defp resolve_allowed_error(metric, fields, config) do
-    Keyword.get(fields, :allowed_error) ||
-      Map.get(Keyword.get(config, :autoquality_allowed_error, %{}), metric)
-  end
-
-  # URL arg → per-metric config map → missing-target error (`:size` only, since the
-  # perceptual metrics are seeded).
-  defp resolve_target(metric, fields, config) do
-    config_target = Map.get(Keyword.get(config, :autoquality_target, %{}), metric)
-
-    case Keyword.get(fields, :target, config_target) do
-      nil -> {:error, {:invalid_option, :autoquality, :missing_target}}
-      target -> {:ok, target}
-    end
-  end
+  @spec resolve(nil | boolean() | float(), keyword()) :: :none | t()
+  def resolve(nil, config), do: resolve(Keyword.fetch!(config, :autoquality), config)
+  def resolve(false, _config), do: :none
+  def resolve(true, config), do: resolve(Keyword.fetch!(config, :autoquality_target), config)
+  def resolve(target, _config) when is_number(target), do: %__MODULE__{target: target * 1.0}
 end

@@ -287,109 +287,50 @@ defmodule ImagePipe.Output.PolicyTest do
       }
     end
 
-    test "per-format clamp overrides the global bracket for the negotiated format" do
-      search = %QualitySearch.Ssimulacra2{
-        target: 90.0,
-        min_quality: 70,
-        max_quality: 80,
-        allowed_error: 1.0,
-        format_min: %{avif: 60},
-        format_max: %{avif: 65}
-      }
+    test "searches each format within its rails" do
+      search = %QualitySearch{target: 75.0}
 
-      assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch.Ssimulacra2{} = rs}} =
+      assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch.Ssimulacra2{} = avif}} =
                Policy.resolve(policy_with(search, format: :avif), nil)
 
-      assert rs.min_quality == 60 and rs.max_quality == 65
-    end
+      assert {avif.min_quality, avif.max_quality} == {20, 90}
 
-    test "unlisted format falls back to the global bracket" do
-      search = %QualitySearch.Ssimulacra2{
-        target: 90.0,
-        min_quality: 70,
-        max_quality: 80,
-        allowed_error: 1.0,
-        format_min: %{avif: 60},
-        format_max: %{avif: 65}
-      }
-
-      assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch.Ssimulacra2{} = rs}} =
+      assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch.Ssimulacra2{} = jpeg}} =
                Policy.resolve(policy_with(search, format: :jpeg), nil)
 
-      assert rs.min_quality == 70 and rs.max_quality == 80
+      assert {jpeg.min_quality, jpeg.max_quality} == {25, 95}
     end
 
-    test "carries target, allowed_error, and max_resolution through" do
-      search = %QualitySearch.Ssimulacra2{
-        target: 90.0,
-        min_quality: 70,
-        max_quality: 80,
-        allowed_error: 1.0,
-        max_resolution: 16
-      }
+    test "starts each format's search at its calibrated quality for the target" do
+      search = %QualitySearch{target: 75.0}
+
+      for {format, start} <- [jpeg: 76, webp: 78, avif: 53] do
+        assert {:ok, %Resolved{quality_search: rs}} =
+                 Policy.resolve(policy_with(search, format: format), nil)
+
+        assert rs.start_quality == start
+      end
+    end
+
+    test "extends the calibration past its targets and keeps the start inside the rails" do
+      high = %QualitySearch{target: 95.0}
+
+      assert {:ok, %Resolved{quality_search: %{start_quality: 90}}} =
+               Policy.resolve(policy_with(high, format: :avif), nil)
+
+      low = %QualitySearch{target: 73.5}
+
+      assert {:ok, %Resolved{quality_search: %{start_quality: 52}}} =
+               Policy.resolve(policy_with(low, format: :avif), nil)
+    end
+
+    test "carries the target through" do
+      search = %QualitySearch{target: 90.0}
 
       assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch.Ssimulacra2{} = rs}} =
                Policy.resolve(policy_with(search), nil)
 
       assert rs.target == 90.0
-      assert rs.allowed_error == 1.0
-      assert rs.max_resolution == 16
-    end
-
-    test "resolves quality_search_offsets to the per-class map for an avif negotiation" do
-      search = %QualitySearch.Ssimulacra2{
-        target: 78.0,
-        min_quality: 70,
-        max_quality: 80,
-        allowed_error: 1.0
-      }
-
-      assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch.Ssimulacra2{} = rs}} =
-               Policy.resolve(policy_with(search, format: :avif), nil)
-
-      # avif × graphic draws the big offset; photo keeps the lean default.
-      assert rs.quality_search_offsets == %{photo: 2.4, graphic: 6.0}
-    end
-
-    test "a non-avif format keeps the lean default for both classes" do
-      search = %QualitySearch.Ssimulacra2{
-        target: 78.0,
-        min_quality: 70,
-        max_quality: 80,
-        allowed_error: 1.0
-      }
-
-      assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch.Ssimulacra2{} = rs}} =
-               Policy.resolve(policy_with(search, format: :jpeg), nil)
-
-      assert rs.quality_search_offsets == %{photo: 2.4, graphic: 2.4}
-    end
-
-    test "butteraugli plan resolves to a Butteraugli resolved struct" do
-      search = %QualitySearch.Butteraugli{
-        target: 1.0,
-        min_quality: 1,
-        max_quality: 100,
-        allowed_error: 0.1
-      }
-
-      assert {:ok,
-              %Resolved{quality_search: %ResolvedQualitySearch.Butteraugli{target: 1.0} = rs}} =
-               Policy.resolve(policy_with(search, format: :webp), nil)
-
-      assert rs.allowed_error == 0.1
-    end
-
-    test "butteraugli + webp stays external" do
-      search = %QualitySearch.Butteraugli{
-        target: 1.0,
-        min_quality: 1,
-        max_quality: 100,
-        allowed_error: 0.1
-      }
-
-      assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch.Butteraugli{}}} =
-               Policy.resolve(policy_with(search, format: :webp), nil)
     end
 
     test "none stays none" do
@@ -508,56 +449,6 @@ defmodule ImagePipe.Output.PolicyTest do
 
       palette = %{policy | encoder_options: %{png: %PngOptions{palette: true}}}
       assert {:ok, %{quality: {:quality, 50}}} = Policy.resolve(palette, nil)
-    end
-  end
-
-  describe "autoquality bracket precedence (resolve_search)" do
-    alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
-
-    defp resolve_search_for(format, search) do
-      policy = policy(%{mode: {:explicit, format}, quality_search: search})
-      {:ok, resolved} = Policy.resolve(policy, nil)
-      resolved.quality_search
-    end
-
-    test "URL min/max beat per-format config" do
-      search = %QualitySearch.Ssimulacra2{
-        target: 78,
-        min_quality: 70,
-        max_quality: 80,
-        url_min_quality: 75,
-        url_max_quality: 85,
-        format_min: %{avif: 60},
-        format_max: %{avif: 65}
-      }
-
-      assert %RQS.Ssimulacra2{min_quality: 75, max_quality: 85} =
-               resolve_search_for(:avif, search)
-    end
-
-    test "per-format config beats base when URL omits" do
-      search = %QualitySearch.Ssimulacra2{
-        target: 78,
-        min_quality: 70,
-        max_quality: 80,
-        format_min: %{avif: 60},
-        format_max: %{avif: 65}
-      }
-
-      assert %RQS.Ssimulacra2{min_quality: 60, max_quality: 65} =
-               resolve_search_for(:avif, search)
-    end
-
-    test "asymmetric: URL min only, max falls to config base" do
-      search = %QualitySearch.Ssimulacra2{
-        target: 78,
-        min_quality: 70,
-        max_quality: 80,
-        url_min_quality: 75
-      }
-
-      assert %RQS.Ssimulacra2{min_quality: 75, max_quality: 80} =
-               resolve_search_for(:jpeg, search)
     end
   end
 

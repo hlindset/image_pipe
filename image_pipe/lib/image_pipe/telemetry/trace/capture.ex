@@ -14,16 +14,11 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     [:send],
     [:encode],
     [:encode, :search],
-    # Classification precedes search; both spans are children of [:encode].
-    [:encode, :classify],
     [:encode, :search, :probe],
-    # Probe spans time eager work. Encoding is shared across objectives; scoring
-    # uses each metric's leg_name/0 for distinct span names.
+    # Probe spans time eager work: the encode, then the decode and score.
     [:encode, :search, :probe, :encode],
     [:encode, :search, :probe, :ssimulacra2, :decode],
     [:encode, :search, :probe, :ssimulacra2, :metric],
-    [:encode, :search, :probe, :butteraugli, :decode],
-    [:encode, :search, :probe, :butteraugli, :metric],
     [:deliver],
     [:source, :resolve],
     [:source, :fetch],
@@ -130,12 +125,6 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     :outcome,
     :iterations,
     :tiles_scored,
-    # content classification for the per-class crop offset (#380): all product-neutral
-    # (a class atom, a constant offset, two image statistics)
-    :content_class,
-    :applied_offset,
-    :palette_ent,
-    :nat_var,
     # per-probe span attributes: phase and the search-level limiting factor (both
     # product-neutral atoms)
     :phase,

@@ -1,7 +1,6 @@
 defmodule ImagePipe.Output.RequestPolicy do
   @moduledoc false
 
-  alias ImagePipe.Format
   alias ImagePipe.Output.Negotiation
   alias ImagePipe.Output.Policy
   alias ImagePipe.Plan.Output, as: PlanOutput
@@ -18,12 +17,12 @@ defmodule ImagePipe.Output.RequestPolicy do
   @spec resolve(SpecOutput.t(), keyword(), String.t()) ::
           {:ok, Policy.t()} | {:error, {:invalid_output, term()}}
   def resolve(%SpecOutput{} = request, config, accept_header) do
-    with {:ok, quality_search} <- resolve_quality_search(request, config),
-         output = policy(request, config, accept_header, quality_search),
-         :ok <- validate_hdr_profile(output),
+    quality_search = resolve_quality_search(request, config)
+    output = policy(request, config, accept_header, quality_search)
+
+    with :ok <- validate_hdr_profile(output),
          :ok <- validate_lossless_webp_request(output, request),
-         :ok <- validate_png_quality(output, request),
-         :ok <- validate_brackets(output, config) do
+         :ok <- validate_png_quality(output, request) do
       {:ok, output}
     else
       {:error, reason} -> {:error, {:invalid_output, reason}}
@@ -69,7 +68,6 @@ defmodule ImagePipe.Output.RequestPolicy do
       encoder_options:
         merge_encoder_options(encoder_options_from_config(config), request.encoder_options),
       quality_search: quality_search,
-      quality_search_max_iterations: Keyword.fetch!(config, :autoquality_max_iterations),
       max_bytes: request.max_bytes
     }
   end
@@ -99,15 +97,10 @@ defmodule ImagePipe.Output.RequestPolicy do
 
   defp resolve_quality_search(%SpecOutput{quality: quality}, _config)
        when not is_nil(quality),
-       do: {:ok, :none}
+       do: :none
 
-  defp resolve_quality_search(%SpecOutput{autoquality: nil}, config),
-    do: QualitySearch.from_config(config)
-
-  defp resolve_quality_search(%SpecOutput{autoquality: :none}, _config), do: {:ok, :none}
-
-  defp resolve_quality_search(%SpecOutput{autoquality: {method, fields}}, config),
-    do: QualitySearch.build(method, fields, config)
+  defp resolve_quality_search(%SpecOutput{autoquality: autoquality}, config),
+    do: QualitySearch.resolve(autoquality, config)
 
   defp metadata_policy(nil, strip_metadata, keep_copyright),
     do: {strip_metadata, keep_copyright}
@@ -163,38 +156,5 @@ defmodule ImagePipe.Output.RequestPolicy do
     end
   end
 
-  defp enabled_url_autoquality?({_method, _fields}), do: true
-
-  defp enabled_url_autoquality?(_autoquality), do: false
-
-  defp validate_brackets(%Policy{quality_search: :none}, _config), do: :ok
-
-  defp validate_brackets(%Policy{mode: mode, quality_search: search}, config) do
-    mode
-    |> possible_formats(config)
-    |> Enum.filter(&Format.supports_quality?/1)
-    |> Enum.reduce_while(:ok, fn format, :ok ->
-      min_quality =
-        search.url_min_quality || Map.get(search.format_min, format, search.min_quality)
-
-      max_quality =
-        search.url_max_quality || Map.get(search.format_max, format, search.max_quality)
-
-      if min_quality <= max_quality do
-        {:cont, :ok}
-      else
-        {:halt, {:error, {:inverted_autoquality_bracket, format}}}
-      end
-    end)
-  end
-
-  defp possible_formats(:source, config) do
-    Enum.filter(Format.output_formats(), &automatic_format_enabled?(&1, config))
-  end
-
-  defp possible_formats({:explicit, format}, _config), do: [format]
-
-  defp automatic_format_enabled?(:avif, config), do: Keyword.get(config, :auto_avif, true)
-  defp automatic_format_enabled?(:webp, config), do: Keyword.get(config, :auto_webp, true)
-  defp automatic_format_enabled?(_baseline, _config), do: true
+  defp enabled_url_autoquality?(autoquality), do: autoquality not in [nil, false]
 end

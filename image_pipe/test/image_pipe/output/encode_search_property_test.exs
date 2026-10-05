@@ -1,14 +1,13 @@
 defmodule ImagePipe.Output.EncodeSearchPropertyTest do
   @moduledoc """
-  Property invariants for the encode-quality search and the per-format resolution
-  that feeds it. The search assumes byte size and SSIMULACRA2 score are
+  Property invariants for the encode-quality search. The search assumes byte size and SSIMULACRA2 score are
   non-decreasing in quality, but real encoders violate that locally — so these
   properties feed deliberately NON-MONOTONE curves (a monotone base plus random
   per-quality jitter) and assert only the invariants that hold regardless of
   monotonicity:
 
     * the winning quality is always inside `[min_quality, max_quality]`;
-    * a `:size`/`max_bytes` `:hit` always fits the byte target;
+    * a `max_bytes` `:hit` always fits the byte target;
     * a `:ssim2` `:hit` always clears `target - allowed_error`.
 
   Optimality is deliberately NOT asserted: under a non-monotone curve the binary
@@ -20,34 +19,7 @@ defmodule ImagePipe.Output.EncodeSearchPropertyTest do
   use ExUnitProperties
 
   alias ImagePipe.Output.EncodeSearch
-  alias ImagePipe.Output.Policy
-  alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
-  alias ImagePipe.Plan.Color
-  alias ImagePipe.Plan.Output
-
-  @output_formats [:avif, :webp, :jpeg, :png]
-
-  property "size: result quality is always within the bracket; a :hit fits the byte target" do
-    check all {lo, hi} <- bracket(),
-              target <- integer(1..200),
-              size_curve <- curve(lo, hi, 1, 4000),
-              max_iterations <- integer(1..12),
-              max_runs: 80 do
-      rqs = %RQS.Size{target: target, min_quality: lo, max_quality: hi}
-      encode_fun = size_encode_fun(size_curve)
-
-      assert {:ok, bin, meta} =
-               EncodeSearch.search(rqs, nil,
-                 encode_fun: encode_fun,
-                 max_iterations: max_iterations
-               )
-
-      assert meta.quality in lo..hi
-      assert byte_size(bin) == meta.bytes
-      if meta.outcome == :hit, do: assert(meta.bytes <= target)
-    end
-  end
 
   property "max_bytes alone: result quality is within [10, base]; a :hit fits the budget" do
     check all base <- integer(10..100),
@@ -74,6 +46,7 @@ defmodule ImagePipe.Output.EncodeSearchPropertyTest do
     check all {lo, hi} <- bracket(),
               target <- float_in(1.0, 100.0),
               allowed_error <- float_in(0.0, 10.0),
+              start_quality <- one_of([constant(nil), integer(lo..hi)]),
               score_curve <- curve(lo, hi, 0, 100),
               max_iterations <- integer(1..12),
               max_runs: 80 do
@@ -81,6 +54,7 @@ defmodule ImagePipe.Output.EncodeSearchPropertyTest do
         target: target,
         min_quality: lo,
         max_quality: hi,
+        start_quality: start_quality,
         allowed_error: allowed_error
       }
 
@@ -100,38 +74,6 @@ defmodule ImagePipe.Output.EncodeSearchPropertyTest do
         assert meta.score != nil
         assert meta.score >= target - allowed_error
       end
-    end
-  end
-
-  property "Policy.resolve/2 yields a resolved search with min_quality <= max_quality" do
-    check all {lo, hi} <- bracket(),
-              format_min <- quality_map(),
-              format_max <- quality_map(),
-              struct_mod <-
-                member_of([Output.QualitySearch.Size, Output.QualitySearch.Ssimulacra2]),
-              negotiated_format <- member_of(@output_formats),
-              max_runs: 100 do
-      # A sane host configures per-format brackets that stay ordered under every
-      # fallback combination (a covered min with an uncovered max falls back to
-      # the base `hi`, and vice versa). Constrain each covered per-format value so
-      # all four combinations remain ordered, so the property checks that the
-      # per-format CLAMP preserves the invariant across format selection rather
-      # than that resolve repairs contradictory config.
-      {format_min, format_max} = order_per_format(format_min, format_max, lo, hi)
-
-      search =
-        struct(struct_mod, %{
-          target: 50,
-          min_quality: lo,
-          max_quality: hi,
-          format_min: format_min,
-          format_max: format_max
-        })
-
-      policy = policy_for(search, negotiated_format)
-
-      assert {:ok, %Resolved{quality_search: resolved}} = Policy.resolve(policy, nil)
-      assert resolved.min_quality <= resolved.max_quality
     end
   end
 
@@ -178,72 +120,9 @@ defmodule ImagePipe.Output.EncodeSearchPropertyTest do
   # the score up. Keeps score keyed on the actual probed quality.
   defp score_curve_key(_score_curve, bin), do: byte_size(bin) - 1
 
-  # Random per-format quality map over a subset of the output formats.
-  defp quality_map do
-    @output_formats
-    |> Enum.map(fn format ->
-      one_of([constant(nil), integer(1..100)])
-      |> map(fn value -> {format, value} end)
-    end)
-    |> fixed_list()
-    |> map(fn pairs ->
-      pairs
-      |> Enum.reject(fn {_format, value} -> is_nil(value) end)
-      |> Map.new()
-    end)
-  end
-
   # --- helpers --------------------------------------------------------------
 
   defp float_in(lo, hi), do: map(integer(0..1000), fn n -> lo + n / 1000 * (hi - lo) end)
 
   defp clamp(value, lo, hi), do: value |> max(lo) |> min(hi)
-
-  # Constrain each covered per-format value so every fallback combination against
-  # the base bracket [lo, hi] stays ordered: a covered min is clamped to <= hi, a
-  # covered max to >= lo, and a both-present pair is swapped into order.
-  defp order_per_format(format_min, format_max, lo, hi) do
-    {mins, maxes} =
-      Enum.reduce(@output_formats, {format_min, format_max}, fn format, {mins, maxes} ->
-        mins =
-          case Map.get(mins, format) do
-            min when is_integer(min) -> Map.put(mins, format, min(min, hi))
-            nil -> mins
-          end
-
-        maxes =
-          case Map.get(maxes, format) do
-            max when is_integer(max) -> Map.put(maxes, format, max(max, lo))
-            nil -> maxes
-          end
-
-        {mins, maxes}
-      end)
-
-    Enum.reduce(@output_formats, {mins, maxes}, fn format, {mins, maxes} ->
-      case {Map.get(mins, format), Map.get(maxes, format)} do
-        {min, max} when is_integer(min) and is_integer(max) and min > max ->
-          {Map.put(mins, format, max), Map.put(maxes, format, min)}
-
-        _other ->
-          {mins, maxes}
-      end
-    end)
-  end
-
-  defp policy_for(search, format) do
-    %Policy{
-      mode: {:explicit, format},
-      modern_candidates: [],
-      headers: [],
-      quality: :default,
-      format_qualities: %{},
-      strip_metadata: true,
-      keep_copyright: false,
-      color_profile: :strip,
-      flatten_background: Color.white(),
-      quality_search: search,
-      max_bytes: nil
-    }
-  end
 end

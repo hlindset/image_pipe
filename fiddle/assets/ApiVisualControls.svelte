@@ -1241,98 +1241,22 @@
   </div>
 
   <label class="field">
-    <span>Method</span>
-    <select bind:value={controlState.autoqualityMethod}>
-      <option value="none">none</option>
-      <option value="size">size</option>
-      <option value="ssimulacra2">SSIMULACRA2</option>
-      <option value="butteraugli">butteraugli</option>
+    <span>Mode</span>
+    <select bind:value={controlState.autoqualityMode}>
+      <option value="unset">host default</option>
+      <option value="on">on</option>
+      <option value="off">off</option>
+      <option value="target">target</option>
     </select>
   </label>
 
-  {#if controlState.autoqualityMethod === "size"}
-    <RangeNumber
-      label="Target (bytes)"
-      bind:value={controlState.autoqualitySizeTarget}
-      min={controlLimits.autoquality.sizeTarget.min}
-      max={controlLimits.autoquality.sizeTarget.max}
-      step={controlLimits.autoquality.sizeTarget.step}
-    />
-    <RangeNumber
-      label="Min quality"
-      bind:value={controlState.autoqualityMinQuality}
-      min={controlLimits.autoquality.quality.min}
-      max={controlLimits.autoquality.quality.max}
-      step={controlLimits.autoquality.quality.step}
-    />
-    <RangeNumber
-      label="Max quality"
-      bind:value={controlState.autoqualityMaxQuality}
-      min={controlLimits.autoquality.quality.min}
-      max={controlLimits.autoquality.quality.max}
-      step={controlLimits.autoquality.quality.step}
-    />
-  {/if}
-
-  {#if controlState.autoqualityMethod === "ssimulacra2"}
+  {#if controlState.autoqualityMode === "target"}
     <RangeNumber
       label="Target (SSIMULACRA2)"
-      bind:value={controlState.autoqualitySsim2Target}
-      min={controlLimits.autoquality.ssim2Target.min}
-      max={controlLimits.autoquality.ssim2Target.max}
-      step={controlLimits.autoquality.ssim2Target.step}
-    />
-    <RangeNumber
-      label="Min quality"
-      bind:value={controlState.autoqualityMinQuality}
-      min={controlLimits.autoquality.quality.min}
-      max={controlLimits.autoquality.quality.max}
-      step={controlLimits.autoquality.quality.step}
-    />
-    <RangeNumber
-      label="Max quality"
-      bind:value={controlState.autoqualityMaxQuality}
-      min={controlLimits.autoquality.quality.min}
-      max={controlLimits.autoquality.quality.max}
-      step={controlLimits.autoquality.quality.step}
-    />
-    <RangeNumber
-      label="Allowed error"
-      bind:value={controlState.autoqualityAllowedError}
-      min={controlLimits.autoquality.allowedError.min}
-      max={controlLimits.autoquality.allowedError.max}
-      step={controlLimits.autoquality.allowedError.step}
-    />
-  {/if}
-
-  {#if controlState.autoqualityMethod === "butteraugli"}
-    <RangeNumber
-      label="Target (butteraugli distance, lower=better)"
-      bind:value={controlState.autoqualityButteraugliTarget}
-      min={controlLimits.autoquality.butteraugliTarget.min}
-      max={controlLimits.autoquality.butteraugliTarget.max}
-      step={controlLimits.autoquality.butteraugliTarget.step}
-    />
-    <RangeNumber
-      label="Min quality"
-      bind:value={controlState.autoqualityMinQuality}
-      min={controlLimits.autoquality.quality.min}
-      max={controlLimits.autoquality.quality.max}
-      step={controlLimits.autoquality.quality.step}
-    />
-    <RangeNumber
-      label="Max quality"
-      bind:value={controlState.autoqualityMaxQuality}
-      min={controlLimits.autoquality.quality.min}
-      max={controlLimits.autoquality.quality.max}
-      step={controlLimits.autoquality.quality.step}
-    />
-    <RangeNumber
-      label="Allowed error"
-      bind:value={controlState.autoqualityAllowedError}
-      min={controlLimits.autoquality.allowedError.min}
-      max={controlLimits.autoquality.allowedError.max}
-      step={controlLimits.autoquality.allowedError.step}
+      bind:value={controlState.autoqualityTarget}
+      min={controlLimits.autoquality.target.min}
+      max={controlLimits.autoquality.target.max}
+      step={controlLimits.autoquality.target.step}
     />
   {/if}
 </section>

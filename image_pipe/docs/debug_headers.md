@@ -79,19 +79,18 @@ Each header carries one value. A header whose value is unknown is left out.
 
 ### Automatic quality
 
-Present only when [automatic quality](processing/output.md) searched for a
-quality.
+Present only when [automatic quality](processing/output.md#autoquality)
+searched for a quality.
 
 | Header | Example | Meaning |
 |---|---|---|
-| `X-ImagePipe-AQ-Metric` | `ssimulacra2` | What the search aimed for: `ssimulacra2` or `butteraugli` (visual quality), or `size` (file size) |
-| `X-ImagePipe-AQ-Score` | `78.4` | Visual quality score of the delivered image, in the metric's units |
-| `X-ImagePipe-AQ-Target` | `78.0` | The target score, or the target size in bytes for `size` |
-| `X-ImagePipe-AQ-Quality-Min` | `60` | Lowest quality the search could choose |
-| `X-ImagePipe-AQ-Quality-Max` | `65` | Highest quality the search could choose |
-| `X-ImagePipe-AQ-Iterations` | `5` | Number of encodes the search made |
-| `X-ImagePipe-AQ-Outcome` | `hit` | `hit` (target met) or `best_effort` (not met, closest quality used) |
-| `X-ImagePipe-AQ-Limiting-Factor` | `ceiling` | With `best_effort`, why: `ceiling` or `floor` (the target needed a quality outside the range), or `max_bytes` (the byte limit couldn't be met) |
+| `X-ImagePipe-AQ-Score` | `75.4` | SSIMULACRA2 score of the delivered image |
+| `X-ImagePipe-AQ-Target` | `75.0` | The target score |
+| `X-ImagePipe-AQ-Quality-Min` | `20` | Lowest quality the search could choose |
+| `X-ImagePipe-AQ-Quality-Max` | `90` | Highest quality the search could choose |
+| `X-ImagePipe-AQ-Iterations` | `3` | Number of encodes the search made |
+| `X-ImagePipe-AQ-Outcome` | `hit` | `hit` (target met) or `best_effort` (not met: the highest quality the search tries, or the lowest for `max-bytes`) |
+| `X-ImagePipe-AQ-Limiting-Factor` | `ceiling` | With `best_effort`, why: `ceiling` (the target needed a higher quality than the range allows), or `max_bytes` (the byte limit couldn't be met) |
 | `X-ImagePipe-AQ-Scorer` | `crop` | `full` when the whole image was scored, `crop` when sample areas of a large image were scored instead |
 | `X-ImagePipe-AQ-Tiles` | `9` | Number of sample areas scored, with `crop` |
 

@@ -18,7 +18,10 @@ defmodule ImagePipe.API.OptionSpecTest do
       for %OptionSpec{} = spec <- OptionSpec.all() do
         assert is_binary(spec.key) and spec.key != ""
         assert spec.scope in [:group, :request]
-        assert spec.value == :flag or is_function(spec.value, 1)
+
+        assert spec.value == :flag or is_function(spec.value, 1) or
+                 match?({:flag, fun} when is_function(fun, 1), spec.value)
+
         assert is_binary(spec.summary) and spec.summary != ""
 
         assert is_list(spec.examples) and spec.examples != [],
@@ -455,46 +458,14 @@ defmodule ImagePipe.API.OptionSpecTest do
       end
     end
 
-    test "autoquality parses sparse named fields in canonical order" do
-      assert OptionSpec.parse_autoquality("none") == {:ok, :none}
-
-      assert OptionSpec.parse_autoquality("size,target:12000,min:40,max:90") ==
-               {:ok, {:size, [target: 12_000, min_quality: 40, max_quality: 90]}}
-
-      assert OptionSpec.parse_autoquality("ssimulacra2,error:2,target:78,min:40,max:95") ==
-               {:ok,
-                {:ssimulacra2,
-                 [target: 78.0, min_quality: 40, max_quality: 95, allowed_error: 2.0]}}
-
-      assert OptionSpec.parse_autoquality("butteraugli,target:1,error:0.1") ==
-               {:ok, {:butteraugli, [target: 1.0, allowed_error: 0.1]}}
-
-      assert OptionSpec.parse_autoquality("ssimulacra2,error:101") ==
-               {:ok, {:ssimulacra2, [allowed_error: 101.0]}}
-
-      assert OptionSpec.parse_autoquality("butteraugli,error:25.1") ==
-               {:ok, {:butteraugli, [allowed_error: 25.1]}}
+    test "autoquality parses a target as a float" do
+      assert OptionSpec.parse_autoquality("75") == {:ok, 75.0}
+      assert OptionSpec.parse_autoquality("82.5") == {:ok, 82.5}
+      assert OptionSpec.parse_autoquality("100") == {:ok, 100.0}
     end
 
-    test "autoquality rejects malformed, duplicate, incompatible, and out-of-range fields" do
-      for value <- [
-            "",
-            "ssim2",
-            "none,target:1",
-            "size,error:1",
-            "size,target:0",
-            "size,target:1.5",
-            "ssimulacra2,target:101",
-            "butteraugli,target:25.1",
-            "butteraugli,error:-0.1",
-            "ssimulacra2,error:" <> String.duplicate("9", 1_000),
-            "ssimulacra2,min:0",
-            "ssimulacra2,max:101",
-            "ssimulacra2,min:90,max:80",
-            "ssimulacra2,target:78,target:80",
-            "ssimulacra2,unknown:1",
-            "ssimulacra2,"
-          ] do
+    test "autoquality rejects targets outside above 0 and up to 100" do
+      for value <- ["", "0", "-1", "100.1", "none", "ssimulacra2", "target:75"] do
         assert OptionSpec.parse_autoquality(value) == {:error, :invalid_autoquality}
       end
     end

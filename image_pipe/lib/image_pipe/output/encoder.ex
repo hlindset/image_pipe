@@ -51,14 +51,17 @@ defmodule ImagePipe.Output.Encoder do
   end
 
   # Pick the delivery path: a quality search (crop- or full-scored above/below the
-  # internal crossover) when one is configured and supported and the host cap does
-  # not skip it; otherwise stream the finalized image once.
+  # internal crossover) when one is configured and supported; otherwise stream the
+  # finalized image once.
   defp deliver(finalized, resolved_output, mime_type, suffix, opts) do
     if search?(resolved_output) and Format.supports_quality?(resolved_output.format) do
-      case scorer_mode(finalized, resolved_output) do
-        :skip -> lazy_output(finalized, resolved_output, mime_type, suffix, opts)
-        scorer -> search_output(finalized, resolved_output, mime_type, scorer, opts)
-      end
+      search_output(
+        finalized,
+        resolved_output,
+        mime_type,
+        scorer_mode(finalized, resolved_output),
+        opts
+      )
     else
       lazy_output(finalized, resolved_output, mime_type, suffix, opts)
     end
@@ -88,25 +91,14 @@ defmodule ImagePipe.Output.Encoder do
   defp search?(%Resolved{quality_search: quality_search, max_bytes: max_bytes}),
     do: quality_search != :none or max_bytes != nil
 
-  # The host max_resolution cap disables search first; otherwise the internal
-  # crossover selects crop or full-frame scoring. max_bytes alone has no descriptor
-  # and uses max_resolution=0, so it never skips.
+  # The internal crossover selects crop or full-frame scoring.
   defp scorer_mode(finalized, %Resolved{quality_search: quality_search}) do
     megapixels = Image.width(finalized) * Image.height(finalized) / 1_000_000
-    max_resolution = max_resolution_of(quality_search)
-
-    cond do
-      EncodeSearch.skip?(%{max_resolution: max_resolution}, megapixels) -> :skip
-      crop?(quality_search, megapixels) -> :crop
-      true -> :full
-    end
+    if crop?(quality_search, megapixels), do: :crop, else: :full
   end
 
-  defp max_resolution_of(%{max_resolution: mr}), do: mr
-  defp max_resolution_of(:none), do: 0
-
   # Crop scoring only applies to the Ssimulacra2 strategy (it tiles the SSIMULACRA2
-  # metric). A :size, butteraugli, or max_bytes-alone search above the crossover
+  # metric). A max_bytes-alone search above the crossover
   # does no crop scoring, so it stays :full and is not mislabeled :crop in telemetry.
   defp crop?(%RQS.Ssimulacra2{}, megapixels), do: megapixels > CropScore.crossover_megapixels()
   defp crop?(_quality_search, _megapixels), do: false

@@ -405,31 +405,6 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert span.attributes[:placeholders] == [:blurhash]
   end
 
-  test "captures the content-class classify span with its allowlisted attributes" do
-    Telemetry.span(
-      [],
-      [:encode, :classify],
-      %{},
-      fn ->
-        {:ok,
-         %{
-           result: :ok,
-           content_class: :graphic,
-           applied_offset: 6.0,
-           palette_ent: 0.34,
-           nat_var: 0.11
-         }}
-      end
-    )
-
-    assert_receive {:span, %Span{name: "image_pipe.encode.classify"} = span}
-    assert span.status == :ok
-    assert span.attributes[:content_class] == :graphic
-    assert span.attributes[:applied_offset] == 6.0
-    assert span.attributes[:palette_ent] == 0.34
-    assert span.attributes[:nat_var] == 0.11
-  end
-
   test "captures :sig_key_index on the API URL dialect's [:parse] stop metadata" do
     Telemetry.span([], [:parse], %{}, fn -> {:ok, %{result: :ok, sig_key_index: 1}} end)
 
@@ -606,36 +581,6 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     end
 
     assert met.attributes[:tiles_scored] == 12
-  end
-
-  test "captures the butteraugli probe cost legs (per-metric segment)" do
-    Telemetry.span([], [:encode, :search, :probe], %{quality: 62, phase: :objective}, fn ->
-      Telemetry.span([], [:encode, :search, :probe, :butteraugli, :decode], %{bytes: 9_001}, fn ->
-        {:ok, %{result: :ok}}
-      end)
-
-      Telemetry.span(
-        [],
-        [:encode, :search, :probe, :butteraugli, :metric],
-        %{tiles_scored: nil},
-        fn ->
-          {1.2, %{result: :ok, score: 1.2}}
-        end
-      )
-
-      {:ok, %{bytes: 9_001}}
-    end)
-
-    assert_receive {:span, %Span{name: "image_pipe.encode.search.probe.butteraugli.decode"} = dec}
-    assert_receive {:span, %Span{name: "image_pipe.encode.search.probe.butteraugli.metric"} = met}
-    assert_receive {:span, %Span{name: "image_pipe.encode.search.probe"} = probe}
-
-    for leg <- [dec, met] do
-      assert leg.parent_span_id == probe.span_id
-      assert leg.trace_id == probe.trace_id
-    end
-
-    assert met.attributes[:score] == 1.2
   end
 
   test "merges allowlisted stop-metadata attributes onto the span, preserving start attrs" do

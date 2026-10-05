@@ -32,10 +32,7 @@ defmodule ImagePipe.Plan.Spec.Output do
             | {:convert, :srgb | :display_p3 | :adobe_rgb},
           hdr: nil | :tone_map | :preserve,
           format_qualities: %{optional(atom()) => {:quality, 1..100}},
-          autoquality:
-            nil
-            | :none
-            | {:size | :ssimulacra2 | :butteraugli, keyword(pos_integer() | float())},
+          autoquality: nil | boolean() | float(),
           max_bytes: nil | pos_integer(),
           dpi: nil | 1..65_535,
           encoder_options: %{optional(atom()) => struct()}

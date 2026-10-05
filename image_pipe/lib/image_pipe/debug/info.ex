@@ -27,7 +27,6 @@ defmodule ImagePipe.Debug.Info do
             timings: %{}
 
   @type aq :: %{
-          optional(:metric) => :ssimulacra2 | :butteraugli | :size,
           optional(:score) => float() | nil,
           optional(:target) => number() | nil,
           optional(:min) => 1..100,

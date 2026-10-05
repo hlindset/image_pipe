@@ -4,7 +4,6 @@ defmodule ImagePipe.API.OutputOptions do
   alias ImagePipe.API.SerializedValue
   alias ImagePipe.API.Value
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
-  alias ImagePipe.Plan.Output.QualitySearch.Metric
 
   @formats %{
     "avif" => :avif,
@@ -71,22 +70,11 @@ defmodule ImagePipe.API.OutputOptions do
     end
   end
 
-  @spec parse_autoquality(String.t()) :: {:ok, term()} | :error
-  def parse_autoquality("none"), do: {:ok, :none}
-
+  @spec parse_autoquality(String.t()) :: {:ok, float()} | :error
   def parse_autoquality(string) do
-    case String.split(string, ",", trim: false) do
-      [method | fields] when method in ["size", "ssimulacra2", "butteraugli"] ->
-        method = autoquality_method(method)
-
-        with {:ok, pairs} <- parse_unique_items(fields, &autoquality_field(method, &1)),
-             field_map = Map.new(pairs),
-             :ok <- validate_autoquality_fields(method, field_map) do
-          {:ok, {method, autoquality_keyword(field_map)}}
-        end
-
-      _invalid ->
-        :error
+    case Value.number(string) do
+      {:ok, number} when number > 0 and number <= 100 -> {:ok, number * 1.0}
+      _invalid -> :error
     end
   end
 
@@ -121,85 +109,6 @@ defmodule ImagePipe.API.OutputOptions do
     else
       _invalid -> :error
     end
-  end
-
-  defp autoquality_method("size"), do: :size
-  defp autoquality_method("ssimulacra2"), do: :ssimulacra2
-  defp autoquality_method("butteraugli"), do: :butteraugli
-
-  defp autoquality_field(method, item) do
-    with [name, raw_value] <- String.split(item, ":", parts: 3),
-         {:ok, field, value} <- parse_autoquality_value(method, name, raw_value) do
-      {:ok, {field, value}}
-    else
-      _invalid -> :error
-    end
-  end
-
-  defp parse_autoquality_value(:size, "target", value) do
-    with {:ok, target} <- positive_integer(value), do: {:ok, :target, target}
-  end
-
-  defp parse_autoquality_value(:size, "error", _value), do: :error
-
-  defp parse_autoquality_value(method, "target", value)
-       when method in [:ssimulacra2, :butteraugli] do
-    with {:ok, target} <- metric_target(method, value), do: {:ok, :target, target}
-  end
-
-  defp parse_autoquality_value(method, "error", value)
-       when method in [:ssimulacra2, :butteraugli] do
-    with {:ok, error} <- nonnegative_number(value), do: {:ok, :allowed_error, error}
-  end
-
-  defp parse_autoquality_value(_method, "min", value) do
-    with {:ok, quality} <- quality(value), do: {:ok, :min_quality, quality}
-  end
-
-  defp parse_autoquality_value(_method, "max", value) do
-    with {:ok, quality} <- quality(value), do: {:ok, :max_quality, quality}
-  end
-
-  defp parse_autoquality_value(_method, _name, _value), do: :error
-
-  defp metric_target(metric, string) do
-    {lo, hi} = Metric.target_range(metric)
-
-    with {:ok, number} when number >= lo and number <= hi <- Value.number(string),
-         {:ok, number} <- normalized_float(number) do
-      {:ok, number}
-    else
-      _invalid -> :error
-    end
-  end
-
-  defp nonnegative_number(string) do
-    with {:ok, number} when number >= 0 <- Value.number(string),
-         {:ok, number} <- normalized_float(number) do
-      {:ok, number}
-    else
-      _invalid -> :error
-    end
-  end
-
-  defp normalized_float(number) when number == 0, do: {:ok, 0.0}
-
-  defp normalized_float(number) do
-    {:ok, number * 1.0}
-  rescue
-    ArithmeticError -> :error
-  end
-
-  defp validate_autoquality_fields(_method, %{min_quality: min, max_quality: max})
-       when min > max,
-       do: :error
-
-  defp validate_autoquality_fields(_method, _fields), do: :ok
-
-  defp autoquality_keyword(fields) do
-    for key <- [:target, :min_quality, :max_quality, :allowed_error],
-        Map.has_key?(fields, key),
-        do: {key, Map.fetch!(fields, key)}
   end
 
   defp parse_codec(string, format) do
