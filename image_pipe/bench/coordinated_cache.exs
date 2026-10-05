@@ -5,6 +5,8 @@
 Code.require_file("support/buffered_http.exs", __DIR__)
 
 defmodule CoordinatedCacheBench do
+  @spans [[:source, :stage], [:source, :fetch], [:cache, :write]]
+
   def run(mode) do
     root =
       Path.join(System.tmp_dir!(), "image-pipe-cache-bench-#{System.unique_integer([:positive])}")
@@ -18,6 +20,21 @@ defmodule CoordinatedCacheBench do
       {__MODULE__, self()},
       prefix ++ [:source, :fetch_decode, :stop],
       fn _event, _measure, meta, table -> :ets.insert(table, {:shrink, meta[:load_option]}) end,
+      events
+    )
+
+    :telemetry.attach_many(
+      {__MODULE__, :spans, self()},
+      for(stage <- @spans, do: prefix ++ stage ++ [:stop]),
+      fn event, %{duration: duration}, meta, table ->
+        stage = event |> Enum.drop(length(prefix)) |> Enum.drop(-1) |> Enum.join(".")
+        stage = if meta[:pool], do: "#{stage}(#{meta[:pool]})", else: stage
+
+        :ets.insert(
+          table,
+          {{:span, stage}, System.convert_time_unit(duration, :native, :microsecond)}
+        )
+      end,
       events
     )
 
@@ -48,9 +65,11 @@ defmodule CoordinatedCacheBench do
       ImagePipe.Plug.init(
         [
           sources: [
-            url:
-              {source_adapter(mode),
-               allowed_hosts: ["127.0.0.1"], address_policy: [allow_loopback: true]}
+            url: [
+              adapter: source_adapter(mode),
+              match: [scheme: ["http", "https"]],
+              options: [allowed_hosts: ["127.0.0.1"], address_policy: [allow_loopback: true]]
+            ]
           ],
           cache: {ImagePipe.Cache.FileSystem, root: Path.join(root, "output")},
           telemetry_prefix: prefix,
@@ -70,6 +89,7 @@ defmodule CoordinatedCacheBench do
     try do
       {cold_us, cold} = :timer.tc(fn -> traverse(paths, config) end)
       cold_bytes = :counters.get(fetched, 1)
+      cold_spans = span_totals(events)
       {warm_us, warm} = :timer.tc(fn -> traverse(paths, config) end)
       if cold != warm, do: raise("warm responses differ from cold responses")
       send(sampler.pid, :stop)
@@ -80,6 +100,7 @@ defmodule CoordinatedCacheBench do
         variants: length(paths),
         concurrency: 4,
         cold_ms: cold_us / 1000,
+        cold_span_ms: cold_spans,
         warm_ms: warm_us / 1000,
         cold_origin_bytes: cold_bytes,
         warm_origin_bytes: :counters.get(fetched, 1) - cold_bytes,
@@ -89,7 +110,7 @@ defmodule CoordinatedCacheBench do
         libvips_peak_bytes: Vix.Vips.tracked_get_mem_highwater(),
         decode_load_options:
           events
-          |> :ets.tab2list()
+          |> :ets.lookup(:shrink)
           |> Enum.map(fn {_, value} -> inspect(value) end)
           |> Enum.uniq(),
         response_digests: cold
@@ -100,6 +121,7 @@ defmodule CoordinatedCacheBench do
       Supervisor.stop(supervisor)
       File.rm_rf!(root)
       :telemetry.detach({__MODULE__, self()})
+      :telemetry.detach({__MODULE__, :spans, self()})
       :ets.delete(events)
     end
   end
@@ -125,6 +147,15 @@ defmodule CoordinatedCacheBench do
       timeout: 60_000
     )
     |> Enum.map(fn {:ok, hash} -> hash end)
+  end
+
+  # Summed span durations and counts, so the cold traversal's stages can be
+  # compared without the noise of whole-request totals.
+  defp span_totals(events) do
+    events
+    |> :ets.match_object({{:span, :_}, :_})
+    |> Enum.group_by(fn {{:span, stage}, _} -> stage end, fn {_, us} -> us end)
+    |> Map.new(fn {stage, us} -> {stage, %{count: length(us), ms: Enum.sum(us) / 1000}} end)
   end
 
   defp stored_bytes(root),
