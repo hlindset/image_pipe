@@ -540,7 +540,10 @@ every lower layer as if none had set it: a group option becomes neutral, and a
 request option returns to the host configuration. An unset clears its override
 family and the inherited options whose requirement the merged group no longer
 meets; explicit options in the same layer stay and are validated. A preset's
-unset also clears request defaults. `unset` never reaches canonical data, so
+unset also clears request defaults. `format-q` and the encoder options merge
+across layers entry by entry instead of replacing whole, and accept a leading
+`unset` (`jpeg-options=unset,progressive`) that clears every lower layer before
+applying the listed entries. `unset` never reaches canonical data, so
 `key=unset` without presets is the same request as an absent `key`. It is
 reserved: no watermark asset or detection class can be named `unset`.
 Nested references anchor to their group within the fragment. A preset

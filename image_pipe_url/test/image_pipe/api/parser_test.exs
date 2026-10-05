@@ -1412,4 +1412,79 @@ defmodule ImagePipe.API.ParserTest do
                parse(["w=800", "fit=cover", "detect=car,unset"])
     end
   end
+
+  describe "layered output options" do
+    test "encoder options merge field by field across layers" do
+      config = [request_defaults: "jpeg-options=progressive,quant-table:3"]
+
+      assert {:ok, %Spec{output: %Output{encoder_options: %{jpeg: jpeg}}}} =
+               parse(
+                 ["w=800", "jpeg-options=progressive:false,trellis-quant"],
+                 "images/cat.jpg",
+                 config
+               )
+
+      assert jpeg == %JpegOptions{interlace: false, quant_table: 3, trellis_quant: true}
+    end
+
+    test "format-q merges format by format across layers" do
+      config = [request_defaults: "format-q=webp:70,avif:60"]
+
+      assert {:ok, %Spec{output: %Output{format_qualities: qualities}}} =
+               parse(["w=800", "format-q=avif:50"], "images/cat.jpg", config)
+
+      assert qualities == %{webp: {:quality, 70}, avif: {:quality, 50}}
+    end
+
+    test "a leading unset clears lower layers before applying the rest" do
+      config = [request_defaults: "jpeg-options=progressive,quant-table:3/format-q=webp:70"]
+
+      assert {:ok, %Spec{output: output}} =
+               parse(
+                 ["w=800", "jpeg-options=unset,trellis-quant", "format-q=unset,avif:50"],
+                 "images/cat.jpg",
+                 config
+               )
+
+      assert output.encoder_options == %{jpeg: %JpegOptions{trellis_quant: true}}
+      assert output.format_qualities == %{avif: {:quality, 50}}
+    end
+
+    test "a preset's leading unset clears request defaults" do
+      config = [
+        request_defaults: "jpeg-options=quant-table:3",
+        presets: %{"fresh" => "jpeg-options=unset,progressive"}
+      ]
+
+      assert {:ok, %Spec{output: %Output{encoder_options: %{jpeg: jpeg}}}} =
+               parse(
+                 ["preset=fresh", "w=800", "jpeg-options=trellis-quant"],
+                 "images/cat.jpg",
+                 config
+               )
+
+      assert jpeg == %JpegOptions{interlace: true, trellis_quant: true}
+    end
+
+    test "a nested preset keeps its reference's leading unset" do
+      config = [
+        request_defaults: "jpeg-options=quant-table:3",
+        presets: %{
+          "fresh" => "jpeg-options=unset",
+          "print" => "preset=fresh/jpeg-options=progressive"
+        }
+      ]
+
+      assert {:ok, %Spec{output: %Output{encoder_options: %{jpeg: jpeg}}}} =
+               parse(["preset=print", "w=800"], "images/cat.jpg", config)
+
+      assert jpeg == %JpegOptions{interlace: true}
+    end
+
+    test "unset must lead and be followed by values" do
+      for value <- ["jpeg-options=progressive,unset", "jpeg-options=unset,", "format-q=unset,"] do
+        assert {:error, {:invalid_request, [_diagnostic]}} = parse(["w=800", value]), value
+      end
+    end
+  end
 end

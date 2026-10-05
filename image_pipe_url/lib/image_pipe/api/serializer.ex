@@ -30,6 +30,10 @@ defmodule ImagePipe.API.Serializer do
   end
 
   defp entry(key, :unset), do: key <> "=unset"
+
+  defp entry(key, {:unset, value}),
+    do: String.replace_prefix(entry(key, value), key <> "=", key <> "=unset,")
+
   defp entry(key, true), do: key
 
   defp entry(key, value)

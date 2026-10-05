@@ -101,8 +101,12 @@ qualities set in the server's configuration.
 
 Only the entry for the format the response uses applies, so one URL can set
 qualities for every format the browser might get. Formats you leave out keep
-their host quality. `q`, when present, wins. A `png` entry fails with `400`
-unless `palette` is on, even when the response isn't PNG.
+their quality from a preset or the server's configuration. `q`, when
+present, wins. A `png` entry fails with `400` unless `palette` is on, even
+when the response isn't PNG.
+
+Write `unset` first, as in `format-q=unset,avif:50`, to drop the qualities
+that presets and the request defaults set.
 
 <!-- tabs-open -->
 
@@ -207,9 +211,11 @@ ImagePipe.URL.new()
 Each encoder option takes a list of fields. A field is either a boolean
 written by its name, such as `progressive`, or a `name:value` pair, such as
 `effort:6`. Write `progressive:false` to turn off a boolean that the server's
-configuration or a [preset](../requesting-images.md#named-presets) turned on. Each field may
-appear once. Fields you leave out keep the encoder defaults configured on the
-server.
+configuration or a [preset](../requesting-images.md#named-presets) turned
+on. Each field may appear once. Fields you leave out keep their value from a
+preset or the server's configuration. A field set in both takes your value.
+Write `unset` first, as in `jpeg-options=unset,progressive`, to drop the
+fields that presets and the request defaults set.
 
 With an explicit `format`, options for any other encoder fail with `400`.
 Without `format`, each encoder's options apply only when the response uses

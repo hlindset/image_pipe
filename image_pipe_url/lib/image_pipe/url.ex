@@ -301,7 +301,10 @@ defmodule ImagePipe.URL do
   the URL is served. `:unset` removes a value set by a preset or the request
   defaults, so the configured default applies. `format_qualities:` and the
   encoder options such as `jpeg_options:` need at least one entry. Clear them
-  with `:unset`. A malformed value raises `ArgumentError`.
+  with `:unset`. When the URL is served, their entries combine with a
+  preset's and the request defaults' entry by entry. A leading `:unset`, as in
+  `jpeg_options: [:unset, interlace: true]`, drops those inherited entries
+  first. A malformed value raises `ArgumentError`.
   """
   @spec output(t(), keyword()) :: t()
   def output(%__MODULE__{} = builder, options),

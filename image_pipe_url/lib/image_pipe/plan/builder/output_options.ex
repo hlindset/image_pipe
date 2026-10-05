@@ -55,6 +55,10 @@ defmodule ImagePipe.Plan.Builder.OutputOptions do
 
   def format_qualities([]), do: {:error, "expected at least one format; use :unset to clear"}
 
+  def format_qualities([:unset | values]) do
+    with {:ok, qualities} <- format_qualities(values), do: {:ok, {:unset, qualities}}
+  end
+
   def format_qualities(values) do
     schema = Enum.map(@formats, &{&1, @quality})
 
@@ -71,6 +75,10 @@ defmodule ImagePipe.Plan.Builder.OutputOptions do
   def autoquality(_value), do: {:error, "expected a boolean or a target above 0 and up to 100"}
 
   def encoder([], _format), do: {:error, "expected at least one option; use :unset to clear"}
+
+  def encoder([:unset | options], format) do
+    with {:ok, options} <- encoder(options, format), do: {:ok, {:unset, options}}
+  end
 
   def encoder(options, format) do
     module = encoder_module(format)

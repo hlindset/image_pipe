@@ -400,7 +400,7 @@ defmodule ImagePipe.API.Parser do
 
   # Successful expansion drops `:unset` inside `Presets.expand/4`; cross-option
   # validation expects the same shape when expansion fails.
-  defp drop_unset(options), do: Map.reject(options, &match?({_key, :unset}, &1))
+  defp drop_unset(options), do: Presets.drop_unset(options)
 
   defp preset_occurrence(index, key, span),
     do: occurrence(index, key, nil, span, span, span, {:ok, :from_preset})

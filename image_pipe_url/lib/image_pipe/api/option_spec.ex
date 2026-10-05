@@ -1452,6 +1452,10 @@ defmodule ImagePipe.API.OptionSpec do
   @spec parse_format_qualities(String.t()) ::
           {:ok, %{optional(atom()) => {:quality, 1..100}}}
           | {:error, :invalid_format_qualities}
+  def parse_format_qualities("unset," <> string) do
+    with {:ok, qualities} <- parse_format_qualities(string), do: {:ok, {:unset, qualities}}
+  end
+
   def parse_format_qualities(string) do
     case OutputOptions.parse_format_qualities(string) do
       {:ok, qualities} -> {:ok, qualities}
@@ -1512,6 +1516,10 @@ defmodule ImagePipe.API.OptionSpec do
       {:ok, value} -> {:ok, value}
       :error -> {:error, error}
     end
+  end
+
+  defp parse_encoder_options("unset," <> string, format) do
+    with {:ok, options} <- parse_encoder_options(string, format), do: {:ok, {:unset, options}}
   end
 
   defp parse_encoder_options(string, format) do

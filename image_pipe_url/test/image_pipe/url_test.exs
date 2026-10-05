@@ -357,8 +357,26 @@ defmodule ImagePipe.URLTest do
                 "/preset=brand/w=unset/wm=unset/format=unset/jpeg-options=unset/filename=unset/src/photo.jpg"}
     end
 
+    test "a leading :unset resets encoder options and format qualities before setting them" do
+      builder =
+        IP.URL.new()
+        |> IP.URL.group(resize: [width: 800])
+        |> IP.URL.output(
+          jpeg_options: [:unset, interlace: true],
+          format_qualities: [:unset, avif: 50]
+        )
+
+      assert IP.URL.url(builder, "photo.jpg") ==
+               {:ok, "/w=800/format-q=unset,avif:50/jpeg-options=unset,progressive/src/photo.jpg"}
+    end
+
     test "empty encoder options and format qualities are rejected" do
-      for options <- [[jpeg_options: []], [format_qualities: []]] do
+      for options <- [
+            [jpeg_options: []],
+            [format_qualities: []],
+            [jpeg_options: [:unset]],
+            [format_qualities: [:unset]]
+          ] do
         assert_raise ArgumentError, ~r/:unset/, fn -> IP.URL.new() |> IP.URL.output(options) end
       end
     end

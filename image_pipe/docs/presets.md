@@ -59,9 +59,14 @@ sets.
 `unset` removes a value that a preset or the request defaults set, as if no
 layer had set it, and takes the options that depended on it along.
 `/preset=card/w=unset` drops the width, and the inherited `fit` and
-`enlarge` go too unless `h` still uses them. Options written in the same URL are kept, so `/preset=card/w=unset/fit=cover`
-still fails when nothing else resizes. Because `unset` has this meaning, no
-watermark or detection class can be named `unset`.
+`enlarge` go too unless `h` still uses them. Options written in the same
+URL are kept, so `/preset=card/w=unset/fit=cover` still fails when nothing
+else resizes. Because `unset` has this meaning, no watermark or detection
+class can be named `unset`.
+
+In `format-q` and the encoder options, `unset` can also come first in the
+list. `jpeg-options=unset,progressive` drops the inherited JPEG fields, then
+turns on `progressive`.
 
 ## Request-wide options in presets
 
@@ -73,6 +78,11 @@ option written in the URL wins over every preset. A group whose presets add
 only request-wide options adds no group: with `webp` defined as
 `format=webp`, `/w=800/-/preset=webp` is the same request as
 `/w=800/format=webp`.
+
+`format-q` and the [encoder options](processing/output.md#encoder-options)
+combine field by field instead. With a preset of `jpeg-options=progressive`,
+a URL's `jpeg-options=quant-table:3` keeps `progressive`. A field set in both
+takes the later value.
 
 ## Single-group and pipeline presets
 
