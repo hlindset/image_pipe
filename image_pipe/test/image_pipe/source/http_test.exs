@@ -5,6 +5,7 @@ defmodule ImagePipe.Source.HTTPTest do
   alias ImagePipe.Plan.Source.URL
   alias ImagePipe.Source
   alias ImagePipe.Source.HTTP
+  alias ImagePipe.Source.Parser
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
   alias ImagePipe.Telemetry
@@ -442,19 +443,11 @@ defmodule ImagePipe.Source.HTTPTest do
              )
   end
 
-  test "fetch percent-encodes decoded path segments when building the request URL" do
+  test "fetch sends a source URL's path as written" do
     plug = fn conn ->
       send(self(), {:http_request, conn.request_path, conn.query_string})
       Plug.Conn.send_resp(conn, 200, "image bytes")
     end
-
-    source = %URL{
-      scheme: :https,
-      host: "assets.example.com",
-      port: nil,
-      path: ["images", "cat#one%two space?.jpg"],
-      query: "v=a%26b%3Dc"
-    }
 
     config =
       Source.validate_config!(
@@ -471,17 +464,16 @@ defmodule ImagePipe.Source.HTTPTest do
         ]
       )
 
+    {:ok, source} =
+      Parser.translate(
+        "https://assets.example.com/w_1,h_1/a+b=c%2Bd%2Fe%25 f.jpg?v=a%26b%3Dc",
+        config
+      )
+
     assert {:ok, resolved} = Source.resolve(source, config, [])
-
-    assert {:ok, %Response{} = response} =
-             Source.fetch(
-               resolved,
-               config,
-               max_body_bytes: 20
-             )
-
+    assert {:ok, %Response{} = response} = Source.fetch(resolved, config, max_body_bytes: 20)
     assert Enum.join(response.stream) == "image bytes"
-    assert_receive {:http_request, "/images/cat%23one%25two%20space%3F.jpg", "v=a%26b%3Dc"}
+    assert_receive {:http_request, "/w_1,h_1/a+b=c%2Bd%2Fe%25%20f.jpg", "v=a%26b%3Dc"}
   end
 
   test "fetch brackets IPv6 literals when building the request URL" do
@@ -954,7 +946,7 @@ defmodule ImagePipe.Source.HTTPTest do
       direct = %URL{
         scheme: :https,
         host: "assets.example.com",
-        path: ["t", "p", "original", "cat one.jpg"]
+        path: ["t", "p", "original", "cat%20one.jpg"]
       }
 
       assert {:ok, via_path} = HTTP.resolve(path, opts, [])

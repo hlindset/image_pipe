@@ -8,8 +8,8 @@ defmodule ImagePipe.Source.Parser do
   #     decoded string is split into segments on `/` with no further decoding.
   #     An optional leading slash is normalized for ordinary root-relative paths.
   #   * `http://` or `https://` (when a configured source matches the scheme) —
-  #     an absolute `%Plan.Source.URL{}`. Inner URL path escapes are decoded
-  #     once here and re-encoded by the HTTP adapter.
+  #     an absolute `%Plan.Source.URL{}`. Inner URL path segments keep their
+  #     percent-encoding, and the HTTP adapter sends them as written.
   #   * `s3://` (when a configured source matches the scheme) — an
   #     `%Plan.Source.Object{}` with the query carried as its immutable
   #     revision.
@@ -203,18 +203,18 @@ defmodule ImagePipe.Source.Parser do
   end
 
   defp decode_segments(segments) do
-    segments
-    |> Enum.reduce_while({:ok, []}, fn segment, {:ok, decoded} ->
-      case percent_decode(segment) do
-        {:ok, value} -> {:cont, {:ok, [value | decoded]}}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-    |> case do
-      {:ok, decoded} -> {:ok, Enum.reverse(decoded)}
-      {:error, _reason} = error -> error
-    end
+    if Enum.all?(segments, &(validate_percent_encoding(&1) == :ok)),
+      do: {:ok, Enum.map(segments, &encode_path_segment/1)},
+      else: {:error, :invalid_percent_encoding}
   end
+
+  @doc false
+  # Escapes only the bytes that can't appear raw in a URL path segment, so a
+  # segment that is already percent-encoded keeps its exact spelling. Origins
+  # that sign their paths compare it byte for byte.
+  def encode_path_segment(segment), do: URI.encode(segment, &path_char?/1)
+
+  defp path_char?(char), do: URI.char_unreserved?(char) or char in ~c"!$&'()*+,;=:@%"
 
   defp percent_decode(value) do
     with :ok <- validate_percent_encoding(value) do

@@ -8,6 +8,7 @@ defmodule ImagePipe.Source.HTTP do
   alias ImagePipe.Source.CacheSettings
   alias ImagePipe.Source.HTTP.AddressPolicy
   alias ImagePipe.Source.HTTP.TargetGuard
+  alias ImagePipe.Source.Parser
   alias ImagePipe.Source.ReqSanitizer
   alias ImagePipe.Source.ReqStream
   alias ImagePipe.Source.Resolved
@@ -284,7 +285,10 @@ defmodule ImagePipe.Source.HTTP do
          true <- is_binary(host) and host != "",
          true <- is_nil(uri.query) and is_nil(uri.fragment) and is_nil(uri.userinfo) do
       segments =
-        uri.path |> Kernel.||("") |> String.split("/", trim: true) |> Enum.map(&URI.decode/1)
+        uri.path
+        |> Kernel.||("")
+        |> String.split("/", trim: true)
+        |> Enum.map(&Parser.encode_path_segment/1)
 
       {:ok,
        %{
@@ -415,7 +419,14 @@ defmodule ImagePipe.Source.HTTP do
   defp path_allowed?(path, pattern), do: Regex.match?(pattern, path)
 
   defp base_source(base, segments),
-    do: %URL{scheme: base.scheme, host: base.host, port: base.port, path: base.path ++ segments}
+    do: %URL{
+      scheme: base.scheme,
+      host: base.host,
+      port: base.port,
+      path:
+        base.path ++
+          Enum.map(segments, &URI.encode(&1, fn char -> URI.char_unreserved?(char) end))
+    }
 
   @impl Source
   def fetch(%Resolved{fetch: fetch}, opts, runtime_opts) do
@@ -466,12 +477,7 @@ defmodule ImagePipe.Source.HTTP do
   end
 
   defp build_url(%URL{} = source) do
-    path =
-      Enum.map_join(source.path, "/", fn segment ->
-        URI.encode(segment, &URI.char_unreserved?/1)
-      end)
-
-    path = "/" <> path
+    path = "/" <> Enum.join(source.path, "/")
     port = source.port || Map.fetch!(@default_ports, source.scheme)
     authority = authority_host(source.host) <> port_suffix(source.scheme, port)
     query = if is_binary(source.query), do: "?" <> source.query, else: ""

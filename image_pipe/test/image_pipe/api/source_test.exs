@@ -98,21 +98,21 @@ defmodule ImagePipe.API.SourceTest do
                Source.translate("https://example.com/a/b/c.jpg", url_config())
     end
 
-    test "inner URL path escapes decode once before the HTTP adapter re-encodes them" do
+    test "inner URL path segments keep their percent-encoding" do
       assert {:ok,
               %URL{
-                path: ["images", "my photo#1%done.jpg"],
+                path: ["images", "w_1,h_1", "a+b=c%2Bd%2Fe%20f.jpg"],
                 query: "token=a%26b%3Dc"
               }} =
                Source.translate(
-                 "https://example.com/images/my%20photo%231%25done.jpg?token=a%26b%3Dc",
+                 "https://example.com/images/w_1,h_1/a+b=c%2Bd%2Fe%20f.jpg?token=a%26b%3Dc",
                  url_config()
                )
     end
 
-    test "escaped path separators stay inside their URL path segment" do
-      assert {:ok, %URL{path: ["images", "nested/cat.jpg"]}} =
-               Source.translate("https://example.com/images/nested%2Fcat.jpg", url_config())
+    test "inner URL path bytes that can't appear in a path are escaped" do
+      assert {:ok, %URL{path: ["my%20photo%C3%A9.jpg"]}} =
+               Source.translate("https://example.com/my photoé.jpg", url_config())
     end
 
     test "preserves empty inner URL path components" do
