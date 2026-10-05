@@ -792,15 +792,19 @@ defmodule ImagePipe.Transform.Executor do
 
   defp decode_crop_extent(%Group{}, _display_dims), do: nil
 
-  # A placeholder needs only a tiny frame, so a single group without a resize
-  # can decode smaller. Not when the group has effects sized in pixels: on a
-  # smaller decode they would cover a larger share of the frame.
+  # A placeholder needs only a tiny frame, so a single group can decode
+  # smaller. Not when it has effects sized in pixels: on a smaller decode they
+  # would cover a larger share of the frame. A resize target or a trim decides
+  # the decode size on its own, so the reduction is left out there.
   defp decode_terminal_reduction(%Spec{
          groups: [group],
          output: %Output{terminal: terminal}
        })
        when terminal in [:blurhash, :lqip_css] do
-    if pixel_sized_effects?(group), do: nil, else: @placeholder_terminal_reduction
+    if pixel_sized_effects?(group) or group.trim != nil or
+         decode_resize_target(group.resize, group.dpr) != nil,
+       do: nil,
+       else: @placeholder_terminal_reduction
   end
 
   defp decode_terminal_reduction(%Spec{}), do: nil
