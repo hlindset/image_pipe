@@ -50,13 +50,12 @@ defmodule ImagePipe.Execution.SourceCache do
             ref -> Keyword.put(config, :source_lease, ref)
           end
 
-        # A request that waited may find the record the holder just wrote.
-        # Otherwise `previous` is the record the caller just read.
+        # Another request may have written a fresh record since the caller
+        # read `previous`, unless every copy of this source needs validating.
         record =
-          case outcome do
-            :coalesced -> lookup(source, key, opts) || previous
-            _first -> previous
-          end
+          if outcome == :coalesced or not validated_on_every_use?(previous, source),
+            do: lookup(source, key, opts) || previous,
+            else: previous
 
         case status(record, source, opts) do
           :fresh -> {:ok, %Acquisition{record: record}}
@@ -66,6 +65,18 @@ defmodule ImagePipe.Execution.SourceCache do
       work_opts(source, config)
     )
     |> waited()
+  end
+
+  # A source whose copies arrive without freshness (no-cache, no lifetime, or
+  # already stale) gains nothing from a record another request just wrote.
+  defp validated_on_every_use?(nil, _source), do: false
+
+  defp validated_on_every_use?(record, source) do
+    case Record.state(record, source.cache_semantics).fresh_until do
+      nil -> true
+      :infinity -> false
+      fresh_until -> fresh_until <= record.received_at
+    end
   end
 
   def input(source, key, record, preparation, config) do

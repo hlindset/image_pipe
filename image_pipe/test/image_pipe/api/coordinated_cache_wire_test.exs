@@ -689,6 +689,37 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     refute_received {:lookup, _}
   end
 
+  test "a request uses a fresh record another request wrote after its own read", %{
+    shared: shared,
+    state: state
+  } do
+    prefix = [__MODULE__, :publish_between_read_and_lock]
+    shared = IP.config(Keyword.put(shared.raw, :telemetry_prefix, prefix))
+    config = IP.Plug.init(config: shared, http_cache: :auto)
+    assert request(config, 12).status == 200
+    assert_receive {:origin, _, []}
+
+    # Expired, so the next request revalidates. Another request refreshes the
+    # record after this one read the expired copy but before it locks.
+    Agent.update(state, &%{&1 | now: 1_070})
+    handler = make_ref()
+
+    :telemetry.attach(
+      handler,
+      prefix ++ [:cache, :lookup, :stop],
+      fn _, _, _, {handler, config} ->
+        :telemetry.detach(handler)
+        200 = request(config, 8).status
+      end,
+      {handler, config}
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+    assert request(config, 12).status == 200
+    assert_receive {:origin, _, [~s("v1")]}
+    refute_received {:origin, _, _}
+  end
+
   defp flush_lookups do
     receive do
       {:lookup, _} -> flush_lookups()
