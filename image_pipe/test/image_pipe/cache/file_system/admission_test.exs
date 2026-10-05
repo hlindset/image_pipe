@@ -513,6 +513,13 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
       assert tracked_bytes(ctx.pid) == 0
     end
 
+    test "a metadata read that misses an entry another node deleted stops counting it", ctx do
+      :ok = Store.delete(ctx.key, root: ctx.tmp_dir)
+
+      assert Store.metadata_hit(ctx.key, ctx.read_opts) == :miss
+      assert tracked_bytes(ctx.pid) == 0
+    end
+
     test "a hit on an entry another node replaced counts its new size", ctx do
       put_disk_entry(ctx.tmp_dir, ctx.key.hash, String.duplicate("y", 200))
 

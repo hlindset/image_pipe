@@ -668,15 +668,23 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   # Like `get/2` for a reader that needs only the metadata: the body stays
   # closed, and the read still counts as a hit for admission.
   def metadata_hit(%Key{} = key, opts) do
-    with {:ok, metadata} <- metadata(key, opts) do
-      maybe_cast_hit(opts, %{
-        key_hash: key.hash,
-        size_bytes: metadata.body_byte_size,
-        body_sha256: metadata.body_sha256,
-        cost_us: Map.get(metadata, :cost_us, 0)
-      })
+    case metadata(key, opts) do
+      {:ok, metadata} ->
+        maybe_cast_hit(opts, %{
+          key_hash: key.hash,
+          size_bytes: metadata.body_byte_size,
+          body_sha256: metadata.body_sha256,
+          cost_us: Map.get(metadata, :cost_us, 0)
+        })
 
-      {:ok, metadata}
+        {:ok, metadata}
+
+      :miss ->
+        maybe_cast_gone(opts, key.hash)
+        :miss
+
+      error ->
+        error
     end
   end
 
