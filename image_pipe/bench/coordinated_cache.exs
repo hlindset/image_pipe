@@ -13,7 +13,7 @@ defmodule CoordinatedCacheBench do
 
     body = File.read!("priv/static/images/waterfall.jpg")
     fetched = :counters.new(1, [:atomics])
-    events = :ets.new(:cache_bench, [:public, :bag])
+    events = :ets.new(:cache_bench, [:public, :duplicate_bag])
     prefix = [:image_pipe_cache_bench]
 
     :telemetry.attach(
