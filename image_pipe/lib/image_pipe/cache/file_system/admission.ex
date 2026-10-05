@@ -441,7 +441,22 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     GenServer.cast(server, {:hit, descriptor})
   end
 
+  @doc """
+  Reports a read that found no entry for `key_hash`. If this node still counts
+  the entry, it checks the disk and stops counting it when it's gone.
+  """
+  def gone(server, key_hash) when is_binary(key_hash) do
+    GenServer.cast(server, {:gone, key_hash})
+  end
+
   @impl true
+  def handle_cast({:gone, key_hash}, state) do
+    case locate(state, key_hash) do
+      nil -> {:noreply, state}
+      located -> {:noreply, resync(state, located)}
+    end
+  end
+
   def handle_cast({:hit, descriptor}, state) do
     state = sighting(state, descriptor.key_hash)
     state = on_hit_promote_or_synthesize(state, descriptor)
@@ -456,20 +471,49 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
           false -> state
         end
 
-      located ->
+      {_queue, _pos, %{body_sha256: body_sha256}} = located
+      when body_sha256 == descriptor.body_sha256 ->
         promote_on_hit(state, located)
+
+      located ->
+        state = resync(state, located)
+
+        case locate(state, descriptor.key_hash) do
+          nil -> state
+          located -> promote_on_hit(state, located)
+        end
     end
   end
 
   defp current_descriptor?(state, descriptor) do
-    opts = [root: state.root, path_prefix: state.path_prefix]
-    descriptor = Map.delete(descriptor, :mtime)
+    stored_descriptor(state, descriptor.key_hash) == {:ok, Map.delete(descriptor, :mtime)}
+  end
 
-    with {:ok, paths} <- FileSystem.paths_from_hash(descriptor.key_hash, opts),
-         {:ok, ^descriptor, _mtime} <- FileSystem.read_descriptor(paths.meta_path) do
-      true
+  # Another node sharing the root may have deleted or replaced an entry this
+  # node counts. The stored metadata decides: the entry is forgotten when its
+  # metadata is gone, and takes the stored size when it names another body.
+  defp resync(state, {queue, pos, tracked}) do
+    case stored_descriptor(state, tracked.key_hash) do
+      {:ok, ^tracked} ->
+        state
+
+      {:ok, stored} ->
+        put_entry(state, queue, pos, stored)
+        Map.update!(state, :"#{queue}_bytes", &(&1 + stored.size_bytes - tracked.size_bytes))
+
+      :missing ->
+        remove_descriptor(state, tracked)
+    end
+  end
+
+  defp stored_descriptor(state, key_hash) do
+    opts = [root: state.root, path_prefix: state.path_prefix]
+
+    with {:ok, paths} <- FileSystem.paths_from_hash(key_hash, opts),
+         {:ok, descriptor, _mtime} <- FileSystem.read_descriptor(paths.meta_path) do
+      {:ok, descriptor}
     else
-      _missing_or_changed -> false
+      _missing_or_unreadable -> :missing
     end
   end
 

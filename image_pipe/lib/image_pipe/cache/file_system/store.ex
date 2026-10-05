@@ -258,6 +258,10 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
             {:hit, entry, meta}
 
+          :miss ->
+            maybe_cast_gone(opts, key.hash)
+            :miss
+
           other ->
             other
         end
@@ -270,6 +274,14 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   defp maybe_cast_hit(opts, descriptor) do
     case lookup_admission(opts) do
       {:ok, pid} -> Admission.hit(pid, descriptor)
+      _ -> :ok
+    end
+  end
+
+  # Another node sharing the root may have deleted an entry this node counts.
+  defp maybe_cast_gone(opts, key_hash) do
+    case lookup_admission(opts) do
+      {:ok, pid} -> Admission.gone(pid, key_hash)
       _ -> :ok
     end
   end

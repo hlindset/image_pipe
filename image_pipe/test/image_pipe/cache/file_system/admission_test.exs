@@ -488,6 +488,47 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert Store.verify(key, root: ctx.tmp_dir) == :ok
   end
 
+  describe "entries another node changes" do
+    setup ctx do
+      opts = base_opts(registry: ctx.registry, tmp_dir: ctx.tmp_dir)
+      pid = start_supervised!({Admission, opts})
+      Admission.await_scan(pid)
+
+      hash = hex_hash("c")
+      put_disk_entry(ctx.tmp_dir, hash, String.duplicate("x", 100))
+      {_paths, descriptor, _entry} = snapshot(ctx.tmp_dir, hash)
+      Admission.hit(pid, descriptor)
+      assert tracked_bytes(pid) == 100
+
+      # Reads with the options a bounded pool uses, so they reach Admission.
+      read_opts = Keyword.take(opts, [:root, :node_id, :max_size_bytes])
+      %{pid: pid, key: %Key{hash: hash, data: []}, read_opts: read_opts}
+    end
+
+    test "a read that misses an entry another node deleted stops counting it", ctx do
+      # Writing without this node's Admission is what another node does.
+      :ok = Store.delete(ctx.key, root: ctx.tmp_dir)
+
+      assert Store.get(ctx.key, ctx.read_opts) == :miss
+      assert tracked_bytes(ctx.pid) == 0
+    end
+
+    test "a hit on an entry another node replaced counts its new size", ctx do
+      put_disk_entry(ctx.tmp_dir, ctx.key.hash, String.duplicate("y", 200))
+
+      assert {:hit, file, _metadata} = Store.get(ctx.key, ctx.read_opts)
+      ImagePipe.Cache.File.close(file)
+      assert tracked_bytes(ctx.pid) == 200
+    end
+
+    test "a late miss for an entry that is back on disk keeps counting it", ctx do
+      # A read can miss just before this node commits the key again, and its
+      # report then arrives after the commit.
+      Admission.gone(ctx.pid, ctx.key.hash)
+      assert tracked_bytes(ctx.pid) == 100
+    end
+  end
+
   test "protected entries are restored in LRU-to-MRU order from persisted state", %{
     registry: registry,
     tmp_dir: tmp_dir
