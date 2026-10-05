@@ -196,6 +196,18 @@ defmodule ImagePipe.API.PixelEffectsWireTest do
     assert blue > 240 and alpha > 0 and alpha < 255
   end
 
+  test "pixelate averages premultiplied alpha without transparent colour bleed" do
+    source =
+      Image.new!(8, 8, color: [255, 0, 0, 0], bands: 4)
+      |> Image.Draw.rect!(2, 0, 6, 8, color: [0, 0, 255, 255])
+
+    config = mount(png_origin(Image.write!(source, :memory, suffix: ".png")))
+    [red, green, blue, alpha] = image("pixelate=4", config) |> Image.get_pixel!(0, 0)
+
+    assert {red, green, blue} == {0, 0, 255}
+    assert_in_delta alpha, 128, 1
+  end
+
   for effect <- ["blur=0.5", "blur=5", "sharpen=0.5", "progressive-blur=5,down,0,1"],
       alpha <- [5, 20, 100] do
     test "#{effect} keeps the colour of a uniform image at alpha #{alpha}" do
