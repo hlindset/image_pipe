@@ -196,6 +196,21 @@ defmodule ImagePipe.API.PixelEffectsWireTest do
     assert blue > 240 and alpha > 0 and alpha < 255
   end
 
+  for effect <- ["blur=0.5", "blur=5", "sharpen=0.5", "progressive-blur=5,down,0,1"],
+      alpha <- [5, 20, 100] do
+    test "#{effect} keeps the colour of a uniform image at alpha #{alpha}" do
+      source = Image.new!(40, 40, color: [200, 120, 37, unquote(alpha)], bands: 4)
+      config = mount(png_origin(Image.write!(source, :memory, suffix: ".png")))
+
+      [red, green, blue, alpha] = image(unquote(effect), config) |> Image.get_pixel!(20, 20)
+
+      assert alpha == unquote(alpha)
+      assert_in_delta red, 200, 1
+      assert_in_delta green, 120, 1
+      assert_in_delta blue, 37, 1
+    end
+  end
+
   test "progressive blur leaves semitransparent pixels before start unchanged" do
     body =
       Image.new!(9, 9, color: [200, 100, 50, 128], bands: 4)
