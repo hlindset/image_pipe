@@ -114,6 +114,7 @@ defmodule ImagePipe.Output.Ssim2Metric.CropScore do
   # scheduler, so the tiles run concurrently, capped at the dirty CPU scheduler
   # count. Results come back in completion order; callers don't depend on it.
   # The first error halts the stream, which shuts down the remaining tasks.
+  # A crashed tile exits with its own reason, also when the caller traps exits.
   defp each_tile(items, fun) do
     items
     |> Task.async_stream(fun,
@@ -124,6 +125,7 @@ defmodule ImagePipe.Output.Ssim2Metric.CropScore do
     |> Enum.reduce_while({:ok, []}, fn
       {:ok, {:ok, value}}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
       {:ok, {:error, _} = err}, _acc -> {:halt, err}
+      {:exit, reason}, _acc -> exit(reason)
     end)
   end
 end
