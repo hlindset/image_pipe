@@ -43,14 +43,20 @@ defmodule ImagePipe.Execution.SourceCache do
   def acquire(source, key, previous, preparation, config) do
     Work.run(
       {:source, key.hash},
-      fn coordination ->
+      fn coordination, outcome ->
         opts =
           case coordination do
             false -> config
             ref -> Keyword.put(config, :source_lease, ref)
           end
 
-        record = lookup(source, key, opts) || previous
+        # A request that waited may find the record the holder just wrote.
+        # Otherwise `previous` is the record the caller just read.
+        record =
+          case outcome do
+            :coalesced -> lookup(source, key, opts) || previous
+            _first -> previous
+          end
 
         case status(record, source, opts) do
           :fresh -> {:ok, %Acquisition{record: record}}
@@ -70,7 +76,7 @@ defmodule ImagePipe.Execution.SourceCache do
       :miss ->
         Work.run(
           {:source, key.hash},
-          fn coordination ->
+          fn coordination, _outcome ->
             open_or_fetch(source, key, record, preparation, config, coordination)
           end,
           work_opts(source, config)

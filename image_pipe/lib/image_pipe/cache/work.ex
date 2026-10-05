@@ -11,13 +11,15 @@ defmodule ImagePipe.Cache.Work do
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
+  # `fun` gets the lease, or `false` without one, and how it got the key:
+  # `:acquired`, `:coalesced` after waiting behind another holder, or `:busy`.
   # `wait:` bounds how long to wait behind another holder of the key, after
   # which the work doesn't run and `run/3` returns `:timeout`.
   def run(key, fun, opts \\ []) do
     case lock(key, Keyword.get(opts, :wait, :infinity)) do
       {:ok, ref, outcome} ->
         report(outcome, :source, opts)
-        locked(ref, fun)
+        locked(ref, outcome, fun)
 
       :timeout ->
         report(:timeout, :source, opts)
@@ -25,7 +27,7 @@ defmodule ImagePipe.Cache.Work do
 
       :busy ->
         report(:busy, :source, opts)
-        fun.(false)
+        fun.(false, :busy)
     end
   end
 
@@ -52,8 +54,8 @@ defmodule ImagePipe.Cache.Work do
     :timeout
   end
 
-  defp locked(ref, fun) do
-    fun.(ref)
+  defp locked(ref, outcome, fun) do
+    fun.(ref, outcome)
   after
     call({:unlock, ref}, 5_000)
   end
