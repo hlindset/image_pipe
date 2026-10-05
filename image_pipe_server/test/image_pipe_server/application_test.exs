@@ -3,6 +3,7 @@ defmodule ImagePipeServer.ApplicationTest do
 
   alias ImagePipeServer.Application, as: App
   alias ImagePipeServer.Config
+  alias ImagePipeServer.Health
 
   @moduletag :tmp_dir
 
@@ -13,8 +14,10 @@ defmodule ImagePipeServer.ApplicationTest do
       %{base: "http://127.0.0.1:#{port}"}
     end
 
-    test "answers /health over HTTP", %{base: base} do
-      assert {:ok, %{status: 200, body: "ok"}} = Req.get(base <> "/health", retry: false)
+    test "answers the health checks over HTTP", %{base: base} do
+      for path <- ["/health/live", "/health/ready"] do
+        assert {:ok, %{status: 200, body: "ok"}} = Req.get(base <> path, retry: false)
+      end
     end
 
     test "serves an image from the configured File mount", %{base: base} do
@@ -96,7 +99,7 @@ defmodule ImagePipeServer.ApplicationTest do
           ]
         )
 
-      assert [pool, instance, http] = App.children(config)
+      assert [pool, instance, http] = App.children(config, Health.new())
       assert {ImagePipe.ProcessingPool, pool_opts} = pool
       assert pool_opts[:max_concurrency] == 2
       assert {ImagePipe, instance_opts} = instance
@@ -123,7 +126,7 @@ defmodule ImagePipeServer.ApplicationTest do
         )
 
       ids =
-        for child <- App.children(config),
+        for child <- App.children(config, Health.new()),
             do: Supervisor.child_spec(child, []).id
 
       assert length(Enum.uniq(ids)) == length(ids)
@@ -132,7 +135,7 @@ defmodule ImagePipeServer.ApplicationTest do
 
     test "starts the processing pool, the ImagePipe instance and the listener by default" do
       assert [{ImagePipe.ProcessingPool, _pool}, {ImagePipe, _instance}, {Bandit, _http}] =
-               App.children(Config.build!([]))
+               App.children(Config.build!([]), Health.new())
     end
   end
 
@@ -157,13 +160,59 @@ defmodule ImagePipeServer.ApplicationTest do
     end
   end
 
+  describe "health listener" do
+    defp start_named(child, id) do
+      {Bandit, opts} = child
+      name = :"#{id}_#{System.unique_integer([:positive])}"
+      opts = put_in(opts, [:thousand_island_options, :supervisor_options], name: name)
+      start_supervised!(Supervisor.child_spec({Bandit, opts}, id: id))
+      {:ok, {_ip, port}} = ThousandIsland.listener_info(name)
+      port
+    end
+
+    test "starts only with health_port" do
+      refute App.health_child(Config.build!([]), Health.new())
+    end
+
+    test "answers liveness while the main listener is at its connection cap" do
+      config =
+        Config.build!(server: [port: 0, bind: "127.0.0.1", max_connections: 1, health_port: 0])
+
+      drain = Health.new()
+      main = start_named(App.http_child(config, {Health, drain: drain}), :main_listener)
+      health = start_named(App.health_child(config, drain), :health_listener)
+
+      {:ok, _held} = :gen_tcp.connect(~c"127.0.0.1", main, [:binary, active: false])
+
+      assert {:ok, %{status: 200}} =
+               Req.get("http://127.0.0.1:#{health}/health/live",
+                 retry: false,
+                 receive_timeout: 500
+               )
+
+      assert {:ok, %{status: 404}} =
+               Req.get("http://127.0.0.1:#{health}/w=2/src/pic.png", retry: false)
+    end
+  end
+
+  describe "draining" do
+    test "marks the server draining, then waits shutdown_delay" do
+      drain = Health.new()
+      started = System.monotonic_time(:millisecond)
+
+      assert App.prep_stop({drain, 50}) == {drain, 50}
+      assert Health.draining?(drain)
+      assert System.monotonic_time(:millisecond) - started >= 50
+    end
+  end
+
   describe "read timeout" do
     @tag :capture_log
     test "closes connections that stay silent" do
       config = Config.build!(server: [port: 0, bind: "127.0.0.1", read_timeout: 100])
 
       {Bandit, opts} =
-        App.http_child(config, {ImagePipeServer.Router, App.router_options(config)})
+        App.http_child(config, {ImagePipeServer.Router, App.router_options(config, Health.new())})
 
       name = :"listener_#{System.unique_integer([:positive])}"
       opts = put_in(opts, [:thousand_island_options, :supervisor_options], name: name)

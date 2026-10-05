@@ -4,6 +4,7 @@ defmodule ImagePipeServer.RouterTest do
   import Plug.Conn
   import Plug.Test
 
+  alias ImagePipeServer.Health
   alias ImagePipeServer.Router
 
   @moduletag :tmp_dir
@@ -25,11 +26,34 @@ defmodule ImagePipeServer.RouterTest do
     %{image_pipe: image_pipe}
   end
 
-  test "GET /health answers 200", %{image_pipe: image_pipe} do
-    conn = call(:get, "/health", mount_path: "/", image_pipe: image_pipe)
+  describe "health checks" do
+    test "answer 200 while serving", %{image_pipe: image_pipe} do
+      for path <- ["/health/live", "/health/ready"] do
+        conn = call(:get, path, mount_path: "/", image_pipe: image_pipe)
 
-    assert conn.status == 200
-    assert conn.resp_body == "ok"
+        assert conn.status == 200
+        assert conn.resp_body == "ok"
+      end
+    end
+
+    test "answer not ready while draining, and close connections", %{image_pipe: image_pipe} do
+      drain = Health.new()
+      Health.drain(drain)
+      opts = [mount_path: "/", image_pipe: image_pipe, drain: drain]
+
+      assert %{status: 503} = ready = call(:get, "/health/ready", opts)
+      assert %{status: 200} = live = call(:get, "/health/live", opts)
+      assert %{status: 200} = image = call(:get, "/w=2/format=png/src/pic.png", opts)
+
+      for conn <- [ready, live, image] do
+        assert get_resp_header(conn, "connection") == ["close"]
+      end
+    end
+
+    test "keep connections open while serving", %{image_pipe: image_pipe} do
+      conn = call(:get, "/health/ready", mount_path: "/", image_pipe: image_pipe)
+      assert get_resp_header(conn, "connection") == []
+    end
   end
 
   test "serves images from the mount at the root", %{image_pipe: image_pipe} do
@@ -47,7 +71,7 @@ defmodule ImagePipeServer.RouterTest do
       locked = Keyword.put(opts, :auth_token_hash, :crypto.hash(:sha256, "t0k"))
 
       for {path, opts, status} <- [
-            {"/health", opts, 200},
+            {"/health/live", opts, 200},
             {"/images/w=2/format=png/src/pic.png", opts, 200},
             {"/elsewhere", opts, 404},
             {"/images/w=2/format=png/src/pic.png", locked, 401}
@@ -59,7 +83,7 @@ defmodule ImagePipeServer.RouterTest do
     end
 
     defp request_id(incoming, opts) do
-      conn(:get, "/health")
+      conn(:get, "/health/live")
       |> put_req_header("x-request-id", incoming)
       |> Router.call(Router.init([mount_path: "/"] ++ opts))
       |> get_resp_header("x-request-id")
@@ -103,10 +127,10 @@ defmodule ImagePipeServer.RouterTest do
       assert Image.width(image) == 2
     end
 
-    test "keeps /health at the root", %{image_pipe: image_pipe} do
-      conn = call(:get, "/health", mount_path: "/images", image_pipe: image_pipe)
-
-      assert conn.status == 200
+    test "keeps the health checks at the root", %{image_pipe: image_pipe} do
+      for path <- ["/health/live", "/health/ready"] do
+        assert call(:get, path, mount_path: "/images", image_pipe: image_pipe).status == 200
+      end
     end
 
     test "answers 404 outside the mount path", %{image_pipe: image_pipe} do
@@ -159,8 +183,10 @@ defmodule ImagePipeServer.RouterTest do
       end
     end
 
-    test "leaves /health open", %{opts: opts} do
-      assert conn(:get, "/health") |> Router.call(Router.init(opts)) |> Map.fetch!(:status) == 200
+    test "leaves the health checks open", %{opts: opts} do
+      for path <- ["/health/live", "/health/ready"] do
+        assert conn(:get, path) |> Router.call(Router.init(opts)) |> Map.fetch!(:status) == 200
+      end
     end
   end
 

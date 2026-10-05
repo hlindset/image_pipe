@@ -7,8 +7,10 @@ defmodule ImagePipeServer.Config do
   options the library already validates:
 
     * `[server]` - the listener: `port`, `bind`, `mount_path`,
-      `shutdown_timeout`, `read_timeout`, `max_connections`, and an optional
-      `auth_token` that image requests must send as a bearer token.
+      `shutdown_delay`, `shutdown_timeout`, `read_timeout`,
+      `max_connections`, an optional `health_port` for a separate health
+      listener, and an optional `auth_token` that image requests must send as
+      a bearer token.
     * `[url]` - the signing and source-encryption options of
       `ImagePipe.config/1`. `base_url`, `encrypt_source`, and `iv_mode` only
       affect URL generation and are not accepted.
@@ -57,9 +59,10 @@ defmodule ImagePipeServer.Config do
   @typedoc """
   The validated configuration.
 
-    * `:server` - `:port`, `:ip`, `:mount_path`, `:shutdown_timeout`,
-      `:read_timeout`, `:max_connections`, and `:auth_token_hash`, the SHA-256
-      of the auth token (or `nil`). The token itself isn't kept.
+    * `:server` - `:port`, `:ip`, `:mount_path`, `:shutdown_delay`,
+      `:shutdown_timeout`, `:read_timeout`, `:max_connections`, `:health_port`
+      (or `nil`), and `:auth_token_hash`, the SHA-256 of the auth token (or
+      `nil`). The token itself isn't kept.
     * `:trust_request_id` - whether a request keeps an inbound
       `x-request-id`.
     * `:trust_traceparent` - whether the tracer continues an inbound
@@ -94,10 +97,12 @@ defmodule ImagePipeServer.Config do
     port: [type: {:in, 0..65_535}, default: 8080],
     bind: [type: :string, default: "0.0.0.0"],
     mount_path: [type: :string, default: "/"],
+    shutdown_delay: [type: :non_neg_integer, default: 5_000],
     shutdown_timeout: [type: :non_neg_integer, default: 15_000],
     read_timeout: [type: :pos_integer, default: 10_000],
     max_connections: [type: :pos_integer, default: 2048],
-    auth_token: [type: :string]
+    auth_token: [type: :string],
+    health_port: [type: {:in, 0..65_535}]
   ]
 
   @telemetry_schema [
@@ -311,11 +316,27 @@ defmodule ImagePipeServer.Config do
       port: Keyword.fetch!(options, :port),
       ip: ip!(Keyword.fetch!(options, :bind)),
       mount_path: mount_path!(Keyword.fetch!(options, :mount_path)),
+      shutdown_delay: Keyword.fetch!(options, :shutdown_delay),
       shutdown_timeout: Keyword.fetch!(options, :shutdown_timeout),
       read_timeout: Keyword.fetch!(options, :read_timeout),
       max_connections: Keyword.fetch!(options, :max_connections),
+      health_port: health_port!(options),
       auth_token_hash: auth_token_hash!(auth_token)
     ]
+  end
+
+  # Port 0 picks a free port for each listener, so only a fixed port clashes.
+  defp health_port!(options) do
+    health_port = Keyword.get(options, :health_port)
+
+    if health_port not in [nil, 0] and health_port == Keyword.fetch!(options, :port),
+      do:
+        raise(
+          ConfigError,
+          "invalid configuration: server.health_port: must differ from server.port"
+        )
+
+    health_port
   end
 
   defp auth_token_hash!(nil), do: nil

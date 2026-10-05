@@ -121,9 +121,11 @@ defmodule ImagePipeServer.ConfigTest do
                port: 8080,
                ip: {0, 0, 0, 0},
                mount_path: "/",
+               shutdown_delay: 5_000,
                shutdown_timeout: 15_000,
                read_timeout: 10_000,
                max_connections: 2048,
+               health_port: nil,
                auth_token_hash: nil
              ]
 
@@ -286,6 +288,13 @@ defmodule ImagePipeServer.ConfigTest do
 
       assert Config.build!(Config.options!(%{"server" => %{"port" => 65_535}})).server[:port] ==
                65_535
+    end
+
+    test "rejects a health_port equal to port" do
+      assert error(fn -> Config.build!(server: [port: 9000, health_port: 9000]) end) ==
+               "invalid configuration: server.health_port: must differ from server.port"
+
+      assert Config.build!(server: [port: 0, health_port: 0]).server[:health_port] == 0
     end
 
     test "takes the shutdown grace period from [server]" do

@@ -132,8 +132,14 @@ WORKDIR /app
 EXPOSE 8080
 VOLUME ["/var/cache/image_pipe"]
 
-HEALTHCHECK --interval=10s --timeout=3s --start-period=10s \
-  CMD curl -fsS "http://127.0.0.1:${IPS_SERVER__PORT:-8080}/health" || exit 1
+# Readiness, checked often enough that the container reports unhealthy
+# within the default 5-second shutdown_delay, so proxies that follow Docker's
+# health status stop routing to it before it stops listening. A fixed
+# health_port takes the check off the image listener, so load can't fail it.
+HEALTHCHECK --interval=2s --timeout=2s --start-period=10s --retries=2 \
+  CMD port="${IPS_SERVER__HEALTH_PORT:-0}"; \
+      [ "$port" != 0 ] || port="${IPS_SERVER__PORT:-8080}"; \
+      curl -fsS "http://127.0.0.1:${port}/health/ready" || exit 1
 
 ENTRYPOINT ["/app/bin/image_pipe_server"]
 CMD ["start"]
