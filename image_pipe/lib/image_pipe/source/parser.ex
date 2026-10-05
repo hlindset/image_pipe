@@ -32,7 +32,6 @@ defmodule ImagePipe.Source.Parser do
 
   @http_schemes %{"http" => :http, "https" => :https}
   @scheme_prefix ~r/^([a-zA-Z][a-zA-Z0-9+.\-]*):\/\//
-  @malformed_percent ~r/%($|[^0-9A-Fa-f]|[0-9A-Fa-f]$|[0-9A-Fa-f][^0-9A-Fa-f])/
 
   @spec translate(String.t(), keyword()) ::
           {:ok, ImagePipe.Plan.Source.t()} | {:error, {:invalid_source, term()}}
@@ -227,10 +226,26 @@ defmodule ImagePipe.Source.Parser do
   defp validate_percent_encoding(nil), do: :ok
 
   defp validate_percent_encoding(value) do
-    if String.match?(value, @malformed_percent) do
+    if malformed_percent?(value) do
       {:error, :invalid_percent_encoding}
     else
       :ok
+    end
+  end
+
+  defguardp hex?(byte) when byte in ?0..?9 or byte in ?A..?F or byte in ?a..?f
+
+  # A "%" not followed by two hex digits.
+  defp malformed_percent?(value) do
+    case :binary.match(value, "%") do
+      :nomatch ->
+        false
+
+      {at, 1} ->
+        case binary_part(value, at + 1, byte_size(value) - at - 1) do
+          <<a, b, rest::binary>> when hex?(a) and hex?(b) -> malformed_percent?(rest)
+          _malformed -> true
+        end
     end
   end
 end

@@ -143,20 +143,15 @@ defmodule ImagePipe.Telemetry.Logger do
     suffix = Enum.drop(event, config.plen)
     level = level_for(suffix, metadata, config.level)
 
-    message =
-      if List.last(suffix) == :exception do
-        exception_message(suffix, metadata)
-      else
-        message(suffix, measurements, metadata)
-      end
-
-    message =
-      case metadata[:pool] do
-        nil -> message
-        pool -> message <> " (#{pool} pool)"
-      end
-
-    Logger.log(level, fn -> message end, log_metadata(event, measurements, metadata))
+    # A host that attaches this handler often runs Logger above its level, so
+    # nothing is built for an event Logger would drop.
+    if :logger.allow(level, __MODULE__) do
+      Logger.log(
+        level,
+        fn -> render(suffix, measurements, metadata) end,
+        log_metadata(event, measurements, metadata)
+      )
+    end
 
     if config.debug? do
       Logger.debug(fn ->
@@ -165,6 +160,20 @@ defmodule ImagePipe.Telemetry.Logger do
     end
 
     :ok
+  end
+
+  defp render(suffix, measurements, metadata) do
+    message =
+      if List.last(suffix) == :exception do
+        exception_message(suffix, metadata)
+      else
+        message(suffix, measurements, metadata)
+      end
+
+    case metadata[:pool] do
+      nil -> message
+      pool -> message <> " (#{pool} pool)"
+    end
   end
 
   # --- level ---

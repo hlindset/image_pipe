@@ -162,6 +162,37 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "cache lookup: hit"
   end
 
+  test "drops events below Logger's level and still logs warnings" do
+    Telemetry.attach_default_logger(level: :info)
+    level = Logger.level()
+    Logger.configure(level: :warning)
+    on_exit(fn -> Logger.configure(level: level) end)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :cache, :lookup, :stop],
+          %{duration: System.convert_time_unit(2, :millisecond, :native)},
+          %{result: :ok, cache: :hit}
+        )
+
+        :telemetry.execute(
+          [:image_pipe, :output, :clamp],
+          %{scale: 0.91},
+          %{
+            format: :webp,
+            source_dimensions: {18_000, 9_000},
+            dimensions: {8_192, 4_096},
+            limits: %{max_width: 8_192, max_height: 8_192, max_pixels: 40_000_000}
+          }
+        )
+      end)
+
+    refute log =~ "cache lookup"
+    assert log =~ "[warning]"
+    assert log =~ "output clamp: 18000x9000 -> 8192x4096"
+  end
+
   test "logs coordinated cache stages and escalates refresh failure" do
     prefix = [__MODULE__, :coordinated]
     Telemetry.attach_default_logger(prefix: prefix)

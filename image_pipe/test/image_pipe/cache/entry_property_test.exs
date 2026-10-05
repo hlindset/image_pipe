@@ -35,6 +35,42 @@ defmodule ImagePipe.Cache.EntryPropertyTest do
     end
   end
 
+  # The patterns the scans replaced, kept as the reference.
+  @header_name_pattern ~r/\A[!#$%&'*+\-.^_`|~0-9A-Za-z]+\z/
+  @header_value_pattern ~r/\A[^\x00-\x1F\x7F]*\z/
+  @content_type_pattern ~r{\A[!#$%&'*+\-.^_`|~0-9A-Za-z]+/[!#$%&'*+\-.^_`|~0-9A-Za-z]+( *;[^\x00-\x1F\x7F]*)?\z}
+
+  property "header names and values are accepted exactly when they are tokens and control-free" do
+    check all name <- header_bytes(),
+              value <- header_bytes(),
+              max_runs: 500 do
+      expected =
+        Regex.match?(@header_name_pattern, name) and Regex.match?(@header_value_pattern, value)
+
+      assert match?({:ok, _}, Entry.cacheable_headers([{name, value}])) == expected
+    end
+  end
+
+  property "a content type is accepted exactly when it is type/subtype with optional parameters" do
+    check all content_type <- header_bytes(), max_runs: 500 do
+      accepted? =
+        Entry.validate_content_type(content_type, {:complete_body, content_type}) == :ok
+
+      assert accepted? == Regex.match?(@content_type_pattern, content_type)
+    end
+  end
+
+  # Token characters, the separators that matter to these grammars, control
+  # bytes and a multi-byte character, so every branch is reached often.
+  defp header_bytes do
+    [?a, ?Z, ?0, ?-, ?!, ?~, ?/, ?;, ?\s, ?=, ?", ?\t, ?\n, 0, 0x7F, ?:]
+    |> Enum.map(&constant(<<&1>>))
+    |> Kernel.++([constant("é"), constant("text"), constant("image/webp")])
+    |> one_of()
+    |> list_of(max_length: 12)
+    |> map(&Enum.join/1)
+  end
+
   defp header do
     map({header_name(), header_value()}, fn {name, value} -> {name, value} end)
   end

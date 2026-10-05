@@ -7,9 +7,13 @@ defmodule ImagePipe.Cache.Entry do
 
   @allowed_headers ~w(vary cache-control)
   @enforce_keys [:body, :content_type, :headers, :created_at]
-  @header_name_pattern ~r/\A[!#$%&'*+\-.^_`|~0-9A-Za-z]+\z/
-  @header_value_pattern ~r/\A[^\x00-\x1F\x7F]*\z/
-  @content_type_pattern ~r{\A[!#$%&'*+\-.^_`|~0-9A-Za-z]+/[!#$%&'*+\-.^_`|~0-9A-Za-z]+( *;[^\x00-\x1F\x7F]*)?\z}
+  # These run on every cache hit, so they scan bytes instead of matching
+  # module-attribute regexes, which OTP 28 recompiles on each use.
+  defguardp tchar?(byte)
+            when byte in ?0..?9 or byte in ?A..?Z or byte in ?a..?z or
+                   byte in ~c"!#$%&'*+-.^_`|~"
+
+  defguardp control?(byte) when byte < 0x20 or byte == 0x7F
 
   defstruct @enforce_keys ++ [representation: nil, debug: nil, source_record: nil]
 
@@ -91,8 +95,15 @@ defmodule ImagePipe.Cache.Entry do
   def validate_content_type(_content_type, representation),
     do: {:error, {:invalid_representation, representation}}
 
-  defp valid_generic_content_type?(content_type) when is_binary(content_type),
-    do: Regex.match?(@content_type_pattern, content_type)
+  # type "/" subtype, optionally followed by spaces, ";" and parameters.
+  defp valid_generic_content_type?(content_type) when is_binary(content_type) do
+    with {:ok, "/" <> subtype} <- token(content_type),
+         {:ok, parameters} <- token(subtype) do
+      parameters?(parameters)
+    else
+      _invalid -> false
+    end
+  end
 
   defp valid_generic_content_type?(_content_type), do: false
 
@@ -135,6 +146,25 @@ defmodule ImagePipe.Cache.Entry do
       else: normalized_headers
   end
 
-  defp valid_header_name?(name), do: Regex.match?(@header_name_pattern, name)
-  defp valid_header_value?(value), do: Regex.match?(@header_value_pattern, value)
+  defp valid_header_name?(name), do: token(name) == {:ok, ""}
+
+  defp valid_header_value?(<<byte, _rest::binary>>) when control?(byte), do: false
+  defp valid_header_value?(<<_byte, rest::binary>>), do: valid_header_value?(rest)
+  defp valid_header_value?(<<>>), do: true
+
+  # A non-empty run of token characters, and what follows it.
+  defp token(<<byte, rest::binary>>) when tchar?(byte), do: {:ok, skip_token(rest)}
+  defp token(_value), do: :error
+
+  defp skip_token(<<byte, rest::binary>>) when tchar?(byte), do: skip_token(rest)
+  defp skip_token(rest), do: rest
+
+  defp parameters?(<<>>), do: true
+  defp parameters?(" " <> rest), do: parameters?(rest, :spaces)
+  defp parameters?(";" <> rest), do: valid_header_value?(rest)
+  defp parameters?(_rest), do: false
+
+  defp parameters?(" " <> rest, :spaces), do: parameters?(rest, :spaces)
+  defp parameters?(";" <> rest, :spaces), do: valid_header_value?(rest)
+  defp parameters?(_rest, :spaces), do: false
 end
