@@ -265,9 +265,37 @@ defmodule ImagePipeServer.Config.Sources do
     |> Keyword.merge(
       path_pattern: [type: {:convert, &regex/2, "string (regular expression)"}],
       address_policy: [type: Convert.table(address_policy_schema())],
-      request_headers: [type: {:map, :string, :string}],
-      bearer_token: [type: :string]
+      request_headers: [type: {:convert, &request_headers/2, "table of string"}],
+      bearer_token: [type: {:convert, &bearer_token/2, "string"}]
     )
+  end
+
+  # Checked at boot: Req would refuse the request on every fetch instead.
+  # Errors name the header but never quote its value.
+  @header_name ~r/\A[!#$%&'*+\-.^_`|~0-9A-Za-z]+\z/
+
+  defp request_headers(value, path) do
+    with {:ok, headers} <- Convert.value({:map, :string, :string}, value, path) do
+      case Enum.find(headers, fn {name, value} -> header_error(name, value) end) do
+        nil -> {:ok, headers}
+        {name, value} -> {:error, path ++ [name], header_error(name, value)}
+      end
+    end
+  end
+
+  defp header_error(name, value) do
+    cond do
+      not Regex.match?(@header_name, name) -> "invalid header name"
+      String.contains?(value, ["\r", "\n", <<0>>]) -> "invalid header value"
+      true -> nil
+    end
+  end
+
+  defp bearer_token(value, path) do
+    case Convert.string(value, path) do
+      {:ok, ""} -> {:error, path, "expected a non-empty string"}
+      result -> result
+    end
   end
 
   defp s3_schema do

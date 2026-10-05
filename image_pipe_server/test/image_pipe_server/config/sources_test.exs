@@ -109,6 +109,36 @@ defmodule ImagePipeServer.Config.SourcesTest do
       refute Keyword.has_key?(mount[:options], :bearer_token)
     end
 
+    test "reject a request header value with a line break and quote nothing" do
+      message =
+        error(%{
+          "api" => %{
+            "adapter" => "http",
+            "match" => "path",
+            "request_headers" => %{"x-api-key" => "sekrit\nInjected: 1"}
+          }
+        })
+
+      assert message =~ "sources.api.request_headers.x-api-key: invalid header value"
+      refute message =~ "sekrit"
+    end
+
+    test "reject a request header name that isn't a token" do
+      assert error(%{
+               "api" => %{
+                 "adapter" => "http",
+                 "match" => "path",
+                 "request_headers" => %{"bad name" => "v"}
+               }
+             }) =~ "sources.api.request_headers.bad name: invalid header name"
+    end
+
+    test "reject an empty bearer_token" do
+      assert error(%{
+               "api" => %{"adapter" => "http", "match" => "path", "bearer_token" => ""}
+             }) =~ "sources.api.bearer_token: expected a non-empty string"
+    end
+
     test "accept the keyword form of address_policy" do
       [web: mount] =
         convert(%{
