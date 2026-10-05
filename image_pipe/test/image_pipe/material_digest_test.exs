@@ -139,7 +139,7 @@ defmodule ImagePipe.MaterialDigestTest do
         end),
         list_of(child, max_length: 4),
         map({child, child}, fn {head, tail} -> [head | tail] end),
-        map_of(key, child, max_length: 3),
+        map(list_of(tuple({key, child}), max_length: 3), &Map.new/1),
         tuple({child, child})
       ])
     end)

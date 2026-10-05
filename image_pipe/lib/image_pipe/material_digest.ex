@@ -35,7 +35,7 @@ defmodule ImagePipe.MaterialDigest do
   def of_canonical(canonical),
     do: :crypto.hash(:sha256, :erlang.term_to_binary(canonical, [:deterministic]))
 
-  defp canonicalize(value) when is_list(value), do: canonicalize_keyword(value, value, [])
+  defp canonicalize(value) when is_list(value), do: canonicalize_keyword(value, [])
 
   defp canonicalize(value) when is_map(value) do
     :maps.map(fn _key, item -> canonicalize(item) end, value)
@@ -53,12 +53,13 @@ defmodule ImagePipe.MaterialDigest do
   defp canonicalize(value), do: value
 
   # A keyword list is sorted by key, stably. Pairs are canonicalized while the
-  # list still reads as one; anything else canonicalizes it as a plain list.
-  defp canonicalize_keyword([{key, item} | rest], list, acc) when is_atom(key),
-    do: canonicalize_keyword(rest, list, [{key, canonicalize(item)} | acc])
+  # list still reads as one. At anything else it's a plain list: the pairs
+  # already done keep their order and the rest continues as a plain list.
+  defp canonicalize_keyword([{key, item} | rest], acc) when is_atom(key),
+    do: canonicalize_keyword(rest, [{key, canonicalize(item)} | acc])
 
-  defp canonicalize_keyword([], _list, acc), do: acc |> :lists.reverse() |> List.keysort(0)
-  defp canonicalize_keyword(_other, list, _acc), do: canonicalize_list(list)
+  defp canonicalize_keyword([], acc), do: acc |> :lists.reverse() |> List.keysort(0)
+  defp canonicalize_keyword(rest, acc), do: :lists.reverse(acc, canonicalize_list(rest))
 
   defp canonicalize_list([]), do: []
   defp canonicalize_list([head | tail]), do: [canonicalize(head) | canonicalize_list(tail)]
