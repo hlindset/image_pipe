@@ -327,11 +327,16 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     end
   end
 
-  # The existing unbounded commit body, unchanged, extracted under a name.
+  # Unbounded mode has no admission to name a replaced body as a victim, so
+  # the commit removes the body the superseded metadata pointed at.
   defp legacy_commit(state) do
     case prepare_sink_commit(state) do
       {:ok, state, body_filename} ->
-        commit_prepared_sink(state, body_filename)
+        previous = previous_body_path(state.paths)
+
+        with :ok <- commit_prepared_sink(state, body_filename) do
+          remove_replaced_body(previous, Path.join(state.paths.dir, body_filename))
+        end
 
       {:error, reason, state} ->
         cleanup_sink_state(state)
@@ -657,6 +662,18 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   defp read_metadata(paths) do
     with {:ok, binary} <- read_cache_file(paths.meta_path, :metadata), do: decode_metadata(binary)
+  end
+
+  defp remove_replaced_body(previous, current) when previous in [nil, current], do: :ok
+  defp remove_replaced_body(previous, _current), do: rm_tolerant(previous)
+
+  defp previous_body_path(paths) do
+    with {:ok, metadata} <- read_metadata(paths),
+         {:ok, path} <- body_path_from_metadata(paths, metadata) do
+      path
+    else
+      _miss_or_invalid -> nil
+    end
   end
 
   defp read_cache_file(path, kind) do
