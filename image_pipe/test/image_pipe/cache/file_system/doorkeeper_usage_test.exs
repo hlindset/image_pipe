@@ -35,4 +35,16 @@ defmodule ImagePipe.Cache.FileSystem.DoorkeeperUsageTest do
     assert Talan.BloomFilter.member?(bf, "alpha")
     assert Talan.BloomFilter.member?(bf, "beta")
   end
+
+  test "keeps false positives near the configured rate for cache keys" do
+    bf = Doorkeeper.new(10_000, 0.01)
+    Enum.each(cache_keys("in", 10_000), &Talan.BloomFilter.put(bf, &1))
+
+    false_positives = Enum.count(cache_keys("out", 10_000), &Talan.BloomFilter.member?(bf, &1))
+    assert false_positives < 200
+  end
+
+  defp cache_keys(tag, count) do
+    for i <- 1..count, do: Base.encode16(:crypto.hash(:sha256, "#{tag}#{i}"), case: :lower)
+  end
 end
