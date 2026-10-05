@@ -116,4 +116,18 @@ defmodule ImagePipe.Source.HTTP.TargetGuardTest do
                )
     end
   end
+
+  describe "default_resolver/1" do
+    test "returns IPv4 addresses ahead of IPv6 addresses" do
+      assert {:ok, addresses} = TargetGuard.default_resolver("localhost")
+
+      assert {127, 0, 0, 1} in addresses
+      {v4, v6} = Enum.split_with(addresses, &(tuple_size(&1) == 4))
+      assert addresses == v4 ++ v6
+    end
+
+    test "reports a host that resolves to nothing" do
+      assert TargetGuard.default_resolver("no-such-host.invalid") == {:error, :nxdomain}
+    end
+  end
 end
