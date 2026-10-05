@@ -101,8 +101,7 @@ defmodule ImagePipe.Plug.Runner do
   defp handle_request(conn, request, source, config) do
     conn = report_ignored_options(conn, request, config)
     accept = conn |> Plug.Conn.get_req_header("accept") |> Enum.join(",")
-    conn = Plug.Conn.fetch_cookies(conn)
-    inputs = %Inputs{headers: conn.req_headers, cookies: conn.req_cookies}
+    inputs = %Inputs{headers: conn.req_headers, cookies: storage_cookies(conn, config)}
 
     with {:ok, plan_source, watermarks, policy} <-
            ParsedRequest.prepare(request, source, config, accept),
@@ -118,6 +117,14 @@ defmodule ImagePipe.Plug.Runner do
     else
       {:error, reason} -> send_error(conn, reason, config)
     end
+  end
+
+  # Only `storage_inputs` reads cookies, and parsing a large Cookie header
+  # is a measurable share of a warm cache hit.
+  defp storage_cookies(conn, config) do
+    if Enum.any?(Keyword.get(config, :storage_inputs, []), &match?({:cookie, _}, &1)),
+      do: Plug.Conn.fetch_cookies(conn).req_cookies,
+      else: %{}
   end
 
   # The headers built here only answer an early 304, so a request without

@@ -177,6 +177,21 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     refute_received {:cache_get, _}
   end
 
+  test "a configured cookie selects its own cache entry and other cookies don't" do
+    opts = mount(storage_inputs: [{:cookie, "session"}])
+
+    key_for = fn cookie ->
+      assert get(@image_path, opts, [{"cookie", cookie}]).status == 200
+      assert_received {:cache_get, %Key{hash: hash}}
+      flush_messages()
+      hash
+    end
+
+    a = key_for.("session=a")
+    assert key_for.("session=b") != a
+    assert key_for.("theme=dark; session=a") == a
+  end
+
   test "a host can explicitly permit public caching for cookie partitions" do
     opts =
       mount(
