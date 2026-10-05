@@ -23,9 +23,29 @@ defmodule ImagePipe.Output.Ssim2Metric.CropScore do
           {{non_neg_integer(), non_neg_integer(), pos_integer(), pos_integer()},
            Ssim2Metric.ref()}
 
+  # The search ships the tile p10 minus this offset, so it climbs to a quality
+  # whose full frame reaches the target. Sampling misses more of a large frame,
+  # so the offset grows once the tiles score less than @min_coverage of it
+  # (above ~10.5 MP). Bench Part R: offset 1.0 missed no target the full frame
+  # hit down to 40% coverage; below it, 2.4 is the smallest offset that holds.
+  @min_coverage 0.4
+  @covered_offset 1.0
+  @sparse_offset 2.4
+
   @doc "Megapixel crossover above which the search uses crop scoring."
   @spec crossover_megapixels() :: pos_integer()
   def crossover_megapixels, do: @crossover_megapixels
+
+  @doc """
+  The crop→full-frame correction for a `w`×`h` frame, subtracted from the tile
+  p10. Depends on the share of the frame the sub-sampled tiles score.
+  """
+  @spec offset(pos_integer(), pos_integer()) :: float()
+  def offset(w, h) do
+    tiles = w |> tile_coords(h) |> subsample()
+    scored = Enum.sum(Enum.map(tiles, fn {_x, _y, tw, th} -> tw * th end))
+    if scored / (w * h) >= @min_coverage, do: @covered_offset, else: @sparse_offset
+  end
 
   @doc """
   Tile windows covering a `w`×`h` frame with full-size `t`×`t` windows. The last

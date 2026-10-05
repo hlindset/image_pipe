@@ -30,6 +30,7 @@ mise exec -- mix autoquality.bench --part n --corpus DIR --corpus-cap 6  # targe
 mise exec -- mix autoquality.bench --part o --corpus DIR --corpus-cap 6  # target-only search vs today (~5 min)
 mise exec -- mix autoquality.bench --part p --corpus DIR --corpus-cap 6  # subsampling auto vs off (~12 min)
 mise exec -- mix autoquality.bench --part q --corpus DIR --corpus-cap 6  # low-effort probes (~8 min)
+mise exec -- mix autoquality.bench --part r --corpus DIR --corpus-cap 6  # crop offset by tile coverage (slow: ~5 min per image)
 mise exec -- mix autoquality.bench --part all # A + B + C + D + E + F + G + … + M
 mise exec -- mix autoquality.bench --mps 1,4  # custom Part A megapixels
 mise exec -- mix autoquality.bench --proxy-factors 2,4 --proxy-mp 25  # Part C knobs
@@ -1193,6 +1194,44 @@ Reading:
   delivery while the search time is paid once. Cheaper scoring would be the
   lever, and Parts C and D found no cheaper metric that tracks SSIMULACRA2.
 
+### Part R — crop offset by tile coverage (image_plug-e4a.6.10)
+
+Part K set the crop offset to 2.4 under the old bisection search with a
+[70, 80] bracket, where a larger offset cost almost no bytes. The target-only
+search (Part O) climbs to whatever quality the offset asks for, so Part R
+re-measures it. Each image is downscaled to 2, 4, 6, 8, 10 and 12 MP (and kept
+at native size), then searched with the production settings for
+`format=<f>/autoquality` (target 75): once scoring the full frame, and once
+per crop offset, scoring the shipped pick against the full frame. Results are
+grouped by tile coverage, the share of the frame the 16 tiles score. Held-out
+images (each source after the first 6, plus all of `large` and `grafana_sc`),
+577 image × format cases.
+
+"Misses" counts cases the full-frame search hits (≥ 74.5) and the crop pick
+misses. Bytes are the geomean against the full-frame pick.
+
+| coverage (production size) | format | n | misses at 0.5 / 1.0 / 2.4 | bytes at 1.0 / 2.4 |
+|---|---|---:|---|---|
+| 0.4–1.0 (6–10.5 MP) | JPEG | 71 | 0 / 0 / 0 | ×1.107 / ×1.166 |
+| | WebP | 71 | 2 / 0 / 0 | ×1.107 / ×1.177 |
+| | AVIF | 71 | 0 / 0 / 0 | ×1.115 / ×1.170 |
+| < 0.4 (> 10.5 MP) | JPEG | 38 | 8 / 8 / 4 | ×0.998 / ×1.052 |
+| | WebP | 37 | 5 / 5 / 3 | ×1.041 / ×1.115 |
+| | AVIF | 37 | 3 / 3 / 3 | ×0.990 / ×1.032 |
+
+Reading:
+
+- **The tile p10 is pessimistic where the tiles cover much of the frame.**
+  Even at offset 0 the crop pick lands 1.5–2.4 points above target. At
+  40% coverage or more, offset 1.0 misses nothing and ships 5–6% fewer bytes
+  than 2.4. Shipped: `CropScore.offset/2` uses 1.0 there and 2.4 below.
+- **Below 40% coverage, sampling misses dense regions.** Tall documentation
+  screenshots at 12 MP ship 43–71 against a target of 75 at every offset
+  (image_plug-e4a.6.16). No offset fixes them.
+- **Crop scoring overshoots at every size.** Below the 6 MP crossover the crop
+  pick still ships 10–12% more bytes than full-frame scoring at offset 1.0, so
+  the crossover stays.
+
 ## Findings & recommendations
 
 ### 1. Ship a non-zero `autoquality_max_resolution` default
@@ -1307,10 +1346,11 @@ on big images" into "autoquality on, affordably."
 
 #### Shipped calibration (#354)
 
-> **Superseded above the crossover by #369 (Part K).** This section describes the
+> **Superseded above the crossover by #369 (Part K), then by Part R.** This section describes the
 > crop **+ full-frame confirm/bump** path #354 shipped. #369 *removed* the confirm
 > above the crossover: production now ships the crop objective winner directly with a
-> conservative offset (`@crop_confirm_skipped_offset = 2.4`, the Part-K residual p90)
+> conservative offset (`@crop_confirm_skipped_offset = 2.4`, the Part-K residual p90;
+> Part R lowered it to 1.0 while the tiles cover at least 40% of the frame)
 > and **no confirm**. The `@crop_macro_offset = 0.22` calibration below and the
 > confirm/bump bullets are retained as the historical record and now live only in the
 > `mix autoquality.bench` crop+confirm baseline; the live correction lever is Part K's

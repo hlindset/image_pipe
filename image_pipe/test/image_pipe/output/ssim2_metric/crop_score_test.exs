@@ -63,6 +63,18 @@ defmodule ImagePipe.Output.Ssim2Metric.CropScoreTest do
     assert CropScore.crossover_megapixels() == 6
   end
 
+  describe "offset/2" do
+    test "is 1.0 while the tiles score at least 40% of the frame" do
+      # 16 tiles × 512² ≈ 4.19 MP of an 8.75 MP frame: 48% coverage.
+      assert CropScore.offset(3500, 2500) == 1.0
+    end
+
+    test "is 2.4 once the tiles score less than 40% of the frame" do
+      # 4.19 MP of a 12 MP frame: 35% coverage.
+      assert CropScore.offset(4000, 3000) == 2.4
+    end
+  end
+
   describe "references/1 and p10/2" do
     setup do
       # A 1100x600 sRGB zone-plate base (multi-tile on x, single-clamped pair on y).
