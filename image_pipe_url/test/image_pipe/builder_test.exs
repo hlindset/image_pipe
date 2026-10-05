@@ -134,6 +134,26 @@ defmodule ImagePipe.BuilderTest do
     assert IP.URL.url!(builder, "cat.jpg") == "/q=80/src/cat.jpg"
   end
 
+  test "a request control given to output/2 keeps the one from new/2" do
+    builder = IP.URL.new(expires: 2_000_000_000) |> IP.URL.output(expires: 1)
+
+    assert [%Spec.Issue{reason: :unknown_option, locations: [{:request, :expires}]}] =
+             errors(builder)
+
+    assert {"/expires=2000000000/expires=!1/src/a.jpg", _issues} =
+             IP.URL.url_with_issues(builder, "a.jpg")
+  end
+
+  test "output/2 keeps a mistake new/2 recorded for the same name" do
+    builder = IP.URL.new(format: :webp) |> IP.URL.output(format: :png)
+
+    assert [%Spec.Issue{reason: :unknown_option, locations: [{:request, :format}]}] =
+             errors(builder)
+
+    assert {"/format=png/format=!webp/src/a.jpg", _issues} =
+             IP.URL.url_with_issues(builder, "a.jpg")
+  end
+
   test "a non-keyword argument is a programming error" do
     assert_raise ArgumentError, fn -> IP.URL.group(IP.URL.new(), [1, 2]) end
     assert_raise ArgumentError, fn -> IP.URL.output(IP.URL.new(), :webp) end

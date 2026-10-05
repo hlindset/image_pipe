@@ -36,16 +36,31 @@ defmodule ImagePipe.Plan do
   alias ImagePipe.Plan.Spec.Issue
 
   # `issues` holds the builder's own findings: options it rejected, and
-  # mistakes it repaired.
-  defstruct groups: [], options: %{}, issues: []
+  # mistakes it repaired. `rejected` holds each rejected option's location
+  # and value, so a URL can still be written with them. `output/2` keeps its
+  # own in `output_issues` and `output_rejected`, which a later call
+  # replaces option by option.
+  defstruct groups: [],
+            options: %{},
+            issues: [],
+            rejected: [],
+            output_issues: [],
+            output_rejected: []
 
-  @opaque t :: %__MODULE__{groups: [map()], options: map(), issues: [Issue.t()]}
+  @opaque t :: %__MODULE__{
+            groups: [map()],
+            options: map(),
+            issues: [Issue.t()],
+            rejected: [{Issue.location(), term()}],
+            output_issues: [Issue.t()],
+            output_rejected: [{Issue.location(), term()}]
+          }
 
   @doc false
   @spec new(keyword()) :: t()
   def new(options) do
-    {options, issues} = Options.request(options)
-    %__MODULE__{options: options, issues: issues}
+    {options, issues, rejected} = Options.request(options)
+    %__MODULE__{options: options, issues: issues, rejected: rejected}
   end
 
   # The request controls `new/1` accepts, for generated documentation.
@@ -57,41 +72,57 @@ defmodule ImagePipe.Plan do
   @spec group(t(), keyword()) :: t()
   def group(%__MODULE__{} = plan, options) do
     case Options.group(options, length(plan.groups)) do
-      {:empty, issues} ->
+      {:empty, issues, []} ->
         empty = %Issue{reason: :empty_group, locations: [], detail: nil, severity: :warning}
         %{plan | issues: plan.issues ++ issues ++ [empty]}
 
-      {group, issues} ->
-        %{plan | groups: plan.groups ++ [group], issues: plan.issues ++ issues}
+      {group, issues, rejected} ->
+        %{
+          plan
+          | groups: plan.groups ++ [group],
+            issues: plan.issues ++ issues,
+            rejected: plan.rejected ++ rejected
+        }
     end
   end
 
   @doc false
   @spec output(t(), keyword()) :: t()
   def output(%__MODULE__{} = plan, options) do
-    {values, issues} = Options.output(options)
-    given = Keyword.keys(options)
+    {values, issues, rejected} = Options.output(options)
+    given = options |> Keyword.keys() |> Enum.filter(&Options.output_option?/1)
+    given? = &(elem(&1, 1) in given)
 
-    # An option given again replaces its earlier value, rejected or not.
-    kept =
-      Enum.reject(plan.issues, fn issue ->
-        Enum.any?(issue.locations, fn location ->
-          match?({:request, _key}, location) and elem(location, 1) in given
-        end)
-      end)
-
+    # An option given again replaces its earlier value, and any mistake an
+    # earlier output/2 call recorded for it.
     %{
       plan
       | options: plan.options |> Map.drop(given) |> Map.merge(values),
-        issues: kept ++ issues
+        output_issues:
+          Enum.reject(plan.output_issues, &Enum.any?(&1.locations, given?)) ++ issues,
+        output_rejected: Enum.reject(plan.output_rejected, &given?.(elem(&1, 0))) ++ rejected
     }
+  end
+
+  # Replaces the value of each rejected `key` option with an empty string.
+  @doc false
+  @spec blank_rejected(t(), atom()) :: t()
+  def blank_rejected(%__MODULE__{} = plan, key) do
+    blank =
+      &Enum.map(&1, fn {location, value} ->
+        if elem(location, tuple_size(location) - 1) == key,
+          do: {location, ""},
+          else: {location, value}
+      end)
+
+    %{plan | rejected: blank.(plan.rejected), output_rejected: blank.(plan.output_rejected)}
   end
 
   # The builder's own issues: `{:ok, warnings}`, or `{:error, issues}` with
   # the errors first.
   @doc false
   @spec built(t()) :: {:ok, [Issue.t()]} | {:error, [Issue.t()]}
-  def built(%__MODULE__{issues: issues}), do: split(issues)
+  def built(%__MODULE__{} = plan), do: split(plan.issues ++ plan.output_issues)
 
   defp split(issues) do
     case Enum.split_with(issues, &(&1.severity == :warning)) do

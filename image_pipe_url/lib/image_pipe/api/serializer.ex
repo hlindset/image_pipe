@@ -8,20 +8,72 @@ defmodule ImagePipe.API.Serializer do
 
   @options OptionSpec.all()
 
+  # A plan's rejected options follow the accepted ones of their group or of
+  # the request. They exist only in plans with errors, which only
+  # `ImagePipe.URL.url_with_issues/3` writes.
   @spec segments(Plan.t()) :: [String.t()]
-  def segments(%Plan{groups: groups, options: options}) do
-    groups(groups) ++ entries(options)
+  def segments(%Plan{groups: groups, options: options} = plan) do
+    rejected = plan.rejected ++ plan.output_rejected
+
+    groups(groups, rejected) ++
+      entries(options) ++ for({{:request, key}, value} <- rejected, do: rejected(key, value))
   end
 
   defp presets([]), do: []
   defp presets(names), do: ["preset=" <> Enum.join(names, ",")]
 
-  defp groups(groups) do
+  defp groups(groups, rejected) do
     groups
-    |> Enum.map(&(presets(Map.get(&1, :presets, [])) ++ entries(Map.delete(&1, :presets))))
+    |> Enum.with_index()
+    |> Enum.map(fn {group, index} ->
+      presets(Map.get(group, :presets, [])) ++
+        entries(Map.delete(group, :presets)) ++
+        for {{:group, ^index, key}, value} <- rejected, do: rejected(key, value)
+    end)
     |> Enum.intersperse(["-"])
     |> List.flatten()
   end
+
+  # Written under the option's URL name, with `!` before the value so that
+  # the server rejects it whatever the value happens to look like.
+  defp rejected(key, value), do: url_key(key) <> "=!" <> rejected_value(value)
+
+  defp url_key(:presets), do: "preset"
+
+  defp url_key(name) do
+    case Enum.find(@options, &(&1.name == name)) do
+      nil ->
+        name
+        |> Atom.to_string()
+        |> String.replace("_", "-")
+        |> URI.encode(&URI.char_unreserved?/1)
+
+      spec ->
+        spec.key
+    end
+  end
+
+  defp rejected_value(value) do
+    value
+    |> rejected_text()
+    |> URI.encode(&(URI.char_unreserved?(&1) or &1 in ~c",:"))
+  end
+
+  defp rejected_text(value) when is_atom(value),
+    do: value |> Atom.to_string() |> String.replace("_", "-")
+
+  defp rejected_text(value) when is_number(value) or is_binary(value), do: to_string(value)
+
+  defp rejected_text(value) when is_list(value) or is_tuple(value) do
+    items = if is_tuple(value), do: Tuple.to_list(value), else: value
+
+    case Enum.all?(items, &(is_atom(&1) or is_number(&1) or is_binary(&1))) do
+      true -> Enum.map_join(items, ",", &rejected_text/1)
+      false -> inspect(value)
+    end
+  end
+
+  defp rejected_text(value), do: inspect(value)
 
   defp entries(options) do
     for spec <- @options,

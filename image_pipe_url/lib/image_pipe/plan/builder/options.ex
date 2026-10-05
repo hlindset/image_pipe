@@ -23,8 +23,9 @@ defmodule ImagePipe.Plan.Builder.Options do
 
   @docs "https://hexdocs.pm/image_pipe"
 
-  # Each function returns the options it accepts and the issues it found.
-  # Locations name request options `{:request, key}`.
+  # Each function returns the options it accepts, the issues it found, and
+  # each rejected option's location and value. Locations name request
+  # options `{:request, key}`.
   def request(options), do: collect(options, request_schema(), &{:request, &1})
 
   def request_schema do
@@ -90,7 +91,7 @@ defmodule ImagePipe.Plan.Builder.Options do
   def group(options, index) do
     location = &{:group, index, &1}
 
-    {group, issues} =
+    {group, issues, rejected} =
       collect(options, group_schema(), location,
         unsettable: Keyword.keys(transform_schema()),
         flat: [:resize]
@@ -98,19 +99,19 @@ defmodule ImagePipe.Plan.Builder.Options do
 
     {resize, group} = Map.pop(group, :resize, [])
     group = if Map.get(group, :presets) == [], do: Map.delete(group, :presets), else: group
-    {resize, resize_issues} = collect(resize, resize_schema(), location)
+    {resize, resize_issues, resize_rejected} = collect(resize, resize_schema(), location)
     issues = issues ++ resize_issues
+    rejected = rejected ++ resize_rejected
 
     case Map.merge(group, resize) do
-      values when map_size(values) == 0 ->
-        if Enum.any?(issues, &(&1.severity == :error)), do: {%{}, issues}, else: {:empty, issues}
-
-      values ->
-        {values, issues}
+      values when map_size(values) == 0 and rejected == [] -> {:empty, issues, []}
+      values -> {values, issues, rejected}
     end
   end
 
   def output(options), do: collect(options, OutputOptions.schema(), &{:request, &1})
+
+  def output_option?(key), do: Keyword.has_key?(OutputOptions.schema(), key)
 
   # Every option accepts `:unset`, which clears it from presets and request
   # defaults. Unset options skip validation, so an error lists only the
@@ -124,17 +125,20 @@ defmodule ImagePipe.Plan.Builder.Options do
     unsettable = Keyword.get(opts, :unsettable, Keyword.keys(schema))
     {options, repeated} = last_values(options, location, Keyword.get(opts, :flat, []))
 
-    {values, issues} =
-      Enum.reduce(options, {%{}, []}, fn {key, value}, {values, issues} ->
+    {values, issues, rejected} =
+      Enum.reduce(options, {%{}, [], []}, fn {key, value}, {values, issues, rejected} ->
         {value, unset_issues} = collapse_unset(key, value, location)
 
         case check(key, value, schema, unsettable, location) do
-          {:ok, value} -> {Map.put(values, key, value), issues ++ unset_issues}
-          {:error, issue} -> {values, issues ++ unset_issues ++ [issue]}
+          {:ok, checked} ->
+            {Map.put(values, key, checked), issues ++ unset_issues, rejected}
+
+          {:error, issue} ->
+            {values, issues ++ unset_issues ++ [issue], rejected ++ [{location.(key), value}]}
         end
       end)
 
-    {values, repeated ++ issues}
+    {values, repeated ++ issues, rejected}
   end
 
   defp check(key, :unset, schema, unsettable, location) do

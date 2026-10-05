@@ -1,7 +1,8 @@
 defmodule ImagePipe.Plan.Spec.Issue do
   @moduledoc """
-  A problem with a plan's options, returned by
-  `ImagePipe.URL.validate/1` and `ImagePipe.URL.url/3`, and by
+  A problem with a plan's options or source, returned by
+  `ImagePipe.URL.validate/1`, `ImagePipe.URL.url/3`, and
+  `ImagePipe.URL.url_with_issues/3`, and by
   `ImagePipe.validate/2` and `ImagePipe.run/4` in `image_pipe`.
 
       %ImagePipe.Plan.Spec.Issue{
@@ -12,8 +13,8 @@ defmodule ImagePipe.Plan.Spec.Issue do
       }
 
   `severity` is `:error` or `:warning`. An error fails the request. A warning
-  marks an option the request ignores because it has no effect, or a
-  builder mistake with one clear meaning, which the builder repairs. The checks
+  marks an option the request ignores because it has no effect, or a builder
+  mistake with one clear meaning, which the builder repairs. The checks
   return warnings alone as `{:ok, warnings}`, and list them after the errors
   in `{:error, issues}`. They report only options the plan sets itself, not
   ones that a preset or the request defaults supply.
@@ -27,16 +28,21 @@ defmodule ImagePipe.Plan.Spec.Issue do
 
     * `:unknown_option` - the name isn't a builder option.
     * `:invalid_value` - the builder rejects the option's value. `detail` is
-      the reason, such as
+      the builder's message, such as
       `"invalid value for :fit option: expected one of [:contain, :cover, :stretch, :auto], got: :fill"`.
     * `:repeated_option` - a warning: the option was given twice in one
-      builder call, and the URL uses the last value.
+      builder call, or a key was repeated inside its list value, and the URL
+      uses the last value.
     * `:empty_group` - a warning: an `ImagePipe.URL.group/2` call has no
-      options and adds no group. `locations` is empty.
-    * `:redundant_unset` - a warning: in `format_qualities:` or an encoder
-      option such as `jpeg_options:`, `[:unset]` alone, which the builder
-      writes as `:unset`, or a repeated leading `:unset`, which it writes
-      once.
+      options, or only an empty `presets:` or `resize:` list, and adds no
+      group. `locations` is empty.
+    * `:redundant_unset` - a warning: `[:unset]` alone or a repeated leading
+      `:unset` in `format_qualities:` or an encoder option such as
+      `jpeg_options:`. The builder writes a single `:unset`.
+    * `:invalid_source`, `:too_many_options` - returned only by
+      `ImagePipe.URL.url_with_issues/3`, for what `ImagePipe.URL.url/3`
+      returns as `{:error, :invalid_source}` and
+      `{:error, :too_many_options}`. `locations` is empty.
     * `:inert_option` - a warning: the option has no effect, such as `fit`
       without a width or height, or `jpeg_options` with `format: :webp`, so
       the request ignores it.
@@ -56,7 +62,8 @@ defmodule ImagePipe.Plan.Spec.Issue do
       configuration's `:validate_against` lists the watermark names.
 
   `detail` describes the failed constraint, such as `{:requires, :resize}`
-  or `%{preset: "card"}`.
+  or `%{preset: "card"}`, holds the builder's message for `:invalid_value`,
+  or is `nil`.
   """
 
   @enforce_keys [:reason, :locations, :detail]

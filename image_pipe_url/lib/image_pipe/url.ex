@@ -75,8 +75,9 @@ defmodule ImagePipe.URL do
   ## Mistakes in options
 
   `new/1`, `new/2`, `group/2`, and `output/2` check each option as it's
-  given, and record a mistake in the plan instead of raising. `validate/1`, `url/3`,
-  and `url!/3` report it as an `ImagePipe.Plan.Spec.Issue`:
+  given, and record a mistake in the plan instead of raising. `validate/1`,
+  `url/3`, `url!/3`, and `url_with_issues/3` report it as an
+  `ImagePipe.Plan.Spec.Issue`:
 
       builder = ImagePipe.URL.new() |> ImagePipe.URL.group(resize: [width: 300, fit: :fill])
 
@@ -90,17 +91,21 @@ defmodule ImagePipe.URL do
       ImagePipe.URL.url!(builder, "photo.jpg")
       # ** (ArgumentError) cannot build URL: invalid_value at {:group, 0, :fit}
 
-  An unknown option name or a malformed value is an error. Each mistake is
-  reported, not only the first. The builder repairs a mistake with one clear
-  meaning, and reports it as a warning:
+  An unknown option name or a malformed value is an error. The builder
+  repairs a mistake with one clear meaning, and reports it as a warning:
 
-    * An option given twice in one call keeps its last value.
-    * A `group/2` call with no options adds no group.
+    * An option given twice in one call, or a key repeated inside a list
+      value such as `gradient:`, keeps its last value.
+    * A `group/2` call with no options, or only an empty `presets:` or
+      `resize:` list, adds no group.
     * In `format_qualities:` and the encoder options such as
       `jpeg_options:`, `[:unset]` alone is written as `:unset`, and a
       repeated leading `:unset` is written once.
 
-  An argument that isn't a keyword list raises `ArgumentError`.
+  Options that aren't a keyword list raise `ArgumentError`.
+
+  `url_with_issues/3` returns a URL despite errors, which the server
+  rejects, so a page can show a broken image instead of failing.
   """
 
   use Boundary,
@@ -220,7 +225,8 @@ defmodule ImagePipe.URL do
       when the configuration has `:validate_against`, options that conflict.
       Warnings don't stop the URL. Without `:validate_against`, the server
       checks how the options combine when it serves the URL.
-    * `{:error, :invalid_source}` - the source is empty or not valid UTF-8.
+    * `{:error, :invalid_source}` - the source is empty, not valid UTF-8, or
+      not a string.
     * `{:error, :too_many_options}` - the plan has more than 64 option and
       `-` segments, the most the server accepts.
     * `{:error, :source_encryption_disabled}` - a valid `:iv` was given and
@@ -233,6 +239,43 @@ defmodule ImagePipe.URL do
           | {:error, atom() | {:invalid_request, [Issue.t()]}}
   def url(%__MODULE__{plan: plan, config: config}, source, options \\ []),
     do: Generator.build(plan, source, config.options, options)
+
+  @doc """
+  Like `url/3`, but always returns a URL, with the issues `validate/1`
+  reports and any problem with the source or the number of options.
+
+      ImagePipe.URL.new()
+      |> ImagePipe.URL.group(resize: [width: 300, fit: :fill])
+      |> ImagePipe.URL.url_with_issues("cat.jpg")
+      # {"/w=300/fit=!fill/src/cat.jpg",
+      #  [%ImagePipe.Plan.Spec.Issue{reason: :invalid_value,
+      #     locations: [{:group, 0, :fit}], severity: :error, …}]}
+
+  Where `url/3` would return an error, this returns a URL that the server
+  rejects with `400`, so a page shows a broken image instead of failing. The
+  URL is signed as `url/3` signs it, and includes everything `url/3` would
+  reject:
+
+    * An option the builder rejected is written under its name, with `!`
+      before its value, as in `fit=!fill`. No option accepts a value that
+      starts with `!`, so the server rejects it.
+    * Options that `validate/1` reports as errors, such as options that
+      conflict, are written as given.
+    * An invalid source is written after `src/`. A source that isn't a
+      string, such as `nil`, is written as an empty source. The issue's
+      reason is `:invalid_source`.
+    * A plan with more than 64 option and `-` segments is written in full.
+      The issue's reason is `:too_many_options`.
+
+  With `encrypt_source: true`, an invalid source and a rejected
+  `watermark_source:` are written empty, so no source appears in plain text.
+
+  The issues list the errors first. Invalid `options`, as listed under
+  `url/3`, raise `ArgumentError`.
+  """
+  @spec url_with_issues(t(), term(), keyword()) :: {String.t(), [Issue.t()]}
+  def url_with_issues(%__MODULE__{plan: plan, config: config}, source, options \\ []),
+    do: Generator.build_with_issues(plan, source, config.options, options)
 
   @doc """
   Like `url/3`, but returns the URL or raises `ArgumentError`.
@@ -307,8 +350,9 @@ defmodule ImagePipe.URL do
   names and values are listed under
   [URL option names](#module-url-option-names).
 
-  Any option, including each `resize:` option, accepts `:unset` to remove a
-  value set by the group's presets or the server's request defaults.
+  Any option except `presets:` and `resize:` itself, including each
+  `resize:` option, accepts `:unset` to remove a value set by the group's
+  presets or the server's request defaults.
 
   Each value is checked here, and a mistake is recorded in the plan, as
   described under [Mistakes in options](#module-mistakes-in-options). Checks
@@ -332,7 +376,8 @@ defmodule ImagePipe.URL do
   [URL option names](#module-url-option-names).
   Each call merges its options into the plan. An option given again replaces
   its whole previous value, including every entry of `jpeg_options:` or
-  `format_qualities:`, and any mistake recorded for it. Options not given keep their value.
+  `format_qualities:`, and any mistake recorded for it. Options not given
+  keep their value.
 
   An option the plan doesn't set takes the server's configured default when
   the URL is served. `:unset` removes a value set by a preset or the request

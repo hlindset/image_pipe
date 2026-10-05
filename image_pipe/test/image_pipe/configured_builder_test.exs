@@ -36,6 +36,36 @@ defmodule ImagePipe.ConfiguredBuilderTest do
     assert_raise ArgumentError, fn -> IP.config(allow_origin: "*") end
   end
 
+  test "a URL written with issues is signed and rejected before fetching a source" do
+    key = "00112233445566778899aabbccddeeff"
+
+    mount =
+      IP.Plug.init(
+        keys: [key],
+        sources: [
+          path: [
+            adapter: ImagePipe.SourceTest.RootHTTPAdapter,
+            match: :path,
+            options: [
+              root_url: "http://origin.test",
+              req_options: [plug: fn _conn -> flunk("a rejected URL fetched a source") end]
+            ]
+          ]
+        ]
+      )
+
+    builder =
+      IP.URL.config(keys: [key])
+      |> IP.URL.new()
+      |> IP.URL.group(resize: [width: 30, fit: :fill])
+
+    {url, [%{reason: :invalid_value}]} = IP.URL.url_with_issues(builder, "photo.png")
+    response = Plug.Test.conn(:get, url) |> IP.Plug.call(mount)
+
+    assert response.status == 400
+    assert response.resp_body =~ "fit"
+  end
+
   test "request-wide controls remain independent of shared configuration" do
     client = IP.URL.new(expires: 2_000_000_000)
     assert IP.URL.url!(client, "photo.png") == "/expires=2000000000/src/photo.png"
