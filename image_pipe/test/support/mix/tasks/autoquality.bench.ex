@@ -5325,7 +5325,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
   defp r_bench_subject(source, label, base, offsets) do
     {ref_us, {:ok, ref}} = timed(fn -> Ssim2Metric.reference(base) end)
     {refs_us, {:ok, refs}} = timed(fn -> CropScore.references(base) end)
-    coverage = length(refs) * 512 * 512 / (Image.width(base) * Image.height(base))
+    scored = Enum.sum(Enum.map(refs, fn {{_x, _y, w, h}, _ref} -> w * h end))
+    coverage = scored / (Image.width(base) * Image.height(base))
     mp = Float.round(megapixels(base), 2)
 
     Enum.flat_map(@g_formats, fn format ->
