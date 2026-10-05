@@ -226,12 +226,12 @@ defmodule ImagePipe.Source.File do
   end
 
   defp regular_file(path) do
-    case File.stat(path, time: :posix) do
-      {:ok, %File.Stat{type: :regular} = stat} ->
-        {:ok, stat}
-
-      {:ok, _stat} ->
-        {:error, {:source, :not_found}}
+    case :file.read_file_info(path, [:raw, time: :posix]) do
+      {:ok, info} ->
+        case File.Stat.from_record(info) do
+          %File.Stat{type: :regular} = stat -> {:ok, stat}
+          _stat -> {:error, {:source, :not_found}}
+        end
 
       {:error, reason} when reason in [:enoent, :enotdir, :enametoolong] ->
         {:error, {:source, :not_found}}
