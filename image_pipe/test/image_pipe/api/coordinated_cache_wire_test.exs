@@ -121,7 +121,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     holders =
       for index <- 1..64 do
         Task.async(fn ->
-          Work.run({:busy_test, index}, fn _coordination ->
+          Work.run({:busy_test, index}, fn _coordination, _outcome ->
             send(test_pid, {:holding, index})
 
             receive do
@@ -660,6 +660,72 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     assert request(config, 12).resp_body == first.resp_body
     assert_receive {:origin, _, [~s("v1")]}
     refute_received {:origin, _, _}
+  end
+
+  test "a revalidating warm hit reads the source record once", %{shared: shared, state: state} do
+    prefix = [__MODULE__, :single_source_read]
+    shared = IP.config(Keyword.put(shared.raw, :telemetry_prefix, prefix))
+    config = IP.Plug.init(config: shared, http_cache: :auto)
+    handler = make_ref()
+
+    :telemetry.attach(
+      handler,
+      prefix ++ [:cache, :lookup, :stop],
+      fn _, _, meta, pid -> send(pid, {:lookup, meta.cache}) end,
+      self()
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+    Agent.update(state, &%{&1 | control: "no-cache"})
+    assert request(config, 12).status == 200
+    assert_receive {:origin, _, []}
+    flush_lookups()
+
+    assert request(config, 12).status == 200
+    assert_receive {:origin, _, [~s("v1")]}
+    # One source-record read, then the output hit.
+    assert_received {:lookup, :hit}
+    assert_received {:lookup, :hit}
+    refute_received {:lookup, _}
+  end
+
+  test "a request uses a fresh record another request wrote after its own read", %{
+    shared: shared,
+    state: state
+  } do
+    prefix = [__MODULE__, :publish_between_read_and_lock]
+    shared = IP.config(Keyword.put(shared.raw, :telemetry_prefix, prefix))
+    config = IP.Plug.init(config: shared, http_cache: :auto)
+    assert request(config, 12).status == 200
+    assert_receive {:origin, _, []}
+
+    # Expired, so the next request revalidates. Another request refreshes the
+    # record after this one read the expired copy but before it locks.
+    Agent.update(state, &%{&1 | now: 1_070})
+    handler = make_ref()
+
+    :telemetry.attach(
+      handler,
+      prefix ++ [:cache, :lookup, :stop],
+      fn _, _, _, {handler, config} ->
+        :telemetry.detach(handler)
+        200 = request(config, 8).status
+      end,
+      {handler, config}
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+    assert request(config, 12).status == 200
+    assert_receive {:origin, _, [~s("v1")]}
+    refute_received {:origin, _, _}
+  end
+
+  defp flush_lookups do
+    receive do
+      {:lookup, _} -> flush_lookups()
+    after
+      0 -> :ok
+    end
   end
 
   test "dynamic credentials partition fresh cached originals and outputs", %{

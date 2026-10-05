@@ -610,6 +610,21 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     with {:ok, paths} <- paths(key, opts), do: read_metadata(paths)
   end
 
+  # Like `get/2` for a reader that needs only the metadata: the body stays
+  # closed, and the read still counts as a hit for admission.
+  def metadata_hit(%Key{} = key, opts) do
+    with {:ok, metadata} <- metadata(key, opts) do
+      maybe_cast_hit(opts, %{
+        key_hash: key.hash,
+        size_bytes: metadata.body_byte_size,
+        body_sha256: metadata.body_sha256,
+        cost_us: Map.get(metadata, :cost_us, 0)
+      })
+
+      {:ok, metadata}
+    end
+  end
+
   def refresh_source_record(key, previous, record, opts) do
     with {:ok, paths} <- paths(key, opts) do
       case lookup_admission(opts) do

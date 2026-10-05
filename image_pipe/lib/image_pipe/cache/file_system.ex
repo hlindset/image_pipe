@@ -101,6 +101,19 @@ defmodule ImagePipe.Cache.FileSystem do
     end
   end
 
+  @doc false
+  # Reads a source-index entry's record without opening its body.
+  def source_record(key, opts) do
+    with {:ok, metadata} <- Store.metadata_hit(key, opts) do
+      record = Map.get(metadata, :source_record)
+
+      case Entry.validate_source_record(record) do
+        :ok -> {:hit, record}
+        {:error, reason} -> handle_invalid_metadata(reason)
+      end
+    end
+  end
+
   defp decode_entry(file, metadata) do
     with {:ok, meta} <- validate_metadata(metadata),
          :ok <- Entry.validate_source_record(Map.get(metadata, :source_record)),

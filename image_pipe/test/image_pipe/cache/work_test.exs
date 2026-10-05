@@ -7,8 +7,9 @@ defmodule ImagePipe.Cache.WorkTest do
     on_exit(fn -> Supervisor.restart_child(ImagePipe.Supervisor, Work) end)
 
     assert :served =
-             Work.run(make_ref(), fn coordinated? ->
+             Work.run(make_ref(), fn coordinated?, outcome ->
                refute coordinated?
+               assert outcome == :busy
                :served
              end)
 
@@ -19,7 +20,7 @@ defmodule ImagePipe.Cache.WorkTest do
     on_exit(fn -> Supervisor.restart_child(ImagePipe.Supervisor, Work) end)
 
     assert :served =
-             Work.run(make_ref(), fn lease ->
+             Work.run(make_ref(), fn lease, _outcome ->
                assert Work.current?(lease)
                :ok = Supervisor.terminate_child(ImagePipe.Supervisor, Work)
                {:ok, _pid} = Supervisor.restart_child(ImagePipe.Supervisor, Work)
@@ -34,7 +35,7 @@ defmodule ImagePipe.Cache.WorkTest do
 
     leader =
       Task.async(fn ->
-        Work.run(key, fn _lease ->
+        Work.run(key, fn _lease, _outcome ->
           send(parent, :locked)
 
           receive do
@@ -44,11 +45,13 @@ defmodule ImagePipe.Cache.WorkTest do
       end)
 
     assert_receive :locked
-    assert Work.run(key, fn _lease -> flunk("timed-out waiter ran") end, wait: 50) == :timeout
+
+    assert Work.run(key, fn _lease, _outcome -> flunk("timed-out waiter ran") end, wait: 50) ==
+             :timeout
 
     send(leader.pid, :finish)
     assert Task.await(leader) == :led
-    assert Work.run(key, fn lease -> is_reference(lease) end, wait: 50)
+    assert Work.run(key, fn lease, _outcome -> is_reference(lease) end, wait: 50)
   end
 
   test "owner cancellation releases the key for waiting work" do
@@ -58,7 +61,8 @@ defmodule ImagePipe.Cache.WorkTest do
 
     leader =
       Task.Supervisor.async_nolink(supervisor, fn ->
-        Work.run(key, fn lease ->
+        Work.run(key, fn lease, outcome ->
+          assert outcome == :acquired
           assert Work.current?(lease)
           send(parent, :locked)
 
@@ -72,7 +76,8 @@ defmodule ImagePipe.Cache.WorkTest do
 
     follower =
       Task.Supervisor.async_nolink(supervisor, fn ->
-        Work.run(key, fn lease ->
+        Work.run(key, fn lease, outcome ->
+          assert outcome == :coalesced
           assert Work.current?(lease)
           :released
         end)
@@ -89,7 +94,7 @@ defmodule ImagePipe.Cache.WorkTest do
 
     old =
       Task.Supervisor.async_nolink(supervisor, fn ->
-        Work.run(key, fn lease ->
+        Work.run(key, fn lease, _outcome ->
           Work.publish(key, lease, fn ->
             send(parent, :old_publication)
 
@@ -106,7 +111,7 @@ defmodule ImagePipe.Cache.WorkTest do
 
     newer =
       Task.Supervisor.async_nolink(supervisor, fn ->
-        Work.run(key, fn lease ->
+        Work.run(key, fn lease, _outcome ->
           send(parent, :new_lease)
           Work.publish(key, lease, fn -> send(parent, {:published, 2}) end)
         end)

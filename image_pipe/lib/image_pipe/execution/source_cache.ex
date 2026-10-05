@@ -43,14 +43,19 @@ defmodule ImagePipe.Execution.SourceCache do
   def acquire(source, key, previous, preparation, config) do
     Work.run(
       {:source, key.hash},
-      fn coordination ->
+      fn coordination, outcome ->
         opts =
           case coordination do
             false -> config
             ref -> Keyword.put(config, :source_lease, ref)
           end
 
-        record = lookup(source, key, opts) || previous
+        # Another request may have written a fresh record since the caller
+        # read `previous`, unless every copy of this source needs validating.
+        record =
+          if outcome == :coalesced or not validated_on_every_use?(previous, source),
+            do: lookup(source, key, opts) || previous,
+            else: previous
 
         case status(record, source, opts) do
           :fresh -> {:ok, %Acquisition{record: record}}
@@ -62,6 +67,18 @@ defmodule ImagePipe.Execution.SourceCache do
     |> waited()
   end
 
+  # A source whose copies arrive without freshness (no-cache, no lifetime, or
+  # already stale) gains nothing from a record another request just wrote.
+  defp validated_on_every_use?(nil, _source), do: false
+
+  defp validated_on_every_use?(record, source) do
+    case Record.state(record, source.cache_semantics).fresh_until do
+      nil -> true
+      :infinity -> false
+      fresh_until -> fresh_until <= record.received_at
+    end
+  end
+
   def input(source, key, record, preparation, config) do
     case Input.open(key, record, config) do
       {:ok, path, lease} ->
@@ -70,7 +87,7 @@ defmodule ImagePipe.Execution.SourceCache do
       :miss ->
         Work.run(
           {:source, key.hash},
-          fn coordination ->
+          fn coordination, _outcome ->
             open_or_fetch(source, key, record, preparation, config, coordination)
           end,
           work_opts(source, config)
