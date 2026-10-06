@@ -11,12 +11,10 @@ defmodule CoordinatedCacheBench.BufferedHTTP do
   defdelegate validate_options(opts), to: HTTP
 
   @impl true
-  def resolve(source, opts, runtime) do
-    with {:ok, resolved} <- HTTP.resolve(source, opts, runtime) do
-      # Benchmark the output-only lifecycle with a complete binary source.
-      {:ok, %{resolved | source_kind: :reference}}
-    end
-  end
+  defdelegate identifiers(opts), to: HTTP
+
+  @impl true
+  defdelegate resolve(source, opts, runtime), to: HTTP
 
   @impl true
   def fetch(source, opts, runtime) do
