@@ -86,7 +86,7 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
     assert Task.await(active).status == 200
   end
 
-  test "processing deadlines return 503 before headers and leave the pool usable", context do
+  test "processing deadlines return 503 while unfinished work keeps its slot", context do
     pool = start_supervised!({ProcessingPool, max_concurrency: 1, processing_timeout: 100})
     mount = ImagePipe.Plug.init(config: config(pool, context.prefix))
     event = context.prefix ++ [:processing, :execute, :stop]
@@ -97,6 +97,9 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
       timed = request(mount, options, "blocked")
       assert timed.status == 503
       assert timed.resp_body == "image processing timeout"
+      assert_receive {:fetch, ["blocked"], worker}
+      assert %{active: 1, queued: 0} = ProcessingPool.stats(pool)
+      send(worker, :continue)
       assert_receive {^event, ^ref, _measurements, %{result: :timeout}}, 1_000
       assert %{active: 0, queued: 0} = ProcessingPool.stats(pool)
       assert ProcessingPool.run(pool, fn -> :recovered end, []) == :recovered

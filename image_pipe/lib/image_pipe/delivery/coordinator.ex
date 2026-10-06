@@ -10,16 +10,8 @@ defmodule ImagePipe.Delivery.Coordinator do
   # `init/1`, so an owner (conn process) dying mid-stream is observed here via
   # a `:DOWN` message, not the other way around.
   #
-  # Bracket-cleanup note: this coordinator ALWAYS requests a graceful halt
-  # first (`Producer.request_halt/2`), backstopped by a timeout that
-  # force-kills a wedged producer. A forceful kill (`Process.exit/2` — the
-  # producer never traps exits, so a non-:normal exit reason terminates it
-  # immediately) would skip any `try/after` still on the producer's stack.
-  # That matters because the request runner may run its whole encode/pump loop
-  # INSIDE a bracket callback (e.g. `ImagePipe.Decode.with_image/4`) wrapped
-  # in a `try/after`: killing forcefully would break the
-  # cleanup-runs-exactly-once invariant on owner disconnect, not just on
-  # explicit cancel.
+  # Pooled producers halt cooperatively and keep their slot through bracket
+  # cleanup. Unpooled producers retain the force-kill backstop.
 
   use GenServer
 
@@ -208,6 +200,25 @@ defmodule ImagePipe.Delivery.Coordinator do
 
   def handle_info({ref, result}, %{producer_request_ref: ref} = state) when is_reference(ref) do
     handle_producer_result(result, %{state | producer_request_ref: nil})
+  end
+
+  def handle_info({:processing_timeout, producer}, %{producer: producer} = state) do
+    pending = state.pending
+    Producer.request_halt(producer, self())
+
+    state =
+      state
+      |> reply_pending({:error, {:processing, :timeout}})
+      |> abort_cache_sink(:stream_error)
+      |> clear_producer()
+
+    Cache.OutputWork.complete(Keyword.get(state.config, :output_lease), :bypass)
+    state = %{state | phase: :failed, failure: {:processing, :timeout}}
+
+    case pending do
+      nil -> {:noreply, state}
+      _pending -> {:stop, :normal, state}
+    end
   end
 
   def handle_info({:producer_halt_timeout, ref}, %{producer_request_ref: ref} = state) do
@@ -410,16 +421,35 @@ defmodule ImagePipe.Delivery.Coordinator do
   defp request_producer_halt(%{producer: nil} = state, _from, _reason), do: {:stop, state}
 
   defp request_producer_halt(%{producer: producer} = state, from, reason) when is_pid(producer) do
-    timeout = max(100, div(@cancel_timeout, 2))
     ref = Producer.request_halt(producer, self())
-    Process.send_after(self(), {:producer_halt_timeout, ref}, timeout)
-    {:ok, %{state | pending: {:cancel, from}, producer_request_ref: ref, cancel_reason: reason}}
+
+    case Keyword.get(state.config, :processing_pool) do
+      nil ->
+        timeout = max(100, div(@cancel_timeout, 2))
+        Process.send_after(self(), {:producer_halt_timeout, ref}, timeout)
+
+        {:ok,
+         %{state | pending: {:cancel, from}, producer_request_ref: ref, cancel_reason: reason}}
+
+      pool ->
+        ProcessingPool.cancel(pool, producer)
+        Cache.OutputWork.complete(Keyword.get(state.config, :output_lease), :bypass)
+        {:stop, state |> abort_cache_sink(reason) |> clear_producer()}
+    end
   end
 
   defp stop_producer(%{producer: nil} = state, _reason), do: clear_producer(state)
 
   defp stop_producer(%{producer: producer} = state, reason) when is_pid(producer) do
-    Process.exit(producer, reason)
+    case Keyword.get(state.config, :processing_pool) do
+      nil ->
+        Process.exit(producer, reason)
+
+      pool ->
+        Producer.request_halt(producer, self())
+        ProcessingPool.cancel(pool, producer)
+    end
+
     clear_producer(state)
   end
 

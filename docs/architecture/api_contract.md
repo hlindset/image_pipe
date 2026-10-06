@@ -649,6 +649,13 @@ responses are not written to the output cache.
 
 ### Request delivery controls
 
+Processing pool deadlines end the request's wait without killing its admitted
+worker. The worker retains capacity until its operation and resource brackets
+finish, including after owner exit or explicit cancellation. Queued jobs
+cancel immediately. Deadline notification cannot publish late output or
+cache entries. Execution telemetry follows the worker lifetime and retains
+the timeout or cancellation outcome.
+
 `filename=photo` supplies a response filename stem. `attachment` selects
 download disposition; `attachment=false` selects inline disposition and
 overrides an inherited preset value. As with every bare flag,

@@ -62,7 +62,10 @@ defmodule ImagePipe.Test.PlugFixture.CacheProbe do
   end
 
   @impl true
-  def abort_sink(_state, _opts), do: :ok
+  def abort_sink(state, _opts) do
+    send(message_target(), {:cache_abort, state.key})
+    :ok
+  end
 
   defp store_lookup(opts, key) do
     case Keyword.fetch(opts, :store) do

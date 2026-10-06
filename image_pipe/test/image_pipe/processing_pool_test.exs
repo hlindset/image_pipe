@@ -79,17 +79,25 @@ defmodule ImagePipe.ProcessingPoolTest do
     assert ProcessingPool.run(pool, fn -> :ok end, []) == :ok
   end
 
-  test "processing deadline stops a worker and recovers its slot", %{tasks: tasks} do
-    pool = pool(max_concurrency: 1, processing_timeout: 40)
+  test "processing deadline replies while retaining capacity until the callback finishes", %{
+    tasks: tasks
+  } do
+    pool = pool(max_concurrency: 1, max_queue: 0, processing_timeout: 40)
     job = blocked(tasks, pool, :timed)
     assert_receive {:started, :timed, worker}
     ref = Process.monitor(worker)
     assert Task.await(job) == {:error, {:processing, :timeout}}
+    assert %{active: 1} = ProcessingPool.stats(pool)
+    refute_received {:DOWN, ^ref, :process, ^worker, _}
+    assert ProcessingPool.run(pool, fn -> flunk() end, []) == {:error, {:processing, :overloaded}}
+    send(worker, :continue)
     assert_receive {:DOWN, ^ref, :process, ^worker, _}
     assert ProcessingPool.run(pool, fn -> :ok end, []) == :ok
   end
 
-  test "owner death cancels active and queued work", %{tasks: tasks} do
+  test "owner death removes queued work and retains active work until it finishes", %{
+    tasks: tasks
+  } do
     pool = pool(max_concurrency: 1, max_queue: 1)
     active = blocked(tasks, pool, :active)
     assert_receive {:started, :active, worker}
@@ -99,9 +107,93 @@ defmodule ImagePipe.ProcessingPoolTest do
     Task.shutdown(waiting, :brutal_kill)
     assert_receive {:stop, %{result: :cancelled}}
     Task.shutdown(active, :brutal_kill)
+    assert %{active: 1, queued: 0} = ProcessingPool.stats(pool)
+    refute_received {:DOWN, ^worker_ref, :process, ^worker, _}
+    send(worker, :continue)
     assert_receive {:DOWN, ^worker_ref, :process, ^worker, _}
     assert ProcessingPool.run(pool, fn -> :ok end, []) == :ok
     refute_received {:started, :waiting, _}
+  end
+
+  test "queued work expires while timed-out computation retains its slot", %{tasks: tasks} do
+    pool = pool(max_concurrency: 1, max_queue: 1, processing_timeout: 40, queue_timeout: 80)
+    job = blocked(tasks, pool, :timed)
+    assert_receive {:started, :timed, worker}
+    assert Task.await(job) == {:error, {:processing, :timeout}}
+
+    assert ProcessingPool.run(pool, fn -> flunk() end, []) ==
+             {:error, {:processing, :queue_timeout}}
+
+    assert %{active: 1, queued: 0} = ProcessingPool.stats(pool)
+    ref = Process.monitor(worker)
+    send(worker, :continue)
+    assert_receive {:DOWN, ^ref, :process, ^worker, _}
+    assert ProcessingPool.run(pool, fn -> :ok end, []) == :ok
+  end
+
+  test "cancellation remains the outcome after the processing deadline", %{tasks: tasks} do
+    prefix = Process.get(:pool_telemetry)
+    owner = self()
+    handler = make_ref()
+
+    :telemetry.attach(
+      handler,
+      prefix ++ [:processing, :execute, :stop],
+      fn _event, _measurements, metadata, owner -> send(owner, {:execution_stop, metadata}) end,
+      owner
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    pool = pool(max_concurrency: 1, processing_timeout: 40)
+    job = blocked(tasks, pool, :cancelled)
+    assert_receive {:started, :cancelled, worker}
+    assert :ok = ProcessingPool.cancel(pool, worker)
+    refute_receive {:execution_stop, _}, 60
+    assert %{active: 1} = ProcessingPool.stats(pool)
+    send(worker, :continue)
+    assert Task.await(job) == {:error, {:processing, :cancelled}}
+    assert_receive {:execution_stop, %{result: :cancelled}}
+  end
+
+  test "a late exception releases the retained slot without reaching the timed-out caller", %{
+    tasks: tasks
+  } do
+    pool = pool(max_concurrency: 1, max_queue: 0, processing_timeout: 40)
+    test = self()
+
+    job =
+      Task.Supervisor.async_nolink(tasks, fn ->
+        result =
+          ProcessingPool.run(
+            pool,
+            fn ->
+              send(test, {:started, self()})
+
+              receive do
+                :continue -> raise "late failure"
+              end
+            end,
+            []
+          )
+
+        send(test, {:returned, result})
+
+        receive do
+          :check_mailbox -> send(test, {:mailbox, Process.info(self(), :messages)})
+        end
+      end)
+
+    assert_receive {:started, worker}
+    assert_receive {:returned, {:error, {:processing, :timeout}}}
+    ref = Process.monitor(worker)
+    assert %{active: 1} = ProcessingPool.stats(pool)
+    send(worker, :continue)
+    assert_receive {:DOWN, ^ref, :process, ^worker, _}
+    send(job.pid, :check_mailbox)
+    assert_receive {:mailbox, {:messages, []}}
+    Task.await(job)
+    assert ProcessingPool.run(pool, fn -> :ok end, []) == :ok
   end
 
   test "callback failures release capacity and retain their exception" do

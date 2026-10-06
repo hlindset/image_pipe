@@ -245,39 +245,6 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
       assert_receive {:DOWN, ^producer_ref, :process, ^producer, _reason}, 2_000
       assert_receive {:DOWN, ^coordinator_ref, :process, ^coordinator, _reason}, 2_000
     end
-
-    # The pool's processing deadline is the host-configurable bound on a
-    # stalled prepare. It force-stops the producer, so resources it holds must
-    # be owner-monitored rather than released by `after` blocks.
-    test "a processing deadline ends a stalled prepare and reclaims the session" do
-      pool =
-        start_supervised!({ImagePipe.ProcessingPool, max_concurrency: 1, processing_timeout: 100})
-
-      test_pid = self()
-
-      build_fun = fn _pump ->
-        send(test_pid, {:build_started, self()})
-
-        receive do
-          :never_sent -> :ok
-        end
-      end
-
-      task = Task.async(fn -> Delivery.stream(self(), build_fun, nil, processing_pool: pool) end)
-      assert_receive {:build_started, producer}
-      producer_ref = Process.monitor(producer)
-      {:links, links} = Process.info(producer, :links)
-      [coordinator] = links -- [pool]
-      coordinator_ref = Process.monitor(coordinator)
-
-      assert {:error, {:processing, :timeout}} = Task.await(task)
-
-      assert_receive {:DOWN, ^producer_ref, :process, ^producer,
-                      {:shutdown, {:processing, :timeout}}}
-
-      assert_receive {:DOWN, ^coordinator_ref, :process, ^coordinator, _reason}
-      assert %{active: 0, queued: 0} = ImagePipe.ProcessingPool.stats(pool)
-    end
   end
 
   describe "owner death" do

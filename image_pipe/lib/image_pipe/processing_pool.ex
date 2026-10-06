@@ -37,9 +37,10 @@ defmodule ImagePipe.ProcessingPool do
               type: :pos_integer,
               default: 30_000,
               doc: """
-              Longest time one image may take once it has a turn, in milliseconds, \
-              from reading the original to sending the last byte. A request that takes \
-              longer fails with `{:processing, :timeout}`.
+              Request deadline once processing starts, in milliseconds, from reading \
+              the original to sending the last byte. A request that takes longer \
+              fails with `{:processing, :timeout}`. Its worker keeps the slot until \
+              the current operation and cleanup finish.
               """
             ]
           )
@@ -56,6 +57,8 @@ defmodule ImagePipe.ProcessingPool do
 
   Every configuration that names the pool with `:processing_pool` shares its
   capacity, across mounts and `ImagePipe.run/4` calls on the same node.
+  Workers finishing after a timeout or cancellation keep their slots until
+  their operations and cleanup finish.
   [Limiting concurrent processing](processing-controls.md) covers choosing the
   limits and what counts toward them.
 
@@ -91,31 +94,46 @@ defmodule ImagePipe.ProcessingPool do
 
   def run(pool, fun, config) do
     owner = self()
+    notification = :erlang.alias()
     request = RequestContext.capture()
 
     task =
       Task.Supervisor.async_nolink(ImagePipe.ProcessingPool.Tasks, fn ->
         RequestContext.adopt(request)
-        task_result(pool, owner, config, fun)
+        task_result(pool, owner, notification, config, fun)
       end)
 
-    case Task.yield(task, :infinity) do
-      {:ok, {:returned, result}} ->
+    try do
+      await_result(task)
+    after
+      :erlang.unalias(notification)
+    end
+  end
+
+  defp await_result(%Task{ref: ref, pid: worker} = task) do
+    receive do
+      {^ref, {:returned, result}} ->
+        Task.ignore(task)
         result
 
-      {:ok, {:raised, kind, reason, stacktrace}} ->
+      {^ref, {:raised, kind, reason, stacktrace}} ->
+        Task.ignore(task)
         :erlang.raise(kind, reason, stacktrace)
 
-      {:exit, {:shutdown, {:processing, reason}}} ->
+      {:processing_timeout, ^worker} ->
+        Task.ignore(task)
+        {:error, {:processing, :timeout}}
+
+      {:DOWN, ^ref, :process, ^worker, {:shutdown, {:processing, reason}}} ->
         {:error, {:processing, reason}}
 
-      {:exit, _reason} ->
+      {:DOWN, ^ref, :process, ^worker, _reason} ->
         {:error, {:processing, :worker_down}}
     end
   end
 
-  defp task_result(pool, owner, config, fun) do
-    {:returned, within(pool, owner, config, fun)}
+  defp task_result(pool, owner, notification, config, fun) do
+    {:returned, within(pool, owner, notification, config, fun)}
   catch
     :exit, {:shutdown, {:processing, _} = reason} -> {:returned, {:error, reason}}
     kind, reason -> {:raised, kind, reason, __STACKTRACE__}
@@ -125,7 +143,16 @@ defmodule ImagePipe.ProcessingPool do
   def within(nil, _owner, _config, fun), do: fun.()
 
   def within(pool, owner, config, fun) do
-    request = {:acquire, owner, RequestContext.capture(), Telemetry.telemetry_opts(config), now()}
+    within(pool, owner, owner, config, fun)
+  end
+
+  defp within(pool, owner, notification, config, fun) do
+    # The pool monitors both lifetimes. Owner exit must not interrupt native work.
+    Process.unlink(owner)
+
+    request =
+      {:acquire, owner, notification, RequestContext.capture(), Telemetry.telemetry_opts(config),
+       now()}
 
     case call(pool, request) do
       {:ok, token, context} ->
@@ -137,7 +164,7 @@ defmodule ImagePipe.ProcessingPool do
 
           case call(pool, {:release, token, outcome(result)}) do
             :ok -> result
-            {:error, reason} -> exit({:shutdown, reason})
+            {:error, _reason} = error -> error
           end
         after
           if trace, do: Stack.pop()
@@ -148,6 +175,9 @@ defmodule ImagePipe.ProcessingPool do
     end
   end
 
+  @doc false
+  def cancel(pool, worker), do: call(pool, {:cancel, worker})
+
   defp invoke(pool, token, fun) do
     fun.()
   catch
@@ -157,8 +187,10 @@ defmodule ImagePipe.ProcessingPool do
   end
 
   @doc """
-  Returns the number of images being processed and of requests waiting, as
+  Returns the number of workers holding processing slots and of requests waiting, as
   `%{active: 3, queued: 0}`.
+
+  Active workers include those finishing after a timeout or cancellation.
   """
   def stats(pool), do: GenServer.call(pool, :stats)
 
@@ -181,7 +213,11 @@ defmodule ImagePipe.ProcessingPool do
     {:reply, %{active: state.active, queued: :queue.len(state.queue)}, state}
   end
 
-  def handle_call({:acquire, owner, context, config, requested_at}, {worker, _} = from, state) do
+  def handle_call(
+        {:acquire, owner, notification, context, config, requested_at},
+        {worker, _} = from,
+        state
+      ) do
     queued? = state.active >= state.limits.max_concurrency
     span = Events.start(config, :admission, context, counts(state))
 
@@ -200,6 +236,8 @@ defmodule ImagePipe.ProcessingPool do
 
         job = %{
           worker: worker,
+          owner: owner,
+          notification: notification,
           owner_ref: owner_ref,
           from: from,
           context: context,
@@ -220,8 +258,15 @@ defmodule ImagePipe.ProcessingPool do
     job = Map.fetch!(state.jobs, token)
     result = job.result || if(now() >= job.deadline, do: :timeout, else: result)
     state = complete(state, token, result)
-    reply = if result == :timeout, do: {:error, {:processing, :timeout}}, else: :ok
+    reply = if result in [:timeout, :cancelled], do: {:error, {:processing, result}}, else: :ok
     {:reply, reply, drain(state)}
+  end
+
+  def handle_call({:cancel, worker}, _from, state) do
+    case Enum.find(state.jobs, fn {_token, job} -> job.worker == worker end) do
+      {token, job} -> {:reply, :ok, cancel_job(state, token, job)}
+      nil -> {:reply, :ok, state}
+    end
   end
 
   @impl true
@@ -231,8 +276,8 @@ defmodule ImagePipe.ProcessingPool do
         GenServer.reply(job.from, {:error, {:processing, :queue_timeout}})
         {:noreply, state |> complete(token, :queue_timeout) |> drain()}
 
-      {:ok, %{phase: :active, deadline: ^deadline} = job} when phase == :active ->
-        Process.exit(job.worker, {:shutdown, {:processing, :timeout}})
+      {:ok, %{phase: :active, deadline: ^deadline, result: nil} = job} when phase == :active ->
+        send(job.notification, {:processing_timeout, job.worker})
         {:noreply, put_job(state, token, %{job | result: :timeout})}
 
       _expired_timer ->
@@ -244,8 +289,7 @@ defmodule ImagePipe.ProcessingPool do
     case Map.fetch(state.owners, ref) do
       {:ok, token} ->
         job = Map.fetch!(state.jobs, token)
-        Process.exit(job.worker, {:shutdown, {:processing, :cancelled}})
-        {:noreply, put_job(state, token, %{job | result: job.result || :cancelled})}
+        {:noreply, cancel_job(state, token, job)}
 
       :error ->
         case Map.fetch(state.jobs, ref) do
@@ -337,6 +381,15 @@ defmodule ImagePipe.ProcessingPool do
   end
 
   defp put_job(state, token, job), do: %{state | jobs: Map.put(state.jobs, token, job)}
+
+  defp cancel_job(state, token, %{phase: :queued} = job) do
+    GenServer.reply(job.from, {:error, {:processing, :cancelled}})
+    state |> complete(token, :cancelled) |> drain()
+  end
+
+  defp cancel_job(state, token, %{phase: :active} = job),
+    do: put_job(state, token, %{job | result: job.result || :cancelled})
+
   defp counts(state), do: %{active: state.active, queued: :queue.len(state.queue)}
   defp now, do: System.monotonic_time(:millisecond)
 

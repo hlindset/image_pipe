@@ -54,8 +54,8 @@ max_queue = 16
   beyond `max_concurrency` gets a `503` straight away.
 - `queue_timeout`, 10 seconds by default, is how long a request waits for a
   turn before it gets a `503`.
-- `processing_timeout`, 30 seconds by default, is how long one image may take
-  once it has a turn.
+- `processing_timeout`, 30 seconds by default, is the request deadline once
+  processing starts.
 
 `ImagePipe.ProcessingPool` lists the options, and the
 [server reference](../../image_pipe_server/docs/server-configuration.md#pool)
@@ -84,10 +84,11 @@ described in [failures during streaming](streaming-failures.md). ImagePipe
 also gives up on a response when producing its next chunk takes longer than
 60 seconds, whatever the deadline.
 
-ImagePipe stops a request at its deadline, but libvips may finish the
-operation it is running. The pool's limits therefore don't cap CPU or memory
-exactly. Keep the size limits on originals, such as `max_input_pixels`, as
-well.
+After a timeout or client disconnect, the worker keeps its processing slot
+until its current operation and resource cleanup finish. A libvips operation
+already running may continue after the request ends. Waiting requests enter
+only when a slot is released, and a cancelled request in the queue leaves
+immediately. Keep the [size limits](deployment.md) as well.
 
 ## Monitoring the pool
 
@@ -95,6 +96,8 @@ The pool emits [`[:processing, :admission]`](telemetry-events.md#processing-admi
 for each wait for a turn and
 [`[:processing, :execute]`](telemetry-events.md#processing-execute) for each
 processed image. In Elixir, `ImagePipe.ProcessingPool.stats/1` returns how many
-images are being processed and how many requests are waiting, and
-`ImagePipe.ProcessingPool` lists the errors `ImagePipe.run/4` returns for each
+workers still hold slots, including workers finishing after a timeout, and
+how many requests are waiting. The processing execution span ends when the
+worker finishes. `ImagePipe.ProcessingPool` lists the errors
+`ImagePipe.run/4` returns for each
 case that gives a `503` over HTTP.
