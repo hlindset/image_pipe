@@ -172,7 +172,7 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
 
         _ ->
           send(leader.pid, action)
-          Task.await(leader)
+          Task.await(leader, @generation_timeout)
       end
 
       assert_receive {:closed, ["blocked"]}, @generation_timeout
@@ -183,7 +183,7 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
         assert_receive {:closed, ["blocked"]}, @generation_timeout
       end
 
-      assert Task.await(follower).status == 200
+      assert Task.await(follower, @generation_timeout).status == 200
       refute_received {:fetch, ["blocked"], _}
       {CacheProbe, cache_options} = Keyword.fetch!(context.options, :cache)
       :ets.delete_all_objects(Keyword.fetch!(cache_options, :store))
