@@ -267,16 +267,7 @@ defmodule ImagePipe.MixProject do
         []
       end
 
-    # `testcontainers` provisions Docker for the imgproxy reference bake
-    # (`IMGPROXY_REFERENCE`).
-    testcontainers_deps =
-      if System.get_env("IMGPROXY_REFERENCE") in ["1", "true"] do
-        [{:testcontainers, "~> 2.4", only: :test}]
-      else
-        []
-      end
-
-    base ++ ml_test_deps ++ testcontainers_deps
+    base ++ ml_test_deps
   end
 
   # Development and CI use the sibling project. Set IMAGE_PIPE_PUBLISH=1 when
