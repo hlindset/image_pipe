@@ -777,7 +777,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   end
 
   defp decode_metadata(binary) do
-    metadata = :erlang.binary_to_term(binary, [:safe])
+    metadata = safe_term(binary)
 
     case validate_metadata(metadata) do
       {:ok, metadata} -> {:ok, metadata}
@@ -785,6 +785,21 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     end
   rescue
     ArgumentError -> handle_invalid_metadata(:decode_failed)
+  end
+
+  # Stored metadata names atoms from ImagePipe's own modules, the URL
+  # builder's, and libvips enums. A VM that loads code lazily (mix run, IEx)
+  # may not have created them yet when it reads entries an earlier VM wrote,
+  # so a refused decode loads those modules and tries once more.
+  defp safe_term(binary) do
+    :erlang.binary_to_term(binary, [:safe])
+  rescue
+    ArgumentError ->
+      [:image_pipe, :image_pipe_url, :vix]
+      |> Enum.flat_map(&Application.spec(&1, :modules))
+      |> :code.ensure_modules_loaded()
+
+      :erlang.binary_to_term(binary, [:safe])
   end
 
   defp validate_metadata(
