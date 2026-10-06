@@ -50,7 +50,7 @@ defmodule ImagePipe.Source.Download do
 
   defp read(io, offset, count) do
     case :file.pread(io, offset, count) do
-      {:ok, bytes} -> {[bytes], {io, offset + byte_size(bytes)}}
+      {:ok, bytes} when byte_size(bytes) == count -> {[bytes], {io, offset + count}}
       _error -> raise ImagePipe.Source.StreamError, reason: :invalid_body
     end
   end
