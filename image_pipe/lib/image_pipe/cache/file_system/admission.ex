@@ -3,6 +3,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   use GenServer
 
+  alias ImagePipe.Cache.FileSystem.Doorkeeper
   alias ImagePipe.Cache.FileSystem.Policy
   alias ImagePipe.Cache.FileSystem.Sketch
   alias ImagePipe.Cache.FileSystem.Store, as: FileSystem
@@ -120,8 +121,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
         Sketch.new(depth: sketch_depth, width: sketch_width, sample_size: aging_sample_size),
       boot_cms:
         Sketch.new(depth: sketch_depth, width: sketch_width, sample_size: aging_sample_size),
-      doorkeeper:
-        Talan.BloomFilter.new(doorkeeper_cardinality, false_positive_probability: doorkeeper_fpr),
+      doorkeeper: Doorkeeper.new(doorkeeper_cardinality, doorkeeper_fpr),
       flush_interval_ms: Keyword.get(opts, :flush_interval_ms, 30_000),
       cleanup_interval_ms: Keyword.get(opts, :cleanup_interval_ms, 3_600_000),
       reconcile_interval_ms: Keyword.get(opts, :reconcile_interval_ms, 60_000),
@@ -893,10 +893,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       # fresh one. The old :atomics ref becomes unreferenced and is
       # garbage-collected. This is cheap (one allocation per aging cycle,
       # which is itself infrequent).
-      fresh_doorkeeper =
-        Talan.BloomFilter.new(state.doorkeeper_cardinality,
-          false_positive_probability: state.doorkeeper_fpr
-        )
+      fresh_doorkeeper = Doorkeeper.new(state.doorkeeper_cardinality, state.doorkeeper_fpr)
 
       %{
         state

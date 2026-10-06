@@ -1,25 +1,27 @@
 defmodule ImagePipe.Cache.FileSystem.DoorkeeperUsageTest do
   @moduledoc """
-  Smoke tests for our usage of `Talan.BloomFilter`. We don't re-test
-  talan's correctness — we verify the specific API slice we depend on
-  behaves as expected for our usage pattern.
+  Smoke tests for our usage of `Talan.BloomFilter`, built the way Admission
+  builds it. We don't re-test talan's correctness — we verify the specific
+  API slice we depend on behaves as expected for our usage pattern.
   """
   use ExUnit.Case, async: true
 
+  alias ImagePipe.Cache.FileSystem.Doorkeeper
+
   test "new + put + member? round-trip" do
-    bf = Talan.BloomFilter.new(8192, false_positive_probability: 0.01)
+    bf = Doorkeeper.new(8192, 0.01)
     :ok = Talan.BloomFilter.put(bf, "key-1")
     assert Talan.BloomFilter.member?(bf, "key-1")
     refute Talan.BloomFilter.member?(bf, "key-not-present-yet")
   end
 
   test "reset via discard-and-allocate produces an empty filter" do
-    bf = Talan.BloomFilter.new(8192, false_positive_probability: 0.01)
+    bf = Doorkeeper.new(8192, 0.01)
     :ok = Talan.BloomFilter.put(bf, "key-1")
     assert Talan.BloomFilter.member?(bf, "key-1")
 
     # Reset = create a new filter; old atomics ref becomes garbage.
-    fresh = Talan.BloomFilter.new(8192, false_positive_probability: 0.01)
+    fresh = Doorkeeper.new(8192, 0.01)
     refute Talan.BloomFilter.member?(fresh, "key-1")
   end
 
@@ -27,10 +29,22 @@ defmodule ImagePipe.Cache.FileSystem.DoorkeeperUsageTest do
     # This documents (and guards) our reliance on the in-place semantics:
     # we hold one Talan.BloomFilter struct in Admission state and rely on
     # put mutating the underlying atomics ref.
-    bf = Talan.BloomFilter.new(8192, false_positive_probability: 0.01)
+    bf = Doorkeeper.new(8192, 0.01)
     :ok = Talan.BloomFilter.put(bf, "alpha")
     :ok = Talan.BloomFilter.put(bf, "beta")
     assert Talan.BloomFilter.member?(bf, "alpha")
     assert Talan.BloomFilter.member?(bf, "beta")
+  end
+
+  test "keeps false positives near the configured rate for cache keys" do
+    bf = Doorkeeper.new(10_000, 0.01)
+    Enum.each(cache_keys("in", 10_000), &Talan.BloomFilter.put(bf, &1))
+
+    false_positives = Enum.count(cache_keys("out", 10_000), &Talan.BloomFilter.member?(bf, &1))
+    assert false_positives < 200
+  end
+
+  defp cache_keys(tag, count) do
+    for i <- 1..count, do: Base.encode16(:crypto.hash(:sha256, "#{tag}#{i}"), case: :lower)
   end
 end
