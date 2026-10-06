@@ -51,6 +51,11 @@ Server images don't change. To ship the new libraries in images, set
 
 ## Release the server
 
+When a push to `main` touches the server or library code, the Server CI job
+"Releasable without a library release" compiles and tests the server against
+`@image_pipe_version` from Hex. If it shows a "Not releasable" warning,
+release the libraries first.
+
 1. Set `@version` in `image_pipe_server/mix.exs`. To ship newer libraries,
    also set `@image_pipe_version` to their version.
    [Update the server changelog](#update-the-changelogs) and merge to `main`.
