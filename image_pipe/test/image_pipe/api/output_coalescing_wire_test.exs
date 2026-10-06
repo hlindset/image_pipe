@@ -10,7 +10,11 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
   alias ImagePipe.Test.ProcessingSource
   alias ImagePipe.Test.RaisingOpenCache
 
-  @image File.read!("priv/static/images/beach.jpg")
+  # These tests coordinate who generates an output, not what it looks like, so
+  # a small image keeps each generation short on a busy CI runner.
+  @image Image.new!(64, 48, color: :red) |> Image.write!(:memory, suffix: ".jpg")
+  # A promoted waiter's source closes only after it generates the whole output.
+  @generation_timeout 10_000
 
   setup %{test: test} do
     tasks = start_supervised!({Task.Supervisor, []})
@@ -168,18 +172,18 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
 
         _ ->
           send(leader.pid, action)
-          Task.await(leader)
+          Task.await(leader, @generation_timeout)
       end
 
-      assert_receive {:closed, ["blocked"]}
+      assert_receive {:closed, ["blocked"]}, @generation_timeout
 
       unless action == :complete do
-        assert_receive {:fetch, ["blocked"], replacement}
+        assert_receive {:fetch, ["blocked"], replacement}, @generation_timeout
         send(replacement, :continue)
-        assert_receive {:closed, ["blocked"]}
+        assert_receive {:closed, ["blocked"]}, @generation_timeout
       end
 
-      assert Task.await(follower).status == 200
+      assert Task.await(follower, @generation_timeout).status == 200
       refute_received {:fetch, ["blocked"], _}
       {CacheProbe, cache_options} = Keyword.fetch!(context.options, :cache)
       :ets.delete_all_objects(Keyword.fetch!(cache_options, :store))
