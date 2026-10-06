@@ -258,6 +258,10 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
             {:hit, entry, meta}
 
+          :miss ->
+            maybe_cast_gone(opts, key.hash)
+            :miss
+
           other ->
             other
         end
@@ -270,6 +274,14 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   defp maybe_cast_hit(opts, descriptor) do
     case lookup_admission(opts) do
       {:ok, pid} -> Admission.hit(pid, descriptor)
+      _ -> :ok
+    end
+  end
+
+  # Another node sharing the root may have deleted an entry this node counts.
+  defp maybe_cast_gone(opts, key_hash) do
+    case lookup_admission(opts) do
+      {:ok, pid} -> Admission.gone(pid, key_hash)
       _ -> :ok
     end
   end
@@ -656,15 +668,23 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   # Like `get/2` for a reader that needs only the metadata: the body stays
   # closed, and the read still counts as a hit for admission.
   def metadata_hit(%Key{} = key, opts) do
-    with {:ok, metadata} <- metadata(key, opts) do
-      maybe_cast_hit(opts, %{
-        key_hash: key.hash,
-        size_bytes: metadata.body_byte_size,
-        body_sha256: metadata.body_sha256,
-        cost_us: Map.get(metadata, :cost_us, 0)
-      })
+    case metadata(key, opts) do
+      {:ok, metadata} ->
+        maybe_cast_hit(opts, %{
+          key_hash: key.hash,
+          size_bytes: metadata.body_byte_size,
+          body_sha256: metadata.body_sha256,
+          cost_us: Map.get(metadata, :cost_us, 0)
+        })
 
-      {:ok, metadata}
+        {:ok, metadata}
+
+      :miss ->
+        maybe_cast_gone(opts, key.hash)
+        :miss
+
+      error ->
+        error
     end
   end
 
@@ -977,7 +997,51 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     end
 
     if victim.delete_meta? do
-      rm_tolerant(victim_paths.meta_path)
+      delete_victim_meta(victim, victim_paths)
+    end
+  end
+
+  # Another node sharing the root may have replaced the entry since this node
+  # tracked it. The metadata is taken with a rename before it's read, so only
+  # metadata naming the victim's body is deleted. Any other metadata is put
+  # back, unless something newer has been written there in the meantime.
+  defp delete_victim_meta(victim, paths) do
+    taken = temp_path(paths)
+
+    case :file.rename(paths.meta_path, taken) do
+      :ok ->
+        if names_body?(taken, victim.body_sha256),
+          do: rm_tolerant(taken),
+          else: restore_meta(taken, paths.meta_path)
+
+      {:error, :enoent} ->
+        :ok
+
+      {:error, reason} ->
+        log_delete_failure(reason)
+    end
+  end
+
+  defp names_body?(meta_path, body_sha256) do
+    case read_cache_file(meta_path, :metadata) do
+      {:ok, binary} -> match?({:ok, %{body_sha256: ^body_sha256}}, decode_metadata(binary))
+      _missing_or_unreadable -> false
+    end
+  end
+
+  defp restore_meta(taken, meta_path) do
+    case :file.make_link(taken, meta_path) do
+      :ok ->
+        rm_tolerant(taken)
+
+      {:error, :eexist} ->
+        rm_tolerant(taken)
+
+      # Without hard links there's no rename that refuses to replace a file,
+      # so this checks first. Metadata written between the check and the
+      # rename is replaced.
+      {:error, _no_links} ->
+        if File.exists?(meta_path), do: rm_tolerant(taken), else: File.rename(taken, meta_path)
     end
   end
 
@@ -990,12 +1054,16 @@ defmodule ImagePipe.Cache.FileSystem.Store do
         :ok
 
       {:error, reason} ->
-        require Logger
-        # Path omitted: victim body/meta filenames embed the cache key
-        # hash (a cache-adapter internal). Log the reason only.
-        Logger.warning("cache: victim delete failed: reason=#{inspect(reason)}")
-        :ok
+        log_delete_failure(reason)
     end
+  end
+
+  # Path omitted: victim body/meta filenames embed the cache key hash (a
+  # cache-adapter internal). Log the reason only.
+  defp log_delete_failure(reason) do
+    require Logger
+    Logger.warning("cache: victim delete failed: reason=#{inspect(reason)}")
+    :ok
   end
 
   defp partitions(hash) do

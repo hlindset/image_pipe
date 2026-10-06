@@ -394,30 +394,170 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert located.body_sha256 == runtime_descriptor.body_sha256
   end
 
+  # Puts Admission back in the state it keeps while a startup scan runs, so the
+  # test can change entries and then apply the snapshot the scan would hold.
+  defp during_scan(_ctx, opts, fun) do
+    pid = start_supervised!({Admission, opts})
+    Admission.await_scan(pid)
+
+    :sys.replace_state(pid, fn state ->
+      %{state | scan_changes: :ets.new(:scan_changes, [:set, :private])}
+    end)
+
+    fun.(pid)
+    pid
+  end
+
+  defp snapshot(root, hash) do
+    {:ok, paths} = FileSystem.paths_from_hash(hash, root: root)
+    {:ok, descriptor, mtime} = FileSystem.read_descriptor(paths.meta_path)
+    {paths, descriptor, Map.put(descriptor, :mtime, mtime)}
+  end
+
+  defp apply_snapshot(pid, :probationary, entry),
+    do: GenServer.call(pid, {:apply_scan_batch, [entry]})
+
+  defp apply_snapshot(pid, :protected, entry),
+    do:
+      GenServer.call(pid, {:apply_protected_batch, [entry.key_hash], %{entry.key_hash => entry}})
+
+  defp tracked_bytes(pid) do
+    state = :sys.get_state(pid)
+    state.probationary_bytes + state.protected_bytes + state.window_bytes
+  end
+
   for queue <- [:probationary, :protected] do
-    test "stale #{queue} scan snapshot does not restore deleted accounting", ctx do
+    test "a #{queue} scan snapshot of an entry deleted mid-scan is skipped", ctx do
+      hash = hex_hash("d")
+      opts = base_opts(registry: ctx.registry, tmp_dir: ctx.tmp_dir)
+
+      pid =
+        during_scan(ctx, opts, fn pid ->
+          put_disk_entry(ctx.tmp_dir, hash, "old body")
+          {paths, _descriptor, entry} = snapshot(ctx.tmp_dir, hash)
+          assert Admission.delete(pid, paths) == :ok
+
+          assert :ok = apply_snapshot(pid, unquote(queue), entry)
+          assert tracked_bytes(pid) == 0
+        end)
+
+      assert tracked_bytes(pid) == 0
+      assert FileSystem.get(%Key{hash: hash, data: []}, root: ctx.tmp_dir) == :miss
+    end
+  end
+
+  test "a scan snapshot of an entry evicted mid-scan is skipped", ctx do
+    hash = hex_hash("e")
+    opts = base_opts(registry: ctx.registry, tmp_dir: ctx.tmp_dir, max_size_bytes: 50)
+
+    during_scan(ctx, opts, fn pid ->
+      put_disk_entry(ctx.tmp_dir, hash, String.duplicate("x", 100))
+      {_paths, descriptor, entry} = snapshot(ctx.tmp_dir, hash)
+
+      # A hit tracks the entry before the scan reaches it, and the over-cap
+      # entry is then evicted.
+      Admission.hit(pid, descriptor)
+      assert tracked_bytes(pid) == 100
+      assert :ok = GenServer.call(pid, :reconcile_to_cap)
+      assert tracked_bytes(pid) == 0
+
+      assert :ok = apply_snapshot(pid, :probationary, entry)
+      assert tracked_bytes(pid) == 0
+    end)
+  end
+
+  test "evicting an entry another node replaced leaves the replacement in place", ctx do
+    hash = hex_hash("f")
+    key = %Key{hash: hash, data: []}
+    opts = base_opts(registry: ctx.registry, tmp_dir: ctx.tmp_dir, max_size_bytes: 50)
+    pid = start_supervised!({Admission, opts})
+    Admission.await_scan(pid)
+
+    put_disk_entry(ctx.tmp_dir, hash, String.duplicate("x", 100))
+    {_paths, descriptor, _entry} = snapshot(ctx.tmp_dir, hash)
+    Admission.hit(pid, descriptor)
+    assert tracked_bytes(pid) == 100
+
+    # Writing without this node's Admission is what another node sharing the
+    # root does.
+    put_disk_entry(ctx.tmp_dir, hash, String.duplicate("y", 200))
+    assert :ok = GenServer.call(pid, :reconcile_to_cap)
+    assert tracked_bytes(pid) == 0
+
+    assert {:ok, %{body_byte_size: 200}} = Store.metadata(key, root: ctx.tmp_dir)
+    assert Store.verify(key, root: ctx.tmp_dir) == :ok
+  end
+
+  describe "entries another node changes" do
+    setup ctx do
       opts = base_opts(registry: ctx.registry, tmp_dir: ctx.tmp_dir)
       pid = start_supervised!({Admission, opts})
       Admission.await_scan(pid)
-      hash = hex_hash("d")
-      put_disk_entry(ctx.tmp_dir, hash, "old body")
-      {:ok, paths} = FileSystem.paths_from_hash(hash, root: ctx.tmp_dir)
-      {:ok, descriptor, mtime} = FileSystem.read_descriptor(paths.meta_path)
-      entry = Map.put(descriptor, :mtime, mtime)
-      cache_key = %Key{hash: hash, data: []}
-      :ok = Store.delete(cache_key, root: ctx.tmp_dir)
 
-      message =
-        case unquote(queue) do
-          :probationary -> {:apply_scan_batch, [entry]}
-          :protected -> {:apply_protected_batch, [hash], %{hash => entry}}
-        end
+      hash = hex_hash("c")
+      put_disk_entry(ctx.tmp_dir, hash, String.duplicate("x", 100))
+      {_paths, descriptor, _entry} = snapshot(ctx.tmp_dir, hash)
+      Admission.hit(pid, descriptor)
+      assert tracked_bytes(pid) == 100
 
-      assert :ok = GenServer.call(pid, message)
-      state = :sys.get_state(pid)
-      assert state.probationary_bytes + state.protected_bytes + state.window_bytes == 0
-      assert FileSystem.get(cache_key, root: ctx.tmp_dir) == :miss
+      # Reads with the options a bounded pool uses, so they reach Admission.
+      read_opts = Keyword.take(opts, [:root, :node_id, :max_size_bytes])
+      %{pid: pid, key: %Key{hash: hash, data: []}, read_opts: read_opts}
     end
+
+    test "a read that misses an entry another node deleted stops counting it", ctx do
+      # Writing without this node's Admission is what another node does.
+      :ok = Store.delete(ctx.key, root: ctx.tmp_dir)
+
+      assert Store.get(ctx.key, ctx.read_opts) == :miss
+      recheck_gone(ctx)
+      assert tracked_bytes(ctx.pid) == 0
+    end
+
+    test "a metadata read that misses an entry another node deleted stops counting it", ctx do
+      :ok = Store.delete(ctx.key, root: ctx.tmp_dir)
+
+      assert Store.metadata_hit(ctx.key, ctx.read_opts) == :miss
+      recheck_gone(ctx)
+      assert tracked_bytes(ctx.pid) == 0
+    end
+
+    test "a hit on an entry another node replaced counts its new size", ctx do
+      put_disk_entry(ctx.tmp_dir, ctx.key.hash, String.duplicate("y", 200))
+
+      assert {:hit, file, _metadata} = Store.get(ctx.key, ctx.read_opts)
+      ImagePipe.Cache.File.close(file)
+      assert tracked_bytes(ctx.pid) == 200
+    end
+
+    test "a miss while another node checks the entry keeps counting it", ctx do
+      # An evicting node renames the metadata aside for a moment, and puts it
+      # back when it describes another body.
+      {:ok, paths} = FileSystem.paths_from_hash(ctx.key.hash, root: ctx.tmp_dir)
+      taken = paths.meta_path <> ".taken"
+      File.rename!(paths.meta_path, taken)
+      assert Store.get(ctx.key, ctx.read_opts) == :miss
+      # Admission has handled the miss before the metadata is back.
+      _ = :sys.get_state(ctx.pid)
+      File.rename!(taken, paths.meta_path)
+
+      recheck_gone(ctx)
+      assert tracked_bytes(ctx.pid) == 100
+    end
+
+    test "a late miss for an entry that is back on disk keeps counting it", ctx do
+      # A read can miss just before this node commits the key again, and its
+      # report then arrives after the commit.
+      Admission.gone(ctx.pid, ctx.key.hash)
+      recheck_gone(ctx)
+      assert tracked_bytes(ctx.pid) == 100
+    end
+  end
+
+  # Delivers the delayed recheck a miss schedules, instead of waiting for it.
+  defp recheck_gone(ctx) do
+    _ = :sys.get_state(ctx.pid)
+    send(ctx.pid, {:recheck_gone, ctx.key.hash})
   end
 
   test "protected entries are restored in LRU-to-MRU order from persisted state", %{
