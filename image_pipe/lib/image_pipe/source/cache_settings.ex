@@ -32,7 +32,8 @@ defmodule ImagePipe.Source.CacheSettings do
       default: :auto,
       doc: """
       `:disabled` keeps this source's originals and processed images out of \
-      the caches. `:auto` and `:enabled` cache what the source's storage \
+      the caches, including images that use this source for a watermark. \
+      `:auto` and `:enabled` cache what the source's storage \
       policy allows.
       """
     ],

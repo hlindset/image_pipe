@@ -54,6 +54,9 @@ request, and a crop that fell back to a default because
 response larger than the cache's `max_body_bytes` is delivered but not
 stored.
 
+A watermarked response is stored or reused only when the original and every
+watermark source permit storage and have internal caching enabled.
+
 A stored response keeps its body, content type, and two response headers:
 `vary` and `cache-control`. Header names are stored in lower case.
 
