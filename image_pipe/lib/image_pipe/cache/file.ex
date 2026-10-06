@@ -19,7 +19,7 @@ defmodule ImagePipe.Cache.File do
   end
 
   defp check_size(file) do
-    case :file.read_file_info(file.io) do
+    case :file.read_file_info(file.io, time: :posix) do
       {:ok, info} when elem(info, 1) == file.size ->
         {:ok, file}
 

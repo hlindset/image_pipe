@@ -735,7 +735,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   end
 
   defp read_cache_file(path, kind) do
-    case File.read(path) do
+    case :file.read_file(path, [:raw]) do
       {:ok, binary} -> {:ok, binary}
       {:error, :enoent} -> :miss
       {:error, reason} -> {:error, read_error(kind, reason)}
@@ -943,7 +943,9 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   def read_descriptor(meta_path) do
     with {:ok, meta_binary} <- read_cache_file(meta_path, :metadata),
          {:ok, metadata} <- decode_metadata(meta_binary),
-         {:ok, %File.Stat{mtime: mtime}} <- File.stat(meta_path, time: :posix) do
+         {:ok, info} <- :file.read_file_info(meta_path, [:raw, time: :posix]) do
+      %File.Stat{mtime: mtime} = File.Stat.from_record(info)
+
       {:ok,
        %{
          key_hash: Path.basename(meta_path, ".meta"),
