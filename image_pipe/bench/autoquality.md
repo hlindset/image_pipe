@@ -30,6 +30,7 @@ mise exec -- mix autoquality.bench --part n --corpus DIR --corpus-cap 6  # targe
 mise exec -- mix autoquality.bench --part o --corpus DIR --corpus-cap 6  # target-only search vs today (~5 min)
 mise exec -- mix autoquality.bench --part p --corpus DIR --corpus-cap 6  # subsampling auto vs off (~12 min)
 mise exec -- mix autoquality.bench --part q --corpus DIR --corpus-cap 6  # low-effort probes (~8 min)
+mise exec -- mix autoquality.bench --part r --corpus DIR --corpus-cap 6  # crop offset by tile coverage (slow: ~5 min per image)
 mise exec -- mix autoquality.bench --part all # A + B + C + D + E + F + G + … + M
 mise exec -- mix autoquality.bench --mps 1,4  # custom Part A megapixels
 mise exec -- mix autoquality.bench --proxy-factors 2,4 --proxy-mp 25  # Part C knobs
@@ -1193,6 +1194,48 @@ Reading:
   delivery while the search time is paid once. Cheaper scoring would be the
   lever, and Parts C and D found no cheaper metric that tracks SSIMULACRA2.
 
+### Part R — crop offset and tile sampling (image_plug-e4a.6.10, image_plug-e4a.6.16)
+
+Part K set the crop offset to 2.4 under the old bisection search with a
+[70, 80] bracket, where a larger offset cost almost no bytes. The target-only
+search (Part O) climbs to whatever quality the offset asks for, so Part R
+re-measures it. Each image is downscaled to 2, 4, 6, 8, 10 and 12 MP (and kept
+at native size), then searched with the production settings for
+`format=<f>/autoquality` (target 75): once scoring the full frame, and once
+per crop offset, scoring the shipped pick against the full frame. Held-out
+images (each source after the first 6, plus all of `large` and `grafana_sc`),
+577 image × format cases, 250 of them above the 6 MP crossover.
+
+The first run exposed a sampling bug. The 16 tiles were picked by stepping
+through the row-major tile list, which aliases onto one column when the step
+is close to the row width. On tall documentation pages at 12 MP, 15 of 16
+tiles landed in the blank right margin, and pages shipped at 43–68 against a
+target of 75 at every offset. `CropScore.sample_tiles/4` now picks the tiles
+with a Fibonacci lattice, which covers every row and column of the tile grid.
+The numbers below are with the lattice.
+
+"Misses" counts cases the full-frame search hits (≥ 74.5) and the crop pick
+misses. Bytes are the geomean against the full-frame pick. Above the crossover
+(250 cases):
+
+| offset | misses | misses below 73.5 | bytes JPEG / WebP / AVIF |
+|---|---:|---:|---|
+| 0.0 | 7 | 2 | ×1.096 / ×1.079 / ×1.082 |
+| 0.5 | 4 | 2 | ×1.099 / ×1.101 / ×1.097 |
+| **1.0** | 3 | 0 | ×1.118 / ×1.121 / ×1.107 |
+| 1.5 | 2 | 0 | ×1.153 / ×1.148 / ×1.128 |
+| 2.4 | 2 | 0 | ×1.205 / ×1.192 / ×1.164 |
+
+Reading:
+
+- **Offset 1.0 is the operating point.** It ships 6–8% fewer bytes than 2.4,
+  and its extra miss is under a point below the cut-off. Shipped:
+  `@crop_offset 1.0`.
+- **The tile p10 is pessimistic.** Even at offset 0 the crop pick lands about
+  2 points above target. Crop scoring stays a large-image tool.
+- **The crossover stays at 6 MP.** Below it the crop pick still ships 11–13%
+  more bytes than full-frame scoring at offset 1.0.
+
 ## Findings & recommendations
 
 ### 1. Ship a non-zero `autoquality_max_resolution` default
@@ -1307,10 +1350,11 @@ on big images" into "autoquality on, affordably."
 
 #### Shipped calibration (#354)
 
-> **Superseded above the crossover by #369 (Part K).** This section describes the
+> **Superseded above the crossover by #369 (Part K), then by Part R.** This section describes the
 > crop **+ full-frame confirm/bump** path #354 shipped. #369 *removed* the confirm
 > above the crossover: production now ships the crop objective winner directly with a
-> conservative offset (`@crop_confirm_skipped_offset = 2.4`, the Part-K residual p90)
+> conservative offset (`@crop_confirm_skipped_offset = 2.4`, the Part-K residual p90;
+> Part R lowered it to 1.0)
 > and **no confirm**. The `@crop_macro_offset = 0.22` calibration below and the
 > confirm/bump bullets are retained as the historical record and now live only in the
 > `mix autoquality.bench` crop+confirm baseline; the live correction lever is Part K's

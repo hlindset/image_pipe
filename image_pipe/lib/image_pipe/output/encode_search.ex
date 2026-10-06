@@ -43,9 +43,8 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   # Above the crop crossover the search ships a crop estimate minus this offset,
   # biasing it down so the search climbs to a quality whose full frame reaches
-  # the target. 2.4 covers the p90 crop residual of every format and content
-  # class (bench Parts K and M).
-  @crop_offset 2.4
+  # the target (bench Part R).
+  @crop_offset 1.0
   @max_bytes_alone_floor 10
   @max_bytes_alone_base 90
 

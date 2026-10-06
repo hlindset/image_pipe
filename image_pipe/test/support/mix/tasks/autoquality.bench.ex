@@ -30,6 +30,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
       mise exec -- mix autoquality.bench --part o --corpus DIR --corpus-cap 6  # target-only search vs today
       mise exec -- mix autoquality.bench --part p --corpus DIR --corpus-cap 6  # subsampling auto vs off
       mise exec -- mix autoquality.bench --part q --corpus DIR --corpus-cap 6  # low-effort probes
+      mise exec -- mix autoquality.bench --part r --corpus DIR --corpus-cap 6  # crop offset by tile coverage
+      mise exec -- mix autoquality.bench --part r --corpus DIR --sizes 6,8,10 --offsets 0.5,1,2.4
       mise exec -- mix autoquality.bench --part all      # A + B + C + D + E + F + G + H + I + J + K
       mise exec -- mix autoquality.bench --mps 1,4,9     # custom Part A megapixels
       mise exec -- mix autoquality.bench --proxy-factors 2,4 --proxy-mp 25  # Part C knobs
@@ -367,17 +369,33 @@ defmodule Mix.Tasks.Autoquality.Bench do
   simulates searching the probe curve and shipping the final effort at the
   found quality plus 0–3: hit rate and bytes against the final-effort oracle.
   It also reports median encode and score times, which decide the saving.
+
+  ## Part R — crop offset by tile coverage
+
+  Downscales each image to `--sizes` (default 2, 4, 6, 8, 10, 12 MP) and keeps
+  the native frame, then runs the production search for `format=<f>/autoquality`
+  (`EncodeSearch.search/3`, settings resolved through the URL parser) once with
+  the full-frame score and once per crop offset (`--offsets`, default
+  0, 0.5, 1, 1.5, 2.4), at every size regardless of the crossover. Each pick is
+  scored against the full frame. Per format and tile-coverage bucket (the share
+  of the frame the 16 tiles score) it reports the delivered score above target,
+  misses against the full-frame search, bytes, and search cost (summed per-probe
+  encode, decode, and metric times). Not part of `--part all`: it is slow.
   """
   use Mix.Task
   use Boundary, top_level?: true, check: [out: false]
 
+  alias ImagePipe.API.Parser
   alias ImagePipe.Output.ContentClassifier
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.EncodeSearch
   alias ImagePipe.Output.Metric.Ssimulacra2, as: Ssim2Metric
+  alias ImagePipe.Output.Policy
+  alias ImagePipe.Output.RequestPolicy
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
   alias ImagePipe.Output.Ssim2Metric.CropScore
+  alias ImagePipe.Plug.Config, as: PlugConfig
   alias ImagePipe.Processing.Config, as: ProcessingConfig
   alias ImagePipe.Test.Autoquality.TileSelection
   alias ImagePipe.Test.SourceInventory
@@ -431,7 +449,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
           tile: :string,
           corpus: :string,
           corpus_cap: :integer,
-          downsample: :integer
+          downsample: :integer,
+          sizes: :string
         ]
       )
 
@@ -444,6 +463,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
     offsets = parse_offsets(Keyword.get(opts, :offsets))
     ks = parse_ks(Keyword.get(opts, :k))
     tiles = parse_tiles(Keyword.get(opts, :tile))
+    sizes = opts |> Keyword.get(:sizes) |> parse_sizes()
+    raw_offsets = Keyword.get(opts, :offsets)
     proxy_mp = Keyword.get(opts, :proxy_mp, 16)
 
     {:ok, _} = Application.ensure_all_started(:image_pipe)
@@ -458,6 +479,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
       offsets: offsets,
       ks: ks,
       tiles: tiles,
+      sizes: sizes,
+      r_offsets: raw_offsets && offsets,
       corpus_dir: Keyword.get(opts, :corpus),
       corpus_cap: Keyword.get(opts, :corpus_cap, 24),
       downsample: Keyword.get(opts, :downsample, @m_downsample),
@@ -498,7 +521,11 @@ defmodule Mix.Tasks.Autoquality.Bench do
       n: run.(["n", "all"], fn -> corpus.(&run_part_n/4) end),
       o: run.(["o", "all"], fn -> corpus.(&run_part_o/4) end),
       p: run.(["p", "all"], fn -> corpus.(&run_part_p/4) end),
-      q: run.(["q", "all"], fn -> corpus.(&run_part_q/4) end)
+      q: run.(["q", "all"], fn -> corpus.(&run_part_q/4) end),
+      r:
+        run.(["r"], fn ->
+          corpus.(&run_part_r(&1, &2, &3, &4, ctx.r_offsets, ctx.sizes))
+        end)
     }
   end
 
@@ -523,7 +550,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
       {parts.n, &write_part_n_csv/1},
       {parts.o, &write_part_o_csv/1},
       {parts.p, &write_part_p_csv/1},
-      {parts.q, &write_part_q_csv/1}
+      {parts.q, &write_part_q_csv/1},
+      {parts.r, &write_part_r_csv/1}
     ]
     |> Enum.each(fn {rows, writer} -> if rows, do: writer.(rows) end)
   end
@@ -5239,6 +5267,283 @@ defmodule Mix.Tasks.Autoquality.Bench do
     IO.puts("wrote #{path}")
   end
 
+  # --- Part R: crop offset by tile coverage -----------------------------------
+
+  @r_offsets [0.0, 0.5, 1.0, 1.5, 2.4]
+  @r_sizes [2.0, 4.0, 6.0, 8.0, 10.0, 12.0]
+  @r_min_mp 1.0
+  @r_hit_tolerance 0.5
+  # Tile coverage buckets for the findings: the share of the frame the crop tiles
+  # score. ≥ 1.0 means the tiles cover the whole frame (≤ ~4.2 MP).
+  @r_buckets [{1.0, :infinity}, {0.7, 1.0}, {0.4, 0.7}, {0.0, 0.4}]
+
+  defp run_part_r(corpus_dir, fallback_files, cap, synth_mp, offsets, sizes) do
+    offsets = offsets || @r_offsets
+    sizes = sizes || @r_sizes
+    IO.puts("\n== Part R — crop offset by tile coverage, production search ==")
+
+    IO.puts(
+      "offsets #{inspect(offsets)}  sizes #{inspect(sizes)} MP + native  " <>
+        "crossover ignored (both scorers at every size)  ≤#{cap}/source\n"
+    )
+
+    corpus_dir
+    |> discover_sources(fallback_files, cap, synth_mp)
+    |> Enum.flat_map(fn {sname, subjects} ->
+      Enum.flat_map(subjects, fn {label, base} ->
+        r_bench_sizes(sname, label, base, sizes, offsets)
+      end)
+    end)
+  end
+
+  defp r_bench_sizes(source, label, base, sizes, offsets) do
+    base
+    |> r_sizes(sizes)
+    |> Enum.flat_map(fn sized ->
+      IO.puts("  #{source}/#{label} #{Float.round(megapixels(sized), 1)} MP")
+      r_bench_subject(source, label, sized, offsets)
+    end)
+  end
+
+  # Downscale-only copies at each size, plus the native frame; nothing below
+  # @r_min_mp, where crop scoring is a single tile.
+  defp r_sizes(base, sizes) do
+    native = megapixels(base)
+
+    scaled =
+      for mp <- sizes, mp < native * 0.95 do
+        {:ok, resized} = Image.resize(base, :math.sqrt(mp / native))
+        {:ok, mem} = VixImage.copy_memory(resized)
+        mem
+      end
+
+    Enum.filter(scaled ++ [base], &(megapixels(&1) >= @r_min_mp))
+  end
+
+  defp megapixels(image), do: Image.width(image) * Image.height(image) / 1_000_000
+
+  defp r_bench_subject(source, label, base, offsets) do
+    {ref_us, {:ok, ref}} = timed(fn -> Ssim2Metric.reference(base) end)
+    {refs_us, {:ok, refs}} = timed(fn -> CropScore.references(base) end)
+    coverage = r_scored_area(refs) / (Image.width(base) * Image.height(base))
+    mp = Float.round(megapixels(base), 2)
+
+    Enum.flat_map(@g_formats, fn format ->
+      resolved = r_resolved(format)
+      {:ok, cache} = Agent.start_link(fn -> %{} end)
+      probe = &r_probe(cache, base, ref, refs, resolved, &1)
+      id = %{source: source, label: label, mp: mp, coverage: coverage, format: format}
+
+      try do
+        full = r_search(resolved, probe, :truth, 0.0, ref_us)
+
+        crops =
+          Enum.map(offsets, fn offset ->
+            {offset, r_search(resolved, probe, :p10, offset, refs_us)}
+          end)
+
+        [Map.merge(id, %{full: full, crops: crops})]
+      catch
+        {:g_unsupported, ^format, _reason} ->
+          IO.puts("    #{format}: skipped (encode unsupported)")
+          []
+      after
+        Agent.stop(cache)
+      end
+    end)
+  end
+
+  # The production RQS and encoder options for `format`, resolved the way a
+  # `format=<f>/autoquality` request resolves them.
+  defp r_resolved(format) do
+    config = PlugConfig.validate!([])
+    seg = fn raw -> {raw, {0, byte_size(raw)}} end
+
+    lexed = %{
+      segments: [seg.("format=#{format}"), seg.("autoquality")],
+      source: {:src, "bench.png", {0, 9}}
+    }
+
+    {:ok, request} = Parser.parse(lexed, config)
+    {:ok, policy} = RequestPolicy.resolve(request.output, config, "")
+    {:ok, resolved} = Policy.resolve(policy, format)
+    resolved
+  end
+
+  # Runs the production search core with `score` (:truth = full frame, :p10 =
+  # crop tiles minus `offset`). Cost is the reference build plus each probed
+  # quality's encode + decode + metric, summed from memoized timings.
+  # Pixels covered by at least one tile: edge-clamped tiles overlap their
+  # neighbours, so summing tile areas would count those pixels twice.
+  defp r_scored_area(refs) do
+    rects = Enum.map(refs, fn {rect, _ref} -> rect end)
+    xs = rects |> Enum.flat_map(fn {x, _y, w, _h} -> [x, x + w] end) |> Enum.uniq() |> Enum.sort()
+    ys = rects |> Enum.flat_map(fn {_x, y, _w, h} -> [y, y + h] end) |> Enum.uniq() |> Enum.sort()
+
+    for [x0, x1] <- Enum.chunk_every(xs, 2, 1, :discard),
+        [y0, y1] <- Enum.chunk_every(ys, 2, 1, :discard),
+        Enum.any?(rects, fn {x, y, w, h} ->
+          x <= x0 and x1 <= x + w and y <= y0 and y1 <= y + h
+        end),
+        reduce: 0 do
+      area -> area + (x1 - x0) * (y1 - y0)
+    end
+  end
+
+  defp r_search(%Resolved{} = resolved, probe, score, offset, ref_us) do
+    {:ok, probed} = Agent.start_link(fn -> MapSet.new() end)
+
+    encode_fun = fn q ->
+      Agent.update(probed, &MapSet.put(&1, q))
+      {:ok, probe.(q).bytes}
+    end
+
+    score_fun = fn bytes -> r_score(probe.(r_q_of(bytes, probed, probe)), score) - offset end
+
+    # A probe the encoder rejects throws out of the search; stop the agent anyway.
+    try do
+      {:ok, _bin, meta} =
+        EncodeSearch.search(resolved.quality_search, nil,
+          encode_fun: encode_fun,
+          score_fun: score_fun,
+          telemetry_opts: []
+        )
+
+      qs = Agent.get(probed, &MapSet.to_list/1)
+      point = probe.(meta.quality)
+
+      %{
+        q: meta.quality,
+        bytes: byte_size(point.bytes),
+        truth: point.truth,
+        probes: length(qs),
+        cost_us: ref_us + Enum.sum(Enum.map(qs, &r_probe_cost(probe.(&1), score)))
+      }
+    after
+      Agent.stop(probed)
+    end
+  end
+
+  defp r_q_of(bytes, probed, probe) do
+    probed |> Agent.get(&MapSet.to_list/1) |> Enum.find(&(probe.(&1).bytes == bytes))
+  end
+
+  defp r_score(point, :truth), do: point.truth
+  defp r_score(point, :p10), do: point.p10
+
+  defp r_probe_cost(point, :truth), do: point.encode_us + point.decode_us + point.truth_us
+  defp r_probe_cost(point, :p10), do: point.encode_us + point.decode_us + point.p10_us
+
+  defp r_probe(cache, base, ref, refs, resolved, q) do
+    case Agent.get(cache, &Map.get(&1, q)) do
+      nil ->
+        data = r_compute(base, ref, refs, resolved, q)
+        Agent.update(cache, &Map.put(&1, q, data))
+        data
+
+      data ->
+        data
+    end
+  end
+
+  defp r_compute(base, ref, refs, %Resolved{} = resolved, q) do
+    {encode_us, bytes} =
+      timed(fn ->
+        case Encoder.encode_to_buffer(base, resolved, q) do
+          {:ok, bytes} -> bytes
+          {:error, reason} -> throw({:g_unsupported, resolved.format, reason})
+        end
+      end)
+
+    {decode_us, candidate} =
+      timed(fn ->
+        {:ok, image} = Image.from_binary(bytes)
+        {:ok, mem} = VixImage.copy_memory(image)
+        mem
+      end)
+
+    {truth_us, {:ok, truth}} = timed(fn -> Ssim2Metric.score(ref, candidate) end)
+    {p10_us, {:ok, p10}} = timed(fn -> CropScore.p10(refs, candidate) end)
+
+    %{
+      bytes: bytes,
+      truth: truth,
+      p10: p10,
+      encode_us: encode_us,
+      decode_us: decode_us,
+      truth_us: truth_us,
+      p10_us: p10_us
+    }
+  end
+
+  defp findings_part_r([]),
+    do: IO.puts("Part R — crop offset by coverage: no subjects processed\n")
+
+  defp findings_part_r(rows) do
+    target = ProcessingConfig.resolve!([])[:autoquality_target]
+    floor = target - @r_hit_tolerance
+
+    IO.puts(
+      "Part R — crop offset by tile coverage (target #{target}; over = median delivered " <>
+        "full-frame score − target; bytes/speed = geomean vs the full-frame search; " <>
+        "miss = full frame ≥ #{floor}, crop below)\n"
+    )
+
+    for format <- @g_formats, {lo, hi} <- @r_buckets do
+      cases = Enum.filter(rows, &(&1.format == format and r_in_bucket?(&1.coverage, lo, hi)))
+      if cases != [], do: r_report_bucket(format, {lo, hi}, cases, target, floor)
+    end
+  end
+
+  defp r_in_bucket?(coverage, lo, :infinity), do: coverage >= lo
+  defp r_in_bucket?(coverage, lo, hi), do: coverage >= lo and coverage < hi
+
+  defp r_report_bucket(format, {lo, hi}, cases, target, floor) do
+    full_over = cases |> Enum.map(&(&1.full.truth - target)) |> median()
+
+    IO.puts(
+      "  #{format} coverage #{lo}–#{hi} (n=#{length(cases)}): full over #{fmt_signed(full_over)}, " <>
+        "median full cost #{round(median(Enum.map(cases, & &1.full.cost_us)) / 1000)} ms"
+    )
+
+    for {offset, _} <- hd(cases).crops do
+      picks = Enum.map(cases, fn c -> {c, List.keyfind(c.crops, offset, 0) |> elem(1)} end)
+      over = picks |> Enum.map(fn {_c, p} -> p.truth - target end)
+      misses = Enum.count(picks, fn {c, p} -> c.full.truth >= floor and p.truth < floor end)
+      bytes = geomean(Enum.map(picks, fn {c, p} -> p.bytes / c.full.bytes end))
+      speed = geomean(Enum.map(picks, fn {c, p} -> c.full.cost_us / max(p.cost_us, 1) end))
+
+      IO.puts(
+        "    offset #{offset}: over #{fmt_signed(median(over))} (worst " <>
+          "#{fmt_signed(Enum.min(over))})  misses #{misses}  bytes ×#{Float.round(bytes, 3)}  " <>
+          "speed ×#{Float.round(speed, 2)}"
+      )
+    end
+
+    IO.puts("")
+  end
+
+  defp geomean(values), do: :math.exp(avg(Enum.map(values, &:math.log/1)))
+  defp fmt_signed(value), do: if(value >= 0, do: "+", else: "") <> "#{Float.round(value, 2)}"
+
+  defp write_part_r_csv(rows) do
+    path = "/tmp/autoquality_bench_part_r.csv"
+    head = "source,label,mp,coverage,format,variant,q,bytes,truth,probes,cost_us\n"
+
+    body =
+      for row <- rows,
+          {variant, pick} <- [
+            {"full", row.full} | Enum.map(row.crops, &{"crop#{elem(&1, 0)}", elem(&1, 1)})
+          ],
+          into: "" do
+        "#{row.source},#{row.label},#{row.mp},#{Float.round(row.coverage, 3)},#{row.format}," <>
+          "#{variant},#{pick.q},#{pick.bytes},#{fmt_score(pick.truth)},#{pick.probes},#{pick.cost_us}\n"
+      end
+
+    File.write!(path, head <> body)
+    IO.puts("wrote #{path}")
+  end
+
   # --- resolved descriptors --------------------------------------------------
 
   defp ssim2_resolved(format) do
@@ -5371,7 +5676,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
       {parts.n, &findings_part_n/1},
       {parts.o, &findings_part_o/1},
       {parts.p, &findings_part_p/1},
-      {parts.q, &findings_part_q/1}
+      {parts.q, &findings_part_q/1},
+      {parts.r, &findings_part_r/1}
     ]
     |> Enum.each(fn {rows, finder} -> if rows, do: finder.(rows) end)
 
@@ -5646,6 +5952,14 @@ defmodule Mix.Tasks.Autoquality.Bench do
 
   defp parse_files(nil), do: []
   defp parse_files(str), do: str |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
+
+  defp parse_sizes(nil), do: nil
+
+  defp parse_sizes(str) do
+    str
+    |> String.split(",", trim: true)
+    |> Enum.map(&(&1 |> String.trim() |> Float.parse() |> elem(0)))
+  end
 
   defp parse_offsets(nil), do: @k_offsets
 

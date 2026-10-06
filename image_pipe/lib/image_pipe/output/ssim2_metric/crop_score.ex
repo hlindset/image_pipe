@@ -50,20 +50,49 @@ defmodule ImagePipe.Output.Ssim2Metric.CropScore do
   end
 
   @doc """
-  Return `k` evenly-spaced items spanning both endpoints; all of them when
-  `length <= k`, or the leading `k` when `k <= 1` (a single sample can't span both
-  ends, and `k = 1` would divide by `k - 1`).
+  Up to `k` distinct windows from `tile_coords/3`, spread over both axes of the
+  tile grid; every window when the grid has `k` or fewer. A Fibonacci lattice
+  picks them: `k` even bands along the grid's longer axis, golden-ratio steps
+  along the shorter one. Stepping through the row-major list instead aliases onto
+  one column when the step is close to the row width.
   """
-  @spec subsample([a], non_neg_integer()) :: [a] when a: term()
-  def subsample(items, k \\ @subsample_k) do
-    n = length(items)
+  @spec sample_tiles(pos_integer(), pos_integer(), pos_integer(), pos_integer()) ::
+          [{non_neg_integer(), non_neg_integer(), pos_integer(), pos_integer()}]
+  def sample_tiles(w, h, t \\ @tile, k \\ @subsample_k) do
+    tw = min(t, w)
+    th = min(t, h)
+    xs = List.to_tuple(axis_positions(w, tw))
+    ys = List.to_tuple(axis_positions(h, th))
 
-    cond do
-      n <= k -> items
-      k <= 1 -> Enum.take(items, k)
-      true -> Enum.map(0..(k - 1), &Enum.at(items, div(&1 * (n - 1), k - 1)))
+    if tuple_size(xs) * tuple_size(ys) <= k do
+      tile_coords(w, h, t)
+    else
+      Stream.iterate(0, &(&1 + 1))
+      |> Stream.map(&lattice_cell(&1, tuple_size(xs), tuple_size(ys), k))
+      |> Stream.uniq()
+      |> Enum.take(k)
+      |> Enum.sort_by(fn {col, row} -> {row, col} end)
+      |> Enum.map(fn {col, row} -> {elem(xs, col), elem(ys, row), tw, th} end)
     end
   end
+
+  @golden 0.6180339887498949
+
+  # Point `i` of the lattice as a {column, row} cell. Points past `k` reuse the
+  # bands with new golden-ratio offsets, so the sample still fills when two
+  # points land on the same cell.
+  defp lattice_cell(i, cols, rows, k) do
+    band = (rem(i, k) + 0.5) / k
+    step = frac(0.5 + i * @golden)
+
+    if rows >= cols,
+      do: {cell(step, cols), cell(band, rows)},
+      else: {cell(band, cols), cell(step, rows)}
+  end
+
+  defp cell(fraction, count), do: min(count - 1, trunc(fraction * count))
+
+  defp frac(x), do: x - Float.floor(x)
 
   @doc "Percentile `p` (0.0–1.0) of an already-sorted list, floor-indexed (nearest-rank-low)."
   @spec percentile([number()], float()) :: number()
@@ -82,8 +111,7 @@ defmodule ImagePipe.Output.Ssim2Metric.CropScore do
   @spec references(Vix.Vips.Image.t()) :: {:ok, [tile_reference()]} | {:error, term()}
   def references(%Vix.Vips.Image{} = base) do
     base
-    |> then(&tile_coords(Image.width(&1), Image.height(&1)))
-    |> subsample()
+    |> then(&sample_tiles(Image.width(&1), Image.height(&1)))
     |> each_tile(fn {x, y, w, h} = coord ->
       with {:ok, tile} <- Image.crop(base, x, y, w, h),
            {:ok, ref} <- Ssim2Metric.reference(tile),

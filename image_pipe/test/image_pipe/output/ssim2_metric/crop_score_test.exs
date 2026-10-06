@@ -33,18 +33,27 @@ defmodule ImagePipe.Output.Ssim2Metric.CropScoreTest do
     end
   end
 
-  describe "subsample/2" do
-    test "returns all tiles when count <= k" do
-      tiles = Enum.to_list(1..10)
-      assert CropScore.subsample(tiles, 16) == tiles
+  describe "sample_tiles/4" do
+    test "returns every tile when the grid has at most k tiles" do
+      assert CropScore.sample_tiles(1100, 600, 512, 16) == CropScore.tile_coords(1100, 600, 512)
     end
 
-    test "picks k evenly-spaced tiles spanning both endpoints when count > k" do
-      tiles = Enum.to_list(0..99)
-      sub = CropScore.subsample(tiles, 16)
-      assert length(sub) == 16
-      assert hd(sub) == 0
-      assert List.last(sub) == 99
+    test "spreads a tall page's sample over every column and row" do
+      # 4 × 15 tiles. Stepping through the row-major list by 59/15 ≈ 4 would
+      # land almost every pick in one column.
+      sample = CropScore.sample_tiles(1619, 7411, 512, 16)
+
+      assert length(sample) == 16
+      assert sample |> Enum.map(&elem(&1, 0)) |> Enum.uniq() |> length() == 4
+      assert sample |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> length() == 15
+    end
+
+    test "spreads a landscape frame's sample over every column and row" do
+      # 8 × 6 tiles.
+      sample = CropScore.sample_tiles(4000, 3000, 512, 16)
+
+      assert sample |> Enum.map(&elem(&1, 0)) |> Enum.uniq() |> length() == 8
+      assert sample |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> length() == 6
     end
   end
 
