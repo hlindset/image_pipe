@@ -23,6 +23,7 @@ defmodule ImagePipe.Plan do
       Output.WebpOptions,
       Output.AvifOptions,
       Color,
+      ValueBounds,
       Source,
       Source.Identity,
       Source.Path,

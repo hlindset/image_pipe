@@ -807,6 +807,8 @@
           min={controlLimits.effects.blur.min}
           max={controlLimits.effects.blur.max}
           step={controlLimits.effects.blur.step}
+          inputMin={controlLimits.effects.blur.inputMin}
+          inputMax={controlLimits.effects.blur.inputMax}
           inputStep="any"
         />
       {/if}
@@ -821,9 +823,11 @@
         <RangeNumber
           label="Maximum blur sigma"
           bind:value={controlState.progressiveBlur}
-          min={0.1}
-          max={10}
-          step={0.1}
+          min={controlLimits.effects.blur.min}
+          max={controlLimits.effects.blur.max}
+          step={controlLimits.effects.blur.step}
+          inputMin={controlLimits.effects.blur.inputMin}
+          inputMax={controlLimits.effects.blur.inputMax}
           inputStep="any"
         />
         <label class="field">
@@ -866,6 +870,8 @@
           min={controlLimits.effects.sharpen.min}
           max={controlLimits.effects.sharpen.max}
           step={controlLimits.effects.sharpen.step}
+          inputMin={controlLimits.effects.sharpen.inputMin}
+          inputMax={controlLimits.effects.sharpen.inputMax}
           inputStep="any"
         />
       {/if}

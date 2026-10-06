@@ -361,7 +361,7 @@ Caches on the local filesystem: `output` for processed images, `input` for origi
 
 ### `[processing]`
 
-Defaults and limits for every image the server processes. The limits on originals and results are described in [limiting work per request](../../image_pipe/docs/deployment.md).
+Defaults and limits for every image the server processes. The limits on originals, intermediate images, and results are described in [limiting work per request](../../image_pipe/docs/deployment.md).
 
 | Key | Type | Default |
 | --- | --- | --- |
@@ -369,6 +369,7 @@ Defaults and limits for every image the server processes. The limits on original
 | `max_input_pixels` | integer > 0 | `40000000` |
 | `max_input_frames` | integer > 0 | `1000` |
 | `max_result_width` | integer > 0 | `8192` |
+| `max_intermediate_pixels` | integer > 0 | `100000000` |
 | `max_result_height` | integer > 0 | `8192` |
 | `max_result_pixels` | integer > 0 | `40000000` |
 | `auto_avif` | boolean | `true` |

@@ -1,7 +1,18 @@
 defmodule ImagePipe.API.ValueTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias ImagePipe.API.Value
+
+  property "lengths and dimensions reject arbitrary integers beyond native bounds" do
+    check all exponent <- integer(10..500), coefficient <- integer(1..9) do
+      value = Integer.to_string(coefficient) <> String.duplicate("0", exponent)
+      assert Value.dimension(value) == {:error, :invalid_dimension}
+      assert Value.length(value) == {:error, :invalid_length}
+      assert Value.length("-" <> value <> "pct") == {:error, :invalid_length}
+      assert Value.pad_shorthand(value) == {:error, :invalid_pad_shorthand}
+    end
+  end
 
   describe "number/1" do
     valid = [
@@ -78,6 +89,14 @@ defmodule ImagePipe.API.ValueTest do
   end
 
   describe "dimension/1" do
+    test "rejects dimensions beyond the native axis range" do
+      assert Value.dimension("2147483647") == {:ok, {:px, 2_147_483_647}}
+
+      for value <- ["2147483648", String.duplicate("9", 400)] do
+        assert Value.dimension(value) == {:error, :invalid_dimension}
+      end
+    end
+
     valid = [
       {"auto", :auto},
       {"1", {:px, 1}},

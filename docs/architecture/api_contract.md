@@ -146,7 +146,7 @@ display axes, contain otherwise. It is contain with fewer dimensions, so crop
 guides apply to it only with both. All geometry is resolved before final
 integer-pixel rounding.
 
-`dpr` accepts a positive decimal. `zoom` accepts a positive decimal for both
+`dpr` accepts a positive decimal at most 2,147,483,647. `zoom` accepts the same range for both
 axes, or an `x,y` pair. It scales the requested box before the resize mode
 is applied; an automatic axis follows the aspect ratio after the specified
 axis is zoomed. `min-w` and `min-h` accept positive integer logical pixels;
@@ -154,6 +154,24 @@ they uniformly expand the resize target as necessary before the enlargement
 cap. With minimum dimensions alone, the starting target is the current image.
 A non-unit zoom requires a width, height, or minimum dimension. DPR alone
 can scale padding without resizing the source. These options reset at `-`.
+
+Width, height, and minimum dimensions are at most 2,147,483,647. Pixel and
+percentage lengths have an absolute value at most 2,147,483,647. Padding
+components are at most 1,000,000,000. Reduced ratio terms are at most
+2,147,483,647. Values outside these ranges fail validation before source or
+cache access.
+
+`max_intermediate_pixels` defaults to 100,000,000 and rejects oversized
+frames with `422` before buffering, downsampling, or final pixel consumption.
+It also applies to watermark asset downsampling and placeholder reductions.
+Lazy intermediate enlargement, canvas, and padding may exceed the limit when
+a crop selects a smaller frame before those boundaries. Each native
+operation must still receive supported arguments: axes at most
+2,147,483,647, embed axes at most 1,000,000,000, and resize scales at most
+10,000,000. Source-dependent combinations that exceed native bounds fail
+with `422`. Final output clamping preserves its existing scaling behavior
+within the intermediate work limit. Generation limits stay out of cache keys
+and ETags.
 
 ### Anchor offsets and canvas placement
 
@@ -361,9 +379,10 @@ brightness first.
 
 | Option | Values and defaults | Example |
 | --- | --- | --- |
-| `blur`, `sharpen` | Non-negative sigma; 0 disables the effect | `sharpen=1.5` |
-| `progressive-blur` | Non-negative maximum sigma, optional direction, start, stop; 0 sigma disables | `progressive-blur=4,down,0.2,0.8` |
-| `pixelate` | Integer block size at least 1; 1 disables the effect | `pixelate=8` |
+| `blur` | Sigma from 0 to 1,000, 0 disables the effect | `blur=2` |
+| `sharpen` | Sigma from 0.000001 to 10, or 0 to disable the effect | `sharpen=1.5` |
+| `progressive-blur` | Maximum sigma from 0 to 1,000, optional direction, start, stop, 0 sigma disables | `progressive-blur=4,down,0.2,0.8` |
+| `pixelate` | Integer block size from 1 to 2,147,483,647, 1 disables the effect | `pixelate=8` |
 | `gray`, `bitonal` | Bare flag; `=false` disables it | `gray` |
 | `monochrome` | Intensity from 0 to 1, optional color (default `b3b3b3`) | `monochrome=0.8,704214` |
 | `duotone` | Intensity from 0 to 1, optional shadow color, optional highlight color (default black and white) | `duotone=1,123456,efab89` |

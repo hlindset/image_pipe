@@ -188,6 +188,7 @@ defmodule ImagePipe.Processing.Terminal do
 
   defp placeholder(terminal, state, _request, config, :executed) do
     with {:ok, state} <- Executor.reduce_terminal(state, %Output{terminal: terminal}, config),
+         :ok <- Executor.check_evaluation(state),
          {:ok, value} <- compute(terminal, state.image),
          do: {:ok, value, state.degraded?}
   end

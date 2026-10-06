@@ -9,14 +9,17 @@ before and after the resize.
 The result can't exceed the maximum output size set in the
 [Plug configuration](`ImagePipe.config/1`) or
 [server configuration](../../../image_pipe_server/docs/server-configuration.md#processing).
-A larger result is scaled down to fit rather than rejected.
+A larger result is scaled down to fit. A frame that exceeds the configured
+processing pixel limit fails with `422` before it is buffered, downsampled,
+or delivered. Native size limits also fail with `422` when the image's size
+and the requested options exceed them.
 
 ## Resize
 
 ### w and h
 
-Accepts a [pixel length](../requesting-images.md#pixel-lengths) of 1 or more,
-in whole pixels, or `auto`. Default: none.
+Accepts a whole [pixel length](../requesting-images.md#pixel-lengths) from `1`
+to `2147483647`, or `auto`. Default: none.
 
 Sets the width and height of the box the image is resized into. How the image
 fills the box is set by [`fit`](#fit), which defaults to `contain`. With only
@@ -113,7 +116,7 @@ ImagePipe.URL.group(builder, resize: [width: 1200, enlarge: true])
 
 ### min-w and min-h
 
-Accepts a pixel length of 1 or more, in whole pixels. Default: none.
+Accepts a whole pixel length from `1` to `2147483647`. Default: none.
 
 Sets the smallest width or height the resized image may have. When the
 target from `w` and `h` is smaller, ImagePipe enlarges the whole target,
@@ -145,7 +148,7 @@ ImagePipe.URL.group(builder, resize: [width: 400, min_height: 300])
 
 ### zoom
 
-Accepts a positive [number](../requesting-images.md#numbers), or an `x,y`
+Accepts a positive [number](../requesting-images.md#numbers) up to `2147483647`, or an `x,y`
 [pair](../requesting-images.md#pairs-and-lists) of them. Default: `1`.
 
 Multiplies `w` and `h` before `fit` is applied, both by the one number or each
@@ -175,7 +178,7 @@ ImagePipe.URL.group(builder, resize: [width: 400, zoom: 1.5])
 
 ### dpr
 
-Accepts a positive number, the device pixel ratio. Default: `1`.
+Accepts a positive number up to `2147483647`, the device pixel ratio. Default: `1`.
 
 Multiplies the sizes you request in pixels: `w`, `h`, `min-w`, `min-h`, the
 `extend` canvas, `pad`, `extend-offset`, and an `anchor-offset` on a cover
@@ -292,8 +295,8 @@ ImagePipe.URL.group(builder,
 
 ### pad
 
-Accepts one to four whole pixel lengths of 0 or more, in CSS order. Default:
-none.
+Accepts one to four whole pixel lengths from `0` to `1000000000`, in CSS
+order. Default: none.
 
 - One value pads every side.
 - Two values pad the top and bottom, then the left and right.

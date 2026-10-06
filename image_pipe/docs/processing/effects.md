@@ -48,8 +48,8 @@ Where effects sit among the other stages is described under
 
 ### blur
 
-Accepts a non-negative [number](../requesting-images.md#numbers), the Gaussian
-blur sigma. Default: none. `blur=0` has no effect.
+Accepts a [number](../requesting-images.md#numbers) from `0` to `1000`, the
+Gaussian blur sigma. Default: none. `blur=0` has no effect.
 
 Blurs the whole image. Larger values blur more. The sigma is in output pixels,
 so [`dpr`](resize.md#dpr) doesn't change it.
@@ -74,7 +74,7 @@ ImagePipe.URL.group(builder, resize: [width: 800], blur: 2)
 
 Accepts `sigma,direction,start,stop`. Only the sigma is required:
 
-- `sigma` is the maximum blur, a non-negative number. `0` has no effect.
+- `sigma` is the maximum blur, a number from `0` to `1000`. `0` has no effect.
 - `direction` is `down` (default), `left`, `up`, or `right`, or an angle in
   degrees, as described under [gradient](#gradient).
 - `start` and `stop` are [fractions](../requesting-images.md#fractions) of the
@@ -107,8 +107,8 @@ ImagePipe.URL.group(builder, progressive_blur: [sigma: 4, direction: :down, star
 
 ### sharpen
 
-Accepts a non-negative number, the sharpening sigma. Default: none. `sharpen=0`
-has no effect.
+Accepts a number from `0.000001` to `10`, the sharpening sigma, or `0` to
+disable the effect. Default: none.
 
 Sharpens edges. The sigma is in output pixels, so `dpr` doesn't change it.
 
@@ -130,7 +130,7 @@ ImagePipe.URL.group(builder, resize: [width: 400], sharpen: 1.5)
 
 ### pixelate
 
-Accepts a whole number of 1 or more, the block size in pixels. Default: none.
+Accepts a whole number from `1` to `2147483647`, the block size in pixels. Default: none.
 `pixelate=1` has no effect.
 
 Replaces the image with square blocks of one color each. The block size is in

@@ -77,6 +77,15 @@ defmodule ImagePipe.Processing.Config do
                       default: 8_192,
                       doc: "Maximum output width. Larger results are scaled down to fit."
                     ],
+                    max_intermediate_pixels: [
+                      type: :pos_integer,
+                      default: 100_000_000,
+                      doc: """
+                      Maximum pixels in a decoded frame buffered, downsampled, or delivered during \
+                      processing. Larger frames fail with `422`. Lazy intermediate frames \
+                      may be larger when a crop reduces them before those steps.
+                      """
+                    ],
                     max_result_height: [
                       type: :pos_integer,
                       default: 8_192,

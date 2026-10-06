@@ -192,7 +192,7 @@ defmodule ImagePipe.API.SerializerTest do
 
   test "tiny and large decimals retain their value without exponent notation" do
     for value <- [1.0e-30, 1.0e30, 0.000001, 1.2345678901234567] do
-      IP.URL.new() |> IP.URL.group(blur: value) |> assert_round_trip()
+      IP.URL.new() |> IP.URL.group(contrast: value) |> assert_round_trip()
     end
   end
 

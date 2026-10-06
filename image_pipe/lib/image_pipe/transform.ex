@@ -26,6 +26,7 @@ defmodule ImagePipe.Transform do
   alias ImagePipe.Transform.Detector
   alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.State
+  alias ImagePipe.Transform.WorkLimits
 
   @type operation() :: struct()
 
@@ -73,12 +74,17 @@ defmodule ImagePipe.Transform do
     )
   end
 
-  defp prepare(%State{materialized?: true} = state, _operation), do: {:ok, state}
-
   defp prepare(%State{} = state, %module{} = operation) do
     case module.requires_materialization?(operation) do
       false -> {:ok, state}
       true -> materialize(state)
+    end
+  end
+
+  defp materialize(%State{materialized?: true} = state) do
+    case WorkLimits.check(state) do
+      :ok -> {:ok, state}
+      {:error, reason} -> {:error, {:materialize_error, reason}}
     end
   end
 
@@ -90,7 +96,10 @@ defmodule ImagePipe.Transform do
   end
 
   defp operation_result({:ok, state}), do: {:ok, state}
-  defp operation_result({:error, {:materialize_error, reason}}), do: {:error, {:decode, reason}}
+
+  defp operation_result({:error, {:materialize_error, reason}}),
+    do: {:error, Materializer.error(reason)}
+
   defp operation_result({:error, reason}), do: {:error, {:transform, reason}}
 
   defp stop_metadata({:ok, %State{image: image}}),

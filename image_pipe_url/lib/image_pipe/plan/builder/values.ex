@@ -4,7 +4,8 @@ defmodule ImagePipe.Plan.Builder.Values do
   alias ImagePipe.Plan.Builder.Options
   alias ImagePipe.Plan.Color
 
-  @max_axis 2_147_483_647
+  import ImagePipe.Plan.ValueBounds
+
   @directions %{down: 0.0, left: 90.0, up: 180.0, right: 270.0}
 
   def cast(value, kind) do
@@ -23,6 +24,11 @@ defmodule ImagePipe.Plan.Builder.Values do
 
   defp normalize(value, :positive) when is_number(value) and value > 0, do: float(value)
   defp normalize(value, :nonnegative) when is_number(value) and value >= 0, do: float(value)
+  defp normalize(:auto, :dimension), do: {:ok, :auto}
+  defp normalize(value, kind) when kind in [:dimension, :axis] and axis?(value), do: {:ok, value}
+  defp normalize(value, :scale_factor) when scale?(value), do: float(value)
+  defp normalize(value, :blur) when blur?(value), do: float(value)
+  defp normalize(value, :sharpen) when sharpen?(value), do: float(value)
 
   defp normalize(value, :fraction) when is_number(value) and value >= 0 and value <= 1,
     do: float(value)
@@ -76,8 +82,8 @@ defmodule ImagePipe.Plan.Builder.Values do
     end
   end
 
-  defp normalize({x, y}, :zoom), do: pair(x, y, :positive)
-  defp normalize(value, :zoom), do: pair(value, value, :positive)
+  defp normalize({x, y}, :zoom), do: pair(x, y, :scale_factor)
+  defp normalize(value, :zoom), do: pair(value, value, :scale_factor)
   defp normalize({x, y}, :focus), do: pair(x, y, :fraction)
   defp normalize({x, y}, :offset), do: pair(x, y, :offset_length)
   defp normalize({width, height}, :crop), do: pair(width, height, :positive_length)
@@ -89,10 +95,10 @@ defmodule ImagePipe.Plan.Builder.Values do
     end
   end
 
-  defp normalize({unit, value}, :length) when unit in [:px, :pct] and is_number(value),
+  defp normalize({unit, value}, :length) when unit in [:px, :pct] and length?(value),
     do: {:ok, {unit, value}}
 
-  defp normalize(value, :length) when is_number(value), do: {:ok, {:px, value}}
+  defp normalize(value, :length) when length?(value), do: {:ok, {:px, value}}
 
   defp normalize(value, :non_negative_length) do
     with {:ok, {_unit, origin} = length} <- normalize(value, :length),
@@ -108,12 +114,7 @@ defmodule ImagePipe.Plan.Builder.Values do
     end
   end
 
-  defp normalize(value, :offset_length) do
-    with {:ok, {_unit, size} = length} <- normalize(value, :length),
-         {:ok, _scaled} <- float_scaled(size, @max_axis) do
-      {:ok, length}
-    end
-  end
+  defp normalize(value, :offset_length), do: normalize(value, :length)
 
   defp normalize({numerator, denominator}, :ratio)
        when is_integer(numerator) and numerator > 0 and is_integer(denominator) and
@@ -158,7 +159,7 @@ defmodule ImagePipe.Plan.Builder.Values do
     with {:ok, color} <- normalize(color, :color), do: {:ok, {color, nil}}
   end
 
-  defp normalize(value, :padding) when is_integer(value) and value >= 0,
+  defp normalize(value, :padding) when padding?(value),
     do: {:ok, {value, value, value, value}}
 
   defp normalize({vertical, horizontal}, :padding),
@@ -168,7 +169,7 @@ defmodule ImagePipe.Plan.Builder.Values do
     do: normalize({top, horizontal, bottom, horizontal}, :padding)
 
   defp normalize({top, right, bottom, left} = padding, :padding) do
-    case Enum.all?([top, right, bottom, left], &(is_integer(&1) and &1 >= 0)) do
+    case Enum.all?([top, right, bottom, left], &padding?/1) do
       true -> {:ok, padding}
       false -> :error
     end
@@ -208,17 +209,12 @@ defmodule ImagePipe.Plan.Builder.Values do
   end
 
   defp ratio(numerator, denominator) do
-    forward = numerator / denominator
-    reverse = denominator / numerator
+    gcd = Integer.gcd(numerator, denominator)
 
-    with true <- forward > 0 and reverse > 0,
-         {:ok, _forward} <- float_scaled(forward, @max_axis),
-         {:ok, _reverse} <- float_scaled(reverse, @max_axis) do
-      gcd = Integer.gcd(numerator, denominator)
-      {:ok, {:ratio, div(numerator, gcd), div(denominator, gcd)}}
+    with {:ok, reduced_numerator} <- normalize(div(numerator, gcd), :axis),
+         {:ok, reduced_denominator} <- normalize(div(denominator, gcd), :axis) do
+      {:ok, {:ratio, reduced_numerator, reduced_denominator}}
     end
-  rescue
-    ArithmeticError -> :error
   end
 
   defp hex_color(hex) do
@@ -258,7 +254,7 @@ defmodule ImagePipe.Plan.Builder.Values do
 
   defp effect_schema(:progressive_blur),
     do: [
-      sigma: field(:nonnegative, required: true),
+      sigma: field(:blur, required: true),
       direction: field(:direction, default: 0.0),
       start: field(:fraction, default: 0.0),
       stop: field(:fraction, default: 1.0)

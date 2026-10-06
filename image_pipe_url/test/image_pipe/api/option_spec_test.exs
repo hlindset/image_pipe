@@ -4,6 +4,28 @@ defmodule ImagePipe.API.OptionSpecTest do
   alias ImagePipe.API.OptionSpec
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
 
+  test "rejects unsupported filter, layout and scale values" do
+    for value <- ["1001", String.duplicate("9", 400)] do
+      assert OptionSpec.parse_blur(value) == {:error, :invalid_blur}
+      assert OptionSpec.parse_progressive_blur(value) == {:error, :invalid_progressive_blur}
+    end
+
+    for value <- ["0.0000001", "10.1", String.duplicate("9", 400)] do
+      assert OptionSpec.parse_sharpen(value) == {:error, :invalid_sharpen}
+    end
+
+    assert OptionSpec.parse_blur("1000") == {:ok, 1000.0}
+    assert OptionSpec.parse_sharpen("0") == {:ok, 0.0}
+    assert OptionSpec.parse_sharpen("0.000001") == {:ok, 0.000001}
+    assert OptionSpec.parse_sharpen("10") == {:ok, 10.0}
+
+    assert OptionSpec.parse_dpr("2147483648") == {:error, :invalid_dpr}
+    assert OptionSpec.parse_zoom("2147483648") == {:error, :invalid_zoom}
+
+    assert OptionSpec.parse_crop("#{String.duplicate("9", 400)}pct,10") ==
+             {:error, :invalid_element}
+  end
+
   @api_keys ~w(rotate flip gray bitonal dpr w h min-w min-h fit enlarge zoom extend extend-ratio extend-at extend-offset crop crop-ratio crop-ratio-enlarge region anchor anchor-offset focus detect blur progressive-blur sharpen pixelate monochrome duotone brightness contrast saturation colorize gradient trim trim-symmetry pad bg wm wm-src64 wm-enc wm-opacity wm-scale wm-at wm-offset wm-tile wm-gap orient page output format q format-q meta dpi profile hdr autoquality max-bytes jpeg-options png-options webp-options avif-options filename attachment cb debug expires preset)
 
   describe "all/0" do
@@ -121,9 +143,9 @@ defmodule ImagePipe.API.OptionSpecTest do
       end
     end
 
-    test "parse_crop_ratio reserves float headroom for a signed-32-bit pixel axis" do
-      safe = String.duplicate("9", 298)
-      overflow = String.duplicate("9", 300)
+    test "parse_crop_ratio bounds reduced components to the native axis range" do
+      safe = "2147483647"
+      overflow = "2147483648"
       huge = String.duplicate("9", 400)
 
       assert {:ok, {:ratio, _numerator, 1}} = OptionSpec.parse_crop_ratio("#{safe}:1")
@@ -215,8 +237,8 @@ defmodule ImagePipe.API.OptionSpecTest do
       assert OptionSpec.parse_offset("1,2,3") == {:error, :invalid_offset}
       assert OptionSpec.parse_offset("1em,2") == {:error, :invalid_offset}
 
-      safe_with_axis_headroom = "8" <> String.duplicate("0", 298)
-      unsafe_with_axis_headroom = "9" <> String.duplicate("0", 298)
+      safe_with_axis_headroom = "2147483647"
+      unsafe_with_axis_headroom = "2147483648"
 
       assert {:ok, {{:px, _safe}, {:px, 0}}} =
                OptionSpec.parse_offset("#{safe_with_axis_headroom},0")

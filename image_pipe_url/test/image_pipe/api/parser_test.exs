@@ -656,7 +656,7 @@ defmodule ImagePipe.API.ParserTest do
       end
     end
 
-    test "pixel offsets reject a group DPR combination that overflows float geometry" do
+    test "pixel and percent offsets reject values beyond their numeric bounds" do
       large = "1" <> String.duplicate("0", 200)
 
       for options <- [
@@ -667,7 +667,7 @@ defmodule ImagePipe.API.ParserTest do
         assert Enum.any?(diagnostics, &(&1.reason == :invalid_offset))
       end
 
-      assert {:ok, %Spec{groups: [%Group{anchor_offset: {{:pct, _large}, {:px, 0}}}]}} =
+      assert {:error, {:invalid_request, _diagnostics}} =
                parse([
                  "crop=10,10",
                  "anchor=left",
