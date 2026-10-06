@@ -1,0 +1,296 @@
+name: Server release
+
+# An image_pipe_server-vX.Y.Z tag publishes the server images at that version on
+# GHCR and creates a GitHub release. The images build against the image_pipe
+# version the server releases with (@image_pipe_version), fetched from Hex, so
+# they only contain published library code.
+#
+# Running the workflow by hand from any branch is a dry run that tests, builds,
+# and smoke-tests everything without publishing. It builds against Hex when
+# that image_pipe version is published, and the sibling projects otherwise.
+on:
+  push:
+    tags: ["image_pipe_server-v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-server
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/image_pipe_server
+
+jobs:
+  verify:
+    name: Verify version
+    runs-on: ubuntu-26.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      libs: ${{ steps.libs.outputs.libs }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Project versions agree
+        if: github.event_name == 'workflow_dispatch'
+        run: scripts/check-versions.sh server
+      - name: Tag matches the server, is on main, and has release notes
+        if: github.event_name == 'push'
+        run: |
+          scripts/check-versions.sh server "${GITHUB_REF_NAME#image_pipe_server-v}"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          scripts/changelog-notes.sh server "${GITHUB_REF_NAME#image_pipe_server-v}" > /dev/null
+      - name: Version
+        id: version
+        run: |
+          version="$(scripts/check-versions.sh server)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          [[ "$version" == *-* ]] && prerelease=true || prerelease=false
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+      - name: Library source
+        id: libs
+        run: |
+          pinned="$(scripts/check-versions.sh server-libraries)"
+          status=200
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            status="$(curl -sS -o /dev/null -w '%{http_code}' "https://hex.pm/api/packages/image_pipe/releases/$pinned")"
+          fi
+          case "$status" in
+            200)
+              echo "libs=hex" >> "$GITHUB_OUTPUT"
+              echo "Building against image_pipe $pinned from Hex." >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            404)
+              echo "libs=path" >> "$GITHUB_OUTPUT"
+              echo "image_pipe $pinned isn't on Hex, so this dry run builds against the sibling projects." >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            *)
+              echo "Hex answered $status for image_pipe $pinned" >&2
+              exit 1
+              ;;
+          esac
+
+  # Runs before any image build, so a server that needs library code that
+  # isn't on Hex fails in minutes.
+  test:
+    name: Server tests
+    needs: verify
+    runs-on: ubuntu-26.04
+    env:
+      MIX_ENV: test
+      IMAGE_PIPE_LIBS: ${{ needs.verify.outputs.libs }}
+    defaults:
+      run:
+        working-directory: image_pipe_server
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Caches holding compiled code are keyed by runner image (e.g. ubuntu26):
+      # runner.os is just "Linux", so a runner upgrade would restore binaries
+      # built against the previous release's libraries.
+      - name: Runner image
+        id: runner
+        run: |
+          echo "image=$ImageOS" >> "$GITHUB_OUTPUT"
+          # Workaround: mise (2026.9.18) maps ImageOS to builds.hex.pm's Erlang
+          # builds only up to ubuntu24 and compiles from source otherwise, so
+          # name the release. Remove once mise maps ubuntu26 itself
+          # (linux_precompiled_os_version in src/plugins/core/erlang.rs).
+          echo "MISE_ERLANG_PRECOMPILED_OS=${ImageOS/ubuntu/ubuntu-}.04" >> "$GITHUB_ENV"
+      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+      - name: Install Hex
+        run: mise exec -- mix local.hex --force
+      - name: Install Rebar
+        run: mise exec -- mix local.rebar --force
+      # Separate from Server CI's cache, which holds the sibling projects'
+      # builds: sharing it would make each mode rebuild image_pipe.
+      - name: Cache deps and build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            image_pipe_server/deps
+            image_pipe_server/_build
+          key: server-release-mix-${{ env.IMAGE_PIPE_LIBS }}-${{ steps.runner.outputs.image }}-${{ hashFiles('mise.toml') }}-${{ hashFiles('image_pipe_server/mix.exs', 'image_pipe_server/mix.lock') }}
+          restore-keys: |
+            server-release-mix-${{ env.IMAGE_PIPE_LIBS }}-${{ steps.runner.outputs.image }}-${{ hashFiles('mise.toml') }}-
+      - name: Install dependencies
+        run: mise exec -- mix deps.get
+      - name: Compile
+        run: mise exec -- mix compile --warnings-as-errors
+      - name: Run tests
+        run: mise exec -- mix test --no-compile
+
+  # Builds and smoke-tests each variant on native runners, then pushes it by
+  # digest only. Tags are added once every variant and architecture succeeds.
+  image:
+    name: Image (${{ matrix.variant }}, ${{ matrix.platform.arch }})
+    needs: [verify, test]
+    runs-on: ${{ matrix.platform.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [base, vision]
+        platform:
+          - { arch: amd64, runner: ubuntu-26.04, cache: "" }
+          - { arch: arm64, runner: ubuntu-26.04-arm, cache: "-arm64" }
+    env:
+      IMAGE_PIPE_LIBS: ${{ needs.verify.outputs.libs }}
+      # Hex builds read their own scope plus the sibling-project scope, which
+      # shares the toolchain layers (libvips, Rust). amd64's sibling-project
+      # scope is the one Server image CI writes on main.
+      CACHE_SCOPE: server-${{ needs.verify.outputs.libs == 'hex' && 'hex-' || '' }}${{ matrix.variant }}${{ matrix.platform.cache }}
+      PATH_CACHE_SCOPE: server-${{ matrix.variant }}${{ matrix.platform.cache }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.verify.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.verify.outputs.version }}
+          flavor: |
+            latest=${{ needs.verify.outputs.prerelease == 'false' }}
+            suffix=${{ matrix.variant == 'vision' && '-vision' || '' }},onlatest=true
+      - name: Build image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: image_pipe_server/Dockerfile
+          build-args: |
+            IMAGE_VISION=${{ matrix.variant == 'vision' && '1' || '0' }}
+            IMAGE_PIPE_LIBS=${{ env.IMAGE_PIPE_LIBS }}
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: image_pipe_server:release
+          load: true
+          cache-from: |
+            type=gha,scope=${{ env.CACHE_SCOPE }}
+            type=gha,scope=${{ env.PATH_CACHE_SCOPE }}
+          # A tag can read caches from main but its own writes are unreachable
+          # by later runs, so only a manual run (e.g. on main) warms the cache.
+          cache-to: ${{ github.event_name == 'workflow_dispatch' && format('type=gha,scope={0},mode=max', env.CACHE_SCOPE) || '' }}
+      - name: Smoke test
+        run: image_pipe_server/test/container/smoke.sh image_pipe_server:release ${{ matrix.variant }}
+      - name: Log in to GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push by digest
+        id: push
+        if: github.event_name == 'push'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: image_pipe_server/Dockerfile
+          build-args: |
+            IMAGE_VISION=${{ matrix.variant == 'vision' && '1' || '0' }}
+            IMAGE_PIPE_LIBS=${{ env.IMAGE_PIPE_LIBS }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: |
+            type=gha,scope=${{ env.CACHE_SCOPE }}
+            type=gha,scope=${{ env.PATH_CACHE_SCOPE }}
+      - name: Record digest
+        if: github.event_name == 'push'
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+      - name: Upload digest
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digests-${{ matrix.variant }}-${{ matrix.platform.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Joins each variant's per-architecture digests into one tagged manifest list.
+  tag-images:
+    name: Tag images (${{ matrix.variant }})
+    if: github.event_name == 'push'
+    needs: [verify, image]
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        variant: [base, vision]
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: digests-${{ matrix.variant }}-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: index
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.verify.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.verify.outputs.version }}
+          flavor: |
+            latest=${{ needs.verify.outputs.prerelease == 'false' }}
+            suffix=${{ matrix.variant == 'vision' && '-vision' || '' }},onlatest=true
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create manifest lists
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          args=()
+          while IFS= read -r tag; do args+=(--tag "$tag"); done \
+            < <(jq -r '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          while IFS= read -r annotation; do args+=(--annotation "$annotation"); done \
+            < <(jq -r '.annotations[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          for digest in *; do args+=("$IMAGE@sha256:$digest"); done
+          docker buildx imagetools create "${args[@]}"
+      - name: Inspect
+        run: docker buildx imagetools inspect "$(jq -r '.tags[0]' <<< "$DOCKER_METADATA_OUTPUT_JSON")"
+
+  github-release:
+    name: GitHub release
+    if: github.event_name == 'push'
+    needs: [verify, tag-images]
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          scripts/changelog-notes.sh server "$VERSION" > "$RUNNER_TEMP/notes.md"
+          # The library release stays marked as the repository's latest.
+          gh release create "$GITHUB_REF_NAME" --verify-tag --latest=false \
+            --title "image_pipe_server $VERSION" --notes-file "$RUNNER_TEMP/notes.md"

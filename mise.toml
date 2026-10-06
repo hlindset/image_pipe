@@ -41,7 +41,7 @@ description = "Elixir checks for image_pipe_url and the library: format, compile
 depends = ["precommit:url"]
 dir = "image_pipe"
 run = [
-  # The projects release in lockstep; image_pipe pins image_pipe_url with ==.
+  # Library versions match; the server shares their major.minor (RELEASING.md).
   "../scripts/check-versions.sh > /dev/null",
   "mix format --check-formatted",
   "mix compile --warnings-as-errors",
