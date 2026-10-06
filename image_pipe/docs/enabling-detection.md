@@ -41,7 +41,7 @@ The `detector` option already defaults to it.
 Use the `-vision` variant of the image:
 
 ```bash
-docker run --read-only --tmpfs /tmp -p 8080:8080 -v ./config.toml:/etc/image_pipe/config.toml:ro -v ./images:/data/images:ro ghcr.io/hlindset/image_pipe_server:0.1.0-vision
+docker run --read-only --tmpfs /tmp -p 8080:8080 -v ./config.toml:/etc/image_pipe/config.toml:ro -v ./images:/data/images:ro ghcr.io/hlindset/image_pipe_server:0.1-vision
 ```
 
 <!-- tabs-close -->

@@ -25,7 +25,7 @@ docker run -d --name image-server -p 8080:8080 \
   -e IPS_URL__KEYS="$IMAGE_PIPE_SIGNING_KEY" \
   -v "$PWD/config.toml:/etc/image_pipe/config.toml:ro" \
   -v "$PWD/images:/data/images:ro" \
-  ghcr.io/hlindset/image_pipe_server:0.1.0
+  ghcr.io/hlindset/image_pipe_server:0.1
 ```
 
 With a signing key set, the server refuses URLs without a valid signature.

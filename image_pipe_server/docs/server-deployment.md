@@ -8,12 +8,16 @@ file and environment variables. The
 
 There are two variants:
 
-- `ghcr.io/hlindset/image_pipe_server:0.1.0`, without content-aware detection.
-- `ghcr.io/hlindset/image_pipe_server:0.1.0-vision`, which adds face and object
+- `ghcr.io/hlindset/image_pipe_server:0.1`, without content-aware detection.
+- `ghcr.io/hlindset/image_pipe_server:0.1-vision`, which adds face and object
   detection with the models baked into the image, so detection works without
   network access at runtime.
 
 Both read every input format ImagePipe supports, including JPEG XL.
+
+The `0.1` tags move to each new 0.1 patch release, so pulling them again
+picks up fixes. To pin one release, use its full version, such as `0.1.0` or
+`0.1.0-vision`.
 
 The `-vision` image loads the models for every detection class when it
 starts. To save memory, load only the ones your URLs use by setting
@@ -40,7 +44,7 @@ Mount the configuration file at `/etc/image_pipe/config.toml` (or name
 another path with `IPS_CONFIG`), mount your images, and give caches a volume:
 
 ```bash
-docker run --read-only --tmpfs /tmp -p 8080:8080 -v ./config.toml:/etc/image_pipe/config.toml:ro -v ./images:/data/images:ro -v image-cache:/var/cache/image_pipe ghcr.io/hlindset/image_pipe_server:0.1.0
+docker run --read-only --tmpfs /tmp -p 8080:8080 -v ./config.toml:/etc/image_pipe/config.toml:ro -v ./images:/data/images:ro -v image-cache:/var/cache/image_pipe ghcr.io/hlindset/image_pipe_server:0.1
 ```
 
 - The server writes only to `/tmp` and to cache directories, so the root
@@ -58,7 +62,7 @@ With Docker Compose:
 ```yaml
 services:
   images:
-    image: ghcr.io/hlindset/image_pipe_server:0.1.0
+    image: ghcr.io/hlindset/image_pipe_server:0.1
     read_only: true
     tmpfs:
       - /tmp
@@ -161,7 +165,7 @@ spec:
     runAsUser: 10001
   containers:
     - name: images
-      image: ghcr.io/hlindset/image_pipe_server:0.1.0
+      image: ghcr.io/hlindset/image_pipe_server:0.1
       ports:
         - containerPort: 8080
         - containerPort: 8081
@@ -255,7 +259,7 @@ you set it yourself.
 
 ## Detection
 
-Face and object detection need the `0.1.0-vision` image. Enabling it,
+Face and object detection need the `0.1-vision` image. Enabling it,
 requiring it, and checking that it runs are covered in
 [Enabling face and object detection](../../image_pipe/docs/enabling-detection.md).
 
@@ -285,7 +289,7 @@ configured by the standard `OTEL_*` variables. Export is off until an OTLP
 endpoint or an exporter is set:
 
 ```bash
-docker run -e OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318 -e OTEL_SERVICE_NAME=images ghcr.io/hlindset/image_pipe_server:0.1.0
+docker run -e OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318 -e OTEL_SERVICE_NAME=images ghcr.io/hlindset/image_pipe_server:0.1
 ```
 
 - `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` turns
