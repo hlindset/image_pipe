@@ -69,10 +69,21 @@ Stage durations for a warm hit (wall, from telemetry):
   - During the 8-source concurrent run, `file_server_2` had a non-empty queue in 62% of 2 ms samples (mean 0.86, max 3). It is the third-busiest process after `Admission` and the dirty signal handler (157 reductions per request).
   - `tprof` puts `:filename.join1b/4` (438 calls per hit), `:os.type/0` (67) and `:erlang.system_info/1` (81) near the top. All three come from the `Path` work here.
 - **Not measured:** a what-if that removed the symlink check was declined here as a security change, so the end-to-end win is inferred from the parts. The parts suggest about 10% of CPU and part of the gap between wall time and CPU time.
-- **Suggested fix (keeping the guarantee):**
-  - **Cache store:** check each `{root, prefix, first, second}` partition directory once and remember the result. An ETS set owned by the cache's supervisor works, as does a `:persistent_term` set. There are at most 65,536 entries, and they are created by the cache itself in `open_sink`. Then build `dir`/`meta_path` with binary concatenation. A symlink swapped in after the check is already a time-of-check race today, so memoizing doesn't open a new window, but Håvard should confirm that reading of the threat model.
-  - **File source:** `safe_path` already rejects `..` and separators in `valid_segment?`, so only the symlink resolution needs `read_link`. Resolve once per request and pass the resolved path from resolve to fetch, which halves it. Or, if symlinks under the root are meant to be followed, document that and use `Path.safe_relative/1`. That second option is a policy decision, not a performance one.
-  - Either way, call `:prim_file.read_link/1` rather than `:file.read_link/1` if a per-request check stays. It does the same check without routing through `file_server_2`.
+- **Threat model (needs Håvard's decision):** the two checks guard against different things.
+  - **Cache store (`validate_under_root`).** No request input reaches these paths. The cache key is a hex hash, and `partitions` checks its format. The check only matters once someone can already write to the cache directory and plants a symlink as a partition directory, for example `ab/` pointing to `/var/app`. ImagePipe would then write cache files there, and eviction would delete files there as the BEAM user. Anyone with that access can already poison every cached response, so the check stops cache-directory access from turning into writes and deletes outside the cache. In practice it guards against misconfiguration and shared roots rather than a request-driven attack.
+  - **File source (`safe_path`).** Here the path comes from the request URL. The check is what stops `/src/uploads/evil.jpg` from serving `/etc/passwd` when `evil.jpg` is a symlink. That matters whenever the source root holds content the host doesn't fully control, such as user uploads, extracted archives or checkouts. This is a real request-driven boundary.
+- **Raw mode (measured):** `:prim_file.read_link/1` makes the same `readlink` system call without going through `file_server_2`, so the guarantee is unchanged. `Path.safe_relative/2` has no raw option, so this needs a small segment walk of our own with `filelib`'s logic.
+
+  | test | through `file_server_2` | `:prim_file` |
+  |---|---|---|
+  | one process, per call | 22 µs | 18 µs |
+  | 8 processes × 5,000 calls | 336 ms | 148 ms (2.3× faster) |
+
+  Raw mode removes the serialization under load. A single request still pays for the system calls themselves, about 6 × 18 µs.
+- **Suggested fix (keeping both guarantees):**
+  - **Cache store:** check each `{root, prefix, first, second}` partition directory once and remember the result. An ETS set owned by the cache's supervisor works, as does a `:persistent_term` set. There are at most 65,536 entries, and the cache creates them itself in `open_sink`. Then build `dir`/`meta_path` with binary concatenation. A symlink swapped in after a check is already a time-of-check race today, so remembering the result opens no new window. Given the threat model above, this is the recommended option.
+  - **File source:** keep the check on every request, because it is the request-facing boundary. Do it with a raw segment walk (`:prim_file.read_link/1`). Resolve once per request and pass the resolved path from resolve to fetch, which halves the calls. `valid_segment?` already rejects `..` and separators, so only symlink resolution needs `readlink`.
+  - **Alternative for the cache store:** if Håvard prefers not to remember results, the same raw segment walk there still removes the file-server bottleneck. It keeps about 4 system calls per hit.
 
 ### 3. Two Admission hit casts per warm hit, and Admission is the busiest process under load
 
@@ -151,7 +162,7 @@ Stage durations for a warm hit (wall, from telemetry):
 ## Suggested order
 
 1. **#1 (skip the `Work` lock for validated-on-every-use records).** Small, contained, and +53% on a hot source.
-2. **#2 (memoize partition validation, resolve the source path once).** It removes the file-server singleton from the hot path. It needs Håvard's call on the symlink threat model.
+2. **#2 (memoize partition validation, resolve the source path once).** It removes the file-server singleton from the hot path. The threat model in #2 favours remembering checks for the cache store and a raw per-request check for the file source; Håvard decides.
 3. **#3 (drop or batch Admission hits for source-index entries).**
 4. **#4, #5 and #7 together.** Cheap CPU trims, test-first friendly.
 5. **#6** only if parse cost starts to matter.
