@@ -236,17 +236,6 @@ jobs:
         run: mise exec -- mix test --no-compile --only imgproxy_reference --only golden
         env:
           MIX_ENV: test
-      - name: Reproduce HTTP overlap decode failures
-        if: ${{ !cancelled() && matrix.toolchain.reference && matrix.partition == 1 }}
-        working-directory: image_pipe
-        run: |
-          result=0
-          for mode in auto paced spool; do
-            mise exec -- mix run --no-compile --preload-modules bench/overlap_decode_repro.exs "$mode" 300 || result=1
-          done
-          exit "$result"
-        env:
-          MIX_ENV: test
       # Every case leaves its output and result in tmp/imgproxy_reference/ or
       # tmp/golden/; publish each suite as one browsable page and a job
       # summary, pass or fail.

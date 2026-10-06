@@ -41,7 +41,9 @@ defmodule OverlapDecodeRepro do
     :ok =
       :telemetry.attach_many(
         __MODULE__,
-        Enum.map(stages, &(prefix ++ &1 ++ [:stop])),
+        Enum.flat_map(stages, fn stage ->
+          Enum.map([:start, :stop], &(prefix ++ stage ++ [&1]))
+        end),
         &capture/4,
         events
       )
@@ -215,8 +217,8 @@ defmodule OverlapDecodeRepro do
   end
 
   defp early_decode?(events, prefix) do
-    decode = stopped_at(events, prefix ++ [:source, :fetch_decode, :stop])
-    stage = stopped_at(events, prefix ++ [:source, :stage, :stop])
+    decode = event_at(events, prefix ++ [:source, :fetch_decode, :start])
+    stage = event_at(events, prefix ++ [:source, :stage, :stop])
 
     case {decode, stage} do
       {decode, stage} when is_integer(decode) and is_integer(stage) -> decode < stage
@@ -224,7 +226,7 @@ defmodule OverlapDecodeRepro do
     end
   end
 
-  defp stopped_at(events, name) do
+  defp event_at(events, name) do
     Enum.find_value(events, fn
       {:event, ^name, _measurements, _meta, at} -> at
       _other -> nil
