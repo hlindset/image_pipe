@@ -49,21 +49,21 @@ defmodule ImagePipe.Source.HTTP.TargetGuard do
   def default_resolver(host) do
     charlist = String.to_charlist(host)
 
-    v4 =
-      case :inet.getaddrs(charlist, :inet) do
-        {:ok, addrs} -> addrs
-        {:error, _} -> []
-      end
+    # The lookups are independent network round trips, so run them together.
+    # :inet.getaddrs/2 applies its own timeout.
+    v6_task = Task.async(fn -> getaddrs(charlist, :inet6) end)
+    v4 = getaddrs(charlist, :inet)
 
-    v6 =
-      case :inet.getaddrs(charlist, :inet6) do
-        {:ok, addrs} -> addrs
-        {:error, _} -> []
-      end
-
-    case v4 ++ v6 do
+    case v4 ++ Task.await(v6_task, :infinity) do
       [] -> {:error, :nxdomain}
       addresses -> {:ok, addresses}
+    end
+  end
+
+  defp getaddrs(charlist, family) do
+    case :inet.getaddrs(charlist, family) do
+      {:ok, addrs} -> addrs
+      {:error, _} -> []
     end
   end
 end
