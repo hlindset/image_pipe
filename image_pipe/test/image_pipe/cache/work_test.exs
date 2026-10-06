@@ -83,7 +83,7 @@ defmodule ImagePipe.Cache.WorkTest do
         end)
       end)
 
-    await_waiter(key)
+    await_waiter(key, follower)
     Task.shutdown(leader, :brutal_kill)
     assert Task.await(follower) == :released
   end
@@ -131,10 +131,34 @@ defmodule ImagePipe.Cache.WorkTest do
 
   # The follower's lock request reaches Work some time after it starts, so
   # the leader goes away only once Work holds the follower as a waiter.
-  defp await_waiter(key) do
-    case :sys.get_state(Work).locks do
-      %{^key => %{waiters: [_ | _]}} -> :ok
-      _not_queued -> await_waiter(key)
+  defp await_waiter(key, follower) do
+    monitor = Process.monitor(follower.pid)
+
+    try do
+      await_waiter(key, monitor, System.monotonic_time(:millisecond) + 5_000)
+    after
+      Process.demonitor(monitor, [:flush])
+    end
+  end
+
+  defp await_waiter(key, monitor, deadline) do
+    locks = :sys.get_state(Work).locks
+
+    receive do
+      {:DOWN, ^monitor, :process, _pid, reason} ->
+        flunk("follower exited before queuing: #{inspect(reason)}")
+    after
+      0 ->
+        cond do
+          match?(%{^key => %{waiters: [_ | _]}}, locks) ->
+            :ok
+
+          System.monotonic_time(:millisecond) > deadline ->
+            flunk("follower never queued for the key; Work locks: #{inspect(locks)}")
+
+          true ->
+            await_waiter(key, monitor, deadline)
+        end
     end
   end
 end
