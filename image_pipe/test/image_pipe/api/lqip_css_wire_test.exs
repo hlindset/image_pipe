@@ -7,6 +7,7 @@ defmodule ImagePipe.API.LqipCssWireTest do
   alias Image.Lqip.Css
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias Vix.Vips.Operation
 
   setup do
     image =
@@ -37,6 +38,46 @@ defmodule ImagePipe.API.LqipCssWireTest do
     response = request("output=lqip-css", mount(body, [], "image/jpeg"))
 
     assert response.resp_body == Css.encode!(Image.from_binary!(body))
+  end
+
+  # JPEG shrinks on load and PNG doesn't. Padding is sized in pixels, so a
+  # placeholder decoded smaller would pad a larger share of the frame.
+  describe "pad before a placeholder matches the full-size decode" do
+    setup do
+      image =
+        Image.new!(1600, 1200, color: :red)
+        |> Image.Draw.rect!(533, 0, 534, 1200, color: :lime)
+        |> Image.Draw.rect!(1067, 0, 533, 1200, color: :blue)
+
+      placeholders = fn output ->
+        for {suffix, type} <- [{".jpg", "image/jpeg"}, {".png", "image/png"}] do
+          body = Image.write!(image, :memory, suffix: suffix)
+          request("pad=200/output=#{output}", mount(body, [], type)).resp_body
+        end
+      end
+
+      %{placeholders: placeholders}
+    end
+
+    test "for lqip-css", %{placeholders: placeholders} do
+      [jpeg, png] = placeholders.("lqip-css")
+      assert jpeg == png
+    end
+
+    # JPEG compression moves the hash's last digits, so compare the colours it decodes to.
+    test "for blurhash", %{placeholders: placeholders} do
+      [jpeg, png] = placeholders.("blurhash")
+      assert blurhash_difference(jpeg, png) < 3
+    end
+  end
+
+  defp blurhash_difference(a, b) do
+    {:ok, a} = Image.Blurhash.decode(a, 32, 24)
+    {:ok, b} = Image.Blurhash.decode(b, 32, 24)
+    {:ok, difference} = Operation.subtract(a, b)
+    {:ok, difference} = Operation.abs(difference)
+    {:ok, mean} = Operation.avg(difference)
+    mean
   end
 
   test "effects without geometry and grouped transforms reach the placeholder", %{body: body} do
