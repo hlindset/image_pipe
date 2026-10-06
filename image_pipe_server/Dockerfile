@@ -9,11 +9,16 @@
 #
 # IMAGE_VISION=1 bundles the default detector (image_vision with ONNX Runtime)
 # and bakes its models into the image.
+#
+# IMAGE_PIPE_LIBS=hex builds against the image_pipe version the server
+# releases with (@image_pipe_version in mix.exs) from Hex instead of the
+# sibling projects. Release images build this way.
 
 ARG ELIXIR_IMAGE=hexpm/elixir:1.20.4-erlang-29.1.1-debian-trixie-20260918-slim
 ARG RUNTIME_IMAGE=debian:trixie-20260918-slim
+ARG IMAGE_PIPE_LIBS=path
 
-FROM ${ELIXIR_IMAGE} AS build
+FROM ${ELIXIR_IMAGE} AS toolchain
 
 # libvips is built from source for JPEG XL decoding, which the libvips bundled
 # with the precompiled vix NIF lacks, PNG palette quantization, and highway
@@ -65,16 +70,30 @@ ENV MIX_ENV=prod VIX_COMPILATION_MODE=PLATFORM_PROVIDED_LIBVIPS
 WORKDIR /src
 RUN mix local.hex --force && mix local.rebar --force
 
+# Only the stages IMAGE_PIPE_LIBS selects are built. Each mode adds the
+# library manifests before fetching dependencies and the library sources after
+# compiling them, so a library source change doesn't recompile dependencies.
+FROM toolchain AS manifests-path
 COPY image_pipe_url/mix.exs image_pipe_url/mix.lock image_pipe_url/
 COPY image_pipe/mix.exs image_pipe/mix.lock image_pipe/
+
+FROM toolchain AS manifests-hex
+ENV IMAGE_PIPE_LIBS=hex
+
+FROM manifests-${IMAGE_PIPE_LIBS} AS deps
 COPY image_pipe_server/mix.exs image_pipe_server/mix.lock image_pipe_server/
 COPY image_pipe_server/config image_pipe_server/config
 WORKDIR /src/image_pipe_server
 RUN mix deps.get --only prod && mix deps.compile
 
+FROM deps AS sources-path
 COPY image_pipe_url/lib /src/image_pipe_url/lib
 COPY image_pipe/lib /src/image_pipe/lib
 COPY image_pipe/priv/icc /src/image_pipe/priv/icc
+
+FROM deps AS sources-hex
+
+FROM sources-${IMAGE_PIPE_LIBS} AS build
 COPY image_pipe_server/lib lib
 COPY image_pipe_server/rel rel
 RUN mix compile && mix release

@@ -9,7 +9,7 @@ You need Docker, port 8080 free, and a JPEG photo.
 ## Getting the server image
 
 ```bash
-docker pull ghcr.io/hlindset/image_pipe_server:0.1.0
+docker pull ghcr.io/hlindset/image_pipe_server:0.1
 ```
 
 ## Adding a folder of images
@@ -64,7 +64,7 @@ our `images` folder mounted at the paths in `config.toml`:
 docker run -d --name image-server -p 8080:8080 \
   -v "$PWD/config.toml:/etc/image_pipe/config.toml:ro" \
   -v "$PWD/images:/data/images:ro" \
-  ghcr.io/hlindset/image_pipe_server:0.1.0
+  ghcr.io/hlindset/image_pipe_server:0.1
 ```
 
 The server reads `/etc/image_pipe/config.toml` at startup. Open

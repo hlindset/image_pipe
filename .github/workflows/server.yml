@@ -68,3 +68,71 @@ jobs:
         run: mise exec -- mix compile --warnings-as-errors
       - name: Run tests
         run: mise exec -- mix test --no-compile
+
+  # Informational: whether the server on main builds and passes its tests
+  # against the image_pipe version it releases with (@image_pipe_version) from
+  # Hex, so it can be released without a library release first. Between
+  # releases the server may use library code that isn't on Hex yet, so the job
+  # reports the answer as an annotation and always succeeds. Its cache is the
+  # one the Server release workflow reads.
+  releasable:
+    name: Releasable without a library release
+    if: github.event_name == 'push'
+    runs-on: ubuntu-26.04
+    env:
+      MIX_ENV: test
+      IMAGE_PIPE_LIBS: hex
+    defaults:
+      run:
+        working-directory: image_pipe_server
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Runner image
+        id: runner
+        run: |
+          echo "image=$ImageOS" >> "$GITHUB_OUTPUT"
+          # Workaround: see the test job.
+          echo "MISE_ERLANG_PRECOMPILED_OS=${ImageOS/ubuntu/ubuntu-}.04" >> "$GITHUB_ENV"
+      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+      - name: Install Hex
+        run: mise exec -- mix local.hex --force
+      - name: Install Rebar
+        run: mise exec -- mix local.rebar --force
+      # Saved only after a passing run, so a failed fetch doesn't take the key.
+      - name: Restore deps and build
+        id: cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            image_pipe_server/deps
+            image_pipe_server/_build
+          key: server-release-mix-hex-${{ steps.runner.outputs.image }}-${{ hashFiles('mise.toml') }}-${{ hashFiles('image_pipe_server/mix.exs', 'image_pipe_server/mix.lock') }}
+          restore-keys: |
+            server-release-mix-hex-${{ steps.runner.outputs.image }}-${{ hashFiles('mise.toml') }}-
+      - name: Test against Hex
+        id: hex
+        continue-on-error: true
+        run: |
+          mise exec -- mix deps.get
+          mise exec -- mix compile --warnings-as-errors
+          mise exec -- mix test --no-compile
+      - name: Save deps and build
+        if: steps.hex.outcome == 'success' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            image_pipe_server/deps
+            image_pipe_server/_build
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+      - name: Report
+        env:
+          OUTCOME: ${{ steps.hex.outcome }}
+        run: |
+          pinned="$(../scripts/check-versions.sh server-libraries)"
+          if [[ "$OUTCOME" == success ]]; then
+            echo "::notice title=Releasable::The server passes its tests against image_pipe $pinned from Hex."
+          else
+            echo "::warning title=Not releasable::The server fails against image_pipe $pinned from Hex. Release the libraries first, or see the Test against Hex step."
+          fi
