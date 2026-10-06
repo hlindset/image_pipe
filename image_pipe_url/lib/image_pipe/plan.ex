@@ -35,13 +35,33 @@ defmodule ImagePipe.Plan do
   alias ImagePipe.Plan.Spec
   alias ImagePipe.Plan.Spec.Issue
 
-  defstruct groups: [], options: %{}
+  # `issues` holds the builder's own findings: options it rejected, and
+  # mistakes it repaired. `rejected` holds each rejected option's location
+  # and value, so a URL can still be written with them. `output/2` keeps its
+  # own in `output_issues` and `output_rejected`, which a later call
+  # replaces option by option.
+  defstruct groups: [],
+            options: %{},
+            issues: [],
+            rejected: [],
+            output_issues: [],
+            output_rejected: []
 
-  @opaque t :: %__MODULE__{groups: [map()], options: map()}
+  @opaque t :: %__MODULE__{
+            groups: [map()],
+            options: map(),
+            issues: [Issue.t()],
+            rejected: [{Issue.location(), term()}],
+            output_issues: [Issue.t()],
+            output_rejected: [{Issue.location(), term()}]
+          }
 
   @doc false
   @spec new(keyword()) :: t()
-  def new(options), do: %__MODULE__{options: Options.request!(options)}
+  def new(options) do
+    {options, issues, rejected} = Options.request(options)
+    %__MODULE__{options: options, issues: issues, rejected: rejected}
+  end
 
   # The request controls `new/1` accepts, for generated documentation.
   @doc false
@@ -51,14 +71,74 @@ defmodule ImagePipe.Plan do
   @doc false
   @spec group(t(), keyword()) :: t()
   def group(%__MODULE__{} = plan, options) do
-    group = Options.group!(options)
-    %{plan | groups: plan.groups ++ [group]}
+    case Options.group(options, length(plan.groups)) do
+      {:empty, issues, []} ->
+        empty = %Issue{reason: :empty_group, locations: [], detail: nil, severity: :warning}
+        %{plan | issues: plan.issues ++ issues ++ [empty]}
+
+      {group, issues, rejected} ->
+        %{
+          plan
+          | groups: plan.groups ++ [group],
+            issues: plan.issues ++ issues,
+            rejected: plan.rejected ++ rejected
+        }
+    end
   end
 
   @doc false
   @spec output(t(), keyword()) :: t()
   def output(%__MODULE__{} = plan, options) do
-    %{plan | options: Map.merge(plan.options, Options.output!(options))}
+    {values, issues, rejected} = Options.output(options)
+    given = options |> Keyword.keys() |> Enum.filter(&Options.output_option?/1)
+    given? = &(elem(&1, 1) in given)
+
+    # An option given again replaces its earlier value, and any mistake an
+    # earlier output/2 call recorded for it.
+    %{
+      plan
+      | options: plan.options |> Map.drop(given) |> Map.merge(values),
+        output_issues:
+          Enum.reject(plan.output_issues, &Enum.any?(&1.locations, given?)) ++ issues,
+        output_rejected: Enum.reject(plan.output_rejected, &given?.(elem(&1, 0))) ++ rejected
+    }
+  end
+
+  # Replaces the value of each rejected `key` option with an empty string.
+  @doc false
+  @spec blank_rejected(t(), atom()) :: t()
+  def blank_rejected(%__MODULE__{} = plan, key) do
+    blank =
+      &Enum.map(&1, fn {location, value} ->
+        if elem(location, tuple_size(location) - 1) == key,
+          do: {location, ""},
+          else: {location, value}
+      end)
+
+    %{plan | rejected: blank.(plan.rejected), output_rejected: blank.(plan.output_rejected)}
+  end
+
+  # The builder's own issues: `{:ok, warnings}`, or `{:error, issues}` with
+  # the errors first.
+  @doc false
+  @spec built(t()) :: {:ok, [Issue.t()]} | {:error, [Issue.t()]}
+  def built(%__MODULE__{} = plan), do: split(plan.issues ++ plan.output_issues)
+
+  defp split(issues) do
+    case Enum.split_with(issues, &(&1.severity == :warning)) do
+      {warnings, []} -> {:ok, warnings}
+      {warnings, errors} -> {:error, errors ++ warnings}
+    end
+  end
+
+  # Adds the builder's warnings to a check's result.
+  defp with_built(%__MODULE__{} = plan, check) do
+    with {:ok, warnings} <- built(plan) do
+      case check.() do
+        {:ok, more} -> {:ok, warnings ++ more}
+        {:error, issues} -> split(issues ++ warnings)
+      end
+    end
   end
 
   # Rewrites each group in order, stopping at the first error.
@@ -83,14 +163,20 @@ defmodule ImagePipe.Plan do
   @spec validate(t(), map(), map() | nil, Spec.Validation.watermarks()) ::
           {:ok, [Issue.t()]} | {:error, [Issue.t()]}
   def validate(%__MODULE__{} = plan, presets \\ %{}, defaults \\ nil, watermarks \\ nil) do
-    with {:ok, request} <- to_spec(plan, presets, defaults, watermarks),
-         do: {:ok, request.ignored}
+    with_built(plan, fn ->
+      with {:ok, request} <- spec(plan, presets, defaults, watermarks),
+           do: {:ok, request.ignored}
+    end)
   end
 
   @doc false
   @spec to_spec(t(), map(), map() | nil, Spec.Validation.watermarks()) ::
           {:ok, Spec.t()} | {:error, [Issue.t()]}
   def to_spec(%__MODULE__{} = plan, presets \\ %{}, defaults \\ nil, watermarks \\ nil) do
+    with {:ok, _warnings} <- built(plan), do: spec(plan, presets, defaults, watermarks)
+  end
+
+  defp spec(plan, presets, defaults, watermarks) do
     indexed = plan |> groups() |> Enum.with_index() |> Map.new(fn {group, i} -> {i, group} end)
 
     with {:ok, expanded} <- Presets.expand(indexed, plan.options, presets, defaults),
@@ -116,7 +202,10 @@ defmodule ImagePipe.Plan do
   @doc false
   @spec validate_known(t(), map(), map() | nil, Spec.Validation.watermarks()) ::
           {:ok, [Issue.t()]} | {:error, [Issue.t()]}
-  def validate_known(%__MODULE__{} = plan, presets, defaults, watermarks) do
+  def validate_known(%__MODULE__{} = plan, presets, defaults, watermarks),
+    do: with_built(plan, fn -> known(plan, presets, defaults, watermarks) end)
+
+  defp known(plan, presets, defaults, watermarks) do
     indexed = plan |> groups() |> Enum.with_index() |> Map.new(fn {group, i} -> {i, group} end)
 
     unknown =
@@ -127,7 +216,8 @@ defmodule ImagePipe.Plan do
 
     case unknown do
       [] ->
-        validate(plan, presets, defaults, watermarks)
+        with {:ok, request} <- spec(plan, presets, defaults, watermarks),
+             do: {:ok, request.ignored}
 
       unknown ->
         validate_known_groups(indexed, plan.options, presets, defaults, watermarks, unknown)

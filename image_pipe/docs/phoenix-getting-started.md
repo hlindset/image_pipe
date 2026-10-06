@@ -1,10 +1,10 @@
 # Getting started with Phoenix
 
-In this guide we'll add ImagePipe to a new Phoenix app, serve resized and
-cropped copies of a photo from it, and show one on a page.
+In this guide we'll add ImagePipe to a new Phoenix app, serve resized copies
+of an image from it, and show one on a page, with its URL built in the template.
 
 You need Elixir 1.18 or newer, the Phoenix installer (`mix archive.install
-hex phx_new`), and a JPEG photo.
+hex phx_new`), and a JPEG image.
 
 ## Creating the app
 
@@ -25,27 +25,28 @@ defp deps do
 end
 ```
 
-ImagePipe needs a newer `req` than a new Phoenix app locks, so we unlock it
-before fetching:
+> #### ImagePipe needs `req` 0.8.0-rc.0 {: .warning}
+>
+> ImagePipe depends on `req` `~> 0.8.0-rc.0`, and a new Phoenix app locks an
+> older version. Unlock it before fetching, or `mix deps.get` stops with a
+> version conflict over `req`:
+>
+> ```bash
+> mix deps.unlock req
+> mix deps.get
+> ```
 
-```bash
-mix deps.unlock req
-mix deps.get
-```
-
-Without the unlock, `mix deps.get` stops with a version conflict over `req`.
-
-## Adding a folder of photos
+## Adding a folder of images
 
 ImagePipe reads originals from a folder and makes processed copies of them on
-request. Create `priv/photos` and copy your photo into it as `photo.jpg`:
+request. Create `priv/originals` and copy your image into it as `cat.jpg`:
 
 ```bash
-mkdir -p priv/photos
-cp /path/to/your/photo.jpg priv/photos/photo.jpg
+mkdir -p priv/originals
+cp /path/to/your/image.jpg priv/originals/cat.jpg
 ```
 
-The examples below use a 4000×2667 photo. With your photo, the widths match
+The examples below use a 4000×2667 image. With your image, the widths match
 and the heights follow its proportions.
 
 ## Starting ImagePipe
@@ -61,10 +62,10 @@ children = [
   {ImagePipe,
    name: Gallery.Images,
    sources: [
-     photos: [
+     originals: [
        adapter: ImagePipe.Source.File,
        match: :path,
-       options: [root: Application.app_dir(:gallery, "priv/photos"), root_id: "photos"]
+       options: [root: Application.app_dir(:gallery, "priv/originals"), root_id: "originals"]
      ]
    ]},
   # Start to serve requests, typically the last entry
@@ -73,11 +74,11 @@ children = [
 ```
 
 This starts an ImagePipe instance named `Gallery.Images` with one source
-named `photos`. A source is a place ImagePipe reads originals from:
+named `originals`. A source is a place ImagePipe reads originals from:
 
 - `adapter: ImagePipe.Source.File` reads files from a directory.
 - `match: :path` sends every image path in a URL to this source.
-- `root` is that directory, `priv/photos` in our app.
+- `root` is that directory, `priv/originals` in our app.
 - `root_id` is a stable name for this directory.
 
 ## Mounting the Plug
@@ -108,46 +109,39 @@ Start the app:
 mix phx.server
 ```
 
-If it stops at startup with an `ArgumentError`, the message names the
-setting to fix in `application.ex`.
+```text
+[info] Running GalleryWeb.Endpoint with Bandit 1.x.x at 127.0.0.1:4000 (http)
+```
 
 An image URL lists processing options, then `src/`, then the image's path in
-the source. Let's ask for `photo.jpg` at 400 pixels wide. Open this URL:
+the source. Let's ask for `cat.jpg` at 400 pixels wide. Open this URL:
 
-<http://localhost:4000/media/w=400/src/photo.jpg>
+<http://localhost:4000/media/w=400/src/cat.jpg>
 
 ```text
-GET /media/w=400/src/photo.jpg (in Chrome)
+GET /media/w=400/src/cat.jpg (in Chrome)
 200 OK, content-type: image/avif, 400×267
 ```
 
 Notice that:
 
-- `/media` is where we mounted the Plug, and `src/photo.jpg` is
-  `priv/photos/photo.jpg`.
-- `w=400` sets only the width. The height follows the photo's proportions.
+- `/media` is where we mounted the Plug, and `src/cat.jpg` is
+  `priv/originals/cat.jpg`.
 - The original is a JPEG, but Chrome got AVIF. Without a `format` option,
   ImagePipe picks AVIF or WebP when the browser accepts it.
 
 If you mistype the file name, ImagePipe answers `404` with the body
-`source not found`. If you leave out `src/`, as in `/media/w=400/photo.jpg`,
-it answers `400` with the body `invalid transformation options`.
-
-## Cropping to a square
-
-With a width and a height, `fit=cover` fills the whole box and crops what
-doesn't fit:
-
-<http://localhost:4000/media/w=300/h=300/fit=cover/src/photo.jpg>
+`source not found`. If you leave out `src/`, as in `/media/w=400/cat.jpg`,
+it answers `400`, and the body points at the problem:
 
 ```text
-GET /media/w=300/h=300/fit=cover/src/photo.jpg
-200 OK, content-type: image/avif, 300×300
-```
+invalid transformation options
 
-The photo covers the whole square, with the sides cropped off and the center
-kept. Without `fit=cover`, the whole photo stays visible and the result is
-300×200.
+/w=400/cat.jpg
+              ^
+              |
+              missing src/, src64/, or enc/ before the image path
+```
 
 ## Showing the image on a page
 
@@ -157,19 +151,83 @@ Replace the contents of
 
 ```heex
 <Layouts.app flash={@flash}>
-  <img src={~p"/media/w=400/h=300/fit=cover/src/photo.jpg"} alt="A photo" />
+  <img src={~p"/media/w=400/h=300/fit=cover/src/cat.jpg"} alt="A cat" />
 </Layouts.app>
 ```
 
-Open <http://localhost:4000>. The page shows a 400×300 crop of the photo.
-Notice that `~p` checks the path against the router: a typo in `/media`
-gives a compile warning, while the options after it are checked by ImagePipe
-when the image is requested.
+Open <http://localhost:4000>. The page shows a 400×300 copy of the image,
+cropped to fill the box by `fit=cover`.
+
+## Building URLs in templates
+
+ImagePipe can build URLs from the instance's settings. First, set
+`base_url` to the path of the `forward`:
+
+```elixir
+# lib/gallery/application.ex
+{ImagePipe,
+ name: Gallery.Images,
+ base_url: "/media",
+ sources: [
+   # ...
+ ]},
+```
+
+Then make ImagePipe's `image_url` helper available in every template. In
+`lib/gallery_web.ex`, add a line to `html_helpers`:
+
+```elixir
+# lib/gallery_web.ex
+defp html_helpers do
+  quote do
+    # ... the generated imports and aliases
+    use ImagePipe.URL.Helpers, instance: Gallery.Images
+  end
+end
+```
+
+Stop the server (Ctrl+C twice) and start it again with
+`mix phx.server`, so the instance picks up `base_url`. Then replace
+the hand-written path in the template:
+
+```heex
+<Layouts.app flash={@flash}>
+  <img
+    src={image_url("cat.jpg", group: [resize: [width: 400, height: 300, fit: :cover]])}
+    alt="A cat"
+  />
+</Layouts.app>
+```
+
+Reload <http://localhost:4000>. The page looks the same, and the image's
+address is `/media/w=400/h=300/fit=cover/src/cat.jpg`, the path we wrote by
+hand before. Each `group:` holds the options of one processing step, and
+`resize:` writes `w=`, `h=`, and `fit=`.
+
+Now change `fit: :cover` to `fit: :bogus` and save. When Phoenix
+recompiles the template, the terminal shows a warning that points at its
+line:
+
+```text
+warning: image_url: invalid_value at {:group, 0, :fit}: invalid value for :fit option: expected one of [:contain, :cover, :stretch, :auto], got: :bogus
+└─ lib/gallery_web/controllers/page_html/home.html.heex:3: GalleryWeb.PageHTML.home/1
+```
+
+Notice that the mistake shows up when the template compiles. The page still
+renders: the server rejects the image's URL with `400`, so the browser shows
+a broken image in place of the cat, and each render logs:
+
+```text
+[warning] image_url (lib/gallery_web/controllers/page_html/home.html.heex:3): invalid_value at {:group, 0, :fit}
+```
+
+Change it back to `fit: :cover`.
 
 ## Next steps
 
 We started an ImagePipe instance, mounted it in the router, and served
-resized and cropped copies of a photo to a page. From here:
+resized copies of an image to a page, with URLs written by hand and built in
+the template. From here:
 
 - [Requesting images](requesting-images.md): how URLs are built, option
   values, presets, and error responses.
@@ -181,6 +239,8 @@ resized and cropped copies of a photo to a page. From here:
   `Plug.Router`.
 - [Serving and processing in one app](combined-usage.md): build URLs and process
   images in code with the same configuration.
+- `ImagePipe.URL.Helpers`: what `image_url` checks, and failing the build or
+  tests on a mistake.
 
 Before deploying, set up [URL signing](signing-urls.md) so only your app can
 create image URLs, and [caching](caching-processed-images.md) so each copy is

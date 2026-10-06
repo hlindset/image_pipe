@@ -149,11 +149,22 @@ iex> byte_size(result.data)
 Open `square.jpg`. The photo covers the whole square, with the sides cropped
 off and the center kept.
 
-An invalid option value raises an `ArgumentError` when you build the
-plan, before any image is read. With `fit: :fill`:
+With a mistake in an option, such as `fit: :fill`, `run` returns an error
+without reading the image:
 
-```text
-** (ArgumentError) invalid value for :fit option: expected one of [:contain, :cover, :stretch, :auto], got: :fill
+```elixir
+iex> fill = ImagePipe.URL.new() |> ImagePipe.URL.group(resize: [width: 300, height: 300, fit: :fill])
+iex> ImagePipe.run(config, fill, {:file, "photo.jpg"})
+{:error,
+ {:invalid_request,
+  [
+    %ImagePipe.Plan.Spec.Issue{
+      reason: :invalid_value,
+      locations: [{:group, 0, :fit}],
+      detail: "invalid value for :fit option: expected one of [:contain, :cover, :stretch, :auto], got: :fill",
+      severity: :error
+    }
+  ]}}
 ```
 
 ## Choosing the output format

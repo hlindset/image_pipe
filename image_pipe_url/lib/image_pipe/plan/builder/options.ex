@@ -3,6 +3,7 @@ defmodule ImagePipe.Plan.Builder.Options do
 
   alias ImagePipe.Plan.Builder.OutputOptions
   alias ImagePipe.Plan.Builder.Values
+  alias ImagePipe.Plan.Spec.Issue
 
   @anchors [
     :center,
@@ -17,9 +18,15 @@ defmodule ImagePipe.Plan.Builder.Options do
   ]
   @axes [:horizontal, :vertical, :both]
 
+  # Options whose value may start with `:unset` to clear lower layers first.
+  @layered [:format_qualities, :jpeg_options, :png_options, :webp_options, :avif_options]
+
   @docs "https://hexdocs.pm/image_pipe"
 
-  def request!(options), do: validate_unsettable!(options, request_schema())
+  # Each function returns the options it accepts, the issues it found, and
+  # each rejected option's location and value. Locations name request
+  # options `{:request, key}`.
+  def request(options), do: collect(options, request_schema(), &{:request, &1})
 
   def request_schema do
     [
@@ -80,38 +87,151 @@ defmodule ImagePipe.Plan.Builder.Options do
     ]
   end
 
-  def group!(options) do
-    {resize, group} =
-      options
-      |> validate_unsettable!(group_schema(), Keyword.keys(transform_schema()))
-      |> Map.pop(:resize, [])
+  # Returns `:empty` for a group with no options and no errors.
+  def group(options, index) do
+    location = &{:group, index, &1}
 
+    {group, issues, rejected} =
+      collect(options, group_schema(), location,
+        unsettable: Keyword.keys(transform_schema()),
+        flat: [:resize]
+      )
+
+    {resize, group} = Map.pop(group, :resize, [])
     group = if Map.get(group, :presets) == [], do: Map.delete(group, :presets), else: group
+    {resize, resize_issues, resize_rejected} = collect(resize, resize_schema(), location)
+    issues = issues ++ resize_issues
+    rejected = rejected ++ resize_rejected
 
-    case Map.merge(group, validate_unsettable!(resize, resize_schema())) do
-      values when map_size(values) > 0 -> values
-      _empty -> raise ArgumentError, "a group must contain at least one option"
+    case Map.merge(group, resize) do
+      values when map_size(values) == 0 and rejected == [] -> {:empty, issues, []}
+      values -> {values, issues, rejected}
     end
   end
 
-  def output!(options), do: validate_unsettable!(options, OutputOptions.schema())
+  def output(options), do: collect(options, OutputOptions.schema(), &{:request, &1})
+
+  def output_option?(key), do: Keyword.has_key?(OutputOptions.schema(), key)
 
   # Every option accepts `:unset`, which clears it from presets and request
   # defaults. Unset options skip validation, so an error lists only the
-  # values the option really takes.
-  defp validate_unsettable!(options, schema, unsettable \\ nil) do
-    unsettable = unsettable || Keyword.keys(schema)
+  # values the option really takes. A mistake with one clear meaning is
+  # repaired with a warning, and any other rejects only its own option.
+  # `:flat` names keyword options checked by their own schema later.
+  defp collect(options, schema, location, opts \\ []) do
+    unless is_list(options) and Keyword.keyword?(options),
+      do: raise(ArgumentError, "expected a keyword list, got: #{inspect(options)}")
 
-    with :ok <- unique_keywords(options),
-         {unset, set} = Enum.split_with(options, &unset?(&1, unsettable)),
-         {:ok, values} <- validate(set, schema) do
-      Map.merge(Map.new(values), Map.new(unset))
-    else
-      {:error, message} -> raise ArgumentError, message
+    unsettable = Keyword.get(opts, :unsettable, Keyword.keys(schema))
+    {options, repeated} = last_values(options, location, Keyword.get(opts, :flat, []))
+
+    {values, issues, rejected} =
+      Enum.reduce(options, {%{}, [], []}, fn {key, value}, {values, issues, rejected} ->
+        {value, unset_issues} = collapse_unset(key, value, location)
+
+        case check(key, value, schema, unsettable, location) do
+          {:ok, checked} ->
+            {Map.put(values, key, checked), issues ++ unset_issues, rejected}
+
+          {:error, issue} ->
+            {values, issues ++ unset_issues ++ [issue], rejected ++ [{location.(key), value}]}
+        end
+      end)
+
+    {values, repeated ++ issues, rejected}
+  end
+
+  defp check(key, :unset, schema, unsettable, location) do
+    case key in unsettable do
+      true -> {:ok, :unset}
+      false -> check_value(key, :unset, schema, location)
     end
   end
 
-  defp unset?({key, value}, unsettable), do: value == :unset and key in unsettable
+  defp check(key, value, schema, _unsettable, location),
+    do: check_value(key, value, schema, location)
+
+  defp check_value(key, value, schema, location) do
+    case Keyword.fetch(schema, key) do
+      {:ok, spec} ->
+        case NimbleOptions.validate([{key, value}], [{key, spec}]) do
+          {:ok, [{^key, value}]} ->
+            {:ok, value}
+
+          {:error, error} ->
+            {:error, issue(:invalid_value, location.(key), Exception.message(error))}
+        end
+
+      :error ->
+        {:error, issue(:unknown_option, location.(key), nil)}
+    end
+  end
+
+  # A name given twice keeps its last value, at every level of nesting.
+  defp last_values(options, location, flat) do
+    keys = Keyword.keys(options)
+    repeated = keys |> Enum.frequencies() |> Map.filter(fn {_key, n} -> n > 1 end)
+
+    options =
+      options
+      |> Enum.reverse()
+      |> Enum.uniq_by(&elem(&1, 0))
+      |> Enum.reverse()
+      |> Enum.map(fn {key, value} ->
+        case key in flat do
+          true -> {key, value, false}
+          false -> Tuple.insert_at(nested_last_values(value), 0, key)
+        end
+      end)
+
+    issues =
+      for {key, _value, nested?} <- options,
+          Map.has_key?(repeated, key) or nested?,
+          do: issue(:repeated_option, location.(key), nil, :warning)
+
+    {Enum.map(options, fn {key, value, _nested?} -> {key, value} end), issues}
+  end
+
+  defp nested_last_values([_ | _] = value) do
+    {unsets, rest} = Enum.split_while(value, &(&1 == :unset))
+
+    case rest != [] and Keyword.keyword?(rest) do
+      true ->
+        {rest, repeated?} =
+          Enum.map_reduce(Enum.reverse(rest) |> Enum.uniq_by(&elem(&1, 0)), false, fn
+            {key, value}, repeated? ->
+              {value, nested?} = nested_last_values(value)
+              {{key, value}, repeated? or nested?}
+          end)
+
+        {unsets ++ Enum.reverse(rest), repeated? or length(rest) < length(value) - length(unsets)}
+
+      false ->
+        {value, false}
+    end
+  end
+
+  defp nested_last_values(value), do: {value, false}
+
+  # A lone `:unset` in a list means the same as `:unset`, and a repeated
+  # leading `:unset` the same as one.
+  defp collapse_unset(key, [:unset | _] = value, location) when key in @layered do
+    case Enum.split_while(value, &(&1 == :unset)) do
+      {_unsets, []} ->
+        {:unset, [issue(:redundant_unset, location.(key), nil, :warning)]}
+
+      {[_], _rest} ->
+        {value, []}
+
+      {_unsets, rest} ->
+        {[:unset | rest], [issue(:redundant_unset, location.(key), nil, :warning)]}
+    end
+  end
+
+  defp collapse_unset(_key, value, _location), do: {value, []}
+
+  defp issue(reason, location, detail, severity \\ :error),
+    do: %Issue{reason: reason, locations: [location], detail: detail, severity: severity}
 
   defp group_schema do
     [

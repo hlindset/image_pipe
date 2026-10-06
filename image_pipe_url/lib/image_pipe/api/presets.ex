@@ -9,7 +9,9 @@ defmodule ImagePipe.API.Presets do
   alias ImagePipe.API.OptionSpec
   alias ImagePipe.API.Parser
   alias ImagePipe.API.Serializer
+  alias ImagePipe.Plan
   alias ImagePipe.Plan.Presets
+  alias ImagePipe.Plan.Spec.Issue
 
   @type compiled :: %{presets: map(), request_defaults: map() | nil}
 
@@ -90,8 +92,12 @@ defmodule ImagePipe.API.Presets do
 
   defp fragment(_label, fragment) when is_binary(fragment), do: {:ok, fragment}
 
-  defp fragment(_label, {:plan, plan}),
-    do: {:ok, plan |> Serializer.segments() |> Enum.join("/")}
+  defp fragment(label, {:plan, plan}) do
+    case Plan.built(plan) do
+      {:ok, _warnings} -> {:ok, plan |> Serializer.segments() |> Enum.join("/")}
+      {:error, issues} -> {:error, "#{label} is invalid: #{Issue.summary(issues)}"}
+    end
+  end
 
   defp fragment(label, _value),
     do: {:error, "#{label} must be an option fragment string or an ImagePipe.URL builder"}

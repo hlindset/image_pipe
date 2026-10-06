@@ -43,8 +43,40 @@ forward "/images", ImagePipe.Plug, instance: MyApp.Images
 
 ## Building URLs for pages
 
-`ImagePipe.url_config/2` returns the instance's URL settings. Build URLs
-from them, so they carry the right base URL and signature:
+Add `use ImagePipe.URL.Helpers` to `html_helpers`, naming the instance. It
+imports `ImagePipe.URL.Helpers.image_url/2` into your templates:
+
+```elixir
+# lib/my_app_web.ex
+defp html_helpers do
+  quote do
+    # ...
+    use ImagePipe.URL.Helpers, instance: MyApp.Images
+  end
+end
+```
+
+Then build image URLs in templates:
+
+```heex
+<img
+  src={image_url(@photo.path, group: [resize: [width: 400, height: 300, fit: :cover]])}
+  alt={@photo.description}
+/>
+```
+
+With `@photo.path` set to `"photos/beach.jpg"`, the `src` is
+`"/images/w=400/h=300/fit=cover/src/photos%2Fbeach.jpg"`. URLs use the
+instance's base URL, and carry a signature when it sets `keys:`.
+
+A mistake in an option written in the call, such as `fit: :fill`, is a
+compiler warning at the template's line. A mistake that shows only when the
+page renders, such as an assign with a value no option accepts, is logged
+as a warning, and that image is broken while the rest of the page renders.
+`ImagePipe.URL.Helpers` describes both checks.
+
+Outside templates, build URLs from the instance's URL settings with
+`ImagePipe.url_config/2`:
 
 ```elixir
 def thumbnail_url(path) do
@@ -56,14 +88,8 @@ def thumbnail_url(path) do
 end
 ```
 
-```heex
-<img src={thumbnail_url(@photo.path)} alt={@photo.description} />
-```
-
-`thumbnail_url("photos/beach.jpg")` returns
-`"/images/w=400/h=300/fit=cover/src/photos/beach.jpg"`. When the instance
-sets `keys:`, the URL also carries a signature. A builder that uses
-`presets:` is checked against the instance's presets when you build it.
+`ImagePipe.URL.url!/3` checks the options against the instance's presets
+and request defaults, and raises `ArgumentError` on an error.
 
 ## Processing in a job
 
@@ -83,7 +109,7 @@ builder =
 
 `run` stores the result in the instance's cache: new files appear under
 the cache's `root`. A browser that requests
-`/images/w=400/h=300/fit=cover/src/photos/beach.jpg` and accepts AVIF gets the
+`/images/w=400/h=300/fit=cover/src/photos%2Fbeach.jpg` and accepts AVIF gets the
 same bytes from the cache, without processing the image again. The reverse
 works too: a job gets an image a browser already requested from the cache.
 

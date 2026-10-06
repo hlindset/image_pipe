@@ -11,8 +11,19 @@ def deps do
 end
 ```
 
-Run `mix deps.get` in your application. If it reports a version conflict
-over `req`, as in a new Phoenix app, run `mix deps.unlock req` and try again.
+Run `mix deps.get` in your application.
+
+> #### ImagePipe needs `req` 0.8.0-rc.0 {: .warning}
+>
+> ImagePipe depends on `req` `~> 0.8.0-rc.0`. If your app locks an older
+> version, as a new Phoenix app does, `mix deps.get` stops with a version
+> conflict over `req`. Unlock it and fetch again:
+>
+> ```bash
+> mix deps.unlock req
+> mix deps.get
+> ```
+
 ImagePipe uses Image and Vix for libvips processing. Available input and output
 codecs depend on the native build. See [output formats](processing/output.md#formats).
 

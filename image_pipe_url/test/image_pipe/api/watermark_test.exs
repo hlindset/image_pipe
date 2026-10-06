@@ -237,7 +237,8 @@ defmodule ImagePipe.API.WatermarkTest do
             [watermark_scale: 0],
             [watermark_gap: {-1, 0}]
           ] do
-        assert_raise ArgumentError, fn -> ImagePipe.URL.group(ImagePipe.URL.new(), options) end
+        builder = ImagePipe.URL.group(ImagePipe.URL.new(), options)
+        assert {:error, [%Spec.Issue{reason: :invalid_value}]} = ImagePipe.URL.validate(builder)
       end
     end
   end

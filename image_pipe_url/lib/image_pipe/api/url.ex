@@ -4,6 +4,7 @@ defmodule ImagePipe.API.URL do
   alias ImagePipe.API.{Path, Serializer}
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Source, as: PlanSource
+  alias ImagePipe.Plan.Spec.Issue
   alias ImagePipe.Security
 
   def sign_path("/" <> _ = path, config) do
@@ -31,6 +32,61 @@ defmodule ImagePipe.API.URL do
       {:ok, config[:base_url] <> sign(path, config)}
     end
   end
+
+  # Writes the URL the plan asks for whatever its issues, and returns them
+  # with the errors first. Only malformed `options` raise.
+  def build_with_issues(plan, source, config, options) do
+    issues =
+      case check(plan, config) do
+        {:ok, warnings} -> warnings
+        {:error, issues} -> issues
+      end
+
+    encrypt? = config[:encrypt_source]
+
+    case source_segments("options", config, options, encrypt?) do
+      {:ok, _segments} -> :ok
+      {:error, reason} -> raise ArgumentError, "invalid URL options: #{reason}"
+    end
+
+    {source_segments, source_issues} = written_source(source, config, options, encrypt?)
+    segments = plan |> written_plan(config, options, encrypt?) |> Serializer.segments()
+
+    count_issues =
+      case length(segments) <= Path.max_option_segments() do
+        true -> []
+        false -> [issue(:too_many_options)]
+      end
+
+    path = "/" <> Enum.join(segments ++ source_segments, "/")
+    {errors, warnings} = Enum.split_with(issues, &(&1.severity == :error))
+    {config[:base_url] <> sign(path, config), errors ++ source_issues ++ count_issues ++ warnings}
+  end
+
+  # Under `encrypt_source`, no source is written in plain text: an invalid
+  # source, or a rejected watermark source, is left empty.
+  defp written_source(source, config, options, encrypt?) do
+    case source(source) do
+      {:ok, source} ->
+        {:ok, segments} = source_segments(source, config, options, encrypt?)
+        {segments, []}
+
+      {:error, :invalid_source} ->
+        text = if is_binary(source) and not encrypt?, do: source, else: ""
+        {["src", URI.encode(text, &URI.char_unreserved?/1)], [issue(:invalid_source)]}
+    end
+  end
+
+  defp written_plan(plan, _config, _options, false), do: plan
+
+  defp written_plan(plan, config, options, true) do
+    case conceal_watermarks(plan, config, options, true) do
+      {:ok, plan} -> Plan.blank_rejected(plan, :watermark_source)
+      {:error, reason} -> raise ArgumentError, "invalid URL options: #{reason}"
+    end
+  end
+
+  defp issue(reason), do: %Issue{reason: reason, locations: [], detail: nil}
 
   defp source(source) when is_binary(source) and source != "" do
     source = PlanSource.normalize(source)
@@ -107,7 +163,7 @@ defmodule ImagePipe.API.URL do
   def check(plan, config) do
     case config[:validate_against] do
       nil ->
-        {:ok, []}
+        Plan.built(plan)
 
       %{presets: presets, request_defaults: defaults, lookup?: lookup?} = known ->
         watermarks = watermarks(known.watermarks)

@@ -45,33 +45,179 @@ defmodule ImagePipe.BuilderTest do
     assert updated.output.autoquality == nil
   end
 
-  test "rejects malformed public values immediately" do
-    for options <- [
-          [resize: [width: 0]],
-          [resize: [width: "400"]],
-          [blur: -1],
-          [progressive_blur: [sigma: -1]],
-          [progressive_blur: [sigma: 0, start: 2]],
-          [progressive_blur: [direction: 90]],
-          [dpr: 0],
-          [crop: {0, 20}],
-          [region: {-1, 0, 20, 20}],
-          [region: {0, {:pct, -5}, 20, 20}],
-          [gray: "true"],
-          [mystery: 1],
-          [blur: 1, blur: 2],
-          [blur: :unset, blur: 2],
-          [resize: [width: 2, width: 3]],
-          [resize: [fit: :unset, fit: :cover]]
+  test "records a malformed value as an error at its location" do
+    for {options, location} <- [
+          {[resize: [width: 0]], {:group, 0, :width}},
+          {[resize: [width: "400"]], {:group, 0, :width}},
+          {[blur: -1], {:group, 0, :blur}},
+          {[progressive_blur: [sigma: -1]], {:group, 0, :progressive_blur}},
+          {[progressive_blur: [sigma: 0, start: 2]], {:group, 0, :progressive_blur}},
+          {[progressive_blur: [direction: 90]], {:group, 0, :progressive_blur}},
+          {[dpr: 0], {:group, 0, :dpr}},
+          {[crop: {0, 20}], {:group, 0, :crop}},
+          {[region: {-1, 0, 20, 20}], {:group, 0, :region}},
+          {[region: {0, {:pct, -5}, 20, 20}], {:group, 0, :region}},
+          {[gray: "true"], {:group, 0, :gray}},
+          {[resize: 400], {:group, 0, :resize}},
+          {[detect: []], {:group, 0, :detect}},
+          {[detect: ["face", "face"]], {:group, 0, :detect}},
+          {[detect: [{"face", 0}]], {:group, 0, :detect}},
+          {[background: {"red", 2}], {:group, 0, :background}},
+          {[gradient: [opacity: 0.5, color: "red", start: -1]], {:group, 0, :gradient}},
+          {[gradient: [opacity: 1, color: "red", direction: :sideways]], {:group, 0, :gradient}},
+          {[dpr: Integer.pow(10, 400)], {:group, 0, :dpr}},
+          {[crop_ratio: {1, Integer.pow(10, 400)}], {:group, 0, :crop_ratio}}
         ] do
-      assert_raise ArgumentError, fn -> IP.URL.group(IP.URL.new(), options) end
+      assert [%Spec.Issue{reason: :invalid_value, locations: [^location], severity: :error}] =
+               errors(IP.URL.group(IP.URL.new(), options))
     end
 
-    assert_raise ArgumentError, fn -> IP.URL.output(IP.URL.new(), quality: 101) end
-    assert_raise ArgumentError, fn -> IP.URL.output(IP.URL.new(), dpi: 0) end
-    assert_raise ArgumentError, fn -> IP.URL.output(IP.URL.new(), dpi: 65_536) end
-    assert_raise ArgumentError, fn -> IP.URL.new(orient: :sideways) end
-    assert_raise ArgumentError, fn -> IP.URL.new(page: -1) end
+    for {options, key} <- [
+          {[quality: 101], :quality},
+          {[dpi: 0], :dpi},
+          {[dpi: 65_536], :dpi},
+          {[jpeg_options: [quant_table: 9]], :jpeg_options},
+          {[jpeg_options: []], :jpeg_options},
+          {[png_options: [bitdepth: 3]], :png_options},
+          {[webp_options: [effort: 7]], :webp_options},
+          {[format_qualities: []], :format_qualities},
+          {[autoquality: 0], :autoquality},
+          {[autoquality: 101], :autoquality},
+          {[autoquality: :none], :autoquality},
+          {[autoquality: {:ssimulacra2, target: 75}], :autoquality},
+          {[terminal: {:info, []}], :terminal},
+          {[terminal: {:info, [:image]}], :terminal},
+          {[terminal: {:info, [:blurhash, :blurhash]}], :terminal}
+        ] do
+      assert [%Spec.Issue{reason: :invalid_value, locations: [{:request, ^key}]}] =
+               errors(IP.URL.output(IP.URL.new(), options))
+    end
+
+    assert [%Spec.Issue{reason: :invalid_value, locations: [{:request, :orient}]}] =
+             errors(IP.URL.new(orient: :sideways))
+
+    assert [%Spec.Issue{reason: :invalid_value, locations: [{:request, :page}]}] =
+             errors(IP.URL.new(page: -1))
+  end
+
+  test "records an unknown option name as an error" do
+    assert [%Spec.Issue{reason: :unknown_option, locations: [{:group, 0, :mystery}]}] =
+             errors(IP.URL.group(IP.URL.new(), mystery: 1))
+
+    assert [%Spec.Issue{reason: :unknown_option, locations: [{:group, 0, :shape}]}] =
+             errors(IP.URL.group(IP.URL.new(), resize: [width: 10, shape: :round]))
+
+    assert [%Spec.Issue{reason: :unknown_option, locations: [{:request, :mystery}]}] =
+             errors(IP.URL.output(IP.URL.new(), mystery: 1))
+  end
+
+  test "a rejected option keeps the rest of the pipeline building" do
+    builder =
+      IP.URL.new()
+      |> IP.URL.group(blur: -1, sharpen: 1)
+      |> IP.URL.group(flip: :diag)
+      |> IP.URL.output(format: :bmp)
+
+    assert [
+             %Spec.Issue{locations: [{:group, 0, :blur}]},
+             %Spec.Issue{locations: [{:group, 1, :flip}]},
+             %Spec.Issue{locations: [{:request, :format}]}
+           ] = errors(builder)
+
+    assert {:error, {:invalid_request, [_, _, _]}} = IP.URL.url(builder, "cat.jpg")
+  end
+
+  test "an output option given again replaces its rejected value" do
+    builder = IP.URL.new() |> IP.URL.output(quality: 101) |> IP.URL.output(quality: 80)
+
+    assert {:ok, []} = IP.URL.validate(builder)
+    assert IP.URL.url!(builder, "cat.jpg") == "/q=80/src/cat.jpg"
+  end
+
+  test "a request control given to output/2 keeps the one from new/2" do
+    builder = IP.URL.new(expires: 2_000_000_000) |> IP.URL.output(expires: 1)
+
+    assert [%Spec.Issue{reason: :unknown_option, locations: [{:request, :expires}]}] =
+             errors(builder)
+
+    assert {"/expires=2000000000/expires=!1/src/a.jpg", _issues} =
+             IP.URL.url_with_issues(builder, "a.jpg")
+  end
+
+  test "output/2 keeps a mistake new/2 recorded for the same name" do
+    builder = IP.URL.new(format: :webp) |> IP.URL.output(format: :png)
+
+    assert [%Spec.Issue{reason: :unknown_option, locations: [{:request, :format}]}] =
+             errors(builder)
+
+    assert {"/format=png/format=!webp/src/a.jpg", _issues} =
+             IP.URL.url_with_issues(builder, "a.jpg")
+  end
+
+  test "a non-keyword argument is a programming error" do
+    assert_raise ArgumentError, fn -> IP.URL.group(IP.URL.new(), [1, 2]) end
+    assert_raise ArgumentError, fn -> IP.URL.output(IP.URL.new(), :webp) end
+  end
+
+  test "a repeated option keeps its last value with a warning" do
+    for {options, expected, location} <- [
+          {[blur: 1, blur: 2], [blur: 2], {:group, 0, :blur}},
+          {[blur: :unset, blur: 2], [blur: 2], {:group, 0, :blur}},
+          {[resize: [width: 2, width: 3]], [resize: [width: 3]], {:group, 0, :width}},
+          {[resize: [fit: :unset, fit: :cover, width: 1]], [resize: [fit: :cover, width: 1]],
+           {:group, 0, :fit}},
+          {[monochrome: [intensity: 0.5, intensity: 0.8]], [monochrome: [intensity: 0.8]],
+           {:group, 0, :monochrome}}
+        ] do
+      builder = IP.URL.group(IP.URL.new(), options)
+
+      assert {:ok, [%Spec.Issue{reason: :repeated_option, locations: [^location]} = issue]} =
+               IP.URL.validate(builder)
+
+      assert issue.severity == :warning
+
+      assert IP.URL.url!(builder, "a.jpg") ==
+               IP.URL.url!(IP.URL.group(IP.URL.new(), expected), "a.jpg")
+    end
+
+    builder = IP.URL.output(IP.URL.new(), format_qualities: [webp: 70, webp: 80])
+
+    assert {:ok,
+            [%Spec.Issue{reason: :repeated_option, locations: [{:request, :format_qualities}]}]} =
+             IP.URL.validate(builder)
+
+    assert IP.URL.url!(builder, "a.jpg") ==
+             IP.URL.url!(IP.URL.output(IP.URL.new(), format_qualities: [webp: 80]), "a.jpg")
+  end
+
+  test "an empty group is dropped with a warning" do
+    expected = IP.URL.new() |> IP.URL.group(blur: 1) |> IP.URL.url!("a.jpg")
+
+    for empty <- [[], [resize: []], [presets: []]] do
+      builder = IP.URL.new() |> IP.URL.group(empty) |> IP.URL.group(blur: 1)
+
+      assert {:ok, [%Spec.Issue{reason: :empty_group, locations: [], severity: :warning}]} =
+               IP.URL.validate(builder)
+
+      assert IP.URL.url!(builder, "a.jpg") == expected
+    end
+  end
+
+  test "a repeated or lone leading :unset is written once, with a warning" do
+    for {key, value, expected} <- [
+          {:jpeg_options, [:unset], :unset},
+          {:format_qualities, [:unset], :unset},
+          {:jpeg_options, [:unset, :unset, interlace: true], [:unset, interlace: true]},
+          {:format_qualities, [:unset, :unset, avif: 50], [:unset, avif: 50]}
+        ] do
+      builder = IP.URL.output(IP.URL.new(), [{key, value}])
+
+      assert {:ok, [%Spec.Issue{reason: :redundant_unset, locations: [{:request, ^key}]}]} =
+               IP.URL.validate(builder)
+
+      assert IP.URL.url!(builder, "a.jpg") ==
+               IP.URL.url!(IP.URL.output(IP.URL.new(), [{key, expected}]), "a.jpg")
+    end
   end
 
   test "effect directions take the URL's names or degrees" do
@@ -92,57 +238,21 @@ defmodule ImagePipe.BuilderTest do
 
       assert IP.URL.url!(named, "a.jpg") == IP.URL.url!(numeric, "a.jpg")
     end
-
-    assert_raise ArgumentError, fn ->
-      IP.URL.group(IP.URL.new(), gradient: [opacity: 1, color: "red", direction: :sideways])
-    end
   end
 
-  test "an invalid value's error lists only the values the option accepts" do
-    for {build, expected} <- [
-          {fn -> IP.URL.group(IP.URL.new(), resize: [width: 300, fit: :fill]) end,
+  test "an invalid value's message lists only the values the option accepts" do
+    for {builder, expected} <- [
+          {IP.URL.group(IP.URL.new(), resize: [width: 300, fit: :fill]),
            "expected one of [:contain, :cover, :stretch, :auto], got: :fill"},
-          {fn -> IP.URL.group(IP.URL.new(), flip: :diag) end,
+          {IP.URL.group(IP.URL.new(), flip: :diag),
            "expected one of [:horizontal, :vertical, :both], got: :diag"},
-          {fn -> IP.URL.output(IP.URL.new(), format: :bmp) end,
+          {IP.URL.output(IP.URL.new(), format: :bmp),
            "expected one of [:jpeg, :png, :webp, :avif], got: :bmp"},
-          {fn -> IP.URL.new(orient: :sideways) end,
-           "expected one of [:auto, :none], got: :sideways"}
+          {IP.URL.new(orient: :sideways), "expected one of [:auto, :none], got: :sideways"}
         ] do
-      message = Exception.message(assert_raise(ArgumentError, build))
+      assert [%Spec.Issue{detail: message}] = errors(builder)
       assert message =~ expected
       refute message =~ ":unset"
-    end
-  end
-
-  test "rejects empty groups, malformed nested values, and duplicate nested settings" do
-    for options <- [
-          [],
-          [resize: []],
-          [detect: []],
-          [detect: ["face", "face"]],
-          [detect: [{"face", 0}]],
-          [background: {"red", 2}],
-          [gradient: [opacity: 0.5, color: "red", start: -1]],
-          [monochrome: [intensity: 0.5, intensity: 0.8]],
-          [dpr: Integer.pow(10, 400)],
-          [crop_ratio: {1, Integer.pow(10, 400)}]
-        ] do
-      assert_raise ArgumentError, fn -> IP.URL.group(IP.URL.new(), options) end
-    end
-
-    for options <- [
-          [jpeg_options: [quant_table: 9]],
-          [png_options: [bitdepth: 3]],
-          [webp_options: [effort: 7]],
-          [format_qualities: [webp: 70, webp: 80]],
-          [autoquality: 0],
-          [autoquality: 101],
-          [autoquality: -1],
-          [autoquality: :none],
-          [autoquality: {:ssimulacra2, target: 75}]
-        ] do
-      assert_raise ArgumentError, fn -> IP.URL.output(IP.URL.new(), options) end
     end
   end
 
@@ -286,9 +396,8 @@ defmodule ImagePipe.BuilderTest do
           {:webp_options, :effort, 6.0, "webp-options=effort:6.0"},
           {:avif_options, :effort, 10, "avif-options=effort:10"}
         ] do
-      assert_raise ArgumentError, fn ->
-        IP.URL.new() |> IP.URL.output([{key, [{field, invalid}]}])
-      end
+      assert [%Spec.Issue{reason: :invalid_value}] =
+               errors(IP.URL.new() |> IP.URL.output([{key, [{field, invalid}]}]))
 
       assert {:error, {:invalid_request, [_ | _]}} = parse(url)
     end
@@ -374,12 +483,6 @@ defmodule ImagePipe.BuilderTest do
     plan = IP.URL.new() |> IP.URL.output(terminal: {:info, [:lqip_css, :blurhash]})
     assert {:ok, request} = Plan.to_spec(plan.plan)
     assert {:ok, ^request} = parse("output=info,blurhash,lqip-css")
-
-    for placeholders <- [[], [:image], [:blurhash, :blurhash]] do
-      assert_raise ArgumentError, fn ->
-        IP.URL.output(IP.URL.new(), terminal: {:info, placeholders})
-      end
-    end
   end
 
   test "checks output conflicts across merged output calls" do
@@ -436,5 +539,10 @@ defmodule ImagePipe.BuilderTest do
   defp parse(options) do
     with {:ok, lexed} <- Path.extract("/" <> options <> "/src/photo.jpg", ""),
          do: Parser.parse(lexed, IP.URL.config().options)
+  end
+
+  defp errors(builder) do
+    assert {:error, issues} = IP.URL.validate(builder)
+    issues
   end
 end

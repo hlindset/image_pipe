@@ -120,10 +120,23 @@ defmodule ImagePipe.PresetsTest do
     assert IP.URL.url!(builder, "photo.jpg") =~ "fit=cover"
   end
 
-  test "preset names are validated at builder construction" do
+  test "malformed preset names are recorded as builder errors" do
     for names <- ["poster", ["bad/name"], [""], [:poster]] do
-      assert_raise ArgumentError, fn -> IP.URL.new(presets: names) end
+      builder = IP.URL.group(IP.URL.new(), presets: names)
+
+      assert {:error, [%{reason: :invalid_value, locations: [{:group, 0, :presets}]}]} =
+               IP.URL.validate(builder)
     end
+  end
+
+  test "a preset or request default built with errors fails configuration" do
+    invalid = IP.URL.new() |> IP.URL.group(blur: -1)
+
+    assert_raise ArgumentError, ~r/invalid_value/, fn ->
+      IP.config(presets: %{"card" => invalid})
+    end
+
+    assert_raise ArgumentError, ~r/invalid_value/, fn -> IP.config(request_defaults: invalid) end
   end
 
   test "URL generation clears request defaults with unset" do
