@@ -1,5 +1,5 @@
 # Diagnostic reproduction of image_plug-e4a.15.7, not a latency benchmark.
-# mise exec -- mix run --preload-modules bench/overlap_decode_repro.exs auto|paced|spool [REQUESTS] [IMAGE]
+# mise exec -- mix run --preload-modules bench/overlap_decode_repro.exs auto|paced|spool|burst [REQUESTS] [IMAGE]
 # paced/spool use identical transfers; only paced declares Content-Length.
 Code.require_file("support/overlap_decode_origin.exs", __DIR__)
 
@@ -8,7 +8,7 @@ defmodule OverlapDecodeRepro do
   alias ImagePipe.Source.Download
   alias Vix.Vips.Image, as: VipsImage
 
-  def run([mode | args]) when mode in ["auto", "paced", "spool"] do
+  def run([mode | args]) when mode in ["auto", "paced", "spool", "burst"] do
     count = args |> Enum.at(0, "300") |> String.to_integer()
     path = Enum.at(args, 1, "priv/static/images/waterfall.jpg")
     body = File.read!(path)

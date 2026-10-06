@@ -13,17 +13,27 @@ defmodule OverlapDecodeOrigin do
       "auto" ->
         Plug.Conn.send_resp(conn, 200, body)
 
+      "burst" ->
+        conn = set_length(conn, body, "paced") |> Plug.Conn.send_chunked(200)
+        <<head::binary-size(1_500_000), tail::binary>> = body
+        {:ok, conn} = Plug.Conn.chunk(conn, head)
+        Process.sleep(8)
+        paced(conn, tail)
+
       mode ->
         conn = set_length(conn, body, mode) |> Plug.Conn.send_chunked(200)
-
-        body
-        |> Stream.unfold(&chunk/1)
-        |> Enum.reduce(conn, fn bytes, conn ->
-          Process.sleep(1)
-          {:ok, conn} = Plug.Conn.chunk(conn, bytes)
-          conn
-        end)
+        paced(conn, body)
     end
+  end
+
+  defp paced(conn, body) do
+    body
+    |> Stream.unfold(&chunk/1)
+    |> Enum.reduce(conn, fn bytes, conn ->
+      Process.sleep(1)
+      {:ok, conn} = Plug.Conn.chunk(conn, bytes)
+      conn
+    end)
   end
 
   defp set_length(conn, body, "paced"),

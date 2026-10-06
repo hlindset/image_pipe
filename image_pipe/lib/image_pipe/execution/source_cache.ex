@@ -420,7 +420,7 @@ defmodule ImagePipe.Execution.SourceCache do
   defp observe({:buffer, _}, overlap, _io, _size), do: Overlap.cancel(overlap)
 
   defp append(:file, io, bytes, size) do
-    case :file.write(io, bytes) do
+    case :file.pwrite(io, size, bytes) do
       :ok ->
         :file
 

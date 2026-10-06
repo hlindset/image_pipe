@@ -172,6 +172,83 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
     assert_receive {:closed, ["empty.jpg"]}
   end
 
+  test "overlap selected after a large burst preserves the original and cached pixels", context do
+    <<head::binary-size(64 * 1024), burst::binary-size(1_500_000), tail::binary>> = context.body
+    observer = self()
+
+    stream =
+      [head, burst, tail]
+      |> Stream.with_index()
+      |> Stream.map(fn
+        {bytes, 1} ->
+          Process.send_after(self(), :burst_ready, 20)
+          receive do: (:burst_ready -> bytes)
+
+        {bytes, 2} ->
+          send(observer, {:burst_held, self()})
+          receive do: (:continue -> bytes)
+
+        {bytes, 0} ->
+          bytes
+      end)
+
+    now = System.system_time(:second)
+
+    origin =
+      Origin.from_response(
+        %{
+          status: 200,
+          headers: %{
+            "content-length" => [Integer.to_string(byte_size(context.body))],
+            "cache-control" => ["public, max-age=600"]
+          },
+          request: %{url: "http://source.test/image", headers: %{}}
+        },
+        {now, now}
+      )
+
+    config =
+      ImagePipe.Plug.init(
+        telemetry_prefix: [__MODULE__, context.test],
+        sources: [
+          path: [
+            adapter: ProcessingSource,
+            match: :path,
+            options: [
+              test: observer,
+              bytes: context.body,
+              stream: stream,
+              origin: origin,
+              copy?: true
+            ]
+          ]
+        ],
+        cache: {FileSystem, root: Path.join(context.root, "output")},
+        input_cache: {FileSystem, root: Path.join(context.root, "input")},
+        max_body_bytes: 20_000_000,
+        max_input_pixels: 60_000_000
+      )
+
+    context = %{context | config: config, url: "burst.jpg"}
+    task = Task.Supervisor.async_nolink(context.tasks, fn -> request(context) end)
+    assert_receive {:burst_held, producer}, 2_000
+    assert_receive {:decoded, %{result: :ok}}, 2_000
+    send(producer, :continue)
+    response = Task.await(task, 10_000)
+
+    assert response.status == 200
+    [original] = Path.wildcard(Path.join(context.root, "input/**/*.body"))
+    assert File.stat!(original).size == byte_size(context.body)
+    assert File.read!(original) == context.body
+    assert_pixels(response, context, [])
+
+    assert_receive {:fetch, ["burst.jpg", "image"], _}
+    cached_source = request(context, "w=100/-/rotate=45")
+    assert cached_source.status == 200
+    assert_pixels(cached_source, context, rotate: 45)
+    refute_received {:fetch, _, _}
+  end
+
   test "a truncated source is rejected after speculative decode starts", context do
     task = Task.Supervisor.async_nolink(context.tasks, fn -> request(context) end)
     assert_receive {:origin_held, origin}, 2_000
