@@ -10,6 +10,7 @@ defmodule ImagePipe.Transform.Operation.ProgressiveBlur do
 
   alias ImagePipe.Transform.DirectionalMask
   alias ImagePipe.Transform.Operation.AlphaPremultiply
+  alias ImagePipe.Transform.Operation.GaussianBlur
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
@@ -63,12 +64,18 @@ defmodule ImagePipe.Transform.Operation.ProgressiveBlur do
     end
   end
 
+  # Each pixel takes only two adjacent levels. Selecting the sum only where
+  # this level's weight is positive lets libvips skip computing the level's
+  # blur in regions it doesn't reach.
   defp add_level({:ok, acc}, image, ramp, sigma, level) do
-    with {:ok, blurred} <- Image.blur(image, sigma: sigma * level / @levels),
+    with {:ok, blurred} <- GaussianBlur.blur(image, sigma * level / @levels),
          {:ok, weight} <- level_weight(ramp, level),
          {:ok, term} <- Operation.multiply(blurred, weight),
-         {:ok, sum} <- Operation.add(acc, term) do
-      {:cont, {:ok, sum}}
+         {:ok, sum} <- Operation.add(acc, term),
+         {:ok, reaches} <-
+           Operation.relational_const(weight, :VIPS_OPERATION_RELATIONAL_MORE, [0.0]),
+         {:ok, blended} <- Operation.ifthenelse(reaches, sum, acc) do
+      {:cont, {:ok, blended}}
     else
       error -> {:halt, error}
     end
