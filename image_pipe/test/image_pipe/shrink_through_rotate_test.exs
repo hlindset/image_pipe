@@ -144,13 +144,17 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
     assert shrink in [2, 4, 8],
            "expected JPEG shrink to fire for #{label}, got #{inspect(shrink)}"
 
+    assert_same_output(jpeg_img, png_img, "#{label} (shrink #{shrink})")
+  end
+
+  defp assert_same_output(jpeg_img, png_img, label) do
     jw = Image.width(jpeg_img)
     jh = Image.height(jpeg_img)
     pw = Image.width(png_img)
     ph = Image.height(png_img)
 
     assert abs(jw - pw) <= 1 and abs(jh - ph) <= 1,
-           "shrink path #{jw}x#{jh} drifted >1px from full-decode #{pw}x#{ph} for #{label} (shrink #{shrink})"
+           "shrink path #{jw}x#{jh} drifted >1px from full-decode #{pw}x#{ph} for #{label}"
 
     mae = coarse_mae(jpeg_img, png_img)
 
@@ -221,6 +225,70 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
 
       assert no_shrink == nil
       assert_equivalent(jpeg_img, png_img, shrink, "rot:90 + gravity crop -> fit:400:400")
+    end
+  end
+
+  describe "arbitrary-angle rotate then resize" do
+    # The decode plans against the rotated bounding box with twice the target as
+    # headroom, so the rotate itself runs at about twice the output size.
+    # rotate=10 on 3200×2400: bounding box ≈ 3568 wide, target 400 → 800 with
+    # headroom → load shrink 4 (8 without the headroom).
+    test "rotate=10 + resize shrinks with 2x headroom and stays pixel-equivalent" do
+      {jpeg_img, shrink} = run(structured(3200, 2400, ".jpg"), "rotate=10/w=400")
+      {png_img, no_shrink} = run(structured(3200, 2400, ".png"), "rotate=10/w=400")
+
+      assert no_shrink == nil
+      assert shrink == 4
+      assert_equivalent(jpeg_img, png_img, shrink, "rot:10 -> fit:400")
+    end
+
+    # EXIF-6 displays the stored 3200×2400 as 2400×3200. The display frame's
+    # bounding box is ≈ 3678 wide; against 480 × 2 that's shrink 2. The stored
+    # frame's (≈ 3971) would give 4.
+    test "EXIF-6 + rotate=30 sizes the bounding box from the display frame" do
+      {jpeg_img, shrink} = run(oriented(3200, 2400, 6, ".jpg"), "rotate=30/w=480")
+      {png_img, no_shrink} = run(oriented(3200, 2400, 6, ".png"), "rotate=30/w=480")
+
+      assert no_shrink == nil
+      assert shrink == 2
+      assert_equivalent(jpeg_img, png_img, shrink, "EXIF-6 + rot:30 -> fit:480")
+    end
+
+    # Crops resolve in the rotated frame, so their pixel offsets are rescaled by
+    # the decode shrink after an arbitrary rotate too.
+    test "gravity crop after rotate=10 lands on the same content" do
+      options = "rotate=10/crop=1600,1200/anchor=top-left/anchor-offset=600,400/w=400"
+
+      {jpeg_img, shrink} = run(structured(3200, 2400, ".jpg"), options)
+      {png_img, no_shrink} = run(structured(3200, 2400, ".png"), options)
+
+      assert no_shrink == nil
+      assert_equivalent(jpeg_img, png_img, shrink, "rot:10 + gravity crop -> fit:400")
+    end
+
+    test "rotate=10 + resize through the Plug delivers the full-decode result" do
+      jpeg = structured(3200, 2400, ".jpg")
+      png = structured(3200, 2400, ".png")
+      path = "/rotate=10/w=400/format=png/src/rot.img"
+
+      [jpeg_img, png_img] =
+        for body <- [jpeg, png] do
+          response = ImagePipe.Plug.call(Plug.Test.conn(:get, path), opts(body))
+          assert response.status == 200
+          Image.from_binary!(response.resp_body)
+        end
+
+      assert_same_output(jpeg_img, png_img, "Plug rot:10 -> fit:400")
+    end
+
+    test "region crop after rotate=10 lands on the same content" do
+      options = "rotate=10/region=800,600,1600,1200/w=400"
+
+      {jpeg_img, shrink} = run(structured(3200, 2400, ".jpg"), options)
+      {png_img, no_shrink} = run(structured(3200, 2400, ".png"), options)
+
+      assert no_shrink == nil
+      assert_equivalent(jpeg_img, png_img, shrink, "rot:10 + region -> fit:400")
     end
   end
 

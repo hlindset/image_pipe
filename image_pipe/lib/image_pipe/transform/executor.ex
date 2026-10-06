@@ -59,29 +59,49 @@ defmodule ImagePipe.Transform.Executor do
   ]
 
   @spec decode_request(Spec.t(), SourceGeometry.t()) :: DecodePlanner.Request.t()
-  def decode_request(%Spec{groups: [%Group{rotate: angle} | _]}, _geometry)
-      when angle != nil and angle not in [90, 180, 270] do
-    %DecodePlanner.Request{}
-  end
-
   def decode_request(
         %Spec{groups: [%Group{} = group | _]} = request,
         %SourceGeometry{} = geometry
       ) do
-    {display_width, display_height} = geometry.display_dimensions
-    quarter_turn? = group.rotate in [90, 270]
-
-    crop_frame =
-      if quarter_turn?, do: {display_height, display_width}, else: {display_width, display_height}
+    {crop_frame, headroom} = decode_frame(group.rotate, geometry.display_dimensions)
 
     %DecodePlanner.Request{
-      resize_target: decode_resize_target(group.resize, group.dpr),
-      crop_extent: decode_crop_extent(group, crop_frame),
-      user_quarter_turn?: quarter_turn?,
+      resize_target: scale_target(decode_resize_target(group.resize, group.dpr), headroom),
+      crop_extent: decode_crop_extent(group, crop_frame) || rotated_extent(headroom, crop_frame),
+      user_quarter_turn?: group.rotate in [90, 270],
       trim?: group.trim != nil,
-      terminal_reduction: decode_terminal_reduction(request)
+      terminal_reduction: scale_target(decode_terminal_reduction(request), headroom)
     }
   end
+
+  # The frame the group's crop and resize see after its rotate, and how much
+  # larger than the target to decode. An arbitrary-angle rotate sees the rotated
+  # bounding box. Rotation and uniform scaling commute, so the decode can shrink
+  # before it, but the rotate then resamples near the output size: decoding at
+  # twice the target keeps its interpolation from showing.
+  defp decode_frame(angle, {width, height}) when angle in [90, 270], do: {{height, width}, 1}
+  defp decode_frame(angle, dims) when angle in [nil, 180], do: {dims, 1}
+
+  defp decode_frame(angle, {width, height}) do
+    radians = angle * :math.pi() / 180
+    cos = abs(:math.cos(radians))
+    sin = abs(:math.sin(radians))
+    {{round(width * cos + height * sin), round(width * sin + height * cos)}, 2}
+  end
+
+  # Without a crop the planner sizes against the source; a rotate's bounding
+  # box replaces it.
+  defp rotated_extent(1, _frame), do: nil
+  defp rotated_extent(_headroom, frame), do: frame
+
+  defp scale_target(nil, _headroom), do: nil
+  defp scale_target(target, 1), do: target
+
+  defp scale_target({width, height}, headroom),
+    do: {scale_axis(width, headroom), scale_axis(height, headroom)}
+
+  defp scale_axis(nil, _headroom), do: nil
+  defp scale_axis(value, headroom), do: value * headroom
 
   @spec execute(State.t(), Spec.t(), keyword()) ::
           {:ok, State.t()} | {:error, {:transform, term()} | {:decode, term()}}
@@ -192,8 +212,25 @@ defmodule ImagePipe.Transform.Executor do
   defp execute_rotate(%State{} = state, angle, opts) do
     with {:ok, state} <- flush_display(state),
          {:ok, state} <- Transform.run(state, %Rotate{angle: angle}, opts) do
-      {:ok, Geometry.clear_source_frame(state)}
+      {:ok, rotated_source_frame(state)}
     end
+  end
+
+  # After a shrunk decode, later crops still resolve in full-resolution units,
+  # so the frame becomes the rotated image scaled back up by the shrink. A
+  # rotation mixes the axes, so the shrink becomes uniform.
+  defp rotated_source_frame(%State{decode_shrink: nil} = state),
+    do: Geometry.clear_source_frame(state)
+
+  defp rotated_source_frame(%State{decode_shrink: %{w: w_shrink, h: h_shrink}} = state) do
+    shrink = (w_shrink + h_shrink) / 2
+    {width, height} = Geometry.live_dims(state)
+
+    %State{
+      state
+      | source_dimensions: {round(width * shrink), round(height * shrink)},
+        decode_shrink: %{w: shrink, h: shrink}
+    }
   end
 
   defp execute_flip(state, nil), do: {:ok, state}

@@ -16,7 +16,7 @@
   },
   cases: %{
     "rotate_30_alpha" => %{
-      fixture_sha256: "673911a16af62b71509f2b4caa32826881c8c87e4dc1ec57fdc647576bbce1d3",
+      fixture_sha256: "1fe1f4c45377edd05d1e83f737d7b8b1975fe0b1a5d3a064cbabe74e0e5f10b5",
       structure: %{
         depth: 8,
         metadata: [],
@@ -542,7 +542,7 @@
       }
     },
     "rotate_45_bg" => %{
-      fixture_sha256: "b347d8785378af45f658eaeec8d7c2241d32d29c5d857ce2d576098da237cadd",
+      fixture_sha256: "24b30ba1276380804c39e34f72c967c7d25868f08b6ac95f0fdc667f185c6f3a",
       structure: %{
         depth: 8,
         metadata: [],
