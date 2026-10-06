@@ -1,8 +1,10 @@
 defmodule ImagePipeServer.MixProject do
   use Mix.Project
 
-  # Released in lockstep with image_pipe and image_pipe_url.
+  # Shares major.minor with image_pipe and image_pipe_url; patch releases are
+  # independent. Released images build against this image_pipe version from Hex.
   @version "0.1.0"
+  @image_pipe_version "0.1.0"
 
   def project do
     [
@@ -28,7 +30,7 @@ defmodule ImagePipeServer.MixProject do
 
   defp deps do
     [
-      {:image_pipe, path: "../image_pipe"},
+      image_pipe_dep(),
       {:bandit, "~> 1.5"},
       {:plug, "~> 1.18"},
       {:toml, "~> 0.7.0"},
@@ -37,6 +39,14 @@ defmodule ImagePipeServer.MixProject do
       {:opentelemetry_exporter, "~> 1.8"},
       {:opentelemetry, "~> 1.7"}
     ] ++ vision_deps()
+  end
+
+  # Development and CI use the sibling project. Release images build with
+  # IMAGE_PIPE_LIBS=hex, so they only contain library code published on Hex.
+  defp image_pipe_dep do
+    if System.get_env("IMAGE_PIPE_LIBS") == "hex",
+      do: {:image_pipe, "== #{@image_pipe_version}"},
+      else: {:image_pipe, path: "../image_pipe"}
   end
 
   # The -vision image builds with IMAGE_VISION=1 to bundle the default
