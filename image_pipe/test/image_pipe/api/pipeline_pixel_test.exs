@@ -97,16 +97,18 @@ defmodule ImagePipe.API.PipelinePixelTest do
     resolved
   end
 
-  defp request(options) do
+  defp request(options, extra \\ []) do
     config =
       ImagePipe.Plug.init(
-        sources: [
-          path: [
-            adapter: RootHTTPAdapter,
-            match: :path,
-            options: [root_url: "http://origin.test"]
+        [
+          sources: [
+            path: [
+              adapter: RootHTTPAdapter,
+              match: :path,
+              options: [root_url: "http://origin.test"]
+            ]
           ]
-        ]
+        ] ++ extra
       )
 
     {{:ok, request, _source}, _metadata} =
@@ -286,6 +288,43 @@ defmodule ImagePipe.API.PipelinePixelTest do
       decode_request = Executor.decode_request(request, geometry({1600, 1200}))
 
       assert decode_request.terminal_reduction == {32, 32}
+    end
+
+    test "output=lqip-css sets the terminal reduction for a single-group request" do
+      request = request("output=lqip-css")
+      decode_request = Executor.decode_request(request, geometry({1600, 1200}))
+
+      assert decode_request.terminal_reduction == {32, 32}
+    end
+
+    # These effects take sizes in pixels, which a reduced decode would make
+    # relatively larger.
+    for effect <- ["pad=200", "blur=5", "sharpen=2", "pixelate=10", "progressive-blur=5"],
+        output <- ["blurhash", "lqip-css"] do
+      test "#{effect} keeps an output=#{output} decode at full size" do
+        request = request("#{unquote(effect)}/output=#{unquote(output)}")
+        decode_request = Executor.decode_request(request, geometry({1600, 1200}))
+
+        assert decode_request.terminal_reduction == nil
+      end
+    end
+
+    test "a watermark keeps a placeholder decode at full size" do
+      request = request("wm=logo/output=blurhash", watermarks: %{logo: [source: "mark.png"]})
+      decode_request = Executor.decode_request(request, geometry({1600, 1200}))
+
+      assert decode_request.terminal_reduction == nil
+    end
+
+    # The planner ignores the reduction when the group resizes or trims, so the
+    # request leaves it out and matches the same request without a placeholder.
+    for options <- ["w=60", "trim=auto"] do
+      test "#{options} leaves the placeholder reduction out" do
+        request = request("#{unquote(options)}/output=lqip-css")
+        decode_request = Executor.decode_request(request, geometry({1600, 1200}))
+
+        assert decode_request.terminal_reduction == nil
+      end
     end
   end
 end

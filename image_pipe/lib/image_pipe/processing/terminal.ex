@@ -49,17 +49,47 @@ defmodule ImagePipe.Processing.Terminal do
 
   defp render_info(input, request, config) do
     with {:ok, config} <- Processing.watermark_opts(config),
-         {:ok, body, degraded?} <-
+         {:ok, {body, reduced}, degraded?} <-
            Decode.with_image(input, request, config, &describe(&1, &2, request, config)),
-         {:ok, body, blurhash_degraded?} <- put_blurhash(body, input, request, config) do
-      {:ok, "application/json", body, degraded? or blurhash_degraded?}
+         {:ok, body, reduced_degraded?} <- put_reduced(body, reduced, input, request, config) do
+      {:ok, "application/json", body, degraded? or reduced_degraded?}
     end
   end
 
+  # Returns the body and the placeholders still to compute from their own
+  # smaller decode.
   defp describe(state, geometry, request, config) do
-    with {:ok, result, degraded?} <- result_facts(state, geometry, request, config) do
-      {:ok, %{"source" => source_facts(state, geometry), "result" => result}, degraded?}
+    lqip_css = lqip_css_source(request, geometry)
+
+    with {:ok, result, degraded?} <- result_facts(state, geometry, request, config, lqip_css) do
+      body = %{"source" => source_facts(state, geometry), "result" => result}
+      {:ok, {body, reduced_placeholders(request, lqip_css)}, degraded?}
     end
+  end
+
+  # A standalone placeholder may decode smaller than the info request does. Its
+  # value then comes from that decode, so it equals the standalone output;
+  # otherwise the info decode gives the same pixels.
+  defp lqip_css_source(%Spec{output: output} = request, geometry) do
+    standalone = %Spec{request | output: %Output{terminal: :lqip_css}}
+
+    cond do
+      :lqip_css not in output.placeholders ->
+        :none
+
+      Executor.decode_request(standalone, geometry) == Executor.decode_request(request, geometry) ->
+        :executed
+
+      true ->
+        :reduced
+    end
+  end
+
+  defp reduced_placeholders(%Spec{output: output}, lqip_css) do
+    for terminal <- [:blurhash, :lqip_css],
+        terminal in output.placeholders,
+        terminal == :blurhash or lqip_css == :reduced,
+        do: terminal
   end
 
   defp source_facts(state, geometry) do
@@ -84,21 +114,18 @@ defmodule ImagePipe.Processing.Terminal do
 
   # Without operations or a placeholder drawn from this decode, the result is
   # the source in the request's orientation, known from the header alone.
-  defp result_facts(state, geometry, request, config) do
-    if header_only?(request) do
+  defp result_facts(state, geometry, request, config, lqip_css) do
+    if lqip_css != :executed and Executor.operation_names(request) == [] do
       {width, height} = geometry.display_dimensions
 
       {:ok, %{"width" => width, "height" => height, "dpr" => List.last(request.groups).dpr},
        false}
     else
-      executed_facts(state, request, config)
+      executed_facts(state, request, config, lqip_css)
     end
   end
 
-  defp header_only?(%Spec{output: %{placeholders: placeholders}} = request),
-    do: :lqip_css not in placeholders and Executor.operation_names(request) == []
-
-  defp executed_facts(state, request, config) do
+  defp executed_facts(state, request, config, lqip_css) do
     with {:ok, state} <- Executor.execute(state, request, config) do
       result = %{
         "width" => Image.width(state.image),
@@ -106,38 +133,53 @@ defmodule ImagePipe.Processing.Terminal do
         "dpr" => state.dpr
       }
 
-      with {:ok, result} <- put_lqip_css(result, state, request, config),
+      with {:ok, result} <- put_lqip_css(result, state, request, config, lqip_css),
            do: {:ok, result, state.degraded?}
     end
   end
 
-  defp put_lqip_css(result, state, %Spec{output: output} = request, config) do
-    if :lqip_css in output.placeholders do
-      with {:ok, value, _degraded?} <- placeholder(:lqip_css, state, request, config, :executed),
-           do: {:ok, Map.put(result, "lqip_css", value)}
-    else
-      {:ok, result}
-    end
+  defp put_lqip_css(result, state, request, config, :executed) do
+    with {:ok, value, _degraded?} <- placeholder(:lqip_css, state, request, config, :executed),
+         do: {:ok, Map.put(result, "lqip_css", value)}
   end
 
-  # BlurHash decodes again with its own plan, so its decode hint applies and the
-  # hash equals the standalone output for the same URL.
-  defp put_blurhash(body, input, %Spec{output: output} = request, config) do
-    if :blurhash in output.placeholders do
-      with {:ok, hash, degraded?} <- standalone_blurhash(input, request, config),
-           do: {:ok, put_in(body, ["result", "blurhash"], hash), degraded?}
-    else
-      {:ok, body, false}
-    end
-  end
+  defp put_lqip_css(result, _state, _request, _config, _source), do: {:ok, result}
 
-  defp standalone_blurhash(input, %Spec{} = request, config) do
-    request = %Spec{request | output: %Output{terminal: :blurhash}}
+  # BlurHash and LQIP CSS plan the same smaller decode, so one decode serves
+  # both, and each equals its standalone output for the same URL.
+  defp put_reduced(body, [], _input, _request, _config), do: {:ok, body, false}
+
+  defp put_reduced(body, [terminal | _] = terminals, input, %Spec{} = request, config) do
+    request = %Spec{request | output: %Output{terminal: terminal}}
 
     Decode.with_image(input, request, config, fn state, _geometry ->
-      placeholder(:blurhash, state, request, config)
+      with {:ok, state} <- Executor.execute(state, request, config),
+           {:ok, state} <- readable_for(state, terminals) do
+        put_placeholders(body, terminals, state, request, config)
+      end
     end)
   end
+
+  defp put_placeholders(body, terminals, state, request, config) do
+    Enum.reduce_while(terminals, {:ok, body, false}, fn terminal, {:ok, body, degraded?} ->
+      case placeholder(terminal, state, request, config, :executed) do
+        {:ok, value, placeholder_degraded?} ->
+          body = put_in(body, ["result", key(terminal)], value)
+          {:cont, {:ok, body, degraded? or placeholder_degraded?}}
+
+        {:error, _} = error ->
+          {:halt, error}
+      end
+    end)
+  end
+
+  # The decode streams, so a frame read by more than one placeholder is
+  # buffered first.
+  defp readable_for(state, [_terminal]), do: {:ok, state}
+  defp readable_for(state, _terminals), do: Executor.materialize(state)
+
+  defp key(:blurhash), do: "blurhash"
+  defp key(:lqip_css), do: "lqip_css"
 
   defp placeholder(terminal, state, request, config) do
     with {:ok, state} <- Executor.execute(state, request, config),

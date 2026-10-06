@@ -88,9 +88,10 @@ defmodule ImagePipe.API.InfoWireTest do
   end
 
   test "requested placeholders equal the standalone outputs with one source fetch" do
-    config = mount(gradient_jpeg(400, 300))
+    # A photo, so a placeholder from a smaller decode differs from a full-size one.
+    config = mount(File.read!("priv/static/images/beach.jpg"))
 
-    for options <- ["", "w=60/", "crop=200,100/blur=2/"] do
+    for options <- ["", "w=60/", "crop=200,100/blur=2/", "pad=20/"] do
       blurhash = request(options <> "output=blurhash", config).resp_body
       lqip = request(options <> "output=lqip-css", config).resp_body
       assert_received :origin_fetch

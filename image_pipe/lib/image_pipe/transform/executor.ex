@@ -49,7 +49,7 @@ defmodule ImagePipe.Transform.Executor do
   alias Vix.Vips.Operation, as: VipsOperation
 
   @default_trim_threshold 10.0
-  @blurhash_terminal_reduction {32, 32}
+  @placeholder_terminal_reduction {32, 32}
   @working_spaces [
     :VIPS_INTERPRETATION_sRGB,
     :VIPS_INTERPRETATION_RGB,
@@ -119,6 +119,18 @@ defmodule ImagePipe.Transform.Executor do
     end
   end
 
+  @doc """
+  Buffers the current frame so it can be read more than once, as when several
+  placeholders reduce the same executed state.
+  """
+  @spec materialize(State.t()) :: {:ok, State.t()} | {:error, {:decode, term()}}
+  def materialize(%State{} = state) do
+    case Materializer.materialize(state) do
+      {:ok, state} -> {:ok, state}
+      {:error, reason} -> {:error, {:decode, reason}}
+    end
+  end
+
   @spec reduce_terminal(State.t(), Output.t(), keyword()) ::
           {:ok, State.t()} | {:error, {:transform, term()} | {:decode, term()}}
   def reduce_terminal(%State{} = state, %Output{terminal: terminal}, _opts)
@@ -126,7 +138,7 @@ defmodule ImagePipe.Transform.Executor do
       do: {:ok, state}
 
   def reduce_terminal(%State{} = state, %Output{terminal: :blurhash}, opts) do
-    {width, height} = @blurhash_terminal_reduction
+    {width, height} = @placeholder_terminal_reduction
 
     {_mode, target} =
       Geometry.resize_target(
@@ -817,13 +829,30 @@ defmodule ImagePipe.Transform.Executor do
 
   defp decode_crop_extent(%Group{}, _display_dims), do: nil
 
+  # A placeholder needs only a tiny frame, so a single group can decode
+  # smaller. Not when it has effects sized in pixels: on a smaller decode they
+  # would cover a larger share of the frame. A resize target or a trim decides
+  # the decode size on its own, so the reduction is left out there.
   defp decode_terminal_reduction(%Spec{
-         groups: [_group],
-         output: %Output{terminal: :blurhash}
-       }),
-       do: @blurhash_terminal_reduction
+         groups: [group],
+         output: %Output{terminal: terminal}
+       })
+       when terminal in [:blurhash, :lqip_css] do
+    if pixel_sized_effects?(group) or group.trim != nil or
+         decode_resize_target(group.resize, group.dpr) != nil,
+       do: nil,
+       else: @placeholder_terminal_reduction
+  end
 
   defp decode_terminal_reduction(%Spec{}), do: nil
+
+  defp pixel_sized_effects?(%Group{} = group) do
+    Enum.any?(
+      [group.blur, group.progressive_blur, group.sharpen, group.pixelate, group.pad] ++
+        [group.canvas, group.watermark],
+      &(&1 != nil)
+    )
+  end
 
   defp condition_color(%State{} = state, opts) do
     case InputColorManagement.condition(state,
