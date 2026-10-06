@@ -1,7 +1,7 @@
 # Getting started with Phoenix
 
 In this guide we'll add ImagePipe to a new Phoenix app, serve resized copies
-of an image from it, and show one on a page, with its URL built in code.
+of an image from it, and show one on a page, with its URL built in the template.
 
 You need Elixir 1.18 or newer, the Phoenix installer (`mix archive.install
 hex phx_new`), and a JPEG image.
@@ -103,10 +103,10 @@ Phoenix app already serves its static files under `/images`.
 
 ## Resizing an image
 
-Start the app in IEx, so we can call its functions later:
+Start the app:
 
 ```bash
-iex -S mix phx.server
+mix phx.server
 ```
 
 ```text
@@ -158,7 +158,7 @@ Replace the contents of
 Open <http://localhost:4000>. The page shows a 400×300 copy of the image,
 cropped to fill the box by `fit=cover`.
 
-## Building URLs in code
+## Building URLs in templates
 
 ImagePipe can build URLs from the instance's settings. First, set
 `base_url` to the path of the `forward`:
@@ -173,46 +173,61 @@ ImagePipe can build URLs from the instance's settings. First, set
  ]},
 ```
 
-Then add a helper to
-`lib/gallery_web/controllers/page_html.ex`:
+Then make ImagePipe's `image_url` helper available in every template. In
+`lib/gallery_web.ex`, add a line to `html_helpers`:
 
 ```elixir
-# lib/gallery_web/controllers/page_html.ex
-def thumbnail_url(path) do
-  Gallery.Images
-  |> ImagePipe.url_config()
-  |> ImagePipe.URL.new()
-  |> ImagePipe.URL.group(resize: [width: 400, height: 300, fit: :cover])
-  |> ImagePipe.URL.url!(path)
+# lib/gallery_web.ex
+defp html_helpers do
+  quote do
+    # ... the generated imports and aliases
+    use ImagePipe.URL.Helpers, instance: Gallery.Images
+  end
 end
 ```
 
 Stop the server (Ctrl+C twice) and start it again with
-`iex -S mix phx.server`, so the instance picks up `base_url`. Then call the
-helper:
-
-```text
-iex> GalleryWeb.PageHTML.thumbnail_url("cat.jpg")
-"/media/w=400/h=300/fit=cover/src/cat.jpg"
-```
-
-It returns the same path we wrote in the template. Use it there instead:
+`mix phx.server`, so the instance picks up `base_url`. Then replace
+the hand-written path in the template:
 
 ```heex
 <Layouts.app flash={@flash}>
-  <img src={thumbnail_url("cat.jpg")} alt="A cat" />
+  <img
+    src={image_url("cat.jpg", group: [resize: [width: 400, height: 300, fit: :cover]])}
+    alt="A cat"
+  />
 </Layouts.app>
 ```
 
-The page looks the same. Notice that a mistake in the options, such as
-`fit: :bogus`, raises `ArgumentError` when the page renders, instead of
-producing a URL the server rejects with `400`.
+Reload <http://localhost:4000>. The page looks the same, and the image's
+address is `/media/w=400/h=300/fit=cover/src/cat.jpg`, the path we wrote by
+hand before. Each `group:` holds the options of one processing step, and
+`resize:` writes `w=`, `h=`, and `fit=`.
+
+Now change `fit: :cover` to `fit: :bogus` and save. When Phoenix
+recompiles the template, the terminal shows a warning that points at its
+line:
+
+```text
+warning: image_url: invalid_value at {:group, 0, :fit}: invalid value for :fit option: expected one of [:contain, :cover, :stretch, :auto], got: :bogus
+└─ lib/gallery_web/controllers/page_html/home.html.heex:3: GalleryWeb.PageHTML.home/1
+```
+
+Notice that the mistake shows up when the template compiles. The page still
+renders: the server rejects the image's URL with `400`, so the browser shows
+a broken image in place of the cat, and each render logs:
+
+```text
+[warning] image_url (lib/gallery_web/controllers/page_html/home.html.heex:3): invalid_value at {:group, 0, :fit}
+```
+
+Change it back to `fit: :cover`.
 
 ## Next steps
 
 We started an ImagePipe instance, mounted it in the router, and served
 resized copies of an image to a page, with URLs written by hand and built in
-code. From here:
+the template. From here:
 
 - [Requesting images](requesting-images.md): how URLs are built, option
   values, presets, and error responses.
@@ -224,6 +239,8 @@ code. From here:
   `Plug.Router`.
 - [Serving and processing in one app](combined-usage.md): build URLs and process
   images in code with the same configuration.
+- `ImagePipe.URL.Helpers`: what `image_url` checks, and failing the build or
+  tests on a mistake.
 
 Before deploying, set up [URL signing](signing-urls.md) so only your app can
 create image URLs, and [caching](caching-processed-images.md) so each copy is
