@@ -41,6 +41,55 @@ defmodule ImagePipe.Execution.SourceCache do
     do: CacheState.status(Record.state(record, source.cache_semantics), now(config))
 
   def acquire(source, key, previous, preparation, config) do
+    case Source.validation_mode(source, config) do
+      :local -> acquire_local(source, key, previous, preparation, config)
+      :exclusive -> acquire_locked(source, key, previous, preparation, config)
+    end
+  end
+
+  defp acquire_local(
+         source,
+         key,
+         %Record{origin: %Source.Origin{}} = previous,
+         preparation,
+         config
+       ) do
+    case validated_on_every_use?(previous, source) do
+      true ->
+        case check_unchanged(source, previous, config) do
+          {:ok, _acquisition} = result -> result
+          :changed -> acquire_locked(source, key, previous, preparation, config)
+        end
+
+      false ->
+        acquire_locked(source, key, previous, preparation, config)
+    end
+  end
+
+  defp acquire_local(source, key, previous, preparation, config),
+    do: acquire_locked(source, key, previous, preparation, config)
+
+  # A changed or failed stat must be observed again while holding the lease,
+  # before staging new bytes or invalidating an existing record.
+  defp check_unchanged(source, previous, config) do
+    Telemetry.span(Telemetry.telemetry_opts(config), [:source, :stage], %{}, fn ->
+      source
+      |> fetch_response(previous, config, fn _response -> :changed end)
+      |> preflight_result(previous)
+    end)
+  end
+
+  defp preflight_result({:not_modified, origin}, previous) do
+    result = {:ok, %Acquisition{record: Record.refresh(previous, origin)}}
+    {result, stop_metadata(result)}
+  end
+
+  defp preflight_result(result, _previous), do: {:changed, preflight_metadata(result)}
+
+  defp preflight_metadata(:changed), do: %{result: :ok}
+  defp preflight_metadata(error), do: stop_metadata(error)
+
+  defp acquire_locked(source, key, previous, preparation, config) do
     Work.run(
       {:source, key.hash},
       fn coordination, outcome ->

@@ -361,6 +361,20 @@ defmodule ImagePipe.Source do
   defp adapter_config(%Resolved{name: nil}, _opts), do: {:ok, Input, []}
   defp adapter_config(%Resolved{name: name}, opts), do: Routes.fetch(routes(opts), name)
 
+  @doc false
+  def validation_mode(resolved, config) do
+    case adapter_config(resolved, config) do
+      {:ok, ImagePipe.Source.File, opts} ->
+        case Keyword.fetch!(opts, :verify) do
+          :stat -> :local
+          :hash -> :exclusive
+        end
+
+      _adapter ->
+        :exclusive
+    end
+  end
+
   defp apply_cache_policy({:ok, resolved}, defaults) do
     semantics = resolved.cache_semantics
     policy = CachePolicy.merge(defaults, semantics.policy)
