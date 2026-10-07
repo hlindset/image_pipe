@@ -413,14 +413,24 @@ defmodule ImagePipe.Execution.SourceCache do
         {body, next_size, :crypto.hash_update(hash, bytes), overlap}
       end)
 
+    check_staged_size!(body, io, size)
     {finish_body(body), :crypto.hash_final(hash), size, Overlap.finish(overlap)}
   end
+
+  defp check_staged_size!(:file, io, size) do
+    case :file.read_file_info(io) do
+      {:ok, info} when elem(info, 1) == size -> :ok
+      _invalid -> raise Source.StreamError, reason: :invalid_body
+    end
+  end
+
+  defp check_staged_size!({:buffer, _bytes}, _io, _size), do: :ok
 
   defp observe(:file, overlap, io, size), do: Overlap.observe(overlap, io, size)
   defp observe({:buffer, _}, overlap, _io, _size), do: Overlap.cancel(overlap)
 
   defp append(:file, io, bytes, size) do
-    case :file.write(io, bytes) do
+    case :file.pwrite(io, size, bytes) do
       :ok ->
         :file
 

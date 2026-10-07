@@ -34,6 +34,31 @@ defmodule ImagePipe.Cache.FileReadTest do
              Cache.lookup_entry(key, cache: {FileSystem, root: root})
   end
 
+  for corruption <- [:overwrite, :bit_flip] do
+    test "checksum verification detects equal-length #{corruption}", %{root: root} do
+      original = :binary.copy("image", 40_000)
+      key = put(root, original)
+      [path] = Path.wildcard(Path.join(root, "**/*.body"))
+
+      changed =
+        case unquote(corruption) do
+          :overwrite ->
+            <<prefix::binary-size(65_536), _range::binary-size(1_024), tail::binary>> = original
+            IO.iodata_to_binary([prefix, :binary.copy("x", 1_024), tail])
+
+          :bit_flip ->
+            <<prefix::binary-size(65_536), byte, tail::binary>> = original
+            <<prefix::binary, Bitwise.bxor(byte, 1), tail::binary>>
+        end
+
+      File.write!(path, changed)
+      assert File.stat!(path).size == byte_size(original)
+
+      assert {:error, {:invalid_metadata, :body_digest_mismatch}} =
+               Cache.Input.verify(key, input_cache: {FileSystem, root: root})
+    end
+  end
+
   test "input invalidation releases bounded cache accounting", %{root: root} do
     opts = [root: root, node_id: "test", max_size_bytes: 100, window_ratio: 1.0]
     start_supervised!(FileSystem.child_spec(opts))

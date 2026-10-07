@@ -1,5 +1,6 @@
 defmodule ImagePipe.Source.DownloadTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias ImagePipe.Source.Download
 
@@ -33,6 +34,69 @@ defmodule ImagePipe.Source.DownloadTest do
     Download.finish(context.download)
     assert Task.await(reader) == "prefixtail"
     assert context.download |> Download.stream() |> Enum.join() == "prefixtail"
+  end
+
+  property "generated writes replay exactly during growth and after completion", context do
+    check all boundary <- member_of([65_535, 65_536, 65_537, 1_048_575, 1_048_576, 1_048_577]),
+              tail <- list_of(binary(max_length: 4_096), max_length: 8),
+              max_runs: 30 do
+      id = make_ref()
+      File.write!(context.path, "prefix")
+
+      download =
+        start_supervised!({Download, owner: self(), path: context.path, available: 6}, id: id)
+
+      owner = self()
+
+      reader =
+        Task.Supervisor.async_nolink(context.tasks, fn ->
+          download
+          |> Download.stream()
+          |> Stream.transform(0, fn bytes, offset ->
+            offset = offset + byte_size(bytes)
+            send(owner, {id, :read, offset})
+            {[bytes], offset}
+          end)
+          |> Enum.to_list()
+          |> IO.iodata_to_binary()
+        end)
+
+      assert_receive {^id, :read, 6}
+      pattern = "boundary-#{boundary}|"
+      large = :binary.copy(pattern, div(boundary, byte_size(pattern)) + 1)
+      chunks = [binary_part(large, 0, boundary), "" | tail]
+
+      Enum.reduce(chunks, 6, fn bytes, offset ->
+        File.write!(context.path, bytes, [:append])
+        next = offset + byte_size(bytes)
+        :ok = Download.advance(download, next)
+        if next > offset, do: await_offset(id, next)
+        next
+      end)
+
+      :ok = Download.finish(download)
+      expected = IO.iodata_to_binary(["prefix" | chunks])
+      assert Task.await(reader) == expected
+      assert download |> Download.stream() |> Enum.to_list() |> IO.iodata_to_binary() == expected
+      stop_supervised!(id)
+    end
+  end
+
+  defp await_offset(id, expected) do
+    receive do
+      {^id, :read, ^expected} -> :ok
+      {^id, :read, offset} when offset < expected -> await_offset(id, expected)
+    after
+      2_000 -> flunk("reader did not reach #{expected}")
+    end
+  end
+
+  test "a truncated published chunk is rejected before any bytes are yielded", context do
+    File.write!(context.path, "pre")
+
+    assert_raise ImagePipe.Source.StreamError, ~r/invalid_body/, fn ->
+      context.download |> Download.stream() |> Enum.take(1)
+    end
   end
 
   test "closing a download terminates blocked readers", context do

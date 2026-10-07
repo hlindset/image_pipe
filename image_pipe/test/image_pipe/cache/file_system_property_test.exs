@@ -4,6 +4,7 @@ defmodule ImagePipe.Cache.FileSystemPropertyTest do
 
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
+  alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.Key
   alias ImagePipe.Format
 
@@ -54,6 +55,42 @@ defmodule ImagePipe.Cache.FileSystemPropertyTest do
         assert :ok = seed_entry(cache_key, entry, root: root)
         assert {:hit, cached_entry} = FileSystem.get(cache_key, root: root)
         assert cached_entry == entry
+      after
+        File.rm_rf!(root)
+      end
+    end
+  end
+
+  property "cache sinks preserve generated chunk boundaries and empty chunks" do
+    check all chunks <- list_of(binary(max_length: 8_192), min_length: 1, max_length: 12),
+              max_runs: 30 do
+      root = unique_root()
+      cache_key = key()
+      body = IO.iodata_to_binary(chunks)
+
+      metadata = %Entry.Metadata{
+        content_type: "image/webp",
+        headers: [],
+        created_at: ~U[2026-04-29 10:15:00Z],
+        output_format: :webp
+      }
+
+      try do
+        assert {:ok, sink} = FileSystem.open_sink(cache_key, metadata, root: root)
+
+        sink =
+          Enum.reduce(["" | chunks] ++ [""], sink, fn bytes, state ->
+            assert {:ok, next} = FileSystem.write_chunk(state, bytes, root: root)
+            next
+          end)
+
+        assert :ok = FileSystem.commit_sink(sink, root: root)
+        assert {:hit, entry} = FileSystem.get(cache_key, root: root)
+        assert entry.body == body
+        assert :ok = Store.verify(cache_key, root: root)
+        assert {:ok, metadata} = Store.metadata(cache_key, root: root)
+        assert metadata.body_byte_size == byte_size(body)
+        assert metadata.body_sha256 == body_sha256(body)
       after
         File.rm_rf!(root)
       end
