@@ -1,5 +1,6 @@
 # Investigation for image_plug-e4a.13.14; run from image_pipe/:
 # mise exec -- mix run bench/admission_blocking.exs hash 64 10
+# mise exec -- mix run bench/admission_blocking.exs hash-kib 1 40
 # mise exec -- mix run bench/admission_blocking.exs timeout
 # mise exec -- mix run bench/admission_blocking.exs reconcile 1000
 # mise exec -- mix run bench/admission_blocking.exs scan-timeout 100
@@ -24,8 +25,14 @@ defmodule AdmissionBlockingBench do
     end
   end
 
-  defp execute(["hash", mib, rounds], root) do
-    bytes = String.to_integer(mib) * 1024 * 1024
+  defp execute([mode, size, rounds], root) when mode in ["hash", "hash-kib"] do
+    unit =
+      case mode do
+        "hash" -> 1024 * 1024
+        "hash-kib" -> 1024
+      end
+
+    bytes = String.to_integer(size) * unit
     rounds = String.to_integer(rounds)
     source = Path.join(root, "source")
     body = :binary.copy("a", bytes)
@@ -40,21 +47,48 @@ defmodule AdmissionBlockingBench do
       warm = Enum.map(1..rounds, fn _ -> linked_commit(cache_key, source, sha, opts) end)
 
       :erlang.trace_pattern({Store, :file_sha256, 1}, true, [:local])
+      :erlang.trace_pattern({Store, :publish_sink, 2}, true, [:local])
       :erlang.trace(admission, true, [:call, {:tracer, self()}])
       large = Task.async(fn -> linked_commit(cache_key, source, sha, opts) end)
 
       receive do
-        {:trace, ^admission, :call, {Store, :file_sha256, [_]}} -> :ok
+        {:trace, ^admission, :call, {Store, :publish_sink, [_, _]}} -> :ok
       after
-        5000 -> raise "did not observe Admission hashing the existing body"
+        5000 -> raise "did not observe Admission publishing the body"
       end
 
-      :erlang.trace(admission, false, [:call])
-      :erlang.trace_pattern({Store, :file_sha256, 1}, false, [:local])
       {:ok, small} = Store.open_sink(key("small"), metadata(), opts)
       {:ok, small} = Store.write_chunk(small, "small", opts)
       blocked_small = timed_commit(small, opts)
       large_result = Task.await(large, :infinity)
+      :erlang.trace(admission, false, [:call])
+      await_trace(admission)
+      hash_calls = hash_calls(admission, 0)
+
+      {mixed_us, mixed} =
+        :timer.tc(fn ->
+          1..64
+          |> Task.async_stream(
+            fn index ->
+              case rem(index, 4) do
+                0 ->
+                  linked_commit(cache_key, source, sha, opts)
+
+                _ ->
+                  {:ok, sink} = Store.open_sink(key("mixed-#{index}"), metadata(), opts)
+                  {:ok, sink} = Store.write_chunk(sink, "small", opts)
+                  timed_commit(sink, opts)
+              end
+            end,
+            max_concurrency: 8,
+            timeout: :infinity
+          )
+          |> Enum.map(fn {:ok, latency} -> latency end)
+        end)
+
+      :ok = Store.verify(cache_key, opts)
+      state = :sys.get_state(admission)
+      bodies = Path.wildcard(Path.join(root, "**/*.body"))
 
       output(%{
         scenario: "hash",
@@ -64,11 +98,22 @@ defmodule AdmissionBlockingBench do
         warm_commit_ms: warm,
         warm_median_ms: median(warm),
         traced_large_commit_ms: large_result,
-        small_commit_queued_during_hash_ms: blocked_small,
-        hash_process: "Admission"
+        small_commit_after_publication_started_ms: blocked_small,
+        existing_body_hash_calls: hash_calls,
+        mixed_commits: length(mixed),
+        mixed_concurrency: 8,
+        mixed_ms: mixed_us / 1000,
+        mixed_commits_per_second: length(mixed) * 1_000_000 / mixed_us,
+        mixed_commit_median_ms: median(mixed),
+        mixed_commit_p95_ms: percentile(mixed, 0.95),
+        accounted_bytes: state.window_bytes + state.probationary_bytes + state.protected_bytes,
+        disk_body_bytes: Enum.sum(Enum.map(bodies, &File.stat!(&1).size)),
+        temporary_files: length(Path.wildcard(Path.join(root, "**/*.tmp"), match_dot: true)),
+        publication_process: "Admission"
       })
     after
       :erlang.trace_pattern({Store, :file_sha256, 1}, false, [:local])
+      :erlang.trace_pattern({Store, :publish_sink, 2}, false, [:local])
       Supervisor.stop(supervisor)
     end
   end
@@ -113,6 +158,8 @@ defmodule AdmissionBlockingBench do
         temporary_metadata_exists: temporary_metadata_exists,
         queued_commits_after_timeout: queued,
         metadata_published: File.exists?(prepared.paths.meta_path),
+        temporary_files_after_resume:
+          length(Path.wildcard(Path.join(root, "**/*.tmp"), match_dot: true)),
         accounted_bytes: state.window_bytes + state.probationary_bytes + state.protected_bytes
       })
     after
@@ -139,61 +186,83 @@ defmodule AdmissionBlockingBench do
     prefix = [:admission_blocking_bench]
     handler = make_ref()
     parent = self()
+    delay_gate = :atomics.new(1, [])
 
     :ok =
       :telemetry.attach(
         handler,
         prefix ++ [:cache, :eviction, :stop],
         fn _, measurements, _, _ ->
-          send(parent, {:evicted, self(), measurements.count})
-          hold_reconcile(mode)
+          send(
+            parent,
+            {:evicted, self(), measurements.count, System.monotonic_time(:microsecond)}
+          )
+
+          hold_reconcile(mode, delay_gate)
         end,
         nil
       )
 
     opts = bounded_opts(root, 4) |> Keyword.put(:telemetry_prefix, prefix)
+    trace_reconciliation(parent)
     started = System.monotonic_time(:microsecond)
     {supervisor, admission} = start_cache(opts, false)
+    :erlang.trace(:new, false, [:call, :monotonic_timestamp])
 
     try do
-      evicted =
+      first_batch =
         receive do
-          {:evicted, ^admission, evicted} -> evicted
+          {:evicted, ^admission, count, at} -> {count, at}
         after
           30_000 -> raise "reconciliation did not finish deleting victims"
         end
-
-      deletion_ms = (System.monotonic_time(:microsecond) - started) / 1000
 
       scan_exit =
         try do
           observe_scan_exit(mode, admission)
         after
-          :telemetry.detach(handler)
-          if mode == "scan-timeout", do: send(admission, :release_reconcile)
+          if mode == "scan-timeout" do
+            send(admission, :release_reconcile)
+          end
         end
 
       :ok = Admission.await_scan(admission, :infinity)
+      :erlang.trace(admission, false, [:call, :monotonic_timestamp])
+      await_trace(admission)
+      evictions = evictions(admission, [first_batch])
+      callbacks = callback_times(admission, nil, [])
 
       output(%{
         scenario: mode,
         entries_before_scan: count,
-        evictions_in_one_callback: evicted,
-        boot_through_deletion_ms: deletion_ms,
+        evictions: Enum.sum(Enum.map(evictions, &elem(&1, 0))),
+        eviction_batches: length(evictions),
+        largest_eviction_batch: evictions |> Enum.map(&elem(&1, 0)) |> Enum.max(),
+        boot_through_deletion_ms: (Enum.max(Enum.map(evictions, &elem(&1, 1))) - started) / 1000,
+        first_batch_ms: (elem(first_batch, 1) - started) / 1000,
+        reconcile_callback_ms: callbacks,
+        median_reconcile_callback_ms: median(callbacks),
+        p95_reconcile_callback_ms: percentile(callbacks, 0.95),
+        max_reconcile_callback_ms: Enum.max(callbacks),
         scan_exit: inspect(scan_exit),
         orphan_swept: not File.exists?(orphan)
       })
     after
       :telemetry.detach(handler)
+      :erlang.trace(:new, false, [:call, :monotonic_timestamp])
+      :erlang.trace_pattern({Admission, :handle_call, 3}, false, [:local])
+      :erlang.trace_pattern({Admission, :handle_info, 2}, false, [:local])
       Supervisor.stop(supervisor)
     end
   end
 
-  defp hold_reconcile("reconcile"), do: :ok
+  defp hold_reconcile("reconcile", _gate), do: :ok
 
-  defp hold_reconcile("scan-timeout") do
-    receive do
-      :release_reconcile -> :ok
+  defp hold_reconcile("scan-timeout", gate) do
+    if :atomics.compare_exchange(gate, 1, 0, 1) == :ok do
+      receive do
+        :release_reconcile -> :ok
+      end
     end
   end
 
@@ -206,7 +275,64 @@ defmodule AdmissionBlockingBench do
     receive do
       {:DOWN, ^ref, :process, ^scan, reason} -> reason
     after
-      6000 -> raise "scan did not time out"
+      6000 ->
+        Process.demonitor(ref, [:flush])
+        :alive_after_six_seconds
+    end
+  end
+
+  defp trace_reconciliation(parent) do
+    Code.ensure_loaded!(Admission)
+
+    :erlang.trace_pattern(
+      {Admission, :handle_call, 3},
+      [{[:reconcile_to_cap, :_, :_], [], [{:return_trace}]}],
+      [:local]
+    )
+
+    :erlang.trace_pattern(
+      {Admission, :handle_info, 2},
+      [{[:reconcile_batch, :_], [], [{:return_trace}]}],
+      [:local]
+    )
+
+    :erlang.trace(:new, true, [:call, :arity, :monotonic_timestamp, {:tracer, parent}])
+  end
+
+  defp await_trace(pid) do
+    ref = :erlang.trace_delivered(pid)
+
+    receive do
+      {:trace_delivered, ^pid, ^ref} -> :ok
+    end
+  end
+
+  defp hash_calls(pid, count) do
+    receive do
+      {:trace, ^pid, :call, {Store, :file_sha256, [_]}} -> hash_calls(pid, count + 1)
+    after
+      0 -> count
+    end
+  end
+
+  defp evictions(pid, collected) do
+    receive do
+      {:evicted, ^pid, count, at} -> evictions(pid, [{count, at} | collected])
+    after
+      0 -> collected
+    end
+  end
+
+  defp callback_times(pid, started, collected) do
+    receive do
+      {:trace_ts, ^pid, :call, {Admission, _, _}, at} ->
+        callback_times(pid, at, collected)
+
+      {:trace_ts, ^pid, :return_from, {Admission, _, _}, _result, at} ->
+        ms = System.convert_time_unit(at - started, :native, :microsecond) / 1000
+        callback_times(pid, nil, [ms | collected])
+    after
+      0 -> collected
     end
   end
 
@@ -256,6 +382,9 @@ defmodule AdmissionBlockingBench do
       1 -> Enum.at(sorted, middle)
     end
   end
+
+  defp percentile(values, fraction),
+    do: values |> Enum.sort() |> Enum.at(ceil(length(values) * fraction) - 1)
 
   defp output(value) do
     value
