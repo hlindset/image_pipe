@@ -145,11 +145,31 @@ defmodule ImagePipe.API.SourceWireTest do
   # credentials.
   defp rotate_credentials do
     supervisor = ImagePipe.Source.S3.RefreshCache.DynamicSupervisor
+    registry = ImagePipe.Source.S3.RefreshCache.Registry
 
     for {_id, pid, _type, _modules} <- DynamicSupervisor.which_children(supervisor) do
+      keys = Registry.keys(registry, pid)
       ref = Process.monitor(pid)
       :ok = DynamicSupervisor.terminate_child(supervisor, pid)
       assert_receive {:DOWN, ^ref, :process, ^pid, _reason}
+      deadline = System.monotonic_time(:millisecond) + 2_000
+      Enum.each(keys, &await_unregistered(registry, &1, pid, deadline))
+    end
+  end
+
+  defp await_unregistered(registry, key, pid, deadline) do
+    case Registry.lookup(registry, key) do
+      [{^pid, _}] ->
+        assert System.monotonic_time(:millisecond) < deadline,
+               "credential cache entry remained registered after termination"
+
+        receive do
+        after
+          1 -> await_unregistered(registry, key, pid, deadline)
+        end
+
+      _ ->
+        :ok
     end
   end
 
