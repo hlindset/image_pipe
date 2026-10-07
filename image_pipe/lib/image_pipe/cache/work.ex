@@ -15,11 +15,16 @@ defmodule ImagePipe.Cache.Work do
   # `:acquired`, `:coalesced` after waiting behind another holder, or `:busy`.
   # `wait:` bounds how long to wait behind another holder of the key, after
   # which the work doesn't run and `run/3` returns `:timeout`.
+  # `share:` identifies requests eligible for the owner's explicit completion.
   def run(key, fun, opts \\ []) do
-    case lock(key, Keyword.get(opts, :wait, :infinity)) do
+    case lock(key, Keyword.get(opts, :wait, :infinity), Keyword.get(opts, :share)) do
       {:ok, ref, outcome} ->
         report(outcome, :source, opts)
         locked(ref, outcome, fun)
+
+      {:shared, value} ->
+        report(:coalesced, :source, opts)
+        value
 
       :timeout ->
         report(:timeout, :source, opts)
@@ -31,8 +36,8 @@ defmodule ImagePipe.Cache.Work do
     end
   end
 
-  defp lock(key, wait) do
-    request = :gen_server.send_request(__MODULE__, {:lock, key})
+  defp lock(key, wait, context) do
+    request = :gen_server.send_request(__MODULE__, {:lock, key, context})
 
     case :gen_server.receive_response(request, wait) do
       {:reply, reply} -> reply
@@ -59,6 +64,10 @@ defmodule ImagePipe.Cache.Work do
   after
     call({:unlock, ref}, 5_000)
   end
+
+  # Completion releases this lease and hands a resource-free value only to
+  # matching requests already queued. Nothing is retained for later arrivals.
+  def complete(ref, value), do: call({:complete, ref, value}, 5_000)
 
   def refresh(key, fun, opts \\ []) do
     result = call({:refresh, key, fun}, 5_000)
@@ -109,7 +118,7 @@ defmodule ImagePipe.Cache.Work do
   def init(_), do: {:ok, %{locks: %{}, refs: %{}, jobs: %{}, cooldown: %{}}}
 
   @impl true
-  def handle_call({:lock, key}, from, state) do
+  def handle_call({:lock, key, context}, from, state) do
     cond do
       not Map.has_key?(state.locks, key) and map_size(state.locks) >= @max_keys ->
         {:reply, :busy, state}
@@ -119,17 +128,21 @@ defmodule ImagePipe.Cache.Work do
         {:reply, :busy, state}
 
       true ->
-        enqueue(key, from, state)
+        enqueue(key, from, context, state)
     end
   end
 
   def handle_call({:unlock, ref}, _from, state), do: {:reply, :ok, release(state, ref)}
 
+  def handle_call({:complete, ref, value}, _from, state) do
+    {:reply, :ok, complete_cohort(state, ref, value)}
+  end
+
   def handle_call({:cancel_wait, key}, {pid, _tag}, state) do
     waiters =
       case Map.get(state.locks, key) do
         nil -> []
-        lock -> for {ref, {^pid, _tag}} <- lock.waiters, do: ref
+        lock -> for {ref, {^pid, _tag}, _context} <- lock.waiters, do: ref
       end
 
     {:reply, :ok, Enum.reduce(waiters, state, &release(&2, &1))}
@@ -161,19 +174,19 @@ defmodule ImagePipe.Cache.Work do
     end
   end
 
-  defp enqueue(key, {pid, _tag} = from, state) do
+  defp enqueue(key, {pid, _tag} = from, context, state) do
     ref = Process.monitor(pid)
     refs = Map.put(state.refs, ref, key)
 
     case Map.get(state.locks, key) do
       nil ->
-        lock = %{owner: ref, waiters: []}
+        lock = %{owner: ref, context: context, waiters: []}
 
         {:reply, {:ok, ref, :acquired},
          %{state | locks: Map.put(state.locks, key, lock), refs: refs}}
 
       lock ->
-        lock = %{lock | waiters: lock.waiters ++ [{ref, from}]}
+        lock = %{lock | waiters: lock.waiters ++ [{ref, from, context}]}
         {:noreply, %{state | locks: Map.put(state.locks, key, lock), refs: refs}}
     end
   end
@@ -222,19 +235,53 @@ defmodule ImagePipe.Cache.Work do
     end
   end
 
+  defp complete_cohort(state, ref, value) do
+    case Map.fetch(state.refs, ref) do
+      :error ->
+        state
+
+      {:ok, key} ->
+        %{owner: ^ref} = lock = Map.fetch!(state.locks, key)
+
+        {shared, waiters} =
+          Enum.split_with(lock.waiters, fn {_ref, _from, context} ->
+            lock.context != nil and context == lock.context
+          end)
+
+        shared_refs =
+          Enum.map(shared, fn {waiter, from, _context} ->
+            Process.demonitor(waiter, [:flush])
+            GenServer.reply(from, {:shared, value})
+            waiter
+          end)
+
+        state = %{
+          state
+          | refs: Map.drop(state.refs, shared_refs),
+            locks: Map.put(state.locks, key, %{lock | waiters: waiters})
+        }
+
+        release(state, ref)
+    end
+  end
+
   defp release_lock(state, key, ref) do
     case Map.fetch!(state.locks, key) do
       %{owner: ^ref, waiters: []} ->
         %{state | locks: Map.delete(state.locks, key)}
 
-      %{owner: ^ref, waiters: [{next, from} | rest]} ->
+      %{owner: ^ref, waiters: [{next, from, context} | rest]} ->
         GenServer.reply(from, {:ok, next, :coalesced})
-        %{state | locks: Map.put(state.locks, key, %{owner: next, waiters: rest})}
+
+        %{
+          state
+          | locks: Map.put(state.locks, key, %{owner: next, context: context, waiters: rest})
+        }
 
       lock ->
         lock = %{
           lock
-          | waiters: Enum.reject(lock.waiters, fn {waiter, _from} -> waiter == ref end)
+          | waiters: Enum.reject(lock.waiters, fn {waiter, _from, _context} -> waiter == ref end)
         }
 
         %{state | locks: Map.put(state.locks, key, lock)}

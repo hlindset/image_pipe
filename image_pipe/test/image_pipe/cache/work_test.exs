@@ -20,13 +20,18 @@ defmodule ImagePipe.Cache.WorkTest do
     on_exit(fn -> Supervisor.restart_child(ImagePipe.Supervisor, Work) end)
 
     assert :served =
-             Work.run(make_ref(), fn lease, _outcome ->
-               assert Work.current?(lease)
-               :ok = Supervisor.terminate_child(ImagePipe.Supervisor, Work)
-               {:ok, _pid} = Supervisor.restart_child(ImagePipe.Supervisor, Work)
-               refute Work.current?(lease)
-               :served
-             end)
+             Work.run(
+               make_ref(),
+               fn lease, _outcome ->
+                 assert Work.current?(lease)
+                 :ok = Supervisor.terminate_child(ImagePipe.Supervisor, Work)
+                 {:ok, _pid} = Supervisor.restart_child(ImagePipe.Supervisor, Work)
+                 refute Work.current?(lease)
+                 assert Work.complete(lease, :obsolete) == :ok
+                 :served
+               end,
+               share: make_ref()
+             )
   end
 
   test "a waiter stops waiting after its wait limit and leaves the lock usable" do
@@ -58,34 +63,126 @@ defmodule ImagePipe.Cache.WorkTest do
     supervisor = start_supervised!(Task.Supervisor)
     key = make_ref()
     parent = self()
+    context = make_ref()
 
     leader =
       Task.Supervisor.async_nolink(supervisor, fn ->
-        Work.run(key, fn lease, outcome ->
-          assert outcome == :acquired
-          assert Work.current?(lease)
-          send(parent, :locked)
+        Work.run(
+          key,
+          fn lease, outcome ->
+            assert outcome == :acquired
+            assert Work.current?(lease)
+            send(parent, :locked)
 
-          receive do
-            :finish -> :ok
-          end
-        end)
+            receive do
+              :finish -> :ok
+            end
+          end,
+          share: context
+        )
       end)
 
     assert_receive :locked
 
     follower =
       Task.Supervisor.async_nolink(supervisor, fn ->
-        Work.run(key, fn lease, outcome ->
-          assert outcome == :coalesced
-          assert Work.current?(lease)
-          :released
-        end)
+        Work.run(
+          key,
+          fn lease, outcome ->
+            assert outcome == :coalesced
+            assert Work.current?(lease)
+            :released
+          end,
+          share: context
+        )
       end)
 
     await_waiter(key, follower)
     Task.shutdown(leader, :brutal_kill)
     assert Task.await(follower) == :released
+  end
+
+  test "completion shares only with the matching queued cohort" do
+    supervisor = start_supervised!(Task.Supervisor)
+    key = make_ref()
+    context = make_ref()
+    parent = self()
+
+    leader =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        Work.run(
+          key,
+          fn lease, :acquired ->
+            send(parent, :locked)
+
+            receive do
+              :finish ->
+                assert Work.complete(lease, :validated) == :ok
+                refute Work.current?(lease)
+                :leader_result
+            end
+          end,
+          share: context
+        )
+      end)
+
+    assert_receive :locked
+
+    different =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        Work.run(key, fn lease, :coalesced ->
+          assert Work.current?(lease)
+          :different_result
+        end)
+      end)
+
+    followers =
+      for _ <- 1..2 do
+        Task.Supervisor.async_nolink(supervisor, fn ->
+          Work.run(key, fn _, _ -> flunk("shared waiter repeated the work") end, share: context)
+        end)
+      end
+
+    for task <- [different | followers], do: await_waiter(key, task)
+    send(leader.pid, :finish)
+    assert Task.await(leader) == :leader_result
+    assert Task.await(different) == :different_result
+    for task <- followers, do: assert(Task.await(task) == :validated)
+
+    assert Work.run(key, fn _, :acquired -> :new_work end, share: context) == :new_work
+  end
+
+  test "a timed-out cohort member is not completed later" do
+    supervisor = start_supervised!(Task.Supervisor)
+    key = make_ref()
+    context = make_ref()
+    parent = self()
+
+    leader =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        Work.run(
+          key,
+          fn lease, _ ->
+            send(parent, :locked)
+
+            receive do
+              :finish -> Work.complete(lease, :validated)
+            end
+          end,
+          share: context
+        )
+      end)
+
+    assert_receive :locked
+
+    assert Work.run(key, fn _, _ -> flunk("timed-out waiter ran") end,
+             share: context,
+             wait: 20
+           ) == :timeout
+
+    send(leader.pid, :finish)
+    assert Task.await(leader) == :ok
+    assert Work.run(key, fn _, _ -> :new_work end, share: context) == :new_work
   end
 
   test "publication stays ordered across a coordinator restart" do
@@ -135,14 +232,20 @@ defmodule ImagePipe.Cache.WorkTest do
     monitor = Process.monitor(follower.pid)
 
     try do
-      await_waiter(key, monitor, System.monotonic_time(:millisecond) + 5_000)
+      await_waiter(key, follower.pid, monitor, System.monotonic_time(:millisecond) + 5_000)
     after
       Process.demonitor(monitor, [:flush])
     end
   end
 
-  defp await_waiter(key, monitor, deadline) do
+  defp await_waiter(key, pid, monitor, deadline) do
     locks = :sys.get_state(Work).locks
+
+    waiters =
+      case Map.get(locks, key) do
+        nil -> []
+        lock -> lock.waiters
+      end
 
     receive do
       {:DOWN, ^monitor, :process, _pid, reason} ->
@@ -150,14 +253,14 @@ defmodule ImagePipe.Cache.WorkTest do
     after
       0 ->
         cond do
-          match?(%{^key => %{waiters: [_ | _]}}, locks) ->
+          Enum.any?(waiters, fn waiter -> elem(elem(waiter, 1), 0) == pid end) ->
             :ok
 
           System.monotonic_time(:millisecond) > deadline ->
             flunk("follower never queued for the key; Work locks: #{inspect(locks)}")
 
           true ->
-            await_waiter(key, monitor, deadline)
+            await_waiter(key, pid, monitor, deadline)
         end
     end
   end

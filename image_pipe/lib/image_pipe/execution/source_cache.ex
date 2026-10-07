@@ -6,6 +6,7 @@ defmodule ImagePipe.Execution.SourceCache do
   alias ImagePipe.Cache.Work
   alias ImagePipe.Error
   alias ImagePipe.Execution.{Acquisition, Overlap}
+  alias ImagePipe.MaterialDigest
   alias ImagePipe.Source
   alias ImagePipe.Source.CacheState
   alias ImagePipe.Source.Record
@@ -42,8 +43,15 @@ defmodule ImagePipe.Execution.SourceCache do
 
   def acquire(source, key, previous, preparation, config) do
     case Source.validation_mode(source, config) do
-      :local -> acquire_local(source, key, previous, preparation, config)
-      :exclusive -> acquire_locked(source, key, previous, preparation, config)
+      :local ->
+        acquire_local(source, key, previous, preparation, config)
+
+      :exclusive ->
+        acquire_locked(source, key, previous, preparation, config)
+
+      {:shared, adapter} ->
+        opts = sharing_opts(source, previous, adapter, config)
+        acquire_locked(source, key, previous, preparation, opts)
     end
   end
 
@@ -106,15 +114,54 @@ defmodule ImagePipe.Execution.SourceCache do
             do: lookup(source, key, opts) || previous,
             else: previous
 
-        case status(record, source, opts) do
-          :fresh -> {:ok, %Acquisition{record: record}}
-          _validate -> fetch(source, key, record, preparation, opts)
-        end
+        result =
+          case status(record, source, opts) do
+            :fresh -> {:ok, %Acquisition{record: record}}
+            _validate -> fetch(source, key, record, preparation, opts)
+          end
+
+        complete_validation(coordination, result, source, opts)
       end,
       work_opts(source, config)
     )
     |> waited()
   end
+
+  defp complete_validation(
+         lease,
+         {:ok, %Acquisition{response: nil, lease: nil, record: record}} = result,
+         source,
+         config
+       )
+       when is_reference(lease) do
+    if config[:validation_cohort] != nil and storable?(record, source),
+      do: Work.complete(lease, result)
+
+    result
+  end
+
+  defp complete_validation(_lease, result, _source, _config), do: result
+
+  defp sharing_opts(source, %Record{} = previous, adapter, config) do
+    case storable?(previous, source) do
+      true ->
+        context =
+          MaterialDigest.of({
+            adapter,
+            source.fetch,
+            source.cache_semantics,
+            untimed(previous),
+            Keyword.take(config, [:max_body_bytes, :clock, :cache, :input_cache])
+          })
+
+        Keyword.put(config, :validation_cohort, context)
+
+      false ->
+        config
+    end
+  end
+
+  defp sharing_opts(_source, nil, _adapter, config), do: config
 
   # A source whose copies arrive without freshness (no-cache, no lifetime, or
   # already stale) gains nothing from a record another request just wrote.
@@ -149,12 +196,15 @@ defmodule ImagePipe.Execution.SourceCache do
   # that download's own deadline, with the same timeout error.
   defp work_opts(%{fetch: fetch}, config) when is_list(fetch) do
     case Keyword.get(fetch, :fetch_timeout) do
-      nil -> Telemetry.telemetry_opts(config)
-      timeout -> Keyword.put(Telemetry.telemetry_opts(config), :wait, timeout + 1_000)
+      nil -> coordination_opts(config)
+      timeout -> Keyword.put(coordination_opts(config), :wait, timeout + 1_000)
     end
   end
 
-  defp work_opts(_source, config), do: Telemetry.telemetry_opts(config)
+  defp work_opts(_source, config), do: coordination_opts(config)
+
+  defp coordination_opts(config),
+    do: Keyword.put(Telemetry.telemetry_opts(config), :share, config[:validation_cohort])
 
   defp waited(:timeout), do: {:error, {:source, :receive_timeout}}
   defp waited(result), do: result

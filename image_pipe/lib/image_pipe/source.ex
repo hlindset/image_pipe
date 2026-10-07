@@ -370,6 +370,9 @@ defmodule ImagePipe.Source do
           :hash -> :exclusive
         end
 
+      {:ok, module, opts} when module in @settings_versioned ->
+        {:shared, {module, opts}}
+
       _adapter ->
         :exclusive
     end
