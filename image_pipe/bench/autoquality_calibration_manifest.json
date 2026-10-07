@@ -1,0 +1,112 @@
+[
+  {
+    "source": "large",
+    "path": "large/picsum_107.jpg",
+    "split": "exploratory"
+  },
+  {
+    "source": "large",
+    "path": "large/picsum_146.jpg",
+    "split": "exploratory"
+  },
+  {
+    "source": "clic_holdout",
+    "path": "clic_holdout/2397c73f8feeb8f630fe055da5551c671794afae80528e8612dc62fc0cf61294.png",
+    "split": "exploratory"
+  },
+  {
+    "source": "clic_holdout",
+    "path": "clic_holdout/2684452db505ddbbb53f42a3f3bcfe86fdd0d6d8d98c029db4b4c6fc1f55b750.png",
+    "split": "exploratory"
+  },
+  {
+    "source": "gb82_sc",
+    "path": "gb82_sc/imac_dark.png",
+    "split": "exploratory"
+  },
+  {
+    "source": "gb82_sc",
+    "path": "gb82_sc/gmessages.png",
+    "split": "exploratory"
+  },
+  {
+    "source": "web_sc",
+    "path": "web_sc/elixir_kernel.png",
+    "split": "exploratory"
+  },
+  {
+    "source": "web_sc",
+    "path": "web_sc/wikipedia_ww2.png",
+    "split": "exploratory"
+  },
+  {
+    "source": "qoi_web",
+    "path": "qoi_web/reddit.com.png",
+    "split": "exploratory"
+  },
+  {
+    "source": "qoi_web",
+    "path": "qoi_web/stripe.com.png",
+    "split": "exploratory"
+  },
+  {
+    "source": "grafana_sc",
+    "path": "grafana_sc/stitch_01.png",
+    "split": "exploratory"
+  },
+  {
+    "source": "grafana_sc",
+    "path": "grafana_sc/stitch_04.png",
+    "split": "exploratory"
+  },
+  {
+    "source": "large",
+    "path": "large/picsum_157.jpg",
+    "split": "validation"
+  },
+  {
+    "source": "large",
+    "path": "large/picsum_201.jpg",
+    "split": "validation"
+  },
+  {
+    "source": "gb82_sc",
+    "path": "gb82_sc/imac_g3.png",
+    "split": "validation"
+  },
+  {
+    "source": "gb82_sc",
+    "path": "gb82_sc/codec_wiki.png",
+    "split": "validation"
+  },
+  {
+    "source": "web_sc",
+    "path": "web_sc/github_linux.png",
+    "split": "validation"
+  },
+  {
+    "source": "web_sc",
+    "path": "web_sc/wikipedia_gdp.png",
+    "split": "validation"
+  },
+  {
+    "source": "qoi_web",
+    "path": "qoi_web/cnn.com.png",
+    "split": "validation"
+  },
+  {
+    "source": "qoi_web",
+    "path": "qoi_web/amazon.com.png",
+    "split": "validation"
+  },
+  {
+    "source": "grafana_sc",
+    "path": "grafana_sc/stitch_02.png",
+    "split": "validation"
+  },
+  {
+    "source": "grafana_sc",
+    "path": "grafana_sc/stitch_03.png",
+    "split": "validation"
+  }
+]
