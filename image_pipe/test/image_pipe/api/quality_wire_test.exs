@@ -188,6 +188,38 @@ defmodule ImagePipe.API.QualityWireTest do
     assert get_resp_header(disabled, "x-imagepipe-aq-target") == []
   end
 
+  test "format-q turns off quality search for the formats it lists" do
+    explicit = response("w=128/format=webp/q=35", mount()).resp_body
+
+    for {options, config} <- [
+          {"w=128/format=webp/format-q=webp:35/debug",
+           mount(allow_debug_headers: true, autoquality: true)},
+          {"w=128/format=webp/autoquality=80/format-q=webp:35/debug",
+           mount(allow_debug_headers: true)}
+        ] do
+      fixed = response(options, config)
+      assert fixed.status == 200
+      assert fixed.resp_body == explicit
+      assert get_resp_header(fixed, "x-imagepipe-aq-target") == []
+    end
+
+    unlisted =
+      response(
+        "w=128/format=jpeg/format-q=webp:35/debug",
+        mount(allow_debug_headers: true, autoquality: true)
+      )
+
+    assert get_resp_header(unlisted, "x-imagepipe-aq-target") == ["75.0"]
+
+    host_quality =
+      response(
+        "w=128/format=webp/debug",
+        mount(allow_debug_headers: true, autoquality: true, format_quality: %{webp: 35})
+      )
+
+    assert get_resp_header(host_quality, "x-imagepipe-aq-target") == ["75.0"]
+  end
+
   test "the auto-quality target changes both cache and ETag identity" do
     config = [cache: {CacheProbe, []}]
     first = response("w=128/format=jpeg/autoquality=70", mount(config))

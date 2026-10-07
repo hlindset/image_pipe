@@ -64,6 +64,7 @@ defmodule ImagePipe.Output.RequestPolicy do
       encoder_options:
         merge_encoder_options(encoder_options_from_config(config), request.encoder_options),
       quality_search: quality_search,
+      fixed_quality_formats: request.format_qualities |> Map.keys() |> Enum.sort(),
       max_bytes: request.max_bytes
     }
   end

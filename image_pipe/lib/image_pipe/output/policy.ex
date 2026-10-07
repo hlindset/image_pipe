@@ -41,6 +41,7 @@ defmodule ImagePipe.Output.Policy do
                 flatten_background: Color.white(),
                 default_quality: :default,
                 quality_search: :none,
+                fixed_quality_formats: [],
                 max_bytes: nil,
                 dpi: nil,
                 encoder_options: %{},
@@ -74,6 +75,7 @@ defmodule ImagePipe.Output.Policy do
           quality_search:
             :none
             | Output.QualitySearch.t(),
+          fixed_quality_formats: [format()],
           max_bytes: nil | pos_integer(),
           dpi: nil | 1..65_535,
           encoder_options: %{optional(format()) => struct()},
@@ -114,6 +116,7 @@ defmodule ImagePipe.Output.Policy do
       default_quality: policy.default_quality,
       format_qualities: policy.format_qualities,
       quality_search: quality_search_identity(policy.quality_search),
+      fixed_quality_formats: policy.fixed_quality_formats,
       max_bytes: policy.max_bytes,
       strip_metadata: policy.strip_metadata,
       keep_copyright: policy.keep_copyright,
@@ -249,7 +252,15 @@ defmodule ImagePipe.Output.Policy do
 
   defp resolve_search(%__MODULE__{quality_search: :none}, _format), do: :none
 
-  defp resolve_search(%__MODULE__{quality_search: %Output.QualitySearch{} = s}, format) do
+  # The request's own quality for a format turns the search off for it.
+  defp resolve_search(%__MODULE__{} = policy, format) do
+    case format in policy.fixed_quality_formats do
+      true -> :none
+      false -> search(policy.quality_search, format)
+    end
+  end
+
+  defp search(%Output.QualitySearch{} = s, format) do
     {min_quality, max_quality} = Map.get(@search_rails, format, @default_search_rails)
 
     %RQS.Ssimulacra2{
