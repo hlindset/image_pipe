@@ -134,6 +134,88 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
     assert state.window_bytes + state.probationary_bytes + state.protected_bytes == 8
   end
 
+  test "a timed-out queued commit keeps Admission's files until it expires", ctx do
+    assert :ok = put_entry(ctx.key, "original", ctx.opts)
+    parent = self()
+    admission = ctx.admission
+    :sys.suspend(admission)
+
+    task =
+      Task.Supervisor.async_nolink(ctx.tasks, fn ->
+        {:ok, sink} = written_sink(ctx.key, "replacement", ctx.opts)
+        send(parent, {:caller_temp, sink.temp_body_path})
+        :erlang.trace(self(), true, [:send, {:tracer, parent}])
+
+        try do
+          FileSystem.commit_sink(sink, ctx.opts)
+        after
+          FileSystem.abort_sink(sink, ctx.opts)
+        end
+      end)
+
+    try do
+      assert_receive {:caller_temp, caller_temp}, 1000
+
+      assert_receive {:trace, _, :send, {:"$gen_call", _, {:commit, prepared, _}}, ^admission},
+                     1000
+
+      assert prepared.temp_body_path != caller_temp
+      assert {:error, :admission_unavailable} = Task.await(task, 6000)
+      refute File.exists?(caller_temp)
+      assert File.exists?(prepared.temp_body_path)
+      assert File.exists?(prepared.temp_meta_path)
+    after
+      :sys.resume(admission)
+    end
+
+    _state = :sys.get_state(admission)
+    assert {:hit, %{body: "original"}} = FileSystem.get(ctx.key, ctx.opts)
+    assert Path.wildcard(Path.join(ctx.root, "**/*.tmp"), match_dot: true) == []
+  end
+
+  test "a commit already admitted finishes after its caller times out", ctx do
+    parent = self()
+    handler = make_ref()
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        ctx.prefix ++ [:cache, :admission, :stop],
+        fn _, _, _, _ ->
+          send(parent, :admitted)
+
+          receive do
+            :release -> :ok
+          end
+        end,
+        nil
+      )
+
+    task =
+      Task.Supervisor.async_nolink(ctx.tasks, fn ->
+        {:ok, sink} = written_sink(ctx.key, "body", ctx.opts)
+
+        try do
+          FileSystem.commit_sink(sink, ctx.opts)
+        after
+          FileSystem.abort_sink(sink, ctx.opts)
+        end
+      end)
+
+    try do
+      assert_receive :admitted, 1000
+      assert {:error, :admission_unavailable} = Task.await(task, 6000)
+    after
+      :telemetry.detach(handler)
+      send(ctx.admission, :release)
+    end
+
+    state = :sys.get_state(ctx.admission)
+    assert state.window_bytes + state.probationary_bytes + state.protected_bytes == 4
+    assert {:hit, %{body: "body"}} = FileSystem.get(ctx.key, ctx.opts)
+    assert Path.wildcard(Path.join(ctx.root, "**/*.tmp"), match_dot: true) == []
+  end
+
   @tag capture_log: true
   test "admission termination cleans prepared temporary files", ctx do
     parent = self()
@@ -165,6 +247,12 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
   end
 
   defp put_entry(key, body, opts) do
+    with {:ok, sink} <- written_sink(key, body, opts) do
+      FileSystem.commit_sink(sink, opts)
+    end
+  end
+
+  defp written_sink(key, body, opts) do
     metadata = %Entry.Metadata{
       content_type: "image/png",
       headers: [],
@@ -173,9 +261,8 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
       representation: {:image, :png}
     }
 
-    with {:ok, sink} <- FileSystem.open_sink(key, metadata, opts),
-         {:ok, sink} <- FileSystem.write_chunk(sink, body, opts) do
-      FileSystem.commit_sink(sink, opts)
+    with {:ok, sink} <- FileSystem.open_sink(key, metadata, opts) do
+      FileSystem.write_chunk(sink, body, opts)
     end
   end
 end

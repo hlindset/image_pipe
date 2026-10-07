@@ -231,6 +231,13 @@ instance, which starts that process (see `ImagePipe.child_spec/1` and
   the cache is at or under the cap. Evictions from this pass and the
   startup scan are reported with `trigger: :reconcile`.
 
+Background eviction removes entries in batches so requests can run between
+batches. Each batch removes at most `eviction_victim_limit` entries (64 by
+default).
+
+A cache write can finish after its caller times out if the cache process has
+already started storing the response.
+
 ### Warm start from peers
 
 Each node writes its request counts to `<node_id>.state` in `state_dir`

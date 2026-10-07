@@ -415,11 +415,11 @@ Span. Emitted by a bounded cache when it decides whether to keep a new entry.
 
 ### `[:cache, :eviction, :stop]`
 
-One-shot. Emitted when a bounded cache evicts entries in the background to
-get back under its size limit.
+One-shot. Emitted for each batch of entries a bounded cache evicts in the
+background to get back under its size limit.
 
-- Measurements: `:count` (integer), entries evicted, and `:bytes` (integer),
-  their total size.
+- Measurements: `:count` (integer), entries evicted in the batch, and `:bytes`
+  (integer), their total size.
 - Metadata: `:trigger` (`:reconcile`) and `:pool` (atom).
 
 ### `[:cache, :flush, :stop]`
