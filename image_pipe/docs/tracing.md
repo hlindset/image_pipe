@@ -42,6 +42,9 @@ and the cache writer. Their spans stay in the request's trace. For example,
 `image_pipe.request`, or of `image_pipe.processing.execute` under a
 processing pool. `image_pipe.deliver` is a child of `image_pipe.send`.
 
+After a timeout or cancellation, `image_pipe.processing.execute` remains open
+until the worker finishes its operation and cleanup.
+
 HTTP and S3 source requests add a client span, `image_pipe.http.client`. It
 ends when the origin's status and headers arrive, because the body is
 streamed afterwards. Finch spans for the connection pool, connecting,

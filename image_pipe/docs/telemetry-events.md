@@ -152,6 +152,8 @@ Span. Emitted for requests that generate an image under a
 Span. Follows a successful admission and measures the admitted job until its
 stream is cleaned up, including pauses while the client reads. The pool stops
 the span when the worker dies, too. Spans of the generation stages nest in it.
+After a timeout or cancellation, the span remains open until the worker
+finishes, matching the lifetime of its processing slot.
 
 - Start metadata: `:active` and `:queued` (integer).
 - Stop metadata: `:result` (atom), one of `:ok`, `:processing_error`,

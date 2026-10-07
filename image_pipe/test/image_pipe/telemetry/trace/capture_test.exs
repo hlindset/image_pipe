@@ -119,7 +119,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     end
   end
 
-  test "processing pool spans retain request parentage and close on timeout" do
+  test "processing pool spans retain request parentage and close after timed-out work finishes" do
     prefix = [__MODULE__, :processing]
     :ok = TestExporter.attach(self(), prefix: prefix)
 
@@ -127,12 +127,15 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
       start_supervised!({ImagePipe.ProcessingPool, max_concurrency: 1, processing_timeout: 40})
 
     config = [telemetry_prefix: prefix]
+    owner = self()
 
     Telemetry.span(config, [:request], %{}, fn ->
       result =
         ImagePipe.ProcessingPool.run(
           pool,
           fn ->
+            send(owner, {:processing_worker, self()})
+
             Telemetry.span(config, [:output, :terminal], %{terminal: :info}, fn ->
               {:ok, %{result: :ok}}
             end)
@@ -151,11 +154,17 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert_receive {:span,
                     %Span{name: "image_pipe.processing.admission", status: :ok} = admission}
 
+    assert_receive {:processing_worker, worker}
+    assert %{active: 1} = ImagePipe.ProcessingPool.stats(pool)
+    refute_received {:span, %Span{name: "image_pipe.processing.execute"}}
+    assert_receive {:span, %Span{name: "image_pipe.request"} = request}
+    send(worker, :finish)
+
     assert_receive {:span,
                     %Span{name: "image_pipe.processing.execute", status: :error} = execution}
 
     assert_receive {:span, %Span{name: "image_pipe.output.terminal"} = terminal}
-    assert_receive {:span, %Span{name: "image_pipe.request"} = request}
+    assert execution.end_time >= request.end_time
     assert admission.parent_span_id == request.span_id
     assert execution.parent_span_id == request.span_id
     assert terminal.parent_span_id == execution.span_id
