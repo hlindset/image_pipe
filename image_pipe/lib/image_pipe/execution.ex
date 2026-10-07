@@ -296,10 +296,19 @@ defmodule ImagePipe.Execution do
 
   defp checked_hit(_miss, _context, _time), do: :miss
 
-  defp storable?(%Context{acquisition: %{record: nil}, source: source}),
-    do: source.internal_cache == :enabled
+  defp storable?(context) do
+    source_storable?(context.acquisition.record, context.source) and
+      Enum.all?(context.watermarks, fn watermark ->
+        source_storable?(watermark.record, watermark.source)
+      end)
+  end
 
-  defp storable?(context), do: SourceCache.storable?(context.acquisition.record, context.source)
+  defp source_storable?(nil, source),
+    do:
+      source.internal_cache == :enabled and
+        Keyword.get(source.cache_semantics.policy, :storage) != :deny
+
+  defp source_storable?(record, source), do: SourceCache.storable?(record, source)
 
   defp input(%Context{input_key: nil} = context), do: generate(context)
 
