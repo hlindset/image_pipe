@@ -25,23 +25,16 @@ defmodule ImagePipe.Plug.RequestTest do
                Request.parse(conn, config)
     end
 
-    test "raises when a script_name segment is not canonical unescaped ASCII", %{config: config} do
-      conn = mounted("/a%20b/w=800/src/x", ["a b"])
+    test "strips percent-encoded mount segments as Plug.forward leaves them", %{config: config} do
+      conn = mounted("/a%20b/50%25/w=800/src/x", ["a%20b", "50%25"])
 
-      assert_raise ArgumentError, fn -> Request.parse(conn, config) end
+      assert {{:ok, _request, "x"}, %{result: :ok}} = Request.parse(conn, config)
     end
 
-    test "raises when a script_name segment contains a percent sign", %{config: config} do
-      conn = mounted("/50%25/w=800/src/x", ["50%"])
+    test "strips mount segments by count across repeated slashes", %{config: config} do
+      conn = mounted("//api//v2/w=800/src/x", ["api", "v2"])
 
-      assert_raise ArgumentError, fn -> Request.parse(conn, config) end
-    end
-
-    test "raises when request_path does not start with the reconstructed prefix",
-         %{config: config} do
-      conn = mounted("/other/w=800/src/x", ["mount"])
-
-      assert_raise ArgumentError, fn -> Request.parse(conn, config) end
+      assert {{:ok, _request, "x"}, %{result: :ok}} = Request.parse(conn, config)
     end
   end
 end

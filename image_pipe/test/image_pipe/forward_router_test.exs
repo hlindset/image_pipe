@@ -15,6 +15,17 @@ defmodule ImagePipe.ForwardRouterTest do
     assert Image.width(image) == 4
   end
 
+  test "a percent-encoded mount prefix still reaches the forwarded plug" do
+    conn =
+      :get
+      |> Plug.Test.conn("/%69mages/w=4/format=png/src/small.png")
+      |> ForwardRouter.call(ForwardRouter.init([]))
+
+    assert conn.status == 200
+    assert {:ok, image} = Image.from_binary(conn.resp_body)
+    assert Image.width(image) == 4
+  end
+
   test "the default clock rejects expired requests through a compiled forward" do
     conn =
       :get
