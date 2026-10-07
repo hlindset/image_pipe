@@ -110,7 +110,67 @@ defmodule ImagePipe.Transform.Detector.CompositeTest do
     end
   end
 
+  # Children that each wait for the test to release them after both have
+  # started, so a sequential composite returns :not_concurrent.
+  defmodule Gate do
+    def run(label, opts) do
+      send(Keyword.fetch!(opts, :test_pid), {:started, label, self(), Logger.metadata()})
+
+      receive do
+        :go -> {:ok, [%{label: Atom.to_string(label), score: 0.9, box: {0, 0, 1, 1}}]}
+      after
+        1_000 -> {:error, {:detector, :not_concurrent}}
+      end
+    end
+  end
+
+  defmodule GatedFace do
+    @behaviour ImagePipe.Transform.Detector
+    @impl true
+    def supported_classes(_), do: ["face"]
+    @impl true
+    def available?(_), do: true
+    @impl true
+    def identity(_), do: {__MODULE__, :v}
+    @impl true
+    def detect(_, opts), do: Gate.run(:face, opts)
+  end
+
+  defmodule GatedObject do
+    @behaviour ImagePipe.Transform.Detector
+    @impl true
+    def supported_classes(_), do: ["car"]
+    @impl true
+    def available?(_), do: true
+    @impl true
+    def identity(_), do: {__MODULE__, :v}
+    @impl true
+    def detect(_, opts), do: Gate.run(:car, opts)
+  end
+
   defp composite, do: Composite.new([FaceChild, ObjectChild])
+
+  test "runs routed children concurrently with the caller's Logger metadata" do
+    test_pid = self()
+    composite = Composite.new([GatedFace, GatedObject])
+
+    task =
+      Task.async(fn ->
+        # The metadata is only carried to the children here, never logged.
+        # credo:disable-for-next-line Credo.Check.Warning.MissedMetadataKeyInLoggerConfig
+        Logger.metadata(request_id: "req-1")
+        Composite.detect(composite, :image, classes: :all, test_pid: test_pid)
+      end)
+
+    assert_receive {:started, :face, face, face_meta}
+    assert_receive {:started, :car, car, car_meta}
+    assert face_meta[:request_id] == "req-1"
+    assert car_meta[:request_id] == "req-1"
+    send(face, :go)
+    send(car, :go)
+
+    assert {:ok, [%{label: "face"}, %{label: "car"}]} = Task.await(task)
+  end
 
   test "warmup with a class list warms only the routed children" do
     composite = Composite.new([WarmFace, WarmObject])

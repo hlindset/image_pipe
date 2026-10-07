@@ -36,11 +36,11 @@ fires.
 
 A span's parent is the span that was open when it started. That works within
 one process, and ImagePipe carries the request's trace into the other
-processes that serve it: the processing pool, the encoder, watermark fetches,
-and the cache writer. Their spans stay in the request's trace. For example,
-`image_pipe.encode` runs in the encoder process but is a child of
-`image_pipe.request`, or of `image_pipe.processing.execute` under a
-processing pool. `image_pipe.deliver` is a child of `image_pipe.send`.
+processes that serve it: the processing pool, the encoder, the detection
+models, watermark fetches, and the cache writer. Their spans stay in the
+request's trace. For example, `image_pipe.encode` runs in the encoder process
+but is a child of `image_pipe.request`, or of `image_pipe.processing.execute`
+under a processing pool. `image_pipe.deliver` is a child of `image_pipe.send`.
 
 After a timeout or cancellation, `image_pipe.processing.execute` remains open
 until the worker finishes its operation and cleanup.
