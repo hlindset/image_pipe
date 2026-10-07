@@ -58,6 +58,71 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
     assert {Image.width(image(changed)), Image.height(image(changed))} == {12, 8}
   end
 
+  test "unchanged file checks overlap instead of waiting for the source lock", ctx do
+    opts = mount(ctx)
+    first = get(@path, opts)
+    supervisor = start_supervised!(Task.Supervisor)
+    handler = make_ref()
+
+    :telemetry.attach(
+      handler,
+      ctx.prefix ++ [:source, :fetch, :start],
+      fn _, _, _, parent ->
+        send(parent, {:checking, self()})
+
+        receive do
+          :continue -> :ok
+        after
+          5_000 -> flunk("file check was never released")
+        end
+      end,
+      self()
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+    leader = Task.Supervisor.async_nolink(supervisor, fn -> get(@path, opts) end)
+    assert_receive {:checking, leader_pid}
+    follower = Task.Supervisor.async_nolink(supervisor, fn -> get(@path, opts) end)
+    assert_receive {:checking, follower_pid}, 1_000
+    send(leader_pid, :continue)
+    send(follower_pid, :continue)
+    assert Task.await(leader).resp_body == first.resp_body
+    assert Task.await(follower).resp_body == first.resp_body
+  end
+
+  test "a changed preflight is checked again before the new bytes are staged", ctx do
+    opts = mount(ctx)
+    first = get(@path, opts)
+    path = Path.join(ctx.root, "beach.jpg")
+    Image.new!(30, 20, color: :red) |> Image.write!(path)
+    blue = Image.new!(30, 20, color: :blue) |> Image.write!(:memory, suffix: ".jpg")
+    handler = make_ref()
+
+    :telemetry.attach(
+      handler,
+      ctx.prefix ++ [:source, :fetch, :stop],
+      fn _, _, metadata, {parent, path, blue, marker} ->
+        send(parent, {:checked, metadata.result})
+
+        unless Process.get(marker) do
+          Process.put(marker, true)
+          File.write!(path, blue)
+        end
+      end,
+      {self(), path, blue, handler}
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+    changed = get(@path, opts)
+    assert changed.status == 200
+    refute changed.resp_body == first.resp_body
+    assert_receive {:checked, :ok}
+    assert_receive {:checked, :ok}
+    refute_received {:checked, _}
+    assert get(@path, opts).resp_body == changed.resp_body
+    assert_received {:checked, :not_modified}
+  end
+
   test "a file written in the second it was hashed is hashed again", ctx do
     file = Path.join(ctx.root, "beach.jpg")
     opts = mount(ctx, clock: fn -> File.stat!(file, time: :posix).mtime end)

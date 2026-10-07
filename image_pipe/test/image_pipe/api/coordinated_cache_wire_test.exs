@@ -689,6 +689,344 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     refute_received {:lookup, _}
   end
 
+  for control <- ["no-cache", "public"] do
+    test "queued #{control} requests share one HTTP validation", %{config: config, state: state} do
+      Agent.update(state, &%{&1 | control: unquote(control)})
+      first = request(config, 12)
+      small = request(config, 8)
+      assert_receive {:origin, _, []}
+      assert_receive {:origin, _, [~s("v1")]}
+      Agent.update(state, &%{&1 | block: true})
+      supervisor = start_supervised!(Task.Supervisor)
+      leader = Task.Supervisor.async_nolink(supervisor, fn -> request(config, 12) end)
+      assert_receive {:blocked, worker}
+
+      followers =
+        for width <- [8, 12, 8] do
+          task = Task.Supervisor.async_nolink(supervisor, fn -> request(config, width) end)
+          {task, width}
+        end
+
+      for {task, _} <- followers, do: await_source_waiter(task)
+      Agent.update(state, &%{&1 | block: false})
+      send(worker, :continue)
+      assert Task.await(leader).resp_body == first.resp_body
+
+      for {task, width} <- followers do
+        expected =
+          case width do
+            12 -> first
+            8 -> small
+          end
+
+        assert Task.await(task).resp_body == expected.resp_body
+      end
+
+      assert_receive {:origin, _, [~s("v1")]}
+      refute_received {:origin, _, _}
+      assert request(config, 12).resp_body == first.resp_body
+      assert_receive {:origin, _, [~s("v1")]}
+    end
+  end
+
+  test "a changed download is followed by one shared validation of the new identity", %{
+    config: config,
+    state: state
+  } do
+    Agent.update(state, &%{&1 | control: "no-cache"})
+    old = request(config, 12)
+    assert_receive {:origin, _, []}
+    Agent.update(state, &%{&1 | version: 2, block: true})
+    supervisor = start_supervised!(Task.Supervisor)
+    leader = Task.Supervisor.async_nolink(supervisor, fn -> request(config, 12) end)
+    assert_receive {:blocked, worker}
+
+    followers =
+      for _ <- 1..3 do
+        Task.Supervisor.async_nolink(supervisor, fn -> request(config, 12) end)
+      end
+
+    for task <- followers, do: await_source_waiter(task)
+    Agent.update(state, &%{&1 | block: false})
+    send(worker, :continue)
+    changed = Task.await(leader)
+    assert changed.status == 200
+    refute changed.resp_body == old.resp_body
+    refute get_resp_header(changed, "etag") == get_resp_header(old, "etag")
+    for task <- followers, do: assert(Task.await(task).resp_body == changed.resp_body)
+    assert_receive {:origin, _, [~s("v1")]}
+    assert_receive {:origin, _, [~s("v2")]}
+    refute_received {:origin, _, _}
+  end
+
+  test "a source update during validation is visible to requests after the cohort completes", %{
+    config: config,
+    state: state
+  } do
+    Agent.update(state, &%{&1 | control: "no-cache"})
+    first = request(config, 12)
+    assert_receive {:origin, _, []}
+    Agent.update(state, &%{&1 | block: true})
+    supervisor = start_supervised!(Task.Supervisor)
+    leader = Task.Supervisor.async_nolink(supervisor, fn -> request(config, 12) end)
+    assert_receive {:blocked, worker}
+    follower = Task.Supervisor.async_nolink(supervisor, fn -> request(config, 12) end)
+    await_source_waiter(follower)
+    Agent.update(state, &%{&1 | block: false, version: 2})
+    send(worker, :continue)
+    assert Task.await(leader).resp_body == first.resp_body
+    assert Task.await(follower).resp_body == first.resp_body
+    assert_receive {:origin, _, [~s("v1")]}
+    refute_received {:origin, _, _}
+    newer = request(config, 12)
+    assert newer.status == 200
+    refute newer.resp_body == first.resp_body
+    refute get_resp_header(newer, "etag") == get_resp_header(first, "etag")
+    assert_receive {:origin, _, [~s("v1")]}
+  end
+
+  test "queued requests with different body limits validate independently", %{
+    shared: shared,
+    config: config,
+    state: state
+  } do
+    Agent.update(state, &%{&1 | control: "no-cache"})
+    assert request(config, 12).status == 200
+    assert_receive {:origin, _, []}
+    strict = IP.Plug.init(config: IP.config(Keyword.put(shared.raw, :max_body_bytes, 1)))
+    Agent.update(state, &%{&1 | block: true})
+    supervisor = start_supervised!(Task.Supervisor)
+    leader = Task.Supervisor.async_nolink(supervisor, fn -> request(config, 12) end)
+    assert_receive {:blocked, worker}
+    follower = Task.Supervisor.async_nolink(supervisor, fn -> request(strict, 8) end)
+    await_source_waiter(follower)
+    Agent.update(state, &%{&1 | block: false})
+    send(worker, :continue)
+    assert Task.await(leader).status == 200
+    assert Task.await(follower).status == 413
+    assert_receive {:origin, _, [~s("v1")]}
+    assert_receive {:origin, _, [~s("v1")]}
+    refute_received {:origin, _, _}
+  end
+
+  test "a shared validation gives variant misses independent input leases", %{
+    shared: shared,
+    state: state
+  } do
+    prefix = [__MODULE__, :cohort_input_leases]
+    config = IP.Plug.init(config: IP.config(Keyword.put(shared.raw, :telemetry_prefix, prefix)))
+    Agent.update(state, &%{&1 | control: "no-cache"})
+    first = request(config, 12)
+    assert_receive {:origin, _, []}
+    Agent.update(state, &%{&1 | block: true})
+    supervisor = start_supervised!(Task.Supervisor)
+    leader = Task.Supervisor.async_nolink(supervisor, fn -> request(config, 12) end)
+    assert_receive {:blocked, worker}
+    handler = make_ref()
+
+    :telemetry.attach(
+      handler,
+      prefix ++ [:cache, :input, :stop],
+      fn _, _, %{cache: :hit}, parent ->
+        send(parent, {:pinned, self()})
+
+        receive do
+          :continue -> :ok
+        after
+          5_000 -> flunk("pinned input was never released")
+        end
+      end,
+      self()
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+    cancelled = Task.Supervisor.async_nolink(supervisor, fn -> request(config, 8) end)
+    survivor = Task.Supervisor.async_nolink(supervisor, fn -> request(config, 6) end)
+    for task <- [cancelled, survivor], do: await_source_waiter(task)
+    Agent.update(state, &%{&1 | block: false})
+    send(worker, :continue)
+    assert_receive {:pinned, _}
+    assert_receive {:pinned, _}
+    assert Task.await(leader).resp_body == first.resp_body
+
+    table = :sys.get_state(ImagePipe.Cache.Resources).table
+
+    pins =
+      for {_token, owner, path, _monitor} <- :ets.tab2list(table),
+          owner in [cancelled.pid, survivor.pid],
+          do: {owner, path}
+
+    assert length(pins) == 2
+    assert pins |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> length() == 2
+    {_, survivor_path} = List.keyfind(pins, survivor.pid, 0)
+    Task.shutdown(cancelled, :brutal_kill)
+    assert File.exists?(survivor_path)
+    send(survivor.pid, :continue)
+    response = Task.await(survivor)
+    assert response.status == 200
+    assert Image.width(Image.from_binary!(response.resp_body)) == 6
+    refute File.exists?(survivor_path)
+    assert_receive {:origin, _, [~s("v1")]}
+    refute_received {:origin, _, _}
+  end
+
+  test "a validation that revokes storage is not handed to queued requests", %{
+    config: config,
+    state: state
+  } do
+    Agent.update(state, &%{&1 | control: "no-cache"})
+    assert request(config, 12).status == 200
+    assert_receive {:origin, _, []}
+    Agent.update(state, &%{&1 | block: true, control: "no-store"})
+    supervisor = start_supervised!(Task.Supervisor)
+    leader = Task.Supervisor.async_nolink(supervisor, fn -> request(config, 12) end)
+    assert_receive {:blocked, worker}
+    follower = Task.Supervisor.async_nolink(supervisor, fn -> request(config, 12) end)
+    await_source_waiter(follower)
+    Agent.update(state, &%{&1 | block: false})
+    send(worker, :continue)
+
+    for task <- [leader, follower] do
+      response = Task.await(task)
+      assert response.status == 200
+      assert get_resp_header(response, "cache-control") == ["no-store"]
+      assert get_resp_header(response, "etag") == []
+    end
+
+    for _ <- 1..2 do
+      assert_receive {:origin, _, [~s("v1")]}
+      assert_receive {:origin, _, []}
+    end
+
+    refute_received {:origin, _, _}
+  end
+
+  test "a failed validation lets a waiter retry instead of sharing the error", %{
+    config: config,
+    state: state
+  } do
+    Agent.update(state, &%{&1 | control: "no-cache"})
+    first = request(config, 12)
+    assert_receive {:origin, _, []}
+    Agent.update(state, &%{&1 | block: true, status: 503})
+    supervisor = start_supervised!(Task.Supervisor)
+    leader = Task.Supervisor.async_nolink(supervisor, fn -> request(config, 12) end)
+    assert_receive {:blocked, worker}
+    follower = Task.Supervisor.async_nolink(supervisor, fn -> request(config, 12) end)
+    await_source_waiter(follower)
+    Agent.update(state, &%{&1 | block: false, status: 200})
+    send(worker, :continue)
+    assert Task.await(leader).status == 502
+    assert Task.await(follower).resp_body == first.resp_body
+    for _ <- 1..2, do: assert_receive({:origin, _, [~s("v1")]})
+    refute_received {:origin, _, _}
+  end
+
+  test "S3 conditional validations complete a queued cohort", %{
+    shared: shared,
+    config: http_config,
+    state: state
+  } do
+    {_module, options} = http_config[:sources].sources.url
+    req_options = Keyword.fetch!(options, :req_options)
+
+    sources = [
+      objects: [
+        adapter: ImagePipe.Source.S3,
+        match: [scheme: "s3"],
+        options: [
+          default: [
+            region: "us-east-1",
+            endpoint: "https://origin.test",
+            credentials: {:static, access_key_id: "ACCESS", secret_access_key: "SECRET"},
+            req_options: req_options
+          ]
+        ]
+      ]
+    ]
+
+    config = IP.Plug.init(config: IP.config(Keyword.put(shared.raw, :sources, sources)))
+
+    request = fn ->
+      conn(:get, "/w=12/format=png/src/s3://images/image.png") |> IP.Plug.call(config)
+    end
+
+    Agent.update(state, &%{&1 | control: "no-cache"})
+    first = request.()
+    assert first.status == 200
+    assert_receive {:origin, _, []}
+    Agent.update(state, &%{&1 | block: true})
+    supervisor = start_supervised!(Task.Supervisor)
+    leader = Task.Supervisor.async_nolink(supervisor, request)
+    assert_receive {:blocked, worker}
+    follower = Task.Supervisor.async_nolink(supervisor, request)
+    await_source_waiter(follower)
+    Agent.update(state, &%{&1 | block: false})
+    send(worker, :continue)
+    assert Task.await(leader).resp_body == first.resp_body
+    assert Task.await(follower).resp_body == first.resp_body
+    assert_receive {:origin, _, [~s("v1")]}
+    refute_received {:origin, _, _}
+  end
+
+  test "different frozen credentials cannot join another principal's validation", %{
+    config: config,
+    state: state
+  } do
+    auth = fn -> {:bearer, Agent.get(state, &"principal-#{&1.version}")} end
+
+    config =
+      update_url_mount(config, fn opts ->
+        Keyword.update!(opts, :req_options, &Keyword.put(&1, :auth, auth))
+      end)
+
+    Agent.update(state, &%{&1 | control: "no-cache"})
+    first = request(config, 12)
+    assert_receive {:origin, _, []}
+    Agent.update(state, &%{&1 | block: true})
+    supervisor = start_supervised!(Task.Supervisor)
+    leader = Task.Supervisor.async_nolink(supervisor, fn -> request(config, 12) end)
+    assert_receive {:blocked, first_worker}
+    Agent.update(state, &%{&1 | version: 2})
+    other = Task.Supervisor.async_nolink(supervisor, fn -> request(config, 12) end)
+    assert_receive {:blocked, second_worker}
+    Agent.update(state, &%{&1 | block: false})
+    send(first_worker, :continue)
+    send(second_worker, :continue)
+    assert Task.await(leader).resp_body == first.resp_body
+    response = Task.await(other)
+    assert response.status == 200
+    refute response.resp_body == first.resp_body
+    assert_receive {:origin, _, [~s("v1")]}
+    assert_receive {:origin, _, []}
+    refute_received {:origin, _, _}
+  end
+
+  defp await_source_waiter(task) do
+    await_source_waiter(task.pid, System.monotonic_time(:millisecond) + 5_000)
+  end
+
+  defp await_source_waiter(pid, deadline) do
+    queued? =
+      Enum.any?(:sys.get_state(Work).locks, fn {_key, lock} ->
+        Enum.any?(lock.waiters, fn waiter -> elem(elem(waiter, 1), 0) == pid end)
+      end)
+
+    cond do
+      queued? ->
+        :ok
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        flunk("request never queued")
+
+      true ->
+        receive do
+        after
+          1 -> await_source_waiter(pid, deadline)
+        end
+    end
+  end
+
   test "a request uses a fresh record another request wrote after its own read", %{
     shared: shared,
     state: state
