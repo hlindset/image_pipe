@@ -29,6 +29,7 @@ defmodule ImagePipe.Transform.Operation.Watermark do
   import ImagePipe.Transform.State
   import ImagePipe.Transform.Geometry, only: [center_origin: 2]
 
+  alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.Operation.AlphaPremultiply
   alias ImagePipe.Transform.State
   alias ImagePipe.Transform.WorkLimits
@@ -79,10 +80,27 @@ defmodule ImagePipe.Transform.Operation.Watermark do
   defp apply_watermark(operation, state) do
     with {:ok, mark} <- size(operation.image, operation.width, operation.height),
          {:ok, mark} <- fade(mark, operation.opacity),
+         {:ok, mark} <- buffer_tiled_mark(mark, operation, state),
          {:ok, image} <- place(state.image, mark, operation) do
       {:ok, set_image(state, image)}
     else
+      {:error, {:materialize_error, _reason}} = error -> error
       {:error, reason} -> {:error, {__MODULE__, reason}}
+    end
+  end
+
+  defp buffer_tiled_mark(mark, %__MODULE__{tile: false}, _state), do: {:ok, mark}
+
+  defp buffer_tiled_mark(mark, %__MODULE__{tile: true}, state) do
+    asset_state = %State{
+      image: mark,
+      telemetry_opts: state.telemetry_opts,
+      max_intermediate_pixels: state.max_intermediate_pixels
+    }
+
+    case Materializer.materialize(asset_state) do
+      {:ok, %State{image: image}} -> {:ok, image}
+      {:error, reason} -> {:error, {:materialize_error, reason}}
     end
   end
 

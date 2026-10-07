@@ -20,6 +20,7 @@ defmodule ImagePipe.API.WatermarkWireTest do
       "image.png" => png(Image.new!(60, 40, color: @blue)),
       "mark.png" => png(Image.new!(10, 10, color: @red)),
       "alpha.png" => png(Image.new!(10, 10, color: @red ++ [128])),
+      "pattern.png" => png(pattern_mark()),
       "gray_mark.png" => png(gray_mark()),
       "mid_mark.png" => png(Image.new!(10, 10, color: [1, 128, 200])),
       "tagged_gray.png" => png(tagged_gray()),
@@ -130,6 +131,52 @@ defmodule ImagePipe.API.WatermarkWireTest do
       assert VipsImage.bands(marked) == 4
       assert pixel(marked, 0, 0) == @red ++ [255]
       assert List.last(pixel(marked, 15, 0)) == 0
+    end
+  end
+
+  describe "tiled watermark materialization" do
+    test "the resized and faded asset is buffered once only for tiling", context do
+      config = observed_mount(context)
+
+      assert response("wm=pattern/wm-scale=0.2/wm-opacity=0.6/wm-tile", config).status ==
+               200
+
+      assert_received {:materialized, %{dims: {8, 8}, result: :ok}}
+      refute_received {:materialized, %{dims: {8, 8}}}
+
+      assert response("wm=pattern/wm-scale=0.2/wm-opacity=0.6", config).status == 200
+      refute_received {:materialized, %{dims: {8, 8}}}
+    end
+
+    test "scaled translucent tiles match individually placed marks", %{config: config} do
+      mark = "wm=pattern/wm-scale=0.2/wm-opacity=0.6/wm-at=top-left"
+      tiled = image(mark <> "/wm-tile/wm-offset=-3,-2/wm-gap=20,20", config)
+
+      placements =
+        for y <- -2..39//28, x <- -3..59//28 do
+          mark <> "/wm-offset=#{x},#{y}"
+        end
+
+      expected = image(Enum.join(placements, "/-/"), config)
+      assert dimensions(tiled) == {60, 40}
+      assert pixels(tiled) == pixels(expected)
+    end
+
+    test "a corrupt asset fails as a decode error inside the watermark operation", context do
+      body =
+        "priv/static/images/beach.jpg"
+        |> Image.open!()
+        |> Image.write!(:memory, suffix: ".jpg", strip_metadata: true)
+        |> binary_part(0, 5000)
+
+      origin = origin(%{"image.png" => png(Image.new!(60, 40, color: @blue)), "mark.jpg" => body})
+      context = %{context | origin: origin}
+      config = observed_mount(context, watermarks: %{logo: [source: "mark.jpg"]})
+
+      result = response("wm=logo/wm-scale=0.2/wm-tile", config)
+      assert result.status == 415, result.resp_body
+      assert_received {:watermark_result, :error}
+      assert_received {:materialized, %{result: :materialize_error}}
     end
   end
 
@@ -384,6 +431,48 @@ defmodule ImagePipe.API.WatermarkWireTest do
   defp dimensions(image), do: {Image.width(image), Image.height(image)}
   defp pixels(image), do: VipsImage.write_to_binary(image)
 
+  defp pattern_mark do
+    bytes = for y <- 0..19, x <- 0..19, into: <<>>, do: <<x * 12, y * 12, 80, 80 + x * 8>>
+    {:ok, mark} = VipsImage.new_from_binary(bytes, 20, 20, 4, :VIPS_FORMAT_UCHAR)
+    VipsOperation.copy!(mark, interpretation: :VIPS_INTERPRETATION_sRGB)
+  end
+
+  defp observed_mount(context, options \\ []) do
+    prefix = [__MODULE__, context.test]
+    id = {__MODULE__, context.test, self()}
+
+    :ok =
+      :telemetry.attach_many(
+        id,
+        [prefix ++ [:transform, :materialize, :stop], prefix ++ [:transform, :operation, :stop]],
+        &__MODULE__.watermark_event/4,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(id) end)
+    mount(context.origin, Keyword.put(options, :telemetry_prefix, prefix))
+  end
+
+  def watermark_event(
+        [__MODULE__, _test, :transform, :materialize, :stop],
+        _measurements,
+        metadata,
+        pid
+      ),
+      do: send(pid, {:materialized, metadata})
+
+  def watermark_event(
+        [__MODULE__, _test, :transform, :operation, :stop],
+        _measurements,
+        metadata,
+        pid
+      ) do
+    case metadata do
+      %{operation: :watermark, result: result} -> send(pid, {:watermark_result, result})
+      _other -> :ok
+    end
+  end
+
   defp dominant([red, green, _blue]) when red > 200 and green < 60, do: :red
   defp dominant([red, green, _blue]) when green > 200 and red < 60, do: :green
   defp dominant(pixel), do: pixel
@@ -409,6 +498,7 @@ defmodule ImagePipe.API.WatermarkWireTest do
         watermarks: %{
           logo: [source: "mark.png"],
           ghost: [source: "alpha.png", opacity: 0.5],
+          pattern: [source: "pattern.png"],
           gray_logo: [source: "gray_mark.png"],
           mid_logo: [source: "mid_mark.png"],
           turned: [source: "rotated.jpg"],
