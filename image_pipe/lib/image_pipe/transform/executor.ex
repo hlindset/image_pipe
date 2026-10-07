@@ -516,10 +516,31 @@ defmodule ImagePipe.Transform.Executor do
   # Assets get the source's input conditioning, then the frame's color space,
   # an alpha band, and the frame's band format.
   defp conditioned_asset(asset, %State{} = state, opts) do
-    asset_state = %State{image: asset, telemetry_opts: state.telemetry_opts}
+    asset_state = %State{
+      image: asset,
+      telemetry_opts: state.telemetry_opts,
+      max_intermediate_pixels: state.max_intermediate_pixels
+    }
 
-    with {:ok, %State{image: asset}} <- condition_color(asset_state, opts),
+    with {:ok, asset_state} <- materialize_profiled_asset(asset_state, state.image),
+         {:ok, %State{image: asset}} <- condition_color(asset_state, opts),
          do: {:ok, asset}
+  end
+
+  # Workaround for `image`: removing or setting an ICC profile goes through
+  # Vix's mutable image, which copies the image to memory in a linked process.
+  # A corrupt asset then crashes the request instead of failing as a decode
+  # error, so buffer the asset first when color management changes a profile:
+  # the asset has one, or a color frame does.
+  defp materialize_profiled_asset(%State{image: asset} = asset_state, frame) do
+    if WorkingColor.tagged?(asset) or (not GrayFrame.gray?(frame) and WorkingColor.tagged?(frame)) do
+      case Materializer.materialize(asset_state) do
+        {:ok, asset_state} -> {:ok, asset_state}
+        {:error, reason} -> {:error, Materializer.error(reason)}
+      end
+    else
+      {:ok, asset_state}
+    end
   end
 
   # A color asset promotes a gray frame to RGB rather than being reduced to gray.
