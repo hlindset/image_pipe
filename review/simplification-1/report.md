@@ -10,7 +10,7 @@ Paths are relative to `image_pipe/lib/image_pipe/` unless they start with a proj
 |---|---|---|---|---|
 | 1 | Replace the home-grown tracer and OTel replay with a live OTel handler | ~800 lib lines, 11 modules | High | Decided 2026-10-07: replace with live OTel handler |
 | 2 | Drop the `ImagePipe.Cache` adapter behaviour (FileSystem is the only adapter) | ~250–300 lines | Medium | Decided 2026-10-07: remove; close whl3 and z3f.8 |
-| 3 | Drop bounded-cache state persistence and warm start from peers | ~400 lines, 5 options, 3 events | Medium | Yes, removes a feature |
+| 3 | Drop bounded-cache state persistence and warm start from peers | ~400 lines, 5 options, 3 events | Medium | Decided 2026-10-07: remove |
 | 4 | Retire the `ImagePipe.Transform` behaviour and generic `run/3` dispatch | ~60–100 lines, one name vocabulary | Medium-high | Decided 2026-10-07: remove |
 | 5 | Strip dead `summary`/`examples` metadata from `OptionSpec` | ~150 lines (up to ~450 if the table is reshaped) | Low | No |
 | 6 | Merge Delivery Coordinator and Producer | ~300 lines, one process per request | High | Design note first |
@@ -101,7 +101,7 @@ Rough total if everything were done: 3,000–3,500 lines of lib code and a simil
 
 **Suggestion:** keep W-TinyLFU in memory only; bounded mode then no longer needs `node_id`. Remove the three events from the Logger, Capture and `docs/telemetry-events.md` together.
 
-**Decision for Håvard:** how much does warm popularity across restarts and nodes matter in practice? Without it, a restarted node admits by recency for a while until counts rebuild.
+**Decision (Håvard, 2026-10-07):** remove it. After a restart the cache still filters one-off requests (doorkeeper plus the strict admission gate, `policy.ex:119`) and re-protects entries on their first hit (`promote_on_hit`, `admission.ex:946`); the startup scan places existing entries in probation by file mtime (`admission.ex:326-337`), so until they are requested again eviction is oldest-written first. What is given up: keeping a popular-but-old entry before its next request, and a head start for new replicas. Bounded mode then no longer needs `node_id`.
 
 ## 4. Retire the `ImagePipe.Transform` behaviour and generic `run/3` dispatch
 
