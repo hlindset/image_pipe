@@ -1,0 +1,50 @@
+[
+  {
+    "source": "large",
+    "path": "large/picsum_107.jpg"
+  },
+  {
+    "source": "large",
+    "path": "large/picsum_146.jpg"
+  },
+  {
+    "source": "clic_holdout",
+    "path": "clic_holdout/2397c73f8feeb8f630fe055da5551c671794afae80528e8612dc62fc0cf61294.png"
+  },
+  {
+    "source": "clic_holdout",
+    "path": "clic_holdout/2684452db505ddbbb53f42a3f3bcfe86fdd0d6d8d98c029db4b4c6fc1f55b750.png"
+  },
+  {
+    "source": "gb82_sc",
+    "path": "gb82_sc/imac_dark.png"
+  },
+  {
+    "source": "gb82_sc",
+    "path": "gb82_sc/gmessages.png"
+  },
+  {
+    "source": "web_sc",
+    "path": "web_sc/elixir_kernel.png"
+  },
+  {
+    "source": "web_sc",
+    "path": "web_sc/wikipedia_ww2.png"
+  },
+  {
+    "source": "qoi_web",
+    "path": "qoi_web/reddit.com.png"
+  },
+  {
+    "source": "qoi_web",
+    "path": "qoi_web/stripe.com.png"
+  },
+  {
+    "source": "grafana_sc",
+    "path": "grafana_sc/stitch_01.png"
+  },
+  {
+    "source": "grafana_sc",
+    "path": "grafana_sc/stitch_04.png"
+  }
+]
