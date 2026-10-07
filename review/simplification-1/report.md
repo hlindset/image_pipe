@@ -8,8 +8,8 @@ Paths are relative to `image_pipe/lib/image_pipe/` unless they start with a proj
 
 | # | Opportunity | Win | Risk | Needs a decision |
 |---|---|---|---|---|
-| 1 | Replace the home-grown tracer and OTel replay with a live OTel handler | ~800 lib lines, 11 modules | High | Yes |
-| 2 | Drop the `ImagePipe.Cache` adapter behaviour (FileSystem is the only adapter) | ~250–300 lines | Medium | Yes, conflicts with two beads |
+| 1 | Replace the home-grown tracer and OTel replay with a live OTel handler | ~800 lib lines, 11 modules | High | Decided 2026-10-07: replace with live OTel handler |
+| 2 | Drop the `ImagePipe.Cache` adapter behaviour (FileSystem is the only adapter) | ~250–300 lines | Medium | Decided 2026-10-07: remove; close whl3 and z3f.8 |
 | 3 | Drop bounded-cache state persistence and warm start from peers | ~400 lines, 5 options, 3 events | Medium | Yes, removes a feature |
 | 4 | Retire the `ImagePipe.Transform` behaviour and generic `run/3` dispatch | ~60–100 lines, one name vocabulary | Medium-high | Decided 2026-10-07: remove |
 | 5 | Strip dead `summary`/`examples` metadata from `OptionSpec` | ~150 lines (up to ~450 if the table is reshaped) | Low | No |
@@ -62,7 +62,7 @@ Rough total if everything were done: 3,000–3,500 lines of lib code and a simil
 
 **Lower-risk middle option:** keep Capture, but have `OtelIdGenerator` also hand out ImagePipe's span IDs, so each span can be exported as soon as it ends under a synthetic parent context. This deletes only `OtelReplay` but requires hosts to configure the ID generator. Smallest step regardless: start `OtelReplay` from `attach_tracer` (or have the host supervise it) instead of in every host.
 
-**Decision for Håvard:** is the "trace without an OTel SDK" use case (LogExporter, trace IDs in logs) worth keeping? If not, the full replacement is the clear win. If it is, the middle option still removes the replay buffer.
+**Decision (Håvard, 2026-10-07):** do the full replacement with a live OTel handler; tracing without an OTel SDK (`LogExporter`, the custom `Exporter` behaviour) goes. Process hops keep going through `Telemetry.RequestContext`, whose `capture`/`adopt`/`within` carry the OTel context instead of the trace stack (plus a no-op branch when the optional OTel API isn't compiled in); `processing_pool/events.ex:13` reads `Stack.current()` directly and needs a rewrite. Request ID and trace ID are independent today and stay so; adding `request_id` to the root span's attribute allowlist would link them. Verify parenting across the pool and Producer hops first. Update the server, fiddle, `docs/tracing.md`, `docs/cookbook/opentelemetry-jaeger.md` and the Logger/Capture sync rule in AGENTS.md.
 
 ## 2. Drop the `ImagePipe.Cache` adapter behaviour
 
@@ -83,7 +83,7 @@ Rough total if everything were done: 3,000–3,500 lines of lib code and a simil
 
 **Fallback if the behaviour stays (per whl3/z3f.8):** delete the `function_exported?` probes and the `invalid_adapter_result` normalisation anyway, and skip the second `Entry.validate`.
 
-**Decision for Håvard:** this conflicts with `image_plug-whl3` and `image_plug-z3f.8`. Is a pluggable cache (Redis, S3, ...) still a goal for 0.1? If not, delete the behaviour and close those two beads.
+**Decision (Håvard, 2026-10-07):** remove the behaviour and close `image_plug-whl3` and `image_plug-z3f.8`. If an S3 output cache comes later, design a new contract then from the FileSystem and S3 pair; the cache is `@moduledoc false`, so no host code depends on it today.
 
 ## 3. Drop bounded-cache state persistence and warm start from peers
 
