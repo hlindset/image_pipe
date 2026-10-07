@@ -1,0 +1,55 @@
+{
+  "annotation_rows": 4341,
+  "aom_s1_minus_s7_q30_mcos": {
+    "max": 14.608099999999993,
+    "median": 0.3159000000000134,
+    "min": -7.867899999999999,
+    "n": 41,
+    "p10": -3.4155999999999977,
+    "p90": 6.502700000000004
+  },
+  "csv_sha256": "fbaf42f5031b0c520209e9739a352d3048d711c85c20552679304e9784af0cc6",
+  "fixed_setting_mcos": {
+    "AVIF_aom_s1:q30": {
+      "max": 84.7872,
+      "median": 69.2227,
+      "min": 54.663,
+      "n": 41,
+      "p10": 60.1439,
+      "p90": 78.315
+    },
+    "AVIF_aom_s7:q30": {
+      "max": 83.4539,
+      "median": 68.6277,
+      "min": 52.9947,
+      "n": 49,
+      "p10": 57.5329,
+      "p90": 77.5516
+    },
+    "JPEG:q75": {
+      "max": 84.4661,
+      "median": 75.3271,
+      "min": 60.3075,
+      "n": 49,
+      "p10": 66.2949,
+      "p90": 80.1683
+    },
+    "WebP:q80": {
+      "max": 87.1595,
+      "median": 76.2037,
+      "min": 63.2216,
+      "n": 49,
+      "p10": 67.9806,
+      "p90": 82.5695
+    }
+  },
+  "heldout_originals": 49,
+  "limits": [
+    "Historical codecs/settings",
+    "AVIF slow subset is incomplete",
+    "MCOS units differ from SSIMULACRA2",
+    "Score differences carry observer uncertainty",
+    "No metric scores for these stimuli were recomputed; no new encodings inherit these ratings"
+  ],
+  "source": "https://cloudinary.com/labs/cid22"
+}

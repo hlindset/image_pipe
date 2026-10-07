@@ -1,0 +1,14 @@
+{
+  "aom": "3.15.1",
+  "corpus_cache_revision": "bb1da434fd3a",
+  "date": "2026-10-07",
+  "jpeg_linked_library": "/opt/homebrew/opt/mozjpeg/lib/libjpeg.62.dylib",
+  "libheif": "1.23.5",
+  "libwebp": "1.6.0",
+  "mozjpeg_package": "4.1.5",
+  "peak_native_rss_measured": false,
+  "platform": "macOS arm64",
+  "production_common_base": "c7b05ca0d",
+  "report": "docs/plans/autoquality-research-trials.md",
+  "timing_scope": "Local decode-through-output pipeline; HTTP/Plug/cache/delivery excluded"
+}

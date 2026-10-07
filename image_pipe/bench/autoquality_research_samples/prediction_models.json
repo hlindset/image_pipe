@@ -1,0 +1,236 @@
+{
+  "environment": {
+    "allowed_error": 0.5,
+    "dirty_cpu_schedulers": 12,
+    "elixir": "1.20.4",
+    "experiment": "prediction",
+    "feature_names": [
+      "log_mp",
+      "log_aspect",
+      "crop",
+      "log_adjacent",
+      "log_squared",
+      "log_coarse",
+      "log_checker",
+      "log_chroma",
+      "log_spread"
+    ],
+    "formats": [
+      "jpeg",
+      "webp",
+      "avif"
+    ],
+    "image": "0.72.0",
+    "kind": "environment",
+    "libvips": "8.18.7",
+    "mode": "collect",
+    "operation_cache": false,
+    "otp": "29",
+    "repeats": 3,
+    "sizes": [
+      0.5,
+      2.0,
+      8.0
+    ],
+    "target": 75.0,
+    "vips_concurrency": 8,
+    "vix": "0.42.0"
+  },
+  "heldout_images": [
+    "gb82_sc/codec_wiki.png",
+    "gb82_sc/imac_g3.png",
+    "grafana_sc/stitch_02.png",
+    "grafana_sc/stitch_03.png",
+    "large/picsum_157.jpg",
+    "large/picsum_201.jpg",
+    "qoi_web/amazon.com.png",
+    "qoi_web/cnn.com.png",
+    "web_sc/github_linux.png",
+    "web_sc/wikipedia_gdp.png"
+  ],
+  "label": "production_search_winner",
+  "models": {
+    "avif": {
+      "class_lookup": {
+        "graphic": 49.0,
+        "photo": 59.5
+      },
+      "coefficients": [
+        0.7628236357808627,
+        -0.5933238031319544,
+        1.0165325154930038,
+        1.857805184760647,
+        -2.955453828052748,
+        0.7500785033157392,
+        2.098174490176238,
+        2.6640932648848517,
+        0.08718670119901344
+      ],
+      "intercept": 51.375,
+      "mean": [
+        1.0731801133733951,
+        -0.5387844696737346,
+        0.2222222222222222,
+        1.6808768684602706,
+        5.458563464906882,
+        1.8523866660598294,
+        1.4406126240118982,
+        0.49753232131153213,
+        2.426052453330479
+      ],
+      "penalty": 4.0,
+      "scale": [
+        0.6740392698155586,
+        0.842159603389997,
+        0.41573970964154905,
+        0.41726305102911176,
+        0.6897579881908433,
+        0.3931040977486999,
+        0.4606065227725003,
+        0.2937492343506132,
+        0.34296429016645075
+      ],
+      "training_cases": 32,
+      "training_images": [
+        "clic_holdout/2397c73f8feeb8f630fe055da5551c671794afae80528e8612dc62fc0cf61294.png",
+        "clic_holdout/2684452db505ddbbb53f42a3f3bcfe86fdd0d6d8d98c029db4b4c6fc1f55b750.png",
+        "gb82_sc/gmessages.png",
+        "gb82_sc/imac_dark.png",
+        "grafana_sc/stitch_01.png",
+        "grafana_sc/stitch_04.png",
+        "large/picsum_107.jpg",
+        "large/picsum_146.jpg",
+        "qoi_web/reddit.com.png",
+        "qoi_web/stripe.com.png",
+        "web_sc/elixir_kernel.png",
+        "web_sc/wikipedia_ww2.png"
+      ]
+    },
+    "jpeg": {
+      "class_lookup": {
+        "graphic": 78.5,
+        "photo": 74.5
+      },
+      "coefficients": [
+        1.2030080913768442,
+        1.7046123913940032,
+        1.372201944643982,
+        0.9509789880174624,
+        4.169113455321023,
+        0.5062365011039138,
+        0.7017268734841037,
+        0.4728482949626191,
+        -1.8378124967617009
+      ],
+      "intercept": 76.72222222222221,
+      "mean": [
+        1.0731801133733951,
+        -0.5387844696737346,
+        0.2222222222222222,
+        1.6808768684602706,
+        5.458563464906882,
+        1.8523866660598294,
+        1.4406126240118982,
+        0.49753232131153213,
+        2.426052453330479
+      ],
+      "penalty": 4.0,
+      "scale": [
+        0.6740392698155586,
+        0.842159603389997,
+        0.41573970964154905,
+        0.41726305102911176,
+        0.6897579881908433,
+        0.3931040977486999,
+        0.4606065227725003,
+        0.2937492343506132,
+        0.34296429016645075
+      ],
+      "training_cases": 32,
+      "training_images": [
+        "clic_holdout/2397c73f8feeb8f630fe055da5551c671794afae80528e8612dc62fc0cf61294.png",
+        "clic_holdout/2684452db505ddbbb53f42a3f3bcfe86fdd0d6d8d98c029db4b4c6fc1f55b750.png",
+        "gb82_sc/gmessages.png",
+        "gb82_sc/imac_dark.png",
+        "grafana_sc/stitch_01.png",
+        "grafana_sc/stitch_04.png",
+        "large/picsum_107.jpg",
+        "large/picsum_146.jpg",
+        "qoi_web/reddit.com.png",
+        "qoi_web/stripe.com.png",
+        "web_sc/elixir_kernel.png",
+        "web_sc/wikipedia_ww2.png"
+      ]
+    },
+    "webp": {
+      "class_lookup": {
+        "graphic": 77.5,
+        "photo": 82.5
+      },
+      "coefficients": [
+        2.442244894029149,
+        3.481530605843913,
+        1.9568334038337036,
+        2.3789772947554435,
+        1.2920819587980295,
+        3.325889638268285,
+        -0.264347895756913,
+        4.305132024677868,
+        -3.1257881806567167
+      ],
+      "intercept": 74.125,
+      "mean": [
+        1.0731801133733951,
+        -0.5387844696737346,
+        0.2222222222222222,
+        1.6808768684602706,
+        5.458563464906882,
+        1.8523866660598294,
+        1.4406126240118982,
+        0.49753232131153213,
+        2.426052453330479
+      ],
+      "penalty": 4.0,
+      "scale": [
+        0.6740392698155586,
+        0.842159603389997,
+        0.41573970964154905,
+        0.41726305102911176,
+        0.6897579881908433,
+        0.3931040977486999,
+        0.4606065227725003,
+        0.2937492343506132,
+        0.34296429016645075
+      ],
+      "training_cases": 32,
+      "training_images": [
+        "clic_holdout/2397c73f8feeb8f630fe055da5551c671794afae80528e8612dc62fc0cf61294.png",
+        "clic_holdout/2684452db505ddbbb53f42a3f3bcfe86fdd0d6d8d98c029db4b4c6fc1f55b750.png",
+        "gb82_sc/gmessages.png",
+        "gb82_sc/imac_dark.png",
+        "grafana_sc/stitch_01.png",
+        "grafana_sc/stitch_04.png",
+        "large/picsum_107.jpg",
+        "large/picsum_146.jpg",
+        "qoi_web/reddit.com.png",
+        "qoi_web/stripe.com.png",
+        "web_sc/elixir_kernel.png",
+        "web_sc/wikipedia_ww2.png"
+      ]
+    }
+  },
+  "training_images": [
+    "clic_holdout/2397c73f8feeb8f630fe055da5551c671794afae80528e8612dc62fc0cf61294.png",
+    "clic_holdout/2684452db505ddbbb53f42a3f3bcfe86fdd0d6d8d98c029db4b4c6fc1f55b750.png",
+    "gb82_sc/gmessages.png",
+    "gb82_sc/imac_dark.png",
+    "grafana_sc/stitch_01.png",
+    "grafana_sc/stitch_04.png",
+    "large/picsum_107.jpg",
+    "large/picsum_146.jpg",
+    "qoi_web/reddit.com.png",
+    "qoi_web/stripe.com.png",
+    "web_sc/elixir_kernel.png",
+    "web_sc/wikipedia_ww2.png"
+  ]
+}
