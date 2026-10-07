@@ -1,4 +1,5 @@
 defmodule ImagePipe.API.OptionSpec do
+  import ImagePipe.Plan.ValueBounds
   # Declarative option table for the ImagePipe URL API.
   #
   # Each `%OptionSpec{}` defines an option's URL key, canonical name, scope, value parser, and
@@ -95,7 +96,6 @@ defmodule ImagePipe.API.OptionSpec do
   @detect_class_pattern ~r/\A[a-z0-9][a-z0-9_-]*\z/
   @watermark_name_pattern ~r/\A[a-z0-9_-]+\z/
   @base64url_pattern ~r/\A[A-Za-z0-9_-]+\z/
-  @max_vips_axis 2_147_483_647
   @max_detect_weight 1_000_000.0
   @default_monochrome_color {179, 179, 179}
   @gradient_directions %{
@@ -751,7 +751,7 @@ defmodule ImagePipe.API.OptionSpec do
   defp positive_decimal(string) do
     if Regex.match?(@positive_decimal_pattern, string) do
       case Float.parse(string) do
-        {value, ""} when value > 0.0 -> {:ok, value}
+        {value, ""} when scale?(value) -> {:ok, value}
         _zero_or_out_of_float_range -> :error
       end
     else
@@ -844,19 +844,9 @@ defmodule ImagePipe.API.OptionSpec do
     {:ratio, div(numerator, gcd), div(denominator, gcd)}
   end
 
-  # Crop geometry may multiply either direction of the ratio by a libvips
-  # image axis. Reject public numeric input unless both directions survive
-  # that arithmetic as positive finite BEAM floats. Integer-to-float
-  # conversion and float overflow raise `ArithmeticError`; this rescue is
-  # intentionally limited to the request numeric boundary.
+  # Reduced ratio components fit the native axis range.
   defp pixel_geometry_ratio?({:ratio, numerator, denominator}) do
-    ratio = numerator / denominator
-    reciprocal = denominator / numerator
-
-    ratio > 0.0 and reciprocal > 0.0 and
-      ratio * @max_vips_axis > 0.0 and reciprocal * @max_vips_axis > 0.0
-  rescue
-    ArithmeticError -> false
+    axis?(numerator) and axis?(denominator)
   end
 
   @doc false
@@ -977,23 +967,9 @@ defmodule ImagePipe.API.OptionSpec do
   @spec parse_offset(String.t()) ::
           {:ok, {length_value(), length_value()}} | {:error, :invalid_offset}
   def parse_offset(string) do
-    case Value.csv(string, 2..2, [&safe_signed_length/1, &safe_signed_length/1]) do
+    case Value.csv(string, 2..2, [&Value.length/1, &Value.length/1]) do
       {:ok, [x, y]} -> {:ok, {x, y}}
       {:error, _reason} -> {:error, :invalid_offset}
-    end
-  rescue
-    ArgumentError -> {:error, :invalid_offset}
-    ArithmeticError -> {:error, :invalid_offset}
-  end
-
-  defp safe_signed_length(string) do
-    case Value.length(string) do
-      {:ok, {_unit, value} = length} ->
-        _scaled_for_max_axis = abs(value * 1.0) * @max_vips_axis
-        {:ok, length}
-
-      {:error, _reason} ->
-        {:error, :invalid_length}
     end
   end
 
@@ -1030,8 +1006,8 @@ defmodule ImagePipe.API.OptionSpec do
   @spec parse_blur(String.t()) :: {:ok, float()} | {:error, :invalid_blur}
   def parse_blur(string) do
     case nonnegative_float(string) do
-      {:ok, value} -> {:ok, value}
-      :error -> {:error, :invalid_blur}
+      {:ok, value} when blur?(value) -> {:ok, value}
+      _invalid -> {:error, :invalid_blur}
     end
   end
 
@@ -1039,8 +1015,8 @@ defmodule ImagePipe.API.OptionSpec do
   @spec parse_sharpen(String.t()) :: {:ok, float()} | {:error, :invalid_sharpen}
   def parse_sharpen(string) do
     case nonnegative_float(string) do
-      {:ok, value} -> {:ok, value}
-      :error -> {:error, :invalid_sharpen}
+      {:ok, value} when sharpen?(value) -> {:ok, value}
+      _invalid -> {:error, :invalid_sharpen}
     end
   end
 
@@ -1049,7 +1025,7 @@ defmodule ImagePipe.API.OptionSpec do
   def parse_pixelate(string) do
     if Regex.match?(@unsigned_integer_pattern, string) do
       case String.to_integer(string) do
-        value when value >= 1 -> {:ok, value}
+        value when axis?(value) -> {:ok, value}
         _zero -> {:error, :invalid_pixelate}
       end
     else
@@ -1197,11 +1173,13 @@ defmodule ImagePipe.API.OptionSpec do
   end
 
   defp progressive_blur(sigma, direction, start, stop) do
-    with {:ok, sigma} <- nonnegative_float(sigma),
+    with {:ok, sigma} when blur?(sigma) <- nonnegative_float(sigma),
          {:ok, angle} <- gradient_direction(direction),
          {:ok, start} <- Value.fraction(start),
          {:ok, stop} <- Value.fraction(stop) do
       {:ok, %{sigma: sigma, angle: angle, start: start, stop: stop}}
+    else
+      _invalid -> :error
     end
   end
 

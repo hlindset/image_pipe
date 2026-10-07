@@ -311,6 +311,8 @@ export type NumericControlLimit = {
   min: number;
   max: number;
   step: number;
+  inputMin?: number;
+  inputMax?: number;
 };
 
 export type ImageDimensionAxis = "width" | "height";
@@ -339,8 +341,8 @@ export const controlLimits = {
   padding: { min: 0, max: 240, step: 1 },
   alpha: { min: 0, max: 1, step: 0.1 },
   effects: {
-    blur: { min: 0.1, max: 10, step: 0.1 },
-    sharpen: { min: 0.1, max: 10, step: 0.1 },
+    blur: { min: 0.1, max: 10, step: 0.1, inputMin: 0, inputMax: 1000 },
+    sharpen: { min: 0.1, max: 10, step: 0.1, inputMin: 0.000001, inputMax: 10 },
     pixelate: { min: 2, max: 80, step: 1 },
     intensity: { min: 0, max: 1, step: 0.01 },
     brightness: { min: -255, max: 255, step: 1 },

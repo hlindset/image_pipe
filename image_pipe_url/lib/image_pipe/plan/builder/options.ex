@@ -246,7 +246,7 @@ defmodule ImagePipe.Plan.Builder.Options do
       flip: [type: {:in, @axes}],
       gray: [type: :boolean],
       bitonal: [type: :boolean],
-      dpr: [type: custom(:positive)],
+      dpr: [type: custom(:scale_factor)],
       trim: [type: custom(:trim)],
       trim_symmetry: [type: {:in, @axes}],
       crop: [type: custom(:crop)],
@@ -261,10 +261,10 @@ defmodule ImagePipe.Plan.Builder.Options do
       extend_ratio: [type: :boolean],
       extend_at: [type: {:in, @anchors}],
       extend_offset: [type: custom(:offset)],
-      blur: [type: custom(:nonnegative)],
+      blur: [type: custom(:blur)],
       progressive_blur: [type: custom(:progressive_blur)],
-      sharpen: [type: custom(:nonnegative)],
-      pixelate: [type: :pos_integer],
+      sharpen: [type: custom(:sharpen)],
+      pixelate: [type: custom(:axis)],
       brightness: [type: {:in, -255..255}],
       contrast: [type: custom(:positive)],
       saturation: [type: custom(:positive)],
@@ -287,10 +287,10 @@ defmodule ImagePipe.Plan.Builder.Options do
 
   defp resize_schema do
     [
-      width: [type: {:or, [:pos_integer, {:in, [:auto]}]}],
-      height: [type: {:or, [:pos_integer, {:in, [:auto]}]}],
-      min_width: [type: :pos_integer],
-      min_height: [type: :pos_integer],
+      width: [type: custom(:dimension)],
+      height: [type: custom(:dimension)],
+      min_width: [type: custom(:axis)],
+      min_height: [type: custom(:axis)],
       fit: [type: {:in, [:contain, :cover, :stretch, :auto]}],
       enlarge: [type: :boolean],
       zoom: [type: custom(:zoom)]

@@ -31,6 +31,7 @@ defmodule ImagePipe.Transform.Operation.Watermark do
 
   alias ImagePipe.Transform.Operation.AlphaPremultiply
   alias ImagePipe.Transform.State
+  alias ImagePipe.Transform.WorkLimits
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
 
@@ -64,6 +65,18 @@ defmodule ImagePipe.Transform.Operation.Watermark do
 
   @impl ImagePipe.Transform
   def execute(%__MODULE__{} = operation, %State{} = state) do
+    asset_state = %State{
+      image: operation.image,
+      max_intermediate_pixels: state.max_intermediate_pixels
+    }
+
+    with :ok <- WorkLimits.resize(asset_state, operation.width, operation.height),
+         :ok <- tile_limits(operation, state.image) do
+      apply_watermark(operation, state)
+    end
+  end
+
+  defp apply_watermark(operation, state) do
     with {:ok, mark} <- size(operation.image, operation.width, operation.height),
          {:ok, mark} <- fade(mark, operation.opacity),
          {:ok, image} <- place(state.image, mark, operation) do
@@ -71,6 +84,27 @@ defmodule ImagePipe.Transform.Operation.Watermark do
     else
       {:error, reason} -> {:error, {__MODULE__, reason}}
     end
+  end
+
+  defp tile_limits(%__MODULE__{tile: false}, _frame), do: :ok
+
+  defp tile_limits(operation, frame) do
+    {gap_x, gap_y} = operation.gap
+    cell_width = operation.width + gap_x
+    cell_height = operation.height + gap_y
+
+    {x, y} =
+      origin(
+        operation,
+        {Image.width(frame), Image.height(frame)},
+        {operation.width, operation.height}
+      )
+
+    width = ceil_div(Image.width(frame) - grid_start(x, cell_width), cell_width) * cell_width
+    height = ceil_div(Image.height(frame) - grid_start(y, cell_height), cell_height) * cell_height
+
+    with :ok <- WorkLimits.embed(cell_width, cell_height),
+         do: WorkLimits.axes(width, height)
   end
 
   defp size(image, width, height) do

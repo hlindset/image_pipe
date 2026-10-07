@@ -60,7 +60,7 @@ All of these return before source resolution, fetch, or cache access.
 | `400` | The request's geometry is impossible for this image, such as a crop region outside it. |
 | `413` | The decoded image exceeds `max_input_pixels` or declares more frames than allowed. |
 | `415` | The source isn't a supported image. |
-| `422` | The transform can't be applied to this image, or the requested page doesn't exist. |
+| `422` | The transform can't be applied to this image, its dimensions exceed a native limit, a frame exceeds `max_intermediate_pixels` when buffered, downsampled, or delivered, or the requested page doesn't exist. |
 | `500` | Encoding failed, detection failed and the configuration requires it, or an unexpected internal error occurred. |
 | `501` | The requested output format has no encoder in this build. |
 | `503` | Processing is overloaded, queued too long, unavailable, or exceeded its deadline. |

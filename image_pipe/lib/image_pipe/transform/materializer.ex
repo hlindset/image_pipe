@@ -15,7 +15,7 @@ defmodule ImagePipe.Transform.Materializer do
   @moduledoc false
 
   alias ImagePipe.Telemetry
-  alias ImagePipe.Transform.{OrientationFlush, State}
+  alias ImagePipe.Transform.{OrientationFlush, State, WorkLimits}
   alias Vix.Vips.Image, as: VipsImage
 
   @callback materialize(State.t(), keyword()) ::
@@ -46,7 +46,7 @@ defmodule ImagePipe.Transform.Materializer do
   @spec flush(State.t()) :: {:ok, State.t()} | {:error, term()}
   def flush(%State{telemetry_opts: telemetry_opts} = state) do
     Telemetry.span(telemetry_opts, [:transform, :materialize], %{}, fn ->
-      case OrientationFlush.flush(state) do
+      case guarded_flush(state) do
         {:ok, new_state} ->
           {{:ok, new_state}, ok_metadata(new_state)}
 
@@ -56,15 +56,19 @@ defmodule ImagePipe.Transform.Materializer do
     end)
   end
 
+  defp guarded_flush(state) do
+    with :ok <- WorkLimits.check(state), do: OrientationFlush.flush(state)
+  end
+
+  def error({:intermediate_pixel_limit, _pixels, _limit} = reason), do: {:transform, reason}
+  def error(reason), do: {:decode, reason}
+
   # Callers wrap errors as {:materialize_error, reason}. The span's matching
   # result label controls Logger severity without changing the return value.
   defp copy_to_memory(%State{image: image} = state) do
-    case VipsImage.copy_memory(image) do
-      {:ok, image} ->
-        {:ok, %State{state | image: image, materialized?: true, buffer_before_resize?: false}}
-
-      {:error, _} = error ->
-        error
+    with :ok <- WorkLimits.check(state),
+         {:ok, image} <- VipsImage.copy_memory(image) do
+      {:ok, %State{state | image: image, materialized?: true, buffer_before_resize?: false}}
     end
   end
 end

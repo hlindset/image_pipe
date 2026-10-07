@@ -130,6 +130,9 @@ defmodule ImagePipe.Response.ErrorStatus do
   def message_for({:transform, {:bad_request, :region_out_of_bounds}}),
     do: "requested region is outside the image"
 
+  def message_for({:transform, {:intermediate_pixel_limit, _pixels, _limit}}),
+    do: "intermediate image exceeds the pixel limit"
+
   def message_for({:transform, {:bad_request, _}}), do: "bad request"
   def message_for({:transform, {:server_error, {:detector, _}}}), do: "object detection failed"
   def message_for({:transform, _}), do: "invalid image transform"

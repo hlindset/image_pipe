@@ -43,8 +43,40 @@ max_input_pixels = 25000000
 
 <!-- tabs-close -->
 
-Large results don't fail. `max_result_width`, `max_result_height`, and
-`max_result_pixels` scale the output down to fit before it is encoded.
+`max_result_width`, `max_result_height`, and `max_result_pixels` scale the
+output down to fit before it is encoded.
+
+## Limiting intermediate images
+
+Set `max_intermediate_pixels` to bound the size of decoded frames that are buffered
+in memory, downsampled, or delivered. The default is 100 million pixels.
+Larger frames fail with `422`, including before the output size is reduced
+to its configured maximum.
+
+<!-- tabs-open -->
+
+### Plug
+
+```elixir
+{ImagePipe,
+ name: MyApp.Images,
+ max_intermediate_pixels: 50_000_000,
+ sources: [...]}
+```
+
+### image_pipe_server
+
+```toml
+[processing]
+max_intermediate_pixels = 50000000
+```
+
+<!-- tabs-close -->
+
+A resize or padding step may create a larger image when a later crop reads
+only a small part of it. The crop keeps the coordinates of the requested
+image. A later downsampling step reads across that larger image and is
+subject to the limit.
 
 ## Timeouts for origins
 
@@ -118,7 +150,8 @@ hundred megabytes while it is processed.
 
 Allow for that across the requests that run at once. A
 [processing pool](processing-controls.md) caps how many that is, and
-`max_input_pixels` caps the size of each.
+`max_input_pixels` caps the decoded original, and `max_intermediate_pixels`
+caps frames read during processing.
 
 ## Next steps
 

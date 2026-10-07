@@ -9,6 +9,7 @@ defmodule ImagePipe.Transform.Operation.Pixelate do
 
   alias ImagePipe.Transform.Operation.AlphaPremultiply
   alias ImagePipe.Transform.State
+  alias ImagePipe.Transform.WorkLimits
   alias Vix.Vips.Operation
 
   @enforce_keys [:size]
@@ -25,6 +26,17 @@ defmodule ImagePipe.Transform.Operation.Pixelate do
     height = image_height(state)
     size = min(size, max(width, height))
 
+    target_width = ceil(width / size) * size
+    target_height = ceil(height / size) * size
+
+    with :ok <- WorkLimits.embed(target_width, target_height),
+         :ok <-
+           WorkLimits.dimensions({target_width, target_height}, state.max_intermediate_pixels) do
+      do_pixelate(state, width, height, size)
+    end
+  end
+
+  defp do_pixelate(state, width, height, size) do
     case pixelate_preserving_dimensions(state.image, width, height, size) do
       {:ok, image} -> {:ok, set_image(state, image)}
       {:error, error} -> {:error, {__MODULE__, error}}

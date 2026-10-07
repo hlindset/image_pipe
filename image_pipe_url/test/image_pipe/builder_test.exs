@@ -11,6 +11,54 @@ defmodule ImagePipe.BuilderTest do
   # Semantic checks need to know the mount's presets; this mount has none.
   @known IP.URL.config(validate_against: [])
 
+  test "builder rejects values beyond the native numeric bounds" do
+    huge = Integer.pow(10, 400)
+
+    for options <- [
+          [resize: [width: 2_147_483_648]],
+          [resize: [min_height: huge]],
+          [padding: 1_000_000_001],
+          [padding: {0, huge}],
+          [blur: 1001],
+          [progressive_blur: [sigma: 1001]],
+          [sharpen: 0.0000001],
+          [sharpen: 10.1],
+          [dpr: 2_147_483_648],
+          [resize: [width: 10, zoom: 2_147_483_648]],
+          [crop: {{:pct, huge}, 10}]
+        ] do
+      assert [_ | _] = errors(IP.URL.group(IP.URL.new(), options))
+    end
+  end
+
+  test "crop ratios are reduced before checking native component bounds" do
+    max_axis = 2_147_483_647
+
+    for {input, expected} <- [
+          {{3, 2}, {:ratio, 3, 2}},
+          {{32, 18}, {:ratio, 16, 9}},
+          {{max_axis, 1}, {:ratio, max_axis, 1}},
+          {{1, max_axis}, {:ratio, 1, max_axis}},
+          {{Integer.pow(10, 400), Integer.pow(10, 400)}, {:ratio, 1, 1}}
+        ] do
+      builder = IP.URL.new() |> IP.URL.group(crop: {80, 200}, crop_ratio: input)
+      assert {:ok, request} = Plan.to_spec(builder.plan)
+      assert [group] = request.groups
+      assert group.crop_ratio == expected
+    end
+  end
+
+  property "integer dimensions and padding either fit their bounds or report an error" do
+    check all exponent <- integer(0..500), coefficient <- integer(1..9), max_runs: 50 do
+      value = coefficient * Integer.pow(10, exponent)
+      dimension = IP.URL.new() |> IP.URL.group(resize: [width: value])
+      padding = IP.URL.new() |> IP.URL.group(padding: value)
+
+      assert match?({:ok, _}, IP.URL.validate(dimension)) == value <= 2_147_483_647
+      assert match?({:ok, _}, IP.URL.validate(padding)) == value <= 1_000_000_000
+    end
+  end
+
   test "builds reusable, source-independent plans with explicit groups" do
     plan =
       IP.URL.new(orient: :none)

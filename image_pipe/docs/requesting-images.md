@@ -123,6 +123,9 @@ A plain number is a length in pixels: `w=400`. Don't add a unit, since
 whole numbers, and `w` and `h` also accept `auto`. Crop sizes, regions, and
 offsets accept decimals, and offsets may be negative.
 
+Pixel lengths have an absolute value of at most `2147483647`.
+[`pad`](processing/resize.md#pad) has its own lower maximum.
+
 <!-- tabs-open -->
 
 ### URL
@@ -144,6 +147,8 @@ ImagePipe.URL.group(builder, crop: {400, 300})
 A number followed by `pct` is a percentage: `50pct`. The `%` sign can't be
 used. Crop sizes, regions, and offsets accept percentages. Each option page
 says what the percentage is of.
+
+Percentage values have an absolute value of at most `2147483647`.
 
 <!-- tabs-open -->
 
@@ -250,6 +255,7 @@ Several values in one option are separated by commas, without spaces:
 `crop=400,300` is a width and a height, `zoom=2,1` an x and a y factor.
 Each option page says how many values it takes. Ratios use a colon or a
 decimal: `crop-ratio=16:9` or `crop-ratio=1.5`.
+After reduction to whole-number terms, each term must be at most `2147483647`.
 
 ## Named presets
 

@@ -59,6 +59,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
 
   alias ImagePipe.Transform.Alpha
   alias ImagePipe.Transform.State
+  alias ImagePipe.Transform.WorkLimits
 
   @default_gravity {:anchor, :center, :center}
 
@@ -90,6 +91,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
   @dialyzer {:no_match, execute: 2}
   def execute(%__MODULE__{} = operation, %State{} = state) do
     with {:ok, {width, height}} <- canvas_dimensions(state, operation.rule),
+         :ok <- WorkLimits.embed(width, height),
          false <- inert_extend?(state, width, height),
          {:ok, image} <- embed_image(state, operation, width, height) do
       {:ok, set_image(state, image)}

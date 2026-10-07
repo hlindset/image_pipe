@@ -9,6 +9,8 @@ defmodule ImagePipe.API.Value do
 
   alias ImagePipe.Plan.Color, as: PlanColor
 
+  import ImagePipe.Plan.ValueBounds
+
   @css_name_pattern ~r/\A[a-z]+\z/
   @number_pattern ~r/\A-?[0-9]+(\.[0-9]+)?\z/
   @nonneg_integer_pattern ~r/\A[0-9]+\z/
@@ -44,27 +46,35 @@ defmodule ImagePipe.API.Value do
 
   @doc """
   Parses a length: a bare number means pixels, a `pct` suffix means
-  percentage of the relevant dimension. No other unit is recognized —
-  `80p` is an error, not a pixel value.
+  percentage of the relevant dimension. The absolute value must be at most
+  2,147,483,647. Other units, such as `80p`, are rejected.
   """
   @spec length(String.t()) ::
           {:ok, {:px, number()} | {:pct, number()}} | {:error, :invalid_length}
   def length(string) when is_binary(string) do
     case String.split_at(string, byte_size(string) - 3) do
       {numeric_part, "pct"} when numeric_part != "" ->
-        with {:ok, n} <- number(numeric_part), do: {:ok, {:pct, n}}
+        parse_length(numeric_part, :pct)
 
       _no_pct_suffix ->
-        with {:ok, n} <- number(string), do: {:ok, {:px, n}}
+        parse_length(string, :px)
     end
     |> case do
       {:ok, _value} = ok -> ok
-      {:error, :invalid_number} -> {:error, :invalid_length}
+      _invalid -> {:error, :invalid_length}
+    end
+  end
+
+  defp parse_length(string, unit) do
+    case number(string) do
+      {:ok, n} when length?(n) -> {:ok, {unit, n}}
+      _invalid -> {:error, :invalid_length}
     end
   end
 
   @doc """
-  Parses a target dimension (`w`/`h`): positive integer pixels or `auto`.
+  Parses a target dimension (`w`/`h`): integer pixels from 1 to 2,147,483,647,
+  or `auto`.
   Rejects signs, fractions, and `pct` units.
   """
   @spec dimension(String.t()) ::
@@ -74,7 +84,7 @@ defmodule ImagePipe.API.Value do
   def dimension(string) when is_binary(string) do
     if Regex.match?(@nonneg_integer_pattern, string) do
       case String.to_integer(string) do
-        n when n > 0 -> {:ok, {:px, n}}
+        n when axis?(n) -> {:ok, {:px, n}}
         _zero_or_less -> {:error, :invalid_dimension}
       end
     else
@@ -146,8 +156,8 @@ defmodule ImagePipe.API.Value do
 
   @doc """
   Parses the CSS 1–4 value px shorthand into `{top, right, bottom, left}`,
-  following standard CSS expansion rules. Each value is a non-negative integer
-  number of pixels.
+  following standard CSS expansion rules. Each value is an integer from 0 to
+  1,000,000,000 pixels.
   """
   @spec pad_shorthand(String.t()) ::
           {:ok, {non_neg_integer(), non_neg_integer(), non_neg_integer(), non_neg_integer()}}
@@ -180,15 +190,23 @@ defmodule ImagePipe.API.Value do
 
   defp parse_all_nonneg_pixels(values) do
     Enum.reduce_while(values, {:ok, []}, fn value, {:ok, acc} ->
-      if Regex.match?(@nonneg_integer_pattern, value) do
-        {:cont, {:ok, [String.to_integer(value) | acc]}}
-      else
-        {:halt, :error}
+      case padding_pixel(value) do
+        {:ok, n} -> {:cont, {:ok, [n | acc]}}
+        :error -> {:halt, :error}
       end
     end)
     |> case do
       {:ok, ints} -> {:ok, Enum.reverse(ints)}
       :error -> :error
+    end
+  end
+
+  defp padding_pixel(value) do
+    with true <- Regex.match?(@nonneg_integer_pattern, value),
+         n when padding?(n) <- String.to_integer(value) do
+      {:ok, n}
+    else
+      _invalid -> :error
     end
   end
 

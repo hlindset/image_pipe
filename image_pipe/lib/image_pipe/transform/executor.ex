@@ -45,6 +45,7 @@ defmodule ImagePipe.Transform.Executor do
   alias ImagePipe.Transform.SourceGeometry
   alias ImagePipe.Transform.State
   alias ImagePipe.Transform.WorkingColor
+  alias ImagePipe.Transform.WorkLimits
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation, as: VipsOperation
 
@@ -109,7 +110,9 @@ defmodule ImagePipe.Transform.Executor do
     state = %State{
       state
       | detector: Transform.resolve_detector(Keyword.get(opts, :detector, :default)),
-        detector_required: Keyword.get(opts, :detector_required, false)
+        detector_required: Keyword.get(opts, :detector_required, false),
+        max_intermediate_pixels:
+          Keyword.get(opts, :max_intermediate_pixels, state.max_intermediate_pixels)
     }
 
     with {:ok, state} <- condition_color(state, opts),
@@ -123,11 +126,20 @@ defmodule ImagePipe.Transform.Executor do
   Buffers the current frame so it can be read more than once, as when several
   placeholders reduce the same executed state.
   """
-  @spec materialize(State.t()) :: {:ok, State.t()} | {:error, {:decode, term()}}
+  @spec materialize(State.t()) ::
+          {:ok, State.t()} | {:error, {:decode | :transform, term()}}
   def materialize(%State{} = state) do
     case Materializer.materialize(state) do
       {:ok, state} -> {:ok, state}
-      {:error, reason} -> {:error, {:decode, reason}}
+      {:error, reason} -> {:error, Materializer.error(reason)}
+    end
+  end
+
+  @doc false
+  def check_evaluation(%State{} = state) do
+    case WorkLimits.check(state) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:transform, reason}}
     end
   end
 
@@ -167,7 +179,7 @@ defmodule ImagePipe.Transform.Executor do
       # The encoder samples pixels separately, so buffer only its tiny working frame.
       case Materializer.materialize(state) do
         {:ok, state} -> {:ok, state}
-        {:error, reason} -> {:error, {:decode, reason}}
+        {:error, reason} -> {:error, Materializer.error(reason)}
       end
     end
   end
@@ -610,7 +622,7 @@ defmodule ImagePipe.Transform.Executor do
 
         case Materializer.flush(state) do
           {:ok, state} -> {:ok, orient_source_frame(state, pending)}
-          {:error, reason} -> {:error, {:decode, reason}}
+          {:error, reason} -> {:error, Materializer.error(reason)}
         end
     end
   end
@@ -902,7 +914,7 @@ defmodule ImagePipe.Transform.Executor do
   defp materialize_for_orientation_metadata(%State{} = state) do
     case Materializer.materialize(state) do
       {:ok, state} -> {:ok, state}
-      {:error, reason} -> {:error, {:decode, reason}}
+      {:error, reason} -> {:error, Materializer.error(reason)}
     end
   end
 

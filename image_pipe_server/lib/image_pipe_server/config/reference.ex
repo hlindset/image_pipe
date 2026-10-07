@@ -36,7 +36,7 @@ defmodule ImagePipeServer.Config.Reference do
         "See [caching processed images](../../image_pipe/docs/caching-processed-images.md).",
     processing:
       "Defaults and limits for every image the server processes. The limits on " <>
-        "originals and results are described in " <>
+        "originals, intermediate images, and results are described in " <>
         "[limiting work per request](../../image_pipe/docs/deployment.md).",
     pool:
       "How many images are processed at once, and how long requests wait for a turn. " <>

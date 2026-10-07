@@ -219,6 +219,7 @@ defmodule ImagePipe.Processing do
          {:ok, %ResolvedOutput{} = resolved_output} <-
            resolve_output(policy, geometry.source_format, state.image, config),
          resolved_output = %ResolvedOutput{resolved_output | degraded?: state.degraded?},
+         :ok <- Executor.check_evaluation(state),
          {:ok, clamped, _clamp_info} <-
            Clamp.clamp_with_telemetry(
              state.image,
@@ -404,7 +405,7 @@ defmodule ImagePipe.Processing do
 
     case materializer.materialize(state, config) do
       {:ok, %State{} = materialized} -> {:ok, materialized}
-      {:error, reason} -> {:error, {:decode, reason}}
+      {:error, reason} -> {:error, Materializer.error(reason)}
     end
   end
 

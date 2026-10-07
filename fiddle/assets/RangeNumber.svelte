@@ -8,6 +8,8 @@
     max?: number;
     step?: number;
     inputStep?: number | "any";
+    inputMin?: number;
+    inputMax?: number;
     suffix?: string | undefined;
     // Optional callback for controlled usage (when bind:value isn't available).
     onValueChange?: ((value: number) => void) | undefined;
@@ -20,6 +22,8 @@
     max = 100,
     step = 1,
     inputStep = step,
+    inputMin = min,
+    inputMax = max,
     suffix = undefined,
     onValueChange = undefined,
   }: Props = $props();
@@ -56,7 +60,7 @@
     const input = event.currentTarget;
 
     if (input instanceof HTMLInputElement && !Number.isNaN(input.valueAsNumber)) {
-      value = clamp(input.valueAsNumber);
+      value = Math.min(Math.max(input.valueAsNumber, inputMin), inputMax);
       onValueChange?.(value);
     }
   }
@@ -100,7 +104,7 @@
     const parsed = parseDecimalInput(input.value);
 
     if (parsed !== null) {
-      value = clamp(parsed);
+      value = Math.min(Math.max(parsed, inputMin), inputMax);
       onValueChange?.(value);
     }
 
@@ -148,8 +152,8 @@
       {:else}
         <input
           type="number"
-          {min}
-          {max}
+          min={inputMin}
+          max={inputMax}
           step={inputStep}
           {value}
           onfocus={selectNumber}

@@ -91,7 +91,7 @@ defmodule ImagePipe.Plan.Spec.Validation do
         false -> []
       end
 
-    exclusive ++ canvas ++ offset_errors(group, index) ++ requirements(group, index, invalid)
+    exclusive ++ canvas ++ requirements(group, index, invalid)
   end
 
   defp requirements(group, index, invalid) do
@@ -198,24 +198,6 @@ defmodule ImagePipe.Plan.Spec.Validation do
 
   defp invalid?(invalid, index, keys),
     do: Enum.any?(keys, &MapSet.member?(invalid, {:group, index, &1}))
-
-  defp offset_errors(group, index) do
-    for key <- [:anchor_offset, :extend_offset, :watermark_offset, :watermark_gap],
-        offset = Map.get(group, key),
-        offset != nil,
-        not offset_safe?(offset, Map.get(group, :dpr, 1.0)),
-        do: issue(:invalid_offset, index, [key], :invalid_offset)
-  end
-
-  defp offset_safe?({x, y}, dpr), do: offset_axis_safe?(x, dpr) and offset_axis_safe?(y, dpr)
-  defp offset_axis_safe?({:pct, _value}, _dpr), do: true
-
-  defp offset_axis_safe?({:px, value}, dpr) do
-    _scaled = value * dpr * 1.0
-    true
-  rescue
-    ArithmeticError -> false
-  end
 
   defp output_errors(options) do
     search? = Map.get(options, :autoquality, false) != false

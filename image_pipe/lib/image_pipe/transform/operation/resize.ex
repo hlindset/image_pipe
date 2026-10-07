@@ -8,7 +8,7 @@ defmodule ImagePipe.Transform.Operation.Resize do
   import ImagePipe.Transform.Geometry, only: [image_height: 1, image_width: 1]
   import ImagePipe.Transform.State, only: [set_image: 2]
 
-  alias ImagePipe.Transform.{Materializer, State}
+  alias ImagePipe.Transform.{Materializer, State, WorkLimits}
 
   @enforce_keys [:width, :height]
   defstruct [:width, :height]
@@ -20,6 +20,12 @@ defmodule ImagePipe.Transform.Operation.Resize do
 
   @impl ImagePipe.Transform
   def execute(%__MODULE__{width: width, height: height}, %State{} = state) do
+    with :ok <- WorkLimits.resize(state, width, height) do
+      do_resize(state, width, height)
+    end
+  end
+
+  defp do_resize(state, width, height) do
     case resize_image(state, width, height) do
       {:ok, %State{} = state} ->
         # The residual resize completes the downscale. Later groups use this
