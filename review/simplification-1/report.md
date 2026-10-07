@@ -11,7 +11,7 @@ Paths are relative to `image_pipe/lib/image_pipe/` unless they start with a proj
 | 1 | Replace the home-grown tracer and OTel replay with a live OTel handler | ~800 lib lines, 11 modules | High | Yes |
 | 2 | Drop the `ImagePipe.Cache` adapter behaviour (FileSystem is the only adapter) | ~250–300 lines | Medium | Yes, conflicts with two beads |
 | 3 | Drop bounded-cache state persistence and warm start from peers | ~400 lines, 5 options, 3 events | Medium | Yes, removes a feature |
-| 4 | Retire the `ImagePipe.Transform` behaviour and generic `run/3` dispatch | ~60–100 lines, one name vocabulary | Medium-high | Yes, touches the sequential gate |
+| 4 | Retire the `ImagePipe.Transform` behaviour and generic `run/3` dispatch | ~60–100 lines, one name vocabulary | Medium-high | Decided 2026-10-07: remove |
 | 5 | Strip dead `summary`/`examples` metadata from `OptionSpec` | ~150 lines (up to ~450 if the table is reshaped) | Low | No |
 | 6 | Merge Delivery Coordinator and Producer | ~300 lines, one process per request | High | Design note first |
 | 7 | Remove test-only injection seams from production code | ~40–60 lines, one behaviour | Medium | No |
@@ -117,6 +117,8 @@ Rough total if everything were done: 3,000–3,500 lines of lib code and a simil
 **Suggestion:** keep the operation structs as typed parameter data. Drop the behaviour and the `use` macro. The executor calls `Mod.execute(op, state)` through one private `run_stage(state, stage_name, op, materialize?)` that emits the span under the executor's own stage name, and decides materialization per stage. The gate test calls that helper (or a small public `Executor.run_operation/3`).
 
 **Minimum if the gate makes this too costly:** delete `name/1` and take span names from the executor, so there is one name vocabulary.
+
+**Decision (Håvard, 2026-10-07):** remove the behaviour. Start with a short note in `docs/plans/` (it spans the executor, the gate test, about 40 tests and the AGENTS.md sequential-safety rule). The gate keeps its strength by iterating the executor's stage table and requiring proof for every stage marked sequential-safe.
 
 ## 5. Strip dead `summary`/`examples` metadata from `OptionSpec`
 
