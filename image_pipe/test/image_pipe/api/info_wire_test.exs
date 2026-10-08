@@ -73,6 +73,20 @@ defmodule ImagePipe.API.InfoWireTest do
     end
   end
 
+  test "result dimensions follow the server's result limits" do
+    config = mount(gradient_jpeg(120, 80), max_result_width: 50, max_result_pixels: 1_500)
+
+    for options <- ["format=png", "w=200/enlarge", "rotate=90/format=webp"] do
+      image = request(options, config)
+      assert image.status == 200, options
+      decoded = Image.from_binary!(image.resp_body)
+      result = info(options <> "/output=info", config)["result"]
+
+      assert {result["width"], result["height"]} == {Image.width(decoded), Image.height(decoded)},
+             options
+    end
+  end
+
   test "result dpr is the last group's effective DPR" do
     config = mount(gradient_jpeg(120, 80))
 

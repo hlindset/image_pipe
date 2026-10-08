@@ -828,6 +828,10 @@ defmodule ImagePipe.API.ParserTest do
       reasons = Enum.map(diagnostics, & &1.reason)
       assert :mutually_exclusive_options in reasons
       assert :inert_option in reasons
+
+      for %Diagnostic{reason: reason, message: message} <- diagnostics do
+        assert String.starts_with?(message, "ignored: ") == (reason == :inert_option)
+      end
     end
 
     test "fit without a resize intent is inert" do

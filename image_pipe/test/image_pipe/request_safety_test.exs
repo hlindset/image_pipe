@@ -130,6 +130,20 @@ defmodule ImagePipe.RequestSafetyTest do
     assert conn.status == 400
   end
 
+  test "a NUL byte in the source fails as an invalid source before any adapter sees it" do
+    config =
+      ImagePipe.Plug.init(
+        sources: [path: [adapter: DenyingSourceAdapter, match: :path, options: []]]
+      )
+
+    for path <- ["/format=jpeg/src/images/a.jpg%00.png", "/format=jpeg/src64/aW1hZ2VzL2EuanBnAA"] do
+      conn = ImagePipe.Plug.call(conn(:get, path), config)
+      assert conn.status == 400
+      assert conn.resp_body == "invalid source"
+      refute_received :source_resolve
+    end
+  end
+
   test "invalid composition parse failures return before source identity, cache lookup, and origin" do
     for path <- [
           "/w=bad/format=jpeg/src/images/cat.jpg",

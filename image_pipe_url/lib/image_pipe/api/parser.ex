@@ -466,10 +466,17 @@ defmodule ImagePipe.API.Parser do
   defp diagnostics(issues, occurrences),
     do: Enum.map(issues, &semantic_diagnostic(&1, occurrences))
 
+  # An error response also points at the options the URL wrote to no effect,
+  # labeled so they don't read as errors.
   defp semantic_diagnostic(issue, occurrences) do
     spans = Enum.map(issue.locations, &semantic_span(&1, occurrences))
-    %Diagnostic{reason: issue.reason, message: semantic_message(issue), spans: spans}
+    %Diagnostic{reason: issue.reason, message: diagnostic_message(issue), spans: spans}
   end
+
+  defp diagnostic_message(%{severity: :warning} = issue),
+    do: "ignored: " <> semantic_message(issue)
+
+  defp diagnostic_message(issue), do: semantic_message(issue)
 
   defp semantic_span({:group, index, key}, occurrences),
     do: occurrence_span(occurrences, index, Map.fetch!(@url_keys, key))

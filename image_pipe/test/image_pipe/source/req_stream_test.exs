@@ -315,10 +315,19 @@ defmodule ImagePipe.Source.ReqStreamTest do
     {url, server} = start_silent_origin()
     started = System.monotonic_time(:millisecond)
 
-    assert {:error, {:source, _reason}} =
+    assert {:error, {:source, :receive_timeout}} =
              ReqStream.open([url: url], validate_target: fn _ -> :ok end, fetch_timeout: 200)
 
     assert System.monotonic_time(:millisecond) - started < 3_000
+    Process.exit(server, :kill)
+  end
+
+  test "an origin that stalls before its headers fails at receive_timeout" do
+    {url, server} = start_silent_origin()
+
+    assert {:error, {:source, :receive_timeout}} =
+             ReqStream.open([url: url], validate_target: fn _ -> :ok end, receive_timeout: 100)
+
     Process.exit(server, :kill)
   end
 

@@ -17,7 +17,7 @@ defmodule ImagePipe.Source.Parser do
   #     tagged with that scheme, holding the part after `scheme://` split on
   #     `/`.
   #   * anything else (a scheme no configured source matches, built-in or
-  #     custom, an empty source, or a malformed authority) —
+  #     custom, an empty source, a NUL byte, or a malformed authority) —
   #     `{:error, {:invalid_source, reason}}`.
   #
   # `ImagePipe.Source.resolve/3` consumes the returned `Plan.Source.t()`
@@ -40,7 +40,14 @@ defmodule ImagePipe.Source.Parser do
 
   defp do_translate("", _config), do: {:error, {:invalid_source, :empty_source}}
 
-  defp do_translate(source, config) do
+  # No file system path or object key can hold a NUL byte.
+  defp do_translate(source, config) when is_binary(source) do
+    if String.contains?(source, <<0>>),
+      do: {:error, {:invalid_source, :nul_byte}},
+      else: classify(source, config)
+  end
+
+  defp classify(source, config) do
     case Regex.run(@scheme_prefix, source) do
       [_match, scheme] -> url_translate(String.downcase(scheme), source, config)
       nil -> {:ok, path_translate(source)}

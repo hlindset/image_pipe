@@ -409,9 +409,12 @@ defmodule ImagePipe.Processing do
     end
   end
 
-  defp result_limits(format, config) do
+  # The server's result caps, narrowed by the encoder's when the format is known.
+  @doc false
+  @spec result_limits(atom() | nil, keyword()) :: Clamp.limits()
+  def result_limits(format, config) do
     %{max_dimension: encoder_dimension, max_pixels: encoder_pixels} =
-      Encoder.encoder_limit(format)
+      encoder_limit(format)
 
     %{
       max_width: min_limit(Keyword.fetch!(config, :max_result_width), encoder_dimension),
@@ -419,6 +422,9 @@ defmodule ImagePipe.Processing do
       max_pixels: min_limit(Keyword.fetch!(config, :max_result_pixels), encoder_pixels)
     }
   end
+
+  defp encoder_limit(nil), do: %{max_dimension: :infinity, max_pixels: :infinity}
+  defp encoder_limit(format), do: Encoder.encoder_limit(format)
 
   defp min_limit(host_limit, :infinity), do: host_limit
   defp min_limit(host_limit, encoder_limit), do: min(host_limit, encoder_limit)

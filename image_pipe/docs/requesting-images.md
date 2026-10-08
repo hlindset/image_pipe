@@ -350,6 +350,10 @@ allows debug headers, the response lists the ignored options in
 `X-ImagePipe-Ignored-Options`. Options that a preset or the server's defaults
 supply are ignored without being listed.
 
+When a request fails with `400` for another reason, the
+[error body](#request-errors) marks the ignored options as well, with messages
+such as `ignored: crop-ratio requires crop`.
+
 Options that contradict each other, such as `crop` and `region` in one group,
 still fail with `400`.
 
