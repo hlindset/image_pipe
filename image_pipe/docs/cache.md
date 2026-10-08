@@ -235,8 +235,10 @@ Background eviction removes entries in batches so requests can run between
 batches. Each batch removes at most `eviction_victim_limit` entries (64 by
 default).
 
-A cache write can finish after its caller times out if the cache process has
-already started storing the response.
+A write that waits more than 5 seconds for the cache process is reported as
+a [cache write](telemetry-events.md#cache-write) error with
+`error: :admission_timeout`. The cache process still handles the queued write
+and stores or rejects the entry as usual.
 
 ### Warm start from peers
 

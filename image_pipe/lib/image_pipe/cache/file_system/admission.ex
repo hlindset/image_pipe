@@ -10,8 +10,6 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   alias ImagePipe.Cache.FileSystem.Sweep
   alias ImagePipe.Telemetry
 
-  @call_timeout 5_000
-
   defmodule State do
     @moduledoc false
     # Configuration, ETS handles, byte counters, and scan lifecycle state.
@@ -545,9 +543,12 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     end
   end
 
-  def commit(server, prepared, body_filename) do
-    prepared = Map.put(prepared, :expires_at, System.monotonic_time(:millisecond) + @call_timeout)
-    call(server, {:commit, prepared, body_filename})
+  # A timed-out commit stays queued, and Admission still publishes it.
+  def commit(server, prepared, body_filename, timeout) do
+    GenServer.call(server, {:commit, prepared, body_filename}, timeout)
+  catch
+    :exit, {:timeout, _call} -> {:error, :admission_timeout}
+    :exit, _reason -> {:error, :admission_unavailable}
   end
 
   def delete(server, paths), do: call(server, {:delete, paths})
@@ -556,7 +557,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     do: call(server, {:refresh_source_record, paths, previous, record})
 
   defp call(server, message) do
-    GenServer.call(server, message, @call_timeout)
+    GenServer.call(server, message)
   catch
     :exit, _reason -> {:error, :admission_unavailable}
   end
@@ -600,13 +601,18 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   def handle_call({:commit, prepared, body_filename}, _from, state) do
-    case System.monotonic_time(:millisecond) >= prepared.expires_at do
-      true ->
-        FileSystem.abort_sink(prepared, [])
-        {:reply, {:error, :admission_unavailable}, state}
+    # Publication, accounting and eviction share the same serialized owner.
+    # Failed publication leaves admission queues unchanged.
+    note_scan_change(state, prepared.paths.hash)
 
-      false ->
-        publish_commit(prepared, body_filename, state)
+    case FileSystem.publish_sink(prepared, body_filename) do
+      {:ok, descriptor} ->
+        {result, state} = admit_descriptor(state, descriptor)
+        opts = [root: state.root, path_prefix: state.path_prefix]
+        {:reply, finish_commit(result, descriptor, opts), state}
+
+      {:error, _reason} = error ->
+        {:reply, error, state}
     end
   end
 
@@ -645,22 +651,6 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   def handle_call(:reconcile_to_cap, from, state) do
     state = %{state | reconcile_waiters: [from | state.reconcile_waiters]}
     {:noreply, start_reconciliation(state)}
-  end
-
-  defp publish_commit(prepared, body_filename, state) do
-    # Publication, accounting and eviction share the same serialized owner.
-    # Failed publication leaves admission queues unchanged.
-    note_scan_change(state, prepared.paths.hash)
-
-    case FileSystem.publish_sink(prepared, body_filename) do
-      {:ok, descriptor} ->
-        {result, state} = admit_descriptor(state, descriptor)
-        opts = [root: state.root, path_prefix: state.path_prefix]
-        {:reply, finish_commit(result, descriptor, opts), state}
-
-      {:error, _reason} = error ->
-        {:reply, error, state}
-    end
   end
 
   defp apply_protected_hash(hash, state, descriptor_map) do

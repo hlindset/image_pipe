@@ -169,15 +169,9 @@ defmodule ImagePipe.Cache.Input do
     metadata = %{source_record: record, cost_us: cost}
 
     case Store.open_linked_sink(key, metadata, path, sha256, pool) do
-      {:ok, sink} -> commit(sink, pool)
+      {:ok, sink} -> Store.commit_sink(sink, pool)
       {:error, _reason} -> copy(key, metadata, path, pool)
     end
-  end
-
-  defp commit(sink, pool) do
-    Store.commit_sink(sink, pool)
-  after
-    Store.abort_sink(sink, pool)
   end
 
   defp copy(key, metadata, path, pool) do
@@ -187,16 +181,9 @@ defmodule ImagePipe.Cache.Input do
     end
   end
 
+  # A committed sink belongs to the store, so only an unfinished one is aborted.
   defp write(sink, path, pool) do
-    result =
-      Enum.reduce_while(File.stream!(path, 65_536), {:ok, sink}, fn chunk, {:ok, state} ->
-        case Store.write_chunk(state, chunk, pool) do
-          {:ok, state} -> {:cont, {:ok, state}}
-          {:error, reason, state} -> {:halt, {:error, reason, state}}
-        end
-      end)
-
-    case result do
+    case write_body(sink, path, pool) do
       {:ok, state} ->
         Store.commit_sink(state, pool)
 
@@ -204,8 +191,17 @@ defmodule ImagePipe.Cache.Input do
         Store.abort_sink(state, pool)
         {:error, reason}
     end
-  after
-    Store.abort_sink(sink, pool)
+  end
+
+  defp write_body(sink, path, pool) do
+    Enum.reduce_while(File.stream!(path, 65_536), {:ok, sink}, fn chunk, {:ok, state} ->
+      case Store.write_chunk(state, chunk, pool) do
+        {:ok, state} -> {:cont, {:ok, state}}
+        {:error, reason, state} -> {:halt, {:error, reason, state}}
+      end
+    end)
+  rescue
+    exception in File.Error -> {:error, exception.reason, sink}
   end
 
   def verify(key, opts) do

@@ -8,6 +8,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   alias ImagePipe.Cache.Key
 
   @metadata_version 1
+  @commit_timeout 5_000
   @cache_key_hash_pattern ~r/\A[0-9A-Fa-f]{64}\z/
   @body_sha256_pattern ~r/\A[0-9a-f]{64}\z/
   @option_keys [:root, :path_prefix, :pool]
@@ -369,7 +370,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
         legacy_commit(state)
 
       {:ok, pid} ->
-        commit_bounded(state, pid)
+        commit_bounded(state, pid, opts)
 
       :unavailable ->
         # Bounded mode but the Admission process is missing. We cannot account
@@ -400,10 +401,10 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     end
   end
 
-  defp commit_bounded(state, pid) do
+  defp commit_bounded(state, pid, opts) do
     case prepare_sink_commit(state) do
       {:ok, prepared, body_filename} ->
-        handoff_commit(prepared, body_filename, pid)
+        admit_commit(prepared, body_filename, pid, opts)
 
       {:error, reason, prepared} ->
         cleanup_sink_state(prepared)
@@ -411,27 +412,19 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     end
   end
 
-  defp handoff_commit(prepared, body_filename, pid) do
-    case handoff_sink(prepared) do
-      {:ok, owned} ->
-        result = Admission.commit(pid, owned, body_filename)
-        if not Process.alive?(pid), do: cleanup_sink_state(owned)
-        result
+  # Admission owns the prepared files once the commit is sent, and publishes or
+  # removes them even after this call times out. They are left here only when
+  # Admission is gone. Tests shorten the wait with `:commit_timeout`.
+  defp admit_commit(prepared, body_filename, pid, opts) do
+    timeout = Keyword.get(opts, :commit_timeout, @commit_timeout)
 
-      {:error, reason} ->
+    case Admission.commit(pid, prepared, body_filename, timeout) do
+      {:error, :admission_unavailable} = error ->
         cleanup_sink_state(prepared)
-        {:error, reason}
-    end
-  end
+        error
 
-  # Caller aborts still name the original sink. Once the commit is queued,
-  # Admission alone removes the handed-over files, including after a timeout.
-  defp handoff_sink(prepared) do
-    owned_body_path = temp_path(prepared.paths)
-
-    case File.rename(prepared.temp_body_path, owned_body_path) do
-      :ok -> {:ok, %{prepared | temp_body_path: owned_body_path}}
-      {:error, _reason} = error -> error
+      result ->
+        result
     end
   end
 

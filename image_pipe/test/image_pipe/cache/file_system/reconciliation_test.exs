@@ -75,27 +75,21 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
     end
   end
 
-  test "a batch delayed beyond five seconds does not skip the startup sweep", ctx do
+  test "the startup sweep waits for the scan's reconciliation", ctx do
     Enum.each(1..3, &put_entry(key(&1), "body", root: ctx.root))
-    {:ok, paths} = FileSystem.paths(key(4), root: ctx.root)
-    File.mkdir_p!(paths.dir)
-    orphan = Path.join(paths.dir, "#{paths.hash}.#{String.duplicate("a", 64)}.body")
-    File.write!(orphan, "orphan")
-    File.touch!(orphan, System.os_time(:second) - 7200)
+    orphan = orphan_body(ctx.root)
     gate = attach_batches(ctx.prefix, self(), true)
+    attach_sweep(ctx.prefix, self())
     pid = start_cache(opts(ctx.root, ctx.prefix, 4, 1))
 
     try do
-      assert_receive {:batch, ^pid, _count}, 1000
-      {:monitors, [{:process, scan}]} = Process.info(pid, :monitors)
-      scan_ref = Process.monitor(scan)
-
-      waiter = Task.async(fn -> wait_beyond_timeout(pid) end)
-
-      assert :wait_elapsed = Task.await(waiter, 6000)
-      refute_received {:DOWN, ^scan_ref, :process, ^scan, _}
-      assert Process.alive?(scan)
-      close_gate(ctx.prefix, gate, pid)
+      assert_receive {:batch, ^pid, 1}, 1000
+      assert File.exists?(orphan)
+      refute_received :swept
+      send(pid, :release_batch)
+      assert_receive {:batch, ^pid, 1}, 1000
+      send(pid, :release_batch)
+      assert_receive :swept, 1000
       assert :ok = Admission.await_scan(pid)
       refute File.exists?(orphan)
     after
@@ -134,10 +128,27 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
     if :atomics.exchange(gate, 1, 2) == 1, do: send(pid, :release_batch)
   end
 
-  defp wait_beyond_timeout(pid) do
-    Admission.await_scan(pid, 5100)
-  catch
-    :exit, {:timeout, _} -> :wait_elapsed
+  defp attach_sweep(prefix, parent) do
+    handler = {__MODULE__, :sweep, prefix}
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        prefix ++ [:cache, :sweep, :stop],
+        fn _, _, _, _ -> send(parent, :swept) end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+  end
+
+  defp orphan_body(root) do
+    {:ok, paths} = FileSystem.paths(key(:orphan), root: root)
+    File.mkdir_p!(paths.dir)
+    orphan = Path.join(paths.dir, "#{paths.hash}.#{String.duplicate("a", 64)}.body")
+    File.write!(orphan, "orphan")
+    File.touch!(orphan, System.os_time(:second) - 7200)
+    orphan
   end
 
   defp detach_batches(prefix), do: :telemetry.detach({__MODULE__, prefix})
