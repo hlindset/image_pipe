@@ -37,7 +37,7 @@ defmodule ImagePipe.ConfiguredBuilderTest do
   end
 
   test "a URL written with issues is signed and rejected before fetching a source" do
-    key = "00112233445566778899aabbccddeeff"
+    key = String.duplicate("00112233445566778899aabbccddeeff", 2)
 
     mount =
       IP.Plug.init(

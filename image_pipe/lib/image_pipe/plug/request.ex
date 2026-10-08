@@ -50,7 +50,8 @@ defmodule ImagePipe.Plug.Request do
         {:ok, config}
 
       _lookup ->
-        with {:ok, presets} <- Presets.for_request(Parser.preset_names(lexed), config),
+        with {:ok, names} <- Parser.preset_names(lexed),
+             {:ok, presets} <- Presets.for_request(names, config),
              do: {:ok, Keyword.put(config, :presets, presets)}
     end
   end

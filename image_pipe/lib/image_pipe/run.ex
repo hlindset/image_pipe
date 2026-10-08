@@ -126,6 +126,7 @@ defmodule ImagePipe.Run do
 
     with {:ok, request} <- request(plan, config),
          {:ok, _policy} <- Processing.prepare(request, config, ""),
+         {:ok, _watermarks} <- Execution.watermark_sources(request, config),
          {:ok, warnings} <- Plan.built(plan),
          do: {:ok, warnings ++ request.ignored}
   end

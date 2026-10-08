@@ -8,7 +8,7 @@ defmodule ImagePipe.API.RequestSafetyTest do
   alias ImagePipe.Test.PlugFixture.CacheProbe
   alias ImagePipe.Test.PlugFixture.CountingOriginImage
 
-  @signing_key "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  @signing_key "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 
   test "rejectable_requests/1 fail with the declared status and never touch source or cache" do
     assert_rejectable_requests(rejectable_requests(base_opts()))

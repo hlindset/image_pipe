@@ -1,7 +1,7 @@
 defmodule ImagePipe.URL.HelpersInstanceTest do
   use ExUnit.Case, async: true
 
-  @key "00112233445566778899aabbccddeeff"
+  @key String.duplicate("00112233445566778899aabbccddeeff", 2)
 
   defmodule Page do
     use ImagePipe.URL.Helpers, instance: ImagePipe.URL.HelpersInstanceTest.Images

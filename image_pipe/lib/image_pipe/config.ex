@@ -158,7 +158,10 @@ defmodule ImagePipe.Config do
           |> Keyword.update!(:watermarks, &watermarks!(&1, validated))
 
         validate_against =
-          Map.put(validate_against, :watermarks, Map.keys(Keyword.fetch!(validated, :watermarks)))
+          Map.merge(validate_against, %{
+            watermarks: Map.keys(Keyword.fetch!(validated, :watermarks)),
+            request_watermarks: Keyword.fetch!(validated, :request_watermarks)
+          })
 
         url = URLConfig.put_validate_against(url, validate_against)
         concealed_watermarks!(presets, url)

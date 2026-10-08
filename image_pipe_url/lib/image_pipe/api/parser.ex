@@ -72,12 +72,19 @@ defmodule ImagePipe.API.Parser do
   end
 
   # The preset names a lexed request selects, for request-time lookup before
-  # `parse/2`. A malformed selection yields none; `parse/2` reports it.
+  # `parse/2`. A request whose options don't parse fails here with those
+  # errors, so it causes no lookup.
   @doc false
-  @spec preset_names(lexed()) :: [String.t()]
+  @spec preset_names(lexed()) ::
+          {:ok, [String.t()]} | {:error, {:invalid_request, [Diagnostic.t()]}}
   def preset_names(%{segments: segments}) do
-    {parsed, _occurrences, _errors} = parse_options(segments)
-    parsed.groups |> typed_group_maps() |> Presets.references()
+    case parse_options(segments) do
+      {parsed, _occurrences, []} ->
+        {:ok, parsed.groups |> typed_group_maps() |> Presets.references()}
+
+      {_parsed, _occurrences, errors} ->
+        {:error, {:invalid_request, errors}}
+    end
   end
 
   # An empty fragment is a preset that contributes nothing.

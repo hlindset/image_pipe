@@ -35,8 +35,9 @@ defmodule ImagePipe.URL.Helpers do
     * `:instance` - the `:name` of an `ImagePipe` instance. Each URL uses
       the instance's URL settings from `ImagePipe.url_config/2`: its base
       URL, signing keys, source encryption settings, and the presets, request
-      defaults, and watermark names it checks options against. Building a URL raises `ArgumentError` when the
-      instance isn't running. Needs the `image_pipe` package.
+      defaults, and watermark settings it checks options against. Building a
+      URL raises `ArgumentError` when the instance isn't running. Needs the
+      `image_pipe` package.
     * `:mount` - with `:instance`, one of the instance's `:mounts`, whose URL
       options the URLs use instead of the instance's own.
     * `:config` - `{module, function, args}`, called for each URL, that

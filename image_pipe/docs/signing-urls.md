@@ -8,7 +8,9 @@ explains what a signature covers.
 
 ## Generate a key
 
-A signing key is a hex string. Generate 32 random bytes:
+A signing key is a hex string of at least 64 digits (32 bytes). A shorter key
+stops `image_pipe_server` at startup and raises `ArgumentError` when ImagePipe
+is configured in your app. Generate 32 random bytes:
 
 ```sh
 openssl rand -hex 32

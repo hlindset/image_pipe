@@ -156,7 +156,10 @@ defmodule ImagePipeServer.Config do
     ImagePipe.Security.options_schema()
     |> Keyword.drop([:encrypt_source, :iv_mode])
     |> Keyword.merge(
-      keys: [type: {:list, {:convert, &signing_key/2, "hex strings"}}, default: []],
+      keys: [
+        type: {:list, {:convert, &signing_key/2, "hex strings, each at least 64 digits"}},
+        default: []
+      ],
       source_encryption_keys: [
         type: {:list, {:convert, &encryption_key/2, "hex strings, each a 32-byte key"}},
         default: []
@@ -167,8 +170,8 @@ defmodule ImagePipeServer.Config do
   defp signing_key(value, path) do
     with {:ok, key} <- Convert.string(value, path) do
       case Base.decode16(key, case: :mixed) do
-        {:ok, <<_::binary-size(1), _rest::binary>>} -> {:ok, key}
-        _invalid -> {:error, path, "expected a non-empty hex string"}
+        {:ok, decoded} when byte_size(decoded) >= 32 -> {:ok, key}
+        _invalid -> {:error, path, "expected a hex string of at least 64 digits (32 bytes)"}
       end
     end
   end

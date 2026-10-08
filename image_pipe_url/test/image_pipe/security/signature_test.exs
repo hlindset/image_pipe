@@ -4,7 +4,7 @@ defmodule ImagePipe.Security.SignatureTest do
 
   alias ImagePipe.Security.Signature
 
-  @key_a "00112233445566778899aabbccddeeff00112233445566778899aabbccddee"
+  @key_a "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
   @key_b "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100"
 
   defp config(keys), do: ImagePipe.URL.config(keys: keys).options

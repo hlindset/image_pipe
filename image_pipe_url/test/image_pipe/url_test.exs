@@ -205,11 +205,16 @@ defmodule ImagePipe.URLTest do
       refute Exception.message(error) =~ "secret"
     end
 
-    for keys <- [["secret!"], [""]] do
+    for keys <- [["secret!"], [""], ["00"], [String.duplicate("ab", 31)]] do
       error = assert_raise ArgumentError, fn -> IP.URL.config(keys: keys) end
-      assert Exception.message(error) =~ "signing keys must be a list of non-empty hex strings"
+
+      assert Exception.message(error) =~
+               "signing keys must be a list of hex strings of at least 64 digits (32 bytes)"
+
       refute Exception.message(error) =~ "secret!"
     end
+
+    assert %IP.URL.Config{} = IP.URL.config(keys: [String.duplicate("ab", 32)])
 
     assert_raise ArgumentError, fn -> IP.URL.config(unknown: true) end
   end
@@ -365,6 +370,26 @@ defmodule ImagePipe.URLTest do
       assert {:ok, []} =
                IP.URL.new(named)
                |> IP.URL.group(watermark_source: "brand/mark.png")
+               |> IP.URL.validate()
+    end
+
+    test "watermark sources are checked when validate_against says whether requests may name them" do
+      plan = &(IP.URL.new(&1) |> IP.URL.group(watermark_source: "brand/mark.png"))
+
+      for options <- [
+            [request_watermarks: false],
+            [request_watermarks: false, watermarks: [:logo]]
+          ] do
+        assert {:error, [%{reason: :watermark_source_disabled}]} =
+                 IP.URL.validate(plan.(IP.URL.config(validate_against: options)))
+      end
+
+      assert {:ok, []} =
+               IP.URL.validate(plan.(IP.URL.config(validate_against: [request_watermarks: true])))
+
+      assert {:ok, []} =
+               IP.URL.new(IP.URL.config(validate_against: [request_watermarks: false]))
+               |> IP.URL.group(watermark: :anything)
                |> IP.URL.validate()
     end
 

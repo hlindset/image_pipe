@@ -31,7 +31,7 @@ defmodule ImagePipe.APITest do
     end
 
     test "accepts valid hex keys" do
-      opts = ImagePipe.Plug.init(keys: ["deadbeef"])
+      opts = ImagePipe.Plug.init(keys: [String.duplicate("deadbeef", 8)])
 
       signature = Signature.sign("/src/a.jpg", opts)
       assert Signature.verify(signature, "/src/a.jpg", opts) == {:ok, 0}

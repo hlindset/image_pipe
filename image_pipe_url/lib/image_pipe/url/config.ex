@@ -77,6 +77,16 @@ defmodule ImagePipe.URL.Config do
                   option, watermark names aren't checked. The check covers
                   presets too, so list the server's `:presets` as well.
                   """
+                ],
+                request_watermarks: [
+                  type: :boolean,
+                  doc: """
+                  The server's `request_watermarks` setting: whether it accepts
+                  watermark sources that a request names. With `false`, a
+                  `watermark_source:` fails the check. Without this option,
+                  watermark sources aren't checked. The check covers presets
+                  too, so list the server's `:presets` as well.
+                  """
                 ]
               ]
             ]
@@ -113,13 +123,14 @@ defmodule ImagePipe.URL.Config do
   end
 
   # What the builder knows about the server, used only for validation.
-  # `watermarks` is nil when the names aren't known. `ImagePipe.config/1`
+  # `watermarks` and `request_watermarks` are nil when unknown. `ImagePipe.config/1`
   # injects its own with `put_validate_against/2`.
   @type validate_against :: %{
           presets: map(),
           request_defaults: map() | nil,
           lookup?: boolean(),
-          watermarks: [String.t()] | nil
+          watermarks: [String.t()] | nil,
+          request_watermarks: boolean() | nil
         }
 
   @doc false
@@ -139,7 +150,8 @@ defmodule ImagePipe.URL.Config do
           validate_against:
             Map.merge(compiled, %{
               lookup?: Keyword.fetch!(options, :preset_lookup),
-              watermarks: options[:watermarks]
+              watermarks: options[:watermarks],
+              request_watermarks: options[:request_watermarks]
             })
         ]
 
