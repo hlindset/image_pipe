@@ -59,7 +59,8 @@ defmodule ImagePipe.Plan.Spec.Issue do
       the server doesn't allow it. `ImagePipe.validate/2` and
       `ImagePipe.run/4` return both. `ImagePipe.URL.validate/1` and
       `ImagePipe.URL.url/3` return `:unknown_watermark` when the URL
-      configuration's `:validate_against` lists the watermark names.
+      configuration's `:validate_against` lists the watermark names, and
+      `:watermark_source_disabled` when it sets `request_watermarks: false`.
 
   `detail` describes the failed constraint, such as `{:requires, :resize}`
   or `%{preset: "card"}`, holds the builder's message for `:invalid_value`,

@@ -154,9 +154,8 @@ defmodule ImagePipe.API.URL do
 
   # Semantic checks run only when the builder knows the server's presets.
   # Under a lookup, a name the known map lacks defers to the server, and only
-  # groups without such a name are checked. Watermark names are checked when
-  # known. Whether the server takes request watermark sources isn't known, so
-  # those pass.
+  # groups without such a name are checked. Watermark names, and whether the
+  # server takes request watermark sources, are each checked when known.
   @doc false
   @spec check(Plan.t(), keyword()) ::
           {:ok, [ImagePipe.Plan.Spec.Issue.t()]} | {:error, [ImagePipe.Plan.Spec.Issue.t()]}
@@ -166,7 +165,7 @@ defmodule ImagePipe.API.URL do
         Plan.built(plan)
 
       %{presets: presets, request_defaults: defaults, lookup?: lookup?} = known ->
-        watermarks = watermarks(known.watermarks)
+        watermarks = watermarks(known.watermarks, known.request_watermarks)
 
         if lookup?,
           do: Plan.validate_known(plan, presets, defaults, watermarks),
@@ -174,8 +173,10 @@ defmodule ImagePipe.API.URL do
     end
   end
 
-  defp watermarks(nil), do: nil
-  defp watermarks(names), do: %{names: names, request_sources?: true}
+  defp watermarks(nil, nil), do: nil
+
+  defp watermarks(names, request_sources?),
+    do: %{names: names, request_sources?: request_sources? != false}
 
   defp segments(plan) do
     segments = Serializer.segments(plan)

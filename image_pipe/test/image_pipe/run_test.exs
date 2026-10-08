@@ -57,6 +57,11 @@ defmodule ImagePipe.RunTest do
     assert {:error, {:invalid_request, [%{reason: :watermark_source_disabled}]}} =
              IP.run(config, sourced, {:binary, bytes})
 
+    assert {:error, [%{reason: :watermark_source_disabled}]} =
+             IP.URL.new(IP.url_config(config))
+             |> IP.URL.group(watermark_source: "mark.png")
+             |> IP.URL.validate()
+
     assert {:ok, result} = IP.run(config, sourced, {:binary, bytes}, request_watermarks: true)
     assert result.data == named.data
   end

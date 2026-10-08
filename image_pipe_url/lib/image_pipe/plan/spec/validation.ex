@@ -32,7 +32,8 @@ defmodule ImagePipe.Plan.Spec.Validation do
   Host watermark facts, or `nil` when the caller cannot know them (URL
   generation): configured asset names and whether request sources are enabled.
   """
-  @type watermarks :: nil | %{names: [String.t()], request_sources?: boolean()}
+  # `names` is nil when only whether requests may name sources is known.
+  @type watermarks :: nil | %{names: [String.t()] | nil, request_sources?: boolean()}
 
   @spec errors([map()], map(), MapSet.t(Issue.location()), watermarks()) :: [Issue.t()]
   def errors(groups, options, invalid, watermarks) do
@@ -63,7 +64,7 @@ defmodule ImagePipe.Plan.Spec.Validation do
     unknown =
       case Map.fetch(group, :watermark) do
         {:ok, name} ->
-          if name in names,
+          if names == nil or name in names,
             do: [],
             else: [issue(:unknown_watermark, index, [:watermark], :unknown_watermark)]
 

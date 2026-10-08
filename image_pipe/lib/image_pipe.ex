@@ -145,7 +145,7 @@ defmodule ImagePipe do
       |> ImagePipe.URL.url!("images/cat.jpg")
 
   The result carries the configuration's presets, request defaults, and
-  watermark names as its `:validate_against` option, so
+  watermark settings as its `:validate_against` option, so
   `ImagePipe.URL.validate/1` and `ImagePipe.URL.url/3` check plans against
   them.
 

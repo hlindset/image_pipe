@@ -368,6 +368,26 @@ defmodule ImagePipe.URLTest do
                |> IP.URL.validate()
     end
 
+    test "watermark sources are checked when validate_against says whether requests may name them" do
+      plan = &(IP.URL.new(&1) |> IP.URL.group(watermark_source: "brand/mark.png"))
+
+      for options <- [
+            [request_watermarks: false],
+            [request_watermarks: false, watermarks: [:logo]]
+          ] do
+        assert {:error, [%{reason: :watermark_source_disabled}]} =
+                 IP.URL.validate(plan.(IP.URL.config(validate_against: options)))
+      end
+
+      assert {:ok, []} =
+               IP.URL.validate(plan.(IP.URL.config(validate_against: [request_watermarks: true])))
+
+      assert {:ok, []} =
+               IP.URL.new(IP.URL.config(validate_against: [request_watermarks: false]))
+               |> IP.URL.group(watermark: :anything)
+               |> IP.URL.validate()
+    end
+
     test "builder values match their fragment spelling" do
       card = IP.URL.new() |> IP.URL.group(resize: [width: 30, height: 20, fit: :cover])
       as_builder = IP.URL.config(validate_against: [presets: %{"card" => card}])
