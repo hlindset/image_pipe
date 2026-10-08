@@ -48,7 +48,8 @@ defmodule ImagePipeServer.Config.Convert do
 
   @doc "Converts a table to a keyword list with `schema`."
   @spec options(term(), keyword(), path()) :: {:ok, keyword()} | {:error, path(), String.t()}
-  def options(%{} = table, schema, path) do
+  # TOML dates and times decode to structs, which are maps but not tables.
+  def options(%{} = table, schema, path) when not is_struct(table) do
     table
     |> file_settings(schema)
     |> Enum.sort()
@@ -144,7 +145,7 @@ defmodule ImagePipeServer.Config.Convert do
   def value({:list, type}, value, path) when is_list(value), do: value_list(value, type, path)
   def value({:list, _type}, _value, path), do: {:error, path, "expected a list"}
 
-  def value({:map, key_type, value_type}, %{} = table, path) do
+  def value({:map, key_type, value_type}, %{} = table, path) when not is_struct(table) do
     with {:ok, pairs} <-
            map_ok(Enum.sort(table), fn {key, value} ->
              with {:ok, key} <- map_key(key_type, key, path ++ [key]),
@@ -156,7 +157,8 @@ defmodule ImagePipeServer.Config.Convert do
 
   def value({:map, _key_type, _value_type}, _value, path), do: {:error, path, "expected a table"}
 
-  def value({:tuple, [{:in, tags}, type]}, %{} = table, path) when map_size(table) == 1 do
+  def value({:tuple, [{:in, tags}, type]}, %{} = table, path)
+      when not is_struct(table) and map_size(table) == 1 do
     [{tag, value}] = Map.to_list(table)
 
     with {:ok, tag} <- value({:in, tags}, tag, path),
