@@ -172,7 +172,9 @@ defmodule ImagePipe.Plan.Builder.Values do
 
   defp normalize(value, effect)
        when effect in [:monochrome, :duotone, :colorize, :gradient, :progressive_blur] do
-    with {:ok, fields} <- Options.validate(value, effect_schema(effect)),
+    schema = Options.compiled_schema(effect, fn -> effect_schema(effect) end)
+
+    with {:ok, fields} <- Options.validate(value, schema),
          do: {:ok, Map.new(fields, &plan_field/1)}
   end
 

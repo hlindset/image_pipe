@@ -63,7 +63,8 @@ defmodule ImagePipe.Plan.Builder.OutputOptions do
   defp qualities([:unset | _values]), do: {:error, "expected :unset at most once, first"}
 
   defp qualities(values) do
-    schema = Enum.map(@formats, &{&1, @quality})
+    schema =
+      Options.compiled_schema(:format_qualities, fn -> Enum.map(@formats, &{&1, @quality}) end)
 
     with {:ok, values} <- Options.validate(values, schema) do
       {:ok, Map.new(values, fn {format, quality} -> {format, {:quality, quality}} end)}
@@ -92,7 +93,8 @@ defmodule ImagePipe.Plan.Builder.OutputOptions do
   defp encoder_options(options, format) do
     module = encoder_module(format)
 
-    with {:ok, values} <- Options.validate(options, module.schema()),
+    with {:ok, values} <-
+           Options.validate(options, Options.compiled_schema(module, &module.schema/0)),
          do: {:ok, struct!(module, values)}
   end
 
