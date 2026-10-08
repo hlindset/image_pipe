@@ -146,9 +146,17 @@ defmodule ImagePipe.Cache.FileSystemTest do
     on_exit(fn -> File.rm_rf!(outside_root) end)
 
     File.ln_s!(outside_root, Path.join(root, "aa"))
+    hash = "aabb" <> String.duplicate("1", 60)
 
-    assert FileSystem.get(key("aabb" <> String.duplicate("1", 60)), root: root) ==
-             {:error, {:path_outside_root, Path.join([root, "aa", "bb"])}}
+    # A rejection is never remembered, so a fixed partition is accepted.
+    for _attempt <- 1..2 do
+      assert FileSystem.get(key(hash), root: root) ==
+               {:error, {:path_outside_root, Path.join([root, "aa", "bb"])}}
+    end
+
+    File.rm!(Path.join(root, "aa"))
+    File.mkdir_p!(Path.join([root, "aa", "bb"]))
+    assert FileSystem.get(key(hash), root: root) == :miss
   end
 
   test "rejects invalid hashes before path construction", %{root: root} do

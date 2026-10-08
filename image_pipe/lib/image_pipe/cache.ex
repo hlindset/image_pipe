@@ -21,7 +21,8 @@ defmodule ImagePipe.Cache do
       Work,
       OutputWork,
       Key,
-      FileSystem
+      FileSystem,
+      FileSystem.CheckedDirs
     ]
 
   require Logger

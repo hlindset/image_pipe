@@ -195,6 +195,13 @@ is served as it is. A body removed after the check, for example by eviction in
 opened, as a chunked response without `content-length`.
 
 A path that leads outside `root` through a symlink fails as a cache error.
+Each node checks each entry's directory under `root` the first time it uses
+it and remembers each directory that passes. A directory later replaced by a
+symlink leading outside `root` isn't noticed until the node restarts, so
+restart nodes after changing symlinks under `root`. Anyone who can create
+files in `root` can change cached images anyway, so only the user running
+ImagePipe must be able to write there.
+
 `ImagePipe.Cache.FileSystem.get/2` returns the whole body as a binary, for
 callers outside the Plug.
 
