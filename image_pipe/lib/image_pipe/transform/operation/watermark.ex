@@ -31,6 +31,7 @@ defmodule ImagePipe.Transform.Operation.Watermark do
 
   alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.Operation.AlphaPremultiply
+  alias ImagePipe.Transform.Rounding
   alias ImagePipe.Transform.State
   alias ImagePipe.Transform.WorkLimits
   alias Vix.Vips.Image, as: VipsImage
@@ -148,7 +149,7 @@ defmodule ImagePipe.Transform.Operation.Watermark do
              List.duplicate(1.0, color_bands) ++ [opacity],
              List.duplicate(0.0, color_bands + 1)
            ) do
-      Operation.cast(faded, VipsImage.format(image))
+      Rounding.cast(faded, VipsImage.format(image))
     end
   end
 
@@ -221,7 +222,7 @@ defmodule ImagePipe.Transform.Operation.Watermark do
              "compositing-space": VipsImage.interpretation(base)
            ),
          {:ok, composited} <- restore_alpha(composited, alpha?) do
-      Operation.cast(composited, VipsImage.format(base))
+      Rounding.cast(composited, VipsImage.format(base))
     end
   end
 

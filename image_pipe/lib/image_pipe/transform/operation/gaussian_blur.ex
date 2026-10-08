@@ -9,6 +9,7 @@ defmodule ImagePipe.Transform.Operation.GaussianBlur do
   # at sigma 20 on float input.
   @moduledoc false
 
+  alias ImagePipe.Transform.Rounding
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
 
@@ -37,8 +38,7 @@ defmodule ImagePipe.Transform.Operation.GaussianBlur do
         {:ok, image}
 
       _float ->
-        with {:ok, rounded} <- Operation.round(image, :VIPS_OPERATION_ROUND_RINT),
-             do: Operation.cast(rounded, format)
+        Rounding.cast(image, format)
     end
   end
 end

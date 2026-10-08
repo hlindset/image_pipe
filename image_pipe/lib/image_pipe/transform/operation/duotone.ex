@@ -8,6 +8,7 @@ defmodule ImagePipe.Transform.Operation.Duotone do
 
   alias ImagePipe.Transform.Alpha
   alias ImagePipe.Transform.GrayFrame
+  alias ImagePipe.Transform.Rounding
   alias ImagePipe.Transform.State
   alias ImagePipe.Transform.WorkingColor
   alias Vix.Vips.Image, as: VipsImage
@@ -56,7 +57,7 @@ defmodule ImagePipe.Transform.Operation.Duotone do
     with {:ok, shadow} <- WorkingColor.values(image, shadow),
          {:ok, highlight} <- WorkingColor.values(image, highlight),
          {:ok, adjusted} <- tone_values(image, intensity, shadow, highlight, full) do
-      Operation.cast(adjusted, VipsImage.format(image))
+      Rounding.cast(adjusted, VipsImage.format(image))
     end
   end
 

@@ -9,6 +9,7 @@ defmodule ImagePipe.Transform.Operation.Contrast do
   import ImagePipe.Transform.State
 
   alias ImagePipe.Transform.Alpha
+  alias ImagePipe.Transform.Rounding
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
@@ -35,7 +36,7 @@ defmodule ImagePipe.Transform.Operation.Contrast do
       pivot = 128 * Alpha.opaque(format) / 255
 
       with {:ok, scaled} <- Operation.linear(image, [value], [pivot * (1 - value)]) do
-        Operation.cast(scaled, format)
+        Rounding.cast(scaled, format)
       end
     end)
   end

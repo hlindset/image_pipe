@@ -227,19 +227,38 @@ defmodule ImagePipe.API.PixelEffectsWireTest do
     assert_in_delta alpha, 128, 1
   end
 
-  for effect <- ["blur=0.5", "blur=5", "blur=20", "sharpen=0.5", "progressive-blur=5,down,0,1"],
+  for effect <- [
+        "blur=0.5",
+        "blur=5",
+        "blur=20",
+        "sharpen=0.5",
+        "pixelate=7",
+        "progressive-blur=5,down,0,1"
+      ],
       alpha <- [5, 20, 100] do
-    test "#{effect} keeps the colour of a uniform image at alpha #{alpha}" do
+    test "#{effect} keeps the exact colour of a uniform image at alpha #{alpha}" do
       source = Image.new!(40, 40, color: [200, 120, 37, unquote(alpha)], bands: 4)
       config = mount(png_origin(Image.write!(source, :memory, suffix: ".png")))
 
-      [red, green, blue, alpha] = image(unquote(effect), config) |> Image.get_pixel!(20, 20)
-
+      [red, green, blue, alpha] = Image.get_pixel!(image(unquote(effect), config), 20, 20)
       assert alpha == unquote(alpha)
-      assert_in_delta red, 200, 1
-      assert_in_delta green, 120, 1
-      assert_in_delta blue, 37, 1
+
+      # Sharpening runs in LabS, and un-premultiplying at alpha 5 multiplies
+      # that conversion's error by 51.
+      tolerance = if unquote(effect) == "sharpen=0.5" and alpha == 5, do: 1, else: 0
+
+      for {actual, expected} <- Enum.zip([red, green, blue], [200, 120, 37]) do
+        assert_in_delta actual, expected, tolerance
+      end
     end
+  end
+
+  test "colour effects round to the nearest level" do
+    source = Image.new!(40, 40, color: [200, 120, 37])
+    config = mount(png_origin(Image.write!(source, :memory, suffix: ".png")))
+
+    # 0.75 * [200, 120, 37] + 0.25 * [255, 0, 0] is [213.75, 90, 27.75].
+    assert Image.get_pixel!(image("colorize=0.25,ff0000", config), 20, 20) == [214, 90, 28]
   end
 
   test "blurs keep the exact colour of a uniform opaque 8-bit image" do
@@ -247,7 +266,8 @@ defmodule ImagePipe.API.PixelEffectsWireTest do
     config = mount(png_origin(Image.write!(source, :memory, suffix: ".png")))
 
     for sigma <- [0.75, 2.25, 3, 3.75, 4.5, 6] do
-      assert Image.get_pixel!(image("blur=#{sigma}", config), 32, 24) == [200, 120, 37], "blur=#{sigma}"
+      assert Image.get_pixel!(image("blur=#{sigma}", config), 32, 24) == [200, 120, 37],
+             "blur=#{sigma}"
     end
 
     progressive = image("progressive-blur=6,down,0,1", config)

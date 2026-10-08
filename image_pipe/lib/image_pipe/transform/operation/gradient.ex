@@ -13,6 +13,7 @@ defmodule ImagePipe.Transform.Operation.Gradient do
 
   alias ImagePipe.Transform.DirectionalMask
   alias ImagePipe.Transform.GrayFrame
+  alias ImagePipe.Transform.Rounding
   alias ImagePipe.Transform.State
   alias ImagePipe.Transform.WorkingColor
   alias Vix.Vips.Image, as: VipsImage
@@ -62,7 +63,7 @@ defmodule ImagePipe.Transform.Operation.Gradient do
                op.opacity
              ),
            {:ok, blended} <- blend(rgb, mask, op.color) do
-        Operation.cast(blended, VipsImage.format(rgb))
+        Rounding.cast(blended, VipsImage.format(rgb))
       end
     end)
   end

@@ -8,6 +8,7 @@ defmodule ImagePipe.Transform.Operation.Background do
 
   alias ImagePipe.Transform.Alpha
   alias ImagePipe.Transform.GrayFrame
+  alias ImagePipe.Transform.Rounding
   alias ImagePipe.Transform.State
   alias ImagePipe.Transform.WorkingColor
   alias Vix.Vips.Image, as: VipsImage
@@ -63,7 +64,7 @@ defmodule ImagePipe.Transform.Operation.Background do
            Operation.composite2(canvas, image, :VIPS_BLEND_MODE_OVER,
              "compositing-space": VipsImage.interpretation(image)
            ),
-         {:ok, composited} <- Operation.cast(composited, VipsImage.format(image)) do
+         {:ok, composited} <- Rounding.cast(composited, VipsImage.format(image)) do
       keep_profile(composited, image)
     end
   end
@@ -72,7 +73,7 @@ defmodule ImagePipe.Transform.Operation.Background do
     with {:ok, black} <-
            Operation.black(Image.width(image), Image.height(image), bands: length(values)),
          {:ok, filled} <- Operation.linear(black, List.duplicate(1.0, length(values)), values),
-         {:ok, cast} <- Operation.cast(filled, VipsImage.format(image)) do
+         {:ok, cast} <- Rounding.cast(filled, VipsImage.format(image)) do
       Operation.copy(cast, interpretation: VipsImage.interpretation(image))
     end
   end
