@@ -73,9 +73,19 @@ defmodule ImagePipe.Delivery do
     {:ok, coordinator} =
       Coordinator.start(build_fun, conn_owner_pid, cache_key, RequestContext.capture(), config)
 
-    case Coordinator.prepare(coordinator) do
+    case Coordinator.prepare(coordinator, prepare_timeout(config)) do
       {:ok, prepared} -> {:ok, prepared_stream(coordinator, cache_key, prepared)}
       {:error, reason} -> cancel_and_error(coordinator, reason)
+    end
+  end
+
+  # The first chunk carries all of the processing. A pool's queue and
+  # processing deadlines bound it, so only an unpooled stream gets the session's
+  # progress limit.
+  defp prepare_timeout(config) do
+    case Keyword.get(config, :processing_pool) do
+      nil -> Coordinator.progress_timeout()
+      _pool -> :infinity
     end
   end
 
