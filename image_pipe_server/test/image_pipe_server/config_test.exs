@@ -235,6 +235,20 @@ defmodule ImagePipeServer.ConfigTest do
       assert config.http[:http_cache] == :auto
     end
 
+    test "a source error names the source as the file spells it" do
+      for name <- ["media", "TMDB", "my-media"] do
+        message =
+          error(fn ->
+            "[sources.\"#{name}\"]\nadapter = \"file\"\nmatch = \"path\"\nroot = \"/x\""
+            |> Toml.decode!()
+            |> Config.options!()
+            |> Config.build!()
+          end)
+
+        assert message =~ "invalid configuration: sources.#{name}: required :root_id option"
+      end
+    end
+
     test "a TOML date or time where a table is expected names the setting" do
       for {toml, setting} <- [
             {"server = 1979-05-27", "server"},
