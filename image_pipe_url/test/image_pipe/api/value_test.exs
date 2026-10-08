@@ -230,7 +230,8 @@ defmodule ImagePipe.API.ValueTest do
       "RED",
       "12345",
       "red\n",
-      "fff\n"
+      "fff\n",
+      "transparent"
     ]
 
     for input <- invalid do

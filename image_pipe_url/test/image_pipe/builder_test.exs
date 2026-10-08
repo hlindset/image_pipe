@@ -111,6 +111,7 @@ defmodule ImagePipe.BuilderTest do
           {[detect: ["face", "face"]], {:group, 0, :detect}},
           {[detect: [{"face", 0}]], {:group, 0, :detect}},
           {[background: {"red", 2}], {:group, 0, :background}},
+          {[background: "transparent"], {:group, 0, :background}},
           {[gradient: [opacity: 0.5, color: "red", start: -1]], {:group, 0, :gradient}},
           {[gradient: [opacity: 1, color: "red", direction: :sideways]], {:group, 0, :gradient}},
           {[dpr: Integer.pow(10, 400)], {:group, 0, :dpr}},

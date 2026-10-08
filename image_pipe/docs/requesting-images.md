@@ -177,7 +177,9 @@ the top.
 A color is three or six hex digits without `#`, such as `fff` or `ff8800`,
 or a lowercase CSS color name, such as `white` or `rebeccapurple`. Some
 options take an alpha [fraction](#fractions) after the color: `bg=fff,0.5`
-is half-transparent white.
+is half-transparent white. The CSS name `transparent` fails with `400`. To
+drop a background that a [preset](presets.md) sets, use
+[`bg=unset`](presets.md#clearing-inherited-values).
 
 <!-- tabs-open -->
 
