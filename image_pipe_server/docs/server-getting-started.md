@@ -112,8 +112,8 @@ The browser's tab title shows the size, `400×267`. Notice that:
 - `w=400` sets only the width. The height follows the photo's proportions.
 - The original is a JPEG, but Chrome got AVIF, as its developer tools show.
   Without a `format` option, the server picks AVIF or WebP when the browser
-  accepts it. Browsers that don't ask for AVIF or WebP, such as Safari and
-  Firefox, get a JPEG, so the results below show `image/jpeg` there.
+  asks for one of them. A client that asks for neither, such as `curl`, gets
+  a JPEG.
 
 Now change `w=400` to `w=800`:
 
