@@ -110,6 +110,40 @@ defmodule ImagePipe.Output.EncodeSearchTest do
              EncodeSearch.search(rs, nil, encode_fun: enc, score_fun: score, max_iterations: 8)
   end
 
+  test "ssim2 crosses a score jump instead of creeping along the failing side" do
+    # JPEG switches from 4:2:0 to 4:4:4 chroma at q90, so the score jumps about ten
+    # points there (measured on a 5.5 MP chart screenshot). Once q91 passes far
+    # above the band, interpolating between it and q80 creeps up one quality at a
+    # time (q82, q83, q84) until the six probes run out and q91 ships, although
+    # q85 and q86 score in the band. The bracket is far steeper than the failing
+    # side, so the search probes its midpoint instead.
+    rs = %RQS.Ssimulacra2{
+      target: 75.0,
+      min_quality: 25,
+      max_quality: 95,
+      start_quality: 76,
+      allowed_error: 0.5
+    }
+
+    scores = %{
+      76 => 70.52,
+      80 => 71.75,
+      82 => 73.34,
+      83 => 73.92,
+      84 => 74.48,
+      85 => 75.21,
+      86 => 75.74,
+      87 => 76.28,
+      91 => 87.58
+    }
+
+    enc = fn q -> {:ok, :binary.copy(<<0>>, q * 100)} end
+    score = fn bin -> Map.fetch!(scores, div(byte_size(bin), 100)) end
+
+    assert {:ok, _bin, %{quality: 86, outcome: :hit, score: 75.74, iterations: 4}} =
+             EncodeSearch.search(rs, nil, encode_fun: enc, score_fun: score)
+  end
+
   test "ssim2 ships the floor when even min_quality overshoots the band (easy image)" do
     # Easy content: even min_quality (q10) scores above target + allowed_error, so the
     # band is unreachable from below. score = q + 60, band [48, 52] (target 50,

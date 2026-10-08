@@ -40,6 +40,7 @@ defmodule ImagePipe.Output.EncodeSearch do
   @default_slope 1.0
   @min_slope 0.05
   @max_step 20
+  @jump_ratio 3
 
   # Above the crop crossover the search ships a crop estimate minus this offset,
   # biasing it down so the search climbs to a quality whose full frame reaches
@@ -326,7 +327,12 @@ defmodule ImagePipe.Output.EncodeSearch do
   # `start_quality` (a calibrated guess, else the bracket midpoint). Each later
   # probe interpolates score(q) between the highest failing and lowest passing
   # qualities seen, or extrapolates from the nearest probes when only one side
-  # is known, so a good start converges in two or three probes.
+  # is known, so a good start converges in two or three probes. A score jump
+  # inside the bracket, such as JPEG's chroma subsampling change at q90, makes
+  # the line between the endpoints far steeper than the curve on either side,
+  # and interpolating along it creeps up from the failing edge one quality at a
+  # time. When the bracket is more than @jump_ratio times steeper than the two
+  # nearest probes on one side, the next probe is the bracket midpoint instead.
   #
   # Without an in-band probe the search stops when the failing and passing
   # qualities are adjacent, a bracket edge is reached, or the iteration cap hits.
@@ -382,8 +388,12 @@ defmodule ImagePipe.Output.EncodeSearch do
     end
   end
 
-  defp next_quality({fail_q, fail_s}, {pass_q, pass_s}, _seen, rqs) do
-    q = fail_q + (rqs.target - fail_s) / (pass_s - fail_s) * (pass_q - fail_q)
+  defp next_quality({fail_q, fail_s} = fail, {pass_q, pass_s} = pass, seen, rqs) do
+    q =
+      if jump?(fail, pass, seen, rqs),
+        do: (fail_q + pass_q) / 2,
+        else: fail_q + (rqs.target - fail_s) / (pass_s - fail_s) * (pass_q - fail_q)
+
     q |> round() |> max(fail_q + 1) |> min(pass_q - 1)
   end
 
@@ -396,6 +406,19 @@ defmodule ImagePipe.Output.EncodeSearch do
     step = clamp_step((rqs.target - fail_s) / slope(seen))
     (fail_q + step) |> min(rqs.max_quality) |> max(fail_q + 1)
   end
+
+  defp jump?(fail, pass, seen, rqs) do
+    accept_lo = rqs.target - rqs.allowed_error
+    {fails, passes} = seen |> Enum.sort() |> Enum.split_with(fn {_q, s} -> s < accept_lo end)
+    bracket = secant([fail, pass])
+
+    Enum.any?([Enum.take(fails, -2), Enum.take(passes, 2)], fn
+      [_, _] = side -> bracket > @jump_ratio * max(secant(side), @min_slope)
+      _single -> false
+    end)
+  end
+
+  defp secant([{q1, s1}, {q2, s2}]), do: (s2 - s1) / (q2 - q1)
 
   # Score gained per quality step, from the two highest probed qualities.
   defp slope(seen) when map_size(seen) < 2, do: @default_slope
