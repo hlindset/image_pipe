@@ -332,6 +332,39 @@ defmodule ImagePipe.API.ColorManagementWireTest do
     assert fallback.status == 200
   end
 
+  test "a truncated tagged source fails as a decode error when its profile changes" do
+    cmyk = File.read!(Path.join(@sources, "cmyk.jpg"))
+    beach = File.read!("priv/static/images/beach.jpg")
+
+    {:ok, gray} =
+      400
+      |> Image.linear_gradient!(300, start_color: :navy, finish_color: :orange)
+      |> Operation.colourspace(:VIPS_INTERPRETATION_B_W)
+
+    {:ok, tagged_gray} = Operation.icc_transform(gray, "sGrey", input_profile: "sGrey")
+    gray_jpeg = Image.write!(tagged_gray, :memory, suffix: ".jpg", strip_metadata: false)
+
+    for {body, options} <- [
+          {binary_part(cmyk, 0, byte_size(cmyk) - 200),
+           ["format=png", "output=lqip-css", "output=blurhash"]},
+          {binary_part(beach, 0, 5000), ["gray/format=png", "bitonal/format=png"]},
+          {binary_part(gray_jpeg, 0, div(byte_size(gray_jpeg), 2)),
+           [
+             "monochrome=1,red/format=png",
+             "duotone=1,red,blue/format=png",
+             "colorize=0.5,red/format=png",
+             "gradient=1,red/format=png",
+             "pad=2/bg=red/format=png",
+             "output=blurhash"
+           ]}
+        ],
+        config = body |> body_source("image/jpeg") |> ImagePipe.Plug.init(),
+        option <- options do
+      response = conn(:get, "/#{option}/src/truncated.jpg") |> ImagePipe.Plug.call(config)
+      assert response.status == 415, option
+    end
+  end
+
   defp source(name), do: Image.open!(Path.join(@sources, name), access: :random)
 
   defp body_source(body, content_type) do

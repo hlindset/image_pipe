@@ -8,6 +8,7 @@ defmodule ImagePipe.Transform.InputColorManagement do
   @moduledoc false
 
   alias ImagePipe.Telemetry
+  alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VixImage
   alias Vix.Vips.Operation
@@ -72,7 +73,8 @@ defmodule ImagePipe.Transform.InputColorManagement do
 
   # Linear-light: drop the profile (no backup, no flag) but still convert.
   defp do_condition(state, image, :VIPS_INTERPRETATION_scRGB, target) do
-    with {:ok, image} <- remove_profile(image),
+    with {:ok, state} <- materialize_tagged(State.set_image(state, image)),
+         {:ok, image} <- remove_profile(state.image),
          {:ok, image} <- to_colorspace(image, target) do
       {:ok, State.set_image(state, image)}
     end
@@ -92,7 +94,9 @@ defmodule ImagePipe.Transform.InputColorManagement do
     if importable?(image, profile) do
       # The imported pixels no longer match the embedded profile, so drop it from
       # the image; the backup on `State` is what the output step exports to.
-      with {:ok, imported} <- icc_import(image, profile),
+      with {:ok, %State{image: image} = state} <-
+             materialize_tagged(State.set_image(state, image)),
+           {:ok, imported} <- icc_import(image, profile),
            {:ok, image} <- to_colorspace(imported, target),
            {:ok, image} <- remove_profile(image) do
         {:ok,
@@ -125,6 +129,19 @@ defmodule ImagePipe.Transform.InputColorManagement do
     case VixImage.header_value(image, "coding") do
       {:ok, :VIPS_CODING_RAD} -> Operation.rad2float(image)
       _ -> {:ok, image}
+    end
+  end
+
+  # Workaround for `image`: removing a profile goes through Vix's mutable
+  # image, which copies the image to memory in a linked process, so a corrupt
+  # lazy source crashes the request there. Buffer it first, so the failure is
+  # a decode error.
+  defp materialize_tagged(%State{materialized?: true} = state), do: {:ok, state}
+
+  defp materialize_tagged(%State{image: image} = state) do
+    case profile_data(image) do
+      nil -> {:ok, state}
+      _profile -> Materializer.materialize(state)
     end
   end
 
