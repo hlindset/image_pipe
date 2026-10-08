@@ -8,6 +8,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   alias ImagePipe.Cache.Key
 
   @metadata_version 1
+  @commit_timeout 5_000
   @cache_key_hash_pattern ~r/\A[0-9A-Fa-f]{64}\z/
   @body_sha256_pattern ~r/\A[0-9a-f]{64}\z/
   @option_keys [:root, :path_prefix, :pool]
@@ -140,7 +141,8 @@ defmodule ImagePipe.Cache.FileSystem.Store do
                       type: :pos_integer,
                       doc: """
                       Maximum number of entries one write may evict to make room. A write \
-                      that needs more is not stored. Defaults to `64`.
+                      that needs more is not stored. Background eviction removes at most \
+                      this many entries per batch. Defaults to `64`.
                       """
                     ],
                     flush_interval: [
@@ -368,7 +370,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
         legacy_commit(state)
 
       {:ok, pid} ->
-        commit_bounded(state, pid)
+        commit_bounded(state, pid, opts)
 
       :unavailable ->
         # Bounded mode but the Admission process is missing. We cannot account
@@ -399,18 +401,30 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     end
   end
 
-  defp commit_bounded(state, pid) do
+  defp commit_bounded(state, pid, opts) do
     case prepare_sink_commit(state) do
       {:ok, prepared, body_filename} ->
-        try do
-          Admission.commit(pid, prepared, body_filename)
-        after
-          cleanup_sink_state(prepared)
-        end
+        admit_commit(prepared, body_filename, pid, opts)
 
       {:error, reason, prepared} ->
         cleanup_sink_state(prepared)
         {:error, reason}
+    end
+  end
+
+  # Admission owns the prepared files once the commit is sent, and publishes or
+  # removes them even after this call times out. They are left here only when
+  # Admission is gone. Tests shorten the wait with `:commit_timeout`.
+  defp admit_commit(prepared, body_filename, pid, opts) do
+    timeout = Keyword.get(opts, :commit_timeout, @commit_timeout)
+
+    case Admission.commit(pid, prepared, body_filename, timeout) do
+      {:error, :admission_unavailable} = error ->
+        cleanup_sink_state(prepared)
+        error
+
+      result ->
+        result
     end
   end
 
@@ -458,27 +472,31 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   # leave a published body at full length with lost blocks. Hits check only
   # the size, which wouldn't catch that.
   defp prepare_sink_commit(state) do
-    with :ok <- :file.datasync(state.body_io),
+    with :ok <- refresh_body_time(state),
+         :ok <- :file.datasync(state.body_io),
          :ok <- close_body_io(state),
          body_sha256 = sink_body_sha256(state),
          body_filename = body_filename(state.paths.hash, body_sha256),
          encoded_metadata = sink_metadata(state, body_sha256, body_filename),
          {:ok, temp_meta_path} <- write_sink_metadata(state.paths, encoded_metadata) do
-      {:ok, %{state | temp_meta_path: temp_meta_path}, body_filename}
+      prepared = state |> Map.put(:temp_meta_path, temp_meta_path) |> Map.delete(:body_io)
+      {:ok, prepared, body_filename}
     else
       {:error, reason} -> {:error, reason, state}
     end
   end
 
-  defp commit_prepared_sink(state, body_filename) do
-    case commit_sink_files(state, body_filename) do
-      :ok ->
-        :ok
+  # A linked body can carry an old mtime. Refresh it before publication so the
+  # leftover sweep leaves it alone until its metadata has been installed.
+  defp refresh_body_time(%{body_sha256: _} = state),
+    do: :file.change_time(state.temp_body_path, :calendar.local_time())
 
-      {:error, reason} ->
-        cleanup_sink_state(state)
-        {:error, reason}
-    end
+  defp refresh_body_time(%{hash_context: _}), do: :ok
+
+  defp commit_prepared_sink(state, body_filename) do
+    commit_sink_files(state, body_filename)
+  after
+    cleanup_sink_state(state)
   end
 
   def abort_sink(state, _opts) when is_map(state) do
@@ -849,46 +867,13 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   defp commit_sink_files(state, body_filename) do
     body_path = Path.join(state.paths.dir, body_filename)
 
-    with :ok <- commit_body_file(state.temp_body_path, body_path, body_filename) do
+    with :ok <- File.rename(state.temp_body_path, body_path) do
       commit_metadata_file(state.paths.meta_path, state.temp_meta_path)
     end
   end
 
   defp commit_metadata_file(meta_path, meta_tmp_path) do
     File.rename(meta_tmp_path, meta_path)
-  end
-
-  defp commit_body_file(body_tmp_path, body_path, body_filename) do
-    if adopt_body_file?(body_path, body_filename) do
-      # Existing matching body content wins. The new temp body is no longer
-      # needed, and cleanup is best-effort cache housekeeping.
-      cleanup_temp_files([body_tmp_path])
-      :ok
-    else
-      case File.rename(body_tmp_path, body_path) do
-        :ok -> :ok
-        {:error, :eexist} -> use_existing_body_file(body_tmp_path, body_path, body_filename)
-        {:error, reason} -> {:error, reason}
-      end
-    end
-  end
-
-  defp use_existing_body_file(body_tmp_path, body_path, body_filename) do
-    if adopt_body_file?(body_path, body_filename) do
-      cleanup_temp_files([body_tmp_path])
-      :ok
-    else
-      {:error, :body_file_exists}
-    end
-  end
-
-  # A body no metadata names yet looks like a leftover to the sweep once it is
-  # an hour old. Moving its mtime before reusing it keeps the sweep away while
-  # the new metadata is written. change_time fails on a missing body rather
-  # than creating an empty one, and the commit then renames its own body in.
-  defp adopt_body_file?(body_path, body_filename) do
-    :file.change_time(body_path, :calendar.local_time()) == :ok and
-      matching_body_file?(body_path, body_filename)
   end
 
   defp matching_body_file?(body_path, body_filename) do
@@ -935,10 +920,13 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     |> Base.encode16(case: :lower)
   end
 
-  defp cleanup_sink_state(state) do
+  defp cleanup_sink_state(%{body_io: _} = state) do
     _result = close_body_io(state)
-    cleanup_temp_files([state.temp_body_path, state.temp_meta_path])
+    cleanup_sink_state(Map.delete(state, :body_io))
   end
+
+  defp cleanup_sink_state(state),
+    do: cleanup_temp_files([state.temp_body_path, state.temp_meta_path])
 
   defp cleanup_temp_files(temp_paths) do
     temp_paths

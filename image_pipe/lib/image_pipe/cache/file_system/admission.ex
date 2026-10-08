@@ -60,7 +60,10 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       scan_task: nil,
       scan_task_ref: nil,
       scan_complete?: false,
-      scan_waiters: []
+      scan_waiters: [],
+      reconciling?: false,
+      reconcile_waiters: [],
+      reconcile_tick_pending?: false
     ]
   end
 
@@ -321,7 +324,12 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
     # Phase A: insert protected entries in persisted LRU→MRU order.
     protected_hashes = state.persisted_protected_hashes
-    GenServer.call(admission_pid, {:apply_protected_batch, protected_hashes, descriptor_map})
+
+    GenServer.call(
+      admission_pid,
+      {:apply_protected_batch, protected_hashes, descriptor_map},
+      :infinity
+    )
 
     # Phase B: insert remaining entries (those not in protected_hashes)
     # in mtime order. Batches of 100 to bound per-call latency.
@@ -334,18 +342,18 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       |> Enum.sort_by(fn %{mtime: mtime} -> mtime end)
 
     Enum.chunk_every(remaining, 100)
-    |> Enum.each(&GenServer.call(admission_pid, {:apply_scan_batch, &1}))
+    |> Enum.each(&GenServer.call(admission_pid, {:apply_scan_batch, &1}, :infinity))
 
     # Phase C: post-scan reconciliation. If total bytes ended up over
     # cap (operator lowered cap, previous run wrote past soft cap),
     # evict by LRU until under budget. No score gate — these are
     # already-cached entries with no candidate to compare against.
-    GenServer.call(admission_pid, :reconcile_to_cap)
+    GenServer.call(admission_pid, :reconcile_to_cap, :infinity)
 
     # Phase D: remove files a VM that died left behind.
     Sweep.run_listings(listings, state.pool, tel_opts(state))
 
-    GenServer.call(admission_pid, :scan_complete)
+    GenServer.call(admission_pid, :scan_complete, :infinity)
   end
 
   # One pass lists each two-level partition once, a first-level group per
@@ -406,12 +414,18 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   def handle_info(:reconcile, state) do
-    # Reclaim soft-cap overshoot, especially larger same-key replacements that
-    # bypass the main gate. Reconciliation evicts by LRU and deletes victim files
-    # until usage is within max_size_bytes.
-    state = reconcile_to_cap(state, [])
-    Process.send_after(self(), :reconcile, state.reconcile_interval_ms)
-    {:noreply, state}
+    {:noreply, start_reconciliation(%{state | reconcile_tick_pending?: true})}
+  end
+
+  def handle_info(:reconcile_batch, state) do
+    case reconcile_batch(state, state.eviction_victim_limit, []) do
+      {:more, state} ->
+        send(self(), :reconcile_batch)
+        {:noreply, state}
+
+      {:done, state} ->
+        {:noreply, finish_reconciliation(state)}
+    end
   end
 
   # Release waiters if the scan dies before reporting completion. Normal exit
@@ -529,8 +543,12 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     end
   end
 
-  def commit(server, prepared, body_filename) do
-    call(server, {:commit, prepared, body_filename})
+  # A timed-out commit stays queued, and Admission still publishes it.
+  def commit(server, prepared, body_filename, timeout) do
+    GenServer.call(server, {:commit, prepared, body_filename}, timeout)
+  catch
+    :exit, {:timeout, _call} -> {:error, :admission_timeout}
+    :exit, _reason -> {:error, :admission_unavailable}
   end
 
   def delete(server, paths), do: call(server, {:delete, paths})
@@ -630,8 +648,9 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     {:reply, :ok, state}
   end
 
-  def handle_call(:reconcile_to_cap, _from, state) do
-    {:reply, :ok, reconcile_to_cap(state, [])}
+  def handle_call(:reconcile_to_cap, from, state) do
+    state = %{state | reconcile_waiters: [from | state.reconcile_waiters]}
+    {:noreply, start_reconciliation(state)}
   end
 
   defp apply_protected_hash(hash, state, descriptor_map) do
@@ -1120,34 +1139,57 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     end
   end
 
-  defp reconcile_to_cap(state, evicted_descriptors) do
-    total = state.window_bytes + state.probationary_bytes + state.protected_bytes
+  defp start_reconciliation(%{reconciling?: true} = state), do: state
 
-    if total <= state.max_size_bytes do
-      # Delete the evicted entries' files. Admission owns deletion here
-      # (no request process is in the loop for boot/periodic
-      # reconciliation), calling the adapter's `delete_victims/2`
-      # in-boundary. See `emit_reconciliation_evictions/2`.
-      emit_reconciliation_evictions(state, evicted_descriptors)
-      state
-    else
-      # Evict LRU from probationary first, then protected.
-      {evicted, state} = evict_one_lru(state)
+  defp start_reconciliation(state) do
+    send(self(), :reconcile_batch)
+    %{state | reconciling?: true}
+  end
 
-      case evicted do
-        nil ->
-          # No more entries to evict but still over cap. Bug or empty
-          # cache with impossibly low max_size_bytes; log and stop.
-          require Logger
-          Logger.warning("cache: reconciliation cannot bring usage under cap")
-          emit_reconciliation_evictions(state, evicted_descriptors)
-          state
+  defp finish_reconciliation(state) do
+    Enum.each(state.reconcile_waiters, &GenServer.reply(&1, :ok))
 
-        descriptor ->
-          reconcile_to_cap(state, [descriptor | evicted_descriptors])
-      end
+    if state.reconcile_tick_pending? do
+      Process.send_after(self(), :reconcile, state.reconcile_interval_ms)
+    end
+
+    %{state | reconciling?: false, reconcile_waiters: [], reconcile_tick_pending?: false}
+  end
+
+  defp reconcile_batch(state, 0, descriptors) do
+    emit_reconciliation_evictions(state, descriptors)
+
+    case over_cap?(state) do
+      true -> {:more, state}
+      false -> {:done, state}
     end
   end
+
+  defp reconcile_batch(state, remaining, descriptors) do
+    case over_cap?(state) do
+      true ->
+        {evicted, state} = evict_one_lru(state)
+
+        case evicted do
+          nil ->
+            require Logger
+            Logger.warning("cache: reconciliation cannot bring usage under cap")
+            emit_reconciliation_evictions(state, descriptors)
+            {:done, state}
+
+          descriptor ->
+            reconcile_batch(state, remaining - 1, [descriptor | descriptors])
+        end
+
+      false ->
+        emit_reconciliation_evictions(state, descriptors)
+        {:done, state}
+    end
+  end
+
+  defp over_cap?(state),
+    do:
+      state.window_bytes + state.probationary_bytes + state.protected_bytes > state.max_size_bytes
 
   defp evict_one_lru(state) do
     cond do
@@ -1175,12 +1217,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   defp emit_reconciliation_evictions(_state, []), do: :ok
 
   defp emit_reconciliation_evictions(state, descriptors) do
-    # Reconciliation evictions are full evictions: both body and meta
-    # files must go. Admission deletes them directly through the adapter's
-    # path helper (both modules live in the `cache` boundary). This is the
-    # same inline-I/O posture as `maybe_flush/1`; reconciliation batches
-    # are small (bounded by recent overshoot), so blocking the GenServer
-    # briefly is acceptable.
+    # Select and delete together before yielding to replacements and hits.
     victims = Enum.map(descriptors, &full_eviction_victim/1)
     opts = [root: state.root, path_prefix: state.path_prefix]
     FileSystem.delete_victims(victims, opts)

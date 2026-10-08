@@ -134,6 +134,36 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
     assert state.window_bytes + state.probationary_bytes + state.protected_bytes == 8
   end
 
+  test "a commit that times out while queued is still published", ctx do
+    assert :ok = put_entry(ctx.key, "original", ctx.opts)
+    parent = self()
+    admission = ctx.admission
+    opts = Keyword.put(ctx.opts, :commit_timeout, 0)
+    :sys.suspend(admission)
+
+    task =
+      Task.Supervisor.async_nolink(ctx.tasks, fn ->
+        :erlang.trace(self(), true, [:send, {:tracer, parent}])
+        put_entry(ctx.key, "replacement", opts)
+      end)
+
+    try do
+      assert_receive {:trace, _, :send, {:"$gen_call", _, {:commit, prepared, _}}, ^admission},
+                     1000
+
+      assert {:error, :admission_timeout} = Task.await(task)
+      assert File.exists?(prepared.temp_body_path)
+      assert File.exists?(prepared.temp_meta_path)
+    after
+      :sys.resume(admission)
+    end
+
+    state = :sys.get_state(admission)
+    assert state.window_bytes + state.probationary_bytes + state.protected_bytes == 11
+    assert {:hit, %{body: "replacement"}} = FileSystem.get(ctx.key, ctx.opts)
+    assert Path.wildcard(Path.join(ctx.root, "**/*.tmp"), match_dot: true) == []
+  end
+
   @tag capture_log: true
   test "admission termination cleans prepared temporary files", ctx do
     parent = self()
@@ -165,6 +195,12 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
   end
 
   defp put_entry(key, body, opts) do
+    with {:ok, sink} <- written_sink(key, body, opts) do
+      FileSystem.commit_sink(sink, opts)
+    end
+  end
+
+  defp written_sink(key, body, opts) do
     metadata = %Entry.Metadata{
       content_type: "image/png",
       headers: [],
@@ -173,9 +209,8 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
       representation: {:image, :png}
     }
 
-    with {:ok, sink} <- FileSystem.open_sink(key, metadata, opts),
-         {:ok, sink} <- FileSystem.write_chunk(sink, body, opts) do
-      FileSystem.commit_sink(sink, opts)
+    with {:ok, sink} <- FileSystem.open_sink(key, metadata, opts) do
+      FileSystem.write_chunk(sink, body, opts)
     end
   end
 end

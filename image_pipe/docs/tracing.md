@@ -34,6 +34,9 @@ deleting files a crash left behind, forms its own traces. A one-shot event,
 such as `[:output, :clamp]`, becomes an event on the span that is open when it
 fires.
 
+Background eviction counts and bytes go to
+[telemetry handlers](telemetry-events.md#cache-eviction-stop).
+
 A span's parent is the span that was open when it started. That works within
 one process, and ImagePipe carries the request's trace into the other
 processes that serve it: the processing pool, the encoder, the detection

@@ -129,9 +129,9 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   end
 
   # Any meta file keeps its body, even one this node can't decode: it may be
-  # corrupt, or written by a newer version sharing the root. A commit can adopt
-  # an old body and name it in a new meta at any moment. It moves the body's
-  # mtime first, so both checks run again just before the unlink.
+  # corrupt, or written by a newer version sharing the root. A commit can
+  # rename a fresh body over an old one and name it in a new meta at any moment,
+  # so both checks run again just before the unlink.
   defp sweep_body(path, meta_path, metas, cutoff, counts) do
     if not MapSet.member?(metas, Path.basename(meta_path)) and older?(path, cutoff) and
          not File.exists?(meta_path) and older?(path, cutoff),
