@@ -262,6 +262,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Error,
       ImagePipe.MaterialDigest,
       ImagePipe.Plan,
+      ImagePipe.SafePath,
       ImagePipe.Telemetry
     ])
 
@@ -475,6 +476,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Output,
+      ImagePipe.SafePath,
       ImagePipe.Source,
       ImagePipe.Telemetry
     ])
@@ -489,7 +491,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Cache.Work,
       ImagePipe.Cache.OutputWork,
       ImagePipe.Cache.Key,
-      ImagePipe.Cache.FileSystem
+      ImagePipe.Cache.FileSystem,
+      ImagePipe.Cache.FileSystem.CheckedDirs
     ])
   end
 

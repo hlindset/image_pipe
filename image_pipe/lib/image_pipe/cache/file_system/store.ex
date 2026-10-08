@@ -4,8 +4,10 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   alias ImagePipe.Cache.File, as: CacheFile
   alias ImagePipe.Cache.FileSystem.Admission
+  alias ImagePipe.Cache.FileSystem.CheckedDirs
   alias ImagePipe.Cache.FileSystem.Sweep
   alias ImagePipe.Cache.Key
+  alias ImagePipe.SafePath
 
   @metadata_version 1
   @commit_timeout 5_000
@@ -945,7 +947,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
       dir = Path.join([root, path_prefix, first_partition, second_partition])
       meta_path = Path.join(dir, hash <> ".meta")
 
-      with :ok <- validate_under_root(root, dir) do
+      with :ok <- checked_partition(root, dir) do
         {:ok, %{root: root, dir: dir, meta_path: meta_path, hash: hash}}
       end
     end
@@ -1080,14 +1082,24 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     {:ok, {first, second}}
   end
 
+  defp checked_partition(root, dir) do
+    case CheckedDirs.checked?(dir) do
+      true ->
+        :ok
+
+      false ->
+        with :ok <- validate_under_root(root, dir), do: CheckedDirs.put(dir)
+    end
+  end
+
   defp validate_under_root(root, path) do
     root = Path.expand(root)
     path = Path.expand(path)
     relative = Path.relative_to(path, root, force: true)
 
-    # The two-argument form resolves symlinks against root. A plain prefix check
-    # would allow a partition directory symlink to point outside the cache root.
-    case Path.safe_relative(relative, root) do
+    # Symlinks resolve against root. A plain prefix check would allow a
+    # partition directory symlink to point outside the cache root.
+    case SafePath.relative(relative, root) do
       {:ok, _relative} -> :ok
       :error -> {:error, {:path_outside_root, path}}
     end

@@ -9,6 +9,7 @@ defmodule ImagePipe.Cache do
       ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Output,
+      ImagePipe.SafePath,
       ImagePipe.Source,
       ImagePipe.Telemetry
     ],
@@ -20,7 +21,8 @@ defmodule ImagePipe.Cache do
       Work,
       OutputWork,
       Key,
-      FileSystem
+      FileSystem,
+      FileSystem.CheckedDirs
     ]
 
   require Logger
