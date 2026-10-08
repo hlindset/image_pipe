@@ -71,7 +71,8 @@ defmodule ImagePipeServer.Config.TomlError do
       end
 
     redacted = if kept == source, do: source, else: kept <> @placeholder
-    offset = column - 1
+    # The parser reports column 0 for an error at a line's start.
+    offset = max(column - 1, 0)
     {redacted, if(offset < String.length(kept), do: offset, else: String.length(kept))}
   end
 
