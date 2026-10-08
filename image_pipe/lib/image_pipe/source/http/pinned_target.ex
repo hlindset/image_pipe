@@ -1,12 +1,16 @@
 defmodule ImagePipe.Source.HTTP.PinnedTarget do
   @moduledoc false
 
+  alias ImagePipe.Source.HTTP.PinnedPools
+
   # Pin at the transport boundary, after signing and other request steps. Logical
   # URLs stay intact for redirects, origin validators and request authentication.
   @spec attach(Req.Request.t(), [:inet.ip_address()] | nil) :: Req.Request.t()
   def attach(request, nil), do: request
 
   def attach(%Req.Request{adapter: Req.Finch} = request, addresses) do
+    addresses = live_first(addresses, request.url)
+
     request
     |> Req.Request.put_header("host", authority(request.url))
     |> Req.Request.append_request_steps(
@@ -24,19 +28,22 @@ defmodule ImagePipe.Source.HTTP.PinnedTarget do
       fun.(event, response, acc, state)
     end
 
-    case next.(pin(req, ip), acc, callback, state) do
-      {{:error, %Req.TransportError{}}, %Req.Response{status: nil}, _, _}
-      when rest != [] ->
-        connect(req, rest, acc, fun, state, next)
+    {pinned, key} = pin(req, ip)
+
+    case next.(pinned, acc, callback, state) do
+      {{:error, %Req.TransportError{}}, %Req.Response{status: nil}, _, _} = result ->
+        PinnedPools.connected(key, false)
+        if rest == [], do: result, else: connect(req, rest, acc, fun, state, next)
 
       result ->
+        PinnedPools.connected(key, true)
         result
     end
   end
 
   defp pin(req, ip) do
     hostname = req.url.host
-    address = ip |> :inet.ntoa() |> to_string()
+    address = address(ip)
     finch = Map.fetch!(req.options, :finch)
 
     conn_opts =
@@ -45,13 +52,32 @@ defmodule ImagePipe.Source.HTTP.PinnedTarget do
       |> Keyword.update!(:transport_opts, &Keyword.put(&1, :inet6, tuple_size(ip) == 8))
       |> connection_identity(req.url)
 
-    finch =
-      finch
-      |> Keyword.put(:conn_opts, conn_opts)
-      |> Keyword.put(:pool_tag, {:image_pipe, hostname})
+    url = %{req.url | host: address}
 
-    Req.merge(%{req | url: %{req.url | host: address}}, finch: named_pool(finch))
+    [{:name, name} | request_options] =
+      finch |> Keyword.put(:conn_opts, conn_opts) |> named_pool()
+
+    key = {name, scheme(url), address, url.port, hostname}
+    tag = PinnedPools.tag(hostname, PinnedPools.generation(key))
+
+    {Req.merge(%{req | url: url}, finch: [name: name, pool_tag: tag] ++ request_options), key}
   end
+
+  # An address whose live pool last connected may still hold an open
+  # connection, so it goes first. The order is otherwise the resolver's.
+  defp live_first(addresses, url) do
+    {live, other} =
+      Enum.split_with(addresses, fn ip ->
+        PinnedPools.live?(scheme(url), address(ip), url.port, url.host)
+      end)
+
+    live ++ other
+  end
+
+  defp scheme(%URI{scheme: "https"}), do: :https
+  defp scheme(%URI{scheme: "http"}), do: :http
+
+  defp address(ip), do: ip |> :inet.ntoa() |> to_string()
 
   # Given pool options, Req starts or finds their Finch instance through its
   # one DynamicSupervisor on every request. A pool started here once, under
@@ -74,7 +100,7 @@ defmodule ImagePipe.Source.HTTP.PinnedTarget do
     if Process.whereis(name) == nil do
       case DynamicSupervisor.start_child(
              @pools,
-             {Finch, name: name, pools: %{default: pool_options}}
+             {Finch, name: name, pools: %{default: [start_pool_metrics?: true] ++ pool_options}}
            ) do
         {:ok, _pid} -> :ok
         {:error, {:already_started, _pid}} -> :ok

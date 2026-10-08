@@ -133,8 +133,11 @@ defmodule ImagePipe.Source.HTTP do
                           "`(String.t() -> {:ok, [:inet.ip_address()]} | {:error, term()})`",
                         doc: """
                         Resolves a hostname to the addresses to check and connect to, \
-                        such as a caching resolver. Addresses are tried in the order \
-                        returned, without duplicates. An error, an empty list, or an \
+                        such as a caching resolver. An address the adapter connected \
+                        to for the same scheme, host, and port in about the last \
+                        minute is tried first, because it may still have an open \
+                        connection. The rest are tried in the order returned, without \
+                        duplicates. An error, an empty list, or an \
                         exception denies the fetch. The default resolver returns IPv4 \
                         addresses before IPv6 addresses.
                         """
