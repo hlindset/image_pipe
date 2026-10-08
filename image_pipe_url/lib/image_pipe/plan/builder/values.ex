@@ -61,25 +61,13 @@ defmodule ImagePipe.Plan.Builder.Values do
     end
   end
 
-  defp normalize(value, :rotate) when is_number(value) and value >= 0 and value <= 360 do
-    case value == trunc(value) do
-      true -> {:ok, rem(trunc(value), 360)}
-      false -> {:ok, value}
-    end
-  end
+  defp normalize(value, :rotate) when is_number(value), do: {:ok, value}
 
   defp normalize(value, :direction) when is_map_key(@directions, value),
     do: {:ok, Map.fetch!(@directions, value)}
 
   defp normalize(value, :direction) when is_number(value) do
-    with {:ok, value} <- float(value) do
-      angle = :math.fmod(value, 360.0)
-
-      case angle < 0 do
-        true -> {:ok, angle + 360.0}
-        false -> {:ok, angle}
-      end
-    end
+    float(value)
   end
 
   defp normalize({x, y}, :zoom), do: pair(x, y, :scale_factor)

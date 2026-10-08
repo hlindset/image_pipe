@@ -150,7 +150,7 @@ defmodule ImagePipe.API.SerializerTest do
     first = IP.URL.new() |> IP.URL.group(resize: [width: 50], blur: 0, rotate: 360)
     second = IP.URL.new() |> IP.URL.group(resize: [height: :auto, width: 50, fit: :contain])
     assert "blur=0" in segments(first)
-    assert "rotate=0" in segments(first)
+    assert "rotate=360" in segments(first)
     assert "h=auto" in segments(second)
     assert "fit=contain" in segments(second)
     assert_round_trip(first)

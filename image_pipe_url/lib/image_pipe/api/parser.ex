@@ -624,7 +624,7 @@ defmodule ImagePipe.API.Parser do
   def message_for(:watermark_source_disabled),
     do: "request watermark sources are not enabled"
 
-  def message_for(:invalid_rotation), do: "invalid value: expected degrees from 0 to 360"
+  def message_for(:invalid_rotation), do: "invalid value: expected degrees"
   def message_for(:invalid_flip), do: "invalid value: expected h, v, or hv"
 
   def message_for(:invalid_pad_shorthand),

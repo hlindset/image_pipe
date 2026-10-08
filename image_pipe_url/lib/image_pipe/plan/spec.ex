@@ -9,6 +9,7 @@ defmodule ImagePipe.Plan.Spec do
   # report, not request data.
   @moduledoc false
 
+  alias ImagePipe.Plan.Angle
   alias ImagePipe.Plan.Spec.Group
   alias ImagePipe.Plan.Spec.Issue
   alias ImagePipe.Plan.Spec.Output
@@ -142,8 +143,8 @@ defmodule ImagePipe.Plan.Spec do
       dpr: Map.get(group_map, :dpr, 1.0),
       trim: assemble_trim(Map.get(group_map, :trim)),
       trim_symmetry: Map.get(group_map, :trim_symmetry),
-      region: Map.get(group_map, :region),
-      crop: Map.get(group_map, :crop),
+      region: assemble_lengths(Map.get(group_map, :region)),
+      crop: assemble_lengths(Map.get(group_map, :crop)),
       crop_ratio: Map.get(group_map, :crop_ratio),
       crop_ratio_enlarge: Map.get(group_map, :crop_ratio_enlarge, false),
       guide: assemble_guide(group_map, resize != nil),
@@ -167,8 +168,12 @@ defmodule ImagePipe.Plan.Spec do
     }
   end
 
-  defp assemble_rotation(0), do: nil
-  defp assemble_rotation(angle), do: angle
+  defp assemble_rotation(angle) do
+    case Angle.rotation(angle) do
+      0 -> nil
+      angle -> angle
+    end
+  end
 
   defp assemble_anchor_offset(nil), do: nil
 
@@ -270,7 +275,7 @@ defmodule ImagePipe.Plan.Spec do
 
       Map.has_key?(group_map, :focus) ->
         {fx, fy} = Map.fetch!(group_map, :focus)
-        {:focus, fx, fy}
+        {:focus, fraction(fx), fraction(fy)}
 
       Map.has_key?(group_map, :detect) ->
         {:detect, assemble_detection(Map.fetch!(group_map, :detect))}
@@ -308,14 +313,15 @@ defmodule ImagePipe.Plan.Spec do
   defp assemble_trim(:auto), do: :auto
   # Default tolerance matches the automatic trim threshold.
   defp assemble_trim({color, nil}), do: {color, 10}
-  defp assemble_trim({color, tolerance}), do: {color, tolerance}
+  defp assemble_trim({color, tolerance}), do: {color, integral(tolerance)}
 
   defp assemble_blur(nil), do: nil
   defp assemble_blur(sigma) when sigma == 0.0, do: nil
   defp assemble_blur(sigma), do: sigma
 
+  defp assemble_progressive_blur(nil), do: nil
   defp assemble_progressive_blur(%{sigma: sigma}) when sigma == 0.0, do: nil
-  defp assemble_progressive_blur(effect), do: effect
+  defp assemble_progressive_blur(effect), do: %{effect | angle: Angle.normalize(effect.angle)}
 
   defp assemble_zero_identity(nil), do: nil
   defp assemble_zero_identity(value) when value == 0, do: nil
@@ -331,11 +337,33 @@ defmodule ImagePipe.Plan.Spec do
 
   defp assemble_opacity_effect(nil), do: nil
   defp assemble_opacity_effect(%{opacity: opacity}) when opacity == 0, do: nil
+
+  defp assemble_opacity_effect(%{angle: angle} = effect),
+    do: %{effect | angle: Angle.normalize(angle)}
+
   defp assemble_opacity_effect(effect), do: effect
 
   defp assemble_bg(nil), do: nil
   defp assemble_bg({{r, g, b}, nil}), do: {r, g, b, 1.0}
-  defp assemble_bg({{r, g, b}, alpha}), do: {r, g, b, alpha}
+  defp assemble_bg({{r, g, b}, alpha}), do: {r, g, b, fraction(alpha)}
+
+  defp assemble_lengths(nil), do: nil
+
+  defp assemble_lengths(lengths) do
+    lengths
+    |> Tuple.to_list()
+    |> Enum.map(fn {unit, value} -> {unit, integral(value)} end)
+    |> List.to_tuple()
+  end
+
+  # Equal numbers share one term, so equivalent spellings share identity.
+  # Whole pixel counts and tolerances are integers. Fractions are floats, and
+  # a negative zero is zero.
+  defp integral(value) when value == trunc(value), do: trunc(value)
+  defp integral(value), do: value
+
+  defp fraction(value) when value == 0, do: 0.0
+  defp fraction(value), do: value * 1.0
 
   # Other terminals keep the image options so runtime output checks validate
   # them as for an image request. Their identity leaves them out.

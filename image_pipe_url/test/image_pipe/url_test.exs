@@ -116,6 +116,33 @@ defmodule ImagePipe.URLTest do
     assert {:ok, ^request} = Plan.to_spec(plan.plan)
   end
 
+  property "built plans and the URLs they serialize to have the same identity" do
+    number = StreamData.member_of([0, 0.0, -0.0, 10, 10.0, 12.5])
+    angle = StreamData.member_of([0, -0.0, -1.0e-20, -90, 270.0, -360, 359.5, 450, -0.5])
+
+    check all crop <- StreamData.member_of([10, 10.0, 20.5]),
+              fx <- StreamData.member_of([0, 0.0, -0.0, 0.25, 1]),
+              alpha <- StreamData.member_of([0, -0.0, 0.5, 1]),
+              tolerance <- number,
+              origin <- number,
+              direction <- angle,
+              rotate <- angle do
+      for group <- [
+            [crop: {crop, crop}, focus: {fx, 0.5}],
+            [region: {origin, origin, crop, crop}, rotate: rotate],
+            [background: {"fff", alpha}, trim: {"red", tolerance}],
+            [gradient: [opacity: 1, color: "red", direction: direction]],
+            [progressive_blur: [sigma: 4, direction: direction]]
+          ] do
+        plan = IP.URL.group(IP.URL.new(), group)
+        assert {:ok, built} = Plan.to_spec(plan.plan)
+        assert {:ok, lexed} = Path.extract(IP.URL.url!(plan, "a.jpg"), "")
+        assert {:ok, parsed} = Parser.parse(lexed, presets: %{})
+        assert :erlang.term_to_binary(built) == :erlang.term_to_binary(parsed), inspect(group)
+      end
+    end
+  end
+
   test "signatures cover the mount-relative path with stable explicit expiry" do
     for base <- ["", "/images", "images", "https://cdn.test/images/"] do
       config = IP.URL.config(base_url: base, keys: [@signing_key])

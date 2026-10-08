@@ -123,7 +123,7 @@ defmodule ImagePipe.RequestSafetyTest do
   test "parse validation failures return before source fetch" do
     conn =
       ImagePipe.Plug.call(
-        conn(:get, "/rotate=370/format=jpeg/src/images/cat.jpg"),
+        conn(:get, "/rotate=abc/format=jpeg/src/images/cat.jpg"),
         ImagePipe.Plug.init(sources: [path: [adapter: ValidAdapter, match: :path, options: []]])
       )
 
@@ -133,7 +133,7 @@ defmodule ImagePipe.RequestSafetyTest do
   test "invalid composition parse failures return before source identity, cache lookup, and origin" do
     for path <- [
           "/w=bad/format=jpeg/src/images/cat.jpg",
-          "/rotate=370/format=jpeg/src/images/cat.jpg",
+          "/rotate=abc/format=jpeg/src/images/cat.jpg",
           "/region=0,0,0,100/format=jpeg/src/images/cat.jpg"
         ] do
       conn =
