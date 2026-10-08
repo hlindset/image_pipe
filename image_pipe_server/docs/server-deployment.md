@@ -126,9 +126,10 @@ fail them.
 On `SIGTERM` the server shuts down in two steps:
 
 1. For `[server] shutdown_delay` milliseconds (default 5 seconds),
-   `/health/ready` answers `503` and every response closes its connection,
-   but the server keeps serving. Load balancers notice and move traffic to
-   other replicas before the server stops listening.
+   `/health/ready` answers `503`, but the server keeps serving. Every HTTP/1
+   response closes its connection, and HTTP/2 connections stay open until the
+   server stops listening. Load balancers notice and move traffic to other
+   replicas before then.
 2. The server stops accepting connections and gives in-flight requests
    `[server] shutdown_timeout` milliseconds (default 15 seconds) to finish.
 

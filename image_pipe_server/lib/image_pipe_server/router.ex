@@ -47,8 +47,11 @@ defmodule ImagePipeServer.Router do
     |> dispatch(opts)
   end
 
+  # HTTP/2 forbids connection headers; only HTTP/1 connections close this way.
   defp close_while_draining(conn, drain) do
-    if Health.draining?(drain), do: put_resp_header(conn, "connection", "close"), else: conn
+    if Health.draining?(drain) and get_http_protocol(conn) in [:"HTTP/1.0", :"HTTP/1.1"],
+      do: put_resp_header(conn, "connection", "close"),
+      else: conn
   end
 
   defp request_id(conn, true) do

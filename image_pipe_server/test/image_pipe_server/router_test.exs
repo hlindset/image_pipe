@@ -50,6 +50,17 @@ defmodule ImagePipeServer.RouterTest do
       end
     end
 
+    test "send no connection header over HTTP/2 while draining", %{image_pipe: image_pipe} do
+      drain = Health.new()
+      Health.drain(drain)
+      opts = Router.init(mount_path: "/", image_pipe: image_pipe, drain: drain)
+
+      for path <- ["/health/ready", "/health/live", "/w=2/format=png/src/pic.png"] do
+        conn = conn(:get, path) |> put_http_protocol(:"HTTP/2") |> Router.call(opts)
+        assert get_resp_header(conn, "connection") == [], path
+      end
+    end
+
     test "keep connections open while serving", %{image_pipe: image_pipe} do
       conn = call(:get, "/health/ready", mount_path: "/", image_pipe: image_pipe)
       assert get_resp_header(conn, "connection") == []
