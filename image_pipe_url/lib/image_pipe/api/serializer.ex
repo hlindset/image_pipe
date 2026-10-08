@@ -6,7 +6,11 @@ defmodule ImagePipe.API.Serializer do
   alias ImagePipe.API.SerializedValue, as: Value
   alias ImagePipe.Plan
 
+  # Each option's URL key and its place in the serialized order, so a plan
+  # writes only the options it sets, in a fixed order.
   @options OptionSpec.all()
+           |> Enum.with_index()
+           |> Map.new(fn {spec, index} -> {spec.name, {index, spec.key}} end)
 
   # A plan's rejected options follow the accepted ones of their group or of
   # the request. They exist only in plans with errors, which only
@@ -41,15 +45,15 @@ defmodule ImagePipe.API.Serializer do
   defp url_key(:presets), do: "preset"
 
   defp url_key(name) do
-    case Enum.find(@options, &(&1.name == name)) do
-      nil ->
+    case Map.fetch(@options, name) do
+      :error ->
         name
         |> Atom.to_string()
         |> String.replace("_", "-")
         |> URI.encode(&URI.char_unreserved?/1)
 
-      spec ->
-        spec.key
+      {:ok, {_index, key}} ->
+        key
     end
   end
 
@@ -76,9 +80,15 @@ defmodule ImagePipe.API.Serializer do
   defp rejected_text(value), do: inspect(value)
 
   defp entries(options) do
-    for spec <- @options,
-        {:ok, value} <- [Map.fetch(options, spec.name)],
-        do: entry(spec.key, value)
+    options
+    |> Enum.flat_map(fn {name, value} ->
+      case Map.fetch(@options, name) do
+        {:ok, {index, key}} -> [{index, key, value}]
+        :error -> []
+      end
+    end)
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.map(fn {_index, key, value} -> entry(key, value) end)
   end
 
   defp entry(key, :unset), do: key <> "=unset"
