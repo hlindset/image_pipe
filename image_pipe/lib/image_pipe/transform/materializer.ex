@@ -15,8 +15,7 @@ defmodule ImagePipe.Transform.Materializer do
   @moduledoc false
 
   alias ImagePipe.Telemetry
-  alias ImagePipe.Transform.{OrientationFlush, State, WorkLimits}
-  alias Vix.Vips.Image, as: VipsImage
+  alias ImagePipe.Transform.{MemoryCopy, OrientationFlush, State, WorkLimits}
 
   @callback materialize(State.t(), keyword()) ::
               {:ok, State.t()} | {:error, term()}
@@ -67,7 +66,7 @@ defmodule ImagePipe.Transform.Materializer do
   # result label controls Logger severity without changing the return value.
   defp copy_to_memory(%State{image: image} = state) do
     with :ok <- WorkLimits.check(state),
-         {:ok, image} <- VipsImage.copy_memory(image) do
+         {:ok, image} <- MemoryCopy.copy(image) do
       {:ok, %State{state | image: image, materialized?: true, buffer_before_resize?: false}}
     end
   end

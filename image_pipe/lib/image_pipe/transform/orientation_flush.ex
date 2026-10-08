@@ -4,14 +4,13 @@ defmodule ImagePipe.Transform.OrientationFlush do
   # result to memory and clears pending orientation. Image.autorotate reads the
   # live EXIF tag, so call it only when auto_rotate? is true to respect ar:0.
 
-  alias ImagePipe.Transform.{PendingOrientation, State}
-  alias Vix.Vips.Image, as: VipsImage
+  alias ImagePipe.Transform.{MemoryCopy, PendingOrientation, State}
 
   @spec flush(State.t()) :: {:ok, State.t()} | {:error, term()}
   def flush(%State{pending_orientation: %PendingOrientation{} = po} = state) do
     with {:ok, image} <- prepare_random_access(state.image, po),
          {:ok, image} <- apply_orientation(image, po),
-         {:ok, image} <- VipsImage.copy_memory(image) do
+         {:ok, image} <- MemoryCopy.copy(image) do
       {:ok,
        %State{
          state
@@ -38,7 +37,7 @@ defmodule ImagePipe.Transform.OrientationFlush do
        }),
        do: {:ok, image}
 
-  defp prepare_random_access(image, %PendingOrientation{}), do: VipsImage.copy_memory(image)
+  defp prepare_random_access(image, %PendingOrientation{}), do: MemoryCopy.copy(image)
 
   defp apply_orientation(image, %PendingOrientation{} = po) do
     with {:ok, image} <- maybe_autorotate(image, po),
