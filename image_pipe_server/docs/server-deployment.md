@@ -68,7 +68,7 @@ services:
       - /tmp
     ports:
       - "8080:8080"
-    stop_grace_period: 20s
+    stop_grace_period: 25s
     environment:
       IPS_URL__KEYS_FILE: /run/secrets/signing_keys
     secrets:
