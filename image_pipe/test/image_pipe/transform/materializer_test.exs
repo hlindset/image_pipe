@@ -2,6 +2,7 @@ defmodule ImagePipe.Transform.MaterializerTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Transform.{Materializer, PendingOrientation, State}
+  alias Vix.Vips.Image, as: VipsImage
 
   test "materialize/1 returns a memory-resident State with materialized?: true" do
     {:ok, image} = Image.new(32, 24, color: :white)
@@ -29,5 +30,22 @@ defmodule ImagePipe.Transform.MaterializerTest do
     assert result.materialized? == true
     assert result.pending_orientation == po
     assert {Image.width(result.image), Image.height(result.image)} == {40, 20}
+  end
+
+  # libvips reads an image marked sequential strictly top to bottom, which
+  # slows every later resize.
+  test "a sequentially decoded image loses its sequential mark once buffered" do
+    body = Image.write!(Image.new!(64, 48, color: :red), :memory, suffix: ".jpg")
+    {:ok, image} = VipsImage.new_from_buffer(body, access: :VIPS_ACCESS_SEQUENTIAL)
+    assert {:ok, _} = VipsImage.header_value(image, "vips-sequential")
+
+    assert {:ok, %State{image: buffered}} = Materializer.materialize(%State{image: image})
+    assert {:error, _} = VipsImage.header_value(buffered, "vips-sequential")
+
+    {:ok, image} = VipsImage.new_from_buffer(body, access: :VIPS_ACCESS_SEQUENTIAL)
+    state = %State{image: image, pending_orientation: PendingOrientation.from_exif(6, true)}
+
+    assert {:ok, %State{image: flushed}} = Materializer.flush(state)
+    assert {:error, _} = VipsImage.header_value(flushed, "vips-sequential")
   end
 end
