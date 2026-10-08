@@ -99,11 +99,10 @@ defmodule ImagePipe.Source.ReqStream do
       |> request_options(runtime_opts)
       |> Req.new()
       |> ReqStep.attach()
+      |> Req.Request.append_request_steps(
+        conditional_headers: &put_conditional_headers(&1, previous)
+      )
       |> PinnedTarget.attach(addresses)
-
-    conditional_headers = Origin.conditional_headers(previous, request)
-
-    request = Req.merge(request, headers: conditional_headers)
 
     requested_at = clock.()
 
@@ -127,7 +126,7 @@ defmodule ImagePipe.Source.ReqStream do
 
       {:ok, %Req.Response{status: 304} = response} ->
         cancel_response(response)
-        revalidated(previous, conditional_headers, response, {requested_at, clock.()})
+        revalidated(previous, response, {requested_at, clock.()})
 
       {:ok, %Req.Response{status: status} = response} when status in 300..399 ->
         route_redirect(
@@ -163,9 +162,30 @@ defmodule ImagePipe.Source.ReqStream do
     exception in Finch.Error -> {:error, exception}
   end
 
-  defp revalidated(_previous, [], _response, _timing), do: {:error, :unexpected_not_modified}
+  # Req adds headers such as authorization and user-agent in its own steps, and
+  # an origin's Vary can name them, so the validators are chosen after those,
+  # but before pinning replaces the logical URL.
+  defp put_conditional_headers(request, previous) do
+    previous
+    |> Origin.conditional_headers(request)
+    |> Enum.reduce(request, fn {name, value}, request ->
+      Req.Request.put_header(request, name, value)
+    end)
+  end
 
-  defp revalidated(previous, _headers, response, timing) do
+  defp revalidated(previous, response, timing) do
+    case conditional?(response.request) do
+      true -> not_modified(previous, response, timing)
+      false -> {:error, :unexpected_not_modified}
+    end
+  end
+
+  defp conditional?(request) do
+    Req.Request.get_header(request, "if-none-match") != [] or
+      Req.Request.get_header(request, "if-modified-since") != []
+  end
+
+  defp not_modified(previous, response, timing) do
     current = Origin.from_response(response, timing, previous.headers)
 
     with true <- Origin.matches?(previous, response.request.headers),

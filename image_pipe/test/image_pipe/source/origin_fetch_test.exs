@@ -400,6 +400,33 @@ defmodule ImagePipe.Source.OriginFetchTest do
              Source.with_revalidated(resolve(opts), previous, opts, &Enum.join(&1.stream))
   end
 
+  test "revalidation sends validators when the origin varies on headers Req adds" do
+    for {vary, req_options} <- [{"User-Agent", []}, {"Authorization", [auth: {:bearer, "t"}]}] do
+      opts =
+        config(fn conn ->
+          case Plug.Conn.get_req_header(conn, "if-none-match") do
+            [] ->
+              conn
+              |> Plug.Conn.put_resp_header("vary", vary)
+              |> Plug.Conn.put_resp_header("etag", ~s("v1"))
+              |> Plug.Conn.send_resp(200, "bytes")
+
+            [~s("v1")] ->
+              Plug.Conn.send_resp(conn, 304, "")
+          end
+        end)
+        |> update_url_mount(fn http ->
+          Keyword.update!(http, :req_options, &Keyword.merge(&1, req_options))
+        end)
+
+      source = resolve(opts)
+      previous = Source.with_fetched(source, opts, & &1.origin)
+
+      assert {:not_modified, _origin} =
+               Source.with_revalidated(source, previous, opts, fn _ -> flunk(vary) end)
+    end
+  end
+
   test "304 retains Vary evidence when the response omits Vary" do
     opts =
       config(fn conn ->
