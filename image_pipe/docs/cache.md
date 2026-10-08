@@ -83,8 +83,10 @@ Each stored response is selected by:
     the provider and its options. Temporary credentials from a provider don't
     change the key when they rotate.
   - `ImagePipe.Source.HTTP` uses the resolved `auth:` value in its
-    `req_options`. A function, MFA tuple, or `:netrc` is resolved once per
-    request, so a new token selects new entries.
+    `req_options`. A function or MFA tuple is called once per request, so a
+    new token selects new entries. With `auth: :netrc` or `{:netrc, path}`,
+    the source reads the file again about a second after it changes, and its
+    new credentials select new entries too.
 
 The URL's expiry, signature, filename, `attachment` option, and `debug`
 option don't select a different entry.
