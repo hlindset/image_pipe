@@ -17,7 +17,7 @@ defmodule ImagePipe.Transform.Executor.Geometry do
   def resize_target(resize, dpr, {width, height} = source) do
     mode = resize_mode(resize, source)
     base = resize_base(resize, mode, source)
-    scale = max(minimum_scale(resize.min_w, base.width), minimum_scale(resize.min_h, base.height))
+    scale = base_minimum_scale(resize, base)
     base = %{width: base.width * scale, height: base.height * scale}
 
     scale =
@@ -35,6 +35,15 @@ defmodule ImagePipe.Transform.Executor.Geometry do
        dpr: max(scale, min(dpr, 1.0))
      }}
   end
+
+  @doc """
+  The uniform scale, at least 1, that `min_w` and `min_h` apply to the resize
+  of `source` before DPR and the enlargement clamp.
+  """
+  @spec minimum_scale(ImagePipe.Plan.Spec.Group.resize(), {pos_integer(), pos_integer()}) ::
+          float()
+  def minimum_scale(resize, source),
+    do: base_minimum_scale(resize, resize_base(resize, resize_mode(resize, source), source))
 
   @spec resize_dimensions(atom(), map(), {pos_integer(), pos_integer()}) ::
           {pos_integer(), pos_integer()}
@@ -97,8 +106,12 @@ defmodule ImagePipe.Transform.Executor.Geometry do
   end
 
   defp fit_box(box, _mode, _source), do: box
-  defp minimum_scale(nil, _base), do: 1.0
-  defp minimum_scale(minimum, base), do: max(1.0, minimum / base)
+
+  defp base_minimum_scale(resize, %{width: width, height: height}),
+    do: max(axis_minimum_scale(resize.min_w, width), axis_minimum_scale(resize.min_h, height))
+
+  defp axis_minimum_scale(nil, _base), do: 1.0
+  defp axis_minimum_scale(minimum, base), do: max(1.0, minimum / base)
   defp positive_round(value), do: max(1, round(value))
 
   @spec live_dims(State.t()) :: {pos_integer(), pos_integer()}

@@ -66,6 +66,38 @@ defmodule ImagePipe.ShrinkOnLoadPropertyTest do
     end
   end
 
+  # A minimum scales the resize up before it runs, so the decode shrinks less,
+  # or not at all when the minimum reaches the source.
+  property "a minimum width or height still shrinks the decode, within ±1px of full decode" do
+    check all(
+            source_w <- integer(1200..3600),
+            source_h <- integer(1200..3600),
+            target <- integer(60..div(source_w, 8)),
+            minimum_axis <- member_of(["min-w", "min-h"]),
+            minimum <- integer(1..div(max(source_w, source_h), 2)),
+            max_runs: 100
+          ) do
+      nonbinding_width? = minimum_axis == "min-w" and minimum <= target
+      options = "w=#{target}/#{minimum_axis}=#{minimum}"
+
+      {shrink_w, shrink_h, shrink} =
+        decode_resize(solid(source_w, source_h, ".jpg"), options)
+
+      {full_w, full_h, _no_shrink} =
+        decode_resize(solid(source_w, source_h, ".png"), options)
+
+      label = "#{source_w}x#{source_h} #{options}"
+
+      if nonbinding_width? do
+        assert shrink == 8, "expected the full JPEG shrink for #{label}, got #{inspect(shrink)}"
+      end
+
+      assert abs(shrink_w - full_w) <= 1 and abs(shrink_h - full_h) <= 1,
+             "shrink-on-load #{shrink_w}x#{shrink_h} drifted >1px from full-decode " <>
+               "#{full_w}x#{full_h} for #{label} (shrink #{inspect(shrink)})"
+    end
+  end
+
   # The axis that determines the shrink factor (so the target keeps it ≥ ~4).
   defp governing_dim(:width, source_w, _source_h), do: source_w
   defp governing_dim(:height, _source_w, source_h), do: source_h
