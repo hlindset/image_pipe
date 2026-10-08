@@ -8,6 +8,7 @@ defmodule ImagePipe.Transform.Operation.Brightness do
   import ImagePipe.Transform.State
 
   alias ImagePipe.Transform.Alpha
+  alias ImagePipe.Transform.Rounding
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
@@ -34,7 +35,7 @@ defmodule ImagePipe.Transform.Operation.Brightness do
       offset = value * Alpha.opaque(format) / 255
 
       with {:ok, shifted} <- Operation.linear(image, [1.0], [offset]) do
-        Operation.cast(shifted, format)
+        Rounding.cast(shifted, format)
       end
     end)
   end

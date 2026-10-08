@@ -7,6 +7,7 @@ defmodule ImagePipe.Transform.Operation.Sharpen do
   import ImagePipe.Transform.State
 
   alias ImagePipe.Transform.Operation.AlphaPremultiply
+  alias ImagePipe.Transform.Rounding
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
@@ -37,7 +38,7 @@ defmodule ImagePipe.Transform.Operation.Sharpen do
 
       wide ->
         with {:ok, scaled} <- Operation.linear(image, [257.0], [0.0]),
-             {:ok, ushort} <- Operation.cast(scaled, :VIPS_FORMAT_USHORT),
+             {:ok, ushort} <- Rounding.cast(scaled, :VIPS_FORMAT_USHORT),
              {:ok, ushort} <- Operation.copy(ushort, interpretation: wide),
              {:ok, sharpened} <- Image.sharpen(ushort, sigma: sigma),
              {:ok, float} <- Operation.linear(sharpened, [1 / 257], [0.0]) do

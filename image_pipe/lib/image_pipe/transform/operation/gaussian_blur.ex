@@ -1,12 +1,15 @@
 defmodule ImagePipe.Transform.Operation.GaussianBlur do
   # Gaussian blur shared by Blur and ProgressiveBlur.
   #
-  # Images with alpha are blurred as float premultiplied pixels, where libvips'
-  # exact convolution is slow. From @approximate_sigma its approximate path is
-  # faster (3x at sigma 10, 7x at sigma 20) and differs by under 3 levels;
-  # below it, it is slower. 8-bit input already takes libvips' integer path.
+  # libvips' integer path for 8-bit input uses a coarse mask whose weights
+  # don't sum to one, so it shifts flat areas by up to 2% at some sigmas. Below
+  # @approximate_sigma the blur uses float precision and rounds back to the
+  # input format. From there libvips' approximate path is exact on flat areas,
+  # differs by under 3 levels elsewhere, and is faster: 3x at sigma 10 and 7x
+  # at sigma 20 on float input.
   @moduledoc false
 
+  alias ImagePipe.Transform.Rounding
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
 
@@ -15,17 +18,27 @@ defmodule ImagePipe.Transform.Operation.GaussianBlur do
 
   @spec blur(VipsImage.t(), number()) :: {:ok, VipsImage.t()} | {:error, term()}
   def blur(%VipsImage{} = image, sigma) do
-    Operation.gaussblur(
-      image,
-      sigma * 1.0,
-      ["min-ampl": @min_amplitude] ++ precision(image, sigma)
-    )
+    format = VipsImage.format(image)
+
+    with {:ok, blurred} <-
+           Operation.gaussblur(image, sigma * 1.0,
+             "min-ampl": @min_amplitude,
+             precision: precision(sigma)
+           ) do
+      in_format(blurred, format)
+    end
   end
 
-  defp precision(image, sigma) do
-    if sigma >= @approximate_sigma and
-         VipsImage.format(image) in [:VIPS_FORMAT_FLOAT, :VIPS_FORMAT_DOUBLE],
-       do: [precision: :VIPS_PRECISION_APPROXIMATE],
-       else: []
+  defp precision(sigma) when sigma >= @approximate_sigma, do: :VIPS_PRECISION_APPROXIMATE
+  defp precision(_sigma), do: :VIPS_PRECISION_FLOAT
+
+  defp in_format(image, format) do
+    case VipsImage.format(image) do
+      ^format ->
+        {:ok, image}
+
+      _float ->
+        Rounding.cast(image, format)
+    end
   end
 end

@@ -7,6 +7,7 @@ defmodule ImagePipe.Transform.Operation.Colorize do
   import ImagePipe.Transform.State
 
   alias ImagePipe.Transform.GrayFrame
+  alias ImagePipe.Transform.Rounding
   alias ImagePipe.Transform.State
   alias ImagePipe.Transform.WorkingColor
   alias Vix.Vips.Image, as: VipsImage
@@ -62,7 +63,7 @@ defmodule ImagePipe.Transform.Operation.Colorize do
              Enum.map(values, fn _ -> 1.0 - o end),
              Enum.map(values, &(&1 * o))
            ) do
-      Operation.cast(blended, VipsImage.format(rgb))
+      Rounding.cast(blended, VipsImage.format(rgb))
     end
   end
 end

@@ -11,6 +11,7 @@ defmodule ImagePipe.Transform.Operation.ProgressiveBlur do
   alias ImagePipe.Transform.DirectionalMask
   alias ImagePipe.Transform.Operation.AlphaPremultiply
   alias ImagePipe.Transform.Operation.GaussianBlur
+  alias ImagePipe.Transform.Rounding
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
@@ -53,7 +54,7 @@ defmodule ImagePipe.Transform.Operation.ProgressiveBlur do
 
   defp filter(image, ramp, sigma) do
     with {:ok, result} <- blend_levels(image, ramp, sigma) do
-      Operation.cast(result, VipsImage.format(image))
+      Rounding.cast(result, VipsImage.format(image))
     end
   end
 

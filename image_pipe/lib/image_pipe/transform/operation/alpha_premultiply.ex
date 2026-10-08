@@ -9,6 +9,7 @@ defmodule ImagePipe.Transform.Operation.AlphaPremultiply do
   # alpha band are filtered directly.
   @moduledoc false
 
+  alias ImagePipe.Transform.Rounding
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
 
@@ -28,7 +29,7 @@ defmodule ImagePipe.Transform.Operation.AlphaPremultiply do
       with {:ok, premultiplied} <- Operation.premultiply(image),
            {:ok, filtered} <- callback.(premultiplied),
            {:ok, unpremultiplied} <- Operation.unpremultiply(filtered) do
-        Operation.cast(unpremultiplied, band_format)
+        Rounding.cast(unpremultiplied, band_format)
       end
     else
       callback.(image)
