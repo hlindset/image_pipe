@@ -3,6 +3,7 @@ defmodule ImagePipe.Source.File do
 
   alias ImagePipe.MaterialDigest
   alias ImagePipe.Plan.Source.Path, as: SourcePath
+  alias ImagePipe.SafePath
   alias ImagePipe.Source
   alias ImagePipe.Source.CacheSettings
   alias ImagePipe.Source.Origin
@@ -203,7 +204,7 @@ defmodule ImagePipe.Source.File do
   defp safe_path(root, segments) do
     relative = Path.join(segments)
 
-    case Path.safe_relative(relative, root) do
+    case SafePath.relative(relative, root) do
       {:ok, safe_relative} -> {:ok, Path.join(root, safe_relative)}
       :error -> {:error, {:source, :denied_path}}
     end

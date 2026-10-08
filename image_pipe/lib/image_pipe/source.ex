@@ -62,7 +62,13 @@ defmodule ImagePipe.Source do
 
   use Boundary,
     top_level?: true,
-    deps: [ImagePipe.Error, ImagePipe.MaterialDigest, ImagePipe.Plan, ImagePipe.Telemetry],
+    deps: [
+      ImagePipe.Error,
+      ImagePipe.MaterialDigest,
+      ImagePipe.Plan,
+      ImagePipe.SafePath,
+      ImagePipe.Telemetry
+    ],
     exports: [
       CachePolicy,
       CacheSettings,

@@ -6,6 +6,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   alias ImagePipe.Cache.FileSystem.Admission
   alias ImagePipe.Cache.FileSystem.Sweep
   alias ImagePipe.Cache.Key
+  alias ImagePipe.SafePath
 
   @metadata_version 1
   @commit_timeout 5_000
@@ -1085,9 +1086,9 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     path = Path.expand(path)
     relative = Path.relative_to(path, root, force: true)
 
-    # The two-argument form resolves symlinks against root. A plain prefix check
-    # would allow a partition directory symlink to point outside the cache root.
-    case Path.safe_relative(relative, root) do
+    # Symlinks resolve against root. A plain prefix check would allow a
+    # partition directory symlink to point outside the cache root.
+    case SafePath.relative(relative, root) do
       {:ok, _relative} -> :ok
       :error -> {:error, {:path_outside_root, path}}
     end
