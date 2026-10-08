@@ -5,6 +5,32 @@ defmodule ImagePipe.MaterialDigestTest do
   alias ImagePipe.MaterialDigest
 
   describe "of/1" do
+    test "identifies a closure by its definition and captures, not its build" do
+      digest = fn extra ->
+        [{module, _bytecode}] =
+          Code.compile_string("""
+          defmodule ImagePipe.MaterialDigestTest.Host do
+            def resolver(ip), do: fn _host -> {:ok, [ip]} end
+            #{extra}
+          end
+          """)
+
+        digests = for ip <- [1, 2], do: MaterialDigest.of(resolver: module.resolver(ip))
+        :code.purge(module)
+        :code.delete(module)
+        digests
+      end
+
+      [one, two] = digest.("")
+      assert digest.("def unrelated, do: :ok") == [one, two]
+      refute one == two
+    end
+
+    test "identifies a remote capture by its module, name, and arity" do
+      assert MaterialDigest.of(f: &String.upcase/1) == MaterialDigest.of(f: &String.upcase/1)
+      refute MaterialDigest.of(f: &String.upcase/1) == MaterialDigest.of(f: &String.downcase/1)
+    end
+
     test "is order-independent for maps" do
       assert MaterialDigest.of(%{a: 1, b: 2}) == MaterialDigest.of(%{b: 2, a: 1})
     end
