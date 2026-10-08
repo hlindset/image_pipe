@@ -65,13 +65,16 @@ defmodule ImagePipe.Transform.Executor do
         %SourceGeometry{} = geometry
       ) do
     {crop_frame, headroom} = decode_frame(group.rotate, geometry.display_dimensions)
+    crop_extent = decode_crop_extent(group, crop_frame)
+    resize_frame = crop_extent || crop_frame
 
     %DecodePlanner.Request{
-      resize_target: scale_target(decode_resize_target(group.resize, group.dpr), headroom),
-      crop_extent: decode_crop_extent(group, crop_frame) || rotated_extent(headroom, crop_frame),
+      resize_target:
+        scale_target(decode_resize_target(group.resize, group.dpr, resize_frame), headroom),
+      crop_extent: crop_extent || rotated_extent(headroom, crop_frame),
       user_quarter_turn?: group.rotate in [90, 270],
       trim?: group.trim != nil,
-      terminal_reduction: scale_target(decode_terminal_reduction(request), headroom)
+      terminal_reduction: scale_target(decode_terminal_reduction(request, resize_frame), headroom)
     }
   end
 
@@ -865,20 +868,19 @@ defmodule ImagePipe.Transform.Executor do
   defp anchor_pair(:bottom_left), do: {:left, :bottom}
   defp anchor_pair(:bottom_right), do: {:right, :bottom}
 
-  defp decode_resize_target(nil, _dpr), do: nil
-
-  defp decode_resize_target(%{min_w: min_width, min_h: min_height}, _dpr)
-       when min_width != nil or min_height != nil,
-       do: nil
+  defp decode_resize_target(nil, _dpr, _frame), do: nil
 
   # Stretch keeps an :auto axis at the source size, and shrink-on-load shrinks
   # both axes, so the decode can't shrink.
-  defp decode_resize_target(%{fit: :stretch, w: width, h: height}, _dpr)
+  defp decode_resize_target(%{fit: :stretch, w: width, h: height}, _dpr, _frame)
        when width == :auto or height == :auto,
        do: nil
 
-  defp decode_resize_target(%{w: width, h: height, zoom: {zoom_x, zoom_y}}, dpr) do
-    case {decode_axis(width, zoom_x * dpr), decode_axis(height, zoom_y * dpr)} do
+  # A minimum scales the whole resize up, so the decode keeps that much more.
+  defp decode_resize_target(%{w: width, h: height, zoom: {zoom_x, zoom_y}} = resize, dpr, frame) do
+    scale = dpr * Geometry.minimum_scale(resize, frame)
+
+    case {decode_axis(width, zoom_x * scale), decode_axis(height, zoom_y * scale)} do
       {nil, nil} -> nil
       target -> target
     end
@@ -908,18 +910,18 @@ defmodule ImagePipe.Transform.Executor do
   # smaller. Not when it has effects sized in pixels: on a smaller decode they
   # would cover a larger share of the frame. A resize target or a trim decides
   # the decode size on its own, so the reduction is left out there.
-  defp decode_terminal_reduction(%Spec{
-         groups: [group],
-         output: %Output{terminal: terminal}
-       })
+  defp decode_terminal_reduction(
+         %Spec{groups: [group], output: %Output{terminal: terminal}},
+         resize_frame
+       )
        when terminal in [:blurhash, :lqip_css] do
     if pixel_sized_effects?(group) or group.trim != nil or
-         decode_resize_target(group.resize, group.dpr) != nil,
+         decode_resize_target(group.resize, group.dpr, resize_frame) != nil,
        do: nil,
        else: @placeholder_terminal_reduction
   end
 
-  defp decode_terminal_reduction(%Spec{}), do: nil
+  defp decode_terminal_reduction(%Spec{}, _resize_frame), do: nil
 
   defp pixel_sized_effects?(%Group{} = group) do
     Enum.any?(
