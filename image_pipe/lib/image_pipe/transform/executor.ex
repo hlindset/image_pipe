@@ -167,11 +167,15 @@ defmodule ImagePipe.Transform.Executor do
         Geometry.display_effective_dims(state)
       )
 
-    Transform.run(
-      state,
-      %Resize{width: target.width, height: target.height},
-      opts
-    )
+    # The encoder converts the tiny frame's color and drops its profile, so
+    # buffer it as LQIP CSS does.
+    with {:ok, state} <-
+           Transform.run(state, %Resize{width: target.width, height: target.height}, opts) do
+      case Materializer.materialize(state) do
+        {:ok, state} -> {:ok, state}
+        {:error, reason} -> {:error, Materializer.error(reason)}
+      end
+    end
   end
 
   def reduce_terminal(%State{} = state, %Output{terminal: :lqip_css}, opts) do
@@ -210,18 +214,18 @@ defmodule ImagePipe.Transform.Executor do
            run_display_optional(state, progressive_blur_op(group.progressive_blur), opts),
          {:ok, state} <- run_optional(state, sharpen_op(group.sharpen), opts),
          {:ok, state} <- run_display_optional(state, pixelate_op(group.pixelate), opts),
-         {:ok, state} <- run_optional(state, if(group.gray, do: %Gray{}), opts),
-         {:ok, state} <- run_optional(state, if(group.bitonal, do: %Bitonal{}), opts),
-         {:ok, state} <- run_optional(state, monochrome_op(group.monochrome), opts),
-         {:ok, state} <- run_optional(state, duotone_op(group.duotone), opts),
+         {:ok, state} <- run_profile_optional(state, if(group.gray, do: %Gray{}), opts),
+         {:ok, state} <- run_profile_optional(state, if(group.bitonal, do: %Bitonal{}), opts),
+         {:ok, state} <- run_color_optional(state, monochrome_op(group.monochrome), opts),
+         {:ok, state} <- run_color_optional(state, duotone_op(group.duotone), opts),
          {:ok, state} <- run_optional(state, brightness_op(group.brightness), opts),
          {:ok, state} <- run_optional(state, contrast_op(group.contrast), opts),
          {:ok, state} <- run_optional(state, saturation_op(group.saturation), opts),
-         {:ok, state} <- run_optional(state, colorize_op(group.colorize), opts),
-         {:ok, state} <- run_display_optional(state, gradient_op(group.gradient), opts),
+         {:ok, state} <- run_color_optional(state, colorize_op(group.colorize), opts),
+         {:ok, state} <- run_display_color_optional(state, gradient_op(group.gradient), opts),
          {:ok, state} <- execute_canvas(state, group, dpr, opts),
          {:ok, state} <- execute_padding(state, group.pad, dpr, opts),
-         {:ok, state} <- run_optional(state, background_op(group.bg), opts) do
+         {:ok, state} <- run_color_optional(state, background_op(group.bg), opts) do
       execute_watermark(state, group.watermark, dpr, opts)
     end
   end
@@ -547,14 +551,18 @@ defmodule ImagePipe.Transform.Executor do
   # A tagged frame converts through its profile, which also clears the backup.
   defp promote_gray_frame(%State{image: frame} = state, asset) do
     if GrayFrame.gray?(frame) and not GrayFrame.gray?(asset) do
-      with {:ok, %State{} = state} <- WorkingColor.to_srgb_frame(state),
-           {:ok, frame} <- GrayFrame.promote(state.image) do
-        {:ok, %State{state | image: frame}}
-      else
-        {:error, reason} -> {:error, {:transform, {Watermark, reason}}}
-      end
+      with {:ok, state} <- materialize_tagged_frame(state), do: promote_frame(state)
     else
       {:ok, state}
+    end
+  end
+
+  defp promote_frame(state) do
+    with {:ok, %State{} = state} <- WorkingColor.to_srgb_frame(state),
+         {:ok, frame} <- GrayFrame.promote(state.image) do
+      {:ok, %State{state | image: frame}}
+    else
+      {:error, reason} -> {:error, {:transform, {Watermark, reason}}}
     end
   end
 
@@ -670,6 +678,40 @@ defmodule ImagePipe.Transform.Executor do
 
   defp run_optional(state, nil, _opts), do: {:ok, state}
   defp run_optional(state, operation, opts), do: Transform.run(state, operation, opts)
+
+  # Gray and bitonal convert a tagged frame through its profile and remove it.
+  defp run_profile_optional(state, nil, _opts), do: {:ok, state}
+
+  defp run_profile_optional(state, operation, opts) do
+    with {:ok, state} <- materialize_tagged_frame(state),
+         do: Transform.run(state, operation, opts)
+  end
+
+  # A color effect converts a tagged gray frame to RGB through its profile.
+  defp run_color_optional(state, nil, _opts), do: {:ok, state}
+
+  defp run_color_optional(%State{image: image} = state, operation, opts) do
+    with {:ok, state} <-
+           if(GrayFrame.gray?(image), do: materialize_tagged_frame(state), else: {:ok, state}),
+         do: Transform.run(state, operation, opts)
+  end
+
+  defp run_display_color_optional(state, nil, _opts), do: {:ok, state}
+
+  defp run_display_color_optional(state, operation, opts) do
+    with {:ok, state} <- flush_display(state), do: run_color_optional(state, operation, opts)
+  end
+
+  # Workaround for `image`: removing a frame's profile goes through Vix's
+  # mutable image, which copies the frame to memory in a linked process, so a
+  # corrupt lazy source crashes the request there. Buffer a tagged frame first,
+  # so the failure is a decode error.
+  defp materialize_tagged_frame(%State{image: image} = state) do
+    case WorkingColor.tagged?(image) do
+      true -> materialize_for_metadata(state)
+      false -> {:ok, state}
+    end
+  end
 
   defp region_crop({x, y, width, height}, {display_width, display_height}) do
     left = round(resolve_length(x, display_width))
@@ -920,7 +962,7 @@ defmodule ImagePipe.Transform.Executor do
   end
 
   defp remove_output_orientation(%State{} = state) do
-    with {:ok, %State{} = state} <- materialize_for_orientation_metadata(state),
+    with {:ok, %State{} = state} <- materialize_for_metadata(state),
          {:ok, image} <-
            Image.remove_metadata(state.image, ["orientation"]) do
       {:ok, %State{state | image: image}}
@@ -930,9 +972,9 @@ defmodule ImagePipe.Transform.Executor do
     end
   end
 
-  defp materialize_for_orientation_metadata(%State{materialized?: true} = state), do: {:ok, state}
+  defp materialize_for_metadata(%State{materialized?: true} = state), do: {:ok, state}
 
-  defp materialize_for_orientation_metadata(%State{} = state) do
+  defp materialize_for_metadata(%State{} = state) do
     case Materializer.materialize(state) do
       {:ok, state} -> {:ok, state}
       {:error, reason} -> {:error, Materializer.error(reason)}

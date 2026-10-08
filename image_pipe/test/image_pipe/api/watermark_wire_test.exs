@@ -233,6 +233,25 @@ defmodule ImagePipe.API.WatermarkWireTest do
     end
   end
 
+  test "a color asset on a truncated tagged grayscale frame fails as a decode error" do
+    {:ok, gray} =
+      400
+      |> Image.linear_gradient!(300, start_color: :navy, finish_color: :orange)
+      |> VipsOperation.colourspace(:VIPS_INTERPRETATION_B_W)
+
+    {:ok, tagged} = VipsOperation.icc_transform(gray, "sGrey", input_profile: "sGrey")
+    jpeg = Image.write!(tagged, :memory, suffix: ".jpg", strip_metadata: false)
+
+    files = %{
+      "frame.jpg" => binary_part(jpeg, 0, div(byte_size(jpeg), 2)),
+      "mark.png" => png(Image.new!(10, 10, color: @red))
+    }
+
+    config = mount(origin(files))
+
+    assert response("wm=logo", config, "src/frame.jpg").status == 415
+  end
+
   test "a grayscale asset keeps a grayscale frame gray", %{config: config} do
     marked = image("gray/wm=gray_logo", config)
     assert VipsImage.interpretation(marked) == :VIPS_INTERPRETATION_B_W
