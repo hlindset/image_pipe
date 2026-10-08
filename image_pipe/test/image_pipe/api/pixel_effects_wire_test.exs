@@ -339,6 +339,24 @@ defmodule ImagePipe.API.PixelEffectsWireTest do
     assert pixels(image("colorize=0,black", config)) == pixels(image("", config))
   end
 
+  test "opaque colorize flattens transparent pixels onto white first" do
+    [green, black] =
+      for hidden <- [[0, 255, 0, 0], [0, 0, 0, 0]] do
+        Image.new!(40, 40, color: hidden, bands: 4)
+        |> Image.Draw.rect!(10, 10, 20, 20, color: [200, 120, 37, 255])
+        |> Image.write!(:memory, suffix: ".png")
+        |> png_origin()
+        |> mount()
+        |> then(&image("colorize=0.5,ff0000", &1))
+      end
+
+    assert pixels(green) == pixels(black)
+
+    for {channel, expected} <- Enum.zip(Image.get_pixel!(green, 2, 2), [255, 128, 128]) do
+      assert_in_delta channel, expected, 1
+    end
+  end
+
   test "gradient direction, reversed ramps and hard stops reach API pixels" do
     body = Image.new!(11, 11, color: :white) |> Image.write!(:memory, suffix: ".png")
     config = mount(png_origin(body))

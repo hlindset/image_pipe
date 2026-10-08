@@ -39,9 +39,17 @@ defmodule ImagePipe.Transform.Operation.Colorize do
     end
   end
 
-  defp blend_with_alpha(rgb, alpha, o, color, keep_alpha) do
-    with {:ok, blended} <- blend_rgb(rgb, o, color) do
-      if keep_alpha, do: Image.join_bands([blended, alpha]), else: {:ok, blended}
+  defp blend_with_alpha(rgb, alpha, o, color, true) do
+    with {:ok, blended} <- blend_rgb(rgb, o, color), do: Image.join_bands([blended, alpha])
+  end
+
+  # Opaque output shows transparent pixels over white, as a non-alpha format
+  # does, rather than the colors stored under them.
+  defp blend_with_alpha(rgb, alpha, o, color, false) do
+    with {:ok, image} <- Image.join_bands([rgb, alpha]),
+         {:ok, white} <- WorkingColor.values(rgb, [255, 255, 255]),
+         {:ok, flattened} <- Operation.flatten(image, background: white) do
+      blend_rgb(flattened, o, color)
     end
   end
 

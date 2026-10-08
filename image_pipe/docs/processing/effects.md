@@ -341,7 +341,8 @@ Accepts `opacity,color` or `opacity,color,keep-alpha`:
 - `keep-alpha` is optional and keeps the image's transparency.
 
 Default: none. Blends the color evenly over the whole image at the given
-opacity. The result is opaque unless you add `keep-alpha`.
+opacity. Without `keep-alpha`, the result is opaque. Transparent and partly
+transparent areas are flattened onto white before the color is blended in.
 
 <!-- tabs-open -->
 
