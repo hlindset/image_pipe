@@ -177,10 +177,10 @@ defmodule ImagePipe do
   Checks a builder's plan as this configuration would serve it.
 
   Applies request defaults and presets, including the preset lookup, then
-  checks the request and its output policy. Returns `{:ok, warnings}`, the
-  `ImagePipe.Plan.Spec.Issue` warnings for options `run/4` would ignore and
-  for mistakes the builder repaired, or the error `run/4` would return,
-  without reading a source or accessing a cache.
+  checks the request, its output policy, and its watermark sources. Returns
+  `{:ok, warnings}`, the `ImagePipe.Plan.Spec.Issue` warnings for options
+  `run/4` would ignore and for mistakes the builder repaired, or the error
+  `run/4` would return, without reading a source or accessing a cache.
   """
   @spec validate(Config.t() | atom(), ImagePipe.URL.t()) ::
           {:ok, [ImagePipe.Plan.Spec.Issue.t()]} | {:error, term()}

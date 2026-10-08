@@ -117,6 +117,15 @@ defmodule ImagePipe.RunTest do
     assert {:ok, [%{reason: :repeated_option}]} = IP.validate(IP.config(), repaired)
   end
 
+  test "validate rejects a watermark source that run would reject before reading" do
+    config = IP.config(request_watermarks: true)
+    plan = IP.URL.new() |> IP.URL.group(watermark_source: "ftp://x/y.png")
+    error = {:error, {:invalid_source, {:unsupported_scheme, "ftp"}}}
+
+    assert IP.run(config, plan, {:file, "/missing/photo.png"}) == error
+    assert IP.validate(config, plan) == error
+  end
+
   test "validates configuration separately from runtime failures", %{bytes: bytes} do
     assert_raise ArgumentError, fn ->
       IP.run(IP.config(), IP.URL.new(), {:binary, bytes}, unknown: true)
