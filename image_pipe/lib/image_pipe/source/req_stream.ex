@@ -142,13 +142,19 @@ defmodule ImagePipe.Source.ReqStream do
         cancel_response(response)
         {:error, {:bad_status, status}}
 
-      {:error, %Req.HTTPError{}} ->
-        {:error, :invalid_body}
-
-      {:error, _exception} ->
-        {:error, :connect_error}
+      {:error, exception} ->
+        {:error, request_error(exception)}
     end
   end
+
+  defp request_error(%Req.HTTPError{}), do: :invalid_body
+
+  # An origin that accepts the connection but sends no headers in time.
+  defp request_error(%{__struct__: module, reason: :timeout})
+       when module in [Req.TransportError, Finch.TransportError],
+       do: :receive_timeout
+
+  defp request_error(_exception), do: :connect_error
 
   defp request(request) do
     Req.request(request)
