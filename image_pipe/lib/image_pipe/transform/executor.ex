@@ -494,11 +494,13 @@ defmodule ImagePipe.Transform.Executor do
 
     with {:ok, state} <- flush_display(state),
          {:ok, asset} <- conditioned_asset(asset, state, opts),
+         {frame_width, frame_height} = Geometry.live_dims(state),
+         {width, height} =
+           watermark_size(watermark.scale, asset, {frame_width, frame_height}, dpr),
+         {:ok, asset} <- sized_asset(asset, width, height, state),
          {:ok, state} <- promote_gray_frame(state, asset),
          {:ok, asset} <- into_frame_profile(asset, state),
          {:ok, asset} <- watermark_asset(asset, state) do
-      {frame_width, frame_height} = Geometry.live_dims(state)
-      {width, height} = watermark_size(watermark.scale, asset, {frame_width, frame_height}, dpr)
       {x, y} = watermark.offset
       {gap_x, gap_y} = watermark.gap
       {anchor_x, anchor_y} = anchor_pair(watermark.at)
@@ -517,6 +519,24 @@ defmodule ImagePipe.Transform.Executor do
       }
 
       Transform.run(state, operation, opts)
+    end
+  end
+
+  # The asset is resized to its drawn size before color management, which
+  # then converts only the pixels that are drawn.
+  defp sized_asset(asset, width, height, %State{} = state) do
+    asset_state = %State{image: asset, max_intermediate_pixels: state.max_intermediate_pixels}
+
+    case WorkLimits.resize(asset_state, width, height) do
+      :ok -> resize_asset(asset, width, height)
+      {:error, reason} -> {:error, {:transform, reason}}
+    end
+  end
+
+  defp resize_asset(asset, width, height) do
+    case Watermark.resize(asset, width, height) do
+      {:ok, sized} -> {:ok, sized}
+      {:error, reason} -> {:error, {:transform, {Watermark, reason}}}
     end
   end
 
