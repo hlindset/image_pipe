@@ -93,20 +93,9 @@ defmodule ImagePipe.Source.ReqStream do
        ) do
     clock = Keyword.get(runtime_opts, :clock, fn -> System.system_time(:second) end)
     previous = Keyword.get(runtime_opts, :source_validation)
-
-    request =
-      req_options
-      |> request_options(runtime_opts)
-      |> Req.new()
-      |> ReqStep.attach()
-      |> Req.Request.append_request_steps(
-        conditional_headers: &put_conditional_headers(&1, previous)
-      )
-      |> PinnedTarget.attach(addresses)
-
     requested_at = clock.()
 
-    case request(request) do
+    case request(req_options, runtime_opts, previous, addresses) do
       {:ok, %Req.Response{status: status} = response} when status in 200..299 ->
         validate_response = Keyword.get(runtime_opts, :validate_response, fn _response -> :ok end)
 
@@ -156,7 +145,36 @@ defmodule ImagePipe.Source.ReqStream do
 
   defp request_error(_exception), do: :connect_error
 
-  defp request(request) do
+  # An origin may close an idle kept-alive connection just as the pool hands it
+  # out, so a request that fails that way before any response is sent once more,
+  # rebuilt so its timeouts stay within the deadline.
+  defp request(req_options, runtime_opts, previous, addresses, attempts \\ 2) do
+    req_options
+    |> build_request(runtime_opts, previous, addresses)
+    |> send_request()
+    |> case do
+      {:error, %{__struct__: module, reason: reason}}
+      when attempts > 1 and module in [Req.TransportError, Finch.TransportError] and
+             reason in [:closed, :econnreset] ->
+        request(req_options, runtime_opts, previous, addresses, attempts - 1)
+
+      result ->
+        result
+    end
+  end
+
+  defp build_request(req_options, runtime_opts, previous, addresses) do
+    req_options
+    |> request_options(runtime_opts)
+    |> Req.new()
+    |> ReqStep.attach()
+    |> Req.Request.append_request_steps(
+      conditional_headers: &put_conditional_headers(&1, previous)
+    )
+    |> PinnedTarget.attach(addresses)
+  end
+
+  defp send_request(request) do
     Req.request(request)
   rescue
     exception in Finch.Error -> {:error, exception}
