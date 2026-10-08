@@ -86,6 +86,18 @@ defmodule ImagePipeServer.Config.TreeTest do
       assert toml_error(dir, "[sources.x\n") =~ "    [sources.x\n"
     end
 
+    test "redacts a token that contains quotes", %{tmp_dir: dir} do
+      for contents <- [
+            ~s([sources."""a]\nbearer_token = 'SECRETXYZ'\n"""\n),
+            ~s([serv"""er]\nauth_token = 'SECRETXYZ'"""\n)
+          ] do
+        message = toml_error(dir, contents)
+
+        assert message =~ "invalid token <redacted value> in"
+        refute message =~ "SECRETXYZ"
+      end
+    end
+
     test "keeps key paths", %{tmp_dir: dir} do
       assert toml_error(dir, "a = 1\na = 2\n") =~ "cannot redefine key in path 'a'"
     end

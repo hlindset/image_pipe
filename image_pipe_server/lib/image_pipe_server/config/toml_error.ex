@@ -81,12 +81,25 @@ defmodule ImagePipeServer.Config.TomlError do
     whitespace
   end
 
-  # Quoted tokens and byte lists are data; `key in path '...'` names a key.
+  # A token from the file follows one of these phrases and runs to the end of
+  # the problem. It can hold quotes itself, so nothing after the phrase stays.
+  @token_phrases ["invalid token ", "unexpected token ", ", but got ", "table array name at "]
+
+  # `key in path '...'` names a key. Any other quote or byte list starts data.
+  defp redact_tokens("cannot redefine key in path " <> _key = problem), do: problem
+
   defp redact_tokens(problem) do
-    Regex.replace(~r/(key in path )?'[^']*'|<<[^>]*>>/, problem, fn
-      "key in path " <> _rest = key_path, _prefix -> key_path
-      _token, _prefix -> @placeholder
-    end)
+    case :binary.match(problem, @token_phrases) do
+      {start, length} -> binary_part(problem, 0, start + length) <> @placeholder
+      :nomatch -> redact_from_quote(problem)
+    end
+  end
+
+  defp redact_from_quote(problem) do
+    case :binary.match(problem, ["'", "\"", "<<"]) do
+      {start, _length} -> binary_part(problem, 0, start) <> @placeholder
+      :nomatch -> problem
+    end
   end
 
   defp first_line(reason), do: reason |> String.split(":\n", parts: 2) |> hd()
