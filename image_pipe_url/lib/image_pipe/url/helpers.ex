@@ -15,20 +15,34 @@ defmodule ImagePipe.URL.Helpers do
   ```
 
   In an app that builds URLs for an image service running elsewhere, give a
-  function that returns the URL configuration:
+  function that returns the URL configuration. The helper calls this function
+  for every URL, so build the configuration once when the app starts and
+  return the stored copy:
 
       # lib/my_app/image_urls.ex
       defmodule MyApp.ImageURLs do
-        def config do
-          ImagePipe.URL.config(
-            base_url: "https://images.example.com",
-            keys: [System.fetch_env!("IMAGE_PIPE_SIGNING_KEY")]
-          )
+        def put_config do
+          config =
+            ImagePipe.URL.config(
+              base_url: "https://images.example.com",
+              keys: [System.fetch_env!("IMAGE_PIPE_SIGNING_KEY")]
+            )
+
+          :persistent_term.put(__MODULE__, config)
         end
+
+        def config, do: :persistent_term.get(__MODULE__)
       end
+
+      # lib/my_app/application.ex, in start/2, before the endpoint starts
+      MyApp.ImageURLs.put_config()
 
       # lib/my_app_web.ex, in html_helpers
       use ImagePipe.URL.Helpers, config: {MyApp.ImageURLs, :config, []}
+
+  Calling `put_config/0` again replaces the stored configuration without a
+  restart. [Signing URLs and rotating keys](https://hexdocs.pm/image_pipe/signing-urls.html)
+  gives the order for rotating a key.
 
   ## Options
 
