@@ -500,7 +500,9 @@ defmodule ImagePipe.APIWireTest do
       config = opts()
 
       plain_conn = get("/output=blurhash/src/images/cat.jpg", config)
-      blurred_conn = get("/blur=5/output=blurhash/src/images/cat.jpg", config)
+      # A BlurHash keeps only the lowest frequencies, which a small blur of a
+      # full-size photo leaves alone.
+      blurred_conn = get("/blur=60/output=blurhash/src/images/cat.jpg", config)
 
       assert plain_conn.status == 200
       assert blurred_conn.status == 200

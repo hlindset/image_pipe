@@ -242,6 +242,21 @@ defmodule ImagePipe.API.PixelEffectsWireTest do
     end
   end
 
+  test "blurs keep the exact colour of a uniform opaque 8-bit image" do
+    source = Image.new!(64, 48, color: [200, 120, 37])
+    config = mount(png_origin(Image.write!(source, :memory, suffix: ".png")))
+
+    for sigma <- [0.75, 2.25, 3, 3.75, 4.5, 6] do
+      assert Image.get_pixel!(image("blur=#{sigma}", config), 32, 24) == [200, 120, 37], "blur=#{sigma}"
+    end
+
+    progressive = image("progressive-blur=6,down,0,1", config)
+
+    for y <- [4, 12, 20, 28, 36, 44] do
+      assert Image.get_pixel!(progressive, 32, y) == [200, 120, 37], "row #{y}"
+    end
+  end
+
   test "progressive blur leaves semitransparent pixels before start unchanged" do
     body =
       Image.new!(9, 9, color: [200, 100, 50, 128], bands: 4)

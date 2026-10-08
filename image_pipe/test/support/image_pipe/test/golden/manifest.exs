@@ -123,7 +123,7 @@
       }
     },
     "progressive_blur" => %{
-      fixture_sha256: "9f24ceb318c2c6c9b1b9bbf5cabde04c469bfede856627d1ff47f0312de2891c",
+      fixture_sha256: "3f0809499164c924a51546d595549ab000c7af7fed2e4daaf1a8b2596fed61d3",
       structure: %{
         depth: 8,
         metadata: [],
