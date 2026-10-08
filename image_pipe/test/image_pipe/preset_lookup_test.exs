@@ -185,6 +185,17 @@ defmodule ImagePipe.PresetLookupTest do
     assert get(config, "/preset=a,static/src/photo.png").status == 200
   end
 
+  test "a URL with malformed options is a 400 before any lookup", %{body: body} do
+    config = config(body, preset_lookup: lookup(presets: %{"n1" => "w=30", "n2" => "blur=1"}))
+
+    for path <- ["/w=abc/preset=n1/src/photo.png", "/preset=n1,n2/fit=bogus/-/-/src/photo.png"] do
+      response = get(config, path)
+      assert response.status == 400, path
+      assert response.resp_body =~ "invalid value"
+      refute_received {:preset_fetch, _names}
+    end
+  end
+
   test "an option unset next to a missing looked-up preset is a 400", %{body: body} do
     config = config(body, preset_lookup: lookup(presets: %{}), cache: {CacheProbe, []})
 
