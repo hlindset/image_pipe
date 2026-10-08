@@ -122,7 +122,12 @@ defmodule ImagePipe.URLWithIssuesTest do
   end
 
   test "the URL is signed and keeps the base URL" do
-    config = ImagePipe.URL.config(base_url: "/images", keys: ["00112233445566778899aabbccddeeff"])
+    config =
+      ImagePipe.URL.config(
+        base_url: "/images",
+        keys: [String.duplicate("00112233445566778899aabbccddeeff", 2)]
+      )
+
     builder = ImagePipe.URL.new(config) |> ImagePipe.URL.group(blur: -1)
 
     assert {"/images/sig=" <> _, [_]} = ImagePipe.URL.url_with_issues(builder, "cat.jpg")

@@ -13,7 +13,9 @@ defmodule ImagePipe.Security do
                       default: [],
                       type_doc: "list of hex-encoded `t:String.t/0`",
                       doc: """
-                      Signing keys. The first key signs generated URLs. The server
+                      Signing keys, each at least 64 hex digits (32 bytes), such as
+                      the output of `openssl rand -hex 32`. A shorter key raises
+                      `ArgumentError`. The first key signs generated URLs. The server
                       accepts a signature from any key in the list, so keep an old
                       key while URLs signed with it are in use. Without keys, URLs
                       are unsigned and the server rejects signed ones.

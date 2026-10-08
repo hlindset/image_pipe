@@ -21,12 +21,12 @@ defmodule ImagePipeServer.ConfigTest do
       url =
         Config.options!(%{
           "url" => %{
-            "keys" => {:env, "aa,bb"},
+            "keys" => {:env, "#{String.duplicate("a", 64)},#{String.duplicate("b", 64)}"},
             "source_encryption_keys" => [hex, String.upcase(hex)]
           }
         })[:url]
 
-      assert url[:keys] == ["aa", "bb"]
+      assert url[:keys] == [String.duplicate("a", 64), String.duplicate("b", 64)]
       assert url[:source_encryption_keys] == [hex, String.upcase(hex)]
     end
 
@@ -236,9 +236,17 @@ defmodule ImagePipeServer.ConfigTest do
     end
 
     test "names url.keys in a signing-key error without quoting the key" do
-      message = error(fn -> Config.options!(%{"url" => %{"keys" => ["0123", "zzsekrit"]}}) end)
+      for {key, label} <- [{"zzsekrit", "zzsekrit"}, {"0123", "0123"}] do
+        message =
+          error(fn ->
+            Config.options!(%{"url" => %{"keys" => [String.duplicate("ab", 32), key]}})
+          end)
 
-      assert message == "invalid configuration: url.keys[1]: expected a non-empty hex string"
+        assert message ==
+                 "invalid configuration: url.keys[1]: expected a hex string of at least 64 digits (32 bytes)"
+
+        refute message =~ label
+      end
     end
 
     test "names the cache root setting" do
@@ -458,10 +466,16 @@ defmodule ImagePipeServer.ConfigTest do
 
     test "reads one signing key per line from a keys file", %{tmp_dir: dir} do
       keys = Path.join(dir, "keys")
-      File.write!(keys, "0123abcd\n4567ef01\n")
+
+      File.write!(
+        keys,
+        "#{String.duplicate("0123abcd", 8)}\n#{String.duplicate("4567ef01", 8)}\n"
+      )
 
       tree = Tree.read!(%{"IPS_URL__KEYS_FILE" => keys}, dir)
-      assert Config.options!(tree)[:url][:keys] == ["0123abcd", "4567ef01"]
+
+      assert Config.options!(tree)[:url][:keys] ==
+               [String.duplicate("0123abcd", 8), String.duplicate("4567ef01", 8)]
     end
 
     test "takes a container credentials token file as a path, read at refresh", %{tmp_dir: dir} do

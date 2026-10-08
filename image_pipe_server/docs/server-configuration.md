@@ -170,7 +170,7 @@ How the server checks request URLs: the signing keys and the keys that decrypt `
 
 | Key | Type | Default |
 | --- | --- | --- |
-| `keys` | array of hex strings | `[]` |
+| `keys` | array of hex strings, each at least 64 digits | `[]` |
 | `source_encryption_keys` | array of hex strings, each a 32-byte key | `[]` |
 
 ### `[sources.<name>]`
