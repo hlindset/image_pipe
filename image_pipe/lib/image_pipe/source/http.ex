@@ -133,8 +133,11 @@ defmodule ImagePipe.Source.HTTP do
                           "`(String.t() -> {:ok, [:inet.ip_address()]} | {:error, term()})`",
                         doc: """
                         Resolves a hostname to the addresses to check and connect to, \
-                        such as a caching resolver. Addresses are tried in the order \
-                        returned, without duplicates. An error, an empty list, or an \
+                        such as a caching resolver. An address the adapter connected \
+                        to for the same scheme, host, and port in about the last \
+                        minute is tried first, because it may still have an open \
+                        connection. The rest are tried in the order returned, without \
+                        duplicates. An error, an empty list, or an \
                         exception denies the fetch. The default resolver returns IPv4 \
                         addresses before IPv6 addresses.
                         """
@@ -200,6 +203,26 @@ defmodule ImagePipe.Source.HTTP do
   result other than `true`, or an exception, denies the address:
 
       address_policy: fn _ip, category -> category in [:public, :private] end
+
+  ## HTTP/2
+
+  The adapter fetches over HTTP/1.1 by default. It reuses idle connections,
+  but each connection carries one fetch at a time, so concurrent fetches open
+  a connection each. `protocols: [:http2]` in `:req_options` fetches over
+  HTTP/2 from an origin that supports it, such as Cloudflare or Google Cloud
+  Storage:
+
+      options: [
+        allowed_hosts: ["assets.example.com"],
+        req_options: [connect_options: [protocols: [:http2]]]
+      ]
+
+  Concurrent fetches from that origin then share one connection per resolved
+  address. Against an origin that only speaks HTTP/1.1, such as an Amazon S3
+  endpoint, every fetch fails with `{:source, :connect_error}`.
+
+  `protocols: [:http2, :http1]` works with any origin and uses HTTP/2 when the
+  origin offers it, but still sends one request at a time on each connection.
   """
 
   @doc false

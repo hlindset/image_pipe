@@ -251,6 +251,14 @@ defmodule ImagePipe.Source.ReqStreamTest do
     assert stream == {:error, {:source, :connect_error}}
   end
 
+  test "a kept-alive connection the origin closes as it is reused is retried on a new one" do
+    url = start_keep_alive_closing_origin()
+
+    assert ["first"] = open_body!([url: url], []) |> Enum.to_list()
+    assert ["second"] = open_body!([url: url], []) |> Enum.to_list()
+    assert_receive {:connection, 2, "GET /"}
+  end
+
   test "an HTTP2-only pool that is not ready returns a connection error" do
     {_origin, url} = raw_origin("", :stall)
     url = String.replace_prefix(url, "http:", "https:")
@@ -461,5 +469,32 @@ defmodule ImagePipe.Source.ReqStreamTest do
       end)
 
     {"http://127.0.0.1:#{port}", server}
+  end
+
+  # Answers the first request and keeps the connection alive, then closes it on
+  # reading the next request, as an origin does when its idle timeout fires
+  # just as a pooled connection is reused. A second connection is answered.
+  defp start_keep_alive_closing_origin do
+    {:ok, listen_socket} =
+      :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true])
+
+    {:ok, {_address, port}} = :inet.sockname(listen_socket)
+    test_pid = self()
+
+    spawn_link(fn ->
+      {:ok, first} = :gen_tcp.accept(listen_socket)
+      {:ok, _request} = :gen_tcp.recv(first, 0)
+      :ok = :gen_tcp.send(first, "HTTP/1.1 200 OK\r\ncontent-length: 5\r\n\r\nfirst")
+      {:ok, _request} = :gen_tcp.recv(first, 0)
+      :ok = :gen_tcp.close(first)
+
+      {:ok, second} = :gen_tcp.accept(listen_socket)
+      {:ok, request} = :gen_tcp.recv(second, 0)
+      send(test_pid, {:connection, 2, binary_part(request, 0, 5)})
+      :ok = :gen_tcp.send(second, "HTTP/1.1 200 OK\r\ncontent-length: 6\r\n\r\nsecond")
+      :gen_tcp.recv(second, 0, :infinity)
+    end)
+
+    "http://127.0.0.1:#{port}/"
   end
 end
