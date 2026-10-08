@@ -124,6 +124,14 @@ image from the cache doesn't count as a request for its original.
 - Downloads in progress, and originals being read by a request, can take the
   cache over its `max_size_bytes` for as long as those requests run.
 
+Some originals, such as those the originals cache keeps, are written to a
+temporary file while they download, in the `image_pipe` directory under the
+system temporary directory (see `System.tmp_dir/0`). Only the user running
+ImagePipe can open that directory. When that path is a symlink, a file, or
+another user's directory, those originals are held in memory instead, up to
+`max_body_bytes` each. On a host shared with other users, set `TMPDIR` to a
+directory of your own.
+
 ## Writing entries
 
 A response is processed and streamed to the client at the same time, and

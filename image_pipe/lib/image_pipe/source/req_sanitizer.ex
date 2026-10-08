@@ -27,8 +27,16 @@ defmodule ImagePipe.Source.ReqSanitizer do
   defp denied_header_names(base, false), do: base
 
   defp reject_denied(headers, denied) do
-    Enum.reject(headers, fn {name, _value} ->
-      String.downcase(to_string(name)) in denied
-    end)
+    Enum.reject(headers, fn {name, _value} -> header_name(name) in denied end)
   end
+
+  @doc """
+  The header name Req sends for `name`, lowercased. Req writes an atom name
+  such as `:accept_encoding` as `accept-encoding`.
+  """
+  @spec header_name(atom() | String.t()) :: String.t()
+  def header_name(name) when is_atom(name),
+    do: name |> Atom.to_string() |> String.replace("_", "-") |> String.downcase()
+
+  def header_name(name) when is_binary(name), do: String.downcase(name)
 end

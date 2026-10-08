@@ -326,6 +326,7 @@ defmodule ImagePipe.Source.HTTPTest do
                   {"Range", "bytes=0-1"},
                   {"Accept", "application/json"},
                   {"Accept-Encoding", "gzip"},
+                  {:accept_encoding, "br"},
                   {"x-extra", "kept"}
                 ]
               ]

@@ -106,13 +106,21 @@ defmodule ImagePipe.API.ExpiresCacheControlWireTest do
            ]
   end
 
-  test "a host Cache-Control is left alone", ctx do
-    response =
-      conn(:get, @path)
-      |> put_resp_header("cache-control", "public, max-age=86400")
-      |> ImagePipe.Plug.call(mount(ctx, http_cache: :auto))
+  test "a host Cache-Control is capped at the URL's expiry", ctx do
+    for {host, expected} <- [
+          {"public, max-age=86400", "public, max-age=3600, must-revalidate"},
+          {"public, s-maxage=86400, max-age=60",
+           "public, s-maxage=3600, max-age=60, must-revalidate"},
+          {"no-store", "no-store"}
+        ] do
+      response =
+        conn(:get, @path)
+        |> put_resp_header("cache-control", host)
+        |> ImagePipe.Plug.call(mount(ctx, http_cache: :auto))
 
-    assert get_resp_header(response, "cache-control") == ["public, max-age=86400"]
+      assert get_resp_header(response, "cache-control") == [expected],
+             inspect({host, get_resp_header(response, "cache-control")})
+    end
   end
 
   describe "a mutable origin" do

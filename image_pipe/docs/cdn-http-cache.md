@@ -124,7 +124,7 @@ immutable without being marked.
 A URL with an [`expires`](processing/request.md#expires) time never gets a cache
 lifetime that outlasts it:
 
-- `max-age` is lowered to the time left.
+- `max-age` and `s-maxage` are lowered to the time left.
 - `stale-while-revalidate` is shortened so it also ends by then, or dropped.
 - `must-revalidate` is added.
 
@@ -247,7 +247,9 @@ is parsed or the cache is read.
 In a Plug app, headers set by an earlier Plug take precedence over generated
 ones, in every mode:
 
-- An earlier `Cache-Control` is kept. ImagePipe may still add its `ETag`.
+- An earlier `Cache-Control` is kept. On an [expiring URL](#expiring-urls),
+  a capped copy replaces it unless it has `no-store`. ImagePipe may still
+  add its `ETag`.
 - An earlier `ETag` is kept, and ImagePipe sends no generated `ETag`. A
   request that matches the earlier `ETag` doesn't get a `304`.
 - A response with `Set-Cookie` gets no generated `Cache-Control` or `ETag`.
