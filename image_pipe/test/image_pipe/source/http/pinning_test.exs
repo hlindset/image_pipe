@@ -82,6 +82,53 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
     end
   end
 
+  test "concurrent fetches through an HTTP/2-only source share one connection" do
+    test_pid = self()
+
+    port =
+      origin(fn conn, _ ->
+        send(
+          test_pid,
+          {:request, Plug.Conn.get_http_protocol(conn), Plug.Conn.get_peer_data(conn).port}
+        )
+
+        Plug.Conn.send_resp(conn, 200, "image bytes")
+      end)
+
+    {:ok, first} = fetch("origin.test", port, req_options: tls_options(protocols: [:http2]))
+    assert Enum.join(first.stream) == "image bytes"
+
+    bodies =
+      1..5
+      |> Task.async_stream(fn _ ->
+        {:ok, response} =
+          fetch("origin.test", port, req_options: tls_options(protocols: [:http2]))
+
+        Enum.join(response.stream)
+      end)
+      |> Enum.map(fn {:ok, body} -> body end)
+
+    assert bodies == List.duplicate("image bytes", 5)
+
+    peers =
+      for _ <- 1..6 do
+        assert_receive {:request, :"HTTP/2", peer}
+        peer
+      end
+
+    assert [_one_connection] = Enum.uniq(peers)
+  end
+
+  test "an HTTP/2-only source can't fetch from an HTTP/1-only origin" do
+    port =
+      origin(fn conn, _ -> Plug.Conn.send_resp(conn, 200, "image bytes") end,
+        http_2_options: [enabled: false]
+      )
+
+    assert {:error, {:source, :connect_error}} =
+             fetch("origin.test", port, req_options: tls_options(protocols: [:http2]))
+  end
+
   test "falls back only within the validated address set when a connection fails" do
     port = origin(fn conn, _ -> Plug.Conn.send_resp(conn, 200, "IPv6") end, ip: @loopback6)
 
