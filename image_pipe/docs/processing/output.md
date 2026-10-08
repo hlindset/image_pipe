@@ -106,9 +106,12 @@ Only the entry for the format the response uses applies, so one URL can set
 qualities for every format the browser might get. A listed format wins over
 `q`, so `q=80/format-q=avif:50` encodes AVIF at 50 and every other format at
 80. Formats you leave out use the URL's `q`. Without `q`, they keep their
-quality from presets, the request defaults, or the server's configuration. A
-`png` entry fails with `400` unless `palette` is on, even when the response
-isn't PNG.
+quality from presets, the request defaults, or the server's configuration.
+A format with a `format-q` quality, from the URL, a preset, or the
+[request defaults](../presets.md#request-defaults), skips the
+[`autoquality`](#autoquality) search. So `autoquality/format-q=webp:70` encodes
+WebP at 70 and runs the search for every other format. A `png` entry fails with `400` unless `palette` is on, even when the
+response isn't PNG.
 
 Write `unset` first, as in `format-q=unset,avif:50`, to drop the qualities
 that presets and the request defaults set.
@@ -147,6 +150,11 @@ quality, 70 is high, and 50 is medium.
 - `autoquality` uses the server's target, 75 unless changed.
 - `autoquality=80` sets the target for this request.
 - `autoquality=false` turns off a search the server turns on.
+
+A format with a [`format-q`](#format-q) quality, from the URL, a preset, or
+the [request defaults](../presets.md#request-defaults), is encoded at that
+quality without a search. The server's per-format quality settings don't turn
+the search off.
 
 The search tries qualities from 25 to 95, or 20 to 90 for AVIF. An image that
 can't reach the target within that range is delivered at the highest quality.

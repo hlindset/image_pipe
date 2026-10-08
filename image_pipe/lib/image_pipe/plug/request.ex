@@ -14,7 +14,7 @@ defmodule ImagePipe.Plug.Request do
   # Verify → lex → decrypt → parse. Returns the telemetry stop metadata with
   # the result so the Runner's parse span can report the signing key index.
   def parse(%Plug.Conn{} = conn, config) do
-    path = mount_relative_path!(conn)
+    path = mount_relative_path(conn)
     {sig, signed_path} = Path.split_signature(path)
 
     result =
@@ -130,63 +130,28 @@ defmodule ImagePipe.Plug.Request do
     end
   end
 
-  # Strips `conn.script_name` from `conn.request_path` as a raw prefix.
-  # Because Plug decodes `script_name`, mount paths must use canonical
-  # unescaped ASCII. Other mount paths raise at request time as host
-  # misconfiguration (500-class).
-  def mount_relative_path!(%Plug.Conn{request_path: request_path, script_name: script_name}) do
-    prefix = mount_prefix!(script_name)
-
-    case strip_prefix(request_path, prefix) do
-      {:ok, rest} ->
-        rest
-
-      :error ->
-        raise ArgumentError,
-              "ImagePipe.Plug: request_path #{inspect(request_path)} does not " <>
-                "start with the mount prefix #{inspect(prefix)} derived from script_name " <>
-                "#{inspect(script_name)}"
-    end
+  # Strips the mount from `conn.request_path` by segment count. Plug splits
+  # `path_info` from the raw request path, dropping empty segments, and
+  # `Plug.forward/4` moves those raw segments into `script_name`, so the
+  # remainder keeps its raw bytes for signature checks and lexing.
+  def mount_relative_path(%Plug.Conn{request_path: request_path, script_name: script_name}) do
+    drop_segments(request_path, length(script_name))
   end
 
-  defp mount_prefix!([]), do: ""
+  defp drop_segments(path, 0), do: path
 
-  defp mount_prefix!(segments) do
-    Enum.map_join(segments, "", fn segment ->
-      if canonical_mount_segment?(segment) do
-        "/" <> segment
-      else
-        raise ArgumentError,
-              "ImagePipe.Plug: mount path segment #{inspect(segment)} is not " <>
-                "canonical unescaped ASCII (non-canonical/escaped mount paths are " <>
-                "unsupported in v1; a config-supplied raw mount prefix is a future " <>
-                "escape hatch)"
-      end
-    end)
-  end
+  defp drop_segments(path, count) do
+    segment_and_rest = String.trim_leading(path, "/")
 
-  # A segment built only from RFC 3986 unreserved characters is guaranteed
-  # byte-identical between conn.request_path (raw) and conn.script_name
-  # (decoded) — those characters are never percent-encoded by a canonical
-  # client. Anything else (including "%" itself) makes the round trip
-  # through percent-encoding ambiguous, so it's rejected.
-  defp canonical_mount_segment?(segment) do
-    segment != "" and
-      segment
-      |> :binary.bin_to_list()
-      |> Enum.all?(&mount_unreserved_byte?/1)
-  end
+    case :binary.match(segment_and_rest, "/") do
+      {offset, _length} ->
+        drop_segments(
+          binary_part(segment_and_rest, offset, byte_size(segment_and_rest) - offset),
+          count - 1
+        )
 
-  defp mount_unreserved_byte?(byte) do
-    byte in ?a..?z or byte in ?A..?Z or byte in ?0..?9 or byte in [?-, ?., ?_, ?~]
-  end
-
-  defp strip_prefix(request_path, prefix) do
-    if String.starts_with?(request_path, prefix) do
-      {:ok,
-       binary_part(request_path, byte_size(prefix), byte_size(request_path) - byte_size(prefix))}
-    else
-      :error
+      :nomatch ->
+        ""
     end
   end
 end

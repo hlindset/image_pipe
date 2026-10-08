@@ -178,6 +178,37 @@ defmodule ImagePipe.API.WatermarkWireTest do
       assert_received {:watermark_result, :error}
       assert_received {:materialized, %{result: :materialize_error}}
     end
+
+    test "a corrupt asset fails as a decode error when color management changes a profile",
+         context do
+      photo = File.read!("priv/static/images/beach.jpg")
+
+      stripped =
+        photo
+        |> Image.from_binary!()
+        |> Image.write!(:memory, suffix: ".jpg", strip_metadata: true)
+
+      # A profiled asset on an untagged frame drops its profile. An untagged
+      # asset on a tagged frame takes the frame's profile.
+      for {asset, source} <- [
+            {binary_part(photo, 0, 5000), "src/image.png"},
+            {binary_part(stripped, 0, 5000), "src/photo.jpg"}
+          ] do
+        files = %{
+          "image.png" => png(Image.new!(60, 40, color: @blue)),
+          "photo.jpg" => photo,
+          "mark.jpg" => asset
+        }
+
+        context = %{context | origin: origin(files)}
+        config = observed_mount(context, watermarks: %{logo: [source: "mark.jpg"]})
+
+        result = response("w=60/wm=logo/wm-scale=0.2", config, source)
+        assert result.status == 415, result.resp_body
+        assert_received {:materialized, %{result: :materialize_error}}
+        :telemetry.detach({__MODULE__, context.test, self()})
+      end
+    end
   end
 
   test "a color asset promotes a grayscale frame to RGB", %{config: config} do

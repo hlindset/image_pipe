@@ -60,6 +60,14 @@ defmodule ImagePipe.API.CanonicalPropertyTest do
     end
   end
 
+  defp degrees(value) when is_integer(value), do: Integer.to_string(value)
+  defp degrees(value), do: :erlang.float_to_binary(value, decimals: 2)
+
+  defp group_angle(%{rotate: rotate}) when rotate != nil, do: rotate
+  defp group_angle(%{gradient: %{angle: angle}}), do: angle
+  defp group_angle(%{progressive_blur: %{angle: angle}}), do: angle
+  defp group_angle(_group), do: nil
+
   defp permutation_of(list) do
     StreamData.uniq_list_of(StreamData.member_of(list),
       length: length(list),
@@ -275,6 +283,63 @@ defmodule ImagePipe.API.CanonicalPropertyTest do
       assert {:ok, second_request} = parse(second)
       assert first_request === second_request
       assert :erlang.term_to_binary(first_request) == :erlang.term_to_binary(second_request)
+    end
+
+    test "geometry and trim integer and decimal spellings have identical serialized identity" do
+      for {integer, decimal} <- [
+            {["crop=600,400"], ["crop=600.0,400.0"]},
+            {["region=1,2,10,50pct"], ["region=1.0,2.0,10.0,50.0pct"]},
+            {["trim=red,10"], ["trim=red,10.0"]}
+          ] do
+        assert {:ok, integer_request} = parse(integer)
+        assert {:ok, decimal_request} = parse(decimal)
+        assert :erlang.term_to_binary(integer_request) == :erlang.term_to_binary(decimal_request)
+      end
+    end
+
+    test "negative zero has the serialized identity of zero" do
+      for {zero, negative_zero} <- [
+            {["region=0,0,10,10"], ["region=-0.0,-0.0,10,10"]},
+            {["w=10", "h=10", "fit=cover", "focus=0,0"],
+             ["w=10", "h=10", "fit=cover", "focus=-0.0,-0.0"]},
+            {["bg=fff,0"], ["bg=fff,-0.0"]},
+            {["trim=red,0"], ["trim=red,-0.0"]},
+            {["gradient=1,red,0"], ["gradient=1,red,-0.0"]},
+            {["progressive-blur=4,0"], ["progressive-blur=4,-0.0"]},
+            {[], ["rotate=-0.0"]},
+            {["gradient=1,red,0"], ["gradient=1,red,-0.000000000000000000001"]},
+            {["progressive-blur=4,0"], ["progressive-blur=4,-0.000000000000000000001"]}
+          ] do
+        assert {:ok, zero_request} = parse(zero)
+        assert {:ok, negative_zero_request} = parse(negative_zero)
+
+        assert :erlang.term_to_binary(zero_request) ==
+                 :erlang.term_to_binary(negative_zero_request)
+      end
+    end
+
+    property "angles equal modulo 360 share identity, normalized into [0, 360)" do
+      check all degrees <- StreamData.integer(-10_000..10_000),
+                turns <- StreamData.integer(-5..5),
+                fraction <- StreamData.member_of([0, 0.5, 0.25]),
+                option <-
+                  StreamData.member_of(["rotate=", "gradient=1,red,", "progressive-blur=4,"]) do
+        assert {:ok, request} = parse([option <> degrees(degrees + fraction)])
+        assert {:ok, turned} = parse([option <> degrees(degrees + turns * 360 + fraction)])
+        assert :erlang.term_to_binary(request) == :erlang.term_to_binary(turned)
+
+        angle = request.groups |> hd() |> group_angle()
+        assert angle == nil or (angle >= 0 and angle < 360)
+      end
+    end
+
+    test "rotations of whole degrees are integers" do
+      assert {:ok, request} = parse(["rotate=-90"])
+      assert hd(request.groups).rotate === 270
+      assert {:ok, request} = parse(["rotate=-90.5"])
+      assert hd(request.groups).rotate === 269.5
+      assert {:ok, request} = parse(["rotate=720"])
+      assert hd(request.groups).rotate == nil
     end
 
     test "autoquality integer and decimal spellings have identical serialized identity" do

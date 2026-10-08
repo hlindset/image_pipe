@@ -137,7 +137,7 @@ defmodule ImagePipe.API.RetainedEffectsWireTest do
   test "zero rotations and disabled effects have canonical identity" do
     baseline = request("rotate=0")
 
-    for options <- ["rotate=360", "rotate=0.0/gray=false/bitonal=false"] do
+    for options <- ["rotate=360", "rotate=-360", "rotate=0.0/gray=false/bitonal=false"] do
       response = request(options)
       assert response.status == 200
       assert response.resp_body == baseline.resp_body
@@ -145,10 +145,18 @@ defmodule ImagePipe.API.RetainedEffectsWireTest do
     end
   end
 
+  test "negative and over-a-turn rotations match their angle within one turn" do
+    for {options, equivalent} <- [{"rotate=-90", "rotate=270"}, {"rotate=450", "rotate=90"}] do
+      response = request(options)
+      expected = request(equivalent)
+      assert response.status == 200
+      assert response.resp_body == expected.resp_body
+      assert get_resp_header(response, "etag") == get_resp_header(expected, "etag")
+    end
+  end
+
   test "invalid rotation, flip, and effect values fail validation" do
     for options <- [
-          "rotate=-1",
-          "rotate=361",
           "rotate=abc",
           "flip=diagonal",
           "gray=yes",

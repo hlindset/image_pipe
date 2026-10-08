@@ -124,6 +124,10 @@ defmodule ImagePipe.Transform.WorkingColor do
     end
   end
 
+  @doc "Whether `image` carries an embedded ICC profile."
+  @spec tagged?(VipsImage.t()) :: boolean()
+  def tagged?(image), do: profile(image) != nil
+
   defp profile(image) do
     case VipsImage.header_value(image, "icc-profile-data") do
       {:ok, profile} when is_binary(profile) -> profile

@@ -38,11 +38,10 @@ ImagePipe.URL.new(orient: :none)
 
 ### rotate
 
-Accepts a [number](../requesting-images.md#numbers) of degrees from `0` to
-`360`, decimals included. Default: `0`.
+Accepts any [number](../requesting-images.md#numbers) of degrees. Default: `0`.
 
-Rotates the image clockwise. `360` is the same as `0`, and a counterclockwise
-quarter turn is `rotate=270`, since negative angles fail with `400`.
+Rotates the image clockwise. Negative angles rotate counterclockwise, and
+angles wrap around at 360, so `rotate=-90` is the same as `rotate=270`.
 
 `90`, `180`, and `270` turn the image exactly. Any other angle makes the image
 larger, to fit the rotated picture, and leaves transparent corners. Use

@@ -57,7 +57,7 @@ defmodule ImagePipeServer.Config.Tree do
     if not String.valid?(contents),
       do: raise(ConfigError, "#{path} is not valid UTF-8 on line #{invalid_line(contents)}")
 
-    case Toml.decode(contents, filename: path) do
+    case toml_decode(contents, path) do
       {:ok, tree} ->
         tree
 
@@ -66,6 +66,17 @@ defmodule ImagePipeServer.Config.Tree do
 
       {:error, _reason} ->
         raise ConfigError, "invalid TOML in #{path}: a value can't be read"
+    end
+  end
+
+  # The parser's lexer runs in a linked process that crashes on some malformed
+  # input, so decode in a throwaway process and treat a crash as unreadable.
+  defp toml_decode(contents, path) do
+    {pid, ref} = spawn_monitor(fn -> exit({:decoded, Toml.decode(contents, filename: path)}) end)
+
+    receive do
+      {:DOWN, ^ref, :process, ^pid, {:decoded, result}} -> result
+      {:DOWN, ^ref, :process, ^pid, _crash} -> {:error, :crashed}
     end
   end
 

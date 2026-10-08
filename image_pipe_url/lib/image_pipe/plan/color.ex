@@ -48,12 +48,15 @@ defmodule ImagePipe.Plan.Color do
   @doc """
   Looks up a CSS named color (the full CSS Color Module Level 4 list,
   including its aliases such as `cyan`/`aqua`, `magenta`/`fuchsia`,
-  `grey`/`gray`) and returns its 8-bit sRGB channel tuple. Returns a bare
-  tuple rather than `t()`, mirroring how callers such as the
+  `grey`/`gray`, but not `transparent`) and returns its 8-bit sRGB channel
+  tuple. Returns a bare tuple rather than `t()`, mirroring how callers such as the
   parser's `Value.color/1` combine a color's channels with a
   separately-parsed alpha before building a `t()`.
   """
   @spec rgb_name(term()) :: {:ok, {channel(), channel(), channel()}} | {:error, term()}
+  # CSS `transparent` carries an alpha a channel tuple can't hold.
+  def rgb_name("transparent"), do: {:error, {:invalid_color, ["transparent"]}}
+
   def rgb_name(name) when is_binary(name) do
     case CssNames.lookup(name) do
       {:ok, {red, green, blue}} -> {:ok, {red, green, blue}}

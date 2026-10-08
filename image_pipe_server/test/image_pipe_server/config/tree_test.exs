@@ -98,6 +98,21 @@ defmodule ImagePipeServer.Config.TreeTest do
       refute message =~ "115, 101, 107"
     end
 
+    test "points at the start of a malformed table header", %{tmp_dir: dir} do
+      for header <- ["[cache.output", "[serv#er]"] do
+        message = toml_error(dir, "[server]\nport = 8080\n\n#{header}\nroot = \"/var/cache\"\n")
+
+        assert message =~ ~r/\Ainvalid TOML: .* in .*config\.toml on line \d+, column \d+:/
+        refute message =~ "/var/cache"
+      end
+    end
+
+    test "reports a string the lexer can't finish as invalid TOML", %{tmp_dir: dir} do
+      message = toml_error(dir, ~s(key = "\\u))
+
+      assert message =~ ~r/\Ainvalid TOML/
+    end
+
     test "reports a number the parser can't read as invalid TOML", %{tmp_dir: dir} do
       message = toml_error(dir, "port = 0xZZ\n")
 

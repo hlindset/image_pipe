@@ -424,6 +424,7 @@ defmodule ImagePipe.PlugTest do
       default_quality: {:quality, 80},
       format_qualities: %{webp: {:quality, 79}, avif: {:quality, 63}},
       quality_search: :none,
+      fixed_quality_formats: [],
       max_bytes: nil,
       strip_metadata: true,
       keep_copyright: true,

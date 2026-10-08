@@ -78,10 +78,10 @@ defmodule ImagePipe.Plug.Errors do
     |> send_resp(status, message)
   end
 
-  defp diagnostic_path(conn), do: conn |> Request.mount_relative_path!() |> Path.diagnostic_path()
+  defp diagnostic_path(conn), do: conn |> Request.mount_relative_path() |> Path.diagnostic_path()
 
   defp sig_span(conn) do
-    {sig, _signed_path} = conn |> Request.mount_relative_path!() |> Path.split_signature()
+    {sig, _signed_path} = conn |> Request.mount_relative_path() |> Path.split_signature()
     {1, byte_size("sig=" <> sig)}
   end
 end

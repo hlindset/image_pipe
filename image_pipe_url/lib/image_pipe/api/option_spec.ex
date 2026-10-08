@@ -116,7 +116,7 @@ defmodule ImagePipe.API.OptionSpec do
         name: :rotate,
         scope: :group,
         value: &__MODULE__.parse_rotate/1,
-        summary: "Clockwise rotation in degrees from 0 to 360",
+        summary: "Clockwise rotation in degrees",
         examples: ["rotate=30", "rotate=90"]
       },
       %__MODULE__{
@@ -986,12 +986,8 @@ defmodule ImagePipe.API.OptionSpec do
   @spec parse_rotate(String.t()) :: {:ok, number()} | {:error, :invalid_rotation}
   def parse_rotate(string) do
     case Value.number(string) do
-      {:ok, angle} when angle >= 0 and angle <= 360 ->
-        angle = if angle == trunc(angle), do: rem(trunc(angle), 360), else: angle
-        {:ok, angle}
-
-      _invalid ->
-        {:error, :invalid_rotation}
+      {:ok, angle} -> {:ok, angle}
+      {:error, _reason} -> {:error, :invalid_rotation}
     end
   end
 
@@ -1228,19 +1224,9 @@ defmodule ImagePipe.API.OptionSpec do
   defp numeric_gradient_direction(direction) do
     with {:ok, value} <- Value.number(direction),
          {:ok, value} <- finite_float(value) do
-      {:ok, normalize_angle(value)}
+      {:ok, value}
     else
       _invalid -> {:error, :invalid_direction}
-    end
-  end
-
-  defp normalize_angle(angle) do
-    normalized = :math.fmod(angle, 360.0)
-
-    cond do
-      normalized == 0.0 -> 0.0
-      normalized < 0.0 -> normalized + 360.0
-      true -> normalized
     end
   end
 

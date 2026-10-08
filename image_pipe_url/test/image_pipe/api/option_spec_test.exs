@@ -320,15 +320,12 @@ defmodule ImagePipe.API.OptionSpecTest do
       end
     end
 
-    test "gradient fills trailing defaults and canonicalizes directions" do
+    test "gradient fills trailing defaults and maps named directions" do
       assert OptionSpec.parse_gradient("0.5,black") ==
                {:ok, %{opacity: 0.5, color: {0, 0, 0}, angle: 0.0, start: 0.0, stop: 1.0}}
 
       assert OptionSpec.parse_gradient("1,red,left,0.25,0.75") ==
                {:ok, %{opacity: 1.0, color: {255, 0, 0}, angle: 90.0, start: 0.25, stop: 0.75}}
-
-      assert {:ok, %{angle: 270.0}} = OptionSpec.parse_gradient("1,red,-90")
-      assert {:ok, %{angle: 45.5}} = OptionSpec.parse_gradient("1,red,405.5")
 
       for value <- [
             "1",

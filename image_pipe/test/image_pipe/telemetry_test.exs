@@ -591,7 +591,7 @@ defmodule ImagePipe.TelemetryTest do
   test "emits request stop metadata for failures that return responses" do
     cases = [
       parse: {
-        conn(:get, "/rotate=361/format=jpeg/src/images/beach.jpg"),
+        conn(:get, "/rotate=abc/format=jpeg/src/images/beach.jpg"),
         base_opts(),
         :parser_error,
         400
@@ -632,7 +632,7 @@ defmodule ImagePipe.TelemetryTest do
   test "API parse failures identify the invalid request on the request span" do
     conn =
       :get
-      |> conn("/rotate=361/format=jpeg/src/images/beach.jpg")
+      |> conn("/rotate=abc/format=jpeg/src/images/beach.jpg")
       |> ImagePipe.Plug.call(base_opts())
 
     assert conn.status == 400
