@@ -10,6 +10,7 @@ defmodule ImagePipe.MaterialDigest do
   #
   # Maps retain their type and exact keys, including compound keys. Map values
   # and struct fields are normalized recursively; plain list order is preserved.
+  # Functions digest by where they're defined and what they capture.
   @moduledoc false
 
   use Boundary, top_level?: true, deps: [], exports: []
@@ -48,6 +49,14 @@ defmodule ImagePipe.MaterialDigest do
     |> Tuple.to_list()
     |> Enum.map(&canonicalize/1)
     |> List.to_tuple()
+  end
+
+  # A closure's serialized form carries its module's checksum, so a rebuild
+  # changes it even when the closure didn't. Identify it by where it's defined
+  # and what it captures instead. A remote capture has nothing captured.
+  defp canonicalize(value) when is_function(value) do
+    info = Function.info(value)
+    {:fun, info[:module], info[:name], info[:arity], canonicalize(Keyword.get(info, :env, []))}
   end
 
   defp canonicalize(value), do: value
