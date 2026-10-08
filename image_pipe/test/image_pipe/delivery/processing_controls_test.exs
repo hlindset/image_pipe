@@ -165,10 +165,7 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
 
   test "timeout between chunks drops the late chunk and keeps resource brackets intact",
        context do
-    pool =
-      start_supervised!(
-        {ProcessingPool, max_concurrency: 1, max_queue: 0, processing_timeout: 40}
-      )
+    pool = start_supervised!({ProcessingPool, max_concurrency: 1, max_queue: 0})
 
     store = :ets.new(:timeout_cache, [:set, :public])
     key = %ImagePipe.Cache.Key{hash: "timeout-test", data: []}
@@ -206,6 +203,12 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
     assert_receive {:cache_open_sink, ^key, _metadata}
     job = Task.Supervisor.async_nolink(context.tasks, fn -> stream.next.() end)
     assert_receive {:working, worker}
+
+    # Expire the budget while the second chunk is in progress instead of racing
+    # a short timeout against the first.
+    [{token, %{deadline: deadline}}] = Map.to_list(:sys.get_state(pool).jobs)
+    send(pool, {:deadline, token, :active, deadline})
+
     assert Task.await(job) == {:error, {:processing, :timeout}}
     assert_receive {:cache_abort, ^key}
     assert %{active: 1} = ProcessingPool.stats(pool)

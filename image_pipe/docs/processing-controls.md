@@ -80,9 +80,9 @@ A client that reads the response slowly uses up the deadline too.
 
 When the deadline passes before the response starts, the request gets a
 `503`. When the response has already started, ImagePipe cuts it short, as
-described in [failures during streaming](streaming-failures.md). ImagePipe
-also gives up on a response when producing its next chunk takes longer than
-60 seconds, whatever the deadline.
+described in [failures during streaming](streaming-failures.md). It also cuts
+the response short when producing its next chunk takes longer than 60 seconds,
+whatever the deadline.
 
 After a timeout or client disconnect, the worker keeps its processing slot
 until its current operation and resource cleanup finish. A libvips operation

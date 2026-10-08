@@ -65,6 +65,10 @@ defmodule ImagePipe.Delivery.Coordinator do
     GenServer.start(__MODULE__, {build_fun, owner, cache_key, request_context, config})
   end
 
+  @doc "Longest wait for the next chunk before the session gives up."
+  @spec progress_timeout() :: timeout()
+  def progress_timeout, do: @call_timeout
+
   @spec prepare(server(), timeout()) :: {:ok, map()} | {:error, term()}
   def prepare(server, timeout \\ @call_timeout), do: call_session(server, :prepare, timeout)
 
