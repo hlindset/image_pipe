@@ -3,6 +3,7 @@ defmodule ImagePipe.Source.ReqStream do
 
   alias ImagePipe.Source.HTTP.PinnedTarget
   alias ImagePipe.Source.Origin
+  alias ImagePipe.Source.ReqSanitizer
   alias ImagePipe.Source.Response
   alias ImagePipe.Source.StreamError
   alias ImagePipe.Telemetry.Trace.ReqStep
@@ -233,7 +234,7 @@ defmodule ImagePipe.Source.ReqStream do
 
   defp strip_credentials(headers) do
     Enum.reject(headers, fn {name, _value} ->
-      String.downcase(to_string(name)) in ["authorization", "proxy-authorization", "cookie"]
+      ReqSanitizer.header_name(name) in ["authorization", "proxy-authorization", "cookie"]
     end)
   end
 

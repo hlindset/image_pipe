@@ -69,6 +69,7 @@ defmodule ImagePipe.Source.ReqStreamTest do
 
         "second.test" ->
           assert Plug.Conn.get_req_header(conn, "authorization") == []
+          assert Plug.Conn.get_req_header(conn, "proxy-authorization") == []
           assert Plug.Conn.get_req_header(conn, "cookie") == []
           Plug.Conn.send_resp(conn, 200, "bytes")
       end
@@ -80,7 +81,7 @@ defmodule ImagePipe.Source.ReqStreamTest do
           url: "https://first.test/image",
           plug: plug,
           auth: {:bearer, "private"},
-          headers: [{"cookie", "session=private"}]
+          headers: [{"cookie", "session=private"}, proxy_authorization: "Basic private"]
         ],
         max_redirects: 1
       )
