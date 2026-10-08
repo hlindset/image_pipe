@@ -605,7 +605,7 @@ Span. Wraps producing an `output=info`, `output=blurhash`, or
 
 One-shot. Emitted when the final image is larger than the result limits or
 the format allows, and is scaled down before encoding. WebP allows 16383
-pixels per side, AVIF 16384, and JPEG 65535. The default result limit of
+pixels per side, AVIF 16384, and JPEG 65500. The default result limit of
 8192 pixels per side is usually lower.
 
 - Measurements: `:scale` (float), the scale factor applied, below `1.0`.

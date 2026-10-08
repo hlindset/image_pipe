@@ -11,7 +11,7 @@ defmodule ImagePipe.Output.ClampTest do
     end
 
     test "returns the documented JPEG limit and unbounded PNG" do
-      assert Encoder.encoder_limit(:jpeg) == %{max_dimension: 65_535, max_pixels: :infinity}
+      assert Encoder.encoder_limit(:jpeg) == %{max_dimension: 65_500, max_pixels: :infinity}
       assert Encoder.encoder_limit(:png) == %{max_dimension: :infinity, max_pixels: :infinity}
     end
   end

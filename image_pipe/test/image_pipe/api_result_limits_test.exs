@@ -119,6 +119,17 @@ defmodule ImagePipe.APIResultLimitsTest do
       assert {width, _height} = decoded_dims(conn.resp_body)
       assert width == 16_383
     end
+
+    test "a host cap above libjpeg's limit still clamps to 65500" do
+      config = opts(max_result_width: 70_000)
+
+      conn =
+        get("/w=65535/h=1/fit=stretch/enlarge/format=jpeg/src/images/beach.jpg", config)
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+      assert {65_500, _height} = decoded_dims(conn.resp_body)
+    end
   end
 
   defp get_resp_header(conn, name), do: Plug.Conn.get_resp_header(conn, name)

@@ -26,7 +26,7 @@ defmodule ImagePipe.Output.Encoder do
         }
   def encoder_limit(:webp), do: %{max_dimension: 16_383, max_pixels: :infinity}
   def encoder_limit(:avif), do: %{max_dimension: 16_384, max_pixels: :infinity}
-  def encoder_limit(:jpeg), do: %{max_dimension: 65_535, max_pixels: :infinity}
+  def encoder_limit(:jpeg), do: %{max_dimension: 65_500, max_pixels: :infinity}
   def encoder_limit(:png), do: %{max_dimension: :infinity, max_pixels: :infinity}
 
   @typedoc """
