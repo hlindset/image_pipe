@@ -31,7 +31,6 @@ defmodule ImagePipe.Source.Parser do
   alias ImagePipe.Source.Routes
 
   @http_schemes %{"http" => :http, "https" => :https}
-  @scheme_prefix ~r/^([a-zA-Z][a-zA-Z0-9+.\-]*):\/\//
 
   @spec translate(String.t(), keyword()) ::
           {:ok, ImagePipe.Plan.Source.t()} | {:error, {:invalid_source, term()}}
@@ -48,9 +47,9 @@ defmodule ImagePipe.Source.Parser do
   end
 
   defp classify(source, config) do
-    case Regex.run(@scheme_prefix, source) do
-      [_match, scheme] -> url_translate(String.downcase(scheme), source, config)
-      nil -> {:ok, path_translate(source)}
+    case scheme(source) do
+      {:ok, scheme} -> url_translate(String.downcase(scheme), source, config)
+      :error -> {:ok, path_translate(source)}
     end
   end
 
@@ -188,7 +187,7 @@ defmodule ImagePipe.Source.Parser do
   end
 
   defp parse_port(port) do
-    if String.match?(port, ~r/^[0-9]+$/) do
+    if digits?(port) do
       case Integer.parse(port) do
         {number, ""} when number in 1..65_535 -> {:ok, number}
         _invalid -> {:error, :invalid_port}
@@ -255,4 +254,23 @@ defmodule ImagePipe.Source.Parser do
         end
     end
   end
+
+  # Grammar checks scan bytes: OTP 28 and later rebuild a regex at every use.
+
+  # The scheme of a `[a-zA-Z][a-zA-Z0-9+.-]*://` prefix.
+  defp scheme(<<first, rest::binary>> = source) when first in ?a..?z or first in ?A..?Z,
+    do: scheme(rest, source, 1)
+
+  defp scheme(_source), do: :error
+
+  defp scheme("://" <> _rest, source, length), do: {:ok, binary_part(source, 0, length)}
+
+  defp scheme(<<char, rest::binary>>, source, length)
+       when char in ?a..?z or char in ?A..?Z or char in ?0..?9 or char in [?+, ?., ?-],
+       do: scheme(rest, source, length + 1)
+
+  defp scheme(_rest, _source, _length), do: :error
+
+  defp digits?(<<char, rest::binary>>) when char in ?0..?9, do: rest == "" or digits?(rest)
+  defp digits?(_string), do: false
 end

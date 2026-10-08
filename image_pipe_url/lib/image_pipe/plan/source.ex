@@ -7,8 +7,6 @@ defmodule ImagePipe.Plan.Source do
 
   @type t :: Source.Path.t() | Source.URL.t() | Source.Object.t()
 
-  @scheme_prefix ~r/^([a-zA-Z][a-zA-Z0-9+.\-]*):\/\//
-
   @doc """
   Removes the optional leading `/` from an ordinary root-relative source string.
 
@@ -19,11 +17,26 @@ defmodule ImagePipe.Plan.Source do
   def normalize("//" <> _ = source), do: source
 
   def normalize("/" <> rest = source) do
-    case Regex.match?(@scheme_prefix, rest) do
+    case scheme_prefix?(rest) do
       true -> source
       false -> rest
     end
   end
 
   def normalize(source), do: source
+
+  # `[a-zA-Z][a-zA-Z0-9+.-]*://` at the start, scanned because OTP 28 and
+  # later rebuild a regex at every use.
+  defp scheme_prefix?(<<first, rest::binary>>) when first in ?a..?z or first in ?A..?Z,
+    do: scheme_rest?(rest)
+
+  defp scheme_prefix?(_source), do: false
+
+  defp scheme_rest?("://" <> _rest), do: true
+
+  defp scheme_rest?(<<char, rest::binary>>)
+       when char in ?a..?z or char in ?A..?Z or char in ?0..?9 or char in [?+, ?., ?-],
+       do: scheme_rest?(rest)
+
+  defp scheme_rest?(_rest), do: false
 end

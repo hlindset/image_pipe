@@ -194,13 +194,18 @@ defmodule ImagePipe.Source.CacheState do
   end
 
   defp seconds([value], fallback) when is_binary(value) do
-    case Regex.match?(~r/\A[0-9]+\z/, value) do
+    case digits?(value) do
       true -> min(String.to_integer(value), 2_147_483_648)
       false -> fallback
     end
   end
 
   defp seconds(_values, fallback), do: fallback
+
+  # One or more ASCII digits, scanned because OTP 28 and later rebuild a regex
+  # at every use.
+  defp digits?(<<char, rest::binary>>) when char in ?0..?9, do: rest == "" or digits?(rest)
+  defp digits?(_value), do: false
 
   # Split only outside quoted strings; extensions may contain commas.
   defp directives(values) do
@@ -209,10 +214,10 @@ defmodule ImagePipe.Source.CacheState do
     |> Enum.map(fn directive ->
       case String.split(directive, "=", parts: 2) do
         [name, value] ->
-          {String.downcase(String.trim(name)), String.trim(value) |> unquote_value()}
+          {directive_name(name), String.trim(value) |> unquote_value()}
 
         [name] ->
-          {String.downcase(String.trim(name)), nil}
+          {directive_name(name), nil}
       end
     end)
     |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
@@ -235,6 +240,9 @@ defmodule ImagePipe.Source.CacheState do
 
   defp split_directives(<<char, rest::binary>>, quoted?, part, parts),
     do: split_directives(rest, quoted?, [char | part], parts)
+
+  # Directive names are ASCII tokens, compared case-insensitively.
+  defp directive_name(name), do: name |> String.trim() |> String.downcase(:ascii)
 
   defp unquote_value(<<?", rest::binary>>), do: String.trim_trailing(rest, "\"")
   defp unquote_value(value), do: value

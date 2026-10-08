@@ -88,14 +88,6 @@ defmodule ImagePipe.API.OptionSpec do
     "preserve" => :preserve
   }
 
-  @preset_name_pattern ~r/\A[A-Za-z0-9._-]+\z/
-  @path_token_pattern ~r/\A[A-Za-z0-9._-]+\z/
-  @positive_decimal_pattern ~r/\A[0-9]+(?:\.[0-9]+)?\z/
-  @unsigned_integer_pattern ~r/\A[0-9]+\z/
-  @signed_integer_pattern ~r/\A-?[0-9]+\z/
-  @detect_class_pattern ~r/\A[a-z0-9][a-z0-9_-]*\z/
-  @watermark_name_pattern ~r/\A[a-z0-9_-]+\z/
-  @base64url_pattern ~r/\A[A-Za-z0-9_-]+\z/
   @max_detect_weight 1_000_000.0
   @default_monochrome_color {179, 179, 179}
   @gradient_directions %{
@@ -749,7 +741,7 @@ defmodule ImagePipe.API.OptionSpec do
   end
 
   defp positive_decimal(string) do
-    if Regex.match?(@positive_decimal_pattern, string) do
+    if positive_decimal?(string) do
       case Float.parse(string) do
         {value, ""} when scale?(value) -> {:ok, value}
         _zero_or_out_of_float_range -> :error
@@ -807,7 +799,7 @@ defmodule ImagePipe.API.OptionSpec do
   end
 
   defp decimal_ratio(string) do
-    if Regex.match?(@positive_decimal_pattern, string) do
+    if positive_decimal?(string) do
       case String.split(string, ".", parts: 2) do
         [integer] ->
           positive_ratio_parts(String.to_integer(integer), 1)
@@ -823,8 +815,8 @@ defmodule ImagePipe.API.OptionSpec do
   end
 
   defp integer_ratio(numerator, denominator) do
-    with true <- Regex.match?(@unsigned_integer_pattern, numerator),
-         true <- Regex.match?(@unsigned_integer_pattern, denominator),
+    with true <- chars?(numerator, :digit),
+         true <- chars?(denominator, :digit),
          {numerator, ""} <- Integer.parse(numerator),
          {denominator, ""} <- Integer.parse(denominator) do
       positive_ratio_parts(numerator, denominator)
@@ -953,7 +945,7 @@ defmodule ImagePipe.API.OptionSpec do
   defp parse_detect_item(_invalid), do: :error
 
   defp valid_detect_class?(class),
-    do: class != "unset" and Regex.match?(@detect_class_pattern, class)
+    do: class != "unset" and detect_class?(class)
 
   defp unique_detect_classes?(pairs) do
     classes = Enum.map(pairs, &elem(&1, 0))
@@ -1019,7 +1011,7 @@ defmodule ImagePipe.API.OptionSpec do
   @doc false
   @spec parse_pixelate(String.t()) :: {:ok, pos_integer()} | {:error, :invalid_pixelate}
   def parse_pixelate(string) do
-    if Regex.match?(@unsigned_integer_pattern, string) do
+    if chars?(string, :digit) do
       case String.to_integer(string) do
         value when axis?(value) -> {:ok, value}
         _zero -> {:error, :invalid_pixelate}
@@ -1085,7 +1077,7 @@ defmodule ImagePipe.API.OptionSpec do
   @doc false
   @spec parse_brightness(String.t()) :: {:ok, -255..255} | {:error, :invalid_brightness}
   def parse_brightness(string) do
-    if Regex.match?(@signed_integer_pattern, string) do
+    if signed_integer?(string) do
       case String.to_integer(string) do
         value when value >= -255 and value <= 255 -> {:ok, value}
         _out_of_range -> {:error, :invalid_brightness}
@@ -1271,7 +1263,7 @@ defmodule ImagePipe.API.OptionSpec do
   @doc false
   @spec parse_watermark(String.t()) :: {:ok, String.t()} | {:error, :invalid_watermark}
   def parse_watermark(string) do
-    case Regex.match?(@watermark_name_pattern, string) do
+    case chars?(string, :name) do
       true -> {:ok, string}
       false -> {:error, :invalid_watermark}
     end
@@ -1294,7 +1286,7 @@ defmodule ImagePipe.API.OptionSpec do
   @spec parse_watermark_token(String.t()) ::
           {:ok, String.t()} | {:error, :invalid_watermark_token}
   def parse_watermark_token(string) do
-    case Regex.match?(@base64url_pattern, string) do
+    case chars?(string, :base64url) do
       true -> {:ok, string}
       false -> {:error, :invalid_watermark_token}
     end
@@ -1333,7 +1325,7 @@ defmodule ImagePipe.API.OptionSpec do
   @doc false
   @spec parse_page(String.t()) :: {:ok, non_neg_integer()} | {:error, :invalid_page}
   def parse_page(string) do
-    if Regex.match?(@unsigned_integer_pattern, string),
+    if chars?(string, :digit),
       do: {:ok, String.to_integer(string)},
       else: {:error, :invalid_page}
   end
@@ -1471,7 +1463,7 @@ defmodule ImagePipe.API.OptionSpec do
   @doc false
 
   defp parse_path_token(string, error) do
-    case Regex.match?(@path_token_pattern, string) do
+    case chars?(string, :token) do
       true -> {:ok, string}
       false -> {:error, error}
     end
@@ -1519,10 +1511,45 @@ defmodule ImagePipe.API.OptionSpec do
   def parse_preset_names(string) do
     names = String.split(string, ",")
 
-    if Enum.all?(names, &Regex.match?(@preset_name_pattern, &1)) do
+    if Enum.all?(names, &chars?(&1, :token)) do
       {:ok, names}
     else
       {:error, :invalid_preset_name}
     end
   end
+
+  # Grammar checks scan bytes: OTP 28 and later rebuild a regex attribute at
+  # every use.
+
+  # `[0-9]+(\.[0-9]+)?`
+  defp positive_decimal?(string) do
+    case :binary.split(string, ".") do
+      [whole] -> chars?(whole, :digit)
+      [whole, fraction] -> chars?(whole, :digit) and chars?(fraction, :digit)
+    end
+  end
+
+  defp signed_integer?("-" <> digits), do: chars?(digits, :digit)
+  defp signed_integer?(digits), do: chars?(digits, :digit)
+
+  # `[a-z0-9][a-z0-9_-]*`
+  defp detect_class?(<<first, rest::binary>>),
+    do: (first in ?a..?z or first in ?0..?9) and (rest == "" or chars?(rest, :name))
+
+  defp detect_class?(_empty), do: false
+
+  # One or more bytes of `class`.
+  defp chars?(<<char, rest::binary>>, class),
+    do: char?(char, class) and (rest == "" or chars?(rest, class))
+
+  defp chars?(_empty, _class), do: false
+
+  defp char?(char, :digit), do: char in ?0..?9
+  defp char?(char, :name), do: char in ?a..?z or char in ?0..?9 or char in [?_, ?-]
+
+  defp char?(char, :base64url),
+    do: char in ?a..?z or char in ?A..?Z or char in ?0..?9 or char in [?_, ?-]
+
+  defp char?(char, :token),
+    do: char in ?a..?z or char in ?A..?Z or char in ?0..?9 or char in [?., ?_, ?-]
 end

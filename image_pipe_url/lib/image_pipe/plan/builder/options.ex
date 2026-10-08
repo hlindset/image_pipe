@@ -26,7 +26,8 @@ defmodule ImagePipe.Plan.Builder.Options do
   # Each function returns the options it accepts, the issues it found, and
   # each rejected option's location and value. Locations name request
   # options `{:request, key}`.
-  def request(options), do: collect(options, request_schema(), &{:request, &1})
+  def request(options),
+    do: collect(options, validators(:request, &request_schema/0), &{:request, &1})
 
   def request_schema do
     [
@@ -92,14 +93,17 @@ defmodule ImagePipe.Plan.Builder.Options do
     location = &{:group, index, &1}
 
     {group, issues, rejected} =
-      collect(options, group_schema(), location,
-        unsettable: Keyword.keys(transform_schema()),
+      collect(options, validators(:group, &group_schema/0), location,
+        unsettable: compiled(:transform_keys, fn -> Keyword.keys(transform_schema()) end),
         flat: [:resize]
       )
 
     {resize, group} = Map.pop(group, :resize, [])
     group = if Map.get(group, :presets) == [], do: Map.delete(group, :presets), else: group
-    {resize, resize_issues, resize_rejected} = collect(resize, resize_schema(), location)
+
+    {resize, resize_issues, resize_rejected} =
+      collect(resize, validators(:resize, &resize_schema/0), location)
+
     issues = issues ++ resize_issues
     rejected = rejected ++ resize_rejected
 
@@ -109,27 +113,58 @@ defmodule ImagePipe.Plan.Builder.Options do
     end
   end
 
-  def output(options), do: collect(options, OutputOptions.schema(), &{:request, &1})
+  def output(options),
+    do: collect(options, validators(:output, &OutputOptions.schema/0), &{:request, &1})
 
-  def output_option?(key), do: Keyword.has_key?(OutputOptions.schema(), key)
+  def output_option?(key),
+    do: Map.has_key?(validators(:output, &OutputOptions.schema/0), key)
+
+  # Validating against a keyword schema first validates the schema itself, so
+  # each fixed schema is compiled once and kept for the VM's lifetime.
+  @doc false
+  def compiled(name, build) do
+    key = {__MODULE__, name}
+
+    case :persistent_term.get(key, nil) do
+      nil ->
+        value = build.()
+        :persistent_term.put(key, value)
+        value
+
+      value ->
+        value
+    end
+  end
+
+  @doc false
+  def compiled_schema(name, schema),
+    do: compiled({:schema, name}, fn -> NimbleOptions.new!(schema.()) end)
+
+  # Each option of a schema compiled on its own, so one invalid option
+  # rejects only itself.
+  defp validators(name, schema) do
+    compiled({:validators, name}, fn ->
+      Map.new(schema.(), fn {key, spec} -> {key, NimbleOptions.new!([{key, spec}])} end)
+    end)
+  end
 
   # Every option accepts `:unset`, which clears it from presets and request
   # defaults. Unset options skip validation, so an error lists only the
   # values the option really takes. A mistake with one clear meaning is
   # repaired with a warning, and any other rejects only its own option.
   # `:flat` names keyword options checked by their own schema later.
-  defp collect(options, schema, location, opts \\ []) do
+  defp collect(options, validators, location, opts \\ []) do
     unless is_list(options) and Keyword.keyword?(options),
       do: raise(ArgumentError, "expected a keyword list, got: #{inspect(options)}")
 
-    unsettable = Keyword.get(opts, :unsettable, Keyword.keys(schema))
+    unsettable = Keyword.get_lazy(opts, :unsettable, fn -> Map.keys(validators) end)
     {options, repeated} = last_values(options, location, Keyword.get(opts, :flat, []))
 
     {values, issues, rejected} =
       Enum.reduce(options, {%{}, [], []}, fn {key, value}, {values, issues, rejected} ->
         {value, unset_issues} = collapse_unset(key, value, location)
 
-        case check(key, value, schema, unsettable, location) do
+        case check(key, value, validators, unsettable, location) do
           {:ok, checked} ->
             {Map.put(values, key, checked), issues ++ unset_issues, rejected}
 
@@ -141,20 +176,20 @@ defmodule ImagePipe.Plan.Builder.Options do
     {values, repeated ++ issues, rejected}
   end
 
-  defp check(key, :unset, schema, unsettable, location) do
+  defp check(key, :unset, validators, unsettable, location) do
     case key in unsettable do
       true -> {:ok, :unset}
-      false -> check_value(key, :unset, schema, location)
+      false -> check_value(key, :unset, validators, location)
     end
   end
 
-  defp check(key, value, schema, _unsettable, location),
-    do: check_value(key, value, schema, location)
+  defp check(key, value, validators, _unsettable, location),
+    do: check_value(key, value, validators, location)
 
-  defp check_value(key, value, schema, location) do
-    case Keyword.fetch(schema, key) do
-      {:ok, spec} ->
-        case NimbleOptions.validate([{key, value}], [{key, spec}]) do
+  defp check_value(key, value, validators, location) do
+    case Map.fetch(validators, key) do
+      {:ok, schema} ->
+        case NimbleOptions.validate([{key, value}], schema) do
           {:ok, [{^key, value}]} ->
             {:ok, value}
 
