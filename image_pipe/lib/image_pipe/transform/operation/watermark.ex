@@ -78,7 +78,7 @@ defmodule ImagePipe.Transform.Operation.Watermark do
   end
 
   defp apply_watermark(operation, state) do
-    with {:ok, mark} <- size(operation.image, operation.width, operation.height),
+    with {:ok, mark} <- resize(operation.image, operation.width, operation.height),
          {:ok, mark} <- fade(mark, operation.opacity),
          {:ok, mark} <- buffer_tiled_mark(mark, operation, state),
          {:ok, image} <- place(state.image, mark, operation) do
@@ -125,7 +125,10 @@ defmodule ImagePipe.Transform.Operation.Watermark do
          do: WorkLimits.axes(width, height)
   end
 
-  defp size(image, width, height) do
+  @doc false
+  @spec resize(VipsImage.t(), pos_integer(), pos_integer()) ::
+          {:ok, VipsImage.t()} | {:error, term()}
+  def resize(image, width, height) do
     case {Image.width(image), Image.height(image)} do
       {^width, ^height} ->
         {:ok, image}
