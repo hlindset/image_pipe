@@ -11,10 +11,6 @@ defmodule ImagePipe.API.Value do
 
   import ImagePipe.Plan.ValueBounds
 
-  @css_name_pattern ~r/\A[a-z]+\z/
-  @number_pattern ~r/\A-?[0-9]+(\.[0-9]+)?\z/
-  @nonneg_integer_pattern ~r/\A[0-9]+\z/
-
   @doc """
   Parses a plain decimal: an optional leading `-`, digits, and an optional
   `.digits` fraction. No exponent notation, no leading `+`, no whitespace.
@@ -24,7 +20,7 @@ defmodule ImagePipe.API.Value do
   """
   @spec number(String.t()) :: {:ok, number()} | {:error, :invalid_number}
   def number(string) when is_binary(string) do
-    if Regex.match?(@number_pattern, string) do
+    if number?(string) do
       try do
         {:ok, decimal_to_number(string)}
       rescue
@@ -82,7 +78,7 @@ defmodule ImagePipe.API.Value do
   def dimension("auto"), do: {:ok, :auto}
 
   def dimension(string) when is_binary(string) do
-    if Regex.match?(@nonneg_integer_pattern, string) do
+    if digits?(string) do
       case String.to_integer(string) do
         n when axis?(n) -> {:ok, {:px, n}}
         _zero_or_less -> {:error, :invalid_dimension}
@@ -124,7 +120,7 @@ defmodule ImagePipe.API.Value do
   # Require lowercase letters before lookup, whose case/hyphen/underscore
   # normalization would otherwise accept names outside the URL grammar.
   defp css_named_color(string) do
-    if Regex.match?(@css_name_pattern, string) do
+    if chars?(string, :lower) do
       case PlanColor.rgb_name(string) do
         {:ok, rgb} -> {:ok, rgb}
         {:error, _reason} -> :error
@@ -202,7 +198,7 @@ defmodule ImagePipe.API.Value do
   end
 
   defp padding_pixel(value) do
-    with true <- Regex.match?(@nonneg_integer_pattern, value),
+    with true <- digits?(value),
          n when padding?(n) <- String.to_integer(value) do
       {:ok, n}
     else
@@ -258,4 +254,29 @@ defmodule ImagePipe.API.Value do
   def flag("false"), do: {:ok, false}
   def flag("true"), do: {:error, :true_spelled_bare}
   def flag(other) when is_binary(other), do: {:error, :invalid_flag}
+
+  # Grammar checks scan bytes: OTP 28 and later rebuild a regex attribute at
+  # every use.
+
+  # `-?[0-9]+(\.[0-9]+)?`
+  defp number?("-" <> rest), do: unsigned_number?(rest)
+  defp number?(string), do: unsigned_number?(string)
+
+  defp unsigned_number?(string) do
+    case :binary.split(string, ".") do
+      [whole] -> digits?(whole)
+      [whole, fraction] -> digits?(whole) and digits?(fraction)
+    end
+  end
+
+  defp digits?(string), do: chars?(string, :digit)
+
+  # One or more bytes of `class`.
+  defp chars?(<<char, rest::binary>>, class),
+    do: char?(char, class) and (rest == "" or chars?(rest, class))
+
+  defp chars?(_empty, _class), do: false
+
+  defp char?(char, :digit), do: char in ?0..?9
+  defp char?(char, :lower), do: char in ?a..?z
 end

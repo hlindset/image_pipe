@@ -9,8 +9,6 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   @metadata_version 1
   @commit_timeout 5_000
-  @cache_key_hash_pattern ~r/\A[0-9A-Fa-f]{64}\z/
-  @body_sha256_pattern ~r/\A[0-9a-f]{64}\z/
   @option_keys [:root, :path_prefix, :pool]
   # Bounded-mode options: exhaustive list of all bounded-mode keys so that
   # validate_unknown_options/1 accepts them. Kept in sync with @options_schema.
@@ -853,7 +851,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   end
 
   defp valid_body_sha256?(body_sha256),
-    do: is_binary(body_sha256) and Regex.match?(@body_sha256_pattern, body_sha256)
+    do: is_binary(body_sha256) and hex64?(body_sha256, :lower)
 
   defp write_sink_metadata(paths, encoded_metadata) do
     temp_path = temp_path(paths)
@@ -1070,7 +1068,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   end
 
   defp partitions(hash) do
-    if Regex.match?(@cache_key_hash_pattern, hash) do
+    if hex64?(hash, :any) do
       do_partitions(hash)
     else
       {:error, {:invalid_hash, hash}}
@@ -1114,5 +1112,17 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   defp temp_path(paths) do
     random = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
     Path.join(paths.dir, ".#{paths.hash}.#{random}.tmp")
+  end
+
+  # 64 hex digits, scanned because OTP 28 and later rebuild a regex at every
+  # use. Body digests are lowercase.
+  defp hex64?(string, letters) when byte_size(string) == 64, do: hex?(string, letters)
+  defp hex64?(_string, _letters), do: false
+
+  defp hex?(<<>>, _letters), do: true
+
+  defp hex?(<<char, rest::binary>>, letters) do
+    (char in ?0..?9 or char in ?a..?f or (letters == :any and char in ?A..?F)) and
+      hex?(rest, letters)
   end
 end

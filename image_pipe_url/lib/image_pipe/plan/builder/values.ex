@@ -16,7 +16,7 @@ defmodule ImagePipe.Plan.Builder.Values do
   end
 
   defp normalize(value, :preset_name) when is_binary(value) do
-    case Regex.match?(~r/\A[A-Za-z0-9._-]+\z/, value) do
+    case chars?(value, :token) do
       true -> {:ok, value}
       false -> :error
     end
@@ -39,7 +39,7 @@ defmodule ImagePipe.Plan.Builder.Values do
   defp normalize(value, :watermark_name) when is_atom(value) and not is_boolean(value) do
     name = Atom.to_string(value)
 
-    case Regex.match?(~r/\A[a-z0-9_-]+\z/, name) do
+    case chars?(name, :name) do
       true -> {:ok, name}
       false -> :error
     end
@@ -164,7 +164,7 @@ defmodule ImagePipe.Plan.Builder.Values do
   end
 
   defp normalize(value, :path_token) when is_binary(value) do
-    case Regex.match?(~r/\A[A-Za-z0-9._-]+\z/, value) do
+    case chars?(value, :token) do
       true -> {:ok, value}
       false -> :error
     end
@@ -279,8 +279,19 @@ defmodule ImagePipe.Plan.Builder.Values do
   defp valid_class?(:all), do: true
   defp valid_class?("all"), do: false
 
-  defp valid_class?(name) when is_binary(name),
-    do: Regex.match?(~r/\A[a-z0-9][a-z0-9_-]*\z/, name)
+  defp valid_class?(<<first, rest::binary>>),
+    do: (first in ?a..?z or first in ?0..?9) and (rest == "" or chars?(rest, :name))
 
   defp valid_class?(_name), do: false
+
+  # Name checks scan bytes: OTP 28 and later rebuild a regex at every use.
+  defp chars?(<<char, rest::binary>>, class),
+    do: char?(char, class) and (rest == "" or chars?(rest, class))
+
+  defp chars?(_empty, _class), do: false
+
+  defp char?(char, :name), do: char in ?a..?z or char in ?0..?9 or char in [?_, ?-]
+
+  defp char?(char, :token),
+    do: char in ?a..?z or char in ?A..?Z or char in ?0..?9 or char in [?., ?_, ?-]
 end
