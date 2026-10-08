@@ -118,4 +118,34 @@ set -e
   exit 1
 }
 
+# With distribution on, the console works inside the container, and epmd and
+# the node listen on loopback only, so only the HTTP port is open beyond it.
+docker run -d --name "$name-dist" --read-only --tmpfs /tmp \
+  -e RELEASE_DISTRIBUTION=sname -e RELEASE_COOKIE=smoke-test-cookie \
+  -v "$work/config.toml:/etc/image_pipe/config.toml:ro" \
+  -v "$work/images:/data/images:ro" \
+  "$image" >/dev/null
+trap 'docker rm -f "$name-dist" >/dev/null 2>&1 || true; cleanup' EXIT
+
+rpc=
+for _ in $(seq 1 60); do
+  rpc=$(docker exec "$name-dist" bin/image_pipe_server rpc 'IO.puts(:pong)' 2>/dev/null || true)
+  [ "$rpc" = "pong" ] && break
+  sleep 1
+done
+[ "$rpc" = "pong" ] || {
+  echo "distribution: rpc from inside the container failed" >&2
+  docker logs "$name-dist" >&2 || true
+  exit 1
+}
+
+# /proc/net/tcp lists listening sockets (state 0A) as hex address:port.
+# 0100007F is 127.0.0.1 and 1F90 is port 8080.
+exposed=$(docker exec "$name-dist" cat /proc/net/tcp /proc/net/tcp6 2>/dev/null |
+  awk '$4 == "0A" { split($2, a, ":"); if (a[1] !~ /^(0100007F|0000000000000000FFFF00000100007F|00000000000000000000000001000000)$/ && a[2] != "1F90") print $2 }')
+[ -z "$exposed" ] || {
+  echo "distribution: sockets listening beyond loopback: $exposed" >&2
+  exit 1
+}
+
 echo "smoke test passed ($variant)"

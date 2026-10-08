@@ -235,6 +235,34 @@ defmodule ImagePipeServer.ConfigTest do
       assert config.http[:http_cache] == :auto
     end
 
+    test "a source error names the source as the file spells it" do
+      for name <- ["media", "TMDB", "my-media"] do
+        message =
+          error(fn ->
+            "[sources.\"#{name}\"]\nadapter = \"file\"\nmatch = \"path\"\nroot = \"/x\""
+            |> Toml.decode!()
+            |> Config.options!()
+            |> Config.build!()
+          end)
+
+        assert message =~ "invalid configuration: sources.#{name}: required :root_id option"
+      end
+    end
+
+    test "a TOML date or time where a table is expected names the setting" do
+      for {toml, setting} <- [
+            {"server = 1979-05-27", "server"},
+            {"[processing]\nformat_quality = 1979-05-27", "processing.format_quality"},
+            {"sources = 1979-05-27", "sources"},
+            {"[sources.a]\nadapter = \"file\"\nmatch = 07:32:00", "sources.a.match"},
+            {"[sources.a]\nadapter = \"file\"\nroot = \"/x\"\nroot_id = \"x\"\nmatch = \"path\"\ncache_policy = 1979-05-27T07:32:00Z",
+             "sources.a.cache_policy"}
+          ] do
+        message = error(fn -> toml |> Toml.decode!() |> Config.options!() end)
+        assert message =~ "invalid configuration: #{setting}: ", toml
+      end
+    end
+
     test "names url.keys in a signing-key error without quoting the key" do
       for {key, label} <- [{"zzsekrit", "zzsekrit"}, {"0123", "0123"}] do
         message =

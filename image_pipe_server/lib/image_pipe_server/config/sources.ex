@@ -85,7 +85,7 @@ defmodule ImagePipeServer.Config.Sources do
 
   @doc "Converts the `[sources]` table."
   @spec convert(term(), Convert.path()) :: Convert.result()
-  def convert(%{} = table, path) do
+  def convert(%{} = table, path) when not is_struct(table) do
     with {:ok, mounts} <-
            Convert.value({:map, :string, {:convert, &mount/2, "table"}}, table, path) do
       # Mount names are the operator's own identifiers, fixed at boot.
@@ -159,7 +159,7 @@ defmodule ImagePipeServer.Config.Sources do
         do: {key, value}
   end
 
-  defp mount(%{} = table, path) do
+  defp mount(%{} = table, path) when not is_struct(table) do
     with {:ok, name} <- required(table, "adapter", path),
          {:ok, module} <- adapter(name, path ++ ["adapter"]),
          {:ok, match} <- required(table, "match", path),

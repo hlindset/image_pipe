@@ -68,7 +68,7 @@ services:
       - /tmp
     ports:
       - "8080:8080"
-    stop_grace_period: 20s
+    stop_grace_period: 25s
     environment:
       IPS_URL__KEYS_FILE: /run/secrets/signing_keys
     secrets:
@@ -339,8 +339,9 @@ console, here with the Compose service from [Running](#running):
 docker compose exec images bin/image_pipe_server remote
 ```
 
-Keep port 4369 (epmd) and the node's distribution port unreachable from
-outside the container, including other containers on the same network.
+With distribution on, the node and its port mapper (epmd, port 4369) listen on
+127.0.0.1 only. `docker compose exec` runs the console inside the container,
+so the console can connect, and other containers on the same network can't.
 
 ## Without Docker
 

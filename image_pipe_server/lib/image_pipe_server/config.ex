@@ -370,7 +370,9 @@ defmodule ImagePipeServer.Config do
       )
 
   defp image_pipe!(sections, pool) do
-    library!(fn ->
+    sources = Keyword.get(sections, :sources) || []
+
+    library!(Keyword.keys(sources), fn ->
       shared =
         Keyword.get(sections, :url, []) ++
           processing(Keyword.get(sections, :processing, [])) ++
@@ -416,19 +418,21 @@ defmodule ImagePipeServer.Config do
   defp processing_pool(pool), do: [processing_pool: Keyword.fetch!(pool, :name)]
 
   # The library names the setting in its errors and keeps secret values out.
-  # It names a source as `:name`, which the file spells `sources.name`.
-  defp library!(fun) do
+  # It names a source as an inspected atom, such as `:"my-media"`, which the
+  # file spells `sources.my-media`.
+  defp library!(source_names \\ [], fun) do
     fun.()
   rescue
     error in ArgumentError ->
-      message =
-        Regex.replace(
-          ~r/\Ainvalid source :([a-z0-9_]+): /,
-          error.message,
-          "invalid configuration: sources.\\1: "
-        )
-
+      message = Enum.reduce(source_names, error.message, &source_message/2)
       reraise ConfigError, [message: message], __STACKTRACE__
+  end
+
+  defp source_message(name, message) do
+    case String.split(message, "invalid source #{inspect(name)}: ", parts: 2) do
+      ["", rest] -> Convert.error_message(["sources", Atom.to_string(name)], rest)
+      _other -> message
+    end
   end
 
   # The server always bounds processing, so a burst waits or gets a 503
