@@ -239,25 +239,28 @@ defmodule ImagePipe.Transform.Executor do
 
   defp execute_rotate(%State{} = state, angle, opts) do
     with {:ok, state} <- flush_display(state),
+         frame = state.source_dimensions,
          {:ok, state} <- Transform.run(state, %Rotate{angle: angle}, opts) do
-      {:ok, rotated_source_frame(state)}
+      {:ok, rotated_source_frame(state, frame, angle)}
     end
   end
 
-  # After a shrunk decode, later crops still resolve in full-resolution units,
-  # so the frame becomes the rotated image scaled back up by the shrink. A
-  # rotation mixes the axes, so the shrink becomes uniform.
-  defp rotated_source_frame(%State{decode_shrink: nil} = state),
+  # After a shrunk decode, later crops still resolve in full-resolution units.
+  # The frame becomes the bounding box of the rotated full-resolution frame,
+  # computed as libvips does. Scaling the shrunk image's box back up would
+  # multiply its rounding by the shrink, so sizes would depend on whether the
+  # format shrinks on load.
+  defp rotated_source_frame(%State{decode_shrink: nil} = state, _frame, _angle),
     do: Geometry.clear_source_frame(state)
 
-  defp rotated_source_frame(%State{decode_shrink: %{w: w_shrink, h: h_shrink}} = state) do
-    shrink = (w_shrink + h_shrink) / 2
-    {width, height} = Geometry.live_dims(state)
+  defp rotated_source_frame(%State{} = state, frame, angle) do
+    {{width, height}, _headroom} = decode_frame(angle, frame)
+    {live_width, live_height} = Geometry.live_dims(state)
 
     %State{
       state
-      | source_dimensions: {round(width * shrink), round(height * shrink)},
-        decode_shrink: %{w: shrink, h: shrink}
+      | source_dimensions: {width, height},
+        decode_shrink: %{w: width / live_width, h: height / live_height}
     }
   end
 

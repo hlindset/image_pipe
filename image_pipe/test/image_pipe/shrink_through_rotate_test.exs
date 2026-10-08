@@ -242,6 +242,24 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
       assert_equivalent(jpeg_img, png_img, shrink, "rot:10 -> fit:400")
     end
 
+    test "an arbitrary rotate gives the same output size whether or not the decode shrinks" do
+      for {source, options} <- [
+            {&structured(2400, 1600, &1), "rotate=30/w=300"},
+            {&structured(2400, 1600, &1), "rotate=30/w=200"},
+            {&structured(2400, 1600, &1), "flip=h/rotate=30/w=200"},
+            {&oriented(2400, 1600, 6, &1), "rotate=30/w=200"}
+          ] do
+        {jpeg_img, shrink} = run(source.(".jpg"), options)
+        {png_img, nil} = run(source.(".png"), options)
+
+        assert shrink != nil, options
+
+        assert {Image.width(jpeg_img), Image.height(jpeg_img)} ==
+                 {Image.width(png_img), Image.height(png_img)},
+               options
+      end
+    end
+
     # EXIF-6 displays the stored 3200×2400 as 2400×3200. The display frame's
     # bounding box is ≈ 3678 wide; against 480 × 2 that's shrink 2. The stored
     # frame's (≈ 3971) would give 4.
