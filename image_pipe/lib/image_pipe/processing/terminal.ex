@@ -3,6 +3,7 @@ defmodule ImagePipe.Processing.Terminal do
 
   alias ImagePipe.Decode
   alias ImagePipe.Format
+  alias ImagePipe.Output.Clamp
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Output.Terminal.LqipCss
   alias ImagePipe.Plan.Spec
@@ -112,10 +113,15 @@ defmodule ImagePipe.Processing.Terminal do
     |> put_size(Map.get(geometry.debug_facts, :source_bytes))
   end
 
-  # Without operations or a placeholder drawn from this decode, the result is
-  # the source in the request's orientation, known from the header alone.
+  # Without operations, a placeholder drawn from this decode, or a binding
+  # result limit, the result is the source in the request's orientation, known
+  # from the header alone.
   defp result_facts(state, geometry, request, config, lqip_css) do
-    if lqip_css != :executed and Executor.operation_names(request) == [] do
+    header_only? =
+      lqip_css != :executed and Executor.operation_names(request) == [] and
+        not Clamp.binds?(geometry.display_dimensions, result_limits(request, config))
+
+    if header_only? do
       {width, height} = geometry.display_dimensions
 
       {:ok, %{"width" => width, "height" => height, "dpr" => List.last(request.groups).dpr},
@@ -125,11 +131,14 @@ defmodule ImagePipe.Processing.Terminal do
     end
   end
 
+  # The image path scales a result down to the result limits after executing,
+  # lazily, so the clamped header has the dimensions it would deliver.
   defp executed_facts(state, request, config, lqip_css) do
-    with {:ok, state} <- Executor.execute(state, request, config) do
+    with {:ok, state} <- Executor.execute(state, request, config),
+         {:ok, clamped, _info} <- Clamp.clamp(state.image, result_limits(request, config), config) do
       result = %{
-        "width" => Image.width(state.image),
-        "height" => Image.height(state.image),
+        "width" => Image.width(clamped),
+        "height" => Image.height(clamped),
         "dpr" => state.dpr
       }
 
@@ -137,6 +146,11 @@ defmodule ImagePipe.Processing.Terminal do
            do: {:ok, result, state.degraded?}
     end
   end
+
+  # Without an explicit format the delivered format depends on Accept, which
+  # info doesn't negotiate, so only the server's limits apply.
+  defp result_limits(%Spec{output: %Output{format: format}}, config),
+    do: Processing.result_limits(format, config)
 
   defp put_lqip_css(result, state, request, config, :executed) do
     with {:ok, value, _degraded?} <- placeholder(:lqip_css, state, request, config, :executed),

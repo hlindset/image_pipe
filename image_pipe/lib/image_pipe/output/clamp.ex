@@ -62,6 +62,10 @@ defmodule ImagePipe.Output.Clamp do
     end
   end
 
+  @doc "Whether `limits` would scale down an image of these dimensions."
+  @spec binds?({pos_integer(), pos_integer()}, limits()) :: boolean()
+  def binds?({w, h}, %{} = limits), do: primary_scale(limits, w, h) < 1.0
+
   # Run the product-neutral `clamp/3` and, when it actually downscaled, emit the
   # `[:output, :clamp]` one-shot tagged with the negotiated `format`. Fires only
   # when clamping occurred (`clamp/3` returns `nil` info for a no-op).
