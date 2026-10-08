@@ -432,11 +432,16 @@ defmodule ImagePipe.Execution.SourceCache do
     _exception in File.Error -> {:error, {:source, :unreadable}}
   end
 
+  # Without a private staging directory, the original is buffered in memory.
   defp stage(response, source, preparation, config, _known) do
     dir = Input.staging_dir()
-    _result = File.mkdir_p(dir)
     path = Input.temporary_path(dir)
-    lease = Resources.track(path)
+
+    lease =
+      case Input.private_dir(dir) do
+        :ok -> Resources.track(path)
+        :error -> :unavailable
+      end
 
     try do
       stream =
@@ -486,6 +491,8 @@ defmodule ImagePipe.Execution.SourceCache do
   defp spool(stream, path, response, preparation, config) do
     case File.open(path, [:read, :write, :binary, :exclusive]) do
       {:ok, io} ->
+        _result = File.chmod(path, 0o600)
+
         try do
           Overlap.with_session(response, preparation, config, path, fn overlap ->
             spool_file(stream, io, config[:max_body_bytes], overlap)

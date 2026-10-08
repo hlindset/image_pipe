@@ -140,6 +140,50 @@ defmodule ImagePipe.Cache.Input do
   # only them, not the whole tmp directory.
   def staging_dir, do: Path.join(System.tmp_dir!(), "image_pipe")
 
+  @doc """
+  Makes `dir` a directory only this VM's user can read or write, creating it
+  if needed. Returns `:error` for a symlink, a file, or another user's
+  directory, which on a shared tmp directory could expose or replace staged
+  originals. A directory found private once stays so for the VM's lifetime.
+  """
+  @spec private_dir(Path.t()) :: :ok | :error
+  def private_dir(dir) do
+    key = {__MODULE__, :private_dir, dir}
+
+    case :persistent_term.get(key, false) do
+      true ->
+        :ok
+
+      false ->
+        with :ok <- make_private(dir), do: :persistent_term.put(key, true)
+    end
+  end
+
+  defp make_private(dir) do
+    _result = File.mkdir(dir)
+
+    with {:ok, %File.Stat{type: :directory, uid: uid}} <- File.lstat(dir),
+         {:ok, ^uid} <- own_uid(),
+         :ok <- File.chmod(dir, 0o700) do
+      :ok
+    else
+      _other -> :error
+    end
+  end
+
+  # The VM's user owns a file it just created.
+  defp own_uid do
+    probe = Path.join(System.tmp_dir!(), ".image-pipe-#{random()}.uid")
+
+    with :ok <- File.write(probe, "", [:exclusive]) do
+      try do
+        with {:ok, %File.Stat{uid: uid}} <- File.lstat(probe), do: {:ok, uid}
+      after
+        File.rm(probe)
+      end
+    end
+  end
+
   defp random, do: Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
 
   # `sha256` is the digest of the bytes at `path`, computed while staging them.
