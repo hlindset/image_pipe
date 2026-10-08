@@ -165,8 +165,8 @@ defmodule ImagePipe.Response.CachePolicy do
   @doc """
   Bounds the response's cache lifetime by the request's `expires`, so no
   cache holds or serves it after the URL stops being valid. Runs after
-  `limit_to_source/6`, over whichever `Cache-Control` the policy settled on.
-  A host `Cache-Control` and `no-store` are left alone. A response with a
+  `limit_to_source/6`, over whichever `Cache-Control` the policy settled on,
+  the host's included. `no-store` is left alone. A response with a
   generated ETag but no `Cache-Control` (`:validators`) gets one bounded by
   the expiry.
   """
@@ -182,14 +182,24 @@ defmodule ImagePipe.Response.CachePolicy do
 
   def limit_to_expiry(prepared, conn, expires, now, mode, config) do
     remaining = max(0, expires - now)
-    host? = CacheHeaders.host_cache_control?(get_resp_header(conn, "cache-control"))
+    host = get_resp_header(conn, "cache-control")
+    age = response_age(prepared.headers)
 
-    case List.keyfind(prepared.headers, "cache-control", 0) do
-      _control when host? ->
-        prepared
+    case {CacheHeaders.host_cache_control?(host),
+          List.keyfind(prepared.headers, "cache-control", 0)} do
+      # The capped value replaces the host's header, as `no-store` does.
+      {true, _control} ->
+        capped = {"cache-control", host |> Enum.join(", ") |> cap_control(age, remaining)}
 
-      {"cache-control", control} ->
-        capped = cap_control(control, response_age(prepared.headers), remaining)
+        %{
+          prepared
+          | headers: List.keystore(prepared.headers, "cache-control", 0, capped),
+            representation_headers:
+              List.keystore(prepared.representation_headers, "cache-control", 0, capped)
+        }
+
+      {false, {"cache-control", control}} ->
+        capped = cap_control(control, age, remaining)
 
         %{
           prepared
@@ -197,11 +207,11 @@ defmodule ImagePipe.Response.CachePolicy do
               List.keystore(prepared.headers, "cache-control", 0, {"cache-control", capped})
         }
 
-      nil when prepared.etag != nil ->
+      {false, nil} when prepared.etag != nil ->
         control = "#{visibility(mode, config)}, max-age=#{remaining}, must-revalidate"
         %{prepared | headers: prepared.headers ++ [{"cache-control", control}]}
 
-      nil ->
+      {false, nil} ->
         prepared
     end
   end
@@ -226,6 +236,12 @@ defmodule ImagePipe.Response.CachePolicy do
           stale = min(directive_seconds(directives, "stale-while-revalidate"), remaining - fresh)
           put_directive(directives, "stale-while-revalidate", stale)
         end
+
+      # Shared caches use `s-maxage` in place of `max-age`.
+      directives =
+        if directive_seconds(directives, "s-maxage") - age > remaining,
+          do: put_directive(directives, "s-maxage", remaining + age),
+          else: directives
 
       directives
       |> Enum.concat(["must-revalidate"])
