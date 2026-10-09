@@ -223,11 +223,14 @@ jobs:
           retention-days: 1
 
   # Joins each variant's per-architecture digests into one tagged manifest list.
+  # The release-server environment holds this behind a maintainer's approval,
+  # given after every image has built and passed its smoke test.
   tag-images:
     name: Tag images (${{ matrix.variant }})
     if: github.event_name == 'push'
     needs: [verify, image]
     runs-on: ubuntu-26.04
+    environment: release-server
     permissions:
       contents: read
       packages: write
