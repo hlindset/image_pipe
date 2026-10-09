@@ -4,22 +4,10 @@ defmodule ImagePipe.Telemetry.Trace.InboundPlugTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Telemetry
-  alias ImagePipe.Telemetry.Trace.{Span, TestExporter}
+  alias ImagePipe.Test.Trace.{Span, TestExporter}
 
   @tp "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
   @tp_unsampled "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-00"
-
-  setup do
-    TestExporter.set_receiver(self())
-
-    on_exit(fn ->
-      Telemetry.detach_tracer()
-      TestExporter.clear_receiver()
-    end)
-
-    :ok
-  end
 
   defp build_opts do
     [
@@ -57,14 +45,29 @@ defmodule ImagePipe.Telemetry.Trace.InboundPlugTest do
     assert root.parent_span_id == "b7ad6b7169203331"
   end
 
-  test "propagates an inbound unsampled flag (flags=00) onto the root span" do
+  test "an inbound unsampled flag (flags=00) leaves the request unsampled" do
     :ok = TestExporter.attach(self(), extract_inbound: true)
     conn = call(valid_request_path(), [{"traceparent", @tp_unsampled}], build_opts())
     assert conn.status == 200
 
+    refute_receive {:span, %Span{name: "image_pipe.request"}}, 300
+  end
+
+  test "a span the host opened wins over the inbound header" do
+    :ok = TestExporter.attach(self(), extract_inbound: true)
+    host = TestExporter.open_span()
+    conn = call(valid_request_path(), [{"traceparent", @tp}], build_opts())
+    assert conn.status == 200
+
     assert_receive {:span, %Span{name: "image_pipe.request"} = root}
-    assert root.trace_id == "0af7651916cd43dd8448eb211c80319c"
-    assert root.trace_flags == 0
+    assert root.trace_id == host.trace_id
+    assert root.parent_span_id == host.span_id
+  end
+
+  test "the inbound context does not outlive the request" do
+    :ok = TestExporter.attach(self(), extract_inbound: true)
+    assert call(valid_request_path(), [{"traceparent", @tp}], build_opts()).status == 200
+    assert :otel_tracer.current_span_ctx() == :undefined
   end
 
   test "ignores traceparent by default (opt-in)" do

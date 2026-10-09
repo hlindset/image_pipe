@@ -5,8 +5,9 @@ defmodule ImagePipeServer.TracingTest do
 
   # ImagePipe checks for the OpenTelemetry API when it compiles; without it,
   # attaching the tracer at boot raises.
-  test "the build includes the OpenTelemetry exporter" do
-    assert ImagePipe.Telemetry.Trace.OpenTelemetryExporter.ready?()
+  test "the tracer attaches" do
+    assert ImagePipe.Telemetry.attach_tracer() == :ok
+    ImagePipe.Telemetry.detach_tracer()
   end
 
   test "is off without OTEL_* variables" do

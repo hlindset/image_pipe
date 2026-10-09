@@ -11,8 +11,8 @@ defmodule ImagePipe.Delivery.TraceParentageTest do
   alias ImagePipe.Delivery
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Telemetry
-  alias ImagePipe.Telemetry.Trace.TestExporter
   alias ImagePipe.Test.Trace.SpanWalk
+  alias ImagePipe.Test.Trace.TestExporter
 
   defmodule SilentCacheProbe do
     @moduledoc false
@@ -39,13 +39,7 @@ defmodule ImagePipe.Delivery.TraceParentageTest do
   # not a prefix-scoped handler, so a prefix wouldn't isolate anything.
   # `async: false` bounds leakage instead — ExUnit runs sync modules serially.
   setup do
-    TestExporter.set_receiver(self())
     :ok = TestExporter.attach(self())
-
-    on_exit(fn ->
-      Telemetry.detach_tracer()
-      TestExporter.clear_receiver()
-    end)
 
     :ok
   end

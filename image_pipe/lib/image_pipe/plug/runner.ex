@@ -20,21 +20,22 @@ defmodule ImagePipe.Plug.Runner do
 
   @spec run(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def run(%Plug.Conn{} = conn, config) do
-    Telemetry.Trace.maybe_extract_inbound(conn)
     conn = CORS.maybe_register(conn, config)
 
-    Telemetry.span(Telemetry.telemetry_opts(config), [:request], %{}, fn ->
-      {conn, metadata} = route(conn, config)
+    Telemetry.Trace.with_inbound(conn, fn ->
+      Telemetry.span(Telemetry.telemetry_opts(config), [:request], %{}, fn ->
+        {conn, metadata} = route(conn, config)
 
-      # A committed 200 whose stream then failed: the shared Sender stamps
-      # :image_pipe_send_result (:processing_error), and the request span's
-      # stop result must agree with the [:send] stop.
-      metadata =
-        metadata
-        |> Map.put(:result, Map.get(conn.private, :image_pipe_send_result, metadata.result))
-        |> Map.put(:status, conn.status)
+        # A committed 200 whose stream then failed: the shared Sender stamps
+        # :image_pipe_send_result (:processing_error), and the request span's
+        # stop result must agree with the [:send] stop.
+        metadata =
+          metadata
+          |> Map.put(:result, Map.get(conn.private, :image_pipe_send_result, metadata.result))
+          |> Map.put(:status, conn.status)
 
-      {conn, metadata}
+        {conn, metadata}
+      end)
     end)
     |> abort_failed_stream()
   end

@@ -9,7 +9,7 @@ defmodule ImagePipe.Test.Trace.SpanWalk do
   `ImagePipe.Telemetry.APIDeliverySpanParentageTest`).
   """
 
-  alias ImagePipe.Telemetry.Trace.Span
+  alias ImagePipe.Test.Trace.Span
 
   @doc "Drain all `{:span, %Span{}}` messages sent to the calling process."
   @spec collect(timeout()) :: [Span.t()]

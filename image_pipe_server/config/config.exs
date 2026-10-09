@@ -8,8 +8,7 @@ config :image_pipe_server,
 # ImagePipeServer.Tracing); the SDK's OS variables override these.
 config :opentelemetry,
   traces_exporter: :none,
-  resource: [service: %{name: "image_pipe_server"}],
-  id_generator: ImagePipe.Telemetry.Trace.OtelIdGenerator
+  resource: [service: %{name: "image_pipe_server"}]
 
 config :logger, :default_formatter, metadata: [:request_id]
 

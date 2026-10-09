@@ -4,18 +4,11 @@ defmodule ImagePipe.Telemetry.Trace.CrossProcessTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Telemetry
-  alias ImagePipe.Telemetry.Trace.{Span, TestExporter}
   alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias ImagePipe.Test.Trace.{Span, TestExporter}
 
   setup do
-    TestExporter.set_receiver(self())
     :ok = TestExporter.attach(self())
-
-    on_exit(fn ->
-      Telemetry.detach_tracer()
-      TestExporter.clear_receiver()
-    end)
 
     :ok
   end

@@ -1,6 +1,18 @@
-defmodule ImagePipe.Telemetry.Trace.Capture do
+defmodule ImagePipe.Telemetry.Trace.Handler do
   @moduledoc false
-  alias ImagePipe.Telemetry.Trace.{Context, Id, Inbound, Span, Stack}
+  # Turns ImagePipe's telemetry events into OpenTelemetry spans as they
+  # happen. A `:start` opens a span under the process's current context and
+  # makes it current; the matching `:stop` or `:exception` ends it and makes
+  # its parent current again. One-shot events become events on the current
+  # span.
+  #
+  # Open spans are kept in the process dictionary, keyed by the event's
+  # `telemetry_span_context`, so a stop finds its own span even when other
+  # spans opened or closed in this process in between. A span must stop in
+  # the process that started it.
+
+  @compile {:no_warn_undefined,
+            [OpenTelemetry.Span, :opentelemetry, :otel_ctx, :otel_span, :otel_tracer]}
 
   @handler_id {__MODULE__, :spans}
 
@@ -43,7 +55,7 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     [:cache, :rescan]
   ]
 
-  # One-shot (terminal) events — folded as annotations onto the current span.
+  # One-shot events, added as events on the current span.
   @oneshot_stages [
     [:cache, :coordination],
     # Delivered-probe marker: folds onto the enclosing [:encode, :search] span,
@@ -161,8 +173,7 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     # the requested page or frame of a multi-frame source (a small integer)
     :page,
     # realized post-op/post-materialize dimensions ({width, height}); a tuple,
-    # coerced the same as :params by the OTel exporter's generic non-primitive
-    # fallback (OtelReplay.coerce/1)
+    # coerced the same as :params (coerce/1)
     :dims,
     # output-clamp one-shot shape: the pre/post dimension tuples and the resolved
     # limits map (all product-neutral geometry; the negotiated :format is above)
@@ -193,176 +204,6 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     :weight
   ]
 
-  @spec attach(map()) :: :ok
-  def attach(%{prefix: prefix, exporter: _exporter} = config) do
-    events =
-      for(
-        stage <- @span_stages,
-        suffix <- [:start, :stop, :exception],
-        do: prefix ++ stage ++ [suffix]
-      ) ++
-        for(stage <- @oneshot_stages, do: prefix ++ stage)
-
-    _ = :telemetry.detach(@handler_id)
-
-    _ =
-      :telemetry.attach_many(
-        @handler_id,
-        events,
-        &__MODULE__.handle_event/4,
-        Map.put(config, :plen, length(prefix))
-      )
-
-    :ok
-  end
-
-  @spec detach() :: :ok
-  def detach do
-    _ = :telemetry.detach(@handler_id)
-    :ok
-  end
-
-  def handle_event(event, measurements, meta, config) do
-    case classify(event, config.plen) do
-      {:start, name} -> on_start(name, measurements, meta, config)
-      {:stop, _name} -> on_stop(measurements, meta, config)
-      {:exception, _name} -> on_exception(measurements, meta, config)
-      {:oneshot, name} -> on_oneshot(name, measurements, meta)
-    end
-  rescue
-    # A tracer must never crash the request path; drop the event on any internal error.
-    _ -> :ok
-  end
-
-  # ---- classification --------------------------------------------------------
-
-  defp classify(event, plen) do
-    stage = Enum.drop(event, plen)
-
-    # Check one-shots before suffix dispatch: events such as [:cache, :flush, :stop]
-    # must not pop and export an unrelated span.
-    if stage in @oneshot_stages do
-      {:oneshot, name(stage)}
-    else
-      case List.last(stage) do
-        :start -> {:start, name(stage_without_suffix(stage))}
-        :stop -> {:stop, name(stage_without_suffix(stage))}
-        :exception -> {:exception, name(stage_without_suffix(stage))}
-        _ -> {:oneshot, name(stage)}
-      end
-    end
-  end
-
-  defp stage_without_suffix(stage), do: Enum.drop(stage, -1)
-
-  defp name(stage), do: "image_pipe." <> Enum.map_join(stage, ".", &Atom.to_string/1)
-
-  # ---- handlers --------------------------------------------------------------
-
-  defp on_start(name, measurements, meta, config) do
-    {trace_id, parent_id, flags, root?} =
-      case Stack.current() do
-        nil ->
-          {trace_id, parent_id, flags} = root_ids(config)
-          {trace_id, parent_id, flags, true}
-
-        %Span{trace_id: t, span_id: s, trace_flags: pf} ->
-          {t, s, pf, false}
-      end
-
-    Stack.push(%Span{
-      trace_id: trace_id,
-      span_id: Id.span_id(),
-      parent_span_id: parent_id,
-      name: name,
-      kind: :internal,
-      start_time: measurements[:system_time],
-      trace_flags: flags,
-      attributes: safe_attrs(meta),
-      pid: self(),
-      node: node(),
-      root: root?
-    })
-  end
-
-  defp on_stop(measurements, meta, %{exporter: exporter}) do
-    case Stack.pop() do
-      nil ->
-        :ok
-
-      # A synthetic remote-parent frame must never be finalized/exported: it belongs to
-      # the upstream process. If a stray :stop pops it, re-push and no-op.
-      %Span{name: "remote_parent", start_time: nil} = parent ->
-        Stack.push(parent)
-        :ok
-
-      span ->
-        span
-        |> merge_attrs(meta)
-        |> finalize(measurements, status_from(meta))
-        |> export(exporter)
-    end
-  end
-
-  defp on_exception(measurements, meta, %{exporter: exporter}) do
-    case Stack.pop() do
-      nil ->
-        :ok
-
-      # See on_stop: never finalize/export the synthetic cross-process parent frame.
-      %Span{name: "remote_parent", start_time: nil} = parent ->
-        Stack.push(parent)
-        :ok
-
-      span ->
-        span
-        |> Map.update!(:events, &[exception_event(meta) | &1])
-        |> finalize(measurements, :error)
-        |> Map.put(:status_message, exception_message(meta))
-        |> export(exporter)
-    end
-  end
-
-  defp on_oneshot(name, measurements, meta) do
-    case Stack.current() do
-      nil ->
-        :ok
-
-      span ->
-        time = Map.get_lazy(measurements, :monotonic_time, &System.monotonic_time/0)
-        event = %{name: name, time: time, attributes: safe_attrs(meta)}
-        Stack.pop()
-        Stack.push(%{span | events: [event | span.events]})
-    end
-  end
-
-  # ---- helpers ---------------------------------------------------------------
-
-  # Inbound root context (W3C traceparent) is consumed once at the root span; falls
-  # back to minting a fresh trace when no inbound context is present.
-  defp root_ids(_config) do
-    case Inbound.take() do
-      %Context{trace_id: t, span_id: s, trace_flags: f} -> {t, s, f}
-      nil -> {Id.trace_id(), nil, 1}
-    end
-  end
-
-  defp finalize(span, measurements, status) do
-    %{
-      span
-      | duration_native: measurements[:duration],
-        end_time: end_time(span.start_time, measurements),
-        status: status
-    }
-  end
-
-  # start_time is native system_time (wall-clock); duration is a native monotonic
-  # delta. Both native → the sum is a valid native end_time. Exporters convert to
-  # ms/µs as needed; we keep native here (and duration_native) as the source of truth.
-  defp end_time(nil, _), do: nil
-  defp end_time(start, %{duration: d}) when is_integer(d), do: start + d
-  defp end_time(start, _), do: start
-
   # Results that are normal outcomes rather than failures: a detector that found
   # nothing, a cache declining an entry, or a client that went away. Every other
   # result is a failure.
@@ -379,25 +220,142 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     :cancelled
   ]
 
-  defp status_from(meta) do
-    if meta[:result] in @ok_results, do: :ok, else: :error
+  @spec attach([atom()]) :: :ok
+  def attach(prefix) do
+    events =
+      for(
+        stage <- @span_stages,
+        suffix <- [:start, :stop, :exception],
+        do: prefix ++ stage ++ [suffix]
+      ) ++
+        for(stage <- @oneshot_stages, do: prefix ++ stage)
+
+    _ = :telemetry.detach(@handler_id)
+
+    _ =
+      :telemetry.attach_many(
+        @handler_id,
+        events,
+        &__MODULE__.handle_event/4,
+        length(prefix)
+      )
+
+    :ok
   end
 
-  defp exception_event(meta) do
-    %{name: "exception", attributes: %{kind: meta[:kind], reason: inspect(meta[:reason])}}
+  @spec detach() :: :ok
+  def detach do
+    _ = :telemetry.detach(@handler_id)
+    :ok
   end
 
-  defp exception_message(meta), do: inspect(meta[:reason])
+  def handle_event(event, measurements, meta, prefix_length) do
+    stage = Enum.drop(event, prefix_length)
 
-  # Merge allowlisted stop metadata into the start attributes. Stop values win
-  # so final outcomes replace placeholders.
-  defp merge_attrs(%Span{attributes: attrs} = span, meta) do
-    %{span | attributes: Map.merge(attrs, safe_attrs(meta))}
+    # One-shots first: events such as [:cache, :flush, :stop] must not end a span.
+    if stage in @oneshot_stages do
+      on_oneshot(name(stage), measurements, meta)
+    else
+      {stage, [phase]} = Enum.split(stage, -1)
+      on_phase(phase, stage, measurements, meta)
+    end
+  rescue
+    # A tracer must never crash the request path; drop the event on any internal error.
+    _ -> :ok
   end
 
-  defp safe_attrs(meta) do
-    Map.take(meta, @safe_keys)
+  defp on_phase(:start, stage, measurements, meta) do
+    parent = :otel_ctx.get_current()
+
+    span_ctx =
+      :otel_tracer.start_span(parent, tracer(), name(stage), %{
+        start_time: measurements.monotonic_time,
+        kind: :internal,
+        attributes: start_attributes(stage, meta)
+      })
+
+    Process.put({__MODULE__, meta.telemetry_span_context}, {span_ctx, parent})
+    :otel_ctx.attach(:otel_tracer.set_current_span(parent, span_ctx))
   end
 
-  defp export(span, exporter), do: exporter.export(span)
+  defp on_phase(:stop, _stage, measurements, meta) do
+    finish(meta, measurements, fn span_ctx ->
+      :otel_span.set_attributes(span_ctx, attributes(meta))
+
+      unless meta[:result] in @ok_results do
+        :otel_span.set_status(span_ctx, :error, "")
+      end
+    end)
+  end
+
+  defp on_phase(:exception, _stage, measurements, meta) do
+    finish(meta, measurements, fn span_ctx ->
+      :otel_span.record_exception(span_ctx, meta.kind, meta.reason, meta.stacktrace, %{})
+      :otel_span.set_status(span_ctx, :error, inspect(meta.reason))
+    end)
+  end
+
+  defp finish(meta, measurements, annotate) do
+    case Process.delete({__MODULE__, meta.telemetry_span_context}) do
+      nil ->
+        :ok
+
+      {span_ctx, parent} ->
+        annotate.(span_ctx)
+        :otel_span.end_span(span_ctx, measurements.monotonic_time)
+
+        if :otel_tracer.current_span_ctx() == span_ctx do
+          :otel_ctx.attach(parent)
+        end
+    end
+  end
+
+  defp on_oneshot(name, measurements, meta) do
+    case :otel_tracer.current_span_ctx() do
+      :undefined ->
+        :ok
+
+      span_ctx ->
+        time = Map.get_lazy(measurements, :monotonic_time, &:opentelemetry.timestamp/0)
+        :otel_span.add_events(span_ctx, [:opentelemetry.event(time, name, attributes(meta))])
+    end
+  end
+
+  @doc false
+  # The tracer every ImagePipe span is created with.
+  def tracer, do: :opentelemetry.get_application_tracer(__MODULE__)
+
+  defp name(stage), do: "image_pipe." <> Enum.map_join(stage, ".", &Atom.to_string/1)
+
+  # The request span also carries the host's request ID, such as the one
+  # `Plug.RequestId` puts in Logger metadata, linking the trace to log lines.
+  defp start_attributes([:request], meta) do
+    case Logger.metadata()[:request_id] do
+      nil -> attributes(meta)
+      request_id -> meta |> attributes() |> Map.put(:request_id, coerce(request_id))
+    end
+  end
+
+  defp start_attributes(_stage, meta), do: attributes(meta)
+
+  # Allowlisted metadata, as OpenTelemetry attribute values. The API drops
+  # values that aren't primitives, so others are coerced instead.
+  defp attributes(meta) do
+    for {key, value} <- Map.take(meta, @safe_keys), value != nil, into: %{} do
+      {key, coerce(value)}
+    end
+  end
+
+  defp coerce(value) when is_boolean(value) or is_number(value) or is_binary(value), do: value
+  defp coerce(value) when is_atom(value), do: Atom.to_string(value)
+
+  defp coerce(value) when is_list(value) do
+    if Enum.all?(value, &(is_binary(&1) or is_atom(&1) or is_number(&1))) do
+      Enum.map(value, &to_string/1)
+    else
+      inspect(value)
+    end
+  end
+
+  defp coerce(value), do: inspect(value)
 end

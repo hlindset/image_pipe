@@ -41,9 +41,7 @@ config :opentelemetry,
   span_processor: :batch,
   traces_exporter: :otlp,
   # the service name Jaeger shows
-  resource: [service: %{name: "my_app"}],
-  # keeps ImagePipe's trace IDs on new traces
-  id_generator: ImagePipe.Telemetry.Trace.OtelIdGenerator
+  resource: [service: %{name: "my_app"}]
 
 config :opentelemetry_exporter,
   otlp_protocol: :http_protobuf,
@@ -55,35 +53,35 @@ config :opentelemetry_exporter,
 config :opentelemetry, traces_exporter: :none
 ```
 
-The `id_generator` setting makes a request's root span a true root in
-Jaeger, with the same trace ID as ImagePipe's log lines (see
-[trace and span IDs](../tracing.md#trace-and-span-ids)). For a release, move
-this configuration to `config/runtime.exs` and read the endpoint from an
-environment variable.
+For a release, move this configuration to `config/runtime.exs` and read the
+endpoint from an environment variable.
 
 ## Attach the tracer
 
 ```elixir
 # lib/my_app/application.ex
-ImagePipe.Telemetry.attach_tracer(exporter: ImagePipe.Telemetry.Trace.OpenTelemetryExporter)
+ImagePipe.Telemetry.attach_tracer()
 ```
 
-If a proxy you control sets `traceparent`, add `extract_inbound: true` so
+If your app doesn't trace its own requests and a proxy you control sets
+`traceparent`, add `extract_inbound: true` so
 ImagePipe's traces join the caller's (see
 [inbound trace context](../tracing.md#inbound-trace-context)).
 
 Request an image. After the SDK's next batch export, Jaeger shows an
 `image_pipe.request` trace with child spans such as `image_pipe.send`,
 `image_pipe.deliver`, `image_pipe.encode`, `image_pipe.transform.execute`,
-and `image_pipe.transform.operation`.
+and `image_pipe.transform.operation`. If your app already traces its
+requests, `image_pipe.request` appears inside your request's trace instead.
 
 ## Troubleshooting missing traces
 
-If `attach_tracer/1` raises, or no traces appear, check
-`ImagePipe.Telemetry.Trace.OpenTelemetryExporter.available?/0`. ImagePipe
-detects the OpenTelemetry API when it compiles, so it returns `false` when
-you added the SDK after ImagePipe was compiled. Recompile ImagePipe:
+ImagePipe checks for the OpenTelemetry API when it compiles. If
+`attach_tracer/1` raises that it needs the API, recompile ImagePipe:
 
 ```sh
 mix deps.compile image_pipe --force
 ```
+
+If no traces appear, check that `traces_exporter` isn't `:none` in the
+environment you run, and wait for the SDK's next batch export.

@@ -10,11 +10,10 @@ defmodule ImagePipe.Telemetry.APIDeliverySpanParentageTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Telemetry
-  alias ImagePipe.Telemetry.Trace.TestExporter
   alias ImagePipe.Test.PlugFixture.CacheProbe
   alias ImagePipe.Test.PlugFixture.OriginImage
   alias ImagePipe.Test.Trace.SpanWalk
+  alias ImagePipe.Test.Trace.TestExporter
 
   # No `telemetry_prefix` here (project convention otherwise requires one for
   # telemetry-asserting tests): `TestExporter`/`Capture` attach via a global
@@ -22,13 +21,7 @@ defmodule ImagePipe.Telemetry.APIDeliverySpanParentageTest do
   # wouldn't isolate anything. Cross-test leakage is bounded instead by
   # `async: false` — ExUnit runs sync modules serially, after all async ones.
   setup do
-    TestExporter.set_receiver(self())
     :ok = TestExporter.attach(self())
-
-    on_exit(fn ->
-      Telemetry.detach_tracer()
-      TestExporter.clear_receiver()
-    end)
 
     :ok
   end

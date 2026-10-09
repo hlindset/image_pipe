@@ -1,22 +1,16 @@
-defmodule ImagePipe.Telemetry.Trace.CaptureTest do
+defmodule ImagePipe.Telemetry.Trace.HandlerTest do
   use ExUnit.Case, async: false
   alias ImagePipe.Cache.OutputWork
   alias ImagePipe.Telemetry
-  alias ImagePipe.Telemetry.Trace.{Context, Inbound, Span, TestExporter}
   alias ImagePipe.Test.FakeDetector
+  alias ImagePipe.Test.Trace.{Span, TestExporter}
   alias ImagePipe.Transform
   alias ImagePipe.Transform.Detector.Composite
   alias ImagePipe.Transform.Operation.Resize
   alias ImagePipe.Transform.State
 
   setup do
-    TestExporter.set_receiver(self())
     :ok = TestExporter.attach(self())
-
-    on_exit(fn ->
-      Telemetry.detach_tracer()
-      TestExporter.clear_receiver()
-    end)
 
     :ok
   end
@@ -65,8 +59,8 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert_receive {:span,
                     %Span{
                       name: "image_pipe.source.fetch",
-                      status: :ok,
-                      attributes: %{result: :not_modified}
+                      status: :unset,
+                      attributes: %{result: "not_modified"}
                     }}
   end
 
@@ -74,17 +68,26 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     prefix = [__MODULE__, :fetch_decode_frames]
     :ok = TestExporter.attach(self(), prefix: prefix)
 
-    for metadata <- [
-          %{result: :ok, source_frames: 3},
-          %{result: :ok, skipped: true, detected_source_format: :gif},
-          %{result: :processing_error, error: :input_limit, limit: :frames},
-          %{
-            result: :processing_error,
-            error: :unsupported_source_format,
-            detected_source_format: :tiff,
-            source_loader: "dcrawload"
-          },
-          %{result: :processing_error, error: :page_out_of_range, page: 3, source_frames: 3}
+    for {metadata, expected} <- [
+          {%{result: :ok, source_frames: 3}, %{result: "ok", source_frames: 3}},
+          {%{result: :ok, skipped: true, detected_source_format: :gif},
+           %{result: "ok", skipped: true, detected_source_format: "gif"}},
+          {%{result: :processing_error, error: :input_limit, limit: :frames},
+           %{result: "processing_error", error: "input_limit", limit: "frames"}},
+          {%{
+             result: :processing_error,
+             error: :unsupported_source_format,
+             detected_source_format: :tiff,
+             source_loader: "dcrawload"
+           },
+           %{
+             result: "processing_error",
+             error: "unsupported_source_format",
+             detected_source_format: "tiff",
+             source_loader: "dcrawload"
+           }},
+          {%{result: :processing_error, error: :page_out_of_range, page: 3, source_frames: 3},
+           %{result: "processing_error", error: "page_out_of_range", page: 3, source_frames: 3}}
         ] do
       Telemetry.span([telemetry_prefix: prefix], [:source, :fetch_decode], %{}, fn ->
         {:ok, metadata}
@@ -93,7 +96,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
       assert_receive {:span,
                       %Span{name: "image_pipe.source.fetch_decode", attributes: attributes}}
 
-      assert attributes == metadata
+      assert attributes == expected
     end
   end
 
@@ -102,7 +105,10 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     TestExporter.attach(self(), prefix: prefix)
     composite = Composite.new([FakeDetector])
 
-    for {response, result} <- [{{:ok, []}, :ok}, {{:error, "private detector reason"}, :error}] do
+    for {response, result, status} <- [
+          {{:ok, []}, "ok", :unset},
+          {{:error, "private detector reason"}, "error", :error}
+        ] do
       FakeDetector.returning(response)
 
       assert ^response =
@@ -111,7 +117,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
       assert_received {:span,
                        %Span{
                          name: "image_pipe.transform.detect.model",
-                         status: ^result,
+                         status: ^status,
                          attributes: %{result: ^result, regions: 0} = attributes
                        }}
 
@@ -152,7 +158,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     end)
 
     assert_receive {:span,
-                    %Span{name: "image_pipe.processing.admission", status: :ok} = admission}
+                    %Span{name: "image_pipe.processing.admission", status: :unset} = admission}
 
     assert_receive {:processing_worker, worker}
     assert %{active: 1} = ImagePipe.ProcessingPool.stats(pool)
@@ -168,7 +174,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert admission.parent_span_id == request.span_id
     assert execution.parent_span_id == request.span_id
     assert terminal.parent_span_id == execution.span_id
-    assert execution.attributes.result == :timeout
+    assert execution.attributes.result == "timeout"
     assert admission.attributes.active == 0
     assert admission.attributes.queued == 0
     assert execution.trace_id == request.trace_id
@@ -194,13 +200,13 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
       assert_receive {:span,
                       %Span{
                         name: ^name,
-                        status: :ok,
-                        attributes: %{pool: :input},
+                        status: :unset,
+                        attributes: %{pool: "input"},
                         events: [event]
                       }}
 
       assert event.name == "image_pipe.cache.coordination"
-      assert event.attributes.result == :coalesced
+      assert event.attributes.result == "coalesced"
     end
   end
 
@@ -215,7 +221,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert_receive {:span,
                     %Span{
                       name: "image_pipe.source.stage",
-                      attributes: %{result: :source_error, error: :receive_timeout}
+                      attributes: %{result: "source_error", error: "receive_timeout"}
                     }}
   end
 
@@ -258,12 +264,12 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
 
     assert_receive {:span, %Span{name: "image_pipe.request", trace_id: trace_id}}
 
-    for phase <- [:prepare, :open] do
+    for phase <- ["prepare", "open"] do
       assert_receive {:span,
                       %Span{
                         name: "image_pipe.source.watermark",
                         trace_id: ^trace_id,
-                        attributes: %{phase: ^phase, result: :ok}
+                        attributes: %{phase: ^phase, result: "ok"}
                       }}
     end
   end
@@ -283,7 +289,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
 
     assert_receive {:span, %Span{name: "image_pipe.request", events: [event]}}
     assert event.name == "image_pipe.cache.coordination"
-    assert event.attributes == %{pool: :output, operation: :output, result: :acquired}
+    assert event.attributes == %{pool: "output", operation: "output", result: "acquired"}
   end
 
   test "captures a nested tree with one trace_id and correct parentage" do
@@ -295,7 +301,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert root.parent_span_id == nil
     assert child.parent_span_id == root.span_id
     assert child.trace_id == root.trace_id
-    assert root.status == :ok
+    assert root.status == :unset
     assert is_integer(child.duration_native)
     assert is_integer(root.start_time)
     assert is_integer(root.end_time)
@@ -310,8 +316,8 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert_receive {:span,
                     %Span{
                       name: "image_pipe.cache.sweep",
-                      status: :ok,
-                      attributes: %{pool: :input, pins: 1, temps: 2, bodies: 0, bytes: 10}
+                      status: :unset,
+                      attributes: %{pool: "input", pins: 1, temps: 2, bodies: 0, bytes: 10}
                     }}
   end
 
@@ -323,8 +329,8 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert_receive {:span,
                     %Span{
                       name: "image_pipe.cache.rescan",
-                      status: :ok,
-                      attributes: %{pool: :output, adopted: 3, dropped: 1, resynced: 0}
+                      status: :unset,
+                      attributes: %{pool: "output", adopted: 3, dropped: 1, resynced: 0}
                     }}
   end
 
@@ -333,12 +339,12 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert_receive {:span, %Span{name: "image_pipe.request", status: :error}}
   end
 
-  test "maps the :options (OPTIONS) result to :ok status, not :error" do
+  test "leaves the :options (OPTIONS) result's status unset, not :error" do
     Telemetry.span([], [:request], %{}, fn -> {:ok, %{result: :options, status: 204}} end)
-    assert_receive {:span, %Span{name: "image_pipe.request", status: :ok}}
+    assert_receive {:span, %Span{name: "image_pipe.request", status: :unset}}
   end
 
-  test "maps normal stage outcomes to :ok status" do
+  test "leaves normal stage outcomes' status unset" do
     for {stage, result} <- [
           {[:transform, :detect], :detected},
           {[:transform, :detect], :no_regions},
@@ -349,7 +355,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
       Telemetry.span([], stage, %{}, fn -> {:ok, %{result: result}} end)
       name = "image_pipe." <> Enum.map_join(stage, ".", &Atom.to_string/1)
       assert_receive {:span, %Span{name: ^name, status: status}}
-      assert {result, status} == {result, :ok}
+      assert {result, status} == {result, :unset}
     end
   end
 
@@ -369,23 +375,13 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     end
   end
 
-  test "captures an exception as :error with a folded exception event" do
+  test "records an exception as :error with an exception event" do
     assert_raise RuntimeError, fn ->
       Telemetry.span([], [:request], %{}, fn -> raise "boom" end)
     end
 
     assert_receive {:span, %Span{name: "image_pipe.request", status: :error} = s}
     assert Enum.any?(s.events, &(&1.name == "exception"))
-  end
-
-  test "marks the trace root with root: true and children with root: false" do
-    emit_nested()
-
-    assert_receive {:span, %Span{name: "image_pipe.transform.execute"} = child}
-    assert_receive {:span, %Span{name: "image_pipe.request"} = root}
-
-    assert root.root
-    refute child.root
   end
 
   test "captures the encode-search span with its product-neutral start attributes" do
@@ -403,8 +399,8 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     )
 
     assert_receive {:span, %Span{name: "image_pipe.encode.search"} = span}
-    assert span.status == :ok
-    assert span.attributes[:objective] == :ssimulacra2
+    assert span.status == :unset
+    assert span.attributes[:objective] == "ssimulacra2"
     assert span.attributes[:max_bytes] == 200_000
     assert span.attributes[:target] == 90.0
   end
@@ -415,6 +411,8 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     :ok = TestExporter.attach(self(), prefix: prefix)
 
     for terminal <- [:info, :blurhash, :lqip_css] do
+      expected = Atom.to_string(terminal)
+
       Telemetry.span(
         [telemetry_prefix: prefix],
         [:output, :terminal],
@@ -425,8 +423,8 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
       )
 
       assert_receive {:span, %Span{name: "image_pipe.output.terminal"} = span}
-      assert span.status == :ok
-      assert span.attributes[:terminal] == terminal
+      assert span.status == :unset
+      assert span.attributes[:terminal] == expected
     end
 
     Telemetry.span(
@@ -437,14 +435,14 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     )
 
     assert_receive {:span, %Span{name: "image_pipe.output.terminal"} = span}
-    assert span.attributes[:placeholders] == [:blurhash]
+    assert span.attributes[:placeholders] == ["blurhash"]
   end
 
   test "captures :sig_key_index on the API URL dialect's [:parse] stop metadata" do
     Telemetry.span([], [:parse], %{}, fn -> {:ok, %{result: :ok, sig_key_index: 1}} end)
 
     assert_receive {:span, %Span{name: "image_pipe.parse"} = span}
-    assert span.status == :ok
+    assert span.status == :unset
     assert span.attributes[:sig_key_index] == 1
   end
 
@@ -454,7 +452,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     end)
 
     assert_receive {:span, %Span{name: "image_pipe.preset.lookup"} = span}
-    assert span.status == :ok
+    assert span.status == :unset
     assert span.attributes[:names] == ["default", "card"]
     assert span.attributes[:fetched] == 2
     assert span.attributes[:batches] == 2
@@ -489,14 +487,14 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert probe.trace_id == search.trace_id
     assert is_integer(probe.duration_native)
 
-    assert probe.attributes[:phase] == :objective
+    assert probe.attributes[:phase] == "objective"
     assert probe.attributes[:quality] == 62
     assert probe.attributes[:bytes] == 12_345
     assert probe.attributes[:index] == 1
     assert probe.attributes[:score] == 90.42
   end
 
-  test "folds the delivered-probe chosen marker onto the enclosing search span" do
+  test "adds the delivered-probe chosen marker as an event on the enclosing search span" do
     Telemetry.span([], [:encode, :search], %{objective: :ssimulacra2}, fn ->
       Telemetry.execute(
         [],
@@ -517,13 +515,13 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert chosen
     assert chosen.attributes[:quality] == 64
     assert chosen.attributes[:bytes] == 12_345
-    assert chosen.attributes[:phase] == :objective
+    assert chosen.attributes[:phase] == "objective"
     assert chosen.attributes[:index] == 3
     assert chosen.attributes[:score] == 90.42
-    assert chosen.attributes[:scorer] == :full
+    assert chosen.attributes[:scorer] == "full"
   end
 
-  test "folds the debug collect error marker onto the enclosing span" do
+  test "adds the debug collect error marker as an event on the enclosing span" do
     Telemetry.span([], [:cache, :lookup], %{}, fn ->
       Telemetry.execute([], [:debug, :collect, :error], %{}, %{error: :decode_failed})
       {:ok, %{result: :ok}}
@@ -535,32 +533,37 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
 
     event = Enum.find(span.events, &(&1.name == "image_pipe.debug.collect.error"))
     assert event
-    assert event.attributes[:error] == :decode_failed
+    assert event.attributes[:error] == "decode_failed"
   end
 
   test "one-shot events keep the metadata the event reference documents" do
     events = [
-      {[:http_cache, :prepare], %{effective_mode: :auto, byte_identity: :strong, etag: true}},
-      {[:http_cache, :conditional, :match], %{method: :get}},
+      {[:http_cache, :prepare], %{effective_mode: :auto, byte_identity: :strong, etag: true},
+       %{effective_mode: "auto", byte_identity: "strong", etag: true}},
+      {[:http_cache, :conditional, :match], %{method: :get}, %{method: "get"}},
       {[:http_cache, :cache_hit, :headers],
+       %{etag: true, generated_cache_headers: true, representation_headers: false},
        %{etag: true, generated_cache_headers: true, representation_headers: false}},
       {[:transform, :detect, :blend],
-       %{attention: {0.5, 0.5}, face: {0.2, 0.3}, blended: {0.3, 0.4}, weight: 0.6}},
-      {[:cache, :coordination], %{operation: :source, pool: :input, result: :acquired}},
-      {[:cache, :eviction, :stop], %{trigger: :reconcile, pool: :output}}
+       %{attention: {0.5, 0.5}, face: {0.2, 0.3}, blended: {0.3, 0.4}, weight: 0.6},
+       %{attention: "{0.5, 0.5}", face: "{0.2, 0.3}", blended: "{0.3, 0.4}", weight: 0.6}},
+      {[:cache, :coordination], %{operation: :source, pool: :input, result: :acquired},
+       %{operation: "source", pool: "input", result: "acquired"}},
+      {[:cache, :eviction, :stop], %{trigger: :reconcile, pool: :output},
+       %{trigger: "reconcile", pool: "output"}}
     ]
 
     Telemetry.span([], [:send], %{}, fn ->
-      for {event, meta} <- events, do: Telemetry.execute([], event, %{}, meta)
+      for {event, meta, _expected} <- events, do: Telemetry.execute([], event, %{}, meta)
       {:ok, %{result: :ok}}
     end)
 
     assert_receive {:span, %Span{name: "image_pipe.send"} = span}
 
-    for {event, meta} <- events do
+    for {event, _meta, expected} <- events do
       name = "image_pipe." <> Enum.map_join(event, ".", &Atom.to_string/1)
       captured = Enum.find(span.events, &(&1.name == name))
-      assert {name, captured.attributes} == {name, meta}
+      assert {name, captured.attributes} == {name, expected}
     end
   end
 
@@ -575,7 +578,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     )
 
     assert_receive {:span, %Span{name: "image_pipe.transform.detect"} = span}
-    assert span.attributes[:weights] == %{"face" => 2.0}
+    assert span.attributes[:weights] == inspect(%{"face" => 2.0})
   end
 
   test "nests the ssimulacra2 probe cost legs (encode/decode/metric) under the probe span" do
@@ -638,14 +641,14 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
 
     assert_receive {:span, %Span{name: "image_pipe.encode.search"} = span}
     # start attributes preserved
-    assert span.attributes[:objective] == :ssimulacra2
+    assert span.attributes[:objective] == "ssimulacra2"
     assert span.attributes[:max_bytes] == 200_000
     # stop attributes (the per-result verdict) now captured
     assert span.attributes[:chosen_quality] == 62
     assert span.attributes[:chosen_bytes] == 12_345
     assert span.attributes[:final_score] == 90.42
-    assert span.attributes[:scorer] == :crop
-    assert span.attributes[:outcome] == :hit
+    assert span.attributes[:scorer] == "crop"
+    assert span.attributes[:outcome] == "hit"
   end
 
   test "captures HTTP status and the classified error tag from stop metadata" do
@@ -656,7 +659,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert_receive {:span, %Span{name: "image_pipe.request"} = span}
     assert span.status == :error
     assert span.attributes[:status] == 422
-    assert span.attributes[:error] == :body_too_large
+    assert span.attributes[:error] == "body_too_large"
   end
 
   test "captures the realized :dims tuple from an operation span's stop metadata" do
@@ -671,8 +674,8 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
              Transform.run(state, resize, telemetry_prefix: prefix)
 
     assert_receive {:span, %Span{name: "image_pipe.transform.operation"} = span}
-    assert span.attributes[:operation] == :resize
-    assert span.attributes[:dims] == {100, 80}
+    assert span.attributes[:operation] == "resize"
+    assert span.attributes[:dims] == "{100, 80}"
     refute Map.has_key?(span.attributes, :index)
   end
 
@@ -691,12 +694,12 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     end)
 
     assert_receive {:span, %Span{name: "image_pipe.transform.input_color_management"} = span}
-    assert span.status == :ok
-    assert span.attributes[:working_space] == :VIPS_INTERPRETATION_sRGB
+    assert span.status == :unset
+    assert span.attributes[:working_space] == "VIPS_INTERPRETATION_sRGB"
     assert span.attributes[:imported?] == true
   end
 
-  test "folds the ignored-options one-shot onto the request span with the option keys" do
+  test "adds the ignored-options one-shot as an event on the request span" do
     Telemetry.span([], [:request], %{}, fn ->
       Telemetry.ignored_options([], ["fit"], [%{locations: [{:group, 0, :fit}]}])
       {:ok, %{result: :ok}}
@@ -708,7 +711,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     refute Map.has_key?(event.attributes, :locations)
   end
 
-  test "folds the clamp one-shot onto the enclosing span with its dimension/limit attributes" do
+  test "adds the clamp one-shot as an event on the enclosing span" do
     Telemetry.span([], [:encode], %{}, fn ->
       Telemetry.execute(
         [],
@@ -731,28 +734,50 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
 
     clamp = Enum.find(span.events, &(&1.name == "image_pipe.output.clamp"))
     assert clamp
-    assert clamp.attributes[:format] == :webp
-    assert clamp.attributes[:source_dimensions] == {2000, 1500}
-    assert clamp.attributes[:dimensions] == {1000, 750}
+    assert clamp.attributes[:format] == "webp"
+    assert clamp.attributes[:source_dimensions] == "{2000, 1500}"
+    assert clamp.attributes[:dimensions] == "{1000, 750}"
 
-    assert clamp.attributes[:limits] == %{
-             max_width: 1000,
-             max_height: :infinity,
-             max_pixels: 1_000_000
-           }
+    assert clamp.attributes[:limits] ==
+             inspect(%{max_width: 1000, max_height: :infinity, max_pixels: 1_000_000})
   end
 
-  test "an inbound-continued root keeps root: true despite a non-nil parent" do
-    Inbound.put(%Context{
-      trace_id: "0123456789abcdef0123456789abcdef",
-      span_id: "fedcba9876543210",
-      trace_flags: 1
-    })
+  test "a request span nests under the caller's current span" do
+    caller = TestExporter.open_span()
 
     Telemetry.span([], [:request], %{}, fn -> {:ok, %{result: :ok}} end)
 
-    assert_receive {:span, %Span{name: "image_pipe.request"} = root}
-    assert root.root
-    assert root.parent_span_id == "fedcba9876543210"
+    assert_receive {:span, %Span{name: "image_pipe.request"} = request}
+    assert request.trace_id == caller.trace_id
+    assert request.parent_span_id == caller.span_id
+  end
+
+  test "a request span carries the host's request ID from Logger metadata" do
+    metadata = [request_id: "req-123"]
+    Logger.metadata(metadata)
+
+    Telemetry.span([], [:request], %{}, fn ->
+      Telemetry.span([], [:parse], %{}, fn -> {:ok, %{result: :ok}} end)
+      {:ok, %{result: :ok}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.request"} = request}
+    assert request.attributes[:request_id] == "req-123"
+    assert_receive {:span, %Span{name: "image_pipe.parse"} = parse}
+    refute Map.has_key?(parse.attributes, :request_id)
+  end
+
+  test "a span stops by its own identity, not the most recently opened span" do
+    opts = []
+    outer = Telemetry.start_span(opts, [:processing, :admission], %{})
+    inner = Telemetry.start_span(opts, [:processing, :execute], %{})
+    Telemetry.stop_span(outer, %{result: :admitted})
+    Telemetry.stop_span(inner, %{result: :ok})
+
+    assert_receive {:span, %Span{name: "image_pipe.processing.admission"} = admission}
+    assert_receive {:span, %Span{name: "image_pipe.processing.execute"} = execute}
+    assert admission.attributes.result == "admitted"
+    assert execute.attributes.result == "ok"
+    assert execute.parent_span_id == admission.span_id
   end
 end

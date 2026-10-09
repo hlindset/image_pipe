@@ -77,9 +77,7 @@ defmodule ImagePipeServer.ApplicationTest do
 
   describe "tracer_options/1" do
     test "ignores an inbound traceparent by default" do
-      options = App.tracer_options(Config.build!([]))
-      assert options[:exporter] == ImagePipe.Telemetry.Trace.OpenTelemetryExporter
-      assert options[:extract_inbound] == false
+      assert App.tracer_options(Config.build!([])) == [extract_inbound: false]
     end
 
     test "continues an inbound traceparent with trust_traceparent" do

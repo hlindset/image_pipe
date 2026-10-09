@@ -4,8 +4,7 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Telemetry
-  alias ImagePipe.Telemetry.Trace.{Span, TestExporter}
+  alias ImagePipe.Test.Trace.{Span, TestExporter}
 
   @prefix [__MODULE__, :materialization]
 
@@ -47,13 +46,7 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
   end
 
   setup do
-    TestExporter.set_receiver(self())
     :ok = TestExporter.attach(self(), prefix: @prefix)
-
-    on_exit(fn ->
-      Telemetry.detach_tracer()
-      TestExporter.clear_receiver()
-    end)
 
     :ok
   end
@@ -120,7 +113,7 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
         parent.attributes.operation
       end
 
-    assert Enum.sort(operations) == [:resize, :rotate]
+    assert Enum.sort(operations) == ["resize", "rotate"]
   end
 
   test "pipeline-boundary EXIF materialization nests directly under execution" do
@@ -129,7 +122,7 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
 
     spans = collect_spans()
     assert [mat] = Enum.filter(spans, &(&1.name == "image_pipe.transform.materialize"))
-    assert mat.attributes.dims == {80, 40}
+    assert mat.attributes.dims == "{80, 40}"
 
     parent = parent_of(spans, mat)
     assert parent, "materialize span must have a captured parent"
@@ -142,7 +135,7 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
 
     spans = collect_spans()
     assert [mat] = Enum.filter(spans, &(&1.name == "image_pipe.transform.materialize"))
-    assert mat.attributes.dims == {120, 80}
+    assert mat.attributes.dims == "{120, 80}"
     assert parent_of(spans, mat).name == "image_pipe.transform.execute"
   end
 

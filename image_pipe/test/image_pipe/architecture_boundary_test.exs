@@ -248,8 +248,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_deps(application, [
       ImagePipe.Cache,
       ImagePipe.Output,
-      ImagePipe.Source,
-      ImagePipe.Telemetry
+      ImagePipe.Source
     ])
 
     assert_boundary_exports(application, [])
@@ -369,36 +368,20 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     telemetry = boundary_declaration(ImagePipe.Telemetry)
 
     assert_boundary_deps(telemetry, [])
-    # ImagePipe.Telemetry.Trace is the opt-in span-tracer facade; the Plug edge calls
-    # Trace.maybe_extract_inbound/1, so it is exported. RequestContext is exported because
-    # execution, delivery, and the processing pool carry the request's trace context and
-    # Logger metadata across their process hops. Trace.Stack is exported because the
-    # processing pool keeps each job's span frame on its shared process.
-    # Trace.ReqStep is exported because the source Req-client build site attaches it to
-    # trace outbound fetches as a logical client span. Trace.Span and Trace.Exporter are
-    # exported because a host implements the exporter behaviour (Trace.Exporter) and
-    # receives captured spans (Trace.Span) — that is the public exporter contract.
-    # Trace.OpenTelemetryExporter is the built-in opt-in exporter a host names directly
-    # in attach_tracer/1, so it is a public entry point (it uses only the public
-    # OpenTelemetry API; the boundary stays dependency-free). Trace.OtelIdGenerator is the
-    # id generator a host names in its :opentelemetry config for that exporter.
-    # Trace.OtelReplay is exported solely so ImagePipe.Application can supervise it; it is
-    # exported-but-internal (@moduledoc false), the same posture as Trace.Stack.
+    # Trace holds the tracer's attach state and the Plug edge's inbound
+    # extraction. RequestContext is exported because execution, delivery, and
+    # the processing pool carry the request's trace context and Logger metadata
+    # across their process hops. Trace.ReqStep is exported because the source
+    # Req-client build site attaches it to trace outbound fetches.
     assert_boundary_exports(telemetry, [
       ImagePipe.Telemetry.RequestContext,
       ImagePipe.Telemetry.Trace,
-      ImagePipe.Telemetry.Trace.Stack,
-      ImagePipe.Telemetry.Trace.Span,
-      ImagePipe.Telemetry.Trace.Exporter,
-      ImagePipe.Telemetry.Trace.ReqStep,
-      ImagePipe.Telemetry.Trace.OpenTelemetryExporter,
-      ImagePipe.Telemetry.Trace.OtelIdGenerator,
-      ImagePipe.Telemetry.Trace.OtelReplay
+      ImagePipe.Telemetry.Trace.ReqStep
     ])
   end
 
-  test "telemetry trace capture does not reference concrete transform or source modules" do
-    source = File.read!("lib/image_pipe/telemetry/trace/capture.ex")
+  test "the trace handler does not reference concrete transform or source modules" do
+    source = File.read!("lib/image_pipe/telemetry/trace/handler.ex")
     refute source =~ "ImagePipe.Transform.Operation"
     refute source =~ "ImagePipe.Source."
   end
