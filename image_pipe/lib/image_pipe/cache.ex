@@ -29,6 +29,7 @@ defmodule ImagePipe.Cache do
 
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
+  alias ImagePipe.Cache.FileSystem.PeriodicSweep
   alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.FileSystem.Sweep
   alias ImagePipe.Cache.Input
@@ -101,15 +102,20 @@ defmodule ImagePipe.Cache do
   def sweep_staged, do: Sweep.run_staged(Input.staging_dir(), [])
 
   @doc false
-  # One-shot cleanup an instance runs at start. A cache used without an
+  # Sweeps the staging directory at start and periodically after.
+  def staged_sweep_spec,
+    do:
+      {PeriodicSweep,
+       id: {Sweep, :staged}, sweep: {__MODULE__, :sweep_staged, []}, at_start?: true}
+
+  @doc false
+  # Periodic cleanup an instance runs for its caches. A cache used without an
   # instance isn't swept.
   @spec startup_specs(keyword()) :: [Supervisor.child_spec()]
   def startup_specs(options) do
     for key <- [:cache, :input_cache],
         {FileSystem, cache_opts} <- [Keyword.get(options, key)],
-        spec = Store.sweep_spec(cache_opts),
-        spec != nil,
-        do: spec
+        do: Store.sweep_spec(cache_opts)
   end
 
   @doc false

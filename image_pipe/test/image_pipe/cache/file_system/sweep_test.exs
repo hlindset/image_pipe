@@ -1,6 +1,7 @@
 defmodule ImagePipe.Cache.FileSystem.SweepTest do
   use ExUnit.Case, async: true
 
+  alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Sweep
 
   @hash String.duplicate("a", 64)
@@ -59,6 +60,35 @@ defmodule ImagePipe.Cache.FileSystem.SweepTest do
 
     assert %{bodies: 0} = Sweep.sweep_root(root)
     assert File.exists?(body)
+  end
+
+  test "removes an old body whose key's meta names another body", %{root: root} do
+    key = %ImagePipe.Cache.Key{hash: @hash, data: [schema_version: 1]}
+    opts = [root: root]
+
+    metadata =
+      struct!(ImagePipe.Cache.Entry.Metadata,
+        content_type: "image/webp",
+        headers: [],
+        created_at: ~U[2026-10-09 10:00:00Z],
+        output_format: :webp
+      )
+
+    {:ok, sink} = FileSystem.open_sink(key, metadata, opts)
+    {:ok, sink} = FileSystem.write_chunk(sink, "current body", opts)
+    FileSystem.commit_sink(sink, opts)
+
+    {:ok, paths} = FileSystem.paths(key, opts)
+    [current] = Path.wildcard(Path.join(paths.dir, "*.body"))
+    File.touch!(current, @old)
+    stranded = write!(paths.dir, "#{@hash}.#{String.duplicate("e", 64)}.body", @old)
+    fresh = write!(paths.dir, "#{@hash}.#{String.duplicate("f", 64)}.body")
+
+    assert %{bodies: 1} = Sweep.sweep_root(root)
+    refute File.exists?(stranded)
+    assert File.exists?(current)
+    assert File.exists?(fresh)
+    assert {:hit, _entry} = FileSystem.get(key, opts)
   end
 
   test "skips directories that aren't cache partitions", %{root: root} do

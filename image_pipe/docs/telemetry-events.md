@@ -387,10 +387,12 @@ its saved state at startup.
 
 ### `[:cache, :sweep]`
 
-Span. Emitted when ImagePipe deletes the
-[files a crash left behind](cache.md#files-left-by-a-crash): once per
-`ImagePipe.Cache.FileSystem` cache when an instance starts, and once for
-staged originals when the `:image_pipe` application starts.
+Span. Emitted each time ImagePipe checks for
+[leftover files](cache.md#leftover-files), whether or not it finds any. Each
+check repeats every 24 hours. The first runs when an instance starts for an
+unbounded `ImagePipe.Cache.FileSystem` cache, after its startup scan for a
+bounded cache, and when the `:image_pipe` application starts for staged
+originals.
 
 - Start metadata: `:pool` (atom): `:output` or `:input` for a cache, `:staging`
   for staged originals.

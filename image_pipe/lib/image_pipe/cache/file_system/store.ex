@@ -5,6 +5,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   alias ImagePipe.Cache.File, as: CacheFile
   alias ImagePipe.Cache.FileSystem.Admission
   alias ImagePipe.Cache.FileSystem.CheckedDirs
+  alias ImagePipe.Cache.FileSystem.PeriodicSweep
   alias ImagePipe.Cache.FileSystem.Sweep
   alias ImagePipe.Cache.Key
   alias ImagePipe.SafePath
@@ -201,20 +202,18 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   end
 
   @doc false
-  # An unbounded pool has no Admission scan, so an instance runs this one-shot
-  # sweep at start. A bounded pool sweeps after its scan.
+  # An instance sweeps each pool periodically. A bounded pool's Admission scan
+  # sweeps at start, so its first periodic sweep waits one interval. An
+  # unbounded pool has no scan and sweeps at start.
   def sweep_spec(opts) do
-    if not Keyword.has_key?(opts, :max_size_bytes) do
-      root = Path.join(Keyword.fetch!(opts, :root), Keyword.get(opts, :path_prefix, ""))
-      pool = Keyword.get(opts, :pool, :output)
-      telemetry = Keyword.take(opts, [:telemetry_prefix])
+    root = Path.join(Keyword.fetch!(opts, :root), Keyword.get(opts, :path_prefix, ""))
+    pool = Keyword.get(opts, :pool, :output)
+    telemetry = Keyword.take(opts, [:telemetry_prefix])
 
-      %{
-        id: {Sweep, Keyword.fetch!(opts, :root)},
-        start: {Task, :start_link, [Sweep, :run, [root, pool, telemetry]]},
-        restart: :temporary
-      }
-    end
+    {PeriodicSweep,
+     id: {Sweep, Keyword.fetch!(opts, :root)},
+     sweep: {Sweep, :run, [root, pool, telemetry]},
+     at_start?: not Keyword.has_key?(opts, :max_size_bytes)}
   end
 
   # Translate validated+derived seconds-based opts into the millisecond keys
