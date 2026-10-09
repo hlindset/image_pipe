@@ -4,8 +4,11 @@
 #   mise exec -- mix run bench/cache_policy.exs
 #   mise exec -- mix run bench/cache_policy.exs zipf-0.8 5
 #   mise exec -- mix run bench/cache_policy.exs --real shift 5
+#   mise exec -- mix run bench/cache_policy.exs --random-sweep
 #
 # Optional arguments: one workload and one cache size (% of catalog bytes).
+# `--random-sweep` replaces the policy list with a grid of random admission
+# thresholds and odds, each run with three seeds for the random draws.
 #
 # By default W-TinyLFU runs an in-memory model of Admission's queues that
 # calls the real Sketch, Doorkeeper and Policy modules, so the full matrix
@@ -47,7 +50,8 @@ defmodule CachePolicyBench do
     cost: :true_cost,
     admission: {:random, 6, 128},
     aging: :default,
-    gate: :average
+    gate: :average,
+    seed: 9
   }
   @policies [
     {"lru", :lru},
@@ -72,6 +76,12 @@ defmodule CachePolicyBench do
         rest -> {:model, rest}
       end
 
+    {policies, args} =
+      case args do
+        ["--random-sweep" | rest] -> {random_sweep(), rest}
+        rest -> {@policies, rest}
+      end
+
     {workloads, percents} =
       case args do
         [] -> {@workloads, @cache_percents}
@@ -86,7 +96,7 @@ defmodule CachePolicyBench do
       mean_entry_bytes = div(catalog_bytes, @catalog)
 
       for percent <- percents,
-          {name, policy} <- @policies,
+          {name, policy} <- policies,
           policy = options(policy, mean_entry_bytes),
           supported?(backend, policy) do
         {percent, name, policy}
@@ -104,10 +114,24 @@ defmodule CachePolicyBench do
     end
   end
 
+  defp random_sweep do
+    variants =
+      for min_frequency <- [2, 3, 4, 6, 8, 10], one_in <- [16, 32, 64, 128, 256] do
+        {"random-#{min_frequency}/#{one_in}", admission: {:random, min_frequency, one_in}}
+      end
+
+    for {name, overrides} <- [{"strict", admission: :strict} | variants], seed <- 1..3 do
+      {name, Keyword.put(overrides, :seed, seed)}
+    end
+  end
+
   defp options(:lru, _mean_entry_bytes), do: :lru
 
   defp options(overrides, mean_entry_bytes),
     do: @tinylfu |> Map.merge(Map.new(overrides)) |> Map.put(:mean_entry_bytes, mean_entry_bytes)
+
+  defp seed(%{seed: seed}), do: seed
+  defp seed(:lru), do: 9
 
   defp supported?(:real, %{admission: {:random, 6, 128}, aging: :default, gate: :average}),
     do: true
@@ -199,7 +223,7 @@ defmodule CachePolicyBench do
   # -- measurement ---------------------------------------------------------------
 
   defp simulate(backend, policy, requests, catalog, cap) do
-    :rand.seed(:exsss, {7, 8, 9})
+    :rand.seed(:exsss, {7, 8, seed(policy)})
     warmup = div(length(requests), 4)
     {state, step} = start(backend, policy, cap)
     zero = %{requests: 0, hits: 0, bytes: 0, hit_bytes: 0, cost: 0, hit_cost: 0}
