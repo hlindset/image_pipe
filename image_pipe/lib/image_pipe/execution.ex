@@ -445,25 +445,35 @@ defmodule ImagePipe.Execution do
   end
 
   defp generate(context, config, key) do
-    {result, cost} =
+    # The cache scores an entry by its cost while holding a processing slot,
+    # so time queued behind other work doesn't inflate it.
+    {pooled, total} =
       Timing.measure(fn ->
         ProcessingPool.run(
           Keyword.get(config, :processing_pool),
-          fn -> Terminal.render(decode_input(context), context.request, config) end,
+          fn -> render_terminal(context, config) end,
           config
         )
       end)
 
-    with {:ok, type, data, degraded?} <- result do
+    with {:rendered, result, cost} <- pooled,
+         {:ok, type, data, degraded?} <- result do
       body =
         if context.request.output.terminal == :info, do: JSON.encode_to_iodata!(data), else: data
 
       body = IO.iodata_to_binary(body)
-      debug = DebugBuilder.build_terminal(Executor.operation_names(context.request), cost)
+      debug = DebugBuilder.build_terminal(Executor.operation_names(context.request), total)
       store_body(if(degraded?, do: nil, else: key), type, body, debug, cost, config)
       output = output(context, {:body, body, type, debug}, :miss, nil)
       {:ok, %Output{output | degraded?: degraded?}}
     end
+  end
+
+  defp render_terminal(context, config) do
+    {result, cost} =
+      Timing.measure(fn -> Terminal.render(decode_input(context), context.request, config) end)
+
+    {:rendered, result, cost}
   end
 
   defp degraded?(%Resolved{degraded?: degraded?}), do: degraded?

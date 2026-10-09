@@ -72,7 +72,7 @@ defmodule ImagePipe.Cache.FileSystem.Sketch do
 
   @spec age(t()) :: t()
   def age(%__MODULE__{} = sketch) do
-    new_counters = :array.map(fn _idx, value -> bsr(value + 1, 1) end, sketch.counters)
+    new_counters = :array.map(fn _idx, value -> bsr(value, 1) end, sketch.counters)
 
     %{
       sketch

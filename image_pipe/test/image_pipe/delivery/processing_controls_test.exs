@@ -106,6 +106,37 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
     assert %{active: 0} = ProcessingPool.stats(pool)
   end
 
+  test "generation cost excludes the wait for a processing slot", context do
+    pool = start_supervised!({ProcessingPool, max_concurrency: 1})
+    config = [processing_pool: pool, telemetry_prefix: context.prefix, cache: {CacheProbe, []}]
+    queue_wait_us = 200_000
+    test = self()
+
+    Task.Supervisor.async_nolink(context.tasks, fn ->
+      ProcessingPool.within(pool, self(), config, fn ->
+        send(test, :holding)
+        await_queued(pool)
+        # Holds the slot so the stream below queues; nothing races this.
+        Process.sleep(div(queue_wait_us, 1_000))
+      end)
+    end)
+
+    assert_receive :holding
+    build = fn pump -> pump.(["one"], "image/jpeg", resolved(), nil) end
+    key = %ImagePipe.Cache.Key{hash: "queued", data: []}
+    assert {:ok, _stream} = Delivery.stream(self(), build, key, config)
+
+    assert_received {:cache_open_sink, _key, metadata}
+    assert metadata.cost_us < queue_wait_us
+  end
+
+  defp await_queued(pool) do
+    case ProcessingPool.stats(pool) do
+      %{queued: 0} -> await_queued(pool)
+      _queued -> :ok
+    end
+  end
+
   test "failure after the first chunk releases the slot", context do
     pool = start_supervised!({ProcessingPool, max_concurrency: 1})
     config = [processing_pool: pool, telemetry_prefix: context.prefix]

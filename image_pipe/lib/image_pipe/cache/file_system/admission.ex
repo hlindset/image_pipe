@@ -798,16 +798,21 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
         {{:reject, :victim_limit_exceeded}, state}
 
       {:ok, victim_descriptors} ->
-        freq_fn = fn key_hash ->
-          Sketch.estimate(state.local_cms, key_hash) + Sketch.estimate(state.boot_cms, key_hash)
-        end
-
-        if Policy.admit?(descriptor, victim_descriptors, freq_fn) do
+        if Policy.admit?(descriptor, victim_descriptors, &frequency(state, &1)) do
           admit_evicting(state, descriptor, victim_descriptors)
         else
           {{:reject, :score_too_low}, state}
         end
     end
+  end
+
+  # A key's first sighting only sets its doorkeeper bit, so the bit counts as
+  # one sighting.
+  defp frequency(state, key_hash) do
+    doorkeeper = if Talan.BloomFilter.member?(state.doorkeeper, key_hash), do: 1, else: 0
+
+    doorkeeper + Sketch.estimate(state.local_cms, key_hash) +
+      Sketch.estimate(state.boot_cms, key_hash)
   end
 
   # Evict at most `eviction_victim_limit` victims now. Reconciliation evicts
@@ -997,9 +1002,12 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     enforce_protected_target(state)
   end
 
+  # Protected keeps 80% of the main budget, as in W-TinyLFU. Entries vary in
+  # size, so one promotion can need several demotions. The entry just promoted
+  # is protected's MRU and is demoted last.
   defp enforce_protected_target(state) do
     main_budget = state.max_size_bytes - state.window_budget
-    target = trunc(main_budget * 0.20)
+    target = trunc(main_budget * 0.80)
 
     if state.protected_bytes > target and :ets.info(state.protected, :size) > 0 do
       first_key = :ets.first(state.protected)
@@ -1009,7 +1017,10 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
       {pos, state} = next_position(state)
       put_entry(state, :probationary, pos, descriptor)
-      Map.update!(state, :probationary_bytes, &(&1 + descriptor.size_bytes))
+
+      state
+      |> Map.update!(:probationary_bytes, &(&1 + descriptor.size_bytes))
+      |> enforce_protected_target()
     else
       state
     end
