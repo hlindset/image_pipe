@@ -45,6 +45,10 @@ defmodule ImagePipeServer.ApplicationTest do
                                    |> Enum.flat_map(&String.split(&1, ", ")))
     end
 
+    test "turns off libvips' operation cache" do
+      assert Vix.Vips.cache_get_max() == 0
+    end
+
     test "attaches the default Logger from [telemetry]" do
       assert Enum.any?(
                :telemetry.list_handlers([:image_pipe]),
