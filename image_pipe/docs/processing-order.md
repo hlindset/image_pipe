@@ -65,6 +65,13 @@ an earlier group doesn't come back. `/w=200/-/w=800/src/photos/beach.jpg`
 returns a 200-pixel image, because the second group gets a 200-pixel image
 and doesn't enlarge it without [`enlarge`](processing/resize.md#enlarge).
 
+When the first group doesn't resize, the original is loaded and processed at
+full size until a later group shrinks it, which can make the request much
+slower. `/gray/-/w=800/src/photos/beach.jpg` works on all 24 megapixels of a
+large photo before shrinking it. `/gray/w=800/src/photos/beach.jpg` shrinks
+first, because [effects run after the resize](#stage-order), and takes about
+half the time. For `gray`, the result looks the same.
+
 ## Positions and percentages
 
 Every option measures the image as the stages before it left it:
