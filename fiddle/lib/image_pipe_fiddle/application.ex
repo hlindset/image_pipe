@@ -41,14 +41,11 @@ defmodule ImagePipeFiddle.Application do
   end
 
   # Opt-in OpenTelemetry tracing: with FIDDLE_OTEL=1 (and Jaeger running — see
-  # docker-compose.yml), replay ImagePipe's spans into the OTel SDK, which exports
+  # docker-compose.yml), ImagePipe's spans go to the OTel SDK, which exports
   # them over OTLP to Jaeger. Off by default so `mise run fiddle` needs no Jaeger.
   defp maybe_attach_tracer do
     if System.get_env("FIDDLE_OTEL") in ~w(1 true) do
-      ImagePipe.Telemetry.attach_tracer(
-        exporter: ImagePipe.Telemetry.Trace.OpenTelemetryExporter,
-        extract_inbound: true
-      )
+      ImagePipe.Telemetry.attach_tracer(extract_inbound: true)
     end
   end
 

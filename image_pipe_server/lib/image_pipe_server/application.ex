@@ -65,10 +65,7 @@ defmodule ImagePipeServer.Application do
   @doc false
   @spec tracer_options(Config.t()) :: keyword()
   def tracer_options(%Config{} = config) do
-    [
-      exporter: ImagePipe.Telemetry.Trace.OpenTelemetryExporter,
-      extract_inbound: config.trust_traceparent
-    ]
+    [extract_inbound: config.trust_traceparent]
   end
 
   # Children stop in reverse order, so the listener, started last, drains

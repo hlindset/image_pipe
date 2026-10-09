@@ -46,8 +46,7 @@ config :phoenix, :json_library, Jason
 config :opentelemetry,
   span_processor: :batch,
   traces_exporter: :otlp,
-  resource: [service: %{name: "image_pipe_fiddle"}],
-  id_generator: ImagePipe.Telemetry.Trace.OtelIdGenerator
+  resource: [service: %{name: "image_pipe_fiddle"}]
 
 config :opentelemetry_exporter,
   otlp_protocol: :http_protobuf,

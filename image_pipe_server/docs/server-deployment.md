@@ -315,10 +315,10 @@ you control sets or removes the header:
 trust_traceparent = true
 ```
 
-With `trust_traceparent` on, a request that carries the header joins the caller's trace,
-under the caller's trace ID. With the default parent-based sampler, such
-requests are always exported, and `OTEL_TRACES_SAMPLER` applies only to
-requests without the header.
+With `trust_traceparent` on, a request that carries the header joins the
+caller's trace. With the default parent-based sampler, such a request is
+exported only when the caller's header marks the trace as sampled,
+and `OTEL_TRACES_SAMPLER` applies only to requests without the header.
 
 To try tracing locally, run Jaeger as in
 [Exporting traces to Jaeger](../../image_pipe/docs/cookbook/opentelemetry-jaeger.md#run-jaeger)
