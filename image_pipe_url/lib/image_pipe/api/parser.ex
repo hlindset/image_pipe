@@ -28,6 +28,8 @@ defmodule ImagePipe.API.Parser do
 
   @url_keys Map.new(@intent_keys, fn {key, name} -> {name, key} end)
 
+  @specs Map.new(OptionSpec.all(), &{&1.key, &1})
+
   @type span :: Diagnostic.span()
   @type lexed :: %{
           segments: [{String.t(), span()}],
@@ -191,7 +193,7 @@ defmodule ImagePipe.API.Parser do
     key_span = {elem(span, 0), byte_size(key)}
     val_span = value_span(span, key, value_part)
 
-    case OptionSpec.fetch(key) do
+    case Map.get(@specs, key) do
       nil ->
         occurrence(group_index, key, nil, span, key_span, val_span, {:error, :unknown_option})
 

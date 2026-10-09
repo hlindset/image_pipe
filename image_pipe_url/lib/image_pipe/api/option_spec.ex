@@ -673,14 +673,6 @@ defmodule ImagePipe.API.OptionSpec do
     ]
   end
 
-  @doc """
-  Looks up a declared option by its URL key string, `nil` when unknown.
-  """
-  @spec fetch(String.t()) :: t() | nil
-  def fetch(key) when is_binary(key) do
-    Enum.find(all(), &(&1.key == key))
-  end
-
   # -- per-key value parsers -------------------------------------------
   #
   # Each parses one segment's value shape. The parser combines options and

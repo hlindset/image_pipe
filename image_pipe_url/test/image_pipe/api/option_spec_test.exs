@@ -56,16 +56,6 @@ defmodule ImagePipe.API.OptionSpecTest do
     end
   end
 
-  describe "fetch/1" do
-    test "finds a declared option by key" do
-      assert %OptionSpec{key: "w"} = OptionSpec.fetch("w")
-    end
-
-    test "returns nil for an unknown key" do
-      assert OptionSpec.fetch("bogus") == nil
-    end
-  end
-
   describe "value parsers — happy paths" do
     test "parse_dpr accepts positive finite decimals and normalizes to float" do
       assert OptionSpec.parse_dpr("2") == {:ok, 2.0}
