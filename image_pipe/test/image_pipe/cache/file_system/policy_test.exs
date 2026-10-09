@@ -114,12 +114,11 @@ defmodule ImagePipe.Cache.FileSystem.PolicyTest do
                Policy.victim_walk(probationary, protected, 200, 64)
     end
 
-    test "returns :victim_limit_exceeded when freeing enough bytes requires more victims than the limit" do
-      # 10 victims × 100 bytes = 1000 bytes available, but limit is 3.
+    test "a walk within probationary may take more victims than the limit" do
       probationary = for i <- 1..10, do: descriptor(key_hash: "k#{i}", size_bytes: 100)
 
-      assert {:error, :victim_limit_exceeded} =
-               Policy.victim_walk(probationary, [], 500, 3)
+      assert {:ok, victims} = Policy.victim_walk(probationary, [], 500, 3)
+      assert Enum.map(victims, & &1.key_hash) == ["k1", "k2", "k3", "k4", "k5"]
     end
   end
 
@@ -146,9 +145,7 @@ defmodule ImagePipe.Cache.FileSystem.PolicyTest do
     end
   end
 
-  # Admission hands the walk only the first `limit + 1` LRU entries of each
-  # queue instead of copying whole queues.
-  property "victim_walk/4 needs at most limit + 1 entries from each queue" do
+  property "victim_walk/4 takes the shortest LRU prefix and limits only walks into protected" do
     check all(
             probationary <- list_of(integer(1..50), max_length: 12),
             protected <- list_of(integer(1..50), max_length: 12),
@@ -157,13 +154,24 @@ defmodule ImagePipe.Cache.FileSystem.PolicyTest do
           ) do
       probationary = Enum.map(probationary, &descriptor(size_bytes: &1))
       protected = Enum.map(protected, &descriptor(size_bytes: &1))
+      queues = probationary ++ protected
+      prefix_length = Enum.find(0..length(queues), &(bytes(Enum.take(queues, &1)) >= needed))
 
-      assert Policy.victim_walk(
-               Enum.take(probationary, limit + 1),
-               Enum.take(protected, limit + 1),
-               needed,
-               limit
-             ) == Policy.victim_walk(probationary, protected, needed, limit)
+      reaches_protected? = prefix_length != nil and prefix_length > length(probationary)
+
+      case Policy.victim_walk(Stream.map(probationary, & &1), protected, needed, limit) do
+        {:ok, victims} ->
+          assert victims == Enum.take(queues, prefix_length)
+          refute reaches_protected? and prefix_length > limit
+
+        {:error, :victim_limit_exceeded} ->
+          assert reaches_protected? and prefix_length > limit
+
+        {:error, :no_evictable_victims} ->
+          assert prefix_length == nil
+      end
     end
   end
+
+  defp bytes(descriptors), do: descriptors |> Enum.map(& &1.size_bytes) |> Enum.sum()
 end

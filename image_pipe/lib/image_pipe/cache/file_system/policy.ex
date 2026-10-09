@@ -46,63 +46,71 @@ defmodule ImagePipe.Cache.FileSystem.Policy do
   Walk probationary LRU outward, then protected LRU outward, collecting
   victims until cumulative size_bytes >= needed_bytes.
 
-  Probationary and protected lists must be ordered LRU-first. The
-  `limit` parameter caps the number of victims collected — if more
-  would be needed to free enough bytes, returns
-  `{:error, :victim_limit_exceeded}`.
+  Both queues must be enumerables ordered LRU-first. They are consumed lazily,
+  so only the entries the walk reaches are read.
+
+  The probationary walk is unbounded: Admission evicts the first `limit`
+  victims at once and lets reconciliation evict the rest, which it reaches
+  in the same LRU order. Reconciliation evicts probationary before protected,
+  so it would reach the newly admitted entry before any protected victim. A
+  walk that extends into protected therefore stays within `limit` victims in
+  total.
 
   Returns:
-  - `{:ok, victims}` — enough bytes can be freed within the limit
+  - `{:ok, victims}` — enough bytes can be freed
   - `{:error, :no_evictable_victims}` — both queues combined cannot
     free enough bytes
-  - `{:error, :victim_limit_exceeded}` — freeing enough bytes would
-    require more than `limit` victims
+  - `{:error, :victim_limit_exceeded}` — the walk extends into protected
+    and needs more than `limit` victims in total
   """
-  @spec victim_walk([descriptor()], [descriptor()], non_neg_integer(), pos_integer()) ::
+  @spec victim_walk(
+          Enumerable.t(descriptor()),
+          Enumerable.t(descriptor()),
+          non_neg_integer(),
+          pos_integer()
+        ) ::
           {:ok, [descriptor()]}
           | {:error, :no_evictable_victims}
           | {:error, :victim_limit_exceeded}
   def victim_walk(probationary, protected, needed_bytes, limit)
-      when is_list(probationary) and is_list(protected) and
-             is_integer(needed_bytes) and needed_bytes >= 0 and
-             is_integer(limit) and limit > 0 do
-    case take_until_bytes(probationary, needed_bytes, [], 0, limit) do
-      {:done, victims} -> {:ok, Enum.reverse(victims)}
+      when is_integer(needed_bytes) and needed_bytes >= 0 and is_integer(limit) and limit > 0 do
+    case take_until_bytes(probationary, needed_bytes) do
+      {:done, victims} -> {:ok, victims}
       {:short, victims, still_needed} -> walk_protected(protected, victims, still_needed, limit)
-      :limit_exceeded -> {:error, :victim_limit_exceeded}
     end
   end
 
-  # `victims` is pre-loaded with the probationary victims, and take_until_bytes
-  # clause 3 counts `length(victims)` against `limit` — so the ORIGINAL limit is
-  # passed here to cap the TOTAL victim count across both queues. Subtracting
-  # length(victims) would double-count the probationary victims already in the
-  # accumulator.
   defp walk_protected(protected, victims, still_needed, limit) do
-    case take_until_bytes(protected, still_needed, victims, 0, limit) do
-      {:done, all_victims} -> {:ok, Enum.reverse(all_victims)}
-      {:short, _all_victims, _remaining} -> {:error, :no_evictable_victims}
-      :limit_exceeded -> {:error, :victim_limit_exceeded}
+    case take_until_bytes(protected, still_needed) do
+      {:done, more} when length(victims) + length(more) > limit ->
+        {:error, :victim_limit_exceeded}
+
+      {:done, more} ->
+        {:ok, victims ++ more}
+
+      {:short, _more, _remaining} ->
+        {:error, :no_evictable_victims}
     end
   end
 
-  # Returns one of: {:done, victims}, {:short, victims, still_needed_bytes},
-  # or :limit_exceeded.
-  # NOTE: the acc >= remaining check must precede the empty-list check so
-  # that processing the final item and meeting the threshold in one step
-  # returns {:done} rather than {:short}.
-  defp take_until_bytes(_list, remaining, victims, acc, _limit) when acc >= remaining,
-    do: {:done, victims}
+  # Returns {:done, victims} or {:short, victims, still_needed_bytes}, with
+  # victims in walk order.
+  defp take_until_bytes(_entries, needed_bytes) when needed_bytes <= 0, do: {:done, []}
 
-  defp take_until_bytes([], remaining, victims, acc, _limit),
-    do: {:short, victims, remaining - acc}
+  defp take_until_bytes(entries, needed_bytes) do
+    entries
+    |> Enum.reduce_while({:short, [], 0}, fn victim, {:short, victims, bytes} ->
+      victims = [victim | victims]
+      bytes = bytes + victim.size_bytes
 
-  defp take_until_bytes(_list, _remaining, victims, _acc, limit)
-       when length(victims) >= limit,
-       do: :limit_exceeded
-
-  defp take_until_bytes([v | rest], remaining, victims, acc, limit) do
-    take_until_bytes(rest, remaining, [v | victims], acc + v.size_bytes, limit)
+      if bytes >= needed_bytes,
+        do: {:halt, {:done, victims}},
+        else: {:cont, {:short, victims, bytes}}
+    end)
+    |> case do
+      {:done, victims} -> {:done, Enum.reverse(victims)}
+      {:short, victims, bytes} -> {:short, Enum.reverse(victims), needed_bytes - bytes}
+    end
   end
 
   @doc """

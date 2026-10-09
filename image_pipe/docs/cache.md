@@ -247,16 +247,21 @@ instance, which starts that process (see `ImagePipe.child_spec/1` and
   make room, or rejects it. Rejected and replaced bodies are deleted from
   disk.
 - An entry larger than `max_size_bytes` is always rejected.
+- A write that needs to evict more than `eviction_victim_limit` entries (64
+  by default) evicts that many and starts background eviction for the rest.
+  Until background eviction finishes, the cache can exceed the cap. If the
+  entries it needs to evict include ones read recently, the write is
+  rejected instead, because background eviction would remove the new entry
+  before them.
 - On startup the process scans the entries already on disk in the
   background, evicts until the cache is at or under the cap, and then
   deletes [files left by a crash](#files-left-by-a-crash).
 - Every `reconcile_interval` (60 seconds by default) it evicts again until
-  the cache is at or under the cap. Evictions from this pass and the
-  startup scan are reported with `trigger: :reconcile`.
+  the cache is at or under the cap.
 
 Background eviction removes entries in batches so requests can run between
-batches. Each batch removes at most `eviction_victim_limit` entries (64 by
-default).
+batches. Each batch removes at most `eviction_victim_limit` entries.
+Background eviction reports its evictions with `trigger: :reconcile`.
 
 A write that waits more than 5 seconds for the cache process is reported as
 a [cache write](telemetry-events.md#cache-write) error with
