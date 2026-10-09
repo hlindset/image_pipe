@@ -2374,6 +2374,87 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         native: "w=400/h=300/fit=contain/extend",
         imgproxy: "rs:fit:400:300/ex:1",
         tolerance: {2, 64}
+      },
+      # Decode planning x geometry (image_plug-e4a.10). Each case runs a geometry
+      # option on a source large enough to shrink on load, where the planner sizes
+      # the decode from the option. Two P1 bugs (odd region origins, single-axis
+      # stretch shrunk on load) hid in such combinations.
+      #
+      # A minimum that doesn't bind keeps the full load shrink (#782).
+      %{
+        id: "dps_min_w_nonbinding",
+        kind: :png,
+        source: "high_freq.jpg",
+        native: "w=200/min-w=100",
+        imgproxy: "rs:fit:200:0/mw:100",
+        tolerance: {2, 64}
+      },
+      # Zoom scales the decode target with the resize.
+      %{
+        id: "dps_zoom_half",
+        kind: :png,
+        source: "high_freq.jpg",
+        native: "w=400/zoom=0.5",
+        imgproxy: "rs:fit:400:0/z:0.5",
+        tolerance: {2, 64}
+      },
+      # Stretch on both axes may shrink on load by the smaller ratio.
+      %{
+        id: "dps_stretch_both",
+        kind: :png,
+        source: "high_freq.jpg",
+        native: "w=300/h=100/fit=stretch",
+        imgproxy: "rs:force:300:100",
+        tolerance: {2, 64}
+      },
+      # Height-only stretch keeps the source width, so it can't shrink on load.
+      %{
+        id: "dps_stretch_height_only",
+        kind: :png,
+        source: "high_freq.jpg",
+        native: "h=150/fit=stretch",
+        imgproxy: "rs:force:0:150",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "dps_contain_dpr_webp",
+        kind: :png,
+        source: "high_freq.webp",
+        native: "w=200/h=200/fit=contain/dpr=2",
+        imgproxy: "rs:fit:200:200/dpr:2",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "dps_crop_pct_resize",
+        kind: :png,
+        source: "high_freq.jpg",
+        native: "crop=50pct,50pct/w=200",
+        imgproxy: "c:0.5:0.5/rs:fit:200:0",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "dps_pad_odd",
+        kind: :png,
+        source: "high_freq.jpg",
+        native: "w=301/h=201/fit=contain/pad=10",
+        imgproxy: "rs:fit:301:201/pd:10",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "dps_cover_odd_exif",
+        kind: :png,
+        source: "exif_large_6.jpg",
+        native: "w=333/h=111/fit=cover",
+        imgproxy: "rs:fill:333:111",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "dps_extend_webp",
+        kind: :png,
+        source: "high_freq.webp",
+        native: "w=500/h=200/fit=contain/extend",
+        imgproxy: "rs:fit:500:200/ex:1",
+        tolerance: {2, 64}
       }
     ]
   end

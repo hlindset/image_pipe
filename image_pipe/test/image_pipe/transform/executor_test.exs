@@ -71,6 +71,27 @@ defmodule ImagePipe.Transform.ExecutorTest do
              Executor.decode_request(request, geometry)
   end
 
+  # A contained image fills the box on one axis only, so the decode is planned
+  # from the size the resize produces: 1600x1200 into 400x400 is 400x300, a
+  # shrink of 4 on both axes, not min(4, 3) from the box.
+  test "plans a contain resize's decode from the fitted size" do
+    geometry = %SourceGeometry{
+      storage_dimensions: {1600, 1200},
+      display_dimensions: {1600, 1200},
+      pending_orientation: %PendingOrientation{},
+      source_format: :webp
+    }
+
+    planned = fn options ->
+      {width, height} = Executor.decode_request(request!(options), geometry).resize_target
+      {round(width), round(height)}
+    end
+
+    assert planned.("w=400/h=400/fit=contain") == {400, 300}
+    assert planned.("w=200/h=200/fit=contain/dpr=2") == {400, 300}
+    assert planned.("w=400/h=400/fit=cover") == {400, 400}
+  end
+
   test "reduces parsed blurhash output to its fixed contain frame" do
     request = request!("output=blurhash")
 
