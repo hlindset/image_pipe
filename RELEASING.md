@@ -75,13 +75,15 @@ The tag starts the [Server release workflow](.github/workflows/release-server.ym
    released yet. Release the libraries first.
 3. It builds the base and vision images for amd64 and arm64 against the same
    Hex packages, smoke-tests each, and pushes them to GHCR untagged.
-4. It tags the images `ghcr.io/hlindset/image_pipe_server:X.Y.Z`, `X.Y`, and
-   `latest`, with a `-vision` suffix for the vision variant. A pre-release
-   version gets only its own tag.
+4. It waits for a maintainer to approve the `release-server` environment on
+   the run's page. Then it tags the images
+   `ghcr.io/hlindset/image_pipe_server:X.Y.Z`, `X.Y`, and `latest`, with a
+   `-vision` suffix for the vision variant. A pre-release version gets only
+   its own tag.
 5. It creates the GitHub release from the server changelog, and names the
    library version it was built with.
 
-A failure before step 4 leaves only untagged images. GHCR creates
+A failure or an unapproved run before step 4 leaves only untagged images. GHCR creates
 the package private on its first push. Make it public once in the package
 settings.
 
