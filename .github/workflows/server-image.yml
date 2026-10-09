@@ -21,13 +21,18 @@ permissions:
   contents: read
 
 jobs:
+  # Each architecture builds on its own native runner, like the release. The
+  # cache scopes match the ones the release reads for the sibling projects.
   image:
-    name: Docker image (${{ matrix.variant }})
-    runs-on: ubuntu-26.04
+    name: Docker image (${{ matrix.variant }}, ${{ matrix.platform.arch }})
+    runs-on: ${{ matrix.platform.runner }}
     strategy:
       fail-fast: false
       matrix:
         variant: [base, vision]
+        platform:
+          - { arch: amd64, runner: ubuntu-26.04, cache: "" }
+          - { arch: arm64, runner: ubuntu-26.04-arm, cache: "-arm64" }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -41,7 +46,7 @@ jobs:
           build-args: IMAGE_VISION=${{ matrix.variant == 'vision' && '1' || '0' }}
           tags: image_pipe_server:ci
           load: true
-          cache-from: type=gha,scope=server-${{ matrix.variant }}
-          cache-to: type=gha,scope=server-${{ matrix.variant }},mode=max
+          cache-from: type=gha,scope=server-${{ matrix.variant }}${{ matrix.platform.cache }}
+          cache-to: type=gha,scope=server-${{ matrix.variant }}${{ matrix.platform.cache }},mode=max
       - name: Smoke test
         run: image_pipe_server/test/container/smoke.sh image_pipe_server:ci ${{ matrix.variant }}
