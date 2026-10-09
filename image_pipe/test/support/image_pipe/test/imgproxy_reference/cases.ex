@@ -2418,8 +2418,6 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
       },
       %{
         id: "dps_contain_dpr_webp",
-        pending:
-          "image_plug-e4a.15.24: the decode for fit=contain is planned from the box, not the fitted size, so WebP's load scale differs",
         kind: :png,
         source: "high_freq.webp",
         native: "w=200/h=200/fit=contain/dpr=2",
@@ -2452,8 +2450,6 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
       },
       %{
         id: "dps_extend_webp",
-        pending:
-          "image_plug-e4a.15.24: the decode for fit=contain is planned from the box, not the fitted size, so WebP's load scale differs",
         kind: :png,
         source: "high_freq.webp",
         native: "w=500/h=200/fit=contain/extend",

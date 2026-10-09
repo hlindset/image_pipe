@@ -899,8 +899,20 @@ defmodule ImagePipe.Transform.Executor do
        when width == :auto or height == :auto,
        do: nil
 
+  # A contained image fills the box on one axis only, so the decode is sized
+  # from the image the resize produces, not from the box.
+  defp decode_resize_target(%{w: width, h: height} = resize, dpr, frame)
+       when is_number(width) and is_number(height) do
+    case Geometry.resize_target(resize, dpr, frame) do
+      {mode, target} when mode in [:contain, :auto_contain] -> {target.width, target.height}
+      _cover_or_stretch -> decode_box(resize, dpr, frame)
+    end
+  end
+
+  defp decode_resize_target(resize, dpr, frame), do: decode_box(resize, dpr, frame)
+
   # A minimum scales the whole resize up, so the decode keeps that much more.
-  defp decode_resize_target(%{w: width, h: height, zoom: {zoom_x, zoom_y}} = resize, dpr, frame) do
+  defp decode_box(%{w: width, h: height, zoom: {zoom_x, zoom_y}} = resize, dpr, frame) do
     scale = dpr * Geometry.minimum_scale(resize, frame)
 
     case {decode_axis(width, zoom_x * scale), decode_axis(height, zoom_y * scale)} do

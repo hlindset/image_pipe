@@ -134,11 +134,13 @@ defmodule ImagePipe.API.PipelineTest do
       refute Keyword.has_key?(preflight_shrink(["w=400"], {3200, 2405}, :png), :shrink)
     end
 
-    test "a two-axis resize preserves both concrete targets" do
+    # The default fit contains a portrait source in a landscape box, so the
+    # decode is planned from the 143x190 image it produces, not the box.
+    test "a two-axis contained resize plans from the fitted size" do
       request = parse!(["w=250", "h=190"])
 
       assert Executor.decode_request(request, preflight_geometry({2401, 3199})).resize_target ==
-               {250, 190}
+               {143, 190}
 
       assert preflight_shrink(["w=250", "h=190"], {2401, 3199}, :jpeg)[:shrink] == 8
     end
