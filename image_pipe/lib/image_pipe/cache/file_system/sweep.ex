@@ -6,6 +6,7 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   # file for anywhere near an hour.
   @moduledoc false
 
+  alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Telemetry
 
   @grace_ms 3_600_000
@@ -128,15 +129,29 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
     end
   end
 
-  # Any meta file keeps its body, even one this node can't decode: it may be
-  # corrupt, or written by a newer version sharing the root. A commit can
-  # rename a fresh body over an old one and name it in a new meta at any moment,
-  # so both checks run again just before the unlink.
+  # A body is left behind when its key has no meta, or when the meta names
+  # another body, as after two commits for one key race. A meta this node
+  # can't read keeps its body: it may be corrupt, or written by a newer version
+  # sharing the root. A commit can rename a fresh body over an old one and name
+  # it in a new meta at any moment, so the checks run again just before the
+  # unlink.
   defp sweep_body(path, meta_path, metas, cutoff, counts) do
-    if not MapSet.member?(metas, Path.basename(meta_path)) and older?(path, cutoff) and
-         not File.exists?(meta_path) and older?(path, cutoff),
+    listed? = MapSet.member?(metas, Path.basename(meta_path))
+
+    if older?(path, cutoff) and unnamed?(path, meta_path, listed?) and
+         unnamed?(path, meta_path, true) and older?(path, cutoff),
        do: remove(path, :bodies, counts),
        else: counts
+  end
+
+  defp unnamed?(_path, _meta_path, false = _listed?), do: true
+
+  defp unnamed?(path, meta_path, true = _listed?) do
+    case Store.read_descriptor(meta_path) do
+      {:ok, %{body_sha256: sha}, _mtime} -> not String.ends_with?(path, ".#{sha}.body")
+      {:error, :enoent} -> true
+      {:error, _unreadable} -> false
+    end
   end
 
   defp older?(path, cutoff) do
