@@ -63,7 +63,10 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       scan_waiters: [],
       reconciling?: false,
       reconcile_waiters: [],
-      reconcile_tick_pending?: false
+      reconcile_tick_pending?: false,
+      # Odds of random admission (see random_admit?/2). State rather than a
+      # module attribute so tests can make the draw deterministic.
+      random_admission_one_in: 128
     ]
   end
 
@@ -798,12 +801,24 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
         {{:reject, :victim_limit_exceeded}, state}
 
       {:ok, victim_descriptors} ->
-        if Policy.admit?(descriptor, victim_descriptors, &frequency(state, &1)) do
+        if Policy.admit?(descriptor, victim_descriptors, &frequency(state, &1)) or
+             random_admit?(state, descriptor) do
           admit_evicting(state, descriptor, victim_descriptors)
         else
           {{:reject, :score_too_low}, state}
         end
     end
+  end
+
+  # A candidate that loses the gate is admitted anyway, rarely, once it has
+  # been requested a few times, as in Caffeine. Without it, keys that become
+  # popular keep losing to entries whose counts haven't aged yet
+  # (bench/cache_policy.exs, `shift`).
+  @random_admission_min_frequency 6
+
+  defp random_admit?(state, descriptor) do
+    frequency(state, descriptor.key_hash) >= @random_admission_min_frequency and
+      :rand.uniform(state.random_admission_one_in) == 1
   end
 
   # A key's first sighting only sets its doorkeeper bit, so the bit counts as

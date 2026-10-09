@@ -403,6 +403,17 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
       assert {:ok, :rejected} = put_with_cost(ctx.pool, "cheap", 10)
       refute tracked?(ctx.pid, "cheap")
     end
+
+    test "may admit a losing entry once it has been requested six times", ctx do
+      # Make the random admission draw always succeed.
+      :sys.replace_state(ctx.pid, &%{&1 | random_admission_one_in: 1})
+
+      for _ <- 1..5, do: assert({:ok, :rejected} = put_with_cost(ctx.pool, "cheap", 10))
+      refute tracked?(ctx.pid, "cheap")
+
+      assert :ok = put_with_cost(ctx.pool, "cheap", 10)
+      assert tracked?(ctx.pid, "cheap")
+    end
   end
 
   defp put_with_cost(pool, seed, cost_us) do
