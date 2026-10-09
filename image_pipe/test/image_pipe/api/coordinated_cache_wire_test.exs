@@ -77,8 +77,8 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
             ]
           ]
         ],
-        cache: {FileSystem, root: Path.join(root, "output")},
-        input_cache: {FileSystem, root: Path.join(root, "input")},
+        cache: [root: Path.join(root, "output")],
+        input_cache: [root: Path.join(root, "input")],
         clock: fn -> Agent.get(state, & &1.now) end
       )
 
@@ -588,8 +588,8 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
 
     config =
       config
-      |> Keyword.put(:input_cache, {FileSystem, input})
-      |> Keyword.put(:cache, {FileSystem, output})
+      |> Keyword.put(:input_cache, input)
+      |> Keyword.put(:cache, output)
 
     first = request(config, 12)
     assert first.status == 200

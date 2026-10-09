@@ -4,8 +4,8 @@ defmodule ImagePipe.PresetLookupTest do
   import Plug.Test, only: [conn: 2]
 
   alias ImagePipe, as: IP
-  alias ImagePipe.RequestSafetyTest.CacheProbe
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.CacheObserver
   alias ImagePipe.Test.PresetLookup
 
   @prefix [:image_pipe_preset_lookup_test]
@@ -139,11 +139,11 @@ defmodule ImagePipe.PresetLookupTest do
     ]
 
     for {lookup_options, status} <- cases do
-      config = config(body, preset_lookup: lookup(lookup_options), cache: {CacheProbe, []})
+      config = config(body, CacheObserver.observe(preset_lookup: lookup(lookup_options)))
       response = get(config, "/preset=card/src/photo.png")
       assert response.status == status, inspect(lookup_options)
       refute_received :source_fetch
-      refute_received :cache_lookup
+      refute_received {:cache_lookup, _, _}
     end
   end
 
@@ -166,18 +166,20 @@ defmodule ImagePipe.PresetLookupTest do
   test "a URL naming more presets than max_preset_lookups is a 400 before any lookup",
        %{body: body} do
     config =
-      config(body,
-        presets: %{"static" => "format=png"},
-        preset_lookup: lookup(presets: %{"a" => "w=30", "b" => "blur=1"}),
-        max_preset_lookups: 1,
-        cache: {CacheProbe, []}
+      config(
+        body,
+        CacheObserver.observe(
+          presets: %{"static" => "format=png"},
+          preset_lookup: lookup(presets: %{"a" => "w=30", "b" => "blur=1"}),
+          max_preset_lookups: 1
+        )
       )
 
     response = get(config, "/preset=a,b,static/src/photo.png")
     assert response.status == 400
     refute_received {:preset_fetch, _names}
     refute_received :source_fetch
-    refute_received :cache_lookup
+    refute_received {:cache_lookup, _, _}
 
     assert IP.validate(config, IP.URL.new() |> IP.URL.group(presets: ["a", "b"])) ==
              {:error, {:preset, :too_many_presets}}
@@ -197,7 +199,7 @@ defmodule ImagePipe.PresetLookupTest do
   end
 
   test "an option unset next to a missing looked-up preset is a 400", %{body: body} do
-    config = config(body, preset_lookup: lookup(presets: %{}), cache: {CacheProbe, []})
+    config = config(body, CacheObserver.observe(preset_lookup: lookup(presets: %{})))
 
     for path <- [
           "/extend=unset/preset=gone/src/photo.png",
@@ -205,7 +207,7 @@ defmodule ImagePipe.PresetLookupTest do
         ] do
       assert get(config, path).status == 400, path
       refute_received :source_fetch
-      refute_received :cache_lookup
+      refute_received {:cache_lookup, _, _}
     end
   end
 

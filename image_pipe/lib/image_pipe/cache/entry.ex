@@ -35,16 +35,6 @@ defmodule ImagePipe.Cache.Entry do
           source_record: ImagePipe.Source.Record.t() | nil
         }
 
-  @spec validate(t()) :: :ok | {:error, term()}
-  def validate(%__MODULE__{} = entry) do
-    with :ok <- validate_body(entry.body),
-         :ok <- validate_source_record(entry.source_record),
-         :ok <- validate_content_type(entry.content_type, entry.representation),
-         {:ok, _headers} <- cacheable_headers(entry.headers) do
-      :ok
-    end
-  end
-
   @doc false
   def validate_source_record(nil), do: :ok
 
@@ -116,10 +106,6 @@ defmodule ImagePipe.Cache.Entry do
   end
 
   def cacheable_headers(headers), do: {:error, {:invalid_headers, headers}}
-
-  defp validate_body(body) when is_binary(body), do: :ok
-  defp validate_body(%ImagePipe.Cache.File{}), do: :ok
-  defp validate_body(body), do: {:error, {:invalid_body, body}}
 
   @doc "Closes a file-backed entry after use."
   def close(%__MODULE__{body: %ImagePipe.Cache.File{} = file}),

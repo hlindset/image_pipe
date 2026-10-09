@@ -105,18 +105,18 @@ defmodule ImagePipe do
         {ImagePipe,
          name: MyApp.Images,
          sources: [...],
-         cache:
-           {ImagePipe.Cache.FileSystem,
-            root: "/var/cache/image_pipe/processed",
-            max_size_bytes: 5_000_000_000,
-            node_id: "node-0"}},
+         cache: [
+           root: "/var/cache/image_pipe/processed",
+           max_size_bytes: 5_000_000_000,
+           node_id: "node-0"
+         ]},
         MyAppWeb.Endpoint
       ]
 
   Mount it with the `:instance` option of `ImagePipe.Plug`, and pass its name
   to `run/4`, `write/5`, `validate/2`, and `url_config/2`.
 
-  A bounded `ImagePipe.Cache.FileSystem` runs processes that track the
+  A bounded cache (one with `max_size_bytes`) runs processes that track the
   cache's size, and only an instance starts them. A configuration with such a
   cache must be used through an instance. An inline `ImagePipe.Plug` mount,
   and `run/4` with a configuration from `config/1`, raise `ArgumentError` for

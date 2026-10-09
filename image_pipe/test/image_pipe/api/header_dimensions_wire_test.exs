@@ -5,7 +5,7 @@ defmodule ImagePipe.API.HeaderDimensionsWireTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias ImagePipe.Test.CacheObserver
   alias Vix.Vips.Image, as: VipsImage
 
   @prefix [:header_dimensions_wire]
@@ -27,9 +27,11 @@ defmodule ImagePipe.API.HeaderDimensionsWireTest do
 
     on_exit(fn -> :telemetry.detach(handler) end)
 
+    limits = CacheObserver.observe(max_input_pixels: 100, telemetry_prefix: @prefix)
+
     for suffix <- [".png", ".jpg", ".webp"], terminal <- ["format=png", "output=info"] do
       body = encoded(suffix)
-      config = mount(body, max_input_pixels: 100, cache: {CacheProbe, []})
+      config = mount(body, limits)
       response = request(terminal, config)
 
       assert response.status == 413

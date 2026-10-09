@@ -6,7 +6,7 @@ defmodule ImagePipe.API.LqipCssWireTest do
 
   alias Image.Lqip.Css
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias ImagePipe.Test.CacheObserver
   alias Vix.Vips.Operation
 
   setup do
@@ -208,12 +208,11 @@ defmodule ImagePipe.API.LqipCssWireTest do
   test "cache reuse ignores Accept and option order, with conditional requests before access", %{
     body: body
   } do
-    store = :ets.new(:lqip_css_cache, [:set, :public])
-    config = mount(body, cache: {CacheProbe, store: store}, http_cache: :auto)
+    config = mount(body, CacheObserver.observe(http_cache: :auto))
     first = request("gray/output=lqip-css", config, "image/webp")
     assert first.status == 200
     assert_received :origin_fetch
-    assert [key] = Enum.uniq(CacheProbe.lookup_keys())
+    assert [key] = Enum.uniq(CacheObserver.lookup_hashes())
     assert_received {:cache_put, ^key, _}
     [etag] = get_resp_header(first, "etag")
 
@@ -224,7 +223,7 @@ defmodule ImagePipe.API.LqipCssWireTest do
     assert [disposition] = get_resp_header(second, "content-disposition")
     assert disposition =~ "attachment"
     assert disposition =~ "placeholder.txt"
-    assert [^key] = Enum.uniq(CacheProbe.lookup_keys())
+    assert [^key] = Enum.uniq(CacheObserver.lookup_hashes())
     refute_received :origin_fetch
 
     conditional =
@@ -235,13 +234,13 @@ defmodule ImagePipe.API.LqipCssWireTest do
     assert conditional.status == 304
     assert conditional.resp_body == ""
     refute_received :origin_fetch
-    refute_received {:cache_lookup, _}
+    refute_received {:cache_lookup, _, _}
 
     for options <- ["output=lqip-css", "gray/output=blurhash", "gray/format=png"] do
       response = request(options, config)
       assert response.status == 200
       refute get_resp_header(response, "etag") == [etag]
-      assert [other_key] = Enum.uniq(CacheProbe.lookup_keys())
+      assert [other_key] = Enum.uniq(CacheObserver.lookup_hashes())
       refute other_key == key
     end
   end

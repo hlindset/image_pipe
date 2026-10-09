@@ -1,8 +1,9 @@
 # Cache storage
 
 ImagePipe has two caches: `cache` stores complete processed responses, and
-`input_cache` stores originals fetched from remote sources. Both take
-`{ImagePipe.Cache.FileSystem, options}`. The adapter's options are listed in
+`input_cache` stores originals fetched from remote sources. Both store files
+on disk and take a keyword list, such as
+`[root: "/var/cache/image_pipe/processed"]`. The options are listed in
 `ImagePipe.Cache.FileSystem`, and the server's `[cache]` keys in the
 [server configuration reference](../../image_pipe_server/docs/server-configuration.md#cache).
 Setting up the caches is covered in
@@ -113,8 +114,7 @@ restart or redeploy.
 
 ## Originals cache
 
-`input_cache` accepts only `ImagePipe.Cache.FileSystem`, with a `root`
-separate from the processed-image cache's. Neither root may be inside the
+`input_cache` needs a `root` separate from the processed-image cache's. Neither root may be inside the
 other. Each cache has its own size limit and eviction. Serving a processed
 image from the cache doesn't count as a request for its original.
 

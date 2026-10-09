@@ -5,8 +5,8 @@ defmodule ImagePipe.API.MultiFrameWireTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.CacheObserver
   alias ImagePipe.Test.MultiFrameSources
-  alias ImagePipe.Test.PlugFixture.CacheProbe
   alias Vix.Vips.Image, as: VipsImage
 
   @prefix [:multi_frame_wire]
@@ -49,10 +49,12 @@ defmodule ImagePipe.API.MultiFrameWireTest do
   end
 
   test "sources declaring more frames than max_input_frames are rejected after one loader open" do
+    cache = observed_cache()
+
     for family <- [:tiff, :avif, :jxl, :gif], terminal <- @terminals do
       flush_mailbox()
       body = MultiFrameSources.encode(family, 3)
-      response = request(terminal, mount(body, max_input_frames: 2, cache: {CacheProbe, []}))
+      response = request(terminal, mount(body, max_input_frames: 2, cache: cache))
 
       assert response.status == 413, "#{family} #{terminal}: #{response.status}"
       assert_received {:loader_open, _}
@@ -68,10 +70,11 @@ defmodule ImagePipe.API.MultiFrameWireTest do
 
   test "an animated WebP over max_input_frames is rejected before any libvips open" do
     body = MultiFrameSources.repeated_frame_webp(6)
+    cache = observed_cache()
 
     for terminal <- @terminals do
       flush_mailbox()
-      response = request(terminal, mount(body, max_input_frames: 5, cache: {CacheProbe, []}))
+      response = request(terminal, mount(body, max_input_frames: 5, cache: cache))
 
       assert response.status == 413, "#{terminal}: #{response.status}"
       refute_received {:loader_open, _}
@@ -152,9 +155,8 @@ defmodule ImagePipe.API.MultiFrameWireTest do
   end
 
   test "a response cached under a higher frame limit is served under a lower one" do
-    store = :ets.new(:multi_frame_cache, [:public])
     body = MultiFrameSources.encode(:tiff, 3)
-    cache = {CacheProbe, [store: store]}
+    cache = observed_cache()
 
     assert request("format=png", mount(body, max_input_frames: 3, cache: cache)).status == 200
     assert_received :origin_fetch
@@ -177,6 +179,10 @@ defmodule ImagePipe.API.MultiFrameWireTest do
 
     assert abs(r - er) <= 12 and abs(g - eg) <= 12 and abs(b - eb) <= 12,
            "#{family}: pixel #{inspect([r, g, b])}, expected frame #{frame}"
+  end
+
+  defp observed_cache do
+    [telemetry_prefix: @prefix] |> CacheObserver.observe() |> Keyword.fetch!(:cache)
   end
 
   defp flush_mailbox do

@@ -51,7 +51,7 @@ defmodule ImagePipe.API.InputCacheFailureWireTest do
            ]
          ]
        ],
-       input_cache: {FileSystem, pool}}
+       input_cache: pool}
     )
 
     [{admission, _}] = Registry.lookup(FileSystem.registry_name(root), {root, "test"})

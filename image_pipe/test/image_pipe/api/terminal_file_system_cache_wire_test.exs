@@ -4,7 +4,6 @@ defmodule ImagePipe.API.TerminalFileSystemCacheWireTest do
   import Plug.Conn
   import Plug.Test
 
-  alias ImagePipe.Cache.FileSystem
   alias ImagePipe.SourceTest.RootHTTPAdapter
 
   @terminals [
@@ -74,7 +73,7 @@ defmodule ImagePipe.API.TerminalFileSystemCacheWireTest do
           ]
         ]
       ],
-      cache: {FileSystem, root: root},
+      cache: [root: root],
       http_cache: :auto,
       allow_debug_headers: true
     )

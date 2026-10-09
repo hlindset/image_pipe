@@ -16,7 +16,7 @@ defmodule ImagePipe.Cache.FileReadTest do
   test "a pinned cache hit survives eviction and delivers bounded chunks", %{root: root} do
     body = :binary.copy("image", 40_000)
     key = put(root, body)
-    assert {:hit, entry} = Cache.lookup_entry(key, cache: {FileSystem, root: root})
+    assert {:hit, entry} = Cache.lookup_entry(key, cache: [root: root])
     assert %Cache.File{} = entry.body
     File.rm_rf!(Path.join(root, "aa"))
     chunks = Enum.to_list(Cache.File.stream(entry.body))
@@ -31,7 +31,7 @@ defmodule ImagePipe.Cache.FileReadTest do
     File.write!(body, "imag")
 
     assert {:miss, ^key, {:cache_read, _}} =
-             Cache.lookup_entry(key, cache: {FileSystem, root: root})
+             Cache.lookup_entry(key, cache: [root: root])
   end
 
   for corruption <- [:overwrite, :bit_flip] do
@@ -55,7 +55,7 @@ defmodule ImagePipe.Cache.FileReadTest do
       assert File.stat!(path).size == byte_size(original)
 
       assert {:error, {:invalid_metadata, :body_digest_mismatch}} =
-               Cache.Input.verify(key, input_cache: {FileSystem, root: root})
+               Cache.Input.verify(key, input_cache: [root: root])
     end
   end
 
@@ -67,7 +67,7 @@ defmodule ImagePipe.Cache.FileReadTest do
     key = put(root, "image", opts)
     assert :sys.get_state(admission).window_bytes == 5
 
-    assert :ok = Cache.Input.discard(key, input_cache: {FileSystem, opts})
+    assert :ok = Cache.Input.discard(key, input_cache: opts)
     assert FileSystem.get(key, opts) == :miss
     state = :sys.get_state(admission)
     assert state.window_bytes + state.probationary_bytes + state.protected_bytes == 0
@@ -82,7 +82,7 @@ defmodule ImagePipe.Cache.FileReadTest do
     [body] = Path.wildcard(Path.join(root, "**/*.body"))
     File.rm!(body)
 
-    assert {:error, :enoent} = Cache.Input.discard(key, input_cache: {FileSystem, opts})
+    assert {:error, :enoent} = Cache.Input.discard(key, input_cache: opts)
     assert :sys.get_state(admission).window_bytes == 0
     assert FileSystem.get(key, opts) == :miss
   end
@@ -97,7 +97,7 @@ defmodule ImagePipe.Cache.FileReadTest do
     File.rm!(paths.meta_path)
     File.mkdir!(paths.meta_path)
 
-    assert {:error, _} = Cache.Input.discard(key, input_cache: {FileSystem, opts})
+    assert {:error, _} = Cache.Input.discard(key, input_cache: opts)
     assert :sys.get_state(admission).window_bytes == 5
     assert [body] = Path.wildcard(Path.join(root, "**/*.body"))
     assert File.read!(body) == "image"
@@ -132,7 +132,7 @@ defmodule ImagePipe.Cache.FileReadTest do
       :erlang.term_to_binary(%{metadata | body_filename: "../../unrelated"})
     )
 
-    assert {:error, _} = Cache.Input.discard(key, input_cache: {FileSystem, root: root})
+    assert {:error, _} = Cache.Input.discard(key, input_cache: [root: root])
     assert File.read!(outside) == "keep"
   end
 end

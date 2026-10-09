@@ -5,7 +5,6 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
   import Plug.Test
 
   alias ImagePipe, as: IP
-  alias ImagePipe.Cache.FileSystem
 
   @path "/wm=logo/format=png/src/https://origin.test/image.png"
 
@@ -88,8 +87,8 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
             ]
           ]
         ],
-        cache: {FileSystem, root: Path.join(root, "output")},
-        input_cache: {FileSystem, root: Path.join(root, "input")},
+        cache: [root: Path.join(root, "output")],
+        input_cache: [root: Path.join(root, "input")],
         clock: fn -> Agent.get(state, & &1.now) end,
         watermarks: %{
           logo: [source: "https://origin.test/mark.png"],

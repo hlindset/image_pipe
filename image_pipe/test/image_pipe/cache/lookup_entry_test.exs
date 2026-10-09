@@ -5,60 +5,59 @@ defmodule ImagePipe.Cache.LookupEntryTest do
 
   alias ImagePipe.Cache
   alias ImagePipe.Cache.Entry
+  alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.Key
 
-  defmodule HitAdapter do
-    def get(%Key{}, opts), do: {:hit, Keyword.fetch!(opts, :entry)}
-  end
+  setup do
+    root = Path.join(System.tmp_dir!(), "lookup-entry-test-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    on_exit(fn -> File.rm_rf(root) end)
 
-  defmodule MissAdapter do
-    def get(%Key{}, _opts), do: :miss
-  end
-
-  defmodule ErrorAdapter do
-    def get(%Key{}, _opts), do: {:error, :read_failed}
+    opts = Cache.validate_config!(cache: [root: root])
+    %{opts: opts}
   end
 
   defp key do
     %Key{hash: String.duplicate("a", 64), data: [schema_version: 2]}
   end
 
-  defp entry(body \\ "body") do
-    %Entry{
-      body: body,
-      content_type: "image/webp",
-      headers: [],
-      created_at: ~U[2026-04-29 10:15:00Z]
-    }
+  defp store(opts, body) do
+    key()
+    |> Cache.open_sink({:complete_body, "text/plain"}, opts)
+    |> Cache.write_chunk(body, opts)
+    |> Cache.commit_sink(opts)
+  end
+
+  defp rewrite_metadata(opts, fun) do
+    {:ok, %{meta_path: meta_path}} = FileSystem.paths(key(), Keyword.fetch!(opts, :cache))
+
+    metadata = meta_path |> File.read!() |> :erlang.binary_to_term()
+    File.write!(meta_path, :erlang.term_to_binary(fun.(metadata)))
   end
 
   test "returns :disabled when no cache is configured" do
     assert Cache.lookup_entry(key(), []) == :disabled
   end
 
-  test "returns a miss with the given key" do
-    assert Cache.lookup_entry(key(), cache: {MissAdapter, []}) == {:miss, key()}
+  test "returns a miss with the given key", %{opts: opts} do
+    assert Cache.lookup_entry(key(), opts) == {:miss, key()}
   end
 
-  test "returns a hit entry via the adapter, without re-wrapping the key" do
-    configured_entry = entry()
+  test "returns a stored entry as a hit", %{opts: opts} do
+    store(opts, "body")
 
-    assert Cache.lookup_entry(key(), cache: {HitAdapter, entry: configured_entry}) ==
-             {:hit, configured_entry}
+    assert {:hit, %Entry{content_type: "text/plain"} = entry} = Cache.lookup_entry(key(), opts)
+    Entry.close(entry)
   end
 
-  test "an invalid hit entry is a fail-open cache read error" do
-    invalid_entry = %Entry{
-      body: "body",
-      content_type: "image/gif",
-      headers: [],
-      created_at: ~U[2026-04-29 10:15:00Z]
-    }
+  test "an invalid stored entry is a fail-open cache read error", %{opts: opts} do
+    store(opts, "body")
+    rewrite_metadata(opts, &%{&1 | content_type: "image/gif", representation: nil})
 
     log =
       capture_log(fn ->
-        assert {:miss, returned_key, {:cache_read, {:invalid_entry, _reason}}} =
-                 Cache.lookup_entry(key(), cache: {HitAdapter, entry: invalid_entry})
+        assert {:miss, returned_key, {:cache_read, {:invalid_metadata, _reason}}} =
+                 Cache.lookup_entry(key(), opts)
 
         assert returned_key == key()
       end)
@@ -66,17 +65,18 @@ defmodule ImagePipe.Cache.LookupEntryTest do
     assert log =~ "cache read error"
   end
 
-  test "read errors fail open and are logged" do
+  test "read errors fail open and are logged", %{opts: opts} do
+    store(opts, "body")
+    {:ok, %{meta_path: meta_path}} = FileSystem.paths(key(), Keyword.fetch!(opts, :cache))
+    File.write!(meta_path, "not metadata")
+
     log =
       capture_log(fn ->
-        assert {:miss, returned_key, {:cache_read, :read_failed}} =
-                 Cache.lookup_entry(key(), cache: {ErrorAdapter, []})
-
+        assert {:miss, returned_key, {:cache_read, _reason}} = Cache.lookup_entry(key(), opts)
         assert returned_key == key()
       end)
 
     assert log =~ "cache read error"
-    assert log =~ ":read_failed"
   end
 
   describe "telemetry" do
@@ -91,8 +91,8 @@ defmodule ImagePipe.Cache.LookupEntryTest do
       %{prefix: prefix}
     end
 
-    test "emits a [:cache, :lookup] span for a miss", %{prefix: prefix} do
-      Cache.lookup_entry(key(), cache: {MissAdapter, []}, telemetry_prefix: prefix)
+    test "emits a [:cache, :lookup] span for a miss", %{prefix: prefix, opts: opts} do
+      Cache.lookup_entry(key(), Keyword.put(opts, :telemetry_prefix, prefix))
 
       assert_receive {:telemetry, :start, _measurements, %{}}
       assert_receive {:telemetry, :stop, _measurements, %{result: :ok, cache: :miss}}

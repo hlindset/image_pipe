@@ -294,12 +294,16 @@ original is fetched. That image's source and input-cache spans nest in it.
 
 Span. Wraps the output-cache lookup.
 
-- Start metadata: `:pool` (`:output`), and `:cache` (`:disabled`) when no
-  output cache is configured.
+- Start metadata: `:pool` (`:output`), `:cache_key` (string, the hash of the
+  cache key looked up), `:entry` (atom), and `:cache` (`:disabled`) when no
+  output cache is configured. `:entry` is `:response` for a processed
+  response, or `:source_record` for the record of the original that
+  responses were made from.
 - Stop metadata:
   - `:result` (atom): `:ok`, or `:cache_error` when the read failed.
   - `:cache` (atom): `:disabled`, `:hit`, `:miss`, or `:read_error`. A read
     error is served as a miss.
+  - `:cache_key` and `:entry`: as on start.
   - `:error` (atom): the error category, on a read error.
 
 ### `[:cache, :input]`
@@ -327,7 +331,8 @@ starts. It runs outside any request.
 
 Span. Wraps committing an entry to either pool.
 
-- Start metadata: `:pool` (atom).
+- Start metadata: `:pool` (atom), and `:cache_key` (string, the hash of the
+  entry's cache key).
 - Stop metadata:
   - `:result` (atom): `:ok` or `:cache_error`.
   - `:cache` (atom): `:write` when stored, or `:write_error`. A cache in
@@ -335,6 +340,7 @@ Span. Wraps committing an entry to either pool.
     `:admission_rejected` (output pool) or `:stage_skipped` (input pool).
   - `:error` (atom): the error category, on an output-pool write error.
   - `:output_format` (atom): the stored format. Output pool only.
+  - `:cache_key` (string): as on start.
 
 A write error after a streamed response doesn't fail the response, because
 the body was already sent.
@@ -346,16 +352,15 @@ entry before committing it.
 
 - Metadata:
   - `:cache` (atom): `:stage_skipped` when the body crossed `max_body_bytes`,
-    `:stage_abandoned` when delivery stopped early or the stream failed,
-    `:stage_error` when opening or writing the staged entry failed, or
-    `:stage_cleanup_error` when discarding it failed.
+    `:stage_abandoned` when delivery stopped early or the stream failed, or
+    `:stage_error` when opening or writing the staged entry failed.
   - `:result` (atom): `:ok` for skipped and abandoned entries, `:cache_error`
     otherwise.
   - `:reason` (atom): why the entry was skipped or abandoned, such as
     `:too_large`.
-  - `:error` (atom): the error category, for `:stage_error` and
-    `:stage_cleanup_error`.
+  - `:error` (atom): the error category, for `:stage_error`.
   - `:output_format` (atom).
+  - `:cache_key` (string): the hash of the entry's cache key.
 
 ### `[:cache, :coordination]`
 
@@ -376,7 +381,7 @@ are coordinated (see [request coalescing](caching-and-freshness.md#request-coale
 
 ### `[:cache, :warm_start]`
 
-Span. Emitted by a bounded `ImagePipe.Cache.FileSystem` cache when it loads
+Span. Emitted by a bounded cache when it loads
 its saved state at startup.
 
 - Start metadata: `:pool` (atom).
@@ -390,7 +395,7 @@ its saved state at startup.
 Span. Emitted each time ImagePipe checks for
 [leftover files](cache.md#leftover-files), whether or not it finds any:
 
-- For an unbounded `ImagePipe.Cache.FileSystem` cache, when an instance
+- For an unbounded cache, when an instance
   starts and every 24 hours after.
 - For a bounded cache, after its startup scan and after each
   [re-scan](#cache-rescan).

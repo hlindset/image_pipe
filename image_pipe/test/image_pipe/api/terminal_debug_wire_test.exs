@@ -5,7 +5,7 @@ defmodule ImagePipe.API.TerminalDebugWireTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias ImagePipe.Test.CacheObserver
 
   @terminals ["output=info", "w=12/output=blurhash"]
 
@@ -74,8 +74,8 @@ defmodule ImagePipe.API.TerminalDebugWireTest do
     body: body
   } do
     for terminal <- @terminals do
-      store = :ets.new(:api_terminal_debug_policy_cache, [:set, :public])
-      denied_config = mount(body, store: store, allow_debug_headers: false)
+      cache = CacheObserver.observe([])
+      denied_config = mount(body, cache: cache, allow_debug_headers: false)
 
       denied = request("#{terminal}/debug", denied_config)
       assert denied.status == 200, terminal
@@ -83,7 +83,7 @@ defmodule ImagePipe.API.TerminalDebugWireTest do
       assert header(denied, "server-timing") == nil, terminal
       assert_receive :origin_fetch
 
-      allowed_config = mount(body, store: store, allow_debug_headers: true)
+      allowed_config = mount(body, cache: cache, allow_debug_headers: true)
       allowed = request("#{terminal}/debug", allowed_config)
 
       assert allowed.resp_body == denied.resp_body, terminal
@@ -101,10 +101,7 @@ defmodule ImagePipe.API.TerminalDebugWireTest do
   defp mount(body, options) do
     test_pid = self()
 
-    store =
-      Keyword.get_lazy(options, :store, fn ->
-        :ets.new(:api_terminal_debug, [:set, :public])
-      end)
+    cache = Keyword.get_lazy(options, :cache, fn -> CacheObserver.observe([]) end)
 
     origin = fn conn ->
       send(test_pid, :origin_fetch)
@@ -112,21 +109,22 @@ defmodule ImagePipe.API.TerminalDebugWireTest do
     end
 
     ImagePipe.Plug.init(
-      sources: [
-        path: [
-          adapter: RootHTTPAdapter,
-          match: :path,
-          options: [
-            root_url: "http://origin.test",
-            byte_identity: :strong,
-            internal_cache: :enabled,
-            req_options: [plug: origin]
+      [
+        sources: [
+          path: [
+            adapter: RootHTTPAdapter,
+            match: :path,
+            options: [
+              root_url: "http://origin.test",
+              byte_identity: :strong,
+              internal_cache: :enabled,
+              req_options: [plug: origin]
+            ]
           ]
-        ]
-      ],
-      cache: {CacheProbe, store: store},
-      http_cache: :auto,
-      allow_debug_headers: Keyword.fetch!(options, :allow_debug_headers)
+        ],
+        http_cache: :auto,
+        allow_debug_headers: Keyword.fetch!(options, :allow_debug_headers)
+      ] ++ cache
     )
   end
 

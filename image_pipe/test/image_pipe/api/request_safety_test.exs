@@ -5,7 +5,7 @@ defmodule ImagePipe.API.RequestSafetyTest do
   import Plug.Test, only: [conn: 2]
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias ImagePipe.Test.CacheObserver
   alias ImagePipe.Test.PlugFixture.CountingOriginImage
 
   @signing_key "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
@@ -63,7 +63,7 @@ defmodule ImagePipe.API.RequestSafetyTest do
 
   defp build_config(opts) do
     config =
-      ImagePipe.Plug.init(Keyword.merge(opts, cache: {CacheProbe, []}))
+      ImagePipe.Plug.init(CacheObserver.observe(opts))
 
     Keyword.merge(config, output_capabilities: %{avif: true, webp: true})
   end
@@ -83,7 +83,7 @@ defmodule ImagePipe.API.RequestSafetyTest do
              "expected #{path} to return #{expected_status}, got #{conn.status}"
 
       refute_received :origin_fetch
-      refute_received {:cache_lookup, _key}
+      refute_received {:cache_lookup, _, _key}
       refute_received {:cache_put, _key, _body}
     end
   end

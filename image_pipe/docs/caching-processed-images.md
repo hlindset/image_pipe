@@ -25,7 +25,7 @@ forward "/images", ImagePipe.Plug,
       options: [root: "/srv/images", root_id: "media"]
     ]
   ],
-  cache: {ImagePipe.Cache.FileSystem, root: "/var/cache/image_pipe/processed"}
+  cache: [root: "/var/cache/image_pipe/processed"]
 ```
 
 ### image_pipe_server
@@ -52,8 +52,8 @@ instead of downloading it again. It needs its own directory.
 ### Plug
 
 ```elixir
-cache: {ImagePipe.Cache.FileSystem, root: "/var/cache/image_pipe/processed"},
-input_cache: {ImagePipe.Cache.FileSystem, root: "/var/cache/image_pipe/originals"}
+cache: [root: "/var/cache/image_pipe/processed"],
+input_cache: [root: "/var/cache/image_pipe/originals"]
 ```
 
 ### image_pipe_server
@@ -96,11 +96,11 @@ children = [
        options: [root: "/srv/images", root_id: "media"]
      ]
    ],
-   cache:
-     {ImagePipe.Cache.FileSystem,
-      root: "/var/cache/image_pipe/processed",
-      max_size_bytes: 5_000_000_000,
-      node_id: "node-0"}},
+   cache: [
+     root: "/var/cache/image_pipe/processed",
+     max_size_bytes: 5_000_000_000,
+     node_id: "node-0"
+   ]},
   MyAppWeb.Endpoint
 ]
 ```

@@ -82,7 +82,7 @@ so other sizes and formats don't read it over the network again:
 ### Plug
 
 ```elixir
-input_cache: {ImagePipe.Cache.FileSystem, root: "/var/cache/image_pipe/originals"},
+input_cache: [root: "/var/cache/image_pipe/originals"],
 sources: [
   media: [
     adapter: ImagePipe.Source.File,

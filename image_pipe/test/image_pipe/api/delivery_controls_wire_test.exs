@@ -5,7 +5,7 @@ defmodule ImagePipe.API.DeliveryControlsWireTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias ImagePipe.Test.CacheObserver
 
   @image File.read!("priv/static/images/beach.jpg")
 
@@ -17,17 +17,17 @@ defmodule ImagePipe.API.DeliveryControlsWireTest do
     assert get_resp_header(attached, "content-disposition") == [attachment("first.jpg")]
     assert [etag] = get_resp_header(attached, "etag")
     assert_receive :origin_fetch
-    assert [first_key] = Enum.uniq(CacheProbe.lookup_keys())
+    assert [first_key] = Enum.uniq(CacheObserver.lookup_hashes())
     assert_receive {:cache_put, stored_key, _body}
-    assert stored_key.hash == first_key.hash
+    assert stored_key == first_key
 
     inline = request(:get, "w=64/format=jpeg/filename=second", config)
     assert inline.status == 200
     assert inline.resp_body == attached.resp_body
     assert get_resp_header(inline, "content-disposition") == [inline("second.jpg")]
     assert get_resp_header(inline, "etag") == [etag]
-    assert [second_key] = Enum.uniq(CacheProbe.lookup_keys())
-    assert second_key.hash == first_key.hash
+    assert [second_key] = Enum.uniq(CacheObserver.lookup_hashes())
+    assert second_key == first_key
     refute_receive :origin_fetch
     refute_receive {:cache_put, _key, _body}
 
@@ -53,9 +53,9 @@ defmodule ImagePipe.API.DeliveryControlsWireTest do
 
       assert [etag] = get_resp_header(attached, "etag")
       assert_receive :origin_fetch
-      assert [first_key] = Enum.uniq(CacheProbe.lookup_keys())
+      assert [first_key] = Enum.uniq(CacheObserver.lookup_hashes())
       assert_receive {:cache_put, stored_key, _body}
-      assert stored_key.hash == first_key.hash
+      assert stored_key == first_key
 
       inline = request(:get, "#{terminal}/filename=second", config)
       assert inline.status == 200, terminal
@@ -63,8 +63,8 @@ defmodule ImagePipe.API.DeliveryControlsWireTest do
       assert get_resp_header(inline, "content-type") == [content_type]
       assert get_resp_header(inline, "content-disposition") == [inline("second.#{extension}")]
       assert get_resp_header(inline, "etag") == [etag]
-      assert [second_key] = Enum.uniq(CacheProbe.lookup_keys())
-      assert second_key.hash == first_key.hash
+      assert [second_key] = Enum.uniq(CacheObserver.lookup_hashes())
+      assert second_key == first_key
       refute_receive :origin_fetch
       refute_receive {:cache_put, _key, _body}
     end
@@ -77,7 +77,7 @@ defmodule ImagePipe.API.DeliveryControlsWireTest do
     assert first.status == 200
     assert [etag] = get_resp_header(first, "etag")
     assert_receive :origin_fetch
-    assert [first_key] = Enum.uniq(CacheProbe.lookup_keys())
+    assert [first_key] = Enum.uniq(CacheObserver.lookup_hashes())
     assert_receive {:cache_put, _, _body}
 
     second = request(:get, "w=64/format=jpeg/cb=deploy-b", config)
@@ -85,9 +85,9 @@ defmodule ImagePipe.API.DeliveryControlsWireTest do
     assert second.resp_body == first.resp_body
     assert get_resp_header(second, "etag") == [etag]
     assert_receive :origin_fetch
-    assert [second_key] = Enum.uniq(CacheProbe.lookup_keys())
+    assert [second_key] = Enum.uniq(CacheObserver.lookup_hashes())
     assert_receive {:cache_put, _, _body}
-    refute second_key.hash == first_key.hash
+    refute second_key == first_key
   end
 
   test "HEAD matches a warm GET and conditional responses omit content disposition" do
@@ -96,35 +96,34 @@ defmodule ImagePipe.API.DeliveryControlsWireTest do
 
     assert request(:get, options, config).status == 200
     assert_receive :origin_fetch
-    assert [key] = Enum.uniq(CacheProbe.lookup_keys())
+    assert [key] = Enum.uniq(CacheObserver.lookup_hashes())
     assert_receive {:cache_put, _, _body}
 
     get = request(:get, options, config)
     assert get.status == 200
-    assert [get_key] = Enum.uniq(CacheProbe.lookup_keys())
-    assert get_key.hash == key.hash
+    assert [get_key] = Enum.uniq(CacheObserver.lookup_hashes())
+    assert get_key == key
 
     head = request(:head, options, config)
     assert head.status == 200
     assert head.resp_body == ""
-    assert [head_key] = Enum.uniq(CacheProbe.lookup_keys())
-    assert head_key.hash == key.hash
+    assert [head_key] = Enum.uniq(CacheObserver.lookup_hashes())
+    assert head_key == key
 
-    for header <- [
-          "cache-control",
-          "content-disposition",
-          "content-length",
-          "content-type",
-          "etag"
-        ] do
+    for header <- ["cache-control", "content-disposition", "content-type", "etag"] do
       assert get_resp_header(head, header) == get_resp_header(get, header), header
     end
+
+    # A cached GET body is sent as a file, so the server sets its Content-Length.
+    assert get_resp_header(head, "content-length") == [
+             Integer.to_string(byte_size(get.resp_body))
+           ]
 
     [etag] = get_resp_header(get, "etag")
     conditional = request(:head, options, config, [{"if-none-match", etag}])
     assert conditional.status == 304
     assert get_resp_header(conditional, "content-disposition") == []
-    refute_receive {:cache_lookup, _key}
+    refute_receive {:cache_lookup, _, _key}
     refute_receive :origin_fetch
   end
 
@@ -139,14 +138,13 @@ defmodule ImagePipe.API.DeliveryControlsWireTest do
 
   defp mount do
     test_pid = self()
-    store = :ets.new(:api_delivery_controls_cache, [:set, :public])
 
     origin = fn conn ->
       send(test_pid, :origin_fetch)
       conn |> put_resp_content_type("image/jpeg") |> send_resp(200, @image)
     end
 
-    ImagePipe.Plug.init(
+    [
       sources: [
         path: [
           adapter: RootHTTPAdapter,
@@ -159,11 +157,12 @@ defmodule ImagePipe.API.DeliveryControlsWireTest do
           ]
         ]
       ],
-      cache: {CacheProbe, store: store},
       http_cache: :auto,
       max_body_bytes: 10_000_000,
       max_input_pixels: 40_000_000
-    )
+    ]
+    |> CacheObserver.observe()
+    |> ImagePipe.Plug.init()
   end
 
   defp attachment(filename), do: ~s(attachment; filename="#{filename}")

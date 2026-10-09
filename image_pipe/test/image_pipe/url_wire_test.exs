@@ -5,8 +5,8 @@ defmodule ImagePipe.URLWireTest do
   import Plug.Test
 
   alias ImagePipe, as: IP
-  alias ImagePipe.RequestSafetyTest.CacheProbe
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.CacheObserver
   alias Vix.Vips.Image, as: VipsImage
 
   @key Base.encode16(:binary.copy(<<71>>, 32))
@@ -79,7 +79,7 @@ defmodule ImagePipe.URLWireTest do
     mount = IP.Plug.init(config)
     signed = IP.URL.sign_path("/w=30/format=png/src/photo%2ejpg", url_config)
     refute_received :source_fetch
-    refute_received :cache_lookup
+    refute_received {:cache_lookup, _, _}
 
     response =
       conn(:get, "/artwork" <> signed)
@@ -93,11 +93,11 @@ defmodule ImagePipe.URLWireTest do
     assert_received :source_fetch
 
     tampered = String.replace(signed, "%2e", ".")
-    mount = IP.Plug.init(config: config, cache: {CacheProbe, []})
+    mount = IP.Plug.init(IP.config(CacheObserver.observe(keys: [@key], sources: sources)))
     assert conn(:get, tampered) |> IP.Plug.call(mount) |> Map.fetch!(:status) == 403
     refute_received :source_fetch
-    refute_received :cache_lookup
-    refute_received :cache_put
+    refute_received {:cache_lookup, _, _}
+    refute_received {:cache_put, _, _}
   end
 
   test "URLs built with ImagePipe.URL round trip through the Plug with signing, encryption, and presets",
@@ -195,7 +195,7 @@ defmodule ImagePipe.URLWireTest do
     url_config = IP.URL.config(url_options)
 
     config =
-      IP.config(url_options ++ [sources: sources, cache: {CacheProbe, []}, clock: fn -> 100 end])
+      IP.config(CacheObserver.observe(url_options ++ [sources: sources, clock: fn -> 100 end]))
 
     mount = IP.Plug.init(config)
     expired = IP.URL.url!(IP.URL.new(url_config, expires: 99), "photo.jpg")
@@ -208,8 +208,8 @@ defmodule ImagePipe.URLWireTest do
       response = conn(:get, path) |> IP.Plug.call(mount)
       assert response.status == status
       refute_received :source_fetch
-      refute_received :cache_lookup
-      refute_received :cache_put
+      refute_received {:cache_lookup, _, _}
+      refute_received {:cache_put, _, _}
     end
   end
 end

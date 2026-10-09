@@ -5,7 +5,7 @@ defmodule ImagePipe.API.CacheContractTest do
   import Plug.Test, only: [conn: 2]
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias ImagePipe.Test.CacheObserver
   alias ImagePipe.Test.PlugFixture.OriginImage
 
   test "equivalent_requests/1 groups each share a cache key and an ETag" do
@@ -39,8 +39,8 @@ defmodule ImagePipe.API.CacheContractTest do
       for value <- ["2,down,0,1", "3,down,0,1", "2,left,0,1", "2,down,0.2,1", "2,down,0,0.8"] do
         response = request("/w=32/progressive-blur=#{value}/src/images/cat.jpg", config, nil)
         assert response.status == 200
-        assert [key] = Enum.uniq(CacheProbe.lookup_keys())
-        {key.hash, get_resp_header(response, "etag")}
+        assert [hash] = Enum.uniq(CacheObserver.lookup_hashes())
+        {hash, get_resp_header(response, "etag")}
       end
 
     assert length(Enum.uniq(Enum.map(identities, &elem(&1, 0)))) == 5
@@ -123,8 +123,7 @@ defmodule ImagePipe.API.CacheContractTest do
   end
 
   defp build_config(opts) do
-    config =
-      ImagePipe.Plug.init(Keyword.merge(opts, cache: {CacheProbe, []}))
+    config = ImagePipe.Plug.init(CacheObserver.observe(opts))
 
     Keyword.merge(config, output_capabilities: %{avif: true, webp: true})
   end
@@ -159,9 +158,9 @@ defmodule ImagePipe.API.CacheContractTest do
       results =
         for path <- paths do
           conn = ImagePipe.Plug.call(conn(:get, path), config)
-          assert [key] = Enum.uniq(CacheProbe.lookup_keys())
+          assert [hash] = Enum.uniq(CacheObserver.lookup_hashes())
           assert conn.status == 200, "expected #{path} to return 200, got #{conn.status}"
-          {key.hash, get_resp_header(conn, "etag")}
+          {hash, get_resp_header(conn, "etag")}
         end
 
       assert results |> Enum.uniq() |> length() == 1,
@@ -175,13 +174,13 @@ defmodule ImagePipe.API.CacheContractTest do
 
     for {path, accept_a, accept_b} <- cases do
       conn_a = request(path, config, accept_a)
-      assert [key_a] = Enum.uniq(CacheProbe.lookup_keys())
+      assert [hash_a] = Enum.uniq(CacheObserver.lookup_hashes())
       conn_b = request(path, config, accept_b)
-      assert [key_b] = Enum.uniq(CacheProbe.lookup_keys())
+      assert [hash_b] = Enum.uniq(CacheObserver.lookup_hashes())
 
       assert conn_a.status == 200
       assert conn_b.status == 200
-      assert key_a.hash == key_b.hash
+      assert hash_a == hash_b
       assert get_resp_header(conn_a, "etag") == get_resp_header(conn_b, "etag")
       assert get_resp_header(conn_a, "vary") == ["Accept"]
       assert get_resp_header(conn_b, "vary") == ["Accept"]
@@ -196,13 +195,13 @@ defmodule ImagePipe.API.CacheContractTest do
 
     for {path, accept_a, accept_b} <- cases do
       conn_a = request(path, config, accept_a)
-      assert [key_a] = Enum.uniq(CacheProbe.lookup_keys())
+      assert [hash_a] = Enum.uniq(CacheObserver.lookup_hashes())
       conn_b = request(path, config, accept_b)
-      assert [key_b] = Enum.uniq(CacheProbe.lookup_keys())
+      assert [hash_b] = Enum.uniq(CacheObserver.lookup_hashes())
 
       assert conn_a.status == 200
       assert conn_b.status == 200
-      assert key_a.hash != key_b.hash
+      assert hash_a != hash_b
       assert get_resp_header(conn_a, "etag") != get_resp_header(conn_b, "etag")
     end
   end
@@ -213,13 +212,13 @@ defmodule ImagePipe.API.CacheContractTest do
 
     for {path, accept} <- cases do
       conn_with = request(path, config, accept)
-      assert [key_with] = Enum.uniq(CacheProbe.lookup_keys())
+      assert [hash_with] = Enum.uniq(CacheObserver.lookup_hashes())
       conn_without = request(path, config, nil)
-      assert [key_without] = Enum.uniq(CacheProbe.lookup_keys())
+      assert [hash_without] = Enum.uniq(CacheObserver.lookup_hashes())
 
       assert conn_with.status == 200
       assert conn_without.status == 200
-      assert key_with.hash == key_without.hash
+      assert hash_with == hash_without
       assert get_resp_header(conn_with, "etag") == get_resp_header(conn_without, "etag")
 
       assert get_resp_header(conn_with, "content-type") ==
@@ -252,10 +251,10 @@ defmodule ImagePipe.API.CacheContractTest do
     results =
       for variant <- variants do
         conn = request_with_variant(path, config, variant)
-        assert [key] = Enum.uniq(CacheProbe.lookup_keys())
+        assert [hash] = Enum.uniq(CacheObserver.lookup_hashes())
         assert conn.status == 200
         assert_storage_vary(variant, get_resp_header(conn, "vary"))
-        {key.hash, get_resp_header(conn, "etag")}
+        {hash, get_resp_header(conn, "etag")}
       end
 
     {hashes, etags} = Enum.unzip(results)

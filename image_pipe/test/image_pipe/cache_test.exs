@@ -5,159 +5,23 @@ defmodule ImagePipe.CacheTest do
 
   alias ImagePipe.Cache
   alias ImagePipe.Cache.Entry
+  alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.Key
   alias ImagePipe.Output.Resolved
-  alias ImagePipe.Test.RaisingOpenCache
 
-  defmodule MissAdapter do
-    @behaviour ImagePipe.Cache
+  setup do
+    root = Path.join(System.tmp_dir!(), "cache-test-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
 
-    def get(%Key{}, _opts), do: :miss
-    def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{}}
-    def write_chunk(state, _chunk, _opts), do: {:ok, state}
-    def commit_sink(_state, _opts), do: :ok
-    def abort_sink(_state, _opts), do: :ok
-  end
+    on_exit(fn ->
+      for dir <- [root | Path.wildcard(Path.join(root, "**"))],
+          File.dir?(dir),
+          do: File.chmod(dir, 0o700)
 
-  defmodule NormalizingAdapter do
-    @behaviour ImagePipe.Cache
+      File.rm_rf(root)
+    end)
 
-    def validate_options(opts) do
-      {:ok,
-       opts
-       |> Keyword.drop([:drop_me])
-       |> Keyword.put(:normalized?, true)}
-    end
-
-    def get(%Key{}, opts) do
-      send(Keyword.fetch!(opts, :test_pid), {:normalized_cache_get, opts})
-      :miss
-    end
-
-    def open_sink(%Key{}, %Entry.Metadata{}, opts) do
-      send(Keyword.fetch!(opts, :test_pid), {:normalized_open_sink, opts})
-      {:ok, %{}}
-    end
-
-    def write_chunk(state, _chunk, _opts), do: {:ok, state}
-    def commit_sink(_state, _opts), do: :ok
-    def abort_sink(_state, _opts), do: :ok
-  end
-
-  defmodule ErrorAdapter do
-    @behaviour ImagePipe.Cache
-
-    def get(%Key{}, _opts), do: {:error, :read_failed}
-    def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:error, :open_failed}
-    def write_chunk(state, _chunk, _opts), do: {:error, :write_failed, state}
-    def commit_sink(_state, _opts), do: {:error, :commit_failed}
-    def abort_sink(_state, _opts), do: {:error, :abort_failed}
-  end
-
-  defmodule UnexpectedResultAdapter do
-    @behaviour ImagePipe.Cache
-
-    def get(%Key{}, _opts), do: :surprise
-    def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{}}
-    def write_chunk(state, _chunk, _opts), do: {:ok, state}
-    def commit_sink(_state, _opts), do: :surprise
-    def abort_sink(_state, _opts), do: :surprise
-  end
-
-  defmodule MissingSinkCallbacksAdapter do
-    def get(%Key{}, _opts), do: :miss
-    def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{}}
-  end
-
-  defmodule SinkMissAdapter do
-    @behaviour ImagePipe.Cache
-
-    def get(%Key{}, _opts), do: :miss
-
-    def open_sink(%Key{} = key, %Entry.Metadata{} = metadata, opts) do
-      send(Keyword.fetch!(opts, :test_pid), {:open_sink, key, metadata, opts})
-      {:ok, %{chunks: [], opts: opts}}
-    end
-
-    def write_chunk(state, chunk, _opts) when is_binary(chunk) do
-      send(Keyword.fetch!(state.opts, :test_pid), {:write_chunk, chunk})
-      {:ok, %{state | chunks: [chunk | state.chunks]}}
-    end
-
-    def commit_sink(state, _opts) do
-      send(Keyword.fetch!(state.opts, :test_pid), {:commit_sink, state.chunks})
-      :ok
-    end
-
-    def abort_sink(state, _opts) do
-      send(Keyword.fetch!(state.opts, :test_pid), {:abort_sink, state.chunks})
-      :ok
-    end
-  end
-
-  defmodule SinkWriteErrorAdapter do
-    @behaviour ImagePipe.Cache
-
-    def get(%Key{}, _opts), do: :miss
-    def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{aborted?: false}}
-    def write_chunk(state, _chunk, _opts), do: {:error, :write_failed, state}
-    def commit_sink(_state, _opts), do: :ok
-    def abort_sink(_state, _opts), do: :ok
-  end
-
-  defmodule SinkCommitErrorAdapter do
-    @behaviour ImagePipe.Cache
-
-    def get(%Key{}, _opts), do: :miss
-    def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{}}
-    def write_chunk(state, _chunk, _opts), do: {:ok, state}
-    def commit_sink(_state, _opts), do: {:error, :commit_failed}
-    def abort_sink(_state, _opts), do: :ok
-  end
-
-  defmodule SinkAbortErrorAdapter do
-    @behaviour ImagePipe.Cache
-
-    def get(%Key{}, _opts), do: :miss
-    def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{}}
-    def write_chunk(state, _chunk, _opts), do: {:ok, state}
-    def commit_sink(_state, _opts), do: :ok
-    def abort_sink(_state, _opts), do: {:error, :abort_failed}
-  end
-
-  defmodule SinkAdmissionRejectedAdapter do
-    @behaviour ImagePipe.Cache
-
-    def get(%Key{}, _opts), do: :miss
-    def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{}}
-    def write_chunk(state, _chunk, _opts), do: {:ok, state}
-    def commit_sink(_state, _opts), do: {:ok, :rejected}
-    def abort_sink(_state, _opts), do: :ok
-  end
-
-  defmodule RaisingGetAdapter do
-    @behaviour ImagePipe.Cache
-
-    def get(%Key{}, _opts), do: raise("adapter get crashed")
-    def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{}}
-    def write_chunk(state, _chunk, _opts), do: {:ok, state}
-    def commit_sink(_state, _opts), do: :ok
-    def abort_sink(_state, _opts), do: :ok
-  end
-
-  defmodule RaisingCommitAdapter do
-    @behaviour ImagePipe.Cache
-
-    def get(%Key{}, _opts), do: :miss
-    def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{}}
-    def write_chunk(state, _chunk, _opts), do: {:ok, state}
-    def commit_sink(_state, _opts), do: raise("adapter commit crashed")
-    def abort_sink(_state, _opts), do: :ok
-  end
-
-  defmodule LegacyPutOnlyAdapter do
-    def get(%Key{}, _opts), do: :miss
-    def put(%Key{}, %Entry{}, _opts), do: :ok
+    %{root: root}
   end
 
   defp cache_key do
@@ -191,11 +55,35 @@ defmodule ImagePipe.CacheTest do
     }
   end
 
-  test "ImagePipe init rejects invalid cache config early" do
+  test "lookup telemetry tells response lookups from source record lookups", %{root: root} do
+    prefix = [__MODULE__, :lookup_entry_kind]
+    handler = make_ref()
+    event = prefix ++ [:cache, :lookup, :stop]
+
+    :telemetry.attach(
+      handler,
+      event,
+      fn _, _, meta, pid -> send(pid, {:lookup, meta}) end,
+      self()
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+    opts = [cache: [root: root], telemetry_prefix: prefix]
+    key = cache_key()
+
+    assert {:miss, ^key} = Cache.lookup_entry(key, opts)
+    assert_received {:lookup, %{entry: :response, cache_key: hash}}
+    assert hash == key.hash
+
+    assert Cache.source_record(key, opts) == nil
+    assert_received {:lookup, %{entry: :source_record, cache_key: record_hash}}
+    refute record_hash == key.hash
+  end
+
+  test "ImagePipe init rejects invalid cache config early", %{root: root} do
     for cache <- [
-          {__MODULE__.DoesNotExist, []},
-          {MissingSinkCallbacksAdapter, []},
-          {MissAdapter, [max_body_bytes: "10MB"]}
+          {FileSystem, [root: root]},
+          [root: root, max_body_bytes: "10MB"]
         ] do
       assert_raise ArgumentError, ~r/invalid cache config/, fn ->
         ImagePipe.Plug.init(mount(cache: cache))
@@ -203,20 +91,19 @@ defmodule ImagePipe.CacheTest do
     end
   end
 
-  test "ImagePipe init rejects header/cookie cache partitioning options" do
+  test "ImagePipe init rejects header/cookie cache partitioning options", %{root: root} do
     for key <- [:key_headers, :key_cookies] do
       assert_raise ArgumentError, ~r/#{key} was removed.*storage_inputs:/s, fn ->
-        ImagePipe.Plug.init(mount(cache: {MissAdapter, [{key, ["accept-language"]}]}))
+        ImagePipe.Plug.init(mount(cache: [{:root, root}, {key, ["accept-language"]}]))
       end
     end
   end
 
   test "ImagePipe init rejects invalid filesystem cache options early" do
     for cache <- [
-          {ImagePipe.Cache.FileSystem, [root: "relative/cache"]},
-          {ImagePipe.Cache.FileSystem, [root: System.tmp_dir!(), path_prefix: "../outside"]},
-          {ImagePipe.Cache.FileSystem,
-           [root: System.tmp_dir!(), path_prefix: "processed//images"]}
+          [root: "relative/cache"],
+          [root: System.tmp_dir!(), path_prefix: "../outside"],
+          [root: System.tmp_dir!(), path_prefix: "processed//images"]
         ] do
       assert_raise ArgumentError, ~r/invalid cache config/, fn ->
         ImagePipe.Plug.init(mount(cache: cache))
@@ -236,8 +123,8 @@ defmodule ImagePipe.CacheTest do
       assert_raise ArgumentError, ~r/cache_pools_require_separate_roots/, fn ->
         ImagePipe.Plug.init(
           mount(
-            cache: {ImagePipe.Cache.FileSystem, root: output},
-            input_cache: {ImagePipe.Cache.FileSystem, root: input}
+            cache: [root: output],
+            input_cache: [root: input]
           )
         )
       end
@@ -245,8 +132,8 @@ defmodule ImagePipe.CacheTest do
 
     assert ImagePipe.Plug.init(
              mount(
-               cache: {ImagePipe.Cache.FileSystem, root: Path.join(root, "output")},
-               input_cache: {ImagePipe.Cache.FileSystem, root: Path.join(root, "output-input")}
+               cache: [root: Path.join(root, "output")],
+               input_cache: [root: Path.join(root, "output-input")]
              )
            )
   end
@@ -255,48 +142,28 @@ defmodule ImagePipe.CacheTest do
     root = Path.join(System.tmp_dir!(), "image_pipe_cache_init")
 
     opts =
-      ImagePipe.Plug.init(
-        mount(cache: {ImagePipe.Cache.FileSystem, root: root <> "/../image_pipe_cache_init"})
-      )
+      ImagePipe.Plug.init(mount(cache: [root: root <> "/../image_pipe_cache_init"]))
 
-    assert {ImagePipe.Cache.FileSystem, cache_opts} = Keyword.fetch!(opts, :cache)
+    assert cache_opts = Keyword.fetch!(opts, :cache)
     assert cache_opts[:root] == Path.expand(root)
     assert cache_opts[:path_prefix] == ""
   end
 
-  test "lookup returns miss when adapter.get raises" do
-    log =
-      capture_log(fn ->
-        assert {:miss, %Key{}, {:cache_read, %RuntimeError{message: "adapter get crashed"}}} =
-                 Cache.lookup_entry(cache_key(), cache: {RaisingGetAdapter, []})
-      end)
+  test "open_sink records cost_us from opts with the stored entry", %{root: root} do
+    opts = cache_opts(root, cost_us: 42_000)
 
-    assert log =~ "cache read error"
+    cache_key()
+    |> Cache.open_sink(resolved_output(), opts)
+    |> Cache.write_chunk("abc", opts)
+    |> Cache.commit_sink(opts)
+
+    {:ok, %{meta_path: meta_path}} = FileSystem.paths(cache_key(), Keyword.fetch!(opts, :cache))
+    assert {:ok, %{cost_us: 42_000}, _mtime} = FileSystem.read_descriptor(meta_path)
   end
 
-  test "unexpected adapter get result is handled as a cache read error" do
-    log =
-      capture_log(fn ->
-        assert {:miss, %Key{}, {:cache_read, {:invalid_adapter_result, :surprise}}} =
-                 Cache.lookup_entry(cache_key(), cache: {UnexpectedResultAdapter, []})
-      end)
-
-    assert log =~ "cache read error"
-    assert log =~ ":surprise"
-  end
-
-  test "open_sink threads cost_us from opts into adapter metadata" do
-    Cache.open_sink(
-      cache_key(),
-      resolved_output(),
-      cache: {SinkMissAdapter, test_pid: self()},
-      cost_us: 42_000
-    )
-
-    assert_received {:open_sink, %Key{}, %Entry.Metadata{cost_us: 42_000}, _adapter_opts}
-  end
-
-  test "open_sink builds body-free metadata from resolved output" do
+  test "a stored entry carries the resolved output's content type and cacheable headers", %{
+    root: root
+  } do
     resolved_output = %Resolved{
       format: :webp,
       quality: nil,
@@ -306,223 +173,156 @@ defmodule ImagePipe.CacheTest do
       color_profile: :strip
     }
 
-    sink =
-      Cache.open_sink(cache_key(), resolved_output, cache: {SinkMissAdapter, test_pid: self()})
+    opts = cache_opts(root)
 
-    assert_received {:open_sink, %Key{}, %Entry.Metadata{} = metadata, adapter_opts}
-    assert metadata.content_type == "image/webp"
-    assert metadata.headers == [{"vary", "Accept"}]
-    assert %DateTime{} = metadata.created_at
-    assert metadata.output_format == :webp
-    assert Keyword.fetch!(adapter_opts, :test_pid) == self()
-    assert sink
+    cache_key()
+    |> Cache.open_sink(resolved_output, opts)
+    |> Cache.write_chunk("abc", opts)
+    |> Cache.commit_sink(opts)
+
+    assert {:hit, %Entry{} = entry} = Cache.lookup_entry(cache_key(), opts)
+    Entry.close(entry)
+    assert entry.content_type == "image/webp"
+    assert entry.headers == [{"vary", "Accept"}]
+    assert %DateTime{} = entry.created_at
+    assert entry.representation == {:image, :webp}
   end
 
-  test "write_chunk and commit_sink dispatch through the adapter sink state" do
+  test "write_chunk and commit_sink store the chunks in order", %{root: root} do
+    opts = cache_opts(root)
+
     sink =
       cache_key()
-      |> Cache.open_sink(resolved_output(), cache: {SinkMissAdapter, test_pid: self()})
-      |> Cache.write_chunk("abc", cache: {SinkMissAdapter, test_pid: self()})
-      |> Cache.write_chunk("def", cache: {SinkMissAdapter, test_pid: self()})
+      |> Cache.open_sink(resolved_output(), opts)
+      |> Cache.write_chunk("abc", opts)
+      |> Cache.write_chunk("def", opts)
 
-    assert :ok = Cache.commit_sink(sink, cache: {SinkMissAdapter, test_pid: self()})
-    assert_received {:write_chunk, "abc"}
-    assert_received {:write_chunk, "def"}
-    assert_received {:commit_sink, ["def", "abc"]}
+    assert :ok = Cache.commit_sink(sink, opts)
+
+    assert {:hit, %Entry{body: "abcdef"}} =
+             FileSystem.get(cache_key(), Keyword.fetch!(opts, :cache))
   end
 
-  test "abort_sink dispatches cleanup and returns ok" do
+  test "abort_sink discards the staged entry and returns ok", %{root: root} do
+    opts = cache_opts(root)
+
     sink =
-      Cache.open_sink(cache_key(), resolved_output(), cache: {SinkMissAdapter, test_pid: self()})
+      cache_key()
+      |> Cache.open_sink(resolved_output(), opts)
+      |> Cache.write_chunk("abc", opts)
 
-    assert :ok = Cache.abort_sink(sink, :cancelled, cache: {SinkMissAdapter, test_pid: self()})
-    assert_received {:abort_sink, []}
+    assert :ok = Cache.abort_sink(sink, :cancelled, opts)
+    assert {:miss, %Key{}} = Cache.lookup_entry(cache_key(), opts)
+    assert stored_files(root) == []
   end
 
-  test "open_sink fails open and logs adapter errors" do
-    attach_telemetry([[:image_pipe, :cache, :stage]])
+  test "open_sink fails open and logs errors", %{root: root} do
+    prefix = attach_telemetry([[:cache, :stage]])
+    opts = cache_opts(root, telemetry_prefix: prefix)
+    File.chmod!(root, 0o500)
 
     log =
       capture_log(fn ->
-        assert Cache.open_sink(cache_key(), resolved_output(), cache: {ErrorAdapter, []}) == nil
+        assert Cache.open_sink(cache_key(), resolved_output(), opts) == nil
       end)
 
     assert log =~ "cache sink open error"
-    assert log =~ ":open_failed"
 
-    assert_receive {:telemetry_event, [:image_pipe, :cache, :stage], _measurements,
-                    %{cache: :stage_error, error: :open_failed, output_format: :webp}}
+    assert_receive {:telemetry_event, _event, _measurements,
+                    %{cache: :stage_error, result: :cache_error, output_format: :webp}}
   end
 
-  test "open_sink exceptions disable caching and emit the existing stage error" do
-    prefix = [:cache_open_exception]
-    attach_telemetry([prefix ++ [:cache, :stage]])
+  test "write_chunk drops the sink when max_body_bytes would be crossed", %{root: root} do
+    prefix = attach_telemetry([[:cache, :stage]])
+    opts = cache_opts(root, telemetry_prefix: prefix, cache: [max_body_bytes: 3])
 
-    for output <- [resolved_output(), {:complete_body, "application/json"}] do
-      log =
-        capture_log(fn ->
-          assert Cache.open_sink(cache_key(), output,
-                   cache: {RaisingOpenCache, test_pid: self()},
-                   telemetry_prefix: prefix
-                 ) == nil
-        end)
+    sink = Cache.open_sink(cache_key(), resolved_output(), opts)
 
-      assert log =~ "cache sink open error"
-      assert_received :cache_open_attempted
+    assert Cache.write_chunk(sink, "abcd", opts) == nil
 
-      assert_received {:telemetry_event, [:cache_open_exception, :cache, :stage], _,
-                       %{cache: :stage_error, result: :cache_error, error: :error}}
-    end
+    assert_receive {:telemetry_event, _event, _measurements,
+                    %{cache: :stage_skipped, reason: :too_large, output_format: :webp}}
+
+    assert {:miss, %Key{}} = Cache.lookup_entry(cache_key(), opts)
+    assert stored_files(root) == []
   end
 
-  test "write_chunk drops the sink when max_body_bytes would be crossed" do
-    attach_telemetry([[:image_pipe, :cache, :stage]])
+  test "commit_sink errors fail open through cache write telemetry", %{root: root} do
+    prefix = attach_telemetry([[:cache, :write, :stop]])
+    opts = cache_opts(root, telemetry_prefix: prefix)
 
     sink =
-      Cache.open_sink(cache_key(), resolved_output(),
-        cache: {SinkMissAdapter, test_pid: self(), max_body_bytes: 3}
+      cache_key()
+      |> Cache.open_sink(resolved_output(), opts)
+      |> Cache.write_chunk("abc", opts)
+
+    {:ok, %{dir: dir}} = FileSystem.paths(cache_key(), Keyword.fetch!(opts, :cache))
+    File.chmod!(dir, 0o500)
+
+    capture_log(fn -> assert :ok = Cache.commit_sink(sink, opts) end)
+
+    assert_receive {:telemetry_event, _event, _measurements,
+                    %{result: :cache_error, cache: :write_error, output_format: :webp}}
+  end
+
+  test "commit_sink reports admission rejection on the cache write span", %{root: root} do
+    prefix = attach_telemetry([[:cache, :write, :stop]])
+
+    # A bounded cache smaller than the entry declines to keep it.
+    opts =
+      cache_opts(root,
+        telemetry_prefix: prefix,
+        cache: [max_size_bytes: 2, node_id: "cache-test"]
       )
 
-    assert Cache.write_chunk(sink, "abcd",
-             cache: {SinkMissAdapter, test_pid: self(), max_body_bytes: 3}
-           ) == nil
-
-    assert_received {:abort_sink, []}
-
-    assert_receive {:telemetry_event, [:image_pipe, :cache, :stage], _measurements,
-                    %{cache: :stage_skipped, reason: :too_large, output_format: :webp}}
-  end
-
-  test "write_chunk adapter errors abort and fail open" do
-    attach_telemetry([[:image_pipe, :cache, :stage]])
-
-    sink = Cache.open_sink(cache_key(), resolved_output(), cache: {SinkWriteErrorAdapter, []})
-
-    assert Cache.write_chunk(sink, "abc", cache: {SinkWriteErrorAdapter, []}) == nil
-
-    assert_receive {:telemetry_event, [:image_pipe, :cache, :stage], _measurements,
-                    %{cache: :stage_error, error: :write_failed, output_format: :webp}}
-  end
-
-  test "commit_sink adapter errors fail open through cache write telemetry" do
-    attach_telemetry([[:image_pipe, :cache, :write, :stop]])
+    start_supervised!(FileSystem.child_spec(Keyword.fetch!(opts, :cache)))
 
     sink =
       cache_key()
-      |> Cache.open_sink(resolved_output(), cache: {SinkCommitErrorAdapter, []})
-      |> Cache.write_chunk("abc", cache: {SinkCommitErrorAdapter, []})
-
-    assert :ok = Cache.commit_sink(sink, cache: {SinkCommitErrorAdapter, []})
-
-    assert_receive {:telemetry_event, [:image_pipe, :cache, :write, :stop], _measurements,
-                    %{result: :cache_error, cache: :write_error, error: :commit_failed}}
-  end
-
-  test "commit_sink returns :ok and logs when adapter.commit_sink raises" do
-    attach_telemetry([[:image_pipe, :cache, :write, :stop]])
-
-    sink =
-      cache_key()
-      |> Cache.open_sink(resolved_output(), cache: {RaisingCommitAdapter, []})
-      |> Cache.write_chunk("abc", cache: {RaisingCommitAdapter, []})
-
-    log =
-      capture_log(fn ->
-        assert :ok = Cache.commit_sink(sink, cache: {RaisingCommitAdapter, []})
-      end)
-
-    assert log =~ "cache sink commit error"
-
-    assert_receive {:telemetry_event, [:image_pipe, :cache, :write, :stop], _measurements,
-                    %{result: :cache_error, cache: :write_error}}
-  end
-
-  test "commit_sink reports admission rejection on the cache write span" do
-    attach_telemetry([[:image_pipe, :cache, :write, :stop]])
-
-    sink =
-      cache_key()
-      |> Cache.open_sink(resolved_output(), cache: {SinkAdmissionRejectedAdapter, []})
-      |> Cache.write_chunk("abc", cache: {SinkAdmissionRejectedAdapter, []})
+      |> Cache.open_sink(resolved_output(), opts)
+      |> Cache.write_chunk("abc", opts)
 
     # Rejection is a successful, non-error outcome: the request path fails open
     # (nothing stored) and Cache.commit_sink still returns :ok.
-    assert :ok = Cache.commit_sink(sink, cache: {SinkAdmissionRejectedAdapter, []})
+    assert :ok = Cache.commit_sink(sink, opts)
 
-    assert_receive {:telemetry_event, [:image_pipe, :cache, :write, :stop], _measurements,
+    assert_receive {:telemetry_event, _event, _measurements,
                     %{result: :ok, cache: :admission_rejected, output_format: :webp}}
-  end
-
-  test "abort_sink adapter errors fail open through cleanup telemetry" do
-    attach_telemetry([[:image_pipe, :cache, :stage]])
-
-    sink =
-      cache_key()
-      |> Cache.open_sink(resolved_output(), cache: {SinkAbortErrorAdapter, []})
-      |> Cache.write_chunk("abc", cache: {SinkAbortErrorAdapter, []})
-
-    assert :ok = Cache.abort_sink(sink, :cancelled, cache: {SinkAbortErrorAdapter, []})
-
-    assert_receive {:telemetry_event, [:image_pipe, :cache, :stage], _measurements,
-                    %{cache: :stage_cleanup_error, error: :abort_failed, output_format: :webp}}
-  end
-
-  test "adapter runtime opts use validated adapter options without raw adapter config leftovers" do
-    cache_opts = [
-      max_body_bytes: 10_000,
-      test_pid: self(),
-      drop_me: true
-    ]
-
-    opts = Cache.validate_config!(cache: {NormalizingAdapter, cache_opts})
 
     assert {:miss, %Key{}} = Cache.lookup_entry(cache_key(), opts)
-
-    assert_received {:normalized_cache_get, runtime_opts}
-    assert Keyword.fetch!(runtime_opts, :max_body_bytes) == 10_000
-    assert Keyword.fetch!(runtime_opts, :test_pid) == self()
-    assert Keyword.fetch!(runtime_opts, :normalized?)
-    refute Keyword.has_key?(runtime_opts, :drop_me)
-
-    assert Cache.open_sink(cache_key(), resolved_output(), opts)
-
-    assert_received {:normalized_open_sink, sink_opts}
-    assert Keyword.fetch!(sink_opts, :max_body_bytes) == 10_000
-    assert Keyword.fetch!(sink_opts, :test_pid) == self()
-    assert Keyword.fetch!(sink_opts, :normalized?)
-    refute Keyword.has_key?(sink_opts, :drop_me)
   end
 
-  test "unexpected adapter commit result is handled as a cache write error" do
-    log =
-      capture_log(fn ->
-        sink =
-          cache_key()
-          |> Cache.open_sink(resolved_output(), cache: {UnexpectedResultAdapter, []})
-          |> Cache.write_chunk("abc", cache: {UnexpectedResultAdapter, []})
+  defp cache_opts(root, extra \\ []) do
+    {cache, extra} = Keyword.pop(extra, :cache, [])
+    Cache.validate_config!([cache: [root: root] ++ cache] ++ extra)
+  end
 
-        assert :ok = Cache.commit_sink(sink, cache: {UnexpectedResultAdapter, []})
-      end)
-
-    assert log =~ "cache sink commit error"
-    assert log =~ ":surprise"
+  # Regular files left in the cache root, outside its bookkeeping directories.
+  defp stored_files(root) do
+    root
+    |> Path.join("**")
+    |> Path.wildcard()
+    |> Enum.filter(&File.regular?/1)
   end
 
   def handle_telemetry_event(event, measurements, metadata, test_pid) do
     send(test_pid, {:telemetry_event, event, measurements, metadata})
   end
 
+  # Attaches to `events` under a private telemetry prefix and returns it.
   defp attach_telemetry(events) do
+    prefix = [:"cache_test_#{System.unique_integer([:positive])}"]
     handler_id = {__MODULE__, self(), make_ref()}
 
     :ok =
       :telemetry.attach_many(
         handler_id,
-        events,
+        Enum.map(events, &(prefix ++ &1)),
         &__MODULE__.handle_telemetry_event/4,
         self()
       )
 
     on_exit(fn -> :telemetry.detach(handler_id) end)
+    prefix
   end
 end

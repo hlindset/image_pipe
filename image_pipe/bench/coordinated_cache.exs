@@ -71,7 +71,7 @@ defmodule CoordinatedCacheBench do
               options: [allowed_hosts: ["127.0.0.1"], address_policy: [allow_loopback: true]]
             ]
           ],
-          cache: {ImagePipe.Cache.FileSystem, root: Path.join(root, "output")},
+          cache: [root: Path.join(root, "output")],
           telemetry_prefix: prefix,
           max_body_bytes: 100_000_000,
           max_input_pixels: 100_000_000
@@ -127,7 +127,7 @@ defmodule CoordinatedCacheBench do
   end
 
   defp input_options("two-pool", root),
-    do: [input_cache: {ImagePipe.Cache.FileSystem, root: Path.join(root, "input")}]
+    do: [input_cache: [root: Path.join(root, "input")]]
 
   defp input_options("output-only", _root), do: []
   defp input_options("binary-source", _root), do: []

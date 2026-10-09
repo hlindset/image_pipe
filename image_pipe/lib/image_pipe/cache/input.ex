@@ -13,11 +13,10 @@ defmodule ImagePipe.Cache.Input do
       nil ->
         {:ok, opts}
 
-      {ImagePipe.Cache.FileSystem, pool} when is_list(pool) ->
+      pool when is_list(pool) ->
         with {:ok, pool} <- Store.validate_options(pool),
              :ok <- separate_roots(pool, Keyword.get(opts, :cache)) do
-          pool = Keyword.put(pool, :pool, :input)
-          {:ok, Keyword.put(opts, :input_cache, {ImagePipe.Cache.FileSystem, pool})}
+          {:ok, Keyword.put(opts, :input_cache, Keyword.put(pool, :pool, :input))}
         end
 
       _invalid ->
@@ -27,7 +26,9 @@ defmodule ImagePipe.Cache.Input do
 
   # Each pool's startup scan walks its whole root, so a root inside the other
   # pool's would adopt and evict that pool's entries.
-  defp separate_roots(input, {ImagePipe.Cache.FileSystem, output}) do
+  defp separate_roots(_input, nil), do: :ok
+
+  defp separate_roots(input, output) do
     input = input |> Keyword.fetch!(:root) |> Path.split()
     output = output |> Keyword.fetch!(:root) |> Path.expand() |> Path.split()
 
@@ -37,14 +38,12 @@ defmodule ImagePipe.Cache.Input do
     end
   end
 
-  defp separate_roots(_input, _output), do: :ok
-
   def metadata(key, opts) do
     case Keyword.get(opts, :input_cache) do
       nil ->
         nil
 
-      {_adapter, pool} ->
+      pool ->
         case Store.metadata(key, pool) do
           {:ok, %{source_record: record}} -> valid_record(record)
           _miss -> nil
@@ -83,7 +82,7 @@ defmodule ImagePipe.Cache.Input do
   defp do_open(key, record, opts) do
     case Keyword.get(opts, :input_cache) do
       nil -> :miss
-      {_adapter, pool} -> open_pool(key, record, pool)
+      pool -> open_pool(key, record, pool)
     end
   rescue
     _exception -> {:error, :cache_read_failed}
@@ -192,11 +191,12 @@ defmodule ImagePipe.Cache.Input do
       nil ->
         :ok
 
-      {_adapter, pool} ->
-        Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], %{pool: :input}, fn ->
-          result = store(key, path, sha256, record, cost, pool)
+      pool ->
+        start_metadata = %{pool: :input, cache_key: key.hash}
 
-          {result, write_metadata(result)}
+        Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], start_metadata, fn ->
+          result = store(key, path, sha256, record, cost, pool)
+          {result, Map.put(write_metadata(result), :cache_key, key.hash)}
         end)
     end
   rescue
@@ -251,7 +251,7 @@ defmodule ImagePipe.Cache.Input do
   def verify(key, opts) do
     case Keyword.get(opts, :input_cache) do
       nil -> :miss
-      {_adapter, pool} -> Store.verify(key, pool)
+      pool -> Store.verify(key, pool)
     end
   end
 
@@ -260,7 +260,7 @@ defmodule ImagePipe.Cache.Input do
       nil ->
         :ok
 
-      {_adapter, pool} ->
+      pool ->
         Store.delete(key, pool)
     end
   end
@@ -270,7 +270,7 @@ defmodule ImagePipe.Cache.Input do
       nil ->
         :ok
 
-      {_adapter, pool} ->
+      pool ->
         case metadata(key, opts) do
           %Record{byte_identity: identity} = previous when identity == record.byte_identity ->
             Store.refresh_source_record(key, previous, record, pool)

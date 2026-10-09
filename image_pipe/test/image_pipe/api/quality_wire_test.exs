@@ -6,7 +6,7 @@ defmodule ImagePipe.API.QualityWireTest do
 
   alias ImagePipe.Output.Metric.Ssimulacra2, as: Ssim2Metric
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias ImagePipe.Test.CacheObserver
   alias Vix.Vips.Image, as: VipsImage
 
   @moduletag timeout: 180_000
@@ -100,12 +100,12 @@ defmodule ImagePipe.API.QualityWireTest do
   end
 
   test "lossless WebP rejects explicit search requests before source or cache access" do
-    config = mount(webp_options: [lossless: true], cache: {CacheProbe, []})
+    config = mount(CacheObserver.observe(webp_options: [lossless: true]))
 
     for option <- ["autoquality", "autoquality=75", "max-bytes=1000"] do
       assert response("format=webp/#{option}", config).status == 400
       refute_received :origin_fetch
-      refute_received {:cache_lookup, _key}
+      refute_received {:cache_lookup, _, _key}
     end
   end
 
@@ -221,21 +221,19 @@ defmodule ImagePipe.API.QualityWireTest do
   end
 
   test "the auto-quality target changes both cache and ETag identity" do
-    config = [cache: {CacheProbe, []}]
-    first = response("w=128/format=jpeg/autoquality=70", mount(config))
+    config = mount(CacheObserver.observe([]))
+    first = response("w=128/format=jpeg/autoquality=70", config)
     assert first.status == 200
-    assert [first_key] = Enum.uniq(CacheProbe.lookup_keys())
-    assert_receive {:cache_put, _key, _body}
-    second = response("w=128/format=jpeg/autoquality=80", mount(config))
+    assert_receive {:cache_put, first_hash, _body}
+    second = response("w=128/format=jpeg/autoquality=80", config)
     assert second.status == 200
-    assert [second_key] = Enum.uniq(CacheProbe.lookup_keys())
-    assert_receive {:cache_put, _key, _body}
-    refute first_key.hash == second_key.hash
+    assert_receive {:cache_put, second_hash, _body}
+    refute first_hash == second_hash
     refute etag(first) == etag(second)
   end
 
   test "invalid and conflicting output controls reject before source or cache access" do
-    config = mount(cache: {CacheProbe, []})
+    config = mount(CacheObserver.observe([]))
 
     for options <- [
           "format-q=webp:0",
@@ -257,7 +255,7 @@ defmodule ImagePipe.API.QualityWireTest do
         ] do
       assert response(options, config).status == 400, options
       refute_received :origin_fetch
-      refute_received {:cache_lookup, _key}
+      refute_received {:cache_lookup, _, _key}
       refute_received {:cache_put, _key, _body}
     end
   end

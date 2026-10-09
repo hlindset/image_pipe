@@ -4,7 +4,7 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
   import Plug.Test
 
   alias ImagePipe.ProcessingPool
-  alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias ImagePipe.Test.CacheObserver
   alias ImagePipe.Test.ProcessingSource
 
   @image File.read!("priv/static/images/beach.jpg")
@@ -52,8 +52,7 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
 
   test "image and terminal cache hits plus conditional responses bypass a full pool", context do
     pool = start_supervised!({ProcessingPool, max_concurrency: 1})
-    store = :ets.new(:processing_cache, [:set, :public])
-    config = config(pool, context.prefix, cache: {CacheProbe, store: store})
+    config = config(pool, context.prefix, cached: true)
     mount = ImagePipe.Plug.init(config: config)
 
     warmed =
@@ -126,7 +125,7 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
 
   test "a stored terminal's generation cost excludes the wait for a processing slot", context do
     pool = start_supervised!({ProcessingPool, max_concurrency: 1})
-    mount = ImagePipe.Plug.init(config: config(pool, context.prefix, cache: {CacheProbe, []}))
+    mount = ImagePipe.Plug.init(config: config(pool, context.prefix, cached: true))
     test = self()
 
     Task.Supervisor.async_nolink(context.tasks, fn ->
@@ -145,12 +144,12 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
     assert request(mount, "output=info").status == 200
     elapsed_us = System.monotonic_time(:microsecond) - started_at
     assert_received {:held, held_us}
-    assert_received {:cache_open_sink, _key, metadata}
+    assert_received {:cache_open_sink, _hash, %{cost_us: cost_us}}
 
     # The request was queued for at least `held_us` of its `elapsed_us`, so a
     # cost that excludes the wait fits in the remainder however slow the
     # generation itself is.
-    assert metadata.cost_us <= elapsed_us - held_us
+    assert cost_us <= elapsed_us - held_us
   end
 
   defp await_queued(pool) do
@@ -169,23 +168,22 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
     assert_raise ArgumentError, fn -> ImagePipe.config(processing_pool: "untrusted") end
   end
 
-  defp config(pool, prefix, extra \\ []) do
-    ImagePipe.config(
-      Keyword.merge(
-        [
-          processing_pool: pool,
-          telemetry_prefix: prefix,
-          sources: [
-            path: [
-              adapter: ProcessingSource,
-              match: :path,
-              options: [test: self(), bytes: @image]
-            ]
-          ]
-        ],
-        extra
-      )
-    )
+  defp config(pool, prefix, opts \\ []) do
+    options = [
+      processing_pool: pool,
+      telemetry_prefix: prefix,
+      sources: [
+        path: [
+          adapter: ProcessingSource,
+          match: :path,
+          options: [test: self(), bytes: @image]
+        ]
+      ]
+    ]
+
+    if Keyword.get(opts, :cached, false),
+      do: ImagePipe.config(CacheObserver.observe(options)),
+      else: ImagePipe.config(options)
   end
 
   defp request(mount, options, source \\ "ready"),

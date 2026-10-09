@@ -90,7 +90,7 @@ defmodule ImagePipe.ConfiguredBuilderTest do
             ]
           ]
         ],
-        cache: {ImagePipe.Cache.FileSystem, root: root}
+        cache: [root: root]
       )
 
     client = IP.URL.new() |> IP.URL.group(resize: [width: 3]) |> IP.URL.output(format: :png)

@@ -10,7 +10,6 @@ defmodule ImagePipe.Telemetry.APIDeliverySpanParentageTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Test.PlugFixture.CacheProbe
   alias ImagePipe.Test.PlugFixture.OriginImage
   alias ImagePipe.Test.Trace.SpanWalk
   alias ImagePipe.Test.Trace.TestExporter
@@ -20,6 +19,8 @@ defmodule ImagePipe.Telemetry.APIDeliverySpanParentageTest do
   # `persistent_term` singleton, not a prefix-scoped handler, so a prefix
   # wouldn't isolate anything. Cross-test leakage is bounded instead by
   # `async: false` — ExUnit runs sync modules serially, after all async ones.
+  @moduletag :tmp_dir
+
   setup do
     :ok = TestExporter.attach(self())
 
@@ -35,7 +36,8 @@ defmodule ImagePipe.Telemetry.APIDeliverySpanParentageTest do
     "image_pipe.deliver"
   ]
 
-  test "stage spans of a cache-miss streamed API request are semantic descendants of the request root" do
+  test "stage spans of a cache-miss streamed API request are semantic descendants of the request root",
+       %{tmp_dir: tmp_dir} do
     config =
       ImagePipe.Plug.init(
         sources: [
@@ -45,7 +47,7 @@ defmodule ImagePipe.Telemetry.APIDeliverySpanParentageTest do
             options: [root_url: "http://origin.test", req_options: [plug: OriginImage]]
           ]
         ],
-        cache: {CacheProbe, result: :miss}
+        cache: [root: tmp_dir]
       )
 
     conn = ImagePipe.Plug.call(conn(:get, "/w=64/src/images/cat.jpg"), config)

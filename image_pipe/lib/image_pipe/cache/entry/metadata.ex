@@ -1,8 +1,5 @@
 defmodule ImagePipe.Cache.Entry.Metadata do
-  # Metadata supplied to an `ImagePipe.Cache` adapter's `c:ImagePipe.Cache.open_sink/3`
-  # callback when storing a response.
-  #
-  # Cache adapters must preserve these fields so a later hit can reconstruct a
+  # Metadata stored with a cached response, so a later hit can reconstruct a
   # valid `ImagePipe.Cache.Entry` without interpreting response bytes.
   @moduledoc false
 

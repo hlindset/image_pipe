@@ -2,7 +2,6 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
   use ExUnit.Case, async: false
   use ExUnitProperties
 
-  alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Source.HTTP
   alias ImagePipe.Source.Origin
   alias ImagePipe.Test.PacedSourceOrigin
@@ -51,8 +50,8 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
             options: [allowed_hosts: ["127.0.0.1"], address_policy: [allow_loopback: true]]
           ]
         ],
-        cache: {FileSystem, root: Path.join(root, "output")},
-        input_cache: {FileSystem, root: Path.join(root, "input")},
+        cache: [root: Path.join(root, "output")],
+        input_cache: [root: Path.join(root, "input")],
         http_cache: :auto
       )
 
@@ -159,8 +158,8 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
             ]
           ]
         ],
-        cache: {FileSystem, root: Path.join(context.root, "output")},
-        input_cache: {FileSystem, root: Path.join(context.root, "input")},
+        cache: [root: Path.join(context.root, "output")],
+        input_cache: [root: Path.join(context.root, "input")],
         max_body_bytes: 20_000_000,
         max_input_pixels: 60_000_000
       )
@@ -224,8 +223,8 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
             ]
           ]
         ],
-        cache: {FileSystem, root: Path.join(context.root, "output")},
-        input_cache: {FileSystem, root: Path.join(context.root, "input")},
+        cache: [root: Path.join(context.root, "output")],
+        input_cache: [root: Path.join(context.root, "input")],
         max_body_bytes: 20_000_000,
         max_input_pixels: 60_000_000
       )
@@ -331,8 +330,8 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
               ]
             ]
           ],
-          cache: {FileSystem, root: Path.join(root, "output")},
-          input_cache: {FileSystem, root: Path.join(root, "input")},
+          cache: [root: Path.join(root, "output")],
+          input_cache: [root: Path.join(root, "input")],
           max_body_bytes: 20_000_000,
           max_input_pixels: 60_000_000
         )
@@ -452,8 +451,8 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
             options: [root: context.root, root_id: "overlap"]
           ]
         ],
-        cache: {FileSystem, root: Path.join(context.root, "output")},
-        input_cache: {FileSystem, root: Path.join(context.root, "input")},
+        cache: [root: Path.join(context.root, "output")],
+        input_cache: [root: Path.join(context.root, "input")],
         watermarks: %{logo: [source: "mark.png"]}
       )
 

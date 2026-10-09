@@ -6,8 +6,8 @@ defmodule ImagePipe.BuilderWireTest do
 
   alias ImagePipe, as: IP
   alias ImagePipe.Plan
-  alias ImagePipe.RequestSafetyTest.CacheProbe
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.CacheObserver
   alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
@@ -27,14 +27,15 @@ defmodule ImagePipe.BuilderWireTest do
 
     config =
       IP.Plug.init(
-        sources: [
-          path: [
-            adapter: RootHTTPAdapter,
-            match: :path,
-            options: [root_url: "http://origin.test", req_options: [plug: origin]]
+        CacheObserver.observe(
+          sources: [
+            path: [
+              adapter: RootHTTPAdapter,
+              match: :path,
+              options: [root_url: "http://origin.test", req_options: [plug: origin]]
+            ]
           ]
-        ],
-        cache: {CacheProbe, []}
+        )
       )
 
     %{image: Image.from_binary!(body), config: config}
@@ -72,8 +73,8 @@ defmodule ImagePipe.BuilderWireTest do
       response = conn(:get, "/#{path}/src/photo.png") |> IP.Plug.call(config)
       assert response.status == 400
       refute_received :source_fetch
-      refute_received :cache_lookup
-      refute_received :cache_put
+      refute_received {:cache_lookup, _, _}
+      refute_received {:cache_put, _, _}
     end
   end
 end

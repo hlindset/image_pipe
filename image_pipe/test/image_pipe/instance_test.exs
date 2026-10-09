@@ -2,7 +2,6 @@ defmodule ImagePipe.InstanceTest do
   use ExUnit.Case, async: true
   import Plug.Test
 
-  alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Test.DetectorFixtures.UnavailableDetector
   alias ImagePipe.Test.DetectorFixtures.WarmingDetector
   alias ImagePipe.Transform.Detector.Warmup
@@ -33,8 +32,7 @@ defmodule ImagePipe.InstanceTest do
 
   defp start_instance(ctx, options \\ []) do
     start_supervised!(
-      {ImagePipe,
-       [name: ctx.name, sources: ctx.sources, cache: {FileSystem, ctx.bounded}] ++ options}
+      {ImagePipe, [name: ctx.name, sources: ctx.sources, cache: ctx.bounded] ++ options}
     )
   end
 
@@ -68,9 +66,9 @@ defmodule ImagePipe.InstanceTest do
     test "per-call caches the instance already runs, or that need no processes", ctx do
       start_instance(ctx)
       builder = ImagePipe.URL.new(ImagePipe.url_config(ctx.name))
-      unbounded = {FileSystem, root: ctx.cache_root <> "-unbounded"}
+      unbounded = [root: ctx.cache_root <> "-unbounded"]
 
-      for cache <- [{FileSystem, ctx.bounded}, unbounded] do
+      for cache <- [ctx.bounded, unbounded] do
         assert {:ok, _result} =
                  ImagePipe.run(ctx.name, builder, {:source, "red.png"}, cache: cache)
       end
@@ -82,7 +80,7 @@ defmodule ImagePipe.InstanceTest do
       other = Keyword.put(ctx.bounded, :root, ctx.cache_root <> "-other")
 
       assert_raise ArgumentError, ~r/ImagePipe instance/, fn ->
-        ImagePipe.run(ctx.name, builder, {:source, "red.png"}, cache: {FileSystem, other})
+        ImagePipe.run(ctx.name, builder, {:source, "red.png"}, cache: other)
       end
     end
 
@@ -229,7 +227,7 @@ defmodule ImagePipe.InstanceTest do
 
   describe "instance options" do
     test "takes a prebuilt config: with overrides", ctx do
-      config = ImagePipe.config(sources: ctx.sources, cache: {FileSystem, ctx.bounded})
+      config = ImagePipe.config(sources: ctx.sources, cache: ctx.bounded)
       start_supervised!({ImagePipe, name: ctx.name, config: config, quality: 40})
 
       assert request("/w=8/format=png/src/red.png", instance: ctx.name).status == 200
@@ -326,7 +324,7 @@ defmodule ImagePipe.InstanceTest do
 
   describe "inline configuration" do
     test "ImagePipe.run/4 rejects a config whose cache needs processes", ctx do
-      config = ImagePipe.config(sources: ctx.sources, cache: {FileSystem, ctx.bounded})
+      config = ImagePipe.config(sources: ctx.sources, cache: ctx.bounded)
       builder = ImagePipe.URL.new(ImagePipe.url_config(config))
 
       assert_raise ArgumentError, ~r/ImagePipe instance/, fn ->
@@ -336,7 +334,7 @@ defmodule ImagePipe.InstanceTest do
 
     test "Plug.init/1 rejects a bounded input cache", ctx do
       assert_raise ArgumentError, ~r/ImagePipe instance/, fn ->
-        ImagePipe.Plug.init(sources: ctx.sources, input_cache: {FileSystem, ctx.bounded})
+        ImagePipe.Plug.init(sources: ctx.sources, input_cache: ctx.bounded)
       end
     end
   end

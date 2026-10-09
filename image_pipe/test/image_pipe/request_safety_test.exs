@@ -2,8 +2,8 @@ defmodule ImagePipe.RequestSafetyTest do
   use ExUnit.Case, async: true
   import Plug.Test
 
-  alias ImagePipe.RequestSafetyTest.CacheProbe
   alias ImagePipe.SourceTest.ValidAdapter
+  alias ImagePipe.Test.CacheObserver
 
   defmodule DenyingSourceAdapter do
     @behaviour ImagePipe.Source
@@ -153,15 +153,12 @@ defmodule ImagePipe.RequestSafetyTest do
       conn =
         ImagePipe.Plug.call(
           conn(:get, path),
-          ImagePipe.Plug.init(
-            sources: [path: [adapter: ValidAdapter, match: :path, options: []]],
-            cache: {CacheProbe, []}
-          )
+          observed_init(sources: [path: [adapter: ValidAdapter, match: :path, options: []]])
         )
 
       assert conn.status == 400
-      refute_received :cache_lookup
-      refute_received :cache_put
+      refute_received {:cache_lookup, _, _}
+      refute_received {:cache_put, _, _}
     end
   end
 
@@ -177,16 +174,15 @@ defmodule ImagePipe.RequestSafetyTest do
       conn =
         ImagePipe.Plug.call(
           conn(:get, path),
-          ImagePipe.Plug.init(
-            sources: [path: [adapter: DenyingSourceAdapter, match: :path, options: []]],
-            cache: {CacheProbe, []}
+          observed_init(
+            sources: [path: [adapter: DenyingSourceAdapter, match: :path, options: []]]
           )
         )
 
       assert conn.status == 400
       refute_received :source_resolve
-      refute_received :cache_lookup
-      refute_received :cache_put
+      refute_received {:cache_lookup, _, _}
+      refute_received {:cache_put, _, _}
     end
   end
 
@@ -194,23 +190,17 @@ defmodule ImagePipe.RequestSafetyTest do
     conn =
       ImagePipe.Plug.call(
         conn(:get, "/w=0/format=jpeg/src/images/cat.jpg"),
-        ImagePipe.Plug.init(
-          sources: [path: [adapter: ValidAdapter, match: :path, options: []]],
-          cache: {CacheProbe, []}
-        )
+        observed_init(sources: [path: [adapter: ValidAdapter, match: :path, options: []]])
       )
 
     assert conn.status == 400
-    refute_received :cache_lookup
-    refute_received :cache_put
+    refute_received {:cache_lookup, _, _}
+    refute_received {:cache_put, _, _}
   end
 
   test "source resolution failures return before cache lookup and fetch" do
     opts =
-      ImagePipe.Plug.init(
-        sources: [path: [adapter: DenyingSourceAdapter, match: :path, options: []]],
-        cache: {CacheProbe, []}
-      )
+      observed_init(sources: [path: [adapter: DenyingSourceAdapter, match: :path, options: []]])
 
     conn = ImagePipe.Plug.call(conn(:get, "/format=jpeg/src/images/cat.jpg"), opts)
 
@@ -218,17 +208,18 @@ defmodule ImagePipe.RequestSafetyTest do
     assert conn.resp_body == "source not found"
     assert_received :source_resolve
     refute_received {:source_fetch, _fetch}
-    refute_received :cache_lookup
-    refute_received :cache_put
+    refute_received {:cache_lookup, _, _}
+    refute_received {:cache_put, _, _}
   end
 
   test "source runtime options pass body limits and runtime metadata without adapter or cache config" do
-    opts =
-      ImagePipe.Plug.init(
+    config =
+      CacheObserver.observe(
         sources: [path: [adapter: ValidAdapter, match: :path, options: []]],
-        cache: {CacheProbe, []},
         max_body_bytes: 1_000_000
       )
+
+    opts = ImagePipe.Plug.init(config)
 
     conn = ImagePipe.Plug.call(conn(:get, "/format=jpeg/src/images/cat.jpg"), opts)
 
@@ -240,7 +231,7 @@ defmodule ImagePipe.RequestSafetyTest do
 
     for runtime_opts <- [resolve_runtime_opts, fetch_runtime_opts] do
       assert Keyword.fetch!(runtime_opts, :max_body_bytes) == 1_000_000
-      assert Keyword.fetch!(runtime_opts, :telemetry_prefix) == [:image_pipe]
+      assert Keyword.fetch!(runtime_opts, :telemetry_prefix) == config[:telemetry_prefix]
 
       refute Keyword.has_key?(runtime_opts, :cache)
       refute Keyword.has_key?(runtime_opts, :sources)
@@ -249,44 +240,43 @@ defmodule ImagePipe.RequestSafetyTest do
 
   test "source fetch errors return source response errors" do
     opts =
-      ImagePipe.Plug.init(
-        sources: [path: [adapter: FetchErrorSourceAdapter, match: :path, options: []]],
-        cache: {CacheProbe, []}
+      observed_init(
+        sources: [path: [adapter: FetchErrorSourceAdapter, match: :path, options: []]]
       )
 
     conn = ImagePipe.Plug.call(conn(:get, "/format=jpeg/src/images/cat.jpg"), opts)
 
     assert conn.status == 404
     assert conn.resp_body == "source not found"
-    refute_received :cache_put
+    refute_received {:cache_put, _, _}
   end
 
   test "deferred source stream errors return source response errors" do
     opts =
-      ImagePipe.Plug.init(
-        sources: [path: [adapter: StreamErrorSourceAdapter, match: :path, options: []]],
-        cache: {CacheProbe, []}
+      observed_init(
+        sources: [path: [adapter: StreamErrorSourceAdapter, match: :path, options: []]]
       )
 
     conn = ImagePipe.Plug.call(conn(:get, "/format=jpeg/src/images/cat.jpg"), opts)
 
     assert conn.status == 502
     assert conn.resp_body == "incomplete source response"
-    refute_received :cache_put
+    refute_received {:cache_put, _, _}
   end
 
   test "cache miss does not write after deferred source stream errors" do
     opts =
-      ImagePipe.Plug.init(
-        sources: [path: [adapter: CacheableStreamErrorSourceAdapter, match: :path, options: []]],
-        cache: {CacheProbe, []}
+      observed_init(
+        sources: [path: [adapter: CacheableStreamErrorSourceAdapter, match: :path, options: []]]
       )
 
     conn = ImagePipe.Plug.call(conn(:get, "/format=jpeg/src/images/cat.jpg"), opts)
 
     assert conn.status == 502
     assert conn.resp_body == "incomplete source response"
-    assert_received :cache_lookup
-    refute_received :cache_put
+    assert_received {:cache_lookup, :source_record, _}
+    refute_received {:cache_put, _, _}
   end
+
+  defp observed_init(opts), do: ImagePipe.Plug.init(CacheObserver.observe(opts))
 end

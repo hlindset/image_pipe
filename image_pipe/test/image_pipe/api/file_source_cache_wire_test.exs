@@ -4,7 +4,7 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
   import Plug.Conn
   import Plug.Test
 
-  alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias ImagePipe.Test.CacheObserver
 
   @path "/w=12/format=png/src/media/beach.jpg"
 
@@ -22,7 +22,9 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
     :ok = :telemetry.attach(handler, event, &__MODULE__.forward/4, self())
     on_exit(fn -> :telemetry.detach(handler) end)
 
-    %{root: root, prefix: prefix}
+    observed = CacheObserver.observe(telemetry_prefix: prefix)
+
+    %{root: root, prefix: prefix, cache: Keyword.fetch!(observed, :cache)}
   end
 
   test "a file that can change gets a digest ETag and a cached output", ctx do
@@ -165,7 +167,7 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
 
   test "by default the original is read in place and never copied", ctx do
     input_root = Path.join(ctx.root, "input-pool")
-    opts = mount(ctx, input_cache: {ImagePipe.Cache.FileSystem, root: input_root})
+    opts = mount(ctx, input_cache: [root: input_root])
 
     assert get(@path, opts).status == 200
     assert get("/w=8/format=png/src/media/beach.jpg", opts).status == 200
@@ -178,7 +180,7 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
     opts =
       mount(ctx,
         file_options: [copy: :keep],
-        input_cache: {ImagePipe.Cache.FileSystem, root: input_root}
+        input_cache: [root: input_root]
       )
 
     assert get(@path, opts).status == 200
@@ -189,7 +191,7 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
     moved = Path.join(ctx.root, "moved")
     File.mkdir_p!(moved)
     File.cp!("priv/static/images/beach.jpg", Path.join(moved, "beach.jpg"))
-    input_cache = {ImagePipe.Cache.FileSystem, root: Path.join(ctx.root, "input-pool")}
+    input_cache = [root: Path.join(ctx.root, "input-pool")]
 
     etag = fn file_options ->
       opts =
@@ -214,10 +216,7 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
     File.mkdir_p!(moved)
     File.cp!("priv/static/images/beach.jpg", Path.join(moved, "beach.jpg"))
 
-    caches = [
-      cache: {CacheProbe, store: :ets.new(:file_source_cache, [:set, :public])},
-      input_cache: {ImagePipe.Cache.FileSystem, root: Path.join(ctx.root, "input-pool")}
-    ]
+    caches = [input_cache: [root: Path.join(ctx.root, "input-pool")]]
 
     first = get(@path, mount(ctx, [file_options: [stable: :immutable, copy: :keep]] ++ caches))
     assert first.status == 200
@@ -320,7 +319,7 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
           options: Keyword.merge([root: ctx.root, root_id: "media"], file_options)
         ]
       ],
-      cache: {CacheProbe, store: :ets.new(:file_source_cache, [:set, :public])},
+      cache: ctx.cache,
       http_cache: :auto,
       telemetry_prefix: ctx.prefix,
       clock: fn -> System.os_time(:second) + 10 end

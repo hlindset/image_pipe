@@ -11,7 +11,7 @@ defmodule CacheReadsBench do
   def run(mode) do
     root = Path.join(System.tmp_dir!(), "cache-read-bench-#{System.unique_integer([:positive])}")
     opts = [root: root]
-    config = [cache: {FileSystem, opts}]
+    config = [cache: opts]
     key = %Key{hash: String.duplicate("a", 64), data: []}
     chunk = String.duplicate("x", 1_048_576)
     sink = Cache.open_sink(key, {:complete_body, "application/json"}, config)

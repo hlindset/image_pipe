@@ -4,7 +4,6 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Test.PlugFixture.CacheProbe
   alias ImagePipe.Test.Trace.TestExporter
 
   # Inline plug: serves beach.jpg for any request path (ignores query params).
@@ -53,6 +52,8 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
     end
   end
 
+  @moduletag :tmp_dir
+
   setup do
     TestExporter.attach(self(), finch_spans: false)
   end
@@ -62,7 +63,7 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
     ImagePipe.Plug.call(conn, ImagePipe.Plug.init(opts))
   end
 
-  defp miss_opts do
+  defp miss_opts(cache_root) do
     [
       sources: [
         path: [
@@ -74,11 +75,11 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
           ]
         ]
       ],
-      cache: {CacheProbe, result: :miss}
+      cache: [root: cache_root]
     ]
   end
 
-  defp signed_miss_opts do
+  defp signed_miss_opts(cache_root) do
     [
       sources: [
         path: [
@@ -87,14 +88,14 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
           options: [root_url: "http://origin.test", req_options: [plug: SignedOriginImage]]
         ]
       ],
-      cache: {CacheProbe, result: :miss}
+      cache: [root: cache_root]
     ]
   end
 
   defp request_path, do: "/w=120/h=90/format=jpeg/src/images/beach.jpg"
 
-  test "a real request exports spans that all share one trace_id" do
-    conn = call(request_path(), miss_opts())
+  test "a real request exports spans that all share one trace_id", %{tmp_dir: tmp_dir} do
+    conn = call(request_path(), miss_opts(tmp_dir))
     assert conn.status == 200
 
     spans = TestExporter.collect()
@@ -108,8 +109,8 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
 
   # Every span but the request root must point at another exported span, or
   # tracing backends report missing parents and render the trace flat.
-  test "every non-root span parents onto another exported span" do
-    conn = call(request_path(), miss_opts())
+  test "every non-root span parents onto another exported span", %{tmp_dir: tmp_dir} do
+    conn = call(request_path(), miss_opts(tmp_dir))
     assert conn.status == 200
 
     spans = TestExporter.collect()
@@ -126,8 +127,8 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
 
   # SignedRootHTTPAdapter appends ?X-Amz-Signature=fake123abcdef to the
   # resolved fetch URL, so the request runs a signed-URL code path end to end.
-  test "no signed source URL leaks into any exported span or event attribute" do
-    conn = call(request_path(), signed_miss_opts())
+  test "no signed source URL leaks into any exported span or event attribute", %{tmp_dir: tmp_dir} do
+    conn = call(request_path(), signed_miss_opts(tmp_dir))
     assert conn.status == 200
 
     values =

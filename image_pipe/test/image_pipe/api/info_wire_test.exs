@@ -4,8 +4,9 @@ defmodule ImagePipe.API.InfoWireTest do
   import Plug.Conn
   import Plug.Test
 
+  alias ImagePipe.Cache.FileSystem
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias ImagePipe.Test.CacheObserver
   alias Vix.Vips.Image, as: VipsImage
 
   @prefix [:api_info_wire]
@@ -272,12 +273,11 @@ defmodule ImagePipe.API.InfoWireTest do
   end
 
   test "info reuses its complete body across Accept values and strong conditionals", %{body: body} do
-    store = :ets.new(:api_info_cache, [:set, :public])
-    config = mount(body, cache: {CacheProbe, store: store}, http_cache: :auto)
+    config = mount(body, CacheObserver.observe(http_cache: :auto))
     first = request("output=info", config, "image/webp")
     assert first.status == 200
     assert_received :origin_fetch
-    assert [key] = Enum.uniq(CacheProbe.lookup_keys())
+    assert [key] = Enum.uniq(CacheObserver.lookup_hashes())
     assert_received {:cache_put, ^key, _}
     [etag] = get_resp_header(first, "etag")
 
@@ -285,7 +285,7 @@ defmodule ImagePipe.API.InfoWireTest do
     assert second.status == 200
     assert second.resp_body == first.resp_body
     assert get_resp_header(second, "etag") == [etag]
-    assert [^key] = Enum.uniq(CacheProbe.lookup_keys())
+    assert [^key] = Enum.uniq(CacheObserver.lookup_hashes())
     refute_received :origin_fetch
     refute_received {:cache_put, _, _}
 
@@ -297,7 +297,7 @@ defmodule ImagePipe.API.InfoWireTest do
     assert conditional.status == 304
     assert conditional.resp_body == ""
     refute_received :origin_fetch
-    refute_received {:cache_lookup, _}
+    refute_received {:cache_lookup, _, _}
   end
 
   test "source safety limits and decode errors also apply to info", %{body: body} do
@@ -308,20 +308,28 @@ defmodule ImagePipe.API.InfoWireTest do
   end
 
   test "cache read failures leave source info available", %{body: body} do
-    config = mount(body, cache: {CacheProbe, result: {:error, :unavailable}})
+    extra = CacheObserver.observe([])
+    config = mount(body, extra)
+    assert request("output=info", config).status == 200
+    assert_received {:cache_put, hash, _body}
+    assert_received :origin_fetch
+    _ = CacheObserver.lookup_hashes()
+
+    {:ok, %{meta_path: meta_path}} = FileSystem.paths_from_hash(hash, extra[:cache])
+    File.write!(meta_path, "not cache metadata")
     response = request("output=info", config)
 
     assert response.status == 200
     assert %{"source" => %{"width" => 16, "height" => 24}} = JSON.decode!(response.resp_body)
-    assert_received {:cache_lookup, _}
+    assert_received {:cache_lookup, :response, _}
     assert_received :origin_fetch
   end
 
   test "expiry uses the host clock and rejects before side effects", %{body: body} do
-    config = mount(body, clock: fn -> 100 end, cache: {CacheProbe, []})
+    config = mount(body, CacheObserver.observe(clock: fn -> 100 end))
     assert request("output=info/expires=99", config).status == 410
     refute_received :origin_fetch
-    refute_received {:cache_lookup, _}
+    refute_received {:cache_lookup, _, _}
     assert request("output=info/expires=100", config).status == 200
     assert_received :origin_fetch
   end

@@ -27,6 +27,10 @@ defmodule ImagePipe.Telemetry.Trace.Handler do
   # here would invert the telemetry dependency boundary.
   @safe_keys [
     :pool,
+    # hash of the cache key a lookup or write used
+    :cache_key,
+    # what a cache lookup reads: :response or :source_record
+    :entry,
     # files a sweep removed, per kind
     :pins,
     :temps,

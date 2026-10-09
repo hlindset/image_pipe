@@ -1,7 +1,6 @@
 defmodule ImagePipeServer.ConfigTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Cache.FileSystem
   alias ImagePipeServer.Config
   alias ImagePipeServer.Config.Tree
   alias ImagePipeServer.ConfigError
@@ -68,7 +67,7 @@ defmodule ImagePipeServer.ConfigTest do
              end) =~ "processing.output_capabilities: unknown setting"
     end
 
-    test "converts [cache] to FileSystem caches and storage inputs" do
+    test "converts [cache] to file system caches and storage inputs" do
       cache =
         Config.options!(%{
           "cache" => %{
@@ -78,9 +77,9 @@ defmodule ImagePipeServer.ConfigTest do
           }
         })[:cache]
 
-      assert {FileSystem, output} = cache[:cache]
+      output = cache[:cache]
       assert Enum.sort(output) == [max_size_bytes: 1_000_000, root: "/var/cache/out"]
-      assert cache[:input_cache] == {FileSystem, [root: "/var/cache/in"]}
+      assert cache[:input_cache] == [root: "/var/cache/in"]
       assert cache[:storage_inputs] == [{:header, "x-tenant"}]
     end
 

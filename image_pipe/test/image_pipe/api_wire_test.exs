@@ -5,7 +5,6 @@ defmodule ImagePipe.APIWireTest do
   import Plug.Test
 
   alias ImagePipe.API.Parser
-  alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.Key
   alias ImagePipe.Delivery.Coordinator
   alias ImagePipe.Output.Policy
@@ -13,7 +12,7 @@ defmodule ImagePipe.APIWireTest do
   alias ImagePipe.Output.Resolved
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Telemetry.RequestContext
-  alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias ImagePipe.Test.CacheObserver
   alias ImagePipe.Test.PlugFixture.CountingOriginImage
   alias ImagePipe.Test.PlugFixture.OriginImage
   alias ImagePipe.Test.PlugFixture.OriginShouldNotFetch
@@ -61,14 +60,6 @@ defmodule ImagePipe.APIWireTest do
     ]
   end
 
-  # A fresh ETS-backed CacheProbe store: makes lookups/commits stateful
-  # (real miss-then-hit round trips) rather than the stateless default (see
-  # CacheProbe's module doc).
-  defp stateful_cache_probe do
-    table = :ets.new(:api_wire_cache_probe, [:set, :public])
-    {CacheProbe, store: table}
-  end
-
   # `output_capabilities` and `on_bracket_exit` are internal test-injection
   # seams (the same convention `ImagePipe.Output.Capabilities.supports?/2`
   # already documents) — appended AFTER `ImagePipe.Plug.init/1`'s validation,
@@ -81,15 +72,16 @@ defmodule ImagePipe.APIWireTest do
 
   defp opts, do: opts([])
 
+  defp observed_opts(extra \\ []), do: opts(CacheObserver.observe(extra))
+
   test "nested pipeline presets share bytes, identity and cache with explicit requests" do
     config =
-      opts(
+      observed_opts(
         presets: %{
           "small" => "w=64/-/pad=4",
           "card" => "preset=small/format=png"
         },
-        sources: counting_sources(),
-        cache: stateful_cache_probe()
+        sources: counting_sources()
       )
 
     preset = get("/preset=card/src/images/cat.jpg", config)
@@ -106,10 +98,9 @@ defmodule ImagePipe.APIWireTest do
 
   test "a preset applies to the group it is written in" do
     config =
-      opts(
+      observed_opts(
         presets: %{"frame" => "pad=4/bg=ff0000"},
-        sources: counting_sources(),
-        cache: stateful_cache_probe()
+        sources: counting_sources()
       )
 
     anchored = get("/w=64/-/preset=frame/format=png/src/images/cat.jpg", config)
@@ -128,16 +119,15 @@ defmodule ImagePipe.APIWireTest do
     response =
       get(
         "/preset=small/w=64/src/images/cat.jpg",
-        opts(
+        observed_opts(
           presets: %{"small" => "w=100/-/pad=4"},
-          sources: should_not_fetch_sources(),
-          cache: stateful_cache_probe()
+          sources: should_not_fetch_sources()
         )
       )
 
     assert response.status == 400
     refute_received :origin_fetch
-    refute_received {:cache_lookup, _}
+    refute_received {:cache_lookup, _, _}
   end
 
   defp get(path, config, headers \\ []) do
@@ -197,15 +187,14 @@ defmodule ImagePipe.APIWireTest do
       assert [etag] = get_resp_header(first, "etag")
 
       cached_config =
-        opts(
+        observed_opts(
           http_cache: :auto,
-          sources: counting_sources(),
-          cache: {CacheProbe, []}
+          sources: counting_sources()
         )
 
       second = get("/w=64/src/images/cat.jpg", cached_config, [{"if-none-match", etag}])
       assert second.status == 304
-      refute_received {:cache_lookup, _}
+      refute_received {:cache_lookup, _, _}
       refute_received :origin_fetch
     end
 
@@ -254,20 +243,20 @@ defmodule ImagePipe.APIWireTest do
     end
 
     test "same selection under different Accept spellings shares an ETag and cache key" do
-      config = opts(cache: {CacheProbe, []})
+      config = observed_opts()
 
       conn_a = get("/w=64/src/images/cat.jpg", config, [{"accept", "image/avif"}])
-      assert [key_a] = Enum.uniq(CacheProbe.lookup_keys())
+      assert [hash_a] = Enum.uniq(CacheObserver.lookup_hashes())
 
       conn_b =
         get("/w=64/src/images/cat.jpg", config, [{"accept", "image/avif,image/webp"}])
 
-      assert [key_b] = Enum.uniq(CacheProbe.lookup_keys())
+      assert [hash_b] = Enum.uniq(CacheObserver.lookup_hashes())
 
       assert get_resp_header(conn_a, "content-type") == ["image/avif"]
       assert get_resp_header(conn_b, "content-type") == ["image/avif"]
       assert get_resp_header(conn_a, "etag") == get_resp_header(conn_b, "etag")
-      assert key_a.hash == key_b.hash
+      assert hash_a == hash_b
     end
 
     test "explicit format=webp selects webp with NO Vary header" do
@@ -304,8 +293,8 @@ defmodule ImagePipe.APIWireTest do
   # ── cache write on miss ─────────────────────────────────────────────────
 
   describe "cache write on miss" do
-    test "one request: CacheProbe observes :cache_lookup (miss) then :cache_put" do
-      config = opts(cache: {CacheProbe, []})
+    test "one request: the cache observes :cache_lookup (miss) then :cache_put" do
+      config = observed_opts()
 
       conn = get("/w=64/src/images/cat.jpg", config)
       assert conn.status == 200
@@ -314,18 +303,18 @@ defmodule ImagePipe.APIWireTest do
       assert_received {:source_order, :cache_put}
     end
 
-    test "two semantically equivalent (permuted-option) URLs produce the same captured key" do
-      config = opts(cache: {CacheProbe, []})
+    test "two semantically equivalent (permuted-option) URLs produce the same cache key" do
+      config = observed_opts()
 
       conn_a = get("/w=64/fit=contain/src/images/cat.jpg", config)
-      assert [key_a] = Enum.uniq(CacheProbe.lookup_keys())
+      assert [hash_a] = Enum.uniq(CacheObserver.lookup_hashes())
       assert conn_a.status == 200
 
       conn_b = get("/fit=contain/w=64/src/images/cat.jpg", config)
-      assert [key_b] = Enum.uniq(CacheProbe.lookup_keys())
+      assert [hash_b] = Enum.uniq(CacheObserver.lookup_hashes())
       assert conn_b.status == 200
 
-      assert key_a.hash == key_b.hash
+      assert hash_a == hash_b
     end
 
     # `cost_us` is what the FileSystem adapter's admission/eviction policy
@@ -333,12 +322,12 @@ defmodule ImagePipe.APIWireTest do
     # size_bytes`), so a zero here silently demotes every API entry to
     # size-based scoring.
     test "the stored entry records the real generation cost, not zero" do
-      config = opts(cache: {CacheProbe, []})
+      config = observed_opts()
 
       conn = get("/w=64/src/images/cat.jpg", config)
       assert conn.status == 200
 
-      assert_received {:cache_open_sink, _key, %Entry.Metadata{cost_us: cost_us}}
+      assert_received {:cache_open_sink, _key, %{cost_us: cost_us}}
       assert cost_us > 0
     end
   end
@@ -351,13 +340,13 @@ defmodule ImagePipe.APIWireTest do
       [etag] = get_resp_header(plain_conn, "etag")
       assert_received :origin_fetch
 
-      config = opts(sources: counting_sources(), cache: {CacheProbe, []})
+      config = observed_opts(sources: counting_sources())
       conn = get("/w=64/src/images/cat.jpg", config, [{"if-none-match", etag}])
 
       assert conn.status == 304
       assert conn.resp_body == ""
       refute_received :origin_fetch
-      refute_received {:cache_lookup, _key}
+      refute_received {:cache_lookup, _, _key}
     end
   end
 
@@ -365,7 +354,7 @@ defmodule ImagePipe.APIWireTest do
 
   describe "cache hit delivery" do
     test "second non-conditional request is served from the stored cache entry" do
-      config = opts(sources: counting_sources(), cache: stateful_cache_probe())
+      config = observed_opts(sources: counting_sources())
 
       conn_a = get("/w=64/src/images/cat.jpg", config)
       assert conn_a.status == 200
@@ -386,7 +375,7 @@ defmodule ImagePipe.APIWireTest do
     end
 
     test "a semantically permuted URL is served from the SAME cached entry" do
-      config = opts(sources: counting_sources(), cache: stateful_cache_probe())
+      config = observed_opts(sources: counting_sources())
 
       conn_a = get("/w=64/fit=contain/src/images/cat.jpg", config)
       assert conn_a.status == 200
@@ -401,7 +390,7 @@ defmodule ImagePipe.APIWireTest do
     end
 
     test "If-None-Match matching etag on a warmed cache: 304, no source fetch" do
-      config = opts(sources: counting_sources(), cache: stateful_cache_probe())
+      config = observed_opts(sources: counting_sources())
 
       first_conn = get("/w=64/src/images/cat.jpg", config)
       assert first_conn.status == 200
@@ -416,7 +405,7 @@ defmodule ImagePipe.APIWireTest do
     end
 
     test "If-None-Match: * is 200 on a cold cache but 304 once the cache is warmed" do
-      config = opts(sources: counting_sources(), cache: stateful_cache_probe())
+      config = observed_opts(sources: counting_sources())
 
       cold_conn = get("/w=64/src/images/cat.jpg", config, [{"if-none-match", "*"}])
       assert cold_conn.status == 200
@@ -452,12 +441,12 @@ defmodule ImagePipe.APIWireTest do
     # FileSystem adapter's `effective_cost = if cost_us > 0, do: cost_us,
     # else: size_bytes` fallback — the exact inversion the bug is about.
     test "the stored complete-body entry records the real generation cost, not zero" do
-      config = opts(cache: {CacheProbe, []})
+      config = observed_opts()
 
       conn = get("/w=32/output=blurhash/src/images/cat.jpg", config)
       assert conn.status == 200
 
-      assert_received {:cache_open_sink, _key, %Entry.Metadata{cost_us: cost_us}}
+      assert_received {:cache_open_sink, _key, %{cost_us: cost_us}}
       assert cost_us > 0
     end
 
@@ -466,17 +455,17 @@ defmodule ImagePipe.APIWireTest do
       [etag] = get_resp_header(plain_conn, "etag")
       assert_received :origin_fetch
 
-      config = opts(sources: counting_sources(), cache: {CacheProbe, []})
+      config = observed_opts(sources: counting_sources())
       conn = get("/output=blurhash/src/images/cat.jpg", config, [{"if-none-match", etag}])
 
       assert conn.status == 304
       assert conn.resp_body == ""
       refute_received :origin_fetch
-      refute_received {:cache_lookup, _key}
+      refute_received {:cache_lookup, _, _key}
     end
 
-    test "second request is served from the stored cache entry (CacheProbe order)" do
-      config = opts(sources: counting_sources(), cache: stateful_cache_probe())
+    test "second request is served from the stored cache entry (observed order)" do
+      config = observed_opts(sources: counting_sources())
 
       conn_a = get("/output=blurhash/src/images/cat.jpg", config)
       assert conn_a.status == 200
@@ -511,7 +500,7 @@ defmodule ImagePipe.APIWireTest do
     end
 
     test "image-only output options are ignored and share the plain BlurHash cache entry" do
-      config = opts(sources: counting_sources(), cache: stateful_cache_probe())
+      config = observed_opts(sources: counting_sources())
 
       plain = get("/output=blurhash/src/images/cat.jpg", config)
       assert plain.status == 200
@@ -532,49 +521,49 @@ defmodule ImagePipe.APIWireTest do
 
   describe "400 request-validation failures never reach source/cache" do
     setup do
-      {:ok, config: opts(sources: counting_sources(), cache: {CacheProbe, []})}
+      {:ok, config: observed_opts(sources: counting_sources())}
     end
 
     test "unknown option key", %{config: config} do
       conn = get("/bogus=10/src/images/cat.jpg", config)
       assert conn.status == 400
       refute_received :origin_fetch
-      refute_received {:cache_lookup, _key}
+      refute_received {:cache_lookup, _, _key}
     end
 
     test "bad option value", %{config: config} do
       conn = get("/w=invalid/src/images/cat.jpg", config)
       assert conn.status == 400
       refute_received :origin_fetch
-      refute_received {:cache_lookup, _key}
+      refute_received {:cache_lookup, _, _key}
     end
 
     test "duplicate option in scope", %{config: config} do
       conn = get("/w=800/w=900/src/images/cat.jpg", config)
       assert conn.status == 400
       refute_received :origin_fetch
-      refute_received {:cache_lookup, _key}
+      refute_received {:cache_lookup, _, _key}
     end
 
     test "mutually exclusive pair", %{config: config} do
       conn = get("/crop=100,100/region=0,0,10,10/src/images/cat.jpg", config)
       assert conn.status == 400
       refute_received :origin_fetch
-      refute_received {:cache_lookup, _key}
+      refute_received {:cache_lookup, _, _key}
     end
 
     test "empty pipeline group", %{config: config} do
       conn = get("/w=800/-/-/w=900/src/images/cat.jpg", config)
       assert conn.status == 400
       refute_received :origin_fetch
-      refute_received {:cache_lookup, _key}
+      refute_received {:cache_lookup, _, _key}
     end
 
     test "non-empty query string", %{config: config} do
       conn = get("/w=64/src/images/cat.jpg?x=1", config)
       assert conn.status == 400
       refute_received :origin_fetch
-      refute_received {:cache_lookup, _key}
+      refute_received {:cache_lookup, _, _key}
     end
   end
 
@@ -807,7 +796,7 @@ defmodule ImagePipe.APIWireTest do
   describe "internal_cache: :disabled" do
     test "a source resolving internal_cache: :disabled is neither read from nor written to the cache" do
       config =
-        opts(
+        observed_opts(
           sources: [
             path: [
               adapter: RootHTTPAdapter,
@@ -819,8 +808,7 @@ defmodule ImagePipe.APIWireTest do
                 internal_cache: :disabled
               ]
             ]
-          ],
-          cache: stateful_cache_probe()
+          ]
         )
 
       # Two identical requests: both must regenerate from the origin, and the
@@ -833,7 +821,7 @@ defmodule ImagePipe.APIWireTest do
       assert second.status == 200
       assert_received :origin_fetch
 
-      refute_received {:cache_lookup, _key}
+      refute_received {:cache_lookup, _, _key}
       refute_received {:cache_open_sink, _key, _metadata}
       refute_received {:source_order, :cache_put}
     end

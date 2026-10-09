@@ -16,7 +16,7 @@ defmodule ImagePipeServer.Config do
       affect URL generation and are not accepted.
     * `[sources.<name>]` - named sources
       (see `ImagePipeServer.Config.Sources`).
-    * `[cache]` - `output` and `input` `ImagePipe.Cache.FileSystem` caches, and
+    * `[cache]` - `output` and `input` file system caches, and
       `storage_inputs` as `[{ header = "..." }, { cookie = "..." }]`.
     * `[processing]` - the processing options of `ImagePipe.config/1`,
       including `watermarks.<name>` asset tables, `request_watermarks`,
@@ -34,7 +34,6 @@ defmodule ImagePipeServer.Config do
   which values a message may quote).
   """
 
-  alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
   alias ImagePipeServer.Config.Convert
@@ -208,7 +207,7 @@ defmodule ImagePipeServer.Config do
   defp file_system(value, schema, path) do
     with {:ok, options} <- Convert.options(value, schema, path),
          {:ok, options} <- Convert.require_keys(options, [:root], path),
-         do: {:ok, {FileSystem, options}}
+         do: {:ok, options}
   end
 
   defp store_schema do
