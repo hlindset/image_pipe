@@ -15,6 +15,10 @@ Each project keeps its own release notes:
 ## Update the changelogs
 
 Each changelog follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+Add notes under `## [Unreleased]` as changes land. Start the note for a
+breaking change with `**Breaking:**` and say what users must change. Before
+1.0, a release with a breaking change bumps the minor version.
+
 To release a version, move the `Unreleased` notes under
 `## [X.Y.Z] - YYYY-MM-DD`, using the release date. Group notes under `Added`,
 `Changed`, `Deprecated`, `Removed`, `Fixed`, or `Security`, and include only
