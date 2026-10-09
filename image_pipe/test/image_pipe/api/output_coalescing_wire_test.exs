@@ -209,6 +209,49 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
     end
   end
 
+  test "a leader whose output won't be stored releases its followers at once", context do
+    test = self()
+    pool = start_supervised!({ProcessingPool, max_concurrency: 2}, id: :wide_pool)
+
+    options =
+      context.options
+      |> Keyword.put(:processing_pool, pool)
+      |> Keyword.put(:cache, {CacheProbe, max_body_bytes: 0, scope: make_ref()})
+
+    config = ImagePipe.config(options)
+    mount = ImagePipe.Plug.init(config: config)
+
+    leader =
+      async(context, fn ->
+        builder = ImagePipe.URL.new() |> ImagePipe.URL.output(format: :jpeg)
+        {:ok, request} = ImagePipe.Plan.to_spec(builder.plan)
+        {:ok, policy} = ImagePipe.Processing.prepare(request, config.options, "")
+        {:ok, source, options} = ImagePipe.Source.from_input({:source, "blocked"}, config.options)
+        {:ok, execution} = Execution.prepare(request, source, [], policy, %Inputs{}, options)
+        {:ok, output} = Execution.open(execution)
+        send(test, :prepared)
+
+        receive do
+          :complete -> Output.consume(output)
+        end
+
+        Execution.close_output(output)
+        Execution.close(execution)
+      end)
+
+    assert_receive {:fetch, ["blocked"], worker}
+    send(worker, :continue)
+    assert_receive :prepared
+
+    follower = async(context, fn -> request(mount, "format=jpeg") end)
+    assert_receive {:fetch, ["blocked"], second}, @generation_timeout
+    send(second, :continue)
+    assert Task.await(follower, @generation_timeout).status == 200
+
+    send(leader.pid, :complete)
+    Task.await(leader, @generation_timeout)
+  end
+
   test "a failed leader does not impose its safety limits on followers", context do
     mount = ImagePipe.Plug.init(config: context.config)
     restricted = ImagePipe.Plug.init(Keyword.put(context.options, :max_input_pixels, 1))
