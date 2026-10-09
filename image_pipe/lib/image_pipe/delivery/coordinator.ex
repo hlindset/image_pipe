@@ -306,6 +306,7 @@ defmodule ImagePipe.Delivery.Coordinator do
         )
 
       cache_sink = Cache.write_chunk(cache_sink, first_chunk, config)
+      release_unstored(cache_sink, config)
 
       GenServer.reply(
         from,
@@ -331,6 +332,7 @@ defmodule ImagePipe.Delivery.Coordinator do
   defp handle_producer_result({:ok, {:chunk, chunk}}, %{pending: {:next, from}} = state) do
     with_owner_check(state, fn state ->
       cache_sink = Cache.write_chunk(state.cache_sink, chunk, state.config)
+      if state.cache_sink, do: release_unstored(cache_sink, state.config)
       GenServer.reply(from, {:chunk, chunk})
       {:noreply, %{state | pending: nil, cache_sink: cache_sink}}
     end)
@@ -465,6 +467,13 @@ defmodule ImagePipe.Delivery.Coordinator do
   defp clear_producer(state) do
     %{state | producer: nil, producer_monitor: nil, producer_request_ref: nil}
   end
+
+  # Requests waiting for this output would find nothing in the cache, so they
+  # start their own generation now instead of after this stream ends.
+  defp release_unstored(nil, config),
+    do: Cache.OutputWork.complete(Keyword.get(config, :output_lease), :bypass)
+
+  defp release_unstored(_cache_sink, _config), do: :ok
 
   defp abort_cache_sink(%{cache_sink: nil} = state, _reason), do: state
 

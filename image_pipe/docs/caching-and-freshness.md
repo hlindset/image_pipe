@@ -146,8 +146,9 @@ original share one check with the origin when a cache is configured, and one
 download when an originals cache is configured.
 
 Both kinds of sharing are local to each node, so two servers can still make
-the same image. If the image isn't in the cache when the first request
-finishes, because processing failed or the image was too large to store, each
-waiting request makes the image itself. When too many requests are already
-waiting, new ones go ahead without waiting. The limits are listed under
-[coordination limits](cache.md#coordination-limits).
+the same image. When the first request fails or its image isn't stored, each
+waiting request makes the image itself. When the image is too large to store
+or [detection failed](cache.md#what-is-stored), waiting requests start as soon
+as the server finds out, before the first request finishes. When too many
+requests are already waiting, new ones go ahead without waiting. The limits
+are listed under [coordination limits](cache.md#coordination-limits).
