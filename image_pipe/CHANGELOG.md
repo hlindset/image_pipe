@@ -5,6 +5,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-09
+
 ### Added
 
 First release of ImagePipe, with image processing powered by
@@ -17,13 +19,17 @@ First release of ImagePipe, with image processing powered by
 - Read originals from local files, HTTP(S), S3-compatible storage, or custom
   source adapters.
 - Compose resizing, cropping, orientation, effects, and watermarks in explicit
-  processing groups, with optional face and object detection.
-- Define reusable presets and request defaults on the server configuration,
+  processing groups, with optional face and object detection, or your own
+  detector.
+- Define reusable presets and request defaults in your configuration,
   statically or through a host preset lookup backed by a database or cache.
-- Encode images with format negotiation, quality controls, byte budgets, and
-  color-profile policies. Generate BlurHash, LQIP CSS, and image-info JSON.
+- Encode JPEG, PNG, WebP, and AVIF, with format negotiation, quality controls,
+  byte budgets, and color-profile policies. Automatic quality gives each image
+  the lowest quality that still looks as good as a target you choose. Generate
+  BlurHash, LQIP CSS, and image-info JSON.
 - Configure input and output caches, conditional HTTP responses, streamed
   delivery, request safety limits, and processing concurrency. Observe requests
   through telemetry, logging, and tracing.
 
-[Unreleased]: https://github.com/hlindset/image_pipe/commits/main/
+[Unreleased]: https://github.com/hlindset/image_pipe/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/hlindset/image_pipe/releases/tag/v0.1.0
