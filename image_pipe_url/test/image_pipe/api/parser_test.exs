@@ -575,7 +575,6 @@ defmodule ImagePipe.API.ParserTest do
           case parse([example]) do
             {:ok, _request} -> []
             {:error, {:invalid_request, diagnostics}} -> diagnostics
-            {:error, _other} -> []
           end
           |> Enum.filter(&(&1.reason == :unknown_option))
 
