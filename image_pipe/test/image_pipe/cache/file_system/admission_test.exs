@@ -382,6 +382,52 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     end
   end
 
+  describe "admission gate" do
+    setup %{registry: registry, tmp_dir: tmp_dir} do
+      opts =
+        base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: 10_000, window_ratio: 0.0)
+
+      pid = start_supervised!({Admission, opts})
+      Admission.await_scan(pid)
+      pool = [root: tmp_dir, node_id: "test-node", max_size_bytes: 10_000]
+      for i <- 1..10, do: :ok = put_with_cost(pool, "resident-#{i}", 1_000)
+      %{pid: pid, pool: pool}
+    end
+
+    test "admits a once-seen entry that is costlier per byte than its victim", ctx do
+      assert :ok = put_with_cost(ctx.pool, "costly", 100_000)
+      assert tracked?(ctx.pid, "costly")
+    end
+
+    test "rejects a once-seen entry that is cheaper per byte than its victim", ctx do
+      assert {:ok, :rejected} = put_with_cost(ctx.pool, "cheap", 10)
+      refute tracked?(ctx.pid, "cheap")
+    end
+  end
+
+  defp put_with_cost(pool, seed, cost_us) do
+    body = String.pad_leading(seed, 1_000, "x")
+    key = %Key{hash: hash(seed), data: []}
+
+    metadata =
+      struct!(Entry.Metadata,
+        content_type: "image/png",
+        headers: [],
+        output_format: :png,
+        created_at: ~U[2026-04-29 10:15:00Z],
+        cost_us: cost_us
+      )
+
+    with {:ok, sink} <- FileSystem.open_sink(key, metadata, pool),
+         {:ok, sink} <- FileSystem.write_chunk(sink, body, pool) do
+      FileSystem.commit_sink(sink, pool)
+    end
+  end
+
+  defp tracked?(pid, seed), do: :ets.member(:sys.get_state(pid).index, hash(seed))
+
+  defp hash(seed), do: :crypto.hash(:sha256, seed) |> Base.encode16(case: :lower)
+
   defp hit_twice(pid, descriptor) do
     Admission.hit(pid, descriptor)
     Admission.hit(pid, descriptor)

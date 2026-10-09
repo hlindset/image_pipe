@@ -798,16 +798,21 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
         {{:reject, :victim_limit_exceeded}, state}
 
       {:ok, victim_descriptors} ->
-        freq_fn = fn key_hash ->
-          Sketch.estimate(state.local_cms, key_hash) + Sketch.estimate(state.boot_cms, key_hash)
-        end
-
-        if Policy.admit?(descriptor, victim_descriptors, freq_fn) do
+        if Policy.admit?(descriptor, victim_descriptors, &frequency(state, &1)) do
           admit_evicting(state, descriptor, victim_descriptors)
         else
           {{:reject, :score_too_low}, state}
         end
     end
+  end
+
+  # A key's first sighting only sets its doorkeeper bit, so the bit counts as
+  # one sighting.
+  defp frequency(state, key_hash) do
+    doorkeeper = if Talan.BloomFilter.member?(state.doorkeeper, key_hash), do: 1, else: 0
+
+    doorkeeper + Sketch.estimate(state.local_cms, key_hash) +
+      Sketch.estimate(state.boot_cms, key_hash)
   end
 
   # Evict at most `eviction_victim_limit` victims now. Reconciliation evicts
