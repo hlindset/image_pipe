@@ -469,6 +469,19 @@
       },
       fixture_sha256: "b33090cff7904ff433f17c5ebd0d56e57df96668995c2de4e1ca639f00d43e75"
     },
+    "dps_zoom_half" => %{
+      structure: %{
+        depth: 8,
+        metadata: [],
+        icc: nil,
+        content_type: "image/png",
+        bands: 3,
+        interpretation: :VIPS_INTERPRETATION_sRGB,
+        orientation: 1,
+        alpha?: false
+      },
+      fixture_sha256: "ce37e1de5360ca35ac1407269a014e695a2ab484c0f55987839c18cd28659f0c"
+    },
     "gray_alpha_flatten" => %{
       structure: %{
         depth: 8,
@@ -520,6 +533,19 @@
         alpha?: false
       },
       fixture_sha256: "dd59be38f7dbc89f7cbb930d2b6f738ee418acea6469adb72943d72aabe1634e"
+    },
+    "dps_stretch_both" => %{
+      structure: %{
+        depth: 8,
+        metadata: [],
+        icc: nil,
+        content_type: "image/png",
+        bands: 3,
+        interpretation: :VIPS_INTERPRETATION_sRGB,
+        orientation: 1,
+        alpha?: false
+      },
+      fixture_sha256: "cd99b32413a5e8257936858c080f61e64b6e729013894ae56193713d1db618e7"
     },
     "extend_offset_east_marker" => %{
       structure: %{
@@ -793,6 +819,32 @@
         alpha?: false
       },
       fixture_sha256: "2c5fdb339ee14be1fcc30d098ca80dca9e30cf09f48b68a33c11ce4d3ad2271b"
+    },
+    "dps_min_w_nonbinding" => %{
+      structure: %{
+        depth: 8,
+        metadata: [],
+        icc: nil,
+        content_type: "image/png",
+        bands: 3,
+        interpretation: :VIPS_INTERPRETATION_sRGB,
+        orientation: 1,
+        alpha?: false
+      },
+      fixture_sha256: "ce37e1de5360ca35ac1407269a014e695a2ab484c0f55987839c18cd28659f0c"
+    },
+    "dps_crop_pct_resize" => %{
+      structure: %{
+        depth: 8,
+        metadata: [],
+        icc: nil,
+        content_type: "image/png",
+        bands: 3,
+        interpretation: :VIPS_INTERPRETATION_sRGB,
+        orientation: 1,
+        alpha?: false
+      },
+      fixture_sha256: "3334292996187462769a3ce4687cfd0b25b1f61e0ab631c913c03f938335dd38"
     },
     "user_rot180_marker" => %{
       structure: %{
@@ -1983,6 +2035,32 @@
       },
       fixture_sha256: "d26cb97cf990f1a00ac95d0f40bf826f433cd7d344e5342a24b00ef77cdf601c"
     },
+    "dps_extend_webp" => %{
+      structure: %{
+        depth: 8,
+        metadata: [],
+        icc: nil,
+        content_type: "image/png",
+        bands: 4,
+        interpretation: :VIPS_INTERPRETATION_sRGB,
+        orientation: 1,
+        alpha?: true
+      },
+      fixture_sha256: "be9bca43bcb20e526658cb38efa9747149620cf280d8d4e57b6ad6810084a670"
+    },
+    "dps_pad_odd" => %{
+      structure: %{
+        depth: 8,
+        metadata: [],
+        icc: nil,
+        content_type: "image/png",
+        bands: 4,
+        interpretation: :VIPS_INTERPRETATION_sRGB,
+        orientation: 1,
+        alpha?: true
+      },
+      fixture_sha256: "f9dd92331d576f2e43a429e4898b701b60d371f3d66275cc93fbedb375f9690c"
+    },
     "wm_tile" => %{
       structure: %{
         depth: 8,
@@ -2151,6 +2229,19 @@
         alpha?: false
       },
       fixture_sha256: "ff7deb860185486890a6cc761ea7c83a246aee891703def11ef9f111c9d70600"
+    },
+    "dps_stretch_height_only" => %{
+      structure: %{
+        depth: 8,
+        metadata: [],
+        icc: nil,
+        content_type: "image/png",
+        bands: 3,
+        interpretation: :VIPS_INTERPRETATION_sRGB,
+        orientation: 1,
+        alpha?: false
+      },
+      fixture_sha256: "65d632dc39e2888b6dc1d7ea40002272de022c230e245acd05a7610fd7522ef8"
     },
     "alpha_resize" => %{
       structure: %{
@@ -2897,6 +2988,19 @@
       },
       fixture_sha256: "cdc7023e6f2d4cc112de67cfeebf47b23d2914e96ca99cc6f1f8c4390d15a8e1"
     },
+    "dps_cover_odd_exif" => %{
+      structure: %{
+        depth: 8,
+        metadata: [],
+        icc: nil,
+        content_type: "image/png",
+        bands: 3,
+        interpretation: :VIPS_INTERPRETATION_sRGB,
+        orientation: 1,
+        alpha?: false
+      },
+      fixture_sha256: "02be16a7571fb51b3d772ebdf1c3a2d3c96fdcbdc7a087f1e8bcd8305b904b22"
+    },
     "gray_alpha_trim" => %{
       structure: %{
         depth: 8,
@@ -3002,6 +3106,19 @@
       },
       height: 180,
       content_type: "image/avif"
+    },
+    "dps_contain_dpr_webp" => %{
+      structure: %{
+        depth: 8,
+        metadata: [],
+        icc: nil,
+        content_type: "image/png",
+        bands: 3,
+        interpretation: :VIPS_INTERPRETATION_sRGB,
+        orientation: 1,
+        alpha?: false
+      },
+      fixture_sha256: "c28bdf8e89c0d1c9f2b459f73207fb3199c696beefb3ef076b8dbaafbd078ea0"
     },
     "cover_rel_offset_dpr_marker" => %{
       structure: %{
