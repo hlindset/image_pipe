@@ -16,6 +16,13 @@ defmodule ImagePipe.Transform.Operation.Trim do
   alias Vix.Vips.Image, as: VixImage
   alias Vix.Vips.Operation
 
+  # The box is found on a copy shrunk by this factor, then each edge again at
+  # full resolution, on frames with both sides at least @min_preview_side.
+  @preview_shrink 8
+  @min_preview_side 256
+  # Full-resolution strips reach this far past the preview's edge.
+  @strip_margin 3 * @preview_shrink
+
   # Integers, NOT floats: flatten treats a float list as sRGB 0.0..1.0 and
   # rejects 255.0 as an out-of-range component. Integer 0..255 is accepted.
   @magenta [255, 0, 255]
@@ -52,8 +59,7 @@ defmodule ImagePipe.Transform.Operation.Trim do
   defp trim(op, state, original, orig_w, orig_h) do
     with {:ok, prepared} <- prepare(original),
          {:ok, background} <- background_list(op.background, prepared),
-         {:ok, {left, top, width, height}} <-
-           Operation.find_trim(prepared, background: background, threshold: op.threshold),
+         {:ok, {left, top, width, height}} <- find_box(prepared, background, op.threshold),
          {left, width} = equalize(op.equal_hor, left, width, orig_w),
          {top, height} = equalize(op.equal_ver, top, height, orig_h),
          {:ok, result} <- crop_or_passthrough(original, state, left, top, width, height) do
@@ -62,6 +68,93 @@ defmodule ImagePipe.Transform.Operation.Trim do
       {:error, error} -> {:error, {__MODULE__, error}}
     end
   end
+
+  # A full-resolution search reads every pixel. A preview finds each edge
+  # roughly, then a full-resolution strip from the image's border to just past
+  # that edge finds it exactly. The preview's median filter can erase a thin
+  # mark in the border, but the strip still reaches it, so the box matches a
+  # full-resolution search. When a strip's edge isn't clear of its cut, the
+  # whole image is searched instead.
+  defp find_box(image, background, threshold) do
+    if min(Image.width(image), Image.height(image)) < @min_preview_side do
+      find_trim(image, background, threshold)
+    else
+      with {:ok, preview} <- Operation.shrink(image, @preview_shrink * 1.0, @preview_shrink * 1.0),
+           {:ok, rough} <- find_trim(preview, background, threshold) do
+        refine(image, rough, background, threshold)
+      end
+    end
+  end
+
+  defp refine(image, {_left, _top, width, height}, background, threshold)
+       when width == 0 or height == 0,
+       do: find_trim(image, background, threshold)
+
+  defp refine(image, {left, top, width, height}, background, threshold) do
+    image_width = Image.width(image)
+    image_height = Image.height(image)
+    near_x = min(image_width, (left + 1) * @preview_shrink + @strip_margin)
+    near_y = min(image_height, (top + 1) * @preview_shrink + @strip_margin)
+    far_x = max(0, (left + width - 1) * @preview_shrink - @strip_margin)
+    far_y = max(0, (top + height - 1) * @preview_shrink - @strip_margin)
+
+    with {:ok, left} <- near_edge(image, {0, 0, near_x, image_height}, :x, background, threshold),
+         {:ok, top} <- near_edge(image, {0, 0, image_width, near_y}, :y, background, threshold),
+         {:ok, right} <-
+           far_edge(
+             image,
+             {far_x, 0, image_width - far_x, image_height},
+             :x,
+             background,
+             threshold
+           ),
+         {:ok, bottom} <-
+           far_edge(
+             image,
+             {0, far_y, image_width, image_height - far_y},
+             :y,
+             background,
+             threshold
+           ) do
+      {:ok, {left, top, right - left, bottom - top}}
+    else
+      :unclear -> find_trim(image, background, threshold)
+      {:error, _reason} = error -> error
+    end
+  end
+
+  # The left or top edge of the content in a strip that starts at the border.
+  defp near_edge(image, {x, y, width, height} = area, axis, background, threshold) do
+    with {:ok, {left, top, box_width, box_height}} <-
+           strip_box(image, area, background, threshold) do
+      {start, extent} = if axis == :x, do: {left, width}, else: {top, height}
+
+      if box_width > 0 and box_height > 0 and start < extent - @preview_shrink,
+        do: {:ok, start + if(axis == :x, do: x, else: y)},
+        else: :unclear
+    end
+  end
+
+  # The right or bottom edge, exclusive, in a strip that ends at the border.
+  defp far_edge(image, {x, y, _width, _height} = area, axis, background, threshold) do
+    with {:ok, {left, top, box_width, box_height}} <-
+           strip_box(image, area, background, threshold) do
+      start = if axis == :x, do: left, else: top
+      finish = start + if(axis == :x, do: box_width, else: box_height)
+
+      if box_width > 0 and box_height > 0 and finish > @preview_shrink,
+        do: {:ok, finish + if(axis == :x, do: x, else: y)},
+        else: :unclear
+    end
+  end
+
+  defp strip_box(image, {x, y, width, height}, background, threshold) do
+    with {:ok, strip} <- Operation.extract_area(image, x, y, width, height),
+         do: find_trim(strip, background, threshold)
+  end
+
+  defp find_trim(image, background, threshold),
+    do: Operation.find_trim(image, background: background, threshold: threshold)
 
   defp crop_or_passthrough(_original, state, _left, _top, 0, _height), do: {:ok, state}
   defp crop_or_passthrough(_original, state, _left, _top, _width, 0), do: {:ok, state}
