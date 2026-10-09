@@ -194,7 +194,7 @@ defmodule ImagePipe.Transform.Executor.Geometry do
   defp shrink_crop_from(other, _w_shrink, _h_shrink), do: other
 
   defp shrink_coordinate({:pixels, value}, shrink),
-    do: {:pixels, max(0, round(value / shrink))}
+    do: {:pixels, max(0, round_ties_to_even(value / shrink))}
 
   defp shrink_coordinate(other, _shrink), do: other
 

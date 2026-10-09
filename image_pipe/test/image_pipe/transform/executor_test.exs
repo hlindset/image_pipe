@@ -11,6 +11,7 @@ defmodule ImagePipe.Transform.ExecutorTest do
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceGeometry
   alias ImagePipe.Transform.State
+  alias Vix.Vips.Operation
 
   test "executes parsed groups against each preceding group's live dimensions" do
     request = request!("w=50/h=40/fit=stretch/-/region=10,5,20,15")
@@ -33,6 +34,24 @@ defmodule ImagePipe.Transform.ExecutorTest do
     assert {Image.width(result.image), Image.height(result.image)} == {20, 10}
     assert result.source_dimensions == nil
     assert result.decode_shrink == nil
+  end
+
+  # A region at 101 sits at 50.5 shrunk pixels, which rounds half to even, as
+  # gravity offsets do.
+  test "a region's origin on a shrunk decode rounds half to even" do
+    {:ok, columns} = Operation.xyz(200, 150)
+    {:ok, columns} = Operation.extract_band(columns, 0)
+    {:ok, columns} = Operation.cast(columns, :VIPS_FORMAT_UCHAR)
+
+    state = %State{
+      image: columns,
+      source_dimensions: {400, 300},
+      decode_shrink: %{w: 2.0, h: 2.0}
+    }
+
+    assert {:ok, result} = Executor.execute(state, request!("region=101,51,201,101"), [])
+    assert {:ok, [column | _bands]} = Image.get_pixel(result.image, 0, 0)
+    assert column == 50
   end
 
   test "rejects wholly outside regions while clamping partial overlap" do
