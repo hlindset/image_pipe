@@ -76,6 +76,17 @@ check_png() {
 check_png pic.png
 check_png pic.jxl
 
+# The server runs on jemalloc, whose background thread returns memory while
+# the server is idle.
+beam_env=$(docker exec "$name" sh -c \
+  'for p in /proc/[0-9]*; do [ "$(cat $p/comm 2>/dev/null)" = beam.smp ] && tr "\0" "\n" < $p/environ; done; true')
+for expected in LD_PRELOAD=/usr/local/lib/libjemalloc.so.2 MALLOC_CONF=background_thread:true; do
+  printf '%s\n' "$beam_env" | grep -qx "$expected" || {
+    echo "allocator: the server's environment lacks $expected" >&2
+    exit 1
+  }
+done
+
 # On SIGTERM the server reports not ready but keeps serving, and Docker sees
 # the container turn unhealthy before it stops listening.
 docker stop -t 30 "$name" >/dev/null &

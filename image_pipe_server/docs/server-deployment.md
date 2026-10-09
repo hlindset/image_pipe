@@ -250,9 +250,14 @@ up, which sets how many threads libvips uses for each image. Set
 
 ## Memory allocator
 
-The Docker image runs the server with the jemalloc memory allocator, which returns
-memory that image processing frees. glibc's default allocator keeps much of
-it. Set `IMAGE_PIPE_ALLOCATOR=glibc` to use glibc instead. The server also
+The Docker image runs the server with the jemalloc memory allocator, set
+with `MALLOC_CONF=background_thread:true` so it returns memory that image
+processing frees, even while the server is idle. glibc's default allocator
+keeps much of it. After a burst of requests, most of the memory the burst
+used goes back to the system within about 15 seconds. If you set
+`MALLOC_CONF` yourself, it replaces this value, so include
+`background_thread:true` in it. Set `IMAGE_PIPE_ALLOCATOR=glibc` to use glibc
+instead. The server also
 uses glibc when jemalloc can't load on the host, and logs a line saying so.
 With glibc, the server sets
 `MALLOC_ARENA_MAX=2`, which limits how much freed memory glibc keeps, unless
