@@ -569,6 +569,20 @@ defmodule ImagePipe.API.ParserTest do
       assert Enum.any?(diagnostics, &(&1.reason == :unknown_option))
     end
 
+    test "every declared option key is known" do
+      for spec <- OptionSpec.all(), example <- spec.examples do
+        unknown =
+          case parse([example]) do
+            {:ok, _request} -> []
+            {:error, {:invalid_request, diagnostics}} -> diagnostics
+            {:error, _other} -> []
+          end
+          |> Enum.filter(&(&1.reason == :unknown_option))
+
+        assert unknown == [], example
+      end
+    end
+
     test "invalid value for a known key" do
       assert {:error, {:invalid_request, diagnostics}} = parse(["w=notanumber"])
       assert Enum.any?(diagnostics, &(&1.reason == :invalid_dimension))
@@ -942,7 +956,7 @@ defmodule ImagePipe.API.ParserTest do
       for terminal <- ~w(blurhash lqip-css info),
           key <-
             ~w(format q format-q meta dpi profile hdr autoquality max-bytes jpeg-options png-options webp-options avif-options),
-          spec = OptionSpec.fetch(key) do
+          spec = Enum.find(OptionSpec.all(), &(&1.key == key)) do
         assert {:ok, _request} = parse(["output=" <> terminal, hd(spec.examples)]),
                "#{terminal} #{key}"
       end
