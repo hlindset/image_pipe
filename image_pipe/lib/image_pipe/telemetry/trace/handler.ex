@@ -14,69 +14,11 @@ defmodule ImagePipe.Telemetry.Trace.Handler do
   @compile {:no_warn_undefined,
             [OpenTelemetry.Span, :opentelemetry, :otel_ctx, :otel_span, :otel_tracer]}
 
+  alias ImagePipe.Telemetry.Catalog
+
   @handler_id {__MODULE__, :spans}
 
-  # Span stages emitted under the image_pipe prefix.
-  @span_stages [
-    [:request],
-    [:processing, :admission],
-    [:processing, :execute],
-    [:parse],
-    [:preset, :lookup],
-    [:send],
-    [:encode],
-    [:encode, :search],
-    [:encode, :search, :probe],
-    # Probe spans time eager work: the encode, then the decode and score.
-    [:encode, :search, :probe, :encode],
-    [:encode, :search, :probe, :ssimulacra2, :decode],
-    [:encode, :search, :probe, :ssimulacra2, :metric],
-    [:deliver],
-    [:source, :resolve],
-    [:source, :fetch],
-    [:source, :fetch_decode],
-    [:source, :stage],
-    [:source, :watermark],
-    [:output, :negotiate],
-    [:output, :terminal],
-    [:transform, :execute],
-    [:transform, :input_color_management],
-    [:transform, :operation],
-    [:transform, :materialize],
-    [:transform, :detect],
-    [:transform, :detect, :model],
-    [:cache, :lookup],
-    [:cache, :input],
-    [:cache, :refresh],
-    [:cache, :write],
-    [:cache, :admission],
-    [:cache, :warm_start],
-    [:cache, :sweep],
-    [:cache, :rescan]
-  ]
-
-  # One-shot events, added as events on the current span.
-  @oneshot_stages [
-    [:cache, :coordination],
-    # Delivered-probe marker: folds onto the enclosing [:encode, :search] span,
-    # naming the winning quality/phase that produced the shipped bytes. All keys
-    # (quality, bytes, phase, index, score, scorer, tiles_scored) are in @safe_keys.
-    [:encode, :search, :probe, :chosen],
-    # Inert options the URL wrote and parsing dropped: their URL keys (:options).
-    [:request, :ignored_options],
-    [:cache, :stage],
-    [:cache, :eviction, :stop],
-    [:cache, :flush, :stop],
-    [:cache, :cleanup, :stop],
-    [:output, :clamp],
-    [:transform, :detect, :skipped],
-    [:transform, :detect, :blend],
-    [:http_cache, :prepare],
-    [:http_cache, :conditional, :match],
-    [:http_cache, :fallback, :no_store],
-    [:http_cache, :cache_hit, :headers],
-    [:debug, :collect, :error]
-  ]
+  @oneshot_stages Catalog.oneshot_stages()
 
   # Keys safe to copy into span attributes (allowlist; everything else dropped).
   #
@@ -222,20 +164,12 @@ defmodule ImagePipe.Telemetry.Trace.Handler do
 
   @spec attach([atom()]) :: :ok
   def attach(prefix) do
-    events =
-      for(
-        stage <- @span_stages,
-        suffix <- [:start, :stop, :exception],
-        do: prefix ++ stage ++ [suffix]
-      ) ++
-        for(stage <- @oneshot_stages, do: prefix ++ stage)
-
     _ = :telemetry.detach(@handler_id)
 
     _ =
       :telemetry.attach_many(
         @handler_id,
-        events,
+        Catalog.traced_events(prefix),
         &__MODULE__.handle_event/4,
         length(prefix)
       )
