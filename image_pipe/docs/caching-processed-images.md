@@ -134,9 +134,10 @@ way.
 
 ## Run several replicas
 
-If replicas share a cache volume, give each one a different `node_id`. If a
-replica's cache volume outlives the replica, keep its `node_id` the same when
-it restarts. A cache volume that belongs to one pod and is lost with it, such
+If replicas share a cache volume, give each one a different `node_id` and the
+same `max_size_bytes`, which limits the shared `root`, not each replica's
+share. If a replica's cache volume outlives the replica, keep its `node_id`
+the same when it restarts. A cache volume that belongs to one pod and is lost with it, such
 as an `emptyDir`, works with a fixed `node_id`.
 
 On Kubernetes, run a StatefulSet and use the pod name, such as

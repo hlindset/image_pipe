@@ -253,6 +253,31 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "cache sweep: ok"
   end
 
+  test "logs cache sweeps and re-scans that changed nothing at debug level" do
+    prefix = [__MODULE__, :cache_quiet_passes]
+    Telemetry.attach_default_logger(prefix: prefix, level: :info)
+    opts = [telemetry_prefix: prefix]
+
+    log =
+      capture_log([level: :debug], fn ->
+        Telemetry.span(opts, [:cache, :sweep], %{pool: :output}, fn ->
+          {:ok, %{result: :ok, pins: 0, temps: 0, bodies: 0, bytes: 0}}
+        end)
+
+        Telemetry.span(opts, [:cache, :rescan], %{pool: :output}, fn ->
+          {:ok, %{result: :ok, adopted: 0, dropped: 0, resynced: 0}}
+        end)
+
+        Telemetry.span(opts, [:cache, :rescan], %{pool: :input}, fn ->
+          {:ok, %{result: :ok, adopted: 2, dropped: 0, resynced: 0}}
+        end)
+      end)
+
+    assert log =~ "[debug] image_pipe cache sweep: ok (output pool)"
+    assert log =~ "[debug] image_pipe cache rescan: ok (output pool)"
+    assert log =~ "[info] image_pipe cache rescan: ok (input pool)"
+  end
+
   test "warns when a request stops waiting for another's source download" do
     prefix = [__MODULE__, :source_wait_timeout]
     Telemetry.attach_default_logger(prefix: prefix, level: :info)

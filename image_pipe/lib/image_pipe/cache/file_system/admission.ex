@@ -34,6 +34,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       :flush_interval_ms,
       :cleanup_interval_ms,
       :reconcile_interval_ms,
+      :rescan_interval_ms,
       :state_ttl_ms,
       # Lifecycle events use the prefix captured at init, without request options.
       telemetry_prefix: [:image_pipe],
@@ -45,8 +46,9 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       # key_hash -> {queue, position}, so hash lookups avoid scanning the
       # position-ordered queues.
       index: nil,
-      # Keys dropped, deleted or committed while the startup scan runs, so a
-      # stale scanned descriptor for them is skipped. nil once the scan ends.
+      # Keys dropped, deleted or committed while the startup scan or a re-scan
+      # runs, so a stale scanned descriptor for them is skipped. nil between
+      # scans.
       scan_changes: nil,
       window_bytes: 0,
       probationary_bytes: 0,
@@ -61,6 +63,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       scan_task_ref: nil,
       scan_complete?: false,
       scan_waiters: [],
+      rescan_task_ref: nil,
       reconciling?: false,
       reconcile_waiters: [],
       reconcile_tick_pending?: false,
@@ -89,6 +92,11 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     node_id = Keyword.fetch!(opts, :node_id)
     {:via, Registry, {registry, {root, node_id}}}
   end
+
+  # A node evicting an entry renames its metadata aside for a moment to check
+  # it (Store.delete_victims/2), so a miss is checked again later rather than
+  # trusted at once.
+  @gone_recheck_ms 1_000
 
   @impl true
   def init(opts) do
@@ -131,6 +139,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       flush_interval_ms: Keyword.get(opts, :flush_interval_ms, 30_000),
       cleanup_interval_ms: Keyword.get(opts, :cleanup_interval_ms, 3_600_000),
       reconcile_interval_ms: Keyword.get(opts, :reconcile_interval_ms, 60_000),
+      rescan_interval_ms: Keyword.get(opts, :rescan_interval_ms, 300_000),
       state_ttl_ms: Keyword.get(opts, :state_ttl_ms, 604_800_000),
       telemetry_prefix: Keyword.get(opts, :telemetry_prefix, Telemetry.default_prefix()),
       pool: Keyword.get(opts, :pool, :output),
@@ -307,6 +316,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     Process.send_after(self(), :flush, state.flush_interval_ms)
     Process.send_after(self(), :cleanup, state.cleanup_interval_ms)
     Process.send_after(self(), :reconcile, state.reconcile_interval_ms)
+    schedule_rescan(state)
     {:noreply, state}
   end
 
@@ -323,7 +333,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   defp scan_directory(state, admission_pid) do
     entry_root = Path.join(state.root, state.path_prefix)
-    {listings, descriptor_map} = read_entries(entry_root)
+    {listings, descriptor_map} = read_entries(entry_root, fn _key_hash -> true end)
 
     # Phase A: insert protected entries in persisted LRU→MRU order.
     protected_hashes = state.persisted_protected_hashes
@@ -359,12 +369,100 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     GenServer.call(admission_pid, :scan_complete, :infinity)
   end
 
+  # Nodes sharing a root write and evict entries this node doesn't see, so it
+  # lists the root again every interval: it adopts entries peers wrote, checks
+  # the ones whose files are gone, evicts down to the cap, and sweeps leftover
+  # files. Admission checks a tracked entry the listing missed against the
+  # disk before it stops counting it. An entry a peer removes between the
+  # descriptor read and adoption is counted until the next re-scan.
+  defp rescan_directory(state, admission_pid) do
+    Telemetry.span(tel_opts(state), [:cache, :rescan], %{pool: state.pool}, fn ->
+      entry_root = Path.join(state.root, state.path_prefix)
+      untracked? = &(not :ets.member(state.index, &1))
+      {listings, descriptor_map} = read_entries(entry_root, untracked?)
+
+      changed = changed_tracked_hashes(listings, state)
+      # A peer evicting a key renames its metadata aside for a moment, so the
+      # disk check waits, as a reported miss does.
+      if changed != [], do: Process.sleep(@gone_recheck_ms)
+
+      {dropped, resynced} =
+        changed
+        |> Enum.chunk_every(100)
+        |> Enum.reduce({0, 0}, fn hashes, {dropped, resynced} ->
+          {more_dropped, more_resynced} =
+            GenServer.call(admission_pid, {:rescan_resync, hashes}, :infinity)
+
+          {dropped + more_dropped, resynced + more_resynced}
+        end)
+
+      adopted =
+        descriptor_map
+        |> Map.values()
+        |> Enum.sort_by(fn %{mtime: mtime} -> mtime end)
+        |> Enum.chunk_every(100)
+        |> Enum.reduce(0, &(&2 + GenServer.call(admission_pid, {:rescan_adopt, &1}, :infinity)))
+
+      GenServer.call(admission_pid, :reconcile_to_cap, :infinity)
+      Sweep.run_listings(listings, state.pool, tel_opts(state))
+      GenServer.call(admission_pid, :rescan_complete, :infinity)
+
+      {:ok, %{result: :ok, adopted: adopted, dropped: dropped, resynced: resynced}}
+    end)
+  end
+
+  # Tracked keys whose metadata or tracked body is missing from the listing.
+  defp changed_tracked_hashes(listings, state) do
+    present = for {_dir, names} <- listings, name <- names, into: MapSet.new(), do: name
+
+    :ets.foldl(
+      fn {key_hash, queue, pos}, acc ->
+        if unlisted?(state, present, queue, pos, key_hash), do: [key_hash | acc], else: acc
+      end,
+      [],
+      state.index
+    )
+  end
+
+  defp unlisted?(state, present, queue, pos, key_hash) do
+    case :ets.lookup(Map.fetch!(state, queue), {pos, key_hash}) do
+      [{_key, %{body_sha256: body_sha256}}] ->
+        not (MapSet.member?(present, key_hash <> ".meta") and
+               MapSet.member?(present, "#{key_hash}.#{body_sha256}.body"))
+
+      # Moved since the index read. Its next re-scan checks it.
+      [] ->
+        false
+    end
+  end
+
+  # Replicas started together would otherwise re-scan in step and each evict
+  # the same excess.
+  defp schedule_rescan(state) do
+    spread = div(state.rescan_interval_ms, 5)
+    jitter = :rand.uniform(2 * spread + 1) - 1 - spread
+    Process.send_after(self(), :rescan, state.rescan_interval_ms + jitter)
+  end
+
+  defp start_rescan(state) do
+    admission_pid = self()
+    {_pid, ref} = spawn_monitor(fn -> rescan_directory(state, admission_pid) end)
+    %{state | rescan_task_ref: ref, scan_changes: :ets.new(:scan_changes, [:set, :private])}
+  end
+
+  defp finish_rescan(state) do
+    :ets.delete(state.scan_changes)
+    schedule_rescan(state)
+    %{state | rescan_task_ref: nil, scan_changes: nil}
+  end
+
   # One pass lists each two-level partition once, a first-level group per
   # task. The listings feed both the descriptor reads and the leftover sweep.
-  defp read_entries(entry_root) do
+  # `read?` picks the keys whose metadata is read.
+  defp read_entries(entry_root, read?) do
     entry_root
     |> Sweep.partitions()
-    |> Task.async_stream(&read_partition_group/1,
+    |> Task.async_stream(&read_partition_group(&1, read?),
       max_concurrency: System.schedulers_online(),
       ordered: false,
       timeout: :infinity
@@ -374,13 +472,14 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     end)
   end
 
-  defp read_partition_group(dir) do
+  defp read_partition_group(dir, read?) do
     listings = for partition <- Sweep.partitions(dir), do: Sweep.listing(partition)
 
     descriptors =
       for {partition, names} <- listings,
           name <- names,
           String.ends_with?(name, ".meta"),
+          read?.(Path.basename(name, ".meta")),
           {:ok, descriptor, mtime} <- [FileSystem.read_descriptor(Path.join(partition, name))],
           into: %{},
           do: {descriptor.key_hash, Map.put(descriptor, :mtime, mtime)}
@@ -413,6 +512,16 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     case locate(state, key_hash) do
       nil -> {:noreply, state}
       located -> {:noreply, resync(state, located)}
+    end
+  end
+
+  # The running re-scan schedules the next one when it finishes.
+  def handle_info(:rescan, state) do
+    if state.scan_complete? do
+      {:noreply, start_rescan(state)}
+    else
+      schedule_rescan(state)
+      {:noreply, state}
     end
   end
 
@@ -454,6 +563,12 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     end
   end
 
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{rescan_task_ref: ref} = state) do
+    require Logger
+    Logger.warning("cache: directory re-scan crashed: reason=#{inspect(reason)}")
+    {:noreply, finish_rescan(state)}
+  end
+
   @doc """
   Notify Admission of a cache hit. `descriptor` carries the same shape
   as an admit-time descriptor (key_hash, size_bytes, body_sha256,
@@ -474,11 +589,6 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   @impl true
-  # A node evicting an entry renames its metadata aside for a moment to check
-  # it (Store.delete_victims/2), so a miss is checked again later rather than
-  # trusted at once.
-  @gone_recheck_ms 1_000
-
   def handle_cast({:gone, key_hash}, state) do
     if already_tracked?(state, key_hash),
       do: Process.send_after(self(), {:recheck_gone, key_hash}, @gone_recheck_ms)
@@ -634,16 +744,23 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   def handle_call({:apply_scan_batch, batch}, _from, state) do
-    state =
-      Enum.reduce(batch, state, fn entry, acc ->
-        if already_tracked?(acc, entry.key_hash) or scan_changed?(acc, entry.key_hash) do
-          acc
-        else
-          insert_scan_descriptor(acc, entry)
-        end
-      end)
-
+    {state, _adopted} = adopt_scanned(state, batch)
     {:reply, :ok, state}
+  end
+
+  def handle_call({:rescan_adopt, batch}, _from, state) do
+    {state, adopted} = adopt_scanned(state, batch)
+    {:reply, adopted, state}
+  end
+
+  def handle_call({:rescan_resync, hashes}, _from, state) do
+    {state, counts} = Enum.reduce(hashes, {state, {0, 0}}, &rescan_resync/2)
+    {:reply, counts, state}
+  end
+
+  def handle_call(:rescan_complete, _from, state) do
+    Process.demonitor(state.rescan_task_ref, [:flush])
+    {:reply, :ok, finish_rescan(state)}
   end
 
   def handle_call({:apply_protected_batch, hashes, descriptor_map}, _from, state) do
@@ -654,6 +771,33 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   def handle_call(:reconcile_to_cap, from, state) do
     state = %{state | reconcile_waiters: [from | state.reconcile_waiters]}
     {:noreply, start_reconciliation(state)}
+  end
+
+  defp adopt_scanned(state, batch) do
+    Enum.reduce(batch, {state, 0}, fn entry, {acc, adopted} ->
+      if already_tracked?(acc, entry.key_hash) or scan_changed?(acc, entry.key_hash) do
+        {acc, adopted}
+      else
+        {insert_scan_descriptor(acc, entry), adopted + 1}
+      end
+    end)
+  end
+
+  # Returns the dropped and resynced counts, from what the disk holds now.
+  defp rescan_resync(key_hash, {state, {dropped, resynced} = counts}) do
+    case locate(state, key_hash) do
+      nil ->
+        {state, counts}
+
+      {_queue, _pos, tracked} = located ->
+        state = resync(state, located)
+
+        case locate(state, key_hash) do
+          nil -> {state, {dropped + 1, resynced}}
+          {_queue, _pos, ^tracked} -> {state, counts}
+          _resynced -> {state, {dropped, resynced + 1}}
+        end
+    end
   end
 
   defp apply_protected_hash(hash, state, descriptor_map) do

@@ -315,6 +315,19 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
                     }}
   end
 
+  test "captures the cache re-scan span with its entry counts" do
+    Telemetry.span([], [:cache, :rescan], %{pool: :output}, fn ->
+      {:ok, %{result: :ok, adopted: 3, dropped: 1, resynced: 0}}
+    end)
+
+    assert_receive {:span,
+                    %Span{
+                      name: "image_pipe.cache.rescan",
+                      status: :ok,
+                      attributes: %{pool: :output, adopted: 3, dropped: 1, resynced: 0}
+                    }}
+  end
+
   test "maps an error result to :error status" do
     Telemetry.span([], [:request], %{}, fn -> {:ok, %{result: :processing_error}} end)
     assert_receive {:span, %Span{name: "image_pipe.request", status: :error}}

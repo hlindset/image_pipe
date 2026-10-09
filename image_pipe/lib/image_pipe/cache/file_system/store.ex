@@ -27,6 +27,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     :eviction_victim_limit,
     :aging_sample_size,
     :reconcile_interval,
+    :rescan_interval,
     :flush_interval,
     :cleanup_interval,
     :state_ttl
@@ -168,6 +169,15 @@ defmodule ImagePipe.Cache.FileSystem.Store do
                       size is at or under `:max_size_bytes`. Defaults to `60`.
                       """
                     ],
+                    rescan_interval: [
+                      type: :pos_integer,
+                      doc: """
+                      Seconds between background passes that list the cache directory, so this \
+                      node counts entries other nodes sharing `:root` wrote or removed, and then \
+                      delete left-over files. Each pass is delayed or advanced by up to a fifth \
+                      of the interval at random. Defaults to `300`.
+                      """
+                    ],
                     state_ttl: [
                       type: :pos_integer,
                       doc: """
@@ -202,18 +212,14 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   end
 
   @doc false
-  # An instance sweeps each pool periodically. A bounded pool's Admission scan
-  # sweeps at start, so its first periodic sweep waits one interval. An
-  # unbounded pool has no scan and sweeps at start.
+  # An instance sweeps each unbounded pool at start and periodically after.
   def sweep_spec(opts) do
     root = Path.join(Keyword.fetch!(opts, :root), Keyword.get(opts, :path_prefix, ""))
     pool = Keyword.get(opts, :pool, :output)
     telemetry = Keyword.take(opts, [:telemetry_prefix])
 
     {PeriodicSweep,
-     id: {Sweep, Keyword.fetch!(opts, :root)},
-     sweep: {Sweep, :run, [root, pool, telemetry]},
-     at_start?: not Keyword.has_key?(opts, :max_size_bytes)}
+     id: {Sweep, Keyword.fetch!(opts, :root)}, sweep: {Sweep, :run, [root, pool, telemetry]}}
   end
 
   # Translate validated+derived seconds-based opts into the millisecond keys
@@ -224,10 +230,12 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     |> Keyword.put(:flush_interval_ms, Keyword.fetch!(opts, :flush_interval) * 1000)
     |> Keyword.put(:cleanup_interval_ms, Keyword.fetch!(opts, :cleanup_interval) * 1000)
     |> Keyword.put(:reconcile_interval_ms, Keyword.fetch!(opts, :reconcile_interval) * 1000)
+    |> Keyword.put(:rescan_interval_ms, Keyword.fetch!(opts, :rescan_interval) * 1000)
     |> Keyword.put(:state_ttl_ms, Keyword.fetch!(opts, :state_ttl) * 1000)
     |> Keyword.delete(:flush_interval)
     |> Keyword.delete(:cleanup_interval)
     |> Keyword.delete(:reconcile_interval)
+    |> Keyword.delete(:rescan_interval)
     |> Keyword.delete(:state_ttl)
   end
 
@@ -570,6 +578,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
       flush_interval: 30,
       cleanup_interval: 3600,
       reconcile_interval: 60,
+      rescan_interval: 300,
       state_ttl: 604_800,
       state_dir: Path.join(root, ".cache_state")
     ]

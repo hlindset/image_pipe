@@ -388,11 +388,16 @@ its saved state at startup.
 ### `[:cache, :sweep]`
 
 Span. Emitted each time ImagePipe checks for
-[leftover files](cache.md#leftover-files), whether or not it finds any. Each
-check repeats every 24 hours. The first runs when an instance starts for an
-unbounded `ImagePipe.Cache.FileSystem` cache, after its startup scan for a
-bounded cache, and when the `:image_pipe` application starts for staged
-originals.
+[leftover files](cache.md#leftover-files), whether or not it finds any:
+
+- For an unbounded `ImagePipe.Cache.FileSystem` cache, when an instance
+  starts and every 24 hours after.
+- For a bounded cache, after its startup scan and after each
+  [re-scan](#cache-rescan).
+- For staged originals, when the `:image_pipe` application starts and every
+  24 hours after.
+
+The default Logger logs a check that deleted nothing at `:debug`.
 
 - Start metadata: `:pool` (atom): `:output` or `:input` for a cache, `:staging`
   for staged originals.
@@ -404,6 +409,24 @@ originals.
     metadata named were deleted.
   - For `:staging`, `:staged` (integer): how many staged originals were
     deleted.
+
+### `[:cache, :rescan]`
+
+Span. Emitted each time a bounded cache lists its `root` again to count
+entries other nodes that share it wrote or deleted (see
+[size cap and directory scans](cache.md#size-cap-and-directory-scans)). The
+span covers the eviction and the leftover-file check that follow. The default
+Logger logs a re-scan that adopted, dropped, and resynced nothing at
+`:debug`.
+
+- Start metadata: `:pool` (atom).
+- Stop metadata:
+  - `:result` (atom): `:ok`.
+  - `:adopted` (integer): entries this node started counting.
+  - `:dropped` (integer): entries whose metadata file was gone or
+    unreadable, which this node stopped counting.
+  - `:resynced` (integer): entries another node replaced, whose new size
+    this node now counts.
 
 ### `[:cache, :admission]`
 

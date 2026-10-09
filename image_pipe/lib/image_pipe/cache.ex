@@ -104,17 +104,17 @@ defmodule ImagePipe.Cache do
   @doc false
   # Sweeps the staging directory at start and periodically after.
   def staged_sweep_spec,
-    do:
-      {PeriodicSweep,
-       id: {Sweep, :staged}, sweep: {__MODULE__, :sweep_staged, []}, at_start?: true}
+    do: {PeriodicSweep, id: {Sweep, :staged}, sweep: {__MODULE__, :sweep_staged, []}}
 
   @doc false
-  # Periodic cleanup an instance runs for its caches. A cache used without an
+  # Periodic cleanup an instance runs for its unbounded caches. A bounded
+  # cache's Admission sweeps on each re-scan, and a cache used without an
   # instance isn't swept.
   @spec startup_specs(keyword()) :: [Supervisor.child_spec()]
   def startup_specs(options) do
     for key <- [:cache, :input_cache],
         {FileSystem, cache_opts} <- [Keyword.get(options, key)],
+        not Keyword.has_key?(cache_opts, :max_size_bytes),
         do: Store.sweep_spec(cache_opts)
   end
 
