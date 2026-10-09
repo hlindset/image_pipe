@@ -618,6 +618,16 @@ defmodule ImagePipe.Cache.FileSystemTest do
     end
   end
 
+  # A temp file two hours old, as a request killed mid-write leaves.
+  defp leftover(root, digit) do
+    dir = Path.join([root, "aa", "aa"])
+    File.mkdir_p!(dir)
+    path = Path.join(dir, ".#{String.duplicate(digit, 64)}.Ab_c-dE.tmp")
+    File.write!(path, "bytes")
+    File.touch!(path, System.os_time(:second) - 7_200)
+    path
+  end
+
   describe "child_spec/1" do
     test "returns a supervisor spec when max_size_bytes is set", %{root: root} do
       opts = [root: root, max_size_bytes: 10_000_000, node_id: "n1"]
@@ -628,18 +638,31 @@ defmodule ImagePipe.Cache.FileSystemTest do
       assert FileSystem.child_spec(root: "/tmp") == nil
     end
 
-    test "an instance sweeps an unbounded pool once at start", %{root: root} do
-      dir = Path.join([root, "aa", "aa"])
-      File.mkdir_p!(dir)
-      leftover = Path.join(dir, ".#{String.duplicate("a", 64)}.Ab_c-dE.tmp")
-      File.write!(leftover, "bytes")
-      File.touch!(leftover, System.os_time(:second) - 7_200)
-
+    test "an instance sweeps an unbounded pool at start and while it runs", %{root: root} do
+      first = leftover(root, "a")
       [spec] = ImagePipe.Cache.startup_specs(cache: {FileSystem, root: root})
       pid = start_supervised!(spec)
-      ref = Process.monitor(pid)
-      assert_receive {:DOWN, ^ref, :process, ^pid, reason} when reason in [:normal, :noproc]
-      refute File.exists?(leftover)
+      _ = :sys.get_state(pid)
+      refute File.exists?(first)
+
+      later = leftover(root, "b")
+      send(pid, :sweep)
+      _ = :sys.get_state(pid)
+      refute File.exists?(later)
+    end
+
+    test "an instance sweeps a bounded pool while it runs, after its scan's sweep",
+         %{root: root} do
+      bounded = [root: root, max_size_bytes: 10_000_000, node_id: "n1"]
+      [spec] = ImagePipe.Cache.startup_specs(cache: {FileSystem, bounded})
+      pid = start_supervised!(spec)
+      later = leftover(root, "c")
+      _ = :sys.get_state(pid)
+      assert File.exists?(later)
+
+      send(pid, :sweep)
+      _ = :sys.get_state(pid)
+      refute File.exists?(later)
     end
   end
 

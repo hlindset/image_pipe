@@ -205,19 +205,25 @@ ImagePipe must be able to write there.
 `ImagePipe.Cache.FileSystem.get/2` returns the whole body as a binary, for
 callers outside the Plug.
 
-### Files left by a crash
+### Leftover files
 
 A node that stops abruptly, for example after a crash or `kill -9`, can leave
-temporary entry files behind, and bodies that no metadata file names.
-ImagePipe deletes them in the background once they are more than an hour old,
-so nodes that share a `root` can clean it while the others keep running:
+temporary entry files behind, links that requests used to hold originals
+open, and bodies that no metadata file names. A running node can leave them
+too, for example when a request is killed while its image is being written. ImagePipe deletes them in the background once they
+are more than an hour old, so nodes that share a `root` can clean it while
+the others keep running:
 
-- In each cache's `root`, when an ImagePipe instance starts (see
-  `ImagePipe.child_spec/1`). `image_pipe_server` always runs one. A cache
-  without an instance, which only an unbounded cache can be, isn't cleaned.
+- In each cache's `root`, every 24 hours while an ImagePipe instance runs
+  (see `ImagePipe.child_spec/1`). The first cleanup runs when the instance
+  starts, or for a bounded cache after its startup scan. `image_pipe_server`
+  always runs an instance. A cache without an instance, which only an unbounded
+  cache can be, isn't cleaned.
 - In the `image_pipe` directory under the system temporary directory
   (`TMPDIR`, or `/tmp`), where originals are staged while they download,
-  when the `:image_pipe` application starts. The `[:cache, :sweep]` event reports what each cleanup removed (see
+  when the `:image_pipe` application starts and every 24 hours after.
+
+The `[:cache, :sweep]` event reports what each cleanup removed (see
 [cache events](telemetry-events.md#cache-events)).
 
 ## Bounded mode
@@ -255,7 +261,7 @@ instance, which starts that process (see `ImagePipe.child_spec/1` and
   before them.
 - On startup the process scans the entries already on disk in the
   background, evicts until the cache is at or under the cap, and then
-  deletes [files left by a crash](#files-left-by-a-crash).
+  deletes [leftover files](#leftover-files).
 - Every `reconcile_interval` (60 seconds by default) it evicts again until
   the cache is at or under the cap.
 
