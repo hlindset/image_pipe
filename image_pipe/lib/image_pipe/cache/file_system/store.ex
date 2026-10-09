@@ -140,9 +140,12 @@ defmodule ImagePipe.Cache.FileSystem.Store do
                     eviction_victim_limit: [
                       type: :pos_integer,
                       doc: """
-                      Maximum number of entries one write may evict to make room. A write \
-                      that needs more is not stored. Background eviction removes at most \
-                      this many entries per batch. Defaults to `64`.
+                      Maximum number of entries one write or one background eviction \
+                      batch removes. A write that needs to evict more removes this many \
+                      and starts background eviction for the rest, so the cache can \
+                      briefly exceed `:max_size_bytes`. If the entries it needs to evict \
+                      include ones read recently, the write is rejected instead. \
+                      Defaults to `64`.
                       """
                     ],
                     flush_interval: [

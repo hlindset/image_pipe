@@ -784,14 +784,10 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   defp identify_and_score(state, descriptor, needed_bytes) do
     limit = state.eviction_victim_limit
-    # The walk never takes more than `limit` victims, so `limit + 1` LRU
-    # entries per queue reproduce its result over the full queues.
-    probationary_list = lru_descriptors(state.probationary, limit + 1)
-    protected_list = lru_descriptors(state.protected, limit + 1)
 
     case Policy.victim_walk(
-           probationary_list,
-           protected_list,
+           lru_descriptors(state.probationary),
+           lru_descriptors(state.protected),
            needed_bytes,
            limit
          ) do
@@ -807,25 +803,35 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
         end
 
         if Policy.admit?(descriptor, victim_descriptors, freq_fn) do
-          state = remove_victims(state, victim_descriptors)
-          {_result, state} = insert_into_probationary(state, descriptor)
-          # Tag victims with full-eviction flags for the adapter.
-          tagged = Enum.map(victim_descriptors, &full_eviction_victim/1)
-          {{:admit, tagged}, state}
+          admit_evicting(state, descriptor, victim_descriptors)
         else
           {{:reject, :score_too_low}, state}
         end
     end
   end
 
-  defp lru_descriptors(table, count), do: lru_descriptors(table, :ets.first(table), count, [])
+  # Evict at most `eviction_victim_limit` victims now. Reconciliation evicts
+  # the rest in batches, reaching them in the same LRU order.
+  defp admit_evicting(state, descriptor, victims) do
+    {evict_now, evict_later} = Enum.split(victims, state.eviction_victim_limit)
+    state = remove_victims(state, evict_now)
+    {_result, state} = insert_into_probationary(state, descriptor)
+    state = if evict_later == [], do: state, else: start_reconciliation(state)
+    # Tag victims with full-eviction flags for the adapter.
+    {{:admit, Enum.map(evict_now, &full_eviction_victim/1)}, state}
+  end
 
-  defp lru_descriptors(_table, :"$end_of_table", _count, acc), do: Enum.reverse(acc)
-  defp lru_descriptors(_table, _key, 0, acc), do: Enum.reverse(acc)
+  # Lazy LRU-first stream, so the victim walk reads only the entries it needs.
+  # Consume it before changing the table.
+  defp lru_descriptors(table) do
+    Stream.unfold(:ets.first(table), fn
+      :"$end_of_table" ->
+        nil
 
-  defp lru_descriptors(table, key, count, acc) do
-    [{_key, descriptor}] = :ets.lookup(table, key)
-    lru_descriptors(table, :ets.next(table, key), count - 1, [descriptor | acc])
+      key ->
+        [{_key, descriptor}] = :ets.lookup(table, key)
+        {descriptor, :ets.next(table, key)}
+    end)
   end
 
   defp ordered_set_to_list(table) do
