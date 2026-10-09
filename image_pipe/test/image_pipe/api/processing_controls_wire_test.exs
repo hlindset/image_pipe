@@ -127,22 +127,30 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
   test "a stored terminal's generation cost excludes the wait for a processing slot", context do
     pool = start_supervised!({ProcessingPool, max_concurrency: 1})
     mount = ImagePipe.Plug.init(config: config(pool, context.prefix, cache: {CacheProbe, []}))
-    queue_wait_us = 200_000
     test = self()
 
     Task.Supervisor.async_nolink(context.tasks, fn ->
       ProcessingPool.within(pool, self(), [], fn ->
         send(test, :holding)
         await_queued(pool)
+        queued_at = System.monotonic_time(:microsecond)
         # Holds the slot so the request below queues; nothing races this.
-        Process.sleep(div(queue_wait_us, 1_000))
+        Process.sleep(200)
+        send(test, {:held, System.monotonic_time(:microsecond) - queued_at})
       end)
     end)
 
     assert_receive :holding
+    started_at = System.monotonic_time(:microsecond)
     assert request(mount, "output=info").status == 200
+    elapsed_us = System.monotonic_time(:microsecond) - started_at
+    assert_received {:held, held_us}
     assert_received {:cache_open_sink, _key, metadata}
-    assert metadata.cost_us < queue_wait_us
+
+    # The request was queued for at least `held_us` of its `elapsed_us`, so a
+    # cost that excludes the wait fits in the remainder however slow the
+    # generation itself is.
+    assert metadata.cost_us <= elapsed_us - held_us
   end
 
   defp await_queued(pool) do
