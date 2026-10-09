@@ -3,7 +3,7 @@ defmodule ImagePipe.API.WorkingLimitsWireTest do
 
   import Plug.Test
 
-  alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias ImagePipe.Test.CacheObserver
   alias ImagePipe.Test.ProcessingSource
   alias Vix.Vips.Image, as: VipsImage
 
@@ -12,8 +12,7 @@ defmodule ImagePipe.API.WorkingLimitsWireTest do
          |> Image.write!(:memory, suffix: ".png")
 
   test "unsupported numeric values fail before fetching or touching the cache" do
-    store = :ets.new(:working_limits_cache, [:set, :public])
-    mount = mount(cache: {CacheProbe, store: store})
+    mount = mount(CacheObserver.observe([]))
 
     for options <- [
           "blur=1001",
@@ -30,7 +29,8 @@ defmodule ImagePipe.API.WorkingLimitsWireTest do
     end
 
     refute_received {:fetch, _, _}
-    assert :ets.tab2list(store) == []
+    refute_received {:cache_lookup, _, _hash}
+    refute_received {:cache_put, _hash, _body}
   end
 
   test "oversized work is rejected before final clamping or materialization" do
@@ -116,21 +116,15 @@ defmodule ImagePipe.API.WorkingLimitsWireTest do
   end
 
   test "a lower work limit preserves cache identity and serves an existing successful response" do
-    store = :ets.new(:working_limits_cache, [:set, :public])
+    cache = CacheObserver.observe([])
     options = "w=32/h=24/fit=stretch"
-    original = request(mount(cache: {CacheProbe, store: store}), options)
+    original = request(mount(cache), options)
     assert original.status == 200
     assert [_etag] = Plug.Conn.get_resp_header(original, "etag")
     assert_receive {:fetch, _, _}
 
     cached =
-      request(
-        mount(
-          cache: {CacheProbe, store: store},
-          max_intermediate_pixels: 100
-        ),
-        options
-      )
+      request(mount(cache ++ [max_intermediate_pixels: 100]), options)
 
     assert cached.status == 200
     assert cached.resp_body == original.resp_body

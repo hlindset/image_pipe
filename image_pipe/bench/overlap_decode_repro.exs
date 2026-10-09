@@ -153,8 +153,8 @@ defmodule OverlapDecodeRepro do
           ]
         ]
       ],
-      cache: {ImagePipe.Cache.FileSystem, root: Path.join(root, "output")},
-      input_cache: {ImagePipe.Cache.FileSystem, root: Path.join(root, "input")}
+      cache: [root: Path.join(root, "output")],
+      input_cache: [root: Path.join(root, "input")]
     )
   end
 

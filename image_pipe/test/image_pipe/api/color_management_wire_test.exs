@@ -6,7 +6,7 @@ defmodule ImagePipe.API.ColorManagementWireTest do
 
   alias ImagePipe.Output.ColorProfile
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias ImagePipe.Test.CacheObserver
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.MutableImage
   alias Vix.Vips.Operation
@@ -249,16 +249,16 @@ defmodule ImagePipe.API.ColorManagementWireTest do
   test "named profile conversion cannot silently discard requested HDR preservation" do
     origin = fn _conn -> flunk("conflicting color policy fetched its source") end
 
-    guarded = [
-      sources: [
-        path: [
-          adapter: RootHTTPAdapter,
-          match: :path,
-          options: [root_url: "http://origin.test", req_options: [plug: origin]]
+    guarded =
+      CacheObserver.observe(
+        sources: [
+          path: [
+            adapter: RootHTTPAdapter,
+            match: :path,
+            options: [root_url: "http://origin.test", req_options: [plug: origin]]
+          ]
         ]
-      ],
-      cache: {CacheProbe, []}
-    ]
+      )
 
     for {options, opts} <- [
           {"format=png/profile=display-p3/hdr=preserve", []},
@@ -266,7 +266,7 @@ defmodule ImagePipe.API.ColorManagementWireTest do
         ] do
       response = response(options, "rgb16.png", guarded ++ opts)
       assert response.status == 400
-      refute_received {:cache_lookup, _key}
+      refute_received {:cache_lookup, _, _key}
       refute_received {:cache_put, _key, _body}
     end
 

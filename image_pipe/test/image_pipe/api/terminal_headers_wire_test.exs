@@ -5,7 +5,7 @@ defmodule ImagePipe.API.TerminalHeadersWireTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias ImagePipe.Test.CacheObserver
 
   setup do
     body = Image.new!(24, 16, color: :red) |> Image.write!(:memory, suffix: ".jpg")
@@ -17,7 +17,7 @@ defmodule ImagePipe.API.TerminalHeadersWireTest do
     end
 
     config =
-      ImagePipe.Plug.init(
+      [
         sources: [
           path: [
             adapter: RootHTTPAdapter,
@@ -30,9 +30,10 @@ defmodule ImagePipe.API.TerminalHeadersWireTest do
             ]
           ]
         ],
-        cache: {CacheProbe, store: :ets.new(:terminal_headers, [:set, :public])},
         http_cache: :auto
-      )
+      ]
+      |> CacheObserver.observe()
+      |> ImagePipe.Plug.init()
 
     %{config: config}
   end

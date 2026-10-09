@@ -79,12 +79,11 @@ config :image_pipe_fiddle, ImagePipeFiddleWeb.Endpoint,
 
 # Set to enable a bounded filesystem cache for the dev fiddle:
 # config :image_pipe_fiddle, :cache,
-#   {ImagePipe.Cache.FileSystem,
-#    root: Path.expand("../_build/dev/image_pipe_fiddle/cache", __DIR__),
-#    path_prefix: "processed",
-#    max_body_bytes: 10_000_000,
-#    max_size_bytes: 500_000_000,
-#    node_id: "dev"}
+#   root: Path.expand("../_build/dev/image_pipe_fiddle/cache", __DIR__),
+#   path_prefix: "processed",
+#   max_body_bytes: 10_000_000,
+#   max_size_bytes: 500_000_000,
+#   node_id: "dev"
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"

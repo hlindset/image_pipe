@@ -1,8 +1,9 @@
 defmodule ImagePipe.Cache.FileSystem do
   @moduledoc """
-  Cache adapter that stores processed images, or originals, as files on local disk.
+  Stores processed images, or originals, as files on local disk. The `cache`
+  and `input_cache` options take its options:
 
-      cache: {ImagePipe.Cache.FileSystem, root: "/var/cache/image_pipe/processed"}
+      cache: [root: "/var/cache/image_pipe/processed"]
 
   Without `:max_size_bytes` the cache grows without limit. With it, the cache
   runs in bounded mode, with `:max_size_bytes` as a soft cap: writes evict the
@@ -15,11 +16,11 @@ defmodule ImagePipe.Cache.FileSystem do
         {ImagePipe,
          name: MyApp.Images,
          sources: sources,
-         cache:
-           {ImagePipe.Cache.FileSystem,
-            root: "/var/cache/image_pipe/processed",
-            max_size_bytes: 5_000_000_000,
-            node_id: "node-0"}},
+         cache: [
+           root: "/var/cache/image_pipe/processed",
+           max_size_bytes: 5_000_000_000,
+           node_id: "node-0"
+         ]},
         MyAppWeb.Endpoint
       ]
 
@@ -30,11 +31,10 @@ defmodule ImagePipe.Cache.FileSystem do
 
   #{NimbleOptions.docs(ImagePipe.Cache.FileSystem.Store.options_schema())}
 
-  The adapter also accepts the shared `:max_body_bytes` option, a
+  The processed-image cache also accepts `:max_body_bytes`, a
   non-negative integer or `nil`. Responses larger than `:max_body_bytes` are
   delivered but not stored. The default `nil` stores responses of any size.
   """
-  @behaviour ImagePipe.Cache
   @dialyzer :no_match
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.File, as: CacheFile
@@ -42,7 +42,6 @@ defmodule ImagePipe.Cache.FileSystem do
   alias ImagePipe.Debug.Info
   @metadata_version 1
 
-  @impl true
   @doc false
   defdelegate child_spec(opts), to: Store
   @doc false
@@ -55,16 +54,16 @@ defmodule ImagePipe.Cache.FileSystem do
   defdelegate read_descriptor(path), to: Store
   @doc false
   defdelegate delete_victims(victims, opts), to: Store
-  @impl true
+  @doc false
   defdelegate validate_options(opts), to: Store
-  @impl true
+  @doc false
   defdelegate write_chunk(state, chunk, opts), to: Store
-  @impl true
+  @doc false
   defdelegate commit_sink(state, opts), to: Store
-  @impl true
+  @doc false
   defdelegate abort_sink(state, opts), to: Store
 
-  @impl true
+  @doc false
   def open_sink(key, %Entry.Metadata{} = metadata, opts) do
     payload = metadata |> Map.from_struct() |> Map.update!(:created_at, &DateTime.to_iso8601/1)
     Store.open_sink(key, payload, opts)
@@ -76,7 +75,6 @@ defmodule ImagePipe.Cache.FileSystem do
   Returns `{:hit, entry}`, `:miss`, or `{:error, reason}`. The cached file's
   size is checked before reading, and its descriptor is closed before returning.
   """
-  @impl true
   # Hosts call this with their own options. The Plug reads through `open/2`
   # with options validated once with the cache configuration.
   def get(key, opts) do
@@ -179,15 +177,11 @@ defmodule ImagePipe.Cache.FileSystem do
   defp handle_invalid_metadata(reason), do: {:error, {:invalid_metadata, reason}}
 
   defp validate_metadata_headers(headers) do
-    if Enum.all?(headers, &valid_metadata_header?/1) do
-      :ok
-    else
-      {:error, :invalid_headers}
+    case Entry.cacheable_headers(headers) do
+      {:ok, _headers} -> :ok
+      {:error, _reason} -> {:error, :invalid_headers}
     end
   end
-
-  defp valid_metadata_header?({name, value}), do: is_binary(name) and is_binary(value)
-  defp valid_metadata_header?(_header), do: false
 
   defp parse_created_at(created_at) do
     case DateTime.from_iso8601(created_at) do

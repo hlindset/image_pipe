@@ -5,24 +5,24 @@ defmodule ImagePipe.API.SourceIdentityWireTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.IdentitySource
-  alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias ImagePipe.Test.CacheObserver
   alias Vix.Vips.Image, as: VipsImage
 
   test "distinct map and list byte seeds do not reuse cached pixels or return false 304" do
-    store = :ets.new(:identity_cache, [:set, :public])
-    first_config = config(%{revision: 1}, :red, store)
-    second_config = config([revision: 1], :blue, store)
+    cache = CacheObserver.observe([])
+    first_config = config(%{revision: 1}, :red, cache)
+    second_config = config([revision: 1], :blue, cache)
 
     first = request(first_config)
     assert first.status == 200
     assert_receive :identity_source_fetch
-    assert [first_key] = Enum.uniq(CacheProbe.lookup_keys())
+    assert [first_hash] = Enum.uniq(CacheObserver.lookup_hashes())
 
     second = request(second_config)
     assert second.status == 200
     assert_receive :identity_source_fetch
-    assert [second_key] = Enum.uniq(CacheProbe.lookup_keys())
-    refute first_key.hash == second_key.hash
+    assert [second_hash] = Enum.uniq(CacheObserver.lookup_hashes())
+    refute first_hash == second_hash
     refute pixels(first) == pixels(second)
     refute get_resp_header(first, "etag") == get_resp_header(second, "etag")
 
@@ -33,15 +33,15 @@ defmodule ImagePipe.API.SourceIdentityWireTest do
     refute_received :identity_source_fetch
 
     [current_etag] = get_resp_header(second, "etag")
-    _ = CacheProbe.lookup_keys()
+    _ = CacheObserver.lookup_hashes()
     assert request(second_config, current_etag).status == 304
-    assert CacheProbe.lookup_keys() == []
+    assert CacheObserver.lookup_hashes() == []
     refute_received :identity_source_fetch
   end
 
   test "a structured byte seed supports conditional requests" do
-    store = :ets.new(:identity_cache, [:set, :public])
-    config = config(~D[2026-09-23], :red, store)
+    cache = CacheObserver.observe([])
+    config = config(~D[2026-09-23], :red, cache)
     first = request(config)
     assert first.status == 200
     assert_receive :identity_source_fetch
@@ -50,19 +50,20 @@ defmodule ImagePipe.API.SourceIdentityWireTest do
     refute_received :identity_source_fetch
   end
 
-  defp config(seed, color, store) do
+  defp config(seed, color, cache) do
     {:ok, image} = Image.new(8, 8, color: color)
     {:ok, bytes} = Image.write(image, :memory, suffix: ".png")
 
     ImagePipe.Plug.init(
-      sources: [
-        path: [
-          adapter: IdentitySource,
-          match: :path,
-          options: [seed: seed, bytes: bytes, owner: self()]
+      [
+        sources: [
+          path: [
+            adapter: IdentitySource,
+            match: :path,
+            options: [seed: seed, bytes: bytes, owner: self()]
+          ]
         ]
-      ],
-      cache: {CacheProbe, store: store}
+      ] ++ cache
     )
   end
 

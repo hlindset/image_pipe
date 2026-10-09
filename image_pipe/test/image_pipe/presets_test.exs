@@ -4,8 +4,8 @@ defmodule ImagePipe.PresetsTest do
 
   alias ImagePipe, as: IP
   alias ImagePipe.Plug.Request, as: ParsedRequest
-  alias ImagePipe.RequestSafetyTest.CacheProbe
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.CacheObserver
   alias Vix.Vips.Image, as: VipsImage
 
   test "request defaults and nested presets execute identically through Plug and builder" do
@@ -88,7 +88,7 @@ defmodule ImagePipe.PresetsTest do
   end
 
   test "unknown names and pipeline conflicts fail before execution side effects" do
-    config = IP.config(presets: %{"pipeline" => "w=30/-/gray"}, cache: {CacheProbe, []})
+    config = IP.config(CacheObserver.observe(presets: %{"pipeline" => "w=30/-/gray"}))
     url_config = IP.url_config(config)
 
     for builder <- [
@@ -100,7 +100,7 @@ defmodule ImagePipe.PresetsTest do
       assert {:error, {:invalid_request, [_ | _]}} =
                IP.run(config, builder, {:file, "/missing.png"})
 
-      refute_received :cache_lookup
+      refute_received {:cache_lookup, _, _}
     end
   end
 
@@ -206,25 +206,24 @@ defmodule ImagePipe.PresetsTest do
   end
 
   test "a builder pipeline preset warms the cache for equivalent Plug requests" do
-    table = :ets.new(:shared_preset_cache, [:set, :public])
-
     config =
       IP.config(
-        presets: %{"poster" => "w=30/-/pad=2/format=png"},
-        cache: {ImagePipe.Test.PlugFixture.CacheProbe, store: table},
-        sources: [
-          path: [
-            adapter: RootHTTPAdapter,
-            match: :path,
-            options: [
-              root_url: "http://origin.test",
-              byte_identity: :strong,
-              req_options: [
-                plug: {ImagePipe.Test.PlugFixture.CountingOriginImage, test_pid: self()}
+        CacheObserver.observe(
+          presets: %{"poster" => "w=30/-/pad=2/format=png"},
+          sources: [
+            path: [
+              adapter: RootHTTPAdapter,
+              match: :path,
+              options: [
+                root_url: "http://origin.test",
+                byte_identity: :strong,
+                req_options: [
+                  plug: {ImagePipe.Test.PlugFixture.CountingOriginImage, test_pid: self()}
+                ]
               ]
             ]
           ]
-        ]
+        )
       )
 
     builder = IP.URL.new(IP.url_config(config)) |> IP.URL.group(presets: ["poster"])

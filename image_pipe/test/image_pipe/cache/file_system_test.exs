@@ -640,7 +640,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
 
     test "an instance sweeps an unbounded pool at start and while it runs", %{root: root} do
       first = leftover(root, "a")
-      [spec] = ImagePipe.Cache.startup_specs(cache: {FileSystem, root: root})
+      [spec] = ImagePipe.Cache.startup_specs(cache: [root: root])
       pid = start_supervised!(spec)
       _ = :sys.get_state(pid)
       refute File.exists?(first)
@@ -653,7 +653,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
 
     test "an instance runs no periodic sweep for a bounded pool", %{root: root} do
       bounded = [root: root, max_size_bytes: 10_000_000, node_id: "n1"]
-      assert ImagePipe.Cache.startup_specs(cache: {FileSystem, bounded}) == []
+      assert ImagePipe.Cache.startup_specs(cache: bounded) == []
     end
   end
 
@@ -778,7 +778,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
   end
 
   test "a source record is read from metadata, without the body", %{root: root} do
-    opts = ImagePipe.Cache.validate_config!(cache: {FileSystem, root: root})
+    opts = ImagePipe.Cache.validate_config!(cache: [root: root])
     input_key = key(String.duplicate("b", 64))
     {:ok, source, _config} = ImagePipe.Source.from_input({:binary, "bytes"}, sources: %{})
     record = ImagePipe.Source.Record.new(source, :crypto.hash(:sha256, "bytes"), nil, 0)

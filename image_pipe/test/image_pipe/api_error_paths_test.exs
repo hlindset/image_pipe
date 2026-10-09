@@ -16,12 +16,14 @@ defmodule ImagePipe.APIErrorPathsTest do
   import Plug.Conn
   import Plug.Test
 
+  alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.Key
   alias ImagePipe.Delivery
   alias ImagePipe.Delivery.Coordinator
   alias ImagePipe.Output.Resolved
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Telemetry.RequestContext
+  alias ImagePipe.Test.CacheObserver
   alias ImagePipe.Test.Delivery.SessionProbe
   alias ImagePipe.Test.PlugFixture.OriginImage
 
@@ -101,116 +103,6 @@ defmodule ImagePipe.APIErrorPathsTest do
     def resize(_image, _scale, _opts), do: raise("boom during clamp resize")
   end
 
-  # A `ImagePipe.Cache` adapter that announces every callback via message so
-  # a test can assert sink OWNERSHIP (opened/written/aborted/committed), not
-  # just the resulting HTTP response. `get/2` always misses.
-  defmodule ObservingCacheProbe do
-    @moduledoc false
-    @behaviour ImagePipe.Cache
-
-    @impl true
-    def get(_key, _opts) do
-      send(target(), :cache_get)
-      :miss
-    end
-
-    @impl true
-    def open_sink(key, metadata, _opts) do
-      send(target(), {:cache_open_sink, key, metadata})
-      {:ok, %{chunks: []}}
-    end
-
-    @impl true
-    def write_chunk(state, chunk, _opts) do
-      send(target(), {:cache_write_chunk, chunk})
-      {:ok, %{state | chunks: [chunk | state.chunks]}}
-    end
-
-    @impl true
-    def commit_sink(_state, _opts) do
-      send(target(), :cache_commit_sink)
-      :ok
-    end
-
-    @impl true
-    def abort_sink(_state, _opts) do
-      send(target(), :cache_abort_sink)
-      :ok
-    end
-
-    defp target do
-      case Process.get(:"$callers") do
-        [pid | _rest] when is_pid(pid) -> pid
-        _callers -> self()
-      end
-    end
-  end
-
-  # A `get/2` that raises — exercises `ImagePipe.Cache.fetch_entry/3`'s own
-  # `rescue`, proving a raising adapter still fails open at the lookup site
-  # (unlike a raising `open_sink/3`, see the report's concerns section).
-  defmodule RaisingGetCache do
-    @moduledoc false
-    @behaviour ImagePipe.Cache
-
-    @impl true
-    def get(_key, _opts), do: raise("cache get boom")
-
-    @impl true
-    def open_sink(_key, _metadata, _opts), do: {:ok, %{chunks: []}}
-
-    @impl true
-    def write_chunk(state, chunk, _opts), do: {:ok, %{state | chunks: [chunk | state.chunks]}}
-
-    @impl true
-    def commit_sink(_state, _opts), do: :ok
-
-    @impl true
-    def abort_sink(_state, _opts), do: :ok
-  end
-
-  # `write_chunk/3` always fails (a real adapter-declared `{:error, _, state}`,
-  # not a raise) — exercises `ImagePipe.Cache.Sink`'s own fail-open path,
-  # which aborts the adapter's sink internally as part of handling the error.
-  defmodule FailingWriteChunkCache do
-    @moduledoc false
-    @behaviour ImagePipe.Cache
-
-    @impl true
-    def get(_key, _opts), do: :miss
-
-    @impl true
-    def open_sink(key, metadata, _opts) do
-      send(target(), {:cache_open_sink, key, metadata})
-      {:ok, %{}}
-    end
-
-    @impl true
-    def write_chunk(state, _chunk, _opts) do
-      send(target(), :cache_write_chunk_failed)
-      {:error, :forced_write_failure, state}
-    end
-
-    @impl true
-    def commit_sink(_state, _opts) do
-      send(target(), :cache_commit_sink)
-      :ok
-    end
-
-    @impl true
-    def abort_sink(_state, _opts) do
-      send(target(), :cache_abort_sink)
-      :ok
-    end
-
-    defp target do
-      case Process.get(:"$callers") do
-        [pid | _rest] when is_pid(pid) -> pid
-        _callers -> self()
-      end
-    end
-  end
-
   @default_sources [
     path: [
       adapter: RootHTTPAdapter,
@@ -257,7 +149,9 @@ defmodule ImagePipe.APIErrorPathsTest do
     }
   end
 
-  defp fake_cache_key, do: %Key{hash: "test-key", data: []}
+  @fake_hash String.duplicate("d4", 32)
+
+  defp fake_cache_key, do: %Key{hash: @fake_hash, data: []}
 
   defp bracketed_build_fun(chunks, test_pid) do
     fn pump ->
@@ -277,17 +171,18 @@ defmodule ImagePipe.APIErrorPathsTest do
 
       config =
         opts(
-          sources: [
-            path: [
-              adapter: RootHTTPAdapter,
-              match: :path,
-              options: [
-                root_url: "http://origin.test",
-                req_options: [plug: {Origin503, test_pid: test_pid}]
+          CacheObserver.observe(
+            sources: [
+              path: [
+                adapter: RootHTTPAdapter,
+                match: :path,
+                options: [
+                  root_url: "http://origin.test",
+                  req_options: [plug: {Origin503, test_pid: test_pid}]
+                ]
               ]
             ]
-          ],
-          cache: {ObservingCacheProbe, []}
+          )
         )
 
       conn = get("/w=64/src/images/cat.jpg", config)
@@ -295,7 +190,8 @@ defmodule ImagePipe.APIErrorPathsTest do
       assert_received :origin_fetch
       assert conn.status == 502
       assert conn.resp_body == "source responded with an error"
-      refute_received {:cache_open_sink, _key, _metadata}
+      refute_received {:cache_open_sink, _hash, _metadata}
+      refute_received {:cache_abort, _hash}
     end
 
     # A pre-delivery failure (a fetch error, discovered before
@@ -310,18 +206,19 @@ defmodule ImagePipe.APIErrorPathsTest do
 
       config =
         opts(
-          telemetry_prefix: prefix,
-          sources: [
-            path: [
-              adapter: RootHTTPAdapter,
-              match: :path,
-              options: [
-                root_url: "http://origin.test",
-                req_options: [plug: {Origin503, test_pid: test_pid}]
+          CacheObserver.observe(
+            telemetry_prefix: prefix,
+            sources: [
+              path: [
+                adapter: RootHTTPAdapter,
+                match: :path,
+                options: [
+                  root_url: "http://origin.test",
+                  req_options: [plug: {Origin503, test_pid: test_pid}]
+                ]
               ]
             ]
-          ],
-          cache: {ObservingCacheProbe, []}
+          )
         )
 
       handler_id = "api-error-paths-#{inspect(prefix)}"
@@ -416,24 +313,26 @@ defmodule ImagePipe.APIErrorPathsTest do
 
       config =
         opts(
-          sources: [
-            path: [
-              adapter: RootHTTPAdapter,
-              match: :path,
-              options: [
-                root_url: "http://origin.test",
-                req_options: [plug: {CorruptImageOrigin, test_pid: test_pid}]
+          CacheObserver.observe(
+            sources: [
+              path: [
+                adapter: RootHTTPAdapter,
+                match: :path,
+                options: [
+                  root_url: "http://origin.test",
+                  req_options: [plug: {CorruptImageOrigin, test_pid: test_pid}]
+                ]
               ]
             ]
-          ],
-          cache: {ObservingCacheProbe, []}
+          )
         )
 
       conn = get("/w=64/src/images/cat.jpg", config)
 
       assert_received :origin_fetch
       assert conn.status == 415
-      refute_received {:cache_open_sink, _key, _metadata}
+      refute_received {:cache_open_sink, _hash, _metadata}
+      refute_received {:cache_abort, _hash}
     end
   end
 
@@ -458,10 +357,11 @@ defmodule ImagePipe.APIErrorPathsTest do
 
       config =
         opts(
-          cache: {ObservingCacheProbe, []},
-          image_module: RaisingAfterFirstChunkImage,
-          on_bracket_exit: fn -> send(test_pid, :bracket_cleanup) end,
-          telemetry_prefix: prefix
+          CacheObserver.observe(
+            image_module: RaisingAfterFirstChunkImage,
+            on_bracket_exit: fn -> send(test_pid, :bracket_cleanup) end,
+            telemetry_prefix: prefix
+          )
         )
 
       log =
@@ -480,10 +380,10 @@ defmodule ImagePipe.APIErrorPathsTest do
       assert metadata[:result] == :processing_error
       assert metadata[:status] == 200
 
-      assert_received {:cache_open_sink, _key, _metadata}
-      assert_received {:cache_write_chunk, "first chunk"}
-      assert_received :cache_abort_sink
-      refute_received :cache_commit_sink
+      assert [hash | _rest] = CacheObserver.lookup_hashes()
+      assert_receive {:cache_abort, ^hash}
+      refute_received {:cache_put, ^hash, _body}
+      assert CacheObserver.stored_body(config, hash) == nil
 
       assert_receive :bracket_cleanup
       refute_received :bracket_cleanup
@@ -504,9 +404,10 @@ defmodule ImagePipe.APIErrorPathsTest do
 
       config =
         opts(
-          cache: {ObservingCacheProbe, []},
-          image_module: RaisingBeforeFirstChunkImage,
-          on_bracket_exit: fn -> send(test_pid, :bracket_cleanup) end
+          CacheObserver.observe(
+            image_module: RaisingBeforeFirstChunkImage,
+            on_bracket_exit: fn -> send(test_pid, :bracket_cleanup) end
+          )
         )
 
       conn = get("/w=64/src/images/cat.jpg", config)
@@ -518,9 +419,9 @@ defmodule ImagePipe.APIErrorPathsTest do
 
       # The producer failed before ever reaching `pump`, so no chunked response
       # was committed and no cache sink was opened.
-      assert_received :cache_get
-      refute_received {:cache_open_sink, _key, _metadata}
-      refute_received :cache_commit_sink
+      assert_received {:cache_lookup, :response, _hash}
+      refute_received {:cache_open_sink, _hash, _metadata}
+      refute_received {:cache_abort, _hash}
 
       assert_receive :bracket_cleanup
       refute_received :bracket_cleanup
@@ -529,9 +430,17 @@ defmodule ImagePipe.APIErrorPathsTest do
 
   # ── row 6: cache-lookup failure (fail-open) ──────────────────────────────
 
-  describe "row 6: cache-lookup failure (adapter get/2 raises)" do
-    test "a raising cache adapter get/2 still fails open: the generated response is delivered" do
-      config = opts(cache: {RaisingGetCache, []})
+  describe "row 6: cache-lookup failure (corrupt entry)" do
+    test "an unreadable cache entry still fails open: the generated response is delivered" do
+      config = opts(CacheObserver.observe([]))
+
+      assert get("/w=64/src/images/cat.jpg", config).status == 200
+      assert_received {:cache_put, hash, _body}
+
+      {:ok, %{meta_path: meta_path}} =
+        FileSystem.paths_from_hash(hash, Keyword.fetch!(config, :cache))
+
+      File.write!(meta_path, "not cache metadata")
 
       log =
         capture_log(fn ->
@@ -548,20 +457,41 @@ defmodule ImagePipe.APIErrorPathsTest do
 
   # ── row 7: cache-write failure (fail-open) ───────────────────────────────
 
-  describe "row 7: cache-write failure (adapter write_chunk/3 errors)" do
-    test "a failing write_chunk/3 still fails open: the response is delivered, the sink aborts, no commit" do
-      config = opts(cache: {FailingWriteChunkCache, []})
+  describe "row 7: cache-write failure (unwritable cache root)" do
+    test "a cache that cannot store the entry still fails open: the response is delivered, nothing is stored" do
+      config = opts(CacheObserver.observe([]))
+      prefix = Keyword.fetch!(config, :telemetry_prefix)
+      root = config |> Keyword.fetch!(:cache) |> Keyword.fetch!(:root)
+      handler_id = {__MODULE__, make_ref()}
 
-      conn = get("/w=64/src/images/cat.jpg", config)
+      :telemetry.attach(
+        handler_id,
+        prefix ++ [:cache, :stage],
+        fn _event, _measurements, metadata, test_pid ->
+          send(test_pid, {:cache_stage, metadata.cache})
+        end,
+        self()
+      )
 
-      assert conn.status == 200
-      assert {width, _height} = decoded_dims(conn.resp_body)
-      assert width == 64
+      File.chmod!(root, 0o500)
 
-      assert_received {:cache_open_sink, _key, _metadata}
-      assert_received :cache_write_chunk_failed
-      assert_received :cache_abort_sink
-      refute_received :cache_commit_sink
+      on_exit(fn ->
+        :telemetry.detach(handler_id)
+        File.chmod(root, 0o700)
+      end)
+
+      log =
+        capture_log(fn ->
+          conn = get("/w=64/src/images/cat.jpg", config)
+
+          assert conn.status == 200
+          assert {width, _height} = decoded_dims(conn.resp_body)
+          assert width == 64
+        end)
+
+      assert log =~ "cache sink open error"
+      assert_receive {:cache_stage, :stage_error}
+      refute_received {:cache_put, _hash, _body}
     end
   end
 
@@ -579,20 +509,19 @@ defmodule ImagePipe.APIErrorPathsTest do
       test_pid = self()
       build_fun = bracketed_build_fun(["a", "b", "c"], test_pid)
 
-      config = [cache: {ObservingCacheProbe, []}]
+      config = CacheObserver.observe([])
 
       assert {:ok, prepared} =
                Delivery.stream(self(), build_fun, fake_cache_key(), config)
 
       assert prepared.first_chunk == "a"
-      assert_received {:cache_open_sink, _key, _metadata}
-      assert_received {:cache_write_chunk, "a"}
       refute_received :bracket_cleanup
 
       assert :ok = prepared.cancel.()
 
-      assert_received :cache_abort_sink
-      refute_received :cache_commit_sink
+      assert_receive {:cache_abort, @fake_hash}
+      refute_received {:cache_put, @fake_hash, _body}
+      assert CacheObserver.stored_body(config, @fake_hash) == nil
       assert_receive :bracket_cleanup
       refute_received :bracket_cleanup
 
@@ -654,20 +583,21 @@ defmodule ImagePipe.APIErrorPathsTest do
 
       config =
         opts(
-          telemetry_prefix: prefix,
-          max_result_width: 10,
-          max_result_height: 10,
-          cache: {ObservingCacheProbe, []},
-          image_module: RaisingClampImage,
-          on_bracket_exit: fn -> send(test_pid, :bracket_cleanup) end
+          CacheObserver.observe(
+            telemetry_prefix: prefix,
+            max_result_width: 10,
+            max_result_height: 10,
+            image_module: RaisingClampImage,
+            on_bracket_exit: fn -> send(test_pid, :bracket_cleanup) end
+          )
         )
 
       conn = get("/w=64/src/images/cat.jpg", config)
 
       assert conn.status == 500
       assert conn.resp_body == "internal server error"
-      refute_received {:cache_open_sink, _key, _metadata}
-      refute_received :cache_commit_sink
+      refute_received {:cache_open_sink, _hash, _metadata}
+      refute_received {:cache_abort, _hash}
       assert_receive :bracket_cleanup
       refute_received :bracket_cleanup
       assert_receive {:request_stop, %{result: :processing_error}}

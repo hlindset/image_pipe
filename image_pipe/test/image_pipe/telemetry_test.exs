@@ -4,6 +4,7 @@ defmodule ImagePipe.TelemetryTest do
   import ExUnit.CaptureLog
   import Plug.Test
 
+  alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Plan.Source
   alias ImagePipe.Source.Response, as: SourceResponse
   alias Vix.Vips.Image, as: VipsImage
@@ -43,57 +44,6 @@ defmodule ImagePipe.TelemetryTest do
     def fetch(_resolved, _opts, _runtime_opts) do
       {:ok, %ImagePipe.Source.Response{stream: ["not actually a png"]}}
     end
-  end
-
-  defmodule FailOpenCacheReadFailure do
-    @behaviour ImagePipe.Cache
-
-    def get(_key, _opts), do: {:error, :read_failed}
-    def open_sink(_key, _metadata, _opts), do: {:ok, []}
-    def write_chunk(chunks, chunk, _opts), do: {:ok, [chunk | chunks]}
-    def commit_sink(_state, _opts), do: :ok
-    def abort_sink(_state, _opts), do: :ok
-  end
-
-  defmodule InvalidCacheHit do
-    @behaviour ImagePipe.Cache
-
-    def get(_key, _opts) do
-      {:hit,
-       %ImagePipe.Cache.Entry{
-         body: "cached gif",
-         content_type: "image/gif",
-         headers: [],
-         created_at: DateTime.utc_now()
-       }}
-    end
-
-    def open_sink(_key, _metadata, _opts), do: {:ok, []}
-    def write_chunk(chunks, chunk, _opts), do: {:ok, [chunk | chunks]}
-    def commit_sink(_state, _opts), do: :ok
-    def abort_sink(_state, _opts), do: :ok
-  end
-
-  defmodule FailOpenCacheWriteFailure do
-    @behaviour ImagePipe.Cache
-
-    def get(_key, _opts), do: :miss
-    def open_sink(_key, _metadata, _opts), do: {:ok, []}
-    def write_chunk(state, _chunk, _opts), do: {:error, :write_failed, state}
-    def commit_sink(_state, _opts), do: :ok
-    def abort_sink(_state, _opts), do: :ok
-  end
-
-  # A plain miss-then-accept-writes cache, just enough to make
-  # `[:cache, :write]` fire.
-  defmodule WritableCache do
-    @behaviour ImagePipe.Cache
-
-    def get(_key, _opts), do: :miss
-    def open_sink(_key, _metadata, _opts), do: {:ok, []}
-    def write_chunk(chunks, chunk, _opts), do: {:ok, [chunk | chunks]}
-    def commit_sink(_state, _opts), do: :ok
-    def abort_sink(_state, _opts), do: :ok
   end
 
   defmodule SourceBytes do
@@ -252,11 +202,12 @@ defmodule ImagePipe.TelemetryTest do
 
   # A positive gate on the span SET, not just on individual spans: a runner
   # change that silently stops emitting one of these fails here.
-  test "an image request emits the complete stage-span set" do
+  @tag :tmp_dir
+  test "an image request emits the complete stage-span set", %{tmp_dir: tmp_dir} do
     conn =
       :get
       |> conn("/w=100/format=jpeg/src/images/beach.jpg")
-      |> ImagePipe.Plug.call(base_opts(cache: {WritableCache, []}))
+      |> ImagePipe.Plug.call(base_opts(cache: [root: tmp_dir]))
 
     assert conn.status == 200
 
@@ -525,19 +476,35 @@ defmodule ImagePipe.TelemetryTest do
     end
   end
 
-  test "fail-open cache read errors are reported on cache lookup telemetry" do
-    conn =
-      :get
-      |> conn("/format=jpeg/src/images/beach.jpg")
-      |> ImagePipe.Plug.call(base_opts(cache: {FailOpenCacheReadFailure, []}))
+  @tag :tmp_dir
+  test "fail-open cache read errors are reported on cache lookup telemetry", %{tmp_dir: tmp_dir} do
+    opts = base_opts(cache: [root: tmp_dir])
 
-    assert conn.status == 200
+    request = fn ->
+      :get |> conn("/format=jpeg/src/images/beach.jpg") |> ImagePipe.Plug.call(opts)
+    end
+
+    assert request.().status == 200
+
+    hash =
+      assert_event(telemetry_events(), @prefix ++ [:cache, :write, :stop], fn _measurements,
+                                                                              metadata ->
+        metadata.cache_key
+      end)
+
+    {:ok, %{meta_path: meta_path}} =
+      FileSystem.paths_from_hash(hash, root: tmp_dir)
+
+    File.write!(meta_path, "not cache metadata")
+
+    log = capture_log(fn -> assert request.().status == 200 end)
+    assert log =~ "cache read error"
     events = telemetry_events()
 
     assert_event(events, @prefix ++ [:cache, :lookup, :stop], fn _measurements, metadata ->
       assert metadata.result == :cache_error
       assert metadata.cache == :read_error
-      assert metadata.error == :read_failed
+      assert metadata.error == :invalid_metadata
     end)
 
     assert_event(events, @prefix ++ [:request, :stop], fn _measurements, metadata ->
@@ -546,32 +513,17 @@ defmodule ImagePipe.TelemetryTest do
     end)
   end
 
-  test "invalid cache entries are reported on cache lookup telemetry" do
+  @tag :tmp_dir
+  test "fail-open cache staging write errors are reported on cache stage telemetry", %{
+    tmp_dir: tmp_dir
+  } do
+    File.chmod!(tmp_dir, 0o500)
+    on_exit(fn -> File.chmod(tmp_dir, 0o700) end)
+
     conn =
       :get
       |> conn("/format=jpeg/src/images/beach.jpg")
-      |> ImagePipe.Plug.call(base_opts(cache: {InvalidCacheHit, []}))
-
-    assert conn.status == 200
-    events = telemetry_events()
-
-    assert_event(events, @prefix ++ [:cache, :lookup, :stop], fn _measurements, metadata ->
-      assert metadata.result == :cache_error
-      assert metadata.cache == :read_error
-      assert metadata.error == :invalid_entry
-    end)
-
-    assert_event(events, @prefix ++ [:request, :stop], fn _measurements, metadata ->
-      assert metadata.result == :ok
-      assert metadata.status == 200
-    end)
-  end
-
-  test "fail-open cache staging write errors are reported on cache stage telemetry" do
-    conn =
-      :get
-      |> conn("/format=jpeg/src/images/beach.jpg")
-      |> ImagePipe.Plug.call(base_opts(cache: {FailOpenCacheWriteFailure, []}))
+      |> ImagePipe.Plug.call(base_opts(cache: [root: tmp_dir]))
 
     assert conn.status == 200
     events = telemetry_events()
@@ -579,7 +531,8 @@ defmodule ImagePipe.TelemetryTest do
     assert_event(events, @prefix ++ [:cache, :stage], fn _measurements, metadata ->
       assert metadata.result == :cache_error
       assert metadata.cache == :stage_error
-      assert metadata.error == :write_failed
+      # The file error differs by platform (:eacces on macOS, :enoent on Linux).
+      assert is_atom(metadata.error) and metadata.error != nil
     end)
 
     assert_event(events, @prefix ++ [:request, :stop], fn _measurements, metadata ->

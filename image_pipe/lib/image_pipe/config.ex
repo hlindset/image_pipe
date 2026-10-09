@@ -48,20 +48,22 @@ defmodule ImagePipe.Config do
             ProcessingConfig.schema() ++
               [
                 cache: [
-                  type: :any,
-                  type_doc: "`{module, keyword}`",
+                  type: :keyword_list,
+                  type_doc: "keyword list",
                   doc: """
-                  Cache for processed images, such as \
-                  `{ImagePipe.Cache.FileSystem, root: "/var/cache/image_pipe/processed"}`. \
-                  See [caching processed images](caching-processed-images.md). Off by \
+                  Cache for processed images, stored on disk, such as \
+                  `[root: "/var/cache/image_pipe/processed"]`. Takes the options of \
+                  `ImagePipe.Cache.FileSystem`. See \
+                  [caching processed images](caching-processed-images.md). Off by \
                   default.
                   """
                 ],
                 input_cache: [
-                  type: :any,
-                  type_doc: "`{module, keyword}`",
+                  type: :keyword_list,
+                  type_doc: "keyword list",
                   doc: """
-                  Cache for originals fetched from sources, configured like `:cache`. \
+                  Cache for originals fetched from sources. Takes the same options as \
+                  `:cache` except `:max_body_bytes`. \
                   See [originals cache](cache.md#originals-cache). Off by default.
                   """
                 ],
@@ -292,8 +294,8 @@ defmodule ImagePipe.Config do
 
       [_ | _] ->
         raise ArgumentError,
-              "a cache that needs processes, such as a bounded " <>
-                "ImagePipe.Cache.FileSystem, must be used through an ImagePipe instance " <>
+              "a bounded cache (one with max_size_bytes) " <>
+                "must be used through an ImagePipe instance " <>
                 "started with {ImagePipe, name: ..., ...}"
     end
   end

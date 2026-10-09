@@ -5,7 +5,6 @@ defmodule ImagePipe.API.SkipProcessingWireTest do
   import Plug.Test
 
   alias ImagePipe, as: IP
-  alias ImagePipe.Cache.FileSystem
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias Vix.Vips.Image, as: VipsImage
 
@@ -104,7 +103,7 @@ defmodule ImagePipe.API.SkipProcessingWireTest do
     test "is not written to the output cache", %{files: files} do
       root = Path.join(System.tmp_dir!(), "skip-processing-#{System.unique_integer([:positive])}")
       on_exit(fn -> File.rm_rf!(root) end)
-      config = mount(files, cache: {FileSystem, root: root})
+      config = mount(files, cache: [root: root])
 
       assert request("w=10", config, "image.gif").resp_body == files["image.gif"]
       assert cached_files(root) == []

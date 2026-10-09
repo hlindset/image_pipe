@@ -9,9 +9,18 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - The `image_pipe.request` span carries a `request_id` attribute when Logger
   metadata has a `:request_id`, such as the one `Plug.RequestId` sets.
+- The `[:cache, :lookup]`, `[:cache, :write]`, and `[:cache, :stage]`
+  telemetry events carry `:cache_key`, the hash of the entry's cache key, and
+  `[:cache, :lookup]` carries `:entry`, which says whether it read a processed
+  response or a source record. The tracer adds them to their spans and span
+  events.
 
 ### Changed
 
+- **Breaking:** `cache` and `input_cache` take the file system cache's options
+  directly. Replace `cache: {ImagePipe.Cache.FileSystem, root: "..."}` with
+  `cache: [root: "..."]`, and the same for `input_cache`. The server's
+  `[cache]` configuration is unchanged.
 - **Breaking:** The tracer now creates OpenTelemetry spans as they happen, and
   needs the OpenTelemetry SDK in your application. Remove the `exporter:`
   option from `ImagePipe.Telemetry.attach_tracer/1` and the
@@ -33,6 +42,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- `[:cache, :stage]` no longer reports `cache: :stage_cleanup_error`.
+  Discarding a staged entry doesn't fail.
 - **Breaking:** `ImagePipe.Telemetry.Trace.LogExporter`,
   `ImagePipe.Telemetry.Trace.OpenTelemetryExporter`,
   `ImagePipe.Telemetry.Trace.OtelIdGenerator`,

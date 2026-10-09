@@ -5,7 +5,7 @@ defmodule ImagePipe.API.MetadataWireTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias ImagePipe.Test.CacheObserver
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.MutableImage, as: VipsMutableImage
   alias Vix.Vips.Operation
@@ -38,19 +38,19 @@ defmodule ImagePipe.API.MetadataWireTest do
   end
 
   test "the implicit copyright policy shares identity and cache while other modes vary" do
-    config = mount(cache: stateful_cache_probe())
+    config = [] |> CacheObserver.observe() |> mount()
 
     implicit = response("format=jpeg", config)
     assert implicit.status == 200
     assert_receive :origin_fetch
-    assert [implicit_key] = Enum.uniq(CacheProbe.lookup_keys())
+    assert [implicit_key] = Enum.uniq(CacheObserver.lookup_hashes())
     assert_receive {:cache_put, put_key, _body}
-    assert put_key.hash == implicit_key.hash
+    assert put_key == implicit_key
 
     explicit = response("format=jpeg/meta=copyright", config)
     assert explicit.status == 200
-    assert [explicit_key] = Enum.uniq(CacheProbe.lookup_keys())
-    assert explicit_key.hash == implicit_key.hash
+    assert [explicit_key] = Enum.uniq(CacheObserver.lookup_hashes())
+    assert explicit_key == implicit_key
     refute_receive :origin_fetch
     refute_receive {:cache_put, _key, _body}
     assert explicit.resp_body == implicit.resp_body
@@ -59,26 +59,26 @@ defmodule ImagePipe.API.MetadataWireTest do
     stripped = response("format=jpeg/meta=strip", config)
     assert stripped.status == 200
     assert_receive :origin_fetch
-    assert [stripped_key] = Enum.uniq(CacheProbe.lookup_keys())
+    assert [stripped_key] = Enum.uniq(CacheObserver.lookup_hashes())
     assert_receive {:cache_put, stripped_put_key, _body}
-    assert stripped_put_key.hash == stripped_key.hash
-    refute stripped_key.hash == implicit_key.hash
+    assert stripped_put_key == stripped_key
+    refute stripped_key == implicit_key
     refute etag(stripped) == etag(implicit)
     refute stripped.resp_body == implicit.resp_body
 
     kept = response("format=jpeg/meta=keep", config)
     assert kept.status == 200
     assert_receive :origin_fetch
-    assert [kept_key] = Enum.uniq(CacheProbe.lookup_keys())
+    assert [kept_key] = Enum.uniq(CacheObserver.lookup_hashes())
     assert_receive {:cache_put, kept_put_key, _body}
-    assert kept_put_key.hash == kept_key.hash
-    refute kept_key.hash in [implicit_key.hash, stripped_key.hash]
+    assert kept_put_key == kept_key
+    refute kept_key in [implicit_key, stripped_key]
     refute etag(kept) in [etag(implicit), etag(stripped)]
 
     cached = response("format=jpeg/meta=keep", config)
     assert cached.status == 200
-    assert [cached_key] = Enum.uniq(CacheProbe.lookup_keys())
-    assert cached_key.hash == kept_key.hash
+    assert [cached_key] = Enum.uniq(CacheObserver.lookup_hashes())
+    assert cached_key == kept_key
     refute_receive :origin_fetch
     refute_receive {:cache_put, _key, _body}
     assert cached.resp_body == kept.resp_body
@@ -120,19 +120,19 @@ defmodule ImagePipe.API.MetadataWireTest do
     end
 
     test "different densities have different cache keys and ETags" do
-      config = mount(cache: stateful_cache_probe())
+      config = [] |> CacheObserver.observe() |> mount()
 
       implicit = response("format=jpeg", config)
-      assert [implicit_key] = Enum.uniq(CacheProbe.lookup_keys())
+      assert [implicit_key] = Enum.uniq(CacheObserver.lookup_hashes())
 
       explicit = response("format=jpeg/dpi=72", config)
-      assert [explicit_key] = Enum.uniq(CacheProbe.lookup_keys())
-      assert explicit_key.hash == implicit_key.hash
+      assert [explicit_key] = Enum.uniq(CacheObserver.lookup_hashes())
+      assert explicit_key == implicit_key
       assert etag(explicit) == etag(implicit)
 
       other = response("format=jpeg/dpi=300", config)
-      assert [other_key] = Enum.uniq(CacheProbe.lookup_keys())
-      refute other_key.hash == implicit_key.hash
+      assert [other_key] = Enum.uniq(CacheObserver.lookup_hashes())
+      refute other_key == implicit_key
       refute etag(other) == etag(implicit)
     end
   end
@@ -236,11 +236,6 @@ defmodule ImagePipe.API.MetadataWireTest do
   defp etag(response) do
     assert [etag] = get_resp_header(response, "etag")
     etag
-  end
-
-  defp stateful_cache_probe do
-    table = :ets.new(:api_metadata_wire_cache_probe, [:set, :public])
-    {CacheProbe, store: table}
   end
 
   defp mount(overrides \\ []) do

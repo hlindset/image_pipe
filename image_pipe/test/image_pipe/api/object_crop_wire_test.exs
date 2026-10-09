@@ -5,6 +5,7 @@ defmodule ImagePipe.API.ObjectCropWireTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.CacheObserver
   alias ImagePipe.Test.DetectorFixtures.CornerObjectDetector
   alias ImagePipe.Test.DetectorFixtures.PartialDetector
   alias ImagePipe.Test.DetectorFixtures.RecordingDetector
@@ -14,7 +15,6 @@ defmodule ImagePipe.API.ObjectCropWireTest do
   alias ImagePipe.Test.DetectorFixtures.VerCompositeV2V1
   alias ImagePipe.Test.DetectorFixtures.WeightedSceneDetector
   alias ImagePipe.Test.OrientedFrameOrigin
-  alias ImagePipe.Test.PlugFixture.CacheProbe
   alias Vix.Vips.Image, as: VipsImage
 
   test "object selection changes crop pixels from center and attention" do
@@ -59,16 +59,17 @@ defmodule ImagePipe.API.ObjectCropWireTest do
 
     opts =
       mount(
-        detector: PartialDetector,
-        detector_required: true,
-        cache: {CacheProbe, []},
-        telemetry_prefix: prefix
+        CacheObserver.observe(
+          detector: PartialDetector,
+          detector_required: true,
+          telemetry_prefix: prefix
+        )
       )
 
     assert response("crop=20,20/detect=car", opts).status == 501
     refute_received {:source_event, ^event}
     refute_received :origin_fetch
-    refute_received {:cache_lookup, _key}
+    refute_received {:cache_lookup, _, _key}
     refute_received {:cache_put, _key, _body}
   end
 
@@ -151,12 +152,12 @@ defmodule ImagePipe.API.ObjectCropWireTest do
   def forward_event(event, _measurements, _metadata, pid), do: send(pid, {:source_event, event})
 
   defp identities(options, detector) do
-    response = response(options, mount(detector: detector, cache: {CacheProbe, []}))
+    response = response(options, mount(CacheObserver.observe(detector: detector)))
     assert response.status == 200
     assert [etag] = get_resp_header(response, "etag")
-    assert [key] = Enum.uniq(CacheProbe.lookup_keys())
-    assert_receive {:cache_put, _key, _body}
-    {key.hash, etag}
+    assert_receive {:cache_put, hash, _body}
+    assert hash in CacheObserver.lookup_hashes()
+    {hash, etag}
   end
 
   defp response(options, config),

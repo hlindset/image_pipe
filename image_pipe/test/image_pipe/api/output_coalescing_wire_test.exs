@@ -3,12 +3,12 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
 
   import Plug.Test
 
+  alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Execution
   alias ImagePipe.Execution.{Inputs, Output}
   alias ImagePipe.ProcessingPool
-  alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias ImagePipe.Test.CacheObserver
   alias ImagePipe.Test.ProcessingSource
-  alias ImagePipe.Test.RaisingOpenCache
 
   # These tests coordinate who generates an output, not what it looks like, so
   # a small image keeps each generation short on a busy CI runner.
@@ -25,14 +25,14 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
     :telemetry.attach(handler, prefix ++ [:cache, :coordination], &__MODULE__.event/4, self())
     on_exit(fn -> :telemetry.detach(handler) end)
 
-    options = [
-      processing_pool: pool,
-      telemetry_prefix: prefix,
-      cache: {CacheProbe, store: :ets.new(:outputs, [:set, :public])},
-      sources: [
-        path: [adapter: ProcessingSource, match: :path, options: [test: self(), bytes: @image]]
-      ]
-    ]
+    options =
+      CacheObserver.observe(
+        processing_pool: pool,
+        telemetry_prefix: prefix,
+        sources: [
+          path: [adapter: ProcessingSource, match: :path, options: [test: self(), bytes: @image]]
+        ]
+      )
 
     %{tasks: tasks, pool: pool, config: ImagePipe.config(options), options: options}
   end
@@ -85,8 +85,22 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
   end
 
   test "a missing committed entry falls back to generation once", context do
-    mount =
-      ImagePipe.Plug.init(Keyword.put(context.options, :cache, {CacheProbe, scope: make_ref()}))
+    mount = ImagePipe.Plug.init(context.options)
+    root = context.options |> Keyword.fetch!(:cache) |> Keyword.fetch!(:root)
+    handler = make_ref()
+
+    # Removes each entry as soon as it is committed, before followers read it.
+    :telemetry.attach(
+      handler,
+      context.options[:telemetry_prefix] ++ [:cache, :write, :stop],
+      fn _event, _measurements, %{cache_key: hash}, root ->
+        {:ok, %{meta_path: meta_path}} = FileSystem.paths_from_hash(hash, root: root)
+        File.rm!(meta_path)
+      end,
+      root
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
 
     leader = async(context, fn -> request(mount, "output=info") end)
     assert_receive {:fetch, ["blocked"], worker}
@@ -104,13 +118,7 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
     mount = ImagePipe.Plug.init(config: context.config)
 
     other =
-      ImagePipe.Plug.init(
-        Keyword.put(
-          context.options,
-          :cache,
-          {CacheProbe, store: :ets.new(:other, [:set, :public])}
-        )
-      )
+      ImagePipe.Plug.init(CacheObserver.observe(context.options))
 
     leader = async(context, fn -> request(mount, "output=info") end)
     assert_receive {:fetch, ["blocked"], worker}
@@ -126,7 +134,10 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
     test = self()
 
     for action <- [:cancel, :disconnect, :complete] do
-      mount = ImagePipe.Plug.init(config: context.config)
+      # A fresh cache per round, so each round misses.
+      config = context.options |> CacheObserver.observe() |> ImagePipe.config()
+      context = %{context | config: config}
+      mount = ImagePipe.Plug.init(config: config)
 
       leader =
         async(context, fn ->
@@ -185,18 +196,13 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
 
       assert Task.await(follower, @generation_timeout).status == 200
       refute_received {:fetch, ["blocked"], _}
-      {CacheProbe, cache_options} = Keyword.fetch!(context.options, :cache)
-      :ets.delete_all_objects(Keyword.fetch!(cache_options, :store))
     end
   end
 
   @tag capture_log: true
   test "cache write failures and rejected entries leave followers able to generate", context do
-    for {cache, path} <- [
-          {{RaisingOpenCache, test_pid: self()}, "format=jpeg"},
-          {{CacheProbe, max_body_bytes: 0, scope: make_ref()}, "output=info"}
-        ] do
-      mount = ImagePipe.Plug.init(Keyword.put(context.options, :cache, cache))
+    for {failure, path} <- [unwritable: "format=jpeg", too_large: "output=info"] do
+      mount = ImagePipe.Plug.init(failing_cache(context.options, failure))
       leader = async(context, fn -> request(mount, path) end)
       assert_receive {:fetch, ["blocked"], worker}
       follower = async(context, fn -> request(mount, path) end)
@@ -216,7 +222,7 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
     options =
       context.options
       |> Keyword.put(:processing_pool, pool)
-      |> Keyword.put(:cache, {CacheProbe, max_body_bytes: 0, scope: make_ref()})
+      |> CacheObserver.observe(max_body_bytes: 0)
 
     config = ImagePipe.config(options)
     mount = ImagePipe.Plug.init(config: config)
@@ -264,6 +270,16 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
     assert_receive {:fetch, ["blocked"], second}
     send(second, :continue)
     assert Task.await(follower).status == 200
+  end
+
+  defp failing_cache(options, :too_large), do: CacheObserver.observe(options, max_body_bytes: 0)
+
+  defp failing_cache(options, :unwritable) do
+    options = CacheObserver.observe(options)
+    root = options |> Keyword.fetch!(:cache) |> Keyword.fetch!(:root)
+    File.chmod!(root, 0o500)
+    on_exit(fn -> File.chmod(root, 0o700) end)
+    options
   end
 
   defp async(context, fun), do: Task.Supervisor.async_nolink(context.tasks, fun)

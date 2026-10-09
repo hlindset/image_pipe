@@ -6,7 +6,7 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
   alias ImagePipe.Output.Resolved
   alias ImagePipe.ProcessingPool
   alias ImagePipe.Telemetry.RequestContext
-  alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias ImagePipe.Test.CacheObserver
 
   setup %{test: test} do
     tasks = start_supervised!({Task.Supervisor, []})
@@ -108,7 +108,7 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
 
   test "generation cost excludes the wait for a processing slot", context do
     pool = start_supervised!({ProcessingPool, max_concurrency: 1})
-    config = [processing_pool: pool, telemetry_prefix: context.prefix, cache: {CacheProbe, []}]
+    config = CacheObserver.observe(processing_pool: pool, telemetry_prefix: context.prefix)
     queue_wait_us = 200_000
     test = self()
 
@@ -123,11 +123,12 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
 
     assert_receive :holding
     build = fn pump -> pump.(["one"], "image/jpeg", resolved(), nil) end
-    key = %ImagePipe.Cache.Key{hash: "queued", data: []}
-    assert {:ok, _stream} = Delivery.stream(self(), build, key, config)
+    key = %ImagePipe.Cache.Key{hash: String.duplicate("a1", 32), data: []}
+    assert {:ok, stream} = Delivery.stream(self(), build, key, config)
+    :done = stream.next.()
 
-    assert_received {:cache_open_sink, _key, metadata}
-    assert metadata.cost_us < queue_wait_us
+    assert_receive {:cache_open_sink, _hash, %{cost_us: cost_us}}
+    assert cost_us < queue_wait_us
   end
 
   defp await_queued(pool) do
@@ -198,14 +199,9 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
        context do
     pool = start_supervised!({ProcessingPool, max_concurrency: 1, max_queue: 0})
 
-    store = :ets.new(:timeout_cache, [:set, :public])
-    key = %ImagePipe.Cache.Key{hash: "timeout-test", data: []}
-
-    config = [
-      processing_pool: pool,
-      telemetry_prefix: context.prefix,
-      cache: {CacheProbe, store: store}
-    ]
+    hash = String.duplicate("b2", 32)
+    key = %ImagePipe.Cache.Key{hash: hash, data: []}
+    config = CacheObserver.observe(processing_pool: pool, telemetry_prefix: context.prefix)
 
     test = self()
 
@@ -231,7 +227,6 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
     end
 
     assert {:ok, stream} = Delivery.stream(self(), build, key, config)
-    assert_receive {:cache_open_sink, ^key, _metadata}
     job = Task.Supervisor.async_nolink(context.tasks, fn -> stream.next.() end)
     assert_receive {:working, worker}
 
@@ -241,14 +236,14 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
     send(pool, {:deadline, token, :active, deadline})
 
     assert Task.await(job) == {:error, {:processing, :timeout}}
-    assert_receive {:cache_abort, ^key}
+    assert_receive {:cache_abort, ^hash}
     assert %{active: 1} = ProcessingPool.stats(pool)
     send(worker, :continue)
     assert_receive :cleanup
     assert_receive {:processing_stopped, :timeout}
     assert %{active: 0} = ProcessingPool.stats(pool)
-    assert :ets.tab2list(store) == []
-    refute_received {:cache_put, ^key, _body}
+    assert CacheObserver.stored_body(config, hash) == nil
+    refute_received {:cache_put, ^hash, _body}
   end
 
   test "explicit cancellation detaches a blocked admitted producer without skipping cleanup",

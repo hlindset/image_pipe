@@ -4,11 +4,11 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   import Plug.Conn
   import Plug.Test
 
-  alias ImagePipe.Cache.Entry
-  alias ImagePipe.Cache.Key
+  alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
+  alias ImagePipe.Test.CacheObserver
 
   @image_path "/format=jpeg/src/beach.jpg"
   @automatic_path "/src/beach.jpg"
@@ -48,58 +48,6 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     end
   end
 
-  defmodule CacheProbe do
-    @behaviour ImagePipe.Cache
-
-    def get(%Key{} = key, opts) do
-      send(Keyword.fetch!(opts, :test_pid), {:cache_get, key})
-      :miss
-    end
-
-    def open_sink(%Key{}, metadata, opts),
-      do: {:ok, %{metadata: metadata, chunks: [], opts: opts}}
-
-    def write_chunk(state, chunk, _opts), do: {:ok, %{state | chunks: [chunk | state.chunks]}}
-
-    def commit_sink(state, _opts) do
-      entry = %Entry{
-        body: state.chunks |> Enum.reverse() |> IO.iodata_to_binary(),
-        content_type: state.metadata.content_type,
-        headers: state.metadata.headers,
-        created_at: state.metadata.created_at
-      }
-
-      send(Keyword.fetch!(state.opts, :test_pid), {:cache_put, entry})
-      :ok
-    end
-
-    def abort_sink(_state, _opts), do: :ok
-  end
-
-  defmodule CacheHitProbe do
-    @behaviour ImagePipe.Cache
-
-    def get(%Key{} = key, opts) do
-      send(Keyword.fetch!(opts, :test_pid), {:cache_get, key})
-      {:hit, Keyword.fetch!(opts, :entry)}
-    end
-
-    def open_sink(_key, _metadata, _opts), do: raise("cache hit should not write")
-    def write_chunk(_state, _chunk, _opts), do: raise("cache hit should not write")
-    def commit_sink(_state, _opts), do: raise("cache hit should not write")
-    def abort_sink(_state, _opts), do: :ok
-  end
-
-  defmodule RaisingCommitProbe do
-    @behaviour ImagePipe.Cache
-
-    def get(%Key{}, _opts), do: :miss
-    def open_sink(%Key{}, _metadata, _opts), do: {:ok, %{}}
-    def write_chunk(state, _chunk, _opts), do: {:ok, state}
-    def commit_sink(_state, _opts), do: raise("commit boom")
-    def abort_sink(_state, _opts), do: :ok
-  end
-
   # StableSource that sets its own `http_cache`, replacing the mount's.
   defmodule OverridingSource do
     @behaviour ImagePipe.Source
@@ -129,19 +77,26 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     Keyword.merge(ImagePipe.Plug.init(known), post_init)
   end
 
-  # The suite's baseline mount: a strong-byte-identity source, a cache probe,
-  # and the generated cache-header policy switched on.
+  # The suite's baseline mount: a strong-byte-identity source, an observed
+  # output cache, and the generated cache-header policy switched on.
   defp mount(overrides \\ []) do
-    init(
-      Keyword.merge(
-        [
-          sources: [path: [adapter: StableSource, match: :path, options: [test_pid: self()]]],
-          cache: {CacheProbe, test_pid: self()},
-          http_cache: :auto
-        ],
-        overrides
-      )
-    )
+    [
+      sources: [path: [adapter: StableSource, match: :path, options: [test_pid: self()]]],
+      http_cache: :auto
+    ]
+    |> Keyword.merge(overrides)
+    |> CacheObserver.observe()
+    |> init()
+  end
+
+  # Requests `path` once so the cache holds its response, and returns that
+  # response. Later identical requests on `opts` are cache hits.
+  defp warm(opts, path \\ @image_path, req_headers \\ []) do
+    first = get(path, opts, req_headers)
+    assert first.status == 200
+    assert_received {:cache_put, _hash, _body}
+    flush_messages()
+    first
   end
 
   defp get(path, opts, req_headers) do
@@ -174,7 +129,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
              get_resp_header(first, "cache-control")
 
     refute_received :source_fetch_called
-    refute_received {:cache_get, _}
+    refute_received {:cache_lookup, _, _hash}
   end
 
   test "a configured cookie selects its own cache entry and other cookies don't" do
@@ -182,7 +137,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     key_for = fn cookie ->
       assert get(@image_path, opts, [{"cookie", cookie}]).status == 200
-      assert_received {:cache_get, %Key{hash: hash}}
+      assert_received {:cache_lookup, :response, hash}
       flush_messages()
       hash
     end
@@ -204,16 +159,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "a cookie partition remains private on an output cache hit" do
-    first = get(@image_path, mount(), [])
-    assert first.status == 200
-    assert_received {:cache_put, entry}
-    flush_messages()
-
-    opts =
-      mount(
-        storage_inputs: [{:cookie, "session"}],
-        cache: {CacheHitProbe, test_pid: self(), entry: entry}
-      )
+    opts = mount(storage_inputs: [{:cookie, "session"}])
+    first = warm(opts, @image_path, [{"cookie", "session=a"}])
 
     hit = get(@image_path, opts, [{"cookie", "session=a"}])
     assert hit.status == 200
@@ -258,8 +205,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     assert get_resp_header(response, "cache-control") == ["no-store"]
     assert get_resp_header(response, "etag") == []
     assert_received :source_fetch_called
-    refute_received {:cache_get, _}
-    refute_received {:cache_put, _}
+    refute_received {:cache_lookup, _, _hash}
+    refute_received {:cache_put, _hash, _body}
   end
 
   test "stable public route emits cache-control and a stable etag", %{opts: opts} do
@@ -294,7 +241,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     assert conn.resp_body == ""
     assert get_resp_header(conn, "etag") == [etag]
     assert get_resp_header(conn, "content-type") == []
-    refute_received {:cache_get, %Key{}}
+    refute_received {:cache_lookup, _, _hash}
     refute_received :source_fetch_called
   end
 
@@ -326,7 +273,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     assert conn.status == 304
     assert get_resp_header(conn, "etag") == [etag]
-    refute_received {:cache_get, %Key{}}
+    refute_received {:cache_lookup, _, _hash}
     refute_received :source_fetch_called
   end
 
@@ -397,9 +344,10 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     assert get_resp_header(conn, "vary") == ["Accept-Encoding, Accept"]
   end
 
-  test "request cookie does not change generated headers or source fetch", %{opts: opts} do
+  test "request cookie does not change generated headers or the cache entry", %{opts: opts} do
     without_cookie = ImagePipe.Plug.call(conn(:get, @image_path), opts)
     [etag] = get_resp_header(without_cookie, "etag")
+    assert_received {:cache_lookup, :response, hash}
 
     flush_messages()
 
@@ -411,7 +359,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     assert get_resp_header(with_cookie, "etag") == [etag]
     refute "cookie" in vary_tokens(with_cookie)
-    assert_received :source_fetch_called
+    assert_received {:cache_lookup, :response, ^hash}
+    refute_received :source_fetch_called
   end
 
   test "response cookies suppress generated public cache headers", %{opts: opts} do
@@ -428,19 +377,13 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "internal cache hit returns 200 with current prepared etag" do
-    entry = %Entry{
-      body: "cached body",
-      content_type: "image/jpeg",
-      headers: [{"cache-control", "public, max-age=60"}],
-      created_at: DateTime.utc_now()
-    }
-
-    opts = mount(cache: {CacheHitProbe, test_pid: self(), entry: entry})
+    opts = mount()
+    first = warm(opts)
 
     conn = ImagePipe.Plug.call(conn(:get, @image_path), opts)
 
     assert conn.status == 200
-    assert conn.resp_body == "cached body"
+    assert conn.resp_body == first.resp_body
     assert [etag] = get_resp_header(conn, "etag")
     assert etag =~ @strong_validator
     assert get_resp_header(conn, "cache-control") == ["public, max-age=31536000, immutable"]
@@ -454,7 +397,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     assert revalidated.status == 304
     assert get_resp_header(revalidated, "etag") == [etag]
-    refute_received {:cache_get, %Key{}}
+    refute_received {:cache_lookup, _, _hash}
   end
 
   test "wildcard if-none-match on a cache miss proceeds and returns 200", %{opts: opts} do
@@ -468,25 +411,17 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     assert conn.resp_body != ""
     # The wildcard did not short-circuit pre-fetch: the request proceeded into the
     # cache lookup and the source fetch, exactly as a request with no precondition.
-    assert_received {:cache_get, %Key{}}
+    assert_received {:cache_lookup, :response, _hash}
     assert_received :source_fetch_called
   end
 
   test "wildcard if-none-match on an internal cache hit returns 304" do
-    entry = %Entry{
-      body: "cached body",
-      content_type: "image/jpeg",
-      headers: [{"cache-control", "public, max-age=60"}],
-      created_at: DateTime.utc_now()
-    }
-
-    opts = mount(cache: {CacheHitProbe, test_pid: self(), entry: entry})
+    opts = mount()
 
     # The 200 this mount serves for the same request, for the validator the
     # wildcard 304 must carry.
-    unconditional = ImagePipe.Plug.call(conn(:get, @image_path), opts)
+    unconditional = warm(opts)
     assert [etag] = get_resp_header(unconditional, "etag")
-    flush_messages()
 
     conn =
       :get
@@ -501,14 +436,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "wildcard if-none-match on a HEAD internal cache hit returns 304" do
-    entry = %Entry{
-      body: "cached body",
-      content_type: "image/jpeg",
-      headers: [{"cache-control", "public, max-age=60"}],
-      created_at: DateTime.utc_now()
-    }
-
-    opts = mount(cache: {CacheHitProbe, test_pid: self(), entry: entry})
+    opts = mount()
+    warm(opts)
 
     conn =
       :head
@@ -522,14 +451,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "if-none-match mixing an explicit tag with a wildcard collapses to wildcard and 304s on a cache hit" do
-    entry = %Entry{
-      body: "cached body",
-      content_type: "image/jpeg",
-      headers: [{"cache-control", "public, max-age=60"}],
-      created_at: DateTime.utc_now()
-    }
-
-    opts = mount(cache: {CacheHitProbe, test_pid: self(), entry: entry})
+    opts = mount()
+    warm(opts)
 
     conn =
       :get
@@ -543,23 +466,13 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "CORS header lands on a cache-hit response when allow_origin is set" do
-    entry = %Entry{
-      body: "cached body",
-      content_type: "image/jpeg",
-      headers: [{"cache-control", "public, max-age=60"}],
-      created_at: DateTime.utc_now()
-    }
-
-    opts =
-      mount(
-        cache: {CacheHitProbe, test_pid: self(), entry: entry},
-        allow_origin: "https://cdn.test"
-      )
+    opts = mount(allow_origin: "https://cdn.test")
+    first = warm(opts)
 
     conn = ImagePipe.Plug.call(conn(:get, @image_path), opts)
 
     assert conn.status == 200
-    assert conn.resp_body == "cached body"
+    assert conn.resp_body == first.resp_body
     assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
     refute_received :source_fetch_called
   end
@@ -582,12 +495,12 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "host-set content-disposition is preserved on both miss and cache-hit responses" do
-    probe_opts = mount()
+    opts = mount()
 
     miss_conn =
       conn(:get, @image_path)
       |> put_resp_header("content-disposition", ~s(attachment; filename="custom.jpg"))
-      |> ImagePipe.Plug.call(probe_opts)
+      |> ImagePipe.Plug.call(opts)
 
     assert miss_conn.status == 200
 
@@ -595,16 +508,16 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
              ~s(attachment; filename="custom.jpg")
            ]
 
-    assert_received {:cache_put, %Entry{} = entry}
-
-    hit_opts = mount(cache: {CacheHitProbe, test_pid: self(), entry: entry})
+    assert_received {:cache_put, _hash, _body}
+    flush_messages()
 
     hit_conn =
       conn(:get, @image_path)
       |> put_resp_header("content-disposition", ~s(attachment; filename="custom.jpg"))
-      |> ImagePipe.Plug.call(hit_opts)
+      |> ImagePipe.Plug.call(opts)
 
     assert hit_conn.status == 200
+    refute_received :source_fetch_called
 
     assert get_resp_header(hit_conn, "content-disposition") == [
              ~s(attachment; filename="custom.jpg")
@@ -613,14 +526,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
   test "detector identity change moves the generated ETag end-to-end (#181 regression)", _ctx do
     etag_for = fn identity ->
-      opts =
-        init(
-          detector: ImagePipe.Test.FakeDetector,
-          http_cache: :auto,
-          sources: [path: [adapter: StableSource, match: :path, options: [test_pid: self()]]],
-          cache: {CacheProbe, test_pid: self()},
-          identity: identity
-        )
+      opts = mount(detector: ImagePipe.Test.FakeDetector, identity: identity)
 
       conn =
         ImagePipe.Plug.call(
@@ -636,7 +542,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     assert etag_for.(:model_v1) != etag_for.(:model_v2)
   end
 
-  test "commit_sink raise still delivers the complete body, byte-identical to a clean cache (#183)" do
+  test "a failed cache commit still delivers the complete body, byte-identical to a clean cache (#183)" do
     url = "/w=50/h=50/fit=stretch/format=jpeg/src/beach.jpg"
 
     clean =
@@ -645,12 +551,11 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
         mount()
       )
 
-    raising =
-      ImagePipe.Plug.call(
-        conn(:get, url),
-        mount(cache: {RaisingCommitProbe, []})
-      )
+    failing_opts = mount()
+    fail_commits(failing_opts)
+    raising = ImagePipe.Plug.call(conn(:get, url), failing_opts)
 
+    assert_received {:cache_write_error, _hash}
     assert clean.status == 200
     assert raising.status == 200
     assert byte_size(raising.resp_body) > 0
@@ -679,7 +584,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     assert revalidated.status == 304
     assert get_resp_header(revalidated, "etag") == [etag]
-    refute_received {:cache_get, %Key{}}
+    refute_received {:cache_lookup, _, _hash}
   end
 
   @doc false
@@ -736,15 +641,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     test "a wildcard conditional answered from an output-cache hit emits the conditional-match event",
          %{prefix: prefix} do
-      entry = %Entry{
-        body: "cached body",
-        content_type: "image/jpeg",
-        headers: [{"cache-control", "public, max-age=60"}],
-        created_at: DateTime.utc_now()
-      }
-
-      opts =
-        mount(cache: {CacheHitProbe, test_pid: self(), entry: entry}, telemetry_prefix: prefix)
+      opts = mount(telemetry_prefix: prefix)
+      warm(opts)
 
       conn =
         :head
@@ -778,11 +676,12 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     test "a mount without http_cache defaults to :validators", %{prefix: prefix} do
       opts =
-        init(
+        [
           sources: [path: [adapter: StableSource, match: :path, options: [test_pid: self()]]],
-          cache: {CacheProbe, test_pid: self()},
           telemetry_prefix: prefix
-        )
+        ]
+        |> CacheObserver.observe()
+        |> init()
 
       first = ImagePipe.Plug.call(conn(:get, @image_path), opts)
       assert [etag] = get_resp_header(first, "etag")
@@ -794,7 +693,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     test "a source value overrides a mount without http_cache", %{prefix: prefix} do
       opts =
-        init(
+        [
           sources: [
             path: [
               adapter: OverridingSource,
@@ -802,9 +701,10 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
               options: [test_pid: self(), http_cache: :auto]
             ]
           ],
-          cache: {CacheProbe, test_pid: self()},
           telemetry_prefix: prefix
-        )
+        ]
+        |> CacheObserver.observe()
+        |> init()
 
       conn = ImagePipe.Plug.call(conn(:get, @image_path), opts)
 
@@ -831,6 +731,30 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       assert get_resp_header(conn, "cache-control") == ["private, max-age=31536000, immutable"]
       assert_received {:http_cache, _prepare, %{effective_mode: :private, etag: true}}
     end
+  end
+
+  # Locks an entry's partition directory as its commit starts, so the commit
+  # fails after the response body was staged.
+  defp fail_commits(opts) do
+    cache = Keyword.fetch!(opts, :cache)
+    root = Keyword.fetch!(cache, :root)
+    id = {__MODULE__, make_ref()}
+    event = Keyword.fetch!(opts, :telemetry_prefix) ++ [:cache, :write, :start]
+
+    lock = fn _event, _measurements, %{cache_key: hash}, _config ->
+      {:ok, %{dir: dir}} = FileSystem.paths_from_hash(hash, cache)
+      File.chmod!(dir, 0o500)
+    end
+
+    :ok = :telemetry.attach(id, event, lock, nil)
+
+    on_exit(fn ->
+      :telemetry.detach(id)
+
+      for dir <- [root | Path.wildcard(Path.join(root, "**"))],
+          File.dir?(dir),
+          do: File.chmod(dir, 0o700)
+    end)
   end
 
   defp flush_messages do

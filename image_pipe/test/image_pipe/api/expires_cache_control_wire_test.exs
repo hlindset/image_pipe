@@ -12,7 +12,7 @@ defmodule ImagePipe.API.ExpiresCacheControlWireTest do
 
   setup %{tmp_dir: tmp_dir} do
     clock = start_supervised!({Agent, fn -> @now end})
-    %{clock: clock, cache: {ImagePipe.Cache.FileSystem, root: tmp_dir}}
+    %{clock: clock, cache: [root: tmp_dir]}
   end
 
   defp mount(%{clock: clock, cache: cache}, overrides) do

@@ -4,6 +4,7 @@ defmodule ImagePipe.Cache.Sink do
   require Logger
 
   alias ImagePipe.Cache.Entry
+  alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.Key
   alias ImagePipe.Error
   alias ImagePipe.Format
@@ -11,9 +12,8 @@ defmodule ImagePipe.Cache.Sink do
   alias ImagePipe.Telemetry
 
   @enforce_keys [
-    :adapter,
     :key,
-    :adapter_opts,
+    :cache_opts,
     :metadata,
     :state,
     :size,
@@ -23,9 +23,8 @@ defmodule ImagePipe.Cache.Sink do
   defstruct @enforce_keys
 
   @type t :: %__MODULE__{
-          adapter: module(),
           key: Key.t(),
-          adapter_opts: keyword(),
+          cache_opts: keyword(),
           metadata: Entry.Metadata.t(),
           state: term(),
           size: non_neg_integer(),
@@ -33,19 +32,19 @@ defmodule ImagePipe.Cache.Sink do
           output_format: atom() | nil
         }
 
-  @spec open(module(), Key.t(), Resolved.t() | {:complete_body, String.t()}, keyword(), keyword()) ::
+  @spec open(Key.t(), Resolved.t() | {:complete_body, String.t()}, keyword(), keyword()) ::
           t() | nil
-  def open(adapter, %Key{} = key, %Resolved{} = resolved_output, cache_opts, opts) do
+  def open(%Key{} = key, %Resolved{} = resolved_output, cache_opts, opts) do
     cost_us = Keyword.get(opts, :cost_us, 0)
     debug = Keyword.get(opts, :debug_info)
 
     with {:ok, metadata} <- response_metadata(resolved_output, cost_us, debug),
          metadata = %{metadata | source_record: Keyword.get(opts, :source_record)},
-         {:ok, adapter_state} <- open_adapter_sink(adapter, key, metadata, cache_opts) do
-      build(adapter, key, metadata, cache_opts, adapter_state)
+         {:ok, state} <- FileSystem.open_sink(key, metadata, cache_opts) do
+      build(key, metadata, cache_opts, state)
     else
       {:error, reason} ->
-        handle_open_error(reason, resolved_output.format, opts)
+        handle_open_error(reason, key, resolved_output.format, opts)
         nil
     end
   end
@@ -54,7 +53,7 @@ defmodule ImagePipe.Cache.Sink do
   # string) delivered whole, with no encoder output and no `%Resolved{}`.
   # Mirrors the `%Resolved{}` clause above exactly, minus everything that
   # only makes sense for an encoded image (response headers, output format).
-  def open(adapter, %Key{} = key, {:complete_body, content_type}, cache_opts, opts)
+  def open(%Key{} = key, {:complete_body, content_type}, cache_opts, opts)
       when is_binary(content_type) do
     cost_us = Keyword.get(opts, :cost_us, 0)
     debug = Keyword.get(opts, :debug_info)
@@ -64,12 +63,12 @@ defmodule ImagePipe.Cache.Sink do
       | source_record: Keyword.get(opts, :source_record)
     }
 
-    case open_adapter_sink(adapter, key, metadata, cache_opts) do
-      {:ok, adapter_state} ->
-        build(adapter, key, metadata, cache_opts, adapter_state)
+    case FileSystem.open_sink(key, metadata, cache_opts) do
+      {:ok, state} ->
+        build(key, metadata, cache_opts, state)
 
       {:error, reason} ->
-        handle_open_error(reason, nil, opts)
+        handle_open_error(reason, key, nil, opts)
         nil
     end
   end
@@ -99,14 +98,8 @@ defmodule ImagePipe.Cache.Sink do
   def abort(nil, _reason, _opts), do: :ok
 
   def abort(%__MODULE__{} = sink, reason, opts) do
-    case abort_adapter(sink, opts) do
-      :ok ->
-        emit_stage_event(:stage_abandoned, reason, nil, sink, opts)
-
-      {:error, abort_reason} ->
-        emit_stage_event(:stage_cleanup_error, reason, abort_reason, sink, opts)
-    end
-
+    :ok = abort_store(sink)
+    emit_stage_event(:stage_abandoned, reason, nil, sink, opts)
     :ok
   end
 
@@ -137,32 +130,21 @@ defmodule ImagePipe.Cache.Sink do
     }
   end
 
-  defp open_adapter_sink(adapter, %Key{} = key, %Entry.Metadata{} = metadata, cache_opts) do
-    case adapter.open_sink(key, metadata, cache_opts) do
-      {:ok, _adapter_state} = ok -> ok
-      {:error, _reason} = error -> error
-      unexpected -> {:error, {:invalid_adapter_result, unexpected}}
-    end
-  rescue
-    exception -> {:error, exception}
-  end
-
-  defp build(adapter, %Key{} = key, %Entry.Metadata{} = metadata, cache_opts, adapter_state) do
+  defp build(%Key{} = key, %Entry.Metadata{} = metadata, cache_opts, state) do
     %__MODULE__{
-      adapter: adapter,
       key: key,
-      adapter_opts: cache_opts,
+      cache_opts: cache_opts,
       metadata: metadata,
-      state: adapter_state,
+      state: state,
       size: 0,
       max_body_bytes: Keyword.get(cache_opts, :max_body_bytes),
       output_format: metadata.output_format
     }
   end
 
-  defp handle_open_error(reason, output_format, opts) do
+  defp handle_open_error(reason, key, output_format, opts) do
     Logger.warning("cache sink open error: #{inspect(reason)}")
-    emit_stage_event(:stage_error, :open, reason, output_format, opts)
+    emit_stage_event(:stage_error, :open, reason, {key, output_format}, opts)
   end
 
   defp write_chunk_result(%__MODULE__{} = sink, chunk, opts) do
@@ -173,56 +155,39 @@ defmodule ImagePipe.Cache.Sink do
         do_write_chunk(%{sink | size: size}, chunk, opts)
 
       {:error, :too_large} ->
-        emit_abort_cleanup(abort_adapter(sink, opts), :too_large, sink, opts)
+        :ok = abort_store(sink)
         emit_stage_event(:stage_skipped, :too_large, nil, sink, opts)
         {:skip, :too_large}
     end
   end
 
   defp do_write_chunk(%__MODULE__{} = sink, chunk, opts) do
-    case sink.adapter.write_chunk(sink.state, chunk, sink.adapter_opts) do
-      {:ok, adapter_state} ->
-        {:ok, %{sink | state: adapter_state}}
+    case FileSystem.write_chunk(sink.state, chunk, sink.cache_opts) do
+      {:ok, state} ->
+        {:ok, %{sink | state: state}}
 
-      {:error, reason, adapter_state} ->
-        sink = %{sink | state: adapter_state}
-        emit_abort_cleanup(abort_adapter(sink, opts), :write_error, sink, opts)
-        Logger.warning("cache sink write error: #{inspect(reason)}")
-        emit_stage_event(:stage_error, :write, reason, sink, opts)
-        {:error, reason}
-
-      unexpected ->
-        reason = {:invalid_adapter_result, unexpected}
-        emit_abort_cleanup(abort_adapter(sink, opts), :write_error, sink, opts)
+      {:error, reason, state} ->
+        sink = %{sink | state: state}
+        :ok = abort_store(sink)
         Logger.warning("cache sink write error: #{inspect(reason)}")
         emit_stage_event(:stage_error, :write, reason, sink, opts)
         {:error, reason}
     end
-  rescue
-    exception ->
-      emit_abort_cleanup(abort_adapter(sink, opts), :write_error, sink, opts)
-      Logger.warning("cache sink write error: #{inspect(exception)}")
-      emit_stage_event(:stage_error, :write, exception, sink, opts)
-      {:error, exception}
   end
 
   defp emit_commit_result(%__MODULE__{} = sink, opts) do
-    Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], %{pool: :output}, fn ->
-      result =
-        try do
-          sink.adapter.commit_sink(sink.state, sink.adapter_opts)
-        rescue
-          exception -> {:error, exception}
-        end
+    start_metadata = %{pool: :output, cache_key: sink.key.hash}
 
-      {:ok, commit_stop_metadata(result, sink)}
+    Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], start_metadata, fn ->
+      result = FileSystem.commit_sink(sink.state, sink.cache_opts)
+      {:ok, Map.put(commit_stop_metadata(result, sink), :cache_key, sink.key.hash)}
     end)
   end
 
   defp commit_stop_metadata(:ok, %__MODULE__{} = sink),
     do: %{result: :ok, cache: :write, output_format: sink.output_format}
 
-  # The adapter accepted the bytes but its admission policy declined to keep
+  # The cache accepted the bytes but its admission policy declined to keep
   # the entry (bounded mode). This is a successful, non-error outcome: nothing
   # was stored, so the request path is unaffected (fail-open). Report it on the
   # write span the same way `:write_error` is reported — commit-level outcomes
@@ -241,44 +206,20 @@ defmodule ImagePipe.Cache.Sink do
     }
   end
 
-  defp commit_stop_metadata(unexpected, %__MODULE__{} = sink) do
-    reason = {:invalid_adapter_result, unexpected}
-    Logger.warning("cache sink commit error: #{inspect(reason)}")
-
-    %{
-      result: :cache_error,
-      cache: :write_error,
-      error: Error.tag(reason),
-      output_format: sink.output_format
-    }
-  end
-
-  defp abort_adapter(%__MODULE__{} = sink, _opts) do
-    case sink.adapter.abort_sink(sink.state, sink.adapter_opts) do
-      :ok = ok -> ok
-      {:error, _reason} = error -> error
-      unexpected -> {:error, {:invalid_adapter_result, unexpected}}
-    end
-  rescue
-    exception -> {:error, exception}
-  end
-
-  defp emit_abort_cleanup(:ok, _reason, _sink, _opts), do: :ok
-
-  defp emit_abort_cleanup({:error, cleanup_reason}, reason, %__MODULE__{} = sink, opts) do
-    emit_stage_event(:stage_cleanup_error, reason, cleanup_reason, sink, opts)
-  end
+  defp abort_store(%__MODULE__{} = sink), do: FileSystem.abort_sink(sink.state, sink.cache_opts)
 
   defp emit_stage_event(cache_status, reason, error, %__MODULE__{} = sink, opts) do
-    emit_stage_event(cache_status, reason, error, sink.output_format, opts)
+    emit_stage_event(cache_status, reason, error, {sink.key, sink.output_format}, opts)
   end
 
-  defp emit_stage_event(cache_status, reason, error, output_format, opts) do
+  defp emit_stage_event(cache_status, reason, error, {%Key{} = key, output_format}, opts) do
     Telemetry.execute(
       Telemetry.telemetry_opts(opts),
       [:cache, :stage],
       %{},
-      stage_metadata(cache_status, reason, error, output_format)
+      cache_status
+      |> stage_metadata(reason, error, output_format)
+      |> Map.put(:cache_key, key.hash)
     )
   end
 
@@ -286,14 +227,6 @@ defmodule ImagePipe.Cache.Sink do
     do: %{
       result: :cache_error,
       cache: :stage_error,
-      error: Error.tag(error),
-      output_format: output_format
-    }
-
-  defp stage_metadata(:stage_cleanup_error, _reason, error, output_format),
-    do: %{
-      result: :cache_error,
-      cache: :stage_cleanup_error,
       error: Error.tag(error),
       output_format: output_format
     }

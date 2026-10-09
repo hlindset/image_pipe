@@ -4,8 +4,9 @@ defmodule ImagePipe.Telemetry.Trace.CrossProcessTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Test.PlugFixture.CacheProbe
   alias ImagePipe.Test.Trace.{Span, TestExporter}
+
+  @moduletag :tmp_dir
 
   setup do
     :ok = TestExporter.attach(self())
@@ -27,9 +28,9 @@ defmodule ImagePipe.Telemetry.Trace.CrossProcessTest do
   end
 
   # A cache-miss request that fetches + decodes a real source and writes to cache.
-  # CacheProbe(result: :miss) drives open_sink -> write_chunk -> commit_sink, so the
-  # [:cache, :write] span fires from the delivery coordinator process (hop A target).
-  defp miss_opts do
+  # The empty cache stores the response, so the [:cache, :write] span fires from
+  # the delivery coordinator process (hop A target).
+  defp miss_opts(cache_root) do
     [
       sources: [
         path: [
@@ -41,14 +42,16 @@ defmodule ImagePipe.Telemetry.Trace.CrossProcessTest do
           ]
         ]
       ],
-      cache: {CacheProbe, result: :miss}
+      cache: [root: cache_root]
     ]
   end
 
   defp request_path, do: "/w=120/h=90/format=jpeg/src/images/beach.jpg"
 
-  test "producer-process spans share the request trace_id and parent under it (hop B)" do
-    conn = call(request_path(), miss_opts())
+  test "producer-process spans share the request trace_id and parent under it (hop B)", %{
+    tmp_dir: tmp_dir
+  } do
+    conn = call(request_path(), miss_opts(tmp_dir))
     assert conn.status == 200
 
     spans = collect()
@@ -60,8 +63,8 @@ defmodule ImagePipe.Telemetry.Trace.CrossProcessTest do
     refute fetch.parent_span_id == nil
   end
 
-  test "cache write parents under the request (hop A)" do
-    conn = call(request_path(), miss_opts())
+  test "cache write parents under the request (hop A)", %{tmp_dir: tmp_dir} do
+    conn = call(request_path(), miss_opts(tmp_dir))
     assert conn.status == 200
 
     spans = collect()
@@ -72,8 +75,8 @@ defmodule ImagePipe.Telemetry.Trace.CrossProcessTest do
     assert write.trace_id == root.trace_id
   end
 
-  test "cache admission is a separate root, not under the request (§8.1)" do
-    conn = call(request_path(), miss_opts())
+  test "cache admission is a separate root, not under the request (§8.1)", %{tmp_dir: tmp_dir} do
+    conn = call(request_path(), miss_opts(tmp_dir))
     assert conn.status == 200
 
     spans = collect()
@@ -83,8 +86,8 @@ defmodule ImagePipe.Telemetry.Trace.CrossProcessTest do
     assert root, "expected request root span"
 
     # Admission runs in the shared Admission GenServer with no request context
-    # threaded (spec §8.1): it must NOT share the request trace. CacheProbe does
-    # not run an admission GenServer, so the span is typically absent here and this
+    # threaded (spec §8.1): it must NOT share the request trace. This unbounded
+    # cache runs no admission GenServer, so the span is typically absent here and this
     # guard is effectively a no-op. The real POSITIVE coverage — a [:cache, :admission]
     # span emitted from a live Admission GenServer staying a separate root even with a
     # caller context adopted on the stack — lives in

@@ -4,9 +4,9 @@ defmodule ImagePipe.API.CacheFailOpenWireTest do
   import Plug.Conn
   import Plug.Test
 
+  alias ImagePipe.Cache.FileSystem
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Test.PlugFixture.CacheProbe
-  alias ImagePipe.Test.RaisingOpenCache
+  alias ImagePipe.Test.CacheObserver
 
   @moduletag capture_log: true
 
@@ -42,21 +42,32 @@ defmodule ImagePipe.API.CacheFailOpenWireTest do
       path = "/output=info/src/source.jpg"
       baseline = ImagePipe.Plug.call(conn(:get, path), ImagePipe.Plug.init(opts))
 
-      entry = %ImagePipe.Cache.Entry{
-        body: "corrupt cached response",
-        content_type: unquote(content_type),
-        representation: unquote(Macro.escape(representation)),
-        headers: [],
-        created_at: DateTime.utc_now()
+      cached_opts = CacheObserver.observe(opts)
+      config = ImagePipe.Plug.init(cached_opts)
+      _stored = ImagePipe.Plug.call(conn(:get, path), config)
+      assert_received {:cache_put, hash, _body}
+      CacheObserver.lookup_hashes()
+
+      {:ok, %{meta_path: meta_path}} =
+        FileSystem.paths_from_hash(hash, Keyword.fetch!(cached_opts, :cache))
+
+      metadata = meta_path |> File.read!() |> :erlang.binary_to_term()
+
+      corrupt = %{
+        metadata
+        | content_type: unquote(content_type),
+          representation: unquote(Macro.escape(representation))
       }
 
-      config = ImagePipe.Plug.init(Keyword.put(opts, :cache, {CacheProbe, result: {:hit, entry}}))
+      File.write!(meta_path, :erlang.term_to_binary(corrupt))
+
       response = ImagePipe.Plug.call(conn(:get, path), config)
 
       assert response.status == 200
       assert get_resp_header(response, "content-type") == ["application/json; charset=utf-8"]
       assert response.resp_body == baseline.resp_body
-      assert_received {:cache_put, _, _}
+      assert hash in CacheObserver.lookup_hashes()
+      assert_received {:cache_put, ^hash, _body}
     end
   end
 
@@ -64,7 +75,7 @@ defmodule ImagePipe.API.CacheFailOpenWireTest do
         {"w=12/format=png", "image/png"},
         {"output=info", "application/json; charset=utf-8"}
       ] do
-    test "#{output} is delivered when the cache adapter raises while opening" do
+    test "#{output} is delivered when the cache can't open an entry" do
       body = Image.new!(24, 16, color: :red) |> Image.write!(:memory, suffix: ".jpg")
       origin = fn conn -> conn |> put_resp_content_type("image/jpeg") |> send_resp(200, body) end
 
@@ -86,18 +97,20 @@ defmodule ImagePipe.API.CacheFailOpenWireTest do
       path = "/#{unquote(output)}/src/source.jpg"
       baseline = ImagePipe.Plug.call(conn(:get, path), ImagePipe.Plug.init(opts))
 
-      config =
-        ImagePipe.Plug.init(Keyword.put(opts, :cache, {RaisingOpenCache, test_pid: self()}))
+      cached_opts = CacheObserver.observe(opts)
+      root = cached_opts |> Keyword.fetch!(:cache) |> Keyword.fetch!(:root)
+      config = ImagePipe.Plug.init(cached_opts)
+      File.chmod!(root, 0o500)
+      on_exit(fn -> File.chmod(root, 0o700) end)
 
       response = ImagePipe.Plug.call(conn(:get, path), config)
 
-      assert_received :cache_open_attempted
+      assert [_hash | _] = CacheObserver.lookup_hashes()
       assert baseline.status == 200
       assert response.status == 200
       assert get_resp_header(response, "content-type") == [unquote(content_type)]
       assert response.resp_body == baseline.resp_body
-      refute_received :cache_write_attempted
-      refute_received :cache_commit_attempted
+      refute_received {:cache_put, _hash, _body}
     end
   end
 end

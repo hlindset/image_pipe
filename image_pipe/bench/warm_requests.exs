@@ -41,7 +41,7 @@ defmodule WarmRequestsBench do
                options: [root: sources, root_id: "bench"]
              ]
            ],
-           cache: {ImagePipe.Cache.FileSystem, cache_opts}}
+           cache: cache_opts}
         ],
         strategy: :one_for_one
       )

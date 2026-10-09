@@ -5,13 +5,12 @@ defmodule ImagePipe.API.WatermarkStorageWireTest do
   import Plug.Test
 
   alias ImagePipe, as: IP
-  alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias ImagePipe.Test.CacheObserver
 
-  @path "/wm=logo/format=png/src/https://origin.test/image.png"
+  @path "/wm=logo/format=png/debug/src/https://origin.test/image.png"
 
   setup do
-    store = :ets.new(:watermark_storage, [:public, :set])
-    %{store: store}
+    %{cache: CacheObserver.observe([])}
   end
 
   for {label, control, options, vary} <- [
@@ -22,12 +21,13 @@ defmodule ImagePipe.API.WatermarkStorageWireTest do
         {"Vary star despite storage allowance", "public, max-age=60",
          [cache_policy: [storage: :allow]], "*"}
       ] do
-    test "#{label} on a watermark prevents output storage and lookup", %{store: store} do
-      config = config(store, unquote(control), unquote(options), unquote(vary))
+    test "#{label} on a watermark prevents output storage and lookup", %{cache: cache} do
+      config = config(cache, unquote(control), unquote(options), unquote(vary))
 
       for _ <- 1..2 do
-        assert_image(get(config))
-        assert output_entries(store) == []
+        response = get(config)
+        assert_image(response)
+        assert output_entries(cache) == []
         assert output_lookups() == []
         assert output_writes() == []
       end
@@ -35,21 +35,22 @@ defmodule ImagePipe.API.WatermarkStorageWireTest do
   end
 
   for options <- [[cache_policy: [storage: :deny]], [internal_cache: :disabled]] do
-    test "watermark #{inspect(options)} bypasses an existing output", %{store: store} do
-      allowed = config(store, "public, max-age=60")
+    test "watermark #{inspect(options)} bypasses an existing output", %{cache: cache} do
+      allowed = config(cache, "public, max-age=60")
       first = get(allowed)
       assert_image(first)
-      assert [_entry] = output_entries(store)
-      output_lookups()
-      assert [_key] = output_writes()
+      assert [_entry] = output_entries(cache)
+      assert [hash] = output_lookups()
+      assert output_writes() == [hash]
 
-      response = get(config(store, "public, max-age=60", unquote(options)))
+      response = get(config(cache, "public, max-age=60", unquote(options)))
 
       assert_image(response)
       assert response.resp_body == first.resp_body
-      assert output_lookups() == []
+      refute hash in CacheObserver.lookup_hashes()
+      assert get_resp_header(response, "x-imagepipe-cache") == ["miss"]
       assert output_writes() == []
-      assert [_entry] = output_entries(store)
+      assert [_entry] = output_entries(cache)
     end
   end
 
@@ -57,25 +58,25 @@ defmodule ImagePipe.API.WatermarkStorageWireTest do
         {"public, max-age=60", []},
         {"no-store", [cache_policy: [storage: :allow]]}
       ] do
-    test "watermark #{inspect({control, options})} permits output reuse", %{store: store} do
-      config = config(store, unquote(control), unquote(options))
+    test "watermark #{inspect({control, options})} permits output reuse", %{cache: cache} do
+      config = config(cache, unquote(control), unquote(options))
       first = get(config)
       assert_image(first)
-      assert [_entry] = output_entries(store)
-      assert [key] = output_lookups()
-      assert output_writes() == [key]
+      assert [_entry] = output_entries(cache)
+      assert [hash] = output_lookups()
+      assert output_writes() == [hash]
 
       second = get(config)
 
       assert second.resp_body == first.resp_body
-      assert output_lookups() == [key]
+      assert output_lookups() == [hash]
       assert output_writes() == []
-      assert [_entry] = output_entries(store)
+      assert [_entry] = output_entries(cache)
     end
   end
 
   for options <- [[cache_policy: [storage: :deny]], [internal_cache: :disabled]] do
-    test "immutable local watermark #{inspect(options)} prevents output storage", %{store: store} do
+    test "immutable local watermark #{inspect(options)} prevents output storage", %{cache: cache} do
       root =
         Path.join(System.tmp_dir!(), "watermark-storage-#{System.unique_integer([:positive])}")
 
@@ -93,27 +94,32 @@ defmodule ImagePipe.API.WatermarkStorageWireTest do
               options: [root: root, root_id: root, stable: :immutable] ++ unquote(options)
             ]
           ],
-          cache: {CacheProbe, store: store},
+          cache: cache[:cache],
+          telemetry_prefix: cache[:telemetry_prefix],
+          allow_debug_headers: true,
           clock: fn -> 1_000 end,
           watermarks: %{logo: [source: "marks/mark.png"]}
         )
 
       for _ <- 1..2 do
-        assert_image(get(config))
-        assert output_entries(store) == []
+        response = get(config)
+        assert_image(response)
+        assert output_entries(cache) == []
         assert output_lookups() == []
         assert output_writes() == []
       end
     end
   end
 
-  defp config(store, mark_control, mark_options \\ [], vary \\ nil) do
+  defp config(cache, mark_control, mark_options \\ [], vary \\ nil) do
     IP.Plug.init(
       sources: [
         url: http_source("https", "public, max-age=60", [cache_policy: [storage: :allow]], nil),
         marks: http_source("http", mark_control, mark_options, vary)
       ],
-      cache: {CacheProbe, store: store},
+      cache: cache[:cache],
+      telemetry_prefix: cache[:telemetry_prefix],
+      allow_debug_headers: true,
       clock: fn -> 1_000 end,
       watermarks: %{logo: [source: "http://origin.test/mark.png"]}
     )
@@ -156,23 +162,29 @@ defmodule ImagePipe.API.WatermarkStorageWireTest do
     assert {:ok, [255, 0, 0]} = Image.get_pixel(image, 4, 4)
   end
 
-  defp output_entries(store) do
-    for {_key, %{content_type: "image/png"} = entry} <- :ets.tab2list(store), do: entry
+  # Source-index records share the output cache, so only PNG bodies are outputs.
+  defp output_entries(cache) do
+    root = cache |> Keyword.fetch!(:cache) |> Keyword.fetch!(:root)
+
+    for meta <- Path.wildcard(Path.join(root, "**/*.meta")),
+        body = CacheObserver.stored_body(cache, Path.basename(meta, ".meta")),
+        png?(body),
+        do: body
   end
 
-  defp output_lookups do
-    CacheProbe.lookup_keys() |> Enum.reject(&(&1.data == [])) |> Enum.uniq()
-  end
+  defp output_lookups, do: CacheObserver.lookup_hashes() |> Enum.uniq()
 
   defp output_writes do
     receive do
-      {:cache_put, key, _body} ->
-        keys = output_writes()
-        if key.data == [], do: keys, else: [key | keys]
+      {:cache_put, hash, body} ->
+        hashes = output_writes()
+        if png?(body), do: [hash | hashes], else: hashes
     after
       0 -> []
     end
   end
+
+  defp png?(body), do: match?(<<137, "PNG", _rest::binary>>, body)
 
   defp png(color), do: Image.new!(8, 8, color: color) |> Image.write!(:memory, suffix: ".png")
 end

@@ -14,30 +14,12 @@ defmodule ImagePipe.Delivery.TraceParentageTest do
   alias ImagePipe.Test.Trace.SpanWalk
   alias ImagePipe.Test.Trace.TestExporter
 
-  defmodule SilentCacheProbe do
-    @moduledoc false
-    @behaviour ImagePipe.Cache
-
-    @impl true
-    def get(_key, _opts), do: :miss
-
-    @impl true
-    def open_sink(_key, _metadata, _opts), do: {:ok, %{}}
-
-    @impl true
-    def write_chunk(state, _chunk, _opts), do: {:ok, state}
-
-    @impl true
-    def commit_sink(_state, _opts), do: :ok
-
-    @impl true
-    def abort_sink(_state, _opts), do: :ok
-  end
-
   # No `telemetry_prefix` (project convention otherwise requires one):
   # `TestExporter`/`Capture` attach via a global `persistent_term` singleton,
   # not a prefix-scoped handler, so a prefix wouldn't isolate anything.
   # `async: false` bounds leakage instead — ExUnit runs sync modules serially.
+  @moduletag :tmp_dir
+
   setup do
     :ok = TestExporter.attach(self())
 
@@ -75,15 +57,16 @@ defmodule ImagePipe.Delivery.TraceParentageTest do
     end
   end
 
-  test "spans from both delivery hops are semantic descendants of the caller's request span" do
-    config = [cache: {SilentCacheProbe, []}]
+  test "spans from both delivery hops are semantic descendants of the caller's request span",
+       %{tmp_dir: tmp_dir} do
+    config = [cache: [root: tmp_dir]]
 
     Telemetry.span(Telemetry.telemetry_opts(config), [:request], %{}, fn ->
       {:ok, prepared} =
         Delivery.stream(
           self(),
           build_fun(config),
-          %Key{hash: "k", data: []},
+          %Key{hash: String.duplicate("ab", 32), data: []},
           config
         )
 

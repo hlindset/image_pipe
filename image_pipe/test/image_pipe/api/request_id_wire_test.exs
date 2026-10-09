@@ -5,7 +5,7 @@ defmodule ImagePipe.API.RequestIdWireTest do
   import Plug.Test
 
   alias ImagePipe.ProcessingPool
-  alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias ImagePipe.Test.CacheObserver
   alias ImagePipe.Test.ProcessingSource
 
   @image File.read!("priv/static/images/beach.jpg")
@@ -42,8 +42,7 @@ defmodule ImagePipe.API.RequestIdWireTest do
   end
 
   test "stage events in every request process carry the response's request ID", context do
-    store = :ets.new(:request_id_cache, [:set, :public])
-    mount = mount(context, @image, cache: {CacheProbe, store: store})
+    mount = mount(context, @image, &CacheObserver.observe/1)
 
     conn = request(mount, "w=32/format=png")
 
@@ -119,21 +118,21 @@ defmodule ImagePipe.API.RequestIdWireTest do
     send(test_pid, {:event, event, self(), Logger.metadata()[:request_id], metadata})
   end
 
-  defp mount(context, bytes, extra \\ []) do
+  defp mount(context, bytes, with_cache \\ & &1) do
     config =
-      ImagePipe.config(
-        [
-          processing_pool: context.pool,
-          telemetry_prefix: context.prefix,
-          sources: [
-            path: [
-              adapter: ProcessingSource,
-              match: :path,
-              options: [test: self(), bytes: bytes]
-            ]
+      [
+        processing_pool: context.pool,
+        telemetry_prefix: context.prefix,
+        sources: [
+          path: [
+            adapter: ProcessingSource,
+            match: :path,
+            options: [test: self(), bytes: bytes]
           ]
-        ] ++ extra
-      )
+        ]
+      ]
+      |> with_cache.()
+      |> ImagePipe.config()
 
     ImagePipe.Plug.init(config: config)
   end

@@ -8,7 +8,7 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
   alias ImagePipe.Security.Signature
   alias ImagePipe.Security.SourceEncryption.{CBC, HKDF}
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias ImagePipe.Test.CacheObserver
 
   @signing_key String.duplicate("a1", 32)
   @encryption_key String.duplicate("2a49", 16)
@@ -21,8 +21,8 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
     plain = request("/w=12/format=png/src/#{@source}", config)
     assert plain.status == 200
     assert_received :origin_fetch
-    assert [plain_key] = Enum.uniq(CacheProbe.lookup_keys())
-    assert_received {:cache_put, _key, _entry}
+    assert [plain_hash] = Enum.uniq(CacheObserver.lookup_hashes())
+    assert_received {:cache_put, ^plain_hash, _body}
     assert [etag] = get_resp_header(plain, "etag")
 
     tokens =
@@ -42,8 +42,7 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
       assert response.status == 200
       assert response.resp_body == plain.resp_body
       assert get_resp_header(response, "etag") == [etag]
-      assert [key] = Enum.uniq(CacheProbe.lookup_keys())
-      assert key.hash == plain_key.hash
+      assert Enum.uniq(CacheObserver.lookup_hashes()) == [plain_hash]
       refute_received :origin_fetch
       refute_received {:cache_put, _key, _entry}
     end
@@ -55,7 +54,7 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
 
     assert conditional.status == 304
     refute_received :origin_fetch
-    refute_received {:cache_lookup, _key}
+    refute_received {:cache_lookup, _, _key}
   end
 
   test "rotation accepts earlier encryption keys and first-key tokens" do
@@ -91,12 +90,12 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
       assert response.status == 404, value
       assert response.resp_body == "not found"
       refute_received :origin_fetch
-      refute_received {:cache_lookup, _key}
+      refute_received {:cache_lookup, _, _key}
       refute_received {:cache_put, _key, _entry}
     end
 
     refute_received :origin_fetch
-    refute_received {:cache_lookup, _key}
+    refute_received {:cache_lookup, _, _key}
   end
 
   test "enc/ on a mount without source encryption keys is a 400 before source access" do
@@ -106,7 +105,7 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
     assert response.status == 400
     assert response.resp_body =~ "enc/ is not accepted: no source encryption keys are configured"
     refute_received :origin_fetch
-    refute_received {:cache_lookup, _key}
+    refute_received {:cache_lookup, _, _key}
   end
 
   test "signature verification precedes malformed token handling and binds options" do
@@ -123,7 +122,7 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
     response = conn(:get, String.replace(url, "/w=12/", "/w=13/")) |> ImagePipe.Plug.call(config)
     assert response.status == 403
     refute_received :origin_fetch
-    refute_received {:cache_lookup, _key}
+    refute_received {:cache_lookup, _, _key}
   end
 
   test "authenticated plaintext uses ordinary source validation" do
@@ -133,7 +132,7 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
     assert response.status == 400
     assert response.resp_body == "invalid source"
     refute_received :origin_fetch
-    refute_received {:cache_lookup, _key}
+    refute_received {:cache_lookup, _, _key}
   end
 
   test "diagnostics, debug headers, and telemetry do not reveal concealed source material" do
@@ -229,7 +228,6 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
   defp mount(overrides \\ []) do
     body = Image.new!(24, 16, color: :red) |> Image.write!(:memory, suffix: ".png")
     pid = self()
-    table = :ets.new(:api_source_encryption_cache, [:set, :public])
 
     origin = fn conn ->
       send(pid, :origin_fetch)
@@ -251,11 +249,11 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
           ]
         ]
       ],
-      cache: {CacheProbe, store: table},
       http_cache: :auto,
       telemetry_prefix: @prefix
     ]
     |> Keyword.merge(overrides)
+    |> CacheObserver.observe()
     |> ImagePipe.Plug.init()
   end
 end

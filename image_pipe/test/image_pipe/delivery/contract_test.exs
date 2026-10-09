@@ -14,34 +14,7 @@ defmodule ImagePipe.Delivery.ContractTest do
   alias ImagePipe.Debug.Info
   alias ImagePipe.Delivery
   alias ImagePipe.Output.Resolved
-
-  defmodule ObservingCacheProbe do
-    @moduledoc false
-    @behaviour ImagePipe.Cache
-
-    @impl true
-    def get(_key, _opts), do: :miss
-
-    @impl true
-    def open_sink(key, metadata, _opts) do
-      send(target(), {:cache_open_sink, key, metadata})
-      {:ok, %{}}
-    end
-
-    @impl true
-    def write_chunk(state, _chunk, _opts), do: {:ok, state}
-
-    @impl true
-    def commit_sink(_state, _opts), do: :ok
-
-    @impl true
-    def abort_sink(_state, _opts), do: :ok
-
-    defp target do
-      [pid | _rest] = Process.get(:"$callers")
-      pid
-    end
-  end
+  alias ImagePipe.Test.CacheObserver
 
   defp resolved_output do
     %Resolved{
@@ -54,7 +27,11 @@ defmodule ImagePipe.Delivery.ContractTest do
     }
   end
 
-  defp cache_key, do: %Key{hash: "test-key", data: []}
+  @hash String.duplicate("c3", 32)
+
+  defp cache_key, do: %Key{hash: @hash, data: []}
+
+  defp cache_config, do: CacheObserver.observe([])
 
   defp build_fun(debug) do
     fn pump -> pump.(Stream.map(["a", "b"], & &1), "image/jpeg", resolved_output(), debug) end
@@ -64,13 +41,21 @@ defmodule ImagePipe.Delivery.ContractTest do
     Delivery.stream(self(), build_fun(debug), cache_key, config)
   end
 
+  # Reads the stream to EOF, which commits the cache entry.
+  defp drain(prepared) do
+    case prepared.next.() do
+      {:chunk, _chunk} -> drain(prepared)
+      :done -> :ok
+    end
+  end
+
   # ── the debug channel: producer → coordinator, on the first-chunk reply ──
 
   describe "debug info" do
     test "the %Info{} handed to pump reaches the PreparedStream" do
       debug = %Info{source_format: :png, output_format: :jpeg}
 
-      assert {:ok, prepared} = stream(cache_key(), [cache: {ObservingCacheProbe, []}], debug)
+      assert {:ok, prepared} = stream(cache_key(), cache_config(), debug)
 
       assert prepared.debug.source_format == :png
       assert prepared.debug.output_format == :jpeg
@@ -80,17 +65,19 @@ defmodule ImagePipe.Delivery.ContractTest do
     test "the %Info{} handed to pump reaches the cache entry's stored metadata" do
       debug = %Info{source_format: :png, output_format: :jpeg}
 
-      assert {:ok, _prepared} = stream(cache_key(), [cache: {ObservingCacheProbe, []}], debug)
+      assert {:ok, prepared} = stream(cache_key(), cache_config(), debug)
+      :ok = drain(prepared)
 
-      assert_received {:cache_open_sink, _key, metadata}
+      assert_receive {:cache_open_sink, @hash, metadata}
       assert metadata.debug.source_format == :png
     end
 
     test "generation without debug info leaves both channels nil" do
-      assert {:ok, prepared} = stream(cache_key(), [cache: {ObservingCacheProbe, []}], nil)
+      assert {:ok, prepared} = stream(cache_key(), cache_config(), nil)
 
       assert prepared.debug == nil
-      assert_received {:cache_open_sink, _key, metadata}
+      :ok = drain(prepared)
+      assert_receive {:cache_open_sink, @hash, metadata}
       assert metadata.debug == nil
     end
   end
@@ -99,16 +86,17 @@ defmodule ImagePipe.Delivery.ContractTest do
 
   describe "generation cost" do
     test "the cache entry records a real cost_us, which cache admission scores by" do
-      assert {:ok, _prepared} = stream(cache_key(), cache: {ObservingCacheProbe, []})
+      assert {:ok, prepared} = stream(cache_key(), cache_config())
+      :ok = drain(prepared)
 
-      assert_received {:cache_open_sink, _key, metadata}
+      assert_receive {:cache_open_sink, @hash, metadata}
       assert metadata.cost_us > 0
     end
 
     test "cost_us completes the producer's stage timings as :total" do
       debug = %Info{timings: %{decode: 1, encode: 2}}
 
-      assert {:ok, prepared} = stream(cache_key(), [cache: {ObservingCacheProbe, []}], debug)
+      assert {:ok, prepared} = stream(cache_key(), cache_config(), debug)
 
       assert %{decode: 1, encode: 2, total: total} = prepared.debug.timings
       assert total > 0
@@ -119,17 +107,18 @@ defmodule ImagePipe.Delivery.ContractTest do
 
   describe "nil cache key" do
     test "streams normally, stages nothing, and reports no cache key" do
-      assert {:ok, prepared} = stream(nil, cache: {ObservingCacheProbe, []})
+      assert {:ok, prepared} = stream(nil, cache_config())
 
       assert prepared.first_chunk == "a"
       assert prepared.cache_key == nil
-      refute_received {:cache_open_sink, _key, _metadata}
+      :ok = drain(prepared)
+      refute_received {:cache_open_sink, _hash, _metadata}
     end
 
     test "a cache key is reported by its hash" do
-      assert {:ok, prepared} = stream(cache_key(), cache: {ObservingCacheProbe, []})
+      assert {:ok, prepared} = stream(cache_key(), cache_config())
 
-      assert prepared.cache_key == "test-key"
+      assert prepared.cache_key == @hash
     end
   end
 end

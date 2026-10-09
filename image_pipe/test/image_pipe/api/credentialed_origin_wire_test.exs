@@ -4,7 +4,7 @@ defmodule ImagePipe.API.CredentialedOriginWireTest do
   import Plug.Conn
   import Plug.Test
 
-  alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias ImagePipe.Test.CacheObserver
 
   # Source credentials come from host configuration, so an authenticated
   # fetch follows the origin's cache directives like any other.
@@ -38,7 +38,7 @@ defmodule ImagePipe.API.CredentialedOriginWireTest do
       |> send_resp(200, body)
     end
 
-    ImagePipe.Plug.init(
+    [
       sources: [
         url: [
           adapter: ImagePipe.Source.HTTP,
@@ -50,8 +50,9 @@ defmodule ImagePipe.API.CredentialedOriginWireTest do
           ]
         ]
       ],
-      cache: {CacheProbe, []},
       http_cache: :auto
-    )
+    ]
+    |> CacheObserver.observe()
+    |> ImagePipe.Plug.init()
   end
 end

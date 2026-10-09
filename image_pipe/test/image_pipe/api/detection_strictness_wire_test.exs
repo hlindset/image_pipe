@@ -6,12 +6,12 @@ defmodule ImagePipe.API.DetectionStrictnessWireTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.CacheObserver
   alias ImagePipe.Test.DetectorFixtures.CornerObjectDetector
   alias ImagePipe.Test.DetectorFixtures.FlakyDetector
   alias ImagePipe.Test.DetectorFixtures.PartialFailureDetector
   alias ImagePipe.Test.DetectorFixtures.UnavailableDetector
   alias ImagePipe.Test.FakeDetector
-  alias ImagePipe.Test.PlugFixture.CacheProbe
   alias Vix.Vips.Image, as: VipsImage
 
   setup do
@@ -40,11 +40,11 @@ defmodule ImagePipe.API.DetectionStrictnessWireTest do
   describe "strict mounts" do
     test "return 503 before source access when models are missing" do
       FlakyDetector.set(:ready?, false)
-      opts = mount(detector: FlakyDetector, detector_required: true, cache: {CacheProbe, []})
+      opts = observed(detector: FlakyDetector, detector_required: true)
 
       assert response("crop=20,20/detect=face", opts).status == 503
       refute_received :origin_fetch
-      refute_received {:cache_lookup, _key}
+      refute_received {:cache_lookup, _, _key}
     end
 
     test "serve detection without ready models when not strict" do
@@ -55,7 +55,7 @@ defmodule ImagePipe.API.DetectionStrictnessWireTest do
 
     test "fail the request when detection errors" do
       FlakyDetector.set(:fail?, true)
-      opts = mount(detector: FlakyDetector, detector_required: true, cache: {CacheProbe, []})
+      opts = observed(detector: FlakyDetector, detector_required: true)
 
       assert response("w=50/h=50/fit=cover/detect=car", opts).status == 500
       refute_received {:cache_open_sink, _key, _metadata}
@@ -78,7 +78,7 @@ defmodule ImagePipe.API.DetectionStrictnessWireTest do
       prefix = [:detection_strictness_no_store]
       attach(prefix ++ [:http_cache, :fallback, :no_store])
       FlakyDetector.set(:fail?, true)
-      opts = mount(detector: FlakyDetector, cache: stateful_cache(), telemetry_prefix: prefix)
+      opts = observed(detector: FlakyDetector, telemetry_prefix: prefix)
 
       degraded = response("w=50/h=50/fit=cover/detect=car", opts)
 
@@ -101,14 +101,14 @@ defmodule ImagePipe.API.DetectionStrictnessWireTest do
 
     test "applies to face-assisted attention and placeholder output" do
       FlakyDetector.set(:fail?, true)
-      opts = mount(detector: FlakyDetector, cache: {CacheProbe, []})
+      opts = observed(detector: FlakyDetector)
 
       for {path, opts} <- [
             {"/w=50/h=50/fit=cover/anchor=smart-face/format=png/src/beach.jpg", opts},
             {"/w=50/h=50/fit=cover/detect=car/output=blurhash/src/beach.jpg", opts},
             {"/w=50/h=50/fit=cover/detect=car/output=info/src/beach.jpg", opts},
             {"/crop=50,50/detect=car,face/format=png/src/beach.jpg",
-             mount(detector: PartialFailureDetector, cache: {CacheProbe, []})}
+             observed(detector: PartialFailureDetector)}
           ] do
         response = conn(:get, path) |> ImagePipe.Plug.call(opts)
 
@@ -140,7 +140,7 @@ defmodule ImagePipe.API.DetectionStrictnessWireTest do
 
     test "does not apply when the detector is unavailable or finds nothing" do
       for detector <- [UnavailableDetector, FakeDetector] do
-        opts = mount(detector: detector, cache: {CacheProbe, []})
+        opts = observed(detector: detector)
         response = response("w=50/h=50/fit=cover/detect=face", opts)
 
         assert response.status == 200
@@ -166,9 +166,7 @@ defmodule ImagePipe.API.DetectionStrictnessWireTest do
     end
   end
 
-  defp stateful_cache do
-    {CacheProbe, store: :ets.new(:detection_strictness_cache, [:set, :public])}
-  end
+  defp observed(overrides), do: overrides |> CacheObserver.observe() |> mount()
 
   defp response(options, config),
     do: conn(:get, "/#{options}/format=png/src/beach.jpg") |> ImagePipe.Plug.call(config)

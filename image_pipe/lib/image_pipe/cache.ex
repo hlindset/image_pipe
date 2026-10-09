@@ -42,13 +42,6 @@ defmodule ImagePipe.Cache do
 
   @shared_cache_option_keys [:max_body_bytes]
   @removed_cache_option_keys [:key_headers, :key_cookies]
-  @required_adapter_callbacks [
-    get: 2,
-    open_sink: 3,
-    write_chunk: 3,
-    commit_sink: 2,
-    abort_sink: 2
-  ]
   @shared_cache_option_schema NimbleOptions.new!(
                                 max_body_bytes: [
                                   type: {:or, [nil, :non_neg_integer]}
@@ -58,19 +51,6 @@ defmodule ImagePipe.Cache do
   @doc false
   def shared_options_schema, do: @shared_cache_option_schema.schema
 
-  @callback get(Key.t(), keyword()) :: {:hit, Entry.t()} | :miss | {:error, term()}
-  @callback open_sink(Key.t(), Entry.Metadata.t(), keyword()) ::
-              {:ok, state()} | {:error, term()}
-  @callback write_chunk(state(), binary(), keyword()) ::
-              {:ok, state()} | {:error, term(), state()}
-  @callback commit_sink(state(), keyword()) :: :ok | {:ok, :rejected} | {:error, term()}
-  @callback abort_sink(state(), keyword()) :: :ok | {:error, term()}
-  @callback validate_options(keyword()) :: {:ok, keyword()} | {:error, term()}
-  @callback child_spec(keyword()) :: Supervisor.child_spec() | nil
-
-  @optional_callbacks validate_options: 1, child_spec: 1
-
-  @type state :: term()
   @opaque sink :: Sink.t()
 
   @type entry_lookup_result ::
@@ -113,52 +93,37 @@ defmodule ImagePipe.Cache do
   @spec startup_specs(keyword()) :: [Supervisor.child_spec()]
   def startup_specs(options) do
     for key <- [:cache, :input_cache],
-        {FileSystem, cache_opts} <- [Keyword.get(options, key)],
+        cache_opts = Keyword.get(options, key),
+        cache_opts != nil,
         not Keyword.has_key?(cache_opts, :max_size_bytes),
         do: Store.sweep_spec(cache_opts)
   end
 
   @doc false
-  # Processes the configured caches need, from the adapters' optional
-  # `child_spec/1`. Takes resolved configuration options.
+  # Processes the configured bounded caches need. Takes resolved
+  # configuration options.
   @spec child_specs(keyword()) :: [Supervisor.child_spec()]
   def child_specs(options) do
     for key <- [:cache, :input_cache],
-        {adapter, cache_opts} <- [Keyword.get(options, key)],
-        spec = adapter_child_spec(adapter, cache_opts),
+        cache_opts = Keyword.get(options, key),
+        cache_opts != nil,
+        spec = FileSystem.child_spec(cache_opts),
         spec != nil,
         do: Supervisor.child_spec(spec, [])
   end
 
-  defp adapter_child_spec(adapter, cache_opts) do
-    if Code.ensure_loaded?(adapter) and function_exported?(adapter, :child_spec, 1),
-      do: adapter.child_spec(cache_opts)
-  end
-
   @doc false
   def source_record(input_key, opts) do
-    case lookup_source_record(source_index_key(input_key), opts) do
-      {:hit, %Entry{} = entry} ->
-        Entry.close(entry)
-        entry.source_record
+    key = source_index_key(input_key)
 
-      {:hit, record} ->
-        record
-
-      _miss ->
-        nil
+    lookup = fn
+      nil -> :disabled
+      cache_opts -> read_source_record(key, cache_opts)
     end
-  end
 
-  # The file system reads the record from metadata alone. Other adapters
-  # return it on a whole entry.
-  defp lookup_source_record(key, opts) do
-    case Keyword.get(opts, :cache) do
-      {FileSystem, cache_opts} ->
-        traced_lookup(opts, fn -> read_source_record(key, cache_opts) end)
-
-      _other ->
-        lookup_entry(key, opts)
+    case traced_lookup(key, :source_record, opts, lookup) do
+      {:hit, record} -> record
+      _miss -> nil
     end
   end
 
@@ -189,27 +154,30 @@ defmodule ImagePipe.Cache do
   end
 
   @doc """
-  Looks up `key` through the configured adapter, treating read errors as misses.
+  Looks up `key` in the configured cache, treating read errors as misses.
   The request runner builds the key with `ImagePipe.Representation.build/3`.
   """
   @spec lookup_entry(Key.t(), keyword()) :: entry_lookup_result()
   def lookup_entry(%Key{} = key, opts) when is_list(opts) do
-    traced_lookup(opts, fn ->
-      case Keyword.get(opts, :cache) do
-        nil -> :disabled
-        {adapter, cache_opts} -> get_entry_configured(adapter, key, cache_opts)
-      end
+    traced_lookup(key, :response, opts, fn
+      nil -> :disabled
+      cache_opts -> get_entry(key, cache_opts)
     end)
   end
 
-  defp traced_lookup(opts, lookup) do
+  # `entry` says what the lookup reads: a processed response, or the record
+  # of the original it was made from.
+  defp traced_lookup(%Key{} = key, entry, opts, lookup) do
+    cache_opts = Keyword.get(opts, :cache)
+    identity = %{cache_key: key.hash, entry: entry}
+
     Telemetry.span(
       Telemetry.telemetry_opts(opts),
       [:cache, :lookup],
-      entry_lookup_start_metadata(opts),
+      Map.merge(entry_lookup_start_metadata(cache_opts), identity),
       fn ->
-        result = lookup.()
-        {result, entry_lookup_stop_metadata(result)}
+        result = lookup.(cache_opts)
+        {result, Map.merge(entry_lookup_stop_metadata(result), identity)}
       end
     )
   end
@@ -237,11 +205,8 @@ defmodule ImagePipe.Cache do
 
   defp dispatch_open_sink(key, sink_target, opts) do
     case Keyword.get(opts, :cache) do
-      nil ->
-        nil
-
-      {adapter, cache_opts} ->
-        Sink.open(adapter, key, sink_target, cache_opts, opts)
+      nil -> nil
+      cache_opts -> Sink.open(key, sink_target, cache_opts, opts)
     end
   end
 
@@ -263,9 +228,9 @@ defmodule ImagePipe.Cache do
       :error ->
         {:ok, opts}
 
-      {:ok, {adapter, cache_opts}} when is_list(cache_opts) ->
-        with {:ok, adapter, cache_opts} <- validate_configured_cache(adapter, cache_opts) do
-          {:ok, Keyword.put(opts, :cache, {adapter, cache_opts})}
+      {:ok, cache_opts} when is_list(cache_opts) ->
+        with {:ok, cache_opts} <- validate_configured_cache(cache_opts) do
+          {:ok, Keyword.put(opts, :cache, cache_opts)}
         end
 
       {:ok, invalid} ->
@@ -273,72 +238,27 @@ defmodule ImagePipe.Cache do
     end
   end
 
-  defp get_entry_configured(adapter, key, cache_opts) do
-    case fetch_entry(adapter, key, cache_opts) do
+  defp get_entry(key, cache_opts) do
+    case FileSystem.open(key, cache_opts) do
       {:hit, entry} -> {:hit, entry}
       :miss -> {:miss, key}
       {:error, reason} -> handle_read_error(reason, key, cache_opts)
     end
   end
 
-  defp fetch_entry(adapter, key, cache_opts) do
-    case read_adapter(adapter, key, cache_opts) do
-      {:hit, %Entry{} = entry} -> validate_fetched_entry(entry)
-      :miss -> :miss
-      {:error, reason} -> {:error, reason}
-      unexpected -> {:error, {:invalid_adapter_result, unexpected}}
-    end
-  rescue
-    exception -> {:error, exception}
-  end
-
-  defp read_adapter(FileSystem, key, opts), do: FileSystem.open(key, opts)
-
-  defp read_adapter(adapter, key, opts), do: adapter.get(key, opts)
-
-  defp validate_fetched_entry(%Entry{} = entry) do
-    case Entry.validate(entry) do
-      :ok ->
-        {:hit, entry}
-
-      {:error, reason} ->
-        Entry.close(entry)
-        {:error, {:invalid_entry, reason}}
-    end
-  end
-
-  defp validate_configured_cache(adapter, cache_opts) do
-    with :ok <- validate_cache_opts(adapter, cache_opts),
+  defp validate_configured_cache(cache_opts) do
+    with :ok <- validate_cache_opts(cache_opts),
          :ok <- reject_removed_options(cache_opts),
-         :ok <- validate_adapter(adapter),
          {:ok, shared_opts} <- normalize_shared_options(cache_opts),
-         {:ok, adapter_opts} <- normalize_adapter_options(adapter, adapter_options(cache_opts)) do
-      {:ok, adapter, Keyword.merge(shared_opts, adapter_opts)}
+         {:ok, store_opts} <- normalize_store_options(store_options(cache_opts)) do
+      {:ok, Keyword.merge(shared_opts, store_opts)}
     end
   end
 
-  defp validate_cache_opts(adapter, cache_opts) do
+  defp validate_cache_opts(cache_opts) do
     if Keyword.keyword?(cache_opts),
       do: :ok,
-      else: {:error, {:invalid_cache_config, {adapter, cache_opts}}}
-  end
-
-  defp validate_adapter(adapter) when is_atom(adapter) do
-    with {:module, _module} <- Code.ensure_loaded(adapter),
-         [] <- missing_adapter_callbacks(adapter) do
-      :ok
-    else
-      {:error, _reason} -> {:error, {:invalid_cache_config, {:adapter, adapter}}}
-      missing -> {:error, {:invalid_cache_config, {:adapter_missing_callbacks, adapter, missing}}}
-    end
-  end
-
-  defp validate_adapter(adapter), do: {:error, {:invalid_cache_config, {:adapter, adapter}}}
-
-  defp missing_adapter_callbacks(adapter) do
-    Enum.reject(@required_adapter_callbacks, fn {function, arity} ->
-      function_exported?(adapter, function, arity)
-    end)
+      else: {:error, {:invalid_cache_config, cache_opts}}
   end
 
   defp reject_removed_options(cache_opts) do
@@ -370,17 +290,12 @@ defmodule ImagePipe.Cache do
     {key, value}
   end
 
-  defp adapter_options(cache_opts), do: Keyword.drop(cache_opts, @shared_cache_option_keys)
+  defp store_options(cache_opts), do: Keyword.drop(cache_opts, @shared_cache_option_keys)
 
-  defp normalize_adapter_options(adapter, cache_opts) do
-    if function_exported?(adapter, :validate_options, 1) do
-      case adapter.validate_options(cache_opts) do
-        {:ok, normalized_opts} when is_list(normalized_opts) -> {:ok, normalized_opts}
-        {:error, reason} -> {:error, {:invalid_cache_config, reason}}
-        unexpected -> {:error, {:invalid_cache_config, {:adapter_options, unexpected}}}
-      end
-    else
-      {:ok, cache_opts}
+  defp normalize_store_options(cache_opts) do
+    case FileSystem.validate_options(cache_opts) do
+      {:ok, normalized_opts} -> {:ok, normalized_opts}
+      {:error, reason} -> {:error, {:invalid_cache_config, reason}}
     end
   end
 
@@ -389,15 +304,8 @@ defmodule ImagePipe.Cache do
     {:miss, key, {:cache_read, reason}}
   end
 
-  defp entry_lookup_start_metadata(opts) do
-    cache =
-      case Keyword.get(opts, :cache) do
-        nil -> :disabled
-        _cache -> nil
-      end
-
-    %{cache: cache, pool: :output}
-  end
+  defp entry_lookup_start_metadata(nil), do: %{cache: :disabled, pool: :output}
+  defp entry_lookup_start_metadata(_cache_opts), do: %{cache: nil, pool: :output}
 
   defp entry_lookup_stop_metadata(:disabled), do: %{result: :ok, cache: :disabled}
   defp entry_lookup_stop_metadata({:hit, _entry_or_record}), do: %{result: :ok, cache: :hit}

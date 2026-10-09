@@ -9,7 +9,8 @@ does, and one request to the origin checks them all.
 Both caches, and the settings on this page, are host configuration, set for
 all sources or per source. Request URLs can't change them:
 
-- In Elixir, `ImagePipe.Cache.FileSystem` sets up the caches. The settings
+- In Elixir, the `cache` and `input_cache` options set up the caches, with
+  the options listed in `ImagePipe.Cache.FileSystem`. The settings
   are in [source cache settings](cache.md#source-cache-settings) and
   `ImagePipe.Source.File`.
 - In `image_pipe_server`, see
