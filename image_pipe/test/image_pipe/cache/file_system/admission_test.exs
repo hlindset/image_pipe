@@ -348,6 +348,45 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert state.probationary_bytes == 5_000
   end
 
+  describe "protected segment" do
+    setup %{registry: registry, tmp_dir: tmp_dir} do
+      opts =
+        base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: 20_000, window_ratio: 0.0)
+
+      pid = start_supervised!({Admission, opts})
+      Admission.await_scan(pid)
+      %{pid: pid}
+    end
+
+    test "keeps up to 80% of the main budget", %{pid: pid, tmp_dir: tmp_dir} do
+      descriptors = for i <- 1..8, do: persisted_descriptor(tmp_dir, "key-#{i}", 2_000)
+      Enum.each(descriptors, &hit_twice(pid, &1))
+
+      state = :sys.get_state(pid)
+      assert state.protected_bytes == 16_000
+      assert Enum.all?(descriptors, &in_queue?(state.protected, &1.key_hash))
+    end
+
+    test "demotes until it is back within its budget", %{pid: pid, tmp_dir: tmp_dir} do
+      [small, medium, large] =
+        for {seed, size} <- [{"small", 1_600}, {"medium", 8_000}, {"large", 9_600}],
+            do: persisted_descriptor(tmp_dir, seed, size)
+
+      Enum.each([small, medium, large], &hit_twice(pid, &1))
+
+      state = :sys.get_state(pid)
+      assert state.protected_bytes == 9_600
+      assert in_queue?(state.protected, large.key_hash)
+      assert in_queue?(state.probationary, small.key_hash)
+      assert in_queue?(state.probationary, medium.key_hash)
+    end
+  end
+
+  defp hit_twice(pid, descriptor) do
+    Admission.hit(pid, descriptor)
+    Admission.hit(pid, descriptor)
+  end
+
   test "background scan inserts on-disk entries into probationary", %{
     registry: registry,
     tmp_dir: tmp_dir
@@ -644,9 +683,9 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
 
   defp hex_hash(seed), do: seed <> String.duplicate("0", 64 - byte_size(seed))
 
-  defp persisted_descriptor(root, seed) do
+  defp persisted_descriptor(root, seed, size \\ 100) do
     hash = :crypto.hash(:sha256, seed) |> Base.encode16(case: :lower)
-    put_disk_entry(root, hash, String.duplicate("x", 100))
+    put_disk_entry(root, hash, String.duplicate("x", size))
     {:ok, paths} = FileSystem.paths_from_hash(hash, root: root)
     {:ok, descriptor, _mtime} = FileSystem.read_descriptor(paths.meta_path)
     descriptor

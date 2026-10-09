@@ -997,9 +997,12 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     enforce_protected_target(state)
   end
 
+  # Protected keeps 80% of the main budget, as in W-TinyLFU. Entries vary in
+  # size, so one promotion can need several demotions. The entry just promoted
+  # is protected's MRU and is demoted last.
   defp enforce_protected_target(state) do
     main_budget = state.max_size_bytes - state.window_budget
-    target = trunc(main_budget * 0.20)
+    target = trunc(main_budget * 0.80)
 
     if state.protected_bytes > target and :ets.info(state.protected, :size) > 0 do
       first_key = :ets.first(state.protected)
@@ -1009,7 +1012,10 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
       {pos, state} = next_position(state)
       put_entry(state, :probationary, pos, descriptor)
-      Map.update!(state, :probationary_bytes, &(&1 + descriptor.size_bytes))
+
+      state
+      |> Map.update!(:probationary_bytes, &(&1 + descriptor.size_bytes))
+      |> enforce_protected_target()
     else
       state
     end
