@@ -16,6 +16,10 @@ defmodule ImagePipeServer.Application do
     config = config!()
 
     Logger.configure(level: config.log_level)
+
+    # Each request decodes a new original, so libvips' operation cache rarely
+    # hits and mostly keeps decoded images in memory.
+    Vix.Vips.cache_set_max(0)
     if config.telemetry, do: ImagePipe.Telemetry.attach_default_logger(config.telemetry)
 
     if Application.fetch_env!(:image_pipe_server, :tracing) do

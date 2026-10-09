@@ -153,6 +153,33 @@ Allow for that across the requests that run at once. A
 `max_input_pixels` caps the decoded original, and `max_intermediate_pixels`
 caps frames read during processing.
 
+libvips also keeps its recent operations and their images in an operation
+cache, 100 operations by default. Each request decodes its original again, so
+the cache rarely gets a hit and mostly keeps decoded images in memory. In a
+run of 160 resizes of four 24-megapixel JPEGs, resident memory after garbage
+collection was 480–730 MB with the cache and 310–340 MB without it, at the
+same speed.
+
+<!-- tabs-open -->
+
+### Plug
+
+Turn the cache off when your app starts:
+
+```elixir
+# lib/my_app/application.ex, in start/2
+Vix.Vips.cache_set_max(0)
+```
+
+`Vix.Vips.cache_get_max()` then returns `0`. The setting applies to all
+libvips work in the VM, including your app's own use of `Image` or Vix.
+
+### image_pipe_server
+
+The server turns the cache off when it starts.
+
+<!-- tabs-close -->
+
 ## Next steps
 
 - [Limiting concurrent processing](processing-controls.md): a processing pool
