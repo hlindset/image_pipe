@@ -72,15 +72,20 @@ defmodule ImagePipe.Cache.FileSystem.SketchTest do
   end
 
   describe "age/1" do
-    test "halves all counters with (c + 1) >>> 1" do
+    test "halves all counters, rounding down" do
       sketch = Sketch.new(depth: 2, width: 4)
-      sketch = Enum.reduce(1..10, sketch, fn _, s -> Sketch.increment(s, "k") end)
+      sketch = Enum.reduce(1..11, sketch, fn _, s -> Sketch.increment(s, "k") end)
 
       before = counters(sketch)
       sketch = Sketch.age(sketch)
       after_ = counters(sketch)
 
-      assert Enum.zip(before, after_) |> Enum.all?(fn {b, a} -> a == Bitwise.bsr(b + 1, 1) end)
+      assert Enum.zip(before, after_) |> Enum.all?(fn {b, a} -> a == div(b, 2) end)
+    end
+
+    test "a key counted once is forgotten after one aging pass" do
+      sketch = Sketch.new(depth: 2, width: 4) |> Sketch.increment("k") |> Sketch.age()
+      assert Sketch.estimate(sketch, "k") == 0
     end
 
     test "increments aging epoch and resets increments_since_reset" do
