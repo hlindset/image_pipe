@@ -5,10 +5,14 @@
 #   mise exec -- mix run bench/cache_policy.exs zipf-0.8 5
 #   mise exec -- mix run bench/cache_policy.exs --real shift 5
 #   mise exec -- mix run bench/cache_policy.exs --random-sweep
+#   mise exec -- mix run bench/cache_policy.exs --restart-sweep
 #
 # Optional arguments: one workload and one cache size (% of catalog bytes).
 # `--random-sweep` replaces the policy list with a grid of random admission
 # thresholds and odds, each run with three seeds for the random draws.
+# `--restart-sweep` restarts the cache every N requests, either keeping its
+# popularity state (sketch and protected list, as Admission persists them) or
+# starting cold with every entry on probation by write time or by last access.
 #
 # By default W-TinyLFU runs an in-memory model of Admission's queues that
 # calls the real Sketch, Doorkeeper and Policy modules, so the full matrix
@@ -43,6 +47,10 @@ defmodule CachePolicyBench do
   #   * `aging: {:entries, k}` halves the sketch every k × the cache's expected
   #     entry count (cap / mean entry size), as Caffeine does with k = 10,
   #     instead of the adapter's default.
+  #   * `restart: {every, mode}` restarts the cache every `every` requests.
+  #     `:persist` keeps the sketch and protected list, `:cold` clears them
+  #     and queues every entry on probation by write time, as Admission's
+  #     startup scan orders by mtime, and `:cold_access` by last access.
   #   * `gate: :each` admits only a candidate that outscores every victim,
   #     instead of the size-weighted average of the victims.
   @tinylfu %{
@@ -51,6 +59,7 @@ defmodule CachePolicyBench do
     admission: {:random, 6, 128},
     aging: :default,
     gate: :average,
+    restart: nil,
     seed: 9
   }
   @policies [
@@ -79,6 +88,7 @@ defmodule CachePolicyBench do
     {policies, args} =
       case args do
         ["--random-sweep" | rest] -> {random_sweep(), rest}
+        ["--restart-sweep" | rest] -> {restart_sweep(), rest}
         rest -> {@policies, rest}
       end
 
@@ -125,6 +135,15 @@ defmodule CachePolicyBench do
     end
   end
 
+  defp restart_sweep do
+    restarts =
+      for every <- [20_000, 50_000], mode <- [:persist, :cold, :cold_access] do
+        {"restart-#{div(every, 1_000)}k-#{mode}", restart: {every, mode}}
+      end
+
+    [{"lru", :lru}, {"tinylfu", []} | restarts]
+  end
+
   defp options(:lru, _mean_entry_bytes), do: :lru
 
   defp options(overrides, mean_entry_bytes),
@@ -133,7 +152,7 @@ defmodule CachePolicyBench do
   defp seed(%{seed: seed}), do: seed
   defp seed(:lru), do: 9
 
-  defp supported?(:real, %{admission: {:random, 6, 128}, aging: :default, gate: :average}),
+  defp supported?(:real, %{admission: {:random, 6, 128}, aging: :default, gate: :average, restart: nil}),
     do: true
   defp supported?(:real, %{}), do: false
   defp supported?(_backend, _policy), do: true
@@ -440,6 +459,13 @@ defmodule CachePolicyBench.Model do
       admission_mode: policy.admission,
       gate: policy.gate,
       window_budget: trunc(cap * policy.window),
+      restart: policy.restart,
+      requests: 0,
+      sketch_options: [
+        depth: options[:sketch_depth],
+        width: options[:sketch_width],
+        sample_size: sample_size
+      ],
       cms:
         Sketch.new(
           depth: options[:sketch_depth],
@@ -457,14 +483,65 @@ defmodule CachePolicyBench.Model do
 
   # Returns {hit?, model}. A miss commits the entry, as a real miss would.
   def request(model, descriptor) do
+    model = model |> Map.update!(:requests, &(&1 + 1)) |> maybe_restart()
     key = descriptor.key_hash
     model = sighting(model, key)
 
     case Map.fetch(model.index, key) do
-      {:ok, {queue, _position}} -> {true, promote(model, queue, key)}
-      :error -> {false, admit_new(model, descriptor)}
+      {:ok, {queue, _position}} ->
+        {true, promote(model, queue, key)}
+
+      :error ->
+        {false, admit_new(model, Map.put(descriptor, :written_at, model.requests))}
     end
   end
+
+  defp maybe_restart(%{restart: {every, mode}, requests: requests} = model)
+       when rem(requests, every) == 0,
+       do: restart(model, mode)
+
+  defp maybe_restart(model), do: model
+
+  # Mirrors Admission's startup: the doorkeeper starts empty and the window
+  # is rebuilt from traffic. Entries go on probation in scan order.
+  defp restart(model, mode) do
+    entries = for queue <- @queues, entry <- entries(model, queue), do: {queue, entry}
+
+    {protected, probationary} =
+      case mode do
+        :persist -> Enum.split_with(entries, fn {queue, _entry} -> queue == :protected end)
+        _cold -> {[], entries}
+      end
+
+    order =
+      case mode do
+        :cold_access -> fn {_queue, {position, _descriptor}} -> position end
+        _by_write -> fn {_queue, {_position, descriptor}} -> descriptor.written_at end
+      end
+
+    cms =
+      case mode do
+        :persist -> model.cms
+        _cold -> Sketch.new(model.sketch_options)
+      end
+
+    empty = %{
+      model
+      | cms: cms,
+        doorkeeper: Doorkeeper.new(model.doorkeeper_cardinality, 0.01),
+        trees: Map.new(@queues, &{&1, :gb_trees.empty()}),
+        bytes: Map.new(@queues, &{&1, 0}),
+        index: %{}
+    }
+
+    empty = Enum.reduce(protected, empty, fn {_q, {_p, d}}, acc -> put(acc, :protected, d) end)
+
+    probationary
+    |> Enum.sort_by(order)
+    |> Enum.reduce(empty, fn {_q, {_p, d}}, acc -> put(acc, :probationary, d) end)
+  end
+
+  defp entries(model, queue), do: :gb_trees.to_list(model.trees[queue])
 
   defp sighting(model, key) do
     model =
