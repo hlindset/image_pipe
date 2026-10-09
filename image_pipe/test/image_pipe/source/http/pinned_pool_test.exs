@@ -33,4 +33,31 @@ defmodule ImagePipe.Source.HTTP.PinnedPoolTest do
     assert pools.() == before + 1
     assert req_pools.() == req_before
   end
+
+  # The pool's name is registered before its supervisor starts its children, so
+  # a fetch that finds the name mid-start must still wait for the pool.
+  test "concurrent first fetches all succeed while their connection pool starts" do
+    bandit = start_supervised!({Bandit, plug: Origin, port: 0, ip: :loopback, startup_log: false})
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(bandit)
+    runtime = [validate_target: fn _url -> {:ok, [{127, 0, 0, 1}]} end]
+
+    for timeout <- 5_100..5_119 do
+      # Each round's connect timeout gives it a pool no fetch has started yet.
+      req_options = [url: "http://localhost:#{port}/image", connect_options: [timeout: timeout]]
+
+      results =
+        1..32
+        |> Task.async_stream(
+          fn _ ->
+            {:ok, response} = ReqStream.open(req_options, runtime)
+            Enum.join(response.stream)
+          end,
+          max_concurrency: 32,
+          timeout: :infinity
+        )
+        |> Enum.map(fn {:ok, body} -> body end)
+
+      assert results == List.duplicate("body", 32)
+    end
+  end
 end

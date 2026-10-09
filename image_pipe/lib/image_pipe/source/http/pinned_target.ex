@@ -83,6 +83,12 @@ defmodule ImagePipe.Source.HTTP.PinnedTarget do
   # one DynamicSupervisor on every request. A pool started here once, under
   # ImagePipe's supervisor, is passed to Req by name instead. Req accepts only
   # its build and request options alongside a name.
+  #
+  # A Finch instance registers its name before it starts its pool supervisor,
+  # so a registered name doesn't mean the instance is ready. The supervisor
+  # returns from start_child, even with :already_started, only once the
+  # instance has started, so the pid it returns is recorded and a fetch skips
+  # start_child only when the name still points at that pid.
   @pools ImagePipe.Source.HTTP.Pools
   @request_options [
     :pool_tag,
@@ -97,17 +103,26 @@ defmodule ImagePipe.Source.HTTP.PinnedTarget do
     {request_options, pool_options} = Keyword.split(finch, @request_options)
     name = pool_name(pool_options)
 
-    if Process.whereis(name) == nil do
+    started = :persistent_term.get({@pools, name}, nil)
+
+    if started == nil or Process.whereis(name) != started do
+      start_pool(name, pool_options)
+    end
+
+    [name: name] ++ request_options
+  end
+
+  defp start_pool(name, pool_options) do
+    pid =
       case DynamicSupervisor.start_child(
              @pools,
              {Finch, name: name, pools: %{default: [start_pool_metrics?: true] ++ pool_options}}
            ) do
-        {:ok, _pid} -> :ok
-        {:error, {:already_started, _pid}} -> :ok
+        {:ok, pid} -> pid
+        {:error, {:already_started, pid}} -> pid
       end
-    end
 
-    [name: name] ++ request_options
+    :persistent_term.put({@pools, name}, pid)
   end
 
   defp pool_name(pool_options) do
