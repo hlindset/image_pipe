@@ -14,13 +14,36 @@ defmodule ImagePipe.Transform.Operation.TrimPropertyTest do
     block
   end
 
-  defp insert(canvas, {x, y, width, height, color}) do
+  defp draw(canvas, {:rect, x, y, width, height, color}) do
     {:ok, canvas} = Operation.insert(canvas, fill(width, height, color), x, y)
     canvas
   end
 
-  # A border color, a content block, and marks in the border: lines and dots
-  # thinner than the 8x preview, which its median filter erases.
+  defp draw(canvas, {:circle, x, y, radius, color}),
+    do: Image.Draw.circle!(canvas, x, y, radius, color: color, fill: true)
+
+  # A stroke `thickness` pixels wide, drawn as adjacent one-pixel lines.
+  defp draw(canvas, {:line, x1, y1, x2, y2, thickness, color}) do
+    Enum.reduce(0..(thickness - 1), canvas, fn offset, canvas ->
+      Image.Draw.line!(canvas, x1 + offset, y1, x2 + offset, y2, color: color)
+    end)
+  end
+
+  # Content inside the margins, as a block, a circle, or a diagonal band.
+  defp content(width, height, {left, top, right, bottom}, color) do
+    inner_width = width - left - right
+    inner_height = height - top - bottom
+
+    member_of([
+      {:rect, left, top, inner_width, inner_height, color},
+      {:circle, left + div(inner_width, 2), top + div(inner_height, 2),
+       max(1, div(min(inner_width, inner_height), 2) - 1), color},
+      {:line, left, top, left + inner_width - 30, top + inner_height - 1, 30, color}
+    ])
+  end
+
+  # A border color, content, and marks: rectangles, dots, and diagonal strokes,
+  # many thinner than the 8x preview, whose median filter erases them.
   defp bordered_image do
     gen all width <- integer(260..900),
             height <- integer(260..900),
@@ -30,30 +53,40 @@ defmodule ImagePipe.Transform.Operation.TrimPropertyTest do
             top <- integer(1..div(height, 3)),
             right <- integer(1..div(width, 3)),
             bottom <- integer(1..div(height, 3)),
-            mark_count <- integer(0..3),
+            shape <- content(width, height, {left, top, right, bottom}, content),
+            mark_count <- integer(0..4),
             marks <- list_of(mark(width, height), length: mark_count),
             noise <- member_of([0.0, 3.0, 12.0]) do
-      canvas =
-        width
-        |> fill(height, background)
-        |> insert({left, top, width - left - right, height - top - bottom, content})
-
-      canvas = Enum.reduce(marks, canvas, &insert(&2, &1))
+      canvas = width |> fill(height, background) |> draw(shape)
+      canvas = Enum.reduce(marks, canvas, &draw(&2, &1))
       add_noise(canvas, noise)
     end
   end
 
   defp mark(width, height) do
-    gen all thickness <- integer(1..20),
+    gen all kind <- member_of([:rect, :circle, :line]),
+            thickness <- integer(1..20),
             vertical? <- boolean(),
-            x <- integer(1..(width - 21)),
-            y <- integer(1..(height - 21)),
+            x <- integer(25..(width - 25)),
+            y <- integer(25..(height - 25)),
             length <- integer(1..200),
+            dx <- integer(-200..200),
             color <- list_of(integer(0..255), length: 3) do
-      if vertical?,
-        do: {x, y, thickness, min(length, height - y), color},
-        else: {x, y, min(length, width - x), thickness, color}
+      case kind do
+        :rect when vertical? -> {:rect, x, y, thickness, min(length, height - y), color}
+        :rect -> {:rect, x, y, min(length, width - x), thickness, color}
+        :circle -> {:circle, x, y, div(thickness, 2) + 1, color}
+        :line -> diagonal(x, y, dx, length, thickness, width, height, color)
+      end
     end
+  end
+
+  # A stroke from (x, y) towards (x + dx, y + length), kept inside the image
+  # and clear of the top-left pixel, which is the background sample.
+  defp diagonal(x, y, dx, length, thickness, width, height, color) do
+    x2 = min(max(x + dx, 1), width - thickness - 1)
+    y2 = min(y + length, height - 1)
+    {:line, min(x, width - thickness - 1), y, x2, y2, thickness, color}
   end
 
   defp add_noise(image, 0.0), do: image
