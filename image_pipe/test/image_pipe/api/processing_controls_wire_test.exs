@@ -124,6 +124,34 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
     assert Task.await(active).status == 200
   end
 
+  test "a stored terminal's generation cost excludes the wait for a processing slot", context do
+    pool = start_supervised!({ProcessingPool, max_concurrency: 1})
+    mount = ImagePipe.Plug.init(config: config(pool, context.prefix, cache: {CacheProbe, []}))
+    queue_wait_us = 200_000
+    test = self()
+
+    Task.Supervisor.async_nolink(context.tasks, fn ->
+      ProcessingPool.within(pool, self(), [], fn ->
+        send(test, :holding)
+        await_queued(pool)
+        # Holds the slot so the request below queues; nothing races this.
+        Process.sleep(div(queue_wait_us, 1_000))
+      end)
+    end)
+
+    assert_receive :holding
+    assert request(mount, "output=info").status == 200
+    assert_received {:cache_open_sink, _key, metadata}
+    assert metadata.cost_us < queue_wait_us
+  end
+
+  defp await_queued(pool) do
+    case ProcessingPool.stats(pool) do
+      %{queued: 0} -> await_queued(pool)
+      _queued -> :ok
+    end
+  end
+
   test "invalid requests and processing configuration fail before work", context do
     pool = start_supervised!({ProcessingPool, max_concurrency: 1})
     mount = ImagePipe.Plug.init(config: config(pool, context.prefix))
