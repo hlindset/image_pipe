@@ -176,6 +176,26 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     assert state.probationary_bytes == 0
   end
 
+  test "an entry larger than the window budget is admitted to main when it has room", %{
+    root: root
+  } do
+    opts = bounded_opts(root, max_size_bytes: 100, window_ratio: 0.1)
+    start_supervised!(FileSystem.child_spec(opts))
+    pid = admission_pid(root)
+    FileSystem.Admission.await_scan(pid)
+    small = distinct_key(1)
+    oversized = distinct_key(2)
+    body = String.duplicate("o", 20)
+
+    assert :ok = put_entry(small, entry("image"), opts)
+    assert :ok = put_entry(oversized, entry(body), opts)
+
+    state = :sys.get_state(pid)
+    assert state.window_bytes == 5
+    assert state.probationary_bytes == 20
+    assert {:hit, %{body: ^body}} = FileSystem.get(oversized, opts)
+  end
+
   test "rejected (over-cap) entry deletes the written body and meta", %{root: root} do
     # max_size_bytes smaller than the entry forces {:reject, :over_cap}.
     opts = bounded_opts(root, max_size_bytes: 4)
