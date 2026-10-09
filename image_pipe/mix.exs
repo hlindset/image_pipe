@@ -83,8 +83,7 @@ defmodule ImagePipe.MixProject do
     "ImagePipe.Security.verify/3",
     "ImagePipe.Source.S3.Credentials.fetch/3",
     "ImagePipe.Source.S3.Credentials.validate/1",
-    "ImagePipe.Source.S3.RefreshCache",
-    "ImagePipe.Telemetry.Trace.Capture"
+    "ImagePipe.Source.S3.RefreshCache"
   ]
   # ExDoc resolves remote typespecs without consulting skip_code_autolink_to.
   # These exact specs intentionally mention hidden runtime value types.

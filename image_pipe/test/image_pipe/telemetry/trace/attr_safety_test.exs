@@ -2,16 +2,10 @@ defmodule ImagePipe.Telemetry.Trace.AttrSafetyTest do
   use ExUnit.Case, async: false
   use ExUnitProperties
   alias ImagePipe.Telemetry
-  alias ImagePipe.Telemetry.Trace.{Span, TestExporter}
+  alias ImagePipe.Test.Trace.{Span, TestExporter}
 
   setup do
-    TestExporter.set_receiver(self())
     :ok = TestExporter.attach(self())
-
-    on_exit(fn ->
-      Telemetry.detach_tracer()
-      TestExporter.clear_receiver()
-    end)
 
     :ok
   end
@@ -37,7 +31,7 @@ defmodule ImagePipe.Telemetry.Trace.AttrSafetyTest do
     refute flat =~ "SECRET123"
     refute flat =~ "cdn.example.com"
     # product-neutral key is allowed through
-    assert span.attributes[:source_name] == :media
+    assert span.attributes[:source_name] == "media"
   end
 
   property "no secret-bearing key ever reaches attributes, for any value" do

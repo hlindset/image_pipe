@@ -6,8 +6,7 @@ defmodule ImagePipe.Application do
     deps: [
       ImagePipe.Cache,
       ImagePipe.Output,
-      ImagePipe.Source,
-      ImagePipe.Telemetry
+      ImagePipe.Source
     ]
 
   use Application
@@ -28,7 +27,6 @@ defmodule ImagePipe.Application do
       {Task.Supervisor, name: ImagePipe.Cache.RefreshTasks},
       ImagePipe.Cache.Work,
       ImagePipe.Cache.OutputWork,
-      ImagePipe.Telemetry.Trace.OtelReplay,
       ImagePipe.Source.S3.RefreshCache,
       ImagePipe.Cache.staged_sweep_spec()
     ]

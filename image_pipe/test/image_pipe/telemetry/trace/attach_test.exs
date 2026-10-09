@@ -1,74 +1,51 @@
 defmodule ImagePipe.Telemetry.Trace.AttachTest do
   use ExUnit.Case, async: false
   alias ImagePipe.Telemetry
-  alias ImagePipe.Telemetry.Trace.LogExporter
-  alias ImagePipe.Telemetry.Trace.TestExporter
-
-  defmodule NotReadyExporter do
-    @behaviour ImagePipe.Telemetry.Trace.Exporter
-    @impl true
-    def export(_span), do: :ok
-    @impl true
-    def ready?, do: false
-  end
+  alias ImagePipe.Test.Trace.TestExporter
 
   setup do
     on_exit(fn -> Telemetry.detach_tracer() end)
     :ok
   end
 
-  test "attach_tracer succeeds with a valid exporter" do
-    assert Telemetry.attach_tracer(exporter: LogExporter) == :ok
+  test "attach_tracer succeeds without options" do
+    assert Telemetry.attach_tracer() == :ok
   end
 
-  test "reattaching applies disabled and reenabled Finch capture" do
+  test "reattaching applies disabled and reenabled Finch spans" do
     prefix = [:attach_test, :finch_toggle]
-    on_exit(&TestExporter.clear_receiver/0)
     TestExporter.attach(self(), prefix: prefix)
+    parent = TestExporter.open_span()
 
     metadata = %{
-      request: %{private: %{image_pipe_trace: {"attach-toggle", "parent", 1}}},
+      request: %{private: %{image_pipe_trace: :otel_tracer.current_span_ctx()}},
       result: {:ok, %{status: 200}}
     }
 
-    measurements = %{duration: 10, system_time: System.system_time()}
+    measurements = %{duration: 10}
+    trace_id = parent.trace_id
+
     :telemetry.execute([:finch, :request, :stop], measurements, metadata)
-    assert_received {:span, %{name: "finch.request", trace_id: "attach-toggle"}}
+    assert_receive {:span, %{name: "finch.request", trace_id: ^trace_id}}
 
     TestExporter.attach(self(), prefix: prefix, finch_spans: false)
     :telemetry.execute([:finch, :request, :stop], measurements, metadata)
-    refute_received {:span, %{name: "finch.request", trace_id: "attach-toggle"}}
+    refute_receive {:span, %{name: "finch.request", trace_id: ^trace_id}}, 100
 
     TestExporter.attach(self(), prefix: prefix, finch_spans: true)
     :telemetry.execute([:finch, :request, :stop], measurements, metadata)
-    assert_received {:span, %{name: "finch.request", trace_id: "attach-toggle"}}
+    assert_receive {:span, %{name: "finch.request", trace_id: ^trace_id}}
   end
 
   test "attach_tracer raises on unknown option" do
-    assert_raise ArgumentError, fn ->
-      Telemetry.attach_tracer(exporter: LogExporter, bogus: 1)
-    end
+    assert_raise ArgumentError, fn -> Telemetry.attach_tracer(bogus: 1) end
   end
 
-  test "attach_tracer raises when exporter is missing" do
-    assert_raise ArgumentError, fn -> Telemetry.attach_tracer([]) end
-  end
-
-  test "attach_tracer raises when exporter module is not loadable" do
-    assert_raise ArgumentError, fn -> Telemetry.attach_tracer(exporter: NotARealModule) end
-  end
-
-  test "attach_tracer raises when module is loadable but does not export export/1" do
-    assert_raise ArgumentError, fn -> Telemetry.attach_tracer(exporter: Enum) end
+  test "attach_tracer raises on the removed exporter option" do
+    assert_raise ArgumentError, fn -> Telemetry.attach_tracer(exporter: SomeExporter) end
   end
 
   test "attach_tracer raises ArgumentError on a non-list argument" do
     assert_raise ArgumentError, fn -> Telemetry.attach_tracer(:not_a_list) end
-  end
-
-  test "attach_tracer raises when the exporter reports not ready" do
-    assert_raise ArgumentError, ~r/not ready/, fn ->
-      Telemetry.attach_tracer(exporter: NotReadyExporter)
-    end
   end
 end

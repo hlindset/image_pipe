@@ -9,7 +9,7 @@ defmodule ImagePipe.Source.HTTPTest do
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
   alias ImagePipe.Telemetry
-  alias ImagePipe.Telemetry.Trace.TestExporter
+  alias ImagePipe.Test.Trace.TestExporter
 
   @public_ip {93, 184, 216, 34}
 
@@ -184,13 +184,6 @@ defmodule ImagePipe.Source.HTTPTest do
   end
 
   describe "traceparent on origin requests" do
-    setup do
-      on_exit(fn ->
-        Telemetry.detach_tracer()
-        TestExporter.clear_receiver()
-      end)
-    end
-
     defp origin_traceparent do
       plug = fn conn ->
         send(self(), {:traceparent, Plug.Conn.get_req_header(conn, "traceparent")})

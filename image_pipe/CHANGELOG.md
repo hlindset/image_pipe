@@ -5,6 +5,40 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- The `image_pipe.request` span carries a `request_id` attribute when Logger
+  metadata has a `:request_id`, such as the one `Plug.RequestId` sets.
+
+### Changed
+
+- **Breaking:** The tracer now creates OpenTelemetry spans as they happen, and
+  needs the OpenTelemetry SDK in your application. Remove the `exporter:`
+  option from `ImagePipe.Telemetry.attach_tracer/1` and the
+  `ImagePipe.Telemetry.Trace.OtelIdGenerator` `id_generator` setting from your
+  `:opentelemetry` configuration. To print spans without a backend, use the
+  SDK's stdout exporter. Span and trace IDs now come from the SDK, and each
+  span reaches the SDK when it ends, not when the request finishes.
+- A request's spans join the trace of the span that is current when the
+  request starts, such as one from your Phoenix or Bandit instrumentation.
+  This includes `ImagePipe.run/4` in an instrumented job. With
+  `extract_inbound: true`, the inbound `traceparent` applies only when no span
+  is current.
+- Spans your own code opens inside ImagePipe's processes, such as in a custom
+  source or detector, nest under the request's spans, with or without the
+  tracer attached.
+- A request that continues an inbound trace follows the caller's sampled
+  flag under the SDK's default parent-based sampler. It was always recorded
+  before.
+
+### Removed
+
+- **Breaking:** `ImagePipe.Telemetry.Trace.LogExporter`,
+  `ImagePipe.Telemetry.Trace.OpenTelemetryExporter`,
+  `ImagePipe.Telemetry.Trace.OtelIdGenerator`,
+  `ImagePipe.Telemetry.Trace.Span`, `ImagePipe.Telemetry.Trace.Context`, and
+  the `ImagePipe.Telemetry.Trace.Exporter` behaviour.
+
 ### Fixed
 
 - Concurrent fetches from an HTTP source (`ImagePipe.Source.HTTP`) just after

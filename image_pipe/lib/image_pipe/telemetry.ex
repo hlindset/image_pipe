@@ -14,19 +14,13 @@ defmodule ImagePipe.Telemetry do
     exports: [
       RequestContext,
       Trace,
-      Trace.Stack,
-      Trace.Span,
-      Trace.Exporter,
-      Trace.ReqStep,
-      Trace.OpenTelemetryExporter,
-      Trace.OtelIdGenerator,
-      Trace.OtelReplay
+      Trace.ReqStep
     ]
 
   alias ImagePipe.Telemetry.Logger, as: DefaultLogger
   alias ImagePipe.Telemetry.Trace
-  alias ImagePipe.Telemetry.Trace.Capture
-  alias ImagePipe.Telemetry.Trace.FinchCapture
+  alias ImagePipe.Telemetry.Trace.FinchHandler
+  alias ImagePipe.Telemetry.Trace.Handler
 
   @default_prefix [:image_pipe]
 
@@ -136,14 +130,6 @@ defmodule ImagePipe.Telemetry do
   def validate_logger_prefix(_prefix), do: {:error, "expected a non-empty list of atoms"}
 
   @tracer_schema NimbleOptions.new!(
-                   exporter: [
-                     type: :atom,
-                     required: true,
-                     doc:
-                       "A module implementing `ImagePipe.Telemetry.Trace.Exporter`, such as " <>
-                         "`ImagePipe.Telemetry.Trace.LogExporter` or " <>
-                         "`ImagePipe.Telemetry.Trace.OpenTelemetryExporter`."
-                   ],
                    prefix: [
                      type: {:list, :atom},
                      default: @default_prefix,
@@ -155,10 +141,10 @@ defmodule ImagePipe.Telemetry do
                      type: :boolean,
                      default: false,
                      doc:
-                       "When `true`, a request with a valid W3C `traceparent` header (version `00`, " <>
-                         "lowercase hexadecimal fields, non-zero IDs) continues " <>
-                         "the caller's trace. Enable it only when a proxy you control sets the " <>
-                         "header or removes it from outside requests. See " <>
+                       "When `true`, a request with a valid W3C `traceparent` header continues " <>
+                         "the caller's trace, unless a span of your own is already current. " <>
+                         "Enable it only when a proxy you control sets the header or removes it " <>
+                         "from outside requests. See " <>
                          "[inbound trace context](tracing.md#inbound-trace-context)."
                    ],
                    finch_spans: [
@@ -166,15 +152,18 @@ defmodule ImagePipe.Telemetry do
                      default: true,
                      doc:
                        "Also records a span for each HTTP request a source makes through Finch, " <>
-                         "including connection setup. `false` removes a Finch handler attached earlier."
+                         "including connection setup. `false` records none."
                    ]
                  )
 
   @doc """
-  Attaches the span tracer, which builds spans from ImagePipe's telemetry
-  events and passes each finished span to an exporter.
+  Attaches the span tracer, which turns ImagePipe's telemetry events into
+  OpenTelemetry spans through the OpenTelemetry API.
 
-      ImagePipe.Telemetry.attach_tracer(exporter: ImagePipe.Telemetry.Trace.LogExporter)
+      ImagePipe.Telemetry.attach_tracer()
+
+  Your application provides and configures the OpenTelemetry SDK. ImagePipe
+  depends on `:opentelemetry_api` as an optional dependency.
 
   Call it once at application startup. Calling it again replaces the whole
   tracer configuration. Remove it with `detach_tracer/0`. How spans form a
@@ -184,10 +173,13 @@ defmodule ImagePipe.Telemetry do
 
   #{NimbleOptions.docs(@tracer_schema)}
 
-  Raises `ArgumentError` for invalid options, or for an exporter that can't be
-  loaded, has no `export/1`, or whose `ready?/0` returns `false`.
+  Raises `ArgumentError` for invalid options, or when ImagePipe was compiled
+  without `:opentelemetry_api`. Add `:opentelemetry` to your dependencies and
+  recompile ImagePipe (`mix deps.compile image_pipe --force`).
   """
   @spec attach_tracer(keyword()) :: :ok
+  def attach_tracer(opts \\ [])
+
   def attach_tracer(opts) when is_list(opts) do
     opts =
       case NimbleOptions.validate(opts, @tracer_schema) do
@@ -198,29 +190,16 @@ defmodule ImagePipe.Telemetry do
           raise ArgumentError, "invalid attach_tracer options: #{Exception.message(error)}"
       end
 
-    exporter = opts[:exporter]
-
-    unless Code.ensure_loaded?(exporter) and function_exported?(exporter, :export, 1) do
-      raise ArgumentError,
-            "exporter #{inspect(exporter)} must be a loaded module exporting export/1"
-    end
-
-    if function_exported?(exporter, :ready?, 0) and not exporter.ready?() do
-      raise ArgumentError,
-            "exporter #{inspect(exporter)} is not ready: ready?/0 returned false " <>
-              "(check the exporter's documentation for its required dependencies or configuration)"
-    end
-
-    Trace.set_exporter(exporter)
+    Trace.ensure_available!()
     Trace.set_extract_inbound(opts[:extract_inbound])
-    Capture.attach(%{prefix: opts[:prefix], exporter: exporter})
+    Handler.attach(opts[:prefix])
 
     case opts[:finch_spans] do
-      true -> FinchCapture.attach(%{exporter: exporter})
-      false -> FinchCapture.detach()
+      true -> FinchHandler.attach()
+      false -> FinchHandler.detach()
     end
 
-    :ok
+    Trace.set_attached(true)
   end
 
   def attach_tracer(other) do
@@ -231,11 +210,10 @@ defmodule ImagePipe.Telemetry do
   @doc "Remove the opt-in span tracer attached with `attach_tracer/1`."
   @spec detach_tracer() :: :ok
   def detach_tracer do
-    Capture.detach()
-    FinchCapture.detach()
-    Trace.set_exporter(nil)
+    Handler.detach()
+    FinchHandler.detach()
+    Trace.set_attached(false)
     Trace.set_extract_inbound(false)
-    :ok
   end
 
   # Maps a request outcome to the request `:result` telemetry vocabulary. Callers

@@ -1,17 +1,8 @@
-defmodule ImagePipe.Telemetry.Trace.RaisingExporter do
-  @moduledoc false
-  @behaviour ImagePipe.Telemetry.Trace.Exporter
-
-  @impl true
-  def export(_span), do: raise("boom")
-end
-
 defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
   use ExUnit.Case, async: false
   alias ImagePipe.Telemetry
-  alias ImagePipe.Telemetry.Trace
-  alias ImagePipe.Telemetry.Trace.{Context, RaisingExporter, ReqStep, Span, Stack, TestExporter}
-  alias ImagePipe.Telemetry.Trace.TestReqAdapter
+  alias ImagePipe.Telemetry.Trace.{ReqStep, TestReqAdapter}
+  alias ImagePipe.Test.Trace.{Span, TestExporter}
 
   defp stub_request(respond) do
     Req.new(adapter: TestReqAdapter)
@@ -19,27 +10,16 @@ defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
   end
 
   setup do
-    TestExporter.set_receiver(self())
-    :ok = TestExporter.attach(self())
-
-    on_exit(fn ->
-      Telemetry.detach_tracer()
-      TestExporter.clear_receiver()
-    end)
-
-    :ok
+    TestExporter.attach(self())
   end
 
-  test "injects traceparent and emits a logical client span with status" do
-    prefix = [__MODULE__, :duration]
-    TestExporter.attach(self(), prefix: prefix)
-    # Open a parent span so the client span has a trace to attach to.
-    Telemetry.span([telemetry_prefix: prefix], [:request], %{}, fn ->
+  test "sends the client span's traceparent and records the span under the current one" do
+    test_pid = self()
+
+    Telemetry.span([], [:request], %{}, fn ->
       req =
         stub_request(fn req ->
-          assert [tp] = Req.Request.get_header(req, "traceparent")
-          # Sampled (default mint) parent → outbound flags -01.
-          assert tp =~ ~r/\A00-[0-9a-f]{32}-[0-9a-f]{16}-01\z/
+          send(test_pid, {:traceparent, Req.Request.get_header(req, "traceparent")})
           {req, Req.Response.new(status: 200, body: "ok")}
         end)
         |> ReqStep.attach()
@@ -49,35 +29,58 @@ defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
     end)
 
     assert_receive {:span, %Span{name: "image_pipe.http.client", kind: :client} = s}
+    assert_receive {:span, %Span{name: "image_pipe.request"} = request}
+    assert_received {:traceparent, [traceparent]}
+    assert traceparent == "00-#{s.trace_id}-#{s.span_id}-01"
+    assert s.parent_span_id == request.span_id
     assert s.attributes[:"http.status_code"] == 200
-    assert is_integer(s.duration_native)
     assert s.duration_native > 0
-    assert s.end_time == s.start_time + s.duration_native
   end
 
-  test "inbound unsampled flags=0 reaches the outbound traceparent and exported span" do
-    # Simulate a producer that adopted an unsampled remote request context.
-    Stack.adopt(%Context{
-      trace_id: "0af7651916cd43dd8448eb211c80319c",
-      span_id: "b7ad6b7169203331",
-      trace_flags: 0
-    })
+  test "sends traceparent only, not the parent's tracestate or the context's baggage" do
+    :otel_propagator_text_map.extract_to(
+      :otel_ctx.get_current(),
+      :otel_propagator_trace_context,
+      [
+        {"traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"},
+        {"tracestate", "vendor=private"}
+      ]
+    )
+    |> :otel_ctx.attach()
 
-    on_exit(fn -> Stack.clear() end)
+    :otel_baggage.set("tenant", "private-tenant")
+
+    req =
+      stub_request(fn req ->
+        assert [_traceparent] = Req.Request.get_header(req, "traceparent")
+        assert Req.Request.get_header(req, "baggage") == []
+        assert Req.Request.get_header(req, "tracestate") == []
+        {req, Req.Response.new(status: 200, body: "ok")}
+      end)
+      |> ReqStep.attach()
+
+    assert {:ok, %Req.Response{status: 200}} = Req.request(req)
+  end
+
+  test "an unsampled parent sends flags=00 and records no client span" do
+    :otel_propagator_text_map.extract_to(
+      :otel_ctx.get_current(),
+      :otel_propagator_trace_context,
+      [{"traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-00"}]
+    )
+    |> :otel_ctx.attach()
 
     req =
       stub_request(fn req ->
         assert [tp] = Req.Request.get_header(req, "traceparent")
-        # Unsampled parent → outbound flags -00.
-        assert tp =~ ~r/\A00-[0-9a-f]{32}-[0-9a-f]{16}-00\z/
+        assert tp =~ ~r/\A00-0af7651916cd43dd8448eb211c80319c-[0-9a-f]{16}-00\z/
         {req, Req.Response.new(status: 200, body: "ok")}
       end)
       |> ReqStep.attach()
 
     {:ok, _} = Req.request(req)
 
-    assert_receive {:span, %Span{name: "image_pipe.http.client", kind: :client} = s}
-    assert s.trace_flags == 0
+    refute_receive {:span, %Span{name: "image_pipe.http.client"}}, 100
   end
 
   test "emits a client span with status :error on transport error" do
@@ -131,24 +134,7 @@ defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
       {:ok, %{result: :ok}}
     end)
 
-    refute_receive {:span, %Span{name: "image_pipe.http.client"}}
-  end
-
-  test "a raising exporter does not break the request" do
-    Telemetry.detach_tracer()
-    Trace.set_exporter(RaisingExporter)
-
-    on_exit(fn ->
-      Trace.set_exporter(nil)
-    end)
-
-    req =
-      stub_request(fn req ->
-        {req, Req.Response.new(status: 200, body: "ok")}
-      end)
-      |> ReqStep.attach()
-
-    assert {:ok, %Req.Response{status: 200}} = Req.request(req)
+    refute_receive {:span, %Span{name: "image_pipe.http.client"}}, 100
   end
 
   test "streaming preserves the consumer accumulator and traces an early halt" do
@@ -163,7 +149,7 @@ defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
                {:halt, [chunk | chunks]}
              end)
 
-    assert_receive {:span, %Span{name: "image_pipe.http.client", status: :ok} = span}
+    assert_receive {:span, %Span{name: "image_pipe.http.client", status: :unset} = span}
     assert span.attributes[:"http.status_code"] == 200
     refute_received {:span, %Span{name: "image_pipe.http.client"}}
   end

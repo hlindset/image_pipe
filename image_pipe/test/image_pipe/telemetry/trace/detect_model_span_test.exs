@@ -3,7 +3,7 @@ defmodule ImagePipe.Telemetry.Trace.DetectModelSpanTest do
   use ExUnit.Case, async: false
 
   alias ImagePipe.Telemetry
-  alias ImagePipe.Telemetry.Trace.{Span, TestExporter}
+  alias ImagePipe.Test.Trace.{Span, TestExporter}
   alias ImagePipe.Transform.Detector.Composite
 
   defmodule FaceChild do
@@ -32,11 +32,6 @@ defmodule ImagePipe.Telemetry.Trace.DetectModelSpanTest do
 
   setup do
     :ok = TestExporter.attach(self())
-
-    on_exit(fn ->
-      Telemetry.detach_tracer()
-      TestExporter.clear_receiver()
-    end)
   end
 
   defp collect_spans do

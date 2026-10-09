@@ -5,7 +5,6 @@ defmodule ImagePipe.ProcessingPool do
   alias ImagePipe.ProcessingPool.Events
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.RequestContext
-  alias ImagePipe.Telemetry.Trace.Stack
 
   @schema NimbleOptions.new!(
             name: [
@@ -156,19 +155,7 @@ defmodule ImagePipe.ProcessingPool do
 
     case call(pool, request) do
       {:ok, token, context} ->
-        trace = RequestContext.trace(context)
-        Stack.adopt(trace)
-
-        try do
-          result = invoke(pool, token, fun)
-
-          case call(pool, {:release, token, outcome(result)}) do
-            :ok -> result
-            {:error, _reason} = error -> error
-          end
-        after
-          if trace, do: Stack.pop()
-        end
+        RequestContext.within(context, fn -> invoke_and_release(pool, token, fun) end)
 
       {:error, _} = error ->
         error
@@ -177,6 +164,15 @@ defmodule ImagePipe.ProcessingPool do
 
   @doc false
   def cancel(pool, worker), do: call(pool, {:cancel, worker})
+
+  defp invoke_and_release(pool, token, fun) do
+    result = invoke(pool, token, fun)
+
+    case call(pool, {:release, token, outcome(result)}) do
+      :ok -> result
+      {:error, _reason} = error -> error
+    end
+  end
 
   defp invoke(pool, token, fun) do
     fun.()
