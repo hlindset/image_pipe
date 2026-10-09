@@ -6,93 +6,11 @@ defmodule ImagePipe.Telemetry.Logger do
 
   require Logger
 
+  alias ImagePipe.Telemetry.Catalog
+
   @handler_id "image-pipe-default-logger"
 
-  # group => span event suffixes (each gets :stop + :exception)
-  @group_span_events %{
-    request: [
-      [:request],
-      [:processing, :admission],
-      [:processing, :execute],
-      [:send],
-      [:encode],
-      [:encode, :search],
-      [:encode, :search, :probe],
-      [:deliver]
-    ],
-    parse: [[:parse], [:preset, :lookup]],
-    source: [
-      [:source, :resolve],
-      [:source, :fetch],
-      [:source, :fetch_decode],
-      [:source, :stage],
-      [:source, :watermark]
-    ],
-    transform: [
-      [:transform, :execute],
-      [:transform, :input_color_management],
-      [:transform, :operation],
-      [:transform, :materialize],
-      [:transform, :detect],
-      [:transform, :detect, :model]
-    ],
-    cache: [
-      [:cache, :lookup],
-      [:cache, :write],
-      [:cache, :admission],
-      [:cache, :warm_start],
-      [:cache, :sweep],
-      [:cache, :rescan],
-      [:cache, :input],
-      [:cache, :refresh]
-    ],
-    output: [[:output, :negotiate], [:output, :terminal]],
-    http_cache: [],
-    debug: []
-  }
-
-  # request one-shot events (already terminal; not spans)
-  @request_oneshot [
-    [:encode, :search, :probe, :chosen],
-    [:request, :ignored_options]
-  ]
-
-  # cache one-shot events (already terminal; not spans)
-  @cache_oneshot [
-    [:cache, :coordination],
-    [:cache, :eviction, :stop],
-    [:cache, :flush, :stop],
-    [:cache, :cleanup, :stop],
-    [:cache, :stage]
-  ]
-
-  # transform one-shot events (already terminal; not spans)
-  @transform_oneshot [
-    [:transform, :detect, :skipped],
-    [:transform, :detect, :blend]
-  ]
-
-  # output one-shot events (already terminal; not spans)
-  @output_oneshot [
-    [:output, :clamp]
-  ]
-
-  # generated CDN HTTP-cache one-shot events (already terminal; not spans)
-  @http_cache_oneshot [
-    [:http_cache, :prepare],
-    [:http_cache, :conditional, :match],
-    [:http_cache, :fallback, :no_store],
-    [:http_cache, :cache_hit, :headers]
-  ]
-
-  # debug one-shot events (best-effort debug-fact collection)
-  @debug_oneshot [
-    [:debug, :collect, :error]
-  ]
-
-  @all_groups Map.keys(@group_span_events)
-
-  def all_groups, do: @all_groups
+  def all_groups, do: Catalog.groups()
 
   def attach(opts) do
     groups = Keyword.get(opts, :events, :all) |> expand_groups()
@@ -106,7 +24,7 @@ defmodule ImagePipe.Telemetry.Logger do
 
     :telemetry.attach_many(
       @handler_id,
-      event_names(groups, prefix),
+      Catalog.logged_events(groups, prefix),
       &__MODULE__.handle_event/4,
       config
     )
@@ -114,30 +32,8 @@ defmodule ImagePipe.Telemetry.Logger do
 
   def detach, do: :telemetry.detach(@handler_id)
 
-  defp expand_groups(:all), do: @all_groups
+  defp expand_groups(:all), do: Catalog.groups()
   defp expand_groups(groups) when is_list(groups), do: groups
-
-  defp event_names(groups, prefix) do
-    spans =
-      groups
-      |> Enum.flat_map(&Map.get(@group_span_events, &1, []))
-      |> Enum.flat_map(fn e -> [e ++ [:stop], e ++ [:exception]] end)
-
-    request_oneshots = if :request in groups, do: @request_oneshot, else: []
-    cache_oneshots = if :cache in groups, do: @cache_oneshot, else: []
-    transform_oneshots = if :transform in groups, do: @transform_oneshot, else: []
-    output_oneshots = if :output in groups, do: @output_oneshot, else: []
-    http_cache_oneshots = if :http_cache in groups, do: @http_cache_oneshot, else: []
-    debug_oneshots = if :debug in groups, do: @debug_oneshot, else: []
-
-    Enum.map(
-      spans ++
-        request_oneshots ++
-        cache_oneshots ++
-        transform_oneshots ++ output_oneshots ++ http_cache_oneshots ++ debug_oneshots,
-      fn e -> prefix ++ e end
-    )
-  end
 
   @doc false
   def handle_event(event, measurements, metadata, config) do
