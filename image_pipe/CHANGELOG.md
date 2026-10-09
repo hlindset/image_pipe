@@ -5,6 +5,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Concurrent fetches from an HTTP source (`ImagePipe.Source.HTTP`) just after
+  startup could exit with `:noproc`. They now wait for the connection pool to
+  start.
+
 ## [0.1.0] - 2026-10-09
 
 ### Added
