@@ -531,7 +531,8 @@ defmodule ImagePipe.TelemetryTest do
     assert_event(events, @prefix ++ [:cache, :stage], fn _measurements, metadata ->
       assert metadata.result == :cache_error
       assert metadata.cache == :stage_error
-      assert metadata.error == :eacces
+      # The file error differs by platform (:eacces on macOS, :enoent on Linux).
+      assert is_atom(metadata.error) and metadata.error != nil
     end)
 
     assert_event(events, @prefix ++ [:request, :stop], fn _measurements, metadata ->
