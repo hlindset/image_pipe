@@ -42,6 +42,7 @@ defmodule ImagePipe.Telemetry.Logger do
       [:cache, :admission],
       [:cache, :warm_start],
       [:cache, :sweep],
+      [:cache, :rescan],
       [:cache, :input],
       [:cache, :refresh]
     ],
@@ -192,6 +193,12 @@ defmodule ImagePipe.Telemetry.Logger do
 
   defp level_for([:debug, :collect, :error | _], _metadata, _base), do: :warning
 
+  # Background sweeps and re-scans repeat every few minutes, so a pass that
+  # changed nothing logs at :debug.
+  defp level_for([:cache, stage, :stop], metadata, base) when stage in [:sweep, :rescan] do
+    if quiet_pass?(metadata), do: :debug, else: base
+  end
+
   defp level_for([:cache, :coordination], %{result: result}, _base)
        when result in [:busy, :bypass, :timeout], do: :warning
 
@@ -208,6 +215,13 @@ defmodule ImagePipe.Telemetry.Logger do
 
   defp level_for(suffix, metadata, base) do
     if stage_warning?(suffix, metadata), do: :warning, else: base
+  end
+
+  defp quiet_pass?(metadata) do
+    Enum.all?(
+      [:pins, :temps, :bodies, :staged, :adopted, :dropped, :resynced],
+      &(Map.get(metadata, &1, 0) == 0)
+    )
   end
 
   defp stage_warning?(suffix, metadata) do

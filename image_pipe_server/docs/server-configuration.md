@@ -336,6 +336,7 @@ Caches on the local filesystem: `output` for processed images, `input` for origi
 | `output.flush_interval` | integer > 0 |  |
 | `output.cleanup_interval` | integer > 0 |  |
 | `output.reconcile_interval` | integer > 0 |  |
+| `output.rescan_interval` | integer > 0 |  |
 | `output.state_ttl` | integer > 0 |  |
 | `output.root` | string (absolute path) |  |
 | `output.window_ratio` | number |  |
@@ -353,6 +354,7 @@ Caches on the local filesystem: `output` for processed images, `input` for origi
 | `input.flush_interval` | integer > 0 |  |
 | `input.cleanup_interval` | integer > 0 |  |
 | `input.reconcile_interval` | integer > 0 |  |
+| `input.rescan_interval` | integer > 0 |  |
 | `input.state_ttl` | integer > 0 |  |
 | `input.root` | string (absolute path) |  |
 | `input.window_ratio` | number |  |

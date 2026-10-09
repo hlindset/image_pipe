@@ -651,18 +651,9 @@ defmodule ImagePipe.Cache.FileSystemTest do
       refute File.exists?(later)
     end
 
-    test "an instance sweeps a bounded pool while it runs, after its scan's sweep",
-         %{root: root} do
+    test "an instance runs no periodic sweep for a bounded pool", %{root: root} do
       bounded = [root: root, max_size_bytes: 10_000_000, node_id: "n1"]
-      [spec] = ImagePipe.Cache.startup_specs(cache: {FileSystem, bounded})
-      pid = start_supervised!(spec)
-      later = leftover(root, "c")
-      _ = :sys.get_state(pid)
-      assert File.exists?(later)
-
-      send(pid, :sweep)
-      _ = :sys.get_state(pid)
-      refute File.exists?(later)
+      assert ImagePipe.Cache.startup_specs(cache: {FileSystem, bounded}) == []
     end
   end
 
@@ -698,6 +689,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
       assert opts[:eviction_victim_limit] == 64
       assert opts[:aging_sample_size] == 2_000_000
       assert opts[:reconcile_interval] == 60
+      assert opts[:rescan_interval] == 300
     end
 
     test "aging_sample_size does not change when sketch_width is overridden" do

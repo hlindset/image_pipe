@@ -214,11 +214,12 @@ too, for example when a request is killed while its image is being written. Imag
 are more than an hour old, so nodes that share a `root` can clean it while
 the others keep running:
 
-- In each cache's `root`, every 24 hours while an ImagePipe instance runs
-  (see `ImagePipe.child_spec/1`). The first cleanup runs when the instance
-  starts, or for a bounded cache after its startup scan. `image_pipe_server`
-  always runs an instance. A cache without an instance, which only an unbounded
-  cache can be, isn't cleaned.
+- In an unbounded cache's `root`, when an ImagePipe instance starts (see
+  `ImagePipe.child_spec/1`) and every 24 hours while it runs.
+  `image_pipe_server` always runs an instance. An unbounded cache without an
+  instance isn't cleaned.
+- In a bounded cache's `root`, after its startup scan and after each
+  [re-scan](#size-cap-and-directory-scans).
 - In the `image_pipe` directory under the system temporary directory
   (`TMPDIR`, or `/tmp`), where originals are staged while they download,
   when the `:image_pipe` application starts and every 24 hours after.
@@ -245,9 +246,10 @@ and chooses which entries to keep. A bounded cache must be configured on an
 instance, which starts that process (see `ImagePipe.child_spec/1` and
 [Bound the cache size](caching-processed-images.md#bound-the-cache-size)).
 
-### Size cap and startup scan
+### Size cap and directory scans
 
-`max_size_bytes` is a soft cap on the total size of stored bodies:
+`max_size_bytes` is a soft cap on the total size of stored bodies in the
+`root`, including bodies other nodes that share it wrote:
 
 - Each write either stores the new entry, evicting less valuable entries to
   make room, or rejects it. Rejected and replaced bodies are deleted from
@@ -264,6 +266,13 @@ instance, which starts that process (see `ImagePipe.child_spec/1` and
   deletes [leftover files](#leftover-files).
 - Every `reconcile_interval` (60 seconds by default) it evicts again until
   the cache is at or under the cap.
+- Every `rescan_interval` (300 seconds by default, moved earlier or later by
+  up to a fifth at random) it lists the `root` again. It starts counting
+  entries other nodes wrote, stops counting entries they deleted, evicts
+  until the cache is at or under the cap, and deletes leftover files.
+
+A node counts what other nodes write only when it re-scans, so a shared
+`root` can exceed the cap by what all its nodes write between two re-scans.
 
 Background eviction removes entries in batches so requests can run between
 batches. Each batch removes at most `eviction_victim_limit` entries.
@@ -294,9 +303,12 @@ Counts of responses requested only once are not saved.
   wins, and the other body is deleted.
 - Nodes that share a `root` count entry sizes separately. When one node
   deletes or replaces an entry, the other nodes keep counting its old size
-  until they read, evict, delete, or rewrite that entry, or restart. Until
-  then a node's count is off by the difference, so it evicts too early or
-  too late.
+  until their next re-scan, or until they read, evict, delete, or rewrite
+  that entry. Until then a node's count is off by the difference, so it
+  evicts too early or too late.
+- Nodes that share a `root` and re-scan at about the same time can each
+  evict entries to remove the same excess, so the cache briefly drops below
+  the cap.
 
 The bounded-mode telemetry events are listed in
 [cache events](telemetry-events.md#cache-events).
