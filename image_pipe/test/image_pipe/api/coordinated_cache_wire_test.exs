@@ -572,15 +572,13 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
       FileSystem.validate_options(
         root: Path.join(root, "input"),
         pool: :input,
-        max_size_bytes: 1,
-        node_id: "input"
+        max_size_bytes: 1
       )
 
     {:ok, output} =
       FileSystem.validate_options(
         root: Path.join(root, "output"),
-        max_size_bytes: 100_000,
-        node_id: "output"
+        max_size_bytes: 100_000
       )
 
     start_supervised!(FileSystem.child_spec(input))

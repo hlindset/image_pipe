@@ -24,7 +24,7 @@ defmodule ImagePipe.InstanceTest do
     ]
 
     cache_root = Path.join(root, "cache")
-    bounded = [root: cache_root, max_size_bytes: 1_000_000, node_id: "test"]
+    bounded = [root: cache_root, max_size_bytes: 1_000_000]
     name = Module.concat(__MODULE__, "I#{System.unique_integer([:positive])}")
 
     %{name: name, sources: sources, bounded: bounded, cache_root: cache_root}

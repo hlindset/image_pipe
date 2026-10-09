@@ -341,13 +341,13 @@ defmodule AdmissionBlockingBench do
       Supervisor.start_link([FileSystem.child_spec(opts)], strategy: :one_for_one)
 
     root = Keyword.fetch!(opts, :root)
-    [{admission, _}] = Registry.lookup(FileSystem.registry_name(root), {root, "bench"})
+    [{admission, _}] = Registry.lookup(FileSystem.registry_name(root), root)
     if await?, do: Admission.await_scan(admission, :infinity)
     {supervisor, admission}
   end
 
   defp bounded_opts(root, cap),
-    do: [root: root, node_id: "bench", max_size_bytes: cap, window_ratio: 0.01]
+    do: [root: root, max_size_bytes: cap, window_ratio: 0.01]
 
   defp linked_commit(key, source, sha, opts) do
     {:ok, sink} = Store.open_linked_sink(key, metadata(), source, sha, opts)

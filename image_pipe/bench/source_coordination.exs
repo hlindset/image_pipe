@@ -40,7 +40,7 @@ defmodule SourceCoordinationBench do
              sources: sources,
              cache:
                [
-                root: Path.join(root, "output"), max_size_bytes: 100_000_000, node_id: "bench"],
+                root: Path.join(root, "output"), max_size_bytes: 100_000_000],
              input_cache: [root: Path.join(root, "input")],
              telemetry_prefix: @prefix,
              clock: fn -> System.os_time(:second) + 10 end

@@ -630,7 +630,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
 
   describe "child_spec/1" do
     test "returns a supervisor spec when max_size_bytes is set", %{root: root} do
-      opts = [root: root, max_size_bytes: 10_000_000, node_id: "n1"]
+      opts = [root: root, max_size_bytes: 10_000_000]
       assert %{id: _, start: _} = FileSystem.child_spec(opts)
     end
 
@@ -652,7 +652,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
     end
 
     test "an instance runs no periodic sweep for a bounded pool", %{root: root} do
-      bounded = [root: root, max_size_bytes: 10_000_000, node_id: "n1"]
+      bounded = [root: root, max_size_bytes: 10_000_000]
       assert ImagePipe.Cache.startup_specs(cache: bounded) == []
     end
   end
@@ -674,14 +674,13 @@ defmodule ImagePipe.Cache.FileSystemTest do
       assert {:ok, _opts} =
                FileSystem.validate_options(
                  root: "/tmp",
-                 max_size_bytes: 100_000_000,
-                 node_id: "n1"
+                 max_size_bytes: 100_000_000
                )
     end
 
     test "derives sketch_width and doorkeeper_cardinality from max_size_bytes" do
       {:ok, opts} =
-        FileSystem.validate_options(root: "/tmp", max_size_bytes: 10_000_000_000, node_id: "n1")
+        FileSystem.validate_options(root: "/tmp", max_size_bytes: 10_000_000_000)
 
       assert opts[:sketch_width] == 400_000
       assert opts[:doorkeeper_cardinality] == 800_000
@@ -697,7 +696,6 @@ defmodule ImagePipe.Cache.FileSystemTest do
         FileSystem.validate_options(
           root: "/tmp",
           max_size_bytes: 10_000_000_000,
-          node_id: "n1",
           sketch_width: 16_384
         )
 
@@ -710,7 +708,6 @@ defmodule ImagePipe.Cache.FileSystemTest do
         FileSystem.validate_options(
           root: "/tmp",
           max_size_bytes: 100_000_000,
-          node_id: "n1",
           eviction_victim_limit: 32
         )
 
@@ -722,7 +719,6 @@ defmodule ImagePipe.Cache.FileSystemTest do
                FileSystem.validate_options(
                  root: "/tmp",
                  max_size_bytes: 100_000_000,
-                 node_id: "n1",
                  eviction_victim_limit: 0
                )
     end
@@ -732,7 +728,6 @@ defmodule ImagePipe.Cache.FileSystemTest do
                FileSystem.validate_options(
                  root: "/tmp",
                  max_size_bytes: 100_000_000,
-                 node_id: "n1",
                  window_ratio: 1.5
                )
     end
@@ -742,7 +737,6 @@ defmodule ImagePipe.Cache.FileSystemTest do
                FileSystem.validate_options(
                  root: "/tmp",
                  max_size_bytes: 100_000_000,
-                 node_id: "n1",
                  window_ratio: 0.0
                )
 
@@ -754,7 +748,6 @@ defmodule ImagePipe.Cache.FileSystemTest do
                FileSystem.validate_options(
                  root: "/tmp",
                  max_size_bytes: 100_000_000,
-                 node_id: "n1",
                  doorkeeper_fpr: 1.0
                )
     end

@@ -75,9 +75,6 @@ defmodule ImagePipe.Cache do
   end
 
   @doc false
-  def shared_option_keys, do: @shared_cache_option_keys
-
-  @doc false
   # Removes staged originals a VM that died left behind.
   def sweep_staged, do: Sweep.run_staged(Input.staging_dir(), [])
 

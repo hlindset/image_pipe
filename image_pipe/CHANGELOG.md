@@ -42,6 +42,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- **Breaking:** Bounded caches keep request counts in memory only. Remove
+  `node_id`, `state_dir`, `flush_interval`, `cleanup_interval`, and
+  `state_ttl` from `cache` and `input_cache`. After a restart, a bounded
+  cache keeps its entries and learns again which are requested most. You can
+  delete the `.cache_state` directory under each bounded cache's `root`.
+- The `[:cache, :warm_start]`, `[:cache, :flush, :stop]`, and
+  `[:cache, :cleanup, :stop]` telemetry events.
 - `[:cache, :stage]` no longer reports `cache: :stage_cleanup_error`.
   Discarding a staged entry doesn't fail.
 - **Breaking:** `ImagePipe.Telemetry.Trace.LogExporter`,
@@ -52,6 +59,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `input_cache` rejects `max_body_bytes` instead of ignoring it, and
+  configuration fails with an unknown-option error. Remove the option from
+  `input_cache`.
 - Concurrent fetches from an HTTP source (`ImagePipe.Source.HTTP`) just after
   startup could exit with `:noproc`. They now wait for the connection pool to
   start.

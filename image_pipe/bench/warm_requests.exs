@@ -23,7 +23,6 @@ defmodule WarmRequestsBench do
 
     cache_opts = [
       root: Path.join(root, "output"),
-      node_id: "bench",
       max_size_bytes: 100_000_000
     ]
 

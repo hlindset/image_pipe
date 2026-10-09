@@ -91,6 +91,12 @@ defmodule ImagePipe.CacheTest do
     end
   end
 
+  test "an originals cache rejects max_body_bytes", %{root: root} do
+    assert_raise ArgumentError, ~r/max_body_bytes/, fn ->
+      ImagePipe.Plug.init(mount(input_cache: [root: root, max_body_bytes: 1_000]))
+    end
+  end
+
   test "ImagePipe init rejects header/cookie cache partitioning options", %{root: root} do
     for key <- [:key_headers, :key_cookies] do
       assert_raise ArgumentError, ~r/#{key} was removed.*storage_inputs:/s, fn ->
@@ -272,7 +278,7 @@ defmodule ImagePipe.CacheTest do
     opts =
       cache_opts(root,
         telemetry_prefix: prefix,
-        cache: [max_size_bytes: 2, node_id: "cache-test"]
+        cache: [max_size_bytes: 2]
       )
 
     start_supervised!(FileSystem.child_spec(Keyword.fetch!(opts, :cache)))

@@ -8,6 +8,7 @@ defmodule ImagePipe.Telemetry.Trace.AdmissionRootTest do
   use ExUnit.Case, async: false
 
   alias ImagePipe.Cache.FileSystem.Admission
+  alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Test.CacheEntry
   alias ImagePipe.Test.Trace.{Span, TestExporter}
 
@@ -29,27 +30,20 @@ defmodule ImagePipe.Telemetry.Trace.AdmissionRootTest do
     %{registry: registry, tmp_dir: tmp_dir, prefix: prefix}
   end
 
+  defp cache_opts(ctx), do: [root: ctx.tmp_dir, max_size_bytes: 1_000_000]
+
   defp opts(ctx) do
-    [
-      registry: ctx.registry,
-      root: ctx.tmp_dir,
-      node_id: "tel-node",
-      state_dir: Path.join(ctx.tmp_dir, ".cache_state"),
-      telemetry_prefix: ctx.prefix,
-      max_size_bytes: 1_000_000,
-      window_ratio: 0.01,
-      sketch_depth: 4,
-      sketch_width: 256,
-      doorkeeper_cardinality: 1024,
-      doorkeeper_fpr: 0.01
-    ]
+    ctx
+    |> cache_opts()
+    |> Keyword.put(:telemetry_prefix, ctx.prefix)
+    |> Store.admission_options(ctx.registry)
   end
 
   test "cache.admission becomes its own trace root despite the caller's current span", ctx do
     start_supervised!({Admission, opts(ctx)})
     caller = TestExporter.open_span()
 
-    pool = Keyword.drop(opts(ctx), [:registry, :telemetry_prefix])
+    pool = cache_opts(ctx)
     assert :ok = CacheEntry.put(pool, String.duplicate("x", 5_000))
 
     # The handler names the stage under "image_pipe." whatever the prefix.

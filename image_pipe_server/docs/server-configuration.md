@@ -41,7 +41,6 @@ cache_policy = { storage = "allow" }
 [cache.output]
 root = "/var/cache/image_pipe/output"
 max_size_bytes = 10_000_000_000
-node_id = "node-0"
 
 [processing]
 quality = 82
@@ -320,42 +319,32 @@ table leaves out, from `AWS_WEB_IDENTITY_TOKEN_FILE`, `AWS_ROLE_ARN`,
 
 ### `[cache]`
 
-Caches on the local filesystem: `output` for processed images, `input` for originals. Their `root` directories must be separate, neither inside the other. Setting `max_size_bytes` bounds a cache and requires `node_id`. See [caching processed images](../../image_pipe/docs/caching-processed-images.md).
+Caches on the local filesystem: `output` for processed images, `input` for originals. Their `root` directories must be separate, neither inside the other. Setting `max_size_bytes` bounds a cache. See [caching processed images](../../image_pipe/docs/caching-processed-images.md).
 
 | Key | Type | Default |
 | --- | --- | --- |
 | `output.path_prefix` | string | `""` |
 | `output.max_size_bytes` | integer > 0 |  |
-| `output.node_id` | string |  |
-| `output.state_dir` | string |  |
 | `output.sketch_depth` | integer > 0 |  |
 | `output.sketch_width` | integer > 0 |  |
 | `output.aging_sample_size` | integer > 0 |  |
 | `output.doorkeeper_cardinality` | integer > 0 |  |
 | `output.eviction_victim_limit` | integer > 0 |  |
-| `output.flush_interval` | integer > 0 |  |
-| `output.cleanup_interval` | integer > 0 |  |
 | `output.reconcile_interval` | integer > 0 |  |
 | `output.rescan_interval` | integer > 0 |  |
-| `output.state_ttl` | integer > 0 |  |
 | `output.root` | string (absolute path) |  |
 | `output.window_ratio` | number |  |
 | `output.doorkeeper_fpr` | number |  |
 | `output.max_body_bytes` | integer ≥ 0 |  |
 | `input.path_prefix` | string | `""` |
 | `input.max_size_bytes` | integer > 0 |  |
-| `input.node_id` | string |  |
-| `input.state_dir` | string |  |
 | `input.sketch_depth` | integer > 0 |  |
 | `input.sketch_width` | integer > 0 |  |
 | `input.aging_sample_size` | integer > 0 |  |
 | `input.doorkeeper_cardinality` | integer > 0 |  |
 | `input.eviction_victim_limit` | integer > 0 |  |
-| `input.flush_interval` | integer > 0 |  |
-| `input.cleanup_interval` | integer > 0 |  |
 | `input.reconcile_interval` | integer > 0 |  |
 | `input.rescan_interval` | integer > 0 |  |
-| `input.state_ttl` | integer > 0 |  |
 | `input.root` | string (absolute path) |  |
 | `input.window_ratio` | number |  |
 | `input.doorkeeper_fpr` | number |  |

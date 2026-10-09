@@ -210,9 +210,7 @@ spec:
         medium: Memory
 ```
 
-A bounded cache needs a `node_id`. With the per-pod `emptyDir` above, a fixed
-one in the configuration file works. For cache volumes that are shared or
-outlive the pod, see
+For cache volumes shared between pods, see
 [Run several replicas](../../image_pipe/docs/caching-processed-images.md#run-several-replicas).
 
 ## Caches

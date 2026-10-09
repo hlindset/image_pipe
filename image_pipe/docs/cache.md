@@ -231,20 +231,19 @@ The `[:cache, :sweep]` event reports what each cleanup removed (see
 
 `max_size_bytes` turns on bounded mode. Without it the cache grows without
 limit. The other bounded-mode options, listed in
-`ImagePipe.Cache.FileSystem`, require `max_size_bytes`, and all except
-`node_id` have defaults.
+`ImagePipe.Cache.FileSystem`, require `max_size_bytes` and have defaults.
 
-### Node IDs and supervision
+### Cache process and restarts
 
-Bounded mode needs `node_id`, the name of this node's state file
-`<node_id>.state`. It must stay the same across restarts and differ between
-nodes that share a `root` (see
-[run several replicas](caching-processed-images.md#run-several-replicas)).
-
-Each `root` and `node_id` pair runs one process that tracks the cache's size
-and chooses which entries to keep. A bounded cache must be configured on an
-instance, which starts that process (see `ImagePipe.child_spec/1` and
+On each node, a bounded `root` runs one process that tracks the cache's size
+and chooses which entries to keep by how often each is requested. A bounded
+cache must be configured on an instance, which starts that process (see
+`ImagePipe.child_spec/1` and
 [Bound the cache size](caching-processed-images.md#bound-the-cache-size)).
+
+Request counts live only in memory. After a restart they start from zero,
+and entries already on disk are next in line for eviction, oldest first,
+until they are requested again.
 
 ### Size cap and directory scans
 
@@ -283,19 +282,9 @@ a [cache write](telemetry-events.md#cache-write) error with
 `error: :admission_timeout`. The cache process still handles the queued write
 and stores or rejects the entry as usual.
 
-### Warm start from peers
-
-Each node writes its request counts to `<node_id>.state` in `state_dir`
-every `flush_interval`. On startup a node merges the counts from every peer
-state file younger than `state_ttl`, so a new node keeps entries that are
-popular across the cluster. Older peer files are deleted every
-`cleanup_interval`. On startup a node deletes state files it left half
-written. Peers' half-written files are deleted with their old state files.
-Counts of responses requested only once are not saved.
-
 ### Bounded-mode limitations
 
-- All writes to one `root` and `node_id` go through one process.
+- On each node, all writes to one `root` go through one process.
 - A crash between writing a body and writing its metadata can leave a body
   file the cache doesn't track. It doesn't count against `max_size_bytes`
   until a startup at least an hour after the crash deletes it.

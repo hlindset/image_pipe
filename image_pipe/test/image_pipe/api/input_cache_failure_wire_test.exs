@@ -9,7 +9,7 @@ defmodule ImagePipe.API.InputCacheFailureWireTest do
   setup do
     root = Path.join(System.tmp_dir!(), "input_failure_#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(root) end)
-    pool = [root: root, node_id: "test", max_size_bytes: 1_000_000]
+    pool = [root: root, max_size_bytes: 1_000_000]
     tasks = start_supervised!(Task.Supervisor)
     origin_status = start_supervised!({Agent, fn -> 200 end}, id: :origin_status)
 
@@ -54,7 +54,7 @@ defmodule ImagePipe.API.InputCacheFailureWireTest do
        input_cache: pool}
     )
 
-    [{admission, _}] = Registry.lookup(FileSystem.registry_name(root), {root, "test"})
+    [{admission, _}] = Registry.lookup(FileSystem.registry_name(root), root)
     assert :ok = Admission.await_scan(admission)
     config = ImagePipe.Plug.init(instance: name)
 

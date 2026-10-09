@@ -73,8 +73,7 @@ option to `keep` (see
 ## Bound the cache size
 
 Both caches grow without limit by default. Set `max_size_bytes` to cap a
-cache. The cache then evicts rarely requested images to stay under it. A
-bounded cache also needs a `node_id` that names this server.
+cache. The cache then evicts rarely requested images to stay under it.
 
 <!-- tabs-open -->
 
@@ -96,11 +95,7 @@ children = [
        options: [root: "/srv/images", root_id: "media"]
      ]
    ],
-   cache: [
-     root: "/var/cache/image_pipe/processed",
-     max_size_bytes: 5_000_000_000,
-     node_id: "node-0"
-   ]},
+   cache: [root: "/var/cache/image_pipe/processed", max_size_bytes: 5_000_000_000]},
   MyAppWeb.Endpoint
 ]
 ```
@@ -115,8 +110,8 @@ forward "/images", ImagePipe.Plug, instance: MyApp.Images
 Mount options such as `http_cache` stay on the `forward` (see
 [Mounting an instance](ImagePipe.Plug.html#module-mounting-an-instance)).
 
-To bound an originals cache, add `max_size_bytes` and `node_id` to the
-instance's `input_cache` options.
+To bound an originals cache, add `max_size_bytes` to the instance's
+`input_cache` options.
 
 ### image_pipe_server
 
@@ -124,7 +119,6 @@ instance's `input_cache` options.
 [cache.output]
 root = "/var/cache/image_pipe/processed"
 max_size_bytes = 5_000_000_000
-node_id = "node-0"
 ```
 
 The server starts the cache's processes itself. Bound `[cache.input]` the same
@@ -134,47 +128,10 @@ way.
 
 ## Run several replicas
 
-If replicas share a cache volume, give each one a different `node_id` and the
-same `max_size_bytes`, which limits the shared `root`, not each replica's
-share. If a replica's cache volume outlives the replica, keep its `node_id`
-the same when it restarts. A cache volume that belongs to one pod and is lost with it, such
-as an `emptyDir`, works with a fixed `node_id`.
-
-On Kubernetes, run a StatefulSet and use the pod name, such as
-`image-pipe-0`, which covers both cases. Deployment pod names change on
-restart.
-
-<!-- tabs-open -->
-
-### Plug
-
-Expose the pod name to the container:
-
-```yaml
-env:
-  - name: POD_NAME
-    valueFrom: { fieldRef: { fieldPath: metadata.name } }
-```
-
-Read it into each bounded cache's options on the instance:
-
-```elixir
-node_id: System.fetch_env!("POD_NAME")
-```
-
-### image_pipe_server
-
-Set `node_id` from the pod name:
-
-```yaml
-env:
-  - name: IPS_CACHE__OUTPUT__NODE_ID
-    valueFrom: { fieldRef: { fieldPath: metadata.name } }
-  - name: IPS_CACHE__INPUT__NODE_ID
-    valueFrom: { fieldRef: { fieldPath: metadata.name } }
-```
-
-<!-- tabs-close -->
+Replicas can share a cache volume. Give them all the same `max_size_bytes`,
+which limits the shared `root`, not each replica's share. Each replica counts
+requests on its own, and a replica that restarts keeps the cached images but
+starts counting requests again.
 
 ## Confirm caching works
 

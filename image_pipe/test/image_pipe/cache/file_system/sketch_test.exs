@@ -88,10 +88,9 @@ defmodule ImagePipe.Cache.FileSystem.SketchTest do
       assert Sketch.estimate(sketch, "k") == 0
     end
 
-    test "increments aging epoch and resets increments_since_reset" do
+    test "resets increments_since_reset" do
       sketch = Sketch.new(depth: 2, width: 4)
       sketch = Sketch.increment(sketch, "k") |> Sketch.age()
-      assert sketch.aging_epoch == 1
       assert sketch.increments_since_reset == 0
     end
   end
@@ -116,62 +115,6 @@ defmodule ImagePipe.Cache.FileSystem.SketchTest do
       narrow = Sketch.new(depth: 2, width: 4, sample_size: 40)
       wide = Sketch.new(depth: 2, width: 4096, sample_size: 40)
       assert narrow.sample_size == wide.sample_size
-    end
-  end
-
-  describe "serialize/1 and deserialize/1" do
-    test "round-trips a sketch preserving counters, epoch, and state" do
-      sketch = Sketch.new(depth: 2, width: 4)
-      sketch = Enum.reduce(["a", "b", "a", "c"], sketch, &Sketch.increment(&2, &1))
-
-      binary = Sketch.serialize(sketch)
-      {:ok, restored} = Sketch.deserialize(binary, depth: 2, width: 4)
-
-      assert counters(restored) == counters(sketch)
-      assert restored.aging_epoch == sketch.aging_epoch
-      assert restored.increments_since_reset == sketch.increments_since_reset
-    end
-
-    test "returns error on garbage input" do
-      assert {:error, _} = Sketch.deserialize(<<0, 1, 2>>, depth: 2, width: 4)
-    end
-
-    test "rejects invalid persisted counters and aging state" do
-      payload =
-        Sketch.new(depth: 1, width: 1)
-        |> Sketch.serialize()
-        |> :erlang.binary_to_term([:safe])
-
-      for fields <- [
-            %{counters: [:corrupt]},
-            %{counters: [-1]},
-            %{counters: [256]},
-            %{counters: [1.5]},
-            %{aging_epoch: -1},
-            %{increments_since_reset: -1}
-          ] do
-        binary = :erlang.term_to_binary(Map.merge(payload, fields))
-        assert {:error, _} = Sketch.deserialize(binary, depth: 1, width: 1)
-      end
-    end
-
-    test "returns error on shape mismatch" do
-      sketch = Sketch.new(depth: 2, width: 4)
-      binary = Sketch.serialize(sketch)
-      assert {:error, _} = Sketch.deserialize(binary, depth: 4, width: 4)
-    end
-  end
-
-  describe "sum/2" do
-    test "element-wise adds counters from two sketches of equal shape" do
-      a = Sketch.new(depth: 2, width: 4) |> Sketch.increment("k1") |> Sketch.increment("k1")
-      b = Sketch.new(depth: 2, width: 4) |> Sketch.increment("k1") |> Sketch.increment("k2")
-
-      summed = Sketch.sum(a, b)
-
-      # estimate(k1) on summed must be >= estimate(k1) on a + estimate(k1) on b
-      assert Sketch.estimate(summed, "k1") >=
-               Sketch.estimate(a, "k1") + Sketch.estimate(b, "k1") - 4
     end
   end
 
