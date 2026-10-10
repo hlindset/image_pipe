@@ -1,49 +1,14 @@
 defmodule ImagePipe.Transform.Operation.ExtendCanvas do
   # Embeds the image into a same-size-or-larger transparent canvas without resampling.
   #
-  # The executor resolves dimensions for letterboxing, padding, or
-  # aspect-ratio extension before constructing this operation.
+  # The executor resolves the canvas size for letterboxing, padding, or
+  # aspect-ratio extension, at least the current image size on each axis.
   #
-  # ## Fields
-  #
-  # Required fields:
-  #
-  # - `rule`: either `{:dimensions, width, height}` or
-  #   `{:aspect_ratio, {ratio_width, ratio_height}}`.
-  #
-  # Optional fields:
-  #
-  # - `gravity`: an anchor tuple
-  #   `{:anchor, :left | :center | :right, :top | :center | :bottom}`. Defaults
-  #   to center.
-  # - `x_offset`: numeric horizontal offset applied after gravity placement.
-  #   Defaults to `0.0`.
-  # - `y_offset`: numeric vertical offset applied after gravity placement. Defaults
-  #   to `0.0`.
-  #
-  # Dimension rules accept non-negative pixel numbers. Aspect-ratio rules use
-  # positive numeric ratio components.
-  #
-  # ## Execution Semantics
-  #
-  # `execute/2` returns state containing the embedded image, or
-  # `{:error, {__MODULE__, reason}}` if embedding fails.
-  #
-  # Dimension rules round each size and clamp it to at least the current image size.
-  # Aspect-ratio rules expand the needed axis, preserving the full image.
-  #
-  # Gravity sets the base placement. Rounded positive offsets move right/down from
-  # left/top/center anchors and inward from right/bottom anchors.
-  # The final origin is clamped to keep the image inside the canvas.
-  #
-  # ## Examples
-  #
-  #     canvas = %ImagePipe.Transform.Operation.ExtendCanvas{
-  #       rule: {:dimensions, 400, 300},
-  #       gravity: {:anchor, :center, :center},
-  #       x_offset: 0.0,
-  #       y_offset: 0.0
-  #     }
+  # Gravity (`{:anchor, :left | :center | :right, :top | :center | :bottom}`,
+  # center by default) sets the base placement. Rounded positive offsets move
+  # right/down from left/top/center anchors and inward from right/bottom anchors.
+  # The final origin is clamped to keep the image inside the canvas. A canvas the
+  # size of the image is inert and adds no alpha band.
   @moduledoc false
 
   import ImagePipe.Transform.State
@@ -59,22 +24,16 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
   alias ImagePipe.Transform.State
   alias ImagePipe.Transform.WorkLimits
 
-  @default_gravity {:anchor, :center, :center}
-
-  defstruct rule: nil,
-            gravity: @default_gravity,
+  @enforce_keys [:width, :height]
+  defstruct width: nil,
+            height: nil,
+            gravity: {:anchor, :center, :center},
             x_offset: 0.0,
             y_offset: 0.0
 
-  @type scalar() :: non_neg_integer() | float()
-  @type ratio() :: {pos_integer() | float(), pos_integer() | float()}
-
-  @type canvas_rule() ::
-          {:dimensions, scalar(), scalar()}
-          | {:aspect_ratio, ratio()}
-
   @type t :: %__MODULE__{
-          rule: canvas_rule(),
+          width: pos_integer(),
+          height: pos_integer(),
           gravity: {:anchor, :left | :center | :right, :top | :center | :bottom},
           x_offset: number(),
           y_offset: number()
@@ -83,9 +42,8 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
   # Dialyzer narrows `embed_image`'s return (via the Vix `embed` typing below) and
   # then reports the `{:ok, _}` clause of this `with` as unmatchable.
   @dialyzer {:no_match, execute: 2}
-  def execute(%__MODULE__{} = operation, %State{} = state) do
-    with {:ok, {width, height}} <- canvas_dimensions(state, operation.rule),
-         :ok <- WorkLimits.embed(width, height),
+  def execute(%__MODULE__{width: width, height: height} = operation, %State{} = state) do
+    with :ok <- WorkLimits.embed(width, height),
          false <- inert_extend?(state, width, height),
          {:ok, image} <- embed_image(state, operation, width, height) do
       {:ok, set_image(state, image)}
@@ -98,36 +56,6 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
   # Skip unchanged canvas dimensions so an inert extension adds no alpha channel.
   defp inert_extend?(%State{} = state, width, height) do
     width == image_width(state) and height == image_height(state)
-  end
-
-  defp canvas_dimensions(%State{} = state, rule),
-    do: resolved_canvas_dims(rule, image_width(state), image_height(state))
-
-  @doc false
-  # Pure canvas dimensions shared by execution and geometry planning.
-  # Each axis is at least the image size.
-  @spec resolved_canvas_dims(canvas_rule(), pos_integer(), pos_integer()) ::
-          {:ok, {pos_integer(), pos_integer()}} | {:error, term()}
-  def resolved_canvas_dims({:dimensions, width, height}, image_width, image_height) do
-    {:ok, {max(image_width, round(width)), max(image_height, round(height))}}
-  end
-
-  def resolved_canvas_dims(
-        {:aspect_ratio, {ratio_width, ratio_height}},
-        image_width,
-        image_height
-      ) do
-    target_ratio = ratio_width / ratio_height
-    source_ratio = image_width / image_height
-
-    {width, height} =
-      if source_ratio > target_ratio do
-        {image_width, round(image_width / target_ratio)}
-      else
-        {round(image_height * target_ratio), image_height}
-      end
-
-    {:ok, {max(image_width, width), max(image_height, height)}}
   end
 
   defp resolved_embed_offset(

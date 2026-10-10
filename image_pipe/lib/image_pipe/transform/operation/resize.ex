@@ -26,7 +26,7 @@ defmodule ImagePipe.Transform.Operation.Resize do
         # image's dimensions without the initial decode's preshrink factor.
         {:ok, %State{state | source_dimensions: nil, decode_shrink: nil}}
 
-      {:error, {:materialize_error, _}} = error ->
+      {:error, {tag, _reason}} = error when tag in [:decode, :transform] ->
         error
 
       {:error, reason} ->
@@ -55,12 +55,8 @@ defmodule ImagePipe.Transform.Operation.Resize do
 
   # Downscaling a lazy affine rotation repeatedly evaluates overlapping regions.
   # Buffer here so an intervening crop can reduce the work first.
-  defp prepare_resize(%State{buffer_before_resize?: true} = state) do
-    case Materializer.materialize(state) do
-      {:ok, state} -> {:ok, state}
-      {:error, reason} -> {:error, {:materialize_error, reason}}
-    end
-  end
+  defp prepare_resize(%State{buffer_before_resize?: true} = state),
+    do: Materializer.materialize(state)
 
   defp prepare_resize(%State{} = state), do: {:ok, state}
 end

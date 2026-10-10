@@ -76,6 +76,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Concurrent fetches from an HTTP source (`ImagePipe.Source.HTTP`) just after
   startup could exit with `:noproc`. They now wait for the connection pool to
   start.
+- A CMYK or other non-RGB source with an embedded color profile and more
+  pixels than `max_intermediate_pixels` fails with `422`, like other oversized
+  images, instead of `415`.
 
 ## [0.1.0] - 2026-10-09
 

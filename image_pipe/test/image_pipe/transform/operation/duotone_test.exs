@@ -4,19 +4,18 @@ defmodule ImagePipe.Transform.Operation.DuotoneTest do
   alias ImagePipe.Transform.Operation.Bitonal
   alias ImagePipe.Transform.Operation.Duotone
   alias ImagePipe.Transform.Operation.Gray
-  alias ImagePipe.Transform.Operation.Monochrome
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
 
   @duotone %Duotone{intensity: 0.8, shadow: [10, 20, 30], highlight: [220, 230, 240]}
-  @monochrome %Monochrome{intensity: 0.8, color: [179, 179, 179]}
+  @neutral %Duotone{intensity: 0.8, shadow: [0, 0, 0], highlight: [179, 179, 179]}
 
-  test "gray and bitonal outputs feed monochrome and duotone while preserving alpha" do
+  test "gray and bitonal outputs feed neutral and colored duotones while preserving alpha" do
     # A neutral color keeps the gray frame, a colored one promotes it to RGB.
     source = Image.new!(7, 5, color: [120, 80, 40, 97], bands: 4)
 
     for %producer_module{} = producer <- [%Gray{}, %Bitonal{}],
-        {%effect_module{} = effect, bands} <- [{@monochrome, 2}, {@duotone, 4}] do
+        {%effect_module{} = effect, bands} <- [{@neutral, 2}, {@duotone, 4}] do
       assert {:ok, %State{image: one_colour}} =
                producer_module.execute(producer, %State{image: source})
 

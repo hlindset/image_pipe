@@ -1,7 +1,8 @@
 defmodule ImagePipe.Transform.Executor.Geometry do
   @moduledoc false
 
-  import ImagePipe.Transform.Geometry, only: [round_ties_to_even: 1]
+  import ImagePipe.Transform.Geometry,
+    only: [round_half_away_from_zero: 1, round_ties_to_even: 1]
 
   alias ImagePipe.Transform.Executor.Step
   alias ImagePipe.Transform.Operation.Crop
@@ -35,6 +36,84 @@ defmodule ImagePipe.Transform.Executor.Geometry do
        height: positive_round(base.height * scale),
        dpr: max(scale, min(dpr, 1.0))
      }}
+  end
+
+  @doc """
+  The size of a `width` by `height` crop of a `{width, height}` image, corrected
+  to `ratio` when one is given: by shrinking the long axis, or with `enlarge`
+  by growing the short one, and scaled to fit the image keeping the ratio.
+  """
+  @spec crop_box(
+          pos_integer(),
+          pos_integer(),
+          nil | {:ratio, pos_integer(), pos_integer()},
+          boolean(),
+          {pos_integer(), pos_integer()}
+        ) :: {pos_integer(), pos_integer()}
+  def crop_box(width, height, ratio, enlarge, {image_width, image_height} = image) do
+    {width, height} =
+      ratio_box(
+        fit_axis(width, image_width),
+        fit_axis(height, image_height),
+        ratio,
+        enlarge,
+        image
+      )
+
+    {fit_axis(width, image_width), fit_axis(height, image_height)}
+  end
+
+  defp ratio_box(width, height, nil, _enlarge, _image), do: {width, height}
+
+  defp ratio_box(width, height, {:ratio, numerator, denominator}, enlarge, image) do
+    target = numerator / denominator
+    current = width / height
+
+    box =
+      cond do
+        current == target -> {width, height}
+        enlarge and current > target -> {width, round_half_away_from_zero(width / target)}
+        enlarge -> {round_half_away_from_zero(height * target), height}
+        current > target -> {round_half_away_from_zero(height * target), height}
+        true -> {width, round_half_away_from_zero(width / target)}
+      end
+
+    scale_into(box, image)
+  end
+
+  defp scale_into({width, height}, {image_width, image_height}) do
+    scale = min(1.0, min(image_width / width, image_height / height))
+    {round_half_away_from_zero(width * scale), round_half_away_from_zero(height * scale)}
+  end
+
+  defp fit_axis(length, image_length), do: max(1, min(image_length, length))
+
+  @doc """
+  The canvas size for extending a `{width, height}` image: a `:box` of the
+  resize's DPR-scaled dimensions, or the smallest box of the resize's `:ratio`
+  that holds the image. Each axis is at least the image size.
+  """
+  @spec canvas_dims(
+          :box | :ratio,
+          ImagePipe.Plan.Spec.Group.resize(),
+          number(),
+          {pos_integer(), pos_integer()}
+        ) ::
+          {pos_integer(), pos_integer()}
+  def canvas_dims(:box, %{w: width, h: height}, dpr, {image_width, image_height}),
+    do: {max(image_width, round(width * dpr)), max(image_height, round(height * dpr))}
+
+  def canvas_dims(:ratio, %{w: ratio_width, h: ratio_height}, _dpr, {image_width, image_height}) do
+    target_ratio = ratio_width / ratio_height
+
+    {width, height} =
+      if image_width / image_height > target_ratio do
+        {image_width, round(image_width / target_ratio)}
+      else
+        {round(image_height * target_ratio), image_height}
+      end
+
+    {max(image_width, width), max(image_height, height)}
   end
 
   @doc """

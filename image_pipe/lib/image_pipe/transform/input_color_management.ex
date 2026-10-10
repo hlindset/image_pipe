@@ -35,14 +35,16 @@ defmodule ImagePipe.Transform.InputColorManagement do
      `State`, imports to PCS float, and sets `color_imported?`.
   6. Converts to the working space, including when no profile was imported.
 
-  Preserves dimensions, `source_dimensions`, and `decode_shrink`. Returns failures
-  as `{:error, {__MODULE__, reason}}`.
+  Preserves dimensions, `source_dimensions`, and `decode_shrink`. Returns a
+  failure to buffer the source as `Materializer` classifies it, and other
+  failures as `{:error, {__MODULE__, reason}}`.
 
   Emits `[:transform, :input_color_management]` through `state.telemetry_opts`,
   with stop metadata `%{result:, working_space:, imported?:}`. Skipped imports
   report `imported?: false`; the already-imported early return emits no span.
   """
-  @spec condition(State.t(), keyword()) :: {:ok, State.t()} | {:error, {__MODULE__, term()}}
+  @spec condition(State.t(), keyword()) ::
+          {:ok, State.t()} | {:error, {__MODULE__, term()} | Materializer.error()}
   def condition(state, opts \\ [])
 
   def condition(%State{color_imported?: true} = state, _opts), do: {:ok, state}
@@ -58,6 +60,7 @@ defmodule ImagePipe.Transform.InputColorManagement do
              {:ok, new_state} <- do_condition(state, image, interp, target) do
           {:ok, new_state}
         else
+          {:error, {tag, _reason}} = error when tag in [:decode, :transform] -> error
           {:error, reason} -> {:error, {__MODULE__, reason}}
         end
 

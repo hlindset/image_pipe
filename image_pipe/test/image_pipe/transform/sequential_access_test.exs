@@ -15,8 +15,6 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
   alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.Operation.Gradient
   alias ImagePipe.Transform.Operation.Gray
-  alias ImagePipe.Transform.Operation.Monochrome
-  alias ImagePipe.Transform.Operation.Padding
   alias ImagePipe.Transform.Operation.Pixelate
   alias ImagePipe.Transform.Operation.Resize
   alias ImagePipe.Transform.Operation.Rotate
@@ -121,23 +119,24 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
     )
   end
 
-  test "padding streams" do
-    assert_sequential_matches_random(
-      [%Padding{top: 10, right: 10, bottom: 10, left: 10}],
-      File.read!(@beach)
-    )
-  end
-
   test "canvas extend streams" do
-    assert_sequential_matches_random(
-      [
-        %ExtendCanvas{
-          rule: {:dimensions, 400, 400},
-          gravity: {:anchor, :center, :center}
-        }
-      ],
-      File.read!(@beach)
-    )
+    body = File.read!(@beach)
+    {:ok, image} = Image.from_binary(body)
+
+    for {gravity, offset} <- [{{:anchor, :center, :center}, 0}, {{:anchor, :left, :top}, 10}] do
+      assert_sequential_matches_random(
+        [
+          %ExtendCanvas{
+            width: Image.width(image) + 20,
+            height: Image.height(image) + 20,
+            gravity: gravity,
+            x_offset: offset,
+            y_offset: offset
+          }
+        ],
+        body
+      )
+    end
   end
 
   test "pixelate streams" do
@@ -176,13 +175,6 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
 
   test "bitonal streams" do
     assert_sequential_matches_random([%Bitonal{}], File.read!(@beach))
-  end
-
-  test "monochrome streams" do
-    assert_sequential_matches_random(
-      [%Monochrome{intensity: 0.8, color: [179, 179, 179]}],
-      File.read!(@beach)
-    )
   end
 
   test "duotone streams" do

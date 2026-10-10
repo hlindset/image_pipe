@@ -15,7 +15,7 @@ defmodule ImagePipe.Transform.Executor.StepTest do
     assert {:ok, state} = Step.run(%State{image: image}, %Resize{width: 100, height: 50})
 
     assert {:ok, %State{image: image}} =
-             Step.run(state, %ExtendCanvas{rule: {:dimensions, 100, 100}})
+             Step.run(state, %ExtendCanvas{width: 100, height: 100})
 
     assert Image.width(image) == 100
     assert Image.height(image) == 100

@@ -79,7 +79,7 @@ defmodule ImagePipe.Transform.Operation.Watermark do
          {:ok, image} <- place(state.image, mark, operation) do
       {:ok, set_image(state, image)}
     else
-      {:error, {:materialize_error, _reason}} = error -> error
+      {:error, {tag, _reason}} = error when tag in [:decode, :transform] -> error
       {:error, reason} -> {:error, {__MODULE__, reason}}
     end
   end
@@ -93,10 +93,8 @@ defmodule ImagePipe.Transform.Operation.Watermark do
       max_intermediate_pixels: state.max_intermediate_pixels
     }
 
-    case Materializer.materialize(asset_state) do
-      {:ok, %State{image: image}} -> {:ok, image}
-      {:error, reason} -> {:error, {:materialize_error, reason}}
-    end
+    with {:ok, %State{image: image}} <- Materializer.materialize(asset_state),
+         do: {:ok, image}
   end
 
   defp tile_limits(%__MODULE__{tile: false}, _frame), do: :ok

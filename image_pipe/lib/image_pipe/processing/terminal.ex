@@ -11,6 +11,7 @@ defmodule ImagePipe.Processing.Terminal do
   alias ImagePipe.Processing
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.Executor
+  alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.PendingOrientation
   alias Vix.Vips.Image, as: VipsImage
 
@@ -195,7 +196,7 @@ defmodule ImagePipe.Processing.Terminal do
   # The decode streams, so a frame read by more than one placeholder is
   # buffered first.
   defp readable_for(state, [_terminal]), do: {:ok, state}
-  defp readable_for(state, _terminals), do: Executor.materialize(state)
+  defp readable_for(state, _terminals), do: Materializer.materialize(state)
 
   defp key(:blurhash), do: "blurhash"
   defp key(:lqip_css), do: "lqip_css"

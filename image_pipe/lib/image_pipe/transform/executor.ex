@@ -31,8 +31,6 @@ defmodule ImagePipe.Transform.Executor do
   alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.Operation.Gradient
   alias ImagePipe.Transform.Operation.Gray
-  alias ImagePipe.Transform.Operation.Monochrome
-  alias ImagePipe.Transform.Operation.Padding
   alias ImagePipe.Transform.Operation.Pixelate
   alias ImagePipe.Transform.Operation.ProgressiveBlur
   alias ImagePipe.Transform.Operation.Resize
@@ -139,19 +137,6 @@ defmodule ImagePipe.Transform.Executor do
     end
   end
 
-  @doc """
-  Buffers the current frame so it can be read more than once, as when several
-  placeholders reduce the same executed state.
-  """
-  @spec materialize(State.t()) ::
-          {:ok, State.t()} | {:error, {:decode | :transform, term()}}
-  def materialize(%State{} = state) do
-    case Materializer.materialize(state) do
-      {:ok, state} -> {:ok, state}
-      {:error, reason} -> {:error, Materializer.error(reason)}
-    end
-  end
-
   @doc false
   def check_evaluation(%State{} = state) do
     case WorkLimits.check(state) do
@@ -187,22 +172,14 @@ defmodule ImagePipe.Transform.Executor do
     # The encoder converts the tiny frame's color and drops its profile, so
     # buffer it as LQIP CSS does.
     with {:ok, state} <-
-           Step.run(state, %Resize{width: target.width, height: target.height}, opts) do
-      case Materializer.materialize(state) do
-        {:ok, state} -> {:ok, state}
-        {:error, reason} -> {:error, Materializer.error(reason)}
-      end
-    end
+           Step.run(state, %Resize{width: target.width, height: target.height}, opts),
+         do: Materializer.materialize(state)
   end
 
   def reduce_terminal(%State{} = state, %Output{terminal: :lqip_css}, opts) do
-    with {:ok, state} <- Step.run(state, %Resize{width: 3, height: 3}, opts) do
-      # The encoder samples pixels separately, so buffer only its tiny working frame.
-      case Materializer.materialize(state) do
-        {:ok, state} -> {:ok, state}
-        {:error, reason} -> {:error, Materializer.error(reason)}
-      end
-    end
+    # The encoder samples pixels separately, so buffer only its tiny working frame.
+    with {:ok, state} <- Step.run(state, %Resize{width: 3, height: 3}, opts),
+         do: Materializer.materialize(state)
   end
 
   @doc "The fixed-order operation names represented by a request."
@@ -233,7 +210,8 @@ defmodule ImagePipe.Transform.Executor do
          {:ok, state} <- run_display_optional(state, pixelate_op(group.pixelate), opts),
          {:ok, state} <- run_profile_optional(state, if(group.gray, do: %Gray{}), opts),
          {:ok, state} <- run_profile_optional(state, if(group.bitonal, do: %Bitonal{}), opts),
-         {:ok, state} <- run_color_optional(state, monochrome_op(group.monochrome), opts),
+         {:ok, state} <-
+           run_color_optional(state, monochrome_op(group.monochrome), opts, :monochrome),
          {:ok, state} <- run_color_optional(state, duotone_op(group.duotone), opts),
          {:ok, state} <- run_optional(state, brightness_op(group.brightness), opts),
          {:ok, state} <- run_optional(state, contrast_op(group.contrast), opts),
@@ -297,90 +275,44 @@ defmodule ImagePipe.Transform.Executor do
     end
   end
 
+  # A region reads the display frame. A guided crop that streams runs before
+  # pending orientation, compensated into the storage frame; one that needs
+  # random access runs on the display frame. Flushing quarter-turns the decode
+  # shrink, so crops rescale after it.
   defp execute_crop(state, %Group{region: nil, crop: nil}, _opts), do: {:ok, state}
 
   defp execute_crop(%State{} = state, %Group{region: region}, opts) when region != nil do
-    display_dims = Geometry.display_effective_dims(state)
-    crop = region_crop(region, display_dims)
+    crop = region_crop(region, Geometry.display_effective_dims(state))
 
-    {state, crop} =
-      case Geometry.pending_class(state) do
-        :pending ->
-          pending = state.pending_orientation
-
-          crop =
-            Geometry.rescale_crop(
-              crop,
-              Geometry.orient_decode_shrink(state.decode_shrink, pending)
-            )
-
-          {{:flush, state}, crop}
-
-        _none_or_identity ->
-          {state, Geometry.rescale_crop(crop, state.decode_shrink)}
-      end
-
-    with {:ok, state} <- maybe_flush_tagged(state),
-         {:ok, state} <- Step.run(state, crop, opts) do
-      {:ok, Geometry.clear_source_frame(state)}
-    end
+    with {:ok, state} <- flush_display(state),
+         do: run_crop(state, Geometry.rescale_crop(crop, state.decode_shrink), opts)
   end
 
   defp execute_crop(%State{} = state, %Group{} = group, opts) do
     crop = guided_crop(group, Geometry.display_effective_dims(state))
-    materializing? = Step.random_access?(crop)
 
-    case {Geometry.pending_class(state), materializing?} do
-      {:pending, true} ->
-        pending = state.pending_orientation
-
-        crop =
-          Geometry.rescale_crop(
-            crop,
-            Geometry.orient_decode_shrink(state.decode_shrink, pending)
-          )
-
-        with {:ok, state} <- flush_display(state),
-             {:ok, state} <- Step.run(state, crop, opts) do
-          {:ok, Geometry.clear_source_frame(state)}
-        end
-
+    case {Geometry.pending_class(state), Step.random_access?(crop)} do
       {:pending, false} ->
         pending = state.pending_orientation
 
-        crop =
-          crop
-          |> Geometry.rescale_crop(Geometry.orient_decode_shrink(state.decode_shrink, pending))
-          |> Geometry.compensate_crop(pending)
+        crop
+        |> Geometry.rescale_crop(Geometry.orient_decode_shrink(state.decode_shrink, pending))
+        |> Geometry.compensate_crop(pending)
+        |> then(&run_crop(state, &1, opts))
 
-        with {:ok, state} <- Step.run(state, crop, opts) do
-          {:ok, Geometry.clear_source_frame(state)}
-        end
+      {_class, true} ->
+        with {:ok, state} <- flush_display(state),
+             do: run_crop(state, Geometry.rescale_crop(crop, state.decode_shrink), opts)
 
-      {:identity, true} ->
-        state = %State{state | pending_orientation: nil}
-
-        with {:ok, state} <-
-               Step.run(state, Geometry.rescale_crop(crop, state.decode_shrink), opts) do
-          {:ok, Geometry.clear_source_frame(state)}
-        end
-
-      {:none, true} ->
-        with {:ok, state} <-
-               Step.run(state, Geometry.rescale_crop(crop, state.decode_shrink), opts) do
-          {:ok, Geometry.clear_source_frame(state)}
-        end
-
-      {_none_or_identity, false} ->
-        with {:ok, state} <-
-               Step.run(state, Geometry.rescale_crop(crop, state.decode_shrink), opts) do
-          {:ok, Geometry.clear_source_frame(state)}
-        end
+      {_class, false} ->
+        run_crop(state, Geometry.rescale_crop(crop, state.decode_shrink), opts)
     end
   end
 
-  defp maybe_flush_tagged({:flush, state}), do: flush_display(state)
-  defp maybe_flush_tagged(%State{} = state), do: {:ok, state}
+  defp run_crop(state, crop, opts) do
+    with {:ok, state} <- Step.run(state, crop, opts),
+         do: {:ok, Geometry.clear_source_frame(state)}
+  end
 
   defp execute_resize(state, %Group{resize: nil, dpr: dpr}, _opts), do: {:ok, state, dpr}
 
@@ -464,17 +396,15 @@ defmodule ImagePipe.Transform.Executor do
 
   defp execute_canvas(state, %Group{canvas: canvas, resize: resize}, dpr, opts) do
     with {:ok, state} <- flush_display(state) do
-      {width, height} = Geometry.live_dims(state)
-      rule = canvas_rule(canvas.mode, resize, dpr)
-
-      {:ok, {canvas_width, canvas_height}} =
-        ExtendCanvas.resolved_canvas_dims(rule, width, height)
+      {canvas_width, canvas_height} =
+        Geometry.canvas_dims(canvas.mode, resize, dpr, Geometry.live_dims(state))
 
       {x, y} = canvas.offset
       {anchor_x, anchor_y} = anchor_pair(canvas.at)
 
       operation = %ExtendCanvas{
-        rule: rule,
+        width: canvas_width,
+        height: canvas_height,
         gravity: {:anchor, anchor_x, anchor_y},
         x_offset: canvas_offset(x, canvas_width, dpr),
         y_offset: canvas_offset(y, canvas_height, dpr)
@@ -489,17 +419,24 @@ defmodule ImagePipe.Transform.Executor do
   defp execute_padding(state, nil, _dpr, _opts), do: {:ok, state}
   defp execute_padding(state, {0, 0, 0, 0}, _dpr, _opts), do: {:ok, state}
 
-  defp execute_padding(state, {top, right, bottom, left}, dpr, opts) do
-    operation = %Padding{
-      top: round_ties_to_even(top * dpr),
-      right: round_ties_to_even(right * dpr),
-      bottom: round_ties_to_even(bottom * dpr),
-      left: round_ties_to_even(left * dpr)
-    }
+  defp execute_padding(state, sides, dpr, opts) do
+    [top, right, bottom, left] =
+      sides |> Tuple.to_list() |> Enum.map(&round_ties_to_even(&1 * dpr))
 
-    with {:ok, state} <- flush_display(state),
-         {:ok, state} <- Step.run(state, operation, opts) do
-      {:ok, Geometry.clear_source_frame(state)}
+    with {:ok, state} <- flush_display(state) do
+      {width, height} = Geometry.live_dims(state)
+
+      operation = %ExtendCanvas{
+        width: width + left + right,
+        height: height + top + bottom,
+        gravity: {:anchor, :left, :top},
+        x_offset: left,
+        y_offset: top
+      }
+
+      with {:ok, state} <- Step.run(state, operation, opts, :padding) do
+        {:ok, Geometry.clear_source_frame(state)}
+      end
     end
   end
 
@@ -578,10 +515,7 @@ defmodule ImagePipe.Transform.Executor do
   # the asset has one, or a color frame does.
   defp materialize_profiled_asset(%State{image: asset} = asset_state, frame) do
     if WorkingColor.tagged?(asset) or (not GrayFrame.gray?(frame) and WorkingColor.tagged?(frame)) do
-      case Materializer.materialize(asset_state) do
-        {:ok, asset_state} -> {:ok, asset_state}
-        {:error, reason} -> {:error, Materializer.error(reason)}
-      end
+      Materializer.materialize(asset_state)
     else
       {:ok, asset_state}
     end
@@ -689,10 +623,8 @@ defmodule ImagePipe.Transform.Executor do
       :pending ->
         pending = state.pending_orientation
 
-        case Materializer.flush(state) do
-          {:ok, state} -> {:ok, orient_source_frame(state, pending)}
-          {:error, reason} -> {:error, Materializer.error(reason)}
-        end
+        with {:ok, state} <- Materializer.flush(state),
+             do: {:ok, orient_source_frame(state, pending)}
     end
   end
 
@@ -728,12 +660,13 @@ defmodule ImagePipe.Transform.Executor do
   end
 
   # A color effect converts a tagged gray frame to RGB through its profile.
-  defp run_color_optional(state, nil, _opts), do: {:ok, state}
+  defp run_color_optional(state, operation, opts, name \\ nil)
+  defp run_color_optional(state, nil, _opts, _name), do: {:ok, state}
 
-  defp run_color_optional(%State{image: image} = state, operation, opts) do
+  defp run_color_optional(%State{image: image} = state, operation, opts, name) do
     with {:ok, state} <-
            if(GrayFrame.gray?(image), do: materialize_tagged_frame(state), else: {:ok, state}),
-         do: Step.run(state, operation, opts)
+         do: Step.run(state, operation, opts, name)
   end
 
   defp run_display_color_optional(state, nil, _opts), do: {:ok, state}
@@ -768,18 +701,8 @@ defmodule ImagePipe.Transform.Executor do
     }
   end
 
-  defp guided_crop(%Group{crop: {width, height}} = group, {display_width, display_height}) do
-    requested = %Crop{
-      width: {:pixels, round(resolve_length(width, display_width))},
-      height: {:pixels, round(resolve_length(height, display_height))},
-      crop_from: :gravity,
-      aspect_ratio: group.crop_ratio,
-      enlarge: group.crop_ratio_enlarge
-    }
-
-    {crop_width, crop_height} =
-      Crop.resolved_box_dims(requested, display_width, display_height)
-
+  defp guided_crop(%Group{} = group, display_dims) do
+    {crop_width, crop_height} = guided_box(group, display_dims)
     {x_offset, y_offset} = crop_offsets(group.anchor_offset)
 
     %Crop{
@@ -790,6 +713,16 @@ defmodule ImagePipe.Transform.Executor do
       x_offset: x_offset,
       y_offset: y_offset
     }
+  end
+
+  defp guided_box(%Group{crop: {width, height}} = group, {display_width, display_height}) do
+    Geometry.crop_box(
+      round(resolve_length(width, display_width)),
+      round(resolve_length(height, display_height)),
+      group.crop_ratio,
+      group.crop_ratio_enlarge,
+      {display_width, display_height}
+    )
   end
 
   # Source crops run before resize, in physical source pixels like the crop
@@ -843,7 +776,7 @@ defmodule ImagePipe.Transform.Executor do
   defp monochrome_op(nil), do: nil
 
   defp monochrome_op(%{intensity: intensity, color: color}),
-    do: %Monochrome{intensity: intensity, color: Tuple.to_list(color)}
+    do: %Duotone{intensity: intensity, shadow: [0, 0, 0], highlight: Tuple.to_list(color)}
 
   defp duotone_op(nil), do: nil
 
@@ -882,12 +815,6 @@ defmodule ImagePipe.Transform.Executor do
 
   defp background_op({red, green, blue, alpha}),
     do: %Background{color: [red, green, blue, round(alpha * 255)]}
-
-  defp canvas_rule(:box, %{w: width, h: height}, dpr),
-    do: {:dimensions, width * dpr, height * dpr}
-
-  defp canvas_rule(:ratio, %{w: width, h: height}, _dpr),
-    do: {:aspect_ratio, {width, height}}
 
   defp canvas_offset({:px, value}, _dimension, dpr), do: value * dpr
   defp canvas_offset({:pct, value}, dimension, _dpr), do: dimension * value / 100
@@ -948,10 +875,8 @@ defmodule ImagePipe.Transform.Executor do
     }
   end
 
-  defp decode_crop_extent(%Group{crop: {_width, _height}} = group, display_dims) do
-    crop = guided_crop(group, display_dims)
-    Crop.resolved_box_dims(crop, elem(display_dims, 0), elem(display_dims, 1))
-  end
+  defp decode_crop_extent(%Group{crop: {_width, _height}} = group, display_dims),
+    do: guided_box(group, display_dims)
 
   defp decode_crop_extent(%Group{}, _display_dims), do: nil
 
@@ -986,6 +911,7 @@ defmodule ImagePipe.Transform.Executor do
          ) do
       {:ok, state} -> {:ok, state}
       {:error, {InputColorManagement, reason}} -> {:error, {:decode, reason}}
+      {:error, {tag, _reason}} = error when tag in [:decode, :transform] -> error
     end
   end
 
@@ -1013,24 +939,17 @@ defmodule ImagePipe.Transform.Executor do
   end
 
   defp remove_output_orientation(%State{} = state) do
-    with {:ok, %State{} = state} <- materialize_for_metadata(state),
-         {:ok, image} <-
-           Image.remove_metadata(state.image, ["orientation"]) do
-      {:ok, %State{state | image: image}}
-    else
-      {:error, {:decode, _reason}} = error -> error
-      {:error, reason} -> {:error, {:transform, reason}}
+    with {:ok, %State{} = state} <- materialize_for_metadata(state) do
+      case Image.remove_metadata(state.image, ["orientation"]) do
+        {:ok, image} -> {:ok, %State{state | image: image}}
+        {:error, reason} -> {:error, {:transform, reason}}
+      end
     end
   end
 
   defp materialize_for_metadata(%State{materialized?: true} = state), do: {:ok, state}
 
-  defp materialize_for_metadata(%State{} = state) do
-    case Materializer.materialize(state) do
-      {:ok, state} -> {:ok, state}
-      {:error, reason} -> {:error, Materializer.error(reason)}
-    end
-  end
+  defp materialize_for_metadata(%State{} = state), do: Materializer.materialize(state)
 
   defp group_operation_names(%Group{} = group) do
     for {value, name} <- [

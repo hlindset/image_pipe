@@ -11,19 +11,24 @@ defmodule ImagePipe.Transform.Materializer do
   # before encoding if the state has not materialized.
   #
   # Both `materialize/1` and `flush/1` emit `[:transform, :materialize]` spans
-  # that measure the pixel work at each boundary.
+  # that measure the pixel work at each boundary. Both return a copy or decode
+  # failure as `{:decode, reason}` and an intermediate pixel limit as
+  # `{:transform, reason}`.
   @moduledoc false
 
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.{MemoryCopy, OrientationFlush, State, WorkLimits}
 
-  # Operation and delivery calls share one telemetry span.
-  @spec materialize(State.t()) :: {:ok, State.t()} | {:error, term()}
+  @type error :: {:decode, term()} | {:transform, term()}
+
+  # Operation and delivery calls share one telemetry span. Its
+  # `:materialize_error` result label controls Logger severity.
+  @spec materialize(State.t()) :: {:ok, State.t()} | {:error, error()}
   def materialize(%State{telemetry_opts: telemetry_opts} = state) do
     Telemetry.span(telemetry_opts, [:transform, :materialize], %{}, fn ->
       case copy_to_memory(state) do
         {:ok, new_state} -> {{:ok, new_state}, ok_metadata(new_state)}
-        {:error, reason} -> {{:error, reason}, %{result: :materialize_error}}
+        {:error, reason} -> {{:error, error(reason)}, %{result: :materialize_error}}
       end
     end)
   end
@@ -33,7 +38,7 @@ defmodule ImagePipe.Transform.Materializer do
     do: %{result: :ok, dims: {Image.width(image), Image.height(image)}}
 
   @doc "Applies pending orientation and buffers its display frame, with materialization telemetry."
-  @spec flush(State.t()) :: {:ok, State.t()} | {:error, term()}
+  @spec flush(State.t()) :: {:ok, State.t()} | {:error, error()}
   def flush(%State{telemetry_opts: telemetry_opts} = state) do
     Telemetry.span(telemetry_opts, [:transform, :materialize], %{}, fn ->
       case guarded_flush(state) do
@@ -41,7 +46,7 @@ defmodule ImagePipe.Transform.Materializer do
           {{:ok, new_state}, ok_metadata(new_state)}
 
         {:error, reason} ->
-          {{:error, reason}, %{result: :materialize_error}}
+          {{:error, error(reason)}, %{result: :materialize_error}}
       end
     end)
   end
@@ -50,11 +55,9 @@ defmodule ImagePipe.Transform.Materializer do
     with :ok <- WorkLimits.check(state), do: OrientationFlush.flush(state)
   end
 
-  def error({:intermediate_pixel_limit, _pixels, _limit} = reason), do: {:transform, reason}
-  def error(reason), do: {:decode, reason}
+  defp error({:intermediate_pixel_limit, _pixels, _limit} = reason), do: {:transform, reason}
+  defp error(reason), do: {:decode, reason}
 
-  # Callers wrap errors as {:materialize_error, reason}. The span's matching
-  # result label controls Logger severity without changing the return value.
   defp copy_to_memory(%State{image: image} = state) do
     with :ok <- WorkLimits.check(state),
          {:ok, image} <- MemoryCopy.copy(image) do
