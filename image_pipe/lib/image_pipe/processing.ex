@@ -407,12 +407,7 @@ defmodule ImagePipe.Processing do
 
   defp materialize_for_delivery(%State{materialized?: true} = state), do: {:ok, state}
 
-  defp materialize_for_delivery(%State{} = state) do
-    case Materializer.materialize(state) do
-      {:ok, %State{} = materialized} -> {:ok, materialized}
-      {:error, reason} -> {:error, Materializer.error(reason)}
-    end
-  end
+  defp materialize_for_delivery(%State{} = state), do: Materializer.materialize(state)
 
   # The server's result caps, narrowed by the encoder's when the format is known.
   @doc false

@@ -91,6 +91,22 @@ defmodule ImagePipe.API.WorkingLimitsWireTest do
     assert request(config, "rotate=90/-/w=201/h=100/fit=stretch/enlarge").status == 422
   end
 
+  test "a color-managed source over the work limit fails as oversized work" do
+    cmyk = File.read!("test/support/image_pipe/test/sources/cmyk.jpg")
+
+    config =
+      mount(
+        max_intermediate_pixels: 10_000,
+        sources: [
+          path: [adapter: ProcessingSource, match: :path, options: [test: self(), bytes: cmyk]]
+        ]
+      )
+
+    result = request(config, "w=120")
+    assert result.status == 422
+    assert result.resp_body == "intermediate image exceeds the pixel limit"
+  end
+
   test "DPR and padding combinations obey native construction limits" do
     for options <- [
           "pad=1000000000/dpr=2",

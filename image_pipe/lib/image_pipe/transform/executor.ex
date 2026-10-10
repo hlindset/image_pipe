@@ -137,19 +137,6 @@ defmodule ImagePipe.Transform.Executor do
     end
   end
 
-  @doc """
-  Buffers the current frame so it can be read more than once, as when several
-  placeholders reduce the same executed state.
-  """
-  @spec materialize(State.t()) ::
-          {:ok, State.t()} | {:error, {:decode | :transform, term()}}
-  def materialize(%State{} = state) do
-    case Materializer.materialize(state) do
-      {:ok, state} -> {:ok, state}
-      {:error, reason} -> {:error, Materializer.error(reason)}
-    end
-  end
-
   @doc false
   def check_evaluation(%State{} = state) do
     case WorkLimits.check(state) do
@@ -185,22 +172,14 @@ defmodule ImagePipe.Transform.Executor do
     # The encoder converts the tiny frame's color and drops its profile, so
     # buffer it as LQIP CSS does.
     with {:ok, state} <-
-           Step.run(state, %Resize{width: target.width, height: target.height}, opts) do
-      case Materializer.materialize(state) do
-        {:ok, state} -> {:ok, state}
-        {:error, reason} -> {:error, Materializer.error(reason)}
-      end
-    end
+           Step.run(state, %Resize{width: target.width, height: target.height}, opts),
+         do: Materializer.materialize(state)
   end
 
   def reduce_terminal(%State{} = state, %Output{terminal: :lqip_css}, opts) do
-    with {:ok, state} <- Step.run(state, %Resize{width: 3, height: 3}, opts) do
-      # The encoder samples pixels separately, so buffer only its tiny working frame.
-      case Materializer.materialize(state) do
-        {:ok, state} -> {:ok, state}
-        {:error, reason} -> {:error, Materializer.error(reason)}
-      end
-    end
+    # The encoder samples pixels separately, so buffer only its tiny working frame.
+    with {:ok, state} <- Step.run(state, %Resize{width: 3, height: 3}, opts),
+         do: Materializer.materialize(state)
   end
 
   @doc "The fixed-order operation names represented by a request."
@@ -582,10 +561,7 @@ defmodule ImagePipe.Transform.Executor do
   # the asset has one, or a color frame does.
   defp materialize_profiled_asset(%State{image: asset} = asset_state, frame) do
     if WorkingColor.tagged?(asset) or (not GrayFrame.gray?(frame) and WorkingColor.tagged?(frame)) do
-      case Materializer.materialize(asset_state) do
-        {:ok, asset_state} -> {:ok, asset_state}
-        {:error, reason} -> {:error, Materializer.error(reason)}
-      end
+      Materializer.materialize(asset_state)
     else
       {:ok, asset_state}
     end
@@ -693,10 +669,8 @@ defmodule ImagePipe.Transform.Executor do
       :pending ->
         pending = state.pending_orientation
 
-        case Materializer.flush(state) do
-          {:ok, state} -> {:ok, orient_source_frame(state, pending)}
-          {:error, reason} -> {:error, Materializer.error(reason)}
-        end
+        with {:ok, state} <- Materializer.flush(state),
+             do: {:ok, orient_source_frame(state, pending)}
     end
   end
 
@@ -985,6 +959,7 @@ defmodule ImagePipe.Transform.Executor do
          ) do
       {:ok, state} -> {:ok, state}
       {:error, {InputColorManagement, reason}} -> {:error, {:decode, reason}}
+      {:error, {tag, _reason}} = error when tag in [:decode, :transform] -> error
     end
   end
 
@@ -1012,24 +987,17 @@ defmodule ImagePipe.Transform.Executor do
   end
 
   defp remove_output_orientation(%State{} = state) do
-    with {:ok, %State{} = state} <- materialize_for_metadata(state),
-         {:ok, image} <-
-           Image.remove_metadata(state.image, ["orientation"]) do
-      {:ok, %State{state | image: image}}
-    else
-      {:error, {:decode, _reason}} = error -> error
-      {:error, reason} -> {:error, {:transform, reason}}
+    with {:ok, %State{} = state} <- materialize_for_metadata(state) do
+      case Image.remove_metadata(state.image, ["orientation"]) do
+        {:ok, image} -> {:ok, %State{state | image: image}}
+        {:error, reason} -> {:error, {:transform, reason}}
+      end
     end
   end
 
   defp materialize_for_metadata(%State{materialized?: true} = state), do: {:ok, state}
 
-  defp materialize_for_metadata(%State{} = state) do
-    case Materializer.materialize(state) do
-      {:ok, state} -> {:ok, state}
-      {:error, reason} -> {:error, Materializer.error(reason)}
-    end
-  end
+  defp materialize_for_metadata(%State{} = state), do: Materializer.materialize(state)
 
   defp group_operation_names(%Group{} = group) do
     for {value, name} <- [

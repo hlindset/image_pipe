@@ -74,7 +74,7 @@ defmodule ImagePipe.Transform.Executor.Step do
   materialization it triggers.
 
   Returns transform failures as `{:error, {:transform, reason}}` and
-  materialization failures as `Materializer.error/1` classifies them.
+  materialization failures as `Materializer` classifies them.
   Programmer errors propagate through the span unchanged.
   """
   @spec run(State.t(), struct(), keyword(), atom() | nil) ::
@@ -104,23 +104,18 @@ defmodule ImagePipe.Transform.Executor.Step do
   defp materialize(%State{materialized?: true} = state) do
     case WorkLimits.check(state) do
       :ok -> {:ok, state}
-      {:error, reason} -> {:error, Materializer.error(reason)}
+      {:error, reason} -> {:error, {:transform, reason}}
     end
   end
 
-  defp materialize(state) do
-    case Materializer.materialize(state) do
-      {:ok, state} -> {:ok, state}
-      {:error, reason} -> {:error, Materializer.error(reason)}
-    end
-  end
+  defp materialize(state), do: Materializer.materialize(state)
 
   defp transform_result({:ok, %State{}} = ok), do: ok
 
-  # Resize and watermark buffer images of their own, and report a failure to
-  # do so as a materialization failure.
-  defp transform_result({:error, {:materialize_error, reason}}),
-    do: {:error, Materializer.error(reason)}
+  # Resize and watermark buffer images of their own, and return the
+  # materializer's classified failure.
+  defp transform_result({:error, {tag, _reason}} = error) when tag in [:decode, :transform],
+    do: error
 
   defp transform_result({:error, reason}), do: {:error, {:transform, reason}}
 
