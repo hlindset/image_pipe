@@ -29,11 +29,50 @@ ARG VIPS_VERSION=8.18.7
 ARG VIPS_SHA256=5baaead3b0bb20ffdb9e9ff09aa9fda08620923df77b63b436654cb5e0b3bf94
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      build-essential meson ninja-build pkg-config curl ca-certificates git xz-utils \
+      build-essential meson ninja-build cmake nasm pkg-config curl ca-certificates git xz-utils \
       libglib2.0-dev libexpat1-dev libjpeg62-turbo-dev libpng-dev libwebp-dev \
       libtiff-dev libgif-dev libheif-dev liborc-0.4-dev liblcms2-dev \
       libjxl-dev libcgif-dev libexif-dev libimagequant-dev libhwy-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# zlib-ng, libpng and libjpeg-turbo are built from source too, and replace
+# Debian's older versions for libvips and every library it loads: zlib-ng
+# compresses and decompresses PNG about twice as fast as zlib. They install to
+# /usr/local/lib, which 00-local.conf puts ahead of Debian's library
+# directories.
+ARG ZLIB_NG_VERSION=2.3.3
+ARG ZLIB_NG_SHA256=f9c65aa9c852eb8255b636fd9f07ce1c406f061ec19a2e7d508b318ca0c907d1
+ARG LIBPNG_VERSION=1.6.59
+ARG LIBPNG_SHA256=d80dd2a38a37f803cb9b6ac7b14bd6e74ddc3b654780a8380bdf93523fdb4389
+ARG LIBJPEG_TURBO_VERSION=3.2.0
+ARG LIBJPEG_TURBO_SHA256=6f30092cef9fb839779646608f4ee14ae3cbac989c47fa05e841b0841f09878e
+
+RUN echo /usr/local/lib > /etc/ld.so.conf.d/00-local.conf \
+    && cmake_install() { \
+         dir=$1 && shift \
+         && cmake -S "$dir" -B "$dir/build" -DCMAKE_BUILD_TYPE=Release \
+           -DCMAKE_INSTALL_PREFIX=/usr/local -DCMAKE_INSTALL_LIBDIR=lib "$@" \
+         && cmake --build "$dir/build" -j "$(nproc)" && cmake --install "$dir/build"; \
+       } \
+    && fetch() { \
+         curl -fsSL -o "/tmp/$1.tar" "$2" \
+         && echo "$3  /tmp/$1.tar" | sha256sum --check --strict \
+         && mkdir "/tmp/$1" && tar -xf "/tmp/$1.tar" -C "/tmp/$1" --strip-components=1; \
+       } \
+    && fetch zlib-ng "https://github.com/zlib-ng/zlib-ng/archive/refs/tags/${ZLIB_NG_VERSION}.tar.gz" \
+         "${ZLIB_NG_SHA256}" \
+    && cmake_install /tmp/zlib-ng -DZLIB_COMPAT=ON -DZLIB_ENABLE_TESTS=OFF -DWITH_GTEST=OFF \
+    && ldconfig \
+    && fetch libpng "https://download.sourceforge.net/libpng/libpng-${LIBPNG_VERSION}.tar.xz" \
+         "${LIBPNG_SHA256}" \
+    && cmake_install /tmp/libpng -DZLIB_ROOT=/usr/local -DPNG_STATIC=OFF -DPNG_TESTS=OFF \
+         -DPNG_TOOLS=OFF \
+    && fetch libjpeg-turbo \
+         "https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/${LIBJPEG_TURBO_VERSION}/libjpeg-turbo-${LIBJPEG_TURBO_VERSION}.tar.gz" \
+         "${LIBJPEG_TURBO_SHA256}" \
+    && cmake_install /tmp/libjpeg-turbo -DENABLE_STATIC=OFF -DWITH_TURBOJPEG=OFF \
+    && ldconfig \
+    && rm -rf /tmp/zlib-ng* /tmp/libpng* /tmp/libjpeg-turbo*
 
 RUN curl -fsSL -o /tmp/vips.tar.xz \
       "https://github.com/libvips/libvips/releases/download/v${VIPS_VERSION}/vips-${VIPS_VERSION}.tar.xz" \
@@ -49,6 +88,7 @@ RUN curl -fsSL -o /tmp/vips.tar.xz \
     && meson install -C build \
     && ldconfig \
     && vips -l | grep -q jxlload \
+    && ! ldd /usr/local/lib/libvips.so.42 | grep -E 'lib(z|png16|jpeg)\.so' | grep -v ' /usr/local/lib/' \
     && ! vips -l | grep -Eq 'svgload|magickload|pdfload|dcrawload|ppmload' \
     && rm -rf /tmp/vips*
 
@@ -124,8 +164,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN ln -s "$(dpkg -L libjemalloc2 | grep '/libjemalloc.so.2$')" /usr/local/lib/libjemalloc.so.2 \
     && LD_PRELOAD=/usr/local/lib/libjemalloc.so.2 /bin/true
 
-COPY --from=build /usr/local/lib/libvips* /usr/local/lib/
-RUN ldconfig
+COPY --from=build /usr/local/lib/libvips* /usr/local/lib/libz.so.1* \
+  /usr/local/lib/libpng16.so.16* /usr/local/lib/libjpeg.so.62* /usr/local/lib/
+RUN echo /usr/local/lib > /etc/ld.so.conf.d/00-local.conf && ldconfig \
+    && ! ldd /usr/local/lib/libvips.so.42 | grep -E 'lib(z|png16|jpeg)\.so' | grep -v ' /usr/local/lib/'
 
 RUN useradd --uid 10001 --no-create-home --home-dir /app --shell /usr/sbin/nologin image_pipe \
     && mkdir -p /var/cache/image_pipe /etc/image_pipe \

@@ -5,6 +5,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Images process faster, PNG most of all. The Docker images now ship zlib-ng
+  2.3.3, libjpeg-turbo 3.2.0 and libpng 1.6.59 in place of Debian's zlib,
+  libjpeg-turbo and libpng. Across a set of typical requests, latency dropped
+  by about a quarter, and by more than half for some PNG resizes.
+
 ## [0.1.0] - 2026-10-09
 
 ### Added
