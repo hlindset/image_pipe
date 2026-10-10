@@ -32,7 +32,6 @@ defmodule ImagePipe.Decode do
   alias ImagePipe.Plan.Spec
   alias ImagePipe.Source
   alias ImagePipe.Telemetry
-  alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceGeometry
@@ -63,9 +62,8 @@ defmodule ImagePipe.Decode do
 
   The request owns EXIF orientation and decode-time preflight intent.
   After the header open, the bracket passes the request and resulting
-  `SourceGeometry` to `ImagePipe.Transform.Executor.decode_request/2`, then
-  feeds that plan to `DecodePlanner.open_options_for/5` to compute the
-  shrink-on-load options for the sequential re-open.
+  `SourceGeometry` to `ImagePipe.Transform.Executor.decode_options/2`, which
+  returns the shrink-on-load options for the sequential re-open.
 
   Returns errors tagged `{:source, _}` for fetch failures, `{:decode, _}` for
   corrupt/unsupported bodies or libvips open failures, and `{:input_limit, _}`
@@ -234,15 +232,7 @@ defmodule ImagePipe.Decode do
            pages: frames,
            debug_facts: debug_facts(input, page_image, opts)
          },
-         decode_request = Executor.decode_request(request, geometry),
-         decode_options =
-           DecodePlanner.open_options_for(
-             decode_request,
-             source_format,
-             storage_dimensions,
-             exif_quarter_turn?(page_image),
-             auto_rotate?
-           ) ++ page_option(request.page),
+         decode_options = Executor.decode_options(request, geometry) ++ page_option(request.page),
          {:ok, image} <-
            open_seekable_input(input, decode_options, opts)
            |> wrap_decode_error() do
@@ -477,13 +467,6 @@ defmodule ImagePipe.Decode do
     case VipsImage.header_value(image, "orientation") do
       {:ok, value} when is_integer(value) -> value
       _ -> 1
-    end
-  end
-
-  defp exif_quarter_turn?(image) do
-    case VipsImage.header_value(image, "orientation") do
-      {:ok, v} when v in [5, 6, 7, 8] -> true
-      _ -> false
     end
   end
 

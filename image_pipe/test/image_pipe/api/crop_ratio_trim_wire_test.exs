@@ -7,7 +7,6 @@ defmodule ImagePipe.API.CropRatioTrimWireTest do
   alias ImagePipe.API.Parser
   alias ImagePipe.API.Path
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceGeometry
@@ -91,9 +90,7 @@ defmodule ImagePipe.API.CropRatioTrimWireTest do
 
     {:ok, lexed} = Path.extract("/crop=200,200/crop-ratio=2/h=25/src/image.jpg", "")
     {:ok, request} = Parser.parse(lexed, [])
-    decode_request = Executor.decode_request(request, geometry)
-
-    assert DecodePlanner.open_options_for(decode_request, :jpeg, {800, 600})[:shrink] == 4
+    assert Executor.decode_options(request, geometry)[:shrink] == 4
   end
 
   test "out-of-range crop ratios fail before source access" do

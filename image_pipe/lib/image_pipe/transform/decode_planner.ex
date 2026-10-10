@@ -1,5 +1,5 @@
 defmodule ImagePipe.Transform.DecodePlanner do
-  # Chooses decode load options from a concrete `%Request{}`.
+  # Chooses decode open options from a decode extent and resize target.
   #
   # Decode is always opened with `:sequential` access. Random access is provided
   # by `ImagePipe.Transform.run/3` when an operation requires it.
@@ -8,92 +8,39 @@ defmodule ImagePipe.Transform.DecodePlanner do
   # It is pure: `ImagePipe.Decode` supplies the header dimensions and source format.
   @moduledoc false
 
-  alias ImagePipe.Transform.DecodePlanner.Request
-
   @type source_format() ::
           :jpeg | :webp | :png | :tiff | :jpeg2000 | :jpeg_xl | :heif | :avif | atom()
 
-  @doc """
-  Chooses decode load options from `%Request{}`.
+  @typedoc """
+  A resize target in display-frame pixels. Each axis is optional and may be
+  fractional:
 
-  `trim?` disables shrink. Otherwise, `resize_target` takes precedence over
-  `terminal_reduction`; neither present means no shrink. A terminal such as
-  blurhash can therefore reduce the decode size even without a resize.
-
-  Target axes are independently optional and may be fractional after `dpr`/`zoom`
-  scaling (see `t:Request.resize_target/0`). The planner uses them without rounding.
-
-  Shrink axes swap when exactly one of the enabled EXIF orientation and the
-  pre-resize user rotation is a quarter turn.
+    * A single-axis resize (`w:400` with `:auto` height) uses only that axis's
+      ratio. Synthesizing the other axis can over-constrain the shrink.
+    * `dpr`/`zoom` can produce fractional targets. Rounding changes the ratio
+      and can turn a sub-pixel target into zero.
   """
-  @spec open_options_for(
-          Request.t(),
-          source_format(),
-          {pos_integer(), pos_integer()},
-          boolean(),
-          boolean()
-        ) :: keyword()
-  def open_options_for(
-        %Request{} = request,
-        source_format,
-        {src_w, src_h},
-        exif_quarter_turn? \\ false,
-        auto_rotate? \\ false
-      )
-      when is_atom(source_format) and
-             is_integer(src_w) and src_w > 0 and
-             is_integer(src_h) and src_h > 0 and
-             is_boolean(exif_quarter_turn?) and is_boolean(auto_rotate?) do
-    {shrink_w, shrink_h} =
-      shrink_axes(
-        {src_w, src_h},
-        request_net_quarter_turn?(request, exif_quarter_turn?, auto_rotate?)
-      )
+  @type target() :: {number() | nil, number() | nil}
 
-    base = [access: :sequential, fail_on: :error]
+  @doc """
+  Chooses decode open options for decoding `extent` (display-frame pixels)
+  down to `target`. `nil` target means no shrink.
+  """
+  @spec open_options(source_format(), {pos_integer(), pos_integer()}, target() | nil) ::
+          keyword()
+  # The guards state the domain: a zero or negative extent would otherwise give a
+  # ratio at or below 1 and silently decode at full size.
+  def open_options(source_format, {width, height}, target)
+      when is_atom(source_format) and is_integer(width) and width > 0 and
+             is_integer(height) and height > 0 do
+    load_shrink =
+      case target do
+        nil -> 1.0
+        {target_w, target_h} -> ratio_from_targets(width, height, target_w, target_h)
+      end
 
-    load_shrink = compute_load_shrink_for_request(request, shrink_w, shrink_h)
-
-    append_load_option(base, source_format, load_shrink)
+    append_load_option([access: :sequential, fail_on: :error], source_format, load_shrink)
   end
-
-  # Trim changes the source extent, so shrinking against the original dimensions
-  # could lose detail. Decode at full resolution until the trimmed extent is known.
-  defp compute_load_shrink_for_request(%Request{trim?: true}, _shrink_w, _shrink_h), do: 1.0
-
-  defp compute_load_shrink_for_request(
-         %Request{resize_target: {target_w, target_h}} = request,
-         shrink_w,
-         shrink_h
-       ) do
-    {crop_w, crop_h} = request.crop_extent || {shrink_w, shrink_h}
-    ratio_from_targets(crop_w, crop_h, target_w, target_h)
-  end
-
-  defp compute_load_shrink_for_request(
-         %Request{terminal_reduction: {target_w, target_h}} = request,
-         shrink_w,
-         shrink_h
-       ) do
-    {crop_w, crop_h} = request.crop_extent || {shrink_w, shrink_h}
-    ratio_from_targets(crop_w, crop_h, target_w, target_h)
-  end
-
-  defp compute_load_shrink_for_request(%Request{}, _shrink_w, _shrink_h), do: 1.0
-
-  # Resize targets use display axes; a net quarter turn swaps the storage axes.
-  defp shrink_axes({w, h}, true), do: {h, w}
-  defp shrink_axes(dims, false), do: dims
-
-  # Each turn contributes 0 or 90 degrees modulo 180, so XOR gives the net axis
-  # swap. EXIF contributes only when auto-rotate is enabled and the tag is 5–8.
-  # This must agree with PendingOrientation.quarter_turn?/1 at residual resize.
-  defp request_net_quarter_turn?(
-         %Request{user_quarter_turn?: user_turn?},
-         exif_qt?,
-         auto_rotate?
-       ),
-       do: (exif_qt? and auto_rotate?) != user_turn?
 
   # Use the smaller src/target ratio so neither decoded axis falls below its
   # resize target. Over-shrinking would force an upscale and soften the result.

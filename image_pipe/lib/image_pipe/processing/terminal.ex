@@ -78,7 +78,7 @@ defmodule ImagePipe.Processing.Terminal do
       :lqip_css not in output.placeholders ->
         :none
 
-      Executor.decode_request(standalone, geometry) == Executor.decode_request(request, geometry) ->
+      Executor.decode_options(standalone, geometry) == Executor.decode_options(request, geometry) ->
         :executed
 
       true ->

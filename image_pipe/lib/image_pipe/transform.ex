@@ -13,7 +13,6 @@ defmodule ImagePipe.Transform do
       Executor,
       State,
       DecodePlanner,
-      DecodePlanner.Request,
       Materializer,
       Detector,
       Detector.Warmup,

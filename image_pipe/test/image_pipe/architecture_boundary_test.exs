@@ -528,7 +528,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Transform.Executor,
       ImagePipe.Transform.State,
       ImagePipe.Transform.DecodePlanner,
-      ImagePipe.Transform.DecodePlanner.Request,
       ImagePipe.Transform.Materializer,
       ImagePipe.Transform.SourceGeometry,
       ImagePipe.Transform.PendingOrientation,

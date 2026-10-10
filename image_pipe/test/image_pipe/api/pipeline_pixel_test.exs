@@ -234,67 +234,55 @@ defmodule ImagePipe.API.PipelinePixelTest do
     assert_in_delta Image.height(image), 200, 5
   end
 
-  # ── decode_request/2 preflight values ─────────────────────────────────────
+  # ── decode_options/2 preflight values ─────────────────────────────────────
 
-  describe "decode_request/2 preflight" do
+  describe "decode_options/2 preflight" do
+    # WebP takes an exact `scale: 1 / ratio`, so the ratio is checked precisely.
     defp geometry(display_dims) do
       %SourceGeometry{
         storage_dimensions: display_dims,
         display_dimensions: display_dims,
         pending_orientation: %ImagePipe.Transform.PendingOrientation{},
-        source_format: :jpeg
+        source_format: :webp
       }
     end
 
-    test "a plain resize sets resize_target, leaving an :auto axis untargeted" do
-      request = request("w=400")
+    defp decode_options(request), do: Executor.decode_options(request, geometry({1600, 1200}))
 
-      decode_request = Executor.decode_request(request, geometry({1600, 1200}))
-
-      assert decode_request.resize_target == {400, nil}
-      assert decode_request.crop_extent == nil
-      assert decode_request.trim? == false
-      assert decode_request.terminal_reduction == nil
+    defp refute_shrink(opts) do
+      refute Keyword.has_key?(opts, :shrink)
+      refute Keyword.has_key?(opts, :scale)
     end
 
-    test "a crop before the resize sets crop_extent from the FIRST group's crop" do
-      request = request("crop=600,400/anchor=center/w=300")
-
-      decode_request = Executor.decode_request(request, geometry({1600, 1200}))
-
-      assert decode_request.resize_target == {300, nil}
-      assert decode_request.crop_extent == {600, 400}
+    test "a plain resize targets its axis, leaving an :auto axis untargeted" do
+      # Width alone: 1600/400 = 4. The source is 4:3, so a synthesized
+      # height would not change this; the crop case below distinguishes it.
+      assert_in_delta decode_options(request("w=400"))[:scale], 0.25, 1.0e-12
     end
 
-    test "a trim-only first group sets trim?: true and no resize_target" do
-      request = request("trim=auto")
-      decode_request = Executor.decode_request(request, geometry({1600, 1200}))
+    test "a crop before the resize sizes the shrink from the FIRST group's crop" do
+      # Crop 600x400, width target 300: ratio 600/300 = 2. A height synthesized
+      # from the source aspect (225) would give min(2, 400/225) = 1.78.
+      opts = decode_options(request("crop=600,400/anchor=center/w=300"))
 
-      assert decode_request.trim? == true
-      assert decode_request.resize_target == nil
+      assert_in_delta opts[:scale], 0.5, 1.0e-12
     end
 
-    test "a trim in a LATER group does not set trim? (only the first group governs)" do
-      request = request("w=400/-/trim=auto")
-
-      decode_request = Executor.decode_request(request, geometry({1600, 1200}))
-
-      assert decode_request.trim? == false
-      assert decode_request.resize_target == {400, nil}
+    test "a trim-only first group decodes at full size" do
+      refute_shrink(decode_options(request("trim=auto")))
     end
 
-    test "output=blurhash sets the terminal reduction for a single-group request" do
-      request = request("output=blurhash")
-      decode_request = Executor.decode_request(request, geometry({1600, 1200}))
-
-      assert decode_request.terminal_reduction == {32, 32}
+    test "a trim in a LATER group does not disable shrink (only the first group governs)" do
+      assert_in_delta decode_options(request("w=400/-/trim=auto"))[:scale], 0.25, 1.0e-12
     end
 
-    test "output=lqip-css sets the terminal reduction for a single-group request" do
-      request = request("output=lqip-css")
-      decode_request = Executor.decode_request(request, geometry({1600, 1200}))
+    test "output=blurhash shrinks toward the terminal reduction for a single-group request" do
+      # min(1600/32, 1200/32) = 37.5
+      assert_in_delta decode_options(request("output=blurhash"))[:scale], 32 / 1200, 1.0e-12
+    end
 
-      assert decode_request.terminal_reduction == {32, 32}
+    test "output=lqip-css shrinks toward the terminal reduction for a single-group request" do
+      assert_in_delta decode_options(request("output=lqip-css"))[:scale], 32 / 1200, 1.0e-12
     end
 
     # These effects take sizes in pixels, which a reduced decode would make
@@ -302,29 +290,25 @@ defmodule ImagePipe.API.PipelinePixelTest do
     for effect <- ["pad=200", "blur=5", "sharpen=2", "pixelate=10", "progressive-blur=5"],
         output <- ["blurhash", "lqip-css"] do
       test "#{effect} keeps an output=#{output} decode at full size" do
-        request = request("#{unquote(effect)}/output=#{unquote(output)}")
-        decode_request = Executor.decode_request(request, geometry({1600, 1200}))
-
-        assert decode_request.terminal_reduction == nil
+        refute_shrink(decode_options(request("#{unquote(effect)}/output=#{unquote(output)}")))
       end
     end
 
     test "a watermark keeps a placeholder decode at full size" do
       request = request("wm=logo/output=blurhash", watermarks: %{logo: [source: "mark.png"]})
-      decode_request = Executor.decode_request(request, geometry({1600, 1200}))
 
-      assert decode_request.terminal_reduction == nil
+      refute_shrink(decode_options(request))
     end
 
-    # The planner ignores the reduction when the group resizes or trims, so the
-    # request leaves it out and matches the same request without a placeholder.
-    for options <- ["w=60", "trim=auto"] do
-      test "#{options} leaves the placeholder reduction out" do
-        request = request("#{unquote(options)}/output=lqip-css")
-        decode_request = Executor.decode_request(request, geometry({1600, 1200}))
+    test "a resize governs a placeholder decode instead of the terminal reduction" do
+      # 1600/60, not the terminal's 1200/32.
+      assert_in_delta decode_options(request("w=60/output=lqip-css"))[:scale],
+                      60 / 1600,
+                      1.0e-12
+    end
 
-        assert decode_request.terminal_reduction == nil
-      end
+    test "a trim keeps a placeholder decode at full size" do
+      refute_shrink(decode_options(request("trim=auto/output=lqip-css")))
     end
   end
 end
