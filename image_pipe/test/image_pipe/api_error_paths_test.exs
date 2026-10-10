@@ -282,7 +282,7 @@ defmodule ImagePipe.APIErrorPathsTest do
         end)
 
       {:ok, coordinator} =
-        Coordinator.start(build_fun, owner, fake_cache_key(), RequestContext.capture(), [])
+        Coordinator.start(build_fun, owner, fake_cache_key(), [], RequestContext.capture(), [])
 
       coordinator_ref = Process.monitor(coordinator)
 
@@ -546,7 +546,7 @@ defmodule ImagePipe.APIErrorPathsTest do
       owner = self()
 
       {:ok, coordinator} =
-        Coordinator.start(build_fun, owner, fake_cache_key(), RequestContext.capture(), [])
+        Coordinator.start(build_fun, owner, fake_cache_key(), [], RequestContext.capture(), [])
 
       coordinator_ref = Process.monitor(coordinator)
 

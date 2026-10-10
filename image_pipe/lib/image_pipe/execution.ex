@@ -410,21 +410,17 @@ defmodule ImagePipe.Execution do
   defp generate_uncoalesced(context, lease \\ nil) do
     result =
       with {:ok, watermark_inputs} <- watermark_inputs(context) do
-        config =
-          context.config
-          |> Keyword.put(:source_record, context.acquisition.record)
-          |> Keyword.put(:output_lease, lease)
-          |> Keyword.put(:watermark_inputs, watermark_inputs)
-
+        config = Keyword.put(context.config, :watermark_inputs, watermark_inputs)
+        session = [source_record: context.acquisition.record, output_lease: lease]
         key = if storable?(context), do: context.representation.cache_key
-        generate(context, config, key)
+        generate(context, config, session, key)
       end
 
     finish(context, result)
     result
   end
 
-  defp generate(%Context{request: %{output: %{terminal: :image}}} = context, config, key) do
+  defp generate(%Context{request: %{output: %{terminal: :image}}} = context, config, session, key) do
     build =
       case context.acquisition.processing do
         # An overlapped preparation that found a skipped source leaves the
@@ -437,14 +433,14 @@ defmodule ImagePipe.Execution do
       end
 
     with {:ok, stream} <-
-           Delivery.stream(build, key, config) do
+           Delivery.stream(build, key, config, session) do
       stream = %{stream | next: fn -> next(stream, context) end}
       output = output(context, {:stream, stream}, :miss, nil)
       {:ok, %Output{output | degraded?: degraded?(stream.resolved_output)}}
     end
   end
 
-  defp generate(context, config, key) do
+  defp generate(context, config, session, key) do
     # The cache scores an entry by its cost while holding a processing slot,
     # so time queued behind other work doesn't inflate it.
     {pooled, total} =
@@ -463,7 +459,15 @@ defmodule ImagePipe.Execution do
 
       body = IO.iodata_to_binary(body)
       debug = DebugBuilder.build_terminal(Executor.operation_names(context.request), total)
-      store_body(if(degraded?, do: nil, else: key), type, body, debug, cost, config)
+
+      store_body(
+        if(degraded?, do: nil, else: key),
+        type,
+        body,
+        facts(session, debug, cost),
+        config
+      )
+
       output = output(context, {:body, body, type, debug}, :miss, nil)
       {:ok, %Output{output | degraded?: degraded?}}
     end
@@ -487,14 +491,14 @@ defmodule ImagePipe.Execution do
 
   defp decode_input(context), do: context.acquisition.response || context.source
 
-  defp store_body(nil, _type, _body, _debug, _cost, _config), do: :ok
+  defp facts(session, debug, cost),
+    do: [cost_us: cost, debug: debug, source_record: Keyword.get(session, :source_record)]
 
-  defp store_body(key, type, body, debug, cost, config) do
+  defp store_body(nil, _type, _body, _facts, _config), do: :ok
+
+  defp store_body(key, type, body, facts, config) do
     key
-    |> Cache.open_sink(
-      {:complete_body, type},
-      Keyword.merge(config, cost_us: cost, debug_info: debug)
-    )
+    |> Cache.open_sink({:complete_body, type}, facts, config)
     |> Cache.write_chunk(body, config)
     |> Cache.commit_sink(config)
 

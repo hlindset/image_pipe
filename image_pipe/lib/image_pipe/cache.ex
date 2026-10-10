@@ -139,7 +139,8 @@ defmodule ImagePipe.Cache do
     source_index_key(input_key)
     |> open_sink(
       {:complete_body, "application/vnd.imagepipe.source"},
-      Keyword.put(opts, :source_record, record)
+      [source_record: record],
+      opts
     )
     |> write_chunk(body, opts)
     |> commit_sink(opts)
@@ -179,31 +180,35 @@ defmodule ImagePipe.Cache do
     )
   end
 
+  # `facts` describe the entry being stored: its generation cost (`:cost_us`),
+  # debug facts (`:debug`) and the source record it was made from
+  # (`:source_record`). Each is optional.
   @doc false
   @spec open_sink(
           Key.t() | nil,
           Resolved.t() | Skipped.t() | {:complete_body, String.t()},
+          keyword(),
           keyword()
         ) ::
           sink() | nil
-  def open_sink(_key, %Skipped{}, _opts), do: nil
-  def open_sink(_key, %Resolved{degraded?: true}, _opts), do: nil
-  def open_sink(nil, %Resolved{}, _opts), do: nil
-  def open_sink(nil, {:complete_body, _content_type}, _opts), do: nil
+  def open_sink(_key, %Skipped{}, _facts, _opts), do: nil
+  def open_sink(_key, %Resolved{degraded?: true}, _facts, _opts), do: nil
+  def open_sink(nil, %Resolved{}, _facts, _opts), do: nil
+  def open_sink(nil, {:complete_body, _content_type}, _facts, _opts), do: nil
 
-  def open_sink(%Key{} = key, %Resolved{} = resolved_output, opts) when is_list(opts) do
-    dispatch_open_sink(key, resolved_output, opts)
+  def open_sink(%Key{} = key, %Resolved{} = resolved_output, facts, opts) when is_list(opts) do
+    dispatch_open_sink(key, resolved_output, facts, opts)
   end
 
-  def open_sink(%Key{} = key, {:complete_body, content_type} = target, opts)
+  def open_sink(%Key{} = key, {:complete_body, content_type} = target, facts, opts)
       when is_list(opts) and is_binary(content_type) do
-    dispatch_open_sink(key, target, opts)
+    dispatch_open_sink(key, target, facts, opts)
   end
 
-  defp dispatch_open_sink(key, sink_target, opts) do
+  defp dispatch_open_sink(key, sink_target, facts, opts) do
     case Keyword.get(opts, :cache) do
       nil -> nil
-      cache_opts -> Sink.open(key, sink_target, cache_opts, opts)
+      cache_opts -> Sink.open(key, sink_target, cache_opts, facts, opts)
     end
   end
 

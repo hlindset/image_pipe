@@ -29,6 +29,9 @@ defmodule ImagePipe.Delivery.Coordinator do
     :owner,
     :owner_monitor,
     :cache_key,
+    # This request's output lease and source record (see Delivery.stream/4).
+    :output_lease,
+    :source_record,
     :request_context,
     :config,
     :producer,
@@ -57,13 +60,14 @@ defmodule ImagePipe.Delivery.Coordinator do
           Producer.build_fun(),
           pid(),
           Cache.Key.t() | nil,
+          keyword(),
           RequestContext.t(),
           keyword()
         ) ::
           GenServer.on_start()
-  def start(build_fun, owner, cache_key, request_context, config)
+  def start(build_fun, owner, cache_key, session, request_context, config)
       when is_function(build_fun, 1) and is_pid(owner) do
-    GenServer.start(__MODULE__, {build_fun, owner, cache_key, request_context, config})
+    GenServer.start(__MODULE__, {build_fun, owner, cache_key, session, request_context, config})
   end
 
   @doc "Longest wait for the next chunk before the session gives up."
@@ -80,14 +84,15 @@ defmodule ImagePipe.Delivery.Coordinator do
   def cancel(server, timeout \\ @cancel_timeout), do: call_session(server, :cancel, timeout)
 
   @impl GenServer
-  def init({build_fun, owner, cache_key, request_context, config}) when is_pid(owner) do
+  def init({build_fun, owner, cache_key, session, request_context, config}) when is_pid(owner) do
     Process.flag(:trap_exit, true)
     Process.put(:"$callers", [owner | Process.get(:"$callers", [])])
     # Hop A: adopt the request's context so spans emitted from THIS process
     # (e.g. [:cache, :write] at commit) nest under the request root and keep
     # the host's Logger metadata.
     RequestContext.adopt(request_context)
-    Cache.OutputWork.transfer(Keyword.get(config, :output_lease))
+    output_lease = Keyword.get(session, :output_lease)
+    Cache.OutputWork.transfer(output_lease)
 
     {:ok,
      %__MODULE__{
@@ -97,6 +102,8 @@ defmodule ImagePipe.Delivery.Coordinator do
        # the other way around.
        owner_monitor: Process.monitor(owner),
        cache_key: cache_key,
+       output_lease: output_lease,
+       source_record: Keyword.get(session, :source_record),
        request_context: request_context,
        config: config
      }}
@@ -201,7 +208,7 @@ defmodule ImagePipe.Delivery.Coordinator do
       |> clear_producer()
 
     state = mark_failed(%{state | pending: nil, failure: failure})
-    Cache.OutputWork.complete(Keyword.get(state.config, :output_lease), :bypass)
+    Cache.OutputWork.complete(state.output_lease, :bypass)
 
     case pending do
       nil -> {:noreply, state}
@@ -227,7 +234,7 @@ defmodule ImagePipe.Delivery.Coordinator do
       |> abort_cache_sink(:stream_error)
       |> clear_producer()
 
-    Cache.OutputWork.complete(Keyword.get(state.config, :output_lease), :bypass)
+    Cache.OutputWork.complete(state.output_lease, :bypass)
     state = %{state | phase: :failed, failure: {:processing, :timeout}}
 
     case pending do
@@ -312,13 +319,12 @@ defmodule ImagePipe.Delivery.Coordinator do
         Cache.open_sink(
           cache_key,
           resolved_output,
+          [cost_us: cost_us, debug: debug, source_record: state.source_record],
           config
-          |> Keyword.put(:cost_us, cost_us)
-          |> Keyword.put(:debug_info, debug)
         )
 
       cache_sink = Cache.write_chunk(cache_sink, first_chunk, config)
-      release_unstored(cache_sink, config)
+      release_unstored(cache_sink, state)
 
       GenServer.reply(
         from,
@@ -344,7 +350,7 @@ defmodule ImagePipe.Delivery.Coordinator do
   defp handle_producer_result({:ok, {:chunk, chunk}}, %{pending: {:next, from}} = state) do
     with_owner_check(state, fn state ->
       cache_sink = Cache.write_chunk(state.cache_sink, chunk, state.config)
-      if state.cache_sink, do: release_unstored(cache_sink, state.config)
+      if state.cache_sink, do: release_unstored(cache_sink, state)
       GenServer.reply(from, {:chunk, chunk})
       {:noreply, %{state | pending: nil, cache_sink: cache_sink}}
     end)
@@ -353,7 +359,7 @@ defmodule ImagePipe.Delivery.Coordinator do
   defp handle_producer_result({:ok, :done}, %{pending: {:next, from}} = state) do
     with_owner_check(state, fn state ->
       Cache.commit_sink(state.cache_sink, state.config)
-      Cache.OutputWork.complete(Keyword.get(state.config, :output_lease), :ready)
+      Cache.OutputWork.complete(state.output_lease, :ready)
       GenServer.reply(from, :done)
 
       state =
@@ -386,7 +392,7 @@ defmodule ImagePipe.Delivery.Coordinator do
       |> clear_producer()
 
     GenServer.reply(from, {:error, reason})
-    Cache.OutputWork.complete(Keyword.get(state.config, :output_lease), :bypass)
+    Cache.OutputWork.complete(state.output_lease, :bypass)
     {:stop, :normal, mark_failed(%{state | pending: nil})}
   end
 
@@ -451,7 +457,7 @@ defmodule ImagePipe.Delivery.Coordinator do
 
       pool ->
         ProcessingPool.cancel(pool, producer)
-        Cache.OutputWork.complete(Keyword.get(state.config, :output_lease), :bypass)
+        Cache.OutputWork.complete(state.output_lease, :bypass)
         {:stop, state |> abort_cache_sink(reason) |> clear_producer()}
     end
   end
@@ -482,10 +488,8 @@ defmodule ImagePipe.Delivery.Coordinator do
 
   # Requests waiting for this output would find nothing in the cache, so they
   # start their own generation now instead of after this stream ends.
-  defp release_unstored(nil, config),
-    do: Cache.OutputWork.complete(Keyword.get(config, :output_lease), :bypass)
-
-  defp release_unstored(_cache_sink, _config), do: :ok
+  defp release_unstored(nil, state), do: Cache.OutputWork.complete(state.output_lease, :bypass)
+  defp release_unstored(_cache_sink, _state), do: :ok
 
   defp abort_cache_sink(%{cache_sink: nil} = state, _reason), do: state
 

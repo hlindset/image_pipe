@@ -23,7 +23,7 @@ defmodule ImagePipe.Cache.LookupEntryTest do
 
   defp store(opts, body) do
     key()
-    |> Cache.open_sink({:complete_body, "text/plain"}, opts)
+    |> Cache.open_sink({:complete_body, "text/plain"}, [], opts)
     |> Cache.write_chunk(body, opts)
     |> Cache.commit_sink(opts)
   end
