@@ -12,8 +12,12 @@ defmodule ImagePipe.API.Parser do
   #      marking every occurrence. Then expand presets.
   #   4. Check conflicts, inert options, and output applicability using only valid,
   #      non-duplicate values, to avoid errors caused by earlier failures.
-  #   5. Translate into typed intent for `Plan.Spec.build/2`, which removes
-  #      identity values and resolves omitted fit/guide defaults.
+  #   5. Build the request with `Plan.Spec.resolve/5`, which removes identity
+  #      values and resolves omitted fit/guide defaults.
+  #
+  # Option maps are keyed by option name from pass 1 on, the shape presets and
+  # `Plan.Spec` use. Occurrences keep the URL key for duplicate detection and
+  # diagnostics.
   #
   # Diagnostics are `ImagePipe.API.Diagnostic` structs with stable `reason` atoms.
   @moduledoc false
@@ -24,11 +28,10 @@ defmodule ImagePipe.API.Parser do
   alias ImagePipe.Plan.Presets
   alias ImagePipe.Plan.Spec
 
-  @intent_keys Map.new(for spec <- OptionSpec.all(), spec.name != nil, do: {spec.key, spec.name})
-
-  @url_keys Map.new(@intent_keys, fn {key, name} -> {name, key} end)
-
   @specs Map.new(OptionSpec.all(), &{&1.key, &1})
+
+  # Diagnostics name options by their URL keys.
+  @url_keys Map.new(OptionSpec.all(), &{&1.name, &1.key})
 
   @type span :: Diagnostic.span()
   @type lexed :: %{
@@ -46,20 +49,18 @@ defmodule ImagePipe.API.Parser do
     {parsed, occurrences, parse_errors} = parse_options(segments)
     whole_path_span = whole_path_span(source_span)
 
-    {clean_group_maps, clean_request_map, preset_errors, occurrences_for_cross} =
+    {groups, request, preset_errors, occurrences} =
       expand_presets(parsed.groups, parsed.request, occurrences, config, whole_path_span)
 
-    settled = settle(clean_group_maps, clean_request_map, occurrences_for_cross, config)
+    case {parse_errors ++ preset_errors, resolve(groups, request, occurrences, config)} do
+      {[], {:ok, request}} ->
+        {:ok, request}
 
-    case {parse_errors ++ preset_errors, settled} do
-      {[], {:ok, groups, options, warnings}} ->
-        {:ok, %{Spec.build(groups, options) | ignored: warnings}}
-
-      {errors, {:ok, _groups, _options, warnings}} ->
-        {:error, {:invalid_request, errors ++ diagnostics(warnings, occurrences_for_cross)}}
+      {errors, {:ok, request}} ->
+        {:error, {:invalid_request, errors ++ diagnostics(request.ignored, occurrences)}}
 
       {errors, {:error, issues}} ->
-        {:error, {:invalid_request, errors ++ diagnostics(issues, occurrences_for_cross)}}
+        {:error, {:invalid_request, errors ++ diagnostics(issues, occurrences)}}
     end
   end
 
@@ -82,7 +83,7 @@ defmodule ImagePipe.API.Parser do
   def preset_names(%{segments: segments}) do
     case parse_options(segments) do
       {parsed, _occurrences, []} ->
-        {:ok, parsed.groups |> typed_group_maps() |> Presets.references()}
+        {:ok, Presets.references(parsed.groups)}
 
       {_parsed, _occurrences, errors} ->
         {:error, {:invalid_request, errors}}
@@ -97,7 +98,7 @@ defmodule ImagePipe.API.Parser do
   def parse_preset(fragment) do
     case fragment |> fragment_segments() |> parse_options() do
       {parsed, _occurrences, []} ->
-        {:ok, %{groups: typed_group_maps(parsed.groups), request: typed_options(parsed.request)}}
+        {:ok, %{groups: parsed.groups, request: parsed.request}}
 
       {_parsed, _occurrences, errors} ->
         {:error, errors}
@@ -232,10 +233,13 @@ defmodule ImagePipe.API.Parser do
   defp dispatch_value(%OptionSpec{}, nil), do: {:error, :missing_value}
   defp dispatch_value(%OptionSpec{value: fun}, value), do: fun.(value)
 
+  # `name` is the option's name: nil for an unknown key, and the only
+  # identity of an option a preset or the request defaults supplied.
   defp occurrence(group_index, key, spec, span, key_span, value_span, result) do
     %{
       group_index: group_index,
       key: key,
+      name: spec && spec.name,
       spec: spec,
       span: span,
       key_span: key_span,
@@ -320,7 +324,7 @@ defmodule ImagePipe.API.Parser do
           &(&1.group_index == group_index and
               not MapSet.member?(duplicated, {group_index, &1.key}))
         )
-        |> Map.new(&{&1.key, elem(&1.result, 1)})
+        |> Map.new(&{&1.name, elem(&1.result, 1)})
 
       {group_index, group_map}
     end
@@ -342,21 +346,21 @@ defmodule ImagePipe.API.Parser do
 
     known_ok
     |> Enum.reject(&MapSet.member?(duplicated, &1.key))
-    |> Map.new(&{&1.key, elem(&1.result, 1)})
+    |> Map.new(&{&1.name, elem(&1.result, 1)})
   end
 
-  defp occurrence_span(occurrences, group_index, key) do
+  defp occurrence_span(occurrences, group_index, name) do
     occurrences
-    |> Enum.find(&(&1.group_index == group_index and &1.key == key))
+    |> Enum.find(&(&1.group_index == group_index and &1.name == name))
     |> case do
       nil -> nil
       occ -> occ.span
     end
   end
 
-  defp request_occurrence_span(occurrences, key) do
+  defp request_occurrence_span(occurrences, name) do
     occurrences
-    |> Enum.find(&(&1.key == key))
+    |> Enum.find(&(&1.name == name))
     |> case do
       nil -> nil
       occ -> occ.span
@@ -372,17 +376,15 @@ defmodule ImagePipe.API.Parser do
 
   defp expand_presets(clean_group_maps, clean_request_map, occurrences, config, whole_path_span) do
     presets_config = Keyword.get(config, :presets, %{})
-    fallback_span = request_occurrence_span(occurrences, "preset") || whole_path_span
+    fallback_span = request_occurrence_span(occurrences, :presets) || whole_path_span
 
     case Presets.expand(
-           typed_group_maps(clean_group_maps),
-           typed_options(clean_request_map),
+           clean_group_maps,
+           clean_request_map,
            presets_config,
            Keyword.get(config, :request_defaults)
          ) do
-      {:ok, expanded} ->
-        groups = Map.new(expanded.groups, fn {i, opts} -> {i, url_options(opts)} end)
-        request = url_options(expanded.request)
+      {:ok, %{groups: groups, request: request} = expanded} ->
         new_index = Map.new(expanded.origins, fn {i, origin} -> {origin, i} end)
 
         # Explicit occurrences stay first, so diagnostics use the original URL
@@ -396,7 +398,7 @@ defmodule ImagePipe.API.Parser do
         synthetic =
           Enum.flat_map(groups, fn {index, options} ->
             origin = Map.fetch!(expanded.origins, index)
-            span = occurrence_span(occurrences, origin, "preset") || fallback_span
+            span = occurrence_span(occurrences, origin, :presets) || fallback_span
             Enum.map(Map.keys(options), &preset_occurrence(index, &1, span))
           end) ++ Enum.map(Map.keys(request), &preset_occurrence(0, &1, fallback_span))
 
@@ -405,24 +407,22 @@ defmodule ImagePipe.API.Parser do
       {:error, issues} ->
         diagnostics = Enum.map(issues, &preset_diagnostic(&1, occurrences, fallback_span))
 
+        # Successful expansion drops `:unset`, and cross-option validation
+        # expects the same shape when expansion fails.
         groups =
           Map.new(clean_group_maps, fn {i, opts} ->
-            {i, opts |> Map.delete("preset") |> drop_unset()}
+            {i, opts |> Map.delete(:presets) |> Presets.drop_unset()}
           end)
 
-        {groups, drop_unset(clean_request_map), diagnostics, occurrences}
+        {groups, Presets.drop_unset(clean_request_map), diagnostics, occurrences}
     end
   end
 
-  # Successful expansion drops `:unset` inside `Presets.expand/4`; cross-option
-  # validation expects the same shape when expansion fails.
-  defp drop_unset(options), do: Presets.drop_unset(options)
-
-  defp preset_occurrence(index, key, span),
-    do: occurrence(index, key, nil, span, span, span, {:ok, :from_preset})
+  defp preset_occurrence(index, name, span),
+    do: %{occurrence(index, nil, nil, span, span, span, {:ok, :from_preset}) | name: name}
 
   defp preset_diagnostic(%{locations: [{:group, index, :presets}]} = issue, occurrences, fallback) do
-    span = occurrence_span(occurrences, index, "preset") || fallback
+    span = occurrence_span(occurrences, index, :presets) || fallback
     %Diagnostic{reason: issue.reason, message: Presets.message(issue), spans: [span]}
   end
 
@@ -443,34 +443,27 @@ defmodule ImagePipe.API.Parser do
     end
   end
 
-  defp settle(group_maps, request_map, occurrences, config) do
+  defp resolve(groups, request, occurrences, config) do
     invalid =
-      for %{group_index: index, key: key, result: {:error, _}} <- occurrences,
-          {:ok, name} <- [Map.fetch(@intent_keys, key)],
+      for %{group_index: index, name: name, result: {:error, _}} <- occurrences,
+          name != nil,
           into: MapSet.new(),
           do: {:group, index, name}
 
-    group_maps
-    |> typed_groups()
-    |> Spec.settle(
-      typed_options(request_map),
-      invalid,
-      watermark_context(config),
-      &written?(&1, occurrences)
-    )
+    Spec.resolve(groups, request, invalid, watermark_context(config), &written?(&1, occurrences))
   end
 
   # Whether the URL itself wrote the option, rather than a preset or the
   # request defaults, whose occurrences carry no option spec.
-  defp written?({:group, index, name}, occurrences) do
-    key = Map.fetch!(@url_keys, name)
-    Enum.any?(occurrences, &match?(%{group_index: ^index, key: ^key, spec: %OptionSpec{}}, &1))
-  end
+  defp written?({:group, index, name}, occurrences),
+    do:
+      Enum.any?(
+        occurrences,
+        &match?(%{group_index: ^index, name: ^name, spec: %OptionSpec{}}, &1)
+      )
 
-  defp written?({:request, name}, occurrences) do
-    key = Map.fetch!(@url_keys, name)
-    Enum.any?(occurrences, &match?(%{key: ^key, spec: %OptionSpec{}}, &1))
-  end
+  defp written?({:request, name}, occurrences),
+    do: Enum.any?(occurrences, &match?(%{name: ^name, spec: %OptionSpec{}}, &1))
 
   defp diagnostics(issues, occurrences),
     do: Enum.map(issues, &semantic_diagnostic(&1, occurrences))
@@ -487,11 +480,11 @@ defmodule ImagePipe.API.Parser do
 
   defp diagnostic_message(issue), do: semantic_message(issue)
 
-  defp semantic_span({:group, index, key}, occurrences),
-    do: occurrence_span(occurrences, index, Map.fetch!(@url_keys, key))
+  defp semantic_span({:group, index, name}, occurrences),
+    do: occurrence_span(occurrences, index, name)
 
-  defp semantic_span({:request, key}, occurrences),
-    do: request_occurrence_span(occurrences, Map.fetch!(@url_keys, key))
+  defp semantic_span({:request, name}, occurrences),
+    do: request_occurrence_span(occurrences, name)
 
   defp semantic_message(%{detail: :exclusive, locations: locations}) do
     [left, right] = Enum.map(locations, &location_key/1)
@@ -531,22 +524,6 @@ defmodule ImagePipe.API.Parser do
   defp requirement_message(:watermark_tile), do: "wm-tile"
   defp requirement_message(:quality_format), do: "a quality-bearing output format"
   defp requirement_message({:format, format}), do: "format=#{format}"
-
-  defp typed_groups(group_maps) do
-    group_maps
-    |> Enum.sort_by(&elem(&1, 0))
-    |> Enum.map(fn {_index, options} -> typed_options(options) end)
-  end
-
-  defp typed_options(options) do
-    Map.new(options, fn {key, value} -> {Map.fetch!(@intent_keys, key), value} end)
-  end
-
-  defp typed_group_maps(groups),
-    do: Map.new(groups, fn {index, options} -> {index, typed_options(options)} end)
-
-  defp url_options(options),
-    do: Map.new(options, fn {key, value} -> {Map.fetch!(@url_keys, key), value} end)
 
   defp fragment_segments(fragment) do
     {_offset, segments_rev} =
