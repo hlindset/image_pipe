@@ -56,15 +56,7 @@ defmodule ImagePipe.Plan.Spec do
   # locations are returned, as warnings, or alongside the errors. Inherited
   # ones drop silently, since presets and request defaults are written for
   # many requests.
-  @doc false
-  @spec settle(
-          [map()],
-          map(),
-          MapSet.t(Issue.location()),
-          Validation.watermarks(),
-          (Issue.location() -> boolean())
-        ) :: {:ok, [map()], map(), [Issue.t()]} | {:error, [Issue.t()]}
-  def settle(groups, options, invalid, watermarks, explicit?) do
+  defp settle(groups, options, invalid, watermarks, explicit?) do
     {inert, errors} =
       groups
       |> Validation.errors(options, invalid, watermarks)
@@ -112,6 +104,24 @@ defmodule ImagePipe.Plan.Spec do
       |> Enum.filter(&(&1.severity == :warning))
 
     drop_inert(groups, options, invalid, next, dropped ++ inert)
+  end
+
+  # Settles expanded groups, numbered by position, and builds the request
+  # with the inert options the request wrote as its warnings.
+  @doc false
+  @spec resolve(
+          %{non_neg_integer() => map()},
+          map(),
+          MapSet.t(Issue.location()),
+          Validation.watermarks(),
+          (Issue.location() -> boolean())
+        ) :: {:ok, t()} | {:error, [Issue.t()]}
+  def resolve(groups, options, invalid, watermarks, explicit?) do
+    groups = groups |> Enum.sort() |> Enum.map(&elem(&1, 1))
+
+    with {:ok, groups, options, warnings} <-
+           settle(groups, options, invalid, watermarks, explicit?),
+         do: {:ok, %{build(groups, options) | ignored: warnings}}
   end
 
   @doc false

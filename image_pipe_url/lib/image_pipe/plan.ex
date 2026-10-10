@@ -181,12 +181,9 @@ defmodule ImagePipe.Plan do
   defp spec(plan, presets, defaults, watermarks) do
     indexed = plan |> groups() |> Enum.with_index() |> Map.new(fn {group, i} -> {i, group} end)
 
-    with {:ok, expanded} <- Presets.expand(indexed, plan.options, presets, defaults),
-         groups = expanded.groups |> Enum.sort() |> Enum.map(&elem(&1, 1)),
-         written? = &written?(&1, indexed, expanded.origins, plan.options),
-         {:ok, groups, options, warnings} <-
-           Spec.settle(groups, expanded.request, MapSet.new(), watermarks, written?) do
-      {:ok, %{Spec.build(groups, options) | ignored: warnings}}
+    with {:ok, expanded} <- Presets.expand(indexed, plan.options, presets, defaults) do
+      written? = &written?(&1, indexed, expanded.origins, plan.options)
+      Spec.resolve(expanded.groups, expanded.request, MapSet.new(), watermarks, written?)
     end
   end
 
@@ -234,8 +231,6 @@ defmodule ImagePipe.Plan do
 
     with {:ok, expanded} <-
            Presets.expand(indexed, request, Map.merge(presets, stubs), defaults) do
-      groups = expanded.groups |> Enum.sort() |> Enum.map(&elem(&1, 1))
-
       # Every location counts as written here; the plan's own are kept once
       # locations are numbered as the plan numbers its groups.
       checked = fn issues ->
@@ -244,15 +239,15 @@ defmodule ImagePipe.Plan do
         |> Enum.flat_map(&written_in_plan(&1, indexed))
       end
 
-      groups
-      |> Spec.settle(expanded.request, MapSet.new(), watermarks, &any_location/1)
+      expanded.groups
+      |> Spec.resolve(expanded.request, MapSet.new(), watermarks, &any_location/1)
       |> known_result(checked)
     end
   end
 
   defp any_location(_location), do: true
 
-  defp known_result({:ok, _groups, _options, warnings}, checked), do: {:ok, checked.(warnings)}
+  defp known_result({:ok, request}, checked), do: {:ok, checked.(request.ignored)}
 
   defp known_result({:error, issues}, checked) do
     case Enum.split_with(checked.(issues), &(&1.severity == :warning)) do
