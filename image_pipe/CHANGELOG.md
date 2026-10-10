@@ -89,6 +89,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- With `max-bytes`, a quality search that ran out of encode attempts
+  shipped the lowest quality, even when it had already encoded a higher one
+  that fit the budget. It now ships the highest encoded quality that fits. When
+  only the lowest quality fits, the `X-ImagePipe-AQ-Outcome` debug header and
+  the `[:encode, :search]` telemetry event report `hit` instead of
+  `best_effort`.
 - With `allow_origin` set, cross-origin scripts can send conditional
   requests such as `If-None-Match`, and can read response headers such as
   `ETag` and `Content-Disposition`. Preflight requests now get
