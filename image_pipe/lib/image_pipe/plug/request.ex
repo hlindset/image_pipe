@@ -21,8 +21,8 @@ defmodule ImagePipe.Plug.Request do
       with {:ok, key_index} <- Security.verify(sig, signed_path, config),
            {:ok, lexed} <- Path.extract(path, conn.query_string) |> normalize_lex_error(),
            {:ok, lexed} <- decrypt_source(lexed, config),
-           {:ok, config} <- presets(lexed, config),
-           {:ok, request} <- Parser.parse(lexed, config),
+           {:ok, presets} <- presets(lexed, config),
+           {:ok, request} <- Parser.parse(lexed, Keyword.put(config, :presets, presets)),
            {:ok, request} <- decrypt_watermarks(request, path, config) do
         {_marker, source, _span} = lexed.source
         {request, source, key_index}
@@ -41,18 +41,18 @@ defmodule ImagePipe.Plug.Request do
     end
   end
 
-  # Request-time preset lookup replaces the static map with the request's
-  # compiled closure. Static-only requests skip it, and the option pass that
-  # finds the names, which `Parser.parse/2` would repeat.
+  # The presets this request's parse sees: the static map, or with a
+  # request-time lookup, the request's compiled closure over it. Static-only
+  # requests skip the option pass that finds the names, which `Parser.parse/2`
+  # would repeat.
   defp presets(lexed, config) do
     case config[:preset_lookup] do
       nil ->
-        {:ok, config}
+        {:ok, Keyword.fetch!(config, :presets)}
 
       _lookup ->
         with {:ok, names} <- Parser.preset_names(lexed),
-             {:ok, presets} <- Presets.for_request(names, config),
-             do: {:ok, Keyword.put(config, :presets, presets)}
+             do: Presets.for_request(names, config)
     end
   end
 
