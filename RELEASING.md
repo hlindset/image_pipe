@@ -19,6 +19,11 @@ Add notes under `## [Unreleased]` as changes land. Start the note for a
 breaking change with `**Breaking:**` and say what users must change. Before
 1.0, a release with a breaking change bumps the minor version.
 
+Notes describe the difference from the last release, not the history between
+commits. When a change revises, extends, or reverts something added since the
+last release, edit or remove its `Unreleased` note instead of adding another.
+A feature added and removed before a release gets no note.
+
 To release a version, move the `Unreleased` notes under
 `## [X.Y.Z] - YYYY-MM-DD`, using the release date. Group notes under `Added`,
 `Changed`, `Deprecated`, `Removed`, `Fixed`, or `Security`, and include only
