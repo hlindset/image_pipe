@@ -3,8 +3,9 @@ defmodule ImagePipe.Plan.Builder.OutputOptions do
 
   alias ImagePipe.Plan.Builder.Options
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
+  alias ImagePipe.Plan.ValueSpellings
 
-  @formats [:jpeg, :png, :webp, :avif]
+  @formats ValueSpellings.values(:format)
   @quality [type: {:in, 1..100}]
 
   def schema do
@@ -12,19 +13,9 @@ defmodule ImagePipe.Plan.Builder.OutputOptions do
       terminal: [type: {:custom, __MODULE__, :terminal, []}],
       format: [type: {:in, @formats}],
       quality: @quality,
-      metadata: [type: {:in, [:strip, :copyright, :keep]}],
-      color_profile: [
-        type:
-          {:in,
-           [
-             :strip,
-             :preserve_source,
-             {:convert, :srgb},
-             {:convert, :display_p3},
-             {:convert, :adobe_rgb}
-           ]}
-      ],
-      hdr: [type: {:in, [:tone_map, :preserve]}],
+      metadata: [type: {:in, ValueSpellings.values(:metadata)}],
+      color_profile: [type: {:in, ValueSpellings.values(:color_profile)}],
+      hdr: [type: {:in, ValueSpellings.values(:hdr)}],
       format_qualities: [type: {:custom, __MODULE__, :format_qualities, []}],
       autoquality: [type: {:custom, __MODULE__, :autoquality, []}],
       max_bytes: [type: :pos_integer],

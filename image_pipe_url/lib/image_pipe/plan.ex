@@ -24,6 +24,7 @@ defmodule ImagePipe.Plan do
       Output.AvifOptions,
       Color,
       ValueBounds,
+      ValueSpellings,
       Source,
       Source.Identity,
       Source.Path,

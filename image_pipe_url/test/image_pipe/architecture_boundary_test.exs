@@ -36,6 +36,7 @@ defmodule ImagePipe.URL.ArchitectureBoundaryTest do
         ImagePipe.Plan.Output.AvifOptions,
         ImagePipe.Plan.Color,
         ImagePipe.Plan.ValueBounds,
+        ImagePipe.Plan.ValueSpellings,
         ImagePipe.Plan.Source,
         ImagePipe.Plan.Source.Identity,
         ImagePipe.Plan.Source.Path,
