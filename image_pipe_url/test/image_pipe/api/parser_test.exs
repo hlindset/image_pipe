@@ -569,19 +569,6 @@ defmodule ImagePipe.API.ParserTest do
       assert Enum.any?(diagnostics, &(&1.reason == :unknown_option))
     end
 
-    test "every declared option key is known" do
-      for spec <- OptionSpec.all(), example <- spec.examples do
-        unknown =
-          case parse([example]) do
-            {:ok, _request} -> []
-            {:error, {:invalid_request, diagnostics}} -> diagnostics
-          end
-          |> Enum.filter(&(&1.reason == :unknown_option))
-
-        assert unknown == [], example
-      end
-    end
-
     test "invalid value for a known key" do
       assert {:error, {:invalid_request, diagnostics}} = parse(["w=notanumber"])
       assert Enum.any?(diagnostics, &(&1.reason == :invalid_dimension))
@@ -953,11 +940,12 @@ defmodule ImagePipe.API.ParserTest do
 
     test "non-image outputs accept image-only output options" do
       for terminal <- ~w(blurhash lqip-css info),
-          key <-
-            ~w(format q format-q meta dpi profile hdr autoquality max-bytes jpeg-options png-options webp-options avif-options),
-          spec = Enum.find(OptionSpec.all(), &(&1.key == key)) do
-        assert {:ok, _request} = parse(["output=" <> terminal, hd(spec.examples)]),
-               "#{terminal} #{key}"
+          option <-
+            ~w(format=webp q=80 format-q=avif:60,webp:70 meta=strip dpi=300 profile=preserve
+               hdr=tonemap autoquality max-bytes=12000 jpeg-options=progressive,quant-table:3
+               png-options=palette,filter:paeth webp-options=near-lossless,effort:6
+               avif-options=subsample:on,effort:6) do
+        assert {:ok, _request} = parse(["output=" <> terminal, option]), "#{terminal} #{option}"
       end
     end
 

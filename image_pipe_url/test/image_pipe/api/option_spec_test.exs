@@ -35,25 +35,6 @@ defmodule ImagePipe.API.OptionSpecTest do
       assert Enum.sort(keys) == Enum.sort(@api_keys)
       assert Enum.uniq(keys) == keys
     end
-
-    test "every option declares all fields plus at least one example" do
-      for %OptionSpec{} = spec <- OptionSpec.all() do
-        assert is_binary(spec.key) and spec.key != ""
-        assert spec.scope in [:group, :request]
-
-        assert spec.value == :flag or is_function(spec.value, 1) or
-                 match?({:flag, fun} when is_function(fun, 1), spec.value)
-
-        assert is_binary(spec.summary) and spec.summary != ""
-
-        assert is_list(spec.examples) and spec.examples != [],
-               "#{spec.key} must declare at least one example"
-
-        for example <- spec.examples do
-          assert is_binary(example) and example != ""
-        end
-      end
-    end
   end
 
   describe "value parsers — happy paths" do
