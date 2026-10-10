@@ -1,5 +1,6 @@
 defmodule ImagePipe.Execution.Overlap do
   @moduledoc false
+  alias ImagePipe.Decode
   alias ImagePipe.Plan.Spec
   alias ImagePipe.Processing
   alias ImagePipe.ProcessingPool
@@ -120,7 +121,7 @@ defmodule ImagePipe.Execution.Overlap do
   defp select(state, io, size, remaining) when remaining >= @remaining_us do
     {:ok, prefix} = :file.pread(io, 0, min(size, @maximum_prefix))
 
-    case Processing.streamable_source?(prefix) do
+    case Decode.streamable_source?(prefix) do
       true ->
         Download.advance(state.download, size)
         send(state.task.pid, {:prepare, prefix})

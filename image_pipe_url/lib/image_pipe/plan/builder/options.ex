@@ -4,19 +4,10 @@ defmodule ImagePipe.Plan.Builder.Options do
   alias ImagePipe.Plan.Builder.OutputOptions
   alias ImagePipe.Plan.Builder.Values
   alias ImagePipe.Plan.Spec.Issue
+  alias ImagePipe.Plan.ValueSpellings
 
-  @anchors [
-    :center,
-    :top,
-    :bottom,
-    :left,
-    :right,
-    :top_left,
-    :top_right,
-    :bottom_left,
-    :bottom_right
-  ]
-  @axes [:horizontal, :vertical, :both]
+  @positions ValueSpellings.values(:position)
+  @axes ValueSpellings.values(:axis)
 
   # Options whose value may start with `:unset` to clear lower layers first.
   @layered [:format_qualities, :jpeg_options, :png_options, :webp_options, :avif_options]
@@ -288,13 +279,13 @@ defmodule ImagePipe.Plan.Builder.Options do
       region: [type: custom(:region)],
       crop_ratio: [type: custom(:ratio)],
       crop_ratio_enlarge: [type: :boolean],
-      anchor: [type: {:in, @anchors ++ [:smart, :smart_face]}],
+      anchor: [type: {:in, ValueSpellings.values(:anchor)}],
       focus: [type: custom(:focus)],
       detect: [type: custom(:detect)],
       anchor_offset: [type: custom(:offset)],
       extend: [type: :boolean],
       extend_ratio: [type: :boolean],
-      extend_at: [type: {:in, @anchors}],
+      extend_at: [type: {:in, @positions}],
       extend_offset: [type: custom(:offset)],
       blur: [type: custom(:blur)],
       progressive_blur: [type: custom(:progressive_blur)],
@@ -313,7 +304,7 @@ defmodule ImagePipe.Plan.Builder.Options do
       watermark_source: [type: custom(:source)],
       watermark_opacity: [type: custom(:fraction)],
       watermark_scale: [type: custom(:scale)],
-      watermark_at: [type: {:in, @anchors}],
+      watermark_at: [type: {:in, @positions}],
       watermark_offset: [type: custom(:offset)],
       watermark_tile: [type: :boolean],
       watermark_gap: [type: custom(:gap)]

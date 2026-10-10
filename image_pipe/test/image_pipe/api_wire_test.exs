@@ -8,7 +8,6 @@ defmodule ImagePipe.APIWireTest do
   alias ImagePipe.Cache.Key
   alias ImagePipe.Delivery.Coordinator
   alias ImagePipe.Output.Policy
-  alias ImagePipe.Output.RequestPolicy, as: APIOutput
   alias ImagePipe.Output.Resolved
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Telemetry.RequestContext
@@ -60,15 +59,7 @@ defmodule ImagePipe.APIWireTest do
     ]
   end
 
-  # `output_capabilities` and `on_bracket_exit` are internal test-injection
-  # seams (the same convention `ImagePipe.Output.Capabilities.supports?/2`
-  # already documents) — appended AFTER `ImagePipe.Plug.init/1`'s validation,
-  # which would reject them as unknown options.
-  defp opts(extra) do
-    base = ImagePipe.Plug.init(Keyword.merge([sources: @default_sources], extra))
-
-    Keyword.merge(base, output_capabilities: %{avif: true, webp: true})
-  end
+  defp opts(extra), do: ImagePipe.Plug.init(Keyword.merge([sources: @default_sources], extra))
 
   defp opts, do: opts([])
 
@@ -281,7 +272,7 @@ defmodule ImagePipe.APIWireTest do
     test "quality in representation material matches the encoder policy" do
       config = opts()
       {:ok, request} = Parser.parse(lexed(["format=jpeg", "q=42"]), config)
-      assert {:ok, policy} = APIOutput.resolve(request.output, config, "")
+      assert {:ok, policy} = Policy.from_request(request.output, config, "")
 
       assert Keyword.fetch!(Policy.identity_material(policy), :quality) == {:quality, 42}
 

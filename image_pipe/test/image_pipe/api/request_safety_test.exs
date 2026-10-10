@@ -65,7 +65,7 @@ defmodule ImagePipe.API.RequestSafetyTest do
     config =
       ImagePipe.Plug.init(CacheObserver.observe(opts))
 
-    Keyword.merge(config, output_capabilities: %{avif: true, webp: true})
+    config
   end
 
   # ── generated-test bodies ────────────────────────────────────────────────

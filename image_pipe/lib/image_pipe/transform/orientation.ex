@@ -106,20 +106,6 @@ defmodule ImagePipe.Transform.Orientation do
     end
   end
 
-  @doc """
-  Swap the requested axes of an executable resize so it operates in the storage
-  frame ahead of a quarter-turn orientation flush.
-  """
-  @spec swap_resize(ImagePipe.Transform.Operation.Resize.t()) ::
-          ImagePipe.Transform.Operation.Resize.t()
-  def swap_resize(%ImagePipe.Transform.Operation.Resize{} = resize) do
-    %ImagePipe.Transform.Operation.Resize{
-      resize
-      | width: resize.height,
-        height: resize.width
-    }
-  end
-
   # ── Core port of RotateAndFlip (gravity.go:88-156) ───────────────────────────
 
   @spec rotate_and_flip(gravity_with_offset(), angle(), boolean(), boolean()) ::

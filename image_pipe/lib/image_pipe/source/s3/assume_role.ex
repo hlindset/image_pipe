@@ -88,10 +88,10 @@ defmodule ImagePipe.Source.S3.AssumeRole do
   # do not inspect/log `opts` or `base_credentials` — they carry the base secret
   # key. The STS error is opaque; base creds never appear in an error term.
   @impl true
-  def fetch_credentials(scope, opts, _runtime_opts) do
+  def fetch_credentials(scope, opts) do
     base = Keyword.fetch!(opts, :base)
 
-    with {:ok, base_credentials} <- Credentials.fetch(scope, base, []) do
+    with {:ok, base_credentials} <- Credentials.fetch(scope, base) do
       # `external_id` is passed explicitly because `Sts.maybe_put/3` is nil-safe
       # (a nil ExternalId is simply omitted from the form). Everything else
       # optional goes through `Keyword.take`, which OMITS absent keys rather than

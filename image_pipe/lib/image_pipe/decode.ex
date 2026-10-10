@@ -13,7 +13,6 @@ defmodule ImagePipe.Decode do
   use Boundary,
     top_level?: true,
     deps: [
-      ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Plan,
       ImagePipe.Source,
@@ -27,7 +26,6 @@ defmodule ImagePipe.Decode do
   alias ImagePipe.Decode.SourceFormat
   alias ImagePipe.Decode.Streaming
   alias ImagePipe.Decode.WebpFrames
-  alias ImagePipe.Error
   alias ImagePipe.Format.Detector
   alias ImagePipe.Plan.Spec
   alias ImagePipe.Source
@@ -299,7 +297,11 @@ defmodule ImagePipe.Decode do
   # source failure is `:source_error`, and everything else (`{:decode, _}`,
   # `{:input_limit, _}`) is `:processing_error` with its taxonomy tag.
   defp error_stop_metadata({:decode, {:unsupported_source_format, family} = inner}),
-    do: %{result: :processing_error, error: Error.tag(inner), detected_source_format: family}
+    do: %{
+      result: :processing_error,
+      error: Telemetry.error_tag(inner),
+      detected_source_format: family
+    }
 
   defp error_stop_metadata({:input_limit, {:too_many_input_frames, _count, _max}}),
     do: %{result: :processing_error, error: :input_limit, limit: :frames}
@@ -310,7 +312,7 @@ defmodule ImagePipe.Decode do
   defp error_stop_metadata({:decode, {:unsupported_source_format, family, loader} = inner}) do
     %{
       result: :processing_error,
-      error: Error.tag(inner),
+      error: Telemetry.error_tag(inner),
       detected_source_format: family,
       source_loader: loader
     }
@@ -321,10 +323,10 @@ defmodule ImagePipe.Decode do
   end
 
   defp error_stop_metadata({:source, error}),
-    do: %{result: :source_error, error: Error.tag(error)}
+    do: %{result: :source_error, error: Telemetry.error_tag(error)}
 
   defp error_stop_metadata(error),
-    do: %{result: :processing_error, error: Error.tag(error)}
+    do: %{result: :processing_error, error: Telemetry.error_tag(error)}
 
   defp seed_state(image, storage_dimensions, decode_options, pending_orientation, opts) do
     source_dimensions = shrink_source_dimensions(decode_options, storage_dimensions)
@@ -431,32 +433,33 @@ defmodule ImagePipe.Decode do
 
   defp verify_file_loader(_detected, _input), do: :ok
 
-  defp open_seekable_input({:path, path}, decode_options, opts) do
-    case Keyword.get(opts, :image_open_module) do
-      nil -> Image.open(path, decode_options)
-      module -> module.open(path, decode_options)
-    end
+  # Each libvips open is its own trace-only span, so a trace shows how often
+  # a request opens its source.
+  defp open_seekable_input(input, decode_options, opts) do
+    metadata = Map.new(Keyword.take(decode_options, [:access, :page]))
+
+    Telemetry.span(Telemetry.telemetry_opts(opts), [:source, :decode_open], metadata, fn ->
+      result = open_input(input, decode_options)
+      {result, %{result: open_result(result)}}
+    end)
   end
 
-  defp open_seekable_input({:buffer, binary}, decode_options, opts) do
-    case Keyword.get(opts, :image_open_module) do
-      nil -> open_buffer(binary, decode_options, opts)
-      module -> module.open(binary, decode_options)
-    end
-  end
+  defp open_result({:ok, _image}), do: :ok
+  defp open_result({:error, _reason}), do: :processing_error
 
-  defp open_seekable_input({:download, download, prefix}, decode_options, opts) do
+  defp open_input({:path, path}, decode_options), do: Image.open(path, decode_options)
+  defp open_input({:buffer, binary}, decode_options), do: open_buffer(binary, decode_options)
+
+  defp open_input({:download, download, prefix}, decode_options) do
     case Keyword.fetch!(decode_options, :access) do
-      :random -> open_buffer(prefix, decode_options, opts)
+      :random -> open_buffer(prefix, decode_options)
       :sequential -> Streaming.open(download, decode_options)
     end
   end
 
-  defp open_buffer(binary, decode_options, opts) do
-    loader = Keyword.get(opts, :buffer_loader, &VipsImage.new_from_buffer/2)
-
+  defp open_buffer(binary, decode_options) do
     with {:ok, vips_opts} <- ImageOpenOptions.validate_options(decode_options) do
-      loader.(binary, vips_opts)
+      VipsImage.new_from_buffer(binary, vips_opts)
     end
   end
 
@@ -584,7 +587,7 @@ defmodule ImagePipe.Decode do
         Telemetry.telemetry_opts(opts),
         [:debug, :collect, :error],
         %{},
-        %{error: Error.tag(exception)}
+        %{error: Telemetry.error_tag(exception)}
       )
 
       %{}

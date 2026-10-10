@@ -4,7 +4,6 @@ defmodule ImagePipe.Execution.SourceCache do
   alias ImagePipe.Cache.Input
   alias ImagePipe.Cache.Resources
   alias ImagePipe.Cache.Work
-  alias ImagePipe.Error
   alias ImagePipe.Execution.{Acquisition, Overlap}
   alias ImagePipe.MaterialDigest
   alias ImagePipe.Source
@@ -580,7 +579,7 @@ defmodule ImagePipe.Execution.SourceCache do
   defp stop_metadata({:ok, %Acquisition{}}), do: %{result: :ok}
 
   defp stop_metadata({:error, {:source, reason}}),
-    do: %{result: :source_error, error: Error.tag(reason)}
+    do: %{result: :source_error, error: Telemetry.error_tag(reason)}
 
   defp stop_metadata({:error, _reason} = error), do: %{result: Telemetry.request_result(error)}
 end

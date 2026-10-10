@@ -10,6 +10,7 @@ defmodule ImagePipe.API.OptionSpec do
 
   alias ImagePipe.API.OutputOptions
   alias ImagePipe.API.Value
+  alias ImagePipe.Plan.ValueSpellings
 
   @enforce_keys [
     :key,
@@ -34,59 +35,14 @@ defmodule ImagePipe.API.OptionSpec do
           examples: [String.t()]
         }
 
-  @fit_map %{
-    "contain" => :contain,
-    "cover" => :cover,
-    "stretch" => :stretch,
-    "auto" => :auto
-  }
-
-  @anchor_map %{
-    "center" => :center,
-    "top" => :top,
-    "bottom" => :bottom,
-    "left" => :left,
-    "right" => :right,
-    "top-left" => :top_left,
-    "top-right" => :top_right,
-    "bottom-left" => :bottom_left,
-    "bottom-right" => :bottom_right,
-    "smart" => :smart,
-    "smart-face" => :smart_face
-  }
-
-  @format_map %{
-    "avif" => :avif,
-    "webp" => :webp,
-    "jpeg" => :jpeg,
-    "png" => :png
-  }
-
-  @output_map %{
-    "image" => :image,
-    "blurhash" => :blurhash,
-    "lqip-css" => :lqip_css,
-    "info" => :info
-  }
-
-  @metadata_map %{
-    "strip" => :strip,
-    "copyright" => :copyright,
-    "keep" => :keep
-  }
-
-  @color_profile_map %{
-    "strip" => :strip,
-    "preserve" => :preserve_source,
-    "srgb" => {:convert, :srgb},
-    "display-p3" => {:convert, :display_p3},
-    "adobe-rgb" => {:convert, :adobe_rgb}
-  }
-
-  @hdr_map %{
-    "tonemap" => :tone_map,
-    "preserve" => :preserve
-  }
+  @fit_map ValueSpellings.spellings(:fit)
+  @anchor_map ValueSpellings.spellings(:anchor)
+  @axis_map ValueSpellings.spellings(:axis)
+  @format_map ValueSpellings.spellings(:format)
+  @output_map ValueSpellings.spellings(:output)
+  @metadata_map ValueSpellings.spellings(:metadata)
+  @color_profile_map ValueSpellings.spellings(:color_profile)
+  @hdr_map ValueSpellings.spellings(:hdr)
 
   @max_detect_weight 1_000_000.0
   @default_monochrome_color {179, 179, 179}
@@ -748,12 +704,7 @@ defmodule ImagePipe.API.OptionSpec do
   @doc false
   @spec parse_fit(String.t()) ::
           {:ok, :contain | :cover | :stretch | :auto} | {:error, :invalid_fit}
-  def parse_fit(string) do
-    case Map.fetch(@fit_map, string) do
-      {:ok, fit} -> {:ok, fit}
-      :error -> {:error, :invalid_fit}
-    end
-  end
+  def parse_fit(string), do: parse_enum(string, @fit_map, :invalid_fit)
 
   @doc false
   @spec parse_crop(String.t()) :: {:ok, {length_value(), length_value()}} | {:error, atom()}
@@ -878,12 +829,7 @@ defmodule ImagePipe.API.OptionSpec do
            | :smart
            | :smart_face}
           | {:error, :invalid_anchor}
-  def parse_anchor(string) do
-    case Map.fetch(@anchor_map, string) do
-      {:ok, anchor} -> {:ok, anchor}
-      :error -> {:error, :invalid_anchor}
-    end
-  end
+  def parse_anchor(string), do: parse_enum(string, @anchor_map, :invalid_anchor)
 
   @doc false
   @spec parse_named_anchor(String.t()) :: {:ok, atom()} | {:error, :invalid_anchor}
@@ -977,10 +923,7 @@ defmodule ImagePipe.API.OptionSpec do
 
   @spec parse_flip(String.t()) ::
           {:ok, :horizontal | :vertical | :both} | {:error, :invalid_flip}
-  def parse_flip("h"), do: {:ok, :horizontal}
-  def parse_flip("v"), do: {:ok, :vertical}
-  def parse_flip("hv"), do: {:ok, :both}
-  def parse_flip(_value), do: {:error, :invalid_flip}
+  def parse_flip(string), do: parse_enum(string, @axis_map, :invalid_flip)
 
   @doc false
   @spec parse_blur(String.t()) :: {:ok, float()} | {:error, :invalid_blur}
@@ -1230,10 +1173,8 @@ defmodule ImagePipe.API.OptionSpec do
   @doc false
   @spec parse_trim_symmetry(String.t()) ::
           {:ok, :horizontal | :vertical | :both} | {:error, :invalid_trim_symmetry}
-  def parse_trim_symmetry("h"), do: {:ok, :horizontal}
-  def parse_trim_symmetry("v"), do: {:ok, :vertical}
-  def parse_trim_symmetry("hv"), do: {:ok, :both}
-  def parse_trim_symmetry(_value), do: {:error, :invalid_trim_symmetry}
+  def parse_trim_symmetry(string),
+    do: parse_enum(string, @axis_map, :invalid_trim_symmetry)
 
   defp parse_tolerance(string) do
     case Value.number(string) do
@@ -1363,12 +1304,7 @@ defmodule ImagePipe.API.OptionSpec do
   @doc false
   @spec parse_format(String.t()) ::
           {:ok, :avif | :webp | :jpeg | :png} | {:error, :invalid_format}
-  def parse_format(string) do
-    case Map.fetch(@format_map, string) do
-      {:ok, format} -> {:ok, format}
-      :error -> {:error, :invalid_format}
-    end
-  end
+  def parse_format(string), do: parse_enum(string, @format_map, :invalid_format)
 
   @doc false
   @spec parse_metadata(String.t()) ::

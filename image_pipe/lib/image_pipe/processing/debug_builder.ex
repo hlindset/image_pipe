@@ -5,14 +5,18 @@ defmodule ImagePipe.Processing.DebugBuilder do
   alias ImagePipe.Debug.Info
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Resolved, as: ResolvedOutput
+  alias ImagePipe.Processing.Prepared
 
-  @spec build(map()) :: Info.t()
-  def build(ctx) do
-    {source_width, source_height} = ctx.geometry.storage_dimensions
-    facts = ctx.geometry.debug_facts
+  @spec build(Prepared.t(), map() | nil, non_neg_integer()) :: Info.t()
+  def build(%Prepared{} = prepared, search_meta, encode_us) do
+    %Prepared{geometry: geometry, resolved_output: resolved_output, state: %{image: image}} =
+      prepared
+
+    {source_width, source_height} = geometry.storage_dimensions
+    facts = geometry.debug_facts
 
     %Info{
-      source_format: ctx.geometry.source_format,
+      source_format: geometry.source_format,
       source_bytes: Map.get(facts, :source_bytes),
       source_width: source_width,
       source_height: source_height,
@@ -21,17 +25,17 @@ defmodule ImagePipe.Processing.DebugBuilder do
       source_bit_depth: Map.get(facts, :source_bit_depth),
       source_alpha?: Map.get(facts, :source_alpha?),
       source_orientation: Map.get(facts, :source_orientation),
-      shrink: ctx.shrink,
-      output_format: ctx.resolved_output.format,
-      output_negotiated?: negotiated?(ctx.policy),
-      output_width: Image.width(ctx.image),
-      output_height: Image.height(ctx.image),
-      output_quality: output_quality(ctx.resolved_output, ctx.search_meta),
-      output_stripped?: ctx.resolved_output.strip_metadata,
-      output_color_profile: color_profile(ctx.resolved_output.color_profile),
-      aq: aq_from_meta(ctx.resolved_output, ctx.search_meta),
-      pipeline: ctx.operations,
-      timings: ctx.timings
+      shrink: prepared.shrink,
+      output_format: resolved_output.format,
+      output_negotiated?: negotiated?(prepared.policy),
+      output_width: Image.width(image),
+      output_height: Image.height(image),
+      output_quality: output_quality(resolved_output, search_meta),
+      output_stripped?: resolved_output.strip_metadata,
+      output_color_profile: color_profile(resolved_output.color_profile),
+      aq: aq_from_meta(resolved_output, search_meta),
+      pipeline: prepared.operations,
+      timings: Map.put(prepared.timings, :encode, encode_us)
     }
   end
 

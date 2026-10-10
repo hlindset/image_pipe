@@ -241,7 +241,7 @@ defmodule ImagePipe.Source.S3 do
   @impl Source
   def fetch(%Resolved{fetch: fetch}, _opts, runtime_opts) do
     with {:ok, credentials} <-
-           Credentials.fetch(fetch[:bucket], fetch[:credentials], runtime_opts) do
+           Credentials.fetch(fetch[:bucket], fetch[:credentials]) do
       req_options =
         fetch
         |> Keyword.fetch!(:req_options)
@@ -289,9 +289,9 @@ defmodule ImagePipe.Source.S3 do
   end
 
   @doc false
-  def prepare_cache(%Resolved{} = source, _opts, runtime) do
+  def prepare_cache(%Resolved{} = source, _opts, _runtime) do
     with {:ok, credentials} <-
-           Credentials.fetch(source.fetch[:bucket], source.fetch[:credentials], runtime) do
+           Credentials.fetch(source.fetch[:bucket], source.fetch[:credentials]) do
       {:ok, %{source | fetch: Keyword.put(source.fetch, :credentials, {:static, credentials})}}
     end
   end

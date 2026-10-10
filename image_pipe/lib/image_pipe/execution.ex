@@ -5,8 +5,8 @@ defmodule ImagePipe.Execution do
     deps: [
       ImagePipe.Cache,
       ImagePipe.Debug,
+      ImagePipe.Decode,
       ImagePipe.Delivery,
-      ImagePipe.Error,
       ImagePipe.MaterialDigest,
       ImagePipe.Output,
       ImagePipe.Plan,
@@ -34,16 +34,8 @@ defmodule ImagePipe.Execution do
   alias ImagePipe.Transform
   alias ImagePipe.Transform.Executor
 
-  def identity_material(request, policy, inputs, config, watermarks \\ []) do
-    Identity.material(
-      request,
-      policy,
-      inputs,
-      config,
-      detector_identity(request, config),
-      Map.new(watermarks, &{&1.asset, [source: &1.source.identity, opacity: &1.opacity]})
-    )
-  end
+  def identity_material(request, policy, inputs, config),
+    do: Identity.material(request, policy, inputs, config, detector_identity(request, config))
 
   @doc "Plans the request's watermark assets before any source access."
   def watermark_sources(request, config), do: Watermarks.plan(request, config)
@@ -90,23 +82,13 @@ defmodule ImagePipe.Execution do
   defp with_watermarks(context, []), do: context
 
   defp with_watermarks(context, watermarks) do
-    %{representation: representation} =
-      identity_material(
-        context.request,
-        context.policy,
-        context.inputs,
-        context.config,
-        watermarks
-      )
+    assets = Map.new(watermarks, &{&1.asset, [source: &1.source.identity, opacity: &1.opacity]})
 
     partitions =
       for %{input_key: %{hash: hash}} <- watermarks, do: {:watermark_partition, hash}
 
-    material = %{
-      context.material
-      | representation: representation,
-        storage_only: context.material.storage_only ++ partitions
-    }
+    material = Identity.put_watermarks(context.material, assets)
+    material = %{material | storage_only: material.storage_only ++ partitions}
 
     represent(%{context | material: material, watermarks: watermarks})
   end
@@ -119,8 +101,8 @@ defmodule ImagePipe.Execution do
     }
   end
 
-  @doc "Byte identity of the main source together with every watermark asset."
-  def byte_identity(%Context{} = context) do
+  # Byte identity of the main source together with every watermark asset.
+  defp byte_identity(%Context{} = context) do
     main =
       case context.acquisition.record do
         nil -> context.source.cache_semantics.byte_identity
@@ -651,7 +633,7 @@ defmodule ImagePipe.Execution do
         nil
 
       classes ->
-        Transform.detector_identity(Keyword.get(config, :detector, :default), classes: classes)
+        Transform.detector_identity(Keyword.fetch!(config, :detector), classes: classes)
     end
   end
 end

@@ -6,7 +6,6 @@ defmodule ImagePipe.Processing do
       ImagePipe.Debug,
       ImagePipe.Decode,
       ImagePipe.Delivery,
-      ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Output,
       ImagePipe.Plan,
@@ -19,12 +18,10 @@ defmodule ImagePipe.Processing do
   alias ImagePipe.Debug.Timing
   alias ImagePipe.Decode
   alias ImagePipe.Delivery.StreamPull
-  alias ImagePipe.Error
   alias ImagePipe.Format
   alias ImagePipe.Output.Clamp
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Policy
-  alias ImagePipe.Output.RequestPolicy
   alias ImagePipe.Output.Resolved, as: ResolvedOutput
   alias ImagePipe.Output.Skipped
   alias ImagePipe.Plan.Spec
@@ -38,8 +35,8 @@ defmodule ImagePipe.Processing do
 
   def prepare(%Spec{} = request, config, accept) do
     with :ok <- check_expires(request, Keyword.fetch!(config, :clock).()),
-         {:ok, policy} <- RequestPolicy.resolve(request.output, config, accept),
-         :ok <- Policy.ensure_capable(policy, config),
+         {:ok, policy} <- Policy.from_request(request.output, config, accept),
+         :ok <- Policy.ensure_capable(policy),
          :ok <- check_detector(request, config) do
       {:ok, image_policy(request.output.terminal, policy, request, config)}
     end
@@ -71,10 +68,10 @@ defmodule ImagePipe.Processing do
   defp check_expires(%Spec{}, _now), do: :ok
 
   defp check_detector(request, config) do
-    detector = Keyword.get(config, :detector, :default)
+    detector = Keyword.fetch!(config, :detector)
 
     with :ok <- check_known_classes(request, detector) do
-      case {explicit_detector_classes(request), Keyword.get(config, :detector_required, false)} do
+      case {explicit_detector_classes(request), Keyword.fetch!(config, :detector_required)} do
         {nil, _required?} -> :ok
         {_classes, false} -> :ok
         {classes, true} -> check_required(detector, classes: classes)
@@ -91,15 +88,15 @@ defmodule ImagePipe.Processing do
           uniq: true,
           do: name
 
-    case {named, Transform.resolve_detector(detector)} do
-      {[], _} ->
+    case {named, detector} do
+      {[], _detector} ->
         :ok
 
       {_named, nil} ->
         :ok
 
-      {named, module} ->
-        case named -- module.supported_classes([]) do
+      {named, detector} ->
+        case named -- detector.supported_classes([]) do
           [] -> :ok
           unknown -> {:error, {:detector, {:unknown_classes, Enum.sort(unknown)}}}
         end
@@ -132,8 +129,6 @@ defmodule ImagePipe.Processing do
 
   def resume_fun({:ok, prepared}, bytes, config), do: build_prepared(prepared, bytes, config)
   def resume_fun({:error, _} = error, _bytes, _config), do: fn _pump -> error end
-
-  def streamable_source?(prefix), do: Decode.streamable_source?(prefix)
 
   def prepare_download(request, source, policy, config) do
     started = System.monotonic_time(:microsecond)
@@ -220,10 +215,11 @@ defmodule ImagePipe.Processing do
   # without them), so prepare_download/4 passes no inputs.
   defp prepare_pixels(state, geometry, request, policy, config, inputs, decode_us) do
     shrink = state.decode_shrink
+    operations = Executor.operation_names(request)
 
     with {{:ok, %State{} = state}, transform_us} <-
            Timing.measure(fn ->
-             run_transform(state, geometry, request, policy, config, inputs)
+             run_transform(state, geometry, request, operations, policy, config, inputs)
            end),
          {:ok, %ResolvedOutput{} = resolved_output} <-
            resolve_output(policy, geometry.source_format, state.image, config),
@@ -245,7 +241,7 @@ defmodule ImagePipe.Processing do
          resolved_output: resolved_output,
          policy: policy,
          shrink: shrink,
-         operations: Executor.operation_names(request),
+         operations: operations,
          timings: %{decode: decode_us, transform: transform_us}
        }}
     else
@@ -270,17 +266,7 @@ defmodule ImagePipe.Processing do
 
     case result do
       {{:ok, chunk, content_type, stream_state, search_meta}, encode_us} ->
-        debug =
-          DebugBuilder.build(%{
-            geometry: prepared.geometry,
-            shrink: prepared.shrink,
-            policy: prepared.policy,
-            resolved_output: resolved_output,
-            image: image,
-            search_meta: search_meta,
-            operations: prepared.operations,
-            timings: Map.put(prepared.timings, :encode, encode_us)
-          })
+        debug = DebugBuilder.build(prepared, search_meta, encode_us)
 
         pump.({:started, chunk, stream_state}, content_type, resolved_output, debug)
 
@@ -292,9 +278,7 @@ defmodule ImagePipe.Processing do
     end
   end
 
-  defp run_transform(state, geometry, %Spec{} = request, policy, config, inputs) do
-    operations = Executor.operation_names(request)
-
+  defp run_transform(state, geometry, %Spec{} = request, operations, policy, config, inputs) do
     Telemetry.span(
       Telemetry.telemetry_opts(config),
       [:transform, :execute],
@@ -355,7 +339,7 @@ defmodule ImagePipe.Processing do
   defp transform_stop_metadata({:ok, %State{}}), do: %{result: :ok}
 
   defp transform_stop_metadata({:error, error}),
-    do: %{result: :processing_error, error: Error.tag(error)}
+    do: %{result: :processing_error, error: Telemetry.error_tag(error)}
 
   defp pipeline_opts(%Policy{} = policy, geometry, config) do
     Keyword.put(
@@ -403,7 +387,7 @@ defmodule ImagePipe.Processing do
     do: %{result: :processing_error, output_format: format, error: :empty_stream}
 
   defp encode_stop_metadata({:error, reason}, format),
-    do: %{result: :processing_error, output_format: format, error: Error.tag(reason)}
+    do: %{result: :processing_error, output_format: format, error: Telemetry.error_tag(reason)}
 
   defp materialize_for_delivery(%State{materialized?: true} = state), do: {:ok, state}
 

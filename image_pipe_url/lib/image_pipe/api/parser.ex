@@ -565,122 +565,119 @@ defmodule ImagePipe.API.Parser do
     %Diagnostic{reason: reason, message: message_for(reason), spans: [span]}
   end
 
-  @doc """
-  Returns shared diagnostic wording for `reason`.
+  defp message_for(:empty_pipeline_group), do: "empty pipeline group"
+  defp message_for(:unknown_option), do: "unknown option"
+  defp message_for(:missing_value), do: "missing value"
+  defp message_for(:duplicate_option), do: "duplicate option"
+  defp message_for(:empty_segment), do: "empty option segment"
+  defp message_for(:invalid_dimension), do: "invalid value: expected px or `auto`"
+  defp message_for(:invalid_min_dimension), do: "invalid value: expected positive integer px"
+  defp message_for(:invalid_dpr), do: "invalid value: expected a positive finite decimal"
+  defp message_for(:invalid_zoom), do: "invalid value: expected a positive scalar or x,y pair"
+  defp message_for(:invalid_crop_ratio), do: "invalid value: expected a positive a:b or decimal"
+  defp message_for(:invalid_offset), do: "invalid value: expected a signed x,y px or pct pair"
 
-  """
-  @spec message_for(atom()) :: String.t()
-  def message_for(:empty_pipeline_group), do: "empty pipeline group"
-  def message_for(:unknown_option), do: "unknown option"
-  def message_for(:missing_value), do: "missing value"
-  def message_for(:duplicate_option), do: "duplicate option"
-  def message_for(:empty_segment), do: "empty option segment"
-  def message_for(:invalid_dimension), do: "invalid value: expected px or `auto`"
-  def message_for(:invalid_min_dimension), do: "invalid value: expected positive integer px"
-  def message_for(:invalid_dpr), do: "invalid value: expected a positive finite decimal"
-  def message_for(:invalid_zoom), do: "invalid value: expected a positive scalar or x,y pair"
-  def message_for(:invalid_crop_ratio), do: "invalid value: expected a positive a:b or decimal"
-  def message_for(:invalid_offset), do: "invalid value: expected a signed x,y px or pct pair"
-
-  def message_for(:invalid_detect),
+  defp message_for(:invalid_detect),
     do: "invalid value: expected unique class[:positive-weight] items"
 
-  def message_for(:invalid_trim_symmetry),
+  defp message_for(:invalid_trim_symmetry),
     do: "invalid value: expected h, v, or hv"
 
-  def message_for(:invalid_fit),
+  defp message_for(:invalid_fit),
     do: "invalid value: expected contain, cover, stretch, or auto"
 
-  def message_for(:invalid_arity),
+  defp message_for(:invalid_arity),
     do: "invalid value: wrong number of comma-separated elements"
 
-  def message_for(:invalid_element), do: "invalid value: one or more elements are invalid"
-  def message_for(:invalid_anchor), do: "invalid value: expected a named anchor position"
-  def message_for(:invalid_blur), do: "invalid value: expected a non-negative number"
+  defp message_for(:invalid_element), do: "invalid value: one or more elements are invalid"
+  defp message_for(:invalid_anchor), do: "invalid value: expected a named anchor position"
+  defp message_for(:invalid_blur), do: "invalid value: expected a non-negative number"
 
-  def message_for(:invalid_progressive_blur),
+  defp message_for(:invalid_progressive_blur),
     do:
       "invalid value: expected sigma[,direction[,start[,stop]]] with non-negative sigma and stops from 0 to 1"
 
-  def message_for(:invalid_sharpen), do: "invalid value: expected a non-negative finite number"
-  def message_for(:invalid_pixelate), do: "invalid value: expected a positive integer"
+  defp message_for(:invalid_sharpen), do: "invalid value: expected a non-negative finite number"
+  defp message_for(:invalid_pixelate), do: "invalid value: expected a positive integer"
 
-  def message_for(:invalid_monochrome),
+  defp message_for(:invalid_monochrome),
     do: "invalid value: expected intensity[,color]"
 
-  def message_for(:invalid_duotone),
+  defp message_for(:invalid_duotone),
     do: "invalid value: expected intensity[,shadow[,highlight]]"
 
-  def message_for(:invalid_brightness), do: "invalid value: expected an integer from -255 to 255"
-  def message_for(:invalid_contrast), do: "invalid value: expected a positive finite factor"
-  def message_for(:invalid_saturation), do: "invalid value: expected a positive finite factor"
+  defp message_for(:invalid_brightness), do: "invalid value: expected an integer from -255 to 255"
+  defp message_for(:invalid_contrast), do: "invalid value: expected a positive finite factor"
+  defp message_for(:invalid_saturation), do: "invalid value: expected a positive finite factor"
 
-  def message_for(:invalid_colorize),
+  defp message_for(:invalid_colorize),
     do: "invalid value: expected opacity,color[,keep-alpha]"
 
-  def message_for(:invalid_gradient),
+  defp message_for(:invalid_gradient),
     do: "invalid value: expected opacity,color[,direction,start,stop]"
 
-  def message_for(:invalid_watermark), do: "invalid value: expected a name matching [a-z0-9_-]+"
+  defp message_for(:invalid_watermark), do: "invalid value: expected a name matching [a-z0-9_-]+"
 
-  def message_for(:invalid_watermark_source),
+  defp message_for(:invalid_watermark_source),
     do: "invalid value: expected a nonempty unpadded base64url UTF-8 source"
 
-  def message_for(:invalid_watermark_token), do: "invalid value: expected a base64url token"
-  def message_for(:invalid_watermark_opacity), do: "invalid value: expected a decimal from 0 to 1"
+  defp message_for(:invalid_watermark_token), do: "invalid value: expected a base64url token"
 
-  def message_for(:invalid_watermark_scale),
+  defp message_for(:invalid_watermark_opacity),
+    do: "invalid value: expected a decimal from 0 to 1"
+
+  defp message_for(:invalid_watermark_scale),
     do: "invalid value: expected a decimal greater than 0 and at most 1"
 
-  def message_for(:invalid_watermark_gap),
+  defp message_for(:invalid_watermark_gap),
     do: "invalid value: expected a non-negative x,y px or pct pair"
 
-  def message_for(:unknown_watermark), do: "unknown watermark"
+  defp message_for(:unknown_watermark), do: "unknown watermark"
 
-  def message_for(:watermark_source_disabled),
+  defp message_for(:watermark_source_disabled),
     do: "request watermark sources are not enabled"
 
-  def message_for(:invalid_rotation), do: "invalid value: expected degrees"
-  def message_for(:invalid_flip), do: "invalid value: expected h, v, or hv"
+  defp message_for(:invalid_rotation), do: "invalid value: expected degrees"
+  defp message_for(:invalid_flip), do: "invalid value: expected h, v, or hv"
 
-  def message_for(:invalid_pad_shorthand),
+  defp message_for(:invalid_pad_shorthand),
     do: "invalid value: expected 1-4 comma-separated px values"
 
-  def message_for(:invalid_output),
+  defp message_for(:invalid_output),
     do:
       "invalid value: expected image, blurhash, lqip-css, or info optionally followed by blurhash and lqip-css flags"
 
-  def message_for(:invalid_orientation), do: "invalid value: expected auto or none"
-  def message_for(:invalid_page), do: "invalid value: expected a non-negative integer"
-  def message_for(:invalid_filename), do: "invalid value: expected [A-Za-z0-9._-]+"
-  def message_for(:invalid_cachebuster), do: "invalid value: expected [A-Za-z0-9._-]+"
+  defp message_for(:invalid_orientation), do: "invalid value: expected auto or none"
+  defp message_for(:invalid_page), do: "invalid value: expected a non-negative integer"
+  defp message_for(:invalid_filename), do: "invalid value: expected [A-Za-z0-9._-]+"
+  defp message_for(:invalid_cachebuster), do: "invalid value: expected [A-Za-z0-9._-]+"
 
-  def message_for(:invalid_format),
+  defp message_for(:invalid_format),
     do: "invalid value: expected avif, webp, jpeg, or png"
 
-  def message_for(:invalid_quality), do: "invalid value: expected an integer 1-100"
-  def message_for(:invalid_metadata), do: "invalid value: expected strip, copyright, or keep"
+  defp message_for(:invalid_quality), do: "invalid value: expected an integer 1-100"
+  defp message_for(:invalid_metadata), do: "invalid value: expected strip, copyright, or keep"
 
-  def message_for(:invalid_color_profile),
+  defp message_for(:invalid_color_profile),
     do: "invalid value: expected strip, preserve, srgb, display-p3, or adobe-rgb"
 
-  def message_for(:invalid_hdr), do: "invalid value: expected tonemap or preserve"
-  def message_for(:invalid_format_qualities), do: "invalid per-format quality list"
+  defp message_for(:invalid_hdr), do: "invalid value: expected tonemap or preserve"
+  defp message_for(:invalid_format_qualities), do: "invalid per-format quality list"
 
-  def message_for(:invalid_autoquality),
+  defp message_for(:invalid_autoquality),
     do: "invalid value: expected a target above 0 and up to 100, false, or the bare flag"
 
-  def message_for(:invalid_max_bytes), do: "invalid value: expected a positive integer"
-  def message_for(:invalid_dpi), do: "invalid value: expected an integer 1-65535"
-  def message_for(:invalid_encoder_options), do: "invalid encoder option list"
-  def message_for(:invalid_expires), do: "invalid value: expected a positive unix timestamp"
+  defp message_for(:invalid_max_bytes), do: "invalid value: expected a positive integer"
+  defp message_for(:invalid_dpi), do: "invalid value: expected an integer 1-65535"
+  defp message_for(:invalid_encoder_options), do: "invalid encoder option list"
+  defp message_for(:invalid_expires), do: "invalid value: expected a positive unix timestamp"
 
-  def message_for(:invalid_preset_name),
+  defp message_for(:invalid_preset_name),
     do: "invalid value: expected names matching [A-Za-z0-9._-]+"
 
-  def message_for(:true_spelled_bare),
+  defp message_for(:true_spelled_bare),
     do: "invalid value: write the bare flag instead of key=true"
 
-  def message_for(:invalid_flag),
+  defp message_for(:invalid_flag),
     do: "invalid value: expected false (or the bare flag for true)"
 end

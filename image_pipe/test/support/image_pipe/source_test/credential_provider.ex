@@ -7,13 +7,13 @@ defmodule ImagePipe.SourceTest.CredentialProvider do
   def validate_options(_opts), do: :ok
 
   @impl true
-  def fetch_credentials(scope, provider_opts, runtime_opts) do
+  def fetch_credentials(scope, provider_opts) do
     # Credentials run inside the RefreshCache's task, so the test process is not
     # reachable via `$callers`. Tests that assert the provider was called pass
     # `report_to: self()`; it is stripped from the reported opts so assertions
     # see only the meaningful provider options.
     {target, reported_opts} = Keyword.pop(provider_opts, :report_to)
-    send(target || message_target(), {:fetch_credentials, scope, reported_opts, runtime_opts})
+    send(target || message_target(), {:fetch_credentials, scope, reported_opts})
 
     {:ok,
      [

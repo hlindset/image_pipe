@@ -69,7 +69,7 @@ defmodule ImagePipe.Source.S3.WebIdentity do
 
   # do not inspect/log `opts` or `token` — the OIDC token is a bearer credential.
   @impl true
-  def fetch_credentials(_scope, opts, _runtime_opts) do
+  def fetch_credentials(_scope, opts) do
     with {:ok, token} <- read_token(Keyword.fetch!(opts, :token_file)) do
       Sts.assume_role_with_web_identity(
         [

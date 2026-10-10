@@ -13,27 +13,29 @@ defmodule ImagePipe.Output.Negotiation do
   # RFC 9110 §12.4.2: qvalue = ( "0" [ "." 0*3DIGIT ] ) / ( "1" [ "." 0*3("0") ] )
   @qvalue_pattern ~r/\A(0(\.[0-9]{0,3})?|1(\.0{0,3})?)\z/
 
-  @spec modern_candidates(String.t() | nil, keyword()) :: [:avif | :webp]
-  def modern_candidates(accept_header, opts \\ []) do
+  # `writable` is the formats the libvips build can write.
+  @spec modern_candidates(String.t() | nil, keyword(), [atom()]) :: [:avif | :webp]
+  def modern_candidates(accept_header, opts \\ [], writable \\ Capabilities.writable()) do
     case parse_accept(accept_header) do
       [] ->
         []
 
       entries ->
         opts
-        |> enabled_modern_formats()
+        |> enabled_modern_formats(writable)
         |> Enum.flat_map(&modern_candidate(&1, entries))
     end
   end
 
   # Whether `Accept` can change the format at all, which decides `Vary: Accept`.
-  @spec negotiable?(keyword()) :: boolean()
-  def negotiable?(opts), do: enabled_modern_formats(opts) != []
+  @spec negotiable?(keyword(), [atom()]) :: boolean()
+  def negotiable?(opts, writable \\ Capabilities.writable()),
+    do: enabled_modern_formats(opts, writable) != []
 
-  defp enabled_modern_formats(opts) do
+  defp enabled_modern_formats(opts, writable) do
     opts
     |> server_order()
-    |> Enum.filter(&available?(&1, opts))
+    |> Enum.filter(&(&1 in writable and config_enabled?(&1, opts)))
     |> Enum.map(&{&1, Map.fetch!(@modern_mime_types, &1)})
   end
 
@@ -49,11 +51,7 @@ defmodule ImagePipe.Output.Negotiation do
 
   # A modern format is a candidate only when it is config-enabled AND the libvips
   # build can actually write it. Capability filtering here flows identically to
-  # resolution, the cache key, and conditional-GET, since all three call this fn.
-  defp available?(format, opts) do
-    config_enabled?(format, opts) and Capabilities.supports?(format, opts)
-  end
-
+  # resolution, the cache key, and conditional-GET, since all three use it.
   defp config_enabled?(:avif, opts), do: Keyword.get(opts, :auto_avif, true)
   defp config_enabled?(:webp, opts), do: Keyword.get(opts, :auto_webp, true)
 

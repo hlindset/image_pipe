@@ -10,11 +10,11 @@ defmodule ImagePipe.PlugTest do
   @slow_origin_ci_load_timeout 10_000
 
   alias ImagePipe.Cache.FileSystem.Store
-  alias ImagePipe.PlugTest.ConsumeLargeSourceImage
-  alias ImagePipe.PlugTest.ConsumeSourceThenDecodeErrorImage
   alias ImagePipe.PlugTest.LargeBodyOrigin
+  alias ImagePipe.PlugTest.LargeImageOrigin
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.DecodeOpens
 
   defmodule OriginShouldNotBeCalled do
     def call(conn, _opts) do
@@ -187,30 +187,15 @@ defmodule ImagePipe.PlugTest do
     end
   end
 
-  defmodule RecordingImageOpen do
-    def open(stream, opts) do
-      send(message_target(), {:image_open_options, opts})
-      Image.open(stream, opts)
-    end
-
-    defp message_target do
-      case Process.get(:"$callers") do
-        [pid | _rest] when is_pid(pid) -> pid
-        _callers -> self()
-      end
-    end
-  end
-
   # Keys the API mount's `validate_config!/1` does not accept, spliced onto the
   # validated config AFTER `ImagePipe.Plug.init/1`:
   #
-  #   * `image_module`/`image_open_module` are test-injection
-  #     seams, deliberately absent from every mount option surface;
+  #   * `image_module` is a test-injection seam, deliberately absent from
+  #     every mount option surface;
   #   * `receive_timeout` is a per-request source runtime option that adapters
   #     honor (`ImagePipe.Source.runtime_opts/1`) but no mount surface exposes.
   @post_init_config_keys [
     :image_module,
-    :image_open_module,
     :receive_timeout
   ]
 
@@ -1081,7 +1066,7 @@ defmodule ImagePipe.PlugTest do
       conn(:get, "/w=100/format=jpeg/src/images/beach.jpg")
       |> call_image_pipe(
         root_url: "http://origin.test",
-        image_open_module: RecordingImageOpen,
+        telemetry_prefix: decode_opens(),
         origin_req_options: [plug: OriginImage]
       )
 
@@ -1094,7 +1079,7 @@ defmodule ImagePipe.PlugTest do
       conn(:get, "/region=0,0,100,100/format=jpeg/src/images/beach.jpg")
       |> call_image_pipe(
         root_url: "http://origin.test",
-        image_open_module: RecordingImageOpen,
+        telemetry_prefix: decode_opens(),
         origin_req_options: [plug: OriginImage]
       )
 
@@ -1107,7 +1092,7 @@ defmodule ImagePipe.PlugTest do
       conn(:get, "/w=100/src/images/beach.jpg")
       |> call_image_pipe(
         root_url: "http://origin.test",
-        image_open_module: RecordingImageOpen,
+        telemetry_prefix: decode_opens(),
         origin_req_options: [plug: TruncatedHeaderOnlyOriginImage]
       )
 
@@ -1126,7 +1111,7 @@ defmodule ImagePipe.PlugTest do
       |> put_req_header("accept", "image/jpeg")
       |> call_image_pipe(
         root_url: "http://origin.test",
-        image_open_module: RecordingImageOpen,
+        telemetry_prefix: decode_opens(),
         origin_req_options: [plug: TruncatedHeaderOnlyOriginImage]
       )
 
@@ -1244,7 +1229,6 @@ defmodule ImagePipe.PlugTest do
       conn(:get, "/format=jpeg/src/images/beach.jpg")
       |> call_image_pipe(
         root_url: "http://origin.test",
-        image_open_module: ConsumeSourceThenDecodeErrorImage,
         origin_req_options: [plug: LargeBodyOrigin]
       )
 
@@ -1258,7 +1242,6 @@ defmodule ImagePipe.PlugTest do
       |> call_image_pipe(
         root_url: "http://origin.test",
         max_body_bytes: 10_000_001,
-        image_open_module: ConsumeSourceThenDecodeErrorImage,
         origin_req_options: [plug: LargeBodyOrigin]
       )
 
@@ -1270,8 +1253,7 @@ defmodule ImagePipe.PlugTest do
     observed =
       CacheObserver.observe(
         root_url: "http://origin.test",
-        image_open_module: ConsumeLargeSourceImage,
-        origin_req_options: [plug: LargeBodyOrigin]
+        origin_req_options: [plug: LargeImageOrigin]
       )
 
     permissive =
@@ -1572,19 +1554,25 @@ defmodule ImagePipe.PlugTest do
 
   # Every open of the origin, for its header and for its decode, is sequential
   # and fails on decode errors.
+  # A private prefix whose libvips opens reach this test as `{:loader_open, _}`.
+  defp decode_opens do
+    prefix = [__MODULE__, :decode_opens]
+    DecodeOpens.forward(prefix)
+    prefix
+  end
+
   defp assert_sequential_opens do
-    opens = received_open_options()
+    opens = received_open_metadata()
     assert opens != []
 
-    for options <- opens do
-      assert Keyword.get(options, :access) == :sequential
-      assert Keyword.get(options, :fail_on) == :error
+    for metadata <- opens do
+      assert metadata.access == :sequential
     end
   end
 
-  defp received_open_options do
+  defp received_open_metadata do
     receive do
-      {:image_open_options, options} -> [options | received_open_options()]
+      {:loader_open, metadata} -> [metadata | received_open_metadata()]
     after
       0 -> []
     end

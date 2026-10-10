@@ -1,6 +1,8 @@
 defmodule ImagePipe.API.SerializedValue do
   @moduledoc false
 
+  alias ImagePipe.Plan.ValueSpellings
+
   def csv(values), do: Enum.map_join(values, ",", &scalar/1)
 
   def color({r, g, b}), do: Base.encode16(<<r, g, b>>, case: :lower)
@@ -10,13 +12,13 @@ defmodule ImagePipe.API.SerializedValue do
   def scalar(value) when is_float(value), do: decimal(value)
   def scalar({:px, value}), do: scalar(value)
   def scalar({:pct, value}), do: scalar(value) <> "pct"
-  def scalar({:convert, profile}), do: scalar(profile)
-  def scalar(:preserve_source), do: "preserve"
-  def scalar(:tone_map), do: "tonemap"
-  def scalar(:horizontal), do: "h"
-  def scalar(:vertical), do: "v"
-  def scalar(:both), do: "hv"
-  def scalar(value) when is_atom(value), do: value |> Atom.to_string() |> String.replace("_", "-")
+
+  def scalar(value) do
+    case ValueSpellings.spelling(value) do
+      {:ok, spelling} -> spelling
+      :error when is_atom(value) -> value |> Atom.to_string() |> String.replace("_", "-")
+    end
+  end
 
   # The grammar accepts plain decimals. Expand the shortest round-trippable
   # float representation rather than rounding small values to a fixed precision.

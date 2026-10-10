@@ -27,14 +27,13 @@ defmodule ImagePipe.Source.CacheSettings do
       """
     ],
     internal_cache: [
-      type: {:in, [:auto, :enabled, :disabled]},
-      type_doc: "`:auto`, `:enabled`, or `:disabled`",
-      default: :auto,
+      type: {:in, [:enabled, :disabled]},
+      type_doc: "`:enabled` or `:disabled`",
+      default: :enabled,
       doc: """
       `:disabled` keeps this source's originals and processed images out of \
       the caches, including images that use this source for a watermark. \
-      `:auto` and `:enabled` cache what the source's storage \
-      policy allows.
+      `:enabled` caches what the source's storage policy allows.
       """
     ],
     http_cache: [
@@ -95,8 +94,7 @@ defmodule ImagePipe.Source.CacheSettings do
     * `:copy?` - whether to keep a local copy of the original in the input
       pool. Remote adapters pass `true`.
 
-  A source that isn't stable is identified by its content. `internal_cache:
-  :auto` enables internal caching.
+  A source that isn't stable is identified by its content.
   """
   @spec fields(keyword(), keyword()) :: keyword()
   def fields(opts, source) do
@@ -106,7 +104,7 @@ defmodule ImagePipe.Source.CacheSettings do
       if stable?, do: {:strong, Keyword.fetch!(source, :seed)}, else: :content
 
     [
-      internal_cache: internal_cache(opts),
+      internal_cache: Keyword.fetch!(opts, :internal_cache),
       http_cache: Keyword.fetch!(opts, :http_cache),
       cache_semantics: %CacheSemantics{
         byte_identity: byte_identity,
@@ -115,12 +113,5 @@ defmodule ImagePipe.Source.CacheSettings do
         copy?: Keyword.fetch!(source, :copy?)
       }
     ]
-  end
-
-  defp internal_cache(opts) do
-    case Keyword.fetch!(opts, :internal_cache) do
-      :auto -> :enabled
-      mode -> mode
-    end
   end
 end

@@ -18,7 +18,6 @@ defmodule ImagePipe.Response.Sender do
   alias ImagePipe.Debug
   alias ImagePipe.Debug.Info
   alias ImagePipe.Delivery.PreparedStream
-  alias ImagePipe.Error
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.Skipped
   alias ImagePipe.Plan.Spec
@@ -506,7 +505,7 @@ defmodule ImagePipe.Response.Sender do
   defp stream_error_phase(_reason), do: :encode
 
   defp stream_error_tag({phase, reason}) when phase in [:source, :decode, :output, :encode],
-    do: Error.tag(reason)
+    do: Telemetry.error_tag(reason)
 
-  defp stream_error_tag(reason), do: Error.tag(reason)
+  defp stream_error_tag(reason), do: Telemetry.error_tag(reason)
 end

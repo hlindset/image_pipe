@@ -23,7 +23,6 @@ defmodule ImagePipe.Output.EncodeSearch do
   # and within `[min_quality, max_quality]`.
   @moduledoc false
 
-  alias ImagePipe.Error
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
@@ -178,7 +177,7 @@ defmodule ImagePipe.Output.EncodeSearch do
     %{
       result: :processing_error,
       objective: objective_of(quality_search),
-      error: Error.tag(reason)
+      error: Telemetry.error_tag(reason)
     }
   end
 
@@ -509,8 +508,11 @@ defmodule ImagePipe.Output.EncodeSearch do
       %{quality: q, phase: ctx.phase},
       fn ->
         case do_encode(q, ctx.phase, ctx) do
-          {:ok, ctx} -> {{:ok, ctx}, objective_probe_meta(q, ctx)}
-          {:error, reason} = err -> {err, %{result: :processing_error, error: Error.tag(reason)}}
+          {:ok, ctx} ->
+            {{:ok, ctx}, objective_probe_meta(q, ctx)}
+
+          {:error, reason} = err ->
+            {err, %{result: :processing_error, error: Telemetry.error_tag(reason)}}
         end
       end
     )
@@ -706,8 +708,11 @@ defmodule ImagePipe.Output.EncodeSearch do
       %{quality: quality},
       fn ->
         case Encoder.encode_to_buffer(image, resolved, quality) do
-          {:ok, binary} = ok -> {ok, %{result: :ok, bytes: byte_size(binary)}}
-          {:error, reason} = err -> {err, %{result: :processing_error, error: Error.tag(reason)}}
+          {:ok, binary} = ok ->
+            {ok, %{result: :ok, bytes: byte_size(binary)}}
+
+          {:error, reason} = err ->
+            {err, %{result: :processing_error, error: Telemetry.error_tag(reason)}}
         end
       end
     )

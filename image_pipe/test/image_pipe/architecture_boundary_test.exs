@@ -61,7 +61,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Debug => "lib/image_pipe/debug.ex",
     ImagePipe.Decode => "lib/image_pipe/decode.ex",
     ImagePipe.Delivery => "lib/image_pipe/delivery.ex",
-    ImagePipe.Error => "lib/image_pipe/error.ex",
     ImagePipe.Output => "lib/image_pipe/output.ex",
     ImagePipe.Processing => "lib/image_pipe/processing.ex",
     ImagePipe.ProcessingPool => "lib/image_pipe/processing_pool.ex",
@@ -93,7 +92,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_deps(plug, [
       ImagePipe.API,
       ImagePipe.Config,
-      ImagePipe.Error,
       ImagePipe.Execution,
       ImagePipe.Output,
       ImagePipe.Plan,
@@ -121,8 +119,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_deps(execution, [
       ImagePipe.Cache,
       ImagePipe.Debug,
+      ImagePipe.Decode,
       ImagePipe.Delivery,
-      ImagePipe.Error,
       ImagePipe.MaterialDigest,
       ImagePipe.Output,
       ImagePipe.Plan,
@@ -154,7 +152,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Debug,
       ImagePipe.Decode,
       ImagePipe.Delivery,
-      ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Output,
       ImagePipe.Plan,
@@ -181,7 +178,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     decode = boundary_declaration(ImagePipe.Decode)
 
     assert_boundary_deps(decode, [
-      ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Plan,
       ImagePipe.Source,
@@ -258,7 +254,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     source = boundary_declaration(ImagePipe.Source)
 
     assert_boundary_deps(source, [
-      ImagePipe.Error,
       ImagePipe.MaterialDigest,
       ImagePipe.Plan,
       ImagePipe.SafePath,
@@ -300,7 +295,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Cache,
       ImagePipe.Debug,
       ImagePipe.Delivery,
-      ImagePipe.Error,
       ImagePipe.Output,
       ImagePipe.Plan,
       ImagePipe.Representation,
@@ -394,13 +388,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
            "CropScore must not reference the raw Ssimulacra2 NIF"
   end
 
-  test "error boundary remains a dependency-free helper" do
-    error = boundary_declaration(ImagePipe.Error)
-
-    assert_boundary_deps(error, [])
-    assert_boundary_exports(error, [])
-  end
-
   test "debug boundary depends only on plan and exports debug header modules" do
     debug = boundary_declaration(ImagePipe.Debug)
 
@@ -417,7 +404,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     output = boundary_declaration(ImagePipe.Output)
 
     assert_boundary_deps(output, [
-      ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Plan,
       ImagePipe.Telemetry
@@ -456,7 +442,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     assert_boundary_deps(cache, [
       ImagePipe.Debug,
-      ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Output,
       ImagePipe.SafePath,

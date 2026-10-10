@@ -13,4 +13,14 @@ defmodule ImagePipe.Decode.SourceFormatTest do
                {:error, {:unsupported_source_format, :unknown}}
     end
   end
+
+  # libvips sniffs, so a loader of another family can claim a source's bytes.
+  test "an image from a loader outside the detected family is rejected" do
+    png = Image.new!(8, 6) |> Image.write!(:memory, suffix: ".png") |> Image.open!()
+
+    assert SourceFormat.verify(png, :jpeg) ==
+             {:error, {:unsupported_source_format, :jpeg, "pngload_buffer"}}
+
+    assert SourceFormat.verify(png, :png) == {:ok, :png}
+  end
 end

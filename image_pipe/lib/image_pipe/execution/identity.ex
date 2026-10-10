@@ -26,16 +26,9 @@ defmodule ImagePipe.Execution.Identity do
   outcome, the normalized request inputs (consulted only for configured
   `storage_inputs`), and mount `config`.
   """
-  @spec material(Spec.t(), Policy.t() | nil, Inputs.t(), keyword(), term() | nil, map()) ::
+  @spec material(Spec.t(), Policy.t() | nil, Inputs.t(), keyword(), term() | nil) ::
           IdentityMaterial.t()
-  def material(
-        %Spec{} = request,
-        policy,
-        %Inputs{} = inputs,
-        config,
-        detector_identity,
-        watermarks
-      )
+  def material(%Spec{} = request, policy, %Inputs{} = inputs, config, detector_identity)
       when is_list(config) do
     {configured_storage_only, storage_vary_names} =
       Inputs.storage_material(inputs, Keyword.get(config, :storage_inputs, []))
@@ -44,7 +37,7 @@ defmodule ImagePipe.Execution.Identity do
 
     representation =
       representation_material(
-        %{request | groups: canonical_groups(request.groups, watermarks)},
+        %{request | groups: Enum.map(request.groups, &Map.from_struct/1)},
         policy,
         detector_identity
       )
@@ -112,12 +105,17 @@ defmodule ImagePipe.Execution.Identity do
   defp detector_material(nil), do: []
   defp detector_material(identity), do: [detector: identity]
 
-  defp canonical_groups(groups, watermarks) do
-    Enum.map(groups, fn group ->
-      group
-      |> Map.from_struct()
-      |> Map.update!(:watermark, &watermark_material(&1, watermarks))
-    end)
+  @doc """
+  Puts resolved watermark assets into `material`, keyed by asset name with
+  their source identity and base opacity.
+  """
+  @spec put_watermarks(IdentityMaterial.t(), map()) :: IdentityMaterial.t()
+  def put_watermarks(%IdentityMaterial{representation: representation} = material, watermarks) do
+    groups =
+      for group <- Keyword.fetch!(representation, :groups),
+          do: Map.update!(group, :watermark, &watermark_material(&1, watermarks))
+
+    %{material | representation: Keyword.put(representation, :groups, groups)}
   end
 
   # A resolved asset contributes its source identity and folds its base

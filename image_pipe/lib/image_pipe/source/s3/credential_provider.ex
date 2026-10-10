@@ -30,9 +30,9 @@ defmodule ImagePipe.Source.S3.CredentialProvider do
   they expire.
 
   The result is shared by every request for the bucket, so it must depend
-  only on `scope` and the options. The third argument is always `[]`.
+  only on `scope` and the options.
   """
-  @callback fetch_credentials(scope(), keyword(), keyword()) ::
+  @callback fetch_credentials(scope(), keyword()) ::
               {:ok, credentials(), expiry()} | {:error, term()}
 
   @doc """

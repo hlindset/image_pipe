@@ -357,7 +357,7 @@ defmodule ImagePipe.Output.PolicyTest do
         color_profile: :strip
       }
 
-      assert Policy.ensure_capable(policy, output_capabilities: %{avif: false}) ==
+      assert Policy.ensure_capable(policy, [:jpeg, :png, :webp]) ==
                {:error, {:unsupported_output_format, :avif}}
     end
 
@@ -373,7 +373,7 @@ defmodule ImagePipe.Output.PolicyTest do
         color_profile: :strip
       }
 
-      assert Policy.ensure_capable(policy, output_capabilities: %{avif: true}) == :ok
+      assert Policy.ensure_capable(policy, [:jpeg, :png, :avif]) == :ok
     end
 
     test "automatic mode is always capable (resolution handles fallback)" do
@@ -388,7 +388,7 @@ defmodule ImagePipe.Output.PolicyTest do
         color_profile: :strip
       }
 
-      assert Policy.ensure_capable(policy, output_capabilities: %{avif: false}) == :ok
+      assert Policy.ensure_capable(policy, [:jpeg, :png]) == :ok
     end
   end
 

@@ -12,7 +12,6 @@ defmodule ImagePipe.Transform.Executor do
   alias ImagePipe.Plan.Spec
   alias ImagePipe.Plan.Spec.Group
   alias ImagePipe.Plan.Spec.Output
-  alias ImagePipe.Transform
   alias ImagePipe.Transform.Alpha
   alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.Executor.Geometry
@@ -39,7 +38,6 @@ defmodule ImagePipe.Transform.Executor do
   alias ImagePipe.Transform.Operation.Sharpen
   alias ImagePipe.Transform.Operation.Trim
   alias ImagePipe.Transform.Operation.Watermark
-  alias ImagePipe.Transform.Orientation
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceGeometry
   alias ImagePipe.Transform.State
@@ -124,7 +122,7 @@ defmodule ImagePipe.Transform.Executor do
   def execute(%State{} = state, %Spec{} = request, opts) do
     state = %State{
       state
-      | detector: Transform.resolve_detector(Keyword.get(opts, :detector, :default)),
+      | detector: Keyword.get(opts, :detector),
         detector_required: Keyword.get(opts, :detector_required, false),
         max_intermediate_pixels:
           Keyword.get(opts, :max_intermediate_pixels, state.max_intermediate_pixels)
@@ -363,10 +361,10 @@ defmodule ImagePipe.Transform.Executor do
 
   defp resize_tail(_mode, _target, _guide, _offset), do: nil
 
-  defp compensate_resize(resize, tail, pending) do
+  defp compensate_resize(%Resize{} = resize, tail, pending) do
     resize =
       case PendingOrientation.quarter_turn?(pending) do
-        true -> Orientation.swap_resize(resize)
+        true -> %Resize{resize | width: resize.height, height: resize.width}
         false -> resize
       end
 
@@ -628,24 +626,15 @@ defmodule ImagePipe.Transform.Executor do
     end
   end
 
+  defp orient_source_frame(%State{source_dimensions: nil} = state, pending),
+    do: %State{state | decode_shrink: Geometry.orient_decode_shrink(state.decode_shrink, pending)}
+
   defp orient_source_frame(%State{} = state, %PendingOrientation{} = pending) do
-    if PendingOrientation.quarter_turn?(pending) do
-      source_dimensions =
-        case state.source_dimensions do
-          {width, height} -> {height, width}
-          nil -> nil
-        end
-
-      decode_shrink =
-        case state.decode_shrink do
-          %{w: width, h: height} = shrink -> %{shrink | w: height, h: width}
-          nil -> nil
-        end
-
-      %State{state | source_dimensions: source_dimensions, decode_shrink: decode_shrink}
-    else
+    %State{
       state
-    end
+      | source_dimensions: PendingOrientation.display_dims(state.source_dimensions, pending),
+        decode_shrink: Geometry.orient_decode_shrink(state.decode_shrink, pending)
+    }
   end
 
   defp run_optional(state, nil, _opts), do: {:ok, state}

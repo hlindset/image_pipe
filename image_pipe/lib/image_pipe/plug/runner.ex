@@ -3,7 +3,6 @@ defmodule ImagePipe.Plug.Runner do
   require Logger
 
   alias ImagePipe.API.Parser
-  alias ImagePipe.Error
   alias ImagePipe.Execution
   alias ImagePipe.Execution.Inputs
   alias ImagePipe.Output.Policy
@@ -328,7 +327,11 @@ defmodule ImagePipe.Plug.Runner do
 
   defp send_error(conn, reason, config) do
     log_encode_failure(reason)
-    metadata = %{result: Telemetry.request_result({:error, reason}), error: Error.tag(reason)}
+
+    metadata = %{
+      result: Telemetry.request_result({:error, reason}),
+      error: Telemetry.error_tag(reason)
+    }
 
     conn =
       send_with_span(conn, config, metadata.result, fn ->
@@ -340,7 +343,7 @@ defmodule ImagePipe.Plug.Runner do
 
   # An encode failure is a server-side fault, and its telemetry tag (`:encode`)
   # keeps nothing of what actually went wrong. This is the one funnel every
-  # pre-header failure passes through, and it runs before `Error.tag/1`
+  # pre-header failure passes through, and it runs before `Telemetry.error_tag/1`
   # discards the exception, so the message and stacktrace are logged here —
   # once before sending the error response.
   defp log_encode_failure({:encode, exception, stacktrace}),

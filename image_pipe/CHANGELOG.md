@@ -14,6 +14,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `[:cache, :lookup]` carries `:entry`, which says whether it read a processed
   response or a source record. The tracer adds them to their spans and span
   events.
+- A `[:source, :decode_open]` span wraps each time libvips opens the original,
+  so a trace shows how often a request opens it. The default Logger doesn't log
+  it.
 
 ### Changed
 
@@ -22,6 +25,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A custom detector's `identity/1`, `available?/1`, and `ready?/1` receive only
   `:classes`, as `detect/2` already did. They no longer see the mount's other
   configuration.
+- **Breaking:** A source's `internal_cache` takes `:enabled` or `:disabled`,
+  and defaults to `:enabled`. Replace `internal_cache: :auto`, which meant the
+  same as `:enabled`.
+- **Breaking:** `ImagePipe.Source.S3.CredentialProvider.fetch_credentials/2`
+  takes the bucket and the provider's options. Change your provider's
+  `fetch_credentials/3` to `fetch_credentials/2` by dropping the third
+  argument, which was always `[]`.
 - **Breaking:** `cache` and `input_cache` take the file system cache's options
   directly. Replace `cache: {ImagePipe.Cache.FileSystem, root: "..."}` with
   `cache: [root: "..."]`, and the same for `input_cache`. The server's

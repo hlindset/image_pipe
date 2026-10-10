@@ -149,9 +149,7 @@ defmodule ImagePipeServer.Config.Tree do
     raise ConfigError, "environment sets both a value and a table at #{path}"
   end
 
-  @doc false
-  @spec merge(t(), t()) :: t()
-  def merge(base, override) do
+  defp merge(base, override) do
     Map.merge(base, override, fn
       _key, %{} = left, %{} = right -> merge(left, right)
       _key, _left, right -> right

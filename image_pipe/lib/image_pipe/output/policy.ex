@@ -1,13 +1,15 @@
 defmodule ImagePipe.Output.Policy do
   @moduledoc false
 
-  alias ImagePipe.Error
   alias ImagePipe.Format
   alias ImagePipe.Output.Capabilities
+  alias ImagePipe.Output.Negotiation
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Output
+  alias ImagePipe.Plan.Output.QualitySearch
+  alias ImagePipe.Plan.Spec.Output, as: SpecOutput
   alias ImagePipe.Telemetry
 
   # Qualities the search may try per format, wide enough for the targets people
@@ -16,6 +18,13 @@ defmodule ImagePipe.Output.Policy do
   @search_rails %{jpeg: {25, 95}, webp: {25, 95}, avif: {20, 90}}
   @default_search_rails {25, 95}
   @search_tolerance 0.5
+
+  @encoder_option_config %{
+    jpeg: :jpeg_options,
+    png: :png_options,
+    webp: :webp_options,
+    avif: :avif_options
+  }
 
   # Median quality that reaches each target, per format (Part N; AVIF without
   # chroma subsampling, Part P). The search
@@ -85,6 +94,166 @@ defmodule ImagePipe.Output.Policy do
 
   @type identity_selection() ::
           {:explicit, format()} | {:auto_head, format()} | :source_negotiated
+
+  @doc """
+  The output policy for a request's output options, the mount's
+  configuration, and the request's `Accept` header.
+  """
+  @spec from_request(SpecOutput.t(), keyword(), String.t()) ::
+          {:ok, t()} | {:error, {:invalid_output, term()}}
+  def from_request(%SpecOutput{} = request, config, accept_header) do
+    quality_search = resolve_quality_search(request, config)
+    output = request_policy(request, config, accept_header, quality_search)
+
+    with :ok <- validate_hdr_profile(output),
+         :ok <- validate_lossless_webp_request(output, request),
+         :ok <- validate_png_quality(output, request) do
+      {:ok, output}
+    else
+      {:error, reason} -> {:error, {:invalid_output, reason}}
+    end
+  end
+
+  defp request_mode(nil), do: :source
+  defp request_mode(format), do: {:explicit, format}
+
+  defp output_quality(nil), do: :default
+  defp output_quality(quality), do: {:quality, quality}
+
+  defp request_policy(request, config, accept_header, quality_search) do
+    configured_strip = Keyword.fetch!(config, :strip_metadata)
+
+    {strip_metadata, keep_copyright} =
+      metadata_policy(
+        request.metadata,
+        configured_strip,
+        configured_strip and Keyword.fetch!(config, :keep_copyright)
+      )
+
+    {modern_candidates, headers} = negotiation(request.format, accept_header, config)
+
+    %__MODULE__{
+      mode: request_mode(request.format),
+      modern_candidates: modern_candidates,
+      headers: headers,
+      quality: output_quality(request.quality),
+      default_quality: {:quality, Keyword.fetch!(config, :quality)},
+      format_qualities: format_qualities(request, config),
+      strip_metadata: strip_metadata,
+      keep_copyright: keep_copyright,
+      dpi: dpi(request.dpi, strip_metadata, config),
+      color_profile:
+        request.color_profile ||
+          color_profile_policy(Keyword.fetch!(config, :strip_color_profile)),
+      hdr: request.hdr || hdr_policy(Keyword.fetch!(config, :preserve_hdr)),
+      encoder_options:
+        merge_encoder_options(encoder_options_from_config(config), request.encoder_options),
+      quality_search: quality_search,
+      fixed_quality_formats: request.format_qualities |> Map.keys() |> Enum.sort(),
+      max_bytes: request.max_bytes
+    }
+  end
+
+  defp negotiation(nil, accept_header, config) do
+    case Negotiation.negotiable?(config) do
+      true -> {Negotiation.modern_candidates(accept_header, config), [{"vary", "Accept"}]}
+      false -> {[], []}
+    end
+  end
+
+  defp negotiation(_format, _accept_header, _config), do: {[], []}
+
+  defp encoder_options_from_config(config) do
+    for {format, key} <- @encoder_option_config,
+        struct = Keyword.get(config, key),
+        not is_nil(struct),
+        not struct.__struct__.all_nil?(struct),
+        into: %{},
+        do: {format, struct}
+  end
+
+  # A request's `q` replaces the host's per-format qualities, and the request's
+  # own `format-q` wins over its `q`.
+  defp format_qualities(%SpecOutput{quality: nil} = request, config) do
+    config
+    |> Keyword.fetch!(:format_quality)
+    |> normalize_format_qualities()
+    |> Map.merge(request.format_qualities)
+  end
+
+  defp format_qualities(request, _config), do: request.format_qualities
+
+  defp normalize_format_qualities(map),
+    do: Map.new(map, fn {format, quality} -> {format, {:quality, quality}} end)
+
+  defp color_profile_policy(true), do: :strip
+  defp color_profile_policy(false), do: :preserve_source
+
+  defp hdr_policy(true), do: :preserve
+  defp hdr_policy(false), do: :tone_map
+
+  defp resolve_quality_search(%SpecOutput{quality: quality}, _config)
+       when not is_nil(quality),
+       do: :none
+
+  defp resolve_quality_search(%SpecOutput{autoquality: autoquality}, config),
+    do: QualitySearch.resolve(autoquality, config)
+
+  defp metadata_policy(nil, strip_metadata, keep_copyright),
+    do: {strip_metadata, keep_copyright}
+
+  defp metadata_policy(:strip, _strip_metadata, _keep_copyright), do: {true, false}
+  defp metadata_policy(:copyright, _strip_metadata, _keep_copyright), do: {true, true}
+  defp metadata_policy(:keep, _strip_metadata, _keep_copyright), do: {false, false}
+
+  # Density is metadata: stripping replaces the source value with the host's.
+  defp dpi(nil, true, config), do: Keyword.fetch!(config, :stripped_dpi)
+  defp dpi(nil, false, _config), do: nil
+  defp dpi(dpi, _strip_metadata, _config), do: dpi
+
+  defp validate_hdr_profile(%__MODULE__{color_profile: {:convert, _target}, hdr: :preserve}),
+    do: {:error, :hdr_profile_conversion}
+
+  defp validate_hdr_profile(%__MODULE__{}), do: :ok
+
+  defp merge_encoder_options(configured, requested) do
+    configured
+    |> Map.merge(requested, fn _format, base, overlay ->
+      base.__struct__.merge(base, overlay)
+    end)
+    |> Map.reject(fn {_format, options} -> options.__struct__.all_nil?(options) end)
+  end
+
+  defp validate_lossless_webp_request(
+         %__MODULE__{
+           mode: {:explicit, :webp},
+           encoder_options: %{webp: %Output.WebpOptions{lossless: true}}
+         },
+         %SpecOutput{autoquality: autoquality, max_bytes: max_bytes}
+       ) do
+    if enabled_url_autoquality?(autoquality) or not is_nil(max_bytes) do
+      {:error, :lossless_webp_quality_search}
+    else
+      :ok
+    end
+  end
+
+  defp validate_lossless_webp_request(%__MODULE__{}, %SpecOutput{}), do: :ok
+
+  # A PNG quality only sets palette quantization.
+  defp validate_png_quality(%__MODULE__{} = output, %SpecOutput{} = request) do
+    png_quality? =
+      Map.has_key?(request.format_qualities, :png) or
+        (output.mode == {:explicit, :png} and not is_nil(request.quality))
+
+    if png_quality? and not png_palette?(output) do
+      {:error, :png_quality_without_palette}
+    else
+      :ok
+    end
+  end
+
+  defp enabled_url_autoquality?(autoquality), do: autoquality not in [nil, false]
 
   @doc """
   The pure pre-source-fetch format selection: explicit format, the negotiated
@@ -205,16 +374,19 @@ defmodule ImagePipe.Output.Policy do
 
   def supports_hdr?(%__MODULE__{}, _source_format), do: false
 
-  @spec ensure_capable(t(), keyword()) :: :ok | {:error, {:unsupported_output_format, format()}}
-  def ensure_capable(%__MODULE__{mode: {:explicit, format}}, opts) do
-    if Capabilities.supports?(format, opts) do
+  # `writable` is the formats the libvips build can write.
+  @spec ensure_capable(t(), [format()]) :: :ok | {:error, {:unsupported_output_format, format()}}
+  def ensure_capable(policy, writable \\ Capabilities.writable())
+
+  def ensure_capable(%__MODULE__{mode: {:explicit, format}}, writable) do
+    if format in writable do
       :ok
     else
       {:error, {:unsupported_output_format, format}}
     end
   end
 
-  def ensure_capable(%__MODULE__{mode: :source}, _opts), do: :ok
+  def ensure_capable(%__MODULE__{mode: :source}, _writable), do: :ok
 
   # Only baseline formats pass through as-is. Modern source formats (avif/webp)
   # are reached here only when the client accepted no modern format, so passing
@@ -320,7 +492,7 @@ defmodule ImagePipe.Output.Policy do
     do: %{result: :ok, output_format: format}
 
   defp stop_metadata({:error, reason}),
-    do: %{result: :output_error, error: Error.tag(reason)}
+    do: %{result: :output_error, error: Telemetry.error_tag(reason)}
 
   defp quality_search_identity(:none), do: :none
 

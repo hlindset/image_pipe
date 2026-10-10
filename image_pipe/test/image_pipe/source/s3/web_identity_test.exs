@@ -25,7 +25,7 @@ defmodule ImagePipe.Source.S3.WebIdentityTest do
       plug: plug
     ]
 
-    assert {:ok, creds, expiry} = WebIdentity.fetch_credentials("my-bucket", opts, [])
+    assert {:ok, creds, expiry} = WebIdentity.fetch_credentials("my-bucket", opts)
     assert creds[:access_key_id] == "ASIAEKS"
     assert creds[:token] == "eksSession"
     assert expiry == ~U[2026-06-26 14:00:00Z]
@@ -53,11 +53,11 @@ defmodule ImagePipe.Source.S3.WebIdentityTest do
 
     opts = [token_file: token_path, role_arn: "arn:x", region: "us-east-1", plug: plug]
 
-    assert {:ok, _, _} = WebIdentity.fetch_credentials("b", opts, [])
+    assert {:ok, _, _} = WebIdentity.fetch_credentials("b", opts)
     assert_received {:token, "FIRST"}
 
     File.write!(token_path, "SECOND")
-    assert {:ok, _, _} = WebIdentity.fetch_credentials("b", opts, [])
+    assert {:ok, _, _} = WebIdentity.fetch_credentials("b", opts)
     assert_received {:token, "SECOND"}
   end
 
@@ -65,7 +65,7 @@ defmodule ImagePipe.Source.S3.WebIdentityTest do
     opts = [token_file: "/no/such/token", role_arn: "arn:x", region: "us-east-1"]
 
     assert {:error, :web_identity_token_unreadable} =
-             WebIdentity.fetch_credentials("b", opts, [])
+             WebIdentity.fetch_credentials("b", opts)
   end
 
   test "validate_options requires token_file, role_arn, and region" do

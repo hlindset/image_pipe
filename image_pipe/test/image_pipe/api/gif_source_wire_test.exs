@@ -5,6 +5,7 @@ defmodule ImagePipe.API.GifSourceWireTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.DecodeOpens
   alias ImagePipe.Test.MultiFrameSources
   alias Vix.Vips.Image, as: VipsImage
 
@@ -22,6 +23,7 @@ defmodule ImagePipe.API.GifSourceWireTest do
       )
 
     on_exit(fn -> :telemetry.detach(handler) end)
+    DecodeOpens.forward(@prefix)
   end
 
   test "a GIF is decoded as the gif family" do
@@ -85,29 +87,21 @@ defmodule ImagePipe.API.GifSourceWireTest do
     do: conn(:get, "/#{options}/src/source") |> ImagePipe.Plug.call(config)
 
   defp mount(body, extra \\ []) do
-    pid = self()
-
     origin = fn conn ->
       conn |> put_resp_content_type("image/gif") |> send_resp(200, body)
     end
 
-    config =
-      [
-        sources: [
-          path: [
-            adapter: RootHTTPAdapter,
-            match: :path,
-            options: [root_url: "http://origin.test", req_options: [plug: origin]]
-          ]
-        ],
-        telemetry_prefix: @prefix
-      ]
-      |> Keyword.merge(extra)
-      |> ImagePipe.Plug.init()
-
-    Keyword.put(config, :buffer_loader, fn binary, options ->
-      send(pid, {:loader_open, options})
-      VipsImage.new_from_buffer(binary, options)
-    end)
+    [
+      sources: [
+        path: [
+          adapter: RootHTTPAdapter,
+          match: :path,
+          options: [root_url: "http://origin.test", req_options: [plug: origin]]
+        ]
+      ],
+      telemetry_prefix: @prefix
+    ]
+    |> Keyword.merge(extra)
+    |> ImagePipe.Plug.init()
   end
 end

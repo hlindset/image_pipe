@@ -20,7 +20,7 @@ defmodule ImagePipe.Source.S3.CredentialWarmupTest do
     def validate_options(_opts), do: :ok
 
     @impl true
-    def fetch_credentials(scope, opts, _runtime) do
+    def fetch_credentials(scope, opts) do
       send(Keyword.fetch!(opts, :test), {:warmed, scope})
       {:ok, [access_key_id: "A", secret_access_key: "S", token: "T"], :never}
     end
@@ -76,7 +76,7 @@ defmodule ImagePipe.Source.S3.CredentialWarmupTest do
     assert reason in [:normal, :noproc]
 
     # cache is warm: fetching does not invoke the provider again
-    assert {:ok, _} = Credentials.fetch(scope, {:provider, OnceProvider, opts}, [])
+    assert {:ok, _} = Credentials.fetch(scope, {:provider, OnceProvider, opts})
     refute_received {:warmed, ^scope}
   end
 

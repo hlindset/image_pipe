@@ -6,7 +6,6 @@ defmodule ImagePipe.Cache.Sink do
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.Key
-  alias ImagePipe.Error
   alias ImagePipe.Format
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Telemetry
@@ -206,7 +205,7 @@ defmodule ImagePipe.Cache.Sink do
     %{
       result: :cache_error,
       cache: :write_error,
-      error: Error.tag(reason),
+      error: Telemetry.error_tag(reason),
       output_format: sink.output_format
     }
   end
@@ -232,7 +231,7 @@ defmodule ImagePipe.Cache.Sink do
     do: %{
       result: :cache_error,
       cache: :stage_error,
-      error: Error.tag(error),
+      error: Telemetry.error_tag(error),
       output_format: output_format
     }
 
