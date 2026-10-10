@@ -215,10 +215,11 @@ defmodule ImagePipe.Processing do
   # without them), so prepare_download/4 passes no inputs.
   defp prepare_pixels(state, geometry, request, policy, config, inputs, decode_us) do
     shrink = state.decode_shrink
+    operations = Executor.operation_names(request)
 
     with {{:ok, %State{} = state}, transform_us} <-
            Timing.measure(fn ->
-             run_transform(state, geometry, request, policy, config, inputs)
+             run_transform(state, geometry, request, operations, policy, config, inputs)
            end),
          {:ok, %ResolvedOutput{} = resolved_output} <-
            resolve_output(policy, geometry.source_format, state.image, config),
@@ -240,7 +241,7 @@ defmodule ImagePipe.Processing do
          resolved_output: resolved_output,
          policy: policy,
          shrink: shrink,
-         operations: Executor.operation_names(request),
+         operations: operations,
          timings: %{decode: decode_us, transform: transform_us}
        }}
     else
@@ -265,17 +266,7 @@ defmodule ImagePipe.Processing do
 
     case result do
       {{:ok, chunk, content_type, stream_state, search_meta}, encode_us} ->
-        debug =
-          DebugBuilder.build(%{
-            geometry: prepared.geometry,
-            shrink: prepared.shrink,
-            policy: prepared.policy,
-            resolved_output: resolved_output,
-            image: image,
-            search_meta: search_meta,
-            operations: prepared.operations,
-            timings: Map.put(prepared.timings, :encode, encode_us)
-          })
+        debug = DebugBuilder.build(prepared, search_meta, encode_us)
 
         pump.({:started, chunk, stream_state}, content_type, resolved_output, debug)
 
@@ -287,9 +278,7 @@ defmodule ImagePipe.Processing do
     end
   end
 
-  defp run_transform(state, geometry, %Spec{} = request, policy, config, inputs) do
-    operations = Executor.operation_names(request)
-
+  defp run_transform(state, geometry, %Spec{} = request, operations, policy, config, inputs) do
     Telemetry.span(
       Telemetry.telemetry_opts(config),
       [:transform, :execute],
