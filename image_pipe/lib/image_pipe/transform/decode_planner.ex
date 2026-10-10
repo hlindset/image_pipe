@@ -2,7 +2,7 @@ defmodule ImagePipe.Transform.DecodePlanner do
   # Chooses decode open options from a decode extent and resize target.
   #
   # Decode is always opened with `:sequential` access. Random access is provided
-  # by `ImagePipe.Transform.run/3` when an operation requires it.
+  # by `ImagePipe.Transform.Executor.Step.run/3` when an operation requires it.
   #
   # The planner computes a format-specific shrink/scale option for downscales.
   # It is pure: `ImagePipe.Decode` supplies the header dimensions and source format.

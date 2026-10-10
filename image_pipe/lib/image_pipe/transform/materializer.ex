@@ -6,7 +6,7 @@ defmodule ImagePipe.Transform.Materializer do
   # calls `flush/1` before operations
   # that need the display frame, including trim.
   #
-  # `ImagePipe.Transform.run/3` materializes before the first operation requiring
+  # `ImagePipe.Transform.Executor.Step.run/3` materializes before the first operation requiring
   # random access, allowing earlier operations to stream. Delivery materializes
   # before encoding if the state has not materialized.
   #
