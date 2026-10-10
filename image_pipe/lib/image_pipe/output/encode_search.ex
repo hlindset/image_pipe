@@ -12,8 +12,8 @@ defmodule ImagePipe.Output.EncodeSearch do
   #     `max_bytes` phases.
   #   * `run/3` — the production wrapper. It extracts the objective and budget from
   #     a `%ImagePipe.Output.Resolved{}`, builds the real encode/score closures
-  #     from `ImagePipe.Output.Encoder` and the metric runtime under
-  #     `ImagePipe.Output.Metric.*`, and delegates to `search/3`.
+  #     from `ImagePipe.Output.Encoder` and `ImagePipe.Output.Ssim2Metric`, and
+  #     delegates to `search/3`.
   #
   # ## Monotonicity contract
   #
@@ -25,11 +25,16 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   alias ImagePipe.Error
   alias ImagePipe.Output.Encoder
-  alias ImagePipe.Output.Metric
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
+  alias ImagePipe.Output.Ssim2Metric
   alias ImagePipe.Output.Ssim2Metric.CropScore
   alias ImagePipe.Telemetry
+
+  # The span segment qualifying the probe's scoring legs
+  # (`[:encode, :search, :probe, :ssimulacra2, :decode | :metric]`), so a backend
+  # can group the decode and score legs by metric.
+  @metric_leg :ssimulacra2
 
   @default_max_iterations 6
 
@@ -644,16 +649,12 @@ defmodule ImagePipe.Output.EncodeSearch do
     end
   end
 
-  # Below the crop crossover the metric scores the full frame, through its runtime
-  # (`Output.Metric.runtime/1`). `:none` is matched above and never reaches here.
-  defp score_opts(image, %Resolved{quality_search: qs}, _scorer, t) do
-    full_frame_opts(Metric.runtime(qs), image, t)
-  end
-
-  defp full_frame_opts(metric, image, t) do
-    case metric.reference(image) do
+  # Below the crop crossover the metric scores the full frame. `:none` is matched
+  # above and never reaches here.
+  defp score_opts(image, %Resolved{quality_search: %RQS.Ssimulacra2{}}, _scorer, t) do
+    case Ssim2Metric.reference(image) do
       {:ok, ref} ->
-        {:ok, [score_fun: fn bytes -> full_frame_score(metric, ref, bytes, nil, t) end]}
+        {:ok, [score_fun: fn bytes -> full_frame_score(ref, bytes, t) end]}
 
       {:error, reason} ->
         {:error, {:encode, reason}}
@@ -661,19 +662,18 @@ defmodule ImagePipe.Output.EncodeSearch do
   end
 
   # The score_fun contract is float-returning, but Image.from_binary and
-  # `metric.score/2` can fail. We surface such failures by throwing a tagged
+  # `Ssim2Metric.score/2` can fail. We surface such failures by throwing a tagged
   # tuple that run/3 catches around the search/3 call, mapping it to
   # {:error, {:encode, reason}}. A throw propagates through the leg span (→
   # `:exception`) and the enclosing probe span before reaching the catch.
 
-  # Decode the candidate once and score the whole frame against the reference via
-  # the metric runtime, each as a cost leg nested under the active probe span.
-  defp full_frame_score(metric, ref, bytes, tiles, telemetry_opts) do
-    leg = metric.leg_name()
-    candidate = decode_leg(leg, bytes, telemetry_opts)
+  # Decode the candidate once and score the whole frame against the reference,
+  # each as a cost leg nested under the active probe span.
+  defp full_frame_score(ref, bytes, telemetry_opts) do
+    candidate = decode_leg(bytes, telemetry_opts)
 
-    metric_leg(leg, telemetry_opts, tiles, fn ->
-      case metric.score(ref, candidate) do
+    metric_leg(telemetry_opts, nil, fn ->
+      case Ssim2Metric.score(ref, candidate) do
         {:ok, score} -> score
         {:error, reason} -> throw({:image_pipe_score_error, reason})
       end
@@ -684,12 +684,9 @@ defmodule ImagePipe.Output.EncodeSearch do
   # conservative offset so the objective's walk-to-target band comparison
   # reproduces the full-frame decision.
   defp crop_estimate(refs, bytes, tiles, offset, telemetry_opts) do
-    # Crop scoring is SSIMULACRA2-only (Encoder.crop?/2 lets only the Ssimulacra2
-    # strategy crop), so the legs carry the `:ssimulacra2` segment.
-    leg = Metric.Ssimulacra2.leg_name()
-    candidate = decode_leg(leg, bytes, telemetry_opts)
+    candidate = decode_leg(bytes, telemetry_opts)
 
-    metric_leg(leg, telemetry_opts, tiles, fn ->
+    metric_leg(telemetry_opts, tiles, fn ->
       case CropScore.p10(refs, candidate) do
         {:ok, p10} -> p10 - offset
         {:error, reason} -> throw({:image_pipe_score_error, reason})
@@ -716,13 +713,12 @@ defmodule ImagePipe.Output.EncodeSearch do
     )
   end
 
-  # Candidate decode, as a metric-namespaced leg. The `leg` segment (the metric's
-  # `leg_name/0`) names the scoring legs; a decode failure throws and surfaces as
-  # the leg's `:exception`.
-  defp decode_leg(leg, bytes, telemetry_opts) do
+  # Candidate decode, as a metric-namespaced leg. A decode failure throws and
+  # surfaces as the leg's `:exception`.
+  defp decode_leg(bytes, telemetry_opts) do
     Telemetry.span(
       telemetry_opts,
-      [:encode, :search, :probe, leg, :decode],
+      [:encode, :search, :probe, @metric_leg, :decode],
       %{bytes: byte_size(bytes)},
       fn ->
         case Image.from_binary(bytes) do
@@ -733,13 +729,13 @@ defmodule ImagePipe.Output.EncodeSearch do
     )
   end
 
-  # One aggregate metric leg per probe, segmented by `leg` (the crop path scores K
+  # One aggregate metric leg per probe (the crop path scores K
   # tiles internally; `:tiles_scored` records how many, but no per-tile span is
   # emitted — that detail lives in `mix autoquality.bench`).
-  defp metric_leg(leg, telemetry_opts, tiles, fun) do
+  defp metric_leg(telemetry_opts, tiles, fun) do
     Telemetry.span(
       telemetry_opts,
-      [:encode, :search, :probe, leg, :metric],
+      [:encode, :search, :probe, @metric_leg, :metric],
       %{tiles_scored: tiles},
       fn ->
         score = fun.()

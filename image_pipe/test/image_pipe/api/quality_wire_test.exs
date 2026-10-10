@@ -4,7 +4,7 @@ defmodule ImagePipe.API.QualityWireTest do
   import Plug.Conn
   import Plug.Test
 
-  alias ImagePipe.Output.Metric.Ssimulacra2, as: Ssim2Metric
+  alias ImagePipe.Output.Ssim2Metric
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
   alias Vix.Vips.Image, as: VipsImage
