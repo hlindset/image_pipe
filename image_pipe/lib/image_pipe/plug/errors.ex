@@ -1,7 +1,7 @@
 defmodule ImagePipe.Plug.Errors do
   # Maps request errors to HTTP responses.
   #
-  # Parse failures use `ImagePipe.API.DiagnosticRenderer`. Signature failures
+  # Parse failures use `ImagePipe.Plug.DiagnosticRenderer`. Signature failures
   # return a terse 403 without spans or echoed paths to avoid a signature oracle.
   # Resolved output-policy failures return a fixed safe 400. Source, decode,
   # limit, encode, and output errors use `ImagePipe.Response.ErrorStatus`.
@@ -10,8 +10,8 @@ defmodule ImagePipe.Plug.Errors do
   import Plug.Conn, only: [put_resp_content_type: 2, send_resp: 3]
 
   alias ImagePipe.API.Diagnostic
-  alias ImagePipe.API.DiagnosticRenderer
   alias ImagePipe.API.Path
+  alias ImagePipe.Plug.DiagnosticRenderer
   alias ImagePipe.Plug.Request
   alias ImagePipe.Response.ErrorStatus
 

@@ -7,5 +7,5 @@ defmodule ImagePipe.API do
   use Boundary,
     top_level?: true,
     deps: [ImagePipe.Plan, ImagePipe.Security],
-    exports: [Diagnostic, DiagnosticRenderer, Parser, Path, Presets, URL]
+    exports: [Diagnostic, Parser, Path, Presets, URL]
 end

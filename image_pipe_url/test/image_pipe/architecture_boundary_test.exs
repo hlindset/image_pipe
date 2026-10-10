@@ -13,7 +13,6 @@ defmodule ImagePipe.URL.ArchitectureBoundaryTest do
       [ImagePipe.Plan, ImagePipe.Security],
       [
         ImagePipe.API.Diagnostic,
-        ImagePipe.API.DiagnosticRenderer,
         ImagePipe.API.Parser,
         ImagePipe.API.Path,
         ImagePipe.API.Presets,

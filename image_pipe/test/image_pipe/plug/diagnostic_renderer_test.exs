@@ -1,8 +1,8 @@
-defmodule ImagePipe.API.DiagnosticRendererTest do
+defmodule ImagePipe.Plug.DiagnosticRendererTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.API.Diagnostic
-  alias ImagePipe.API.DiagnosticRenderer
+  alias ImagePipe.Plug.DiagnosticRenderer
 
   defp diag(reason, message, spans) do
     %Diagnostic{reason: reason, message: message, spans: spans}
