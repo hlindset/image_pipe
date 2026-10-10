@@ -39,6 +39,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A request that continues an inbound trace follows the caller's sampled
   flag under the SDK's default parent-based sampler. It was always recorded
   before.
+- `trim` is faster on images under a megapixel: 2 ms instead of 6.5 ms on a
+  256×256 image.
 
 ### Removed
 

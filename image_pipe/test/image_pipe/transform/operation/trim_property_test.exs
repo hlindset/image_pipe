@@ -45,8 +45,8 @@ defmodule ImagePipe.Transform.Operation.TrimPropertyTest do
   # A border color, content, and marks: rectangles, dots, and diagonal strokes,
   # many thinner than the 8x preview, whose median filter erases them.
   defp bordered_image do
-    gen all width <- integer(260..900),
-            height <- integer(260..900),
+    gen all width <- integer(260..1500),
+            height <- integer(260..1500),
             background <- list_of(integer(0..255), length: 3),
             content <- list_of(integer(0..255), length: 3),
             left <- integer(1..div(width, 3)),
