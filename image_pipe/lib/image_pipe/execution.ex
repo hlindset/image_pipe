@@ -40,6 +40,25 @@ defmodule ImagePipe.Execution do
   @doc "Plans the request's watermark assets before any source access."
   def watermark_sources(request, config), do: Watermarks.plan(request, config)
 
+  @doc """
+  Prepares a request and runs `fun` with its context, closing the context
+  after. The output policy and watermark plan are checked before
+  `resolve_source` runs, so their errors return before any source access.
+  `resolve_source` gets the config and returns `{:ok, source, config}`.
+  """
+  def with_prepared(request, accept, inputs, config, resolve_source, fun) do
+    with {:ok, policy} <- Processing.prepare(request, config, accept),
+         {:ok, watermarks} <- watermark_sources(request, config),
+         {:ok, source, config} <- resolve_source.(config),
+         {:ok, context} <- prepare(request, source, watermarks, policy, inputs, config) do
+      try do
+        fun.(context)
+      after
+        close(context)
+      end
+    end
+  end
+
   def prepare(request, source, watermarks, policy, inputs, config) do
     material = identity_material(request, policy, inputs, config)
     tasks = Watermarks.prepare_async(watermarks, material, config)

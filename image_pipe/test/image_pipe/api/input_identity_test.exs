@@ -3,6 +3,7 @@ defmodule ImagePipe.API.InputIdentityTest do
   use ExUnitProperties
 
   alias ImagePipe.Plug.Request, as: ParsedRequest
+  alias ImagePipe.Processing
   alias ImagePipe.Representation
 
   defp identity(path, headers \\ []) do
@@ -13,8 +14,8 @@ defmodule ImagePipe.API.InputIdentityTest do
         Plug.Conn.put_req_header(conn, key, value)
       end)
 
-    {{:ok, request, source}, _metadata} = ParsedRequest.parse(conn, config)
-    {:ok, _, _watermarks, policy} = ParsedRequest.prepare(request, source, config, "image/webp")
+    {{:ok, request, _source}, _metadata} = ParsedRequest.parse(conn, config)
+    {:ok, policy} = Processing.prepare(request, config, "image/webp")
     conn = Plug.Conn.fetch_cookies(conn)
     inputs = %ImagePipe.Execution.Inputs{headers: conn.req_headers, cookies: conn.req_cookies}
     ImagePipe.Execution.identity_material(request, policy, inputs, config)

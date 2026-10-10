@@ -4,12 +4,9 @@ defmodule ImagePipe.Plug.Request do
   alias ImagePipe.API.Diagnostic
   alias ImagePipe.API.Parser
   alias ImagePipe.API.Path
-  alias ImagePipe.Execution
   alias ImagePipe.Plan.Spec
   alias ImagePipe.Presets
-  alias ImagePipe.Processing
   alias ImagePipe.Security
-  alias ImagePipe.Source.Parser, as: SourceParser
 
   # Verify → lex → decrypt → parse. Returns the telemetry stop metadata with
   # the result so the Runner's parse span can report the signing key index.
@@ -54,14 +51,6 @@ defmodule ImagePipe.Plug.Request do
       _lookup ->
         with {:ok, names} <- Parser.preset_names(lexed),
              do: Presets.for_request(names, config)
-    end
-  end
-
-  def prepare(%Spec{} = request, source, config, accept_header) do
-    with {:ok, policy} <- Processing.prepare(request, config, accept_header),
-         {:ok, plan_source} <- SourceParser.translate(source, config),
-         {:ok, watermarks} <- Execution.watermark_sources(request, config) do
-      {:ok, plan_source, watermarks, policy}
     end
   end
 
