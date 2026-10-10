@@ -16,6 +16,8 @@ defmodule ImagePipe.Test.CacheObserver do
   #
   # Hashes are cache key hashes (`ImagePipe.Cache.Key.hash`). Handlers send to
   # the process that called `observe/2`, whichever process emits the event.
+  # Observing twice on one prefix reports each write once, from the observer
+  # whose root holds it. Lookups reach both.
 
   use Boundary, top_level?: true, check: [out: false]
 
@@ -90,10 +92,13 @@ defmodule ImagePipe.Test.CacheObserver do
         send(target, {:cache_lookup, entry, hash})
 
       {:stop, %{pool: :output, cache: :write, cache_key: hash}} ->
-        {:ok, stored, body} = read(cache, hash)
-        send(target, {:cache_open_sink, hash, stored})
-        send(target, {:source_order, :cache_put})
-        send(target, {:cache_put, hash, body})
+        # Tests that compare caches observe several on one prefix. A write
+        # under another observer's root is that observer's to report.
+        with {:ok, stored, body} <- read(cache, hash) do
+          send(target, {:cache_open_sink, hash, stored})
+          send(target, {:source_order, :cache_put})
+          send(target, {:cache_put, hash, body})
+        end
 
       {:stop, %{pool: :output, cache: :write_error, cache_key: hash}} ->
         send(target, {:cache_write_error, hash})
