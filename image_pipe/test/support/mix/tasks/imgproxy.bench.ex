@@ -58,7 +58,8 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     * `--compare` - the image to judge.
     * `--against` - `NAME=IMAGE`, an image to judge it against. Repeatable;
       each gets its own columns.
-    * `--rounds` - how many times every image runs every case, default 3.
+    * `--rounds` - how many times every image runs every case, default 4.
+      An even count gives every image the first slot equally often.
     * `--describe` - `NAME=TEXT`, what an image is, such as "this pull request
       at `e9f7670`", shown in the report in place of its image name. Name the
       `--compare` image `candidate`. Repeatable.
@@ -172,7 +173,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       network: network,
       oha: "#{network}-oha",
       servers: servers(opts),
-      rounds: opts[:rounds] || 3,
+      rounds: opts[:rounds] || 4,
       progress: nil,
       descriptions: descriptions(opts),
       work: Path.expand(Path.join(output, "work"))

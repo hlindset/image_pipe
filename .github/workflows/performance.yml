@@ -2,10 +2,11 @@ name: Performance
 
 # Times an image_pipe_server image against others on the same runner with
 # `mix imgproxy.bench --compare`, alternating between them so the runner's
-# speed cancels out. On a pull request labelled `perf`, the pull request is
-# judged against its base on the curated `perf` cases and the result posted as
-# a comment. Nightly, `main` is judged on every case against the `main` the
-# previous nightly run measured, and against the latest release image. The
+# speed cancels out. Both use the curated `perf` cases. On a pull request
+# labelled `perf`, the pull request is judged against its base and the result
+# posted as a comment. Nightly, `main` is judged against the `main` the
+# previous nightly run measured, the `main` of 30 days earlier, which shows
+# drift too slow to notice night to night, and the latest release image. The
 # comparison reports; it doesn't fail the job.
 on:
   pull_request:
@@ -64,8 +65,16 @@ jobs:
             name=previous
             candidate_text="\`main\` at \`${candidate:0:7}\`"
             against_text="\`main\` at \`${against:0:7}\`, from the previous nightly run"
+            month=$(git rev-list -1 --first-parent --before="30 days ago" HEAD)
+            # Skipped until main from 30 days earlier has the server image.
+            if [ -n "$month" ] && ! git cat-file -e "$month:image_pipe_server/Dockerfile" 2>/dev/null; then
+              month=""
+            fi
+            month_text="\`main\` at \`${month:0:7}\`, 30 days earlier"
           fi
           {
+            echo "month=${month:-}"
+            echo "month_text=${month_text:-}"
             echo "candidate=$candidate"
             echo "against=$against"
             echo "name=$name"
@@ -96,6 +105,20 @@ jobs:
           context: ${{ runner.temp }}/against
           file: ${{ runner.temp }}/against/image_pipe_server/Dockerfile
           tags: image_pipe_server:against
+          load: true
+          cache-from: type=gha,scope=server-base
+
+      - name: Check out main from 30 days earlier
+        if: steps.refs.outputs.month != ''
+        run: git worktree add "$RUNNER_TEMP/month" "${{ steps.refs.outputs.month }}"
+
+      - name: Build main from 30 days earlier
+        if: steps.refs.outputs.month != ''
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ runner.temp }}/month
+          file: ${{ runner.temp }}/month/image_pipe_server/Dockerfile
+          tags: image_pipe_server:month
           load: true
           cache-from: type=gha,scope=server-base
 
@@ -138,14 +161,17 @@ jobs:
           NAME: ${{ steps.refs.outputs.name }}
           CANDIDATE_TEXT: ${{ steps.refs.outputs.candidate_text }}
           AGAINST_TEXT: ${{ steps.refs.outputs.against_text }}
+          MONTH: ${{ steps.refs.outputs.month }}
+          MONTH_TEXT: ${{ steps.refs.outputs.month_text }}
         run: |
           args=(--compare image_pipe_server:candidate --describe "candidate=$CANDIDATE_TEXT")
           if [ -n "$AGAINST" ]; then
             args+=(--against "$NAME=image_pipe_server:against" --describe "$NAME=$AGAINST_TEXT")
           fi
-          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-            args+=(--only perf)
-          else
+          if [ -n "$MONTH" ]; then
+            args+=(--against "month=image_pipe_server:month" --describe "month=$MONTH_TEXT")
+          fi
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
             version=$(docker image inspect --format \
               '{{index .Config.Labels "org.opencontainers.image.version"}}' "$RELEASE_IMAGE")
             release_text="the latest release, \`$RELEASE_IMAGE\`"
@@ -153,8 +179,8 @@ jobs:
             args+=(--against "release=$RELEASE_IMAGE" --describe "release=$release_text")
           fi
           # Two CPUs for the servers leave the rest of the runner for oha.
-          mise exec -- mix imgproxy.bench "${args[@]}" --cpus 2 --rounds 3 --duration 1 \
-            --output tmp/performance
+          mise exec -- mix imgproxy.bench "${args[@]}" --only perf --cpus 2 --rounds 4 \
+            --duration 1 --output tmp/performance
           cat tmp/performance/summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the report
