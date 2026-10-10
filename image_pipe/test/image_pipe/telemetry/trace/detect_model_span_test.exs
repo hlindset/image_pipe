@@ -44,7 +44,7 @@ defmodule ImagePipe.Telemetry.Trace.DetectModelSpanTest do
 
   test "model spans of concurrently run children nest under the detect span" do
     telemetry_opts = [telemetry_prefix: [:image_pipe]]
-    composite = Composite.new([FaceChild, ObjectChild])
+    composite = [FaceChild, ObjectChild]
 
     {:ok, []} =
       Telemetry.span(telemetry_opts, [:transform, :detect], %{}, fn ->

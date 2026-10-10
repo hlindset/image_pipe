@@ -7,8 +7,8 @@ defmodule ImagePipe.Transform.Materializer do
   # that need the display frame, including trim.
   #
   # `ImagePipe.Transform.run/3` materializes before the first operation requiring
-  # random access, allowing earlier operations to stream. Delivery calls the
-  # arity-2 callback before encoding if the state has not materialized.
+  # random access, allowing earlier operations to stream. Delivery materializes
+  # before encoding if the state has not materialized.
   #
   # Both `materialize/1` and `flush/1` emit `[:transform, :materialize]` spans
   # that measure the pixel work at each boundary.
@@ -16,9 +16,6 @@ defmodule ImagePipe.Transform.Materializer do
 
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.{MemoryCopy, OrientationFlush, State, WorkLimits}
-
-  @callback materialize(State.t(), keyword()) ::
-              {:ok, State.t()} | {:error, term()}
 
   # Operation and delivery calls share one telemetry span.
   @spec materialize(State.t()) :: {:ok, State.t()} | {:error, term()}
@@ -34,12 +31,6 @@ defmodule ImagePipe.Transform.Materializer do
   # Dimensions are a non-sensitive O(1) header read of the allocated buffer.
   defp ok_metadata(%State{image: image}),
     do: %{result: :ok, dims: {Image.width(image), Image.height(image)}}
-
-  # Delivery uses telemetry options from State; delegation avoids a second span.
-  @spec materialize(State.t(), keyword()) :: {:ok, State.t()} | {:error, term()}
-  def materialize(%State{} = state, _opts) do
-    materialize(state)
-  end
 
   @doc "Applies pending orientation and buffers its display frame, with materialization telemetry."
   @spec flush(State.t()) :: {:ok, State.t()} | {:error, term()}

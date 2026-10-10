@@ -103,7 +103,7 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
   test "composite model failures are error spans without leaking detector reasons" do
     prefix = [__MODULE__, :model_result]
     TestExporter.attach(self(), prefix: prefix)
-    composite = Composite.new([FakeDetector])
+    composite = [FakeDetector]
 
     for {response, result, status} <- [
           {{:ok, []}, "ok", :unset},

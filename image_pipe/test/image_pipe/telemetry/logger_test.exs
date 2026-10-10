@@ -1058,7 +1058,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     prefix = [__MODULE__, :model_failure]
     Telemetry.attach_default_logger(level: :info, prefix: prefix)
     detector = FakeDetector.returning({:error, "private detector reason"})
-    composite = Composite.new([detector])
+    composite = [detector]
 
     log =
       capture_log([level: :warning], fn ->

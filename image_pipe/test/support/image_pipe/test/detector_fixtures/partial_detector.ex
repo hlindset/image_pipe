@@ -8,10 +8,10 @@ defmodule ImagePipe.Test.DetectorFixtures.PartialDetector do
   alias ImagePipe.Test.DetectorFixtures.GateTriadUnavailableObjectFake
   alias ImagePipe.Transform.Detector.Composite
 
-  defp c, do: Composite.new([GateTriadFaceFake, GateTriadUnavailableObjectFake])
+  defp c, do: [GateTriadFaceFake, GateTriadUnavailableObjectFake]
 
   @impl true
-  def supported_classes(_o), do: Composite.supported_classes(c())
+  def supported_classes(_o), do: Composite.children_classes(c())
 
   @impl true
   def detect(i, o), do: Composite.detect(c(), i, o)
