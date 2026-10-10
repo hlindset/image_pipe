@@ -2,10 +2,8 @@ defmodule ImagePipe.API.OptionSpec do
   import ImagePipe.Plan.ValueBounds
   # Declarative option table for the ImagePipe URL API.
   #
-  # Each `%OptionSpec{}` defines an option's URL key, canonical name, scope, value parser, and
-  # documentation. Semantic constraints are owned by `ImagePipe.Plan.Spec`.
-  #
-  # Tests require complete entries with at least one example each.
+  # Each `%OptionSpec{}` defines an option's URL key, canonical name, scope, and value
+  # parser. Semantic constraints are owned by `ImagePipe.Plan.Spec`.
   @moduledoc false
 
   alias ImagePipe.API.OutputOptions
@@ -16,9 +14,7 @@ defmodule ImagePipe.API.OptionSpec do
     :key,
     :name,
     :scope,
-    :value,
-    :summary,
-    :examples
+    :value
   ]
   defstruct @enforce_keys
 
@@ -28,11 +24,9 @@ defmodule ImagePipe.API.OptionSpec do
 
   @type t :: %__MODULE__{
           key: String.t(),
-          name: atom() | nil,
+          name: atom(),
           scope: :group | :request,
-          value: :flag | {:flag, value_parser()} | value_parser(),
-          summary: String.t(),
-          examples: [String.t()]
+          value: :flag | {:flag, value_parser()} | value_parser()
         }
 
   @fit_map ValueSpellings.spellings(:fit)
@@ -63,568 +57,421 @@ defmodule ImagePipe.API.OptionSpec do
         key: "rotate",
         name: :rotate,
         scope: :group,
-        value: &__MODULE__.parse_rotate/1,
-        summary: "Clockwise rotation in degrees",
-        examples: ["rotate=30", "rotate=90"]
+        value: &__MODULE__.parse_rotate/1
       },
       %__MODULE__{
         key: "flip",
         name: :flip,
         scope: :group,
-        value: &__MODULE__.parse_flip/1,
-        summary: "Flip horizontally, vertically, or both after rotation",
-        examples: ["flip=h", "flip=v", "flip=hv"]
+        value: &__MODULE__.parse_flip/1
       },
       %__MODULE__{
         key: "gray",
         name: :gray,
         scope: :group,
-        value: :flag,
-        summary: "Convert to grayscale",
-        examples: ["gray"]
+        value: :flag
       },
       %__MODULE__{
         key: "bitonal",
         name: :bitonal,
         scope: :group,
-        value: :flag,
-        summary: "Threshold grayscale at 128 to black and white, preserving alpha",
-        examples: ["bitonal"]
+        value: :flag
       },
       %__MODULE__{
         key: "dpr",
         name: :dpr,
         scope: :group,
-        value: &__MODULE__.parse_dpr/1,
-        summary: "Device pixel ratio multiplier",
-        examples: ["dpr=2", "dpr=1.5"]
+        value: &__MODULE__.parse_dpr/1
       },
       %__MODULE__{
         key: "w",
         name: :width,
         scope: :group,
-        value: &__MODULE__.parse_dimension/1,
-        summary: "Resize target width, in px, or auto to preserve aspect",
-        examples: ["w=800"]
+        value: &Value.dimension/1
       },
       %__MODULE__{
         key: "h",
         name: :height,
         scope: :group,
-        value: &__MODULE__.parse_dimension/1,
-        summary: "Resize target height, in px, or auto to preserve aspect",
-        examples: ["h=400"]
+        value: &Value.dimension/1
       },
       %__MODULE__{
         key: "min-w",
         name: :min_width,
         scope: :group,
-        value: &__MODULE__.parse_min_dimension/1,
-        summary: "Minimum resize width in pixels",
-        examples: ["min-w=320"]
+        value: &__MODULE__.parse_min_dimension/1
       },
       %__MODULE__{
         key: "min-h",
         name: :min_height,
         scope: :group,
-        value: &__MODULE__.parse_min_dimension/1,
-        summary: "Minimum resize height in pixels",
-        examples: ["min-h=240"]
+        value: &__MODULE__.parse_min_dimension/1
       },
       %__MODULE__{
         key: "fit",
         name: :fit,
         scope: :group,
-        value: &__MODULE__.parse_fit/1,
-        summary: "Resize mode: contain, cover, stretch, or auto",
-        examples: ["fit=cover"]
+        value: &__MODULE__.parse_fit/1
       },
       %__MODULE__{
         key: "enlarge",
         name: :enlarge,
         scope: :group,
-        value: :flag,
-        summary: "Allow the resize to upscale past source dimensions",
-        examples: ["enlarge"]
+        value: :flag
       },
       %__MODULE__{
         key: "zoom",
         name: :zoom,
         scope: :group,
-        value: &__MODULE__.parse_zoom/1,
-        summary: "Positive resize multiplier as one scalar or x,y pair",
-        examples: ["zoom=2", "zoom=1.25,0.75"]
+        value: &__MODULE__.parse_zoom/1
       },
       %__MODULE__{
         key: "extend",
         name: :extend,
         scope: :group,
-        value: :flag,
-        summary: "Extend to the requested width and height",
-        examples: ["extend"]
+        value: :flag
       },
       %__MODULE__{
         key: "extend-ratio",
         name: :extend_ratio,
         scope: :group,
-        value: :flag,
-        summary: "Extend to the requested width-to-height ratio",
-        examples: ["extend-ratio"]
+        value: :flag
       },
       %__MODULE__{
         key: "extend-at",
         name: :extend_at,
         scope: :group,
-        value: &__MODULE__.parse_named_anchor/1,
-        summary: "Canvas placement anchor",
-        examples: ["extend-at=bottom-right"]
+        value: &__MODULE__.parse_named_anchor/1
       },
       %__MODULE__{
         key: "extend-offset",
         name: :extend_offset,
         scope: :group,
-        value: &__MODULE__.parse_offset/1,
-        summary: "Signed x,y canvas placement offset",
-        examples: ["extend-offset=10,-20pct"]
+        value: &__MODULE__.parse_offset/1
       },
       %__MODULE__{
         key: "crop",
         name: :crop,
         scope: :group,
-        value: &__MODULE__.parse_crop/1,
-        summary: "Guided crop to w,h (px or pct), guided by anchor/focus",
-        examples: ["crop=600,400"]
+        value: &__MODULE__.parse_crop/1
       },
       %__MODULE__{
         key: "crop-ratio",
         name: :crop_ratio,
         scope: :group,
-        value: &__MODULE__.parse_crop_ratio/1,
-        summary: "Crop aspect ratio as a:b or a positive decimal",
-        examples: ["crop-ratio=3:2", "crop-ratio=1.5"]
+        value: &__MODULE__.parse_crop_ratio/1
       },
       %__MODULE__{
         key: "crop-ratio-enlarge",
         name: :crop_ratio_enlarge,
         scope: :group,
-        value: :flag,
-        summary: "Allow crop ratio correction to enlarge the crop box",
-        examples: ["crop-ratio-enlarge"]
+        value: :flag
       },
       %__MODULE__{
         key: "region",
         name: :region,
         scope: :group,
-        value: &__MODULE__.parse_region/1,
-        summary: "Explicit-region crop x,y,w,h (px or pct)",
-        examples: ["region=0,0,600,400"]
+        value: &__MODULE__.parse_region/1
       },
       %__MODULE__{
         key: "anchor",
         name: :anchor,
         scope: :group,
-        value: &__MODULE__.parse_anchor/1,
-        summary: "Crop guide / gravity for a guided crop or cover-family resize",
-        examples: ["anchor=smart"]
+        value: &__MODULE__.parse_anchor/1
       },
       %__MODULE__{
         key: "anchor-offset",
         name: :anchor_offset,
         scope: :group,
-        value: &__MODULE__.parse_offset/1,
-        summary: "Signed x,y offset from a named crop anchor",
-        examples: ["anchor-offset=10,-20pct"]
+        value: &__MODULE__.parse_offset/1
       },
       %__MODULE__{
         key: "focus",
         name: :focus,
         scope: :group,
-        value: &__MODULE__.parse_focus/1,
-        summary: "Focal point as x,y unit-space fractions (0.0-1.0)",
-        examples: ["focus=0.25,0.75"]
+        value: &__MODULE__.parse_focus/1
       },
       %__MODULE__{
         key: "detect",
         name: :detect,
         scope: :group,
-        value: &__MODULE__.parse_detect/1,
-        summary: "Detector classes with optional positive class weights",
-        examples: ["detect=all", "detect=car,face", "detect=all:1,face:3"]
+        value: &__MODULE__.parse_detect/1
       },
       %__MODULE__{
         key: "progressive-blur",
         name: :progressive_blur,
         scope: :group,
-        value: &__MODULE__.parse_progressive_blur/1,
-        summary: "Progressive Gaussian blur sigma, direction, start, and stop",
-        examples: ["progressive-blur=4,down,0.25,0.75"]
+        value: &__MODULE__.parse_progressive_blur/1
       },
       %__MODULE__{
         key: "blur",
         name: :blur,
         scope: :group,
-        value: &__MODULE__.parse_blur/1,
-        summary: "Gaussian blur sigma; 0 is the Tier-1 identity point",
-        examples: ["blur=2.5"]
+        value: &__MODULE__.parse_blur/1
       },
       %__MODULE__{
         key: "sharpen",
         name: :sharpen,
         scope: :group,
-        value: &__MODULE__.parse_sharpen/1,
-        summary: "Sharpen sigma; 0 is the identity point",
-        examples: ["sharpen=1.5"]
+        value: &__MODULE__.parse_sharpen/1
       },
       %__MODULE__{
         key: "pixelate",
         name: :pixelate,
         scope: :group,
-        value: &__MODULE__.parse_pixelate/1,
-        summary: "Pixelation block size; 1 is the identity point",
-        examples: ["pixelate=8"]
+        value: &__MODULE__.parse_pixelate/1
       },
       %__MODULE__{
         key: "monochrome",
         name: :monochrome,
         scope: :group,
-        value: &__MODULE__.parse_monochrome/1,
-        summary: "Monochrome intensity and optional color",
-        examples: ["monochrome=0.5", "monochrome=1,red"]
+        value: &__MODULE__.parse_monochrome/1
       },
       %__MODULE__{
         key: "duotone",
         name: :duotone,
         scope: :group,
-        value: &__MODULE__.parse_duotone/1,
-        summary: "Duotone intensity with optional shadow and highlight colors",
-        examples: ["duotone=0.5", "duotone=1,112233,ffeecc"]
+        value: &__MODULE__.parse_duotone/1
       },
       %__MODULE__{
         key: "brightness",
         name: :brightness,
         scope: :group,
-        value: &__MODULE__.parse_brightness/1,
-        summary: "Additive brightness adjustment from -255 to 255 (8-bit scale)",
-        examples: ["brightness=-20"]
+        value: &__MODULE__.parse_brightness/1
       },
       %__MODULE__{
         key: "contrast",
         name: :contrast,
         scope: :group,
-        value: &__MODULE__.parse_contrast/1,
-        summary: "Positive contrast factor; 1 is the identity point",
-        examples: ["contrast=1.25"]
+        value: &__MODULE__.parse_contrast/1
       },
       %__MODULE__{
         key: "saturation",
         name: :saturation,
         scope: :group,
-        value: &__MODULE__.parse_saturation/1,
-        summary: "Positive saturation factor; 1 is the identity point",
-        examples: ["saturation=0.5"]
+        value: &__MODULE__.parse_saturation/1
       },
       %__MODULE__{
         key: "colorize",
         name: :colorize,
         scope: :group,
-        value: &__MODULE__.parse_colorize/1,
-        summary: "Color overlay with optional alpha preservation",
-        examples: ["colorize=0.5,red", "colorize=1,ff0000,keep-alpha"]
+        value: &__MODULE__.parse_colorize/1
       },
       %__MODULE__{
         key: "gradient",
         name: :gradient,
         scope: :group,
-        value: &__MODULE__.parse_gradient/1,
-        summary: "Directional color gradient with unit-space stops",
-        examples: ["gradient=1,red,left,0.25,0.75"]
+        value: &__MODULE__.parse_gradient/1
       },
       %__MODULE__{
         key: "trim",
         name: :trim,
         scope: :group,
-        value: &__MODULE__.parse_trim/1,
-        summary: "Trim a surrounding background: auto, or color[,tolerance]",
-        examples: ["trim=auto", "trim=fff,10"]
+        value: &__MODULE__.parse_trim/1
       },
       %__MODULE__{
         key: "trim-symmetry",
         name: :trim_symmetry,
         scope: :group,
-        value: &__MODULE__.parse_trim_symmetry/1,
-        summary: "Make trim margins symmetric horizontally, vertically, or on both axes",
-        examples: ["trim-symmetry=h", "trim-symmetry=v", "trim-symmetry=hv"]
+        value: &__MODULE__.parse_trim_symmetry/1
       },
       %__MODULE__{
         key: "pad",
         name: :padding,
         scope: :group,
-        value: &Value.pad_shorthand/1,
-        summary: "CSS 1-4 value px shorthand padding",
-        examples: ["pad=20", "pad=10,20,30,40"]
+        value: &Value.pad_shorthand/1
       },
       %__MODULE__{
         key: "bg",
         name: :background,
         scope: :group,
-        value: &__MODULE__.parse_bg/1,
-        summary: "Background color, flattens transparency: color[,alpha]",
-        examples: ["bg=f4f4f4"]
+        value: &__MODULE__.parse_bg/1
       },
       %__MODULE__{
         key: "wm",
         name: :watermark,
         scope: :group,
-        value: &__MODULE__.parse_watermark/1,
-        summary: "Host-configured watermark asset name",
-        examples: ["wm=logo"]
+        value: &__MODULE__.parse_watermark/1
       },
       %__MODULE__{
         key: "wm-src64",
         name: :watermark_source,
         scope: :group,
-        value: &__MODULE__.parse_watermark_source/1,
-        summary: "Request-supplied watermark source as unpadded base64url",
-        examples: ["wm-src64=YnJhbmQvbG9nby5wbmc"]
+        value: &__MODULE__.parse_watermark_source/1
       },
       %__MODULE__{
         key: "wm-enc",
         name: :watermark_token,
         scope: :group,
-        value: &__MODULE__.parse_watermark_token/1,
-        summary: "Concealed watermark source token",
-        examples: ["wm-enc=AQIDBA"]
+        value: &__MODULE__.parse_watermark_token/1
       },
       %__MODULE__{
         key: "wm-opacity",
         name: :watermark_opacity,
         scope: :group,
-        value: &__MODULE__.parse_watermark_opacity/1,
-        summary: "Watermark opacity from 0 to 1, multiplying the asset's base opacity",
-        examples: ["wm-opacity=0.5"]
+        value: &__MODULE__.parse_watermark_opacity/1
       },
       %__MODULE__{
         key: "wm-scale",
         name: :watermark_scale,
         scope: :group,
-        value: &__MODULE__.parse_watermark_scale/1,
-        summary: "Watermark size as a fraction of the frame, greater than 0 and at most 1",
-        examples: ["wm-scale=0.25"]
+        value: &__MODULE__.parse_watermark_scale/1
       },
       %__MODULE__{
         key: "wm-at",
         name: :watermark_at,
         scope: :group,
-        value: &__MODULE__.parse_named_anchor/1,
-        summary: "Watermark placement anchor",
-        examples: ["wm-at=bottom-right"]
+        value: &__MODULE__.parse_named_anchor/1
       },
       %__MODULE__{
         key: "wm-offset",
         name: :watermark_offset,
         scope: :group,
-        value: &__MODULE__.parse_offset/1,
-        summary: "Signed x,y watermark placement offset",
-        examples: ["wm-offset=10,-5pct"]
+        value: &__MODULE__.parse_offset/1
       },
       %__MODULE__{
         key: "wm-tile",
         name: :watermark_tile,
         scope: :group,
-        value: :flag,
-        summary: "Repeat the watermark across the frame",
-        examples: ["wm-tile"]
+        value: :flag
       },
       %__MODULE__{
         key: "wm-gap",
         name: :watermark_gap,
         scope: :group,
-        value: &__MODULE__.parse_watermark_gap/1,
-        summary: "Non-negative x,y spacing between watermark tiles",
-        examples: ["wm-gap=20,5pct"]
+        value: &__MODULE__.parse_watermark_gap/1
       },
       %__MODULE__{
         key: "orient",
         name: :orient,
         scope: :request,
-        value: &__MODULE__.parse_orientation/1,
-        summary: "Apply EXIF orientation automatically, or ignore it",
-        examples: ["orient=auto", "orient=none"]
+        value: &__MODULE__.parse_orientation/1
       },
       %__MODULE__{
         key: "page",
         name: :page,
         scope: :request,
-        value: &__MODULE__.parse_page/1,
-        summary:
-          "Decode this page or frame (0-based, in file order) instead of the default image",
-        examples: ["page=0", "page=2"]
+        value: &__MODULE__.parse_page/1
       },
       %__MODULE__{
         key: "output",
         name: :terminal,
         scope: :request,
-        value: &__MODULE__.parse_output/1,
-        summary:
-          "Terminal selection: image (default), blurhash, lqip-css, or info with optional placeholder flags",
-        examples: [
-          "output=blurhash",
-          "output=lqip-css",
-          "output=info",
-          "output=info,blurhash,lqip-css"
-        ]
+        value: &__MODULE__.parse_output/1
       },
       %__MODULE__{
         key: "format",
         name: :format,
         scope: :request,
-        value: &__MODULE__.parse_format/1,
-        summary: "Explicit output image format; absent negotiates via Accept",
-        examples: ["format=webp"]
+        value: &__MODULE__.parse_format/1
       },
       %__MODULE__{
         key: "q",
         name: :quality,
         scope: :request,
-        value: &__MODULE__.parse_quality/1,
-        summary: "Output quality, 1-100",
-        examples: ["q=80"]
+        value: &__MODULE__.parse_quality/1
       },
       %__MODULE__{
         key: "format-q",
         name: :format_qualities,
         scope: :request,
-        value: &__MODULE__.parse_format_qualities/1,
-        summary: "Per-format output quality overrides",
-        examples: ["format-q=avif:60,webp:70"]
+        value: &OutputOptions.parse_format_qualities/1
       },
       %__MODULE__{
         key: "meta",
         name: :metadata,
         scope: :request,
-        value: &__MODULE__.parse_metadata/1,
-        summary: "Output metadata retention policy",
-        examples: ["meta=strip", "meta=copyright", "meta=keep"]
+        value: &__MODULE__.parse_metadata/1
       },
       %__MODULE__{
         key: "dpi",
         name: :dpi,
         scope: :request,
-        value: &__MODULE__.parse_dpi/1,
-        summary: "Output physical density in pixels per inch, 1-65535",
-        examples: ["dpi=300"]
+        value: &OutputOptions.parse_dpi/1
       },
       %__MODULE__{
         key: "profile",
         name: :color_profile,
         scope: :request,
-        value: &__MODULE__.parse_color_profile/1,
-        summary: "Output color profile policy",
-        examples: ["profile=preserve", "profile=display-p3"]
+        value: &__MODULE__.parse_color_profile/1
       },
       %__MODULE__{
         key: "hdr",
         name: :hdr,
         scope: :request,
-        value: &__MODULE__.parse_hdr/1,
-        summary: "Output HDR policy",
-        examples: ["hdr=tonemap", "hdr=preserve"]
+        value: &__MODULE__.parse_hdr/1
       },
       %__MODULE__{
         key: "autoquality",
         name: :autoquality,
         scope: :request,
-        value: {:flag, &__MODULE__.parse_autoquality/1},
-        summary: "Adaptive quality: bare for the default target, a target, or false",
-        examples: ["autoquality", "autoquality=80", "autoquality=false"]
+        value: {:flag, &OutputOptions.parse_autoquality/1}
       },
       %__MODULE__{
         key: "max-bytes",
         name: :max_bytes,
         scope: :request,
-        value: &__MODULE__.parse_max_bytes/1,
-        summary: "Positive encoded byte budget",
-        examples: ["max-bytes=12000"]
+        value: &OutputOptions.parse_max_bytes/1
       },
       %__MODULE__{
         key: "jpeg-options",
         name: :jpeg_options,
         scope: :request,
-        value: &__MODULE__.parse_jpeg_options/1,
-        summary: "Sparse JPEG encoder options",
-        examples: ["jpeg-options=progressive,quant-table:3"]
+        value: &OutputOptions.parse_jpeg_options/1
       },
       %__MODULE__{
         key: "png-options",
         name: :png_options,
         scope: :request,
-        value: &__MODULE__.parse_png_options/1,
-        summary: "Sparse PNG encoder options",
-        examples: ["png-options=palette,filter:paeth"]
+        value: &OutputOptions.parse_png_options/1
       },
       %__MODULE__{
         key: "webp-options",
         name: :webp_options,
         scope: :request,
-        value: &__MODULE__.parse_webp_options/1,
-        summary: "Sparse WebP encoder options",
-        examples: ["webp-options=near-lossless,effort:6"]
+        value: &OutputOptions.parse_webp_options/1
       },
       %__MODULE__{
         key: "avif-options",
         name: :avif_options,
         scope: :request,
-        value: &__MODULE__.parse_avif_options/1,
-        summary: "Sparse AVIF encoder options",
-        examples: ["avif-options=subsample:on,effort:6"]
+        value: &OutputOptions.parse_avif_options/1
       },
       %__MODULE__{
         key: "filename",
         name: :filename,
         scope: :request,
-        value: &__MODULE__.parse_filename/1,
-        summary: "ASCII filename stem for response delivery",
-        examples: ["filename=card-v2"]
+        value: &__MODULE__.parse_filename/1
       },
       %__MODULE__{
         key: "attachment",
         name: :attachment,
         scope: :request,
-        value: :flag,
-        summary: "Deliver the response as an attachment",
-        examples: ["attachment"]
+        value: :flag
       },
       %__MODULE__{
         key: "cb",
         name: :cachebuster,
         scope: :request,
-        value: &__MODULE__.parse_cachebuster/1,
-        summary: "ASCII storage cachebuster token",
-        examples: ["cb=release-42"]
+        value: &__MODULE__.parse_cachebuster/1
       },
       %__MODULE__{
         key: "debug",
         name: :debug,
         scope: :request,
-        value: :flag,
-        summary: "Request debug response headers when the mount allows them",
-        examples: ["debug"]
+        value: :flag
       },
       %__MODULE__{
         key: "expires",
         name: :expires,
         scope: :request,
-        value: &__MODULE__.parse_expires/1,
-        summary: "Unix timestamp after which the URL is invalid (410)",
-        examples: ["expires=1999999999"]
+        value: &__MODULE__.parse_expires/1
       },
       %__MODULE__{
         key: "preset",
         name: :presets,
         scope: :group,
-        value: &__MODULE__.parse_preset_names/1,
-        summary: "One or more configured preset names to expand",
-        examples: ["preset=card"]
+        value: &__MODULE__.parse_preset_names/1
       }
     ]
   end
@@ -644,22 +491,11 @@ defmodule ImagePipe.API.OptionSpec do
   end
 
   @doc false
-  @spec parse_dimension(String.t()) ::
-          {:ok, :auto | pos_integer()} | {:error, :invalid_dimension}
-  def parse_dimension(string) do
-    case Value.dimension(string) do
-      {:ok, :auto} -> {:ok, :auto}
-      {:ok, {:px, n}} -> {:ok, n}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  @doc false
   @spec parse_min_dimension(String.t()) ::
           {:ok, pos_integer()} | {:error, :invalid_min_dimension}
   def parse_min_dimension(string) do
     case Value.dimension(string) do
-      {:ok, {:px, n}} -> {:ok, n}
+      {:ok, n} when is_integer(n) -> {:ok, n}
       _invalid -> {:error, :invalid_min_dimension}
     end
   end
@@ -1332,64 +1168,6 @@ defmodule ImagePipe.API.OptionSpec do
     end
   end
 
-  @doc false
-  @spec parse_format_qualities(String.t()) ::
-          {:ok, qualities | {:unset, qualities}} | {:error, :invalid_format_qualities}
-        when qualities: %{optional(atom()) => {:quality, 1..100}}
-  def parse_format_qualities("unset," <> string) do
-    with {:ok, qualities} <- format_qualities(string), do: {:ok, {:unset, qualities}}
-  end
-
-  def parse_format_qualities(string), do: format_qualities(string)
-
-  defp format_qualities(string) do
-    case OutputOptions.parse_format_qualities(string) do
-      {:ok, qualities} -> {:ok, qualities}
-      :error -> {:error, :invalid_format_qualities}
-    end
-  end
-
-  @doc false
-  @spec parse_autoquality(String.t()) :: {:ok, float()} | {:error, :invalid_autoquality}
-  def parse_autoquality(string) do
-    case OutputOptions.parse_autoquality(string) do
-      {:ok, autoquality} -> {:ok, autoquality}
-      :error -> {:error, :invalid_autoquality}
-    end
-  end
-
-  @doc false
-  @spec parse_max_bytes(String.t()) :: {:ok, pos_integer()} | {:error, :invalid_max_bytes}
-  def parse_max_bytes(string) do
-    case OutputOptions.parse_max_bytes(string) do
-      {:ok, max_bytes} -> {:ok, max_bytes}
-      :error -> {:error, :invalid_max_bytes}
-    end
-  end
-
-  @doc false
-  @spec parse_dpi(String.t()) :: {:ok, 1..65_535} | {:error, :invalid_dpi}
-  def parse_dpi(string) do
-    case OutputOptions.parse_dpi(string) do
-      {:ok, dpi} -> {:ok, dpi}
-      :error -> {:error, :invalid_dpi}
-    end
-  end
-
-  @doc false
-  def parse_jpeg_options(string), do: parse_encoder_options(string, :jpeg)
-
-  @doc false
-  def parse_png_options(string), do: parse_encoder_options(string, :png)
-
-  @doc false
-  def parse_webp_options(string), do: parse_encoder_options(string, :webp)
-
-  @doc false
-  def parse_avif_options(string), do: parse_encoder_options(string, :avif)
-
-  @doc false
-
   defp parse_path_token(string, error) do
     case chars?(string, :token) do
       true -> {:ok, string}
@@ -1401,27 +1179,6 @@ defmodule ImagePipe.API.OptionSpec do
     case Map.fetch(values, string) do
       {:ok, value} -> {:ok, value}
       :error -> {:error, error}
-    end
-  end
-
-  defp parse_encoder_options("unset," <> string, format) do
-    with {:ok, options} <- encoder_options(string, format), do: {:ok, {:unset, options}}
-  end
-
-  defp parse_encoder_options(string, format), do: encoder_options(string, format)
-
-  defp encoder_options(string, format) do
-    parser =
-      case format do
-        :jpeg -> &OutputOptions.parse_jpeg_options/1
-        :png -> &OutputOptions.parse_png_options/1
-        :webp -> &OutputOptions.parse_webp_options/1
-        :avif -> &OutputOptions.parse_avif_options/1
-      end
-
-    case parser.(string) do
-      {:ok, options} -> {:ok, options}
-      :error -> {:error, :invalid_encoder_options}
     end
   end
 

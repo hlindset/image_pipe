@@ -73,14 +73,13 @@ defmodule ImagePipe.API.Value do
   or `auto`.
   Rejects signs, fractions, and `pct` units.
   """
-  @spec dimension(String.t()) ::
-          {:ok, {:px, pos_integer()} | :auto} | {:error, :invalid_dimension}
+  @spec dimension(String.t()) :: {:ok, pos_integer() | :auto} | {:error, :invalid_dimension}
   def dimension("auto"), do: {:ok, :auto}
 
   def dimension(string) when is_binary(string) do
     if digits?(string) do
       case String.to_integer(string) do
-        n when axis?(n) -> {:ok, {:px, n}}
+        n when axis?(n) -> {:ok, n}
         _zero_or_less -> {:error, :invalid_dimension}
       end
     else

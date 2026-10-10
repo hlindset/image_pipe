@@ -2,6 +2,8 @@ defmodule ImagePipe.API.OptionSpecTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.API.OptionSpec
+  alias ImagePipe.API.OutputOptions
+  alias ImagePipe.API.Value
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
 
   test "rejects unsupported filter, layout and scale values" do
@@ -35,25 +37,6 @@ defmodule ImagePipe.API.OptionSpecTest do
       assert Enum.sort(keys) == Enum.sort(@api_keys)
       assert Enum.uniq(keys) == keys
     end
-
-    test "every option declares all fields plus at least one example" do
-      for %OptionSpec{} = spec <- OptionSpec.all() do
-        assert is_binary(spec.key) and spec.key != ""
-        assert spec.scope in [:group, :request]
-
-        assert spec.value == :flag or is_function(spec.value, 1) or
-                 match?({:flag, fun} when is_function(fun, 1), spec.value)
-
-        assert is_binary(spec.summary) and spec.summary != ""
-
-        assert is_list(spec.examples) and spec.examples != [],
-               "#{spec.key} must declare at least one example"
-
-        for example <- spec.examples do
-          assert is_binary(example) and example != ""
-        end
-      end
-    end
   end
 
   describe "value parsers — happy paths" do
@@ -66,8 +49,8 @@ defmodule ImagePipe.API.OptionSpecTest do
     end
 
     test "parse_dimension unwraps px to a plain integer, keeps auto" do
-      assert OptionSpec.parse_dimension("800") == {:ok, 800}
-      assert OptionSpec.parse_dimension("auto") == {:ok, :auto}
+      assert Value.dimension("800") == {:ok, 800}
+      assert Value.dimension("auto") == {:ok, :auto}
     end
 
     test "parse_min_dimension accepts positive integers but not auto" do
@@ -459,46 +442,46 @@ defmodule ImagePipe.API.OptionSpecTest do
     end
 
     test "format qualities use canonical formats and reject duplicates" do
-      assert OptionSpec.parse_format_qualities("avif:60,webp:70") ==
+      assert OutputOptions.parse_format_qualities("avif:60,webp:70") ==
                {:ok, %{avif: {:quality, 60}, webp: {:quality, 70}}}
 
       for value <- ["", "avif", "gif:60", "avif:0", "avif:101", "avif:60,avif:70"] do
-        assert OptionSpec.parse_format_qualities(value) == {:error, :invalid_format_qualities}
+        assert OutputOptions.parse_format_qualities(value) == {:error, :invalid_format_qualities}
       end
     end
 
     test "autoquality parses a target as a float" do
-      assert OptionSpec.parse_autoquality("75") == {:ok, 75.0}
-      assert OptionSpec.parse_autoquality("82.5") == {:ok, 82.5}
-      assert OptionSpec.parse_autoquality("100") == {:ok, 100.0}
+      assert OutputOptions.parse_autoquality("75") == {:ok, 75.0}
+      assert OutputOptions.parse_autoquality("82.5") == {:ok, 82.5}
+      assert OutputOptions.parse_autoquality("100") == {:ok, 100.0}
     end
 
     test "autoquality rejects targets outside above 0 and up to 100" do
       for value <- ["", "0", "-1", "100.1", "none", "ssimulacra2", "target:75"] do
-        assert OptionSpec.parse_autoquality(value) == {:error, :invalid_autoquality}
+        assert OutputOptions.parse_autoquality(value) == {:error, :invalid_autoquality}
       end
     end
 
     test "max bytes is a positive integer" do
-      assert OptionSpec.parse_max_bytes("12000") == {:ok, 12_000}
+      assert OutputOptions.parse_max_bytes("12000") == {:ok, 12_000}
 
       for value <- ["0", "-1", "1.5", ""] do
-        assert OptionSpec.parse_max_bytes(value) == {:error, :invalid_max_bytes}
+        assert OutputOptions.parse_max_bytes(value) == {:error, :invalid_max_bytes}
       end
     end
 
     test "dpi is an integer from 1 to 65535" do
-      assert OptionSpec.parse_dpi("1") == {:ok, 1}
-      assert OptionSpec.parse_dpi("300") == {:ok, 300}
-      assert OptionSpec.parse_dpi("65535") == {:ok, 65_535}
+      assert OutputOptions.parse_dpi("1") == {:ok, 1}
+      assert OutputOptions.parse_dpi("300") == {:ok, 300}
+      assert OutputOptions.parse_dpi("65535") == {:ok, 65_535}
 
       for value <- ["0", "-1", "65536", "72.5", ""] do
-        assert OptionSpec.parse_dpi(value) == {:error, :invalid_dpi}
+        assert OutputOptions.parse_dpi(value) == {:error, :invalid_dpi}
       end
     end
 
     test "codec option parsers produce typed sparse structs" do
-      assert OptionSpec.parse_jpeg_options(
+      assert OutputOptions.parse_jpeg_options(
                "progressive,subsample:on,trellis-quant,overshoot-deringing:false,optimize-scans,quant-table:8"
              ) ==
                {:ok,
@@ -511,10 +494,10 @@ defmodule ImagePipe.API.OptionSpecTest do
                   quant_table: 8
                 }}
 
-      assert OptionSpec.parse_png_options("interlace:false,palette,bitdepth:4,filter:paeth") ==
+      assert OutputOptions.parse_png_options("interlace:false,palette,bitdepth:4,filter:paeth") ==
                {:ok, %PngOptions{interlace: false, palette: true, bitdepth: 4, filter: :paeth}}
 
-      assert OptionSpec.parse_webp_options(
+      assert OutputOptions.parse_webp_options(
                "lossless,near-lossless:false,smart-subsample,preset:photo,effort:6"
              ) ==
                {:ok,
@@ -526,24 +509,24 @@ defmodule ImagePipe.API.OptionSpecTest do
                   effort: 6
                 }}
 
-      assert OptionSpec.parse_avif_options("subsample:auto,effort:9") ==
+      assert OutputOptions.parse_avif_options("subsample:auto,effort:9") ==
                {:ok, %AvifOptions{subsample_mode: :auto, effort: 9}}
     end
 
     test "codec option parsers reject aliases, duplicates, unknowns, empty fields, and ranges" do
       invalid = [
-        {&OptionSpec.parse_jpeg_options/1, "progressive:true"},
-        {&OptionSpec.parse_jpeg_options/1, "progressive,progressive:false"},
-        {&OptionSpec.parse_jpeg_options/1, "subsample:bad"},
-        {&OptionSpec.parse_jpeg_options/1, "quant-table:9"},
-        {&OptionSpec.parse_png_options/1, "interlace:true"},
-        {&OptionSpec.parse_png_options/1, "bitdepth:3"},
-        {&OptionSpec.parse_png_options/1, "filter:average"},
-        {&OptionSpec.parse_webp_options/1, "preset:portrait"},
-        {&OptionSpec.parse_webp_options/1, "effort:7"},
-        {&OptionSpec.parse_avif_options/1, "effort:10"},
-        {&OptionSpec.parse_png_options/1, "palette,"},
-        {&OptionSpec.parse_webp_options/1, ""}
+        {&OutputOptions.parse_jpeg_options/1, "progressive:true"},
+        {&OutputOptions.parse_jpeg_options/1, "progressive,progressive:false"},
+        {&OutputOptions.parse_jpeg_options/1, "subsample:bad"},
+        {&OutputOptions.parse_jpeg_options/1, "quant-table:9"},
+        {&OutputOptions.parse_png_options/1, "interlace:true"},
+        {&OutputOptions.parse_png_options/1, "bitdepth:3"},
+        {&OutputOptions.parse_png_options/1, "filter:average"},
+        {&OutputOptions.parse_webp_options/1, "preset:portrait"},
+        {&OutputOptions.parse_webp_options/1, "effort:7"},
+        {&OutputOptions.parse_avif_options/1, "effort:10"},
+        {&OutputOptions.parse_png_options/1, "palette,"},
+        {&OutputOptions.parse_webp_options/1, ""}
       ]
 
       for {parser, value} <- invalid do
