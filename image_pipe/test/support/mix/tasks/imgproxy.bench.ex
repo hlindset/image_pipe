@@ -59,6 +59,9 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     * `--against` - `NAME=IMAGE`, an image to judge it against. Repeatable;
       each gets its own columns.
     * `--rounds` - how many times every image runs every case, default 3.
+    * `--describe` - `NAME=TEXT`, what an image is, such as "this pull request
+      at `e9f7670`", shown in the report in place of its image name. Name the
+      `--compare` image `candidate`. Repeatable.
 
   Each round runs every image in turn, in reverse order on alternate rounds,
   so drift on the machine reaches them alike. A case is timed when every image
@@ -123,7 +126,8 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     report_only: :boolean,
     compare: :string,
     against: :keep,
-    rounds: :integer
+    rounds: :integer,
+    describe: :keep
   ]
 
   @impl Mix.Task
@@ -170,6 +174,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       servers: servers(opts),
       rounds: opts[:rounds] || 3,
       progress: nil,
+      descriptions: descriptions(opts),
       work: Path.expand(Path.join(output, "work"))
     }
 
@@ -218,6 +223,15 @@ defmodule Mix.Tasks.Imgproxy.Bench do
         if against == [], do: Mix.raise("--compare needs at least one --against NAME=IMAGE")
         [{"candidate", image} | against]
     end
+  end
+
+  defp descriptions(opts) do
+    Map.new(Keyword.get_values(opts, :describe), fn value ->
+      case String.split(value, "=", parts: 2) do
+        [name, text] -> {name, text}
+        _other -> Mix.raise("--describe takes NAME=TEXT, got #{inspect(value)}")
+      end
+    end)
   end
 
   defp against(value) do
@@ -534,6 +548,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       baseline: baseline,
       timings: timings,
       libvips: server.libvips.(info.name),
+      image: server.image,
       image_id: Container.docker!(["image", "inspect", "--format", "{{.Id}}", server.image]),
       label: server.label
     }
@@ -688,7 +703,14 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       "oha" => @oha,
       "servers" =>
         Map.new(runs, fn {key, run} ->
-          {key, %{"label" => run.label, "image_id" => run.image_id, "libvips" => run.libvips}}
+          {key,
+           %{
+             "label" => run.label,
+             "image" => run.image,
+             "description" => Map.get(settings.descriptions, key),
+             "image_id" => run.image_id,
+             "libvips" => run.libvips
+           }}
         end)
     }
   end

@@ -46,20 +46,31 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          # A pull request's checkout is the pull request merged into its base.
           candidate=$(git rev-parse HEAD)
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
             against=$(git merge-base "$BASE_SHA" "$candidate")
             name=base
+            candidate_text="this pull request at \`${HEAD_SHA:0:7}\`, merged into \`$BASE_REF\`"
+            against_text="\`$BASE_REF\` at \`${against:0:7}\`, without this pull request"
           else
             # The commit the last successful scheduled run measured.
             against=$(gh run list --workflow performance.yml --event schedule \
               --status success --limit 1 --json headSha --jq '.[0].headSha // empty')
             name=previous
+            candidate_text="\`main\` at \`${candidate:0:7}\`"
+            against_text="\`main\` at \`${against:0:7}\`, from the previous nightly run"
           fi
-          echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
-          echo "against=$against" >> "$GITHUB_OUTPUT"
-          echo "name=$name" >> "$GITHUB_OUTPUT"
+          {
+            echo "candidate=$candidate"
+            echo "against=$against"
+            echo "name=$name"
+            echo "candidate_text=$candidate_text"
+            echo "against_text=$against_text"
+          } >> "$GITHUB_OUTPUT"
           echo "Candidate $candidate, against $name ${against:-(none yet)}"
 
       - uses: ./.github/actions/docker-buildx
@@ -124,13 +135,21 @@ jobs:
         env:
           AGAINST: ${{ steps.refs.outputs.against }}
           NAME: ${{ steps.refs.outputs.name }}
+          CANDIDATE_TEXT: ${{ steps.refs.outputs.candidate_text }}
+          AGAINST_TEXT: ${{ steps.refs.outputs.against_text }}
         run: |
-          args=(--compare image_pipe_server:candidate)
-          [ -n "$AGAINST" ] && args+=(--against "$NAME=image_pipe_server:against")
+          args=(--compare image_pipe_server:candidate --describe "candidate=$CANDIDATE_TEXT")
+          if [ -n "$AGAINST" ]; then
+            args+=(--against "$NAME=image_pipe_server:against" --describe "$NAME=$AGAINST_TEXT")
+          fi
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
             args+=(--only perf)
           else
-            args+=(--against "release=$RELEASE_IMAGE")
+            version=$(docker image inspect --format \
+              '{{index .Config.Labels "org.opencontainers.image.version"}}' "$RELEASE_IMAGE")
+            release_text="the latest release, \`$RELEASE_IMAGE\`"
+            [ -n "$version" ] && release_text="the latest release, \`$version\`"
+            args+=(--against "release=$RELEASE_IMAGE" --describe "release=$release_text")
           fi
           # Two CPUs for the servers leave the rest of the runner for oha.
           mise exec -- mix imgproxy.bench "${args[@]}" --cpus 2 --rounds 3 --duration 1 \

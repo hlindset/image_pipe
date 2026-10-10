@@ -50,8 +50,9 @@ defmodule ImagePipe.Test.ImgproxyBench.CompareReport do
     </style>
     </head>
     <body>
-    <h1>image_pipe_server comparison</h1>
-    <p>#{escape(intro(results))}</p>
+    <h1>Performance comparison</h1>
+    <p>#{Enum.map_join(["candidate" | results["against"]], "<br>", &"<strong>#{if &1 == "candidate", do: "Candidate", else: "Against " <> escape(&1)}:</strong> #{escape(describe(results, &1))}")}</p>
+    <p>#{escape(intro())}</p>
     <p class="muted">#{escape(environment(env))}</p>
     #{Enum.map_join(results["against"], "\n", &against_html(results, &1))}
     #{mismatches_html(results["mismatches"])}
@@ -71,7 +72,7 @@ defmodule ImagePipe.Test.ImgproxyBench.CompareReport do
           end)
 
         """
-        **Against `#{against}`** (#{image(results, against)})
+        #### Against `#{against}`
 
         | Family | Cases | p50 latency | Time under load | Peak memory |
         | --- | ---: | ---: | ---: | ---: |
@@ -89,21 +90,37 @@ defmodule ImagePipe.Test.ImgproxyBench.CompareReport do
       end
 
     """
-    ### image_pipe_server performance
+    ### Performance comparison
 
-    #{intro(results)}
+    #{subjects(results)}
+
+    #{intro()}
 
     #{tables}#{mismatches}
     <sub>#{environment(results["environment"])}</sub>
     """
   end
 
-  defp intro(results) do
-    "Ratios are the candidate (#{image(results, "candidate")}) ÷ each other image, " <>
-      "geometric means per family, with the lowest and highest round in brackets. " <>
-      "Time under load is the inverse of throughput at the full worker count. " <>
-      "Above 1 is worse for every column. A family in bold was more than 10% worse " <>
-      "in every round."
+  # What each image is, one line each, as Markdown.
+  defp subjects(results) do
+    against =
+      Enum.map_join(results["against"], "  \n", fn key ->
+        "**Against `#{key}`:** #{describe(results, key)}"
+      end)
+
+    "**Candidate:** #{describe(results, "candidate")}  \n" <> against
+  end
+
+  defp intro do
+    "Each value is the candidate ÷ the image it's compared against, so above 1 is " <>
+      "worse: slower, or more memory. Values are geometric means per family, with " <>
+      "the lowest and highest round in brackets. Time under load is the inverse of " <>
+      "throughput. A family in bold was more than 10% worse in every round."
+  end
+
+  defp describe(results, key) do
+    server = results["environment"]["servers"][key]
+    server["description"] || "`#{server["image"] || server["label"]}`"
   end
 
   defp environment(env) do
@@ -111,8 +128,6 @@ defmodule ImagePipe.Test.ImgproxyBench.CompareReport do
       "with #{env["concurrency"]} workers, #{env["rounds"]} round(s) of " <>
       "#{env["duration_s"]}s measurements, #{env["date"]}."
   end
-
-  defp image(results, key), do: results["environment"]["servers"][key]["label"]
 
   defp against_html(results, against) do
     family_rows =
@@ -134,7 +149,7 @@ defmodule ImagePipe.Test.ImgproxyBench.CompareReport do
       end)
 
     """
-    <h2>Against #{escape(against)}: #{escape(image(results, against))}</h2>
+    <h2>Against #{escape(against)}</h2>
     <div class="scroll"><table>
     <tr><th>Family</th><th>Cases</th><th>p50 latency</th><th>Time under load</th><th>Peak memory</th></tr>
     #{family_rows}
