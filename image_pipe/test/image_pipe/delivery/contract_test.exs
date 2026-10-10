@@ -38,7 +38,7 @@ defmodule ImagePipe.Delivery.ContractTest do
   end
 
   defp stream(cache_key, config, debug \\ nil) do
-    Delivery.stream(self(), build_fun(debug), cache_key, config)
+    Delivery.stream(build_fun(debug), cache_key, config)
   end
 
   # Reads the stream to EOF, which commits the cache entry.

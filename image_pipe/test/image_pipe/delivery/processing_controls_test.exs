@@ -38,7 +38,7 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
         end
       end
 
-      assert {:ok, stream} = Delivery.stream(self(), build, nil, config)
+      assert {:ok, stream} = Delivery.stream(build, nil, config)
       assert %{active: 1} = ProcessingPool.stats(pool)
 
       assert {:error, {:processing, :overloaded}} =
@@ -63,7 +63,7 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
     pool = start_supervised!({ProcessingPool, max_concurrency: 1})
     config = [processing_pool: pool, telemetry_prefix: context.prefix]
     build = fn pump -> pump.(["one", "two"], "image/jpeg", resolved(), nil) end
-    assert {:ok, stream} = Delivery.stream(self(), build, nil, config)
+    assert {:ok, stream} = Delivery.stream(build, nil, config)
     assert stream.first_chunk == "one"
 
     # Expire the idle stream's budget now instead of racing a short timeout
@@ -91,7 +91,7 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
           end
         end
 
-        {:ok, _stream} = Delivery.stream(self(), build, nil, config)
+        {:ok, _stream} = Delivery.stream(build, nil, config)
         send(test, :prepared)
 
         receive do
@@ -124,7 +124,7 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
     assert_receive :holding
     build = fn pump -> pump.(["one"], "image/jpeg", resolved(), nil) end
     key = %ImagePipe.Cache.Key{hash: String.duplicate("a1", 32), data: []}
-    assert {:ok, stream} = Delivery.stream(self(), build, key, config)
+    assert {:ok, stream} = Delivery.stream(build, key, config)
     :done = stream.next.()
 
     assert_receive {:cache_open_sink, _hash, %{cost_us: cost_us}}
@@ -149,7 +149,7 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
       end)
 
     build = fn pump -> pump.(source, "image/jpeg", resolved(), nil) end
-    assert {:ok, stream} = Delivery.stream(self(), build, nil, config)
+    assert {:ok, stream} = Delivery.stream(build, nil, config)
     assert {:error, _} = stream.next.()
     assert_receive {:processing_stopped, :processing_error}
     assert %{active: 0} = ProcessingPool.stats(pool)
@@ -179,7 +179,7 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
 
     job =
       Task.Supervisor.async_nolink(context.tasks, fn ->
-        Delivery.stream(self(), build, nil, config)
+        Delivery.stream(build, nil, config)
       end)
 
     assert_receive {:working, worker}
@@ -226,7 +226,7 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
       end
     end
 
-    assert {:ok, stream} = Delivery.stream(self(), build, key, config)
+    assert {:ok, stream} = Delivery.stream(build, key, config)
     job = Task.Supervisor.async_nolink(context.tasks, fn -> stream.next.() end)
     assert_receive {:working, worker}
 
@@ -283,7 +283,7 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
     pool = start_supervised!({ProcessingPool, max_concurrency: 1, max_queue: 1})
     config = [processing_pool: pool, telemetry_prefix: context.prefix]
     build = fn pump -> pump.(["one"], "image/jpeg", resolved(), nil) end
-    assert {:ok, stream} = Delivery.stream(self(), build, nil, config)
+    assert {:ok, stream} = Delivery.stream(build, nil, config)
 
     {:ok, coordinator} =
       Coordinator.start(fn _pump -> flunk() end, self(), nil, RequestContext.capture(), config)

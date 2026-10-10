@@ -437,7 +437,7 @@ defmodule ImagePipe.Execution do
       end
 
     with {:ok, stream} <-
-           Delivery.stream(self(), build, key, config) do
+           Delivery.stream(build, key, config) do
       stream = %{stream | next: fn -> next(stream, context) end}
       output = output(context, {:stream, stream}, :miss, nil)
       {:ok, %Output{output | degraded?: degraded?(stream.resolved_output)}}
