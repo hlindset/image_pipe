@@ -4,8 +4,8 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
   alias ImagePipe.Telemetry
   alias ImagePipe.Test.FakeDetector
   alias ImagePipe.Test.Trace.{Span, TestExporter}
-  alias ImagePipe.Transform
   alias ImagePipe.Transform.Detector.Composite
+  alias ImagePipe.Transform.Executor.Step
   alias ImagePipe.Transform.Operation.Resize
   alias ImagePipe.Transform.State
 
@@ -671,7 +671,7 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
     resize = %Resize{width: 100, height: 80}
 
     assert {:ok, %State{}} =
-             Transform.run(state, resize, telemetry_prefix: prefix)
+             Step.run(state, resize, telemetry_prefix: prefix)
 
     assert_receive {:span, %Span{name: "image_pipe.transform.operation"} = span}
     assert span.attributes[:operation] == "resize"

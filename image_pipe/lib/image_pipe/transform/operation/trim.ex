@@ -6,8 +6,6 @@ defmodule ImagePipe.Transform.Operation.Trim do
   # degenerate box, and extract from the original image.
   @moduledoc false
 
-  use ImagePipe.Transform
-
   import ImagePipe.Transform.State, only: [set_image: 2]
 
   alias ImagePipe.Plan.Color
@@ -37,13 +35,6 @@ defmodule ImagePipe.Transform.Operation.Trim do
           equal_ver: boolean()
         }
 
-  @impl ImagePipe.Transform
-  def name(%__MODULE__{}), do: :trim
-
-  @impl ImagePipe.Transform
-  def requires_materialization?(%__MODULE__{}), do: true
-
-  @impl ImagePipe.Transform
   def execute(%__MODULE__{} = op, %State{} = state) do
     original = state.image
     orig_w = Image.width(original)

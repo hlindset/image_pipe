@@ -2,8 +2,6 @@ defmodule ImagePipe.Transform.Operation.Blur do
   # Executable Gaussian blur operation.
   @moduledoc false
 
-  use ImagePipe.Transform
-
   import ImagePipe.Transform.State
 
   alias ImagePipe.Transform.Operation.AlphaPremultiply
@@ -15,10 +13,6 @@ defmodule ImagePipe.Transform.Operation.Blur do
 
   @type t :: %__MODULE__{sigma: float()}
 
-  @impl ImagePipe.Transform
-  def name(%__MODULE__{}), do: :blur
-
-  @impl ImagePipe.Transform
   def execute(%__MODULE__{sigma: sigma}, %State{} = state) do
     case AlphaPremultiply.with_alpha_premultiplied(state.image, &GaussianBlur.blur(&1, sigma)) do
       {:ok, image} -> {:ok, set_image(state, image)}

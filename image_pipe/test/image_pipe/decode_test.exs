@@ -8,7 +8,7 @@ defmodule ImagePipe.DecodeTest do
   alias ImagePipe.Plan.Spec
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Transform
+  alias ImagePipe.Transform.Executor.Step
   alias ImagePipe.Transform.Operation.Resize, as: ExecutableResize
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceGeometry
@@ -140,7 +140,7 @@ defmodule ImagePipe.DecodeTest do
     assert state.source_dimensions == nil
 
     assert {:ok, %State{} = resized} =
-             Transform.run(state, %ExecutableResize{width: 100, height: 100})
+             Step.run(state, %ExecutableResize{width: 100, height: 100})
 
     assert Image.width(resized.image) == 100
   end

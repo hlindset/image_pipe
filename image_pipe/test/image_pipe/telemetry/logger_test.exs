@@ -5,8 +5,8 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
   alias ImagePipe.Telemetry
   alias ImagePipe.Test.FakeDetector
-  alias ImagePipe.Transform
   alias ImagePipe.Transform.Detector.Composite
+  alias ImagePipe.Transform.Executor.Step
   alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.Operation.Resize
   alias ImagePipe.Transform.PendingOrientation
@@ -725,7 +725,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     log =
       capture_log([level: :debug], fn ->
         assert {:ok, %State{}} =
-                 Transform.run(state, resize, telemetry_prefix: prefix)
+                 Step.run(state, resize, telemetry_prefix: prefix)
 
         :telemetry.execute(
           prefix ++ [:transform, :operation, :stop],
@@ -1176,7 +1176,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     log =
       capture_log([level: :debug], fn ->
         assert {:ok, %State{}} =
-                 Transform.run(state, resize, telemetry_prefix: prefix)
+                 Step.run(state, resize, telemetry_prefix: prefix)
       end)
 
     assert log =~ "raw:"

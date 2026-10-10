@@ -3,8 +3,6 @@ defmodule ImagePipe.Transform.Operation.Gray do
   # colourspace, discarding hue and saturation; alpha is preserved.
   @moduledoc false
 
-  use ImagePipe.Transform
-
   import ImagePipe.Transform.State
 
   alias ImagePipe.Transform.State
@@ -16,10 +14,6 @@ defmodule ImagePipe.Transform.Operation.Gray do
 
   @type t :: %__MODULE__{}
 
-  @impl ImagePipe.Transform
-  def name(%__MODULE__{}), do: :gray
-
-  @impl ImagePipe.Transform
   # A tagged image converts through its profile first, since a gray result
   # can't keep an RGB profile.
   def execute(%__MODULE__{}, %State{} = state) do

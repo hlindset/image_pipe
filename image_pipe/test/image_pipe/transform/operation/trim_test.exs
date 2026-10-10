@@ -2,6 +2,7 @@ defmodule ImagePipe.Transform.Operation.TrimTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Plan.Color
+  alias ImagePipe.Transform.Executor.Step
   alias ImagePipe.Transform.Operation.Trim
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VixImage
@@ -21,7 +22,7 @@ defmodule ImagePipe.Transform.Operation.TrimTest do
   defp state(image), do: %State{image: image} |> Map.put(:materialized?, true)
 
   test "requires materialization" do
-    assert Trim.requires_materialization?(%Trim{
+    assert Step.random_access?(%Trim{
              threshold: 10.0,
              background: :auto,
              equal_hor: false,

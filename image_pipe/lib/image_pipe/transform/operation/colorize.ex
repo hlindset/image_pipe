@@ -2,8 +2,6 @@ defmodule ImagePipe.Transform.Operation.Colorize do
   # Executable solid-color overlay: out = src·(1−o) + color·o.
   @moduledoc false
 
-  use ImagePipe.Transform
-
   import ImagePipe.Transform.State
 
   alias ImagePipe.Transform.GrayFrame
@@ -18,10 +16,6 @@ defmodule ImagePipe.Transform.Operation.Colorize do
 
   @type t :: %__MODULE__{opacity: float(), color: [0..255], keep_alpha: boolean()}
 
-  @impl ImagePipe.Transform
-  def name(%__MODULE__{}), do: :colorize
-
-  @impl ImagePipe.Transform
   def execute(%__MODULE__{opacity: o, color: color, keep_alpha: keep_alpha}, %State{} = state) do
     case apply_colorize(state.image, o, color, keep_alpha) do
       {:ok, image} -> {:ok, set_image(state, image)}

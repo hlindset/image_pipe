@@ -2,7 +2,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias ImagePipe.Transform
+  alias ImagePipe.Transform.Executor.Step
   alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.Operation.Background
   alias ImagePipe.Transform.Operation.Bitonal
@@ -32,7 +32,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
 
   # Harness self-check: prove the sequential open GENUINELY streams (does not
   # silently buffer). A 90-degree transpose built directly on the sequential
-  # image — bypassing Transform.run, which would materialize first — must error when its
+  # image — bypassing Executor.Step.run, which would materialize first — must error when its
   # pixels are pulled, because vips_rot does a non-sequential read. If copy_memory
   # succeeds here, the open is buffering and every equivalence assertion below
   # would be a tautology.
@@ -211,7 +211,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
       operation = %Rotate{angle: angle}
 
       assert {:ok, %State{materialized?: true, image: actual}} =
-               Transform.run(%State{image: sequential}, operation)
+               Step.run(%State{image: sequential}, operation)
 
       assert {:ok, %State{image: expected}} = Rotate.execute(operation, %State{image: random})
       assert_sampled_pixels_match(actual, expected)
@@ -496,7 +496,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
 
     state =
       Enum.reduce(operations, %State{image: image}, fn operation, state ->
-        assert {:ok, state} = Transform.run(state, operation)
+        assert {:ok, state} = Step.run(state, operation)
         refute state.materialized?
         state
       end)

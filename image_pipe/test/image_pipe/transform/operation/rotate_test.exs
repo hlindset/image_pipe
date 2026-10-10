@@ -2,7 +2,7 @@ defmodule ImagePipe.Transform.Operation.RotateTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias ImagePipe.Transform
+  alias ImagePipe.Transform.Executor.Step
   alias ImagePipe.Transform.Operation.Resize
   alias ImagePipe.Transform.Operation.Rotate
   alias ImagePipe.Transform.State
@@ -23,8 +23,8 @@ defmodule ImagePipe.Transform.Operation.RotateTest do
       pixels =
         for access <- [:sequential, :random] do
           {:ok, image} = Image.open([body], access: access, fail_on: :error)
-          {:ok, state} = Transform.run(%State{image: image}, %Rotate{angle: angle})
-          {:ok, state} = Transform.run(state, %Resize{width: 20, height: 20})
+          {:ok, state} = Step.run(%State{image: image}, %Rotate{angle: angle})
+          {:ok, state} = Step.run(state, %Resize{width: 20, height: 20})
           {:ok, pixels} = VipsImage.write_to_binary(state.image)
           pixels
         end

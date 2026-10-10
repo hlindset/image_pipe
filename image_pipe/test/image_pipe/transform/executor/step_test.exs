@@ -1,7 +1,7 @@
-defmodule ImagePipe.TransformTest do
+defmodule ImagePipe.Transform.Executor.StepTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Transform
+  alias ImagePipe.Transform.Executor.Step
   alias ImagePipe.Transform.Operation.Background
   alias ImagePipe.Transform.Operation.Blur
   alias ImagePipe.Transform.Operation.Crop
@@ -12,10 +12,10 @@ defmodule ImagePipe.TransformTest do
   test "resize and canvas operations share the resulting state" do
     {:ok, image} = Image.new(200, 100, color: :white)
 
-    assert {:ok, state} = Transform.run(%State{image: image}, %Resize{width: 100, height: 50})
+    assert {:ok, state} = Step.run(%State{image: image}, %Resize{width: 100, height: 50})
 
     assert {:ok, %State{image: image}} =
-             Transform.run(state, %ExtendCanvas{rule: {:dimensions, 100, 100}})
+             Step.run(state, %ExtendCanvas{rule: {:dimensions, 100, 100}})
 
     assert Image.width(image) == 100
     assert Image.height(image) == 100
@@ -24,7 +24,7 @@ defmodule ImagePipe.TransformTest do
   test "fill resize crops non-square sources to the requested box" do
     {:ok, image} = Image.new(200, 100, color: :white)
 
-    assert {:ok, state} = Transform.run(%State{image: image}, %Resize{width: 200, height: 100})
+    assert {:ok, state} = Step.run(%State{image: image}, %Resize{width: 200, height: 100})
 
     crop = %Crop{
       width: {:pixels, 100},
@@ -33,7 +33,7 @@ defmodule ImagePipe.TransformTest do
       gravity: {:anchor, :center, :center}
     }
 
-    assert {:ok, %State{image: image}} = Transform.run(state, crop)
+    assert {:ok, %State{image: image}} = Step.run(state, crop)
     assert Image.width(image) == 100
     assert Image.height(image) == 100
   end
@@ -46,7 +46,7 @@ defmodule ImagePipe.TransformTest do
       |> Image.Draw.rect!(100, 0, 100, 100, color: :green)
       |> Image.Draw.rect!(200, 0, 100, 100, color: :blue)
 
-    assert {:ok, state} = Transform.run(%State{image: image}, %Resize{width: 300, height: 100})
+    assert {:ok, state} = Step.run(%State{image: image}, %Resize{width: 300, height: 100})
 
     crop = %Crop{
       width: {:pixels, 100},
@@ -55,7 +55,7 @@ defmodule ImagePipe.TransformTest do
       gravity: {:anchor, :right, :center}
     }
 
-    assert {:ok, %State{image: image}} = Transform.run(state, crop)
+    assert {:ok, %State{image: image}} = Step.run(state, crop)
     assert Image.width(image) == 100
     assert Image.height(image) == 100
     assert Image.get_pixel!(image, 50, 50) == [0, 0, 255]
@@ -74,7 +74,7 @@ defmodule ImagePipe.TransformTest do
       gravity: {:anchor, :center, :center}
     }
 
-    assert {:ok, %State{image: image}} = Transform.run(%State{image: image}, crop)
+    assert {:ok, %State{image: image}} = Step.run(%State{image: image}, crop)
     assert Image.width(image) == 100
     assert Image.height(image) == 100
     assert Image.get_pixel!(image, 0, 0) == [255, 0, 0]
@@ -95,7 +95,7 @@ defmodule ImagePipe.TransformTest do
       gravity: {:fp, 1.0, 0.5}
     }
 
-    assert {:ok, %State{image: image}} = Transform.run(%State{image: image}, crop)
+    assert {:ok, %State{image: image}} = Step.run(%State{image: image}, crop)
     assert Image.width(image) == 100
     assert Image.height(image) == 100
     assert Image.get_pixel!(image, 50, 50) == [0, 0, 255]
@@ -105,7 +105,7 @@ defmodule ImagePipe.TransformTest do
     {:ok, image} = Image.new(2, 2, color: [0, 0, 0, 0])
 
     assert {:ok, %State{image: image}} =
-             Transform.run(%State{image: image}, %Background{color: [255, 0, 0, 128]})
+             Step.run(%State{image: image}, %Background{color: [255, 0, 0, 128]})
 
     assert Image.get_pixel!(image, 0, 0) == [255, 0, 0, 128]
   end
@@ -115,7 +115,7 @@ defmodule ImagePipe.TransformTest do
       {:ok, image} = Image.new(40, 20, color: :white)
 
       {:ok, state} =
-        Transform.run(%State{image: image}, smart_crop(20, 10))
+        Step.run(%State{image: image}, smart_crop(20, 10))
 
       assert state.materialized? == true
       assert Image.width(state.image) == 20
@@ -129,9 +129,9 @@ defmodule ImagePipe.TransformTest do
       attach_events(prefix, [[:transform, :materialize, :stop]])
 
       assert {:ok, state} =
-               Transform.run(%State{image: image, telemetry_opts: opts}, smart_crop(30, 16), opts)
+               Step.run(%State{image: image, telemetry_opts: opts}, smart_crop(30, 16), opts)
 
-      assert {:ok, state} = Transform.run(state, smart_crop(20, 10), opts)
+      assert {:ok, state} = Step.run(state, smart_crop(20, 10), opts)
 
       assert state.materialized? == true
       assert Image.width(state.image) == 20
@@ -145,7 +145,7 @@ defmodule ImagePipe.TransformTest do
       {:ok, image} = Image.new(40, 20, color: :white)
 
       {:ok, state} =
-        Transform.run(%State{image: image}, %Background{color: [0, 0, 0, 255]})
+        Step.run(%State{image: image}, %Background{color: [0, 0, 0, 255]})
 
       assert state.materialized? == false
     end
@@ -159,7 +159,7 @@ defmodule ImagePipe.TransformTest do
       {:ok, image} = Image.open([truncated], access: :sequential, fail_on: :error)
 
       assert {:error, {:decode, _}} =
-               Transform.run(%State{image: image}, smart_crop(20, 10))
+               Step.run(%State{image: image}, smart_crop(20, 10))
     end
   end
 
@@ -179,7 +179,7 @@ defmodule ImagePipe.TransformTest do
     {:ok, image} = Image.new(10, 10)
     operation = %Blur{sigma: 1.0}
 
-    assert {:ok, %State{}} = Transform.run(%State{image: image}, operation, opts)
+    assert {:ok, %State{}} = Step.run(%State{image: image}, operation, opts)
 
     start_event = prefix ++ [:transform, :operation, :start]
     stop_event = prefix ++ [:transform, :operation, :stop]

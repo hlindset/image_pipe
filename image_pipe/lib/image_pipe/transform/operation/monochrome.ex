@@ -2,8 +2,6 @@ defmodule ImagePipe.Transform.Operation.Monochrome do
   # Executable single-color luminance tint operation.
   @moduledoc false
 
-  use ImagePipe.Transform
-
   alias ImagePipe.Transform.Operation.Duotone
   alias ImagePipe.Transform.State
 
@@ -15,10 +13,6 @@ defmodule ImagePipe.Transform.Operation.Monochrome do
           color: [0..255]
         }
 
-  @impl ImagePipe.Transform
-  def name(%__MODULE__{}), do: :monochrome
-
-  @impl ImagePipe.Transform
   def execute(%__MODULE__{intensity: intensity, color: color}, %State{} = state) do
     operation = %Duotone{intensity: intensity, shadow: [0, 0, 0], highlight: color}
 

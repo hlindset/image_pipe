@@ -3,8 +3,6 @@ defmodule ImagePipe.Transform.Operation.Resize do
   # executor. Cover requests use a separate crop after this operation.
   @moduledoc false
 
-  use ImagePipe.Transform
-
   import ImagePipe.Transform.Geometry, only: [image_height: 1, image_width: 1]
   import ImagePipe.Transform.State, only: [set_image: 2]
 
@@ -15,10 +13,6 @@ defmodule ImagePipe.Transform.Operation.Resize do
 
   @type t :: %__MODULE__{width: pos_integer(), height: pos_integer()}
 
-  @impl ImagePipe.Transform
-  def name(%__MODULE__{}), do: :resize
-
-  @impl ImagePipe.Transform
   def execute(%__MODULE__{width: width, height: height}, %State{} = state) do
     with :ok <- WorkLimits.resize(state, width, height) do
       do_resize(state, width, height)

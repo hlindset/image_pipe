@@ -24,8 +24,6 @@ defmodule ImagePipe.Transform.Operation.Watermark do
   # band format.
   @moduledoc false
 
-  use ImagePipe.Transform
-
   import ImagePipe.Transform.State
   import ImagePipe.Transform.Geometry, only: [center_origin: 2]
 
@@ -62,10 +60,6 @@ defmodule ImagePipe.Transform.Operation.Watermark do
           gap: {non_neg_integer(), non_neg_integer()}
         }
 
-  @impl ImagePipe.Transform
-  def name(%__MODULE__{}), do: :watermark
-
-  @impl ImagePipe.Transform
   def execute(%__MODULE__{} = operation, %State{} = state) do
     asset_state = %State{
       image: operation.image,

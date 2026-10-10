@@ -4,8 +4,6 @@ defmodule ImagePipe.Transform.Operation.Contrast do
   # Alpha is unchanged.
   @moduledoc false
 
-  use ImagePipe.Transform
-
   import ImagePipe.Transform.State
 
   alias ImagePipe.Transform.Alpha
@@ -19,10 +17,6 @@ defmodule ImagePipe.Transform.Operation.Contrast do
 
   @type t :: %__MODULE__{value: number()}
 
-  @impl ImagePipe.Transform
-  def name(%__MODULE__{}), do: :contrast
-
-  @impl ImagePipe.Transform
   def execute(%__MODULE__{value: value}, %State{} = state) do
     case apply_contrast(state.image, value) do
       {:ok, image} -> {:ok, set_image(state, image)}

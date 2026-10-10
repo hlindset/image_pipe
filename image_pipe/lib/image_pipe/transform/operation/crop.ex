@@ -63,8 +63,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
   #     }
   @moduledoc false
 
-  use ImagePipe.Transform
-
   import ImagePipe.Transform.State, only: [set_image: 2]
 
   import ImagePipe.Transform.Geometry,
@@ -138,9 +136,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
           center_bias: {:near | :far, :near | :far}
         }
 
-  @impl ImagePipe.Transform
-  def name(%__MODULE__{}), do: :crop
-
   @doc false
   # Pure crop dimensions shared by execution and geometry planning.
   # Position does not affect the box size.
@@ -200,13 +195,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
     %{left: left, top: top, width: crop_width, height: crop_height}
   end
 
-  @impl ImagePipe.Transform
-  def requires_materialization?(%__MODULE__{gravity: :smart}), do: true
-  def requires_materialization?(%__MODULE__{gravity: {:smart, _}}), do: true
-  def requires_materialization?(%__MODULE__{gravity: {:detect, _}}), do: true
-  def requires_materialization?(%__MODULE__{}), do: false
-
-  @impl ImagePipe.Transform
   def execute(%__MODULE__{gravity: :smart} = params, %State{} = state) do
     smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
   end

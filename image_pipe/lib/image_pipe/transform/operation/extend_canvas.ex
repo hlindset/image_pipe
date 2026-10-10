@@ -46,8 +46,6 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
   #     }
   @moduledoc false
 
-  use ImagePipe.Transform
-
   import ImagePipe.Transform.State
 
   import ImagePipe.Transform.Geometry,
@@ -82,10 +80,6 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
           y_offset: number()
         }
 
-  @impl ImagePipe.Transform
-  def name(%__MODULE__{}), do: :extend_canvas
-
-  @impl ImagePipe.Transform
   # Dialyzer narrows `embed_image`'s return (via the Vix `embed` typing below) and
   # then reports the `{:ok, _}` clause of this `with` as unmatchable.
   @dialyzer {:no_match, execute: 2}
