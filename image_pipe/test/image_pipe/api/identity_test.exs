@@ -9,7 +9,7 @@ defmodule ImagePipe.API.IdentityTest do
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Plug.Config
-  alias ImagePipe.Plug.Request, as: ParsedRequest
+  alias ImagePipe.Processing
   alias ImagePipe.Representation
 
   defmodule ClassIdentityDetector do
@@ -80,8 +80,7 @@ defmodule ImagePipe.API.IdentityTest do
       |> Keyword.merge(config_opts)
       |> Config.validate!()
 
-    assert {:ok, _source, [], policy} =
-             ParsedRequest.prepare(request, "images/cat.jpg", config, "")
+    assert {:ok, policy} = Processing.prepare(request, config, "")
 
     conn = conn(:get, "/")
 

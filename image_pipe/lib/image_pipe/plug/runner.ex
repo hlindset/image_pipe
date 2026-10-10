@@ -15,6 +15,7 @@ defmodule ImagePipe.Plug.Runner do
   alias ImagePipe.Response.CORS
   alias ImagePipe.Response.Sender
   alias ImagePipe.Source, as: ImageSource
+  alias ImagePipe.Source.Parser, as: SourceParser
   alias ImagePipe.Telemetry
 
   @spec run(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
@@ -103,20 +104,20 @@ defmodule ImagePipe.Plug.Runner do
     accept = conn |> Plug.Conn.get_req_header("accept") |> Enum.join(",")
     inputs = %Inputs{headers: conn.req_headers, cookies: storage_cookies(conn, config)}
 
-    with {:ok, plan_source, watermarks, policy} <-
-           ParsedRequest.prepare(request, source, config, accept),
-         {:ok, source} <-
-           ImageSource.resolve(plan_source, config, ImageSource.runtime_opts(config)),
-         {:ok, context} <-
-           Execution.prepare(request, source, watermarks, policy, inputs, config) do
-      try do
-        serve_context(conn, context)
-      after
-        Execution.close(context)
-      end
-    else
+    request
+    |> Execution.with_prepared(accept, inputs, config, &resolve_source(source, &1), fn context ->
+      serve_context(conn, context)
+    end)
+    |> case do
       {:error, reason} -> send_error(conn, reason, config)
+      {%Plug.Conn{}, _metadata} = sent -> sent
     end
+  end
+
+  defp resolve_source(source, config) do
+    with {:ok, parsed} <- SourceParser.translate(source, config),
+         {:ok, source} <- ImageSource.resolve(parsed, config, ImageSource.runtime_opts(config)),
+         do: {:ok, source, config}
   end
 
   # Only `storage_inputs` reads cookies, and parsing a large Cookie header

@@ -71,17 +71,16 @@ defmodule ImagePipe.Run do
   end
 
   defp execute(plan, input, config, accept, inputs) do
-    with {:ok, request} <- request(plan, config),
-         :ok <- report_ignored_options(request, config),
-         {:ok, policy} <- Processing.prepare(request, config, accept),
-         {:ok, watermarks} <- Execution.watermark_sources(request, config),
-         {:ok, source, config} <- Source.from_input(input, config),
-         {:ok, context} <- Execution.prepare(request, source, watermarks, policy, inputs, config) do
-      try do
-        render(context)
-      after
-        Execution.close(context)
-      end
+    with {:ok, request, _warnings} <- request(plan, config),
+         :ok <- report_ignored_options(request, config) do
+      Execution.with_prepared(
+        request,
+        accept,
+        inputs,
+        config,
+        &Source.from_input(input, &1),
+        &render/1
+      )
     end
   end
 
@@ -104,10 +103,10 @@ defmodule ImagePipe.Run do
     names = Plan.preset_names(plan)
 
     # The builder's own errors need no lookup, so they return before one.
-    with {:ok, _warnings} <- built(plan),
+    with {:ok, warnings} <- built(plan),
          {:ok, presets} <- Presets.for_request(names, config) do
       case Plan.to_spec(plan, presets, config[:request_defaults], watermarks) do
-        {:ok, request} -> {:ok, request}
+        {:ok, request} -> {:ok, request, warnings}
         {:error, issues} -> {:error, {:invalid_request, issues}}
       end
     end
@@ -123,10 +122,9 @@ defmodule ImagePipe.Run do
   def validate(%Config{} = shared, %ImagePipe.URL{plan: plan}) do
     config = shared.options
 
-    with {:ok, request} <- request(plan, config),
+    with {:ok, request, warnings} <- request(plan, config),
          {:ok, _policy} <- Processing.prepare(request, config, ""),
          {:ok, _watermarks} <- Execution.watermark_sources(request, config),
-         {:ok, warnings} <- Plan.built(plan),
          do: {:ok, warnings ++ request.ignored}
   end
 

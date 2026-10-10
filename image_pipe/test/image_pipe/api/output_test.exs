@@ -7,7 +7,7 @@ defmodule ImagePipe.API.OutputTest do
   alias ImagePipe.Plan.Output.JpegOptions
   alias ImagePipe.Plug.Config
   alias ImagePipe.Plug.Errors
-  alias ImagePipe.Plug.Request, as: ParsedRequest
+  alias ImagePipe.Processing
 
   defp seg(raw), do: {raw, {0, byte_size(raw)}}
 
@@ -239,8 +239,7 @@ defmodule ImagePipe.API.OutputTest do
     config = Config.validate!(quality: 71)
     assert {:ok, request} = Parser.parse(lexed(["format=jpeg"]), config)
 
-    assert {:ok, _source, [], output} =
-             ParsedRequest.prepare(request, "images/cat.jpg", config, "")
+    assert {:ok, output} = Processing.prepare(request, config, "")
 
     assert output.default_quality == {:quality, 71}
   end
@@ -249,8 +248,7 @@ defmodule ImagePipe.API.OutputTest do
     config = Config.validate!(autoquality: true)
     assert {:ok, request} = Parser.parse(lexed(["output=blurhash"]), config)
 
-    assert {:ok, _source, [], output} =
-             ParsedRequest.prepare(request, "images/cat.jpg", config, "")
+    assert {:ok, output} = Processing.prepare(request, config, "")
 
     assert output == nil
   end
@@ -264,8 +262,7 @@ defmodule ImagePipe.API.OutputTest do
                config
              )
 
-    assert {:ok, _source, [], output} =
-             ParsedRequest.prepare(request, "images/cat.jpg", config, "")
+    assert {:ok, output} = Processing.prepare(request, config, "")
 
     assert request.filename == "report"
     assert request.attachment?
@@ -278,7 +275,7 @@ defmodule ImagePipe.API.OutputTest do
     config = Config.validate!(clock: fn -> 101 end)
     assert {:ok, request} = Parser.parse(lexed(["expires=100"]), config)
 
-    assert ParsedRequest.prepare(request, "images/cat.jpg", config, "") == {:error, :expired}
+    assert Processing.prepare(request, config, "") == {:error, :expired}
   end
 
   test "renders resolved-output failures as a safe 400 plan error" do
