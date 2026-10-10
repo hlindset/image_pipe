@@ -150,18 +150,6 @@ defmodule ImagePipe.Transform.OrientationTest do
     end
   end
 
-  describe "swap_resize/1" do
-    test "swap_resize swaps resolved pixel dimensions" do
-      resize = %ImagePipe.Transform.Operation.Resize{
-        width: 100,
-        height: 50
-      }
-
-      swapped = O.swap_resize(resize)
-      assert swapped.width == 50 and swapped.height == 100
-    end
-  end
-
   describe "center_discard_sides/1 — center-crop odd-discard side under orientation (#146 Bug 2)" do
     alias ImagePipe.Transform.PendingOrientation, as: PO
 

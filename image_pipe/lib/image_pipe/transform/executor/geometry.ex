@@ -197,12 +197,11 @@ defmodule ImagePipe.Transform.Executor.Geometry do
   @spec live_dims(State.t()) :: {pos_integer(), pos_integer()}
   def live_dims(%State{image: image}), do: {Image.width(image), Image.height(image)}
 
-  @spec effective_dims(State.t()) :: {pos_integer(), pos_integer()}
-  def effective_dims(%State{} = state), do: State.effective_source_dims(state)
-
   @spec display_effective_dims(State.t()) :: {pos_integer(), pos_integer()}
   def display_effective_dims(%State{} = state) do
-    state |> effective_dims() |> PendingOrientation.display_dims(state.pending_orientation)
+    state
+    |> State.effective_source_dims()
+    |> PendingOrientation.display_dims(state.pending_orientation)
   end
 
   @spec display_live_dims(State.t()) :: {pos_integer(), pos_integer()}
