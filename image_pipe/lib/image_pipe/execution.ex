@@ -34,16 +34,8 @@ defmodule ImagePipe.Execution do
   alias ImagePipe.Transform
   alias ImagePipe.Transform.Executor
 
-  def identity_material(request, policy, inputs, config, watermarks \\ []) do
-    Identity.material(
-      request,
-      policy,
-      inputs,
-      config,
-      detector_identity(request, config),
-      Map.new(watermarks, &{&1.asset, [source: &1.source.identity, opacity: &1.opacity]})
-    )
-  end
+  def identity_material(request, policy, inputs, config),
+    do: Identity.material(request, policy, inputs, config, detector_identity(request, config))
 
   @doc "Plans the request's watermark assets before any source access."
   def watermark_sources(request, config), do: Watermarks.plan(request, config)
@@ -90,23 +82,13 @@ defmodule ImagePipe.Execution do
   defp with_watermarks(context, []), do: context
 
   defp with_watermarks(context, watermarks) do
-    %{representation: representation} =
-      identity_material(
-        context.request,
-        context.policy,
-        context.inputs,
-        context.config,
-        watermarks
-      )
+    assets = Map.new(watermarks, &{&1.asset, [source: &1.source.identity, opacity: &1.opacity]})
 
     partitions =
       for %{input_key: %{hash: hash}} <- watermarks, do: {:watermark_partition, hash}
 
-    material = %{
-      context.material
-      | representation: representation,
-        storage_only: context.material.storage_only ++ partitions
-    }
+    material = Identity.put_watermarks(context.material, assets)
+    material = %{material | storage_only: material.storage_only ++ partitions}
 
     represent(%{context | material: material, watermarks: watermarks})
   end

@@ -61,7 +61,7 @@ defmodule ImagePipe.API.IdentityTest do
        ) do
     conn = Plug.Conn.fetch_cookies(conn)
     inputs = %Inputs{headers: conn.req_headers, cookies: conn.req_cookies}
-    Identity.material(request, negotiation, inputs, config, detector_identity, %{})
+    Identity.material(request, negotiation, inputs, config, detector_identity)
   end
 
   defp source_identity,
