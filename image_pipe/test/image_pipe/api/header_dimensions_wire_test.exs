@@ -50,7 +50,6 @@ defmodule ImagePipe.API.HeaderDimensionsWireTest do
       output = Image.from_binary!(response.resp_body)
       assert {Image.width(output), Image.height(output)} == {12, 8}
       assert_received {:loader_open, _}
-      assert_received {:loader_open, _}
     end
   end
 
@@ -113,7 +112,6 @@ defmodule ImagePipe.API.HeaderDimensionsWireTest do
     allowed = Keyword.put(config, :max_input_pixels, 24 * 16)
     response = conn(:get, "/format=png/src/source.png") |> ImagePipe.Plug.call(allowed)
     assert response.status == 200
-    assert_received {:loader_open, _}
     assert_received {:loader_open, _}
   end
 

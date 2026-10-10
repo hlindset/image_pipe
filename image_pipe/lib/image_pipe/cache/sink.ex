@@ -32,14 +32,19 @@ defmodule ImagePipe.Cache.Sink do
           output_format: atom() | nil
         }
 
-  @spec open(Key.t(), Resolved.t() | {:complete_body, String.t()}, keyword(), keyword()) ::
-          t() | nil
-  def open(%Key{} = key, %Resolved{} = resolved_output, cache_opts, opts) do
-    cost_us = Keyword.get(opts, :cost_us, 0)
-    debug = Keyword.get(opts, :debug_info)
+  @spec open(
+          Key.t(),
+          Resolved.t() | {:complete_body, String.t()},
+          keyword(),
+          keyword(),
+          keyword()
+        ) :: t() | nil
+  def open(%Key{} = key, %Resolved{} = resolved_output, cache_opts, facts, opts) do
+    cost_us = Keyword.get(facts, :cost_us, 0)
+    debug = Keyword.get(facts, :debug)
 
     with {:ok, metadata} <- response_metadata(resolved_output, cost_us, debug),
-         metadata = %{metadata | source_record: Keyword.get(opts, :source_record)},
+         metadata = %{metadata | source_record: Keyword.get(facts, :source_record)},
          {:ok, state} <- FileSystem.open_sink(key, metadata, cache_opts) do
       build(key, metadata, cache_opts, state)
     else
@@ -53,14 +58,14 @@ defmodule ImagePipe.Cache.Sink do
   # string) delivered whole, with no encoder output and no `%Resolved{}`.
   # Mirrors the `%Resolved{}` clause above exactly, minus everything that
   # only makes sense for an encoded image (response headers, output format).
-  def open(%Key{} = key, {:complete_body, content_type}, cache_opts, opts)
+  def open(%Key{} = key, {:complete_body, content_type}, cache_opts, facts, opts)
       when is_binary(content_type) do
-    cost_us = Keyword.get(opts, :cost_us, 0)
-    debug = Keyword.get(opts, :debug_info)
+    cost_us = Keyword.get(facts, :cost_us, 0)
+    debug = Keyword.get(facts, :debug)
 
     metadata = %{
       complete_body_metadata(content_type, cost_us, debug)
-      | source_record: Keyword.get(opts, :source_record)
+      | source_record: Keyword.get(facts, :source_record)
     }
 
     case FileSystem.open_sink(key, metadata, cache_opts) do

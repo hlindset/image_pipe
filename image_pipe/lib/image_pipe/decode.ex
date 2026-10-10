@@ -209,8 +209,7 @@ defmodule ImagePipe.Decode do
          :ok <- validate_container_frames(peek, input, opts),
          :ok <- verify_file_loader(detected, input) |> wrap_decode_error(),
          {:ok, header_image} <-
-           open_seekable_input(input, [access: :random, fail_on: :error], opts)
-           |> wrap_decode_error(),
+           open_seekable_input(input, header_options(input), opts) |> wrap_decode_error(),
          frames = page_count(header_image),
          :ok <- validate_frames(frames, opts) |> wrap_input_limit_error(),
          {:ok, source_format, resolution} <-
@@ -233,9 +232,7 @@ defmodule ImagePipe.Decode do
            debug_facts: debug_facts(input, page_image, opts)
          },
          decode_options = Executor.decode_options(request, geometry) ++ page_option(request.page),
-         {:ok, image} <-
-           open_seekable_input(input, decode_options, opts)
-           |> wrap_decode_error() do
+         {:ok, image} <- reopen(input, header_image, decode_options, opts) do
       state = seed_state(image, storage_dimensions, decode_options, pending_orientation, opts)
 
       {:ok, state, geometry,
@@ -519,6 +516,18 @@ defmodule ImagePipe.Decode do
     input
     |> open_seekable_input([access: :random, fail_on: :error, page: page], opts)
     |> wrap_decode_error()
+  end
+
+  # A download's header comes from its buffered prefix, which can't be decoded
+  # in full. A path or buffer opens sequentially, as its decode does, so a
+  # decode without load options reuses the header open.
+  defp header_options({:download, _download, _prefix}), do: [access: :random, fail_on: :error]
+  defp header_options(_input), do: [access: :sequential, fail_on: :error]
+
+  defp reopen(input, header_image, decode_options, opts) do
+    if decode_options == header_options(input),
+      do: {:ok, header_image},
+      else: input |> open_seekable_input(decode_options, opts) |> wrap_decode_error()
   end
 
   defp page_option(nil), do: []

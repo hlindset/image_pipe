@@ -64,12 +64,17 @@ defmodule ImagePipe.Delivery do
   output and collected `ImagePipe.Debug.Info` (or `nil`) to `pump`. The session
   includes this debug data in the prepared stream and staged cache entry,
   adding measured generation cost as the `:total` timing.
+
+  `session` carries this request's data for the session: the `:output_lease`
+  it holds for the output (released when the entry is stored or abandoned),
+  and the `:source_record` the staged entry records. Both are optional.
   """
-  @spec stream(build_fun(), Key.t() | nil, keyword()) ::
+  @spec stream(build_fun(), Key.t() | nil, keyword(), keyword()) ::
           {:ok, PreparedStream.t()} | {:error, term()}
-  def stream(build_fun, cache_key, config) when is_function(build_fun, 1) and is_list(config) do
+  def stream(build_fun, cache_key, config, session \\ [])
+      when is_function(build_fun, 1) and is_list(config) and is_list(session) do
     {:ok, coordinator} =
-      Coordinator.start(build_fun, self(), cache_key, RequestContext.capture(), config)
+      Coordinator.start(build_fun, self(), cache_key, session, RequestContext.capture(), config)
 
     case Coordinator.prepare(coordinator, prepare_timeout(config)) do
       {:ok, prepared} -> {:ok, prepared_stream(coordinator, cache_key, prepared)}

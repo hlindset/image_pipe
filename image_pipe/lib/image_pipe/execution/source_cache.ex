@@ -50,8 +50,8 @@ defmodule ImagePipe.Execution.SourceCache do
         acquire_locked(source, key, previous, preparation, config)
 
       {:shared, adapter} ->
-        opts = sharing_opts(source, previous, adapter, config)
-        acquire_locked(source, key, previous, preparation, opts)
+        cohort = validation_cohort(source, previous, adapter, config)
+        acquire_locked(source, key, previous, preparation, config, cohort)
     end
   end
 
@@ -97,32 +97,30 @@ defmodule ImagePipe.Execution.SourceCache do
   defp preflight_metadata(:changed), do: %{result: :ok}
   defp preflight_metadata(error), do: stop_metadata(error)
 
-  defp acquire_locked(source, key, previous, preparation, config) do
+  # `cohort` is the validation cohort this request may share a validation
+  # with, or nil.
+  defp acquire_locked(source, key, previous, preparation, config, cohort \\ nil) do
     Work.run(
       {:source, key.hash},
       fn coordination, outcome ->
-        opts =
-          case coordination do
-            false -> config
-            ref -> Keyword.put(config, :source_lease, ref)
-          end
+        lease = if coordination, do: coordination
 
         # Another request may have written a fresh record since the caller
         # read `previous`, unless every copy of this source needs validating.
         record =
           if outcome == :coalesced or not validated_on_every_use?(previous, source),
-            do: lookup(source, key, opts) || previous,
+            do: lookup(source, key, config) || previous,
             else: previous
 
         result =
-          case status(record, source, opts) do
+          case status(record, source, config) do
             :fresh -> {:ok, %Acquisition{record: record}}
-            _validate -> fetch(source, key, record, preparation, opts)
+            _validate -> fetch(source, key, record, preparation, config, lease)
           end
 
-        complete_validation(coordination, result, source, opts)
+        complete_validation(coordination, result, source, cohort)
       end,
-      work_opts(source, config)
+      work_opts(source, config, cohort)
     )
     |> waited()
   end
@@ -131,37 +129,30 @@ defmodule ImagePipe.Execution.SourceCache do
          lease,
          {:ok, %Acquisition{response: nil, lease: nil, record: record}} = result,
          source,
-         config
+         cohort
        )
        when is_reference(lease) do
-    if config[:validation_cohort] != nil and storable?(record, source),
+    if cohort != nil and storable?(record, source),
       do: Work.complete(lease, result)
 
     result
   end
 
-  defp complete_validation(_lease, result, _source, _config), do: result
+  defp complete_validation(_lease, result, _source, _cohort), do: result
 
-  defp sharing_opts(source, %Record{} = previous, adapter, config) do
-    case storable?(previous, source) do
-      true ->
-        context =
-          MaterialDigest.of({
-            adapter,
-            source.fetch,
-            source.cache_semantics,
-            untimed(previous),
-            Keyword.take(config, [:max_body_bytes, :clock, :cache, :input_cache])
-          })
-
-        Keyword.put(config, :validation_cohort, context)
-
-      false ->
-        config
+  defp validation_cohort(source, %Record{} = previous, adapter, config) do
+    if storable?(previous, source) do
+      MaterialDigest.of({
+        adapter,
+        source.fetch,
+        source.cache_semantics,
+        untimed(previous),
+        Keyword.take(config, [:max_body_bytes, :clock, :cache, :input_cache])
+      })
     end
   end
 
-  defp sharing_opts(_source, nil, _adapter, config), do: config
+  defp validation_cohort(_source, nil, _adapter, _config), do: nil
 
   # A source whose copies arrive without freshness (no-cache, no lifetime, or
   # already stale) gains nothing from a record another request just wrote.
@@ -194,32 +185,32 @@ defmodule ImagePipe.Execution.SourceCache do
 
   # A request waiting behind another one's download gives up a second after
   # that download's own deadline, with the same timeout error.
-  defp work_opts(%{fetch: fetch}, config) when is_list(fetch) do
+  defp work_opts(source, config, cohort \\ nil)
+
+  defp work_opts(%{fetch: fetch}, config, cohort) when is_list(fetch) do
     case Keyword.get(fetch, :fetch_timeout) do
-      nil -> coordination_opts(config)
-      timeout -> Keyword.put(coordination_opts(config), :wait, timeout + 1_000)
+      nil -> coordination_opts(config, cohort)
+      timeout -> Keyword.put(coordination_opts(config, cohort), :wait, timeout + 1_000)
     end
   end
 
-  defp work_opts(_source, config), do: coordination_opts(config)
+  defp work_opts(_source, config, cohort), do: coordination_opts(config, cohort)
 
-  defp coordination_opts(config),
-    do: Keyword.put(Telemetry.telemetry_opts(config), :share, config[:validation_cohort])
+  defp coordination_opts(config, cohort),
+    do: Keyword.put(Telemetry.telemetry_opts(config), :share, cohort)
 
   defp waited(:timeout), do: {:error, {:source, :receive_timeout}}
   defp waited(result), do: result
 
   defp open_or_fetch(source, key, record, preparation, config, ref) when is_reference(ref) do
-    config = Keyword.put(config, :source_lease, ref)
-
     case Input.open(key, record, config) do
       {:ok, path, lease} -> checked_input(record, path, lease, config)
-      :miss -> fetch(source, key, nil, preparation, config, record)
+      :miss -> fetch(source, key, nil, preparation, config, ref, record)
     end
   end
 
   defp open_or_fetch(source, key, record, preparation, config, false),
-    do: fetch(source, key, nil, preparation, config, record)
+    do: fetch(source, key, nil, preparation, config, nil, record)
 
   defp checked_input(record, path, lease, config) do
     limit = Keyword.fetch!(config, :max_body_bytes)
@@ -244,16 +235,17 @@ defmodule ImagePipe.Execution.SourceCache do
     end
   end
 
-  # `known` is a current record whose bytes are needed again, for another
-  # variant. A local original whose evidence still matches it isn't rehashed.
-  defp fetch(source, key, previous, preparation, config, known \\ nil) do
+  # `lease` is this request's lease on the source's work, or nil. `known` is a
+  # current record whose bytes are needed again, for another variant. A local
+  # original whose evidence still matches it isn't rehashed.
+  defp fetch(source, key, previous, preparation, config, lease, known \\ nil) do
     Telemetry.span(Telemetry.telemetry_opts(config), [:source, :stage], %{}, fn ->
       started = System.monotonic_time(:microsecond)
       preparation = if is_nil(previous), do: preparation
       stage = &stage(&1, source, preparation, config, known)
       result = fetch_response(source, previous, config, stage)
       cost = System.monotonic_time(:microsecond) - started
-      result = publish_coordinated(result, source, key, previous || known, cost, config)
+      result = publish_coordinated(result, source, key, previous || known, cost, config, lease)
       {result, stop_metadata(result)}
     end)
   end
@@ -261,13 +253,13 @@ defmodule ImagePipe.Execution.SourceCache do
   # Only writes take the publication lock, so a check that changes nothing,
   # the steady state for a local file, doesn't. A lease that is no longer
   # current skips the writes.
-  defp publish_coordinated(result, source, key, previous, cost, config) do
+  defp publish_coordinated(result, source, key, previous, cost, config, lease) do
     case publication(result, source, key, previous, cost, config) do
       {result, nil} ->
         result
 
       {result, write} ->
-        Work.publish(key.hash, Keyword.get(config, :source_lease), write)
+        Work.publish(key.hash, lease, write)
         result
     end
   end

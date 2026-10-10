@@ -732,7 +732,7 @@ defmodule ImagePipe.APIWireTest do
         end)
 
       {:ok, coordinator} =
-        Coordinator.start(build_fun, owner, fake_cache_key(), RequestContext.capture(), [])
+        Coordinator.start(build_fun, owner, fake_cache_key(), [], RequestContext.capture(), [])
 
       coordinator_ref = Process.monitor(coordinator)
 
@@ -755,7 +755,7 @@ defmodule ImagePipe.APIWireTest do
       owner = self()
 
       {:ok, coordinator} =
-        Coordinator.start(build_fun, owner, fake_cache_key(), RequestContext.capture(), [])
+        Coordinator.start(build_fun, owner, fake_cache_key(), [], RequestContext.capture(), [])
 
       assert {:ok, %{first_chunk: "a"}} = Coordinator.prepare(coordinator)
       refute_received :bracket_cleanup
@@ -777,7 +777,7 @@ defmodule ImagePipe.APIWireTest do
       owner = self()
 
       {:ok, coordinator} =
-        Coordinator.start(build_fun, owner, fake_cache_key(), RequestContext.capture(), [])
+        Coordinator.start(build_fun, owner, fake_cache_key(), [], RequestContext.capture(), [])
 
       assert {:ok, %{first_chunk: "a"}} = Coordinator.prepare(coordinator)
       refute_received :bracket_cleanup

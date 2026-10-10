@@ -155,11 +155,11 @@ defmodule ImagePipe.CacheTest do
     assert cache_opts[:path_prefix] == ""
   end
 
-  test "open_sink records cost_us from opts with the stored entry", %{root: root} do
-    opts = cache_opts(root, cost_us: 42_000)
+  test "open_sink records the entry's cost_us with the stored entry", %{root: root} do
+    opts = cache_opts(root)
 
     cache_key()
-    |> Cache.open_sink(resolved_output(), opts)
+    |> Cache.open_sink(resolved_output(), [cost_us: 42_000], opts)
     |> Cache.write_chunk("abc", opts)
     |> Cache.commit_sink(opts)
 
@@ -182,7 +182,7 @@ defmodule ImagePipe.CacheTest do
     opts = cache_opts(root)
 
     cache_key()
-    |> Cache.open_sink(resolved_output, opts)
+    |> Cache.open_sink(resolved_output, [], opts)
     |> Cache.write_chunk("abc", opts)
     |> Cache.commit_sink(opts)
 
@@ -199,7 +199,7 @@ defmodule ImagePipe.CacheTest do
 
     sink =
       cache_key()
-      |> Cache.open_sink(resolved_output(), opts)
+      |> Cache.open_sink(resolved_output(), [], opts)
       |> Cache.write_chunk("abc", opts)
       |> Cache.write_chunk("def", opts)
 
@@ -214,7 +214,7 @@ defmodule ImagePipe.CacheTest do
 
     sink =
       cache_key()
-      |> Cache.open_sink(resolved_output(), opts)
+      |> Cache.open_sink(resolved_output(), [], opts)
       |> Cache.write_chunk("abc", opts)
 
     assert :ok = Cache.abort_sink(sink, :cancelled, opts)
@@ -229,7 +229,7 @@ defmodule ImagePipe.CacheTest do
 
     log =
       capture_log(fn ->
-        assert Cache.open_sink(cache_key(), resolved_output(), opts) == nil
+        assert Cache.open_sink(cache_key(), resolved_output(), [], opts) == nil
       end)
 
     assert log =~ "cache sink open error"
@@ -242,7 +242,7 @@ defmodule ImagePipe.CacheTest do
     prefix = attach_telemetry([[:cache, :stage]])
     opts = cache_opts(root, telemetry_prefix: prefix, cache: [max_body_bytes: 3])
 
-    sink = Cache.open_sink(cache_key(), resolved_output(), opts)
+    sink = Cache.open_sink(cache_key(), resolved_output(), [], opts)
 
     assert Cache.write_chunk(sink, "abcd", opts) == nil
 
@@ -259,7 +259,7 @@ defmodule ImagePipe.CacheTest do
 
     sink =
       cache_key()
-      |> Cache.open_sink(resolved_output(), opts)
+      |> Cache.open_sink(resolved_output(), [], opts)
       |> Cache.write_chunk("abc", opts)
 
     {:ok, %{dir: dir}} = FileSystem.paths(cache_key(), Keyword.fetch!(opts, :cache))
@@ -285,7 +285,7 @@ defmodule ImagePipe.CacheTest do
 
     sink =
       cache_key()
-      |> Cache.open_sink(resolved_output(), opts)
+      |> Cache.open_sink(resolved_output(), [], opts)
       |> Cache.write_chunk("abc", opts)
 
     # Rejection is a successful, non-error outcome: the request path fails open

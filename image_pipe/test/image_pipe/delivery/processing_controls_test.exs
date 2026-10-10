@@ -264,7 +264,9 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
       end
     end
 
-    {:ok, coordinator} = Coordinator.start(build, self(), nil, RequestContext.capture(), config)
+    {:ok, coordinator} =
+      Coordinator.start(build, self(), nil, [], RequestContext.capture(), config)
+
     job = Task.Supervisor.async_nolink(context.tasks, fn -> Coordinator.prepare(coordinator) end)
     assert_receive {:working, worker}
     ref = Process.monitor(worker)
@@ -286,7 +288,14 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
     assert {:ok, stream} = Delivery.stream(build, nil, config)
 
     {:ok, coordinator} =
-      Coordinator.start(fn _pump -> flunk() end, self(), nil, RequestContext.capture(), config)
+      Coordinator.start(
+        fn _pump -> flunk() end,
+        self(),
+        nil,
+        [],
+        RequestContext.capture(),
+        config
+      )
 
     handler = make_ref()
 

@@ -195,7 +195,8 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
         end
       end
 
-      {:ok, coordinator} = Coordinator.start(build_fun, self(), nil, RequestContext.capture(), [])
+      {:ok, coordinator} =
+        Coordinator.start(build_fun, self(), nil, [], RequestContext.capture(), [])
 
       assert {:error, {:session, :timeout}} = Coordinator.prepare(coordinator, 100)
       assert_receive {:build_started, producer}
@@ -232,7 +233,9 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
         end
       end
 
-      {:ok, coordinator} = Coordinator.start(build_fun, self(), nil, RequestContext.capture(), [])
+      {:ok, coordinator} =
+        Coordinator.start(build_fun, self(), nil, [], RequestContext.capture(), [])
+
       coordinator_ref = Process.monitor(coordinator)
 
       assert {:error, {:session, :timeout}} = Coordinator.prepare(coordinator, 100)

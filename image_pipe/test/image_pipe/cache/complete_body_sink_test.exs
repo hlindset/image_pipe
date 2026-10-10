@@ -37,7 +37,7 @@ defmodule ImagePipe.Cache.CompleteBodySinkTest do
 
     sink =
       key
-      |> Cache.open_sink({:complete_body, @content_type}, opts)
+      |> Cache.open_sink({:complete_body, @content_type}, [], opts)
       |> Cache.write_chunk(@hash, opts)
 
     assert :ok = Cache.commit_sink(sink, opts)
@@ -56,7 +56,7 @@ defmodule ImagePipe.Cache.CompleteBodySinkTest do
 
     log =
       capture_log(fn ->
-        assert Cache.open_sink(cache_key(), {:complete_body, @content_type}, opts) == nil
+        assert Cache.open_sink(cache_key(), {:complete_body, @content_type}, [], opts) == nil
       end)
 
     assert log =~ "cache sink open error"
