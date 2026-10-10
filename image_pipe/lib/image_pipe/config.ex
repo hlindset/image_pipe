@@ -12,18 +12,24 @@ defmodule ImagePipe.Config do
     deps: [
       ImagePipe.API,
       ImagePipe.Cache,
-      ImagePipe.Processing,
+      ImagePipe.Format,
+      ImagePipe.Plan,
       ImagePipe.Security,
       ImagePipe.Source,
+      ImagePipe.Telemetry,
+      ImagePipe.Transform,
       ImagePipe.URL
     ],
     exports: []
 
   alias ImagePipe.API.Presets
   alias ImagePipe.Cache
-  alias ImagePipe.Processing.Config, as: ProcessingConfig
+  alias ImagePipe.Format
+  alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
   alias ImagePipe.Security
   alias ImagePipe.Source
+  alias ImagePipe.Telemetry
+  alias ImagePipe.Transform
   alias ImagePipe.URL.Config, as: URLConfig
 
   @enforce_keys [:options, :raw, :url]
@@ -44,8 +50,259 @@ defmodule ImagePipe.Config do
   @url_option_doc Keyword.delete(URLConfig.schema(), :validate_against)
   @url_keys Keyword.keys(@url_option_doc)
 
+  @default_format_quality %{webp: 79, avif: 63}
+
+  # A host's encoder settings win field by field over these.
+  @default_encoder_options [
+    jpeg_options: %JpegOptions{},
+    png_options: %PngOptions{},
+    webp_options: %WebpOptions{},
+    avif_options: %AvifOptions{effort: 3, subsample_mode: :off}
+  ]
+
+  @processing_options [
+    sources: [
+      type: :any,
+      type_doc: "`t:keyword/0`",
+      doc: """
+      Named sources that originals are read from, as \
+      `name: [adapter: module, match: rule, options: [...]]`. See \
+      [sources](sources.md#routing-image-paths-to-sources).
+      """
+    ],
+    source_cache_policy: [
+      type: :keyword_list,
+      doc: """
+      Default cache storage and freshness policy for every source. See \
+      `ImagePipe.Source.CachePolicy` and \
+      [source cache settings](cache.md#source-cache-settings).
+      """
+    ],
+    max_body_bytes: [
+      type: :pos_integer,
+      default: 10_000_000,
+      doc: "Maximum size of an original, in bytes. A larger original fails the request."
+    ],
+    max_input_pixels: [
+      type: :pos_integer,
+      default: 40_000_000,
+      doc: """
+      Maximum pixels of a decoded original. For an animation, counts the \
+      frames composited to reach the requested `page`. A larger original \
+      fails the request.
+      """
+    ],
+    max_input_frames: [
+      type: :pos_integer,
+      default: 1_000,
+      doc: """
+      Maximum frames or pages an original may declare. An original with \
+      more fails the request.
+      """
+    ],
+    max_result_width: [
+      type: :pos_integer,
+      default: 8_192,
+      doc: "Maximum output width. Larger results are scaled down to fit."
+    ],
+    max_intermediate_pixels: [
+      type: :pos_integer,
+      default: 100_000_000,
+      doc: """
+      Maximum pixels in a decoded frame buffered, downsampled, or delivered during \
+      processing. Larger frames fail with `422`. Lazy intermediate frames \
+      may be larger when a crop reduces them before those steps.
+      """
+    ],
+    max_result_height: [
+      type: :pos_integer,
+      default: 8_192,
+      doc: "Maximum output height. Larger results are scaled down to fit."
+    ],
+    max_result_pixels: [
+      type: :pos_integer,
+      default: 40_000_000,
+      doc: "Maximum output pixels. Larger results are scaled down to fit."
+    ],
+    processing_pool: [
+      type: {:or, [:atom, :pid]},
+      type_doc: "`t:atom/0` or `t:pid/0`",
+      doc: """
+      A running `ImagePipe.ProcessingPool`, by name or PID, that limits how \
+      many images are processed at once. See \
+      [limiting concurrent processing](processing-controls.md).
+      """
+    ],
+    auto_avif: [
+      type: :boolean,
+      default: true,
+      doc: "Serve AVIF when the request's `Accept` header lists it."
+    ],
+    auto_webp: [
+      type: :boolean,
+      default: true,
+      doc: "Serve WebP when the request's `Accept` header lists it."
+    ],
+    format_order: [
+      type: {:custom, __MODULE__, :validate_format_order, []},
+      type_doc: "list of `:avif` and `:webp`",
+      doc: """
+      Which format wins when `Accept` lists both. A format left out of the \
+      list comes after the listed ones. The default value is \
+      `[:avif, :webp]`.
+      """
+    ],
+    quality: [
+      type: {:in, 1..100},
+      type_doc: "`t:pos_integer/0`",
+      default: 80,
+      doc: "Encoder quality, `1..100`, for formats without a `:format_quality`."
+    ],
+    format_quality: [
+      type: {:custom, __MODULE__, :validate_format_quality, []},
+      type_doc: "map of `t:atom/0` to `t:pos_integer/0`",
+      default: @default_format_quality,
+      doc: """
+      Quality per output format, `1..100`. Each format it sets replaces \
+      that format's default. A request's `q` replaces this table, and its \
+      `format-q` replaces the entries for the formats it lists. See \
+      [`format-q`](processing/output.md#format-q).
+      """
+    ],
+    strip_metadata: [
+      type: :boolean,
+      default: true,
+      doc: "Remove EXIF, XMP, and other optional metadata from the output."
+    ],
+    keep_copyright: [
+      type: :boolean,
+      default: true,
+      doc: "Keep copyright and artist fields when stripping metadata."
+    ],
+    stripped_dpi: [
+      type: {:in, 1..65_535},
+      type_doc: "`t:pos_integer/0`",
+      default: 72,
+      doc: """
+      Density written to the output, `1..65535`, when metadata is stripped \
+      and the request has no `dpi`.
+      """
+    ],
+    strip_color_profile: [
+      type: :boolean,
+      default: true,
+      doc: """
+      Convert the output to sRGB (or gray) and leave out the original's ICC \
+      profile. `false` keeps the original's profile.
+      """
+    ],
+    preserve_hdr: [
+      type: :boolean,
+      default: false,
+      doc: """
+      Keep high bit depth in output formats that support it.
+      """
+    ],
+    skip_processing_formats: [
+      type: {:list, {:in, Format.source_formats()}},
+      type_doc: "list of `t:atom/0`",
+      default: [],
+      doc: """
+      Original formats, such as `[:gif]`, served unchanged instead of \
+      processed when the request names no other `format` and draws no \
+      watermark. The unchanged original keeps its metadata, including any \
+      location data, and only `:max_body_bytes` limits it. See \
+      [formats](processing/output.md#format).
+      """
+    ],
+    autoquality: [
+      type: :boolean,
+      default: false,
+      doc: """
+      Picks each image's quality to meet `:autoquality_target` by \
+      encoding and scoring several qualities. A request can turn it on or \
+      off and set its own target with \
+      [`autoquality`](processing/output.md#autoquality).
+      """
+    ],
+    autoquality_target: [
+      type: {:custom, __MODULE__, :validate_autoquality_target, []},
+      type_doc: "`t:number/0`",
+      default: 75,
+      doc: """
+      The SSIMULACRA2 score auto-quality aims for, above `0` and up to \
+      `100`.
+      """
+    ],
+    jpeg_options: [
+      type: {:custom, __MODULE__, :validate_encoder_options, [JpegOptions]},
+      type_doc: "`t:keyword/0`",
+      doc: """
+      Default JPEG encoder settings, as a keyword list with the fields \
+      of the `jpeg_options:` option of `ImagePipe.URL.output/2`, such as \
+      `[interlace: true]`. A request's settings win field by field. See \
+      [encoder options](processing/output.md#encoder-options) and the \
+      builder names in \
+      [URL option names](`ImagePipe.URL#module-url-option-names`).
+      """
+    ],
+    png_options: [
+      type: {:custom, __MODULE__, :validate_encoder_options, [PngOptions]},
+      type_doc: "`t:keyword/0`",
+      doc: "Default PNG encoder settings, as for `:jpeg_options`."
+    ],
+    webp_options: [
+      type: {:custom, __MODULE__, :validate_encoder_options, [WebpOptions]},
+      type_doc: "`t:keyword/0`",
+      doc: "Default WebP encoder settings, as for `:jpeg_options`. `:effort` defaults to `4`."
+    ],
+    avif_options: [
+      type: {:custom, __MODULE__, :validate_encoder_options, [AvifOptions]},
+      type_doc: "`t:keyword/0`",
+      doc:
+        "Default AVIF encoder settings, as for `:jpeg_options`. `:effort` defaults to `3` and `:subsample_mode` to `:off`."
+    ],
+    detector: [
+      type: {:or, [{:in, [:default, nil]}, :atom]},
+      type_doc: "`:default`, `nil`, or `t:module/0`",
+      default: :default,
+      doc: """
+      The detector for face and object detection. `:default` uses the \
+      built-in detector when its dependencies are installed, `nil` turns \
+      detection off, and a module uses a custom detector. See \
+      [enabling detection](enabling-detection.md).
+      """
+    ],
+    detector_required: [
+      type: :boolean,
+      default: false,
+      doc: """
+      Fail requests that ask for detection when it can't run: `501` when \
+      the detector can't detect the requested classes in this build, `503` \
+      when its models aren't downloaded, and `500` when detection fails. \
+      With `false`, the crop falls back to attention cropping. \
+      `anchor=smart-face` always falls back. With `true`, `ImagePipe.config/1` \
+      raises `ArgumentError` when the detector can't detect any class.
+      """
+    ],
+    telemetry_prefix: [
+      type: {:custom, __MODULE__, :validate_telemetry_prefix, []},
+      type_doc: "list of `t:atom/0`",
+      default: Telemetry.default_prefix(),
+      doc: "Prefix of every telemetry event name. See [telemetry](telemetry.md)."
+    ],
+    clock: [
+      type: {:custom, __MODULE__, :validate_clock, []},
+      type_doc: "`(-> integer())`",
+      doc: """
+      Returns the current Unix time in seconds, for checking a URL's \
+      `expires`. The system clock by default.
+      """
+    ]
+  ]
+
   @schema NimbleOptions.new!(
-            ProcessingConfig.schema() ++
+            @processing_options ++
               [
                 cache: [
                   type: :keyword_list,
@@ -156,7 +413,7 @@ defmodule ImagePipe.Config do
 
         validated =
           validated
-          |> Keyword.put_new(:clock, &ProcessingConfig.system_time/0)
+          |> Keyword.put_new(:clock, &__MODULE__.system_time/0)
           |> Keyword.update!(:watermarks, &watermarks!(&1, validated))
 
         validate_against =
@@ -170,7 +427,7 @@ defmodule ImagePipe.Config do
 
         resolved =
           validated
-          |> ProcessingConfig.resolve!()
+          |> processing!()
           |> Keyword.merge(url.options)
           |> Keyword.merge(presets)
 
@@ -415,6 +672,122 @@ defmodule ImagePipe.Config do
 
   def validate_watermark_name(name),
     do: {:error, "expected watermark names as atoms, got: #{inspect(name)}"}
+
+  @doc false
+  # The processing options with their defaults, which the server's
+  # configuration reference documents.
+  def processing_schema, do: @processing_options
+
+  @doc false
+  def system_time, do: System.os_time(:second)
+
+  # The format qualities merge over the default table, and the encoder
+  # settings over their defaults. The detector is resolved once here.
+  defp processing!(options) do
+    options =
+      @default_encoder_options
+      |> Enum.reduce(options, fn {key, default}, options ->
+        Keyword.update(options, key, default, &default.__struct__.merge(default, &1))
+      end)
+      |> Keyword.update!(:format_quality, &Map.merge(@default_format_quality, &1))
+      |> Keyword.update!(:detector, &Transform.resolve_detector/1)
+
+    validate_detector_required!(options)
+    options
+  end
+
+  # Requests check availability per class, so a detector that can run any of
+  # its classes may be required.
+  defp validate_detector_required!(options) do
+    if Keyword.fetch!(options, :detector_required) and
+         not detects_any_class?(Keyword.fetch!(options, :detector)) do
+      raise ArgumentError,
+            "invalid ImagePipe configuration: detector_required: " <>
+              "the detector is not available in this build"
+    end
+  end
+
+  defp detects_any_class?(nil), do: false
+
+  defp detects_any_class?(detector),
+    do: Enum.any?(detector.supported_classes([]), &detector.available?(classes: [&1]))
+
+  @doc false
+  def validate_format_quality(qualities) when is_map(qualities) do
+    case Enum.reject(qualities, fn {format, quality} ->
+           Format.output_format?(format) and quality in 1..100
+         end) do
+      [] -> {:ok, qualities}
+      [{format, quality} | _rest] -> {:error, format_quality_error(format, quality)}
+    end
+  end
+
+  def validate_format_quality(qualities),
+    do: {:error, "expected a map of output format to quality, got: #{inspect(qualities)}"}
+
+  defp format_quality_error(format, quality) do
+    if Format.output_format?(format),
+      do: "expected #{inspect(format)} quality in 1..100, got: #{inspect(quality)}",
+      else: "unsupported format #{inspect(format)}"
+  end
+
+  @doc false
+  def validate_autoquality_target(target) when is_number(target) and target > 0 and target <= 100,
+    do: {:ok, target}
+
+  def validate_autoquality_target(target),
+    do: {:error, "expected a number above 0 and up to 100, got: #{inspect(target)}"}
+
+  @doc false
+  def validate_clock(clock) when is_function(clock, 0), do: {:ok, clock}
+  def validate_clock(_clock), do: {:error, "expected a zero-arity function"}
+
+  @doc false
+  def validate_telemetry_prefix([_ | _] = prefix) do
+    if Enum.all?(prefix, &is_atom/1),
+      do: {:ok, prefix},
+      else: {:error, "expected a non-empty list of atoms"}
+  end
+
+  def validate_telemetry_prefix(_prefix), do: {:error, "expected a non-empty list of atoms"}
+
+  @doc false
+  def validate_encoder_options(options, module) when is_list(options) do
+    case NimbleOptions.validate(options, module.schema()) do
+      {:ok, options} -> {:ok, struct!(module, options)}
+      {:error, error} -> {:error, Exception.message(error)}
+    end
+  end
+
+  def validate_encoder_options(_options, _module), do: {:error, "expected a keyword list"}
+
+  @doc false
+  def validate_format_order(order) do
+    modern_formats = Format.modern_formats()
+
+    with true <- is_list(order),
+         true <- order != [],
+         true <- Enum.all?(order, &(&1 in modern_formats)),
+         true <- length(Enum.uniq(order)) == length(order) do
+      {:ok, order}
+    else
+      false -> format_order_error(order, modern_formats)
+    end
+  end
+
+  defp format_order_error(order, _modern_formats) when not is_list(order),
+    do: {:error, "expected a list of modern format atoms"}
+
+  defp format_order_error([], _modern_formats),
+    do: {:error, "expected a non-empty list of modern formats"}
+
+  defp format_order_error(order, modern_formats) do
+    if Enum.all?(order, &(&1 in modern_formats)) do
+      {:error, "expected distinct formats, got: #{inspect(order)}"}
+    else
+      {:error, "expected formats from #{inspect(modern_formats)}, got: #{inspect(order)}"}
+    end
+  end
 
   @doc false
   def validate_opacity(value) when is_number(value) and value > 0 and value <= 1,
