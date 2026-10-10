@@ -3,7 +3,6 @@ defmodule ImagePipe.API.OutputTest do
 
   alias ImagePipe.API.Parser
   alias ImagePipe.Output.Policy
-  alias ImagePipe.Output.RequestPolicy, as: Output
   alias ImagePipe.Plan.Output, as: PlanOutput
   alias ImagePipe.Plan.Output.JpegOptions
   alias ImagePipe.Plug.Config
@@ -19,7 +18,7 @@ defmodule ImagePipe.API.OutputTest do
   defp resolve!(segments, host_opts, accept_header \\ "") do
     config = Config.validate!(host_opts)
     assert {:ok, request} = Parser.parse(lexed(segments), config)
-    assert {:ok, output} = Output.resolve(request.output, config, accept_header)
+    assert {:ok, output} = Policy.from_request(request.output, config, accept_header)
     output
   end
 
@@ -193,7 +192,7 @@ defmodule ImagePipe.API.OutputTest do
     assert {:ok, request} = Parser.parse(lexed(["profile=srgb"]), config)
 
     assert {:error, {:invalid_output, :hdr_profile_conversion}} =
-             Output.resolve(request.output, config, "")
+             Policy.from_request(request.output, config, "")
 
     assert resolve!(["profile=srgb", "hdr=tonemap"], preserve_hdr: true).hdr == :tone_map
   end
@@ -212,7 +211,7 @@ defmodule ImagePipe.API.OutputTest do
       assert {:ok, request} = Parser.parse(lexed(segments), config)
 
       assert {:error, {:invalid_output, :lossless_webp_quality_search}} =
-               Output.resolve(request.output, config, "")
+               Policy.from_request(request.output, config, "")
     end
   end
 

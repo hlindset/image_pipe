@@ -22,7 +22,6 @@ defmodule ImagePipe.Processing do
   alias ImagePipe.Output.Clamp
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Policy
-  alias ImagePipe.Output.RequestPolicy
   alias ImagePipe.Output.Resolved, as: ResolvedOutput
   alias ImagePipe.Output.Skipped
   alias ImagePipe.Plan.Spec
@@ -36,7 +35,7 @@ defmodule ImagePipe.Processing do
 
   def prepare(%Spec{} = request, config, accept) do
     with :ok <- check_expires(request, Keyword.fetch!(config, :clock).()),
-         {:ok, policy} <- RequestPolicy.resolve(request.output, config, accept),
+         {:ok, policy} <- Policy.from_request(request.output, config, accept),
          :ok <- Policy.ensure_capable(policy, config),
          :ok <- check_detector(request, config) do
       {:ok, image_policy(request.output.terminal, policy, request, config)}

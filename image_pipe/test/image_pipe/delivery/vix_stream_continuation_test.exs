@@ -5,7 +5,6 @@ defmodule ImagePipe.Delivery.VixStreamContinuationTest do
   alias ImagePipe.Delivery.Producer
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Policy
-  alias ImagePipe.Output.RequestPolicy, as: APIOutput
   alias ImagePipe.Plug.Request, as: ParsedRequest
   alias ImagePipe.Source
   alias ImagePipe.Source.Parser, as: APISource
@@ -484,7 +483,7 @@ defmodule ImagePipe.Delivery.VixStreamContinuationTest do
     {:ok, source_request} = APISource.translate(source_string, config)
     {:ok, source} = Source.resolve(source_request, config, [])
 
-    {:ok, policy} = APIOutput.resolve(request.output, config, "")
+    {:ok, policy} = Policy.from_request(request.output, config, "")
 
     fn pump ->
       Decode.with_image(

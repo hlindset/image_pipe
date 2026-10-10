@@ -390,7 +390,6 @@ defmodule Mix.Tasks.Autoquality.Bench do
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.EncodeSearch
   alias ImagePipe.Output.Policy
-  alias ImagePipe.Output.RequestPolicy
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
   alias ImagePipe.Output.Ssim2Metric
@@ -5365,7 +5364,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
     }
 
     {:ok, request} = Parser.parse(lexed, config)
-    {:ok, policy} = RequestPolicy.resolve(request.output, config, "")
+    {:ok, policy} = Policy.from_request(request.output, config, "")
     {:ok, resolved} = Policy.resolve(policy, format)
     resolved
   end

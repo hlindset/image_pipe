@@ -3,7 +3,7 @@ defmodule ImagePipe.Output.EncoderOptionsEncodeTest do
 
   alias ImagePipe.API.Parser
   alias ImagePipe.Output.{Encoder, Policy, Resolved}
-  alias ImagePipe.Output.RequestPolicy, as: APIOutput
+  alias ImagePipe.Output.Policy
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
   alias ImagePipe.Plug.Config
 
@@ -49,7 +49,7 @@ defmodule ImagePipe.Output.EncoderOptionsEncodeTest do
     }
 
     assert {:ok, request} = Parser.parse(lexed, config)
-    assert {:ok, policy} = APIOutput.resolve(request.output, config, "")
+    assert {:ok, policy} = Policy.from_request(request.output, config, "")
     {:ok, resolved} = Policy.resolve(policy, :jpeg)
     assert resolved.encoder_options == %JpegOptions{interlace: true}
 

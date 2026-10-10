@@ -6,7 +6,7 @@ defmodule ImagePipe.API.IdentityTest do
   alias ImagePipe.API.Parser
   alias ImagePipe.Execution.Identity
   alias ImagePipe.Execution.Inputs
-  alias ImagePipe.Output.RequestPolicy, as: Output
+  alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Plug.Config
   alias ImagePipe.Plug.Request, as: ParsedRequest
@@ -43,7 +43,7 @@ defmodule ImagePipe.API.IdentityTest do
   end
 
   defp output_policy!(request, config \\ [], accept \\ "") do
-    {:ok, output} = Output.resolve(request.output, Config.validate!(config), accept)
+    {:ok, output} = Policy.from_request(request.output, Config.validate!(config), accept)
     output
   end
 

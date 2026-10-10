@@ -8,7 +8,6 @@ defmodule ImagePipe.APIWireTest do
   alias ImagePipe.Cache.Key
   alias ImagePipe.Delivery.Coordinator
   alias ImagePipe.Output.Policy
-  alias ImagePipe.Output.RequestPolicy, as: APIOutput
   alias ImagePipe.Output.Resolved
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Telemetry.RequestContext
@@ -281,7 +280,7 @@ defmodule ImagePipe.APIWireTest do
     test "quality in representation material matches the encoder policy" do
       config = opts()
       {:ok, request} = Parser.parse(lexed(["format=jpeg", "q=42"]), config)
-      assert {:ok, policy} = APIOutput.resolve(request.output, config, "")
+      assert {:ok, policy} = Policy.from_request(request.output, config, "")
 
       assert Keyword.fetch!(Policy.identity_material(policy), :quality) == {:quality, 42}
 
