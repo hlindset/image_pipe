@@ -2,24 +2,38 @@ name: Performance
 
 # Times an image_pipe_server image against others on the same runner with
 # `mix imgproxy.bench --compare`, alternating between them so the runner's
-# speed cancels out. Both use the curated `perf` cases. On a pull request
-# labelled `perf`, the pull request is judged against its base and the result
-# posted as a comment. Nightly, `main` is judged against the `main` the
-# previous nightly run measured, the `main` of 30 days earlier, which shows
-# drift too slow to notice night to night, and the latest release image. The
-# comparison reports; it doesn't fail the job.
+# speed cancels out:
+#
+# - On a pull request labelled `perf`, the pull request against its base, on
+#   the curated `perf` cases, posted as a comment.
+# - Nightly, `main` against the `main` the previous scheduled run measured,
+#   the `main` of 30 days earlier, which shows drift too slow to notice night
+#   to night, and the latest release image, on the `perf` cases.
+# - Weekly, `main` against the `main` of 7 days earlier on every case, for a
+#   regression in a case the `perf` set leaves out.
+# - By hand, like the nightly run, on the cases chosen.
+#
+# The comparison reports; it doesn't fail the job.
 on:
   pull_request:
     types: [labeled, synchronize]
   schedule:
     - cron: "17 3 * * *"
+    # The weekly full run. "Choose the commits to compare" matches this string.
+    - cron: "17 4 * * 0"
   workflow_dispatch:
+    inputs:
+      cases:
+        description: Cases to time
+        type: choice
+        options: [perf, all]
+        default: perf
 
 permissions:
   contents: read
 
 concurrency:
-  group: performance-${{ github.event.pull_request.number || github.ref }}
+  group: performance-${{ github.event.pull_request.number || github.event.schedule || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -48,31 +62,48 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SCHEDULE: ${{ github.event.schedule }}
+          CASES: ${{ inputs.cases }}
         run: |
           # A pull request's checkout is the pull request merged into the base
           # branch as it is now, so its first parent is the base without the
           # pull request. The event's base SHA can be older than that.
           candidate=$(git rev-parse HEAD)
+          only=perf
+          release=true
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            release=false
             against=$(git rev-parse HEAD^1)
             name=base
             candidate_text="this pull request at \`${HEAD_SHA:0:7}\`, merged into \`$BASE_REF\`"
             against_text="\`$BASE_REF\` at \`${against:0:7}\`, without this pull request"
+          elif [ "$SCHEDULE" = "17 4 * * 0" ]; then
+            against=$(git rev-list -1 --first-parent --before="7 days ago" HEAD)
+            name=week
+            only=all
+            release=false
+            candidate_text="\`main\` at \`${candidate:0:7}\`"
+            against_text="\`main\` at \`${against:0:7}\` from $(git log -1 --format=%cs "$against"), a week earlier"
           else
+            [ "$CASES" = all ] && only=all
             # The commit the last successful scheduled run measured.
             against=$(gh run list --workflow performance.yml --event schedule \
               --status success --limit 1 --json headSha --jq '.[0].headSha // empty')
             name=previous
             candidate_text="\`main\` at \`${candidate:0:7}\`"
-            against_text="\`main\` at \`${against:0:7}\`, from the previous nightly run"
+            against_text="\`main\` at \`${against:0:7}\`, from the previous scheduled run"
             month=$(git rev-list -1 --first-parent --before="30 days ago" HEAD)
             # Skipped until main from 30 days earlier has the server image.
             if [ -n "$month" ] && ! git cat-file -e "$month:image_pipe_server/Dockerfile" 2>/dev/null; then
               month=""
             fi
-            month_text="\`main\` at \`${month:0:7}\`, 30 days earlier"
+            if [ -n "$month" ]; then
+              month_text="\`main\` at \`${month:0:7}\` from $(git log -1 --format=%cs "$month"), a month earlier"
+            fi
           fi
           {
+            echo "only=$only"
+            echo "release=$release"
             echo "month=${month:-}"
             echo "month_text=${month_text:-}"
             echo "candidate=$candidate"
@@ -123,7 +154,7 @@ jobs:
           cache-from: type=gha,scope=server-base
 
       - name: Pull the latest release
-        if: github.event_name != 'pull_request'
+        if: steps.refs.outputs.release == 'true'
         run: docker pull "$RELEASE_IMAGE"
 
       - name: Runner image
@@ -163,6 +194,8 @@ jobs:
           AGAINST_TEXT: ${{ steps.refs.outputs.against_text }}
           MONTH: ${{ steps.refs.outputs.month }}
           MONTH_TEXT: ${{ steps.refs.outputs.month_text }}
+          ONLY: ${{ steps.refs.outputs.only }}
+          RELEASE: ${{ steps.refs.outputs.release }}
         run: |
           args=(--compare image_pipe_server:candidate --describe "candidate=$CANDIDATE_TEXT")
           if [ -n "$AGAINST" ]; then
@@ -171,7 +204,8 @@ jobs:
           if [ -n "$MONTH" ]; then
             args+=(--against "month=image_pipe_server:month" --describe "month=$MONTH_TEXT")
           fi
-          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+          [ "$ONLY" = perf ] && args+=(--only perf)
+          if [ "$RELEASE" = true ]; then
             version=$(docker image inspect --format \
               '{{index .Config.Labels "org.opencontainers.image.version"}}' "$RELEASE_IMAGE")
             release_text="the latest release, \`$RELEASE_IMAGE\`"
@@ -179,8 +213,8 @@ jobs:
             args+=(--against "release=$RELEASE_IMAGE" --describe "release=$release_text")
           fi
           # Two CPUs for the servers leave the rest of the runner for oha.
-          mise exec -- mix imgproxy.bench "${args[@]}" --only perf --cpus 2 --rounds 4 \
-            --duration 1 --output tmp/performance
+          mise exec -- mix imgproxy.bench "${args[@]}" --cpus 2 --rounds 4 --duration 1 \
+            --output tmp/performance
           cat tmp/performance/summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the report

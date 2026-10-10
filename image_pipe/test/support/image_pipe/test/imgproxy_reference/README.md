@@ -69,7 +69,9 @@ alternating between them over several rounds, and writes `summary.md` with
 the ratios per family. The `Performance` workflow runs it on the 44 cases
 `--only perf` selects: on pull requests labelled `perf`, against their base,
 and nightly on `main`, against the previous night's `main`, `main` from 30
-days earlier, and the latest release.
+days earlier, and the latest release. A weekly run times every case, `main`
+against `main` from a week earlier, and the workflow can be run by hand on
+either set.
 
 ## Change rules
 
