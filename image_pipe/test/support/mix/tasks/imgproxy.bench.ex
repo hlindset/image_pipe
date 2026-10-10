@@ -152,6 +152,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       oha: "#{network}-oha",
       servers: servers(opts),
       rounds: opts[:rounds] || 3,
+      progress: nil,
       work: Path.expand(Path.join(output, "work"))
     }
 
@@ -212,6 +213,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   defp run_servers(cases, %{servers: nil} = settings) do
     servers = [imgproxy_server(settings), image_pipe_server(settings)]
     {checks, timed, mismatched} = check_servers(servers, cases, settings)
+    settings = %{settings | progress: progress(timed, length(servers))}
 
     runs =
       Map.new(servers, fn server ->
@@ -235,15 +237,18 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
     {checks, timed, mismatched} = check_servers(servers, cases, settings)
 
+    settings = %{settings | progress: progress(timed, length(servers) * settings.rounds)}
+
     # Alternate rounds run the images in reverse order.
     rounds =
       for round <- 1..settings.rounds do
         order = if rem(round, 2) == 1, do: servers, else: Enum.reverse(servers)
         Mix.shell().info("Round #{round}/#{settings.rounds}")
+        stage = "round #{round}/#{settings.rounds}, "
 
         Map.new(order, fn server ->
           {server.key,
-           with_server(server, settings, &measure_server(server, timed, settings, &1))}
+           with_server(server, settings, &measure_server(server, timed, settings, &1, stage))}
         end)
       end
 
@@ -489,7 +494,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     }
   end
 
-  defp measure_server(server, cases, settings, info) do
+  defp measure_server(server, cases, settings, info, stage \\ "") do
     Mix.shell().info("Timing #{server.label}")
     url = &"http://#{info.name}:8080#{&1}"
     levels = Enum.uniq([1, settings.concurrency])
@@ -500,10 +505,11 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       cases
       |> Enum.with_index(1)
       |> Map.new(fn {c, index} ->
-        if rem(index, 10) == 0, do: Mix.shell().info("  #{index}/#{length(cases)}")
         case_url = url.(server.path.(c))
         warm_up(case_url, settings)
-        {c.id, Map.new(levels, &{"#{&1}", measure(case_url, &1, settings, info.name)})}
+        timing = Map.new(levels, &{"#{&1}", measure(case_url, &1, settings, info.name)})
+        report_progress(settings.progress, "#{stage}#{server.key}", index, length(cases))
+        {c.id, timing}
       end)
 
     %{
@@ -514,6 +520,34 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       label: server.label
     }
   end
+
+  # Counts measured cases across the run, so each progress line can say how
+  # long the rest will take at the rate so far.
+  defp progress(cases, runs) do
+    %{
+      done: :counters.new(1, []),
+      total: length(cases) * runs,
+      started: System.monotonic_time(:second)
+    }
+  end
+
+  defp report_progress(progress, stage, index, count) do
+    :counters.add(progress.done, 1, 1)
+
+    if rem(index, 10) == 0 or index == count do
+      done = :counters.get(progress.done, 1)
+      elapsed = System.monotonic_time(:second) - progress.started
+      left = div(elapsed * (progress.total - done), done)
+
+      Mix.shell().info(
+        "  #{stage}: #{index}/#{count} cases, #{minutes(elapsed)} elapsed, " <>
+          "about #{minutes(left)} left"
+      )
+    end
+  end
+
+  defp minutes(seconds) when seconds < 60, do: "#{seconds}s"
+  defp minutes(seconds), do: "#{div(seconds, 60)} min"
 
   defp warm_up(url, settings) do
     oha(["-n", "#{2 * settings.concurrency}", "-c", "#{settings.concurrency}", url], settings)
