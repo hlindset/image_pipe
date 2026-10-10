@@ -1086,12 +1086,7 @@ defmodule ImagePipe.PlugTest do
       )
 
     assert conn.status == 200
-    # Two-step open: header open first (random), then decode open (sequential).
-    assert_received {:image_open_options, header_opts}
-    assert Keyword.get(header_opts, :access) == :random
-    assert_received {:image_open_options, decode_opts}
-    assert Keyword.get(decode_opts, :access) == :sequential
-    assert Keyword.get(decode_opts, :fail_on) == :error
+    assert_sequential_opens()
   end
 
   test "region crop opens origin with sequential access" do
@@ -1104,12 +1099,7 @@ defmodule ImagePipe.PlugTest do
       )
 
     assert conn.status == 200
-    # Two-step open: header open first (random), then decode open (sequential).
-    assert_received {:image_open_options, header_opts}
-    assert Keyword.get(header_opts, :access) == :random
-    assert_received {:image_open_options, decode_opts}
-    assert Keyword.get(decode_opts, :access) == :sequential
-    assert Keyword.get(decode_opts, :fail_on) == :error
+    assert_sequential_opens()
   end
 
   test "sequential materialization failure without origin error returns decode error" do
@@ -1121,12 +1111,7 @@ defmodule ImagePipe.PlugTest do
         origin_req_options: [plug: TruncatedHeaderOnlyOriginImage]
       )
 
-    # Two-step open: header open first (random), then decode open (sequential).
-    assert_received {:image_open_options, header_opts}
-    assert Keyword.get(header_opts, :access) == :random
-    assert_received {:image_open_options, decode_opts}
-    assert Keyword.get(decode_opts, :access) == :sequential
-    assert Keyword.get(decode_opts, :fail_on) == :error
+    assert_sequential_opens()
     assert conn.status == 415
     assert conn.state == :sent
     assert conn.resp_body == "source response is not a supported image"
@@ -1145,12 +1130,7 @@ defmodule ImagePipe.PlugTest do
         origin_req_options: [plug: TruncatedHeaderOnlyOriginImage]
       )
 
-    # Two-step open: header open first (random), then decode open (sequential).
-    assert_received {:image_open_options, header_opts}
-    assert Keyword.get(header_opts, :access) == :random
-    assert_received {:image_open_options, decode_opts}
-    assert Keyword.get(decode_opts, :access) == :sequential
-    assert Keyword.get(decode_opts, :fail_on) == :error
+    assert_sequential_opens()
     assert conn.status == 415
     assert conn.state == :sent
     assert conn.resp_body == "source response is not a supported image"
@@ -1588,5 +1568,25 @@ defmodule ImagePipe.PlugTest do
     assert second_conn.status == 200
     assert second_conn.resp_body == first_conn.resp_body
     refute_received :origin_was_called
+  end
+
+  # Every open of the origin, for its header and for its decode, is sequential
+  # and fails on decode errors.
+  defp assert_sequential_opens do
+    opens = received_open_options()
+    assert opens != []
+
+    for options <- opens do
+      assert Keyword.get(options, :access) == :sequential
+      assert Keyword.get(options, :fail_on) == :error
+    end
+  end
+
+  defp received_open_options do
+    receive do
+      {:image_open_options, options} -> [options | received_open_options()]
+    after
+      0 -> []
+    end
   end
 end
