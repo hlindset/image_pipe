@@ -71,18 +71,6 @@ defmodule ImagePipeServer.Config.Sources do
     :allow_reserved
   ]
 
-  @doc "Converts the `[sources]` table, raising `ImagePipeServer.ConfigError`."
-  @spec options!(term()) :: keyword()
-  def options!(table) do
-    case convert(table, ["sources"]) do
-      {:ok, sources} ->
-        sources
-
-      {:error, path, message} ->
-        raise ImagePipeServer.ConfigError, Convert.error_message(path, message)
-    end
-  end
-
   @doc "Converts the `[sources]` table."
   @spec convert(term(), Convert.path()) :: Convert.result()
   def convert(%{} = table, path) when not is_struct(table) do

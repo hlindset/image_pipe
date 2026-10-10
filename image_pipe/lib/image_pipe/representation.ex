@@ -32,7 +32,6 @@ defmodule ImagePipe.Representation do
   alias ImagePipe.MaterialDigest
   alias ImagePipe.Representation.IdentityMaterial
 
-  @core_execution_epoch 1
   @etag_schema "ipr1"
 
   @enforce_keys [:cache_key, :etag, :vary]
@@ -58,7 +57,6 @@ defmodule ImagePipe.Representation do
       when is_list(source_identity) do
     key_data = [
       representation_schema: 1,
-      core_epoch: @core_execution_epoch,
       source_identity: source_identity,
       byte_identity: byte_identity,
       representation: material.representation,

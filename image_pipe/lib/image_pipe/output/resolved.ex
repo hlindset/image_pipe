@@ -4,8 +4,6 @@ defmodule ImagePipe.Output.Resolved do
   # used attention because detection errored). Such output is never stored and
   # gets no validator.
 
-  alias ImagePipe.Plan.Color
-
   @enforce_keys [
     :format,
     :quality,
@@ -16,7 +14,6 @@ defmodule ImagePipe.Output.Resolved do
   ]
   defstruct @enforce_keys ++
               [
-                flatten_background: Color.white(),
                 quality_search: :none,
                 max_bytes: nil,
                 dpi: nil,
@@ -33,7 +30,6 @@ defmodule ImagePipe.Output.Resolved do
           strip_metadata: boolean(),
           keep_copyright: boolean(),
           color_profile: ImagePipe.Plan.Output.color_profile(),
-          flatten_background: Color.t(),
           quality_search:
             :none
             | ImagePipe.Output.ResolvedQualitySearch.Ssimulacra2.t(),

@@ -6,7 +6,6 @@ defmodule ImagePipe.Output.Policy do
   alias ImagePipe.Output.Negotiation
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
-  alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Output.QualitySearch
   alias ImagePipe.Plan.Spec.Output, as: SpecOutput
@@ -47,7 +46,6 @@ defmodule ImagePipe.Output.Policy do
   ]
   defstruct @enforce_keys ++
               [
-                flatten_background: Color.white(),
                 default_quality: :default,
                 quality_search: :none,
                 fixed_quality_formats: [],
@@ -80,7 +78,6 @@ defmodule ImagePipe.Output.Policy do
           strip_metadata: boolean(),
           keep_copyright: boolean(),
           color_profile: Output.color_profile(),
-          flatten_background: Color.t(),
           quality_search:
             :none
             | Output.QualitySearch.t(),
@@ -292,7 +289,6 @@ defmodule ImagePipe.Output.Policy do
       dpi: policy.dpi,
       color_profile: policy.color_profile,
       hdr: policy.hdr,
-      flatten_background: Color.key_data(policy.flatten_background),
       encoder_options: encoder_options_identity(policy.encoder_options),
       skip_formats: policy.skip_formats
     ]
@@ -309,10 +305,6 @@ defmodule ImagePipe.Output.Policy do
 
   def put_skip_formats(%__MODULE__{mode: {:explicit, format}} = policy, formats),
     do: %{policy | skip_formats: Enum.filter([format], &(&1 in formats))}
-
-  @doc "Whether a source in `source_format` is delivered unchanged."
-  @spec skip?(t(), source_format()) :: boolean()
-  def skip?(%__MODULE__{skip_formats: formats}, source_format), do: source_format in formats
 
   @spec resolve(t(), source_format() | nil) ::
           {:ok, Resolved.t()}
@@ -415,7 +407,6 @@ defmodule ImagePipe.Output.Policy do
       keep_copyright: policy.keep_copyright,
       dpi: policy.dpi,
       color_profile: policy.color_profile,
-      flatten_background: policy.flatten_background,
       quality_search: resolve_search(policy, format),
       max_bytes: policy.max_bytes,
       encoder_options: Map.get(policy.encoder_options, format)

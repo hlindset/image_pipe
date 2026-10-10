@@ -4,7 +4,6 @@ defmodule ImagePipe.Output.PolicyIdentityTest do
 
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Resolved
-  alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Output.QualitySearch
 
   defp base_policy do
@@ -90,7 +89,6 @@ defmodule ImagePipe.Output.PolicyIdentityTest do
           keep_copyright: false,
           color_profile: :keep,
           hdr: :preserve,
-          flatten_background: Color.white(),
           max_bytes: 1000,
           dpi: 300,
           quality_search: :none,
@@ -109,7 +107,6 @@ defmodule ImagePipe.Output.PolicyIdentityTest do
       assert Keyword.fetch!(material, :color_profile) == :keep
       assert Keyword.fetch!(material, :hdr) == :preserve
       assert Keyword.fetch!(material, :quality_search) == :none
-      assert Keyword.fetch!(material, :flatten_background) == Color.key_data(Color.white())
       assert Keyword.fetch!(material, :encoder_options) == %{}
     end
 

@@ -20,6 +20,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Processed images cached by an earlier version are not reused, because the
+  cache key changed. The cache refills as requests come in.
 - Requests for PNG and other sources that need no shrink-on-load open the
   source once instead of twice, which saves about 0.3 ms per request.
 - A custom detector's `identity/1`, `available?/1`, and `ready?/1` receive only

@@ -314,7 +314,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Response.CacheHeaders,
       ImagePipe.Response.CachePolicy,
       ImagePipe.Response.Conditional,
-      ImagePipe.Response.Discard,
       ImagePipe.Response.ErrorStatus,
       ImagePipe.Response.Sender
     ])

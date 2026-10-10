@@ -16,7 +16,6 @@ defmodule ImagePipe.Response do
       CacheHeaders,
       CachePolicy,
       Conditional,
-      Discard,
       CORS,
       ErrorStatus,
       Sender
