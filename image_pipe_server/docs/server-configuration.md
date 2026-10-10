@@ -193,7 +193,7 @@ One table per source. The table name is the source's name. Besides
 | `verify` | `"stat"` or `"hash"` | `"stat"` |
 | `copy` | `"none"` or `"keep"` | `"none"` |
 | `stable` | `"auto"` or `"immutable"` | `"auto"` |
-| `internal_cache` | `"auto"` or `"enabled"` or `"disabled"` | `"auto"` |
+| `internal_cache` | `"enabled"` or `"disabled"` | `"enabled"` |
 | `http_cache` | `"inherit"` or `"validators"` or `"auto"` or `"public"` or `"private"` | `"inherit"` |
 | `cache_policy.storage` | `"origin"` or `"allow"` or `"deny"` |  |
 | `cache_policy.freshness` | `"origin"` or `{ fallback = … }` or `{ force = … }` (integer ≥ 0) |  |
@@ -211,7 +211,7 @@ One table per source. The table name is the source's name. Besides
 | `pool_timeout` | integer ≥ 0 |  |
 | `max_redirects` | integer ≥ 0 | `0` |
 | `stable` | `"auto"` or `"immutable"` | `"auto"` |
-| `internal_cache` | `"auto"` or `"enabled"` or `"disabled"` | `"auto"` |
+| `internal_cache` | `"enabled"` or `"disabled"` | `"enabled"` |
 | `http_cache` | `"inherit"` or `"validators"` or `"auto"` or `"public"` or `"private"` | `"inherit"` |
 | `cache_policy.storage` | `"origin"` or `"allow"` or `"deny"` |  |
 | `cache_policy.freshness` | `"origin"` or `{ fallback = … }` or `{ force = … }` (integer ≥ 0) |  |
@@ -243,7 +243,7 @@ Elixir only: `req_options`, `address_resolver`.
 | `connect_timeout` | integer ≥ 0 |  |
 | `pool_timeout` | integer ≥ 0 |  |
 | `stable` | `"auto"` or `"immutable"` | `"auto"` |
-| `internal_cache` | `"auto"` or `"enabled"` or `"disabled"` | `"auto"` |
+| `internal_cache` | `"enabled"` or `"disabled"` | `"enabled"` |
 | `http_cache` | `"inherit"` or `"validators"` or `"auto"` or `"public"` or `"private"` | `"inherit"` |
 | `cache_policy.storage` | `"origin"` or `"allow"` or `"deny"` |  |
 | `cache_policy.freshness` | `"origin"` or `{ fallback = … }` or `{ force = … }` (integer ≥ 0) |  |
