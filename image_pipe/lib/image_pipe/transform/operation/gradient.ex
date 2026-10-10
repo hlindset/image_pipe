@@ -7,8 +7,6 @@ defmodule ImagePipe.Transform.Operation.Gradient do
   # `angle` is canonical clockwise degrees (0=down, 90=left, 180=up, 270=right).
   @moduledoc false
 
-  use ImagePipe.Transform
-
   import ImagePipe.Transform.State
 
   alias ImagePipe.Transform.DirectionalMask
@@ -30,10 +28,6 @@ defmodule ImagePipe.Transform.Operation.Gradient do
           stop: float()
         }
 
-  @impl ImagePipe.Transform
-  def name(%__MODULE__{}), do: :gradient
-
-  @impl ImagePipe.Transform
   def execute(%__MODULE__{} = op, %State{} = state) do
     case apply_gradient(state.image, op) do
       {:ok, image} -> {:ok, set_image(state, image)}

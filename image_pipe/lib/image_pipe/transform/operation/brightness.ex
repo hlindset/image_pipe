@@ -3,8 +3,6 @@ defmodule ImagePipe.Transform.Operation.Brightness do
   # (imgproxy `brightness`, integer -255..255), scaled to the image's band format.
   @moduledoc false
 
-  use ImagePipe.Transform
-
   import ImagePipe.Transform.State
 
   alias ImagePipe.Transform.Alpha
@@ -18,10 +16,6 @@ defmodule ImagePipe.Transform.Operation.Brightness do
 
   @type t :: %__MODULE__{value: integer()}
 
-  @impl ImagePipe.Transform
-  def name(%__MODULE__{}), do: :brightness
-
-  @impl ImagePipe.Transform
   def execute(%__MODULE__{value: value}, %State{} = state) do
     case apply_brightness(state.image, value) do
       {:ok, image} -> {:ok, set_image(state, image)}

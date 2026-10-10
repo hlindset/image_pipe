@@ -2,8 +2,6 @@ defmodule ImagePipe.Transform.Operation.Padding do
   # Executable edge padding operation.
   @moduledoc false
 
-  use ImagePipe.Transform
-
   alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.State
 
@@ -17,10 +15,6 @@ defmodule ImagePipe.Transform.Operation.Padding do
           left: non_neg_integer()
         }
 
-  @impl ImagePipe.Transform
-  def name(%__MODULE__{}), do: :padding
-
-  @impl ImagePipe.Transform
   def execute(%__MODULE__{top: 0, right: 0, bottom: 0, left: 0}, %State{} = state),
     do: {:ok, state}
 

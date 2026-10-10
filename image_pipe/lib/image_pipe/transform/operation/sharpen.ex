@@ -2,8 +2,6 @@ defmodule ImagePipe.Transform.Operation.Sharpen do
   # Executable sharpen operation.
   @moduledoc false
 
-  use ImagePipe.Transform
-
   import ImagePipe.Transform.State
 
   alias ImagePipe.Transform.Operation.AlphaPremultiply
@@ -17,10 +15,6 @@ defmodule ImagePipe.Transform.Operation.Sharpen do
 
   @type t :: %__MODULE__{sigma: float()}
 
-  @impl ImagePipe.Transform
-  def name(%__MODULE__{}), do: :sharpen
-
-  @impl ImagePipe.Transform
   def execute(%__MODULE__{sigma: sigma}, %State{} = state) do
     case AlphaPremultiply.with_alpha_premultiplied(state.image, &sharpen(&1, sigma)) do
       {:ok, image} -> {:ok, set_image(state, image)}

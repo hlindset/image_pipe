@@ -2,8 +2,6 @@ defmodule ImagePipe.Transform.Operation.Background do
   # Executable background composition operation.
   @moduledoc false
 
-  use ImagePipe.Transform
-
   import ImagePipe.Transform.State
 
   alias ImagePipe.Transform.Alpha
@@ -21,10 +19,6 @@ defmodule ImagePipe.Transform.Operation.Background do
   @type rgba :: [0..255]
   @type t :: %__MODULE__{color: rgba()}
 
-  @impl ImagePipe.Transform
-  def name(%__MODULE__{}), do: :background
-
-  @impl ImagePipe.Transform
   def execute(%__MODULE__{color: [red, green, blue, 255]}, %State{} = state) do
     case flatten(state.image, [red, green, blue]) do
       {:ok, image} -> {:ok, set_image(state, image)}

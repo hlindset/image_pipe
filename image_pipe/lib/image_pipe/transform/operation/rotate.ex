@@ -4,14 +4,12 @@ defmodule ImagePipe.Transform.Operation.Rotate do
   # Non-alpha output formats flatten the corners onto
   # `Output.Policy.flatten_background` at encoding.
   #
-  # Rotation reads pixels out of row order, so `requires_materialization?: true`
-  # makes `ImagePipe.Transform.run/3` copy the input to RAM first. The executor
+  # Rotation reads pixels out of row order, so the executor's step table
+  # (`Executor.Step.random_access?/1`) copies the input to RAM first. The executor
   # flushes pending orientation before this operation so it sees display-frame pixels.
   # The result stays lazy until a downstream resize buffers it, avoiding repeated
   # affine evaluation while allowing crop-only requests to evaluate a small region.
   @moduledoc false
-
-  use ImagePipe.Transform
 
   import ImagePipe.Transform.State, only: [set_image: 2]
 
@@ -23,13 +21,6 @@ defmodule ImagePipe.Transform.Operation.Rotate do
 
   @type t :: %__MODULE__{angle: number()}
 
-  @impl ImagePipe.Transform
-  def name(%__MODULE__{}), do: :rotate
-
-  @impl ImagePipe.Transform
-  def requires_materialization?(%__MODULE__{}), do: true
-
-  @impl ImagePipe.Transform
   def execute(%__MODULE__{angle: angle}, %State{} = state) do
     case rotate(state.image, angle) do
       {:ok, image} ->

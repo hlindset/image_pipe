@@ -11,10 +11,6 @@ defmodule ImagePipe.Transform.Operation.BitonalTest do
     %State{image: image}
   end
 
-  test "name/1 is :bitonal" do
-    assert Bitonal.name(%Bitonal{}) == :bitonal
-  end
-
   test "thresholds to pure black/white: every sampled luminance is 0 or 255" do
     {:ok, %State{image: out}} = Bitonal.execute(%Bitonal{}, state_from(@rgb))
     {w, h} = {Image.width(out), Image.height(out)}

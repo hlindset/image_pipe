@@ -1,8 +1,9 @@
 defmodule ImagePipe.Transform do
-  # Operation behaviour and single-operation execution.
+  # The transform boundary, and detector resolution for the request.
   #
-  # Operations provide a stable name and execute over `ImagePipe.Transform.State`.
-  # `run/3` handles telemetry, materialization, and errors. The executor owns order.
+  # Operations are typed parameter structs with an `execute/2` over
+  # `ImagePipe.Transform.State`. The executor owns their order, stage names and
+  # materialization (`ImagePipe.Transform.Executor.Step`).
   @moduledoc false
 
   use Boundary,
@@ -21,90 +22,7 @@ defmodule ImagePipe.Transform do
       PendingOrientation
     ]
 
-  alias ImagePipe.Telemetry
   alias ImagePipe.Transform.Detector
-  alias ImagePipe.Transform.Materializer
-  alias ImagePipe.Transform.State
-  alias ImagePipe.Transform.WorkLimits
-
-  @type operation() :: struct()
-
-  @callback name(operation()) :: atom()
-  @callback execute(operation(), State.t()) :: {:ok, State.t()} | {:error, term()}
-  @callback requires_materialization?(operation()) :: boolean()
-
-  defmacro __using__(_opts) do
-    quote do
-      @behaviour ImagePipe.Transform
-
-      @impl ImagePipe.Transform
-      def requires_materialization?(_operation), do: false
-
-      defoverridable requires_materialization?: 1
-    end
-  end
-
-  @doc """
-  Runs one operation, materializing first when it requires random pixel access.
-
-  Emits a `[:transform, :operation]` span with the operation name, parameters,
-  outcome, and resulting dimensions. libvips defers most pixel work, so this
-  span measures pipeline construction plus any materialization it triggers.
-
-  Returns transform failures as `{:error, {:transform, reason}}` and
-  materialization failures as `{:error, {:decode, reason}}`. Programmer errors
-  propagate through the span unchanged.
-  """
-  @spec run(State.t(), operation(), keyword()) ::
-          {:ok, State.t()} | {:error, {:transform, term()} | {:decode, term()}}
-  def run(%State{} = state, %module{} = operation, opts \\ []) do
-    Telemetry.span(
-      Telemetry.telemetry_opts(opts),
-      [:transform, :operation],
-      %{operation: module.name(operation), params: operation},
-      fn ->
-        result =
-          with {:ok, state} <- prepare(state, operation) do
-            module.execute(operation, state)
-          end
-
-        {operation_result(result), stop_metadata(result)}
-      end
-    )
-  end
-
-  defp prepare(%State{} = state, %module{} = operation) do
-    case module.requires_materialization?(operation) do
-      false -> {:ok, state}
-      true -> materialize(state)
-    end
-  end
-
-  defp materialize(%State{materialized?: true} = state) do
-    case WorkLimits.check(state) do
-      :ok -> {:ok, state}
-      {:error, reason} -> {:error, {:materialize_error, reason}}
-    end
-  end
-
-  defp materialize(state) do
-    case Materializer.materialize(state) do
-      {:ok, state} -> {:ok, state}
-      {:error, reason} -> {:error, {:materialize_error, reason}}
-    end
-  end
-
-  defp operation_result({:ok, state}), do: {:ok, state}
-
-  defp operation_result({:error, {:materialize_error, reason}}),
-    do: {:error, Materializer.error(reason)}
-
-  defp operation_result({:error, reason}), do: {:error, {:transform, reason}}
-
-  defp stop_metadata({:ok, %State{image: image}}),
-    do: %{result: :ok, dims: {Image.width(image), Image.height(image)}}
-
-  defp stop_metadata({:error, _reason}), do: %{result: :error}
 
   @default_detector ImagePipe.Transform.Detector.Composite
 

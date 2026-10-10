@@ -5,8 +5,6 @@ defmodule ImagePipe.Transform.Operation.Bitonal do
   # keeping soft transparency. This per-pixel operation is sequential-safe.
   @moduledoc false
 
-  use ImagePipe.Transform
-
   import ImagePipe.Transform.State
 
   alias ImagePipe.Transform.State
@@ -20,10 +18,6 @@ defmodule ImagePipe.Transform.Operation.Bitonal do
 
   @threshold 128
 
-  @impl ImagePipe.Transform
-  def name(%__MODULE__{}), do: :bitonal
-
-  @impl ImagePipe.Transform
   def execute(%__MODULE__{}, %State{} = state) do
     with {:ok, state} <- WorkingColor.to_srgb_frame(state),
          {:ok, image} <- to_bitonal(state.image) do

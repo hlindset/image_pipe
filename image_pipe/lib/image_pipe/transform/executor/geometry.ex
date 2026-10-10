@@ -3,6 +3,7 @@ defmodule ImagePipe.Transform.Executor.Geometry do
 
   import ImagePipe.Transform.Geometry, only: [round_ties_to_even: 1]
 
+  alias ImagePipe.Transform.Executor.Step
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Orientation
   alias ImagePipe.Transform.PendingOrientation
@@ -165,7 +166,7 @@ defmodule ImagePipe.Transform.Executor.Geometry do
 
   @spec compensate_crop(Crop.t(), PendingOrientation.t()) :: Crop.t()
   def compensate_crop(%Crop{crop_from: :gravity} = crop, pending) do
-    if Crop.requires_materialization?(crop) do
+    if Step.random_access?(crop) do
       crop
     else
       crop

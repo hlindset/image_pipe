@@ -6,8 +6,6 @@ defmodule ImagePipe.Transform.Operation.ProgressiveBlur do
   # differently sized convolution windows revisit its pixels.
   @moduledoc false
 
-  use ImagePipe.Transform
-
   alias ImagePipe.Transform.DirectionalMask
   alias ImagePipe.Transform.Operation.AlphaPremultiply
   alias ImagePipe.Transform.Operation.GaussianBlur
@@ -22,13 +20,6 @@ defmodule ImagePipe.Transform.Operation.ProgressiveBlur do
 
   @type t :: %__MODULE__{sigma: float(), angle: float(), start: float(), stop: float()}
 
-  @impl ImagePipe.Transform
-  def name(%__MODULE__{}), do: :progressive_blur
-
-  @impl ImagePipe.Transform
-  def requires_materialization?(%__MODULE__{}), do: true
-
-  @impl ImagePipe.Transform
   def execute(%__MODULE__{} = op, %State{} = state) do
     case apply_blur(state.image, op) do
       {:ok, image} -> {:ok, State.set_image(state, image)}

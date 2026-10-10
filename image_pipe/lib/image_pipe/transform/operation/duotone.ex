@@ -2,8 +2,6 @@ defmodule ImagePipe.Transform.Operation.Duotone do
   # Executable two-color luminance mapping operation.
   @moduledoc false
 
-  use ImagePipe.Transform
-
   import ImagePipe.Transform.State
 
   alias ImagePipe.Transform.Alpha
@@ -27,10 +25,6 @@ defmodule ImagePipe.Transform.Operation.Duotone do
           highlight: [0..255]
         }
 
-  @impl ImagePipe.Transform
-  def name(%__MODULE__{}), do: :duotone
-
-  @impl ImagePipe.Transform
   def execute(
         %__MODULE__{intensity: intensity, shadow: shadow, highlight: highlight},
         %State{} = state

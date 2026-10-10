@@ -2,8 +2,6 @@ defmodule ImagePipe.Transform.Operation.Pixelate do
   # Executable pixelation operation.
   @moduledoc false
 
-  use ImagePipe.Transform
-
   import ImagePipe.Transform.Geometry
   import ImagePipe.Transform.State
 
@@ -17,10 +15,6 @@ defmodule ImagePipe.Transform.Operation.Pixelate do
 
   @type t :: %__MODULE__{size: pos_integer()}
 
-  @impl ImagePipe.Transform
-  def name(%__MODULE__{}), do: :pixelate
-
-  @impl ImagePipe.Transform
   def execute(%__MODULE__{size: size}, %State{} = state) do
     width = image_width(state)
     height = image_height(state)

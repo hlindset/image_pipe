@@ -16,6 +16,7 @@ defmodule ImagePipe.Transform.Executor do
   alias ImagePipe.Transform.Alpha
   alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.Executor.Geometry
+  alias ImagePipe.Transform.Executor.Step
   alias ImagePipe.Transform.GrayFrame
   alias ImagePipe.Transform.InputColorManagement
   alias ImagePipe.Transform.Materializer
@@ -186,7 +187,7 @@ defmodule ImagePipe.Transform.Executor do
     # The encoder converts the tiny frame's color and drops its profile, so
     # buffer it as LQIP CSS does.
     with {:ok, state} <-
-           Transform.run(state, %Resize{width: target.width, height: target.height}, opts) do
+           Step.run(state, %Resize{width: target.width, height: target.height}, opts) do
       case Materializer.materialize(state) do
         {:ok, state} -> {:ok, state}
         {:error, reason} -> {:error, Materializer.error(reason)}
@@ -195,7 +196,7 @@ defmodule ImagePipe.Transform.Executor do
   end
 
   def reduce_terminal(%State{} = state, %Output{terminal: :lqip_css}, opts) do
-    with {:ok, state} <- Transform.run(state, %Resize{width: 3, height: 3}, opts) do
+    with {:ok, state} <- Step.run(state, %Resize{width: 3, height: 3}, opts) do
       # The encoder samples pixels separately, so buffer only its tiny working frame.
       case Materializer.materialize(state) do
         {:ok, state} -> {:ok, state}
@@ -256,7 +257,7 @@ defmodule ImagePipe.Transform.Executor do
   defp execute_rotate(%State{} = state, angle, opts) do
     with {:ok, state} <- flush_display(state),
          frame = state.source_dimensions,
-         {:ok, state} <- Transform.run(state, %Rotate{angle: angle}, opts) do
+         {:ok, state} <- Step.run(state, %Rotate{angle: angle}, opts) do
       {:ok, rotated_source_frame(state, frame, angle)}
     end
   end
@@ -291,7 +292,7 @@ defmodule ImagePipe.Transform.Executor do
 
   defp execute_trim(state, %Group{} = group, opts) do
     with {:ok, state} <- flush_display(state),
-         {:ok, state} <- Transform.run(state, trim_op(group.trim, group.trim_symmetry), opts) do
+         {:ok, state} <- Step.run(state, trim_op(group.trim, group.trim_symmetry), opts) do
       {:ok, Geometry.clear_source_frame(state)}
     end
   end
@@ -320,14 +321,14 @@ defmodule ImagePipe.Transform.Executor do
       end
 
     with {:ok, state} <- maybe_flush_tagged(state),
-         {:ok, state} <- Transform.run(state, crop, opts) do
+         {:ok, state} <- Step.run(state, crop, opts) do
       {:ok, Geometry.clear_source_frame(state)}
     end
   end
 
   defp execute_crop(%State{} = state, %Group{} = group, opts) do
     crop = guided_crop(group, Geometry.display_effective_dims(state))
-    materializing? = Crop.requires_materialization?(crop)
+    materializing? = Step.random_access?(crop)
 
     case {Geometry.pending_class(state), materializing?} do
       {:pending, true} ->
@@ -340,7 +341,7 @@ defmodule ImagePipe.Transform.Executor do
           )
 
         with {:ok, state} <- flush_display(state),
-             {:ok, state} <- Transform.run(state, crop, opts) do
+             {:ok, state} <- Step.run(state, crop, opts) do
           {:ok, Geometry.clear_source_frame(state)}
         end
 
@@ -352,7 +353,7 @@ defmodule ImagePipe.Transform.Executor do
           |> Geometry.rescale_crop(Geometry.orient_decode_shrink(state.decode_shrink, pending))
           |> Geometry.compensate_crop(pending)
 
-        with {:ok, state} <- Transform.run(state, crop, opts) do
+        with {:ok, state} <- Step.run(state, crop, opts) do
           {:ok, Geometry.clear_source_frame(state)}
         end
 
@@ -360,19 +361,19 @@ defmodule ImagePipe.Transform.Executor do
         state = %State{state | pending_orientation: nil}
 
         with {:ok, state} <-
-               Transform.run(state, Geometry.rescale_crop(crop, state.decode_shrink), opts) do
+               Step.run(state, Geometry.rescale_crop(crop, state.decode_shrink), opts) do
           {:ok, Geometry.clear_source_frame(state)}
         end
 
       {:none, true} ->
         with {:ok, state} <-
-               Transform.run(state, Geometry.rescale_crop(crop, state.decode_shrink), opts) do
+               Step.run(state, Geometry.rescale_crop(crop, state.decode_shrink), opts) do
           {:ok, Geometry.clear_source_frame(state)}
         end
 
       {_none_or_identity, false} ->
         with {:ok, state} <-
-               Transform.run(state, Geometry.rescale_crop(crop, state.decode_shrink), opts) do
+               Step.run(state, Geometry.rescale_crop(crop, state.decode_shrink), opts) do
           {:ok, Geometry.clear_source_frame(state)}
         end
     end
@@ -400,14 +401,14 @@ defmodule ImagePipe.Transform.Executor do
         {resize, tail} =
           compensate_resize(resize, tail, pending)
 
-        with {:ok, state} <- Transform.run(state, resize, opts),
+        with {:ok, state} <- Step.run(state, resize, opts),
              {:ok, state} <- run_pending_tail(state, tail, opts),
              {:ok, state} <- flush_display(state) do
           {:ok, state, target.dpr}
         end
 
       _none_or_identity ->
-        with {:ok, state} <- Transform.run(state, resize, opts),
+        with {:ok, state} <- Step.run(state, resize, opts),
              {:ok, state} <- run_optional(state, tail, opts) do
           {:ok, state, target.dpr}
         end
@@ -444,9 +445,9 @@ defmodule ImagePipe.Transform.Executor do
   # `Geometry.compensate_crop/2` leaves a materializing result crop (smart or
   # detected) in display coordinates, so it runs after the orientation flush.
   defp run_pending_tail(state, %Crop{} = tail, opts) do
-    case Crop.requires_materialization?(tail) do
+    case Step.random_access?(tail) do
       true -> run_display_optional(state, tail, opts)
-      false -> Transform.run(state, tail, opts)
+      false -> Step.run(state, tail, opts)
     end
   end
 
@@ -456,7 +457,7 @@ defmodule ImagePipe.Transform.Executor do
 
   defp run_display_optional(state, operation, opts) do
     with {:ok, state} <- flush_display(state),
-         do: Transform.run(state, operation, opts)
+         do: Step.run(state, operation, opts)
   end
 
   defp execute_canvas(state, %Group{canvas: nil}, _dpr, _opts), do: {:ok, state}
@@ -479,7 +480,7 @@ defmodule ImagePipe.Transform.Executor do
         y_offset: canvas_offset(y, canvas_height, dpr)
       }
 
-      with {:ok, state} <- Transform.run(state, operation, opts) do
+      with {:ok, state} <- Step.run(state, operation, opts) do
         {:ok, Geometry.clear_source_frame(state)}
       end
     end
@@ -497,7 +498,7 @@ defmodule ImagePipe.Transform.Executor do
     }
 
     with {:ok, state} <- flush_display(state),
-         {:ok, state} <- Transform.run(state, operation, opts) do
+         {:ok, state} <- Step.run(state, operation, opts) do
       {:ok, Geometry.clear_source_frame(state)}
     end
   end
@@ -534,7 +535,7 @@ defmodule ImagePipe.Transform.Executor do
           {placement_length(gap_x, frame_width, dpr), placement_length(gap_y, frame_height, dpr)}
       }
 
-      Transform.run(state, operation, opts)
+      Step.run(state, operation, opts)
     end
   end
 
@@ -716,14 +717,14 @@ defmodule ImagePipe.Transform.Executor do
   end
 
   defp run_optional(state, nil, _opts), do: {:ok, state}
-  defp run_optional(state, operation, opts), do: Transform.run(state, operation, opts)
+  defp run_optional(state, operation, opts), do: Step.run(state, operation, opts)
 
   # Gray and bitonal convert a tagged frame through its profile and remove it.
   defp run_profile_optional(state, nil, _opts), do: {:ok, state}
 
   defp run_profile_optional(state, operation, opts) do
     with {:ok, state} <- materialize_tagged_frame(state),
-         do: Transform.run(state, operation, opts)
+         do: Step.run(state, operation, opts)
   end
 
   # A color effect converts a tagged gray frame to RGB through its profile.
@@ -732,7 +733,7 @@ defmodule ImagePipe.Transform.Executor do
   defp run_color_optional(%State{image: image} = state, operation, opts) do
     with {:ok, state} <-
            if(GrayFrame.gray?(image), do: materialize_tagged_frame(state), else: {:ok, state}),
-         do: Transform.run(state, operation, opts)
+         do: Step.run(state, operation, opts)
   end
 
   defp run_display_color_optional(state, nil, _opts), do: {:ok, state}
