@@ -23,21 +23,17 @@ defmodule ImagePipe.Source.S3.Credentials do
 
   def validate(_credentials), do: {:error, {:invalid_source_config, :invalid_credentials}}
 
-  @spec fetch(String.t(), term(), keyword()) ::
-          {:ok, keyword()} | source_error()
-  def fetch(_scope, {:static, credentials}, _runtime_opts) do
-    {:ok, credentials}
-  end
+  @spec fetch(String.t(), term()) :: {:ok, keyword()} | source_error()
+  def fetch(_scope, {:static, credentials}), do: {:ok, credentials}
 
-  def fetch(scope, {:provider, provider, opts}, _runtime_opts) do
+  def fetch(scope, {:provider, provider, opts}) do
     case RefreshCache.fetch(cache_key(provider, opts, scope), fetch_fun(provider, opts, scope)) do
       {:ok, credentials} -> {:ok, credentials}
       {:error, _reason} -> {:error, {:source, :credentials_unavailable}}
     end
   end
 
-  def fetch(_scope, _credentials, _runtime_opts),
-    do: {:error, {:source, :credentials_unavailable}}
+  def fetch(_scope, _credentials), do: {:error, {:source, :credentials_unavailable}}
 
   # Starts fetching provider credentials before any request needs them.
   @spec warm(String.t(), {:provider, module(), keyword()}) :: :ok | {:error, term()}
@@ -54,7 +50,7 @@ defmodule ImagePipe.Source.S3.Credentials do
   defp fetch_fun(provider, opts, scope), do: fn -> resolve_provider(provider, scope, opts) end
 
   defp resolve_provider(provider, scope, opts) do
-    case provider.fetch_credentials(scope, opts, []) do
+    case provider.fetch_credentials(scope, opts) do
       {:ok, credentials, expiry} -> normalize_with_expiry(credentials, expiry)
       {:error, reason} -> {:error, reason}
       _other -> {:error, :invalid_credential_provider_result}

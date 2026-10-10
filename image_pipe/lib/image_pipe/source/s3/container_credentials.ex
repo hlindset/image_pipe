@@ -118,7 +118,7 @@ defmodule ImagePipe.Source.S3.ContainerCredentials do
     do: host in ["localhost", "127.0.0.1", "::1", "169.254.170.2", "169.254.170.23"]
 
   @impl true
-  def fetch_credentials(_scope, opts, _runtime_opts) do
+  def fetch_credentials(_scope, opts) do
     with {:ok, url} <- resolve_url(opts),
          {:ok, headers} <- auth_headers(opts),
          {:ok, body} <- get(opts, url, headers) do

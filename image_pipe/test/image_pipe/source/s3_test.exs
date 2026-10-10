@@ -79,7 +79,7 @@ defmodule ImagePipe.Source.S3Test do
            ]
 
     refute inspect(resolved.identity) =~ "AKIA"
-    refute_received {:fetch_credentials, _, _, _}
+    refute_received {:fetch_credentials, _, _}
   end
 
   test "timeout configuration is validated and carried into fetch payload" do
@@ -174,7 +174,7 @@ defmodule ImagePipe.Source.S3Test do
                []
              )
 
-    refute_received {:fetch_credentials, _, _, _}
+    refute_received {:fetch_credentials, _, _}
 
     assert {:ok, %Response{} = response} =
              Source.fetch(
@@ -184,8 +184,8 @@ defmodule ImagePipe.Source.S3Test do
              )
 
     assert Enum.join(response.stream) == "image bytes"
-    assert_receive {:fetch_credentials, ^tenant_b, [role: "tenant-b"], []}
-    refute_received {:fetch_credentials, ^tenant_a, _, _}
+    assert_receive {:fetch_credentials, ^tenant_b, [role: "tenant-b"]}
+    refute_received {:fetch_credentials, ^tenant_a, _}
   end
 
   test "invalid credential configuration and endpoints fail during option validation" do
@@ -308,7 +308,7 @@ defmodule ImagePipe.Source.S3Test do
 
     assert {:ok, resolved} = Source.resolve(source, config, [])
     assert resolved.identity[:endpoint] == "https://minio.test"
-    refute_received {:fetch_credentials, _, _, _}
+    refute_received {:fetch_credentials, _, _}
 
     assert {:ok, %Response{} = response} =
              Source.fetch(
@@ -318,7 +318,7 @@ defmodule ImagePipe.Source.S3Test do
              )
 
     assert Enum.join(response.stream) == "image bytes"
-    assert_receive {:fetch_credentials, ^tenant, [role: "tenant-a"], []}
+    assert_receive {:fetch_credentials, ^tenant, [role: "tenant-a"]}
     assert_receive {:s3_request, headers, path, "versionId=abc"}
     assert path == "/#{tenant}/images/cat.jpg"
     assert {"authorization", authorization} = List.keyfind(headers, "authorization", 0)
@@ -557,7 +557,7 @@ defmodule ImagePipe.Source.S3Test do
       def validate_options(_opts), do: :ok
 
       @impl true
-      def fetch_credentials(_scope, _provider_opts, _runtime_opts),
+      def fetch_credentials(_scope, _provider_opts),
         do: {:error, {:source, :credentials_unavailable}}
     end
 

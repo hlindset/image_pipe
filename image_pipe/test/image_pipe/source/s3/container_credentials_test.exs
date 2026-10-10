@@ -15,7 +15,7 @@ defmodule ImagePipe.Source.S3.ContainerCredentialsTest do
 
     opts = [full_uri: "http://169.254.170.2/creds", auth_token: "Bearer abc", plug: plug]
 
-    assert {:ok, creds, expiry} = ContainerCredentials.fetch_credentials("b", opts, [])
+    assert {:ok, creds, expiry} = ContainerCredentials.fetch_credentials("b", opts)
     assert creds[:access_key_id] == "AKIAECS"
     assert creds[:token] == "sess"
     assert expiry == ~U[2026-06-26 12:00:00Z]
@@ -41,14 +41,14 @@ defmodule ImagePipe.Source.S3.ContainerCredentialsTest do
 
     for token <- ["first", "rotated"] do
       File.write!(path, token <> "\n")
-      assert {:ok, _creds, _expiry} = ContainerCredentials.fetch_credentials("b", opts, [])
+      assert {:ok, _creds, _expiry} = ContainerCredentials.fetch_credentials("b", opts)
       assert_received {:authorization, [^token]}
     end
 
     File.rm!(path)
 
     assert {:error, :container_token_unreadable} =
-             ContainerCredentials.fetch_credentials("b", opts, [])
+             ContainerCredentials.fetch_credentials("b", opts)
   end
 
   test "joins the relative URI to the ECS base" do
@@ -59,7 +59,7 @@ defmodule ImagePipe.Source.S3.ContainerCredentialsTest do
     end
 
     opts = [relative_uri: "/v2/credentials/abc", plug: plug]
-    assert {:ok, _creds, _expiry} = ContainerCredentials.fetch_credentials("b", opts, [])
+    assert {:ok, _creds, _expiry} = ContainerCredentials.fetch_credentials("b", opts)
   end
 
   test "rejects relative URI values that can extend the metadata authority" do
@@ -71,7 +71,7 @@ defmodule ImagePipe.Source.S3.ContainerCredentialsTest do
 
   test "errors when no URI is configured" do
     assert {:error, :container_uri_missing} =
-             ContainerCredentials.fetch_credentials("b", [], [])
+             ContainerCredentials.fetch_credentials("b", [])
   end
 
   test "returns an error on malformed credentials JSON" do
@@ -79,7 +79,7 @@ defmodule ImagePipe.Source.S3.ContainerCredentialsTest do
     opts = [full_uri: "http://169.254.170.2/creds", plug: plug]
 
     assert {:error, :container_invalid_credentials} =
-             ContainerCredentials.fetch_credentials("b", opts, [])
+             ContainerCredentials.fetch_credentials("b", opts)
   end
 
   test "validate_options enforces the full_uri loopback/https guard" do

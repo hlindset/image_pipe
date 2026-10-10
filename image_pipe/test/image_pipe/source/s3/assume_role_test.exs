@@ -16,7 +16,7 @@ defmodule ImagePipe.Source.S3.AssumeRoleTest do
     @impl true
     def validate_options(_opts), do: :ok
     @impl true
-    def fetch_credentials(_scope, _opts, _runtime), do: {:error, :no_base}
+    def fetch_credentials(_scope, _opts), do: {:error, :no_base}
   end
 
   defp sts_plug(capture) do
@@ -35,7 +35,7 @@ defmodule ImagePipe.Source.S3.AssumeRoleTest do
       plug: sts_plug(self())
     ]
 
-    assert {:ok, creds, expiry} = AssumeRole.fetch_credentials("my-bucket", opts, [])
+    assert {:ok, creds, expiry} = AssumeRole.fetch_credentials("my-bucket", opts)
     assert creds[:access_key_id] == "ASIAASSUMED"
     assert creds[:secret_access_key] == "assumedSecret"
     assert creds[:token] == "assumedSession"
@@ -58,7 +58,7 @@ defmodule ImagePipe.Source.S3.AssumeRoleTest do
     ]
 
     assert {:error, _reason} =
-             AssumeRole.fetch_credentials("bkt-#{System.unique_integer([:positive])}", opts, [])
+             AssumeRole.fetch_credentials("bkt-#{System.unique_integer([:positive])}", opts)
   end
 
   test "validate_options requires role_arn and region and validates the base" do

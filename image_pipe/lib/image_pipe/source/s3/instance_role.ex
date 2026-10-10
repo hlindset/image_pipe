@@ -59,7 +59,7 @@ defmodule ImagePipe.Source.S3.InstanceRole do
   # do NOT need the AWS SDK's "re-fetch token on 401" retry (the SDK needs it
   # because it caches the token across calls; we don't).
   @impl true
-  def fetch_credentials(_scope, opts, _runtime_opts) do
+  def fetch_credentials(_scope, opts) do
     with {:ok, token} <- imds_token(opts),
          {:ok, role} <- role_name(opts, token),
          {:ok, body} <- role_credentials(opts, token, role) do

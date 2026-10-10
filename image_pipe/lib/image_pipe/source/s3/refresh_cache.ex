@@ -33,30 +33,30 @@ defmodule ImagePipe.Source.S3.RefreshCache do
     Supervisor.init(children, strategy: :rest_for_one)
   end
 
-  @spec fetch(term(), (-> {:ok, term(), term()} | {:error, term()}), keyword()) ::
+  @spec fetch(term(), (-> {:ok, term(), term()} | {:error, term()})) ::
           {:ok, term()} | {:error, term()}
-  def fetch(key, fetch_fun, opts \\ []) when is_function(fetch_fun, 0) do
-    case fetch_entry(key, fetch_fun, opts) do
-      {:error, :retired} -> fetch_entry(key, fetch_fun, opts)
+  def fetch(key, fetch_fun) when is_function(fetch_fun, 0) do
+    case fetch_entry(key, fetch_fun) do
+      {:error, :retired} -> fetch_entry(key, fetch_fun)
       result -> result
     end
   end
 
   # Starts the entry, which fetches at once, without waiting for the value.
-  # The entry isn't retired for being idle before its first fetch/3.
-  @spec warm(term(), (-> {:ok, term(), term()} | {:error, term()}), keyword()) ::
+  # The entry isn't retired for being idle before its first fetch/2.
+  @spec warm(term(), (-> {:ok, term(), term()} | {:error, term()})) ::
           :ok | {:error, :cache_entry_unavailable}
-  def warm(key, fetch_fun, opts \\ []) when is_function(fetch_fun, 0) do
-    case ensure_entry(key, fetch_fun, Keyword.put(opts, :warm, true)) do
+  def warm(key, fetch_fun) when is_function(fetch_fun, 0) do
+    case ensure_entry(key, fetch_fun, warm: true) do
       {:ok, _server} -> :ok
       :error -> {:error, :cache_entry_unavailable}
     end
   end
 
-  defp fetch_entry(key, fetch_fun, opts) do
-    case ensure_entry(key, fetch_fun, opts) do
+  defp fetch_entry(key, fetch_fun) do
+    case ensure_entry(key, fetch_fun, []) do
       {:ok, server} ->
-        Entry.get(server, Keyword.get(opts, :call_timeout, @default_call_timeout))
+        Entry.get(server, @default_call_timeout)
 
       :error ->
         {:error, :cache_entry_unavailable}
@@ -70,13 +70,7 @@ defmodule ImagePipe.Source.S3.RefreshCache do
 
       [] ->
         entry_opts =
-          opts
-          |> Keyword.take([:refresh_margin_ms, :now_fun, :idle_interval_ms, :warm])
-          |> Keyword.merge(
-            key: key,
-            fetch_fun: fetch_fun,
-            name: {:via, Registry, {@registry, key}}
-          )
+          [key: key, fetch_fun: fetch_fun, name: {:via, Registry, {@registry, key}}] ++ opts
 
         case DynamicSupervisor.start_child(@supervisor, {Entry, entry_opts}) do
           {:ok, pid} ->

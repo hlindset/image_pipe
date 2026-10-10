@@ -36,7 +36,7 @@ defmodule ImagePipe.Source.S3.InstanceRoleTest do
 
     opts = [plug: imds_plug(creds_json)]
 
-    assert {:ok, creds, expiry} = InstanceRole.fetch_credentials("any-bucket", opts, [])
+    assert {:ok, creds, expiry} = InstanceRole.fetch_credentials("any-bucket", opts)
     assert creds[:access_key_id] == "AKIAIMDS"
     assert creds[:secret_access_key] == "shh"
     assert creds[:token] == "sess"
@@ -50,7 +50,7 @@ defmodule ImagePipe.Source.S3.InstanceRoleTest do
       File.read!("test/support/image_pipe/source_test/s3/recorded/imds_credentials.json")
 
     assert {:ok, creds, expiry} =
-             InstanceRole.fetch_credentials("any-bucket", [plug: imds_plug(creds_json)], [])
+             InstanceRole.fetch_credentials("any-bucket", plug: imds_plug(creds_json))
 
     assert creds[:access_key_id] == "12345678901"
     assert creds[:secret_access_key] == "v/12345678901"
@@ -62,7 +62,7 @@ defmodule ImagePipe.Source.S3.InstanceRoleTest do
     plug = fn conn -> Plug.Conn.send_resp(conn, 500, "boom") end
 
     assert {:error, :imds_token_unavailable} =
-             InstanceRole.fetch_credentials("b", [plug: plug], [])
+             InstanceRole.fetch_credentials("b", plug: plug)
   end
 
   test "returns an error when no role is attached to the instance" do
@@ -77,7 +77,7 @@ defmodule ImagePipe.Source.S3.InstanceRoleTest do
     end
 
     assert {:error, :imds_no_role} =
-             InstanceRole.fetch_credentials("b", [plug: plug], [])
+             InstanceRole.fetch_credentials("b", plug: plug)
   end
 
   test "returns an error on malformed credentials JSON" do
@@ -95,7 +95,7 @@ defmodule ImagePipe.Source.S3.InstanceRoleTest do
     end
 
     assert {:error, :imds_invalid_credentials} =
-             InstanceRole.fetch_credentials("b", [plug: plug], [])
+             InstanceRole.fetch_credentials("b", plug: plug)
   end
 
   test "parses a fractional-second expiration" do
@@ -116,7 +116,7 @@ defmodule ImagePipe.Source.S3.InstanceRoleTest do
     end
 
     assert {:ok, _creds, ~U[2026-06-26 12:00:00.123Z]} =
-             InstanceRole.fetch_credentials("b", [plug: plug], [])
+             InstanceRole.fetch_credentials("b", plug: plug)
   end
 
   test "validate_options rejects unknown options and accepts known ones" do
