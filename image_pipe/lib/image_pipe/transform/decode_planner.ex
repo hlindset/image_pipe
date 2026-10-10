@@ -28,7 +28,11 @@ defmodule ImagePipe.Transform.DecodePlanner do
   """
   @spec open_options(source_format(), {pos_integer(), pos_integer()}, target() | nil) ::
           keyword()
-  def open_options(source_format, {width, height}, target) when is_atom(source_format) do
+  # The guards state the domain: a zero or negative extent would otherwise give a
+  # ratio at or below 1 and silently decode at full size.
+  def open_options(source_format, {width, height}, target)
+      when is_atom(source_format) and is_integer(width) and width > 0 and
+             is_integer(height) and height > 0 do
     load_shrink =
       case target do
         nil -> 1.0
