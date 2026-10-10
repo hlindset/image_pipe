@@ -389,11 +389,11 @@ defmodule Mix.Tasks.Autoquality.Bench do
   alias ImagePipe.Output.ContentClassifier
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.EncodeSearch
-  alias ImagePipe.Output.Metric.Ssimulacra2, as: Ssim2Metric
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.RequestPolicy
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
+  alias ImagePipe.Output.Ssim2Metric
   alias ImagePipe.Output.Ssim2Metric.CropScore
   alias ImagePipe.Plug.Config, as: PlugConfig
   alias ImagePipe.Processing.Config, as: ProcessingConfig
