@@ -8,9 +8,9 @@ defmodule ImagePipe.Delivery.StreamPull do
   #
   #   * `ImagePipe.Delivery.Producer` runs the chunk-demand loop.
   #   * The runner pulls the first chunk inside its encode span to time libvips'
-  #     actual work, then gives pump a resume/2 enumerable that replays it.
+  #     actual work, then hands pump the chunk and the suspended stream.
   #
-  # first_chunk/1, continue/1, and resume/2 propagate stream failures. translate/1
+  # first_chunk/1 and continue/1 propagate stream failures. translate/1
   # converts them to shared error tags.
 
   alias ImagePipe.Source.StreamError
@@ -53,57 +53,6 @@ defmodule ImagePipe.Delivery.StreamPull do
     :ok
   catch
     _kind, _reason -> :ok
-  end
-
-  @doc """
-  An `Enumerable` that replays `first_chunk` (already pulled by the caller) and
-  then resumes `stream_state`.
-
-  Finalization of the underlying continuation happens exactly once, on every
-  exit path: a halt (from either the consumer's reducer or the consumer's own
-  `{:halt, acc}` demand) halts it; reaching the end does not, because a stream
-  that ran to `:done` finalized itself; and a raise does not, because the
-  exception already unwound through the underlying reduce, running its
-  finalizer on the way out. This is why it is a hand-rolled `Enumerable` and
-  not a `Stream.resource/3`: `Stream.resource/3` calls its `after_fun` with the
-  accumulator it was about to advance, so a raise from `continue/1` would halt
-  the continuation the raise had just spent, finalizing it a second time.
-  """
-  @spec resume(binary(), stream_state()) :: Enumerable.t()
-  def resume(first_chunk, stream_state) do
-    &resume_reduce({[first_chunk], stream_state}, &1, &2)
-  end
-
-  # State is `{chunks_to_replay, stream_state}`, so every clause below reaches
-  # the same live continuation and a halt finalizes it in one place.
-  defp resume_reduce({_replay, stream_state}, {:halt, acc}, _fun) do
-    halt(stream_state)
-    {:halted, acc}
-  end
-
-  defp resume_reduce(state, {:suspend, acc}, fun) do
-    {:suspended, acc, &resume_reduce(state, &1, fun)}
-  end
-
-  defp resume_reduce({[chunk | replay], stream_state}, {:cont, acc}, fun) do
-    emit(chunk, {replay, stream_state}, acc, fun)
-  end
-
-  defp resume_reduce({[], stream_state}, {:cont, acc}, fun) do
-    # A raise here has already finalized the underlying stream on its way out;
-    # it must propagate untouched, with no halt of the spent continuation.
-    case continue(stream_state) do
-      {:ok, chunk, stream_state} -> emit(chunk, {[], stream_state}, acc, fun)
-      :done -> {:done, acc}
-    end
-  end
-
-  defp emit(chunk, next_state, acc, fun) do
-    case fun.(chunk, acc) do
-      {:cont, acc} -> resume_reduce(next_state, {:cont, acc}, fun)
-      {:halt, acc} -> resume_reduce(next_state, {:halt, acc}, fun)
-      {:suspend, acc} -> {:suspended, acc, &resume_reduce(next_state, &1, fun)}
-    end
   end
 
   @doc """

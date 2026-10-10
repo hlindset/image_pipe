@@ -512,7 +512,7 @@ defmodule ImagePipe.APIErrorPathsTest do
       config = CacheObserver.observe([])
 
       assert {:ok, prepared} =
-               Delivery.stream(self(), build_fun, fake_cache_key(), config)
+               Delivery.stream(build_fun, fake_cache_key(), config)
 
       assert prepared.first_chunk == "a"
       refute_received :bracket_cleanup

@@ -7,7 +7,8 @@ defmodule ImagePipe.Delivery.Producer do
   # about decode/transform/encode): it is a 1-arity function that receives
   # `pump` and MUST call it exactly once, from inside its own nested brackets
   # (e.g. `ImagePipe.Decode.with_image/4`'s callback), once it has an encoder
-  # `Enumerable` ready — see `ImagePipe.Delivery`'s moduledoc for
+  # `Enumerable` ready, or has already pulled its first chunk
+  # (`{:started, chunk, stream_state}` from `StreamPull.first_chunk/1`) — see `ImagePipe.Delivery`'s moduledoc for
   # the bracket-containment invariant this enforces: the pump loop below runs
   # for as long as `build_fun` stays "inside" its own callback stack, so the
   # lazy image/encoder never escapes to another process.
@@ -30,7 +31,9 @@ defmodule ImagePipe.Delivery.Producer do
   alias ImagePipe.Telemetry.RequestContext
 
   @type pump_result :: {:reply, pid(), reference(), term()}
-  @type pump :: (Enumerable.t(), String.t(), term(), Info.t() | nil -> pump_result())
+  @type output ::
+          Enumerable.t() | {:started, binary(), StreamPull.stream_state()}
+  @type pump :: (output(), String.t(), term(), Info.t() | nil -> pump_result())
   @type build_fun :: (pump() -> pump_result() | {:error, term()})
 
   @spec start_link(build_fun(), RequestContext.t()) :: {:ok, pid()}
@@ -84,8 +87,8 @@ defmodule ImagePipe.Delivery.Producer do
   defp finish({:error, _reason} = result, caller, ref), do: send(caller, {ref, result})
   defp finish({:reply, caller, ref, result}, _caller, _ref), do: send(caller, {ref, result})
 
-  defp pump(stream, content_type, resolved_output, debug, caller, ref) do
-    case safe_reduce(stream) do
+  defp pump(output, content_type, resolved_output, debug, caller, ref) do
+    case first_chunk(output) do
       {:ok, chunk, stream_state} ->
         send(caller, {ref, {:ok, {:first_chunk, chunk, content_type, resolved_output, debug}}})
         pump_loop(stream_state)
@@ -121,7 +124,9 @@ defmodule ImagePipe.Delivery.Producer do
 
   # -- stream demand pull ---------------------------------------------------
 
-  defp safe_reduce(stream) do
+  defp first_chunk({:started, chunk, stream_state}), do: {:ok, chunk, stream_state}
+
+  defp first_chunk(stream) do
     StreamPull.translate(fn -> StreamPull.first_chunk(stream) end)
   end
 

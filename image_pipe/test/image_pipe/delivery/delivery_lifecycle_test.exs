@@ -119,7 +119,7 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
 
     owner =
       spawn(fn ->
-        result = Delivery.stream(self(), build_fun, nil, [])
+        result = Delivery.stream(build_fun, nil, [])
         send(parent, {:delivery, self(), result})
 
         receive do
@@ -134,7 +134,7 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
   describe "explicit cancel" do
     test "finalizes the suspended stream and stops the session" do
       assert {:ok, prepared} =
-               Delivery.stream(self(), build_fun(cleanup_stream()), nil, [])
+               Delivery.stream(build_fun(cleanup_stream()), nil, [])
 
       assert prepared.first_chunk == "first chunk"
       assert :ok = prepared.cancel.()
@@ -143,7 +143,7 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
 
     test "is idempotent — a second cancel after the session is gone still returns" do
       assert {:ok, prepared} =
-               Delivery.stream(self(), build_fun(cleanup_stream()), nil, [])
+               Delivery.stream(build_fun(cleanup_stream()), nil, [])
 
       assert :ok = prepared.cancel.()
       assert_receive {:stream_finalized, :second}
@@ -157,7 +157,6 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
     test "next yields each chunk then done, and the session is gone afterwards" do
       assert {:ok, prepared} =
                Delivery.stream(
-                 self(),
                  build_fun(["first chunk", "second chunk"]),
                  nil,
                  []
@@ -177,12 +176,12 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
       build_fun = fn _pump -> {:error, {:decode, :not_an_image}} end
 
       assert {:error, {:decode, :not_an_image}} =
-               Delivery.stream(self(), build_fun, nil, [])
+               Delivery.stream(build_fun, nil, [])
     end
 
     test "an empty encoder stream is a pre-response encode error" do
       assert {:error, {:encode, :empty_stream}} =
-               Delivery.stream(self(), build_fun([]), nil, [])
+               Delivery.stream(build_fun([]), nil, [])
     end
 
     test "a caller-supplied timeout on a wedged prepare is a tagged session timeout" do
@@ -207,7 +206,7 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
       build_fun = fn _pump -> {:error, {:decode, :not_an_image}} end
 
       assert {:error, {:decode, :not_an_image}} =
-               Delivery.stream(self(), build_fun, nil, [])
+               Delivery.stream(build_fun, nil, [])
 
       await_session_gone()
     end
@@ -282,7 +281,6 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
     test "replies to the pending caller before stopping" do
       assert {:ok, prepared} =
                Delivery.stream(
-                 self(),
                  build_fun(gated_second_chunk_stream()),
                  nil,
                  []
@@ -325,7 +323,6 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
     test "runs the producer's bracket cleanup exactly once on explicit cancel" do
       assert {:ok, prepared} =
                Delivery.stream(
-                 self(),
                  bracketed_build_fun(cleanup_stream()),
                  nil,
                  []
@@ -342,7 +339,6 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
     test "runs the producer's bracket cleanup exactly once on normal completion" do
       assert {:ok, prepared} =
                Delivery.stream(
-                 self(),
                  bracketed_build_fun(["first chunk", "second chunk"]),
                  nil,
                  []

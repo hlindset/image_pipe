@@ -37,8 +37,8 @@ defmodule ImagePipe.Delivery do
       ImagePipe.Source,
       ImagePipe.Telemetry
     ],
-    # The runner uses first_chunk/1 and resume/2 to keep the first pull inside
-    # its encode span, then hand the chunk to pump.
+    # The runner uses first_chunk/1 to keep the first pull inside its encode
+    # span, then hands the chunk to pump.
     exports: [PreparedStream, StreamPull]
 
   alias ImagePipe.Cache.Key
@@ -53,9 +53,8 @@ defmodule ImagePipe.Delivery do
   a `%ImagePipe.Delivery.PreparedStream{}` once the first encoded chunk is
   ready.
 
-  `conn_owner_pid` must be `self()`, the process running the plug request.
-  The coordinator monitors it for owner death. Both coordinator and producer
-  inherit the calling process's current trace context.
+  The calling process owns the session: the coordinator monitors it for owner
+  death. Both coordinator and producer inherit its current trace context.
 
   `cache_key` is `nil` when the request runner has no cache configured for
   this request; the session then simply stages nothing.
@@ -66,12 +65,11 @@ defmodule ImagePipe.Delivery do
   includes this debug data in the prepared stream and staged cache entry,
   adding measured generation cost as the `:total` timing.
   """
-  @spec stream(pid(), build_fun(), Key.t() | nil, keyword()) ::
+  @spec stream(build_fun(), Key.t() | nil, keyword()) ::
           {:ok, PreparedStream.t()} | {:error, term()}
-  def stream(conn_owner_pid, build_fun, cache_key, config)
-      when is_pid(conn_owner_pid) and is_function(build_fun, 1) and is_list(config) do
+  def stream(build_fun, cache_key, config) when is_function(build_fun, 1) and is_list(config) do
     {:ok, coordinator} =
-      Coordinator.start(build_fun, conn_owner_pid, cache_key, RequestContext.capture(), config)
+      Coordinator.start(build_fun, self(), cache_key, RequestContext.capture(), config)
 
     case Coordinator.prepare(coordinator, prepare_timeout(config)) do
       {:ok, prepared} -> {:ok, prepared_stream(coordinator, cache_key, prepared)}

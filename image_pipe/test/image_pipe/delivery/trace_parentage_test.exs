@@ -64,7 +64,6 @@ defmodule ImagePipe.Delivery.TraceParentageTest do
     Telemetry.span(Telemetry.telemetry_opts(config), [:request], %{}, fn ->
       {:ok, prepared} =
         Delivery.stream(
-          self(),
           build_fun(config),
           %Key{hash: String.duplicate("ab", 32), data: []},
           config

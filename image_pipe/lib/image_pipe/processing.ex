@@ -273,7 +273,7 @@ defmodule ImagePipe.Processing do
             timings: Map.put(prepared.timings, :encode, encode_us)
           })
 
-        pump.(StreamPull.resume(chunk, stream_state), content_type, resolved_output, debug)
+        pump.({:started, chunk, stream_state}, content_type, resolved_output, debug)
 
       {:empty, _microseconds} ->
         {:error, {:encode, :empty_stream}}
