@@ -1,6 +1,8 @@
 defmodule ImagePipeServer.ApplicationTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias ImagePipeServer.Application, as: App
   alias ImagePipeServer.Config
   alias ImagePipeServer.Health
@@ -18,6 +20,13 @@ defmodule ImagePipeServer.ApplicationTest do
       for path <- ["/health/live", "/health/ready"] do
         assert {:ok, %{status: 200, body: "ok"}} = Req.get(base <> path, retry: false)
       end
+    end
+
+    test "warms up every output format without a failure" do
+      log =
+        capture_log(fn -> assert ImagePipeServer.Warmup.run(ImagePipeServer.ImagePipe) == :ok end)
+
+      refute log =~ "warmup"
     end
 
     test "serves an image from the configured File mount", %{base: base} do
@@ -99,13 +108,15 @@ defmodule ImagePipeServer.ApplicationTest do
           ]
         )
 
-      assert [pool, instance, http] = App.children(config, Health.new())
+      assert [pool, instance, warmup, http, serving] = App.children(config, Health.new())
       assert {ImagePipe.ProcessingPool, pool_opts} = pool
       assert pool_opts[:max_concurrency] == 2
       assert {ImagePipe, instance_opts} = instance
       assert instance_opts[:config] == config.image_pipe
       assert instance_opts[:detector_warmup] == :all
+      assert {ImagePipeServer.Warmup, _instance} = warmup
       assert {Bandit, _opts} = http
+      assert %{id: :serving} = serving
     end
 
     test "gives each warmed S3 bucket its own child id" do
@@ -134,8 +145,21 @@ defmodule ImagePipeServer.ApplicationTest do
     end
 
     test "starts the processing pool, the ImagePipe instance and the listener by default" do
-      assert [{ImagePipe.ProcessingPool, _pool}, {ImagePipe, _instance}, {Bandit, _http}] =
-               App.children(Config.build!([]), Health.new())
+      assert [
+               {ImagePipe.ProcessingPool, _pool},
+               {ImagePipe, _instance},
+               {ImagePipeServer.Warmup, _warmup},
+               {Bandit, _http},
+               %{id: :serving}
+             ] = App.children(Config.build!([]), Health.new())
+    end
+
+    test "turns readiness on after the listener starts" do
+      drain = Health.new()
+      %{start: {module, function, args}} = List.last(App.children(Config.build!([]), drain))
+
+      assert apply(module, function, args) == :ignore
+      assert Health.serving?(drain)
     end
   end
 

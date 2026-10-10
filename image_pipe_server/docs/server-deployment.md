@@ -108,7 +108,7 @@ The server has two health checks:
 - `GET /health/live` answers `200 ok` while the server runs. Use it where a
   failed check restarts the server, such as a Kubernetes liveness probe.
 - `GET /health/ready` answers `200 ok` while the server takes traffic, and
-  `503` while it shuts down. Use it where a failed check stops traffic, such
+  `503` while it starts up and while it shuts down. Use it where a failed check stops traffic, such
   as a Kubernetes readiness probe, a proxy's active health check (Caddy,
   Traefik), or a platform that routes on Docker's health status, such as
   [uncloud](https://uncloud.run).
@@ -260,6 +260,15 @@ uses glibc when jemalloc can't load on the host, and logs a line saying so.
 With glibc, the server sets
 `MALLOC_ARENA_MAX=2`, which limits how much freed memory glibc keeps, unless
 you set it yourself.
+
+## Code loading
+
+The server loads its code when it first needs it rather than all at
+startup, which keeps about 140 MiB less in memory. Before it reports ready,
+it processes a small image in each output format, so requests don't wait for
+the image-processing code to load or for an encoder to start. The first
+request still takes a few tens of milliseconds longer than later ones. Set
+`RELEASE_MODE=embedded` to load everything at startup instead.
 
 ## Detection
 
