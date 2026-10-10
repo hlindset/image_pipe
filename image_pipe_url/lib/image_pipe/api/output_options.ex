@@ -4,13 +4,13 @@ defmodule ImagePipe.API.OutputOptions do
   alias ImagePipe.API.SerializedValue
   alias ImagePipe.API.Value
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
+  alias ImagePipe.Plan.ValueSpellings
 
-  @formats %{
-    "avif" => :avif,
-    "webp" => :webp,
-    "jpeg" => :jpeg,
-    "png" => :png
-  }
+  # URL value parsers for the output options, returning the diagnostic
+  # reason on failure. `unset,` in front of a table or encoder list clears
+  # what presets and request defaults set.
+
+  @formats ValueSpellings.spellings(:format)
 
   @encoder_modules %{
     jpeg: JpegOptions,
@@ -63,43 +63,56 @@ defmodule ImagePipe.API.OutputOptions do
 
   defp encoder_schema(format), do: Map.fetch!(@encoder_schemas, format)
 
-  @spec parse_format_qualities(String.t()) :: {:ok, map()} | :error
+  @spec parse_format_qualities(String.t()) ::
+          {:ok, qualities | {:unset, qualities}} | {:error, :invalid_format_qualities}
+        when qualities: %{optional(atom()) => {:quality, 1..100}}
   def parse_format_qualities(string) do
-    with {:ok, pairs} <- parse_unique_items(string, &format_quality_item/1) do
-      {:ok, Map.new(pairs)}
-    end
+    unset(string, :invalid_format_qualities, fn string ->
+      with {:ok, pairs} <- parse_unique_items(string, &format_quality_item/1),
+           do: {:ok, Map.new(pairs)}
+    end)
   end
 
-  @spec parse_autoquality(String.t()) :: {:ok, float()} | :error
+  @spec parse_autoquality(String.t()) :: {:ok, float()} | {:error, :invalid_autoquality}
   def parse_autoquality(string) do
     case Value.number(string) do
       {:ok, number} when number > 0 and number <= 100 -> {:ok, number * 1.0}
-      _invalid -> :error
+      _invalid -> {:error, :invalid_autoquality}
     end
   end
 
-  @spec parse_max_bytes(String.t()) :: {:ok, pos_integer()} | :error
-  def parse_max_bytes(string), do: positive_integer(string)
+  @spec parse_max_bytes(String.t()) :: {:ok, pos_integer()} | {:error, :invalid_max_bytes}
+  def parse_max_bytes(string) do
+    case positive_integer(string) do
+      {:ok, max_bytes} -> {:ok, max_bytes}
+      :error -> {:error, :invalid_max_bytes}
+    end
+  end
 
-  @spec parse_dpi(String.t()) :: {:ok, 1..65_535} | :error
+  @spec parse_dpi(String.t()) :: {:ok, 1..65_535} | {:error, :invalid_dpi}
   def parse_dpi(string) do
     case positive_integer(string) do
       {:ok, dpi} when dpi <= 65_535 -> {:ok, dpi}
-      _invalid -> :error
+      _invalid -> {:error, :invalid_dpi}
     end
   end
 
-  @spec parse_jpeg_options(String.t()) :: {:ok, JpegOptions.t()} | :error
-  def parse_jpeg_options(string), do: parse_codec(string, :jpeg)
+  def parse_jpeg_options(string), do: parse_encoder(string, :jpeg)
+  def parse_png_options(string), do: parse_encoder(string, :png)
+  def parse_webp_options(string), do: parse_encoder(string, :webp)
+  def parse_avif_options(string), do: parse_encoder(string, :avif)
 
-  @spec parse_png_options(String.t()) :: {:ok, PngOptions.t()} | :error
-  def parse_png_options(string), do: parse_codec(string, :png)
+  defp parse_encoder(string, format),
+    do: unset(string, :invalid_encoder_options, &parse_codec(&1, format))
 
-  @spec parse_webp_options(String.t()) :: {:ok, WebpOptions.t()} | :error
-  def parse_webp_options(string), do: parse_codec(string, :webp)
+  defp unset("unset," <> string, error, parse) do
+    with {:ok, value} <- tagged(parse.(string), error), do: {:ok, {:unset, value}}
+  end
 
-  @spec parse_avif_options(String.t()) :: {:ok, AvifOptions.t()} | :error
-  def parse_avif_options(string), do: parse_codec(string, :avif)
+  defp unset(string, error, parse), do: tagged(parse.(string), error)
+
+  defp tagged({:ok, value}, _error), do: {:ok, value}
+  defp tagged(:error, error), do: {:error, error}
 
   defp format_quality_item(item) do
     with [format, quality] <- String.split(item, ":", parts: 3),

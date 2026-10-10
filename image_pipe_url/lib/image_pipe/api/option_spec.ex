@@ -87,13 +87,13 @@ defmodule ImagePipe.API.OptionSpec do
         key: "w",
         name: :width,
         scope: :group,
-        value: &__MODULE__.parse_dimension/1
+        value: &Value.dimension/1
       },
       %__MODULE__{
         key: "h",
         name: :height,
         scope: :group,
-        value: &__MODULE__.parse_dimension/1
+        value: &Value.dimension/1
       },
       %__MODULE__{
         key: "min-w",
@@ -375,7 +375,7 @@ defmodule ImagePipe.API.OptionSpec do
         key: "format-q",
         name: :format_qualities,
         scope: :request,
-        value: &__MODULE__.parse_format_qualities/1
+        value: &OutputOptions.parse_format_qualities/1
       },
       %__MODULE__{
         key: "meta",
@@ -387,7 +387,7 @@ defmodule ImagePipe.API.OptionSpec do
         key: "dpi",
         name: :dpi,
         scope: :request,
-        value: &__MODULE__.parse_dpi/1
+        value: &OutputOptions.parse_dpi/1
       },
       %__MODULE__{
         key: "profile",
@@ -405,37 +405,37 @@ defmodule ImagePipe.API.OptionSpec do
         key: "autoquality",
         name: :autoquality,
         scope: :request,
-        value: {:flag, &__MODULE__.parse_autoquality/1}
+        value: {:flag, &OutputOptions.parse_autoquality/1}
       },
       %__MODULE__{
         key: "max-bytes",
         name: :max_bytes,
         scope: :request,
-        value: &__MODULE__.parse_max_bytes/1
+        value: &OutputOptions.parse_max_bytes/1
       },
       %__MODULE__{
         key: "jpeg-options",
         name: :jpeg_options,
         scope: :request,
-        value: &__MODULE__.parse_jpeg_options/1
+        value: &OutputOptions.parse_jpeg_options/1
       },
       %__MODULE__{
         key: "png-options",
         name: :png_options,
         scope: :request,
-        value: &__MODULE__.parse_png_options/1
+        value: &OutputOptions.parse_png_options/1
       },
       %__MODULE__{
         key: "webp-options",
         name: :webp_options,
         scope: :request,
-        value: &__MODULE__.parse_webp_options/1
+        value: &OutputOptions.parse_webp_options/1
       },
       %__MODULE__{
         key: "avif-options",
         name: :avif_options,
         scope: :request,
-        value: &__MODULE__.parse_avif_options/1
+        value: &OutputOptions.parse_avif_options/1
       },
       %__MODULE__{
         key: "filename",
@@ -491,22 +491,11 @@ defmodule ImagePipe.API.OptionSpec do
   end
 
   @doc false
-  @spec parse_dimension(String.t()) ::
-          {:ok, :auto | pos_integer()} | {:error, :invalid_dimension}
-  def parse_dimension(string) do
-    case Value.dimension(string) do
-      {:ok, :auto} -> {:ok, :auto}
-      {:ok, {:px, n}} -> {:ok, n}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  @doc false
   @spec parse_min_dimension(String.t()) ::
           {:ok, pos_integer()} | {:error, :invalid_min_dimension}
   def parse_min_dimension(string) do
     case Value.dimension(string) do
-      {:ok, {:px, n}} -> {:ok, n}
+      {:ok, n} when is_integer(n) -> {:ok, n}
       _invalid -> {:error, :invalid_min_dimension}
     end
   end
@@ -1179,64 +1168,6 @@ defmodule ImagePipe.API.OptionSpec do
     end
   end
 
-  @doc false
-  @spec parse_format_qualities(String.t()) ::
-          {:ok, qualities | {:unset, qualities}} | {:error, :invalid_format_qualities}
-        when qualities: %{optional(atom()) => {:quality, 1..100}}
-  def parse_format_qualities("unset," <> string) do
-    with {:ok, qualities} <- format_qualities(string), do: {:ok, {:unset, qualities}}
-  end
-
-  def parse_format_qualities(string), do: format_qualities(string)
-
-  defp format_qualities(string) do
-    case OutputOptions.parse_format_qualities(string) do
-      {:ok, qualities} -> {:ok, qualities}
-      :error -> {:error, :invalid_format_qualities}
-    end
-  end
-
-  @doc false
-  @spec parse_autoquality(String.t()) :: {:ok, float()} | {:error, :invalid_autoquality}
-  def parse_autoquality(string) do
-    case OutputOptions.parse_autoquality(string) do
-      {:ok, autoquality} -> {:ok, autoquality}
-      :error -> {:error, :invalid_autoquality}
-    end
-  end
-
-  @doc false
-  @spec parse_max_bytes(String.t()) :: {:ok, pos_integer()} | {:error, :invalid_max_bytes}
-  def parse_max_bytes(string) do
-    case OutputOptions.parse_max_bytes(string) do
-      {:ok, max_bytes} -> {:ok, max_bytes}
-      :error -> {:error, :invalid_max_bytes}
-    end
-  end
-
-  @doc false
-  @spec parse_dpi(String.t()) :: {:ok, 1..65_535} | {:error, :invalid_dpi}
-  def parse_dpi(string) do
-    case OutputOptions.parse_dpi(string) do
-      {:ok, dpi} -> {:ok, dpi}
-      :error -> {:error, :invalid_dpi}
-    end
-  end
-
-  @doc false
-  def parse_jpeg_options(string), do: parse_encoder_options(string, :jpeg)
-
-  @doc false
-  def parse_png_options(string), do: parse_encoder_options(string, :png)
-
-  @doc false
-  def parse_webp_options(string), do: parse_encoder_options(string, :webp)
-
-  @doc false
-  def parse_avif_options(string), do: parse_encoder_options(string, :avif)
-
-  @doc false
-
   defp parse_path_token(string, error) do
     case chars?(string, :token) do
       true -> {:ok, string}
@@ -1248,27 +1179,6 @@ defmodule ImagePipe.API.OptionSpec do
     case Map.fetch(values, string) do
       {:ok, value} -> {:ok, value}
       :error -> {:error, error}
-    end
-  end
-
-  defp parse_encoder_options("unset," <> string, format) do
-    with {:ok, options} <- encoder_options(string, format), do: {:ok, {:unset, options}}
-  end
-
-  defp parse_encoder_options(string, format), do: encoder_options(string, format)
-
-  defp encoder_options(string, format) do
-    parser =
-      case format do
-        :jpeg -> &OutputOptions.parse_jpeg_options/1
-        :png -> &OutputOptions.parse_png_options/1
-        :webp -> &OutputOptions.parse_webp_options/1
-        :avif -> &OutputOptions.parse_avif_options/1
-      end
-
-    case parser.(string) do
-      {:ok, options} -> {:ok, options}
-      :error -> {:error, :invalid_encoder_options}
     end
   end
 

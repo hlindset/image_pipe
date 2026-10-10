@@ -90,7 +90,7 @@ defmodule ImagePipe.API.ValueTest do
 
   describe "dimension/1" do
     test "rejects dimensions beyond the native axis range" do
-      assert Value.dimension("2147483647") == {:ok, {:px, 2_147_483_647}}
+      assert Value.dimension("2147483647") == {:ok, 2_147_483_647}
 
       for value <- ["2147483648", String.duplicate("9", 400)] do
         assert Value.dimension(value) == {:error, :invalid_dimension}
@@ -99,9 +99,9 @@ defmodule ImagePipe.API.ValueTest do
 
     valid = [
       {"auto", :auto},
-      {"1", {:px, 1}},
-      {"800", {:px, 800}},
-      {"007", {:px, 7}}
+      {"1", 1},
+      {"800", 800},
+      {"007", 7}
     ]
 
     for {input, expected} <- valid do
