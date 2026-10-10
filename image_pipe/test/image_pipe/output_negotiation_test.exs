@@ -129,6 +129,11 @@ defmodule ImagePipe.Output.NegotiationTest do
         assert Negotiation.modern_candidates("image/webp;q=#{q}", []) == [:webp], q
       end
     end
+
+    test "a comma inside a quoted parameter does not split the entry" do
+      assert Negotiation.modern_candidates(~s|image/webp;x="a,b";q=0, image/avif|, []) ==
+               [:avif]
+    end
   end
 
   describe "modern_candidates/3 capability filtering" do

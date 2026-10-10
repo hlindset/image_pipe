@@ -89,6 +89,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A comma inside a quoted `Accept` parameter, as in
+  `image/webp;x="a,b";q=0`, no longer splits the entry. The split dropped the
+  `q=0`, so ImagePipe could choose a format the client had excluded.
 - `input_cache` rejects `max_body_bytes` instead of ignoring it, and
   configuration fails with an unknown-option error. Remove the option from
   `input_cache`.
