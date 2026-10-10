@@ -13,7 +13,6 @@ defmodule ImagePipe.Decode do
   use Boundary,
     top_level?: true,
     deps: [
-      ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Plan,
       ImagePipe.Source,
@@ -27,7 +26,6 @@ defmodule ImagePipe.Decode do
   alias ImagePipe.Decode.SourceFormat
   alias ImagePipe.Decode.Streaming
   alias ImagePipe.Decode.WebpFrames
-  alias ImagePipe.Error
   alias ImagePipe.Format.Detector
   alias ImagePipe.Plan.Spec
   alias ImagePipe.Source
@@ -299,7 +297,11 @@ defmodule ImagePipe.Decode do
   # source failure is `:source_error`, and everything else (`{:decode, _}`,
   # `{:input_limit, _}`) is `:processing_error` with its taxonomy tag.
   defp error_stop_metadata({:decode, {:unsupported_source_format, family} = inner}),
-    do: %{result: :processing_error, error: Error.tag(inner), detected_source_format: family}
+    do: %{
+      result: :processing_error,
+      error: Telemetry.error_tag(inner),
+      detected_source_format: family
+    }
 
   defp error_stop_metadata({:input_limit, {:too_many_input_frames, _count, _max}}),
     do: %{result: :processing_error, error: :input_limit, limit: :frames}
@@ -310,7 +312,7 @@ defmodule ImagePipe.Decode do
   defp error_stop_metadata({:decode, {:unsupported_source_format, family, loader} = inner}) do
     %{
       result: :processing_error,
-      error: Error.tag(inner),
+      error: Telemetry.error_tag(inner),
       detected_source_format: family,
       source_loader: loader
     }
@@ -321,10 +323,10 @@ defmodule ImagePipe.Decode do
   end
 
   defp error_stop_metadata({:source, error}),
-    do: %{result: :source_error, error: Error.tag(error)}
+    do: %{result: :source_error, error: Telemetry.error_tag(error)}
 
   defp error_stop_metadata(error),
-    do: %{result: :processing_error, error: Error.tag(error)}
+    do: %{result: :processing_error, error: Telemetry.error_tag(error)}
 
   defp seed_state(image, storage_dimensions, decode_options, pending_orientation, opts) do
     source_dimensions = shrink_source_dimensions(decode_options, storage_dimensions)
@@ -584,7 +586,7 @@ defmodule ImagePipe.Decode do
         Telemetry.telemetry_opts(opts),
         [:debug, :collect, :error],
         %{},
-        %{error: Error.tag(exception)}
+        %{error: Telemetry.error_tag(exception)}
       )
 
       %{}

@@ -243,6 +243,14 @@ defmodule ImagePipe.Telemetry do
   def request_result({:error, _reason}), do: :processing_error
 
   @doc false
+  # The `:error` metadata value for a failure reason: its leading atom.
+  @spec error_tag(term()) :: atom()
+  def error_tag({tag, _value}) when is_atom(tag), do: tag
+  def error_tag({tag, _value, _extra}) when is_atom(tag), do: tag
+  def error_tag(tag) when is_atom(tag), do: tag
+  def error_tag(_reason), do: :error
+
+  @doc false
   @spec span(keyword(), [atom()], map() | keyword(), (-> term())) :: term()
   def span(telemetry_opts, stage, start_metadata, fun) when is_function(fun, 0) do
     do_span(telemetry_opts, stage, start_metadata, fn start_metadata ->

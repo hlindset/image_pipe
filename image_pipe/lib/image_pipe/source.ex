@@ -63,7 +63,6 @@ defmodule ImagePipe.Source do
   use Boundary,
     top_level?: true,
     deps: [
-      ImagePipe.Error,
       ImagePipe.MaterialDigest,
       ImagePipe.Plan,
       ImagePipe.SafePath,
@@ -89,7 +88,6 @@ defmodule ImagePipe.Source do
       S3.CredentialWarmup
     ]
 
-  alias ImagePipe.Error
   alias ImagePipe.Plan.Source, as: PlanSource
   alias ImagePipe.Plan.Source.Identity
   alias ImagePipe.Source.CachePolicy
@@ -556,5 +554,5 @@ defmodule ImagePipe.Source do
   defp result_metadata({:not_modified, _origin}), do: %{result: :not_modified}
 
   defp result_metadata({:error, {:source, error}}),
-    do: %{result: :source_error, error: Error.tag(error)}
+    do: %{result: :source_error, error: Telemetry.error_tag(error)}
 end

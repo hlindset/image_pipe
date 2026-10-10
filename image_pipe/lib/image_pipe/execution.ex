@@ -5,8 +5,8 @@ defmodule ImagePipe.Execution do
     deps: [
       ImagePipe.Cache,
       ImagePipe.Debug,
+      ImagePipe.Decode,
       ImagePipe.Delivery,
-      ImagePipe.Error,
       ImagePipe.MaterialDigest,
       ImagePipe.Output,
       ImagePipe.Plan,

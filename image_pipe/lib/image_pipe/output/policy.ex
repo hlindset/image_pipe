@@ -1,7 +1,6 @@
 defmodule ImagePipe.Output.Policy do
   @moduledoc false
 
-  alias ImagePipe.Error
   alias ImagePipe.Format
   alias ImagePipe.Output.Capabilities
   alias ImagePipe.Output.Resolved
@@ -320,7 +319,7 @@ defmodule ImagePipe.Output.Policy do
     do: %{result: :ok, output_format: format}
 
   defp stop_metadata({:error, reason}),
-    do: %{result: :output_error, error: Error.tag(reason)}
+    do: %{result: :output_error, error: Telemetry.error_tag(reason)}
 
   defp quality_search_identity(:none), do: :none
 

@@ -58,7 +58,6 @@ defmodule ImagePipe.Plug do
     deps: [
       ImagePipe.API,
       ImagePipe.Config,
-      ImagePipe.Error,
       ImagePipe.Execution,
       ImagePipe.Output,
       ImagePipe.Plan,

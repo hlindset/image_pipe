@@ -3,7 +3,6 @@ defmodule ImagePipe.Run do
 
   alias ImagePipe.API.Parser
   alias ImagePipe.Config
-  alias ImagePipe.Error
   alias ImagePipe.Execution
   alias ImagePipe.Execution.Inputs
   alias ImagePipe.Execution.Output
@@ -203,7 +202,7 @@ defmodule ImagePipe.Run do
   defp request_metadata({:error, reason} = error) do
     case Telemetry.request_result(error) do
       result when result in [:parser_error, :plan_error] -> %{result: result}
-      result -> %{result: result, error: Error.tag(reason)}
+      result -> %{result: result, error: Telemetry.error_tag(reason)}
     end
   end
 end

@@ -6,7 +6,6 @@ defmodule ImagePipe.Processing do
       ImagePipe.Debug,
       ImagePipe.Decode,
       ImagePipe.Delivery,
-      ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Output,
       ImagePipe.Plan,
@@ -19,7 +18,6 @@ defmodule ImagePipe.Processing do
   alias ImagePipe.Debug.Timing
   alias ImagePipe.Decode
   alias ImagePipe.Delivery.StreamPull
-  alias ImagePipe.Error
   alias ImagePipe.Format
   alias ImagePipe.Output.Clamp
   alias ImagePipe.Output.Encoder
@@ -132,8 +130,6 @@ defmodule ImagePipe.Processing do
 
   def resume_fun({:ok, prepared}, bytes, config), do: build_prepared(prepared, bytes, config)
   def resume_fun({:error, _} = error, _bytes, _config), do: fn _pump -> error end
-
-  def streamable_source?(prefix), do: Decode.streamable_source?(prefix)
 
   def prepare_download(request, source, policy, config) do
     started = System.monotonic_time(:microsecond)
@@ -355,7 +351,7 @@ defmodule ImagePipe.Processing do
   defp transform_stop_metadata({:ok, %State{}}), do: %{result: :ok}
 
   defp transform_stop_metadata({:error, error}),
-    do: %{result: :processing_error, error: Error.tag(error)}
+    do: %{result: :processing_error, error: Telemetry.error_tag(error)}
 
   defp pipeline_opts(%Policy{} = policy, geometry, config) do
     Keyword.put(
@@ -403,7 +399,7 @@ defmodule ImagePipe.Processing do
     do: %{result: :processing_error, output_format: format, error: :empty_stream}
 
   defp encode_stop_metadata({:error, reason}, format),
-    do: %{result: :processing_error, output_format: format, error: Error.tag(reason)}
+    do: %{result: :processing_error, output_format: format, error: Telemetry.error_tag(reason)}
 
   defp materialize_for_delivery(%State{materialized?: true} = state), do: {:ok, state}
 

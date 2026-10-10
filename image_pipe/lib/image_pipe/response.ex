@@ -7,7 +7,6 @@ defmodule ImagePipe.Response do
       ImagePipe.Cache,
       ImagePipe.Debug,
       ImagePipe.Delivery,
-      ImagePipe.Error,
       ImagePipe.Output,
       ImagePipe.Plan,
       ImagePipe.Representation,

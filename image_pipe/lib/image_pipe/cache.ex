@@ -6,7 +6,6 @@ defmodule ImagePipe.Cache do
     top_level?: true,
     deps: [
       ImagePipe.Debug,
-      ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Output,
       ImagePipe.SafePath,
@@ -35,7 +34,6 @@ defmodule ImagePipe.Cache do
   alias ImagePipe.Cache.Input
   alias ImagePipe.Cache.Key
   alias ImagePipe.Cache.Sink
-  alias ImagePipe.Error
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.Skipped
   alias ImagePipe.Telemetry
@@ -314,5 +312,5 @@ defmodule ImagePipe.Cache do
   defp entry_lookup_stop_metadata({:miss, %Key{}}), do: %{result: :ok, cache: :miss}
 
   defp entry_lookup_stop_metadata({:miss, %Key{}, {:cache_read, error}}),
-    do: %{result: :cache_error, cache: :read_error, error: Error.tag(error)}
+    do: %{result: :cache_error, cache: :read_error, error: Telemetry.error_tag(error)}
 end

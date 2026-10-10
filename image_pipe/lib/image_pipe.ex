@@ -30,7 +30,6 @@ defmodule ImagePipe do
       ImagePipe.Debug,
       ImagePipe.Decode,
       ImagePipe.Delivery,
-      ImagePipe.Error,
       ImagePipe.Execution,
       ImagePipe.Format,
       ImagePipe.Output,
