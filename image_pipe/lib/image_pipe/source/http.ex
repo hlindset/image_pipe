@@ -1,17 +1,17 @@
 defmodule ImagePipe.Source.HTTP do
   @behaviour ImagePipe.Source
 
-  alias ImagePipe.Plan.Source.Path, as: SourcePath
-  alias ImagePipe.Plan.Source.URL
   alias ImagePipe.Source
   alias ImagePipe.Source.Auth
   alias ImagePipe.Source.CacheSettings
   alias ImagePipe.Source.HTTP.AddressPolicy
   alias ImagePipe.Source.HTTP.TargetGuard
   alias ImagePipe.Source.Parser
+  alias ImagePipe.Source.Path, as: SourcePath
   alias ImagePipe.Source.ReqSanitizer
   alias ImagePipe.Source.ReqStream
   alias ImagePipe.Source.Resolved
+  alias ImagePipe.Source.URL
 
   @internal_option_keys [
     :url,

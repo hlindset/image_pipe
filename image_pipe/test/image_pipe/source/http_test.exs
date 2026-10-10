@@ -1,13 +1,13 @@
 defmodule ImagePipe.Source.HTTPTest do
   use ExUnit.Case, async: false
 
-  alias ImagePipe.Plan.Source.Path, as: SourcePath
-  alias ImagePipe.Plan.Source.URL
   alias ImagePipe.Source
   alias ImagePipe.Source.HTTP
   alias ImagePipe.Source.Parser
+  alias ImagePipe.Source.Path, as: SourcePath
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
+  alias ImagePipe.Source.URL
   alias ImagePipe.Telemetry
   alias ImagePipe.Test.Trace.TestExporter
 

@@ -13,8 +13,8 @@ defmodule ImagePipe.API.OrientationMatrixTest do
   alias ImagePipe.API.Parser
   alias ImagePipe.API.Presets
   alias ImagePipe.Decode
-  alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Source
+  alias ImagePipe.Source.Path, as: SourcePath
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.Differential.PixelCompare
   alias ImagePipe.Test.Orientation1TwinOrigin

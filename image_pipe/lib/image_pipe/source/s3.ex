@@ -1,10 +1,10 @@
 defmodule ImagePipe.Source.S3 do
   @behaviour ImagePipe.Source
 
-  alias ImagePipe.Plan.Source.Object
   alias ImagePipe.Source
   alias ImagePipe.Source.CachePolicy
   alias ImagePipe.Source.CacheSettings
+  alias ImagePipe.Source.Object
   alias ImagePipe.Source.ReqSanitizer
   alias ImagePipe.Source.ReqStream
   alias ImagePipe.Source.Resolved

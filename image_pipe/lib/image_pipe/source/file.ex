@@ -2,11 +2,11 @@ defmodule ImagePipe.Source.File do
   @behaviour ImagePipe.Source
 
   alias ImagePipe.MaterialDigest
-  alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.SafePath
   alias ImagePipe.Source
   alias ImagePipe.Source.CacheSettings
   alias ImagePipe.Source.Origin
+  alias ImagePipe.Source.Path, as: SourcePath
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
 

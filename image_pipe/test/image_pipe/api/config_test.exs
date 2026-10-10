@@ -290,7 +290,7 @@ defmodule ImagePipe.Plug.ConfigTest do
 
       assert %{
                "logo" => %{
-                 source: %ImagePipe.Plan.Source.Path{segments: ["brand", "logo.png"]},
+                 source: %ImagePipe.Source.Path{segments: ["brand", "logo.png"]},
                  opacity: 0.6
                },
                "badge" => %{opacity: 1.0}

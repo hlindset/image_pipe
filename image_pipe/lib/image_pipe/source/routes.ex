@@ -4,9 +4,9 @@ defmodule ImagePipe.Source.Routes do
   # Validated sources and the routing tables built from their match rules.
   # See `ImagePipe.Source` for the configuration shape.
 
-  alias ImagePipe.Plan.Source.Object
-  alias ImagePipe.Plan.Source.Path
-  alias ImagePipe.Plan.Source.URL
+  alias ImagePipe.Source.Object
+  alias ImagePipe.Source.Path
+  alias ImagePipe.Source.URL
 
   defstruct sources: %{}, prefixes: %{}, schemes: %{}, path: nil
 

@@ -1,11 +1,7 @@
 defmodule ImagePipe.Plan.Source do
   @moduledoc """
-  Product-neutral source identifiers produced by parsers.
+  Normalizes source strings the same way for the URL builder and the server.
   """
-
-  alias ImagePipe.Plan.Source
-
-  @type t :: Source.Path.t() | Source.URL.t() | Source.Object.t()
 
   @doc """
   Removes the optional leading `/` from an ordinary root-relative source string.

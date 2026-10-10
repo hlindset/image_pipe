@@ -2,7 +2,6 @@ defmodule ImagePipe.API.DiagnosticTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.API.Diagnostic
-  alias ImagePipe.API.DiagnosticRenderer
   alias ImagePipe.API.Parser
   alias ImagePipe.API.Path
 
@@ -150,14 +149,6 @@ defmodule ImagePipe.API.DiagnosticTest do
 
       assert [%Diagnostic{reason: :invalid_dimension, message: message}] = diagnostics
       assert message != ""
-
-      rendered =
-        "/w=invalid/enlarge/src/images/cat.jpg"
-        |> DiagnosticRenderer.render(diagnostics)
-        |> IO.iodata_to_binary()
-
-      assert rendered =~ message
-      refute rendered =~ "requires"
     end
   end
 end

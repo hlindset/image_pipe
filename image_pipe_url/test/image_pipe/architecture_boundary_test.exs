@@ -10,10 +10,9 @@ defmodule ImagePipe.URL.ArchitectureBoundaryTest do
       [ImagePipe.URL.Config, ImagePipe.URL.Helpers]
     },
     ImagePipe.API => {
-      [ImagePipe.Format, ImagePipe.Plan, ImagePipe.Security],
+      [ImagePipe.Plan, ImagePipe.Security],
       [
         ImagePipe.API.Diagnostic,
-        ImagePipe.API.DiagnosticRenderer,
         ImagePipe.API.Parser,
         ImagePipe.API.Path,
         ImagePipe.API.Presets,
@@ -21,7 +20,7 @@ defmodule ImagePipe.URL.ArchitectureBoundaryTest do
       ]
     },
     ImagePipe.Plan => {
-      [ImagePipe.Format],
+      [],
       [
         ImagePipe.Plan.Presets,
         ImagePipe.Plan.Spec,
@@ -37,15 +36,10 @@ defmodule ImagePipe.URL.ArchitectureBoundaryTest do
         ImagePipe.Plan.Color,
         ImagePipe.Plan.ValueBounds,
         ImagePipe.Plan.ValueSpellings,
-        ImagePipe.Plan.Source,
-        ImagePipe.Plan.Source.Identity,
-        ImagePipe.Plan.Source.Path,
-        ImagePipe.Plan.Source.URL,
-        ImagePipe.Plan.Source.Object
+        ImagePipe.Plan.Source
       ]
     },
-    ImagePipe.Security => {[], []},
-    ImagePipe.Format => {[], [ImagePipe.Format.Detector]}
+    ImagePipe.Security => {[], []}
   }
 
   for {boundary, {deps, exports}} <- @declarations do

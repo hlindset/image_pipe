@@ -1,8 +1,8 @@
 defmodule ImagePipe.Source.S3Test do
   use ExUnit.Case, async: false
 
-  alias ImagePipe.Plan.Source.Object
   alias ImagePipe.Source
+  alias ImagePipe.Source.Object
   alias ImagePipe.Source.Origin
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response

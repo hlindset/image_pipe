@@ -81,7 +81,7 @@
 
 - Keep canonical request data under `ImagePipe.Plan.*`, with explicit groups and output policy.
 - Keep URL parsing and request configuration together; parsing produces concrete data and validates static request constraints before side effects.
-- URL building (`ImagePipe.URL`, `ImagePipe.API`, `ImagePipe.Plan`, `ImagePipe.Security`, `ImagePipe.Format`) lives in the sibling `image_pipe_url/` project, which `image_pipe` depends on. Keep it free of server code: its only runtime dependencies are `nimble_options`, `color`, and `mime`. `Plug.Conn` handling, request parsing, and error rendering belong under `ImagePipe.Plug` in `image_pipe`.
+- URL building (`ImagePipe.URL`, `ImagePipe.API`, `ImagePipe.Plan`, `ImagePipe.Security`) lives in the sibling `image_pipe_url/` project, which `image_pipe` depends on. Keep it free of server code: its only runtime dependencies are `nimble_options` and `color`. `Plug.Conn` handling, request parsing, and error rendering belong under `ImagePipe.Plug` in `image_pipe`.
 - Keep the mount interface and request orchestration under `ImagePipe.Plug`. Its lifecycle is parse, validate, source resolve, representation, conditional gate, cache, execution, and delivery.
 - Keep source side effects and source identity under `ImagePipe.Source.*`.
 - Keep response delivery under `ImagePipe.Response.*`.

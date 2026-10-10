@@ -2,8 +2,8 @@ defmodule ImagePipe.API.Diagnostic do
   # A structured URL validation failure with byte spans.
   #
   # `ImagePipe.API.Path` and `ImagePipe.API.Parser` accumulate independent
-  # failures. `ImagePipe.API.DiagnosticRenderer` renders them as a caret
-  # display in the `400` response body.
+  # failures. The Plug renders them as a caret display in the `400` response
+  # body.
   @moduledoc false
 
   @enforce_keys [:reason, :message, :spans]

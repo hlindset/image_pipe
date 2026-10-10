@@ -25,10 +25,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A custom detector's `identity/1`, `available?/1`, and `ready?/1` receive only
   `:classes`, as `detect/2` already did. They no longer see the mount's other
   configuration.
+- **Breaking:** The source identifiers a custom source adapter receives are
+  `ImagePipe.Source.Path`, `ImagePipe.Source.URL`, and `ImagePipe.Source.Object`.
+  Replace `ImagePipe.Plan.Source.Path`, `.URL`, and `.Object` in your adapter.
 - **Breaking:** A source's `internal_cache` takes `:enabled` or `:disabled`,
   and defaults to `:enabled`. Replace `internal_cache: :auto`, which meant the
   same as `:enabled`.
-- **Breaking:** `ImagePipe.Source.S3.CredentialProvider.fetch_credentials/2`
+- **Breaking:** `c:ImagePipe.Source.S3.CredentialProvider.fetch_credentials/2`
   takes the bucket and the provider's options. Change your provider's
   `fetch_credentials/3` to `fetch_credentials/2` by dropping the third
   argument, which was always `[]`.

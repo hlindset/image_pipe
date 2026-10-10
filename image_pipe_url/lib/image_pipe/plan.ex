@@ -9,7 +9,7 @@ defmodule ImagePipe.Plan do
 
   use Boundary,
     top_level?: true,
-    deps: [ImagePipe.Format],
+    deps: [],
     exports: [
       Presets,
       Spec,
@@ -25,11 +25,7 @@ defmodule ImagePipe.Plan do
       Color,
       ValueBounds,
       ValueSpellings,
-      Source,
-      Source.Identity,
-      Source.Path,
-      Source.URL,
-      Source.Object
+      Source
     ]
 
   alias ImagePipe.Plan.Builder.Options

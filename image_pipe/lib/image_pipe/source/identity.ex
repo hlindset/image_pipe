@@ -1,4 +1,4 @@
-defmodule ImagePipe.Plan.Source.Identity do
+defmodule ImagePipe.Source.Identity do
   @moduledoc false
 
   @spec valid?(term()) :: boolean()

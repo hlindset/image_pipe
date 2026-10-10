@@ -24,7 +24,7 @@ defmodule ImagePipeURL.MixProject do
         groups_for_modules: [
           "URL builder": [ImagePipe.URL, ImagePipe.URL.Config, ImagePipe.URL.Helpers],
           "Plan model": [ImagePipe.Plan, ImagePipe.Plan.Spec.Issue],
-          Sources: [ImagePipe.Plan.Source, ~r/ImagePipe\.Plan\.Source\..*/],
+          Sources: [ImagePipe.Plan.Source],
           "Encoder options": [~r/ImagePipe\.Plan\.Output\..*Options/]
         ]
       ],
@@ -66,7 +66,6 @@ defmodule ImagePipeURL.MixProject do
     [
       {:nimble_options, "~> 1.1"},
       {:color, "~> 0.13"},
-      {:mime, "~> 2.0"},
       {:boundary, "~> 0.10", runtime: false},
       {:stream_data, "~> 1.0", only: [:test, :dev]},
       {:phoenix_live_view, "~> 1.2", only: :test},

@@ -1,4 +1,4 @@
-defmodule ImagePipe.API.DiagnosticRenderer do
+defmodule ImagePipe.Plug.DiagnosticRenderer do
   # Renders URL diagnostics as a caret display for `400` responses.
   #
   # The raw request path occupies one line. Every diagnostic span gets carets;

@@ -134,6 +134,9 @@ defmodule ImagePipe.MixProject do
             ImagePipe.Source.S3
           ],
           "Source adapter types": [
+            ImagePipe.Source.Path,
+            ImagePipe.Source.URL,
+            ImagePipe.Source.Object,
             ImagePipe.Source.Resolved,
             ImagePipe.Source.Response,
             ImagePipe.Source.Origin,
@@ -218,6 +221,7 @@ defmodule ImagePipe.MixProject do
     base = [
       image_pipe_url_dep(),
       {:plug, "~> 1.18"},
+      {:mime, "~> 2.0"},
       {:telemetry, "~> 1.0"},
       # Opt-in OpenTelemetry export. Compile against the lightweight API only
       # (optional: true, NO `only:` — the optional edge orders a host-provided

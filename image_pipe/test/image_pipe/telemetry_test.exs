@@ -5,7 +5,7 @@ defmodule ImagePipe.TelemetryTest do
   import Plug.Test
 
   alias ImagePipe.Cache.FileSystem
-  alias ImagePipe.Plan.Source
+  alias ImagePipe.Source
   alias ImagePipe.Source.Response, as: SourceResponse
   alias Vix.Vips.Image, as: VipsImage
 
@@ -20,7 +20,7 @@ defmodule ImagePipe.TelemetryTest do
 
     @impl true
     def identifiers(_options),
-      do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
+      do: [ImagePipe.Source.Path, ImagePipe.Source.URL, ImagePipe.Source.Object]
 
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}
@@ -51,7 +51,7 @@ defmodule ImagePipe.TelemetryTest do
 
     @impl true
     def identifiers(_options),
-      do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
+      do: [ImagePipe.Source.Path, ImagePipe.Source.URL, ImagePipe.Source.Object]
 
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}
@@ -89,7 +89,7 @@ defmodule ImagePipe.TelemetryTest do
 
     @impl true
     def identifiers(_options),
-      do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
+      do: [ImagePipe.Source.Path, ImagePipe.Source.URL, ImagePipe.Source.Object]
 
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}
@@ -106,7 +106,7 @@ defmodule ImagePipe.TelemetryTest do
 
     @impl true
     def identifiers(_options),
-      do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
+      do: [ImagePipe.Source.Path, ImagePipe.Source.URL, ImagePipe.Source.Object]
 
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}

@@ -1,13 +1,13 @@
 defmodule ImagePipe.SourceTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Plan.Source.Path
-  alias ImagePipe.Plan.Source.Path, as: SourcePath
-  alias ImagePipe.Plan.Source.URL
   alias ImagePipe.Source
   alias ImagePipe.Source.CacheSemantics
+  alias ImagePipe.Source.Path
+  alias ImagePipe.Source.Path, as: SourcePath
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
+  alias ImagePipe.Source.URL
   alias ImagePipe.SourceTest.CustomAdapter
   alias ImagePipe.SourceTest.InvalidAdapter
   alias ImagePipe.SourceTest.InvalidConfigAdapter
@@ -20,7 +20,7 @@ defmodule ImagePipe.SourceTest do
       @behaviour ImagePipe.Source
 
       def identifiers(_options),
-        do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
+        do: [ImagePipe.Source.Path, ImagePipe.Source.URL, ImagePipe.Source.Object]
 
       def validate_options(opts), do: {:ok, opts}
 
@@ -53,7 +53,7 @@ defmodule ImagePipe.SourceTest do
       @behaviour ImagePipe.Source
 
       def identifiers(_options),
-        do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
+        do: [ImagePipe.Source.Path, ImagePipe.Source.URL, ImagePipe.Source.Object]
 
       def validate_options(opts), do: {:ok, opts}
 
@@ -88,7 +88,7 @@ defmodule ImagePipe.SourceTest do
     defmodule PathOnlyAdapter do
       @behaviour ImagePipe.Source
 
-      def identifiers(_options), do: [ImagePipe.Plan.Source.Path]
+      def identifiers(_options), do: [ImagePipe.Source.Path]
       def validate_options(opts), do: {:ok, opts}
       def resolve(_source, _opts, _runtime_opts), do: raise("not used")
       def fetch(_resolved, _opts, _runtime_opts), do: raise("not used")
@@ -148,7 +148,7 @@ defmodule ImagePipe.SourceTest do
         assert {:ok, %Resolved{name: :web}} = Source.resolve(source, config, [])
       end
 
-      object = %ImagePipe.Plan.Source.Object{scheme: "s3", scope: "bucket", key: "cat.jpg"}
+      object = %ImagePipe.Source.Object{scheme: "s3", scope: "bucket", key: "cat.jpg"}
       assert {:ok, %Resolved{name: :buckets}} = Source.resolve(object, config, [])
     end
 

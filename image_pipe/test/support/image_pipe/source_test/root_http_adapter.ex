@@ -5,11 +5,11 @@ defmodule ImagePipe.SourceTest.RootHTTPAdapter do
 
   @impl true
   def identifiers(_options),
-    do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
+    do: [ImagePipe.Source.Path, ImagePipe.Source.URL, ImagePipe.Source.Object]
 
-  alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Source
   alias ImagePipe.Source.CacheSemantics
+  alias ImagePipe.Source.Path, as: SourcePath
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
   alias ImagePipe.Source.StreamError

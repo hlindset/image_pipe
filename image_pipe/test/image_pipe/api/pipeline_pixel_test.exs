@@ -4,10 +4,10 @@ defmodule ImagePipe.API.PipelinePixelTest do
   use ExUnit.Case, async: false
 
   alias ImagePipe.Decode
-  alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Plan.Spec
   alias ImagePipe.Plug.Request, as: ParsedRequest
   alias ImagePipe.Source
+  alias ImagePipe.Source.Path, as: SourcePath
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.OrientedFrameOrigin
   alias ImagePipe.Transform.Executor

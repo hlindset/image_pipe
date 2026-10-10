@@ -3,10 +3,10 @@ defmodule ImagePipe.DecodeFactsTest do
 
   alias ImagePipe.API.Parser
   alias ImagePipe.Decode
-  alias ImagePipe.Plan.Source.Path
   alias ImagePipe.Plan.Spec
   alias ImagePipe.Plug.Config
   alias ImagePipe.Source
+  alias ImagePipe.Source.Path
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.PlugFixture.OriginImage
   alias ImagePipe.Transform.SourceGeometry
