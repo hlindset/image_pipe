@@ -25,7 +25,8 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   Options:
 
     * `--only` - comma-separated case ids or families (`resize`, `crop`,
-      `canvas`, `orientation`, `trim`, `effects`, `watermark`, `output`).
+      `canvas`, `orientation`, `trim`, `effects`, `watermark`, `output`), or
+      `perf` for 44 cases that cover every family and kind of source.
     * `--cpus` - CPUs pinned to each server, default 4. Must leave at least
       one CPU for `oha`.
     * `--concurrency` - server worker count and the second load level,
@@ -87,6 +88,22 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     {"output", ["format", "q", "hdr", "profile", "meta"]}
   ]
   @families ["resize" | Enum.map(@family_keys, &elem(&1, 0))]
+  # `--only perf`: a few cases per family, over every kind of source, for a
+  # comparison short enough to run on every `perf` pull request. Most of the
+  # reference cases are anchor and offset variants that cost the same.
+  @perf_set ~w(
+    rs_fill_zone rs_fit_zone rs_fill_webp_residual size_marker cover_smart_marker
+    alpha_resize cmyk_import palette_fit enlarge_small
+    crop_gravity_placement crop_corner_placement crop_smart_marker dps_crop_pct_resize
+    region_odd_origin
+    extend_small padding_border alpha_extend_bg gray_alpha_extend extend_ar_dpr_marker
+    rotate_exif exif_large_fit exif_user_rot90 flip_h_marker rot90_crop_north_placement
+    exif_cover_smart rgb16_rotate_crop
+    alpha_border_trim trim_resize_high_freq trim_border_equal trim_icc_p3
+    blur_zone sharpen_zone pixelate_marker alpha_blur rgba16_blur
+    wm_center_scaled wm_tile gray_watermark wm_on_exif_frame
+    lossy_avif lossy_jpeg_q40 lossy_webp scp0_colorspace_124 rgb16_preserve_hdr
+  )
   # Sources whose content the cases don't depend on, so the cases also make
   # sense on a corpus photo.
   @generic_sources ~w(high_freq.jpg high_freq.webp marker.png placement.png small.png)
@@ -398,6 +415,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
   defp select(cases, only) do
     names = String.split(only, ",", trim: true)
+    names = Enum.flat_map(names, &if(&1 == "perf", do: @perf_set, else: [&1]))
     selected = Enum.filter(cases, &(&1.id in names or &1.family in names))
     unknown = Enum.reject(names, &(&1 in @families or Enum.any?(cases, fn c -> c.id == &1 end)))
     if unknown != [], do: Mix.raise("Unknown case id(s) or families: #{Enum.join(unknown, ", ")}")

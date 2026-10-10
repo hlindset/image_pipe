@@ -3,9 +3,10 @@ name: Performance
 # Times an image_pipe_server image against others on the same runner with
 # `mix imgproxy.bench --compare`, alternating between them so the runner's
 # speed cancels out. On a pull request labelled `perf`, the pull request is
-# judged against its base and the result posted as a comment. Nightly, `main`
-# is judged against the `main` the previous nightly run measured, and against
-# the latest release image. The comparison reports; it doesn't fail the job.
+# judged against its base on the curated `perf` cases and the result posted as
+# a comment. Nightly, `main` is judged on every case against the `main` the
+# previous nightly run measured, and against the latest release image. The
+# comparison reports; it doesn't fail the job.
 on:
   pull_request:
     types: [labeled, synchronize]
@@ -126,7 +127,11 @@ jobs:
         run: |
           args=(--compare image_pipe_server:candidate)
           [ -n "$AGAINST" ] && args+=(--against "$NAME=image_pipe_server:against")
-          [ "$GITHUB_EVENT_NAME" != pull_request ] && args+=(--against "release=$RELEASE_IMAGE")
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            args+=(--only perf)
+          else
+            args+=(--against "release=$RELEASE_IMAGE")
+          fi
           # Two CPUs for the servers leave the rest of the runner for oha.
           mise exec -- mix imgproxy.bench "${args[@]}" --cpus 2 --rounds 3 --duration 1 \
             --output tmp/performance
