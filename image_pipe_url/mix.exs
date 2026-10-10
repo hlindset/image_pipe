@@ -66,7 +66,6 @@ defmodule ImagePipeURL.MixProject do
     [
       {:nimble_options, "~> 1.1"},
       {:color, "~> 0.13"},
-      {:mime, "~> 2.0"},
       {:boundary, "~> 0.10", runtime: false},
       {:stream_data, "~> 1.0", only: [:test, :dev]},
       {:phoenix_live_view, "~> 1.2", only: :test},

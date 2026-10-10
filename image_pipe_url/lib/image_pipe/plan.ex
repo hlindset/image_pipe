@@ -9,7 +9,7 @@ defmodule ImagePipe.Plan do
 
   use Boundary,
     top_level?: true,
-    deps: [ImagePipe.Format],
+    deps: [],
     exports: [
       Presets,
       Spec,
