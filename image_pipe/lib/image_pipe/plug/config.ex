@@ -13,7 +13,10 @@ defmodule ImagePipe.Plug.Config do
                       type_doc: "`t:String.t/0`",
                       doc: """
                       CORS origin sent in `Access-Control-Allow-Origin`, such as \
-                      `"https://app.example.com"` or `"*"`. Without it, responses carry no \
+                      `"https://app.example.com"` or `"*"`. Scripts on that origin can read \
+                      every response header, such as `ETag` and `Content-Disposition`, and \
+                      send any request header except `Authorization`. Scripts can't read \
+                      responses to requests sent with cookies. Without it, responses carry no \
                       CORS headers.
                       """
                     ],

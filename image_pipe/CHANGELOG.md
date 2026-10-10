@@ -89,6 +89,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- With `allow_origin` set, cross-origin scripts can send conditional
+  requests such as `If-None-Match`, and can read response headers such as
+  `ETag` and `Content-Disposition`. Preflight requests now get
+  `Access-Control-Allow-Headers: *`, and responses get
+  `Access-Control-Expose-Headers: *`.
 - A comma inside a quoted `Accept` parameter, as in
   `image/webp;x="a,b";q=0`, no longer splits the entry. The split dropped the
   `q=0`, so ImagePipe could choose a format the client had excluded.

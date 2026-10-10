@@ -14,6 +14,7 @@ defmodule ImagePipe.Response.CORSTest do
         |> send_resp(200, "ok")
 
       assert get_resp_header(conn, "access-control-allow-origin") == ["https://example.test"]
+      assert get_resp_header(conn, "access-control-expose-headers") == ["*"]
     end
 
     test "no-op when allow_origin is absent" do
@@ -36,6 +37,7 @@ defmodule ImagePipe.Response.CORSTest do
       assert on.status == 204
       assert get_resp_header(on, "allow") == ["GET, HEAD"]
       assert get_resp_header(on, "access-control-allow-methods") == ["GET, HEAD, OPTIONS"]
+      assert get_resp_header(on, "access-control-allow-headers") == ["*"]
       assert get_resp_header(on, "access-control-allow-origin") == ["*"]
 
       off =
@@ -46,6 +48,7 @@ defmodule ImagePipe.Response.CORSTest do
       assert off.status == 204
       assert get_resp_header(off, "allow") == ["GET, HEAD"]
       assert get_resp_header(off, "access-control-allow-methods") == []
+      assert get_resp_header(off, "access-control-allow-headers") == []
       assert get_resp_header(off, "access-control-allow-origin") == []
     end
   end
