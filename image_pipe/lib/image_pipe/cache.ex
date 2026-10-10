@@ -31,6 +31,7 @@ defmodule ImagePipe.Cache do
   alias ImagePipe.Cache.FileSystem.PeriodicSweep
   alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.FileSystem.Sweep
+  alias ImagePipe.Cache.FileSystem.Toucher
   alias ImagePipe.Cache.Input
   alias ImagePipe.Cache.Key
   alias ImagePipe.Cache.Sink
@@ -81,16 +82,20 @@ defmodule ImagePipe.Cache do
     do: {PeriodicSweep, id: {Sweep, :staged}, sweep: {__MODULE__, :sweep_staged, []}}
 
   @doc false
-  # Periodic cleanup an instance runs for its unbounded caches. A bounded
-  # cache's Admission sweeps on each re-scan, and a cache used without an
-  # instance isn't swept.
+  # Upkeep an instance runs for its caches: the toucher that records reads,
+  # and periodic cleanup for unbounded caches. A bounded cache's Admission
+  # sweeps on each re-scan. A cache used without an instance gets neither.
   @spec startup_specs(keyword()) :: [Supervisor.child_spec()]
   def startup_specs(options) do
     for key <- [:cache, :input_cache],
         cache_opts = Keyword.get(options, key),
         cache_opts != nil,
-        not Keyword.has_key?(cache_opts, :max_size_bytes),
-        do: Store.sweep_spec(cache_opts)
+        spec <- [Toucher.child_spec(cache_opts) | sweep_specs(cache_opts)],
+        do: spec
+  end
+
+  defp sweep_specs(cache_opts) do
+    if Keyword.has_key?(cache_opts, :max_size_bytes), do: [], else: [Store.sweep_spec(cache_opts)]
   end
 
   @doc false

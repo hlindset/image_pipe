@@ -72,7 +72,8 @@ option to `keep` (see
 
 ## Bound the cache size
 
-Both caches grow without limit by default. Set `max_size_bytes` to cap a
+By default, a cache has no size limit and deletes images nobody has read for 7
+days ([`max_age`](cache.md#unread-entries)). Set `max_size_bytes` to cap a
 cache. The cache then evicts rarely requested images to stay under it.
 
 <!-- tabs-open -->

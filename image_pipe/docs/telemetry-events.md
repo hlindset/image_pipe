@@ -416,6 +416,10 @@ The default Logger logs a check that deleted nothing at `:debug`.
   - For a cache, `:pins`, `:temps` and `:bodies` (integer): how many
     originals held open by requests, temporary writes, and bodies no
     metadata named were deleted.
+  - For a cache, `:expired` (integer): how many entries were deleted because
+    nobody had read them within the cache's
+    [`max_age`](cache.md#unread-entries). In a bounded cache, only metadata
+    files the cache can't read. Their bodies are counted in `:bodies`.
   - For `:staging`, `:staged` (integer): how many staged originals were
     deleted.
 

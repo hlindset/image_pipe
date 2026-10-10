@@ -7,6 +7,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Without `max_size_bytes`, `cache` and `input_cache` delete entries nobody has
+  read for `max_age` seconds, 7 days by default, so images that are no longer
+  requested don't stay on disk. Set `max_age: nil` to keep them. Only a running
+  instance deletes them (see `ImagePipe.child_spec/1`).
 - The `image_pipe.request` span carries a `request_id` attribute when Logger
   metadata has a `:request_id`, such as the one `Plug.RequestId` sets.
 - The `[:cache, :lookup]`, `[:cache, :write]`, and `[:cache, :stage]`

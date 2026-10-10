@@ -227,9 +227,33 @@ the others keep running:
 The `[:cache, :sweep]` event reports what each cleanup removed (see
 [cache events](telemetry-events.md#cache-events)).
 
+### Unread entries
+
+Without `max_size_bytes`, an entry nobody has read for `max_age` seconds, 7
+days by default, is deleted by the next cleanup of
+[leftover files](#leftover-files). That includes images made before an upgrade
+that changes how requests are cached.
+
+In a bounded cache, eviction removes rarely requested entries. Its startup
+scan and each re-scan delete only metadata files the cache can't read, such
+as ones written by another ImagePipe version, once they are older than
+`max_age`.
+
+Read times are saved to disk hourly, or four times per `max_age` when that is
+shorter. After a crash, an entry can be deleted up to that much early, and is
+made again when next requested. Nodes that share
+a `root` each save their own reads, so an entry stays while any of them reads
+it.
+
+Only a running ImagePipe instance (see `ImagePipe.child_spec/1`) deletes
+unread entries. Without one, nothing is deleted. Behind a CDN, the cache sees
+only the CDN's misses, so an image the CDN still serves can go unread for
+longer than `max_age`. `max_age: nil` keeps entries until they are evicted or
+deleted.
+
 ## Bounded mode
 
-`max_size_bytes` turns on bounded mode. Without it the cache grows without
+`max_size_bytes` turns on bounded mode. Without it the cache has no size
 limit. The other bounded-mode options, listed in
 `ImagePipe.Cache.FileSystem`, require `max_size_bytes` and have defaults.
 

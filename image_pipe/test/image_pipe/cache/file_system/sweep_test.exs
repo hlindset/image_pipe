@@ -91,6 +91,68 @@ defmodule ImagePipe.Cache.FileSystem.SweepTest do
     assert {:hit, _entry} = FileSystem.get(key, opts)
   end
 
+  describe "expiry" do
+    @day 86_400
+    @unread System.os_time(:second) - 2 * 86_400
+
+    test "{:all, max_age} removes an entry unread for max_age with its body", %{root: root} do
+      {unread_key, unread} = entry!(root, "1")
+      {read_key, read} = entry!(root, "2")
+      age!(unread, @unread)
+      age!(read, @unread)
+      File.touch!(read.meta_path)
+
+      assert %{expired: 1, bodies: 1} = Sweep.sweep_root(root, {:all, @day})
+
+      refute File.exists?(unread.meta_path)
+      assert Path.wildcard(Path.join(unread.dir, "#{unread_key.hash}.*.body")) == []
+      assert {:hit, _entry} = FileSystem.get(read_key, root: root)
+    end
+
+    test "{:unreadable, max_age} expires only metadata the cache can't read", %{root: root} do
+      {readable_key, readable} = entry!(root, "1")
+      {_key, unreadable} = entry!(root, "2")
+      File.write!(unreadable.meta_path, "not a term")
+      age!(readable, @unread)
+      age!(unreadable, @unread)
+
+      assert %{expired: 1, bodies: 1} = Sweep.sweep_root(root, {:unreadable, @day})
+
+      refute File.exists?(unreadable.meta_path)
+      assert {:hit, _entry} = FileSystem.get(readable_key, root: root)
+    end
+
+    test "a nil max_age expires nothing", %{root: root} do
+      {key, paths} = entry!(root, "1")
+      age!(paths, @unread)
+
+      assert %{expired: 0} = Sweep.sweep_root(root, {:all, nil})
+      assert {:hit, _entry} = FileSystem.get(key, root: root)
+    end
+  end
+
+  defp entry!(root, digit) do
+    key = %ImagePipe.Cache.Key{hash: String.duplicate(digit, 64), data: [entry: digit]}
+
+    metadata =
+      struct!(ImagePipe.Cache.Entry.Metadata,
+        content_type: "image/webp",
+        headers: [],
+        created_at: ~U[2026-10-09 10:00:00Z],
+        output_format: :webp
+      )
+
+    {:ok, sink} = FileSystem.open_sink(key, metadata, root: root)
+    {:ok, sink} = FileSystem.write_chunk(sink, "body " <> digit, root: root)
+    :ok = FileSystem.commit_sink(sink, root: root)
+    {:ok, paths} = FileSystem.paths(key, root: root)
+    {key, paths}
+  end
+
+  defp age!(paths, mtime) do
+    for path <- Path.wildcard(Path.join(paths.dir, "*")), do: File.touch!(path, mtime)
+  end
+
   test "skips directories that aren't cache partitions", %{root: root} do
     state = Path.join(root, ".cache_state")
     File.mkdir_p!(state)
@@ -101,7 +163,7 @@ defmodule ImagePipe.Cache.FileSystem.SweepTest do
   end
 
   test "a missing root is an empty sweep" do
-    assert %{pins: 0, temps: 0, bodies: 0, bytes: 0} =
+    assert %{pins: 0, temps: 0, bodies: 0, expired: 0, bytes: 0} =
              Sweep.sweep_root(Path.join(System.tmp_dir!(), "missing-#{System.unique_integer()}"))
   end
 

@@ -115,7 +115,7 @@ defmodule ImagePipe.Telemetry.Logger do
 
   defp quiet_pass?(metadata) do
     Enum.all?(
-      [:pins, :temps, :bodies, :staged, :adopted, :dropped, :resynced],
+      [:pins, :temps, :bodies, :expired, :staged, :adopted, :dropped, :resynced],
       &(Map.get(metadata, &1, 0) == 0)
     )
   end

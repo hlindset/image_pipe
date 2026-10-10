@@ -271,8 +271,13 @@ defmodule ImagePipe.Telemetry.LoggerTest do
         Telemetry.span(opts, [:cache, :rescan], %{pool: :input}, fn ->
           {:ok, %{result: :ok, adopted: 2, dropped: 0, resynced: 0}}
         end)
+
+        Telemetry.span(opts, [:cache, :sweep], %{pool: :input}, fn ->
+          {:ok, %{result: :ok, pins: 0, temps: 0, bodies: 1, expired: 1, bytes: 9}}
+        end)
       end)
 
+    assert log =~ "[info] image_pipe cache sweep: ok (input pool)"
     assert log =~ "[debug] image_pipe cache sweep: ok (output pool)"
     assert log =~ "[debug] image_pipe cache rescan: ok (output pool)"
     assert log =~ "[info] image_pipe cache rescan: ok (input pool)"
