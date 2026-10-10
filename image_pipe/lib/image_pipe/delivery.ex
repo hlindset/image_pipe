@@ -37,7 +37,7 @@ defmodule ImagePipe.Delivery do
       ImagePipe.Source,
       ImagePipe.Telemetry
     ],
-    # The runner uses first_chunk/1 to keep the first pull inside its encode
+    # Processing uses first_chunk/1 to keep the first pull inside its encode
     # span, then hands the chunk to pump.
     exports: [PreparedStream, StreamPull]
 

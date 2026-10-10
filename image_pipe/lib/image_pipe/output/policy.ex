@@ -257,9 +257,9 @@ defmodule ImagePipe.Output.Policy do
 
   @doc """
   The pure pre-source-fetch format selection: explicit format, the negotiated
-  auto-candidate head, or a deferral to source-format resolution. Public and
-  core-owned so request identity material can read the same decision that
-  `resolve/2` later encodes, without re-deriving negotiation.
+  auto-candidate head, or a deferral to source-format resolution. Request
+  identity material reads the same decision that `resolve/2` later encodes,
+  without re-deriving negotiation.
   """
   @spec identity_selection(t()) :: identity_selection()
   def identity_selection(%__MODULE__{mode: {:explicit, format}}), do: {:explicit, format}

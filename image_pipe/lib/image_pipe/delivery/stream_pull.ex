@@ -7,8 +7,9 @@ defmodule ImagePipe.Delivery.StreamPull do
   # Callers:
   #
   #   * `ImagePipe.Delivery.Producer` runs the chunk-demand loop.
-  #   * The runner pulls the first chunk inside its encode span to time libvips'
-  #     actual work, then hands pump the chunk and the suspended stream.
+  #   * `ImagePipe.Processing` pulls the first chunk inside its encode span to
+  #     time libvips' actual work, then hands pump the chunk and the suspended
+  #     stream.
   #
   # first_chunk/1 and continue/1 propagate stream failures. translate/1
   # converts them to shared error tags.
