@@ -127,6 +127,24 @@ defmodule ImagePipe.API.InfoWireTest do
     refute Map.has_key?(result, "blurhash")
   end
 
+  test "a PNG source's LQIP placeholder equals the standalone output" do
+    # PNG has no shrink-on-load, so info and the standalone placeholder decode the
+    # same pixels and info computes the placeholder from its own decode.
+    png =
+      "priv/static/images/beach.jpg"
+      |> Image.open!()
+      |> Image.thumbnail!(400)
+      |> Image.write!(:memory, suffix: ".png")
+
+    config = mount(png, [], "image/png")
+
+    for options <- ["", "w=60/", "crop=200,100/blur=2/"] do
+      lqip = request(options <> "output=lqip-css", config).resp_body
+      result = info(options <> "output=info,lqip-css", config)["result"]
+      assert result["lqip_css"] == lqip, options
+    end
+  end
+
   test "groups, orientation, and placeholders separate info cache entries", %{body: body} do
     config = mount(body)
 
