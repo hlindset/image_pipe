@@ -17,10 +17,10 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   return 200 with the same content type and dimensions. The rest are reported
   as mismatches. Then, for each server, the bench times its health endpoint as
   an HTTP baseline and every case at concurrency 1 and at the worker count,
-  sampling `docker stats` for memory and CPU.
+  reading the server container's memory and CPU use from its cgroup.
 
   Results go to `tmp/imgproxy_bench/results.json` and an HTML report next to
-  it. The run takes roughly `cases × 2 servers × (2 × duration + 2s)`.
+  it. The run takes roughly `cases × 2 servers × (2 × duration + 1s)`.
 
   Options:
 
@@ -112,6 +112,8 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       Mix.raise("--cpus #{cpus} leaves no CPU for oha; Docker sees #{host_cpus}")
     end
 
+    network = "imgproxy-bench-#{System.unique_integer([:positive])}"
+
     settings = %{
       server_cpus: "0-#{cpus - 1}",
       oha_cpus: "#{cpus}-#{host_cpus - 1}",
@@ -121,7 +123,8 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       duration: opts[:duration] || 3,
       server_image: opts[:server_image] || "image_pipe_server:dev",
       server_env: Keyword.get_values(opts, :server_env),
-      network: "imgproxy-bench-#{System.unique_integer([:positive])}",
+      network: network,
+      oha: "#{network}-oha",
       work: Path.expand(Path.join(output, "work"))
     }
 
@@ -145,8 +148,15 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     Container.docker!(["network", "create", settings.network])
 
     try do
+      # One oha container serves every measurement, through `docker exec`.
+      Container.docker!(
+        ["run", "-d", "--name", settings.oha, "--network", settings.network] ++
+          ["--cpuset-cpus", settings.oha_cpus, "--entrypoint", "sleep", @oha, "infinity"]
+      )
+
       run_servers(cases, settings)
     after
+      Container.docker(["rm", "-f", settings.oha])
       Container.docker(["network", "rm", settings.network])
     end
   end
@@ -304,10 +314,9 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     selected
   end
 
-  # Container start-up, warm-up, and oha's own start add about two seconds a
-  # measurement pair.
+  # The warm-up and the two `docker exec` calls add about a second a case.
   defp estimate_minutes(cases, settings),
-    do: ceil(length(cases) * 2 * (2 * settings.duration + 2) / 60)
+    do: ceil(length(cases) * 2 * (2 * settings.duration + 1) / 60)
 
   # -- Servers ---------------------------------------------------------------
 
@@ -425,12 +434,16 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     oha(["-n", "#{2 * settings.concurrency}", "-c", "#{settings.concurrency}", url], settings)
   end
 
-  # Samples `docker stats` while oha runs. Each sample takes about a second.
+  # Reads the server's cgroup: CPU time over the run, and memory sampled every
+  # 200 ms while oha runs.
   defp measure(url, concurrency, settings, container) do
-    sampler = Task.async(fn -> sample_stats(container, []) end)
+    cpu_before = cpu_usec(container)
+    started = System.monotonic_time(:microsecond)
+    sampler = Task.async(fn -> sample_memory(container, nil) end)
     load = oha(["-z", "#{settings.duration}s", "-c", "#{concurrency}", "-w", url], settings)
+    elapsed = System.monotonic_time(:microsecond) - started
     send(sampler.pid, :stop)
-    samples = Task.await(sampler, 30_000)
+    peak = Task.await(sampler, 30_000)
     metrics = load["metrics"]
 
     %{
@@ -438,15 +451,13 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       "latency_ms" => metrics["latency_ms"],
       "statuses" => load["statusCodeDistribution"],
       "errors" => load["errorDistribution"],
-      "peak_memory_mib" => samples |> Enum.map(& &1.memory) |> Enum.max(fn -> nil end),
-      "mean_cpu_percent" => mean(Enum.map(samples, & &1.cpu))
+      "peak_memory_mib" => peak,
+      "mean_cpu_percent" => Float.round((cpu_usec(container) - cpu_before) / elapsed * 100, 1)
     }
   end
 
   defp oha(args, settings) do
-    command =
-      ["run", "--rm", "--network", settings.network, "--cpuset-cpus", settings.oha_cpus, @oha] ++
-        ["--no-tui", "--output-format", "json"] ++ args
+    command = ["exec", settings.oha, "oha", "--no-tui", "--output-format", "json"] ++ args
 
     case Container.docker(command) do
       {out, 0} -> JSON.decode!(out)
@@ -454,42 +465,41 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     end
   end
 
-  defp sample_stats(container, samples) do
+  defp cpu_usec(container) do
+    ["exec", container, "grep", "^usage_usec ", "/sys/fs/cgroup/cpu.stat"]
+    |> Container.docker!()
+    |> String.split()
+    |> List.last()
+    |> String.to_integer()
+  end
+
+  # Memory in use as `docker stats` counts it: the cgroup's usage without
+  # inactive page cache.
+  defp sample_memory(container, peak) do
     receive do
-      :stop -> samples
+      :stop -> peak
     after
-      0 ->
-        {out, _} =
-          Container.docker(["stats", "--no-stream", "--format", "{{json .}}", container])
-
-        sample_stats(container, parse_stats(out, samples))
+      200 -> sample_memory(container, max_mib(peak, memory_mib(container)))
     end
   end
 
-  defp parse_stats(out, samples) do
-    case JSON.decode(String.trim(out)) do
-      {:ok, %{"MemUsage" => memory, "CPUPerc" => cpu}} ->
-        [%{memory: mebibytes(memory), cpu: percent(cpu)} | samples]
+  defp memory_mib(container) do
+    script =
+      "cat /sys/fs/cgroup/memory.current; grep '^inactive_file ' /sys/fs/cgroup/memory.stat"
 
-      _other ->
-        samples
+    case Container.docker(["exec", container, "sh", "-c", script]) do
+      {out, 0} ->
+        [current, "inactive_file", inactive] = String.split(out)
+        Float.round((String.to_integer(current) - String.to_integer(inactive)) / 1_048_576, 1)
+
+      _failed ->
+        nil
     end
   end
 
-  defp mebibytes(usage) do
-    [value, unit] = Regex.run(~r/^([\d.]+)\s*([KMG]i?B|B)/, usage, capture: :all_but_first)
-    {number, _} = Float.parse(value)
-    factor = %{"B" => 1 / 1_048_576, "KiB" => 1 / 1024, "MiB" => 1, "GiB" => 1024}
-    Float.round(number * Map.get(factor, unit, 1), 1)
-  end
-
-  defp percent(cpu) do
-    {number, _} = cpu |> String.trim_trailing("%") |> Float.parse()
-    number
-  end
-
-  defp mean([]), do: nil
-  defp mean(values), do: Float.round(Enum.sum(values) / length(values), 1)
+  defp max_mib(nil, sample), do: sample
+  defp max_mib(peak, nil), do: peak
+  defp max_mib(peak, sample), do: max(peak, sample)
 
   defp case_result(c, runs) do
     %{
