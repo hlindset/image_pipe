@@ -121,6 +121,8 @@ Validation belongs at boundaries the caller doesn't control. Inside the codebase
 
 **Rule of thumb:** if tempted to add a guard, ask whether the value's producer is in this repo. If yes, write a test against the producer instead. If no, validate at the boundary where the value enters.
 
+**Exception: guards that state a pure function's domain.** A function-head guard such as `when is_integer(width) and width > 0` is fine even for in-repo callers when a value outside that domain would give a wrong result instead of failing (a zero extent that silently skips a shrink, say). It adds no branch and needs no test: misuse crashes at the function's entry. Don't turn such misuse into error tuples, and don't write tests for it.
+
 **Removing a guard at a real boundary counts as a behavior change.** Justify with a producer test or an unreachable-from-callers analysis, not "it looks unused".
 
 ## Elixir guidelines
