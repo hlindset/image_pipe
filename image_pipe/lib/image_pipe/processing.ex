@@ -77,7 +77,7 @@ defmodule ImagePipe.Processing do
       case {explicit_detector_classes(request), Keyword.get(config, :detector_required, false)} do
         {nil, _required?} -> :ok
         {_classes, false} -> :ok
-        {classes, true} -> check_required(detector, Keyword.put(config, :classes, classes))
+        {classes, true} -> check_required(detector, classes: classes)
       end
     end
   end
@@ -340,7 +340,7 @@ defmodule ImagePipe.Processing do
       end
     end)
     |> case do
-      {:ok, watermarks} -> {:ok, Keyword.put(config, :watermarks, watermarks)}
+      {:ok, images} -> {:ok, Keyword.put(config, :watermark_images, images)}
       error -> error
     end
   end

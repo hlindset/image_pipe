@@ -507,7 +507,7 @@ defmodule ImagePipe.Transform.Executor do
 
   defp execute_watermark(state, watermark, dpr, opts) do
     %{image: asset, opacity: base_opacity} =
-      opts |> Keyword.fetch!(:watermarks) |> Map.fetch!(watermark.asset)
+      opts |> Keyword.fetch!(:watermark_images) |> Map.fetch!(watermark.asset)
 
     with {:ok, state} <- flush_display(state),
          {:ok, asset} <- conditioned_asset(asset, state, opts),

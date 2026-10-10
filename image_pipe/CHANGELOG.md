@@ -17,6 +17,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A custom detector's `identity/1`, `available?/1`, and `ready?/1` receive only
+  `:classes`, as `detect/2` already did. They no longer see the mount's other
+  configuration.
 - **Breaking:** `cache` and `input_cache` take the file system cache's options
   directly. Replace `cache: {ImagePipe.Cache.FileSystem, root: "..."}` with
   `cache: [root: "..."]`, and the same for `input_cache`. The server's

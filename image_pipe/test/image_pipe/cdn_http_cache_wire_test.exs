@@ -9,6 +9,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.DetectorFixtures
 
   @image_path "/format=jpeg/src/beach.jpg"
   @automatic_path "/src/beach.jpg"
@@ -67,10 +68,10 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       do: StableSource.fetch(resolved, opts, runtime_opts)
   end
 
-  # `identity` is a detector-adapter option and `output_capabilities` a test
-  # seam, not mount options, so the dialect config rejects them as unknown.
-  # They are spliced onto the validated config after `ImagePipe.Plug.init/1`.
-  @post_init_keys [:identity, :output_capabilities]
+  # `output_capabilities` is a test seam, not a mount option, so the dialect
+  # config rejects it as unknown. It is spliced onto the validated config after
+  # `ImagePipe.Plug.init/1`.
+  @post_init_keys [:output_capabilities]
 
   defp init(opts) do
     {post_init, known} = Keyword.split(opts, @post_init_keys)
@@ -525,8 +526,9 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "detector identity change moves the generated ETag end-to-end (#181 regression)", _ctx do
-    etag_for = fn identity ->
-      opts = mount(detector: ImagePipe.Test.FakeDetector, identity: identity)
+    # Two face detectors that differ only in their identity (model version).
+    etag_for = fn detector ->
+      opts = mount(detector: detector)
 
       conn =
         ImagePipe.Plug.call(
@@ -539,7 +541,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       etag
     end
 
-    assert etag_for.(:model_v1) != etag_for.(:model_v2)
+    assert etag_for.(DetectorFixtures.FaceVerFakeV1) != etag_for.(DetectorFixtures.FaceVerFakeV2)
   end
 
   test "a failed cache commit still delivers the complete body, byte-identical to a clean cache (#183)" do
