@@ -144,7 +144,7 @@ defmodule ImagePipe.Processing do
       config,
       fn state, geometry ->
         decode_us = System.monotonic_time(:microsecond) - started
-        prepare_pixels(state, geometry, request, policy, config, decode_us)
+        prepare_pixels(state, geometry, request, policy, config, %{}, decode_us)
       end,
       {policy.skip_formats, fn _format, _chunks -> {:ok, :skipped} end}
     )
@@ -164,14 +164,20 @@ defmodule ImagePipe.Processing do
     end
   end
 
-  def build_fun(%Spec{} = request, source, policy, config) do
+  # `watermark_inputs` are the request's watermark asset bytes, or the
+  # deferred reads that produce them (see with_watermarks/2).
+  def build_fun(%Spec{} = request, source, policy, config, watermark_inputs) do
     fn pump ->
       started = System.monotonic_time(:microsecond)
-      with_watermarks(config, &produce_decoded(source, request, policy, &1, pump, started))
+
+      with_watermarks(
+        watermark_inputs,
+        &produce_decoded(source, request, policy, config, &1, pump, started)
+      )
     end
   end
 
-  defp produce_decoded(source, request, policy, config, pump, started) do
+  defp produce_decoded(source, request, policy, config, inputs, pump, started) do
     on_bracket_exit = Keyword.get(config, :on_bracket_exit, fn -> :ok end)
 
     Decode.with_image(
@@ -182,7 +188,7 @@ defmodule ImagePipe.Processing do
         decode_us = System.monotonic_time(:microsecond) - started
 
         stream = fn ->
-          produce_stream(state, geometry, request, policy, config, pump, decode_us)
+          produce_stream(state, geometry, request, policy, config, inputs, pump, decode_us)
         end
 
         bracket(stream, on_bracket_exit)
@@ -203,18 +209,21 @@ defmodule ImagePipe.Processing do
     on_exit.()
   end
 
-  defp produce_stream(state, geometry, request, policy, config, pump, decode_us) do
-    with {:ok, prepared} <- prepare_pixels(state, geometry, request, policy, config, decode_us) do
+  defp produce_stream(state, geometry, request, policy, config, inputs, pump, decode_us) do
+    with {:ok, prepared} <-
+           prepare_pixels(state, geometry, request, policy, config, inputs, decode_us) do
       produce_prepared(prepared, config, pump)
     end
   end
 
-  defp prepare_pixels(state, geometry, request, policy, config, decode_us) do
+  # An overlapped preparation never has watermarks (Execution starts it only
+  # without them), so prepare_download/4 passes no inputs.
+  defp prepare_pixels(state, geometry, request, policy, config, inputs, decode_us) do
     shrink = state.decode_shrink
 
     with {{:ok, %State{} = state}, transform_us} <-
            Timing.measure(fn ->
-             run_transform(state, geometry, request, policy, config)
+             run_transform(state, geometry, request, policy, config, inputs)
            end),
          {:ok, %ResolvedOutput{} = resolved_output} <-
            resolve_output(policy, geometry.source_format, state.image, config),
@@ -283,7 +292,7 @@ defmodule ImagePipe.Processing do
     end
   end
 
-  defp run_transform(state, geometry, %Spec{} = request, policy, config) do
+  defp run_transform(state, geometry, %Spec{} = request, policy, config, inputs) do
     operations = Executor.operation_names(request)
 
     Telemetry.span(
@@ -292,7 +301,7 @@ defmodule ImagePipe.Processing do
       %{operations: operations, operation_count: length(operations)},
       fn ->
         result =
-          with {:ok, opts} <- watermark_opts(pipeline_opts(policy, geometry, config)) do
+          with {:ok, opts} <- watermark_opts(pipeline_opts(policy, geometry, config), inputs) do
             Executor.execute(state, request, opts)
           end
 
@@ -303,28 +312,26 @@ defmodule ImagePipe.Processing do
 
   @doc false
   # Starts deferred watermark reads in this process before the source fetch,
-  # cancelling any still running when `fun` returns.
-  def with_watermarks(config, fun) do
-    case Keyword.get(config, :watermark_inputs) do
-      {:deferred, start} ->
-        {await, cancel} = start.()
+  # cancelling any still running when `fun` returns. `fun` gets the inputs to
+  # pass to watermark_opts/2.
+  def with_watermarks({:deferred, start}, fun) do
+    {await, cancel} = start.()
 
-        try do
-          fun.(Keyword.put(config, :watermark_inputs, {:started, await}))
-        after
-          cancel.()
-        end
-
-      _ready ->
-        fun.(config)
+    try do
+      fun.({:started, await})
+    after
+      cancel.()
     end
   end
 
+  def with_watermarks(inputs, fun), do: fun.(inputs)
+
   @doc false
-  # Decodes the watermark assets execution acquired for this request.
-  def watermark_opts(config) do
-    with {:ok, inputs} <- watermark_inputs(Keyword.get(config, :watermark_inputs, %{})) do
-      decode_watermarks(inputs, config)
+  # Decodes the watermark assets execution acquired for this request into
+  # `opts`' `:watermark_images`.
+  def watermark_opts(opts, inputs) do
+    with {:ok, inputs} <- watermark_inputs(inputs) do
+      decode_watermarks(inputs, opts)
     end
   end
 

@@ -410,23 +410,30 @@ defmodule ImagePipe.Execution do
   defp generate_uncoalesced(context, lease \\ nil) do
     result =
       with {:ok, watermark_inputs} <- watermark_inputs(context) do
-        config = Keyword.put(context.config, :watermark_inputs, watermark_inputs)
         session = [source_record: context.acquisition.record, output_lease: lease]
         key = if storable?(context), do: context.representation.cache_key
-        generate(context, config, session, key)
+        generate(context, watermark_inputs, session, key)
       end
 
     finish(context, result)
     result
   end
 
-  defp generate(%Context{request: %{output: %{terminal: :image}}} = context, config, session, key) do
+  defp generate(%Context{request: %{output: %{terminal: :image}}} = context, inputs, session, key) do
+    config = context.config
+
     build =
       case context.acquisition.processing do
         # An overlapped preparation that found a skipped source leaves the
         # completed source to be streamed unchanged.
         processing when processing in [nil, {:ok, :skipped}] ->
-          Processing.build_fun(context.request, decode_input(context), context.policy, config)
+          Processing.build_fun(
+            context.request,
+            decode_input(context),
+            context.policy,
+            config,
+            inputs
+          )
 
         result ->
           Processing.resume_fun(result, context.acquisition.source_bytes, config)
@@ -440,14 +447,15 @@ defmodule ImagePipe.Execution do
     end
   end
 
-  defp generate(context, config, session, key) do
+  defp generate(context, inputs, session, key) do
+    config = context.config
     # The cache scores an entry by its cost while holding a processing slot,
     # so time queued behind other work doesn't inflate it.
     {pooled, total} =
       Timing.measure(fn ->
         ProcessingPool.run(
           Keyword.get(config, :processing_pool),
-          fn -> render_terminal(context, config) end,
+          fn -> render_terminal(context, config, inputs) end,
           config
         )
       end)
@@ -473,9 +481,11 @@ defmodule ImagePipe.Execution do
     end
   end
 
-  defp render_terminal(context, config) do
+  defp render_terminal(context, config, inputs) do
     {result, cost} =
-      Timing.measure(fn -> Terminal.render(decode_input(context), context.request, config) end)
+      Timing.measure(fn ->
+        Terminal.render(decode_input(context), context.request, config, inputs)
+      end)
 
     {:rendered, result, cost}
   end

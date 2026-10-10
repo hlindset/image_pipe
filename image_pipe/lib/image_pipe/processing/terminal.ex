@@ -16,15 +16,20 @@ defmodule ImagePipe.Processing.Terminal do
 
   # The last element is true when a crop fell back after a detection error, so
   # the result must not be stored.
-  @spec render(Decode.input(), Spec.t(), keyword()) ::
+  @spec render(Decode.input(), Spec.t(), keyword(), term()) ::
           {:ok, String.t(), binary() | map(), boolean()} | {:error, term()}
-  def render(source, %Spec{} = request, config) do
+  def render(source, %Spec{} = request, config, watermark_inputs) do
     Telemetry.span(
       Telemetry.telemetry_opts(config),
       [:output, :terminal],
       start_metadata(request.output),
       fn ->
-        result = Processing.with_watermarks(config, &render_terminal(source, request, &1))
+        result =
+          Processing.with_watermarks(
+            watermark_inputs,
+            &render_terminal(source, request, config, &1)
+          )
+
         {result, %{result: terminal_result(result)}}
       end
     )
@@ -35,21 +40,21 @@ defmodule ImagePipe.Processing.Terminal do
 
   defp start_metadata(%Output{terminal: terminal}), do: %{terminal: terminal}
 
-  defp render_terminal(source, %Spec{output: %{terminal: :info}} = request, config) do
-    Decode.with_seekable(source, config, &render_info(&1, request, config))
+  defp render_terminal(source, %Spec{output: %{terminal: :info}} = request, config, inputs) do
+    Decode.with_seekable(source, config, &render_info(&1, request, config, inputs))
   end
 
-  defp render_terminal(source, %Spec{output: %{terminal: terminal}} = request, config) do
+  defp render_terminal(source, %Spec{output: %{terminal: terminal}} = request, config, inputs) do
     Decode.with_image(source, request, config, fn state, _geometry ->
-      with {:ok, config} <- Processing.watermark_opts(config),
+      with {:ok, config} <- Processing.watermark_opts(config, inputs),
            {:ok, value, degraded?} <- placeholder(terminal, state, request, config) do
         {:ok, "text/plain", value, degraded?}
       end
     end)
   end
 
-  defp render_info(input, request, config) do
-    with {:ok, config} <- Processing.watermark_opts(config),
+  defp render_info(input, request, config, inputs) do
+    with {:ok, config} <- Processing.watermark_opts(config, inputs),
          {:ok, {body, reduced}, degraded?} <-
            Decode.with_image(input, request, config, &describe(&1, &2, request, config)),
          {:ok, body, reduced_degraded?} <- put_reduced(body, reduced, input, request, config) do
