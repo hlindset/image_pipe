@@ -24,7 +24,7 @@ defmodule ImagePipeURL.MixProject do
         groups_for_modules: [
           "URL builder": [ImagePipe.URL, ImagePipe.URL.Config, ImagePipe.URL.Helpers],
           "Plan model": [ImagePipe.Plan, ImagePipe.Plan.Spec.Issue],
-          Sources: [ImagePipe.Plan.Source, ~r/ImagePipe\.Plan\.Source\..*/],
+          Sources: [ImagePipe.Plan.Source],
           "Encoder options": [~r/ImagePipe\.Plan\.Output\..*Options/]
         ]
       ],

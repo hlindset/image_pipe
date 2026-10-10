@@ -69,6 +69,10 @@ defmodule ImagePipe.Source do
       ImagePipe.Telemetry
     ],
     exports: [
+      Identity,
+      Object,
+      Path,
+      URL,
       CachePolicy,
       CacheSettings,
       CacheState,
@@ -88,10 +92,9 @@ defmodule ImagePipe.Source do
       S3.CredentialWarmup
     ]
 
-  alias ImagePipe.Plan.Source, as: PlanSource
-  alias ImagePipe.Plan.Source.Identity
   alias ImagePipe.Source.CachePolicy
   alias ImagePipe.Source.CacheSemantics
+  alias ImagePipe.Source.Identity
   alias ImagePipe.Source.Input
   alias ImagePipe.Source.Origin
   alias ImagePipe.Source.Parser
@@ -109,11 +112,15 @@ defmodule ImagePipe.Source do
 
   @type error :: {:source, atom() | tuple()}
 
+  @typedoc "A parsed image source: a path, an absolute URL, or a storage object."
+  @type parsed ::
+          ImagePipe.Source.Path.t() | ImagePipe.Source.URL.t() | ImagePipe.Source.Object.t()
+
   @doc """
   Receives the options returned by `c:validate_options/1` and returns the
   identifier structs `c:resolve/3` accepts with them, from
-  `ImagePipe.Plan.Source.Path`, `ImagePipe.Plan.Source.URL`, and
-  `ImagePipe.Plan.Source.Object`. A source whose match rules would route another
+  `ImagePipe.Source.Path`, `ImagePipe.Source.URL`, and
+  `ImagePipe.Source.Object`. A source whose match rules would route another
   identifier to the adapter fails configuration.
   """
   @callback identifiers(options :: keyword()) :: [module()]
@@ -146,7 +153,7 @@ defmodule ImagePipe.Source do
   status each reason gives is listed under [errors](#module-errors). Any
   other return value fails the request with `500`.
   """
-  @callback resolve(PlanSource.t(), keyword(), keyword()) ::
+  @callback resolve(parsed(), keyword(), keyword()) ::
               {:ok, Resolved.t()} | {:error, error()}
 
   @doc """
@@ -275,7 +282,7 @@ defmodule ImagePipe.Source do
   # Translates a host-configured source string into a plan source that a
   # configured source serves. `opts` holds the validated sources.
   @doc false
-  @spec translate_configured(String.t(), keyword()) :: {:ok, PlanSource.t()} | {:error, term()}
+  @spec translate_configured(String.t(), keyword()) :: {:ok, parsed()} | {:error, term()}
   def translate_configured(source, opts) when is_binary(source) do
     with {:ok, plan_source} <- Parser.translate(source, opts),
          {:ok, _name, _source} <- Routes.route(plan_source, routes(opts)) do
@@ -284,7 +291,7 @@ defmodule ImagePipe.Source do
   end
 
   @doc false
-  @spec resolve(PlanSource.t() | Input.t(), keyword(), keyword()) ::
+  @spec resolve(parsed() | Input.t(), keyword(), keyword()) ::
           {:ok, Resolved.t()} | {:error, error()}
   def resolve(%Input{} = source, _opts, runtime_opts),
     do: resolve_with(Input, [], nil, source, runtime_opts, [])

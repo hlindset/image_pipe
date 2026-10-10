@@ -2,8 +2,8 @@ defmodule ImagePipe.Source.ParserSchemePropertyTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias ImagePipe.Plan.Source.Path
   alias ImagePipe.Source.Parser
+  alias ImagePipe.Source.Path
 
   property "a source is a URL exactly when it starts with a scheme prefix" do
     check all chars <- list_of(member_of(String.graphemes("aZ9+.-:/_")), max_length: 10) do

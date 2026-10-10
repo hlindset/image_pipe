@@ -7,6 +7,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- **Breaking:** `ImagePipe.Plan.Source.Path`, `ImagePipe.Plan.Source.URL`, and
+  `ImagePipe.Plan.Source.Object`. They are now `ImagePipe.Source.Path`,
+  `ImagePipe.Source.URL`, and `ImagePipe.Source.Object` in `image_pipe`, whose
+  custom source adapters receive them.
 - The dependency on `mime`. The package depends only on `nimble_options` and
   `color` at runtime.
 

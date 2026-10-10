@@ -1,4 +1,4 @@
-defmodule ImagePipe.Plan.Source.Path do
+defmodule ImagePipe.Source.Path do
   @moduledoc """
   Root-relative path source.
 

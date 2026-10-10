@@ -1,4 +1,4 @@
-defmodule ImagePipe.Plan.Source.Object do
+defmodule ImagePipe.Source.Object do
   @moduledoc """
   Product-neutral bucket or container object source, such as `s3://bucket/key`.
   """

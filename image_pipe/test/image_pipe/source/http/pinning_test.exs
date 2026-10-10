@@ -1,9 +1,9 @@
 defmodule ImagePipe.Source.HTTP.PinningTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Plan.Source.URL
   alias ImagePipe.Source.HTTP
   alias ImagePipe.Source.Response
+  alias ImagePipe.Source.URL
 
   @tls Path.expand("../../../support/image_pipe/test/tls", __DIR__)
   @loopback {127, 0, 0, 1}

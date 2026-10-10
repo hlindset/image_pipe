@@ -4,9 +4,9 @@ defmodule ImagePipe.DecodeTest do
 
   alias ImagePipe.API.Parser
   alias ImagePipe.Decode
-  alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Plan.Spec
   alias ImagePipe.Source
+  alias ImagePipe.Source.Path, as: SourcePath
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Transform.Executor.Step
   alias ImagePipe.Transform.Operation.Resize, as: ExecutableResize

@@ -2,9 +2,9 @@ defmodule ImagePipe.Source.HTTP.PinnedPoolsTest do
   # Sweeps act on every pinned pool in the VM, so no other fetches may run.
   use ExUnit.Case, async: false
 
-  alias ImagePipe.Plan.Source.URL
   alias ImagePipe.Source.HTTP
   alias ImagePipe.Source.HTTP.PinnedPools
+  alias ImagePipe.Source.URL
 
   @loopback {127, 0, 0, 1}
   @loopback6 {0, 0, 0, 0, 0, 0, 0, 1}

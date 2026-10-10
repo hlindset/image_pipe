@@ -134,6 +134,9 @@ defmodule ImagePipe.MixProject do
             ImagePipe.Source.S3
           ],
           "Source adapter types": [
+            ImagePipe.Source.Path,
+            ImagePipe.Source.URL,
+            ImagePipe.Source.Object,
             ImagePipe.Source.Resolved,
             ImagePipe.Source.Response,
             ImagePipe.Source.Origin,

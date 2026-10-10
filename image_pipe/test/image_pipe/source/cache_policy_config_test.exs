@@ -1,9 +1,9 @@
 defmodule ImagePipe.Source.CachePolicyConfigTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Plan.Source.URL
   alias ImagePipe.Source
   alias ImagePipe.Source.HTTP
+  alias ImagePipe.Source.URL
 
   test "mount policy is inherited per field and a source can override storage permission" do
     opts =
@@ -129,7 +129,7 @@ defmodule ImagePipe.Source.CachePolicyConfigTest do
         ]
       )
 
-    intent = %ImagePipe.Plan.Source.Object{
+    intent = %ImagePipe.Source.Object{
       scheme: "s3",
       scope: "images",
       key: "cat.jpg",

@@ -4,36 +4,36 @@ defmodule ImagePipe.Source.Parser do
   # `translate/2` consumes a source string, with any outer transport encoding
   # already decoded, and classifies it:
   #
-  #   * no `scheme://` prefix — a root-relative `%Plan.Source.Path{}`. The
+  #   * no `scheme://` prefix — a root-relative `%Source.Path{}`. The
   #     decoded string is split into segments on `/` with no further decoding.
   #     An optional leading slash is normalized for ordinary root-relative paths.
   #   * `http://` or `https://` (when a configured source matches the scheme) —
-  #     an absolute `%Plan.Source.URL{}`. Inner URL path segments keep their
+  #     an absolute `%Source.URL{}`. Inner URL path segments keep their
   #     percent-encoding, and the HTTP adapter sends them as written.
   #   * `s3://` (when a configured source matches the scheme) — an
-  #     `%Plan.Source.Object{}` with the query carried as its immutable
+  #     `%Source.Object{}` with the query carried as its immutable
   #     revision.
-  #   * a custom scheme a configured source matches — a `%Plan.Source.Path{}`
+  #   * a custom scheme a configured source matches — a `%Source.Path{}`
   #     tagged with that scheme, holding the part after `scheme://` split on
   #     `/`.
   #   * anything else (a scheme no configured source matches, built-in or
   #     custom, an empty source, a NUL byte, or a malformed authority) —
   #     `{:error, {:invalid_source, reason}}`.
   #
-  # `ImagePipe.Source.resolve/3` consumes the returned `Plan.Source.t()`
+  # `ImagePipe.Source.resolve/3` consumes the returned `ImagePipe.Source.parsed()`
   # unchanged.
   @moduledoc false
 
   alias ImagePipe.Plan.Source, as: PlanSource
-  alias ImagePipe.Plan.Source.Object
-  alias ImagePipe.Plan.Source.Path
-  alias ImagePipe.Plan.Source.URL
+  alias ImagePipe.Source.Object
+  alias ImagePipe.Source.Path
   alias ImagePipe.Source.Routes
+  alias ImagePipe.Source.URL
 
   @http_schemes %{"http" => :http, "https" => :https}
 
   @spec translate(String.t(), keyword()) ::
-          {:ok, ImagePipe.Plan.Source.t()} | {:error, {:invalid_source, term()}}
+          {:ok, ImagePipe.Source.parsed()} | {:error, {:invalid_source, term()}}
   def translate(source, config) when is_binary(source),
     do: source |> PlanSource.normalize() |> do_translate(config)
 

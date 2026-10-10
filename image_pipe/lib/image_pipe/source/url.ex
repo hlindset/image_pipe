@@ -1,4 +1,4 @@
-defmodule ImagePipe.Plan.Source.URL do
+defmodule ImagePipe.Source.URL do
   @moduledoc """
   Absolute HTTP and HTTPS source.
 

@@ -1,8 +1,8 @@
 defmodule ImagePipe.Source.FileTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Source.File, as: SourceFile
+  alias ImagePipe.Source.Path, as: SourcePath
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
 

@@ -1,10 +1,10 @@
 defmodule ImagePipe.Source.OriginFetchTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Plan.Source.URL
   alias ImagePipe.Source
   alias ImagePipe.Source.HTTP
   alias ImagePipe.Source.Origin
+  alias ImagePipe.Source.URL
   alias ImagePipe.Test.RawSourceOrigin
 
   defp config(plug) do
@@ -329,7 +329,7 @@ defmodule ImagePipe.Source.OriginFetchTest do
         ]
       )
 
-    intent = %ImagePipe.Plan.Source.Object{
+    intent = %ImagePipe.Source.Object{
       scheme: "s3",
       scope: "bucket",
       key: "cat.jpg",

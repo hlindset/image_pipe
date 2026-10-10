@@ -36,11 +36,7 @@ defmodule ImagePipe.URL.ArchitectureBoundaryTest do
         ImagePipe.Plan.Color,
         ImagePipe.Plan.ValueBounds,
         ImagePipe.Plan.ValueSpellings,
-        ImagePipe.Plan.Source,
-        ImagePipe.Plan.Source.Identity,
-        ImagePipe.Plan.Source.Path,
-        ImagePipe.Plan.Source.URL,
-        ImagePipe.Plan.Source.Object
+        ImagePipe.Plan.Source
       ]
     },
     ImagePipe.Security => {[], []}

@@ -16,7 +16,7 @@ code and returns `{:ok, bytes}` or `:error`:
 defmodule MyApp.BlobSource do
   @behaviour ImagePipe.Source
 
-  alias ImagePipe.Plan.Source.Path
+  alias ImagePipe.Source.Path
   alias ImagePipe.Source.CacheSettings
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response

@@ -4,8 +4,8 @@ defmodule ImagePipe.Transform.ExecutorTest do
   alias ImagePipe.API.Parser
   alias ImagePipe.API.Path
   alias ImagePipe.Decode
-  alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Source
+  alias ImagePipe.Source.Path, as: SourcePath
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.PendingOrientation

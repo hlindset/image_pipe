@@ -2,10 +2,10 @@ defmodule ImagePipe.API.SourceTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias ImagePipe.Plan.Source.Object
-  alias ImagePipe.Plan.Source.Path
-  alias ImagePipe.Plan.Source.URL
+  alias ImagePipe.Source.Object
   alias ImagePipe.Source.Parser, as: Source
+  alias ImagePipe.Source.Path
+  alias ImagePipe.Source.URL
 
   defp url_config do
     ImagePipe.Source.validate_config!(

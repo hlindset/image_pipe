@@ -12,7 +12,7 @@ defmodule ImagePipe.SourceTest.CustomAdapter do
 
   @impl true
   def identifiers(_options),
-    do: [ImagePipe.Plan.Source.Path, ImagePipe.Plan.Source.URL, ImagePipe.Plan.Source.Object]
+    do: [ImagePipe.Source.Path, ImagePipe.Source.URL, ImagePipe.Source.Object]
 
   @impl Source
   def validate_options(opts) do
