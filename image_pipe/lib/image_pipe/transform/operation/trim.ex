@@ -15,9 +15,13 @@ defmodule ImagePipe.Transform.Operation.Trim do
   alias Vix.Vips.Operation
 
   # The box is found on a copy shrunk by this factor, then each edge again at
-  # full resolution, on frames with both sides at least @min_preview_side.
+  # full resolution, on frames of at least @min_preview_pixels with both sides
+  # at least @min_preview_side. Each find_trim has a fixed cost of 1-2 ms, so
+  # the five searches only beat one full search on larger frames: with
+  # libvips' default of one thread per core, from about a megapixel.
   @preview_shrink 8
   @min_preview_side 256
+  @min_preview_pixels 1_000_000
   # Full-resolution strips reach this far past the preview's edge.
   @strip_margin 3 * @preview_shrink
 
@@ -67,7 +71,10 @@ defmodule ImagePipe.Transform.Operation.Trim do
   # full-resolution search. When a strip's edge isn't clear of its cut, the
   # whole image is searched instead.
   defp find_box(image, background, threshold) do
-    if min(Image.width(image), Image.height(image)) < @min_preview_side do
+    width = Image.width(image)
+    height = Image.height(image)
+
+    if min(width, height) < @min_preview_side or width * height < @min_preview_pixels do
       find_trim(image, background, threshold)
     else
       with {:ok, preview} <- Operation.shrink(image, @preview_shrink * 1.0, @preview_shrink * 1.0),
