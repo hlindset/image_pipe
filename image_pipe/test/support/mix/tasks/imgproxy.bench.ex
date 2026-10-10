@@ -1,0 +1,539 @@
+defmodule Mix.Tasks.Imgproxy.Bench do
+  @shortdoc "Time image_pipe_server against imgproxy on the reference cases"
+  @moduledoc """
+  Times the imgproxy reference cases' paired requests against two Docker
+  containers: the pinned imgproxy image the bake uses and an
+  `image_pipe_server` image. Requires the `docker` CLI and a server image,
+  built with `mise run server:image`.
+
+      MIX_ENV=test mise exec -- mix imgproxy.bench [options]
+
+  Both servers get the same CPU set, memory limit and worker count, no cache,
+  no URL signatures, and the same encoder settings. Only one server runs at a
+  time. `oha` drives the load from its own container on a private Docker
+  network, pinned to CPUs the servers don't use.
+
+  First each server answers every case once. A case is timed only when both
+  return 200 with the same content type and dimensions. The rest are reported
+  as mismatches. Then, for each server, the bench times its health endpoint as
+  an HTTP baseline and every case at concurrency 1 and at the worker count,
+  sampling `docker stats` for memory and CPU.
+
+  Results go to `tmp/imgproxy_bench/results.json` and an HTML report next to
+  it. The run takes roughly `cases × 2 servers × (2 × duration + 2s)`.
+
+  Options:
+
+    * `--only` - comma-separated case ids or families (`resize`, `crop`,
+      `canvas`, `orientation`, `trim`, `effects`, `watermark`, `output`).
+    * `--cpus` - CPUs pinned to each server, default 4. Must leave at least
+      one CPU for `oha`.
+    * `--concurrency` - server worker count and the second load level,
+      default `--cpus`.
+    * `--memory` - memory limit per server, default `2g`.
+    * `--duration` - seconds per measurement, default 3.
+    * `--corpus` - a file listing extra images, one path per line, as in
+      `bench/corpus.txt`. The cases that don't depend on their source's EXIF,
+      alpha, colour profile or bit depth also run on each image.
+    * `--server-image` - default `image_pipe_server:dev`.
+    * `--server-env` - an extra `NAME=value` environment variable for the
+      server container, such as `VIPS_CONCURRENCY=1`. Repeatable.
+    * `--output` - results directory, default `tmp/imgproxy_bench`.
+    * `--report-only` - render the HTML report from an existing
+      `results.json` without running anything.
+
+  Absolute timings depend on the host. On macOS they include the Docker VM.
+  Compare the ratios between the servers, and keep results only from a
+  dedicated Linux machine.
+  """
+  use Mix.Task
+  use Boundary, top_level?: true, check: [out: false]
+
+  alias ImagePipe.Test.ImgproxyBench.Report
+  alias ImagePipe.Test.ImgproxyReference.Cases
+  alias ImagePipe.Test.ImgproxyReference.Container
+
+  @oha "ghcr.io/hatoo/oha:1.16.0@sha256:3ec3dbf549ea197793482d47a6324797411406bbf438c2fe8b91f244ec641a2f"
+  @sources "test/support/image_pipe/test/sources"
+  @family_keys [
+    {"watermark", ["wm"]},
+    {"trim", ["trim"]},
+    {"effects", ["blur", "sharpen", "pixelate"]},
+    {"orientation", ["rotate", "flip", "orient"]},
+    {"canvas", ["extend", "pad", "bg"]},
+    {"crop", ["crop", "region"]},
+    {"output", ["format", "q", "hdr", "profile", "meta"]}
+  ]
+  @families ["resize" | Enum.map(@family_keys, &elem(&1, 0))]
+  # Sources whose content the cases don't depend on, so the cases also make
+  # sense on a corpus photo.
+  @generic_sources ~w(high_freq.jpg high_freq.webp marker.png placement.png small.png)
+  @max_input_pixels 100_000_000
+  @max_body_bytes 100_000_000
+
+  @switches [
+    only: :string,
+    cpus: :integer,
+    concurrency: :integer,
+    memory: :string,
+    duration: :integer,
+    corpus: :string,
+    server_image: :string,
+    server_env: :keep,
+    output: :string,
+    report_only: :boolean
+  ]
+
+  @impl Mix.Task
+  def run(args) do
+    {opts, _, _} = OptionParser.parse(args, strict: @switches)
+    output = opts[:output] || "tmp/imgproxy_bench"
+    results_path = Path.join(output, "results.json")
+
+    if opts[:report_only] do
+      results = results_path |> File.read!() |> JSON.decode!()
+      write_report!(output, results)
+    else
+      Mix.Task.run("app.start")
+      json = opts |> bench(output) |> JSON.encode!()
+      File.mkdir_p!(output)
+      File.write!(results_path, json)
+      write_report!(output, JSON.decode!(json))
+    end
+  end
+
+  # -- Setup -----------------------------------------------------------------
+
+  defp bench(opts, output) do
+    host_cpus = String.to_integer(Container.docker!(["info", "--format", "{{.NCPU}}"]))
+    cpus = opts[:cpus] || 4
+
+    if cpus >= host_cpus do
+      Mix.raise("--cpus #{cpus} leaves no CPU for oha; Docker sees #{host_cpus}")
+    end
+
+    settings = %{
+      server_cpus: "0-#{cpus - 1}",
+      oha_cpus: "#{cpus}-#{host_cpus - 1}",
+      cpus: cpus,
+      concurrency: opts[:concurrency] || cpus,
+      memory: opts[:memory] || "2g",
+      duration: opts[:duration] || 3,
+      server_image: opts[:server_image] || "image_pipe_server:dev",
+      server_env: Keyword.get_values(opts, :server_env),
+      network: "imgproxy-bench-#{System.unique_integer([:positive])}",
+      work: Path.expand(Path.join(output, "work"))
+    }
+
+    File.rm_rf!(settings.work)
+    sources = Path.join(settings.work, "sources")
+    File.mkdir_p!(sources)
+    File.cp_r!(@sources, sources)
+    File.write!(Path.join(settings.work, "config.toml"), server_config(settings))
+
+    cases =
+      Cases.all()
+      |> Enum.map(&Map.put(&1, :family, family(&1)))
+      |> Kernel.++(corpus_cases(opts[:corpus], sources))
+      |> select(opts[:only])
+
+    Mix.shell().info(
+      "#{length(cases)} case(s), about #{estimate_minutes(cases, settings)} min. " <>
+        "Servers on CPUs #{settings.server_cpus}, oha on #{settings.oha_cpus}."
+    )
+
+    Container.docker!(["network", "create", settings.network])
+
+    try do
+      run_servers(cases, settings)
+    after
+      Container.docker(["network", "rm", settings.network])
+    end
+  end
+
+  defp run_servers(cases, settings) do
+    servers = [imgproxy_server(settings), image_pipe_server(settings)]
+
+    checks =
+      Map.new(servers, fn server ->
+        {server.key, with_server(server, settings, &check_all(server, cases, &1))}
+      end)
+
+    {timed, mismatched} = Enum.split_with(cases, &matches?(checks, &1))
+
+    runs =
+      Map.new(servers, fn server ->
+        {server.key,
+         with_server(server, settings, fn info ->
+           measure_server(server, timed, settings, info)
+         end)}
+      end)
+
+    %{
+      "environment" => environment(settings, runs),
+      "cases" => Enum.map(timed, &case_result(&1, runs)),
+      "baseline" => Map.new(runs, fn {key, run} -> {key, run.baseline} end),
+      "mismatches" => Enum.map(mismatched, &mismatch(&1, checks))
+    }
+  end
+
+  defp imgproxy_server(settings) do
+    %{
+      key: "imgproxy",
+      label: "imgproxy #{Container.version()}",
+      image: Container.image(),
+      health: "/health",
+      path: &Container.imgproxy_path/1,
+      libvips: &Container.imgproxy_libvips/1,
+      args: [
+        "-e",
+        "IMGPROXY_LOCAL_FILESYSTEM_ROOT=/srv",
+        "-e",
+        "IMGPROXY_WATERMARK_PATH=/srv/alpha.png",
+        "-e",
+        "IMGPROXY_WORKERS=#{settings.concurrency}",
+        "-e",
+        "IMGPROXY_MAX_SRC_RESOLUTION=#{div(@max_input_pixels, 1_000_000)}",
+        "-e",
+        "IMGPROXY_MAX_SRC_FILE_SIZE=#{@max_body_bytes}",
+        "-e",
+        "IMGPROXY_AVIF_SPEED=8",
+        "-e",
+        "IMGPROXY_WEBP_EFFORT=4",
+        "-v",
+        "#{Path.join(settings.work, "sources")}:/srv:ro"
+      ]
+    }
+  end
+
+  defp image_pipe_server(settings) do
+    %{
+      key: "image_pipe",
+      label:
+        Enum.join(["image_pipe_server (#{settings.server_image})" | settings.server_env], " "),
+      image: settings.server_image,
+      health: "/health/live",
+      path: &Container.native_path/1,
+      libvips: &Container.libvips(&1, "/usr/local/lib"),
+      args:
+        Enum.flat_map(settings.server_env, &["-e", &1]) ++
+          [
+            "--read-only",
+            "--tmpfs",
+            "/tmp",
+            "-v",
+            "#{Path.join(settings.work, "config.toml")}:/etc/image_pipe/config.toml:ro",
+            "-v",
+            "#{Path.join(settings.work, "sources")}:/data/images:ro"
+          ]
+    }
+  end
+
+  # imgproxy's AVIF speed 8 is libvips effort 1 (`9 - speed`); both default
+  # to WebP effort 4. Neither caches, and neither checks signatures.
+  defp server_config(settings) do
+    """
+    [sources.bench]
+    adapter = "file"
+    match = "path"
+    root = "/data/images"
+    root_id = "bench"
+
+    [processing]
+    auto_avif = false
+    auto_webp = false
+    max_input_pixels = #{@max_input_pixels}
+    max_body_bytes = #{@max_body_bytes}
+    avif_options.effort = 1
+    webp_options.effort = 4
+
+    [processing.watermarks.mark]
+    source = "alpha.png"
+
+    [pool]
+    max_concurrency = #{settings.concurrency}
+    max_queue = 4096
+    queue_timeout = 120000
+    processing_timeout = 120000
+    """
+  end
+
+  # -- Cases -----------------------------------------------------------------
+
+  # The first family whose option keys a case uses. An EXIF source counts as an
+  # orientation option and lossy output as a format option.
+  defp family(c) do
+    keys = c.native |> String.split("/") |> Enum.map(&(&1 |> String.split("=") |> hd()))
+    keys = if String.starts_with?(c.source, "exif"), do: ["orient" | keys], else: keys
+    keys = if c.kind == :lossy, do: ["format" | keys], else: keys
+
+    Enum.find_value(@family_keys, "resize", fn {family, prefixes} ->
+      if Enum.any?(keys, &String.starts_with?(&1, prefixes)), do: family
+    end)
+  end
+
+  defp corpus_cases(nil, _sources), do: []
+
+  defp corpus_cases(list, sources) do
+    images =
+      list
+      |> File.read!()
+      |> String.split("\n")
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == "" or String.starts_with?(&1, "#")))
+      |> Enum.map(&(&1 |> String.split() |> hd()))
+
+    File.mkdir_p!(Path.join(sources, "corpus"))
+
+    for {path, index} <- Enum.with_index(images, 1),
+        name = "corpus/#{index}-#{Path.basename(path)}",
+        :ok = File.cp!(path, Path.join(sources, name)),
+        c <- Cases.all(),
+        c.source in @generic_sources do
+      Map.merge(c, %{id: "#{c.id}@#{index}", source: name, family: family(c)})
+    end
+  end
+
+  defp select(cases, nil), do: cases
+
+  defp select(cases, only) do
+    names = String.split(only, ",", trim: true)
+    selected = Enum.filter(cases, &(&1.id in names or &1.family in names))
+    unknown = Enum.reject(names, &(&1 in @families or Enum.any?(cases, fn c -> c.id == &1 end)))
+    if unknown != [], do: Mix.raise("Unknown case id(s) or families: #{Enum.join(unknown, ", ")}")
+    selected
+  end
+
+  # Container start-up, warm-up, and oha's own start add about two seconds a
+  # measurement pair.
+  defp estimate_minutes(cases, settings),
+    do: ceil(length(cases) * 2 * (2 * settings.duration + 2) / 60)
+
+  # -- Servers ---------------------------------------------------------------
+
+  defp with_server(server, settings, fun) do
+    # oha resolves the container by name, and hostnames can't hold `_`.
+    name = "#{settings.network}-#{String.replace(server.key, "_", "-")}"
+
+    Container.docker!(
+      [
+        "run",
+        "-d",
+        "--name",
+        name,
+        "--network",
+        settings.network,
+        "--cpuset-cpus",
+        settings.server_cpus,
+        "--memory",
+        settings.memory,
+        "-p",
+        "127.0.0.1::8080"
+      ] ++ server.args ++ [server.image]
+    )
+
+    try do
+      base_url = "http://127.0.0.1:#{Container.mapped_port!(name)}"
+      wait_until_ready!(name, base_url <> server.health)
+      fun.(%{name: name, base_url: base_url})
+    after
+      Container.docker(["rm", "-f", name])
+    end
+  end
+
+  defp wait_until_ready!(name, url) do
+    Container.wait_until_ready!(url)
+  rescue
+    error in Mix.Error ->
+      {logs, _} = System.cmd("docker", ["logs", "--tail", "20", name], stderr_to_stdout: true)
+      Mix.raise(error.message <> "\n" <> logs)
+  end
+
+  defp check_all(server, cases, info) do
+    Mix.shell().info("Checking #{server.label}")
+    Map.new(cases, fn c -> {c.id, check(info.base_url <> server.path.(c))} end)
+  end
+
+  # A response the bench can't read counts as a mismatch, not a crash.
+  defp check(url) do
+    with {:ok, %Req.Response{status: 200, body: body} = response} <-
+           Req.get(url, decode_body: false, retry: false, receive_timeout: 120_000),
+         [content_type] <- Req.Response.get_header(response, "content-type"),
+         {:ok, image} <- Image.open(body, access: :random) do
+      %{
+        "status" => 200,
+        "content_type" => content_type,
+        "width" => Image.width(image),
+        "height" => Image.height(image)
+      }
+    else
+      {:ok, %Req.Response{status: status}} -> %{"status" => status}
+      {:error, %{__exception__: true} = exception} -> %{"status" => Exception.message(exception)}
+      {:error, reason} -> %{"status" => "200 that doesn't decode: #{inspect(reason)}"}
+      _headers -> %{"status" => "200 with no single content type"}
+    end
+  end
+
+  defp matches?(checks, c) do
+    case Enum.map(checks, fn {_key, results} -> Map.fetch!(results, c.id) end) do
+      [%{"status" => 200} = a, %{"status" => 200} = b] ->
+        Map.drop(a, ["status"]) == Map.drop(b, ["status"])
+
+      _other ->
+        false
+    end
+  end
+
+  defp mismatch(c, checks) do
+    %{
+      "id" => c.id,
+      "family" => c.family,
+      "source" => c.source,
+      "native" => c.native,
+      "imgproxy" => c.imgproxy,
+      "responses" => Map.new(checks, fn {key, results} -> {key, Map.fetch!(results, c.id)} end)
+    }
+  end
+
+  defp measure_server(server, cases, settings, info) do
+    Mix.shell().info("Timing #{server.label}")
+    url = &"http://#{info.name}:8080#{&1}"
+    levels = Enum.uniq([1, settings.concurrency])
+
+    baseline = Map.new(levels, &{"#{&1}", measure(url.(server.health), &1, settings, info.name)})
+
+    timings =
+      cases
+      |> Enum.with_index(1)
+      |> Map.new(fn {c, index} ->
+        if rem(index, 10) == 0, do: Mix.shell().info("  #{index}/#{length(cases)}")
+        case_url = url.(server.path.(c))
+        warm_up(case_url, settings)
+        {c.id, Map.new(levels, &{"#{&1}", measure(case_url, &1, settings, info.name)})}
+      end)
+
+    %{
+      baseline: baseline,
+      timings: timings,
+      libvips: server.libvips.(info.name),
+      image_id: Container.docker!(["image", "inspect", "--format", "{{.Id}}", server.image]),
+      label: server.label
+    }
+  end
+
+  defp warm_up(url, settings) do
+    oha(["-n", "#{2 * settings.concurrency}", "-c", "#{settings.concurrency}", url], settings)
+  end
+
+  # Samples `docker stats` while oha runs. Each sample takes about a second.
+  defp measure(url, concurrency, settings, container) do
+    sampler = Task.async(fn -> sample_stats(container, []) end)
+    load = oha(["-z", "#{settings.duration}s", "-c", "#{concurrency}", "-w", url], settings)
+    send(sampler.pid, :stop)
+    samples = Task.await(sampler, 30_000)
+    metrics = load["metrics"]
+
+    %{
+      "requests_per_sec" => metrics["requests_per_sec"],
+      "latency_ms" => metrics["latency_ms"],
+      "statuses" => load["statusCodeDistribution"],
+      "errors" => load["errorDistribution"],
+      "peak_memory_mib" => samples |> Enum.map(& &1.memory) |> Enum.max(fn -> nil end),
+      "mean_cpu_percent" => mean(Enum.map(samples, & &1.cpu))
+    }
+  end
+
+  defp oha(args, settings) do
+    command =
+      ["run", "--rm", "--network", settings.network, "--cpuset-cpus", settings.oha_cpus, @oha] ++
+        ["--no-tui", "--output-format", "json"] ++ args
+
+    case Container.docker(command) do
+      {out, 0} -> JSON.decode!(out)
+      {_out, status} -> Mix.raise("oha exited with #{status}: #{List.last(args)}")
+    end
+  end
+
+  defp sample_stats(container, samples) do
+    receive do
+      :stop -> samples
+    after
+      0 ->
+        {out, _} =
+          Container.docker(["stats", "--no-stream", "--format", "{{json .}}", container])
+
+        sample_stats(container, parse_stats(out, samples))
+    end
+  end
+
+  defp parse_stats(out, samples) do
+    case JSON.decode(String.trim(out)) do
+      {:ok, %{"MemUsage" => memory, "CPUPerc" => cpu}} ->
+        [%{memory: mebibytes(memory), cpu: percent(cpu)} | samples]
+
+      _other ->
+        samples
+    end
+  end
+
+  defp mebibytes(usage) do
+    [value, unit] = Regex.run(~r/^([\d.]+)\s*([KMG]i?B|B)/, usage, capture: :all_but_first)
+    {number, _} = Float.parse(value)
+    factor = %{"B" => 1 / 1_048_576, "KiB" => 1 / 1024, "MiB" => 1, "GiB" => 1024}
+    Float.round(number * Map.get(factor, unit, 1), 1)
+  end
+
+  defp percent(cpu) do
+    {number, _} = cpu |> String.trim_trailing("%") |> Float.parse()
+    number
+  end
+
+  defp mean([]), do: nil
+  defp mean(values), do: Float.round(Enum.sum(values) / length(values), 1)
+
+  defp case_result(c, runs) do
+    %{
+      "id" => c.id,
+      "family" => c.family,
+      "source" => c.source,
+      "native" => c.native,
+      "imgproxy" => c.imgproxy,
+      "timings" => Map.new(runs, fn {key, run} -> {key, Map.fetch!(run.timings, c.id)} end)
+    }
+  end
+
+  defp environment(settings, runs) do
+    info =
+      Container.docker!([
+        "info",
+        "--format",
+        "{{.OperatingSystem}} / {{.ServerVersion}} / {{.NCPU}} CPUs / {{.KernelVersion}}"
+      ])
+
+    {host, 0} = System.cmd("uname", ["-sm"])
+
+    %{
+      "date" => DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
+      "host" => String.trim(host),
+      "docker" => info,
+      "server_cpus" => settings.server_cpus,
+      "oha_cpus" => settings.oha_cpus,
+      "concurrency" => settings.concurrency,
+      "memory" => settings.memory,
+      "duration_s" => settings.duration,
+      "oha" => @oha,
+      "servers" =>
+        Map.new(runs, fn {key, run} ->
+          {key, %{"label" => run.label, "image_id" => run.image_id, "libvips" => run.libvips}}
+        end)
+    }
+  end
+
+  # -- Report ----------------------------------------------------------------
+
+  defp write_report!(output, results) do
+    path = Path.join(output, "index.html")
+    File.write!(path, Report.page(results))
+    Mix.shell().info("Wrote #{path}")
+  end
+end
