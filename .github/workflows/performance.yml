@@ -45,14 +45,15 @@ jobs:
         id: refs
         env:
           GH_TOKEN: ${{ github.token }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          # A pull request's checkout is the pull request merged into its base.
+          # A pull request's checkout is the pull request merged into the base
+          # branch as it is now, so its first parent is the base without the
+          # pull request. The event's base SHA can be older than that.
           candidate=$(git rev-parse HEAD)
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-            against=$(git merge-base "$BASE_SHA" "$candidate")
+            against=$(git rev-parse HEAD^1)
             name=base
             candidate_text="this pull request at \`${HEAD_SHA:0:7}\`, merged into \`$BASE_REF\`"
             against_text="\`$BASE_REF\` at \`${against:0:7}\`, without this pull request"
