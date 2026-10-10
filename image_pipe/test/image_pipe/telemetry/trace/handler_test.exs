@@ -581,6 +581,21 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
     assert span.attributes[:weights] == inspect(%{"face" => 2.0})
   end
 
+  test "nests each libvips open under the fetch_decode span with its access mode" do
+    Telemetry.span([], [:source, :fetch_decode], %{}, fn ->
+      Telemetry.span([], [:source, :decode_open], %{access: :sequential}, fn ->
+        {:ok, %{result: :ok}}
+      end)
+
+      {:ok, %{result: :ok}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.source.decode_open"} = open}
+    assert_receive {:span, %Span{name: "image_pipe.source.fetch_decode"} = decode}
+    assert open.parent_span_id == decode.span_id
+    assert open.attributes[:access] == "sequential"
+  end
+
   test "nests the ssimulacra2 probe cost legs (encode/decode/metric) under the probe span" do
     Telemetry.span([], [:encode, :search, :probe], %{quality: 62, phase: :objective}, fn ->
       Telemetry.span([], [:encode, :search, :probe, :encode], %{quality: 62}, fn ->

@@ -14,6 +14,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `[:cache, :lookup]` carries `:entry`, which says whether it read a processed
   response or a source record. The tracer adds them to their spans and span
   events.
+- A `[:source, :decode_open]` span wraps each time libvips opens the original,
+  so a trace shows how often a request opens it. The default Logger doesn't log
+  it.
 
 ### Changed
 

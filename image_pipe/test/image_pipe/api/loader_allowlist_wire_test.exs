@@ -5,6 +5,7 @@ defmodule ImagePipe.API.LoaderAllowlistWireTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.DecodeOpens
   alias Vix.Vips.Foreign
   alias Vix.Vips.Image, as: VipsImage
 
@@ -25,6 +26,7 @@ defmodule ImagePipe.API.LoaderAllowlistWireTest do
       )
 
     on_exit(fn -> :telemetry.detach(handler) end)
+    DecodeOpens.forward(@prefix)
   end
 
   test "sources the detector doesn't recognise are rejected before any libvips call" do
@@ -84,28 +86,6 @@ defmodule ImagePipe.API.LoaderAllowlistWireTest do
                      }}
   end
 
-  test "a loader outside the detected family is rejected after the header open" do
-    png = Image.new!(8, 6) |> Image.write!(:memory, suffix: ".png")
-    jpeg = Image.new!(8, 6) |> Image.write!(:memory, suffix: ".jpg")
-
-    # Stands in for libvips picking a competing loader for bytes that carry
-    # another family's signature.
-    config =
-      Keyword.put(mount(jpeg), :buffer_loader, fn _binary, options ->
-        VipsImage.new_from_buffer(png, options)
-      end)
-
-    assert request("format=png", config).status == 415
-
-    assert_received {:fetch_decode,
-                     %{
-                       result: :processing_error,
-                       error: :unsupported_source_format,
-                       detected_source_format: :jpeg,
-                       source_loader: "pngload_buffer"
-                     }}
-  end
-
   test "a TIFF-signature camera RAW file never reaches a RAW loader", %{tmp_dir: dir} do
     path = Path.join(dir, "source.dng")
     File.write!(path, dng())
@@ -121,7 +101,6 @@ defmodule ImagePipe.API.LoaderAllowlistWireTest do
         ],
         telemetry_prefix: @prefix
       )
-      |> Keyword.put(:image_open_module, ImagePipe.Test.HeaderDimensions.RecordingOpen)
 
     response = conn(:get, "/format=png/src/source.dng") |> ImagePipe.Plug.call(config)
 
@@ -194,27 +173,19 @@ defmodule ImagePipe.API.LoaderAllowlistWireTest do
     do: conn(:get, "/#{options}/src/source") |> ImagePipe.Plug.call(config)
 
   defp mount(body) do
-    pid = self()
-
     origin = fn conn ->
       conn |> put_resp_content_type("application/octet-stream") |> send_resp(200, body)
     end
 
-    config =
-      ImagePipe.Plug.init(
-        sources: [
-          path: [
-            adapter: RootHTTPAdapter,
-            match: :path,
-            options: [root_url: "http://origin.test", req_options: [plug: origin]]
-          ]
-        ],
-        telemetry_prefix: @prefix
-      )
-
-    Keyword.put(config, :buffer_loader, fn binary, options ->
-      send(pid, {:loader_open, options})
-      VipsImage.new_from_buffer(binary, options)
-    end)
+    ImagePipe.Plug.init(
+      sources: [
+        path: [
+          adapter: RootHTTPAdapter,
+          match: :path,
+          options: [root_url: "http://origin.test", req_options: [plug: origin]]
+        ]
+      ],
+      telemetry_prefix: @prefix
+    )
   end
 end

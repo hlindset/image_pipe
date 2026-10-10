@@ -433,32 +433,33 @@ defmodule ImagePipe.Decode do
 
   defp verify_file_loader(_detected, _input), do: :ok
 
-  defp open_seekable_input({:path, path}, decode_options, opts) do
-    case Keyword.get(opts, :image_open_module) do
-      nil -> Image.open(path, decode_options)
-      module -> module.open(path, decode_options)
-    end
+  # Each libvips open is its own trace-only span, so a trace shows how often
+  # a request opens its source.
+  defp open_seekable_input(input, decode_options, opts) do
+    metadata = Map.new(Keyword.take(decode_options, [:access, :page]))
+
+    Telemetry.span(Telemetry.telemetry_opts(opts), [:source, :decode_open], metadata, fn ->
+      result = open_input(input, decode_options)
+      {result, %{result: open_result(result)}}
+    end)
   end
 
-  defp open_seekable_input({:buffer, binary}, decode_options, opts) do
-    case Keyword.get(opts, :image_open_module) do
-      nil -> open_buffer(binary, decode_options, opts)
-      module -> module.open(binary, decode_options)
-    end
-  end
+  defp open_result({:ok, _image}), do: :ok
+  defp open_result({:error, _reason}), do: :processing_error
 
-  defp open_seekable_input({:download, download, prefix}, decode_options, opts) do
+  defp open_input({:path, path}, decode_options), do: Image.open(path, decode_options)
+  defp open_input({:buffer, binary}, decode_options), do: open_buffer(binary, decode_options)
+
+  defp open_input({:download, download, prefix}, decode_options) do
     case Keyword.fetch!(decode_options, :access) do
-      :random -> open_buffer(prefix, decode_options, opts)
+      :random -> open_buffer(prefix, decode_options)
       :sequential -> Streaming.open(download, decode_options)
     end
   end
 
-  defp open_buffer(binary, decode_options, opts) do
-    loader = Keyword.get(opts, :buffer_loader, &VipsImage.new_from_buffer/2)
-
+  defp open_buffer(binary, decode_options) do
     with {:ok, vips_opts} <- ImageOpenOptions.validate_options(decode_options) do
-      loader.(binary, vips_opts)
+      VipsImage.new_from_buffer(binary, vips_opts)
     end
   end
 

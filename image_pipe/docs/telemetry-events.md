@@ -278,6 +278,21 @@ decode, and its span wraps only the decode.
     signature names a supported format but libvips chose a loader for
     another, such as `"dcrawload"`.
 
+### `[:source, :decode_open]`
+
+Span. Wraps one libvips open of an image, during
+[`[:source, :fetch_decode]`](#source-fetch_decode) or while a watermark image
+is decoded. A request opens the original once to read its header, once more
+to read a page selected with `page`, and again when decoding needs other
+options than the header read, such as a streamed download or a smaller decode
+size. The default Logger doesn't log it.
+
+- Start metadata:
+  - `:access` (atom): `:sequential` or `:random`.
+  - `:page` (integer): the page selected with `page`, when the open selects
+    one.
+- Stop metadata: `:result` (atom), `:ok` or `:processing_error`.
+
 ### `[:source, :watermark]`
 
 Span. Wraps getting one watermark image, in its own process while the main

@@ -118,6 +118,8 @@ defmodule ImagePipe.Telemetry.Trace.Handler do
     :source_loader,
     # the requested page or frame of a multi-frame source (a small integer)
     :page,
+    # a libvips open's access mode (:sequential or :random)
+    :access,
     # realized post-op/post-materialize dimensions ({width, height}); a tuple,
     # coerced the same as :params (coerce/1)
     :dims,

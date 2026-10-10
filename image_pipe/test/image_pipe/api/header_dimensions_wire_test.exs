@@ -6,10 +6,15 @@ defmodule ImagePipe.API.HeaderDimensionsWireTest do
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.DecodeOpens
   alias Vix.Vips.Image, as: VipsImage
 
   @prefix [:header_dimensions_wire]
   @moduletag :tmp_dir
+
+  setup do
+    DecodeOpens.forward(@prefix)
+  end
 
   test "oversized PNG, JPEG and WebP are rejected before the loader or cache write" do
     handler = {__MODULE__, make_ref()}
@@ -97,11 +102,9 @@ defmodule ImagePipe.API.HeaderDimensionsWireTest do
             options: [root: dir, root_id: "header-dimensions-test"]
           ]
         ],
-        max_input_pixels: 100
+        max_input_pixels: 100,
+        telemetry_prefix: @prefix
       )
-
-    config =
-      Keyword.put(config, :image_open_module, ImagePipe.Test.HeaderDimensions.RecordingOpen)
 
     assert conn(:get, "/format=png/src/source.png")
            |> ImagePipe.Plug.call(config)
@@ -129,23 +132,17 @@ defmodule ImagePipe.API.HeaderDimensionsWireTest do
       conn |> put_resp_content_type("image/jpeg") |> send_resp(200, body)
     end
 
-    config =
-      [
-        sources: [
-          path: [
-            adapter: RootHTTPAdapter,
-            match: :path,
-            options: [root_url: "http://origin.test", req_options: [plug: origin]]
-          ]
-        ],
-        telemetry_prefix: @prefix
-      ]
-      |> Keyword.merge(extra)
-      |> ImagePipe.Plug.init()
-
-    Keyword.put(config, :buffer_loader, fn binary, options ->
-      send(pid, {:loader_open, options})
-      VipsImage.new_from_buffer(binary, options)
-    end)
+    [
+      sources: [
+        path: [
+          adapter: RootHTTPAdapter,
+          match: :path,
+          options: [root_url: "http://origin.test", req_options: [plug: origin]]
+        ]
+      ],
+      telemetry_prefix: @prefix
+    ]
+    |> Keyword.merge(extra)
+    |> ImagePipe.Plug.init()
   end
 end

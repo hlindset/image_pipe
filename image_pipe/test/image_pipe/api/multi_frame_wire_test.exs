@@ -6,6 +6,7 @@ defmodule ImagePipe.API.MultiFrameWireTest do
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.DecodeOpens
   alias ImagePipe.Test.MultiFrameSources
   alias Vix.Vips.Image, as: VipsImage
 
@@ -27,6 +28,7 @@ defmodule ImagePipe.API.MultiFrameWireTest do
       )
 
     on_exit(fn -> :telemetry.detach(handler) end)
+    DecodeOpens.forward(@prefix)
   end
 
   test "each multi-frame family decodes only its first frame into a single-frame output" do
@@ -105,7 +107,6 @@ defmodule ImagePipe.API.MultiFrameWireTest do
         max_input_frames: 5,
         telemetry_prefix: @prefix
       )
-      |> Keyword.put(:image_open_module, ImagePipe.Test.HeaderDimensions.RecordingOpen)
 
     assert request_path("/format=png/src/source.webp", config).status == 413
     refute_received {:loader_open, _}
@@ -206,23 +207,17 @@ defmodule ImagePipe.API.MultiFrameWireTest do
       conn |> put_resp_content_type("application/octet-stream") |> send_resp(200, body)
     end
 
-    config =
-      [
-        sources: [
-          path: [
-            adapter: RootHTTPAdapter,
-            match: :path,
-            options: [root_url: "http://origin.test", req_options: [plug: origin]]
-          ]
-        ],
-        telemetry_prefix: @prefix
-      ]
-      |> Keyword.merge(extra)
-      |> ImagePipe.Plug.init()
-
-    Keyword.put(config, :buffer_loader, fn binary, options ->
-      send(pid, {:loader_open, options})
-      VipsImage.new_from_buffer(binary, options)
-    end)
+    [
+      sources: [
+        path: [
+          adapter: RootHTTPAdapter,
+          match: :path,
+          options: [root_url: "http://origin.test", req_options: [plug: origin]]
+        ]
+      ],
+      telemetry_prefix: @prefix
+    ]
+    |> Keyword.merge(extra)
+    |> ImagePipe.Plug.init()
   end
 end
