@@ -119,8 +119,8 @@ defmodule ImagePipe.Execution do
     }
   end
 
-  @doc "Byte identity of the main source together with every watermark asset."
-  def byte_identity(%Context{} = context) do
+  # Byte identity of the main source together with every watermark asset.
+  defp byte_identity(%Context{} = context) do
     main =
       case context.acquisition.record do
         nil -> context.source.cache_semantics.byte_identity
