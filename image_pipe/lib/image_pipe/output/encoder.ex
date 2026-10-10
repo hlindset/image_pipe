@@ -7,7 +7,6 @@ defmodule ImagePipe.Output.Encoder do
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
   alias ImagePipe.Output.Ssim2Metric.CropScore
-  alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
   alias Vix.Vips.Image, as: VixImage
   alias Vix.Vips.MutableImage, as: VixMutableImage
@@ -225,14 +224,14 @@ defmodule ImagePipe.Output.Encoder do
     end
   end
 
-  # Non-alpha formats need opaque pixels. Flatten onto the resolved background
-  # (default white), ignoring its alpha. Already-opaque images pass through,
-  # including those flattened by a request's background transform.
-  defp flatten_for_format(image, %Resolved{format: format, flatten_background: background}) do
+  # Non-alpha formats need opaque pixels, so transparency flattens onto white.
+  # Already-opaque images pass through, including those flattened by a
+  # request's background transform.
+  defp flatten_for_format(image, %Resolved{format: format}) do
     if Format.supports_alpha?(format) or not Image.has_alpha?(image) do
       {:ok, image}
     else
-      case Image.flatten(image, background: Color.to_rgb_list(background)) do
+      case Image.flatten(image, background: [255, 255, 255]) do
         {:ok, flattened} -> {:ok, flattened}
         {:error, reason} -> {:error, {:encode, flatten_error(reason), []}}
       end

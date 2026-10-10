@@ -76,12 +76,6 @@ defmodule ImagePipe.RepresentationTest do
     assert a.etag != b.etag
   end
 
-  test "key data carries the core execution epoch" do
-    rep = build(source_identity(), material())
-
-    assert rep.cache_key.data[:core_epoch] == 1
-  end
-
   test "vary echoes vary_header_names and nothing else" do
     rep =
       build(

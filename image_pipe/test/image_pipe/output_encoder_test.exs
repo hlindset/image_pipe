@@ -4,7 +4,6 @@ defmodule ImagePipe.Output.EncoderTest do
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
-  alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Output.WebpOptions
 
   defmodule CaptureImage do
@@ -63,37 +62,7 @@ defmodule ImagePipe.Output.EncoderTest do
     assert is_list(stacktrace)
   end
 
-  test "stream_output flattens an alpha image onto the resolved flatten_background for a non-alpha format" do
-    {:ok, image} = Image.new(8, 8, color: [0, 0, 0, 0], bands: 4)
-    {:ok, red} = Color.rgb(255, 0, 0)
-
-    resolved = %Resolved{
-      format: :jpeg,
-      quality: :default,
-      response_headers: [],
-      strip_metadata: false,
-      keep_copyright: true,
-      color_profile: :preserve_source,
-      flatten_background: red
-    }
-
-    assert {:ok, stream, "image/jpeg", _meta} =
-             Encoder.stream_output(image, resolved, {nil, false}, [])
-
-    decoded =
-      stream
-      |> Enum.to_list()
-      |> IO.iodata_to_binary()
-      |> Image.open!(access: :random, fail_on: :error)
-
-    refute Image.has_alpha?(decoded)
-    # Fully transparent source flattened onto the resolved red background; JPEG is
-    # lossy so allow a small tolerance.
-    assert [r, g, b] = Image.get_pixel!(decoded, 4, 4)
-    assert r > 250 and g < 5 and b < 5
-  end
-
-  test "stream_output blends a semi-transparent image onto the default flatten_background for a non-alpha format" do
+  test "stream_output blends a semi-transparent image onto white for a non-alpha format" do
     {:ok, image} = Image.new(8, 8, color: [255, 0, 0, 128], bands: 4)
 
     resolved = %Resolved{
@@ -103,7 +72,6 @@ defmodule ImagePipe.Output.EncoderTest do
       strip_metadata: false,
       keep_copyright: true,
       color_profile: :preserve_source
-      # flatten_background omitted -> defaults to opaque white
     }
 
     assert {:ok, stream, "image/jpeg", _meta} =
@@ -133,7 +101,6 @@ defmodule ImagePipe.Output.EncoderTest do
       strip_metadata: false,
       keep_copyright: true,
       color_profile: :preserve_source
-      # default white flatten_background must be ignored for an alpha-capable format
     }
 
     assert {:ok, stream, "image/png", _meta} =

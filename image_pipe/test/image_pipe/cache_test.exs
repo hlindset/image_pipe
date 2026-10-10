@@ -97,14 +97,6 @@ defmodule ImagePipe.CacheTest do
     end
   end
 
-  test "ImagePipe init rejects header/cookie cache partitioning options", %{root: root} do
-    for key <- [:key_headers, :key_cookies] do
-      assert_raise ArgumentError, ~r/#{key} was removed.*storage_inputs:/s, fn ->
-        ImagePipe.Plug.init(mount(cache: [{:root, root}, {key, ["accept-language"]}]))
-      end
-    end
-  end
-
   test "ImagePipe init rejects invalid filesystem cache options early" do
     for cache <- [
           [root: "relative/cache"],

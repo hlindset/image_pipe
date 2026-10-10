@@ -85,26 +85,6 @@ defmodule ImagePipe.Plan.Color do
 
   def rgba(red, green, blue, alpha), do: {:error, {:invalid_color, [red, green, blue, alpha]}}
 
-  @spec with_alpha(t(), alpha()) :: {:ok, t()} | {:error, term()}
-  def with_alpha(%__MODULE__{} = color, alpha) do
-    with true <- valid?(color),
-         {:ok, alpha} <- alpha_ratio(alpha) do
-      {:ok, %{color | alpha: alpha}}
-    else
-      _reason -> {:error, {:invalid_color, [color, alpha]}}
-    end
-  end
-
-  @spec valid?(term()) :: boolean()
-  def valid?(%__MODULE__{space: :srgb, channels: {red, green, blue}, alpha: alpha}) do
-    is_integer(red) and red in 0..255 and
-      is_integer(green) and green in 0..255 and
-      is_integer(blue) and blue in 0..255 and
-      match?({:ok, _alpha}, alpha_ratio(alpha))
-  end
-
-  def valid?(_color), do: false
-
   @spec key_data(t()) :: keyword()
   def key_data(%__MODULE__{
         space: :srgb,
@@ -123,11 +103,6 @@ defmodule ImagePipe.Plan.Color do
   @spec to_rgb_list(t()) :: [channel()]
   def to_rgb_list(%__MODULE__{channels: {red, green, blue}}), do: [red, green, blue]
 
-  @spec to_rgba_list(t()) :: [channel()]
-  def to_rgba_list(%__MODULE__{channels: {red, green, blue}, alpha: alpha}) do
-    [red, green, blue, alpha_byte(alpha)]
-  end
-
   defp alpha_ratio({:ratio, numerator, denominator})
        when is_integer(numerator) and is_integer(denominator) and numerator >= 0 and
               denominator > 0 and numerator <= denominator do
@@ -136,6 +111,4 @@ defmodule ImagePipe.Plan.Color do
   end
 
   defp alpha_ratio(_alpha), do: {:error, :alpha}
-
-  defp alpha_byte({:ratio, numerator, denominator}), do: round(255 * numerator / denominator)
 end

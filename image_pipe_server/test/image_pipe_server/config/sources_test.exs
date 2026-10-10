@@ -3,10 +3,16 @@ defmodule ImagePipeServer.Config.SourcesTest do
 
   alias ImagePipe.Source.S3.AssumeRole
   alias ImagePipe.Source.S3.InstanceRole
+  alias ImagePipeServer.Config.Convert
   alias ImagePipeServer.Config.Sources
   alias ImagePipeServer.ConfigError
 
-  defp convert(table), do: Sources.options!(table)
+  defp convert(table) do
+    case Sources.convert(table, ["sources"]) do
+      {:ok, sources} -> sources
+      {:error, path, message} -> raise ConfigError, Convert.error_message(path, message)
+    end
+  end
 
   defp error(table), do: assert_raise(ConfigError, fn -> convert(table) end).message
 

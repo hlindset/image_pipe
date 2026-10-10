@@ -204,11 +204,6 @@ defmodule ImagePipe.Transform.Executor.Geometry do
     |> PendingOrientation.display_dims(state.pending_orientation)
   end
 
-  @spec display_live_dims(State.t()) :: {pos_integer(), pos_integer()}
-  def display_live_dims(%State{} = state) do
-    state |> live_dims() |> PendingOrientation.display_dims(state.pending_orientation)
-  end
-
   @spec pending_class(State.t()) :: :none | :identity | :pending
   def pending_class(%State{pending_orientation: nil}), do: :none
 

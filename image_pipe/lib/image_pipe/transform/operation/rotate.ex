@@ -1,8 +1,7 @@
 defmodule ImagePipe.Transform.Operation.Rotate do
   # Clockwise arbitrary-angle rotation with transparent corners.
   #
-  # Non-alpha output formats flatten the corners onto
-  # `Output.Policy.flatten_background` at encoding.
+  # Non-alpha output formats flatten the corners onto white at encoding.
   #
   # Rotation reads pixels out of row order, so the executor's step table
   # (`Executor.Step.random_access?/1`) copies the input to RAM first. The executor

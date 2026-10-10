@@ -42,12 +42,6 @@ defmodule ImagePipe.Plan.Spec do
           ignored: [Issue.t()]
         }
 
-  @doc false
-  @spec errors([map()], map(), MapSet.t(Issue.location()), Validation.watermarks()) ::
-          [Issue.t()]
-  def errors(groups, options, invalid \\ MapSet.new(), watermarks \\ nil),
-    do: Validation.errors(groups, options, invalid, watermarks)
-
   # Validates merged request options and drops the inert ones. Dropping one
   # can leave another without its prerequisite, so it repeats until none is
   # left, and a group left empty is dropped. Options whose prerequisite is

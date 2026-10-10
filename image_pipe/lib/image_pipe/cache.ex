@@ -39,7 +39,6 @@ defmodule ImagePipe.Cache do
   alias ImagePipe.Telemetry
 
   @shared_cache_option_keys [:max_body_bytes]
-  @removed_cache_option_keys [:key_headers, :key_cookies]
   @shared_cache_option_schema NimbleOptions.new!(
                                 max_body_bytes: [
                                   type: {:or, [nil, :non_neg_integer]}
@@ -248,7 +247,6 @@ defmodule ImagePipe.Cache do
 
   defp validate_configured_cache(cache_opts) do
     with :ok <- validate_cache_opts(cache_opts),
-         :ok <- reject_removed_options(cache_opts),
          {:ok, shared_opts} <- normalize_shared_options(cache_opts),
          {:ok, store_opts} <- normalize_store_options(store_options(cache_opts)) do
       {:ok, Keyword.merge(shared_opts, store_opts)}
@@ -259,18 +257,6 @@ defmodule ImagePipe.Cache do
     if Keyword.keyword?(cache_opts),
       do: :ok,
       else: {:error, {:invalid_cache_config, cache_opts}}
-  end
-
-  defp reject_removed_options(cache_opts) do
-    case Enum.find(@removed_cache_option_keys, &Keyword.has_key?(cache_opts, &1)) do
-      nil ->
-        :ok
-
-      key ->
-        raise ArgumentError,
-              "cache option #{inspect(key)} was removed; partition on request headers and cookies " <>
-                "with the mount-level storage_inputs: [{:header, name}, {:cookie, name}]"
-    end
   end
 
   defp normalize_shared_options(cache_opts) do
