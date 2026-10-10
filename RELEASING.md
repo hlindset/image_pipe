@@ -63,6 +63,14 @@ release the libraries first.
 1. Set `@version` in `image_pipe_server/mix.exs`. To ship newer libraries,
    also set `@image_pipe_version` to their version.
    [Update the server changelog](#update-the-changelogs) and merge to `main`.
+   When `@image_pipe_version` changes:
+   - Add a note under `Changed` that names the new library version and
+     links to its notes in the [library changelog](image_pipe/CHANGELOG.md),
+     such as
+     ``Uses `image_pipe` [0.2.0](https://github.com/hlindset/image_pipe/blob/v0.2.0/image_pipe/CHANGELOG.md).``
+   - Check `bd list --label server-changelog --status open` for library
+     changes server users see. Add the entries of those that the new
+     library version includes, and close those beads.
 2. Tag the merge commit and push the tag:
 
    ```sh
