@@ -31,8 +31,6 @@ defmodule ImagePipe.Transform.Executor do
   alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.Operation.Gradient
   alias ImagePipe.Transform.Operation.Gray
-  alias ImagePipe.Transform.Operation.Monochrome
-  alias ImagePipe.Transform.Operation.Padding
   alias ImagePipe.Transform.Operation.Pixelate
   alias ImagePipe.Transform.Operation.ProgressiveBlur
   alias ImagePipe.Transform.Operation.Resize
@@ -233,7 +231,8 @@ defmodule ImagePipe.Transform.Executor do
          {:ok, state} <- run_display_optional(state, pixelate_op(group.pixelate), opts),
          {:ok, state} <- run_profile_optional(state, if(group.gray, do: %Gray{}), opts),
          {:ok, state} <- run_profile_optional(state, if(group.bitonal, do: %Bitonal{}), opts),
-         {:ok, state} <- run_color_optional(state, monochrome_op(group.monochrome), opts),
+         {:ok, state} <-
+           run_color_optional(state, monochrome_op(group.monochrome), opts, :monochrome),
          {:ok, state} <- run_color_optional(state, duotone_op(group.duotone), opts),
          {:ok, state} <- run_optional(state, brightness_op(group.brightness), opts),
          {:ok, state} <- run_optional(state, contrast_op(group.contrast), opts),
@@ -464,17 +463,15 @@ defmodule ImagePipe.Transform.Executor do
 
   defp execute_canvas(state, %Group{canvas: canvas, resize: resize}, dpr, opts) do
     with {:ok, state} <- flush_display(state) do
-      {width, height} = Geometry.live_dims(state)
-      rule = canvas_rule(canvas.mode, resize, dpr)
-
-      {:ok, {canvas_width, canvas_height}} =
-        ExtendCanvas.resolved_canvas_dims(rule, width, height)
+      {canvas_width, canvas_height} =
+        Geometry.canvas_dims(canvas.mode, resize, dpr, Geometry.live_dims(state))
 
       {x, y} = canvas.offset
       {anchor_x, anchor_y} = anchor_pair(canvas.at)
 
       operation = %ExtendCanvas{
-        rule: rule,
+        width: canvas_width,
+        height: canvas_height,
         gravity: {:anchor, anchor_x, anchor_y},
         x_offset: canvas_offset(x, canvas_width, dpr),
         y_offset: canvas_offset(y, canvas_height, dpr)
@@ -489,17 +486,24 @@ defmodule ImagePipe.Transform.Executor do
   defp execute_padding(state, nil, _dpr, _opts), do: {:ok, state}
   defp execute_padding(state, {0, 0, 0, 0}, _dpr, _opts), do: {:ok, state}
 
-  defp execute_padding(state, {top, right, bottom, left}, dpr, opts) do
-    operation = %Padding{
-      top: round_ties_to_even(top * dpr),
-      right: round_ties_to_even(right * dpr),
-      bottom: round_ties_to_even(bottom * dpr),
-      left: round_ties_to_even(left * dpr)
-    }
+  defp execute_padding(state, sides, dpr, opts) do
+    [top, right, bottom, left] =
+      sides |> Tuple.to_list() |> Enum.map(&round_ties_to_even(&1 * dpr))
 
-    with {:ok, state} <- flush_display(state),
-         {:ok, state} <- Step.run(state, operation, opts) do
-      {:ok, Geometry.clear_source_frame(state)}
+    with {:ok, state} <- flush_display(state) do
+      {width, height} = Geometry.live_dims(state)
+
+      operation = %ExtendCanvas{
+        width: width + left + right,
+        height: height + top + bottom,
+        gravity: {:anchor, :left, :top},
+        x_offset: left,
+        y_offset: top
+      }
+
+      with {:ok, state} <- Step.run(state, operation, opts, :padding) do
+        {:ok, Geometry.clear_source_frame(state)}
+      end
     end
   end
 
@@ -728,12 +732,13 @@ defmodule ImagePipe.Transform.Executor do
   end
 
   # A color effect converts a tagged gray frame to RGB through its profile.
-  defp run_color_optional(state, nil, _opts), do: {:ok, state}
+  defp run_color_optional(state, operation, opts, name \\ nil)
+  defp run_color_optional(state, nil, _opts, _name), do: {:ok, state}
 
-  defp run_color_optional(%State{image: image} = state, operation, opts) do
+  defp run_color_optional(%State{image: image} = state, operation, opts, name) do
     with {:ok, state} <-
            if(GrayFrame.gray?(image), do: materialize_tagged_frame(state), else: {:ok, state}),
-         do: Step.run(state, operation, opts)
+         do: Step.run(state, operation, opts, name)
   end
 
   defp run_display_color_optional(state, nil, _opts), do: {:ok, state}
@@ -843,7 +848,7 @@ defmodule ImagePipe.Transform.Executor do
   defp monochrome_op(nil), do: nil
 
   defp monochrome_op(%{intensity: intensity, color: color}),
-    do: %Monochrome{intensity: intensity, color: Tuple.to_list(color)}
+    do: %Duotone{intensity: intensity, shadow: [0, 0, 0], highlight: Tuple.to_list(color)}
 
   defp duotone_op(nil), do: nil
 
@@ -882,12 +887,6 @@ defmodule ImagePipe.Transform.Executor do
 
   defp background_op({red, green, blue, alpha}),
     do: %Background{color: [red, green, blue, round(alpha * 255)]}
-
-  defp canvas_rule(:box, %{w: width, h: height}, dpr),
-    do: {:dimensions, width * dpr, height * dpr}
-
-  defp canvas_rule(:ratio, %{w: width, h: height}, _dpr),
-    do: {:aspect_ratio, {width, height}}
 
   defp canvas_offset({:px, value}, _dimension, dpr), do: value * dpr
   defp canvas_offset({:pct, value}, dimension, _dpr), do: dimension * value / 100

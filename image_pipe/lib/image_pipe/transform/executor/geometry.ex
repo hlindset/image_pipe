@@ -38,6 +38,34 @@ defmodule ImagePipe.Transform.Executor.Geometry do
   end
 
   @doc """
+  The canvas size for extending a `{width, height}` image: a `:box` of the
+  resize's DPR-scaled dimensions, or the smallest box of the resize's `:ratio`
+  that holds the image. Each axis is at least the image size.
+  """
+  @spec canvas_dims(
+          :box | :ratio,
+          ImagePipe.Plan.Spec.Group.resize(),
+          number(),
+          {pos_integer(), pos_integer()}
+        ) ::
+          {pos_integer(), pos_integer()}
+  def canvas_dims(:box, %{w: width, h: height}, dpr, {image_width, image_height}),
+    do: {max(image_width, round(width * dpr)), max(image_height, round(height * dpr))}
+
+  def canvas_dims(:ratio, %{w: ratio_width, h: ratio_height}, _dpr, {image_width, image_height}) do
+    target_ratio = ratio_width / ratio_height
+
+    {width, height} =
+      if image_width / image_height > target_ratio do
+        {image_width, round(image_width / target_ratio)}
+      else
+        {round(image_height * target_ratio), image_height}
+      end
+
+    {max(image_width, width), max(image_height, height)}
+  end
+
+  @doc """
   The uniform scale, at least 1, that `min_w` and `min_h` apply to the resize
   of `source` before DPR and the enlargement clamp.
   """

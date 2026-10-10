@@ -2,7 +2,9 @@ defmodule ImagePipe.Transform.Executor.Step do
   # Runs one operation for the executor.
   #
   # The table below gives each operation struct its stage name (the
-  # `[:transform, :operation]` span's `:operation`) and its function, and
+  # `[:transform, :operation]` span's `:operation`) and its function. The
+  # executor may name a step after the request option it serves instead, such
+  # as `:padding` for an `ExtendCanvas` or `:monochrome` for a `Duotone`.
   # `random_access?/1` is the materialization policy: an operation that reads
   # pixels out of row order runs after the image is copied to memory, and
   # everything else streams. Classify an operation as streaming only after
@@ -22,8 +24,6 @@ defmodule ImagePipe.Transform.Executor.Step do
   alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.Operation.Gradient
   alias ImagePipe.Transform.Operation.Gray
-  alias ImagePipe.Transform.Operation.Monochrome
-  alias ImagePipe.Transform.Operation.Padding
   alias ImagePipe.Transform.Operation.Pixelate
   alias ImagePipe.Transform.Operation.ProgressiveBlur
   alias ImagePipe.Transform.Operation.Resize
@@ -46,8 +46,6 @@ defmodule ImagePipe.Transform.Executor.Step do
   defp step(%ExtendCanvas{}), do: {:extend_canvas, &ExtendCanvas.execute/2}
   defp step(%Gradient{}), do: {:gradient, &Gradient.execute/2}
   defp step(%Gray{}), do: {:gray, &Gray.execute/2}
-  defp step(%Monochrome{}), do: {:monochrome, &Monochrome.execute/2}
-  defp step(%Padding{}), do: {:padding, &Padding.execute/2}
   defp step(%Pixelate{}), do: {:pixelate, &Pixelate.execute/2}
   defp step(%ProgressiveBlur{}), do: {:progressive_blur, &ProgressiveBlur.execute/2}
   defp step(%Resize{}), do: {:resize, &Resize.execute/2}
@@ -70,23 +68,24 @@ defmodule ImagePipe.Transform.Executor.Step do
   @doc """
   Runs one operation, materializing first when it needs random access.
 
-  Emits a `[:transform, :operation]` span with the operation name, parameters,
-  outcome, and resulting dimensions. libvips defers most pixel work, so this
-  span measures pipeline construction plus any materialization it triggers.
+  Emits a `[:transform, :operation]` span with the operation's stage name (or
+  `name`, when given), parameters, outcome, and resulting dimensions. libvips
+  defers most pixel work, so this span measures pipeline construction plus any
+  materialization it triggers.
 
   Returns transform failures as `{:error, {:transform, reason}}` and
   materialization failures as `Materializer.error/1` classifies them.
   Programmer errors propagate through the span unchanged.
   """
-  @spec run(State.t(), struct(), keyword()) ::
+  @spec run(State.t(), struct(), keyword(), atom() | nil) ::
           {:ok, State.t()} | {:error, {:transform, term()} | {:decode, term()}}
-  def run(%State{} = state, operation, opts \\ []) do
-    {name, execute} = step(operation)
+  def run(%State{} = state, operation, opts \\ [], name \\ nil) do
+    {stage, execute} = step(operation)
 
     Telemetry.span(
       Telemetry.telemetry_opts(opts),
       [:transform, :operation],
-      %{operation: name, params: operation},
+      %{operation: name || stage, params: operation},
       fn ->
         result =
           with {:ok, state} <- prepare(state, operation) do
