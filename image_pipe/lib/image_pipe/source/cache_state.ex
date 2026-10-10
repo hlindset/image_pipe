@@ -27,7 +27,12 @@ defmodule ImagePipe.Source.CacheState do
 
   @spec from_headers(map(), CachePolicy.t(), boolean(), {integer(), integer()}) :: t()
   def from_headers(headers, policy, stable?, {requested_at, received_at}) do
-    directives = directives(Map.get(headers, "cache-control", []))
+    directives =
+      headers
+      |> Map.get("cache-control", [])
+      |> directives()
+      |> drop_unretained_qualifiers(headers)
+
     age = age(headers, requested_at, received_at)
     lifetime = lifetime(headers, directives, policy, received_at)
 
@@ -206,6 +211,21 @@ defmodule ImagePipe.Source.CacheState do
   # at every use.
   defp digits?(<<char, rest::binary>>) when char in ?0..?9, do: rest == "" or digits?(rest)
   defp digits?(_value), do: false
+
+  # A qualified private or no-cache restricts only the fields it names
+  # (RFC 9111 sections 5.2.2.4 and 5.2.2.7). Headers here are the ones the
+  # cache stores, so a qualifier naming none of them restricts nothing.
+  defp drop_unretained_qualifiers(directives, headers) do
+    Map.reject(directives, fn {name, values} ->
+      name in ["private", "no-cache"] and
+        not Enum.any?(values, &restricts_retained?(&1, headers))
+    end)
+  end
+
+  defp restricts_retained?(nil, _headers), do: true
+
+  defp restricts_retained?(fields, headers),
+    do: fields |> Utils.list() |> Enum.any?(&Map.has_key?(headers, String.downcase(&1, :ascii)))
 
   # Split only outside quoted strings; extensions may contain commas.
   defp directives(values) do

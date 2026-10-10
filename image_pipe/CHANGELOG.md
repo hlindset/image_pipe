@@ -98,6 +98,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A CMYK or other non-RGB source with an embedded color profile and more
   pixels than `max_intermediate_pixels` fails with `422`, like other oversized
   images, instead of `415`.
+- The source cache stores and reuses originals whose `Cache-Control` has a
+  qualified `private="..."` or `no-cache="..."` naming only headers ImagePipe
+  doesn't keep, such as `private="Set-Cookie"`. They were treated as
+  unqualified `private` (never stored) or `no-cache` (revalidated on every
+  request).
 
 ## [0.1.0] - 2026-10-09
 
