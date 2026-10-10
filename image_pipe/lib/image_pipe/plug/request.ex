@@ -36,15 +36,16 @@ defmodule ImagePipe.Plug.Request do
         {{:ok, request, source}, %{result: :ok, sig_key_index: key_index}}
 
       {:error, _reason} = error ->
-        # Deliberately NO error tag — preserving the chain's parse stop shape.
+        # The request span reports the error's tag, so the parse span's stop
+        # carries only the result.
         {error, %{result: :error}}
     end
   end
 
   # The presets this request's parse sees: the static map, or with a
-  # request-time lookup, the request's compiled closure over it. Static-only
-  # requests skip the option pass that finds the names, which `Parser.parse/2`
-  # would repeat.
+  # request-time lookup, the presets it fetched compiled over that map.
+  # Static-only requests skip the option pass that finds the names, which
+  # `Parser.parse/2` would repeat.
   defp presets(lexed, config) do
     case config[:preset_lookup] do
       nil ->

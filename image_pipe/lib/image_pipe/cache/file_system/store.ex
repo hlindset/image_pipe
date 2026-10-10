@@ -322,7 +322,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   def commit_sink(state, opts) when is_map(state) do
     case lookup_admission(opts) do
       :unbounded ->
-        legacy_commit(state)
+        unbounded_commit(state)
 
       {:ok, pid} ->
         commit_bounded(state, pid, opts)
@@ -341,7 +341,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   # Unbounded mode has no admission to name a replaced body as a victim, so
   # the commit removes the body the superseded metadata pointed at.
-  defp legacy_commit(state) do
+  defp unbounded_commit(state) do
     case prepare_sink_commit(state) do
       {:ok, state, body_filename} ->
         previous = previous_body_path(state.paths)

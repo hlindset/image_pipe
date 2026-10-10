@@ -1,8 +1,9 @@
 defmodule ImagePipe.Delivery.Coordinator do
   @moduledoc false
 
-  # Monitor-based session coordinator for a streaming delivery, driving an
-  # opaque `build_fun` (it knows nothing about decode/transform/encode).
+  # Monitor-based session coordinator for a streaming delivery. It drives the
+  # `build_fun` from `ImagePipe.Processing.build_fun/5`, which decodes,
+  # transforms and encodes, without depending on those steps.
   #
   # Monitor DIRECTION (the flagged invariant): a `spawn_monitor` from an owner
   # only watches the CHILD — owner-death detection requires the CHILD to

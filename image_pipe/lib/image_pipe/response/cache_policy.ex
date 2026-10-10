@@ -294,9 +294,9 @@ defmodule ImagePipe.Response.CachePolicy do
   end
 
   @doc """
-  Emits `[:http_cache, :conditional, :match]`. The runner calls this before
-  every `304`, whether the request matched before the output-cache lookup or
-  after an output-cache hit. The policy owns the event, and
+  Emits `[:http_cache, :conditional, :match]`. `ImagePipe.Plug.Runner` calls
+  this before every `304`, whether the request matched before the output-cache
+  lookup or after an output-cache hit. The policy owns the event, and
   `ImagePipe.Response.Conditional` owns the matching.
   """
   @spec conditional_matched(Plug.Conn.t(), keyword()) :: :ok
