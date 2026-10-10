@@ -18,10 +18,9 @@ defmodule Mix.Tasks.Imgproxy.Bake do
   import Plug.Test, only: [conn: 2]
 
   alias ImagePipe.Test.ImgproxyReference.Cases
+  alias ImagePipe.Test.ImgproxyReference.Container
   alias ImagePipe.Test.PixelSuite
 
-  @version "v4.0.17"
-  @image "darthsim/imgproxy:#{@version}@sha256:db0b4b9cd690c8b3590203dea300fb759a18c4ec2af7b37424f0bdef23ce317d"
   @base "test/support/image_pipe/test/imgproxy_reference"
   @sources "test/support/image_pipe/test/sources"
   @fixtures Path.join(@base, "fixtures")
@@ -38,22 +37,22 @@ defmodule Mix.Tasks.Imgproxy.Bake do
     container = start_container!()
 
     try do
-      base_url = "http://127.0.0.1:#{mapped_port!(container)}"
-      wait_until_ready!(base_url)
+      base_url = "http://127.0.0.1:#{Container.mapped_port!(container)}"
+      Container.wait_until_ready!(base_url <> "/health")
       File.mkdir_p!(@fixtures)
 
       baked = Map.new(cases, fn c -> {c.id, bake(c, base_url)} end)
       if opts[:only] == nil, do: remove_orphans(cases)
 
-      write_manifest!(baked, container_libvips(container))
-      Mix.shell().info("Baked #{map_size(baked)} case(s) with imgproxy #{@version}")
+      write_manifest!(baked, Container.imgproxy_libvips(container))
+      Mix.shell().info("Baked #{map_size(baked)} case(s) with imgproxy #{Container.version()}")
     after
-      docker(["rm", "-f", container])
+      Container.docker(["rm", "-f", container])
     end
   end
 
   defp start_container! do
-    docker!([
+    Container.docker!([
       "run",
       "-d",
       "-p",
@@ -65,27 +64,9 @@ defmodule Mix.Tasks.Imgproxy.Bake do
       "IMGPROXY_WATERMARK_PATH=/srv/alpha.png",
       "-v",
       "#{Path.expand(@sources)}:/srv:ro",
-      @image
+      Container.image()
     ])
   end
-
-  # `docker port` prints one `host:port` line per binding.
-  defp mapped_port!(container) do
-    docker!(["port", container, "8080/tcp"])
-    |> String.split("\n", trim: true)
-    |> List.first()
-    |> String.split(":")
-    |> List.last()
-  end
-
-  defp docker!(args) do
-    case docker(args) do
-      {out, 0} -> String.trim(out)
-      {_out, status} -> Mix.raise("docker #{hd(args)} exited with #{status}")
-    end
-  end
-
-  defp docker(args), do: System.cmd("docker", args)
 
   defp select(cases, nil), do: cases
 
@@ -114,26 +95,17 @@ defmodule Mix.Tasks.Imgproxy.Bake do
 
     failures =
       for c <- cases,
-          response = ImagePipe.Plug.call(conn(:get, native_path(c)), config),
+          response = ImagePipe.Plug.call(conn(:get, Container.native_path(c)), config),
           response.status != 200,
-          do: "  #{c.id}: #{response.status} #{native_path(c)}"
+          do: "  #{c.id}: #{response.status} #{Container.native_path(c)}"
 
     if failures != [] do
       Mix.raise("Native requests failed before baking:\n" <> Enum.join(failures, "\n"))
     end
   end
 
-  defp native_path(%{kind: :png} = c), do: "/#{c.native}/format=png/src/#{c.source}"
-  defp native_path(%{kind: :lossy} = c), do: "/#{c.native}/src/#{c.source}"
-
-  defp imgproxy_path(%{kind: :png} = c),
-    do: "/unsafe/#{c.imgproxy}/f:png/plain/local:///#{c.source}"
-
-  defp imgproxy_path(%{kind: :lossy} = c),
-    do: "/unsafe/#{c.imgproxy}/plain/local:///#{c.source}"
-
   defp bake(c, base_url) do
-    response = Req.get!(base_url <> imgproxy_path(c), decode_body: false, retry: false)
+    response = Req.get!(base_url <> Container.imgproxy_path(c), decode_body: false, retry: false)
 
     if response.status != 200 do
       Mix.raise("#{c.id}: imgproxy returned #{response.status}: #{response.body}")
@@ -184,7 +156,7 @@ defmodule Mix.Tasks.Imgproxy.Bake do
       |> Map.new(&{&1, sha256(Path.join(@sources, &1))})
 
     manifest = %{
-      imgproxy_image: @image,
+      imgproxy_image: Container.image(),
       imgproxy_libvips: libvips,
       sources: sources,
       cases: cases
@@ -196,28 +168,6 @@ defmodule Mix.Tasks.Imgproxy.Bake do
       |> Code.format_string!()
 
     File.write!(@manifest, [content, "\n"])
-  end
-
-  defp wait_until_ready!(base_url, attempts \\ 60)
-  defp wait_until_ready!(_base_url, 0), do: Mix.raise("imgproxy container did not become ready")
-
-  defp wait_until_ready!(base_url, attempts) do
-    case Req.get(base_url <> "/health", retry: false) do
-      {:ok, %Req.Response{status: 200}} ->
-        :ok
-
-      _other ->
-        Process.sleep(500)
-        wait_until_ready!(base_url, attempts - 1)
-    end
-  end
-
-  # imgproxy exposes no libvips version over HTTP; record the bundled
-  # library's ABI soname (e.g. "42.20.2") for provenance.
-  defp container_libvips(container) do
-    ["exec", container, "sh", "-c", "basename $(readlink -f /opt/imgproxy/lib/libvips.so.42)"]
-    |> docker!()
-    |> String.replace_prefix("libvips.so.", "")
   end
 
   defp sha256(path),

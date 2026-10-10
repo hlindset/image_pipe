@@ -45,6 +45,25 @@ any EXIF, XMP or IPTC beyond the tags libvips writes on every save. The test
 compares ImagePipe's output structure with it. A case that deliberately
 differs names the fields in `structure_differs`, with the reason.
 
+## Benchmark
+
+`mix imgproxy.bench` times each case's ImagePipe and imgproxy requests
+against the pinned imgproxy container and an `image_pipe_server` container
+with matched CPU, memory and worker limits. It needs Docker and doesn't run
+in CI. Build and smoke-test the server image, then run the bench from
+`image_pipe/`:
+
+```bash
+mise run server:image
+MIX_ENV=test mise exec -- mix imgproxy.bench --only resize,crop
+```
+
+It writes `tmp/imgproxy_bench/results.json` and an HTML report next to it,
+with ImagePipe ÷ imgproxy ratios per case and per operation family. A case is
+timed only when both servers return the same content type and dimensions.
+The task's moduledoc lists the options, including `--corpus` for running the
+cases that don't depend on their source on your own images.
+
 ## Change rules
 
 - Fixtures are evidence of imgproxy's behaviour. Never re-bake or edit one to
