@@ -94,7 +94,12 @@ defmodule Mix.Tasks.ImagePipe.Golden.Bake do
 
     content =
       manifest
-      |> inspect(pretty: true, limit: :infinity, printable_limit: :infinity)
+      |> inspect(
+        pretty: true,
+        limit: :infinity,
+        printable_limit: :infinity,
+        custom_options: [sort_maps: true]
+      )
       |> Code.format_string!()
 
     File.write!(@manifest, [content, "\n"])
