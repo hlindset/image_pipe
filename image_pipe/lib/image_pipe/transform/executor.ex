@@ -275,90 +275,44 @@ defmodule ImagePipe.Transform.Executor do
     end
   end
 
+  # A region reads the display frame. A guided crop that streams runs before
+  # pending orientation, compensated into the storage frame; one that needs
+  # random access runs on the display frame. Flushing quarter-turns the decode
+  # shrink, so crops rescale after it.
   defp execute_crop(state, %Group{region: nil, crop: nil}, _opts), do: {:ok, state}
 
   defp execute_crop(%State{} = state, %Group{region: region}, opts) when region != nil do
-    display_dims = Geometry.display_effective_dims(state)
-    crop = region_crop(region, display_dims)
+    crop = region_crop(region, Geometry.display_effective_dims(state))
 
-    {state, crop} =
-      case Geometry.pending_class(state) do
-        :pending ->
-          pending = state.pending_orientation
-
-          crop =
-            Geometry.rescale_crop(
-              crop,
-              Geometry.orient_decode_shrink(state.decode_shrink, pending)
-            )
-
-          {{:flush, state}, crop}
-
-        _none_or_identity ->
-          {state, Geometry.rescale_crop(crop, state.decode_shrink)}
-      end
-
-    with {:ok, state} <- maybe_flush_tagged(state),
-         {:ok, state} <- Step.run(state, crop, opts) do
-      {:ok, Geometry.clear_source_frame(state)}
-    end
+    with {:ok, state} <- flush_display(state),
+         do: run_crop(state, Geometry.rescale_crop(crop, state.decode_shrink), opts)
   end
 
   defp execute_crop(%State{} = state, %Group{} = group, opts) do
     crop = guided_crop(group, Geometry.display_effective_dims(state))
-    materializing? = Step.random_access?(crop)
 
-    case {Geometry.pending_class(state), materializing?} do
-      {:pending, true} ->
-        pending = state.pending_orientation
-
-        crop =
-          Geometry.rescale_crop(
-            crop,
-            Geometry.orient_decode_shrink(state.decode_shrink, pending)
-          )
-
-        with {:ok, state} <- flush_display(state),
-             {:ok, state} <- Step.run(state, crop, opts) do
-          {:ok, Geometry.clear_source_frame(state)}
-        end
-
+    case {Geometry.pending_class(state), Step.random_access?(crop)} do
       {:pending, false} ->
         pending = state.pending_orientation
 
-        crop =
-          crop
-          |> Geometry.rescale_crop(Geometry.orient_decode_shrink(state.decode_shrink, pending))
-          |> Geometry.compensate_crop(pending)
+        crop
+        |> Geometry.rescale_crop(Geometry.orient_decode_shrink(state.decode_shrink, pending))
+        |> Geometry.compensate_crop(pending)
+        |> then(&run_crop(state, &1, opts))
 
-        with {:ok, state} <- Step.run(state, crop, opts) do
-          {:ok, Geometry.clear_source_frame(state)}
-        end
+      {_class, true} ->
+        with {:ok, state} <- flush_display(state),
+             do: run_crop(state, Geometry.rescale_crop(crop, state.decode_shrink), opts)
 
-      {:identity, true} ->
-        state = %State{state | pending_orientation: nil}
-
-        with {:ok, state} <-
-               Step.run(state, Geometry.rescale_crop(crop, state.decode_shrink), opts) do
-          {:ok, Geometry.clear_source_frame(state)}
-        end
-
-      {:none, true} ->
-        with {:ok, state} <-
-               Step.run(state, Geometry.rescale_crop(crop, state.decode_shrink), opts) do
-          {:ok, Geometry.clear_source_frame(state)}
-        end
-
-      {_none_or_identity, false} ->
-        with {:ok, state} <-
-               Step.run(state, Geometry.rescale_crop(crop, state.decode_shrink), opts) do
-          {:ok, Geometry.clear_source_frame(state)}
-        end
+      {_class, false} ->
+        run_crop(state, Geometry.rescale_crop(crop, state.decode_shrink), opts)
     end
   end
 
-  defp maybe_flush_tagged({:flush, state}), do: flush_display(state)
-  defp maybe_flush_tagged(%State{} = state), do: {:ok, state}
+  defp run_crop(state, crop, opts) do
+    with {:ok, state} <- Step.run(state, crop, opts),
+         do: {:ok, Geometry.clear_source_frame(state)}
+  end
 
   defp execute_resize(state, %Group{resize: nil, dpr: dpr}, _opts), do: {:ok, state, dpr}
 
@@ -747,18 +701,8 @@ defmodule ImagePipe.Transform.Executor do
     }
   end
 
-  defp guided_crop(%Group{crop: {width, height}} = group, {display_width, display_height}) do
-    requested = %Crop{
-      width: {:pixels, round(resolve_length(width, display_width))},
-      height: {:pixels, round(resolve_length(height, display_height))},
-      crop_from: :gravity,
-      aspect_ratio: group.crop_ratio,
-      enlarge: group.crop_ratio_enlarge
-    }
-
-    {crop_width, crop_height} =
-      Crop.resolved_box_dims(requested, display_width, display_height)
-
+  defp guided_crop(%Group{} = group, display_dims) do
+    {crop_width, crop_height} = guided_box(group, display_dims)
     {x_offset, y_offset} = crop_offsets(group.anchor_offset)
 
     %Crop{
@@ -769,6 +713,16 @@ defmodule ImagePipe.Transform.Executor do
       x_offset: x_offset,
       y_offset: y_offset
     }
+  end
+
+  defp guided_box(%Group{crop: {width, height}} = group, {display_width, display_height}) do
+    Geometry.crop_box(
+      round(resolve_length(width, display_width)),
+      round(resolve_length(height, display_height)),
+      group.crop_ratio,
+      group.crop_ratio_enlarge,
+      {display_width, display_height}
+    )
   end
 
   # Source crops run before resize, in physical source pixels like the crop
@@ -921,10 +875,8 @@ defmodule ImagePipe.Transform.Executor do
     }
   end
 
-  defp decode_crop_extent(%Group{crop: {_width, _height}} = group, display_dims) do
-    crop = guided_crop(group, display_dims)
-    Crop.resolved_box_dims(crop, elem(display_dims, 0), elem(display_dims, 1))
-  end
+  defp decode_crop_extent(%Group{crop: {_width, _height}} = group, display_dims),
+    do: guided_box(group, display_dims)
 
   defp decode_crop_extent(%Group{}, _display_dims), do: nil
 

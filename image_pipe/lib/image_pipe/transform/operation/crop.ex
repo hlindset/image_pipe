@@ -73,7 +73,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
       resolve_dimension: 2,
       resolve_offset: 2,
       resolve_position: 1,
-      round_half_away_from_zero: 1,
       round_ties_to_even: 1
     ]
 
@@ -103,8 +102,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
     gravity: nil,
     x_offset: 0.0,
     y_offset: 0.0,
-    aspect_ratio: nil,
-    enlarge: false,
     reject_out_of_bounds: false,
     center_bias: {:near, :near}
   ]
@@ -130,37 +127,14 @@ defmodule ImagePipe.Transform.Operation.Crop do
             | nil,
           x_offset: offset(),
           y_offset: offset(),
-          aspect_ratio: nil | {:ratio, pos_integer(), pos_integer()},
-          enlarge: boolean(),
           reject_out_of_bounds: boolean(),
           center_bias: {:near | :far, :near | :far}
         }
 
-  @doc false
-  # Pure crop dimensions shared by execution and geometry planning.
-  # Position does not affect the box size.
-  @spec resolved_box_dims(t(), pos_integer(), pos_integer()) ::
-          {pos_integer(), pos_integer()}
-  def resolved_box_dims(%__MODULE__{crop_from: :gravity} = params, image_width, image_height) do
-    crop_width = resolve_dimension(params.width, image_width)
-    crop_height = resolve_dimension(params.height, image_height)
-
-    {crop_width, crop_height} =
-      correct_aspect_ratio(
-        crop_width,
-        crop_height,
-        params.aspect_ratio,
-        params.enlarge,
-        image_width,
-        image_height
-      )
-
-    {max(1, min(image_width, crop_width)), max(1, min(image_height, crop_height))}
-  end
-
-  def resolved_box_dims(%__MODULE__{crop_from: %{}} = params, image_width, image_height) do
-    {resolve_dimension(params.width, image_width), resolve_dimension(params.height, image_height)}
-  end
+  defp resolved_box_dims(%__MODULE__{} = params, image_width, image_height),
+    do:
+      {resolve_dimension(params.width, image_width),
+       resolve_dimension(params.height, image_height)}
 
   defp resolved_rect(%__MODULE__{crop_from: :gravity} = params, image_width, image_height) do
     {crop_width, crop_height} = resolved_box_dims(params, image_width, image_height)
@@ -488,39 +462,4 @@ defmodule ImagePipe.Transform.Operation.Crop do
     do: bounds - crop - round_ties_to_even(offset)
 
   defp clamp_position(value, max_value), do: max(0, min(max_value, value))
-
-  defp correct_aspect_ratio(width, height, nil, _enlarge, _image_width, _image_height),
-    do: {width, height}
-
-  defp correct_aspect_ratio(
-         width,
-         height,
-         {:ratio, numerator, denominator},
-         enlarge,
-         image_width,
-         image_height
-       ) do
-    target = numerator / denominator
-    current = width / height
-
-    {corrected_width, corrected_height} =
-      cond do
-        current == target -> {width, height}
-        enlarge and current > target -> {width, round_half_away_from_zero(width / target)}
-        enlarge -> {round_half_away_from_zero(height * target), height}
-        current > target -> {round_half_away_from_zero(height * target), height}
-        true -> {width, round_half_away_from_zero(width / target)}
-      end
-
-    clamp_to_bounds(corrected_width, corrected_height, image_width, image_height)
-  end
-
-  defp clamp_to_bounds(width, height, image_width, image_height) do
-    scale = min(1.0, min(image_width / width, image_height / height))
-
-    width = max(1, min(image_width, round_half_away_from_zero(width * scale)))
-    height = max(1, min(image_height, round_half_away_from_zero(height * scale)))
-
-    {width, height}
-  end
 end
