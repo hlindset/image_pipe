@@ -28,7 +28,7 @@ defmodule ImagePipe.Plug.ConfigTest do
 
   test "detector_required needs a detector that can detect at least one class" do
     message =
-      "invalid ImagePipe processing options: detector_required: " <>
+      "invalid ImagePipe configuration: detector_required: " <>
         "the detector is not available in this build"
 
     for detector <- [nil, UnavailableDetector] do
@@ -239,6 +239,7 @@ defmodule ImagePipe.Plug.ConfigTest do
       [quality: 0],
       [quality: 101],
       [format_quality: %{wepb: 70}],
+      [format_quality: %{webp: 0}],
       [autoquality: :ssimulacra2],
       [autoquality_target: 0],
       [autoquality_target: 100.5],

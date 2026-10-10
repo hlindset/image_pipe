@@ -231,20 +231,14 @@ defmodule ImagePipeServer.Config do
 
   defp output_schema, do: store_schema() ++ ImagePipe.Cache.shared_options_schema()
 
-  # The library applies these defaults after validation, so its schema
-  # doesn't carry them; they are added here for the reference.
+  # The library checks these with custom validators, which the TOML
+  # conversion can't read, so they get plain types here.
   defp processing_schema do
-    defaults = ImagePipe.Processing.Config.resolve!([])
-
-    ImagePipe.Processing.Config.schema()
+    ImagePipe.Config.processing_schema()
     |> Keyword.drop([:sources, :processing_pool])
     |> elixir_only([:clock, :telemetry_prefix, :preset_lookup, :max_preset_lookups])
-    |> Enum.map(fn {key, spec} ->
-      case Keyword.fetch(defaults, key) do
-        {:ok, default} -> {key, Keyword.put_new(spec, :default, default)}
-        :error -> {key, spec}
-      end
-    end)
+    |> put_type(:format_quality, {:map, :atom, :pos_integer})
+    |> put_type(:autoquality_target, {:or, [:integer, :float]})
     |> Keyword.merge(
       source_cache_policy: [type: Sources.cache_policy_type()],
       format_order: [type: {:list, {:in, ImagePipe.Format.modern_formats()}}],
@@ -278,6 +272,9 @@ defmodule ImagePipeServer.Config do
   end
 
   defp http_schema, do: ImagePipe.Plug.Config.options_schema()
+
+  defp put_type(schema, key, type),
+    do: Keyword.update!(schema, key, &Keyword.put(&1, :type, type))
 
   defp elixir_only(schema, keys) do
     Enum.reduce(keys, schema, &Keyword.put(&2, &1, type: :any))

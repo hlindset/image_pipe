@@ -13,7 +13,7 @@ defmodule ImagePipe.Processing do
       ImagePipe.Telemetry,
       ImagePipe.Transform
     ],
-    exports: [Config, DebugBuilder, Terminal]
+    exports: [DebugBuilder, Terminal]
 
   alias ImagePipe.Debug.Timing
   alias ImagePipe.Decode

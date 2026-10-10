@@ -395,7 +395,6 @@ defmodule Mix.Tasks.Autoquality.Bench do
   alias ImagePipe.Output.Ssim2Metric
   alias ImagePipe.Output.Ssim2Metric.CropScore
   alias ImagePipe.Plug.Config, as: PlugConfig
-  alias ImagePipe.Processing.Config, as: ProcessingConfig
   alias ImagePipe.Test.Autoquality.TileSelection
   alias ImagePipe.Test.SourceInventory
   alias Vix.Vips.Image, as: VixImage
@@ -4398,7 +4397,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
   @n_max_edge 1600
 
   defp run_part_n(corpus_dir, fallback_files, cap, synth_mp) do
-    defaults = ProcessingConfig.resolve!([])
+    defaults = ImagePipe.Config.new!([]).options
     fixed = n_fixed_defaults(defaults)
 
     IO.puts("\n== Part N — target-only calibration: quality needed per target ==")
@@ -4664,7 +4663,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
   }
 
   defp run_part_o(corpus_dir, fallback_files, cap, synth_mp) do
-    fixed = n_fixed_defaults(ProcessingConfig.resolve!([]))
+    fixed = n_fixed_defaults(ImagePipe.Config.new!([]).options)
 
     IO.puts("\n== Part O — target-only search vs today's search ==")
 
@@ -4975,7 +4974,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
   @p_targets [72, 75, 78]
 
   defp run_part_p(corpus_dir, fallback_files, cap, synth_mp) do
-    fixed = n_fixed_defaults(ProcessingConfig.resolve!([]))
+    fixed = n_fixed_defaults(ImagePipe.Config.new!([]).options)
 
     IO.puts("\n== Part P — chroma subsampling: libvips auto vs off, at matched score ==")
 
@@ -5479,7 +5478,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
     do: IO.puts("Part R — crop offset by coverage: no subjects processed\n")
 
   defp findings_part_r(rows) do
-    target = ProcessingConfig.resolve!([])[:autoquality_target]
+    target = ImagePipe.Config.new!([]).options[:autoquality_target]
     floor = target - @r_hit_tolerance
 
     IO.puts(
@@ -5586,7 +5585,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
     options =
       case :persistent_term.get(key, nil) do
         nil ->
-          fixed = n_fixed_defaults(ProcessingConfig.resolve!([]))
+          fixed = n_fixed_defaults(ImagePipe.Config.new!([]).options)
           options = Map.new(fixed, fn {format, {_q, options}} -> {format, options} end)
           :persistent_term.put(key, options)
           options

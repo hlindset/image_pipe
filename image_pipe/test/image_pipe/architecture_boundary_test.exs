@@ -138,9 +138,12 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_deps(config, [
       ImagePipe.API,
       ImagePipe.Cache,
-      ImagePipe.Processing,
+      ImagePipe.Format,
+      ImagePipe.Plan,
       ImagePipe.Security,
       ImagePipe.Source,
+      ImagePipe.Telemetry,
+      ImagePipe.Transform,
       ImagePipe.URL
     ])
   end
@@ -168,7 +171,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
 
     assert_boundary_exports(processing, [
-      ImagePipe.Processing.Config,
       ImagePipe.Processing.DebugBuilder,
       ImagePipe.Processing.Terminal
     ])
