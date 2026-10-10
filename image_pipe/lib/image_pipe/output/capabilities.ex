@@ -4,13 +4,6 @@ defmodule ImagePipe.Output.Capabilities do
   # libvips output-format write capability, probed once and cached in
   # :persistent_term. Capabilities cannot change without a process restart, so a
   # process-lifetime cache is correct here.
-  #
-  # Production callers use `supports?/1` (the boot-probed result). `supports?/2`
-  # accepts an `:output_capabilities` map as an internal *test-injection seam* —
-  # it lets tests simulate a build that cannot write a given format without
-  # touching the global `:persistent_term`, keeping `async: true` tests race-free.
-  # This is the same opts-injection convention the request pipeline uses for
-  # `:image_module`; it is not a documented/validated public option.
 
   require Logger
 
@@ -32,15 +25,9 @@ defmodule ImagePipe.Output.Capabilities do
   def supports?(format) when format in @probed_formats, do: probe_once(format)
   def supports?(_format), do: false
 
-  # Internal test seam: an `:output_capabilities` map in `opts` overrides the
-  # probe (see module comment). Production omits it and falls back to `supports?/1`.
-  @spec supports?(atom(), keyword()) :: boolean()
-  def supports?(format, opts) do
-    case opts |> Keyword.get(:output_capabilities, %{}) |> Map.fetch(format) do
-      {:ok, supported?} -> supported?
-      :error -> supports?(format)
-    end
-  end
+  @doc "The output formats this libvips build can write."
+  @spec writable() :: [atom()]
+  def writable, do: @baseline_formats ++ Enum.filter(@probed_formats, &probe_once/1)
 
   @spec maybe_warn(atom(), boolean()) :: :ok
   defp maybe_warn(_format, true), do: :ok

@@ -59,15 +59,7 @@ defmodule ImagePipe.APIWireTest do
     ]
   end
 
-  # `output_capabilities` and `on_bracket_exit` are internal test-injection
-  # seams (the same convention `ImagePipe.Output.Capabilities.supports?/2`
-  # already documents) — appended AFTER `ImagePipe.Plug.init/1`'s validation,
-  # which would reject them as unknown options.
-  defp opts(extra) do
-    base = ImagePipe.Plug.init(Keyword.merge([sources: @default_sources], extra))
-
-    Keyword.merge(base, output_capabilities: %{avif: true, webp: true})
-  end
+  defp opts(extra), do: ImagePipe.Plug.init(Keyword.merge([sources: @default_sources], extra))
 
   defp opts, do: opts([])
 

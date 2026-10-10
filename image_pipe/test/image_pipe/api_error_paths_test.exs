@@ -111,20 +111,15 @@ defmodule ImagePipe.APIErrorPathsTest do
     ]
   ]
 
-  # `output_capabilities`/`on_bracket_exit`/`image_module` are test-
-  # injection seams that `Plug.Config.validate!/1` would reject as unknown
-  # options — appended AFTER `ImagePipe.Plug.init/1`, mirroring
-  # `APIWireTest`'s `opts/1` convention exactly.
-  @test_only_seam_keys [:output_capabilities, :on_bracket_exit, :image_module]
+  # `on_bracket_exit` and `image_module` are test-injection seams that
+  # `ImagePipe.Plug.init/1` would reject as unknown options, so they are
+  # appended after it.
+  @test_only_seam_keys [:on_bracket_exit, :image_module]
 
   defp opts(extra) do
     {seams, known} = Keyword.split(extra, @test_only_seam_keys)
     base = ImagePipe.Plug.init(Keyword.merge([sources: @default_sources], known))
-
-    Keyword.merge(
-      base,
-      Keyword.merge([output_capabilities: %{avif: true, webp: true}], seams)
-    )
+    Keyword.merge(base, seams)
   end
 
   defp get(path, config, headers \\ []) do

@@ -68,16 +68,6 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       do: StableSource.fetch(resolved, opts, runtime_opts)
   end
 
-  # `output_capabilities` is a test seam, not a mount option, so the dialect
-  # config rejects it as unknown. It is spliced onto the validated config after
-  # `ImagePipe.Plug.init/1`.
-  @post_init_keys [:output_capabilities]
-
-  defp init(opts) do
-    {post_init, known} = Keyword.split(opts, @post_init_keys)
-    Keyword.merge(ImagePipe.Plug.init(known), post_init)
-  end
-
   # The suite's baseline mount: a strong-byte-identity source, an observed
   # output cache, and the generated cache-header policy switched on.
   defp mount(overrides \\ []) do
@@ -87,7 +77,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     ]
     |> Keyword.merge(overrides)
     |> CacheObserver.observe()
-    |> init()
+    |> ImagePipe.Plug.init()
   end
 
   # Requests `path` once so the cache holds its response, and returns that
@@ -312,25 +302,17 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "automatic output does not vary by Accept when no modern format is available" do
-    for extra <- [
-          [auto_avif: false, auto_webp: false],
-          [output_capabilities: %{avif: false, webp: false}]
-        ] do
-      opts = mount(extra)
+    opts = mount(auto_avif: false, auto_webp: false)
 
-      conn = get(@automatic_path, opts, [{"accept", "image/avif,image/webp,*/*"}])
+    conn = get(@automatic_path, opts, [{"accept", "image/avif,image/webp,*/*"}])
 
-      assert conn.status == 200
+    assert conn.status == 200
 
-      # The client accepted AVIF and WebP and got neither, so no Accept value
-      # can change the response.
-      assert [content_type] = get_resp_header(conn, "content-type")
-      assert content_type =~ "image/jpeg", "#{inspect(extra)} did not empty the candidates"
-
-      assert get_resp_header(conn, "vary") == [], "sent Vary for #{inspect(extra)}"
-
-      flush_messages()
-    end
+    # The client accepted AVIF and WebP and got neither, so no Accept value
+    # can change the response.
+    assert [content_type] = get_resp_header(conn, "content-type")
+    assert content_type =~ "image/jpeg"
+    assert get_resp_header(conn, "vary") == []
   end
 
   test "existing vary is merged in the final response", %{opts: opts} do
@@ -683,7 +665,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
           telemetry_prefix: prefix
         ]
         |> CacheObserver.observe()
-        |> init()
+        |> ImagePipe.Plug.init()
 
       first = ImagePipe.Plug.call(conn(:get, @image_path), opts)
       assert [etag] = get_resp_header(first, "etag")
@@ -706,7 +688,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
           telemetry_prefix: prefix
         ]
         |> CacheObserver.observe()
-        |> init()
+        |> ImagePipe.Plug.init()
 
       conn = ImagePipe.Plug.call(conn(:get, @image_path), opts)
 

@@ -25,13 +25,7 @@ defmodule ImagePipe.APIResultLimitsTest do
     ]
   ]
 
-  # `output_capabilities` is an internal test-injection seam appended AFTER
-  # `ImagePipe.Plug.init/1`'s validation, which would reject it as an unknown
-  # option [mirrors api_wire_test.exs's `opts/1` helper].
-  defp opts(extra) do
-    base = ImagePipe.Plug.init(Keyword.merge([sources: @default_sources], extra))
-    Keyword.merge(base, output_capabilities: %{avif: true, webp: true})
-  end
+  defp opts(extra), do: ImagePipe.Plug.init(Keyword.merge([sources: @default_sources], extra))
 
   defp get(path, config) do
     conn = conn(:get, path)

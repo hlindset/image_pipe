@@ -10,9 +10,7 @@ defmodule ImagePipe.Output.NegotiationTest do
                :webp
              ]
 
-      assert Negotiation.modern_candidates("image/jxl,image/avif",
-               output_capabilities: %{avif: true, webp: true}
-             ) == [:avif]
+      assert Negotiation.modern_candidates("image/jxl,image/avif", []) == [:avif]
 
       assert Negotiation.modern_candidates("image/jpeg", []) == []
       assert Negotiation.modern_candidates(nil, []) == []
@@ -21,9 +19,7 @@ defmodule ImagePipe.Output.NegotiationTest do
     test "a browser Accept header negotiates AVIF and WebP from explicit MIME types" do
       browser_accept = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
 
-      assert Negotiation.modern_candidates(browser_accept,
-               output_capabilities: %{avif: true, webp: true}
-             ) == [:avif, :webp]
+      assert Negotiation.modern_candidates(browser_accept) == [:avif, :webp]
     end
 
     test "treats missing, empty, and global wildcard-only Accept as no modern format signal" do
@@ -55,17 +51,13 @@ defmodule ImagePipe.Output.NegotiationTest do
     end
 
     test "the image/* wildcard never matches modern formats; explicit ones still do" do
-      assert Negotiation.modern_candidates("image/*",
-               output_capabilities: %{avif: true, webp: true}
-             ) == []
+      assert Negotiation.modern_candidates("image/*", []) == []
 
       assert Negotiation.modern_candidates("image/webp,*/*", []) == [:webp]
     end
 
     test "image/* does not rescue a format excluded by an exact q=0" do
-      assert Negotiation.modern_candidates("image/avif;q=0,image/*;q=1",
-               output_capabilities: %{avif: true, webp: true}
-             ) == []
+      assert Negotiation.modern_candidates("image/avif;q=0,image/*;q=1", []) == []
 
       assert Negotiation.modern_candidates("image/avif;q=0,image/avif;q=1,*/*;q=1", []) == []
     end
@@ -79,7 +71,7 @@ defmodule ImagePipe.Output.NegotiationTest do
   end
 
   describe "modern_candidates/2 format_order" do
-    @all_caps [output_capabilities: %{avif: true, webp: true}]
+    @all_caps []
 
     test "defaults to avif > webp" do
       assert Negotiation.modern_candidates("image/webp,image/avif,image/jxl", @all_caps) ==
@@ -139,23 +131,21 @@ defmodule ImagePipe.Output.NegotiationTest do
     end
   end
 
-  describe "modern_candidates/2 capability filtering" do
-    test "drops avif when the build cannot write it" do
-      opts = [output_capabilities: %{avif: false}]
+  describe "modern_candidates/3 capability filtering" do
+    @avifless [:jpeg, :png, :webp]
 
-      assert Negotiation.modern_candidates("image/avif,image/webp", opts) == [:webp]
+    test "drops avif when the build cannot write it" do
+      assert Negotiation.modern_candidates("image/avif,image/webp", [], @avifless) == [:webp]
     end
 
     test "an avif-only Accept on an avif-less build yields no modern candidates" do
-      opts = [output_capabilities: %{avif: false}]
-
-      assert Negotiation.modern_candidates("image/avif", opts) == []
+      assert Negotiation.modern_candidates("image/avif", [], @avifless) == []
+      refute Negotiation.negotiable?([auto_webp: false], @avifless)
     end
 
     test "keeps both when the build supports both" do
-      opts = [output_capabilities: %{avif: true, webp: true}]
-
-      assert Negotiation.modern_candidates("image/avif,image/webp", opts) == [:avif, :webp]
+      assert Negotiation.modern_candidates("image/avif,image/webp", [], [:avif, :webp]) ==
+               [:avif, :webp]
     end
   end
 end

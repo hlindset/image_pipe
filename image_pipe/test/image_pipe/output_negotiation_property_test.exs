@@ -11,8 +11,7 @@ defmodule ImagePipe.Output.NegotiationPropertyTest do
               max_runs: 100 do
       opts = [
         auto_avif: auto_avif?,
-        auto_webp: auto_webp?,
-        output_capabilities: %{avif: true, webp: true}
+        auto_webp: auto_webp?
       ]
 
       assert Negotiation.modern_candidates(accept_header, opts) ==
@@ -26,8 +25,7 @@ defmodule ImagePipe.Output.NegotiationPropertyTest do
                 map({boolean(), boolean()}, fn {auto_avif?, auto_webp?} ->
                   [
                     auto_avif: auto_avif?,
-                    auto_webp: auto_webp?,
-                    output_capabilities: %{avif: true, webp: true}
+                    auto_webp: auto_webp?
                   ]
                 end),
               max_runs: 100 do

@@ -125,7 +125,7 @@ defmodule ImagePipe.API.CacheContractTest do
   defp build_config(opts) do
     config = ImagePipe.Plug.init(CacheObserver.observe(opts))
 
-    Keyword.merge(config, output_capabilities: %{avif: true, webp: true})
+    config
   end
 
   defp request(path, config, nil), do: ImagePipe.Plug.call(conn(:get, path), config)

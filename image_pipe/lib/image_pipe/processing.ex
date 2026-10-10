@@ -36,7 +36,7 @@ defmodule ImagePipe.Processing do
   def prepare(%Spec{} = request, config, accept) do
     with :ok <- check_expires(request, Keyword.fetch!(config, :clock).()),
          {:ok, policy} <- Policy.from_request(request.output, config, accept),
-         :ok <- Policy.ensure_capable(policy, config),
+         :ok <- Policy.ensure_capable(policy),
          :ok <- check_detector(request, config) do
       {:ok, image_policy(request.output.terminal, policy, request, config)}
     end

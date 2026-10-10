@@ -374,16 +374,19 @@ defmodule ImagePipe.Output.Policy do
 
   def supports_hdr?(%__MODULE__{}, _source_format), do: false
 
-  @spec ensure_capable(t(), keyword()) :: :ok | {:error, {:unsupported_output_format, format()}}
-  def ensure_capable(%__MODULE__{mode: {:explicit, format}}, opts) do
-    if Capabilities.supports?(format, opts) do
+  # `writable` is the formats the libvips build can write.
+  @spec ensure_capable(t(), [format()]) :: :ok | {:error, {:unsupported_output_format, format()}}
+  def ensure_capable(policy, writable \\ Capabilities.writable())
+
+  def ensure_capable(%__MODULE__{mode: {:explicit, format}}, writable) do
+    if format in writable do
       :ok
     else
       {:error, {:unsupported_output_format, format}}
     end
   end
 
-  def ensure_capable(%__MODULE__{mode: :source}, _opts), do: :ok
+  def ensure_capable(%__MODULE__{mode: :source}, _writable), do: :ok
 
   # Only baseline formats pass through as-is. Modern source formats (avif/webp)
   # are reached here only when the client accepted no modern format, so passing

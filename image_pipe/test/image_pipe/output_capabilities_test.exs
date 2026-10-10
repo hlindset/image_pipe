@@ -19,14 +19,12 @@ defmodule ImagePipe.Output.CapabilitiesTest do
     end
   end
 
-  describe "supports?/2 with an injected capability map" do
-    # The override branch (injected verdict decides) is exercised end-to-end at
-    # the consumer layer (output negotiation, output policy, wire conformance).
-    # Only the fall-through branch — a format absent from a non-empty map still
-    # gets its real capability — is pinned directly here.
-    test "a format absent from the injected map falls through to the real capability" do
-      opts = [output_capabilities: %{avif: false}]
-      assert Capabilities.supports?(:jpeg, opts)
+  describe "writable/0" do
+    test "lists the baseline formats and each probed format the build can write" do
+      writable = Capabilities.writable()
+
+      assert [:jpeg, :png] -- writable == []
+      assert Enum.all?([:avif, :webp], &(&1 in writable == Capabilities.supports?(&1)))
     end
   end
 
