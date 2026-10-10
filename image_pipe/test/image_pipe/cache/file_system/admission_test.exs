@@ -21,27 +21,14 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     %{registry: registry_name, tmp_dir: tmp_dir}
   end
 
-  test "start_link registers the process under {root, node_id}", %{
+  test "start_link registers the process under its root", %{
     registry: registry,
     tmp_dir: tmp_dir
   } do
-    opts = [
-      registry: registry,
-      root: tmp_dir,
-      node_id: "test-node",
-      max_size_bytes: 1_000_000,
-      window_ratio: 0.01,
-      sketch_depth: 4,
-      sketch_width: 256,
-      doorkeeper_cardinality: 1024,
-      doorkeeper_fpr: 0.01,
-      state_dir: Path.join(tmp_dir, ".cache_state")
-    ]
-
-    pid = start_supervised!({Admission, opts})
+    pid = start_supervised!({Admission, base_opts(registry: registry, tmp_dir: tmp_dir)})
     assert is_pid(pid)
 
-    assert [{^pid, _}] = Registry.lookup(registry, {tmp_dir, "test-node"})
+    assert [{^pid, _}] = Registry.lookup(registry, tmp_dir)
   end
 
   test "hit/2 marks the key in doorkeeper on first sighting, increments CMS on second",
@@ -54,11 +41,11 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     Admission.hit(pid, descriptor)
     state = :sys.get_state(pid)
     assert Talan.BloomFilter.member?(state.doorkeeper, descriptor.key_hash)
-    assert Sketch.estimate(state.local_cms, descriptor.key_hash) == 0
+    assert Sketch.estimate(state.sketch, descriptor.key_hash) == 0
 
     Admission.hit(pid, descriptor)
     state = :sys.get_state(pid)
-    assert Sketch.estimate(state.local_cms, descriptor.key_hash) >= 1
+    assert Sketch.estimate(state.sketch, descriptor.key_hash) >= 1
   end
 
   test "hit/2 on an untracked persisted key restores its accounting",
@@ -89,148 +76,14 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     descriptor = persisted_descriptor(tmp_dir, "k")
     Enum.each(1..50, fn _ -> Admission.hit(pid, descriptor) end)
 
-    # synchronize
+    # 49 counted sightings against a threshold of 40: one aging pass reset the
+    # count.
     state = :sys.get_state(pid)
-    assert state.local_cms.aging_epoch >= 1
+    assert state.sketch.increments_since_reset < 40
   end
 
-  test "flush ticker writes the state file when state is dirty", %{
-    registry: registry,
-    tmp_dir: tmp_dir
-  } do
-    opts = base_opts(registry: registry, tmp_dir: tmp_dir, flush_interval_ms: 50)
-    pid = start_supervised!({Admission, opts})
-
-    Admission.hit(pid, persisted_descriptor(tmp_dir, "k1"))
-    send(pid, :flush)
-    :sys.get_state(pid)
-
-    state_file = Path.join([tmp_dir, ".cache_state", "test-node.state"])
-    assert File.exists?(state_file)
-  end
-
-  test "flush errors log + emit telemetry without crashing Admission", %{
-    registry: registry,
-    tmp_dir: tmp_dir
-  } do
-    # Configure state_dir to a path that can't be written to (e.g., a
-    # file masquerading as a directory). Trigger flush; assert Admission
-    # is still alive and serving.
-    bad_state_dir = Path.join(tmp_dir, "blocker")
-    # regular file, not a directory
-    File.touch!(bad_state_dir)
-
-    opts =
-      base_opts(registry: registry, tmp_dir: tmp_dir)
-      |> Keyword.put(:state_dir, bad_state_dir)
-
-    pid = start_supervised!({Admission, opts})
-
-    Admission.hit(pid, persisted_descriptor(tmp_dir, "k1"))
-    send(pid, :flush)
-    # process still alive
-    assert :sys.get_state(pid)
-  end
-
-  test "terminate/2 flushes dirty state synchronously", %{registry: registry, tmp_dir: tmp_dir} do
+  test "boot sweeps leftovers after the scan", %{registry: registry, tmp_dir: tmp_dir} do
     opts = base_opts(registry: registry, tmp_dir: tmp_dir)
-    pid = start_supervised!({Admission, opts})
-
-    Admission.hit(pid, persisted_descriptor(tmp_dir, "k1"))
-    # Ensure the hit cast (which marks state_dirty) is processed before stop.
-    _ = :sys.get_state(pid)
-
-    # Cleanly stop the supervisor and assert the state file landed.
-    # child_spec/1 sets a composite id {module, root, node_id}, so
-    # stop_supervised/1 must use that id rather than the bare module.
-    ref = Process.monitor(pid)
-    :ok = stop_supervised({Admission, tmp_dir, "test-node"})
-    assert_receive {:DOWN, ^ref, :process, ^pid, _reason}
-
-    state_file = Path.join([tmp_dir, ".cache_state", "test-node.state"])
-    assert File.exists?(state_file)
-  end
-
-  test "boot warm-starts from own state file (CMS restored; doorkeeper starts empty)", %{
-    registry: registry,
-    tmp_dir: tmp_dir
-  } do
-    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
-    state_dir = Keyword.fetch!(opts, :state_dir)
-    File.mkdir_p!(state_dir)
-
-    sketch =
-      Sketch.new(depth: 4, width: 256)
-      |> Sketch.increment("hot-key")
-      |> Sketch.increment("hot-key")
-
-    payload =
-      :erlang.term_to_binary(
-        %{
-          format_version: 1,
-          node_id: "test-node",
-          written_at: System.system_time(:millisecond),
-          aging_epoch: 0,
-          increments_since_reset: 2,
-          sketch: Sketch.serialize(sketch),
-          protected_hashes: []
-        },
-        [:deterministic]
-      )
-
-    File.write!(Path.join(state_dir, "test-node.state"), payload)
-
-    pid = start_supervised!({Admission, opts})
-    state = :sys.get_state(pid)
-
-    assert Sketch.estimate(state.local_cms, "hot-key") >= 1
-    # Doorkeeper is intentionally not persisted; it boots empty.
-    refute Talan.BloomFilter.member?(state.doorkeeper, "hot-key")
-  end
-
-  test "boot merges peer state files into boot_cms", %{registry: registry, tmp_dir: tmp_dir} do
-    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
-    state_dir = Keyword.fetch!(opts, :state_dir)
-    File.mkdir_p!(state_dir)
-
-    peer_sketch =
-      Sketch.new(depth: 4, width: 256)
-      |> Sketch.increment("global-hot")
-      |> Sketch.increment("global-hot")
-      |> Sketch.increment("global-hot")
-
-    peer_payload =
-      :erlang.term_to_binary(
-        %{
-          format_version: 1,
-          node_id: "peer-1",
-          written_at: System.system_time(:millisecond),
-          aging_epoch: 0,
-          increments_since_reset: 3,
-          sketch: Sketch.serialize(peer_sketch),
-          protected_hashes: []
-        },
-        [:deterministic]
-      )
-
-    File.write!(Path.join(state_dir, "peer-1.state"), peer_payload)
-
-    pid = start_supervised!({Admission, opts})
-    state = :sys.get_state(pid)
-
-    assert Sketch.estimate(state.boot_cms, "global-hot") >= 1
-  end
-
-  test "boot removes its own state temps and sweeps leftovers after the scan", %{
-    registry: registry,
-    tmp_dir: tmp_dir
-  } do
-    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
-    state_dir = Keyword.fetch!(opts, :state_dir)
-    File.mkdir_p!(state_dir)
-    own_temp = Path.join(state_dir, "test-node.state.tmp.7")
-    peer_temp = Path.join(state_dir, "peer-1.state.tmp.7")
-    for path <- [own_temp, peer_temp], do: File.write!(path, "partial")
 
     dir = Path.join([tmp_dir, "aa", "aa"])
     File.mkdir_p!(dir)
@@ -241,94 +94,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     pid = start_supervised!({Admission, opts})
     :ok = Admission.await_scan(pid)
 
-    refute File.exists?(own_temp)
-    assert File.exists?(peer_temp)
     refute File.exists?(leftover)
-  end
-
-  test "cleanup removes a peer's state temp once it outlives state_ttl", %{
-    registry: registry,
-    tmp_dir: tmp_dir
-  } do
-    opts = base_opts(registry: registry, tmp_dir: tmp_dir) ++ [state_ttl_ms: 60_000]
-    state_dir = Keyword.fetch!(opts, :state_dir)
-    File.mkdir_p!(state_dir)
-    stale = Path.join(state_dir, "peer-1.state.tmp.7")
-    fresh = Path.join(state_dir, "peer-2.state.tmp.7")
-    for path <- [stale, fresh], do: File.write!(path, "partial")
-    File.touch!(stale, System.os_time(:second) - 120)
-
-    pid = start_supervised!({Admission, opts})
-    send(pid, :cleanup)
-    _state = :sys.get_state(pid)
-
-    refute File.exists?(stale)
-    assert File.exists?(fresh)
-  end
-
-  test "boot tolerates a corrupt own state file and cold-boots", %{
-    registry: registry,
-    tmp_dir: tmp_dir
-  } do
-    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
-    state_dir = Keyword.fetch!(opts, :state_dir)
-    File.mkdir_p!(state_dir)
-
-    # Garbage that is not a valid term_to_binary payload. decode_state_payload/2
-    # uses binary_to_term(_, [:safe]) and must not crash the GenServer; the
-    # process boots with an empty CMS instead.
-    File.write!(Path.join(state_dir, "test-node.state"), "not a valid erlang term <<>>")
-
-    pid = start_supervised!({Admission, opts})
-    state = :sys.get_state(pid)
-
-    assert Sketch.estimate(state.local_cms, "anything") == 0
-    assert state.probationary_bytes == 0
-  end
-
-  for owner <- ["test-node", "peer"], corruption <- [:encoding, :dimensions, :counter] do
-    @tag capture_log: true
-    test "boot ignores #{owner} sketch with invalid #{corruption}", ctx do
-      opts = base_opts(registry: ctx.registry, tmp_dir: ctx.tmp_dir)
-      state_dir = Keyword.fetch!(opts, :state_dir)
-      File.mkdir_p!(state_dir)
-
-      sketch =
-        case unquote(corruption) do
-          :encoding ->
-            <<0, 1, 2>>
-
-          :dimensions ->
-            Sketch.new(depth: 1, width: 1) |> Sketch.serialize()
-
-          :counter ->
-            Sketch.new(depth: 4, width: 256)
-            |> Sketch.serialize()
-            |> :erlang.binary_to_term([:safe])
-            |> Map.put(:counters, List.duplicate(:corrupt, 1024))
-            |> :erlang.term_to_binary()
-        end
-
-      payload = %{
-        format_version: 1,
-        node_id: unquote(owner),
-        written_at: System.system_time(:millisecond),
-        aging_epoch: 0,
-        increments_since_reset: 0,
-        sketch: sketch,
-        protected_hashes: []
-      }
-
-      File.write!(
-        Path.join(state_dir, unquote(owner) <> ".state"),
-        :erlang.term_to_binary(payload)
-      )
-
-      pid = start_supervised!({Admission, opts})
-      state = :sys.get_state(pid)
-      assert Sketch.estimate(state.local_cms, "candidate") == 0
-      assert Sketch.estimate(state.boot_cms, "candidate") == 0
-    end
   end
 
   test "window_ratio 0.0 disables the window; admits land in the main gate", %{
@@ -340,7 +106,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
 
     alias ImagePipe.Test.CacheEntry
 
-    pool = [root: tmp_dir, node_id: "test-node", max_size_bytes: 1_000_000]
+    pool = [root: tmp_dir, max_size_bytes: 1_000_000]
     assert :ok = CacheEntry.put(pool, String.duplicate("x", 5_000))
 
     state = :sys.get_state(pid)
@@ -389,7 +155,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
 
       pid = start_supervised!({Admission, opts})
       Admission.await_scan(pid)
-      pool = [root: tmp_dir, node_id: "test-node", max_size_bytes: 10_000]
+      pool = [root: tmp_dir, max_size_bytes: 10_000]
       for i <- 1..10, do: :ok = put_with_cost(pool, "resident-#{i}", 1_000)
       %{pid: pid, pool: pool}
     end
@@ -510,36 +276,29 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     {paths, descriptor, Map.put(descriptor, :mtime, mtime)}
   end
 
-  defp apply_snapshot(pid, :probationary, entry),
-    do: GenServer.call(pid, {:apply_scan_batch, [entry]})
-
-  defp apply_snapshot(pid, :protected, entry),
-    do:
-      GenServer.call(pid, {:apply_protected_batch, [entry.key_hash], %{entry.key_hash => entry}})
+  defp apply_snapshot(pid, entry), do: GenServer.call(pid, {:apply_scan_batch, [entry]})
 
   defp tracked_bytes(pid) do
     state = :sys.get_state(pid)
     state.probationary_bytes + state.protected_bytes + state.window_bytes
   end
 
-  for queue <- [:probationary, :protected] do
-    test "a #{queue} scan snapshot of an entry deleted mid-scan is skipped", ctx do
-      hash = hex_hash("d")
-      opts = base_opts(registry: ctx.registry, tmp_dir: ctx.tmp_dir)
+  test "a scan snapshot of an entry deleted mid-scan is skipped", ctx do
+    hash = hex_hash("d")
+    opts = base_opts(registry: ctx.registry, tmp_dir: ctx.tmp_dir)
 
-      pid =
-        during_scan(ctx, opts, fn pid ->
-          put_disk_entry(ctx.tmp_dir, hash, "old body")
-          {paths, _descriptor, entry} = snapshot(ctx.tmp_dir, hash)
-          assert Admission.delete(pid, paths) == :ok
+    pid =
+      during_scan(ctx, opts, fn pid ->
+        put_disk_entry(ctx.tmp_dir, hash, "old body")
+        {paths, _descriptor, entry} = snapshot(ctx.tmp_dir, hash)
+        assert Admission.delete(pid, paths) == :ok
 
-          assert :ok = apply_snapshot(pid, unquote(queue), entry)
-          assert tracked_bytes(pid) == 0
-        end)
+        assert :ok = apply_snapshot(pid, entry)
+        assert tracked_bytes(pid) == 0
+      end)
 
-      assert tracked_bytes(pid) == 0
-      assert FileSystem.get(%Key{hash: hash, data: []}, root: ctx.tmp_dir) == :miss
-    end
+    assert tracked_bytes(pid) == 0
+    assert FileSystem.get(%Key{hash: hash, data: []}, root: ctx.tmp_dir) == :miss
   end
 
   test "a scan snapshot of an entry evicted mid-scan is skipped", ctx do
@@ -557,7 +316,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
       assert :ok = GenServer.call(pid, :reconcile_to_cap)
       assert tracked_bytes(pid) == 0
 
-      assert :ok = apply_snapshot(pid, :probationary, entry)
+      assert :ok = apply_snapshot(pid, entry)
       assert tracked_bytes(pid) == 0
     end)
   end
@@ -656,54 +415,6 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     send(ctx.pid, {:recheck_gone, ctx.key.hash})
   end
 
-  test "protected entries are restored in LRU-to-MRU order from persisted state", %{
-    registry: registry,
-    tmp_dir: tmp_dir
-  } do
-    older = hex_hash("abcd")
-    newer = hex_hash("ef01")
-
-    # Pre-place meta files for both hashes on disk.
-    put_disk_entry(tmp_dir, older, "older-body")
-    put_disk_entry(tmp_dir, newer, "newer-body")
-
-    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
-    state_dir = Keyword.fetch!(opts, :state_dir)
-    File.mkdir_p!(state_dir)
-
-    sketch = Sketch.new(depth: 4, width: 256)
-
-    # protected_hashes are persisted LRU→MRU.
-    payload =
-      :erlang.term_to_binary(
-        %{
-          format_version: 1,
-          node_id: "test-node",
-          written_at: System.system_time(:millisecond),
-          aging_epoch: 0,
-          increments_since_reset: 0,
-          sketch: Sketch.serialize(sketch),
-          protected_hashes: [older, newer]
-        },
-        [:deterministic]
-      )
-
-    File.write!(Path.join(state_dir, "test-node.state"), payload)
-
-    pid = start_supervised!({Admission, opts})
-    Admission.await_scan(pid, 5_000)
-
-    state = :sys.get_state(pid)
-
-    # Read ordered_set positions; older must precede newer (LRU at front).
-    ordered =
-      :ets.tab2list(state.protected)
-      |> Enum.sort_by(fn {{pos, _hash}, _descriptor} -> pos end)
-      |> Enum.map(fn {{_pos, hash}, _descriptor} -> hash end)
-
-    assert ordered == [older, newer]
-  end
-
   test "boot reconciliation evicts LRU until usage is under cap", %{
     registry: registry,
     tmp_dir: tmp_dir
@@ -779,19 +490,24 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     end)
   end
 
+  # Small sketches, aging every 10 sightings per counter, so tests reach aging
+  # and admission decisions quickly.
   defp base_opts(overrides) do
-    [
-      registry: overrides[:registry],
-      root: overrides[:tmp_dir],
-      node_id: "test-node",
-      state_dir: Path.join(overrides[:tmp_dir], ".cache_state"),
-      max_size_bytes: overrides[:max_size_bytes] || 1_000_000,
-      window_ratio: overrides[:window_ratio] || 0.01,
-      sketch_depth: 4,
-      sketch_width: overrides[:sketch_width] || 256,
-      doorkeeper_cardinality: overrides[:doorkeeper_cardinality] || 1024,
-      doorkeeper_fpr: overrides[:doorkeeper_fpr] || 0.01
-    ]
+    sketch_width = overrides[:sketch_width] || 256
+
+    Store.admission_options(
+      [
+        root: overrides[:tmp_dir],
+        max_size_bytes: overrides[:max_size_bytes] || 1_000_000,
+        window_ratio: overrides[:window_ratio] || 0.01,
+        sketch_depth: 4,
+        sketch_width: sketch_width,
+        aging_sample_size: sketch_width * 10,
+        doorkeeper_cardinality: overrides[:doorkeeper_cardinality] || 1024,
+        doorkeeper_fpr: overrides[:doorkeeper_fpr] || 0.01
+      ],
+      overrides[:registry]
+    )
   end
 
   # Test-local introspection helper: reads the GenServer's :protected ETS

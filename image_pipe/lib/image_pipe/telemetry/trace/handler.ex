@@ -130,10 +130,8 @@ defmodule ImagePipe.Telemetry.Trace.Handler do
     # ICC-import boolean (product-neutral; sourced from runtime image inspection)
     :working_space,
     :imported?,
-    # cache admission / warm-start / eviction
+    # cache admission / eviction
     :victim_count,
-    :own_state_loaded,
-    :peer_state_files,
     :trigger,
     # HTTP cache one-shots: the cache-header mode and booleans about the response
     # headers, never the ETag value itself
@@ -190,7 +188,7 @@ defmodule ImagePipe.Telemetry.Trace.Handler do
   def handle_event(event, measurements, meta, prefix_length) do
     stage = Enum.drop(event, prefix_length)
 
-    # One-shots first: events such as [:cache, :flush, :stop] must not end a span.
+    # One-shots first: events such as [:cache, :eviction, :stop] must not end a span.
     if stage in @oneshot_stages do
       on_oneshot(name(stage), measurements, meta)
     else

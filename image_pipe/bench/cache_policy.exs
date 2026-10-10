@@ -10,9 +10,9 @@
 # Optional arguments: one workload and one cache size (% of catalog bytes).
 # `--random-sweep` replaces the policy list with a grid of random admission
 # thresholds and odds, each run with three seeds for the random draws.
-# `--restart-sweep` restarts the cache every N requests, either keeping its
-# popularity state (sketch and protected list, as Admission persists them) or
-# starting cold with every entry on probation by write time or by last access.
+# `--restart-sweep` restarts the cache every N requests, either starting cold
+# with every entry on probation by write time (as Admission does) or by last
+# access, or keeping its sketch and protected list as a persisted state would.
 #
 # By default W-TinyLFU runs an in-memory model of Admission's queues that
 # calls the real Sketch, Doorkeeper and Policy modules, so the full matrix
@@ -31,6 +31,7 @@ defmodule CachePolicyBench do
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Admission
+  alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.Key
 
   @catalog 20_000
@@ -357,21 +358,17 @@ defmodule CachePolicyBench do
 
     {:ok, admission} =
       Admission.start_link(
-        [
-          registry: registry,
-          root: root,
-          node_id: "bench",
-          state_dir: Path.join(root, ".cache_state"),
-          max_size_bytes: scaled_cap,
-          window_ratio: window_ratio,
-          eviction_victim_limit: 64
-        ] ++ Model.sketch_options(cap)
+        Store.admission_options(
+          [root: root, max_size_bytes: scaled_cap, window_ratio: window_ratio] ++
+            Model.sketch_options(cap),
+          registry
+        )
       )
 
     Admission.await_scan(admission, :infinity)
 
     state = %{
-      pool: [root: root, node_id: "bench", max_size_bytes: scaled_cap],
+      pool: [root: root, max_size_bytes: scaled_cap],
       root: root,
       admission: admission,
       registry: registry_pid,

@@ -16,11 +16,7 @@ defmodule ImagePipe.Cache.FileSystem do
         {ImagePipe,
          name: MyApp.Images,
          sources: sources,
-         cache: [
-           root: "/var/cache/image_pipe/processed",
-           max_size_bytes: 5_000_000_000,
-           node_id: "node-0"
-         ]},
+         cache: [root: "/var/cache/image_pipe/processed", max_size_bytes: 5_000_000_000]},
         MyAppWeb.Endpoint
       ]
 

@@ -8,11 +8,7 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
 
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
-  alias ImagePipe.Cache.FileSystem.Admission
-  alias ImagePipe.Cache.FileSystem.Sketch
   alias ImagePipe.Cache.Key
-
-  @node_id "bounded-node"
 
   defp key(hash \\ String.duplicate("a", 64)) do
     %Key{
@@ -45,14 +41,12 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     )
   end
 
-  # Mirror admission_test.exs base_opts/1 so Admission boots without Task 25's
-  # config-derived defaults. The caller supplies :root and :max_size_bytes.
+  # Small sketches, like admission_test.exs base_opts/1. The caller supplies
+  # :root and :max_size_bytes.
   defp bounded_opts(root, overrides) do
     Keyword.merge(
       [
         root: root,
-        node_id: @node_id,
-        state_dir: Path.join(root, ".cache_state"),
         max_size_bytes: overrides[:max_size_bytes] || 1_000_000,
         window_ratio: 0.01,
         sketch_depth: 4,
@@ -79,7 +73,7 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
   end
 
   defp admission_pid(root) do
-    [{pid, _}] = Registry.lookup(FileSystem.registry_name(root), {root, @node_id})
+    [{pid, _}] = Registry.lookup(FileSystem.registry_name(root), root)
     pid
   end
 
@@ -397,35 +391,26 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     assert {:hit, _} = FileSystem.get(distinct_key(1), opts)
   end
 
-  for restart? <- [false, true] do
-    test "protected eviction follows LRU order with restart=#{restart?}", %{root: root} do
-      opts = bounded_opts(root, max_size_bytes: 100, window_ratio: 0.0)
-      start_supervised!(FileSystem.child_spec(opts), id: :cache)
-      older = distinct_key(1)
-      newer = distinct_key(2)
+  test "protected eviction follows LRU order", %{root: root} do
+    opts = bounded_opts(root, max_size_bytes: 100, window_ratio: 0.0)
+    start_supervised!(FileSystem.child_spec(opts), id: :cache)
+    older = distinct_key(1)
+    newer = distinct_key(2)
 
-      for cache_key <- [older, newer] do
-        assert :ok = put_entry(cache_key, entry("small"), opts)
-        assert {:hit, _} = FileSystem.get(cache_key, opts)
-      end
-
-      if unquote(restart?) do
-        _ = :sys.get_state(admission_pid(root))
-        stop_supervised!(:cache)
-        start_supervised!(FileSystem.child_spec(opts), id: :cache)
-        Admission.await_scan(admission_pid(root), 5_000)
-      end
-
-      assert :ok = put_entry(distinct_key(3), entry(String.duplicate("c", 90)), opts)
-      candidate = distinct_key(4)
-      body = String.duplicate("d", 95)
-      assert {:ok, :rejected} = put_entry(candidate, entry(body), opts)
-      assert :ok = put_entry(candidate, entry(body), opts)
-
-      assert FileSystem.get(older, opts) == :miss
-      assert {:hit, _} = FileSystem.get(newer, opts)
-      assert total_body_bytes(root) == 100
+    for cache_key <- [older, newer] do
+      assert :ok = put_entry(cache_key, entry("small"), opts)
+      assert {:hit, _} = FileSystem.get(cache_key, opts)
     end
+
+    assert :ok = put_entry(distinct_key(3), entry(String.duplicate("c", 90)), opts)
+    candidate = distinct_key(4)
+    body = String.duplicate("d", 95)
+    assert {:ok, :rejected} = put_entry(candidate, entry(body), opts)
+    assert :ok = put_entry(candidate, entry(body), opts)
+
+    assert FileSystem.get(older, opts) == :miss
+    assert {:hit, _} = FileSystem.get(newer, opts)
+    assert total_body_bytes(root) == 100
   end
 
   property "replacement sequences preserve the disk budget and accounting", %{root: root} do
@@ -498,25 +483,6 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     assert tracked == byte_size("second body")
   end
 
-  test "cross-node warm start merges multiple peer state files into boot_cms",
-       %{root: root} do
-    opts = bounded_opts(root, max_size_bytes: 1_000_000)
-    state_dir = Keyword.fetch!(opts, :state_dir)
-    File.mkdir_p!(state_dir)
-
-    # Two peers (distinct node_ids, neither equal to @node_id) each persisted a
-    # sketch with a different hot key. On boot the local node has no own state,
-    # so boot_cms must reflect BOTH peers' frequencies — not just one.
-    File.write!(Path.join(state_dir, "peer-a.state"), peer_state_payload("peer-a", "hot-a", 3))
-    File.write!(Path.join(state_dir, "peer-b.state"), peer_state_payload("peer-b", "hot-b", 5))
-
-    start_supervised!(FileSystem.child_spec(opts))
-    state = :sys.get_state(admission_pid(root))
-
-    assert Sketch.estimate(state.boot_cms, "hot-a") >= 1
-    assert Sketch.estimate(state.boot_cms, "hot-b") >= 1
-  end
-
   test "two bounded caches with distinct roots coexist in one VM", %{root: root} do
     other_root = root <> "_second"
     File.mkdir_p!(other_root)
@@ -562,28 +528,5 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     for path <- walk_files(root), String.ends_with?(path, ".meta"), into: MapSet.new() do
       Path.basename(path, ".meta")
     end
-  end
-
-  # Build a persisted Admission state payload for a peer node whose sketch has
-  # `key` incremented `count` times. Mirrors the on-disk format Admission
-  # writes (format_version 1) so warm-start merge reads it back.
-  defp peer_state_payload(node_id, key, count) do
-    sketch =
-      Enum.reduce(1..count, Sketch.new(depth: 4, width: 256), fn _, acc ->
-        Sketch.increment(acc, key)
-      end)
-
-    :erlang.term_to_binary(
-      %{
-        format_version: 1,
-        node_id: node_id,
-        written_at: System.system_time(:millisecond),
-        aging_epoch: 0,
-        increments_since_reset: count,
-        sketch: Sketch.serialize(sketch),
-        protected_hashes: []
-      },
-      [:deterministic]
-    )
   end
 end

@@ -14,10 +14,10 @@ defmodule ImagePipe.Cache.InputRefreshTest do
   setup do
     root = Path.join(System.tmp_dir!(), "input_refresh_#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(root) end)
-    pool = [root: root, node_id: "test", max_size_bytes: 100, window_ratio: 1.0]
+    pool = [root: root, max_size_bytes: 100, window_ratio: 1.0]
     start_supervised!(FileSystem.child_spec(pool))
     tasks = start_supervised!({Task.Supervisor, []})
-    [{admission, _}] = Registry.lookup(FileSystem.registry_name(root), {root, "test"})
+    [{admission, _}] = Registry.lookup(FileSystem.registry_name(root), root)
     assert :ok = Admission.await_scan(admission)
     File.mkdir_p!(root)
     path = Path.join(root, "source")

@@ -6,7 +6,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Cache.FileSystem.Admission
-  alias ImagePipe.Cache.FileSystem.Sketch
+  alias ImagePipe.Cache.FileSystem.Store
 
   setup do
     tmp_dir = Path.join(System.tmp_dir!(), "admission_tel_#{System.unique_integer([:positive])}")
@@ -23,24 +23,20 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
     %{registry: registry, tmp_dir: tmp_dir, prefix: prefix}
   end
 
-  defp opts(ctx, overrides) do
+  # The cache options a bounded pool would use, and the Admission options
+  # built from them.
+  defp cache_opts(ctx, overrides) do
     Keyword.merge(
-      [
-        registry: ctx.registry,
-        root: ctx.tmp_dir,
-        node_id: "tel-node",
-        state_dir: Path.join(ctx.tmp_dir, ".cache_state"),
-        telemetry_prefix: ctx.prefix,
-        pool: :input,
-        max_size_bytes: 1_000_000,
-        window_ratio: 0.01,
-        sketch_depth: 4,
-        sketch_width: 256,
-        doorkeeper_cardinality: 1024,
-        doorkeeper_fpr: 0.01
-      ],
+      [root: ctx.tmp_dir, pool: :input, max_size_bytes: 1_000_000, sketch_width: 256],
       overrides
     )
+  end
+
+  defp opts(ctx, overrides) do
+    ctx
+    |> cache_opts(overrides)
+    |> Keyword.put(:telemetry_prefix, ctx.prefix)
+    |> Store.admission_options(ctx.registry)
   end
 
   # Attach a forwarding handler for `prefix ++ suffix` events and tear it down
@@ -63,60 +59,13 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
     on_exit(fn -> :telemetry.detach(handler_id) end)
   end
 
-  test "emits a warm_start span at init", ctx do
-    attach(ctx.prefix, [[:cache, :warm_start, :start], [:cache, :warm_start, :stop]])
-
-    start_supervised!({Admission, opts(ctx, [])})
-
-    start_event = ctx.prefix ++ [:cache, :warm_start, :start]
-    stop_event = ctx.prefix ++ [:cache, :warm_start, :stop]
-
-    assert_receive {:telemetry, ^start_event, _measurements, _meta}
-
-    assert_receive {:telemetry, ^stop_event, %{duration: _},
-                    %{own_state_loaded: false, peer_state_files: 0, pool: :input}}
-  end
-
-  for {sketch_kind, loaded?} <- [{:valid, true}, {:invalid, false}] do
-    @tag capture_log: true
-    test "warm-start reports actual restoration for #{sketch_kind} state", ctx do
-      config = opts(ctx, [])
-      state_dir = Keyword.fetch!(config, :state_dir)
-      File.mkdir_p!(state_dir)
-
-      sketch =
-        case unquote(sketch_kind) do
-          :valid -> Sketch.new(depth: 4, width: 256) |> Sketch.serialize()
-          :invalid -> <<0, 1, 2>>
-        end
-
-      payload = %{
-        format_version: 1,
-        node_id: "tel-node",
-        written_at: System.system_time(:millisecond),
-        aging_epoch: 0,
-        increments_since_reset: 0,
-        sketch: sketch,
-        protected_hashes: []
-      }
-
-      File.write!(Path.join(state_dir, "tel-node.state"), :erlang.term_to_binary(payload))
-      attach(ctx.prefix, [[:cache, :warm_start, :stop]])
-      start_supervised!({Admission, config})
-      event = ctx.prefix ++ [:cache, :warm_start, :stop]
-
-      assert_receive {:telemetry, ^event, _,
-                      %{own_state_loaded: unquote(loaded?), peer_state_files: 0}}
-    end
-  end
-
   test "emits an admission span with an admitted result", ctx do
     alias ImagePipe.Test.CacheEntry
 
     start_supervised!({Admission, opts(ctx, [])})
     attach(ctx.prefix, [[:cache, :admission, :stop]])
 
-    pool = Keyword.drop(opts(ctx, []), [:registry, :telemetry_prefix])
+    pool = cache_opts(ctx, [])
     assert :ok = CacheEntry.put(pool, String.duplicate("x", 5_000))
 
     stop_event = ctx.prefix ++ [:cache, :admission, :stop]
@@ -131,7 +80,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
     start_supervised!({Admission, opts(ctx, max_size_bytes: 4)})
     attach(ctx.prefix, [[:cache, :admission, :stop]])
 
-    pool = Keyword.drop(opts(ctx, max_size_bytes: 4), [:registry, :telemetry_prefix])
+    pool = cache_opts(ctx, max_size_bytes: 4)
     assert {:ok, :rejected} = CacheEntry.put(pool, String.duplicate("x", 100))
 
     stop_event = ctx.prefix ++ [:cache, :admission, :stop]
@@ -171,32 +120,5 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
 
     assert count >= 1
     assert bytes >= 5_000
-  end
-
-  test "emits a flush stop event when dirty state is flushed", ctx do
-    alias ImagePipe.Test.CacheEntry
-
-    pid = start_supervised!({Admission, opts(ctx, [])})
-    attach(ctx.prefix, [[:cache, :flush, :stop]])
-
-    pool = Keyword.drop(opts(ctx, []), [:registry, :telemetry_prefix])
-    assert :ok = CacheEntry.put(pool, String.duplicate("x", 1_000))
-    send(pid, :flush)
-    _ = :sys.get_state(pid)
-
-    stop_event = ctx.prefix ++ [:cache, :flush, :stop]
-    assert_receive {:telemetry, ^stop_event, %{bytes: bytes}, %{result: :ok}}
-    assert bytes > 0
-  end
-
-  test "emits a cleanup stop event", ctx do
-    pid = start_supervised!({Admission, opts(ctx, [])})
-    attach(ctx.prefix, [[:cache, :cleanup, :stop]])
-
-    send(pid, :cleanup)
-    _ = :sys.get_state(pid)
-
-    stop_event = ctx.prefix ++ [:cache, :cleanup, :stop]
-    assert_receive {:telemetry, ^stop_event, %{removed: 0}, _meta}
   end
 end

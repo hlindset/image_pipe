@@ -94,7 +94,7 @@ defmodule ImagePipeServer.ApplicationTest do
         Config.build!(
           pool: [max_concurrency: 2],
           cache: [
-            cache: [root: Path.join(dir, "out"), max_size_bytes: 1_000_000, node_id: "test"],
+            cache: [root: Path.join(dir, "out"), max_size_bytes: 1_000_000],
             input_cache: [root: Path.join(dir, "in")]
           ]
         )

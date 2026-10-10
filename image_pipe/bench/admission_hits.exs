@@ -7,6 +7,7 @@ defmodule AdmissionHitsBench do
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Admission
+  alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.Key
 
   @hits 5_000
@@ -22,16 +23,15 @@ defmodule AdmissionHitsBench do
 
       {:ok, pid} =
         Admission.start_link(
-          registry: registry,
-          root: root,
-          node_id: "bench",
-          state_dir: Path.join(root, ".cache_state"),
-          max_size_bytes: count * 1_000,
-          window_ratio: 0.01,
-          sketch_depth: 4,
-          sketch_width: 4_096,
-          doorkeeper_cardinality: count,
-          doorkeeper_fpr: 0.01
+          Store.admission_options(
+            [
+              root: root,
+              max_size_bytes: count * 1_000,
+              sketch_width: 4_096,
+              doorkeeper_cardinality: count
+            ],
+            registry
+          )
         )
 
       {scan_us, :ok} = :timer.tc(fn -> Admission.await_scan(pid, :infinity) end)

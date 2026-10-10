@@ -19,7 +19,7 @@ There are two kinds of event:
   then either `:stop` or `:exception`. Stop metadata includes the start
   metadata.
 - **One-shot.** A single event with no suffix. Some one-shot names end in
-  `:stop`, such as `[:cache, :flush, :stop]`, but have no matching `:start`.
+  `:stop`, such as `[:cache, :eviction, :stop]`, but have no matching `:start`.
 
 Which events a request emits depends on its path. A conditional `304` or an
 output-cache hit emits no fetch, decode, transform, or encode events.
@@ -379,17 +379,6 @@ are coordinated (see [request coalescing](caching-and-freshness.md#request-coale
     waits for another), `:ready` (it can check the cache again), `:bypass`
     (it generates on its own), or `:busy` (coordination is at capacity).
 
-### `[:cache, :warm_start]`
-
-Span. Emitted by a bounded cache when it loads
-its saved state at startup.
-
-- Start metadata: `:pool` (atom).
-- Stop metadata:
-  - `:own_state_loaded` (boolean): `true` when this node's state file was
-    restored.
-  - `:peer_state_files` (integer): state files of other nodes present.
-
 ### `[:cache, :sweep]`
 
 Span. Emitted each time ImagePipe checks for
@@ -451,21 +440,6 @@ background to get back under its size limit.
 - Measurements: `:count` (integer), entries evicted in the batch, and `:bytes`
   (integer), their total size.
 - Metadata: `:trigger` (`:reconcile`) and `:pool` (atom).
-
-### `[:cache, :flush, :stop]`
-
-One-shot. Emitted when a bounded cache writes its state file.
-
-- Measurements: `:bytes` (integer), the file size.
-- Metadata: `:result` (`:ok`) and `:pool` (atom).
-
-### `[:cache, :cleanup, :stop]`
-
-One-shot. Emitted when a bounded cache deletes stale state files of other
-nodes.
-
-- Measurements: `:removed` (integer), files deleted.
-- Metadata: `:pool` (atom).
 
 ## Transform events
 

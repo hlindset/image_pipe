@@ -83,14 +83,13 @@ defmodule ImagePipe.Cache.FileSystem.RescanTest do
   defp start_cache(opts) do
     start_supervised!(FileSystem.child_spec(opts))
     root = Keyword.fetch!(opts, :root)
-    [{pid, _}] = Registry.lookup(FileSystem.registry_name(root), {root, "test"})
+    [{pid, _}] = Registry.lookup(FileSystem.registry_name(root), root)
     pid
   end
 
   defp opts(root, prefix, cap),
     do: [
       root: root,
-      node_id: "test",
       telemetry_prefix: prefix,
       max_size_bytes: cap,
       window_ratio: 0.0

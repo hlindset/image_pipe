@@ -17,8 +17,6 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     defstruct [
       :registry,
       :root,
-      :node_id,
-      :state_dir,
       :max_size_bytes,
       :window_budget,
       :sketch_depth,
@@ -27,15 +25,11 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       :doorkeeper_cardinality,
       :doorkeeper_fpr,
       :eviction_victim_limit,
-      :local_cms,
-      :boot_cms,
+      :sketch,
       # %Talan.BloomFilter{}
       :doorkeeper,
-      :flush_interval_ms,
-      :cleanup_interval_ms,
       :reconcile_interval_ms,
       :rescan_interval_ms,
-      :state_ttl_ms,
       # Lifecycle events use the prefix captured at init, without request options.
       telemetry_prefix: [:image_pipe],
       pool: :output,
@@ -54,9 +48,6 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       probationary_bytes: 0,
       protected_bytes: 0,
       next_position: 1,
-      state_dirty: false,
-      # Restored at warm-start and consumed by the directory scan.
-      persisted_protected_hashes: [],
       # Monitor the scan so a crash releases await_scan/2 callers. scan_waiters
       # holds their GenServer.call `from` tags until completion or failure.
       scan_task: nil,
@@ -79,7 +70,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   def child_spec(opts) do
     %{
-      id: {__MODULE__, Keyword.fetch!(opts, :root), Keyword.fetch!(opts, :node_id)},
+      id: {__MODULE__, Keyword.fetch!(opts, :root)},
       start: {__MODULE__, :start_link, [opts]},
       restart: :permanent,
       type: :worker
@@ -87,10 +78,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   defp via_tuple(opts) do
-    registry = Keyword.fetch!(opts, :registry)
-    root = Keyword.fetch!(opts, :root)
-    node_id = Keyword.fetch!(opts, :node_id)
-    {:via, Registry, {registry, {root, node_id}}}
+    {:via, Registry, {Keyword.fetch!(opts, :registry), Keyword.fetch!(opts, :root)}}
   end
 
   # A node evicting an entry renames its metadata aside for a moment to check
@@ -98,49 +86,35 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   # trusted at once.
   @gone_recheck_ms 1_000
 
+  # Takes options normalized by `Store.admission_options/2`.
   @impl true
   def init(opts) do
-    # Trap exits so terminate/2 runs on a supervisor :shutdown and can
-    # flush dirty state synchronously. A plain GenServer does not call
-    # terminate/2 on shutdown unless it is trapping exits.
-    Process.flag(:trap_exit, true)
-
     max_size = Keyword.fetch!(opts, :max_size_bytes)
-    window_ratio = Keyword.fetch!(opts, :window_ratio)
     sketch_depth = Keyword.fetch!(opts, :sketch_depth)
     sketch_width = Keyword.fetch!(opts, :sketch_width)
-    # Aging cadence is decoupled from width (Sketch.new/1 docs). Fall back to
-    # width * 10 only for direct-start unit tests that don't pass it.
-    aging_sample_size = Keyword.get(opts, :aging_sample_size, sketch_width * 10)
+    # Aging cadence is decoupled from width (Sketch.new/1 docs).
+    aging_sample_size = Keyword.fetch!(opts, :aging_sample_size)
     doorkeeper_cardinality = Keyword.fetch!(opts, :doorkeeper_cardinality)
     doorkeeper_fpr = Keyword.fetch!(opts, :doorkeeper_fpr)
 
     state = %State{
       registry: Keyword.fetch!(opts, :registry),
       root: Keyword.fetch!(opts, :root),
-      node_id: Keyword.fetch!(opts, :node_id),
-      state_dir: Keyword.fetch!(opts, :state_dir),
-      # Scan the same partition root the adapter writes to.
-      path_prefix: Keyword.get(opts, :path_prefix, ""),
+      # Scan the same partition root the cache writes to.
+      path_prefix: Keyword.fetch!(opts, :path_prefix),
       max_size_bytes: max_size,
-      window_budget: trunc(max_size * window_ratio),
+      window_budget: trunc(max_size * Keyword.fetch!(opts, :window_ratio)),
       sketch_depth: sketch_depth,
       sketch_width: sketch_width,
       aging_sample_size: aging_sample_size,
       doorkeeper_cardinality: doorkeeper_cardinality,
       doorkeeper_fpr: doorkeeper_fpr,
-      # Bound eviction fan-out, including direct starts without adapter defaults.
-      eviction_victim_limit: Keyword.get(opts, :eviction_victim_limit, 64),
-      local_cms:
-        Sketch.new(depth: sketch_depth, width: sketch_width, sample_size: aging_sample_size),
-      boot_cms:
+      eviction_victim_limit: Keyword.fetch!(opts, :eviction_victim_limit),
+      sketch:
         Sketch.new(depth: sketch_depth, width: sketch_width, sample_size: aging_sample_size),
       doorkeeper: Doorkeeper.new(doorkeeper_cardinality, doorkeeper_fpr),
-      flush_interval_ms: Keyword.get(opts, :flush_interval_ms, 30_000),
-      cleanup_interval_ms: Keyword.get(opts, :cleanup_interval_ms, 3_600_000),
-      reconcile_interval_ms: Keyword.get(opts, :reconcile_interval_ms, 60_000),
-      rescan_interval_ms: Keyword.get(opts, :rescan_interval_ms, 300_000),
-      state_ttl_ms: Keyword.get(opts, :state_ttl_ms, 604_800_000),
+      reconcile_interval_ms: Keyword.fetch!(opts, :reconcile_interval_ms),
+      rescan_interval_ms: Keyword.fetch!(opts, :rescan_interval_ms),
       telemetry_prefix: Keyword.get(opts, :telemetry_prefix, Telemetry.default_prefix()),
       pool: Keyword.get(opts, :pool, :output),
       # Only the GenServer writes; :protected permits cross-process inspection.
@@ -151,12 +125,6 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       scan_changes: :ets.new(:scan_changes, [:set, :private])
     }
 
-    state =
-      Telemetry.span(tel_opts(state), [:cache, :warm_start], %{pool: state.pool}, fn ->
-        {own_state, loaded?} = load_own_state(state)
-        {load_peer_state(own_state), warm_start_meta(state, loaded?)}
-      end)
-
     {:ok, state, {:continue, :schedule_tickers}}
   end
 
@@ -164,148 +132,8 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   # events fire under the prefix captured at init.
   defp tel_opts(state), do: [telemetry_prefix: state.telemetry_prefix]
 
-  defp warm_start_meta(state, own_loaded?) do
-    own = "#{state.node_id}.state"
-
-    peer_count =
-      case File.ls(state.state_dir) do
-        {:ok, files} ->
-          Enum.count(files, &(String.ends_with?(&1, ".state") and &1 != own))
-
-        {:error, _} ->
-          0
-      end
-
-    %{own_state_loaded: own_loaded?, peer_state_files: peer_count}
-  end
-
-  defp load_own_state(state) do
-    path = Path.join(state.state_dir, "#{state.node_id}.state")
-
-    case File.read(path) do
-      {:ok, binary} ->
-        case decode_state_payload(binary, state) do
-          {:ok, payload} ->
-            {apply_own_state(state, payload), true}
-
-          {:error, reason} ->
-            require Logger
-            # Reason only: the state filename embeds node_id + storage root.
-            Logger.warning(
-              "cache: own state file decode failed: reason=#{inspect(reason)}; cold boot"
-            )
-
-            {state, false}
-        end
-
-      {:error, :enoent} ->
-        {state, false}
-
-      {:error, reason} ->
-        require Logger
-        Logger.warning("cache: own state file read failed: reason=#{inspect(reason)}; cold boot")
-        {state, false}
-    end
-  end
-
-  defp load_peer_state(state) do
-    case File.ls(state.state_dir) do
-      {:ok, files} ->
-        own = "#{state.node_id}.state"
-        now = System.system_time(:millisecond)
-        Enum.reduce(files, state, &maybe_merge_peer_file(&1, &2, own, now))
-
-      {:error, _} ->
-        state
-    end
-  end
-
-  defp maybe_merge_peer_file(filename, state, own, now) do
-    if String.ends_with?(filename, ".state") and filename != own and
-         within_ttl?(state, filename, now) do
-      merge_peer_file(state, filename)
-    else
-      state
-    end
-  end
-
-  defp within_ttl?(state, filename, now_ms) do
-    case File.stat(Path.join(state.state_dir, filename), time: :posix) do
-      {:ok, %{mtime: mtime}} -> now_ms - mtime * 1000 < state.state_ttl_ms
-      _ -> false
-    end
-  end
-
-  defp merge_peer_file(state, filename) do
-    path = Path.join(state.state_dir, filename)
-
-    with {:ok, binary} <- File.read(path),
-         {:ok, payload} <- decode_state_payload(binary, state) do
-      %{state | boot_cms: Sketch.sum(state.boot_cms, payload.sketch)}
-    else
-      {:error, reason} ->
-        require Logger
-        # Path omitted (embeds peer node_id + storage root). Reason only.
-        Logger.warning("cache: peer state merge failed: reason=#{inspect(reason)}")
-        state
-    end
-  end
-
-  defp decode_state_payload(binary, state) do
-    payload = :erlang.binary_to_term(binary, [:safe])
-
-    with {:ok, payload} <- validate_state_payload(payload),
-         {:ok, sketch} <-
-           Sketch.deserialize(payload.sketch,
-             depth: state.sketch_depth,
-             width: state.sketch_width,
-             sample_size: state.aging_sample_size
-           ) do
-      {:ok, %{payload | sketch: sketch}}
-    end
-  rescue
-    ArgumentError -> {:error, :decode_failed}
-  end
-
-  defp validate_state_payload(
-         %{
-           format_version: 1,
-           node_id: node_id,
-           written_at: written_at,
-           aging_epoch: aging_epoch,
-           increments_since_reset: increments_since_reset,
-           sketch: sketch,
-           protected_hashes: protected_hashes
-         } = payload
-       )
-       when is_binary(node_id) and is_integer(written_at) and
-              is_integer(aging_epoch) and aging_epoch >= 0 and
-              is_integer(increments_since_reset) and increments_since_reset >= 0 and
-              is_binary(sketch) and is_list(protected_hashes) do
-    if Enum.all?(protected_hashes, &is_binary/1) do
-      {:ok, payload}
-    else
-      {:error, :invalid_protected_hashes}
-    end
-  end
-
-  defp validate_state_payload(%{format_version: v}),
-    do: {:error, {:unsupported_format_version, v}}
-
-  defp validate_state_payload(_other), do: {:error, :invalid_shape}
-
-  defp apply_own_state(state, payload) do
-    # Rebuild the doorkeeper from traffic. The directory scan restores protected
-    # hashes into ETS.
-    %{state | local_cms: payload.sketch, persisted_protected_hashes: payload.protected_hashes}
-  end
-
   @impl true
   def handle_continue(:schedule_tickers, state) do
-    # Only this process writes its own state temps, and it hasn't flushed yet,
-    # so any left over are from a previous run.
-    remove_own_state_temps(state)
-
     # Capture Admission's pid before spawning. An unlinked, monitored scan can
     # fail without crashing Admission; its :DOWN releases await_scan waiters.
     # This short-lived worker needs no per-cache Task.Supervisor registration.
@@ -313,8 +141,6 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     {scan_pid, scan_ref} = spawn_monitor(fn -> scan_directory(state, admission_pid) end)
     state = %{state | scan_task: scan_pid, scan_task_ref: scan_ref}
 
-    Process.send_after(self(), :flush, state.flush_interval_ms)
-    Process.send_after(self(), :cleanup, state.cleanup_interval_ms)
     Process.send_after(self(), :reconcile, state.reconcile_interval_ms)
     schedule_rescan(state)
     {:noreply, state}
@@ -335,35 +161,22 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     entry_root = Path.join(state.root, state.path_prefix)
     {listings, descriptor_map} = read_entries(entry_root, fn _key_hash -> true end)
 
-    # Phase A: insert protected entries in persisted LRU→MRU order.
-    protected_hashes = state.persisted_protected_hashes
-
-    GenServer.call(
-      admission_pid,
-      {:apply_protected_batch, protected_hashes, descriptor_map},
-      :infinity
-    )
-
-    # Phase B: insert remaining entries (those not in protected_hashes)
-    # in mtime order. Batches of 100 to bound per-call latency.
-    protected_set = MapSet.new(protected_hashes)
-
-    remaining =
-      descriptor_map
-      |> Enum.reject(fn {hash, _entry} -> MapSet.member?(protected_set, hash) end)
-      |> Enum.map(fn {_hash, entry} -> entry end)
-      |> Enum.sort_by(fn %{mtime: mtime} -> mtime end)
-
-    Enum.chunk_every(remaining, 100)
+    # Phase A: put every entry on probation in mtime order, oldest first. A
+    # hit promotes it, so entries requested after a restart regain their
+    # place. Batches of 100 bound per-call latency.
+    descriptor_map
+    |> Map.values()
+    |> Enum.sort_by(fn %{mtime: mtime} -> mtime end)
+    |> Enum.chunk_every(100)
     |> Enum.each(&GenServer.call(admission_pid, {:apply_scan_batch, &1}, :infinity))
 
-    # Phase C: post-scan reconciliation. If total bytes ended up over
+    # Phase B: post-scan reconciliation. If total bytes ended up over
     # cap (operator lowered cap, previous run wrote past soft cap),
     # evict by LRU until under budget. No score gate — these are
     # already-cached entries with no candidate to compare against.
     GenServer.call(admission_pid, :reconcile_to_cap, :infinity)
 
-    # Phase D: remove files a VM that died left behind.
+    # Phase C: remove files a VM that died left behind.
     Sweep.run_listings(listings, state.pool, tel_opts(state))
 
     GenServer.call(admission_pid, :scan_complete, :infinity)
@@ -496,18 +309,6 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   @impl true
-  def handle_info(:flush, state) do
-    state = maybe_flush(state)
-    Process.send_after(self(), :flush, state.flush_interval_ms)
-    {:noreply, state}
-  end
-
-  def handle_info(:cleanup, state) do
-    state = cleanup_stale_peer_files(state)
-    Process.send_after(self(), :cleanup, state.cleanup_interval_ms)
-    {:noreply, state}
-  end
-
   def handle_info({:recheck_gone, key_hash}, state) do
     case locate(state, key_hash) do
       nil -> {:noreply, state}
@@ -598,8 +399,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   def handle_cast({:hit, descriptor}, state) do
     state = sighting(state, descriptor.key_hash)
-    state = on_hit_promote_or_synthesize(state, descriptor)
-    {:noreply, %{state | state_dirty: true}}
+    {:noreply, on_hit_promote_or_synthesize(state, descriptor)}
   end
 
   defp on_hit_promote_or_synthesize(state, descriptor) do
@@ -763,11 +563,6 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     {:reply, :ok, finish_rescan(state)}
   end
 
-  def handle_call({:apply_protected_batch, hashes, descriptor_map}, _from, state) do
-    state = Enum.reduce(hashes, state, &apply_protected_hash(&1, &2, descriptor_map))
-    {:reply, :ok, state}
-  end
-
   def handle_call(:reconcile_to_cap, from, state) do
     state = %{state | reconcile_waiters: [from | state.reconcile_waiters]}
     {:noreply, start_reconciliation(state)}
@@ -800,35 +595,11 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     end
   end
 
-  defp apply_protected_hash(hash, state, descriptor_map) do
-    case Map.fetch(descriptor_map, hash) do
-      {:ok, entry} ->
-        if already_tracked?(state, hash) or scan_changed?(state, hash) do
-          state
-        else
-          # Drop the scan-only `:mtime` field so queued descriptors
-          # have the same shape regardless of which queue they land in.
-          descriptor = Map.delete(entry, :mtime)
-          {pos, state} = next_position(state)
-          put_entry(state, :protected, pos, descriptor)
-          Map.update!(state, :protected_bytes, &(&1 + descriptor.size_bytes))
-        end
-
-      :error ->
-        # Persisted protected hash whose meta no longer exists on
-        # disk. Skip silently — same-key delete or external sweep.
-        state
-    end
-  end
-
   defp decide_admission(state, descriptor) do
-    {result, state} =
-      case locate(state, descriptor.key_hash) do
-        nil -> admit_new(state, descriptor)
-        located -> same_key_replace(state, descriptor, located)
-      end
-
-    {result, %{state | state_dirty: true}}
+    case locate(state, descriptor.key_hash) do
+      nil -> admit_new(state, descriptor)
+      located -> same_key_replace(state, descriptor, located)
+    end
   end
 
   defp admit_new(state, descriptor) do
@@ -970,8 +741,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   defp frequency(state, key_hash) do
     doorkeeper = if Talan.BloomFilter.member?(state.doorkeeper, key_hash), do: 1, else: 0
 
-    doorkeeper + Sketch.estimate(state.local_cms, key_hash) +
-      Sketch.estimate(state.boot_cms, key_hash)
+    doorkeeper + Sketch.estimate(state.sketch, key_hash)
   end
 
   # Evict at most `eviction_victim_limit` victims now. Reconciliation evicts
@@ -996,10 +766,6 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
         [{_key, descriptor}] = :ets.lookup(table, key)
         {descriptor, :ets.next(table, key)}
     end)
-  end
-
-  defp ordered_set_to_list(table) do
-    :ets.foldr(fn {_pos_and_hash, descriptor}, acc -> [descriptor | acc] end, [], table)
   end
 
   defp remove_victims(state, victims) do
@@ -1069,7 +835,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   defp sighting(state, key_hash) do
     state =
       if Talan.BloomFilter.member?(state.doorkeeper, key_hash) do
-        %{state | local_cms: Sketch.increment(state.local_cms, key_hash)}
+        %{state | sketch: Sketch.increment(state.sketch, key_hash)}
       else
         # talan's put/2 mutates the underlying :atomics ref in place and
         # returns :ok.
@@ -1077,20 +843,14 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
         state
       end
 
-    if Sketch.should_age?(state.local_cms) do
+    if Sketch.should_age?(state.sketch) do
       # Doorkeeper reset = discard the current filter and allocate a
       # fresh one. The old :atomics ref becomes unreferenced and is
       # garbage-collected. This is cheap (one allocation per aging cycle,
       # which is itself infrequent).
       fresh_doorkeeper = Doorkeeper.new(state.doorkeeper_cardinality, state.doorkeeper_fpr)
 
-      %{
-        state
-        | local_cms: Sketch.age(state.local_cms),
-          boot_cms: Sketch.age(state.boot_cms),
-          doorkeeper: fresh_doorkeeper,
-          state_dirty: true
-      }
+      %{state | sketch: Sketch.age(state.sketch), doorkeeper: fresh_doorkeeper}
     else
       state
     end
@@ -1182,136 +942,6 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       |> enforce_protected_target()
     else
       state
-    end
-  end
-
-  defp maybe_flush(state) do
-    if state.state_dirty do
-      path = Path.join(state.state_dir, "#{state.node_id}.state")
-      tmp_path = path <> ".tmp.#{System.unique_integer([:positive])}"
-      payload = serialize_state(state)
-
-      with :ok <- File.mkdir_p(state.state_dir),
-           :ok <- File.write(tmp_path, payload, [:binary]),
-           :ok <- File.rename(tmp_path, path) do
-        Telemetry.execute(
-          tel_opts(state),
-          [:cache, :flush, :stop],
-          %{bytes: byte_size(payload)},
-          %{
-            result: :ok,
-            pool: state.pool
-          }
-        )
-
-        %{state | state_dirty: false}
-      else
-        {:error, reason} ->
-          require Logger
-          # Log the reason without exposing the host's storage root and node ID.
-          Logger.warning("cache: state flush failed: reason=#{inspect(reason)}")
-          # Best-effort cleanup of orphaned tmp file
-          _ = File.rm(tmp_path)
-          # Keep state_dirty: true so the next flush tick retries
-          state
-      end
-    else
-      state
-    end
-  end
-
-  @impl true
-  def terminate(_reason, state) do
-    # Synchronous flush on shutdown to preserve any state since the
-    # last periodic flush. Errors here are logged but do not affect
-    # shutdown (we're terminating anyway).
-    _ = maybe_flush(state)
-    :ok
-  end
-
-  defp serialize_state(state) do
-    protected_hashes = ordered_set_to_list(state.protected) |> Enum.map(& &1.key_hash)
-
-    # Rebuild the doorkeeper from post-restart traffic; each previously known
-    # key's first sighting delays its CMS increment once.
-    :erlang.term_to_binary(
-      %{
-        format_version: 1,
-        node_id: state.node_id,
-        written_at: System.system_time(:millisecond),
-        aging_epoch: state.local_cms.aging_epoch,
-        increments_since_reset: state.local_cms.increments_since_reset,
-        sketch: Sketch.serialize(state.local_cms),
-        protected_hashes: protected_hashes
-      },
-      [:deterministic]
-    )
-  end
-
-  defp cleanup_stale_peer_files(state) do
-    removed =
-      case File.ls(state.state_dir) do
-        {:ok, files} ->
-          now = System.system_time(:millisecond)
-          own = "#{state.node_id}.state"
-          Enum.count(files, &maybe_remove_stale_peer_file(state, &1, own, now))
-
-        {:error, _} ->
-          0
-      end
-
-    Telemetry.execute(tel_opts(state), [:cache, :cleanup, :stop], %{removed: removed}, %{
-      pool: state.pool
-    })
-
-    state
-  end
-
-  # Returns true when a stale peer file was removed (so the caller can count
-  # removals for telemetry), false otherwise.
-  defp remove_own_state_temps(state) do
-    prefix = "#{state.node_id}.state.tmp."
-
-    for file <- ls(state.state_dir),
-        String.starts_with?(file, prefix),
-        do: File.rm(Path.join(state.state_dir, file))
-  end
-
-  defp ls(dir) do
-    case File.ls(dir) do
-      {:ok, files} -> files
-      {:error, _reason} -> []
-    end
-  end
-
-  defp maybe_remove_stale_peer_file(state, file, own, now) do
-    if peer_state_file?(file, own) do
-      remove_if_stale(Path.join(state.state_dir, file), now, state.state_ttl_ms)
-    else
-      false
-    end
-  end
-
-  # A peer's state file, or a temp a peer left mid-flush.
-  defp peer_state_file?(file, own) do
-    (String.ends_with?(file, ".state") and file != own) or
-      (String.contains?(file, ".state.tmp.") and not String.starts_with?(file, own <> ".tmp."))
-  end
-
-  defp remove_if_stale(path, now, ttl_ms) do
-    case File.stat(path, time: :posix) do
-      {:ok, %{mtime: mtime}} ->
-        age_ms = now - mtime * 1000
-
-        if age_ms > ttl_ms do
-          File.rm(path)
-          true
-        else
-          false
-        end
-
-      _ ->
-        false
     end
   end
 
