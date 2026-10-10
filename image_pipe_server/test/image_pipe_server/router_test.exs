@@ -29,11 +29,18 @@ defmodule ImagePipeServer.RouterTest do
   describe "health checks" do
     test "answer 200 while serving", %{image_pipe: image_pipe} do
       for path <- ["/health/live", "/health/ready"] do
-        conn = call(:get, path, mount_path: "/", image_pipe: image_pipe)
+        conn = call(:get, path, mount_path: "/", image_pipe: image_pipe, drain: serving())
 
         assert conn.status == 200
         assert conn.resp_body == "ok"
       end
+    end
+
+    test "answer not ready before the server is serving", %{image_pipe: image_pipe} do
+      opts = [mount_path: "/", image_pipe: image_pipe, drain: Health.new()]
+
+      assert %{status: 503, resp_body: "starting"} = call(:get, "/health/ready", opts)
+      assert %{status: 200} = call(:get, "/health/live", opts)
     end
 
     test "answer not ready while draining, and close connections", %{image_pipe: image_pipe} do
@@ -140,7 +147,8 @@ defmodule ImagePipeServer.RouterTest do
 
     test "keeps the health checks at the root", %{image_pipe: image_pipe} do
       for path <- ["/health/live", "/health/ready"] do
-        assert call(:get, path, mount_path: "/images", image_pipe: image_pipe).status == 200
+        conn = call(:get, path, mount_path: "/images", image_pipe: image_pipe, drain: serving())
+        assert conn.status == 200
       end
     end
 
@@ -158,7 +166,8 @@ defmodule ImagePipeServer.RouterTest do
         opts: [
           mount_path: "/",
           image_pipe: image_pipe,
-          auth_token_hash: :crypto.hash(:sha256, "t0k")
+          auth_token_hash: :crypto.hash(:sha256, "t0k"),
+          drain: serving()
         ]
       }
     end
@@ -199,6 +208,12 @@ defmodule ImagePipeServer.RouterTest do
         assert conn(:get, path) |> Router.call(Router.init(opts)) |> Map.fetch!(:status) == 200
       end
     end
+  end
+
+  defp serving do
+    drain = Health.new()
+    Health.serve(drain)
+    drain
   end
 
   defp call(method, path, opts) do

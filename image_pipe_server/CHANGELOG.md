@@ -7,6 +7,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The server uses about 140 MiB less memory: it loads its code when it first
+  needs it instead of all at startup. Set `RELEASE_MODE=embedded` to load
+  everything at startup.
+- Before it reports ready, the server processes a small image in each output
+  format, so the first requests don't wait for the image-processing code to
+  load or an encoder to start. `/health/ready` now answers `503` until then, including on the
+  separate `health_port` listener.
 - Images process faster, PNG most of all. The Docker images now ship zlib-ng
   2.3.3, libjpeg-turbo 3.2.0 and libpng 1.6.59 in place of Debian's zlib,
   libjpeg-turbo and libpng. Across a set of typical requests, latency dropped

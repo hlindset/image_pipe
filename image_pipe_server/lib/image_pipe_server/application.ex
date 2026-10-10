@@ -6,6 +6,7 @@ defmodule ImagePipeServer.Application do
   alias ImagePipeServer.Config
   alias ImagePipeServer.ConfigError
   alias ImagePipeServer.Health
+  alias ImagePipeServer.Warmup
 
   @listener __MODULE__.Listener
   @health_listener __MODULE__.HealthListener
@@ -70,7 +71,8 @@ defmodule ImagePipeServer.Application do
 
   # Children stop in reverse order, so the listener, started last, drains
   # in-flight requests before the pool and the ImagePipe instance stop. The
-  # health listener, started first, answers until the end.
+  # health listener, started first, answers until the end. The warmup runs
+  # before the listener starts, and readiness turns on after it.
   @doc false
   @spec children(Config.t(), Health.drain()) :: [Supervisor.child_spec() | {module(), term()}]
   def children(%Config{} = config, drain) do
@@ -81,7 +83,17 @@ defmodule ImagePipeServer.Application do
          name: @instance, config: config.image_pipe, detector_warmup: config.detector_warmup}
       ] ++
       Enum.map(config.credential_warmups, &{ImagePipe.Source.S3.CredentialWarmup, &1}) ++
-      [http_child(config, {ImagePipeServer.Router, router_options(config, drain)})]
+      [
+        {Warmup, @instance},
+        http_child(config, {ImagePipeServer.Router, router_options(config, drain)}),
+        %{id: :serving, start: {__MODULE__, :serve, [drain]}, restart: :temporary}
+      ]
+  end
+
+  @doc false
+  def serve(drain) do
+    Health.serve(drain)
+    :ignore
   end
 
   @doc false
