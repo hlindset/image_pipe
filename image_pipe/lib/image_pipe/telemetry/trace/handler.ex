@@ -35,6 +35,7 @@ defmodule ImagePipe.Telemetry.Trace.Handler do
     :pins,
     :temps,
     :bodies,
+    :expired,
     :staged,
     # entries a re-scan started or stopped counting, or resized
     :adopted,

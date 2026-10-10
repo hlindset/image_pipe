@@ -4,6 +4,13 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   # once it is older than the grace period, so nodes sharing a root can all
   # sweep it without touching each other's live files. No request holds a temp
   # file for anywhere near an hour.
+  #
+  # It also expires entries: with `{:all, max_age}`, every entry whose
+  # metadata mtime, its last read (see `Toucher`), is older than `max_age`
+  # seconds. A bounded cache passes `{:unreadable, max_age}`: its Admission
+  # evicts unread entries it counts, so the sweep only expires metadata it
+  # can't read, which Admission never counts. Either way an expired entry's
+  # body is then left behind and goes with the other leftovers.
   @moduledoc false
 
   alias ImagePipe.Cache.FileSystem.Store
@@ -23,14 +30,14 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   def pin_name(random), do: ".image-pipe-pin-#{System.os_time(:millisecond)}-#{random}.tmp"
 
   @doc false
-  def run(root, pool, telemetry_opts),
-    do: span(pool, telemetry_opts, fn -> sweep_root(root) end)
+  def run(root, pool, telemetry_opts, expiry \\ nil),
+    do: span(pool, telemetry_opts, fn -> sweep_root(root, expiry) end)
 
   @doc false
   # Sweeps `listings`, the `{partition_dir, names}` of a pool's tree, so a
   # caller that already listed the tree doesn't list it again.
-  def run_listings(listings, pool, telemetry_opts),
-    do: span(pool, telemetry_opts, fn -> sweep_listings(listings) end)
+  def run_listings(listings, pool, telemetry_opts, expiry \\ nil),
+    do: span(pool, telemetry_opts, fn -> sweep_listings(listings, expiry) end)
 
   defp span(pool, telemetry_opts, sweep) do
     Telemetry.span(telemetry_opts, [:cache, :sweep], %{pool: pool}, fn ->
@@ -48,18 +55,62 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   end
 
   @doc false
-  def sweep_root(root) do
+  def sweep_root(root, expiry \\ nil) do
     sweep_listings(
-      for dir <- partitions(root), partition <- partitions(dir), do: listing(partition)
+      for(dir <- partitions(root), partition <- partitions(dir), do: listing(partition)),
+      expiry
     )
   end
 
-  defp sweep_listings(listings) do
+  defp sweep_listings(listings, expiry) do
     cutoff = cutoff()
+    expiry = expiry_cutoff(expiry)
+    counts = %{pins: 0, temps: 0, bodies: 0, expired: 0, bytes: 0}
 
-    Enum.reduce(listings, %{pins: 0, temps: 0, bodies: 0, bytes: 0}, fn {dir, names}, counts ->
+    Enum.reduce(listings, counts, fn {dir, names}, counts ->
+      {names, counts} = expire_partition(dir, names, expiry, counts)
       sweep_partition(dir, names, cutoff, counts)
     end)
+  end
+
+  defp expiry_cutoff(nil), do: nil
+  defp expiry_cutoff({_mode, nil}), do: nil
+  defp expiry_cutoff({mode, max_age}), do: {mode, System.os_time(:second) - max_age}
+
+  # Returns the names still present, so the leftover pass sees expired
+  # entries' bodies as unnamed.
+  defp expire_partition(_dir, names, nil, counts), do: {names, counts}
+
+  defp expire_partition(dir, names, {mode, cutoff}, counts) do
+    Enum.reduce(names, {[], counts}, fn name, {kept, counts} ->
+      path = Path.join(dir, name)
+
+      if String.ends_with?(name, ".meta") and idle?(path, cutoff) and expires?(path, mode) and
+           idle?(path, cutoff) do
+        {kept, remove(path, :expired, counts)}
+      else
+        {[name | kept], counts}
+      end
+    end)
+  end
+
+  # A read or a rewrite moves the mtime, so the idle check runs again just
+  # before the unlink.
+  defp idle?(path, cutoff) do
+    case File.stat(path, time: :posix) do
+      {:ok, %{mtime: mtime}} -> mtime < cutoff
+      {:error, _reason} -> false
+    end
+  end
+
+  defp expires?(_path, :all), do: true
+
+  defp expires?(path, :unreadable) do
+    case Store.read_descriptor(path) do
+      {:ok, _descriptor, _mtime} -> false
+      {:error, :enoent} -> false
+      {:error, _unreadable} -> true
+    end
   end
 
   @doc false

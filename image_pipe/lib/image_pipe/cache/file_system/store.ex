@@ -7,6 +7,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   alias ImagePipe.Cache.FileSystem.CheckedDirs
   alias ImagePipe.Cache.FileSystem.PeriodicSweep
   alias ImagePipe.Cache.FileSystem.Sweep
+  alias ImagePipe.Cache.FileSystem.Toucher
   alias ImagePipe.Cache.Key
   alias ImagePipe.SafePath
 
@@ -41,6 +42,18 @@ defmodule ImagePipe.Cache.FileSystem.Store do
                       originals cache can be told apart from the processed-image cache. \
                       Defaults to `:output`. A cache configured as `:input_cache` gets \
                       `pool: :input` automatically.
+                      """
+                    ],
+                    max_age: [
+                      type: {:or, [nil, :pos_integer]},
+                      type_doc: "`t:pos_integer/0` or `nil`",
+                      default: 604_800,
+                      doc: """
+                      Seconds an entry may go unread before it is deleted. With \
+                      `:max_size_bytes`, only metadata files the cache can't read are \
+                      deleted by age, and eviction handles other entries. `nil` keeps \
+                      entries until they are evicted or deleted. Only a running \
+                      `ImagePipe` instance deletes them (see `ImagePipe.child_spec/1`).
                       """
                     ],
                     # Bounded-mode options: all optional per key. Cross-key
@@ -132,7 +145,8 @@ defmodule ImagePipe.Cache.FileSystem.Store do
                   )
 
   # Every option except these turns on, or tunes, bounded mode.
-  @bounded_option_keys Keyword.keys(@options_schema.schema) -- [:root, :path_prefix, :pool]
+  @bounded_option_keys Keyword.keys(@options_schema.schema) --
+                         [:root, :path_prefix, :pool, :max_age]
 
   @doc false
   def options_schema, do: @options_schema.schema
@@ -162,8 +176,11 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     pool = Keyword.get(opts, :pool, :output)
     telemetry = Keyword.take(opts, [:telemetry_prefix])
 
+    expiry = {:all, Keyword.get(opts, :max_age)}
+
     {PeriodicSweep,
-     id: {Sweep, Keyword.fetch!(opts, :root)}, sweep: {Sweep, :run, [root, pool, telemetry]}}
+     id: {Sweep, Keyword.fetch!(opts, :root)},
+     sweep: {Sweep, :run, [root, pool, telemetry, expiry]}}
   end
 
   @doc false
@@ -229,6 +246,8 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   end
 
   defp maybe_cast_hit(opts, descriptor) do
+    Toucher.record(opts, descriptor.key_hash)
+
     case lookup_admission(opts) do
       {:ok, pid} -> Admission.hit(pid, descriptor)
       _ -> :ok

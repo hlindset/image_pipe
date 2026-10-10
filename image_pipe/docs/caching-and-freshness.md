@@ -30,7 +30,9 @@ Immutable sources share them only when their settings match too.
 
 - When the origin starts serving different bytes for `cat.jpg`, requests make
   new processed images from the new version. Copies made from the old bytes
-  are never served again, and stay in the cache until they are evicted.
+  are never served again. A cache without a size cap deletes them once nobody
+  has read them for its `max_age`. A cache with one evicts them as it needs
+  space. See [unread entries](cache.md#unread-entries).
 - When a check finds the same bytes, the existing processed images are reused
   without processing anything. This holds for a `304` and for a full download
   that turns out identical.

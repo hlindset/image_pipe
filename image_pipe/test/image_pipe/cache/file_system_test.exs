@@ -3,6 +3,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
 
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
+  alias ImagePipe.Cache.FileSystem.PeriodicSweep
   alias ImagePipe.Cache.Key
 
   defp key(hash \\ String.duplicate("a", 64)) do
@@ -120,8 +121,8 @@ defmodule ImagePipe.Cache.FileSystemTest do
   end
 
   test "accepts tilde as a normal relative path segment", %{root: root} do
-    assert FileSystem.validate_options(root: root, path_prefix: "~cache") ==
-             {:ok, [root: root, path_prefix: "~cache"]}
+    assert {:ok, opts} = FileSystem.validate_options(root: root, path_prefix: "~cache")
+    assert Keyword.take(opts, [:root, :path_prefix]) == [root: root, path_prefix: "~cache"]
   end
 
   test "rejects unknown filesystem adapter options", %{root: root} do
@@ -640,7 +641,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
 
     test "an instance sweeps an unbounded pool at start and while it runs", %{root: root} do
       first = leftover(root, "a")
-      [spec] = ImagePipe.Cache.startup_specs(cache: [root: root])
+      [spec] = sweep_specs(cache: [root: root])
       pid = start_supervised!(spec)
       _ = :sys.get_state(pid)
       refute File.exists?(first)
@@ -653,9 +654,12 @@ defmodule ImagePipe.Cache.FileSystemTest do
 
     test "an instance runs no periodic sweep for a bounded pool", %{root: root} do
       bounded = [root: root, max_size_bytes: 10_000_000]
-      assert ImagePipe.Cache.startup_specs(cache: bounded) == []
+      assert sweep_specs(cache: bounded) == []
     end
   end
+
+  defp sweep_specs(options),
+    do: Enum.filter(ImagePipe.Cache.startup_specs(options), &match?({PeriodicSweep, _}, &1))
 
   describe "bounded mode config validation" do
     test "rejects max_size_bytes: 0" do
