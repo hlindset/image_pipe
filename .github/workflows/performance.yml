@@ -1,0 +1,239 @@
+name: Performance
+
+# Times an image_pipe_server image against others on the same runner with
+# `mix imgproxy.bench --compare`, alternating between them so the runner's
+# speed cancels out:
+#
+# - On a pull request labelled `perf`, the pull request against its base, on
+#   the curated `perf` cases, posted as a comment.
+# - Nightly, `main` against the `main` the previous scheduled run measured,
+#   the `main` of 30 days earlier, which shows drift too slow to notice night
+#   to night, and the latest release image, on the `perf` cases.
+# - Weekly, `main` against the `main` of 7 days earlier on every case, for a
+#   regression in a case the `perf` set leaves out.
+# - By hand, like the nightly run, on the cases chosen.
+#
+# The comparison reports; it doesn't fail the job.
+on:
+  pull_request:
+    types: [labeled, synchronize]
+  schedule:
+    - cron: "17 3 * * *"
+    # The weekly full run. "Choose the commits to compare" matches this string.
+    - cron: "17 4 * * 0"
+  workflow_dispatch:
+    inputs:
+      cases:
+        description: Cases to time
+        type: choice
+        options: [perf, all]
+        default: perf
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-${{ github.event.pull_request.number || github.event.schedule || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compare:
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'perf')
+    runs-on: ubuntu-26.04
+    timeout-minutes: 300
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    env:
+      # The bench decodes responses only to compare their dimensions, so the
+      # libvips bundled with vix is enough; the servers run their own.
+      MIX_ENV: test
+      RELEASE_IMAGE: ghcr.io/hlindset/image_pipe_server:latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Choose the commits to compare
+        id: refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SCHEDULE: ${{ github.event.schedule }}
+          CASES: ${{ inputs.cases }}
+        run: |
+          # A pull request's checkout is the pull request merged into the base
+          # branch as it is now, so its first parent is the base without the
+          # pull request. The event's base SHA can be older than that.
+          candidate=$(git rev-parse HEAD)
+          only=perf
+          release=true
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            release=false
+            against=$(git rev-parse HEAD^1)
+            name=base
+            candidate_text="this pull request at \`${HEAD_SHA:0:7}\`, merged into \`$BASE_REF\`"
+            against_text="\`$BASE_REF\` at \`${against:0:7}\`, without this pull request"
+          elif [ "$SCHEDULE" = "17 4 * * 0" ]; then
+            against=$(git rev-list -1 --first-parent --before="7 days ago" HEAD)
+            name=week
+            only=all
+            release=false
+            candidate_text="\`main\` at \`${candidate:0:7}\`"
+            against_text="\`main\` at \`${against:0:7}\` from $(git log -1 --format=%cs "$against"), a week earlier"
+          else
+            [ "$CASES" = all ] && only=all
+            # The commit the last successful scheduled run measured.
+            against=$(gh run list --workflow performance.yml --event schedule \
+              --status success --limit 1 --json headSha --jq '.[0].headSha // empty')
+            name=previous
+            candidate_text="\`main\` at \`${candidate:0:7}\`"
+            against_text="\`main\` at \`${against:0:7}\`, from the previous scheduled run"
+            month=$(git rev-list -1 --first-parent --before="30 days ago" HEAD)
+            # Skipped until main from 30 days earlier has the server image.
+            if [ -n "$month" ] && ! git cat-file -e "$month:image_pipe_server/Dockerfile" 2>/dev/null; then
+              month=""
+            fi
+            if [ -n "$month" ]; then
+              month_text="\`main\` at \`${month:0:7}\` from $(git log -1 --format=%cs "$month"), a month earlier"
+            fi
+          fi
+          {
+            echo "only=$only"
+            echo "release=$release"
+            echo "month=${month:-}"
+            echo "month_text=${month_text:-}"
+            echo "candidate=$candidate"
+            echo "against=$against"
+            echo "name=$name"
+            echo "candidate_text=$candidate_text"
+            echo "against_text=$against_text"
+          } >> "$GITHUB_OUTPUT"
+          echo "Candidate $candidate, against $name ${against:-(none yet)}"
+
+      - uses: ./.github/actions/docker-buildx
+
+      - name: Build the candidate image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: image_pipe_server/Dockerfile
+          tags: image_pipe_server:candidate
+          load: true
+          cache-from: type=gha,scope=server-base
+
+      - name: Check out the commit to compare against
+        if: steps.refs.outputs.against != ''
+        run: git worktree add "$RUNNER_TEMP/against" "${{ steps.refs.outputs.against }}"
+
+      - name: Build the image to compare against
+        if: steps.refs.outputs.against != ''
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ runner.temp }}/against
+          file: ${{ runner.temp }}/against/image_pipe_server/Dockerfile
+          tags: image_pipe_server:against
+          load: true
+          cache-from: type=gha,scope=server-base
+
+      - name: Check out main from 30 days earlier
+        if: steps.refs.outputs.month != ''
+        run: git worktree add "$RUNNER_TEMP/month" "${{ steps.refs.outputs.month }}"
+
+      - name: Build main from 30 days earlier
+        if: steps.refs.outputs.month != ''
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ runner.temp }}/month
+          file: ${{ runner.temp }}/month/image_pipe_server/Dockerfile
+          tags: image_pipe_server:month
+          load: true
+          cache-from: type=gha,scope=server-base
+
+      - name: Pull the latest release
+        if: steps.refs.outputs.release == 'true'
+        run: docker pull "$RELEASE_IMAGE"
+
+      - name: Runner image
+        id: runner
+        run: |
+          echo "image=$ImageOS" >> "$GITHUB_OUTPUT"
+          # Workaround: mise (2026.9.18) maps ImageOS to builds.hex.pm's Erlang
+          # builds only up to ubuntu24 and compiles from source otherwise, so
+          # name the release. Remove once mise maps ubuntu26 itself.
+          echo "MISE_ERLANG_PRECOMPILED_OS=${ImageOS/ubuntu/ubuntu-}.04" >> "$GITHUB_ENV"
+      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+      - name: Install Hex and Rebar
+        run: |
+          mise exec -- mix local.hex --force
+          mise exec -- mix local.rebar --force
+      - name: Restore deps and build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            image_pipe/deps
+            image_pipe/_build
+          key: perf-mix-${{ steps.runner.outputs.image }}-${{ hashFiles('mise.toml', 'image_pipe/mix.lock') }}
+          restore-keys: |
+            perf-mix-${{ steps.runner.outputs.image }}-
+      - name: Compile the bench
+        working-directory: image_pipe
+        run: |
+          mise exec -- mix deps.get
+          mise exec -- mix compile
+
+      - name: Compare
+        working-directory: image_pipe
+        env:
+          AGAINST: ${{ steps.refs.outputs.against }}
+          NAME: ${{ steps.refs.outputs.name }}
+          CANDIDATE_TEXT: ${{ steps.refs.outputs.candidate_text }}
+          AGAINST_TEXT: ${{ steps.refs.outputs.against_text }}
+          MONTH: ${{ steps.refs.outputs.month }}
+          MONTH_TEXT: ${{ steps.refs.outputs.month_text }}
+          ONLY: ${{ steps.refs.outputs.only }}
+          RELEASE: ${{ steps.refs.outputs.release }}
+        run: |
+          args=(--compare image_pipe_server:candidate --describe "candidate=$CANDIDATE_TEXT")
+          if [ -n "$AGAINST" ]; then
+            args+=(--against "$NAME=image_pipe_server:against" --describe "$NAME=$AGAINST_TEXT")
+          fi
+          if [ -n "$MONTH" ]; then
+            args+=(--against "month=image_pipe_server:month" --describe "month=$MONTH_TEXT")
+          fi
+          [ "$ONLY" = perf ] && args+=(--only perf)
+          if [ "$RELEASE" = true ]; then
+            version=$(docker image inspect --format \
+              '{{index .Config.Labels "org.opencontainers.image.version"}}' "$RELEASE_IMAGE")
+            release_text="the latest release, \`$RELEASE_IMAGE\`"
+            [ -n "$version" ] && release_text="the latest release, \`$version\`"
+            args+=(--against "release=$RELEASE_IMAGE" --describe "release=$release_text")
+          fi
+          # Two CPUs for the servers leave the rest of the runner for oha.
+          mise exec -- mix imgproxy.bench "${args[@]}" --cpus 2 --rounds 4 --duration 1 \
+            --output tmp/performance
+          cat tmp/performance/summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the report
+        if: ${{ !cancelled() && hashFiles('image_pipe/tmp/performance/index.html') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: performance-report
+          path: |
+            image_pipe/tmp/performance/index.html
+            image_pipe/tmp/performance/results.json
+          retention-days: 30
+
+      # A pull request from a fork gets a read-only token, so its comment is
+      # skipped; the job summary still has the table.
+      - name: Comment on the pull request
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr comment "$PR" --body-file image_pipe/tmp/performance/summary.md \
+            --edit-last --create-if-none
