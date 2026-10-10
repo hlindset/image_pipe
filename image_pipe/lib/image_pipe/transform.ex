@@ -26,32 +26,21 @@ defmodule ImagePipe.Transform do
 
   @default_detector ImagePipe.Transform.Detector.Composite
 
+  @doc "The detector module a `:detector` option names. Configuration resolves it once."
   @spec resolve_detector(:default | nil | module()) :: module() | nil
   def resolve_detector(:default), do: @default_detector
   def resolve_detector(nil), do: nil
   def resolve_detector(module) when is_atom(module), do: module
 
-  @spec detector_available?(:default | nil | module(), keyword()) :: boolean()
-  def detector_available?(detector, opts) do
-    case resolve_detector(detector) do
-      nil -> false
-      module -> module.available?(opts)
-    end
-  end
+  @spec detector_available?(module() | nil, keyword()) :: boolean()
+  def detector_available?(nil, _opts), do: false
+  def detector_available?(detector, opts), do: detector.available?(opts)
 
-  @spec detector_ready?(:default | nil | module(), keyword()) :: boolean()
-  def detector_ready?(detector, opts) do
-    case resolve_detector(detector) do
-      nil -> false
-      module -> Detector.ready?(module, opts)
-    end
-  end
+  @spec detector_ready?(module() | nil, keyword()) :: boolean()
+  def detector_ready?(nil, _opts), do: false
+  def detector_ready?(detector, opts), do: Detector.ready?(detector, opts)
 
-  @spec detector_identity(:default | nil | module(), keyword()) :: {module(), term()} | nil
-  def detector_identity(detector, opts) do
-    case resolve_detector(detector) do
-      nil -> nil
-      module -> module.identity(opts)
-    end
-  end
+  @spec detector_identity(module() | nil, keyword()) :: {module(), term()} | nil
+  def detector_identity(nil, _opts), do: nil
+  def detector_identity(detector, opts), do: detector.identity(opts)
 end

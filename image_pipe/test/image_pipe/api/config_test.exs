@@ -17,7 +17,7 @@ defmodule ImagePipe.Plug.ConfigTest do
   test "detector configuration defaults to the bundled detector in graceful mode" do
     config = Config.validate!([])
 
-    assert config[:detector] == :default
+    assert config[:detector] == ImagePipe.Transform.Detector.Composite
     assert config[:detector_required] == false
   end
 

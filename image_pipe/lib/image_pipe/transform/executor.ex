@@ -12,7 +12,6 @@ defmodule ImagePipe.Transform.Executor do
   alias ImagePipe.Plan.Spec
   alias ImagePipe.Plan.Spec.Group
   alias ImagePipe.Plan.Spec.Output
-  alias ImagePipe.Transform
   alias ImagePipe.Transform.Alpha
   alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.Executor.Geometry
@@ -124,7 +123,7 @@ defmodule ImagePipe.Transform.Executor do
   def execute(%State{} = state, %Spec{} = request, opts) do
     state = %State{
       state
-      | detector: Transform.resolve_detector(Keyword.get(opts, :detector, :default)),
+      | detector: Keyword.get(opts, :detector),
         detector_required: Keyword.get(opts, :detector_required, false),
         max_intermediate_pixels:
           Keyword.get(opts, :max_intermediate_pixels, state.max_intermediate_pixels)

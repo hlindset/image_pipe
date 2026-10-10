@@ -651,7 +651,7 @@ defmodule ImagePipe.Execution do
         nil
 
       classes ->
-        Transform.detector_identity(Keyword.get(config, :detector, :default), classes: classes)
+        Transform.detector_identity(Keyword.fetch!(config, :detector), classes: classes)
     end
   end
 end

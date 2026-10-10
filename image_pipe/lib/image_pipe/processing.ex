@@ -68,10 +68,10 @@ defmodule ImagePipe.Processing do
   defp check_expires(%Spec{}, _now), do: :ok
 
   defp check_detector(request, config) do
-    detector = Keyword.get(config, :detector, :default)
+    detector = Keyword.fetch!(config, :detector)
 
     with :ok <- check_known_classes(request, detector) do
-      case {explicit_detector_classes(request), Keyword.get(config, :detector_required, false)} do
+      case {explicit_detector_classes(request), Keyword.fetch!(config, :detector_required)} do
         {nil, _required?} -> :ok
         {_classes, false} -> :ok
         {classes, true} -> check_required(detector, classes: classes)
@@ -88,15 +88,15 @@ defmodule ImagePipe.Processing do
           uniq: true,
           do: name
 
-    case {named, Transform.resolve_detector(detector)} do
-      {[], _} ->
+    case {named, detector} do
+      {[], _detector} ->
         :ok
 
       {_named, nil} ->
         :ok
 
-      {named, module} ->
-        case named -- module.supported_classes([]) do
+      {named, detector} ->
+        case named -- detector.supported_classes([]) do
           [] -> :ok
           unknown -> {:error, {:detector, {:unknown_classes, Enum.sort(unknown)}}}
         end

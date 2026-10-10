@@ -326,7 +326,12 @@ defmodule ImagePipe.Processing.Config do
 
   @doc false
   def resolve!(opts) do
-    resolved = layer(@scalar_defaults ++ @map_defaults, opts)
+    resolved =
+      @scalar_defaults
+      |> Kernel.++(@map_defaults)
+      |> layer(opts)
+      |> Keyword.replace_lazy(:detector, &Transform.resolve_detector/1)
+
     range_check!(resolved)
     resolved
   end
@@ -355,24 +360,18 @@ defmodule ImagePipe.Processing.Config do
   # Requests check availability per class, so a detector that can run any of
   # its classes may be required.
   defp validate_detector_required!(resolved) do
-    detector = Keyword.get(resolved, :detector, :default)
-
-    if Keyword.get(resolved, :detector_required, false) and not detects_any_class?(detector) do
+    if Keyword.get(resolved, :detector_required, false) and
+         not detects_any_class?(Keyword.get(resolved, :detector)) do
       raise ArgumentError,
             "invalid ImagePipe processing options: detector_required: " <>
               "the detector is not available in this build"
     end
   end
 
-  defp detects_any_class?(detector) do
-    case Transform.resolve_detector(detector) do
-      nil ->
-        false
+  defp detects_any_class?(nil), do: false
 
-      module ->
-        Enum.any?(module.supported_classes([]), &module.available?(classes: [&1]))
-    end
-  end
+  defp detects_any_class?(detector),
+    do: Enum.any?(detector.supported_classes([]), &detector.available?(classes: [&1]))
 
   defp validate_quality_value!(key, value) do
     unless value in 1..100 do
