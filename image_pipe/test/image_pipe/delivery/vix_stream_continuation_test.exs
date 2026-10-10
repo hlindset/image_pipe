@@ -498,7 +498,7 @@ defmodule ImagePipe.Delivery.VixStreamContinuationTest do
 
   defp transform_and_pump(state, geometry, request, policy, config, pump) do
     {:ok, %State{} = state} = Executor.execute(state, request, config)
-    {:ok, %State{image: image}} = Materializer.materialize(state, config)
+    {:ok, %State{image: image}} = Materializer.materialize(state)
 
     {:ok, resolved_output} =
       Policy.negotiate(

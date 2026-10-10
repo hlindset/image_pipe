@@ -42,6 +42,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- **Breaking:** `ImagePipe.Transform.Detector.Composite.new/1` and
+  `default/0`. A detector is configured as a module, so a composite struct
+  could not be configured. Configure `ImagePipe.Transform.Detector.Composite`
+  itself to get the default face and object detectors.
 - **Breaking:** Bounded caches keep request counts in memory only. Remove
   `node_id`, `state_dir`, `flush_interval`, `cleanup_interval`, and
   `state_ttl` from `cache` and `input_cache`. After a restart, a bounded

@@ -148,11 +148,11 @@ defmodule ImagePipe.Transform.Detector.CompositeTest do
     def detect(_, opts), do: Gate.run(:car, opts)
   end
 
-  defp composite, do: Composite.new([FaceChild, ObjectChild])
+  defp composite, do: [FaceChild, ObjectChild]
 
   test "runs routed children concurrently with the caller's Logger metadata" do
     test_pid = self()
-    composite = Composite.new([GatedFace, GatedObject])
+    composite = [GatedFace, GatedObject]
 
     task =
       Task.async(fn ->
@@ -173,21 +173,21 @@ defmodule ImagePipe.Transform.Detector.CompositeTest do
   end
 
   test "warmup with a class list warms only the routed children" do
-    composite = Composite.new([WarmFace, WarmObject])
+    composite = [WarmFace, WarmObject]
     assert :ok = Composite.warmup(composite, classes: ["face"], test_pid: self())
     assert_received {:warmed, :face}
     refute_received {:warmed, :object}
   end
 
   test "warmup with :all warms every child" do
-    composite = Composite.new([WarmFace, WarmObject])
+    composite = [WarmFace, WarmObject]
     assert :ok = Composite.warmup(composite, classes: :all, test_pid: self())
     assert_received {:warmed, :face}
     assert_received {:warmed, :object}
   end
 
   test "surfaces the error when every routed child fails" do
-    composite = Composite.new([ErroringChild])
+    composite = [ErroringChild]
     assert {:error, {:detector, :boom}} = Composite.detect(composite, :image, classes: ["car"])
   end
 
@@ -198,7 +198,7 @@ defmodule ImagePipe.Transform.Detector.CompositeTest do
     on_exit(fn -> :telemetry.detach(ref) end)
 
     # car routes to both ErroringChild (fails) and ObjectChild (succeeds)
-    composite = Composite.new([ErroringChild, ObjectChild])
+    composite = [ErroringChild, ObjectChild]
 
     assert {:error, {:detector, :boom}} =
              Composite.detect(composite, :image,
@@ -211,15 +211,15 @@ defmodule ImagePipe.Transform.Detector.CompositeTest do
   end
 
   test "an unavailable child contributes no regions" do
-    composite = Composite.new([UnavailableChild, ObjectChild])
+    composite = [UnavailableChild, ObjectChild]
     assert {:ok, [%{label: "car"}]} = Composite.detect(composite, :image, classes: ["car"])
 
     assert {:error, {:detector, :unavailable}} =
-             Composite.detect(Composite.new([UnavailableChild]), :image, classes: ["car"])
+             Composite.detect([UnavailableChild], :image, classes: ["car"])
   end
 
   test "supported_classes is the union of children" do
-    assert Enum.sort(Composite.supported_classes(composite())) == ["car", "dog", "face"]
+    assert Enum.sort(Composite.children_classes(composite())) == ["car", "dog", "face"]
   end
 
   test ":all runs every child and merges all regions" do

@@ -8,10 +8,10 @@ defmodule ImagePipe.Test.DetectorFixtures.VerCompositeV1V1 do
   alias ImagePipe.Test.DetectorFixtures.ObjectVerFakeV1
   alias ImagePipe.Transform.Detector.Composite
 
-  defp c, do: Composite.new([FaceVerFakeV1, ObjectVerFakeV1])
+  defp c, do: [FaceVerFakeV1, ObjectVerFakeV1]
 
   @impl true
-  def supported_classes(_o), do: Composite.supported_classes(c())
+  def supported_classes(_o), do: Composite.children_classes(c())
   @impl true
   def detect(i, o), do: Composite.detect(c(), i, o)
   @impl true

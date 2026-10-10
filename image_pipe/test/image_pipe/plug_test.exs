@@ -201,21 +201,16 @@ defmodule ImagePipe.PlugTest do
     end
   end
 
-  defmodule FailingMaterializer do
-    def materialize(_state, _opts), do: {:error, :forced_materialization_failure}
-  end
-
   # Keys the API mount's `validate_config!/1` does not accept, spliced onto the
   # validated config AFTER `ImagePipe.Plug.init/1`:
   #
-  #   * `image_module`/`image_open_module`/`image_materializer` are test-injection
+  #   * `image_module`/`image_open_module` are test-injection
   #     seams, deliberately absent from every mount option surface;
   #   * `receive_timeout` is a per-request source runtime option that adapters
   #     honor (`ImagePipe.Source.runtime_opts/1`) but no mount surface exposes.
   @post_init_config_keys [
     :image_module,
     :image_open_module,
-    :image_materializer,
     :receive_timeout
   ]
 
@@ -1123,8 +1118,7 @@ defmodule ImagePipe.PlugTest do
       |> call_image_pipe(
         root_url: "http://origin.test",
         image_open_module: RecordingImageOpen,
-        image_materializer: FailingMaterializer,
-        origin_req_options: [plug: OriginImage]
+        origin_req_options: [plug: TruncatedHeaderOnlyOriginImage]
       )
 
     # Two-step open: header open first (random), then decode open (sequential).
@@ -1148,8 +1142,7 @@ defmodule ImagePipe.PlugTest do
       |> call_image_pipe(
         root_url: "http://origin.test",
         image_open_module: RecordingImageOpen,
-        image_materializer: FailingMaterializer,
-        origin_req_options: [plug: OriginImage]
+        origin_req_options: [plug: TruncatedHeaderOnlyOriginImage]
       )
 
     # Two-step open: header open first (random), then decode open (sequential).

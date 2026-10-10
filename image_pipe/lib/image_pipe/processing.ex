@@ -228,7 +228,7 @@ defmodule ImagePipe.Processing do
              config
            ),
          {:ok, %State{} = state} <-
-           materialize_for_delivery(%State{state | image: clamped}, config) do
+           materialize_for_delivery(%State{state | image: clamped}) do
       {:ok,
        %Prepared{
          state: state,
@@ -398,12 +398,10 @@ defmodule ImagePipe.Processing do
   defp encode_stop_metadata({:error, reason}, format),
     do: %{result: :processing_error, output_format: format, error: Error.tag(reason)}
 
-  defp materialize_for_delivery(%State{materialized?: true} = state, _config), do: {:ok, state}
+  defp materialize_for_delivery(%State{materialized?: true} = state), do: {:ok, state}
 
-  defp materialize_for_delivery(%State{} = state, config) do
-    materializer = Keyword.get(config, :image_materializer, Materializer)
-
-    case materializer.materialize(state, config) do
+  defp materialize_for_delivery(%State{} = state) do
+    case Materializer.materialize(state) do
       {:ok, %State{} = materialized} -> {:ok, materialized}
       {:error, reason} -> {:error, Materializer.error(reason)}
     end
