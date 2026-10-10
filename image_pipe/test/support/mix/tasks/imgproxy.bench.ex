@@ -45,10 +45,32 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   Absolute timings depend on the host. On macOS they include the Docker VM.
   Compare the ratios between the servers, and keep results only from a
   dedicated Linux machine.
+
+  ## Comparing server images
+
+  `--compare` times one `image_pipe_server` image against one or more others
+  instead of against imgproxy, such as a pull request against its base:
+
+      MIX_ENV=test mise exec -- mix imgproxy.bench \\
+        --compare image_pipe_server:pr --against base=image_pipe_server:base
+
+    * `--compare` - the image to judge.
+    * `--against` - `NAME=IMAGE`, an image to judge it against. Repeatable;
+      each gets its own columns.
+    * `--rounds` - how many times every image runs every case, default 3.
+
+  Each round runs every image in turn, in reverse order on alternate rounds,
+  so drift on the machine reaches them alike. A case is timed when every image
+  returns the same status, content type and dimensions. The report gives the
+  median of the rounds for each case, and for each family the ratio to each
+  `--against` image with its spread across rounds. A family is marked when
+  every round has it more than 10% slower or using 10% more memory.
+  `summary.md` holds the family table in Markdown, for a pull request comment.
   """
   use Mix.Task
   use Boundary, top_level?: true, check: [out: false]
 
+  alias ImagePipe.Test.ImgproxyBench.CompareReport
   alias ImagePipe.Test.ImgproxyBench.Report
   alias ImagePipe.Test.ImgproxyReference.Cases
   alias ImagePipe.Test.ImgproxyReference.Container
@@ -81,7 +103,10 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     server_image: :string,
     server_env: :keep,
     output: :string,
-    report_only: :boolean
+    report_only: :boolean,
+    compare: :string,
+    against: :keep,
+    rounds: :integer
   ]
 
   @impl Mix.Task
@@ -125,6 +150,8 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       server_env: Keyword.get_values(opts, :server_env),
       network: network,
       oha: "#{network}-oha",
+      servers: servers(opts),
+      rounds: opts[:rounds] || 3,
       work: Path.expand(Path.join(output, "work"))
     }
 
@@ -161,15 +188,30 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     end
   end
 
-  defp run_servers(cases, settings) do
+  # Compare mode judges one ImagePipe image against others; otherwise the
+  # configured image runs against imgproxy.
+  defp servers(opts) do
+    case opts[:compare] do
+      nil ->
+        nil
+
+      image ->
+        against = opts |> Keyword.get_values(:against) |> Enum.map(&against/1)
+        if against == [], do: Mix.raise("--compare needs at least one --against NAME=IMAGE")
+        [{"candidate", image} | against]
+    end
+  end
+
+  defp against(value) do
+    case String.split(value, "=", parts: 2) do
+      [name, image] when name != "" and image != "" -> {name, image}
+      _other -> Mix.raise("--against takes NAME=IMAGE, got #{inspect(value)}")
+    end
+  end
+
+  defp run_servers(cases, %{servers: nil} = settings) do
     servers = [imgproxy_server(settings), image_pipe_server(settings)]
-
-    checks =
-      Map.new(servers, fn server ->
-        {server.key, with_server(server, settings, &check_all(server, cases, &1))}
-      end)
-
-    {timed, mismatched} = Enum.split_with(cases, &matches?(checks, &1))
+    {checks, timed, mismatched} = check_servers(servers, cases, settings)
 
     runs =
       Map.new(servers, fn server ->
@@ -185,6 +227,48 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       "baseline" => Map.new(runs, fn {key, run} -> {key, run.baseline} end),
       "mismatches" => Enum.map(mismatched, &mismatch(&1, checks))
     }
+  end
+
+  defp run_servers(cases, settings) do
+    servers =
+      for {key, image} <- settings.servers, do: image_pipe_server(settings, key, image)
+
+    {checks, timed, mismatched} = check_servers(servers, cases, settings)
+
+    # Alternate rounds run the images in reverse order.
+    rounds =
+      for round <- 1..settings.rounds do
+        order = if rem(round, 2) == 1, do: servers, else: Enum.reverse(servers)
+        Mix.shell().info("Round #{round}/#{settings.rounds}")
+
+        Map.new(order, fn server ->
+          {server.key,
+           with_server(server, settings, &measure_server(server, timed, settings, &1))}
+        end)
+      end
+
+    [first | _] = rounds
+
+    %{
+      "mode" => "compare",
+      "candidate" => "candidate",
+      "against" => for({key, _image} <- tl(settings.servers), do: key),
+      "environment" => environment(settings, first),
+      "cases" => Enum.map(timed, &compare_result(&1, rounds)),
+      "baseline" =>
+        Map.new(servers, fn s -> {s.key, Enum.map(rounds, &Map.fetch!(&1, s.key).baseline)} end),
+      "mismatches" => Enum.map(mismatched, &mismatch(&1, checks))
+    }
+  end
+
+  defp check_servers(servers, cases, settings) do
+    checks =
+      Map.new(servers, fn server ->
+        {server.key, with_server(server, settings, &check_all(server, cases, &1))}
+      end)
+
+    {timed, mismatched} = Enum.split_with(cases, &matches?(checks, &1))
+    {checks, timed, mismatched}
   end
 
   defp imgproxy_server(settings) do
@@ -216,12 +300,13 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     }
   end
 
-  defp image_pipe_server(settings) do
+  defp image_pipe_server(settings, key \\ "image_pipe", image \\ nil) do
+    image = image || settings.server_image
+
     %{
-      key: "image_pipe",
-      label:
-        Enum.join(["image_pipe_server (#{settings.server_image})" | settings.server_env], " "),
-      image: settings.server_image,
+      key: key,
+      label: Enum.join(["image_pipe_server (#{image})" | settings.server_env], " "),
+      image: image,
       health: "/health/live",
       path: &Container.native_path/1,
       libvips: &Container.libvips(&1, "/usr/local/lib"),
@@ -315,8 +400,13 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   end
 
   # The warm-up and the two `docker exec` calls add about a second a case.
-  defp estimate_minutes(cases, settings),
+  defp estimate_minutes(cases, %{servers: nil} = settings),
     do: ceil(length(cases) * 2 * (2 * settings.duration + 1) / 60)
+
+  defp estimate_minutes(cases, settings) do
+    runs = length(settings.servers) * settings.rounds
+    ceil(length(cases) * runs * (2 * settings.duration + 1) / 60)
+  end
 
   # -- Servers ---------------------------------------------------------------
 
@@ -384,13 +474,8 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   end
 
   defp matches?(checks, c) do
-    case Enum.map(checks, fn {_key, results} -> Map.fetch!(results, c.id) end) do
-      [%{"status" => 200} = a, %{"status" => 200} = b] ->
-        Map.drop(a, ["status"]) == Map.drop(b, ["status"])
-
-      _other ->
-        false
-    end
+    responses = Enum.map(checks, fn {_key, results} -> Map.fetch!(results, c.id) end)
+    Enum.all?(responses, &(&1["status"] == 200)) and length(Enum.uniq(responses)) == 1
   end
 
   defp mismatch(c, checks) do
@@ -512,6 +597,22 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     }
   end
 
+  defp compare_result(c, rounds) do
+    %{
+      "id" => c.id,
+      "family" => c.family,
+      "source" => c.source,
+      "native" => c.native,
+      "rounds" =>
+        rounds
+        |> Enum.flat_map(&Map.keys/1)
+        |> Enum.uniq()
+        |> Map.new(fn key ->
+          {key, Enum.map(rounds, &Map.fetch!(Map.fetch!(&1, key).timings, c.id))}
+        end)
+    }
+  end
+
   defp environment(settings, runs) do
     info =
       Container.docker!([
@@ -531,6 +632,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       "concurrency" => settings.concurrency,
       "memory" => settings.memory,
       "duration_s" => settings.duration,
+      "rounds" => settings.rounds,
       "oha" => @oha,
       "servers" =>
         Map.new(runs, fn {key, run} ->
@@ -540,6 +642,13 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   end
 
   # -- Report ----------------------------------------------------------------
+
+  defp write_report!(output, %{"mode" => "compare"} = results) do
+    path = Path.join(output, "index.html")
+    File.write!(path, CompareReport.page(results))
+    File.write!(Path.join(output, "summary.md"), CompareReport.summary(results))
+    Mix.shell().info("Wrote #{path} and summary.md")
+  end
 
   defp write_report!(output, results) do
     path = Path.join(output, "index.html")

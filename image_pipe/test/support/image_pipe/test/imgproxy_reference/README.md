@@ -49,9 +49,8 @@ differs names the fields in `structure_differs`, with the reason.
 
 `mix imgproxy.bench` times each case's ImagePipe and imgproxy requests
 against the pinned imgproxy container and an `image_pipe_server` container
-with matched CPU, memory and worker limits. It needs Docker and doesn't run
-in CI. Build and smoke-test the server image, then run the bench from
-`image_pipe/`:
+with matched CPU, memory and worker limits. It needs Docker. Build and
+smoke-test the server image, then run the bench from `image_pipe/`:
 
 ```bash
 mise run server:image
@@ -63,6 +62,13 @@ with ImagePipe ÷ imgproxy ratios per case and per operation family. A case is
 timed only when both servers return the same content type and dimensions.
 The task's moduledoc lists the options, including `--corpus` for running the
 cases that don't depend on their source on your own images.
+
+With `--compare IMAGE --against NAME=IMAGE`, the bench times two or more
+`image_pipe_server` images against each other instead of against imgproxy,
+alternating between them over several rounds, and writes `summary.md` with
+the ratios per family. The `Performance` workflow runs it on pull requests
+labelled `perf`, against their base, and nightly on `main`, against the
+previous night's `main` and the latest release.
 
 ## Change rules
 
