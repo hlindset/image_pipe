@@ -11,17 +11,13 @@ defmodule ImagePipe.Source.CachePolicyTest do
   end
 
   test "storage permission is independent of forced freshness and immutability" do
-    for directive <- ["no-store", "private", ~s(private="set-cookie")],
+    for directive <- ["no-store", "private", ~s(private="ETag")],
         stable? <- [true, false] do
-      denied = state(%{"cache-control" => [directive]}, [freshness: {:force, 60}], stable?)
+      headers = %{"cache-control" => [directive], "etag" => [~s("v1")]}
+      denied = state(headers, [freshness: {:force, 60}], stable?)
       assert CacheState.status(denied, 1_000) == :not_storable
 
-      allowed =
-        state(
-          %{"cache-control" => [directive]},
-          [storage: :allow, freshness: {:force, 60}],
-          stable?
-        )
+      allowed = state(headers, [storage: :allow, freshness: {:force, 60}], stable?)
 
       assert CacheState.status(allowed, 1_000) == :fresh
     end
@@ -77,6 +73,32 @@ defmodule ImagePipe.Source.CachePolicyTest do
       assert CacheState.status(state(headers, stale_while_revalidate: {:force, 60}), 1_000) ==
                :stale
     end
+  end
+
+  test "qualified private and no-cache restrict only the stored fields they name" do
+    etag = %{"etag" => [~s("v1")]}
+
+    for {directive, extra, status} <- [
+          {~s(private="Set-Cookie"), %{}, :fresh},
+          {~s(private="set-cookie, X-Token"), etag, :fresh},
+          {~s(private="etag"), %{}, :fresh},
+          {~s(private="set-cookie, ETag"), etag, :not_storable},
+          {~s(private="set-cookie", private), %{}, :not_storable},
+          {~s(no-cache="Set-Cookie"), etag, :fresh},
+          {~s(no-cache="etag"), etag, :requires_validation},
+          {~s(no-cache="set-cookie", no-cache), %{}, :requires_validation}
+        ] do
+      headers = Map.put(extra, "cache-control", ["max-age=60, " <> directive])
+      assert CacheState.status(state(headers), 1_000) == status, directive
+    end
+
+    headers = %{
+      "cache-control" => [~s(max-age=0, stale-while-revalidate=60, no-cache="set-cookie")]
+    }
+
+    cached = state(headers)
+    assert CacheState.status(cached, 1_000) == :stale
+    assert cached.revalidation == :none
   end
 
   test "Vary star is unmatchable even with an explicit storage override" do
