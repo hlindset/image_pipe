@@ -15,7 +15,7 @@ defmodule ImagePipe.API.BlurhashTest do
 
   # A plain 3200x2400 landscape JPEG — large enough to exercise JPEG
   # shrink-on-load, matching the fixture size pinned in
-  # `DecodePlannerRequestTest` ("terminal_reduction alone informs load
+  # `ExecutorDecodeOptionsTest` ("the terminal reduction alone informs load
   # shrink" -> shrink 8 for a {32,32} terminal frame).
   defmodule LargeLandscapeOrigin do
     @moduledoc false

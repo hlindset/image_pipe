@@ -192,27 +192,21 @@ defmodule ImagePipe.API.OrientationMatrixTest do
       {OrientedFrameOrigin, {base_png, 6}}
     end
 
-    test "decode_request/2 leaves the untargeted axis nil rather than synthesizing one" do
-      # `w=200` targets one axis; the partner stays `nil` so the planner takes
-      # the targeted axis's ratio alone. A synthesized aspect axis would bind
-      # `ratio_from_targets/4`'s `min/2` tighter and shrink less.
-      #
-      # Frame-independent by construction — with no synthesized axis there is no
-      # geometry this could resolve against, so this pins the no-synthesis rule
-      # and nothing about the display frame. That subject is the sibling test
-      # below, which discriminates the axis pair through a real decode.
+    test "decode_options/2 plans a single-axis target against the display width alone" do
+      # `w=200` targets one axis, so the planner takes the display width's
+      # ratio alone: 1200/200 = 6 (WebP's exact scale shows it). The storage
+      # width would give 1600/200 = 8. The sibling test below checks that the
+      # real decode shrinks the storage axes consistently with this plan.
       request = parse!(["w=200"])
 
       geometry = %SourceGeometry{
         storage_dimensions: {1600, 1200},
         display_dimensions: {1200, 1600},
         pending_orientation: PendingOrientation.from_exif(6, true),
-        source_format: :jpeg
+        source_format: :webp
       }
 
-      decode_request = Executor.decode_request(request, geometry)
-
-      assert decode_request.resize_target == {200, nil}
+      assert_in_delta Executor.decode_options(request, geometry)[:scale], 1 / 6, 1.0e-12
     end
 
     test "the real decode shrinks the STORAGE axes consistently with that display-frame plan" do

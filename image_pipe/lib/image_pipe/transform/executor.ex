@@ -59,23 +59,41 @@ defmodule ImagePipe.Transform.Executor do
     :VIPS_INTERPRETATION_GREY16
   ]
 
-  @spec decode_request(Spec.t(), SourceGeometry.t()) :: DecodePlanner.Request.t()
-  def decode_request(
+  @doc """
+  The open options for decoding the source: sequential access, and a load
+  shrink sized from the first group's geometry.
+
+  The shrink compares the extent the first group's resize sees (its crop, or
+  the frame after its rotate) with its resize target, or without a resize with
+  the terminal's reduction target. A trim in the first group decodes at full
+  size, since the trimmed extent isn't known yet.
+  """
+  @spec decode_options(Spec.t(), SourceGeometry.t()) :: keyword()
+  def decode_options(
         %Spec{groups: [%Group{} = group | _]} = request,
         %SourceGeometry{} = geometry
       ) do
     {crop_frame, headroom} = decode_frame(group.rotate, geometry.display_dimensions)
     crop_extent = decode_crop_extent(group, crop_frame)
-    resize_frame = crop_extent || crop_frame
+    extent = crop_extent || crop_frame
 
-    %DecodePlanner.Request{
-      resize_target:
-        scale_target(decode_resize_target(group.resize, group.dpr, resize_frame), headroom),
-      crop_extent: crop_extent || rotated_extent(headroom, crop_frame),
-      user_quarter_turn?: group.rotate in [90, 270],
-      trim?: group.trim != nil,
-      terminal_reduction: scale_target(decode_terminal_reduction(request, resize_frame), headroom)
-    }
+    DecodePlanner.open_options(
+      geometry.source_format,
+      extent,
+      decode_target(request, group, extent, headroom)
+    )
+  end
+
+  # A resize without target axes normalizes to nil, so the terminal's reduction
+  # applies (see decode_resize_target/3).
+  defp decode_target(_request, %Group{trim: trim}, _extent, _headroom) when trim != nil, do: nil
+
+  defp decode_target(request, group, extent, headroom) do
+    target =
+      decode_resize_target(group.resize, group.dpr, extent) ||
+        decode_terminal_reduction(request, extent)
+
+    scale_target(target, headroom)
   end
 
   # The frame the group's crop and resize see after its rotate, and how much
@@ -92,11 +110,6 @@ defmodule ImagePipe.Transform.Executor do
     sin = abs(:math.sin(radians))
     {{round(width * cos + height * sin), round(width * sin + height * cos)}, 2}
   end
-
-  # Without a crop the planner sizes against the source; a rotate's bounding
-  # box replaces it.
-  defp rotated_extent(1, _frame), do: nil
-  defp rotated_extent(_headroom, frame), do: frame
 
   defp scale_target(nil, _headroom), do: nil
   defp scale_target(target, 1), do: target

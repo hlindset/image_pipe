@@ -2,7 +2,6 @@ defmodule ImagePipe.API.PipelineTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.API.Parser
-  alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceGeometry
@@ -99,50 +98,43 @@ defmodule ImagePipe.API.PipelineTest do
     end
   end
 
-  describe "decode_request/2" do
-    defp preflight_geometry(dims) do
+  describe "decode_options/2" do
+    defp preflight_geometry(dims, format) do
       %SourceGeometry{
         storage_dimensions: dims,
         display_dimensions: dims,
         pending_orientation: %PendingOrientation{},
-        source_format: :png
+        source_format: format
       }
     end
 
-    defp preflight_shrink(segments, dims, format) do
-      request = parse!(segments)
-
-      DecodePlanner.open_options_for(
-        Executor.decode_request(request, preflight_geometry(dims)),
-        format,
-        dims
-      )
+    defp preflight_options(segments, dims, format) do
+      Executor.decode_options(parse!(segments), preflight_geometry(dims, format))
     end
 
     test "a single-axis resize targets that axis alone" do
-      request = parse!(["w=400"])
-
-      assert Executor.decode_request(request, preflight_geometry({3200, 2405})).resize_target ==
-               {400, nil}
-
-      assert preflight_shrink(["w=400"], {3200, 2405}, :jpeg)[:shrink] == 8
-
-      assert_in_delta preflight_shrink(["w=400"], {3200, 2405}, :webp)[:scale],
+      # Width alone gives 3200/400 = 8; a synthesized height (~301) would give
+      # min(8, 2405/301) ~ 7.99.
+      assert_in_delta preflight_options(["w=400"], {3200, 2405}, :webp)[:scale],
                       0.125,
                       1.0e-12
 
-      refute Keyword.has_key?(preflight_shrink(["w=400"], {3200, 2405}, :png), :shrink)
+      assert preflight_options(["w=400"], {3200, 2405}, :jpeg)[:shrink] == 8
+
+      png = preflight_options(["w=400"], {3200, 2405}, :png)
+      refute Keyword.has_key?(png, :shrink)
+      refute Keyword.has_key?(png, :scale)
     end
 
     # The default fit contains a portrait source in a landscape box, so the
     # decode is planned from the 143x190 image it produces, not the box.
     test "a two-axis contained resize plans from the fitted size" do
-      request = parse!(["w=250", "h=190"])
+      # Fitted: min(2401/143, 3199/190) = 2401/143; the box would give 2401/250.
+      assert_in_delta preflight_options(["w=250", "h=190"], {2401, 3199}, :webp)[:scale],
+                      143 / 2401,
+                      1.0e-12
 
-      assert Executor.decode_request(request, preflight_geometry({2401, 3199})).resize_target ==
-               {143, 190}
-
-      assert preflight_shrink(["w=250", "h=190"], {2401, 3199}, :jpeg)[:shrink] == 8
+      assert preflight_options(["w=250", "h=190"], {2401, 3199}, :jpeg)[:shrink] == 8
     end
   end
 end
