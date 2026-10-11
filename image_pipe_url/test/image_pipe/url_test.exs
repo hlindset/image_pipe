@@ -143,6 +143,35 @@ defmodule ImagePipe.URLTest do
     end
   end
 
+  property "random multi-group plans parse back to the spec the builder resolves" do
+    check all request <- request_options(),
+              groups <- list_of(group_options(), max_length: 3),
+              output <- output_options(),
+              max_runs: 200 do
+      plan =
+        groups
+        |> Enum.reduce(IP.URL.new(request), &IP.URL.group(&2, &1))
+        |> IP.URL.output(output)
+
+      parsed =
+        with {:ok, url} <- IP.URL.url(plan, "a.jpg"),
+             {:ok, lexed} <- Path.extract(url, ""),
+             do: Parser.parse(lexed, presets: %{})
+
+      case {Plan.to_spec(plan.plan), parsed} do
+        {{:ok, built}, {:ok, parsed}} ->
+          assert :erlang.term_to_binary(built) == :erlang.term_to_binary(parsed),
+                 inspect(plan.plan)
+
+        {{:error, _}, {:error, _}} ->
+          :ok
+
+        mismatch ->
+          flunk("builder and parser disagree: #{inspect(mismatch)} for #{inspect(plan.plan)}")
+      end
+    end
+  end
+
   test "signatures cover the mount-relative path with stable explicit expiry" do
     for base <- ["", "/images", "images", "https://cdn.test/images/"] do
       config = IP.URL.config(base_url: base, keys: [@signing_key])
@@ -269,6 +298,71 @@ defmodule ImagePipe.URLTest do
   end
 
   defp encrypted_token(path), do: path |> String.split("/enc/") |> List.last()
+
+  defp request_options do
+    one_of([
+      constant([]),
+      gen all orient <- member_of([:auto, :none]),
+              page <- integer(0..3),
+              attachment <- boolean(),
+              cachebuster <- string(:alphanumeric, min_length: 1, max_length: 4) do
+        [orient: orient, page: page, attachment: attachment, cachebuster: cachebuster]
+      end
+    ])
+  end
+
+  # Each group draws a few option families; families may conflict or be
+  # inert together, which the property checks the parser reports alike.
+  defp group_options do
+    [
+      gen all width <- integer(1..4000),
+              height <- integer(1..4000),
+              fit <- member_of([:cover, :contain, :stretch, :auto]),
+              enlarge <- boolean() do
+        [resize: [width: width, height: height, fit: fit, enlarge: enlarge]]
+      end,
+      gen all width <- integer(1..400),
+              height <- one_of([integer(1..400), map(integer(1..100), &{:pct, &1})]),
+              anchor <- member_of([:center, :top_left, :bottom_right, :smart, :smart_face]) do
+        [crop: {width, height}, anchor: anchor]
+      end,
+      map(member_of([0, 90, -90, 180, 270.0, 45.5, -0.0]), &[rotate: &1]),
+      map(member_of([:horizontal, :vertical, :both]), &[flip: &1]),
+      map(float(min: 0.0, max: 50.0), &[blur: &1]),
+      map(integer(1..10), &[sharpen: &1]),
+      map(integer(1..50), &[pixelate: &1]),
+      map(integer(-255..255), &[brightness: &1]),
+      map(float(min: 0.1, max: 4.0), &[contrast: &1, saturation: &1]),
+      map(float(min: 0.1, max: 8.0), &[dpr: &1]),
+      constant(gray: true),
+      gen all padding <- list_of(integer(0..100), length: 4),
+              alpha <- float(min: 0.0, max: 1.0) do
+        [padding: List.to_tuple(padding), background: {"white", alpha}]
+      end,
+      map(integer(0..100), &[trim: {"red", &1}]),
+      gen all opacity <- float(min: 0.0, max: 1.0),
+              direction <- float(min: -360.0, max: 360.0) do
+        [
+          colorize: [opacity: opacity, color: "green"],
+          gradient: [opacity: opacity, color: "black", direction: direction]
+        ]
+      end
+    ]
+    |> member_of()
+    |> bind(& &1)
+    |> list_of(min_length: 1, max_length: 4)
+    |> map(&(&1 |> List.flatten() |> Enum.uniq_by(fn {key, _value} -> key end)))
+  end
+
+  defp output_options do
+    fixed_list([
+      member_of([[], [format: :webp], [format: :avif], [format: :jpeg], [format: :png]]),
+      one_of([constant([]), map(integer(1..100), &[quality: &1])]),
+      one_of([constant([]), map(integer(1..100), &[autoquality: &1])]),
+      one_of([constant([]), map(member_of([:strip, :copyright, :keep]), &[metadata: &1])])
+    ])
+    |> map(&List.flatten/1)
+  end
 
   describe "validate_against" do
     test "without it the builder checks values only" do
