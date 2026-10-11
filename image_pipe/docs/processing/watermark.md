@@ -133,7 +133,8 @@ size, multiplied by the group's [`dpr`](resize.md#dpr).
 Fits the watermark inside that fraction of the frame's width and height,
 keeping its aspect ratio. With `wm-scale=0.25` on an 800×600 result, a
 watermark fits inside 200×150. A small watermark is enlarged to fit, so a
-raster logo can look soft.
+raster logo can look soft. An SVG watermark renders at the size it's drawn
+and stays sharp (see [Serving SVG images](../serving-svg-images.md)).
 
 <!-- tabs-open -->
 

@@ -39,8 +39,10 @@ JPEG XL, JPEG 2000, and GIF. Each needs its loader in the deployed libvips build
 A missing loader fails the request with `415`.
 
 ImagePipe checks image signatures and accepts only matching loaders. Other
-formats, including SVG, BMP, camera RAW, and AVIF image sequences, are rejected
-with `415`, even if the installed libvips has a loader for them.
+formats, including BMP, camera RAW, and AVIF image sequences, are rejected
+with `415`, even if the installed libvips has a loader for them. SVG needs the
+`image_pipe_svg` package, which renders it without libvips (see
+[Serving SVG images](serving-svg-images.md)).
 
 ## Installing only the URL builder
 

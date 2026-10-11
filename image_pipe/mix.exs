@@ -35,6 +35,7 @@ defmodule ImagePipe.MixProject do
       "docs/signing-urls.md",
       "docs/defining-presets.md",
       "docs/enabling-detection.md",
+      "docs/serving-svg-images.md",
       "docs/processing-controls.md",
       "docs/choosing-an-autoquality-target.md",
       "docs/telemetry.md",
