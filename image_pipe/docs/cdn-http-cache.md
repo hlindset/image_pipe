@@ -125,7 +125,7 @@ A URL with an [`expires`](processing/request.md#expires) time never gets a cache
 lifetime that outlasts it:
 
 - `max-age` and `s-maxage` are lowered to the time left.
-- `stale-while-revalidate` is shortened so it also ends by then, or dropped.
+- `stale-while-revalidate` and `stale-if-error` are dropped.
 - `must-revalidate` is added.
 
 In `validators` mode, a response from an immutable source that carries a
