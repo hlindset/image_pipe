@@ -7,6 +7,14 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- SVG sources, when the optional `image_pipe_svg` package is installed.
+  An SVG renders straight at the size the request needs, so it stays sharp
+  at any size, and a resize can make it larger than its own `width` and
+  `height` without `enlarge`. Regions and crops in pixels measure the SVG at
+  its own size. With no `format` and no negotiated format, the result is a
+  PNG. Text in SVGs isn't rendered yet. Without `image_pipe_svg`, SVG
+  sources still fail with `415`.
+
 - Without `max_size_bytes`, `cache` and `input_cache` delete entries nobody has
   read for `max_age` seconds, 7 days by default, so images that are no longer
   requested don't stay on disk. Set `max_age: nil` to keep them. Only a running

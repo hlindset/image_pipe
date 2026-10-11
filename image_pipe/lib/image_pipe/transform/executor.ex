@@ -70,6 +70,7 @@ defmodule ImagePipe.Transform.Executor do
         %Spec{groups: [%Group{} = group | _]} = request,
         %SourceGeometry{} = geometry
       ) do
+    group = if geometry.source_format == :svg, do: vector_group(group), else: group
     {crop_frame, headroom} = decode_frame(group.rotate, geometry.display_dimensions)
     crop_extent = decode_crop_extent(group, crop_frame)
     extent = crop_extent || crop_frame
@@ -129,11 +130,24 @@ defmodule ImagePipe.Transform.Executor do
     }
 
     with {:ok, state} <- condition_color(state, opts),
-         {:ok, state} <- execute_groups(state, request.groups, opts),
+         {:ok, state} <- execute_groups(state, groups(state, request), opts),
          {:ok, state} <- flush_display(state) do
       normalize_output_orientation(state, request.output, opts)
     end
   end
+
+  defp groups(%State{vector?: true}, %Spec{groups: [first | rest]}),
+    do: [vector_group(first) | rest]
+
+  defp groups(%State{}, %Spec{groups: groups}), do: groups
+
+  # A vector source renders at the first group's resize, so that resize can
+  # enlarge past the source's intrinsic size without blurring. Later groups
+  # resize the rendered raster and keep the enlargement clamp.
+  defp vector_group(%Group{resize: nil} = group), do: group
+
+  defp vector_group(%Group{resize: resize} = group),
+    do: %Group{group | resize: %{resize | enlarge: true}}
 
   @doc false
   def check_evaluation(%State{} = state) do

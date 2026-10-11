@@ -4,7 +4,8 @@ defmodule ImagePipe.Transform.DecodePlanner do
   # Decode is always opened with `:sequential` access. Random access is provided
   # by `ImagePipe.Transform.Executor.Step.run/3` when an operation requires it.
   #
-  # The planner computes a format-specific shrink/scale option for downscales.
+  # The planner computes a format-specific shrink/scale option for downscales,
+  # and for an SVG the scale it renders at.
   # It is pure: `ImagePipe.Decode` supplies the header dimensions and source format.
   @moduledoc false
 
@@ -28,6 +29,16 @@ defmodule ImagePipe.Transform.DecodePlanner do
   """
   @spec open_options(source_format(), {pos_integer(), pos_integer()}, target() | nil) ::
           keyword()
+  # An SVG renders at any scale, so it renders straight at the target, larger
+  # or smaller than its intrinsic size, and never needs resampling to reach it.
+  def open_options(:svg, {width, height}, target)
+      when is_integer(width) and width > 0 and is_integer(height) and height > 0 do
+    case target do
+      nil -> []
+      {target_w, target_h} -> [scale: 1.0 / ratio_from_targets(width, height, target_w, target_h)]
+    end
+  end
+
   # The guards state the domain: a zero or negative extent would otherwise give a
   # ratio at or below 1 and silently decode at full size.
   def open_options(source_format, {width, height}, target)

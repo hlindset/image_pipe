@@ -203,8 +203,9 @@ defmodule ImagePipe.Config do
       Keep high bit depth in output formats that support it.
       """
     ],
+    # An SVG served unchanged would reach browsers unsanitized.
     skip_processing_formats: [
-      type: {:list, {:in, Format.source_formats()}},
+      type: {:list, {:in, Format.source_formats() -- [:svg]}},
       type_doc: "list of `t:atom/0`",
       default: [],
       doc: """

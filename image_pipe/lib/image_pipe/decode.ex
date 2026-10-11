@@ -38,7 +38,10 @@ defmodule ImagePipe.Decode do
   alias Vix.Vips.Image, as: VipsImage
 
   @peek_bytes 32 * 1024
-  @reject_families [:bmp, :ico, :svg, :avif_sequence, :unknown]
+  # SVG decodes only with the optional image_pipe_svg package installed.
+  @svg_available Code.ensure_loaded?(ImagePipe.SVG)
+  @reject_families [:bmp, :ico, :avif_sequence, :unknown] ++
+                     if(@svg_available, do: [], else: [:svg])
 
   @type error() ::
           {:source, term()}
@@ -202,8 +205,18 @@ defmodule ImagePipe.Decode do
          {:ok, peek} <- peek_bytes(input) |> wrap_decode_error(),
          detected = Detector.detect(peek),
          :ok <- check_skip(detected, skip_formats, input),
-         :ok <- gate_detected(detected) |> wrap_decode_error(),
-         :ok <- validate_header_pixels(peek, opts) |> wrap_input_limit_error(),
+         :ok <- gate_detected(detected) |> wrap_decode_error() do
+      decode_detected(detected, input, peek, request, opts, auto_rotate?)
+    end
+  end
+
+  if @svg_available do
+    defp decode_detected(:svg, input, _peek, request, opts, _auto_rotate?),
+      do: ImagePipe.Decode.SVG.decode(input, request, opts)
+  end
+
+  defp decode_detected(detected, input, peek, request, opts, auto_rotate?) do
+    with :ok <- validate_header_pixels(peek, opts) |> wrap_input_limit_error(),
          :ok <- validate_container_frames(peek, input, opts),
          :ok <- verify_file_loader(detected, input) |> wrap_decode_error(),
          {:ok, header_image} <-

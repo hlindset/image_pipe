@@ -5,7 +5,7 @@ defmodule ImagePipe.FormatTest do
 
   test "defines canonical source and output format families" do
     assert Format.output_formats() == [:avif, :webp, :jpeg, :png]
-    assert Format.source_only_formats() == [:jpeg_xl, :heif, :tiff, :jpeg2000, :gif]
+    assert Format.source_only_formats() == [:jpeg_xl, :heif, :tiff, :jpeg2000, :gif, :svg]
 
     assert Format.source_formats() == [
              :avif,
@@ -16,7 +16,8 @@ defmodule ImagePipe.FormatTest do
              :heif,
              :tiff,
              :jpeg2000,
-             :gif
+             :gif,
+             :svg
            ]
   end
 
@@ -29,7 +30,8 @@ defmodule ImagePipe.FormatTest do
     refute Format.source_only_format?(:jpeg)
 
     assert Format.source_format?(:jpeg2000)
-    refute Format.source_format?(:svg)
+    assert Format.source_format?(:svg)
+    refute Format.source_format?(:bmp)
   end
 
   test "JPEG XL is a source-only format" do

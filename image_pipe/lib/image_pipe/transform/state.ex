@@ -27,12 +27,15 @@ defmodule ImagePipe.Transform.State do
   #   and padding establish new geometry; the executor clears the extent and
   #   decode scale at those boundaries.
   # - `decode_shrink`: realized per-axis factors `%{w: float, h: float}`
-  #   (original ÷ decoded, each `>= 1.0`), or `nil` for a full-resolution decode.
+  #   (original ÷ decoded), or `nil` for a full-resolution decode. Each factor
+  #   is `>= 1.0` except for a vector source, which can render larger.
   #   Crops before resize rescale absolute dimensions and gravity offsets to
   #   select the same source region; relative coordinates stay unchanged. Integer
   #   decode dimensions can yield different factors per axis. Factors follow the
   #   current image axes: gravity crops swap them for a pending quarter turn, then
   #   map crop dimensions back to the image frame.
+  # - `vector?`: the source is a vector image rendered at the decode scale, so
+  #   the first group's resize isn't clamped to the source's intrinsic size.
   # - `dpr`: the effective DPR of the most recently executed group, after the
   #   enlargement clamp and its floor; 1.0 before any group runs.
   # - `source_color_profile` and `color_imported?`: input-color-management results
@@ -48,6 +51,7 @@ defmodule ImagePipe.Transform.State do
             telemetry_opts: [],
             source_dimensions: nil,
             decode_shrink: nil,
+            vector?: false,
             pending_orientation: nil,
             materialized?: false,
             max_intermediate_pixels: 100_000_000,
@@ -65,6 +69,7 @@ defmodule ImagePipe.Transform.State do
           telemetry_opts: keyword(),
           source_dimensions: {pos_integer(), pos_integer()} | nil,
           decode_shrink: %{w: float(), h: float()} | nil,
+          vector?: boolean(),
           pending_orientation: ImagePipe.Transform.PendingOrientation.t() | nil,
           materialized?: boolean(),
           max_intermediate_pixels: pos_integer(),

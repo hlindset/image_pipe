@@ -44,6 +44,15 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
     refute_shrink(plan.(:png))
   end
 
+  test "an SVG renders past its intrinsic size without enlarge" do
+    svg = geometry({24, 24}, {24, 24}, :svg)
+
+    assert options("w=480", svg)[:scale] == 20.0
+    assert options("w=24/dpr=2", svg)[:scale] == 2.0
+    assert options("region=0,0,12,12/w=120", svg)[:scale] == 10.0
+    refute_shrink(options("w=480", geometry({24, 24}, {24, 24}, :png)))
+  end
+
   test "a crop clamps to the display frame before choosing the shrink" do
     # The 4096x4096 region clamps to 4096x4000; covering 512x512 gives
     # min(4096/512, 4000/512) = 7.8125. The unclamped region would give 8.

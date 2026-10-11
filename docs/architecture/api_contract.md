@@ -132,7 +132,11 @@ DPR, whichever is smaller. Use this effective DPR for pixel offsets after
 resize, padding, and canvas target sizes. For example, a square 150px
 source with `w=100/h=100/dpr=2/pad=10` becomes a 150px image with 15px
 padding on each side, a 180px result. With `enlarge`, it becomes a 200px
-image with 20px padding, a 240px result. A 120×90 source with
+image with 20px padding, a 240px result. A vector source (SVG) renders at
+the first group's resize, so that resize isn't clamped to the source's
+intrinsic size and doesn't reduce the effective DPR: a 24px icon at
+`w=480` renders 480px wide without `enlarge`. Later groups resize the
+rendered raster and keep the clamp. A 120×90 source with
 `w=300/h=200/extend` keeps its size inside a 300×200 canvas. With no resize operation, effective
 DPR is the requested DPR; padding alone does not scale the source image.
 For stretch, use a uniform enlargement clamp across both axes so that

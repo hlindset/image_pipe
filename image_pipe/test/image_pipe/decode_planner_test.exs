@@ -33,6 +33,15 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
     assert DecodePlanner.open_options(:jpeg, {1200, 1600}, {nil, 100})[:shrink] == 8
   end
 
+  test "SVG renders at the target's scale, up or down" do
+    assert DecodePlanner.open_options(:svg, {100, 50}, {400, nil})[:scale] == 4.0
+    assert DecodePlanner.open_options(:svg, {1000, 500}, {nil, 100})[:scale] == 0.2
+    # Neither axis may fall below its target.
+    assert DecodePlanner.open_options(:svg, {100, 50}, {300, 100})[:scale] == 3.0
+
+    refute_shrink(DecodePlanner.open_options(:svg, {100, 50}, nil))
+  end
+
   test "WebP uses the exact fractional scale" do
     opts = DecodePlanner.open_options(:webp, {1600, 1200}, {333 * 1.1, nil})
 
