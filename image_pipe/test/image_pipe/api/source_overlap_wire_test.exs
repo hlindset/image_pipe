@@ -47,7 +47,10 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
           url: [
             adapter: HTTP,
             match: [scheme: ["http", "https"]],
-            options: [allowed_hosts: ["127.0.0.1"], address_policy: [allow_loopback: true]]
+            options: [
+              allowed_hosts: [URI.parse(url).authority],
+              address_policy: [allow_loopback: true]
+            ]
           ]
         ],
         cache: [root: Path.join(root, "output")],
@@ -443,7 +446,10 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
           url: [
             adapter: HTTP,
             match: [scheme: ["http", "https"]],
-            options: [allowed_hosts: ["127.0.0.1"], address_policy: [allow_loopback: true]]
+            options: [
+              allowed_hosts: [URI.parse(context.url).authority],
+              address_policy: [allow_loopback: true]
+            ]
           ],
           files: [
             adapter: ImagePipe.Source.File,

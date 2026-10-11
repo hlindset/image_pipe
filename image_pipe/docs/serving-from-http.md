@@ -165,7 +165,9 @@ allowed_hosts = ["images.example.com", "images-eu.example.com"]
 
 <!-- tabs-close -->
 
-With `base_url`, `allowed_hosts` must include the base URL's host.
+If you set `allowed_hosts` with `base_url`, the list must include the base
+URL's host, plus its port when the port isn't 80 or 443, as in
+`images.example.com:8443`.
 
 ## Allow a private origin
 
@@ -226,7 +228,7 @@ $ curl -s -o /dev/null -w '%{http_code} %{content_type}\n' http://localhost:8080
 <!-- tabs-close -->
 
 A `404` with `source not found` means the origin doesn't have the image, or
-the source refused it: a host outside `allowed_hosts`, a path outside
+the source refused it: a host or port outside `allowed_hosts`, a path outside
 `path_pattern`, or a private address. ImagePipe gives the same answer for
 all of these. The source's [telemetry events](telemetry-events.md) carry
 the reason in their `:error` metadata.

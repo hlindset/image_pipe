@@ -23,7 +23,7 @@ defmodule ImagePipe.API.SourceTransportWireTest do
             adapter: HTTP,
             match: [scheme: ["http", "https"]],
             options: [
-              allowed_hosts: ["127.0.0.1"],
+              allowed_hosts: [URI.parse(url).authority],
               address_policy: [allow_loopback: true],
               req_options: [connect_options: [protocols: [:http2], timeout: 200]]
             ]
@@ -75,7 +75,7 @@ defmodule ImagePipe.API.SourceTransportWireTest do
               adapter: HTTP,
               match: [scheme: ["http", "https"]],
               options: [
-                allowed_hosts: ["127.0.0.1"],
+                allowed_hosts: [URI.parse(url).authority],
                 address_policy: [allow_loopback: true],
                 receive_timeout: if(unquote(finish) == :stall, do: 100, else: 5_000)
               ]

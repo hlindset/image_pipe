@@ -119,7 +119,7 @@ defmodule ImagePipe.Source.HTTP.PinnedPoolsTest do
   defp fetch(port, path, addresses \\ [@loopback], scheme \\ :http) do
     {:ok, config} =
       HTTP.validate_options(
-        allowed_hosts: ["origin.test"],
+        allowed_hosts: ["origin.test:#{port}"],
         address_policy: [allow_loopback: true],
         address_resolver: fn _host -> {:ok, addresses} end,
         req_options: req_options(scheme)

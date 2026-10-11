@@ -35,10 +35,14 @@ defmodule ImagePipe.Source.HTTP do
                       allowed_hosts: [
                         type: {:list, :string},
                         doc: """
-                        Hostnames the adapter may connect to, compared without case. \
-                        Redirects can't leave the list. Required unless `:base_url` \
-                        is set, which defaults it to the base URL's host. A list given \
-                        with `:base_url` must include that host.
+                        Hosts the adapter may connect to, compared without case. \
+                        A bare entry such as `"assets.example.com"` allows only the \
+                        scheme's default port, 80 or 443. Name another port as \
+                        `"assets.example.com:8443"`, or `"[::1]:8080"` for an IPv6 \
+                        address. Redirects can't leave the list. Required unless \
+                        `:base_url` is set, which defaults it to the base URL's host \
+                        and port. A list given with `:base_url` must allow that host \
+                        and port.
                         """
                       ],
                       base_url: [
@@ -237,10 +241,25 @@ defmodule ImagePipe.Source.HTTP do
   def validate_options(opts) do
     with {:ok, validated} <- validate_schema(opts),
          :ok <- reject_req_transport(validated),
+         {:ok, validated} <- parse_allowed_hosts(validated),
          {:ok, validated} <- validate_base_url(validated) do
-      validated
-      |> Keyword.update!(:allowed_hosts, fn hosts -> Enum.map(hosts, &String.downcase/1) end)
-      |> CacheSettings.validate()
+      CacheSettings.validate(validated)
+    end
+  end
+
+  defp parse_allowed_hosts(opts) do
+    case Keyword.fetch(opts, :allowed_hosts) do
+      :error ->
+        {:ok, opts}
+
+      {:ok, entries} ->
+        case TargetGuard.allowed_hosts(entries) do
+          {:ok, hosts} ->
+            {:ok, Keyword.put(opts, :allowed_hosts, hosts)}
+
+          {:error, entry} ->
+            {:error, {:invalid_source_config, "invalid allowed_hosts entry #{inspect(entry)}"}}
+        end
     end
   end
 
@@ -278,7 +297,7 @@ defmodule ImagePipe.Source.HTTP do
 
       {:ok, base_url} ->
         with {:ok, base} <- parse_base_url(base_url),
-             {:ok, hosts} <- base_allowed_hosts(opts, base.host),
+             {:ok, hosts} <- base_allowed_hosts(opts, base),
              {:ok, opts} <- anchor_path_pattern(opts) do
           {:ok, opts |> Keyword.put(:base_url, base) |> Keyword.put(:allowed_hosts, hosts)}
         end
@@ -328,12 +347,17 @@ defmodule ImagePipe.Source.HTTP do
     end
   end
 
-  defp base_allowed_hosts(opts, base_host) do
-    hosts = opts |> Keyword.get(:allowed_hosts, [base_host]) |> Enum.map(&String.downcase/1)
+  defp base_allowed_hosts(opts, base) do
+    scheme = Atom.to_string(base.scheme)
+    default_port? = base.port == Map.fetch!(@default_ports, base.scheme)
+    default = [{base.host, if(default_port?, do: nil, else: base.port)}]
+    hosts = Keyword.get(opts, :allowed_hosts, default)
 
-    if base_host in hosts,
+    if TargetGuard.allowed?(hosts, scheme, base.host, base.port),
       do: {:ok, hosts},
-      else: {:error, {:invalid_source_config, "allowed_hosts must include the base_url host"}}
+      else:
+        {:error,
+         {:invalid_source_config, "allowed_hosts must include the base_url host and port"}}
   end
 
   @doc false
@@ -384,10 +408,14 @@ defmodule ImagePipe.Source.HTTP do
   def resolve(%URL{scheme: scheme} = source, opts, _runtime_opts)
       when scheme in [:http, :https] do
     host = String.downcase(source.host)
+    port = source.port || Map.fetch!(@default_ports, scheme)
 
-    if host in Keyword.fetch!(opts, :allowed_hosts) do
-      port = source.port || Map.fetch!(@default_ports, scheme)
-
+    if TargetGuard.allowed?(
+         Keyword.fetch!(opts, :allowed_hosts),
+         Atom.to_string(scheme),
+         host,
+         port
+       ) do
       identity = [
         kind: :url,
         adapter: scheme,
@@ -501,8 +529,7 @@ defmodule ImagePipe.Source.HTTP do
 
   defp build_url(%URL{} = source) do
     path = "/" <> Enum.join(source.path, "/")
-    port = source.port || Map.fetch!(@default_ports, source.scheme)
-    authority = authority_host(source.host) <> port_suffix(source.scheme, port)
+    authority = authority_host(source.host) <> port_suffix(source.scheme, source.port)
     query = if is_binary(source.query), do: "?" <> source.query, else: ""
 
     "#{source.scheme}://#{authority}#{path}#{query}"
