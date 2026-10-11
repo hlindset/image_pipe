@@ -270,22 +270,34 @@ defmodule ImagePipe.Output.EncodeSearch do
   defp fit_outcome(outcome), do: outcome
 
   # Objective pick exceeds the byte budget — search [floor, objective_q] for the
-  # highest q that fits, falling back to the floor when even it exceeds.
+  # highest q that fits. The iteration cap can stop the search before it probes
+  # one, so the pick is the highest fitting q encoded in either phase, else the
+  # floor, which is `:best_effort`/`:max_bytes` only when even it exceeds.
   defp cap_descend(floor, objective_q, max_bytes, ctx) do
     predicate = fn bytes, _score -> bytes <= max_bytes end
 
-    case search_highest_satisfying(floor, objective_q, predicate, ctx) do
-      {:error, _} = err ->
-        err
+    with {_best, _outcome, ctx} <- search_highest_satisfying(floor, objective_q, predicate, ctx) do
+      case highest_fitting(ctx, floor, objective_q, max_bytes) do
+        nil -> ship_floor(floor, max_bytes, ctx)
+        q -> {:ok, q, :hit, set_factor(ctx, nil)}
+      end
+    end
+  end
 
-      {nil, _outcome, ctx} ->
-        ctx = set_factor(ctx, :max_bytes)
+  defp highest_fitting(ctx, floor, objective_q, max_bytes) do
+    ctx.encode_memo
+    |> Enum.filter(fn {q, binary} ->
+      q >= floor and q <= objective_q and byte_size(binary) <= max_bytes
+    end)
+    |> Enum.map(fn {q, _binary} -> q end)
+    |> Enum.max(fn -> nil end)
+  end
 
-        with {:ok, ctx} <- ensure_probed(floor, ctx),
-             do: {:ok, floor, :best_effort, ctx}
-
-      {best, outcome, ctx} ->
-        {:ok, best, outcome, set_factor(ctx, nil)}
+  defp ship_floor(floor, max_bytes, ctx) do
+    with {:ok, ctx} <- ensure_probed(floor, ctx) do
+      if byte_size(Map.fetch!(ctx.encode_memo, floor)) <= max_bytes,
+        do: {:ok, floor, :hit, set_factor(ctx, nil)},
+        else: {:ok, floor, :best_effort, set_factor(ctx, :max_bytes)}
     end
   end
 

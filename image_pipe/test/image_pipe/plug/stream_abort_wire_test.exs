@@ -116,6 +116,24 @@ defmodule ImagePipe.Plug.StreamAbortWireTest do
       assert String.ends_with?(response, "\r\n\r\n" <> body)
     end
 
+    test "answers HEAD with the body's length and no body", %{config: config, body: body} do
+      bandit = start_bandit(config)
+      {:ok, {_ip, port}} = ThousandIsland.listener_info(bandit)
+      {:ok, socket} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, active: false])
+
+      :ok =
+        :gen_tcp.send(
+          socket,
+          "HEAD #{@large_path} HTTP/1.1\r\nhost: localhost\r\nconnection: close\r\n\r\n"
+        )
+
+      response = read_until(socket, fn _acc -> false end)
+
+      assert response =~ "HTTP/1.1 200"
+      assert response =~ "content-length: #{byte_size(body)}\r\n"
+      assert String.ends_with?(response, "\r\n\r\n")
+    end
+
     test "delivers the whole body over HTTP/2", %{config: config, body: body} do
       bandit = start_bandit(config)
       {:ok, {_ip, port}} = ThousandIsland.listener_info(bandit)

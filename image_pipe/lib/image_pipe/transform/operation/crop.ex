@@ -23,12 +23,13 @@ defmodule ImagePipe.Transform.Operation.Crop do
   #   or `{:scale, value}`. Defaults to `0.0`.
   # - `y_offset`: vertical offset using the same units as `x_offset`. Defaults
   #   to `0.0`.
-  # - `center_bias`: `{x_side, y_side}` tie-break for a centered crop with an odd
-  #   extent difference, each `:near` (keep the extra pixel toward the left/top
-  #   origin, matching imgproxy `ShrinkToEven`) or `:far` (toward the right/bottom).
-  #   Defaults to `{:near, :near}`. Only affects `:center` anchor axes; callers that
-  #   crop in a frame that is later reversed (deferred orientation) set the
-  #   reversed axis to `:far` so the kept pixel lands on the intended display side.
+  # - `center_bias`: `{x_side, y_side}` tie-break for a centered or focus-point
+  #   crop whose origin falls on a half pixel, each `:near` (keep the extra pixel
+  #   toward the left/top origin, matching imgproxy `ShrinkToEven`) or `:far`
+  #   (toward the right/bottom). Defaults to `{:near, :near}`. Only affects
+  #   `:center` anchor and focus-point axes. Callers that crop in a frame that is
+  #   later reversed (deferred orientation) set the reversed axis to `:far` so the
+  #   kept pixel lands on the intended display side.
   #
   # ## Execution Semantics
   #
@@ -437,13 +438,30 @@ defmodule ImagePipe.Transform.Operation.Crop do
          crop_height,
          x_offset,
          y_offset,
-         _center_bias
+         {x_bias, y_bias}
        ) do
     {
-      round_ties_to_even(x * image_width - crop_width / 2 + x_offset),
-      round_ties_to_even(y * image_height - crop_height / 2 + y_offset)
+      focus_position(
+        x * image_width - crop_width / 2 + x_offset,
+        image_width,
+        crop_width,
+        x_bias
+      ),
+      focus_position(
+        y * image_height - crop_height / 2 + y_offset,
+        image_height,
+        crop_height,
+        y_bias
+      )
     }
   end
+
+  # :far reflects the origin across the gap before rounding, so a tie rounds to
+  # the same display pixel once the orientation flush reverses the axis.
+  defp focus_position(origin, _bounds, _crop, :near), do: round_ties_to_even(origin)
+
+  defp focus_position(origin, bounds, crop, :far),
+    do: bounds - crop - round_ties_to_even(bounds - crop - origin)
 
   # Near edge (West/North): pos = 0 + offset (calc_position.go:41,53).
   defp anchor_position(anchor, _bounds, _crop, offset, _bias) when anchor in [:left, :top],

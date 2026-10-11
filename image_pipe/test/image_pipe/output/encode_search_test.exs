@@ -232,6 +232,39 @@ defmodule ImagePipe.Output.EncodeSearchTest do
              )
   end
 
+  test "max_bytes with no iterations left reuses the highest probed quality that fits" do
+    # The objective probes q50, q70, q80 and spends the cap. q80 is over the
+    # budget, so the cap phase can't probe. q50 fits and ships, not the floor.
+    rs = %RQS.Ssimulacra2{
+      target: 80.0,
+      min_quality: 10,
+      max_quality: 90,
+      start_quality: 50,
+      allowed_error: 0.0
+    }
+
+    enc = fn q -> {:ok, :binary.copy(<<0>>, q * 1000)} end
+    score = fn bin -> byte_size(bin) / 1000 end
+
+    assert {:ok, _bin, %{quality: 50, outcome: :hit, limiting_factor: nil}} =
+             EncodeSearch.search(rs, 60_000,
+               encode_fun: enc,
+               score_fun: score,
+               max_iterations: 3
+             )
+  end
+
+  test "max_bytes with no iterations left reports a floor that fits as a :hit" do
+    enc = fn q -> {:ok, :binary.copy(<<0>>, q * 1000)} end
+
+    assert {:ok, _bin, %{quality: 10, outcome: :hit, limiting_factor: nil}} =
+             EncodeSearch.search(:none, 40_000,
+               encode_fun: enc,
+               base_quality: 90,
+               max_iterations: 1
+             )
+  end
+
   test "max_bytes alone never raises an explicit quality below the normal floor" do
     enc = fn q -> {:ok, :binary.copy(<<0>>, q * 1000)} end
 

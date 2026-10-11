@@ -120,6 +120,22 @@ defmodule ImagePipe.API.GeometryCompositionWireTest do
     assert VipsImage.write_to_binary(oriented) == VipsImage.write_to_binary(twin)
   end
 
+  # focus=0.5 puts a 7px crop's origin at 6.5 on a 20px axis. Mirrored axes
+  # crop in the stored frame before the flip, and must round that tie to the
+  # same display column as an untagged source.
+  for orientation <- 2..8 do
+    test "a focus crop on a half pixel matches the untagged twin under EXIF #{orientation}" do
+      base = marked(20, 20)
+      path = "/crop=7,7/focus=0.5,0.5/format=png/src/image.jpg"
+
+      oriented = image(path, {OrientedFrameOrigin, {base, unquote(orientation)}})
+      twin = image(path, {Orientation1TwinOrigin, {base, unquote(orientation)}})
+
+      assert {Image.width(oriented), Image.height(oriented)} == {7, 7}
+      assert VipsImage.write_to_binary(oriented) == VipsImage.write_to_binary(twin)
+    end
+  end
+
   defp request(path, origin) do
     config =
       ImagePipe.Plug.init(

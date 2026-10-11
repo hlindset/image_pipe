@@ -12,9 +12,12 @@ priv/static/images/beach.jpg
 # PNG (different decoder than JPEG)
 priv/static/images/cooking.png
 
-# large JPEGs
+# large JPEGs (progressive, where shrink-on-load saves little)
 priv/static/images/dog.jpg
 priv/static/images/waterfall.jpg
+
+# large baseline JPEG: a non-progressive copy of spinning.jpg, where shrink-on-load pays off
+priv/static/images/spinning_baseline.jpg
 
 # AVIF (HEIF-family loader; needs a libvips with HEIF support)
 test/support/image_pipe/imgproxy_wire_conformance_test/cat.avif

@@ -630,6 +630,7 @@ defmodule ImagePipe.APIWireTest do
 
       assert conn.status == 200
       assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
+      assert get_resp_header(conn, "access-control-expose-headers") == ["*"]
     end
 
     test "no Access-Control-Allow-Origin header when allow_origin is not configured" do
@@ -637,6 +638,7 @@ defmodule ImagePipe.APIWireTest do
 
       assert conn.status == 200
       assert get_resp_header(conn, "access-control-allow-origin") == []
+      assert get_resp_header(conn, "access-control-expose-headers") == []
     end
   end
 
@@ -656,6 +658,7 @@ defmodule ImagePipe.APIWireTest do
       assert conn.status == 204
       assert get_resp_header(conn, "allow") == ["GET, HEAD"]
       assert get_resp_header(conn, "access-control-allow-methods") == ["GET, HEAD, OPTIONS"]
+      assert get_resp_header(conn, "access-control-allow-headers") == ["*"]
       assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
     end
 
@@ -665,6 +668,7 @@ defmodule ImagePipe.APIWireTest do
       assert conn.status == 204
       assert get_resp_header(conn, "allow") == ["GET, HEAD"]
       assert get_resp_header(conn, "access-control-allow-methods") == []
+      assert get_resp_header(conn, "access-control-allow-headers") == []
       assert get_resp_header(conn, "access-control-allow-origin") == []
     end
 

@@ -40,6 +40,33 @@ defmodule ImagePipe.Output.NegotiationPropertyTest do
     end
   end
 
+  property "quoted extension parameters do not change the result" do
+    check all ranges <- list_of(media_range_with_optional_quality(), min_length: 1, max_length: 5),
+              values <- list_of(quoted_value(), length: length(ranges)),
+              max_runs: 100 do
+      plain = Enum.join(ranges, ",")
+
+      quoted =
+        ranges
+        |> Enum.zip(values)
+        |> Enum.map_join(", ", fn {range, value} ->
+          case String.split(range, ";", parts: 2) do
+            [media_range] -> media_range <> ";ext=" <> value
+            [media_range, q] -> media_range <> ";ext=" <> value <> ";" <> q
+          end
+        end)
+
+      assert Negotiation.modern_candidates(quoted, []) ==
+               Negotiation.modern_candidates(plain, [])
+    end
+  end
+
+  defp quoted_value do
+    map(list_of(member_of(["a", ",", ";", "=", " ", "q=0"])), fn parts ->
+      ~s|"| <> Enum.join(parts) <> ~s|"|
+    end)
+  end
+
   defp expected_modern_candidates(accept_header, opts) do
     entries = parse_accept(accept_header)
 

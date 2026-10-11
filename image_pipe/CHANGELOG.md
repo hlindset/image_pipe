@@ -89,6 +89,23 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A `crop` placed with `focus` on an image with an EXIF orientation other than
+  1 or 5 could land one pixel off from the same crop on an untagged image,
+  when the crop's position fell on a half pixel.
+- With `max-bytes`, a quality search that ran out of encode attempts
+  shipped the lowest quality, even when it had already encoded a higher one
+  that fit the budget. It now ships the highest encoded quality that fits. When
+  only the lowest quality fits, the `X-ImagePipe-AQ-Outcome` debug header and
+  the `[:encode, :search]` telemetry event report `hit` instead of
+  `best_effort`.
+- With `allow_origin` set, cross-origin scripts can send conditional
+  requests such as `If-None-Match`, and can read response headers such as
+  `ETag` and `Content-Disposition`. Preflight requests now get
+  `Access-Control-Allow-Headers: *`, and responses get
+  `Access-Control-Expose-Headers: *`.
+- A comma inside a quoted `Accept` parameter, as in
+  `image/webp;x="a,b";q=0`, no longer splits the entry. The split dropped the
+  `q=0`, so ImagePipe could choose a format the client had excluded.
 - `input_cache` rejects `max_body_bytes` instead of ignoring it, and
   configuration fails with an unknown-option error. Remove the option from
   `input_cache`.

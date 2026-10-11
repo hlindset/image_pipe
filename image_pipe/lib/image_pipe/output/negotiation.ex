@@ -81,9 +81,32 @@ defmodule ImagePipe.Output.Negotiation do
 
   defp parse_accept(accept_header) do
     accept_header
-    |> Utils.list()
+    |> split_entries()
     |> Enum.map(&parse_accept_entry/1)
     |> Enum.reject(&is_nil/1)
+  end
+
+  # Splits on commas outside quoted parameter values, which `Plug.Conn.Utils.list/1`
+  # would split inside. Quotes toggle like Plug's own parameter split, without
+  # backslash escapes.
+  defp split_entries(header), do: split_entries(header, false, "", [])
+
+  defp split_entries(<<?", rest::binary>>, quoted?, entry, acc),
+    do: split_entries(rest, not quoted?, entry <> "\"", acc)
+
+  defp split_entries(<<?,, rest::binary>>, false, entry, acc),
+    do: split_entries(rest, false, "", push_entry(entry, acc))
+
+  defp split_entries(<<char, rest::binary>>, quoted?, entry, acc),
+    do: split_entries(rest, quoted?, <<entry::binary, char>>, acc)
+
+  defp split_entries(<<>>, _quoted?, entry, acc), do: Enum.reverse(push_entry(entry, acc))
+
+  defp push_entry(entry, acc) do
+    case String.trim(entry) do
+      "" -> acc
+      entry -> [entry | acc]
+    end
   end
 
   defp parse_accept_entry(entry) do
