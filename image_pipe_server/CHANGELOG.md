@@ -18,6 +18,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   2.3.3, libjpeg-turbo 3.2.0 and libpng 1.6.59 in place of Debian's zlib,
   libjpeg-turbo and libpng. Across a set of typical requests, latency dropped
   by about a quarter, and by more than half for some PNG resizes.
+- The server handles about 5–10% more images per second when the container
+  has a CPU limit: the Erlang VM's schedulers no longer spin while they wait
+  for work, which took CPU that image processing needed.
 
 ## [0.1.0] - 2026-10-09
 
