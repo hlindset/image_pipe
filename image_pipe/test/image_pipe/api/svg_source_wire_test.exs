@@ -123,6 +123,52 @@ defmodule ImagePipe.API.SVGSourceWireTest do
     assert request("w=40", mount(@svg, svg: [max_render_work: 1_000])).status == 413
   end
 
+  describe "SVG watermarks" do
+    # A 4×4 logo, red on its left half and transparent on its right.
+    @logo ~s(<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4">) <>
+            ~s(<rect width="2" height="4" fill="#ff0000"/></svg>)
+
+    setup do
+      photo = Image.new!(400, 200, color: [0, 0, 255]) |> Image.write!(:memory, suffix: ".png")
+      {:ok, photo: photo}
+    end
+
+    test "render sharp at the size they're drawn", %{photo: photo} do
+      config =
+        mount(%{"/photo.png" => photo, "/logo.svg" => @logo},
+          watermarks: %{logo: [source: "logo.svg"]}
+        )
+
+      response =
+        conn(:get, "/wm=logo/wm-scale=0.5/format=png/src/photo.png")
+        |> ImagePipe.Plug.call(config)
+
+      # The 100×100 logo is centred, so its edge falls at x = 200. A raster
+      # upscale from 4 px blends the colours across many pixels there.
+      assert dimensions(response) == {400, 200}
+      assert pixel(response, 198, 100) == [255, 0, 0]
+      assert pixel(response, 201, 100) == [0, 0, 255]
+    end
+
+    test "fail when rendering at the drawn size is over the render budget", %{photo: photo} do
+      # 80×80 at wm-scale=0.4, 100×100 at 0.5.
+      config =
+        mount(%{"/photo.png" => photo, "/logo.svg" => @logo},
+          watermarks: %{logo: [source: "logo.svg"]},
+          svg: [max_render_pixels: 9_000]
+        )
+
+      status = fn scale ->
+        conn(:get, "/wm=logo/wm-scale=#{scale}/format=png/src/photo.png")
+        |> ImagePipe.Plug.call(config)
+        |> Map.fetch!(:status)
+      end
+
+      assert status.(0.4) == 200
+      assert status.(0.5) == 413
+    end
+  end
+
   describe "the svg_render span" do
     setup do
       prefix = [:svg_source_wire_test]
@@ -183,11 +229,27 @@ defmodule ImagePipe.API.SVGSourceWireTest do
   defp request(options, config),
     do: conn(:get, "/#{options}/src/source.svg") |> ImagePipe.Plug.call(config)
 
-  defp mount(body, options \\ []) do
-    origin = fn conn ->
-      conn |> put_resp_content_type("image/svg+xml") |> send_resp(200, body)
-    end
+  defp mount(body, options \\ [])
 
+  defp mount(bodies, options) when is_map(bodies) do
+    origin(
+      fn conn ->
+        conn
+        |> put_resp_content_type("application/octet-stream")
+        |> send_resp(200, Map.fetch!(bodies, conn.request_path))
+      end,
+      options
+    )
+  end
+
+  defp mount(body, options) do
+    origin(
+      fn conn -> conn |> put_resp_content_type("image/svg+xml") |> send_resp(200, body) end,
+      options
+    )
+  end
+
+  defp origin(origin, options) do
     ImagePipe.Plug.init(
       [
         sources: [

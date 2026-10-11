@@ -62,6 +62,46 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
       end
     end
 
+    @doc """
+    Parses an SVG watermark asset, returning its intrinsic size and a
+    function that renders it at the size the watermark is drawn, within the
+    render budget.
+    """
+    @spec watermark(binary(), keyword()) ::
+            {:ok, Decode.watermark_asset()} | {:error, Decode.error()}
+    def watermark(data, opts) do
+      config = Keyword.fetch!(opts, :svg)
+
+      with :ok <- check_bytes(byte_size(data), config.max_bytes),
+           {:ok, document} <-
+             parse(data, fonts(config), Keyword.fetch!(opts, :max_input_pixels)) do
+        dims = {max(1, round(document.width)), max(1, round(document.height))}
+        {:ok, %{dims: dims, render: &render_watermark(document, dims, config, opts, &1, &2)}}
+      end
+    end
+
+    defp render_watermark(document, dims, config, opts, width, height) do
+      Telemetry.span(Telemetry.telemetry_opts(opts), [:source, :svg_render], %{}, fn ->
+        cost = SVG.cost(document, width, height)
+
+        with :ok <- check_budget(cost, config),
+             {:ok, image} <- image(SVG.render(document, width, height), width, height) do
+          {{:ok, image},
+           %{
+             result: :ok,
+             intrinsic_dims: dims,
+             rendered_dims: {width, height},
+             work: cost.work,
+             peak: cost.peak,
+             images: cost.images,
+             image_pixels: cost.image_pixels
+           }}
+        else
+          {:error, reason} = error -> {error, error_metadata(reason)}
+        end
+      end)
+    end
+
     defp traced_render(data, request, opts) do
       case render(data, request, opts) do
         {:ok, rendered} -> {decoded(rendered, opts), render_metadata(rendered)}

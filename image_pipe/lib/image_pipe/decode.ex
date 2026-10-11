@@ -175,21 +175,43 @@ defmodule ImagePipe.Decode do
     end)
   end
 
+  @typedoc """
+  A decoded watermark asset: a raster image, or a vector image with its
+  intrinsic size and a function that renders it at a given size.
+  """
+  @type watermark_asset() ::
+          %{image: VipsImage.t()}
+          | %{
+              dims: {pos_integer(), pos_integer()},
+              render: (pos_integer(), pos_integer() -> {:ok, VipsImage.t()} | {:error, error()})
+            }
+
   @doc """
-  Decodes a watermark asset's bytes into its default image in display
-  orientation.
+  Decodes a watermark asset's bytes. A raster asset decodes into its default
+  image in display orientation. An SVG asset parses once and renders later,
+  at the size the watermark is drawn.
 
   Applies the same family allowlist, frame limit, and per-frame pixel limit as
   `with_image/4`. Failures are `{:decode, _}` or `{:input_limit, _}`.
   """
-  @spec watermark(binary(), keyword()) :: {:ok, VipsImage.t()} | {:error, error()}
+  @spec watermark(binary(), keyword()) :: {:ok, watermark_asset()} | {:error, error()}
   def watermark(bytes, opts) when is_binary(bytes) do
     input = {:buffer, bytes}
 
     with {:ok, peek} <- peek_bytes(input) |> wrap_decode_error(),
          detected = Detector.detect(peek),
-         :ok <- gate_detected(detected) |> wrap_decode_error(),
-         :ok <- validate_header_pixels(peek, opts) |> wrap_input_limit_error(),
+         :ok <- gate_detected(detected) |> wrap_decode_error() do
+      watermark_detected(detected, input, peek, opts)
+    end
+  end
+
+  if @svg_available do
+    defp watermark_detected(:svg, {:buffer, bytes}, _peek, opts),
+      do: ImagePipe.Decode.SVG.watermark(bytes, opts)
+  end
+
+  defp watermark_detected(detected, input, peek, opts) do
+    with :ok <- validate_header_pixels(peek, opts) |> wrap_input_limit_error(),
          :ok <- validate_container_frames(peek, input, opts),
          {:ok, image} <-
            open_seekable_input(input, [access: :random, fail_on: :error], opts)
@@ -201,7 +223,7 @@ defmodule ImagePipe.Decode do
            validate_pixels({Image.width(image), Image.height(image)}, 1, opts)
            |> wrap_input_limit_error() do
       case Image.autorotate(image) do
-        {:ok, {image, _flags}} -> {:ok, image}
+        {:ok, {image, _flags}} -> {:ok, %{image: image}}
         error -> wrap_decode_error(error)
       end
     end

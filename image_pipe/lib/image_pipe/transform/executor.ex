@@ -455,15 +455,14 @@ defmodule ImagePipe.Transform.Executor do
   defp execute_watermark(state, nil, _dpr, _opts), do: {:ok, state}
 
   defp execute_watermark(state, watermark, dpr, opts) do
-    %{image: asset, opacity: base_opacity} =
-      opts |> Keyword.fetch!(:watermark_images) |> Map.fetch!(watermark.asset)
+    %{opacity: base_opacity} =
+      entry = opts |> Keyword.fetch!(:watermark_images) |> Map.fetch!(watermark.asset)
 
     with {:ok, state} <- flush_display(state),
-         {:ok, asset} <- conditioned_asset(asset, state, opts),
          {frame_width, frame_height} = Geometry.live_dims(state),
          {width, height} =
-           watermark_size(watermark.scale, asset, {frame_width, frame_height}, dpr),
-         {:ok, asset} <- sized_asset(asset, width, height, state),
+           watermark_size(watermark.scale, asset_dims(entry), {frame_width, frame_height}, dpr),
+         {:ok, asset} <- drawn_asset(entry, width, height, state, opts),
          {:ok, state} <- promote_gray_frame(state, asset),
          {:ok, asset} <- into_frame_profile(asset, state),
          {:ok, asset} <- watermark_asset(asset, state) do
@@ -487,6 +486,33 @@ defmodule ImagePipe.Transform.Executor do
       Step.run(state, operation, opts)
     end
   end
+
+  defp asset_dims(%{image: image}), do: {Image.width(image), Image.height(image)}
+  defp asset_dims(%{dims: dims}), do: dims
+
+  # A raster asset is conditioned, then resampled to its drawn size. A vector
+  # asset renders straight at its drawn size, so it stays sharp.
+  defp drawn_asset(%{image: image}, width, height, state, opts) do
+    with {:ok, asset} <- conditioned_asset(image, state, opts),
+         do: sized_asset(asset, width, height, state)
+  end
+
+  defp drawn_asset(%{render: render}, width, height, %State{} = state, opts) do
+    with :ok <- render_limits(width, height, state),
+         {:ok, image} <- render.(width, height),
+         do: conditioned_asset(image, state, opts)
+  end
+
+  defp render_limits(width, height, %State{max_intermediate_pixels: limit}) do
+    with :ok <- WorkLimits.axes(width, height) |> transform_error() do
+      if width * height <= limit,
+        do: :ok,
+        else: {:error, {:transform, {:intermediate_pixel_limit, width * height, limit}}}
+    end
+  end
+
+  defp transform_error(:ok), do: :ok
+  defp transform_error({:error, reason}), do: {:error, {:transform, reason}}
 
   # The asset is resized to its drawn size before color management, which
   # then converts only the pixels that are drawn.
@@ -601,22 +627,16 @@ defmodule ImagePipe.Transform.Executor do
 
   # A scale fits the asset in that fraction of the frame; otherwise it keeps
   # its natural size at the group's effective DPR.
-  defp watermark_size(nil, asset, _frame, dpr),
-    do: scaled_dims(asset, dpr)
+  defp watermark_size(nil, dims, _frame, dpr),
+    do: scaled_dims(dims, dpr)
 
-  defp watermark_size(scale, asset, {frame_width, frame_height}, _dpr) do
-    factor =
-      min(
-        frame_width * scale / Image.width(asset),
-        frame_height * scale / Image.height(asset)
-      )
-
-    scaled_dims(asset, factor)
+  defp watermark_size(scale, {width, height} = dims, {frame_width, frame_height}, _dpr) do
+    factor = min(frame_width * scale / width, frame_height * scale / height)
+    scaled_dims(dims, factor)
   end
 
-  defp scaled_dims(asset, factor) do
-    {max(1, round_ties_to_even(Image.width(asset) * factor)),
-     max(1, round_ties_to_even(Image.height(asset) * factor))}
+  defp scaled_dims({width, height}, factor) do
+    {max(1, round_ties_to_even(width * factor)), max(1, round_ties_to_even(height * factor))}
   end
 
   defp placement_length({:px, value}, _dimension, dpr), do: round_ties_to_even(value * dpr)

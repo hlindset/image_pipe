@@ -326,7 +326,7 @@ defmodule ImagePipe.Processing do
     inputs
     |> Enum.reduce_while({:ok, %{}}, fn {asset, %{bytes: bytes, opacity: opacity}}, {:ok, acc} ->
       case Decode.watermark(bytes, config) do
-        {:ok, image} -> {:cont, {:ok, Map.put(acc, asset, %{image: image, opacity: opacity})}}
+        {:ok, decoded} -> {:cont, {:ok, Map.put(acc, asset, Map.put(decoded, :opacity, opacity))}}
         {:error, _reason} = error -> {:halt, error}
       end
     end)

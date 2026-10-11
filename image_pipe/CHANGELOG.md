@@ -12,7 +12,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   at any size, and a resize can make it larger than its own `width` and
   `height` without `enlarge`. Regions and crops in pixels measure the SVG at
   its own size. With no `format` and no negotiated format, the result is a
-  PNG. Without `image_pipe_svg`, SVG sources still fail with `415`.
+  PNG. Watermark images can be SVGs too, and render at the size they're
+  drawn. Without `image_pipe_svg`, SVG sources still fail with `415`.
 - The `:svg` option configures SVG sources: `:font_dirs` and
   `:fallback_family` for the fonts SVG text renders in (no system fonts are
   used), and `:max_bytes`, `:max_render_work`, and `:max_render_pixels` to
