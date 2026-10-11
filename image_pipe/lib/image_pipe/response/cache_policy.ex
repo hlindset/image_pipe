@@ -217,7 +217,8 @@ defmodule ImagePipe.Response.CachePolicy do
   end
 
   # Caches subtract `Age` from `max-age`, so the freshness left is the
-  # difference; a stale window may only run until the expiry.
+  # difference. `must-revalidate` forbids serving stale responses, so stale
+  # windows are dropped rather than left for caches to ignore.
   defp cap_control(control, age, remaining) do
     directives =
       control |> String.split(",") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
@@ -225,17 +226,15 @@ defmodule ImagePipe.Response.CachePolicy do
     if "no-store" in directives do
       control
     else
-      fresh = directive_seconds(directives, "max-age") - age
+      directives =
+        directives
+        |> put_directive("stale-while-revalidate", 0)
+        |> put_directive("stale-if-error", 0)
 
       directives =
-        if fresh > remaining do
-          directives
-          |> put_directive("max-age", remaining + age)
-          |> put_directive("stale-while-revalidate", 0)
-        else
-          stale = min(directive_seconds(directives, "stale-while-revalidate"), remaining - fresh)
-          put_directive(directives, "stale-while-revalidate", stale)
-        end
+        if directive_seconds(directives, "max-age") - age > remaining,
+          do: put_directive(directives, "max-age", remaining + age),
+          else: directives
 
       # Shared caches use `s-maxage` in place of `max-age`.
       directives =

@@ -177,7 +177,7 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
 
     assert {:ok, response} =
              fetch("origin.test", port,
-               allowed_hosts: ["origin.test", "other.test"],
+               allowed_hosts: ["origin.test:#{port}", "other.test:#{port}"],
                address_resolver: resolver,
                max_redirects: 1,
                req_options:
@@ -364,7 +364,7 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
       end)
 
     source_options = [
-      allowed_hosts: ["origin.test"],
+      allowed_hosts: ["origin.test:#{port}"],
       address_resolver: fn _ -> {:ok, [@loopback]} end,
       req_options: tls_options()
     ]
@@ -426,7 +426,7 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
       HTTP.validate_options(
         Keyword.merge(
           [
-            allowed_hosts: [host],
+            allowed_hosts: ["#{host}:#{port}"],
             address_policy: [allow_loopback: true],
             address_resolver: fn _host -> {:ok, [@loopback]} end,
             req_options: tls_options()

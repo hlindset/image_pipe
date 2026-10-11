@@ -89,7 +89,7 @@ defmodule ImagePipeFiddle.Application do
             adapter: ImagePipe.Source.HTTP,
             match: [scheme: ["http", "https"]],
             options: [
-              allowed_hosts: ["localhost", "127.0.0.1"],
+              allowed_hosts: ["localhost:#{endpoint_port()}", "127.0.0.1:#{endpoint_port()}"],
               address_policy: [allow_loopback: true]
             ]
           ]
@@ -97,6 +97,10 @@ defmodule ImagePipeFiddle.Application do
     else
       mounts
     end
+  end
+
+  defp endpoint_port do
+    Application.fetch_env!(:image_pipe_fiddle, ImagePipeFiddleWeb.Endpoint)[:http][:port]
   end
 
   # One instance serves both mounts; the signed mount picks the `:signed` URL

@@ -96,6 +96,26 @@ defmodule ImagePipe.Source.HTTPTest do
     assert HTTP.resolve(denied, opts, []) == {:error, {:source, :denied_host}}
   end
 
+  test "resolve allows only the default port unless an entry names another" do
+    source = %URL{scheme: :https, host: "assets.example.com", port: 8443, path: ["cat.jpg"]}
+
+    assert {:ok, opts} = HTTP.validate_options(allowed_hosts: ["assets.example.com"])
+    assert HTTP.resolve(source, opts, []) == {:error, {:source, :denied_host}}
+    assert {:ok, _} = HTTP.resolve(%URL{source | port: 443}, opts, [])
+
+    assert {:ok, opts} = HTTP.validate_options(allowed_hosts: ["assets.example.com:8443"])
+    assert {:ok, resolved} = HTTP.resolve(source, opts, [])
+    assert resolved.identity[:port] == 8443
+    assert HTTP.resolve(%URL{source | port: nil}, opts, []) == {:error, {:source, :denied_host}}
+  end
+
+  test "validate_options rejects a malformed allowed_hosts entry" do
+    assert {:error, {:invalid_source_config, message}} =
+             HTTP.validate_options(allowed_hosts: ["assets.example.com:https"])
+
+    assert message =~ "assets.example.com:https"
+  end
+
   test "resolve lowercases URL hosts before allowed-host checks and cache identity" do
     assert {:ok, opts} = HTTP.validate_options(allowed_hosts: ["assets.example.com"])
 
@@ -491,7 +511,7 @@ defmodule ImagePipe.Source.HTTPTest do
             adapter: HTTP,
             match: [scheme: "http"],
             options: [
-              allowed_hosts: ["::1"],
+              allowed_hosts: ["[::1]:8080"],
               address_policy: [allow_loopback: true],
               req_options: [plug: plug]
             ]
@@ -886,8 +906,13 @@ defmodule ImagePipe.Source.HTTPTest do
       opts
     end
 
-    test "allowed_hosts defaults to the base URL host" do
-      assert base_opts()[:allowed_hosts] == ["assets.example.com"]
+    test "allowed_hosts defaults to the base URL host and port" do
+      url = %URL{scheme: :https, host: "assets.example.com", path: ["x.jpg"]}
+
+      assert {:ok, _} = HTTP.resolve(url, base_opts(), [])
+
+      assert {:error, {:source, :denied_host}} =
+               HTTP.resolve(%URL{url | host: "cdn.example.com"}, base_opts(), [])
 
       assert {:ok, opts} =
                HTTP.validate_options(
@@ -895,7 +920,25 @@ defmodule ImagePipe.Source.HTTPTest do
                  allowed_hosts: ["assets.example.com", "cdn.example.com"]
                )
 
-      assert opts[:allowed_hosts] == ["assets.example.com", "cdn.example.com"]
+      assert {:ok, _} = HTTP.resolve(%URL{url | host: "cdn.example.com"}, opts, [])
+
+      assert {:ok, opts} = HTTP.validate_options(base_url: "https://assets.example.com:8443/t")
+      assert {:ok, _} = HTTP.resolve(%URL{url | port: 8443}, opts, [])
+      assert {:error, {:source, :denied_host}} = HTTP.resolve(url, opts, [])
+    end
+
+    test "an allowed_hosts list must allow the base URL's port" do
+      assert {:error, {:invalid_source_config, _}} =
+               HTTP.validate_options(
+                 base_url: "https://assets.example.com:8443/t",
+                 allowed_hosts: ["assets.example.com"]
+               )
+
+      assert {:ok, _} =
+               HTTP.validate_options(
+                 base_url: "https://assets.example.com:443/t",
+                 allowed_hosts: ["assets.example.com"]
+               )
     end
 
     test "rejects a base URL outside the allowed hosts or with non-path parts" do

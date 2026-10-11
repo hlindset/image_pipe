@@ -152,7 +152,10 @@ defmodule ImagePipe.Source.OriginFetchTest do
           url: [
             adapter: HTTP,
             match: [scheme: ["http", "https"]],
-            options: [allowed_hosts: ["127.0.0.1"], address_policy: [allow_loopback: true]]
+            options: [
+              allowed_hosts: ["127.0.0.1:#{uri.port}"],
+              address_policy: [allow_loopback: true]
+            ]
           ]
         ]
       )
