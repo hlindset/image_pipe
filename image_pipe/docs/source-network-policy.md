@@ -10,8 +10,11 @@ the address it connects to must be on the public internet.
 ## Hosts and addresses
 
 `allowed_hosts` is the first check. A source accepts URLs only for the
-hostnames you list, or the host of its `base_url`, so a request can't name
-an arbitrary server.
+hosts you list, or the host and port of its `base_url`, so a request can't
+name an arbitrary server. Each entry allows only the default port, 80 for
+`http` and 443 for `https`, unless the entry names a port, as in
+`assets.example.com:8443`. So a request can't reach another service on an
+allowed host by picking its port.
 
 A hostname is not enough on its own, because DNS decides where it points.
 `assets.example.com` could resolve to `10.0.0.5` through a misconfigured

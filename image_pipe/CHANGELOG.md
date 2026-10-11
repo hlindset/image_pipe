@@ -24,6 +24,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Breaking:** An HTTP source's `allowed_hosts` entry without a port allows
+  only the scheme's default port, 80 or 443, including for redirect targets.
+  Before, any port on a listed host was reachable. Add an entry with the port,
+  such as `"assets.example.com:8443"`, for an origin on another port. A
+  `base_url` with a non-default port needs that port in `allowed_hosts` when you
+  set the list. A malformed entry, such as `"assets.example.com:https"`, now
+  fails at startup.
 - Processed images cached by an earlier version are not reused, because the
   cache key changed. The cache refills as requests come in.
 - Requests for PNG and other sources that need no shrink-on-load open the
