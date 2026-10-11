@@ -1,4 +1,5 @@
 mod cost;
+mod entities;
 mod fonts;
 mod parse;
 mod render;
@@ -32,6 +33,7 @@ type Parsed = (ResourceArc<Document>, f32, f32);
 enum ParseError {
     Parse(String),
     TooManyElements(u64),
+    EntityExpansion(u64),
     ImageTooLarge(u64),
     NestingTooDeep,
 }
@@ -41,6 +43,7 @@ impl From<parse::Error> for ParseError {
         match error {
             parse::Error::Parse(message) => ParseError::Parse(message),
             parse::Error::TooManyElements(count) => ParseError::TooManyElements(count),
+            parse::Error::EntityExpansion(size) => ParseError::EntityExpansion(size),
             parse::Error::ImageTooLarge(pixels) => ParseError::ImageTooLarge(pixels),
             parse::Error::NestingTooDeep => ParseError::NestingTooDeep,
         }
@@ -90,10 +93,12 @@ fn parse(
     fonts: ResourceArc<Fonts>,
     max_elements: u64,
     max_image_pixels: u64,
+    max_entity_expansion: u64,
 ) -> NifResult<Result<Parsed, ParseError>> {
     let limits = parse::Limits {
         max_elements,
         max_image_pixels,
+        max_entity_expansion,
     };
     let data = data.as_slice();
     let fontdb = fonts.0.clone();

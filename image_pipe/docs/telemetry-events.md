@@ -316,7 +316,8 @@ the rendering cost, and rendering it at the size the request needs.
     `:input_limit`.
   - `:limit` (atom): with `:input_limit`, the limit that rejected the SVG:
     `:svg_bytes`, `:svg_elements` (too many elements after expanding
-    `<use>`), `:svg_nesting` (embedded SVGs nested too deep), `:pixels` (the
+    `<use>`), `:svg_entities` (entity references that would expand past
+    1,000,000 characters), `:svg_nesting` (embedded SVGs nested too deep), `:pixels` (the
     render, or an embedded image, is over `max_input_pixels`),
     `:svg_render_work`, or `:svg_render_pixels`.
 

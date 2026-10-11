@@ -215,6 +215,18 @@ defmodule ImagePipe.API.SVGSourceWireTest do
     assert request("w=1000/format=png", mount(blurs)).status == 413
   end
 
+  test "fails an SVG whose entities expand too far, before parsing it" do
+    x = String.duplicate("a", 2000)
+    y = String.duplicate("&x;", 250)
+
+    bomb =
+      ~s(<!DOCTYPE svg [<!ENTITY x "#{x}"><!ENTITY y "#{y}">]>) <>
+        ~s(<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><text>) <>
+        String.duplicate("&y;", 1000) <> "</text></svg>"
+
+    assert request("w=8", mount(bomb)).status == 413
+  end
+
   test "rejects a malformed SVG as an unsupported source" do
     malformed = ~s(<svg xmlns="http://www.w3.org/2000/svg" width="8"><rect)
     assert request("w=8", mount(malformed)).status == 415

@@ -17,6 +17,7 @@ defmodule ImagePipe.SVG do
   @type parse_error ::
           {:parse, String.t()}
           | {:too_many_elements, non_neg_integer()}
+          | {:entity_expansion, non_neg_integer()}
           | {:image_too_large, non_neg_integer()}
           | :nesting_too_deep
 
@@ -104,13 +105,21 @@ defmodule ImagePipe.SVG do
       before expanding them. Defaults to 200,000.
     * `:max_image_pixels` - pixels allowed in any one embedded raster
       image, read from its header. Defaults to 40,000,000.
+    * `:max_entity_expansion` - characters the document's entity references
+      may expand to, estimated before parsing. A few kilobytes of entity
+      declarations can otherwise expand to hundreds of megabytes. Defaults to
+      1,000,000.
+
+  The limits apply to embedded SVGs too.
   """
   @spec parse(binary(), Fonts.t(), keyword()) :: {:ok, Document.t()} | {:error, parse_error()}
   def parse(data, %Fonts{ref: fonts}, opts \\ []) when is_binary(data) do
     max_elements = Keyword.get(opts, :max_elements, 200_000)
     max_image_pixels = Keyword.get(opts, :max_image_pixels, 40_000_000)
+    max_entity_expansion = Keyword.get(opts, :max_entity_expansion, 1_000_000)
 
-    with {:ok, {ref, width, height}} <- Native.parse(data, fonts, max_elements, max_image_pixels) do
+    with {:ok, {ref, width, height}} <-
+           Native.parse(data, fonts, max_elements, max_image_pixels, max_entity_expansion) do
       {:ok, %Document{ref: ref, width: width, height: height}}
     end
   end

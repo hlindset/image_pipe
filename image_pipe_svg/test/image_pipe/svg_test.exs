@@ -102,7 +102,34 @@ defmodule ImagePipe.SVGTest do
       assert {:error, {:parse, _}} = SVG.parse("<svg", fonts)
 
       loop = ~s(<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY a "&b;"><!ENTITY b "&a;">]>)
-      assert {:error, {:parse, _}} = SVG.parse(loop <> svg("<text>&a;</text>"), fonts)
+      assert {:error, {:entity_expansion, _}} = SVG.parse(loop <> svg("<text>&a;</text>"), fonts)
+    end
+
+    test "fails before expanding entities past the limit", %{fonts: fonts} do
+      # 250 references of 2,000 characters each per &y;: about 5 MB from 20.
+      x = String.duplicate("a", 2000)
+      y = String.duplicate("&x;", 250)
+      doctype = ~s(<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY x "#{x}"><!ENTITY y "#{y}">]>)
+      # In an attribute, so the accepted parse doesn't lay out megabytes of text.
+      bomb = doctype <> svg(~s(<rect id="#{String.duplicate("&y;", 10)}" width="1" height="1"/>))
+
+      assert {:error, {:entity_expansion, expanded}} = SVG.parse(bomb, fonts)
+      assert expanded >= 5_000_000
+      assert {:ok, _} = SVG.parse(bomb, fonts, max_entity_expansion: 6_000_000)
+
+      # Editors declare small entities, such as namespace URIs.
+      small = ~s(<!DOCTYPE svg [<!ENTITY ns "http://www.w3.org/2000/svg">]>)
+      assert {:ok, _} = SVG.parse(small <> svg("<text>&ns;</text>"), fonts)
+    end
+
+    test "checks embedded SVGs for entity bombs too", %{fonts: fonts} do
+      x = String.duplicate("a", 2000)
+      y = String.duplicate("&x;", 250)
+      doctype = ~s(<!DOCTYPE svg [<!ENTITY x "#{x}"><!ENTITY y "#{y}">]>)
+      inner = doctype <> svg("<text>" <> String.duplicate("&y;", 10) <> "</text>")
+      image = ~s(<image width="10" height="10" href="#{data_uri("image/svg+xml", inner)}"/>)
+
+      assert {:error, {:entity_expansion, _}} = SVG.parse(svg(image), fonts)
     end
 
     test "fails before expanding a <use> bomb", %{fonts: fonts} do

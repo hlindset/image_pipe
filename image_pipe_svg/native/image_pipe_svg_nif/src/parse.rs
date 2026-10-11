@@ -5,22 +5,28 @@ use std::sync::{Arc, Mutex};
 use resvg::usvg::roxmltree::{self, Node, NodeId};
 use resvg::usvg::{self, ImageHrefResolver, ImageKind, Options};
 
+use crate::entities;
+
 /// Nested `data:image/svg+xml` images may go this many levels deep.
 const MAX_NESTING: u32 = 2;
 
 const XLINK_NS: &str = "http://www.w3.org/1999/xlink";
 
+#[derive(Clone, Copy)]
 pub struct Limits {
     /// Elements after expanding `<use>`, estimated before usvg expands them.
     pub max_elements: u64,
     /// Pixels of any one embedded raster image, read from its header.
     pub max_image_pixels: u64,
+    /// Characters entity references expand to, estimated before parsing.
+    pub max_entity_expansion: u64,
 }
 
 #[derive(Debug)]
 pub enum Error {
     Parse(String),
     TooManyElements(u64),
+    EntityExpansion(u64),
     ImageTooLarge(u64),
     NestingTooDeep,
 }
@@ -36,6 +42,30 @@ pub fn parse(
     limits: &Limits,
 ) -> Result<usvg::Tree, Error> {
     let text = std::str::from_utf8(data).map_err(|_| Error::Parse("not UTF-8".into()))?;
+    let doc = checked_document(text, limits)?;
+
+    let violation = Arc::new(Mutex::new(None));
+    let options = options(fontdb, *limits, violation.clone());
+    let tree = usvg::Tree::from_xmltree(&doc, &options);
+
+    if let Some(error) = violation.lock().unwrap().take() {
+        return Err(error);
+    }
+
+    tree.map_err(|error| Error::Parse(error.to_string()))
+}
+
+/// Parses `text` with roxmltree once its entities and `<use>` expansion are
+/// known to stay within `limits`.
+fn checked_document<'input>(
+    text: &'input str,
+    limits: &Limits,
+) -> Result<roxmltree::Document<'input>, Error> {
+    let expansion = entities::expanded_size(text);
+    if expansion > limits.max_entity_expansion {
+        return Err(Error::EntityExpansion(expansion));
+    }
+
     let xml_opt = roxmltree::ParsingOptions {
         allow_dtd: true,
         nodes_limit: u32::try_from(limits.max_elements.saturating_mul(4)).unwrap_or(u32::MAX),
@@ -48,21 +78,12 @@ pub fn parse(
     if elements > limits.max_elements {
         return Err(Error::TooManyElements(elements));
     }
-
-    let violation = Arc::new(Mutex::new(None));
-    let options = options(fontdb, limits.max_image_pixels, violation.clone());
-    let tree = usvg::Tree::from_xmltree(&doc, &options);
-
-    if let Some(error) = violation.lock().unwrap().take() {
-        return Err(error);
-    }
-
-    tree.map_err(|error| Error::Parse(error.to_string()))
+    Ok(doc)
 }
 
 fn options(
     fontdb: Arc<usvg::fontdb::Database>,
-    max_image_pixels: u64,
+    limits: Limits,
     violation: Arc<Mutex<Option<Error>>>,
 ) -> Options<'static> {
     let depth = Arc::new(AtomicU32::new(0));
@@ -83,6 +104,17 @@ fn options(
                     record(&violation, Error::NestingTooDeep);
                     return None;
                 }
+                // usvg parses the embedded SVG itself, so check it first with
+                // the outer document's limits. One that doesn't parse renders
+                // as nothing.
+                match std::str::from_utf8(&data).map(|text| checked_document(text, &limits)) {
+                    Ok(Ok(_)) => {}
+                    Ok(Err(error @ (Error::EntityExpansion(_) | Error::TooManyElements(_)))) => {
+                        record(&violation, error);
+                        return None;
+                    }
+                    _ => return None,
+                }
                 depth.fetch_add(1, Ordering::SeqCst);
                 let tree = usvg::Tree::from_data_nested(&data, opts);
                 depth.fetch_sub(1, Ordering::SeqCst);
@@ -93,7 +125,7 @@ fn options(
 
         let size = imagesize::blob_size(kind_data(&kind)).ok()?;
         let pixels = (size.width as u64).saturating_mul(size.height as u64);
-        if pixels > max_image_pixels {
+        if pixels > limits.max_image_pixels {
             record(&violation, Error::ImageTooLarge(pixels));
             return None;
         }
