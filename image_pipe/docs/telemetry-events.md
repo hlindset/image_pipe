@@ -273,7 +273,8 @@ decode, and its span wraps only the decode.
   - `:page` and `:source_frames` (integer): with `:page_out_of_range`, the
     requested page and the frames the original has. The response is `422`.
   - `:detected_source_format` (atom): with `:unsupported_source_format`, the
-    rejected format, such as `:bmp`, `:svg`, or `:unknown`.
+    rejected format, such as `:bmp` or `:unknown`, or `:svg` without the
+    `image_pipe_svg` package.
   - `:source_loader` (string): with `:unsupported_source_format`, when the
     signature names a supported format but libvips chose a loader for
     another, such as `"dcrawload"`.
@@ -292,6 +293,32 @@ size. The default Logger doesn't log it.
   - `:page` (integer): the page selected with `page`, when the open selects
     one.
 - Stop metadata: `:result` (atom), `:ok` or `:processing_error`.
+
+### `[:source, :svg_render]`
+
+Span. Wraps rendering an SVG original, during
+[`[:source, :fetch_decode]`](#source-fetch_decode): parsing it, estimating
+the rendering cost, and rendering it at the size the request needs.
+
+- Stop metadata on success:
+  - `:result` (atom): `:ok`.
+  - `:intrinsic_dims` (`{width, height}`): the SVG's own size in pixels.
+  - `:rendered_dims` (`{width, height}`): the size it rendered at.
+  - `:work` (integer): the estimated rendering work, which `:svg`'s
+    `:max_render_work` limits.
+  - `:peak` (integer): the estimated pixels of intermediate images held at
+    once, which `:svg`'s `:max_render_pixels` limits.
+  - `:images` (integer): embedded raster images drawn, counting each draw.
+  - `:image_pixels` (integer): the pixels those draws decode.
+- Stop metadata on failure:
+  - `:result` (atom): `:processing_error`.
+  - `:error` (atom): `:decode` for an SVG that doesn't parse, or
+    `:input_limit`.
+  - `:limit` (atom): with `:input_limit`, the limit that rejected the SVG:
+    `:svg_bytes`, `:svg_elements` (too many elements after expanding
+    `<use>`), `:svg_nesting` (embedded SVGs nested too deep), `:pixels` (the
+    render, or an embedded image, is over `max_input_pixels`),
+    `:svg_render_work`, or `:svg_render_pixels`.
 
 ### `[:source, :watermark]`
 

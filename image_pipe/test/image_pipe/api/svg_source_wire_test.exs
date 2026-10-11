@@ -123,6 +123,42 @@ defmodule ImagePipe.API.SVGSourceWireTest do
     assert request("w=40", mount(@svg, svg: [max_render_work: 1_000])).status == 413
   end
 
+  describe "the svg_render span" do
+    setup do
+      prefix = [:svg_source_wire_test]
+      handler = {__MODULE__, make_ref()}
+
+      :ok =
+        :telemetry.attach(
+          handler,
+          prefix ++ [:source, :svg_render, :stop],
+          fn _event, _measurements, metadata, pid -> send(pid, {:svg_render, metadata}) end,
+          self()
+        )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+      {:ok, prefix: prefix}
+    end
+
+    test "reports the render's sizes and cost", %{prefix: prefix} do
+      request("w=400/format=png", mount(@svg, telemetry_prefix: prefix))
+
+      assert_received {:svg_render,
+                       %{result: :ok, intrinsic_dims: {40, 20}, rendered_dims: {400, 200}} = meta}
+
+      assert meta.work > 0 and meta.peak >= 400 * 200
+      assert %{images: 0, image_pixels: 0} = meta
+    end
+
+    test "names the limit that rejected a render", %{prefix: prefix} do
+      config = mount(@svg, telemetry_prefix: prefix, svg: [max_render_work: 1_000])
+      request("w=40", config)
+
+      assert_received {:svg_render,
+                       %{result: :processing_error, error: :input_limit, limit: :svg_render_work}}
+    end
+  end
+
   test "fails a render over the render budget" do
     blurs =
       ~s(<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">) <>

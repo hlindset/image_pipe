@@ -38,6 +38,8 @@ defmodule ImagePipe.Telemetry.Catalog do
     {[:source, :fetch_decode], :span, :source},
     # Every libvips open of the original, nested in fetch_decode.
     {[:source, :decode_open], :span, :source, :trace_only},
+    # Rendering an SVG original, nested in fetch_decode.
+    {[:source, :svg_render], :span, :source},
     {[:source, :stage], :span, :source},
     {[:source, :watermark], :span, :source},
     {[:transform, :execute], :span, :transform},

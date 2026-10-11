@@ -869,6 +869,28 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "source fetch_decode: ok (detected jpeg via detected)"
   end
 
+  test "renders an SVG render's sizes, and a rejected render's limit" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :source, :svg_render, :stop],
+          %{duration: System.convert_time_unit(2, :millisecond, :native)},
+          %{result: :ok, intrinsic_dims: {40, 20}, rendered_dims: {400, 200}, images: 2}
+        )
+
+        :telemetry.execute(
+          [:image_pipe, :source, :svg_render, :stop],
+          %{duration: System.convert_time_unit(1, :millisecond, :native)},
+          %{result: :processing_error, error: :input_limit, limit: :svg_render_work}
+        )
+      end)
+
+    assert log =~ "source svg_render: ok (40x20 rendered at 400x200, 2 images)"
+    assert log =~ "source svg_render: processing_error (input_limit, svg_render_work limit)"
+  end
+
   test "renders a skipped source on the fetch_decode span" do
     Telemetry.attach_default_logger(level: :info)
 

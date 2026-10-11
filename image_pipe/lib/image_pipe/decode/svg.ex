@@ -55,51 +55,94 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
     @spec decode(Decode.seekable(), Spec.t(), keyword()) ::
             {:ok, State.t(), SourceGeometry.t(), map()} | {:error, Decode.error()}
     def decode(input, %Spec{} = request, opts) do
+      with {:ok, data} <- read(input) do
+        Telemetry.span(Telemetry.telemetry_opts(opts), [:source, :svg_render], %{}, fn ->
+          traced_render(data, request, opts)
+        end)
+      end
+    end
+
+    defp traced_render(data, request, opts) do
+      case render(data, request, opts) do
+        {:ok, rendered} -> {decoded(rendered, opts), render_metadata(rendered)}
+        {:error, reason} = error -> {error, error_metadata(reason)}
+      end
+    end
+
+    defp render(data, request, opts) do
       max_input_pixels = Keyword.fetch!(opts, :max_input_pixels)
       config = Keyword.fetch!(opts, :svg)
 
-      with {:ok, data} <- read(input),
-           :ok <- check_bytes(byte_size(data), config.max_bytes),
+      with :ok <- check_bytes(byte_size(data), config.max_bytes),
            {:ok, document} <- parse(data, fonts(config), max_input_pixels),
            storage = {max(1, round(document.width)), max(1, round(document.height))},
-           pending = PendingOrientation.from_exif(1, request.orient == :auto),
            geometry = %SourceGeometry{
              storage_dimensions: storage,
              display_dimensions: storage,
-             pending_orientation: pending,
+             pending_orientation: PendingOrientation.from_exif(1, request.orient == :auto),
              source_format: :svg,
              debug_facts: %{source_bytes: byte_size(data)}
            },
-           decode_options = Executor.decode_options(request, geometry),
-           scale = Keyword.get(decode_options, :scale),
+           scale = Keyword.get(Executor.decode_options(request, geometry), :scale),
            {width, height} = render_size(document, scale),
            :ok <- check_pixels(width * height, max_input_pixels),
-           :ok <- check_budget(SVG.cost(document, width, height), config),
+           cost = SVG.cost(document, width, height),
+           :ok <- check_budget(cost, config),
            {:ok, image} <- image(SVG.render(document, width, height), width, height) do
-        state = %State{
-          image: image,
-          source_dimensions: if(scale, do: storage),
-          decode_shrink:
-            if(scale, do: %{w: elem(storage, 0) / width, h: elem(storage, 1) / height}),
-          vector?: true,
-          materialized?: true,
-          pending_orientation: pending,
-          telemetry_opts: Telemetry.telemetry_opts(opts)
-        }
-
-        {:ok, state, geometry,
-         %{
-           result: :ok,
-           load_option: if(scale, do: {:scale, scale}),
-           achieved_shrink: state.decode_shrink,
-           original_dims: storage,
-           loaded_dims: {width, height},
-           detected_source_format: :svg,
-           source_format_resolution: :detected,
-           source_frames: 1
-         }}
+        {:ok, %{image: image, geometry: geometry, scale: scale, cost: cost}}
       end
     end
+
+    defp decoded(%{image: image, geometry: geometry, scale: scale}, opts) do
+      {stored_width, stored_height} = storage = geometry.storage_dimensions
+      {width, height} = {Image.width(image), Image.height(image)}
+      decode_shrink = if scale, do: %{w: stored_width / width, h: stored_height / height}
+
+      state = %State{
+        image: image,
+        source_dimensions: if(scale, do: storage),
+        decode_shrink: decode_shrink,
+        vector?: true,
+        materialized?: true,
+        pending_orientation: geometry.pending_orientation,
+        telemetry_opts: Telemetry.telemetry_opts(opts)
+      }
+
+      {:ok, state, geometry,
+       %{
+         result: :ok,
+         load_option: if(scale, do: {:scale, scale}),
+         achieved_shrink: decode_shrink,
+         original_dims: storage,
+         loaded_dims: {width, height},
+         detected_source_format: :svg,
+         source_format_resolution: :detected,
+         source_frames: 1
+       }}
+    end
+
+    defp render_metadata(%{image: image, geometry: geometry, cost: cost}) do
+      %{
+        result: :ok,
+        intrinsic_dims: geometry.storage_dimensions,
+        rendered_dims: {Image.width(image), Image.height(image)},
+        work: cost.work,
+        peak: cost.peak,
+        images: cost.images,
+        image_pixels: cost.image_pixels
+      }
+    end
+
+    defp error_metadata({tag, reason}),
+      do: %{result: :processing_error, error: tag, limit: limit(reason)}
+
+    defp limit({:too_many_svg_bytes, _bytes, _max}), do: :svg_bytes
+    defp limit({:too_many_svg_elements, _count, _max}), do: :svg_elements
+    defp limit({:too_many_input_pixels, _pixels, _max}), do: :pixels
+    defp limit(:svg_nesting_too_deep), do: :svg_nesting
+    defp limit({:svg_render_budget, :work, _work, _max}), do: :svg_render_work
+    defp limit({:svg_render_budget, :peak, _peak, _max}), do: :svg_render_pixels
+    defp limit(_reason), do: nil
 
     defp read({:buffer, data}), do: {:ok, data}
 
