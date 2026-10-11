@@ -31,6 +31,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `base_url` with a non-default port needs that port in `allowed_hosts` when you
   set the list. A malformed entry, such as `"assets.example.com:https"`, now
   fails at startup.
+- A response to a URL with `expires` drops `stale-while-revalidate` and
+  `stale-if-error`, including ones the host sets, because caches can't use them
+  alongside its `must-revalidate`.
 - Processed images cached by an earlier version are not reused, because the
   cache key changed. The cache refills as requests come in.
 - Requests for PNG and other sources that need no shrink-on-load open the

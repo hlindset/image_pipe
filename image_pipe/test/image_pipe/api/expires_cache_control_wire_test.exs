@@ -111,6 +111,8 @@ defmodule ImagePipe.API.ExpiresCacheControlWireTest do
           {"public, max-age=86400", "public, max-age=3600, must-revalidate"},
           {"public, s-maxage=86400, max-age=60",
            "public, s-maxage=3600, max-age=60, must-revalidate"},
+          {"public, max-age=60, stale-while-revalidate=30, stale-if-error=60",
+           "public, max-age=60, must-revalidate"},
           {"no-store", "no-store"}
         ] do
       response =
@@ -168,28 +170,20 @@ defmodule ImagePipe.API.ExpiresCacheControlWireTest do
              ]
     end
 
-    test "stale-while-revalidate is trimmed to end at the expiry", %{
-      config: config,
-      origin: origin
-    } do
+    # must-revalidate forbids serving stale responses (RFC 9111 §4.2.4), so a
+    # stale window next to it would never be used.
+    test "stale-while-revalidate is dropped", %{config: config, origin: origin} do
       Agent.update(origin, fn _ -> "public, max-age=60, stale-while-revalidate=30" end)
 
-      # 40 s of freshness remain (60 - Age 20); expiry is 50 s away.
-      response = get(origin_path(@now + 50), config)
+      # 40 s of freshness remain (60 - Age 20). The first expiry falls inside
+      # the stale window, the second after it.
+      for expires <- [@now + 50, @expires] do
+        response = get(origin_path(expires), config)
 
-      assert get_resp_header(response, "cache-control") == [
-               "public, max-age=60, stale-while-revalidate=10, must-revalidate"
-             ]
-    end
-
-    test "an origin lifetime inside the expiry is kept", %{config: config, origin: origin} do
-      Agent.update(origin, fn _ -> "public, max-age=60, stale-while-revalidate=30" end)
-
-      response = get(origin_path(@expires), config)
-
-      assert get_resp_header(response, "cache-control") == [
-               "public, max-age=60, stale-while-revalidate=30, must-revalidate"
-             ]
+        assert get_resp_header(response, "cache-control") == [
+                 "public, max-age=60, must-revalidate"
+               ]
+      end
     end
   end
 
