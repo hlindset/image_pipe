@@ -21,22 +21,46 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
     alias Vix.Vips.Image, as: VipsImage
     alias Vix.Vips.Operation
 
-    # About a second of rendering at the rates measured in the render budget
-    # spike (image_pipe/docs/plans/svg-rasterize.md, Render budget).
-    @max_work 250_000_000
-    # Pixmap pixels alive at once, as a multiple of `max_input_pixels`.
-    @peak_factor 4
+    # Elements after expanding `<use>`, estimated before usvg expands them.
     @max_elements 200_000
 
-    @fonts_key {__MODULE__, :fonts}
+    @doc """
+    Resolves the validated `svg` options for `max_input_pixels`. Loads the
+    fonts to fail on a bad font file or fallback family, but keeps only plain
+    data: a router may build the configuration at compile time, where a
+    loaded font set can't be stored. The identity covers everything that can
+    change how the same SVG renders, so it enters the cache key and ETag.
+    """
+    @spec config!(keyword(), pos_integer()) :: map()
+    def config!(options, max_input_pixels) do
+      font_dirs = Keyword.fetch!(options, :font_dirs)
+      fallback_family = options[:fallback_family]
+
+      case SVG.load_fonts(font_dirs, fallback_family: fallback_family) do
+        {:ok, fonts} ->
+          %{
+            font_dirs: font_dirs,
+            fallback_family: fallback_family,
+            max_bytes: Keyword.fetch!(options, :max_bytes),
+            max_render_work: Keyword.fetch!(options, :max_render_work),
+            max_render_pixels: options[:max_render_pixels] || 4 * max_input_pixels,
+            identity: Map.put(SVG.versions(), :fonts, fonts.fingerprint)
+          }
+
+        {:error, message} ->
+          raise ArgumentError, "invalid ImagePipe configuration: svg: #{message}"
+      end
+    end
 
     @spec decode(Decode.seekable(), Spec.t(), keyword()) ::
             {:ok, State.t(), SourceGeometry.t(), map()} | {:error, Decode.error()}
     def decode(input, %Spec{} = request, opts) do
       max_input_pixels = Keyword.fetch!(opts, :max_input_pixels)
+      config = Keyword.fetch!(opts, :svg)
 
       with {:ok, data} <- read(input),
-           {:ok, document} <- parse(data, max_input_pixels),
+           :ok <- check_bytes(byte_size(data), config.max_bytes),
+           {:ok, document} <- parse(data, fonts(config), max_input_pixels),
            storage = {max(1, round(document.width)), max(1, round(document.height))},
            pending = PendingOrientation.from_exif(1, request.orient == :auto),
            geometry = %SourceGeometry{
@@ -50,7 +74,7 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
            scale = Keyword.get(decode_options, :scale),
            {width, height} = render_size(document, scale),
            :ok <- check_pixels(width * height, max_input_pixels),
-           :ok <- check_budget(SVG.cost(document, width, height), max_input_pixels),
+           :ok <- check_budget(SVG.cost(document, width, height), config),
            {:ok, image} <- image(SVG.render(document, width, height), width, height) do
         state = %State{
           image: image,
@@ -86,8 +110,11 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
       end
     end
 
-    defp parse(data, max_input_pixels) do
-      case SVG.parse(data, fonts(),
+    defp check_bytes(bytes, max) when bytes <= max, do: :ok
+    defp check_bytes(bytes, max), do: {:error, {:input_limit, {:too_many_svg_bytes, bytes, max}}}
+
+    defp parse(data, fonts, max_input_pixels) do
+      case SVG.parse(data, fonts,
              max_elements: @max_elements,
              max_image_pixels: max_input_pixels
            ) do
@@ -108,13 +135,15 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
       end
     end
 
-    # Text renders only in fonts the host configures. Until it can, SVGs render
-    # with no fonts, so their text is left out.
-    defp fonts do
-      case :persistent_term.get(@fonts_key, nil) do
+    # The fonts load on first use and stay loaded for the life of the VM, keyed
+    # by the font set and its fingerprint taken at startup.
+    defp fonts(%{font_dirs: dirs, fallback_family: fallback, identity: %{fonts: fingerprint}}) do
+      key = {__MODULE__, :fonts, dirs, fallback, fingerprint}
+
+      case :persistent_term.get(key, nil) do
         nil ->
-          {:ok, fonts} = SVG.load_fonts([])
-          :persistent_term.put(@fonts_key, fonts)
+          {:ok, fonts} = SVG.load_fonts(dirs, fallback_family: fallback)
+          :persistent_term.put(key, fonts)
           fonts
 
         fonts ->
@@ -133,16 +162,13 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
     defp check_pixels(pixels, max),
       do: {:error, {:input_limit, {:too_many_input_pixels, pixels, max}}}
 
-    defp check_budget(%{work: work}, _max_input_pixels) when work > @max_work,
-      do: {:error, {:input_limit, {:svg_render_budget, :work, work, @max_work}}}
+    defp check_budget(%{work: work}, %{max_render_work: max}) when work > max,
+      do: {:error, {:input_limit, {:svg_render_budget, :work, work, max}}}
 
-    defp check_budget(%{peak: peak}, max_input_pixels)
-         when peak > @peak_factor * max_input_pixels,
-         do:
-           {:error,
-            {:input_limit, {:svg_render_budget, :peak, peak, @peak_factor * max_input_pixels}}}
+    defp check_budget(%{peak: peak}, %{max_render_pixels: max}) when peak > max,
+      do: {:error, {:input_limit, {:svg_render_budget, :peak, peak, max}}}
 
-    defp check_budget(_cost, _max_input_pixels), do: :ok
+    defp check_budget(_cost, _config), do: :ok
 
     # The NIF renders straight-alpha sRGB, which libvips wraps without copying.
     defp image(rgba, width, height) do

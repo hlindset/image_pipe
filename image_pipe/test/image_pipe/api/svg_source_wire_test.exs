@@ -5,6 +5,9 @@ defmodule ImagePipe.API.SVGSourceWireTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias Vix.Vips.Operation
+
+  @font_dir Path.expand("../../support/fonts", __DIR__)
 
   # Red left half, blue right half, at an intrinsic 40×20.
   @svg ~s(<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20" viewBox="0 0 40 20">) <>
@@ -86,6 +89,40 @@ defmodule ImagePipe.API.SVGSourceWireTest do
     assert request("w=100/format=png", config).status == 413
   end
 
+  describe "fonts" do
+    @text ~s(<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50">) <>
+            ~s(<text x="0" y="40" font-family="Helvetica, sans-serif" font-size="40">M</text></svg>)
+
+    test "draw text only with configured fonts" do
+      with_fonts = mount(@text, svg: [font_dirs: [@font_dir], fallback_family: "Geist Mono"])
+
+      refute drawn?(request("format=png", mount(@text)))
+      assert drawn?(request("format=png", with_fonts))
+    end
+
+    test "change the ETag, since they change how the same SVG renders" do
+      etag = fn config -> request("w=50", config) |> get_resp_header("etag") end
+
+      refute etag.(mount(@text)) ==
+               etag.(mount(@text, svg: [font_dirs: [@font_dir], fallback_family: "Geist Mono"]))
+    end
+
+    test "fail configuration when the fallback family isn't loaded" do
+      assert_raise ArgumentError, ~r/Comic Sans MS/, fn ->
+        mount(@svg, svg: [font_dirs: [@font_dir], fallback_family: "Comic Sans MS"])
+      end
+    end
+  end
+
+  test "fails an SVG larger than svg.max_bytes" do
+    assert request("w=40", mount(@svg, svg: [max_bytes: byte_size(@svg)])).status == 200
+    assert request("w=40", mount(@svg, svg: [max_bytes: byte_size(@svg) - 1])).status == 413
+  end
+
+  test "fails a render over svg.max_render_work" do
+    assert request("w=40", mount(@svg, svg: [max_render_work: 1_000])).status == 413
+  end
+
   test "fails a render over the render budget" do
     blurs =
       ~s(<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">) <>
@@ -99,6 +136,12 @@ defmodule ImagePipe.API.SVGSourceWireTest do
   test "rejects a malformed SVG as an unsupported source" do
     malformed = ~s(<svg xmlns="http://www.w3.org/2000/svg" width="8"><rect)
     assert request("w=8", mount(malformed)).status == 415
+  end
+
+  defp drawn?(response) do
+    {_color, alpha} = response.resp_body |> Image.from_binary!() |> Image.split_alpha()
+    {:ok, mean} = Operation.avg(alpha)
+    mean > 0
   end
 
   defp request(options, config),

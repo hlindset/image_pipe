@@ -12,8 +12,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   at any size, and a resize can make it larger than its own `width` and
   `height` without `enlarge`. Regions and crops in pixels measure the SVG at
   its own size. With no `format` and no negotiated format, the result is a
-  PNG. Text in SVGs isn't rendered yet. Without `image_pipe_svg`, SVG
-  sources still fail with `415`.
+  PNG. Without `image_pipe_svg`, SVG sources still fail with `415`.
+- The `:svg` option configures SVG sources: `:font_dirs` and
+  `:fallback_family` for the fonts SVG text renders in (no system fonts are
+  used), and `:max_bytes`, `:max_render_work`, and `:max_render_pixels` to
+  limit the work an SVG can cause. With `image_pipe_svg` installed, cache
+  keys and ETags include the resvg version and the fonts, so changing the
+  fonts makes cached images miss.
 
 - Without `max_size_bytes`, `cache` and `input_cache` delete entries nobody has
   read for `max_age` seconds, 7 days by default, so images that are no longer

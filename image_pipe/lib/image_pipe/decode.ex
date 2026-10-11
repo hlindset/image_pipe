@@ -54,6 +54,27 @@ defmodule ImagePipe.Decode do
   @typedoc "A fetched source body that every decode can reopen."
   @type seekable() :: {:path, Path.t()} | {:buffer, binary()}
 
+  @doc """
+  Resolves the validated `svg` configuration options: loads the fonts and fills
+  in the defaults that depend on other options.
+
+  Returns `nil` without the `image_pipe_svg` package, and raises when `given?`
+  says the host set SVG options that nothing would use.
+  """
+  @spec svg_config!(keyword(), boolean(), keyword()) :: map() | nil
+  if @svg_available do
+    def svg_config!(options, _given?, config),
+      do: ImagePipe.Decode.SVG.config!(options, Keyword.fetch!(config, :max_input_pixels))
+  else
+    def svg_config!(_options, false, _config), do: nil
+
+    def svg_config!(_options, true, _config) do
+      raise ArgumentError,
+            "invalid ImagePipe configuration: svg needs the optional image_pipe_svg " <>
+              "package; add it to your dependencies"
+    end
+  end
+
   @doc "Returns whether a JPEG or PNG prefix opens successfully with the matching decoder."
   defdelegate streamable_source?(prefix), to: Streaming, as: :eligible?
 

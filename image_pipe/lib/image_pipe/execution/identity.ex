@@ -1,7 +1,8 @@
 defmodule ImagePipe.Execution.Identity do
   # Builds representation identity from canonical request data and the
   # resolved output policy. Byte-affecting groups, terminal, output selection,
-  # and detector identity enter both the cache key and ETag. Info identity also
+  # detector identity, and SVG renderer identity enter both the cache key and
+  # ETag. Info identity also
   # carries the placeholders it includes.
   #
   # The cachebuster and configured request-header/cookie storage inputs partition
@@ -40,7 +41,7 @@ defmodule ImagePipe.Execution.Identity do
         %{request | groups: Enum.map(request.groups, &Map.from_struct/1)},
         policy,
         detector_identity
-      )
+      ) ++ svg_material(Keyword.get(config, :svg))
 
     vary_header_names =
       if varies_by_accept?(policy) do
@@ -101,6 +102,12 @@ defmodule ImagePipe.Execution.Identity do
 
   defp varies_by_accept?(nil), do: false
   defp varies_by_accept?(%Policy{headers: headers}), do: {"vary", "Accept"} in headers
+
+  # Whether the source is an SVG isn't known before the fetch, so with SVG
+  # support every key and ETag carries what can change how an SVG renders:
+  # the resvg version and the fonts.
+  defp svg_material(nil), do: []
+  defp svg_material(%{identity: identity}), do: [svg: identity]
 
   defp detector_material(nil), do: []
   defp detector_material(identity), do: [detector: identity]
