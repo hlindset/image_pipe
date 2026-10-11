@@ -10,6 +10,8 @@ on:
       - "image_pipe_url/.credo.exs"
       - "image_pipe_url/mix.exs"
       - "image_pipe_url/mix.lock"
+      - "image_pipe_svg/lib/**"
+      - "image_pipe_svg/mix.exs"
       - "image_pipe/lib/**"
       - "image_pipe/test/**"
       - "image_pipe/config/**"
@@ -124,11 +126,11 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: image_pipe/priv/plts
-          # image_pipe_url is a path dependency, so it never appears in
-          # mix.lock. Its sources are part of the key, and there is no
+          # image_pipe_url and image_pipe_svg are path dependencies, so they
+          # never appear in mix.lock. Their sources are part of the key, and there is no
           # restore-keys fallback: dialyxir judges PLT freshness by the lock
           # alone and would keep a stale PLT from a partial match.
-          key: plt-dev-${{ steps.runner.outputs.image }}-erlang29.1.1-elixir1.20.4-otp29-${{ hashFiles('image_pipe/mix.lock', 'image_pipe_url/mix.exs', 'image_pipe_url/lib/**/*.ex') }}
+          key: plt-dev-${{ steps.runner.outputs.image }}-erlang29.1.1-elixir1.20.4-otp29-${{ hashFiles('image_pipe/mix.lock', 'image_pipe_url/mix.exs', 'image_pipe_url/lib/**/*.ex', 'image_pipe_svg/mix.exs', 'image_pipe_svg/lib/**/*.ex') }}
       - name: Create PLTs
         if: steps.plt-cache.outputs.cache-hit != 'true'
         working-directory: image_pipe
