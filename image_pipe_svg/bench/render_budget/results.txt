@@ -1,0 +1,46 @@
+baseline w=1000 rss=6MB bytes=235 intrinsic=100x100 out=1000x1000 nodes=2 images=0 parse_ms=0.7 walk_ms=0.0 render_ms=1.4
+baseline w=4000 rss=52MB bytes=235 intrinsic=100x100 out=4000x4000 nodes=2 images=0 parse_ms=0.1 walk_ms=0.0 render_ms=12.6
+blur_s1 w=1000 rss=36MB bytes=311 intrinsic=100x100 out=1000x1000 nodes=2 images=0 parse_ms=0.2 walk_ms=0.0 render_ms=93.1
+blur_s1 w=4000 rss=533MB bytes=311 intrinsic=100x100 out=4000x4000 nodes=2 images=0 parse_ms=0.1 walk_ms=0.0 render_ms=2183.0
+blur_s10 w=1000 rss=36MB bytes=312 intrinsic=100x100 out=1000x1000 nodes=2 images=0 parse_ms=0.1 walk_ms=0.0 render_ms=86.7
+blur_s10 w=4000 rss=533MB bytes=312 intrinsic=100x100 out=4000x4000 nodes=2 images=0 parse_ms=0.1 walk_ms=0.0 render_ms=2171.2
+blur_s50 w=1000 rss=36MB bytes=312 intrinsic=100x100 out=1000x1000 nodes=2 images=0 parse_ms=0.1 walk_ms=0.0 render_ms=89.4
+blur_s50 w=4000 rss=533MB bytes=312 intrinsic=100x100 out=4000x4000 nodes=2 images=0 parse_ms=0.1 walk_ms=0.0 render_ms=2444.9
+blur_x200 w=1000 rss=24MB bytes=15394 intrinsic=100x100 out=1000x1000 nodes=400 images=0 parse_ms=0.5 walk_ms=0.0 render_ms=9455.0
+blur_x200 w=4000 rss=329MB FAILED: time: command terminated abnormally 
+dashes w=1000 rss=22MB bytes=3009 intrinsic=100x100 out=1000x1000 nodes=1 images=0 parse_ms=0.1 walk_ms=0.0 render_ms=17.4
+dashes w=4000 rss=23MB bytes=3009 intrinsic=100x100 out=4000x4000 nodes=1 images=0 parse_ms=0.1 walk_ms=0.0 render_ms=29.4
+entity_bomb w=1000 rss=2MB bytes=573 parse_err=ParsingFailed(EntityReferenceLoop(TextPos { row: 1, col: 88 })) parse_ms=0.0
+entity_bomb w=4000 rss=2MB bytes=573 parse_err=ParsingFailed(EntityReferenceLoop(TextPos { row: 1, col: 88 })) parse_ms=0.0
+filter_chain w=1000 rss=111MB FAILED: time: command terminated abnormally 
+filter_chain w=4000 rss=355MB FAILED: time: command terminated abnormally 
+mask_chain_100 w=1000 rss=397MB bytes=8548 intrinsic=100x100 out=1000x1000 nodes=4 images=0 parse_ms=0.3 walk_ms=0.0 render_ms=620.0
+mask_chain_100 w=4000 rss=2436MB bytes=8548 intrinsic=100x100 out=4000x4000 nodes=4 images=0 parse_ms=0.3 walk_ms=0.0 render_ms=10417.6
+masks_x500 w=1000 rss=18MB bytes=23701 intrinsic=100x100 out=1000x1000 nodes=1500 images=0 parse_ms=1.0 walk_ms=0.0 render_ms=4634.4
+masks_x500 w=4000 rss=203MB FAILED: time: command terminated abnormally 
+nest_1000 w=1000 rss=275MB bytes=22168 intrinsic=100x100 out=1000x1000 nodes=1001 images=0 parse_ms=0.7 walk_ms=0.0 render_ms=4487.2
+nest_1000 w=4000 rss=2452MB FAILED: time: command terminated abnormally 
+nest_5000 w=1000 rss=7MB bytes=110168 parse_err=ParsingFailed(NodesLimitReached) parse_ms=0.9
+nest_5000 w=4000 rss=7MB bytes=110168 parse_err=ParsingFailed(NodesLimitReached) parse_ms=0.8
+nested_svg_5 w=1000 rss=30MB bytes=2559 intrinsic=100x100 out=1000x1000 nodes=13 images=6 parse_ms=0.2 walk_ms=0.0 render_ms=21.7
+nested_svg_5 w=4000 rss=430MB bytes=2559 intrinsic=100x100 out=4000x4000 nodes=13 images=6 parse_ms=0.1 walk_ms=0.0 render_ms=356.3
+nested_svg_x200 w=1000 rss=32MB bytes=484736 intrinsic=100x100 out=1000x1000 nodes=2600 images=1200 parse_ms=6.6 walk_ms=0.0 render_ms=3974.4
+nested_svg_x200 w=4000 rss=432MB FAILED: time: command terminated abnormally 
+paths_100k w=1000 rss=80MB bytes=2980136 intrinsic=100x100 out=1000x1000 nodes=100000 images=0 parse_ms=74.8 walk_ms=1.2 render_ms=176.9
+paths_100k w=4000 rss=136MB bytes=2980136 intrinsic=100x100 out=4000x4000 nodes=100000 images=0 parse_ms=76.2 walk_ms=1.2 render_ms=600.1
+pattern_1000 w=1000 rss=26MB bytes=295 intrinsic=100x100 out=1000x1000 nodes=2 images=0 parse_ms=0.1 walk_ms=0.0 render_ms=5.5
+pattern_1000 w=4000 rss=187MB bytes=295 intrinsic=100x100 out=4000x4000 nodes=2 images=0 parse_ms=0.1 walk_ms=0.0 render_ms=76.0
+pattern_5000 w=1000 rss=26MB bytes=295 intrinsic=100x100 out=1000x1000 nodes=2 images=0 parse_ms=0.1 walk_ms=0.0 render_ms=6.3
+pattern_5000 w=4000 rss=187MB bytes=295 intrinsic=100x100 out=4000x4000 nodes=2 images=0 parse_ms=0.1 walk_ms=0.0 render_ms=79.8
+pattern_image_x500 w=1000 rss=18MB bytes=236900 intrinsic=100x100 out=1000x1000 nodes=1500 images=500 parse_ms=0.9 walk_ms=0.0 render_ms=5263.7
+pattern_image_x500 w=4000 rss=133MB FAILED: time: command terminated abnormally 
+pattern_nested w=1000 rss=80MB bytes=2783 intrinsic=100x100 out=1000x1000 nodes=21 images=0 parse_ms=0.2 walk_ms=0.0 render_ms=84.2
+pattern_nested w=4000 rss=1060MB bytes=2783 intrinsic=100x100 out=4000x4000 nodes=21 images=0 parse_ms=0.1 walk_ms=0.0 render_ms=1388.0
+use_bomb_5 w=1000 rss=128MB bytes=1127 intrinsic=100x100 out=1000x1000 nodes=222222 images=0 parse_ms=183.6 walk_ms=2.7 render_ms=109.4
+use_bomb_5 w=4000 rss=130MB bytes=1127 intrinsic=100x100 out=4000x4000 nodes=222222 images=0 parse_ms=182.9 walk_ms=2.7 render_ms=292.9
+use_bomb_6 w=1000 rss=88MB bytes=1312 parse_err=ParsingFailed(NodesLimitReached) parse_ms=97.5
+use_bomb_6 w=4000 rss=89MB bytes=1312 parse_err=ParsingFailed(NodesLimitReached) parse_ms=99.6
+use_bomb_7 w=1000 rss=89MB bytes=1497 parse_err=ParsingFailed(NodesLimitReached) parse_ms=98.6
+use_bomb_7 w=4000 rss=89MB bytes=1497 parse_err=ParsingFailed(NodesLimitReached) parse_ms=99.4
+use_image_x500 w=1000 rss=94MB bytes=221339 intrinsic=100x100 out=1000x1000 nodes=1500 images=500 parse_ms=143.2 walk_ms=0.0 render_ms=3280.4
+use_image_x500 w=4000 rss=150MB FAILED: time: command terminated abnormally 

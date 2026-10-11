@@ -1,0 +1,4 @@
+target/
+cases/
+noise.png
+Cargo.lock
