@@ -2,18 +2,23 @@ name: SVG package release
 
 # An image_pipe_svg-vX.Y.Z tag builds the precompiled NIFs, attaches them to a
 # GitHub release, then publishes image_pipe_svg to Hex with their checksums.
-# Running the workflow by hand from any branch is a dry run that builds every
-# NIF without releasing or publishing.
+# A pull request that changes the NIF crate, or a run by hand from any branch,
+# is a dry run that builds every NIF without releasing or publishing.
 on:
   push:
     tags: ["image_pipe_svg-v*.*.*"]
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "image_pipe_svg/native/**"
+      - ".github/workflows/release-svg.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-svg
+  group: release-svg-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:

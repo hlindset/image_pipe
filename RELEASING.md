@@ -157,7 +157,8 @@ withdraws a library version.
 Run any release workflow by hand from any branch. None publishes anything.
 
 - The Library release workflow builds and checks the Hex packages.
-- The SVG package release workflow builds every NIF.
+- The SVG package release workflow builds every NIF. It also runs on each
+  pull request that changes the NIF crate.
 - The Server release workflow tests, builds, and smoke-tests every image.
   It builds against Hex when `@image_pipe_version` is published there, and
   against the sibling projects otherwise. The run summary says which. A run
