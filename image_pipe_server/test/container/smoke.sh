@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Starts an image_pipe_server container with a read-only root filesystem and
 # checks the health checks, a PNG request, a JPEG XL source (which needs the
-# libvips the image builds from source), and draining on shutdown.
+# libvips the image builds from source), an SVG source (which needs the
+# image_pipe_svg NIF), and draining on shutdown.
 #
 #     test/container/smoke.sh IMAGE [vision]
 #
@@ -24,6 +25,8 @@ trap cleanup EXIT
 
 mkdir -p "$work/images"
 cp "$here/../support/images/pic.png" "$here/pic.jxl" "$work/images/"
+printf '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="red"/></svg>' \
+  > "$work/images/pic.svg"
 cp "$here/config.toml" "$work/config.toml"
 
 if [ "$variant" = "vision" ]; then
@@ -75,6 +78,7 @@ check_png() {
 
 check_png pic.png
 check_png pic.jxl
+check_png pic.svg
 
 # The server runs on jemalloc, whose background thread returns memory while
 # the server is idle.

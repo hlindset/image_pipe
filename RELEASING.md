@@ -130,7 +130,9 @@ The tag starts the [SVG package release workflow](.github/workflows/release-svg.
    the `release` environment.
 
 When `image_pipe` needs the new version, raise its `image_pipe_svg`
-requirement in a library release.
+requirement in a library release. Server images build against Hex and always
+include `image_pipe_svg`, so a version matching the server's requirement must
+be on Hex before the server release.
 
 ## Release a new minor version
 

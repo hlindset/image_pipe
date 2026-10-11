@@ -7,6 +7,14 @@
 !image_pipe/mix.lock
 !image_pipe/lib
 !image_pipe/priv/icc
+!image_pipe_svg/mix.exs
+!image_pipe_svg/mix.lock
+!image_pipe_svg/lib
+!image_pipe_svg/native/image_pipe_svg_nif/Cargo.toml
+!image_pipe_svg/native/image_pipe_svg_nif/Cargo.lock
+!image_pipe_svg/native/image_pipe_svg_nif/build.rs
+!image_pipe_svg/native/image_pipe_svg_nif/src
+!image_pipe_svg/native/image_pipe_svg_nif/.cargo
 !image_pipe_server/mix.exs
 !image_pipe_server/mix.lock
 !image_pipe_server/config

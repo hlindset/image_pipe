@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 #
 # Builds the image_pipe_server release. Build from the repository root, since
-# the server depends on the sibling image_pipe and image_pipe_url projects:
+# the server depends on the sibling image_pipe, image_pipe_url, and
+# image_pipe_svg projects:
 #
 #     docker build -f image_pipe_server/Dockerfile -t image_pipe_server .
 #     docker build -f image_pipe_server/Dockerfile --build-arg IMAGE_VISION=1 \
@@ -99,10 +100,12 @@ RUN ldd /usr/local/lib/libvips.so.42 | awk '/=> \// { print $3 }' \
 
 ARG IMAGE_VISION=0
 ENV IMAGE_VISION=${IMAGE_VISION}
+ARG IMAGE_PIPE_LIBS
 
-# ortex compiles its NIF from Rust source.
+# ortex compiles its NIF from Rust source, and so does the sibling
+# image_pipe_svg project. image_pipe_svg from Hex downloads a precompiled NIF.
 ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo PATH=/opt/cargo/bin:${PATH}
-RUN if [ "${IMAGE_VISION}" = "1" ]; then \
+RUN if [ "${IMAGE_VISION}" = "1" ] || [ "${IMAGE_PIPE_LIBS}" = "path" ]; then \
       curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable; \
     fi
 
@@ -116,6 +119,7 @@ RUN mix local.hex --force && mix local.rebar --force
 FROM toolchain AS manifests-path
 COPY image_pipe_url/mix.exs image_pipe_url/mix.lock image_pipe_url/
 COPY image_pipe/mix.exs image_pipe/mix.lock image_pipe/
+COPY image_pipe_svg/mix.exs image_pipe_svg/mix.lock image_pipe_svg/
 
 FROM toolchain AS manifests-hex
 ENV IMAGE_PIPE_LIBS=hex
@@ -130,6 +134,13 @@ FROM deps AS sources-path
 COPY image_pipe_url/lib /src/image_pipe_url/lib
 COPY image_pipe/lib /src/image_pipe/lib
 COPY image_pipe/priv/icc /src/image_pipe/priv/icc
+COPY image_pipe_svg/lib /src/image_pipe_svg/lib
+COPY image_pipe_svg/native/image_pipe_svg_nif/Cargo.toml \
+     image_pipe_svg/native/image_pipe_svg_nif/Cargo.lock \
+     image_pipe_svg/native/image_pipe_svg_nif/build.rs \
+     /src/image_pipe_svg/native/image_pipe_svg_nif/
+COPY image_pipe_svg/native/image_pipe_svg_nif/src /src/image_pipe_svg/native/image_pipe_svg_nif/src
+COPY image_pipe_svg/native/image_pipe_svg_nif/.cargo /src/image_pipe_svg/native/image_pipe_svg_nif/.cargo
 
 FROM deps AS sources-hex
 

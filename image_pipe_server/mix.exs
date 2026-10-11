@@ -32,15 +32,18 @@ defmodule ImagePipeServer.MixProject do
 
   defp deps do
     [
-      image_pipe_dep(),
-      {:bandit, "~> 1.5"},
-      {:plug, "~> 1.18"},
-      {:toml, "~> 0.7.0"},
-      # OpenTelemetry SDK for OTEL_* trace export; the exporter app is listed
-      # first so it starts before the SDK's span processor.
-      {:opentelemetry_exporter, "~> 1.8"},
-      {:opentelemetry, "~> 1.7"}
-    ] ++ vision_deps()
+      image_pipe_dep()
+    ] ++
+      image_pipe_svg_deps() ++
+      [
+        {:bandit, "~> 1.5"},
+        {:plug, "~> 1.18"},
+        {:toml, "~> 0.7.0"},
+        # OpenTelemetry SDK for OTEL_* trace export; the exporter app is listed
+        # first so it starts before the SDK's span processor.
+        {:opentelemetry_exporter, "~> 1.8"},
+        {:opentelemetry, "~> 1.7"}
+      ] ++ vision_deps()
   end
 
   # Development and CI use the sibling project. Release images build with
@@ -49,6 +52,18 @@ defmodule ImagePipeServer.MixProject do
     if System.get_env("IMAGE_PIPE_LIBS") == "hex",
       do: {:image_pipe, "== #{@image_pipe_version}"},
       else: {:image_pipe, path: "../image_pipe"}
+  end
+
+  # The server always renders SVG sources. From the sibling project the NIF
+  # builds from source (config/config.exs), which needs rustler; from Hex it
+  # downloads the precompiled NIF.
+  defp image_pipe_svg_deps do
+    if System.get_env("IMAGE_PIPE_LIBS") == "hex",
+      do: [{:image_pipe_svg, "~> 0.1"}],
+      else: [
+        {:image_pipe_svg, path: "../image_pipe_svg"},
+        {:rustler, "~> 0.38.0", runtime: false}
+      ]
   end
 
   # The -vision image builds with IMAGE_VISION=1 to bundle the default
