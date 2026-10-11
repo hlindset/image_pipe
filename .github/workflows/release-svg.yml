@@ -1,0 +1,143 @@
+name: SVG package release
+
+# An image_pipe_svg-vX.Y.Z tag builds the precompiled NIFs, attaches them to a
+# GitHub release, then publishes image_pipe_svg to Hex with their checksums.
+# Running the workflow by hand from any branch is a dry run that builds every
+# NIF without releasing or publishing.
+on:
+  push:
+    tags: ["image_pipe_svg-v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-svg
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify version
+    runs-on: ubuntu-26.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Package version
+        id: version
+        run: echo "version=$(scripts/check-versions.sh svg)" >> "$GITHUB_OUTPUT"
+      - name: Tag matches the package, is on main, and has release notes
+        if: github.event_name == 'push'
+        run: |
+          scripts/check-versions.sh svg "${GITHUB_REF_NAME#image_pipe_svg-v}"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          scripts/changelog-notes.sh svg "${GITHUB_REF_NAME#image_pipe_svg-v}" > /dev/null
+
+  nif:
+    name: NIF ${{ matrix.nif }} / ${{ matrix.job.target }}
+    needs: verify
+    runs-on: ${{ matrix.job.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        nif: ["2.17", "2.16", "2.15"]
+        job:
+          - { target: aarch64-apple-darwin, os: macos-15 }
+          - { target: x86_64-apple-darwin, os: macos-15 }
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04 }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-22.04, use-cross: true }
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-22.04, use-cross: true }
+          - { target: aarch64-unknown-linux-musl, os: ubuntu-22.04, use-cross: true }
+          - { target: x86_64-pc-windows-msvc, os: windows-2022 }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # macos-15 runners are Apple Silicon, so the x86_64 build cross-compiles.
+      - name: Add Rust target for the x86_64 macOS build
+        if: matrix.job.target == 'x86_64-apple-darwin'
+        run: rustup target add x86_64-apple-darwin
+      - name: Build NIF
+        id: build
+        uses: philss/rustler-precompiled-action@67ed0cc2d6a423e4c4cd9ad651dcc6c90f802cdb # v1.1.5
+        with:
+          project-name: image_pipe_svg_nif
+          project-version: ${{ needs.verify.outputs.version }}
+          target: ${{ matrix.job.target }}
+          nif-version: ${{ matrix.nif }}
+          use-cross: ${{ matrix.job.use-cross }}
+          project-dir: image_pipe_svg/native/image_pipe_svg_nif
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nif-${{ matrix.nif }}-${{ matrix.job.target }}
+          path: ${{ steps.build.outputs.file-path }}
+          if-no-files-found: error
+
+  github-release:
+    name: GitHub release
+    if: github.event_name == 'push'
+    needs: nif
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: nif-*
+          path: ${{ runner.temp }}/nifs
+          merge-multiple: true
+      # RustlerPrecompiled downloads the NIFs from this release, so it must
+      # exist before the package is published.
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          scripts/changelog-notes.sh svg "${GITHUB_REF_NAME#image_pipe_svg-v}" > "$RUNNER_TEMP/notes.md"
+          gh release create "$GITHUB_REF_NAME" --verify-tag \
+            --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md" \
+            "$RUNNER_TEMP"/nifs/*
+
+  hex:
+    name: Hex package
+    if: github.event_name == 'push'
+    needs: github-release
+    runs-on: ubuntu-26.04
+    environment: release
+    env:
+      # Download the NIFs just released instead of building from source.
+      IMAGE_PIPE_SVG_PUBLISH: "1"
+    defaults:
+      run:
+        working-directory: image_pipe_svg
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Workaround: mise (2026.9.18) maps ImageOS to builds.hex.pm's Erlang
+      # builds only up to ubuntu24 and compiles from source otherwise, so name
+      # the release. Remove once mise maps ubuntu26 itself
+      # (linux_precompiled_os_version in src/plugins/core/erlang.rs).
+      - name: Precompiled Erlang
+        run: echo "MISE_ERLANG_PRECOMPILED_OS=${ImageOS/ubuntu/ubuntu-}.04" >> "$GITHUB_ENV"
+      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          install_args: erlang elixir
+      - name: Install Hex
+        run: mise exec -- mix local.hex --force
+      - name: Install Rebar
+        run: mise exec -- mix local.rebar --force
+      - name: Install dependencies
+        run: mise exec -- mix deps.get
+      - name: Download NIF checksums
+        run: mise exec -- mix rustler_precompiled.download ImagePipe.SVG.Native --all --print
+      - name: Publish
+        run: mise exec -- mix hex.publish --yes
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}

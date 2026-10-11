@@ -4,9 +4,10 @@
 # image_pipe_url and image_pipe share one version. image_pipe_server shares
 # their major.minor and has its own patch version. The image_pipe version the
 # server releases with (@image_pipe_version) shares that major.minor and is no
-# newer than the libraries.
+# newer than the libraries. image_pipe_svg has its own version, unconstrained by
+# the others.
 #
-# Usage: check-versions.sh [libraries|server|server-libraries] [VERSION]
+# Usage: check-versions.sh [libraries|server|server-libraries|svg] [VERSION]
 #
 # Prints the libraries' version, the server's, or the image_pipe version the
 # server releases with. With VERSION (a release tag's version, without its
@@ -53,6 +54,7 @@ url="$(attribute image_pipe_url version)"
 libraries="$(attribute image_pipe version)"
 server="$(attribute image_pipe_server version)"
 pinned="$(attribute image_pipe_server image_pipe_version)"
+svg="$(attribute image_pipe_svg version)"
 
 if [[ "$url" != "$libraries" ]]; then
   echo "image_pipe_url is $url but image_pipe is $libraries" >&2
@@ -78,8 +80,9 @@ case "$target" in
   libraries) version="$libraries" ;;
   server) version="$server" ;;
   server-libraries) version="$pinned" ;;
+  svg) version="$svg" ;;
   *)
-    echo "usage: $0 [libraries|server|server-libraries] [VERSION]" >&2
+    echo "usage: $0 [libraries|server|server-libraries|svg] [VERSION]" >&2
     exit 1
     ;;
 esac

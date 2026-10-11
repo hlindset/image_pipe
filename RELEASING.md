@@ -5,12 +5,15 @@
 major.minor version and releases its patch versions on its own, so a server
 fix ships new images without a Hex release. `scripts/check-versions.sh`, run
 by `mise run precommit`, fails when the versions break these rules.
+`image_pipe_svg` has its own version and release cadence, since each release
+rebuilds its precompiled NIFs.
 
 Each project keeps its own release notes:
 
 - [ImagePipe](image_pipe/CHANGELOG.md): processing, sources, and library APIs.
 - [ImagePipe URL](image_pipe_url/CHANGELOG.md): plans, URL generation, and signing.
 - [ImagePipe server](image_pipe_server/CHANGELOG.md): service configuration and deployment.
+- [ImagePipe SVG](image_pipe_svg/CHANGELOG.md): SVG rendering.
 
 ## Update the changelogs
 
@@ -30,7 +33,8 @@ To release a version, move the `Unreleased` notes under
 categories with entries. Add a version link to the comparison with the
 previous release, or to the tag for the first release. Update the
 `Unreleased` link to compare the new tag with `HEAD`. Library links use
-`vX.Y.Z` tags, and server links use `image_pipe_server-vX.Y.Z` tags.
+`vX.Y.Z` tags, server links use `image_pipe_server-vX.Y.Z` tags, and SVG
+package links use `image_pipe_svg-vX.Y.Z` tags.
 
 ## Release the libraries
 
@@ -104,6 +108,30 @@ A failure or an unapproved run before step 4 leaves only untagged images. GHCR c
 the package private on its first push. Make it public once in the package
 settings.
 
+## Release the SVG package
+
+1. Set `@version` in `image_pipe_svg/mix.exs`,
+   [update its changelog](#update-the-changelogs), and merge to `main`.
+2. Tag the merge commit and push the tag:
+
+   ```sh
+   git tag image_pipe_svg-vX.Y.Z
+   git push origin image_pipe_svg-vX.Y.Z
+   ```
+
+The tag starts the [SVG package release workflow](.github/workflows/release-svg.yml):
+
+1. It checks that the tag matches the package version, is on `main`, and has
+   notes in the changelog.
+2. It builds the NIF for every target and NIF version.
+3. It creates the GitHub release from the changelog, with the NIFs attached.
+   The published package downloads them from there.
+4. It downloads the NIFs' checksums and publishes `image_pipe_svg` to Hex in
+   the `release` environment.
+
+When `image_pipe` needs the new version, raise its `image_pipe_svg`
+requirement in a library release.
+
 ## Release a new minor version
 
 1. Set all three `@version` values and `@image_pipe_version` to `X.Y.0`,
@@ -124,10 +152,10 @@ withdraws a library version.
 
 ## Try a release without publishing
 
-Run either release workflow by hand from any branch. Neither publishes
-anything.
+Run any release workflow by hand from any branch. None publishes anything.
 
 - The Library release workflow builds and checks the Hex packages.
+- The SVG package release workflow builds every NIF.
 - The Server release workflow tests, builds, and smoke-tests every image.
   It builds against Hex when `@image_pipe_version` is published there, and
   against the sibling projects otherwise. The run summary says which. A run

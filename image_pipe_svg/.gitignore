@@ -1,0 +1,9 @@
+/_build/
+/deps/
+/doc/
+/cover/
+/priv/plts/
+/priv/native/
+/native/image_pipe_svg_nif/target/
+image_pipe_svg-*.tar
+checksum-*.exs

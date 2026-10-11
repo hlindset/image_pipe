@@ -1,0 +1,80 @@
+name: SVG package CI
+
+on:
+  push:
+    branches: ["main"]
+    paths: &svg_paths
+      - "image_pipe_svg/**"
+      - "!image_pipe_svg/bench/**"
+      - "mise.toml"
+      - ".github/workflows/svg.yml"
+  pull_request:
+    branches: ["main"]
+    paths: *svg_paths
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: image_pipe_svg / Elixir ${{ matrix.toolchain.elixir }} / OTP ${{ matrix.toolchain.erlang }}
+    runs-on: ubuntu-26.04
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain:
+          - { elixir: 1.18.5-otp-27, erlang: "27" }
+          - { elixir: 1.19.6-otp-28, erlang: "28" }
+          - { elixir: 1.20.4-otp-29, erlang: "29.1.1", lint: true }
+    env:
+      MISE_ERLANG_VERSION: ${{ matrix.toolchain.erlang }}
+      MISE_ELIXIR_VERSION: ${{ matrix.toolchain.elixir }}
+      MIX_ENV: test
+    defaults:
+      run:
+        working-directory: image_pipe_svg
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Caches holding compiled code are keyed by runner image (e.g. ubuntu26).
+      - name: Runner image
+        id: runner
+        run: |
+          echo "image=$ImageOS" >> "$GITHUB_OUTPUT"
+          # Workaround: mise (2026.9.18) maps ImageOS to builds.hex.pm's Erlang
+          # builds only up to ubuntu24 and compiles from source otherwise, so
+          # name the release. Remove once mise maps ubuntu26 itself
+          # (linux_precompiled_os_version in src/plugins/core/erlang.rs).
+          echo "MISE_ERLANG_PRECOMPILED_OS=${ImageOS/ubuntu/ubuntu-}.04" >> "$GITHUB_ENV"
+      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          install_args: erlang elixir rust
+      - name: Install Hex
+        run: mise exec -- mix local.hex --force
+      - name: Install Rebar
+        run: mise exec -- mix local.rebar --force
+      - name: Cache deps, build, and the NIF crate
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            image_pipe_svg/deps
+            image_pipe_svg/_build
+            image_pipe_svg/native/image_pipe_svg_nif/target
+          key: svg-mix-${{ steps.runner.outputs.image }}-${{ matrix.toolchain.elixir }}-${{ matrix.toolchain.erlang }}-${{ hashFiles('image_pipe_svg/mix.lock', 'image_pipe_svg/native/image_pipe_svg_nif/Cargo.lock') }}
+          restore-keys: |
+            svg-mix-${{ steps.runner.outputs.image }}-${{ matrix.toolchain.elixir }}-${{ matrix.toolchain.erlang }}-
+      - name: Install dependencies
+        run: mise exec -- mix deps.get
+      - name: Compile
+        run: mise exec -- mix compile --warnings-as-errors
+      - name: Run tests
+        run: mise exec -- mix test --no-compile
+      - name: Lint
+        if: matrix.toolchain.lint
+        run: |
+          mise exec -- mix format --check-formatted
+          mise exec -- mix credo --strict
+          cd native/image_pipe_svg_nif
+          mise exec -- cargo fmt --check
+          mise exec -- cargo clippy --all-targets -- -D warnings

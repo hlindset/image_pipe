@@ -1,0 +1,20 @@
+[package]
+name = "image_pipe_svg_nif"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97.1"
+publish = false
+
+[lib]
+name = "image_pipe_svg_nif"
+crate-type = ["cdylib"]
+
+[dependencies]
+rustler = { version = "0.38.0", default-features = false, features = ["derive"] }
+resvg = "=0.48.1"
+
+[features]
+default = ["nif_version_2_15"]
+nif_version_2_15 = ["rustler/nif_version_2_15"]
+nif_version_2_16 = ["rustler/nif_version_2_16"]
+nif_version_2_17 = ["rustler/nif_version_2_17"]
