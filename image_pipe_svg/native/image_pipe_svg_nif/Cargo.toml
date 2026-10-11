@@ -11,7 +11,8 @@ crate-type = ["cdylib"]
 
 [dependencies]
 rustler = { version = "0.38.0", default-features = false, features = ["derive"] }
-resvg = "=0.48.1"
+resvg = { version = "=0.48.1", default-features = false, features = ["text", "raster-images"] }
+imagesize = "0.13"
 
 [features]
 default = ["nif_version_2_15"]

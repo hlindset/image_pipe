@@ -1,11 +1,142 @@
-// Not referenced yet; keeps resvg in the build so the precompiled matrix and
-// the version below are exercised before rendering lands.
-use resvg as _;
+mod cost;
+mod fonts;
+mod parse;
+mod render;
+
+use std::sync::Arc;
+
+use resvg::usvg;
+use rustler::{Binary, Env, NifResult, NifTaggedEnum, OwnedBinary, Resource, ResourceArc};
+
+// Neither resource is mutated after it's built, so a panic can't leave one
+// half-updated. Font data sits behind `dyn AsRef<[u8]>`, which isn't
+// `RefUnwindSafe` by itself.
+struct Fonts(Arc<usvg::fontdb::Database>);
+
+impl std::panic::RefUnwindSafe for Fonts {}
+
+#[rustler::resource_impl]
+impl Resource for Fonts {}
+
+struct Document(usvg::Tree);
+
+impl std::panic::RefUnwindSafe for Document {}
+
+#[rustler::resource_impl]
+impl Resource for Document {}
+
+/// A parsed document and its intrinsic width and height.
+type Parsed = (ResourceArc<Document>, f32, f32);
+
+#[derive(NifTaggedEnum)]
+enum ParseError {
+    Parse(String),
+    TooManyElements(u64),
+    ImageTooLarge(u64),
+    NestingTooDeep,
+}
+
+impl From<parse::Error> for ParseError {
+    fn from(error: parse::Error) -> Self {
+        match error {
+            parse::Error::Parse(message) => ParseError::Parse(message),
+            parse::Error::TooManyElements(count) => ParseError::TooManyElements(count),
+            parse::Error::ImageTooLarge(pixels) => ParseError::ImageTooLarge(pixels),
+            parse::Error::NestingTooDeep => ParseError::NestingTooDeep,
+        }
+    }
+}
+
+/// Stack for parsing, cost, and rendering. usvg allows 1024 nested elements,
+/// and nested SVG images repeat that, while each level recurses in usvg, the
+/// cost walk, and resvg. A dirty scheduler's stack overflows at a few hundred
+/// levels and takes the VM down. Only the pages used are committed.
+const STACK_BYTES: usize = 64 * 1024 * 1024;
+
+/// Runs `work` on a thread with a stack deep enough for any SVG usvg accepts.
+fn with_stack<T: Send>(work: impl FnOnce() -> T + Send) -> NifResult<T> {
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .stack_size(STACK_BYTES)
+            .spawn_scoped(scope, work)
+            .map_err(|_| rustler::Error::RaiseAtom("thread_spawn_failed"))?
+            .join()
+            .map_err(|_| rustler::Error::RaiseAtom("panic"))
+    })
+}
 
 /// The NIF crate version and the resvg version it was built with.
 #[rustler::nif]
 fn versions() -> (&'static str, &'static str) {
     (env!("CARGO_PKG_VERSION"), env!("RESVG_VERSION"))
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn load_fonts(
+    files: Vec<(String, Binary)>,
+    fallback: Option<String>,
+) -> Result<ResourceArc<Fonts>, String> {
+    let files = files
+        .into_iter()
+        .map(|(name, data)| (name, data.as_slice().to_vec()))
+        .collect();
+    let db = fonts::load(files, fallback)?;
+    Ok(ResourceArc::new(Fonts(Arc::new(db))))
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn parse(
+    data: Binary,
+    fonts: ResourceArc<Fonts>,
+    max_elements: u64,
+    max_image_pixels: u64,
+) -> NifResult<Result<Parsed, ParseError>> {
+    let limits = parse::Limits {
+        max_elements,
+        max_image_pixels,
+    };
+    let data = data.as_slice();
+    let fontdb = fonts.0.clone();
+    let parsed = with_stack(move || parse::parse(data, fontdb, &limits))?;
+
+    Ok(parsed.map_err(ParseError::from).map(|tree| {
+        let size = tree.size();
+        (
+            ResourceArc::new(Document(tree)),
+            size.width(),
+            size.height(),
+        )
+    }))
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn cost(
+    document: ResourceArc<Document>,
+    width: u32,
+    height: u32,
+) -> NifResult<(u64, u64, u64, u64)> {
+    let tree = &document.0;
+    let cost = with_stack(|| cost::estimate(tree, width, height))?;
+    Ok((cost.work, cost.peak, cost.images, cost.image_pixels))
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn render<'a>(
+    env: Env<'a>,
+    document: ResourceArc<Document>,
+    width: u32,
+    height: u32,
+) -> NifResult<Binary<'a>> {
+    let length = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or(rustler::Error::BadArg)?;
+    let mut binary = OwnedBinary::new(length).ok_or(rustler::Error::RaiseAtom("enomem"))?;
+    let pixels = binary.as_mut_slice();
+    pixels.fill(0);
+    let tree = &document.0;
+    with_stack(|| render::render(tree, width, height, pixels))?;
+    Ok(binary.release(env))
 }
 
 rustler::init!("Elixir.ImagePipe.SVG.Native");

@@ -1,0 +1,171 @@
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
+
+use resvg::usvg::roxmltree::{self, Node, NodeId};
+use resvg::usvg::{self, ImageHrefResolver, ImageKind, Options};
+
+/// Nested `data:image/svg+xml` images may go this many levels deep.
+const MAX_NESTING: u32 = 2;
+
+const XLINK_NS: &str = "http://www.w3.org/1999/xlink";
+
+pub struct Limits {
+    /// Elements after expanding `<use>`, estimated before usvg expands them.
+    pub max_elements: u64,
+    /// Pixels of any one embedded raster image, read from its header.
+    pub max_image_pixels: u64,
+}
+
+#[derive(Debug)]
+pub enum Error {
+    Parse(String),
+    TooManyElements(u64),
+    ImageTooLarge(u64),
+    NestingTooDeep,
+}
+
+/// Parses an SVG without reading files or opening connections.
+///
+/// External `href`s resolve to nothing. Embedded `data:` images resolve only
+/// as PNG, JPEG, GIF, WebP, or SVG whose declared media type matches their
+/// signature; anything else, including gzip-compressed SVG, renders as empty.
+pub fn parse(
+    data: &[u8],
+    fontdb: Arc<usvg::fontdb::Database>,
+    limits: &Limits,
+) -> Result<usvg::Tree, Error> {
+    let text = std::str::from_utf8(data).map_err(|_| Error::Parse("not UTF-8".into()))?;
+    let xml_opt = roxmltree::ParsingOptions {
+        allow_dtd: true,
+        nodes_limit: u32::try_from(limits.max_elements.saturating_mul(4)).unwrap_or(u32::MAX),
+        ..Default::default()
+    };
+    let doc = roxmltree::Document::parse_with_options(text, xml_opt)
+        .map_err(|error| Error::Parse(error.to_string()))?;
+
+    let elements = expanded_elements(&doc);
+    if elements > limits.max_elements {
+        return Err(Error::TooManyElements(elements));
+    }
+
+    let violation = Arc::new(Mutex::new(None));
+    let options = options(fontdb, limits.max_image_pixels, violation.clone());
+    let tree = usvg::Tree::from_xmltree(&doc, &options);
+
+    if let Some(error) = violation.lock().unwrap().take() {
+        return Err(error);
+    }
+
+    tree.map_err(|error| Error::Parse(error.to_string()))
+}
+
+fn options(
+    fontdb: Arc<usvg::fontdb::Database>,
+    max_image_pixels: u64,
+    violation: Arc<Mutex<Option<Error>>>,
+) -> Options<'static> {
+    let depth = Arc::new(AtomicU32::new(0));
+
+    let resolve_data = move |mime: &str, data: Arc<Vec<u8>>, opts: &Options| {
+        if data.starts_with(&[0x1f, 0x8b]) {
+            return None;
+        }
+
+        let sniffed = imagesize::image_type(&data).ok();
+        let kind = match (mime, sniffed) {
+            ("image/png", Some(imagesize::ImageType::Png)) => ImageKind::PNG(data),
+            ("image/jpeg" | "image/jpg", Some(imagesize::ImageType::Jpeg)) => ImageKind::JPEG(data),
+            ("image/gif", Some(imagesize::ImageType::Gif)) => ImageKind::GIF(data),
+            ("image/webp", Some(imagesize::ImageType::Webp)) => ImageKind::WEBP(data),
+            ("image/svg+xml", None) => {
+                if depth.load(Ordering::SeqCst) >= MAX_NESTING {
+                    record(&violation, Error::NestingTooDeep);
+                    return None;
+                }
+                depth.fetch_add(1, Ordering::SeqCst);
+                let tree = usvg::Tree::from_data_nested(&data, opts);
+                depth.fetch_sub(1, Ordering::SeqCst);
+                return tree.ok().map(ImageKind::SVG);
+            }
+            _ => return None,
+        };
+
+        let size = imagesize::blob_size(kind_data(&kind)).ok()?;
+        let pixels = (size.width as u64).saturating_mul(size.height as u64);
+        if pixels > max_image_pixels {
+            record(&violation, Error::ImageTooLarge(pixels));
+            return None;
+        }
+        Some(kind)
+    };
+
+    let mut options = Options {
+        fontdb,
+        ..Options::default()
+    };
+    options.image_href_resolver = ImageHrefResolver {
+        resolve_data: Box::new(resolve_data),
+        resolve_string: Box::new(|_, _| None),
+    };
+    options
+}
+
+fn kind_data(kind: &ImageKind) -> &[u8] {
+    match kind {
+        ImageKind::PNG(data)
+        | ImageKind::JPEG(data)
+        | ImageKind::GIF(data)
+        | ImageKind::WEBP(data) => data,
+        ImageKind::SVG(_) => &[],
+    }
+}
+
+fn record(violation: &Mutex<Option<Error>>, error: Error) {
+    violation.lock().unwrap().get_or_insert(error);
+}
+
+/// Counts elements as usvg will after copying each `<use>` target in place,
+/// memoizing each referenced subtree. A reference cycle counts as empty,
+/// since usvg skips it.
+fn expanded_elements(doc: &roxmltree::Document) -> u64 {
+    let ids: HashMap<&str, Node> = doc
+        .descendants()
+        .filter_map(|node| node.attribute("id").map(|id| (id, node)))
+        .collect();
+    let mut sizes = HashMap::new();
+    size(doc.root_element(), &ids, &mut sizes)
+}
+
+fn size<'a, 'input>(
+    node: Node<'a, 'input>,
+    ids: &HashMap<&str, Node<'a, 'input>>,
+    sizes: &mut HashMap<NodeId, Option<u64>>,
+) -> u64 {
+    match sizes.get(&node.id()) {
+        Some(Some(size)) => return *size,
+        Some(None) => return 0,
+        None => {}
+    }
+    sizes.insert(node.id(), None);
+
+    let mut total: u64 = 1;
+    for child in node.children().filter(Node::is_element) {
+        total = total.saturating_add(size(child, ids, sizes));
+    }
+
+    if node.tag_name().name() == "use" {
+        let href = node
+            .attribute((XLINK_NS, "href"))
+            .or_else(|| node.attribute("href"));
+        if let Some(target) = href
+            .and_then(|href| href.strip_prefix('#'))
+            .and_then(|id| ids.get(id))
+        {
+            total = total.saturating_add(size(*target, ids, sizes));
+        }
+    }
+
+    sizes.insert(node.id(), Some(total));
+    total
+}

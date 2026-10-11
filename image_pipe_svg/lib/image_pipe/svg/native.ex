@@ -24,4 +24,11 @@ defmodule ImagePipe.SVG.Native do
     )
 
   def versions, do: :erlang.nif_error(:nif_not_loaded)
+  def load_fonts(_files, _fallback), do: :erlang.nif_error(:nif_not_loaded)
+
+  def parse(_data, _fonts, _max_elements, _max_image_pixels),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def cost(_document, _width, _height), do: :erlang.nif_error(:nif_not_loaded)
+  def render(_document, _width, _height), do: :erlang.nif_error(:nif_not_loaded)
 end
