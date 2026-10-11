@@ -11,7 +11,8 @@ name: Performance
 #   to night, and the latest release image, on the `perf` cases.
 # - Weekly, `main` against the `main` of 7 days earlier on every case, for a
 #   regression in a case the `perf` set leaves out.
-# - By hand, like the nightly run, on the cases chosen.
+# - By hand, like the nightly run, on the cases chosen. Given `against`, the
+#   branch run against that commit or branch alone.
 #
 # The comparison reports; it doesn't fail the job.
 on:
@@ -28,6 +29,12 @@ on:
         type: choice
         options: [perf, all]
         default: perf
+      against:
+        description: >-
+          Commit or branch to compare with instead of the previous scheduled
+          run, without the month and release images
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -64,6 +71,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           SCHEDULE: ${{ github.event.schedule }}
           CASES: ${{ inputs.cases }}
+          AGAINST_REF: ${{ inputs.against }}
         run: |
           # A pull request's checkout is the pull request merged into the base
           # branch as it is now, so its first parent is the base without the
@@ -84,6 +92,15 @@ jobs:
             release=false
             candidate_text="\`main\` at \`${candidate:0:7}\`"
             against_text="\`main\` at \`${against:0:7}\` from $(git log -1 --format=%cs "$against"), a week earlier"
+          elif [ -n "$AGAINST_REF" ]; then
+            [ "$CASES" = all ] && only=all
+            release=false
+            # The checkout has every branch, but only as origin/<branch>.
+            against=$(git rev-parse --verify --quiet "$AGAINST_REF^{commit}" ||
+              git rev-parse --verify "origin/$AGAINST_REF^{commit}")
+            name=against
+            candidate_text="\`$GITHUB_REF_NAME\` at \`${candidate:0:7}\`"
+            against_text="\`$AGAINST_REF\` at \`${against:0:7}\`"
           else
             [ "$CASES" = all ] && only=all
             # The commit the last successful scheduled run measured.
