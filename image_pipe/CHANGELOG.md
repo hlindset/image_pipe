@@ -89,6 +89,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A `crop` placed with `focus` on an image with an EXIF orientation other than
+  1 or 5 could land one pixel off from the same crop on an untagged image,
+  when the crop's position fell on a half pixel.
 - With `max-bytes`, a quality search that ran out of encode attempts
   shipped the lowest quality, even when it had already encoded a higher one
   that fit the budget. It now ships the highest encoded quality that fits. When
