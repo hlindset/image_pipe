@@ -155,6 +155,34 @@ defmodule ImagePipe.API.ColorManagementWireTest do
     assert VipsImage.interpretation(kept) == :VIPS_INTERPRETATION_CMYK
   end
 
+  test "autoquality scores a CMYK image that keeps its source profile" do
+    prefix = [:api_cmyk_autoquality]
+    test_pid = self()
+    handler = {__MODULE__, make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        prefix ++ [:encode, :search, :stop],
+        fn _event, _measurements, meta, _config ->
+          send(test_pid, {:search, meta.result, meta.iterations})
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    conn =
+      response("format=jpeg/profile=preserve/autoquality", "cmyk.jpg", telemetry_prefix: prefix)
+
+    assert conn.status == 200
+    assert_received {:search, :ok, iterations} when iterations > 0
+
+    kept = decoded(conn)
+    assert VipsImage.interpretation(kept) == :VIPS_INTERPRETATION_CMYK
+    assert VipsImage.bands(kept) == 4
+  end
+
   test "HDR preserves 16-bit pixels with and without resize, while tone mapping returns 8-bit" do
     input = source("rgb16.png")
     assert VipsImage.format(input) == :VIPS_FORMAT_USHORT
