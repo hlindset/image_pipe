@@ -9,9 +9,6 @@ defmodule ImagePipe.SVG.Native do
     base_url:
       "https://github.com/hlindset/image_pipe/releases/download/image_pipe_svg-v#{version}",
     version: version,
-    force_build:
-      System.get_env("IMAGE_PIPE_SVG_BUILD") in ["1", "true"] or
-        Application.compile_env(:image_pipe_svg, :force_build, false),
     nif_versions: ["2.15", "2.16", "2.17"],
     targets: ~w(
       aarch64-apple-darwin

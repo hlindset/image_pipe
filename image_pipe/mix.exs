@@ -295,7 +295,7 @@ defmodule ImagePipe.MixProject do
   # source (config/config.exs).
   defp image_pipe_svg_dep do
     if System.get_env("IMAGE_PIPE_PUBLISH") in ["1", "true"] do
-      {:image_pipe_svg, "~> 0.1", optional: true}
+      {:image_pipe_svg, "~> 0.1.0", optional: true}
     else
       {:image_pipe_svg, path: "../image_pipe_svg", optional: true}
     end

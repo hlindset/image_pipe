@@ -2,9 +2,9 @@ import Config
 
 # config :image_pipe, ImagePipe, ...
 
-# The sibling image_pipe_svg project has no released precompiled NIF to
-# download yet, so build it from source.
-config :image_pipe_svg, force_build: true
+# image_pipe_svg is the sibling project here, which has no precompiled NIF to
+# download, so build it from source.
+config :rustler_precompiled, :force_build, image_pipe_svg: true
 
 if config_env() == :test do
   # Simple processor, no real exporter; tests that read spans swap in

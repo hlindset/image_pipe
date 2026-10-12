@@ -59,7 +59,7 @@ defmodule ImagePipeServer.MixProject do
   # downloads the precompiled NIF.
   defp image_pipe_svg_deps do
     if System.get_env("IMAGE_PIPE_LIBS") == "hex",
-      do: [{:image_pipe_svg, "~> 0.1"}],
+      do: [{:image_pipe_svg, "~> 0.1.0"}],
       else: [
         {:image_pipe_svg, path: "../image_pipe_svg"},
         {:rustler, "~> 0.38.0", runtime: false}
