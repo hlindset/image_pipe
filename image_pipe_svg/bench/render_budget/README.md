@@ -13,10 +13,10 @@ mix run bench/render_budget/calibrate.exs /tmp/cases
 
 `calibrate.exs` prints each case's estimated work and peak pixels, its render
 time, and the milliseconds per million work units, which sets how long the
-default `max_render_work` (250M) takes on that machine. The
+default `max_render_work` (100M) takes on that machine. The
 [SVG render budget calibration](../../../.github/workflows/svg-bench.yml)
 workflow runs it on CI hardware, on pull requests that change this directory
-and by hand.
+or the cost model, and by hand.
 
 The Rust harness in `src/` times resvg on its own, outside the NIF:
 

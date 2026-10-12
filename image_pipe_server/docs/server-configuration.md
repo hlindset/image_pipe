@@ -368,7 +368,7 @@ Defaults and limits for every image the server processes. The limits on original
 | `svg.font_dirs` | array of string | `[]` |
 | `svg.fallback_family` | string |  |
 | `svg.max_bytes` | integer > 0 | `10000000` |
-| `svg.max_render_work` | integer > 0 | `250000000` |
+| `svg.max_render_work` | integer > 0 | `100000000` |
 | `svg.max_render_pixels` | integer > 0 |  |
 | `max_result_width` | integer > 0 | `8192` |
 | `max_intermediate_pixels` | integer > 0 | `100000000` |

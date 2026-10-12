@@ -205,8 +205,10 @@ impl Walk {
 /// pixel, and its radius scales with the render.
 fn weight(kind: &filter::Kind, sx: f32, sy: f32) -> f64 {
     match kind {
-        filter::Kind::GaussianBlur(_) => 8.0,
-        filter::Kind::DropShadow(_) => 10.0,
+        // Measured on x86 servers, where blur runs 20 to 30 times slower
+        // per pixel than compositing a layer. Apple silicon blurs faster.
+        filter::Kind::GaussianBlur(_) => 20.0,
+        filter::Kind::DropShadow(_) => 22.0,
         filter::Kind::Morphology(m) => {
             let columns = 2.0 * f64::from(m.radius_x().get() * sx) + 1.0;
             let rows = 2.0 * f64::from(m.radius_y().get() * sy) + 1.0;

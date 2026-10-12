@@ -69,7 +69,7 @@ defmodule Calibrate do
 
     #{length(rates)} renders of at least #{div(@min_work_for_rate, 1_000_000)}M work units.
     ms per million work units: median #{fmt(median)}, p90 #{fmt(p90)}, max #{fmt(List.last(rates))}.
-    Work for one second at the p90 rate: #{fmt(1000 / p90)}M units (default `max_render_work`: 250M).
+    Work for one second at the p90 rate: #{fmt(1000 / p90)}M units (default `max_render_work`: 100M).
     """)
   end
 

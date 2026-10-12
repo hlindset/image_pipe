@@ -136,7 +136,7 @@ defmodule ImagePipe.Config do
         ],
         max_render_work: [
           type: :pos_integer,
-          default: 250_000_000,
+          default: 100_000_000,
           doc: """
           Maximum estimated work to render an SVG: the pixels its layers, \
           masks, filters, and images process, weighted by how slow each is. \

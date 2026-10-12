@@ -2,12 +2,14 @@ name: SVG render budget calibration
 
 # Times image_pipe_svg's renders of pathological SVGs against its work
 # estimate, so the render budget's default can be checked on CI hardware.
-# Runs on pull requests that change the benchmark, and by hand.
+# Runs on pull requests that change the benchmark or the cost model, and by
+# hand.
 on:
   pull_request:
     branches: ["main"]
     paths:
       - "image_pipe_svg/bench/**"
+      - "image_pipe_svg/native/image_pipe_svg_nif/src/cost.rs"
       - ".github/workflows/svg-bench.yml"
   workflow_dispatch:
 
