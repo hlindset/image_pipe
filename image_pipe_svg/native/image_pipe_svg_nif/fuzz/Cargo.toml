@@ -1,0 +1,45 @@
+[package]
+name = "image_pipe_svg_nif-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[lib]
+path = "src/lib.rs"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
+
+[dependencies]
+libfuzzer-sys = "0.4"
+base64 = "0.22"
+resvg = { version = "=0.48.1", default-features = false, features = ["text", "raster-images"] }
+imagesize = "0.13"
+
+# Keep this crate out of any workspace above it.
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "render"
+path = "fuzz_targets/render.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "expansion"
+path = "fuzz_targets/expansion.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "templates"
+path = "fuzz_targets/templates.rs"
+test = false
+doc = false
+bench = false

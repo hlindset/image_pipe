@@ -119,7 +119,10 @@ settings.
    [update its changelog](#update-the-changelogs), and merge to `main`.
    When the release changes how an SVG renders, other than by upgrading
    resvg, also raise `@render_revision` in
-   `image_pipe_svg/lib/image_pipe/svg.ex`, so cached renders miss.
+   `image_pipe_svg/lib/image_pipe/svg.ex`, so cached renders miss. When it
+   changes the parsing code or upgrades resvg, run each fuzz target for 20
+   minutes first, and fix what they find
+   ([fuzzing the SVG parser](image_pipe_svg/native/image_pipe_svg_nif/fuzz/README.md)).
 2. Tag the merge commit and push the tag:
 
    ```sh
