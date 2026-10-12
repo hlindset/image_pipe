@@ -99,8 +99,10 @@ ratio under [`fit=cover`](#fit). `enlarge` needs a number in `w`, `h`, `min-w`,
 or `min-h` in the same group, and is ignored without one.
 
 An [SVG original](../serving-svg-images.md) renders at the requested size
-without `enlarge`, unless the first group trims. Groups after the first
-resize the rendered image, so `enlarge` applies to them as usual.
+without `enlarge`, with
+[two exceptions](../serving-svg-images.md#size-svgs-in-requests). Groups
+after the first resize the rendered image, so `enlarge` applies to them as
+usual.
 
 <!-- tabs-open -->
 

@@ -111,15 +111,17 @@ lists the other limits.
 
 <!-- tabs-close -->
 
-An SVG original is rejected too when it's larger than the
-[input pixel limit](deployment.md) both at its own size and at the
-requested size, or has:
+An SVG original is rejected too when the whole SVG is larger than the
+[input pixel limit](deployment.md) at its own size, unless the request
+shrinks it below the limit, or has:
 
-- more than 200,000 elements after expanding `<use>`;
-- entities that expand past 1,000,000 characters;
+- more than 200,000 elements after expanding `<use>`
+- entities that expand past 1,000,000 characters
 - more than 10,000 bytes of text in one `<text>` element, or 1,000,000 in
-  all. Rejected SVGs fail with `413`, and
-an SVG that isn't valid XML fails with `415`.
+  all
+
+Rejected SVGs fail with `413`, and an SVG that isn't valid XML fails with
+`415`.
 
 ## Embed images in SVGs
 
@@ -143,11 +145,12 @@ cases:
 
 - The SVG at that size would be larger than the input pixel limit. It
   renders as large as the limit allows, and the rendered image is enlarged
-  the rest of the way, so its edges blur. A crop followed by a large resize
-  renders the whole SVG at the zoomed size, so it reaches the limit sooner.
-- The request [trims](processing/crop.md#trim) before its first resize.
-  The SVG renders at its own size, and `enlarge` applies as it does to a
-  raster image.
+  the rest of the way, so its edges blur. A crop with a large resize
+  renders the whole SVG at the zoomed scale, so it reaches the limit
+  sooner.
+- The request [trims](processing/crop.md#trim) in its first
+  [group](requesting-images.md#processing-groups). The SVG renders at its
+  own size, and `enlarge` applies as it does to a raster image.
 
 Without [`format`](processing/output.md#format), the result is a PNG, or
 AVIF or WebP when the browser accepts them, unless an opaque

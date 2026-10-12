@@ -10,7 +10,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - SVG sources, when the optional `image_pipe_svg` package is installed.
   An SVG renders straight at the size the request needs, so it stays sharp
   at any size, and a resize can make it larger than its own `width` and
-  `height` without `enlarge`. Regions and crops in pixels measure the SVG at
+  `height` without `enlarge`, up to the input pixel limit, past which the
+  rendered image is enlarged. Regions and crops in pixels measure the SVG at
   its own size. With no `format` and no negotiated format, the result is a
   PNG. Watermark images can be SVGs too, and render at the size they're
   drawn. Without `image_pipe_svg`, SVG sources still fail with `415`.
@@ -21,9 +22,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   keys and ETags include the resvg version and the fonts, so changing the
   fonts makes cached images miss.
 - A `[:source, :svg_render]` span wraps rendering an SVG original or
-  watermark, with which one it is, its intrinsic and rendered sizes and the
-  estimated work, and names the limit that rejected an SVG. The default
-  Logger logs it.
+  watermark, with its intrinsic and rendered sizes and the estimated work,
+  and names the limit that rejected an SVG. The default Logger logs it.
 
 - Without `max_size_bytes`, `cache` and `input_cache` delete entries nobody has
   read for `max_age` seconds, 7 days by default, so images that are no longer

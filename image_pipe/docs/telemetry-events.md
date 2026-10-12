@@ -320,9 +320,10 @@ during [`[:transform, :execute]`](#transform-execute).
     `:svg_bytes`, `:svg_elements` (too many elements after expanding
     `<use>`), `:svg_entities` (entity references that would expand past
     1,000,000 characters), `:svg_text` (more than 10,000 bytes of text in one
-    `<text>` element, or 1,000,000 in all), `:svg_nesting` (embedded SVGs nested too deep), `:pixels` (the
-    render, or an embedded image, is over `max_input_pixels`),
-    `:svg_render_work`, or `:svg_render_pixels`.
+    `<text>` element, or 1,000,000 in all), `:svg_nesting` (embedded SVGs
+    nested too deep), `:pixels` (an original's render, or an embedded image,
+    is over `max_input_pixels`), `:svg_render_work`, or
+    `:svg_render_pixels`.
 
 ### `[:source, :watermark]`
 
