@@ -157,6 +157,7 @@ defmodule ImagePipe.CacheTest do
     |> Cache.write_chunk("abc", opts)
     |> Cache.commit_sink(opts)
 
+    Caches.await_writes(opts)
     {:ok, %{meta_path: meta_path}} = FileSystem.paths(cache_key(), Keyword.fetch!(opts, :cache))
     assert {:ok, %{cost_us: 42_000}, _mtime} = FileSystem.read_descriptor(meta_path)
   end
@@ -180,6 +181,7 @@ defmodule ImagePipe.CacheTest do
     |> Cache.write_chunk("abc", opts)
     |> Cache.commit_sink(opts)
 
+    Caches.await_writes(opts)
     assert {:hit, %Entry{} = entry} = Cache.lookup_entry(cache_key(), opts)
     Entry.close(entry)
     assert entry.content_type == "image/webp"
@@ -198,6 +200,7 @@ defmodule ImagePipe.CacheTest do
       |> Cache.write_chunk("def", opts)
 
     assert :ok = Cache.commit_sink(sink, opts)
+    Caches.await_writes(opts)
 
     assert {:hit, %Entry{body: "abcdef"}} =
              FileSystem.get(cache_key(), Keyword.fetch!(opts, :cache))
@@ -212,6 +215,7 @@ defmodule ImagePipe.CacheTest do
       |> Cache.write_chunk("abc", opts)
 
     assert :ok = Cache.abort_sink(sink, :cancelled, opts)
+    Caches.await_writes(opts)
     assert {:miss, %Key{}} = Cache.lookup_entry(cache_key(), opts)
     assert stored_files(root) == []
   end
@@ -239,9 +243,10 @@ defmodule ImagePipe.CacheTest do
     sink = Cache.open_sink(cache_key(), resolved_output(), [], opts)
 
     assert Cache.write_chunk(sink, "abcd", opts) == nil
+    Caches.await_writes(opts)
 
-    assert_receive {:telemetry_event, _event, _measurements,
-                    %{cache: :stage_skipped, reason: :too_large, output_format: :webp}}
+    assert_received {:telemetry_event, _event, _measurements,
+                     %{cache: :stage_skipped, reason: :too_large, output_format: :webp}}
 
     assert {:miss, %Key{}} = Cache.lookup_entry(cache_key(), opts)
     assert stored_files(root) == []
@@ -259,21 +264,34 @@ defmodule ImagePipe.CacheTest do
     {:ok, %{dir: dir}} = FileSystem.paths(cache_key(), Keyword.fetch!(opts, :cache))
     File.chmod!(dir, 0o500)
 
-    capture_log(fn -> assert :ok = Cache.commit_sink(sink, opts) end)
+    capture_log(fn ->
+      assert :ok = Cache.commit_sink(sink, opts)
+      Caches.await_writes(opts)
+    end)
 
-    assert_receive {:telemetry_event, _event, _measurements,
-                    %{result: :cache_error, cache: :write_error, output_format: :webp, bytes: 3}}
+    assert_received {:telemetry_event, _event, _measurements,
+                     %{result: :cache_error, cache: :write_error, output_format: :webp, bytes: 3}}
   end
 
   test "commit_sink reports admission rejection on the cache write span", %{root: root} do
     prefix = attach_telemetry([[:cache, :write, :stop]])
+    opts = cache_opts(root, telemetry_prefix: prefix, cache: [max_size_bytes: 100])
 
-    # A bounded cache smaller than the entry declines to keep it.
-    opts =
-      cache_opts(root,
-        telemetry_prefix: prefix,
-        cache: [max_size_bytes: 2]
-      )
+    # A stored entry fills the cache, and a new key seen once doesn't score
+    # higher than the entry it would evict, so the cache declines it.
+    resident = %Key{hash: String.duplicate("b", 64), data: [schema_version: 2]}
+
+    Caches.write!(
+      Keyword.fetch!(opts, :cache),
+      resident,
+      %Entry.Metadata{
+        content_type: "image/webp",
+        headers: [],
+        created_at: DateTime.utc_now(),
+        output_format: :webp
+      },
+      String.duplicate("x", 97)
+    )
 
     sink =
       cache_key()
@@ -283,9 +301,10 @@ defmodule ImagePipe.CacheTest do
     # Rejection is a successful, non-error outcome: the request path fails open
     # (nothing stored) and Cache.commit_sink still returns :ok.
     assert :ok = Cache.commit_sink(sink, opts)
+    Caches.await_writes(opts)
 
-    assert_receive {:telemetry_event, _event, _measurements,
-                    %{result: :ok, cache: :admission_rejected, output_format: :webp, bytes: 3}}
+    assert_received {:telemetry_event, _event, _measurements,
+                     %{result: :ok, cache: :admission_rejected, output_format: :webp, bytes: 3}}
 
     assert {:miss, %Key{}} = Cache.lookup_entry(cache_key(), opts)
   end

@@ -219,6 +219,24 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "[warning]"
   end
 
+  test "warns about cache writes dropped to keep up with storage" do
+    prefix = [__MODULE__, :dropped_write]
+    Telemetry.attach_default_logger(prefix: prefix, level: :info)
+
+    log =
+      capture_log(fn ->
+        Telemetry.execute([telemetry_prefix: prefix], [:cache, :stage], %{}, %{
+          result: :ok,
+          cache: :stage_dropped,
+          reason: :pending_limit,
+          output_format: :webp,
+          cache_key: "abc"
+        })
+      end)
+
+    assert log =~ "[warning] image_pipe cache stage: stage_dropped (pending_limit)"
+  end
+
   test "output coalescing retains outcomes and warns on bypass" do
     prefix = [__MODULE__, :output_coordination]
     Telemetry.attach_default_logger(prefix: prefix, level: :info)

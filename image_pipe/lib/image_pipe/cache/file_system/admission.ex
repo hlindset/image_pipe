@@ -8,6 +8,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   alias ImagePipe.Cache.FileSystem.Sketch
   alias ImagePipe.Cache.FileSystem.Store, as: FileSystem
   alias ImagePipe.Cache.FileSystem.Sweep
+  alias ImagePipe.Cache.FileSystem.Writers
   alias ImagePipe.Telemetry
 
   defmodule State do
@@ -45,6 +46,9 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       window_bytes: 0,
       probationary_bytes: 0,
       protected_bytes: 0,
+      # Other writes' pending bytes, counted against the cap while a commit
+      # is decided (see Writers).
+      pending_bytes: 0,
       next_position: 1,
       # Monitor the scan so a crash releases await_scan/2 callers. scan_waiters
       # holds their GenServer.call `from` tags until completion or failure.
@@ -371,7 +375,11 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     # Publication, accounting and eviction share the same serialized owner.
     note_scan_change(state, prepared.paths.hash)
     descriptor = FileSystem.descriptor(prepared, body_filename)
+    # The write's own pending bytes aren't another write's.
+    pending = max(Writers.pending(state.root) - prepared.held, 0)
+    state = %{state | pending_bytes: pending}
     {result, state} = admit_descriptor(state, Map.delete(descriptor, :body_filename))
+    state = %{state | pending_bytes: 0}
     {reply, state} = finish_commit(result, prepared, descriptor, state)
     {:reply, reply, state}
   end
@@ -495,8 +503,8 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   defp run_main_gate(state, descriptor) do
     needed_bytes =
-      state.probationary_bytes + state.protected_bytes + descriptor.size_bytes -
-        (state.max_size_bytes - state.window_budget)
+      state.probationary_bytes + state.protected_bytes + state.pending_bytes +
+        descriptor.size_bytes - (state.max_size_bytes - state.window_budget)
 
     case needed_bytes > 0 do
       true -> identify_and_score(state, descriptor, needed_bytes)

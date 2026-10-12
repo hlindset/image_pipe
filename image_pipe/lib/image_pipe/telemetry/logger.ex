@@ -94,6 +94,9 @@ defmodule ImagePipe.Telemetry.Logger do
     if quiet_pass?(metadata), do: :debug, else: base
   end
 
+  # Steady drops mean the cache's storage can't keep up with its writes.
+  defp level_for([:cache, :stage], %{cache: :stage_dropped}, _base), do: :warning
+
   defp level_for([:cache, :coordination], %{result: result}, _base)
        when result in [:busy, :bypass, :timeout], do: :warning
 
@@ -209,6 +212,9 @@ defmodule ImagePipe.Telemetry.Logger do
 
     "image_pipe cache write: #{detail}#{bytes(meta[:bytes])}"
   end
+
+  defp message([:cache, :stage], _m, %{cache: :stage_dropped} = meta),
+    do: "image_pipe cache stage: stage_dropped (#{meta[:reason]})"
 
   defp message([:cache, :admission | _], _m, meta) do
     "image_pipe cache admission: #{meta[:result]}"

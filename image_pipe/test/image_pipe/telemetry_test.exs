@@ -205,12 +205,16 @@ defmodule ImagePipe.TelemetryTest do
   # change that silently stops emitting one of these fails here.
   @tag :tmp_dir
   test "an image request emits the complete stage-span set", %{tmp_dir: tmp_dir} do
+    opts = base_opts(Caches.start!(cache: [root: tmp_dir]))
+
     conn =
       :get
       |> conn("/w=100/format=jpeg/src/images/beach.jpg")
-      |> ImagePipe.Plug.call(base_opts(Caches.start!(cache: [root: tmp_dir])))
+      |> ImagePipe.Plug.call(opts)
 
     assert conn.status == 200
+    # The cache write span runs in the cache's writer, after the response.
+    Caches.await_writes(opts)
 
     assert_spans(telemetry_events(), [
       [:request],
@@ -486,6 +490,7 @@ defmodule ImagePipe.TelemetryTest do
     end
 
     assert request.().status == 200
+    Caches.await_writes(opts)
 
     hash =
       assert_event(telemetry_events(), @prefix ++ [:cache, :write, :stop], fn _measurements,
@@ -528,6 +533,7 @@ defmodule ImagePipe.TelemetryTest do
       |> ImagePipe.Plug.call(opts)
 
     assert conn.status == 200
+    Caches.await_writes(opts)
     events = telemetry_events()
 
     assert_event(events, @prefix ++ [:cache, :stage], fn _measurements, metadata ->

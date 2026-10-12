@@ -67,7 +67,22 @@ defmodule ImagePipe.Cache.Work do
 
   # Completion releases this lease and hands a resource-free value only to
   # matching requests already queued. Nothing is retained for later arrivals.
+  # A lease handed to a writer stays locked until the writer releases it.
   def complete(ref, value), do: call({:complete, ref, value}, 5_000)
+
+  @doc """
+  Hands the lease `ref` to `owner`, a cache writer publishing for it. The
+  lease keeps its identity, so `current?/1` and `publish/3` still accept it,
+  but only `owner` releases it, with `unlock/1`, or when it stops. The lease
+  is released anyway after `deadline` milliseconds, so waiters stop waiting
+  on slow storage. A writer whose publication outlives the deadline has
+  already passed `publish/3`'s check.
+  """
+  def transfer(nil, _owner, _deadline), do: :ok
+  def transfer(ref, owner, deadline), do: call({:transfer, ref, owner, deadline}, 5_000)
+
+  def unlock(nil), do: :ok
+  def unlock(ref), do: call({:unlock, ref}, 5_000)
 
   def refresh(key, fun, opts \\ []) do
     result = call({:refresh, key, fun}, 5_000)
@@ -115,7 +130,9 @@ defmodule ImagePipe.Cache.Work do
   end
 
   @impl true
-  def init(_), do: {:ok, %{locks: %{}, refs: %{}, jobs: %{}, cooldown: %{}}}
+  # `transfers` maps a handed-off lease to its owner, the owner's monitor and
+  # the deadline's timer.
+  def init(_), do: {:ok, %{locks: %{}, refs: %{}, jobs: %{}, cooldown: %{}, transfers: %{}}}
 
   @impl true
   def handle_call({:lock, key, context}, from, state) do
@@ -132,7 +149,32 @@ defmodule ImagePipe.Cache.Work do
     end
   end
 
-  def handle_call({:unlock, ref}, _from, state), do: {:reply, :ok, release(state, ref)}
+  # The request that handed its lease off unlocks it on its way out, which
+  # leaves it to the writer.
+  def handle_call({:unlock, ref}, {caller, _tag}, state) do
+    case Map.get(state.transfers, ref) do
+      %{owner: owner} when owner != caller -> {:reply, :ok, state}
+      _own_lease -> {:reply, :ok, release(state, ref)}
+    end
+  end
+
+  def handle_call({:transfer, ref, owner, deadline}, _from, state) do
+    case Map.has_key?(state.refs, ref) do
+      true ->
+        Process.demonitor(ref, [:flush])
+
+        transfer = %{
+          owner: owner,
+          monitor: Process.monitor(owner),
+          timer: Process.send_after(self(), {:deadline, ref}, deadline)
+        }
+
+        {:reply, :ok, put_in(state.transfers[ref], transfer)}
+
+      false ->
+        {:reply, :error, state}
+    end
+  end
 
   def handle_call({:complete, ref, value}, _from, state) do
     {:reply, :ok, complete_cohort(state, ref, value)}
@@ -195,9 +237,14 @@ defmodule ImagePipe.Cache.Work do
   def handle_info({ref, _result}, state) when is_reference(ref),
     do: {:noreply, finish_job(state, ref)}
 
-  def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
-    {:noreply, state |> release(ref) |> finish_job(ref)}
+  def handle_info({:DOWN, monitor, :process, _pid, _reason}, state) do
+    case Enum.find(state.transfers, fn {_ref, transfer} -> transfer.monitor == monitor end) do
+      {ref, _transfer} -> {:noreply, release(state, ref)}
+      nil -> {:noreply, state |> release(monitor) |> finish_job(monitor)}
+    end
   end
+
+  def handle_info({:deadline, ref}, state), do: {:noreply, release(state, ref)}
 
   def handle_info({:expire, ref}, state) do
     case Map.get(state.jobs, ref) do
@@ -228,6 +275,17 @@ defmodule ImagePipe.Cache.Work do
 
   defp release(state, ref) do
     Process.demonitor(ref, [:flush])
+
+    state =
+      case Map.pop(state.transfers, ref) do
+        {nil, _transfers} ->
+          state
+
+        {transfer, transfers} ->
+          Process.demonitor(transfer.monitor, [:flush])
+          Process.cancel_timer(transfer.timer)
+          %{state | transfers: transfers}
+      end
 
     case Map.pop(state.refs, ref) do
       {nil, _refs} -> state
@@ -261,7 +319,7 @@ defmodule ImagePipe.Cache.Work do
             locks: Map.put(state.locks, key, %{lock | waiters: waiters})
         }
 
-        release(state, ref)
+        if Map.has_key?(state.transfers, ref), do: state, else: release(state, ref)
     end
   end
 

@@ -6,6 +6,7 @@ defmodule ImagePipe.API.RequestIdWireTest do
 
   alias ImagePipe.ProcessingPool
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.ProcessingSource
 
   @image File.read!("priv/static/images/beach.jpg")
@@ -137,10 +138,15 @@ defmodule ImagePipe.API.RequestIdWireTest do
     ImagePipe.Plug.init(config: config)
   end
 
+  # The cache write runs in the cache's writer and ends after the response.
   defp request(mount, options, source \\ "ready") do
-    conn(:get, "/#{options}/src/#{source}")
-    |> Plug.RequestId.call(Plug.RequestId.init([]))
-    |> ImagePipe.Plug.call(mount)
+    conn =
+      conn(:get, "/#{options}/src/#{source}")
+      |> Plug.RequestId.call(Plug.RequestId.init([]))
+      |> ImagePipe.Plug.call(mount)
+
+    Caches.await_writes(mount)
+    conn
   end
 
   defp response_id(conn) do

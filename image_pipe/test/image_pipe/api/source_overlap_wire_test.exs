@@ -358,6 +358,7 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
         if mode == :overlap, do: assert_receive({:decoded, %{result: :ok, skipped: true}}, 2_000)
         send(producer, {ref, :continue})
         response = Task.await(task, 10_000)
+        Caches.await_writes(config)
 
         assert response.status == 200
         assert response.resp_body == context.body
@@ -517,7 +518,11 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
   defp append_group(builder, operations), do: ImagePipe.URL.group(builder, operations)
 
   defp request(context, options \\ "w=100") do
-    Plug.Test.conn(:get, "/#{options}/format=png/src/#{context.url}/image")
-    |> ImagePipe.Plug.call(context.config)
+    response =
+      Plug.Test.conn(:get, "/#{options}/format=png/src/#{context.url}/image")
+      |> ImagePipe.Plug.call(context.config)
+
+    Caches.await_writes(context.config)
+    response
   end
 end

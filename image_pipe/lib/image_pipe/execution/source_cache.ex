@@ -165,8 +165,12 @@ defmodule ImagePipe.Execution.SourceCache do
     end
   end
 
+  # A record whose source no longer allows storage never reads a stored
+  # original, even before the publication that discards it has run.
   def input(source, key, record, preparation, config) do
-    case Input.open(key, record, config) do
+    stored = if storable?(record, source), do: Input.open(key, record, config), else: :miss
+
+    case stored do
       {:ok, path, lease} ->
         checked_input(record, path, lease, config)
 
@@ -251,14 +255,15 @@ defmodule ImagePipe.Execution.SourceCache do
 
   # Only writes take the publication lock, so a check that changes nothing,
   # the steady state for a local file, doesn't. A lease that is no longer
-  # current skips the writes.
+  # current skips the writes. The writes run off the request, in a cache
+  # writer that takes the lease (see `Cache.publish/4`).
   defp publish_coordinated(result, source, key, previous, cost, config, lease) do
     case publication(result, source, key, previous, cost, config) do
       {result, nil} ->
         result
 
       {result, write} ->
-        Work.publish(key.hash, lease, write)
+        Cache.publish(key.hash, lease, write, config)
         result
     end
   end
@@ -324,13 +329,11 @@ defmodule ImagePipe.Execution.SourceCache do
 
     cond do
       copy? and remember? ->
-        fn ->
-          Input.put(key, response.path, sha256, record, cost, config)
-          Cache.remember_source(key, record, config)
-        end
+        {:staged, response.path, &Input.put(key, &1, sha256, record, cost, config),
+         fn -> Cache.remember_source(key, record, config) end}
 
       copy? ->
-        fn -> Input.put(key, response.path, sha256, record, cost, config) end
+        {:staged, response.path, &Input.put(key, &1, sha256, record, cost, config), nil}
 
       remember? ->
         fn -> Cache.remember_source(key, record, config) end

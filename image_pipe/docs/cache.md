@@ -145,7 +145,12 @@ directory of your own.
 ## Writing entries
 
 A response is processed and streamed to the client at the same time, and
-written to the cache as it streams. The entry is stored only when:
+written to the cache in the background as it streams. The response never
+waits for the cache's disk: each chunk is written as it arrives, and the
+entry is synced and stored after the response is sent. An original
+downloaded for a request is stored in the background too, while the request
+processes it. Without an originals cache, those writes count toward the
+processed-image cache's limits below. The entry is stored only when:
 
 - the encoder finished,
 - every chunk reached the client,
@@ -154,6 +159,22 @@ written to the cache as it streams. The entry is stored only when:
 A client disconnect, a failure after the first chunk, or a body over
 `max_body_bytes` [leaves nothing in the cache](streaming-failures.md). The
 client still receives the full response in the last case.
+
+When the cache's disk can't keep up, writes are dropped rather than queued
+without limit. The response is still delivered, and the
+[`[:cache, :stage]`](telemetry-events.md#cache-stage) event reports the drop.
+A cache drops a write when:
+
+- it already runs 64 writes,
+- its unfinished writes hold more than 256 MiB, or a twentieth of its
+  `max_size_bytes` when that is smaller,
+- the client is more than 8 MiB ahead of the write,
+- or a processed image's write is still unfinished 30 seconds after the
+  response started.
+
+Each stored entry leaves room for the unfinished writes, so the stored
+entries and the unfinished writes exceed `max_size_bytes` by at most the
+limit on unfinished writes.
 
 Cache errors never fail a request. A failed write is logged and reported in
 telemetry, and the response is delivered without being stored. A failed or
@@ -171,12 +192,15 @@ background checks (see
   original itself, without waiting. A request waiting for an HTTP or S3
   original gives up after waiting that source's `fetch_timeout` (see
   `ImagePipe.Source.HTTP` and `ImagePipe.Source.S3`) plus one second, and
-  answers `504`.
+  answers `504`. When the original isn't stored 2 seconds after it was
+  downloaded, the next waiting request takes over, and downloads it again
+  if it still isn't stored.
 - Up to 16 background checks run at once. Each has a 60-second deadline.
   After a check of an original finishes, that original isn't checked in the
   background again for one second.
 - Up to 64 processed images can be made at once while other requests wait for
-  them, with up to 1,024 requests waiting. A request waits at most 60 seconds.
+  them, with up to 1,024 requests waiting. A request waits at most 60 seconds,
+  and at most 2 seconds after the image was sent if it isn't stored by then.
   Past any of these limits, a request processes the image itself, still
   subject to the [processing pool](processing-controls.md).
 

@@ -24,6 +24,7 @@ defmodule ImagePipe.APIErrorPathsTest do
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Telemetry.RequestContext
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.Delivery.SessionProbe
   alias ImagePipe.Test.PlugFixture.OriginImage
 
@@ -125,7 +126,11 @@ defmodule ImagePipe.APIErrorPathsTest do
   defp get(path, config, headers \\ []) do
     conn = conn(:get, path)
     conn = Enum.reduce(headers, conn, fn {k, v}, c -> put_req_header(c, k, v) end)
-    ImagePipe.Plug.call(conn, config)
+    conn = ImagePipe.Plug.call(conn, config)
+    # Cache writes finish after the response, so wait for them before a test
+    # asserts what was stored.
+    Caches.await_writes(config)
+    conn
   end
 
   defp decoded_dims(body) do
@@ -515,6 +520,7 @@ defmodule ImagePipe.APIErrorPathsTest do
       assert :ok = prepared.cancel.()
 
       assert_receive {:cache_abort, @fake_hash}
+      Caches.await_writes(config)
       refute_received {:cache_put, @fake_hash, _body}
       assert CacheObserver.stored_body(config, @fake_hash) == nil
       assert_receive :bracket_cleanup

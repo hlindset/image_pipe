@@ -27,6 +27,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ones another ImagePipe version wrote, and their bodies, once the files are
   more than an hour old. The `[:cache, :sweep]` event reports them as
   `:unreadable`.
+- `[:cache, :stage]` reports writes the cache drops to keep up with its
+  storage as `:stage_dropped`, for processed images and originals. The
+  default Logger logs them at `:warning`.
 - The `image_pipe.request` span carries a `request_id` attribute when Logger
   metadata has a `:request_id`, such as the one `Plug.RequestId` sets.
 - The `[:cache, :lookup]`, `[:cache, :write]`, and `[:cache, :stage]`
@@ -102,6 +105,15 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Breaking:** `[:cache, :eviction, :stop]` reports the entries a write
   evicts, with `trigger: :admission`, and the startup scan's batches with
   `trigger: :startup`. Update handlers that match `trigger: :reconcile`.
+- Responses no longer wait for the cache's disk. A processed image is stored
+  in the background after it's sent, and a downloaded original while the
+  request processes it. Requests waiting for another request's image or
+  original stop waiting when it isn't stored 2 seconds after the image is
+  sent or the original downloaded. When the disk can't keep up, writes are
+  dropped instead of queued without limit (see
+  [writing entries](docs/cache.md#writing-entries)), and unfinished writes
+  count against `max_size_bytes`. The `[:cache, :write]` span can end after
+  the request.
 - `trim` is faster on images under a megapixel: 2 ms instead of 6.5 ms on a
   256×256 image.
 - **Breaking:** `cache` and `input_cache` need `max_size_bytes`, and an

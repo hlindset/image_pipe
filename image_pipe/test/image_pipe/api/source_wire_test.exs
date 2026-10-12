@@ -8,6 +8,7 @@ defmodule ImagePipe.API.SourceWireTest do
   alias ImagePipe.Source.S3
   alias ImagePipe.SourceTest.CredentialProvider
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
 
   @image File.read!("priv/static/images/beach.jpg")
 
@@ -297,8 +298,12 @@ defmodule ImagePipe.API.SourceWireTest do
   end
 
   defp request(options, source, config) do
-    conn(:get, "/#{options}/src/#{percent_encode_source(source)}")
-    |> ImagePipe.Plug.call(config)
+    response =
+      conn(:get, "/#{options}/src/#{percent_encode_source(source)}")
+      |> ImagePipe.Plug.call(config)
+
+    Caches.await_writes(config)
+    response
   end
 
   defp percent_encode_source(source) do

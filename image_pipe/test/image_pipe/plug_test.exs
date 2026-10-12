@@ -14,6 +14,7 @@ defmodule ImagePipe.PlugTest do
   alias ImagePipe.PlugTest.LargeImageOrigin
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.DecodeOpens
 
   defmodule OriginShouldNotBeCalled do
@@ -208,8 +209,13 @@ defmodule ImagePipe.PlugTest do
     Keyword.merge(ImagePipe.Plug.init(mount_opts), post_init)
   end
 
+  # Cache writes finish after the response, so wait for them before a test
+  # asserts what was stored.
   defp call_image_pipe(conn, opts) do
-    ImagePipe.Plug.call(conn, init_or_pass_opts(opts))
+    opts = init_or_pass_opts(opts)
+    conn = ImagePipe.Plug.call(conn, opts)
+    Caches.await_writes(opts)
+    conn
   end
 
   defp init_or_pass_opts(opts) when is_list(opts) do

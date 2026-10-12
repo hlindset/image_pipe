@@ -381,7 +381,9 @@ starts. It runs outside any request.
 
 ### `[:cache, :write]`
 
-Span. Wraps committing an entry to either pool.
+Span. Wraps committing an entry to either pool. Output-pool writes run after
+the response is sent, and input-pool writes while the request processes the
+original. Either can end after the request's span, which it nests under.
 
 - Start metadata: `:pool` (atom), and `:cache_key` (string, the hash of the
   entry's cache key).
@@ -404,20 +406,30 @@ the body was already sent.
 
 ### `[:cache, :stage]`
 
-One-shot. Emitted when a streamed output-cache miss stops collecting the
-entry before committing it.
+One-shot. Emitted when a cache write stops before committing the entry.
+The default Logger logs dropped writes at `:warning`.
 
 - Metadata:
   - `:cache` (atom): `:stage_skipped` when the body crossed `max_body_bytes`,
-    `:stage_abandoned` when delivery stopped early or the stream failed, or
-    `:stage_error` when opening or writing the staged entry failed.
-  - `:result` (atom): `:ok` for skipped and abandoned entries, `:cache_error`
-    otherwise.
-  - `:reason` (atom): why the entry was skipped or abandoned, such as
-    `:too_large`.
+    `:stage_abandoned` when delivery stopped early or the stream failed,
+    `:stage_dropped` when the cache dropped the write to keep up with its
+    storage (see [writing entries](cache.md#writing-entries)), or
+    `:stage_error` when opening or writing the staged entry failed. Writes
+    of originals report only `:stage_dropped`, with `:writer_limit` or
+    `:pending_limit`.
+  - `:result` (atom): `:ok` for skipped, abandoned and dropped entries,
+    `:cache_error` otherwise.
+  - `:reason` (atom): why the entry was skipped, abandoned or dropped, such
+    as `:too_large`. A dropped write has `:writer_limit` (the cache already
+    runs its maximum number of writes), `:pending_limit` (its unfinished
+    writes hold too many bytes), `:lagging` (the client got too far ahead of
+    the write), or `:deadline` (a processed image's write was unfinished 30
+    seconds after it started).
   - `:error` (atom): the error category, for `:stage_error`.
-  - `:output_format` (atom).
-  - `:cache_key` (string): the hash of the entry's cache key.
+  - `:output_format` (atom), or `nil` for an original or a body that isn't
+    an image, such as a BlurHash.
+  - `:cache_key` (string): the hash of the entry's cache key, or of the
+    original's source for an original.
 
 ### `[:cache, :coordination]`
 
@@ -435,6 +447,9 @@ are coordinated (see [request coalescing](caching-and-freshness.md#request-coale
     For `:output`, `:acquired` (this request generates), `:waiting` (it
     waits for another), `:ready` (it can check the cache again), `:bypass`
     (it generates on its own), or `:busy` (coordination is at capacity).
+  - `:reason` (atom): `:deadline` on an `:output` `:bypass` when the image
+    wasn't stored within 2 seconds of being sent (see
+    [coordination limits](cache.md#coordination-limits)).
 
 ### `[:cache, :sweep]`
 

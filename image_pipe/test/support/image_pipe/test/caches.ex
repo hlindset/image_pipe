@@ -11,6 +11,7 @@ defmodule ImagePipe.Test.Caches do
 
   alias ImagePipe.Cache
   alias ImagePipe.Cache.FileSystem
+  alias ImagePipe.Cache.FileSystem.Writers
 
   @max_size_bytes 1_000_000_000
 
@@ -75,6 +76,41 @@ defmodule ImagePipe.Test.Caches do
     {:ok, sink} = FileSystem.open_sink(key, metadata, opts)
     {:ok, sink} = FileSystem.write_chunk(sink, body, opts)
     :ok = FileSystem.commit_sink(sink, opts)
+  end
+
+  @doc """
+  Waits until the writers of the caches in `options`, or in a configuration,
+  have finished, including writers those writers start.
+  """
+  def await_writes(%ImagePipe.Config{} = config), do: await_writes(config.options)
+
+  def await_writes(options) when is_list(options) do
+    roots =
+      for key <- [:cache, :input_cache], cache = options[key], cache != nil, do: cache[:root]
+
+    await_roots(roots, System.monotonic_time(:millisecond) + 10_000)
+  end
+
+  defp await_roots(roots, deadline) do
+    case Enum.flat_map(roots, &Writers.writers/1) do
+      [] ->
+        :ok
+
+      writers ->
+        Enum.each(writers, &await_writer(&1, deadline))
+        await_roots(roots, deadline)
+    end
+  end
+
+  defp await_writer(pid, deadline) do
+    ref = Process.monitor(pid)
+    timeout = max(deadline - System.monotonic_time(:millisecond), 0)
+
+    receive do
+      {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+    after
+      timeout -> raise "cache writer #{inspect(pid)} still running"
+    end
   end
 
   defp start_validated!(options) do

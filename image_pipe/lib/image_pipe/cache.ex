@@ -35,6 +35,7 @@ defmodule ImagePipe.Cache do
   alias ImagePipe.Cache.FileSystem.Sweep
   alias ImagePipe.Cache.Input
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Cache.OutputWork
   alias ImagePipe.Cache.Sink
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.Skipped
@@ -148,17 +149,24 @@ defmodule ImagePipe.Cache do
   end
 
   @doc false
+  # Stores the record from the calling process, a publication that already
+  # runs off the request, so the record is in place when it releases the
+  # source's lease.
   def remember_source(input_key, record, opts) do
-    body = :erlang.term_to_binary(record, [:deterministic])
+    case Keyword.get(opts, :cache) do
+      nil ->
+        :ok
 
-    source_index_key(input_key)
-    |> open_sink(
-      {:complete_body, "application/vnd.imagepipe.source"},
-      [source_record: record],
-      opts
-    )
-    |> write_chunk(body, opts)
-    |> commit_sink(opts)
+      cache_opts ->
+        Sink.store(
+          source_index_key(input_key),
+          "application/vnd.imagepipe.source",
+          :erlang.term_to_binary(record, [:deterministic]),
+          cache_opts,
+          [source_record: record],
+          opts
+        )
+    end
   end
 
   defp source_index_key(%Key{hash: hash}) do
@@ -233,8 +241,12 @@ defmodule ImagePipe.Cache do
     do: Sink.write_chunk(sink, chunk, opts)
 
   @doc false
-  @spec commit_sink(sink() | nil, keyword()) :: :ok
-  def commit_sink(sink, opts), do: Sink.commit(sink, opts)
+  defdelegate publish(hash, lease, write, opts), to: ImagePipe.Cache.Publication
+
+  @doc false
+  # Hands the write, and the output lease when given, to the cache's writer.
+  @spec commit_sink(sink() | nil, keyword(), OutputWork.lease() | nil) :: :ok
+  def commit_sink(sink, opts, lease \\ nil), do: Sink.commit(sink, opts, lease)
 
   @doc false
   @spec abort_sink(sink() | nil, atom(), keyword()) :: :ok

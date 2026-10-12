@@ -5,6 +5,7 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
 
   alias ImagePipe.ProcessingPool
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.ProcessingSource
 
   @image File.read!("priv/static/images/beach.jpg")
@@ -61,6 +62,9 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
         assert response.status == 200
         {options, response}
       end
+
+    # Cache writes finish after the response; the hits below need them stored.
+    Caches.await_writes(config)
 
     active =
       Task.Supervisor.async_nolink(context.tasks, fn -> request(mount, "w=32", "blocked") end)
@@ -143,6 +147,7 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
     started_at = System.monotonic_time(:microsecond)
     assert request(mount, "output=info").status == 200
     elapsed_us = System.monotonic_time(:microsecond) - started_at
+    Caches.await_writes(mount)
     assert_received {:held, held_us}
     assert_received {:cache_open_sink, _hash, %{cost_us: cost_us}}
 

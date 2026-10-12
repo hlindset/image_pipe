@@ -474,6 +474,7 @@ defmodule ImagePipe.Execution do
         type,
         body,
         facts(session, debug, cost),
+        Keyword.get(session, :output_lease),
         config
       )
 
@@ -505,13 +506,15 @@ defmodule ImagePipe.Execution do
   defp facts(session, debug, cost),
     do: [cost_us: cost, debug: debug, source_record: Keyword.get(session, :source_record)]
 
-  defp store_body(nil, _type, _body, _facts, _config), do: :ok
+  defp store_body(nil, _type, _body, _facts, _lease, _config), do: :ok
 
-  defp store_body(key, type, body, facts, config) do
+  # The writer takes the lease with the body, so waiters wake when it's
+  # stored. The leader's own completion then does nothing.
+  defp store_body(key, type, body, facts, lease, config) do
     key
     |> Cache.open_sink({:complete_body, type}, facts, config)
     |> Cache.write_chunk(body, config)
-    |> Cache.commit_sink(config)
+    |> Cache.commit_sink(config, lease)
 
     :ok
   end

@@ -42,6 +42,7 @@ defmodule ImagePipe.Cache.CompleteBodySinkTest do
       |> Cache.write_chunk(@hash, opts)
 
     assert :ok = Cache.commit_sink(sink, opts)
+    Caches.await_writes(opts)
 
     assert {:hit, %Entry{} = entry} = Cache.lookup_entry(key, opts)
     Entry.close(entry)

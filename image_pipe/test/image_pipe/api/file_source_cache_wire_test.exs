@@ -299,7 +299,9 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
     conn =
       Enum.reduce(headers, conn, fn {name, value}, acc -> put_req_header(acc, name, value) end)
 
-    ImagePipe.Plug.call(conn, opts)
+    response = ImagePipe.Plug.call(conn, opts)
+    Caches.await_writes(opts)
+    response
   end
 
   defp image(response), do: Image.from_binary!(response.resp_body)

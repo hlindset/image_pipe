@@ -293,7 +293,9 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
 
   defp native(shared, width, options \\ []) do
     builder = IP.URL.new() |> IP.URL.group(resize: [width: width]) |> IP.URL.output(format: :png)
-    IP.run(shared, builder, {:source, "https://origin.test/image.png"}, options)
+    result = IP.run(shared, builder, {:source, "https://origin.test/image.png"}, options)
+    Caches.await_writes(shared)
+    result
   end
 
   defp observe_transforms(prefix) do
@@ -326,6 +328,8 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     monitor = Process.monitor(worker)
     send(worker, :continue)
     assert_receive {:DOWN, ^monitor, :process, ^worker, _}, 5_000
+    # The refresh's cache writes finish after it does.
+    Caches.await_writes(config)
     Agent.update(state, &%{&1 | block: false})
     refreshed = request(config, 12)
     assert refreshed.status == 200
@@ -527,6 +531,8 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     monitor = Process.monitor(worker)
     send(worker, :continue)
     assert_receive {:DOWN, ^monitor, :process, ^worker, _}, 5_000
+    # The refresh's cache writes finish after it does.
+    Caches.await_writes(config)
     Agent.update(state, &%{&1 | block: false})
     refreshed = request(config, 12)
     assert refreshed.status == 200
@@ -667,6 +673,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     monitor = Process.monitor(worker)
     send(worker, :continue)
     assert_receive {:DOWN, ^monitor, :process, ^worker, _}, 5_000
+    Caches.await_writes(config)
     Agent.update(state, &%{&1 | now: 1_005, block: false})
     assert request(config, 12).status == 502
   end
@@ -1259,7 +1266,9 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     conn =
       Enum.reduce(headers, conn, fn {name, value}, conn -> put_req_header(conn, name, value) end)
 
-    ImagePipe.Plug.call(conn, config)
+    response = ImagePipe.Plug.call(conn, config)
+    Caches.await_writes(config)
+    response
   end
 
   # Changes the validated options of the `url` mount in place.

@@ -359,8 +359,7 @@ defmodule ImagePipe.Delivery.Coordinator do
 
   defp handle_producer_result({:ok, :done}, %{pending: {:next, from}} = state) do
     with_owner_check(state, fn state ->
-      Cache.commit_sink(state.cache_sink, state.config)
-      Cache.OutputWork.complete(state.output_lease, :ready)
+      Cache.commit_sink(state.cache_sink, state.config, state.output_lease)
       GenServer.reply(from, :done)
 
       state =

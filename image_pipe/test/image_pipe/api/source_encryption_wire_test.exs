@@ -9,6 +9,7 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
   alias ImagePipe.Security.SourceEncryption.{CBC, HKDF}
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
 
   @signing_key String.duplicate("a1", 32)
   @encryption_key String.duplicate("2a49", 16)
@@ -217,7 +218,12 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
     Base.url_encode64(<<1, 0::128, ciphertext::binary, tag::binary>>, padding: false)
   end
 
-  defp request(path, config), do: conn(:get, signed(path, config)) |> ImagePipe.Plug.call(config)
+  defp request(path, config) do
+    response = conn(:get, signed(path, config)) |> ImagePipe.Plug.call(config)
+    Caches.await_writes(config)
+    response
+  end
+
   defp signed(path, config), do: "/sig=#{Signature.sign(path, config)}#{path}"
 
   defp encrypt_source(source, config) do

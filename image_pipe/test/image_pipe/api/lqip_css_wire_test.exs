@@ -7,6 +7,7 @@ defmodule ImagePipe.API.LqipCssWireTest do
   alias Image.Lqip.Css
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
   alias Vix.Vips.Operation
 
   setup do
@@ -229,7 +230,7 @@ defmodule ImagePipe.API.LqipCssWireTest do
     conditional =
       conn(:get, "/gray/output=lqip-css/src/source.png")
       |> put_req_header("if-none-match", etag)
-      |> ImagePipe.Plug.call(config)
+      |> call_pipe(config)
 
     assert conditional.status == 304
     assert conditional.resp_body == ""
@@ -273,7 +274,15 @@ defmodule ImagePipe.API.LqipCssWireTest do
   defp request(options, config, accept \\ "*/*") do
     conn(:get, "/#{options}/src/source.png")
     |> put_req_header("accept", accept)
-    |> ImagePipe.Plug.call(config)
+    |> call_pipe(config)
+  end
+
+  # Cache writes finish after the response, so wait for them before a test
+  # asserts what was stored.
+  defp call_pipe(conn, config) do
+    conn = ImagePipe.Plug.call(conn, config)
+    Caches.await_writes(config)
+    conn
   end
 
   defp mount(body, extra \\ [], content_type \\ "image/png") do

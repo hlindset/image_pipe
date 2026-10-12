@@ -7,6 +7,7 @@ defmodule ImagePipe.API.CacheFailOpenWireTest do
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
 
   @moduletag capture_log: true
 
@@ -45,6 +46,7 @@ defmodule ImagePipe.API.CacheFailOpenWireTest do
       cached_opts = CacheObserver.observe(opts)
       config = ImagePipe.Plug.init(cached_opts)
       _stored = ImagePipe.Plug.call(conn(:get, path), config)
+      Caches.await_writes(cached_opts)
       assert_received {:cache_put, hash, _body}
       CacheObserver.lookup_hashes()
 
@@ -62,6 +64,7 @@ defmodule ImagePipe.API.CacheFailOpenWireTest do
       File.write!(meta_path, :erlang.term_to_binary(corrupt))
 
       response = ImagePipe.Plug.call(conn(:get, path), config)
+      Caches.await_writes(cached_opts)
 
       assert response.status == 200
       assert get_resp_header(response, "content-type") == ["application/json; charset=utf-8"]
@@ -104,6 +107,7 @@ defmodule ImagePipe.API.CacheFailOpenWireTest do
       on_exit(fn -> File.chmod(root, 0o700) end)
 
       response = ImagePipe.Plug.call(conn(:get, path), config)
+      Caches.await_writes(cached_opts)
 
       assert [_hash | _] = CacheObserver.lookup_hashes()
       assert baseline.status == 200

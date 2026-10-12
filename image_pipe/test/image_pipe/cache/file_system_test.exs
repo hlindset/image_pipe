@@ -6,6 +6,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
   alias ImagePipe.Cache.FileSystem.Admission
   alias ImagePipe.Cache.FileSystem.PeriodicSweep
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Test.Caches
 
   @max_size_bytes 1_000_000_000
 
@@ -693,6 +694,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
     record = ImagePipe.Source.Record.new(source, :crypto.hash(:sha256, "bytes"), nil, 0)
 
     :ok = ImagePipe.Cache.remember_source(input_key, record, opts)
+    Caches.await_writes(opts)
     assert ImagePipe.Cache.source_record(input_key, opts) == record
 
     for body <- Path.wildcard(Path.join(root, "**/*.body")), do: File.rm!(body)

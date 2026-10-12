@@ -107,9 +107,11 @@ defmodule ImagePipe.API.SkipProcessingWireTest do
       config = mount(files, Caches.start!(cache: [root: root]))
 
       assert request("w=10", config, "image.gif").resp_body == files["image.gif"]
+      Caches.await_writes(config)
       assert cached_files(root) == []
 
       assert request("w=10", config, "image.png").status == 200
+      Caches.await_writes(config)
       refute cached_files(root) == []
     end
   end

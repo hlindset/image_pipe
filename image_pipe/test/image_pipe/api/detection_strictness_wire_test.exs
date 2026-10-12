@@ -7,6 +7,7 @@ defmodule ImagePipe.API.DetectionStrictnessWireTest do
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.DetectorFixtures.CornerObjectDetector
   alias ImagePipe.Test.DetectorFixtures.FlakyDetector
   alias ImagePipe.Test.DetectorFixtures.PartialFailureDetector
@@ -110,7 +111,7 @@ defmodule ImagePipe.API.DetectionStrictnessWireTest do
             {"/crop=50,50/detect=car,face/format=png/src/beach.jpg",
              observed(detector: PartialFailureDetector)}
           ] do
-        response = conn(:get, path) |> ImagePipe.Plug.call(opts)
+        response = conn(:get, path) |> call_pipe(opts)
 
         assert response.status == 200
         assert get_resp_header(response, "cache-control") == ["no-store"]
@@ -169,7 +170,15 @@ defmodule ImagePipe.API.DetectionStrictnessWireTest do
   defp observed(overrides), do: overrides |> CacheObserver.observe() |> mount()
 
   defp response(options, config),
-    do: conn(:get, "/#{options}/format=png/src/beach.jpg") |> ImagePipe.Plug.call(config)
+    do: conn(:get, "/#{options}/format=png/src/beach.jpg") |> call_pipe(config)
+
+  # Cache writes finish after the response, so wait for them before a test
+  # asserts what was stored.
+  defp call_pipe(conn, config) do
+    conn = ImagePipe.Plug.call(conn, config)
+    Caches.await_writes(config)
+    conn
+  end
 
   defp image(response) do
     assert response.status == 200

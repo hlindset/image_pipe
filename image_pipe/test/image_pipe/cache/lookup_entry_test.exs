@@ -27,6 +27,8 @@ defmodule ImagePipe.Cache.LookupEntryTest do
     |> Cache.open_sink({:complete_body, "text/plain"}, [], opts)
     |> Cache.write_chunk(body, opts)
     |> Cache.commit_sink(opts)
+
+    Caches.await_writes(opts)
   end
 
   defp rewrite_metadata(opts, fun) do

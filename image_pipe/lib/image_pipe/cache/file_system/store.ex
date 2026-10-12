@@ -8,6 +8,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   alias ImagePipe.Cache.FileSystem.PeriodicSweep
   alias ImagePipe.Cache.FileSystem.Root
   alias ImagePipe.Cache.FileSystem.Sweep
+  alias ImagePipe.Cache.FileSystem.Writers
   alias ImagePipe.Cache.Key
   alias ImagePipe.SafePath
 
@@ -55,8 +56,10 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   @doc false
   # The processes a cache runs on a root this node owns: Admission, the
-  # registry it's found in, and the periodic sweep. Admission's startup scan
-  # sweeps, so the periodic sweep's first run waits an interval.
+  # registry it's found in, the writers, and the periodic sweep. Admission's
+  # startup scan sweeps, so the periodic sweep's first run waits an interval.
+  # The writers start after Admission, so a shutdown drains them while
+  # Admission still runs.
   def cache_children(opts) do
     registry_name = registry_name(Keyword.fetch!(opts, :root))
     telemetry = Keyword.take(opts, [:telemetry_prefix])
@@ -65,6 +68,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     [
       {Registry, keys: :unique, name: registry_name},
       {Admission, admission_options(opts, registry_name)},
+      {Writers, opts},
       {PeriodicSweep,
        id: {Sweep, Keyword.fetch!(opts, :root)}, delay_first?: true, sweep: {Sweep, :run, sweep}}
     ]
@@ -144,11 +148,13 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     end
   end
 
+  # The body is a raw file, so only the process that opens the sink can
+  # write, sync and close it: the cache's writer, or a test.
   def open_sink(%Key{} = key, metadata, opts) when is_list(opts) do
     with {:ok, paths} <- paths(key, opts),
          :ok <- File.mkdir_p(paths.dir),
          temp_body_path = temp_path(paths),
-         {:ok, body_io} <- File.open(temp_body_path, [:write, :binary, :exclusive]) do
+         {:ok, body_io} <- :file.open(temp_body_path, [:write, :binary, :exclusive, :raw]) do
       {:ok,
        %{
          paths: paths,
@@ -163,18 +169,18 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   end
 
   def write_chunk(state, chunk, _opts) when is_binary(chunk) do
-    IO.binwrite(state.body_io, chunk)
+    case :file.write(state.body_io, chunk) do
+      :ok ->
+        {:ok,
+         %{
+           state
+           | size: state.size + byte_size(chunk),
+             hash_context: :crypto.hash_update(state.hash_context, chunk)
+         }}
 
-    {:ok,
-     %{
-       state
-       | size: state.size + byte_size(chunk),
-         hash_context: :crypto.hash_update(state.hash_context, chunk)
-     }}
-  rescue
-    exception in [ErlangError] -> {:error, exception.original, state}
-  catch
-    :exit, reason -> {:error, reason, state}
+      {:error, reason} ->
+        {:error, reason, state}
+    end
   end
 
   @doc false
@@ -239,6 +245,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   defp commit_bounded(state, pid, opts) do
     case prepare_sink_commit(state) do
       {:ok, prepared, body_filename} ->
+        prepared = Map.put(prepared, :held, Writers.held())
         admit_commit(prepared, body_filename, pid, opts)
 
       {:error, reason, prepared} ->
@@ -604,15 +611,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     end
   end
 
-  defp close_body_io(%{body_io: body_io}) do
-    case File.close(body_io) do
-      :ok -> :ok
-      {:error, :terminated} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  catch
-    :exit, reason -> {:error, {:close_failed, reason}}
-  end
+  defp close_body_io(%{body_io: body_io}), do: :file.close(body_io)
 
   defp sink_body_sha256(%{body_sha256: body_sha256}), do: body_sha256
   defp sink_body_sha256(state), do: finalize_body_sha256(state.hash_context)
