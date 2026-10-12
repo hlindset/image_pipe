@@ -1,4 +1,18 @@
-import base64, os, sys
+import base64, os, random, struct, sys, zlib
+
+
+def noise_png(width, height):
+    """A deterministic 1 MP noise PNG, so the cases need no image tools."""
+    rnd = random.Random(1)
+    rows = b"".join(b"\x00" + rnd.randbytes(width * 3) for _ in range(height))
+
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+
+
 d = sys.argv[1]
 def w(name, s):
     open(os.path.join(d, name + ".svg"), "w").write(s)
@@ -12,7 +26,7 @@ for n in [1000, 5000]:
 for t in [1000, 5000]:
     w(f"pattern_{t}", H + f'<pattern id="p" width="{t}" height="{t}" patternUnits="userSpaceOnUse"><circle cx="5" cy="5" r="5"/></pattern><rect width="100" height="100" fill="url(#p)"/></svg>')
 w("pattern_nested", H + '<pattern id="p0" width="10" height="10" patternUnits="userSpaceOnUse"><circle cx="5" cy="5" r="4"/></pattern>' + ''.join(f'<pattern id="p{i}" width="100" height="100" patternUnits="userSpaceOnUse"><rect width="100" height="100" fill="url(#p{i-1})"/></pattern>' for i in range(1, 20)) + '<rect width="100" height="100" fill="url(#p19)"/></svg>')
-png = base64.b64encode(open("noise.png", "rb").read()).decode()
+png = base64.b64encode(noise_png(1000, 1000)).decode()
 w("use_image_x500", H + f'<defs><image id="i" width="100" height="100" href="data:image/png;base64,{png}"/></defs>' + '<use href="#i"/>' * 500 + '</svg>')
 w("pattern_image_x500", H + f'<pattern id="p" width="100" height="100" patternUnits="userSpaceOnUse"><image width="100" height="100" href="data:image/png;base64,{png}"/></pattern>' + '<rect width="100" height="100" fill="url(#p)"/>' * 500 + '</svg>')
 for lv in [5, 6, 7]:
