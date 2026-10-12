@@ -47,6 +47,9 @@ another path with `IPS_CONFIG`), mount your images, and give caches a volume:
 docker run --read-only --tmpfs /tmp -p 8080:8080 -v ./config.toml:/etc/image_pipe/config.toml:ro -v ./images:/data/images:ro -v image-cache:/var/cache/image_pipe ghcr.io/hlindset/image_pipe_server:0.1
 ```
 
+- On a platform that can't mount files, pass the file's contents in
+  `IPS_CONFIG_TOML` instead, such as
+  `-e IPS_CONFIG_TOML="$(cat config.toml)"`.
 - The server writes only to `/tmp` and to cache directories, so the root
   filesystem can be read-only. Mount `/tmp` as a `tmpfs`.
 - Put caches under `/var/cache/image_pipe`, which is writable by the server's

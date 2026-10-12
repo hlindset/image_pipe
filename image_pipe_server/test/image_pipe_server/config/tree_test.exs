@@ -32,6 +32,51 @@ defmodule ImagePipeServer.Config.TreeTest do
     end
   end
 
+  describe "IPS_CONFIG_TOML" do
+    test "is read in place of the default file", %{tmp_dir: dir} do
+      default = write!(dir, "config.toml", ~s([processing]\nquality = 82\n))
+      env = %{"IPS_CONFIG_TOML" => ~s([processing]\nmax_input_pixels = 10\n)}
+
+      assert Tree.read!(env, default) == %{"processing" => %{"max_input_pixels" => 10}}
+    end
+
+    test "and IPS_CONFIG together are an error", %{tmp_dir: dir} do
+      path = write!(dir, "config.toml", "")
+
+      assert_raise ConfigError, "both IPS_CONFIG and IPS_CONFIG_TOML are set", fn ->
+        read!(%{"IPS_CONFIG" => path, "IPS_CONFIG_TOML" => ""}, dir)
+      end
+    end
+
+    test "is overridden by setting variables", %{tmp_dir: dir} do
+      env = %{
+        "IPS_CONFIG_TOML" => ~s([processing]\nquality = 82\nmax_input_pixels = 10\n),
+        "IPS_PROCESSING__QUALITY" => "70"
+      }
+
+      assert read!(env, dir) == %{
+               "processing" => %{"quality" => {:env, "70"}, "max_input_pixels" => 10}
+             }
+    end
+
+    test "names the variable in a TOML error and redacts the value", %{tmp_dir: dir} do
+      message =
+        assert_raise(ConfigError, fn ->
+          read!(%{"IPS_CONFIG_TOML" => ~s([url]\nkeys = "sekrit\n)}, dir)
+        end).message
+
+      assert message =~ "IPS_CONFIG_TOML on line 2, column 14"
+      assert message =~ "    keys = <redacted value>\n           ^"
+      refute message =~ "sekrit"
+    end
+
+    test "names the variable when the value isn't UTF-8", %{tmp_dir: dir} do
+      assert_raise ConfigError, "IPS_CONFIG_TOML is not valid UTF-8 on line 2", fn ->
+        read!(%{"IPS_CONFIG_TOML" => "port = 8080\n# caf\xE9\n"}, dir)
+      end
+    end
+  end
+
   describe "invalid TOML" do
     defp toml_error(dir, contents) do
       path = write!(dir, "config.toml", contents)

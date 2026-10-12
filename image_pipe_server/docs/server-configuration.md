@@ -13,10 +13,13 @@ listed in [shared URL settings](../../image_pipe/docs/shared-url-settings.md).
 2. Standard `AWS_` variables, for the S3 credential options that
    `container_credentials` and `web_identity` leave out (see
    [S3 `credentials`](#s3-credentials)).
-3. The TOML file named by `IPS_CONFIG`, or `/etc/image_pipe/config.toml`. The
-   default file is optional, so a deployment can use only environment
-   variables. A missing file named by `IPS_CONFIG` stops the server.
-4. `IPS_` environment variables, which override single settings in the file.
+3. The TOML file named by `IPS_CONFIG`, or `/etc/image_pipe/config.toml`, or
+   the file's contents in `IPS_CONFIG_TOML` on a platform that can't mount
+   files. The default file is optional, so a deployment can use only
+   environment variables. A missing file named by `IPS_CONFIG`, or setting
+   both `IPS_CONFIG` and `IPS_CONFIG_TOML`, stops the server.
+4. `IPS_` environment variables, which override single settings in the TOML
+   configuration.
 
 A small file:
 
@@ -131,7 +134,8 @@ invalid configuration: processing.qualty: unknown setting
 ```
 
 A file that isn't valid TOML is reported with its position and key, with the
-values on the quoted line redacted:
+values on the quoted line redacted. An error in `IPS_CONFIG_TOML` names the
+variable in place of the path:
 
 ```text
 invalid TOML: unexpected newline in single-quoted string in /etc/image_pipe/config.toml on line 2, column 14:

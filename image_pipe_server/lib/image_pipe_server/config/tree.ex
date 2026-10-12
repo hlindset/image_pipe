@@ -3,6 +3,8 @@ defmodule ImagePipeServer.Config.Tree do
   Reads the configuration tree from the TOML file and the environment.
 
   The file is named by `IPS_CONFIG`, or the default path, which may be absent.
+  `IPS_CONFIG_TOML` holds the file's contents instead, for platforms that
+  can't mount files.
   Environment variables flatten the same tree: `IPS_` followed by the levels
   joined with `__`, lowercased. A variable overrides the matching leaf in the
   file.
@@ -19,6 +21,7 @@ defmodule ImagePipeServer.Config.Tree do
 
   @prefix "IPS_"
   @config_var "IPS_CONFIG"
+  @inline_var "IPS_CONFIG_TOML"
 
   # Kubernetes sets these for every Service in the namespace, so a Service
   # named `ips` or `ips-...` gives the pod `IPS_SERVICE_HOST`, `IPS_PORT`, and
@@ -33,13 +36,19 @@ defmodule ImagePipeServer.Config.Tree do
   end
 
   defp file!(env, default_path) do
-    case Map.fetch(env, @config_var) do
-      {:ok, path} ->
+    case {Map.fetch(env, @config_var), Map.fetch(env, @inline_var)} do
+      {{:ok, _path}, {:ok, _contents}} ->
+        raise ConfigError, "both #{@config_var} and #{@inline_var} are set"
+
+      {:error, {:ok, contents}} ->
+        decode!(contents, @inline_var)
+
+      {{:ok, path}, :error} ->
         if File.regular?(path),
           do: decode!(path),
           else: raise(ConfigError, "#{@config_var} names a missing file: #{path}")
 
-      :error ->
+      {:error, :error} ->
         if File.regular?(default_path), do: decode!(default_path), else: %{}
     end
   end
@@ -51,28 +60,29 @@ defmodule ImagePipeServer.Config.Tree do
     end
   end
 
-  # The parser crashes on bytes that aren't UTF-8, and its other non-TOML
-  # errors carry parts of the file, so neither is quoted.
-  defp decode!(contents, path) do
+  # `name` is the file's path, or the variable that holds the contents. The
+  # parser crashes on bytes that aren't UTF-8, and its other non-TOML errors
+  # carry parts of the file, so neither is quoted.
+  defp decode!(contents, name) do
     if not String.valid?(contents),
-      do: raise(ConfigError, "#{path} is not valid UTF-8 on line #{invalid_line(contents)}")
+      do: raise(ConfigError, "#{name} is not valid UTF-8 on line #{invalid_line(contents)}")
 
-    case toml_decode(contents, path) do
+    case toml_decode(contents, name) do
       {:ok, tree} ->
         tree
 
       {:error, {:invalid_toml, reason}} ->
-        raise ConfigError, TomlError.message(reason, path, contents)
+        raise ConfigError, TomlError.message(reason, name, contents)
 
       {:error, _reason} ->
-        raise ConfigError, "invalid TOML in #{path}: a value can't be read"
+        raise ConfigError, "invalid TOML in #{name}: a value can't be read"
     end
   end
 
   # The parser's lexer runs in a linked process that crashes on some malformed
   # input, so decode in a throwaway process and treat a crash as unreadable.
-  defp toml_decode(contents, path) do
-    {pid, ref} = spawn_monitor(fn -> exit({:decoded, Toml.decode(contents, filename: path)}) end)
+  defp toml_decode(contents, name) do
+    {pid, ref} = spawn_monitor(fn -> exit({:decoded, Toml.decode(contents, filename: name)}) end)
 
     receive do
       {:DOWN, ^ref, :process, ^pid, {:decoded, result}} -> result
@@ -97,6 +107,7 @@ defmodule ImagePipeServer.Config.Tree do
   defp setting?(name) do
     case name do
       @config_var -> false
+      @inline_var -> false
       @prefix <> rest -> String.contains?(rest, "__") or not Regex.match?(@service_link, rest)
       _other -> false
     end
