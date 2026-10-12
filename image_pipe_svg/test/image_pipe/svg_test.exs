@@ -78,6 +78,13 @@ defmodule ImagePipe.SVGTest do
       assert message =~ "Broken.ttf"
     end
 
+    @tag :tmp_dir
+    test "fails on a directory that doesn't exist", %{tmp_dir: dir} do
+      missing = Path.join(dir, "missing")
+      assert {:error, message} = SVG.load_fonts([missing])
+      assert message =~ missing
+    end
+
     test "fails on a fallback family that isn't loaded" do
       assert {:error, message} = SVG.load_fonts([@font_dir], fallback_family: "Comic Sans MS")
       assert message =~ "Comic Sans MS"
@@ -122,6 +129,43 @@ defmodule ImagePipe.SVGTest do
       assert {:ok, _} = SVG.parse(small <> svg("<text>&ns;</text>"), fonts)
     end
 
+    test "finds entity bombs whatever surrounds their declarations", %{fonts: fonts} do
+      x = String.duplicate("a", 2000)
+      y = String.duplicate("&x;", 250)
+      entities = ~s(<!ENTITY x "#{x}"><!ENTITY y "#{y}">)
+      body = svg(~s(<rect id="#{String.duplicate("&y;", 10)}" width="1" height="1"/>))
+
+      for doctype <- [
+            # A decoy DOCTYPE in a comment before the real one.
+            ~s(<!-- <!DOCTYPE x> --><!DOCTYPE svg [#{entities}]>),
+            # A `>` in the external identifier.
+            ~s(<!DOCTYPE svg SYSTEM "a>b" [#{entities}]>),
+            # A stray quote in a processing instruction in the subset.
+            ~s(<!DOCTYPE svg [<?pi ' ?>#{entities}]>),
+            # A smaller decoy declaration of the same name in a comment.
+            ~s(<!DOCTYPE svg [<!-- <!ENTITY y "z"> -->#{entities}]>)
+          ] do
+        assert {:error, {:entity_expansion, _}} = SVG.parse(doctype <> body, fonts)
+      end
+    end
+
+    test "limits elements and text across all embedded SVGs together", %{fonts: fonts} do
+      rects = String.duplicate(~s(<rect width="1" height="1"/>), 100)
+      inner = data_uri("image/svg+xml", svg(rects))
+      image = ~s(<image id="i" width="10" height="10" href="#{inner}"/>)
+      copies = String.duplicate(~s(<use href="#i"/>), 20)
+
+      # Each copy alone is within the limit, all of them together aren't.
+      assert {:ok, _} = SVG.parse(svg(image), fonts, max_elements: 1_000)
+
+      assert {:error, {:too_many_elements, _}} =
+               SVG.parse(svg(image <> copies), fonts, max_elements: 1_000)
+
+      text = data_uri("image/svg+xml", svg("<text>" <> String.duplicate("a", 100) <> "</text>"))
+      images = String.duplicate(~s(<image width="10" height="10" href="#{text}"/>), 20)
+      assert {:error, {:too_much_text, _}} = SVG.parse(svg(images), fonts, max_text: 1_000)
+    end
+
     test "checks embedded SVGs for entity bombs too", %{fonts: fonts} do
       x = String.duplicate("a", 2000)
       y = String.duplicate("&x;", 250)
@@ -156,6 +200,23 @@ defmodule ImagePipe.SVGTest do
       # Whitespace between elements isn't laid out, so it doesn't count.
       spaced = svg(String.duplicate(~s(<rect width="1" height="1"/>\n          ), 1000))
       assert {:ok, _} = SVG.parse(spaced, fonts, max_text: 10)
+    end
+
+    test "counts each clip path's paths once per use", %{fonts: fonts} do
+      cost = fn paths ->
+        clip =
+          ~s(<clipPath id="c">) <>
+            String.duplicate(~s(<rect width="5" height="5"/>), paths) <> "</clipPath>"
+
+        groups =
+          String.duplicate(~s[<g clip-path="url(#c)"><rect width="10" height="10"/></g>], 100)
+
+        {:ok, document} = SVG.parse(svg(clip <> groups), fonts)
+        SVG.cost(document, 10, 10).work
+      end
+
+      # 100 groups × 999 more clip paths × at least 200 units per path.
+      assert cost.(1_000) - cost.(1) >= 100 * 999 * 200
     end
 
     test "fails before expanding a <use> bomb", %{fonts: fonts} do

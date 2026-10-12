@@ -103,7 +103,7 @@ impl Walk {
                 walk.filter(filter, ts);
             }
             if let Some(clip) = group.clip_path() {
-                walk.clip(clip, layer);
+                walk.clip(clip, ts, layer);
             }
             if let Some(mask) = group.mask() {
                 walk.mask(mask, ts, layer);
@@ -111,11 +111,12 @@ impl Walk {
         });
     }
 
-    fn clip(&mut self, clip: &usvg::ClipPath, layer: f64) {
+    fn clip(&mut self, clip: &usvg::ClipPath, ts: Transform, layer: f64) {
         self.alloc(layer, |walk| {
             walk.work += layer;
+            walk.nodes(clip.root(), ts.pre_concat(clip.transform()));
             if let Some(inner) = clip.clip_path() {
-                walk.clip(inner, layer);
+                walk.clip(inner, ts, layer);
             }
         });
     }

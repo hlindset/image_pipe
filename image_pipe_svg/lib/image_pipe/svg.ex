@@ -49,7 +49,8 @@ defmodule ImagePipe.SVG do
   as `sans-serif`, renders in the `:fallback_family`. Without one, that text
   is left out.
 
-  Fails when a font file can't be read or parsed, or when the fallback family
+  Fails when a directory doesn't exist, when a font file can't be read or
+  parsed, or when the fallback family
   isn't among the loaded fonts.
   """
   @spec load_fonts([Path.t()], keyword()) :: {:ok, Fonts.t()} | {:error, String.t()}
@@ -61,6 +62,13 @@ defmodule ImagePipe.SVG do
   end
 
   defp read_fonts(dirs) do
+    case Enum.reject(dirs, &File.dir?/1) do
+      [] -> read_font_files(dirs)
+      [dir | _] -> {:error, "#{dir} isn't a directory"}
+    end
+  end
+
+  defp read_font_files(dirs) do
     dirs
     |> Enum.flat_map(fn dir -> Enum.map(font_paths(dir), &{dir, &1}) end)
     |> Enum.reduce_while({:ok, []}, fn {dir, path}, {:ok, files} ->

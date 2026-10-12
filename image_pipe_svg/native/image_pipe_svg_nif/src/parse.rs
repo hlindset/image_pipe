@@ -27,6 +27,34 @@ pub struct Limits {
     pub max_text: u64,
 }
 
+impl Limits {
+    /// What's left of the limits shared by embedded SVGs after `used`.
+    fn remaining(&self, used: &Usage) -> Limits {
+        Limits {
+            max_elements: self.max_elements.saturating_sub(used.elements),
+            max_entity_expansion: self.max_entity_expansion.saturating_sub(used.expansion),
+            max_text: self.max_text.saturating_sub(used.text),
+            ..*self
+        }
+    }
+}
+
+/// What one document's parse used of the limits.
+#[derive(Default, Clone, Copy)]
+struct Usage {
+    elements: u64,
+    expansion: u64,
+    text: u64,
+}
+
+impl Usage {
+    fn add(&mut self, other: Usage) {
+        self.elements = self.elements.saturating_add(other.elements);
+        self.expansion = self.expansion.saturating_add(other.expansion);
+        self.text = self.text.saturating_add(other.text);
+    }
+}
+
 #[derive(Debug)]
 pub enum Error {
     Parse(String),
@@ -48,7 +76,7 @@ pub fn parse(
     limits: &Limits,
 ) -> Result<usvg::Tree, Error> {
     let text = std::str::from_utf8(data).map_err(|_| Error::Parse("not UTF-8".into()))?;
-    let doc = checked_document(text, limits)?;
+    let (doc, _usage) = checked_document(text, limits)?;
 
     let violation = Arc::new(Mutex::new(None));
     let options = options(fontdb, *limits, violation.clone());
@@ -62,11 +90,11 @@ pub fn parse(
 }
 
 /// Parses `text` with roxmltree once its entities and `<use>` expansion are
-/// known to stay within `limits`.
+/// known to stay within `limits`, and returns what it used of them.
 fn checked_document<'input>(
     text: &'input str,
     limits: &Limits,
-) -> Result<roxmltree::Document<'input>, Error> {
+) -> Result<(roxmltree::Document<'input>, Usage), Error> {
     let expansion = entities::expanded_size(text);
     if expansion > limits.max_entity_expansion {
         return Err(Error::EntityExpansion(expansion));
@@ -92,7 +120,12 @@ fn checked_document<'input>(
     if text.total > limits.max_text {
         return Err(Error::TooMuchText(text.total));
     }
-    Ok(doc)
+    let usage = Usage {
+        elements,
+        expansion,
+        text: text.total,
+    };
+    Ok((doc, usage))
 }
 
 fn options(
@@ -101,6 +134,9 @@ fn options(
     violation: Arc<Mutex<Option<Error>>>,
 ) -> Options<'static> {
     let depth = Arc::new(AtomicU32::new(0));
+    // Embedded SVGs share one set of limits, since usvg parses an image again
+    // for each `<use>` copy of it.
+    let nested = Arc::new(Mutex::new(Usage::default()));
 
     let resolve_data = move |mime: &str, data: Arc<Vec<u8>>, opts: &Options| {
         if data.starts_with(&[0x1f, 0x8b]) {
@@ -118,21 +154,40 @@ fn options(
                     record(&violation, Error::NestingTooDeep);
                     return None;
                 }
-                // usvg parses the embedded SVG itself, so check it first with
-                // the outer document's limits. One that doesn't parse renders
-                // as nothing.
-                match std::str::from_utf8(&data).map(|text| checked_document(text, &limits)) {
-                    Ok(Ok(_)) => {}
-                    Ok(Err(
-                        error @ (Error::EntityExpansion(_)
-                        | Error::TooManyElements(_)
-                        | Error::TooMuchText(_)),
-                    )) => {
-                        record(&violation, error);
+                // usvg parses the embedded SVG itself, so check it first
+                // against what's left of the limits. One that doesn't parse
+                // renders as nothing.
+                let Ok(text) = std::str::from_utf8(&data) else {
+                    return None;
+                };
+                let mut used = nested.lock().unwrap();
+                match checked_document(text, &limits.remaining(&used)) {
+                    Ok((_, usage)) => used.add(usage),
+                    Err(Error::EntityExpansion(n)) => {
+                        record(
+                            &violation,
+                            Error::EntityExpansion(n.saturating_add(used.expansion)),
+                        );
                         return None;
                     }
-                    _ => return None,
+                    Err(Error::TooManyElements(n)) => {
+                        record(
+                            &violation,
+                            Error::TooManyElements(n.saturating_add(used.elements)),
+                        );
+                        return None;
+                    }
+                    Err(Error::TooMuchText(n)) if n > limits.max_text_per_element => {
+                        record(&violation, Error::TooMuchText(n));
+                        return None;
+                    }
+                    Err(Error::TooMuchText(n)) => {
+                        record(&violation, Error::TooMuchText(n.saturating_add(used.text)));
+                        return None;
+                    }
+                    Err(_) => return None,
                 }
+                drop(used);
                 depth.fetch_add(1, Ordering::SeqCst);
                 let tree = usvg::Tree::from_data_nested(&data, opts);
                 depth.fetch_sub(1, Ordering::SeqCst);
