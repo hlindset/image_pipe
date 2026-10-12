@@ -51,6 +51,11 @@ package links use `image_pipe_svg-vX.Y.Z` tags.
    git push origin vX.Y.Z
    ```
 
+`image_pipe` depends on `image_pipe_svg`, which releases on its own, so a
+version matching `image_pipe`'s requirement must already be on Hex. Otherwise
+the release stops before publishing `image_pipe`. See
+[Release the SVG package](#release-the-svg-package).
+
 The tag starts the [Library release workflow](.github/workflows/release.yml):
 
 1. It checks that the tag matches both library versions, is on `main`, and
@@ -130,9 +135,9 @@ The tag starts the [SVG package release workflow](.github/workflows/release-svg.
    the `release` environment.
 
 When `image_pipe` needs the new version, raise its `image_pipe_svg`
-requirement in a library release. Server images build against Hex and always
-include `image_pipe_svg`, so a version matching the server's requirement must
-be on Hex before the server release.
+requirement in a library release. Library and server releases resolve
+`image_pipe_svg` from Hex, so a version matching their requirements must be on
+Hex before either is released.
 
 ## Release a new minor version
 
@@ -171,9 +176,10 @@ mise run release:hex --dry-run
 ```
 
 A dry run builds both packages and their docs, failing on documentation
-warnings, without publishing. Until `image_pipe_url` at the new version is on
-Hex, `image_pipe` can't resolve it, so its check stops just short of that one
-dependency.
+warnings, without publishing. Until `image_pipe_url` at the new version and a
+matching `image_pipe_svg` are on Hex, `image_pipe` can't resolve them, so its
+check builds from the sibling projects and stops just short of those
+dependencies.
 
 Build the server against the Hex libraries locally by setting
 `IMAGE_PIPE_LIBS=hex`, for `mix` in `image_pipe_server/` or as a Docker build
