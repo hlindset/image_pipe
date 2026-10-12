@@ -240,48 +240,64 @@ fn record(violation: &Mutex<Option<Error>>, error: Error) {
     violation.lock().unwrap().get_or_insert(error);
 }
 
-/// Fails when elements nest deeper than `MAX_DEPTH`, by reading the tags
-/// alone. Comments, CDATA, processing instructions, the DOCTYPE, and quoted
-/// attribute values are skipped, so markup inside them doesn't count. Each
-/// byte is read once.
+/// Fails when elements nest deeper than `MAX_DEPTH`.
 fn check_depth(text: &str) -> Result<(), Error> {
+    if max_depth(text, MAX_DEPTH) > MAX_DEPTH {
+        return Err(Error::Parse(format!(
+            "elements nest deeper than {MAX_DEPTH} levels"
+        )));
+    }
+    Ok(())
+}
+
+/// How deep elements nest, read from the tags alone, stopping once past
+/// `stop_after`. Comments, CDATA, processing instructions, the DOCTYPE, and
+/// quoted attribute values are skipped, so markup inside them doesn't count.
+/// Each byte is read once.
+pub(crate) fn max_depth(text: &str, stop_after: usize) -> usize {
     let bytes = text.as_bytes();
-    let skip_to = |from: usize, end: &str| {
-        text[from..]
-            .find(end)
-            .map_or(bytes.len(), |at| from + at + end.len())
-    };
     let mut depth = 0usize;
+    let mut deepest = 0usize;
     let mut i = 0;
 
     while let Some(at) = bytes[i..].iter().position(|&b| b == b'<') {
         i += at;
-        let rest = &text[i..];
-        i = if rest.starts_with("<!--") {
-            skip_to(i + 4, "-->")
-        } else if rest.starts_with("<![CDATA[") {
-            skip_to(i + 9, "]]>")
-        } else if rest.starts_with("<?") {
-            skip_to(i + 2, "?>")
-        } else if rest.starts_with("<!") {
-            declaration_end(text, i + 2)
-        } else if rest.starts_with("</") {
+        let rest = &bytes[i..];
+        i = if rest.starts_with(b"<!--") {
+            skip_past(bytes, i + 4, b"-->")
+        } else if rest.starts_with(b"<![CDATA[") {
+            skip_past(bytes, i + 9, b"]]>")
+        } else if rest.starts_with(b"<?") {
+            skip_past(bytes, i + 2, b"?>")
+        } else if rest.starts_with(b"<!") {
+            declaration_end(bytes, i + 2)
+        } else if rest.starts_with(b"</") {
             depth = depth.saturating_sub(1);
             tag_end(bytes, i + 2).0
         } else {
             let (end, empty) = tag_end(bytes, i + 1);
+            // An empty-element tag is an element too, one level down.
+            deepest = deepest.max(depth + 1);
             if !empty {
                 depth += 1;
-                if depth > MAX_DEPTH {
-                    return Err(Error::Parse(format!(
-                        "elements nest deeper than {MAX_DEPTH} levels"
-                    )));
-                }
+            }
+            if deepest > stop_after {
+                return deepest;
             }
             end
         };
     }
-    Ok(())
+    deepest
+}
+
+/// The index just past the first `end` at or after `from`, or the end of the
+/// input. The scan works on bytes, since the patterns are ASCII and an index
+/// can land inside a multibyte character.
+fn skip_past(bytes: &[u8], from: usize, end: &[u8]) -> usize {
+    bytes
+        .get(from..)
+        .and_then(|rest| rest.windows(end.len()).position(|window| window == end))
+        .map_or(bytes.len(), |at| from + at + end.len())
 }
 
 /// Where a tag that starts at `i` ends, and whether it's an empty-element tag.
@@ -304,21 +320,16 @@ fn tag_end(bytes: &[u8], mut i: usize) -> (usize, bool) {
 
 /// Where a `<!...>` declaration such as the DOCTYPE ends, past its internal
 /// subset and any comments, processing instructions, and quoted literals.
-fn declaration_end(text: &str, mut i: usize) -> usize {
-    let bytes = text.as_bytes();
+fn declaration_end(bytes: &[u8], mut i: usize) -> usize {
     let mut brackets = 0usize;
     while let Some(&byte) = bytes.get(i) {
-        let rest = &text[i..];
-        if rest.starts_with("<!--") {
-            i = text[i + 4..]
-                .find("-->")
-                .map_or(bytes.len(), |at| i + 4 + at + 3);
+        let rest = &bytes[i..];
+        if rest.starts_with(b"<!--") {
+            i = skip_past(bytes, i + 4, b"-->");
             continue;
         }
-        if rest.starts_with("<?") {
-            i = text[i + 2..]
-                .find("?>")
-                .map_or(bytes.len(), |at| i + 2 + at + 2);
+        if rest.starts_with(b"<?") {
+            i = skip_past(bytes, i + 2, b"?>");
             continue;
         }
         match byte {

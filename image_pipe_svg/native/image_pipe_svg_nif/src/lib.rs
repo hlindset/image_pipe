@@ -2,6 +2,8 @@ mod cost;
 mod entities;
 mod fonts;
 mod parse;
+#[cfg(test)]
+mod prescan_tests;
 mod render;
 
 use std::sync::Arc;
