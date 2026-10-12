@@ -15,7 +15,7 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
     %{root: root, prefix: prefix}
   end
 
-  property "reconciliation bounds each batch and brings stored bytes under cap", ctx do
+  property "the startup pass bounds each batch and brings stored bytes under cap", ctx do
     check all count <- integer(3..12),
               limit <- integer(1..4),
               cap_entries <- integer(1..2),
@@ -24,8 +24,7 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
       prefix = ctx.prefix ++ [:"run_#{System.unique_integer([:positive])}"]
       Enum.each(1..count, &seed_entry(key(&1), "body", root))
       attach_batches(prefix, self(), false)
-      opts = opts(root, prefix, cap_entries * 4, limit)
-      pid = start_cache(opts)
+      pid = start_cache(opts(root, prefix, cap_entries * 4), limit)
       assert :ok = Admission.await_scan(pid)
       batches = batches(pid, [])
       assert Enum.all?(batches, &(&1 <= limit))
@@ -44,8 +43,8 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
     end
 
     gate = attach_batches(ctx.prefix, self(), true)
-    opts = opts(ctx.root, ctx.prefix, 100, 1)
-    pid = start_cache(opts)
+    opts = opts(ctx.root, ctx.prefix, 100)
+    pid = start_cache(opts, 1)
     opts = Keyword.delete(opts, :telemetry_prefix)
     tasks = start_supervised!(Task.Supervisor)
     parent = self()
@@ -80,7 +79,7 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
     orphan = orphan_body(ctx.root)
     gate = attach_batches(ctx.prefix, self(), true)
     attach_sweep(ctx.prefix, self())
-    pid = start_cache(opts(ctx.root, ctx.prefix, 4, 1))
+    pid = start_cache(opts(ctx.root, ctx.prefix, 4), 1)
 
     try do
       assert_receive {:batch, ^pid, 1}, 1000
@@ -161,20 +160,15 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
     end
   end
 
-  defp start_cache(opts) do
-    start_supervised!(FileSystem.child_spec(opts ++ [window_ratio: 0.0]))
+  defp start_cache(opts, batch) do
+    start_supervised!(FileSystem.child_spec(opts ++ [window_ratio: 0.0, reconcile_batch: batch]))
     root = Keyword.fetch!(opts, :root)
     [{pid, _}] = Registry.lookup(FileSystem.registry_name(root), root)
     pid
   end
 
-  defp opts(root, prefix, cap, limit),
-    do: [
-      root: root,
-      telemetry_prefix: prefix,
-      max_size_bytes: cap,
-      eviction_victim_limit: limit
-    ]
+  defp opts(root, prefix, cap),
+    do: [root: root, telemetry_prefix: prefix, max_size_bytes: cap]
 
   defp key(index),
     do: %Key{hash: Base.encode16(:crypto.hash(:sha256, "key-#{index}"), case: :lower), data: []}

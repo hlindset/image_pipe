@@ -667,34 +667,6 @@ defmodule ImagePipe.Cache.FileSystemTest do
                  max_size_bytes: 100_000_000
                )
     end
-
-    test "defaults eviction_victim_limit and reconcile_interval" do
-      {:ok, opts} =
-        FileSystem.validate_options(root: "/tmp", max_size_bytes: 10_000_000_000)
-
-      assert opts[:eviction_victim_limit] == 64
-      assert opts[:reconcile_interval] == 60
-    end
-
-    test "accepts custom :eviction_victim_limit" do
-      {:ok, opts} =
-        FileSystem.validate_options(
-          root: "/tmp",
-          max_size_bytes: 100_000_000,
-          eviction_victim_limit: 32
-        )
-
-      assert opts[:eviction_victim_limit] == 32
-    end
-
-    test "rejects non-positive :eviction_victim_limit" do
-      assert {:error, _} =
-               FileSystem.validate_options(
-                 root: "/tmp",
-                 max_size_bytes: 100_000_000,
-                 eviction_victim_limit: 0
-               )
-    end
   end
 
   test "concurrent puts for the same key leave a readable entry", %{root: root} do

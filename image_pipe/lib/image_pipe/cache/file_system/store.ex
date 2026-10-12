@@ -38,27 +38,8 @@ defmodule ImagePipe.Cache.FileSystem.Store do
                       required: true,
                       type: :pos_integer,
                       doc: """
-                      Soft cap, in bytes, on the total size of stored bodies. Writes \
-                      evict rarely requested entries to stay under it.
-                      """
-                    ],
-                    eviction_victim_limit: [
-                      type: :pos_integer,
-                      default: 64,
-                      doc: """
-                      Maximum number of entries one write or one background eviction \
-                      batch removes. A write that needs to evict more removes this many \
-                      and starts background eviction for the rest, so the cache can \
-                      briefly exceed `:max_size_bytes`. If the entries it needs to evict \
-                      include ones read recently, the write is rejected instead.
-                      """
-                    ],
-                    reconcile_interval: [
-                      type: :pos_integer,
-                      default: 60,
-                      doc: """
-                      Seconds between background passes that evict entries until the stored \
-                      size is at or under `:max_size_bytes`.
+                      Cap, in bytes, on the total size of stored bodies. Writes evict \
+                      rarely requested entries to stay under it.
                       """
                     ]
                   )
@@ -91,18 +72,13 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   @doc false
   # The options Admission.init/1 reads, from cache options: the policy's
-  # tuning derived from `:max_size_bytes`, intervals in milliseconds, and the
-  # registry Admission registers in. Tests and benchmarks that start Admission
+  # tuning derived from `:max_size_bytes`, and the registry Admission
+  # registers in. Tests and benchmarks that start Admission
   # directly go through this too, and may override the tuning.
   def admission_options(opts, registry_name) do
     opts = Keyword.merge(admission_defaults(opts), opts)
 
-    opts
-    |> Keyword.delete(:reconcile_interval)
-    |> Keyword.merge(
-      registry: registry_name,
-      reconcile_interval_ms: Keyword.fetch!(opts, :reconcile_interval) * 1000
-    )
+    Keyword.put(opts, :registry, registry_name)
   end
 
   # A 1% window: docs/plans/cache-admission-policy.md found 1%, 5% and 20%
@@ -117,8 +93,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
       aging_sample_size: max(81_920, div(max_size_bytes, 5_000)),
       doorkeeper_cardinality: max(8192, div(max_size_bytes, 12_500)),
       doorkeeper_fpr: 0.01,
-      eviction_victim_limit: 64,
-      reconcile_interval: 60
+      reconcile_batch: 64
     ]
   end
 
@@ -289,24 +264,27 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   end
 
   @doc false
-  def publish_sink(prepared, body_filename) do
-    with :ok <- commit_prepared_sink(prepared, body_filename) do
-      {:ok, build_descriptor(prepared, body_filename)}
-    end
-  end
-
+  # Admission's descriptor of a prepared write, before it's published.
   # prepare_sink_commit/1 encodes body_sha256 into body_filename
   # ("<hash>.<sha>.body"); recover it rather than recomputing the digest.
-  defp build_descriptor(prepared, body_filename) do
+  def descriptor(prepared, body_filename) do
     {:ok, body_sha256} = body_sha256_from_filename(body_filename)
 
     %{
       key_hash: prepared.paths.hash,
       size_bytes: prepared.size,
       body_sha256: body_sha256,
-      cost_us: prepared.metadata.cost_us
+      cost_us: prepared.metadata.cost_us,
+      body_filename: body_filename
     }
   end
+
+  @doc false
+  def publish_prepared(prepared, body_filename),
+    do: commit_prepared_sink(prepared, body_filename)
+
+  @doc false
+  def discard_prepared(prepared), do: cleanup_sink_state(prepared)
 
   defp lookup_admission(opts) do
     root = Keyword.fetch!(opts, :root)

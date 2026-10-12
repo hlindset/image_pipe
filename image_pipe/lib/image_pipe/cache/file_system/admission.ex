@@ -17,6 +17,9 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     defstruct [
       :registry,
       :root,
+      # The startup pass evicts to a lowered cap in batches this size, so
+      # commits and hits run between them.
+      :reconcile_batch,
       :max_size_bytes,
       :window_budget,
       :sketch_depth,
@@ -24,11 +27,9 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       :aging_sample_size,
       :doorkeeper_cardinality,
       :doorkeeper_fpr,
-      :eviction_victim_limit,
       :sketch,
       # %Talan.BloomFilter{}
       :doorkeeper,
-      :reconcile_interval_ms,
       # Lifecycle events use the prefix captured at init, without request options.
       telemetry_prefix: [:image_pipe],
       pool: :output,
@@ -53,7 +54,6 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       scan_waiters: [],
       reconciling?: false,
       reconcile_waiters: [],
-      reconcile_tick_pending?: false,
       # Odds of random admission (see random_admit?/2). State rather than a
       # module attribute so tests can make the draw deterministic.
       random_admission_one_in: 128
@@ -91,6 +91,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     state = %State{
       registry: Keyword.fetch!(opts, :registry),
       root: Keyword.fetch!(opts, :root),
+      reconcile_batch: Keyword.fetch!(opts, :reconcile_batch),
       max_size_bytes: max_size,
       window_budget: trunc(max_size * Keyword.fetch!(opts, :window_ratio)),
       sketch_depth: sketch_depth,
@@ -98,11 +99,9 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       aging_sample_size: aging_sample_size,
       doorkeeper_cardinality: doorkeeper_cardinality,
       doorkeeper_fpr: doorkeeper_fpr,
-      eviction_victim_limit: Keyword.fetch!(opts, :eviction_victim_limit),
       sketch:
         Sketch.new(depth: sketch_depth, width: sketch_width, sample_size: aging_sample_size),
       doorkeeper: Doorkeeper.new(doorkeeper_cardinality, doorkeeper_fpr),
-      reconcile_interval_ms: Keyword.fetch!(opts, :reconcile_interval_ms),
       telemetry_prefix: Keyword.get(opts, :telemetry_prefix, Telemetry.default_prefix()),
       pool: Keyword.get(opts, :pool, :output),
       # Only the GenServer writes; :protected permits cross-process inspection.
@@ -127,10 +126,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     # This short-lived worker needs no per-cache Task.Supervisor registration.
     admission_pid = self()
     {scan_pid, scan_ref} = spawn_monitor(fn -> scan_directory(state, admission_pid) end)
-    state = %{state | scan_task: scan_pid, scan_task_ref: scan_ref}
-
-    Process.send_after(self(), :reconcile, state.reconcile_interval_ms)
-    {:noreply, state}
+    {:noreply, %{state | scan_task: scan_pid, scan_task_ref: scan_ref}}
   end
 
   @doc """
@@ -206,12 +202,8 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   @impl true
-  def handle_info(:reconcile, state) do
-    {:noreply, start_reconciliation(%{state | reconcile_tick_pending?: true})}
-  end
-
   def handle_info(:reconcile_batch, state) do
-    case reconcile_batch(state, state.eviction_victim_limit, []) do
+    case reconcile_batch(state, state.reconcile_batch, []) do
       {:more, state} ->
         send(self(), :reconcile_batch)
         {:noreply, state}
@@ -321,18 +313,44 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     end)
   end
 
-  defp finish_commit({:admit, victims}, _descriptor, opts) do
-    FileSystem.delete_victims(victims, opts)
-    :ok
+  # Other entries a write evicts are deleted before it's published, so the
+  # stored bodies never exceed the cap. A body the write replaces goes after
+  # the publish, so a read of the old metadata never finds it missing.
+  defp finish_commit({:admit, victims}, prepared, descriptor, state) do
+    {evicted, replaced} = Enum.split_with(victims, & &1.delete_meta?)
+    evict(state, evicted, :admission)
+
+    case FileSystem.publish_prepared(prepared, descriptor.body_filename) do
+      :ok ->
+        FileSystem.delete_victims(replaced, root: state.root)
+        {:ok, state}
+
+      # The replaced entry's metadata is still in place, so it's counted again.
+      {:error, _reason} = error ->
+        state = forget_entry(state, descriptor.key_hash)
+        {error, Enum.reduce(replaced, state, &count_stored/2)}
+    end
   end
 
-  defp finish_commit({:reject, _reason, victims}, descriptor, opts) do
-    FileSystem.delete_victims([full_eviction_victim(descriptor) | victims], opts)
-    {:ok, :rejected}
+  # A rejected write is never published. A same-key replacement it rejects
+  # has already left the counts, so the old entry goes too.
+  defp finish_commit({:reject, _reason, victims}, prepared, _descriptor, state) do
+    FileSystem.discard_prepared(prepared)
+    {evicted, replaced} = Enum.split_with(victims, & &1.delete_meta?)
+    evict(state, evicted, :admission)
+    FileSystem.delete_victims(Enum.map(replaced, &%{&1 | delete_meta?: true}), root: state.root)
+    {{:ok, :rejected}, state}
   end
 
-  defp finish_commit({:reject, reason}, descriptor, opts),
-    do: finish_commit({:reject, reason, []}, descriptor, opts)
+  defp finish_commit({:reject, reason}, prepared, descriptor, state),
+    do: finish_commit({:reject, reason, []}, prepared, descriptor, state)
+
+  defp count_stored(victim, state) do
+    case stored_descriptor(state, victim.key_hash) do
+      {:ok, stored} -> insert_scan_descriptor(state, stored)
+      :missing -> state
+    end
+  end
 
   @impl true
   def handle_call({:refresh_source_record, paths, previous, record}, _from, state) do
@@ -351,18 +369,11 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   def handle_call({:commit, prepared, body_filename}, _from, state) do
     # Publication, accounting and eviction share the same serialized owner.
-    # Failed publication leaves admission queues unchanged.
     note_scan_change(state, prepared.paths.hash)
-
-    case FileSystem.publish_sink(prepared, body_filename) do
-      {:ok, descriptor} ->
-        {result, state} = admit_descriptor(state, descriptor)
-        opts = [root: state.root]
-        {:reply, finish_commit(result, descriptor, opts), state}
-
-      {:error, _reason} = error ->
-        {:reply, error, state}
-    end
+    descriptor = FileSystem.descriptor(prepared, body_filename)
+    {result, state} = admit_descriptor(state, Map.delete(descriptor, :body_filename))
+    {reply, state} = finish_commit(result, prepared, descriptor, state)
+    {:reply, reply, state}
   end
 
   def handle_call(:await_scan, from, state) do
@@ -411,8 +422,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     end
   end
 
-  # Low-cardinality outcome tags. `victim_count` is bounded by
-  # `eviction_victim_limit`; no key hashes, sizes, or paths.
+  # Low-cardinality outcome tags: no key hashes, sizes, or paths.
   defp admission_meta({:admit, victims}), do: %{result: :admitted, victim_count: length(victims)}
 
   defp admission_meta({:reject, reason}),
@@ -502,19 +512,13 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   defp identify_and_score(state, descriptor, needed_bytes) do
-    limit = state.eviction_victim_limit
-
     case Policy.victim_walk(
            lru_descriptors(state.probationary),
            lru_descriptors(state.protected),
-           needed_bytes,
-           limit
+           needed_bytes
          ) do
       {:error, :no_evictable_victims} ->
         {{:reject, :no_evictable_victims}, state}
-
-      {:error, :victim_limit_exceeded} ->
-        {{:reject, :victim_limit_exceeded}, state}
 
       {:ok, victim_descriptors} ->
         if Policy.admit?(descriptor, victim_descriptors, &frequency(state, &1)) or
@@ -545,15 +549,11 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     doorkeeper + Sketch.estimate(state.sketch, key_hash)
   end
 
-  # Evict at most `eviction_victim_limit` victims now. Reconciliation evicts
-  # the rest in batches, reaching them in the same LRU order.
   defp admit_evicting(state, descriptor, victims) do
-    {evict_now, evict_later} = Enum.split(victims, state.eviction_victim_limit)
-    state = remove_victims(state, evict_now)
+    state = remove_victims(state, victims)
     {_result, state} = insert_into_probationary(state, descriptor)
-    state = if evict_later == [], do: state, else: start_reconciliation(state)
     # Tag victims with full-eviction flags for the adapter.
-    {{:admit, Enum.map(evict_now, &full_eviction_victim/1)}, state}
+    {{:admit, Enum.map(victims, &full_eviction_victim/1)}, state}
   end
 
   # Lazy LRU-first stream, so the victim walk reads only the entries it needs.
@@ -755,12 +755,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   defp finish_reconciliation(state) do
     Enum.each(state.reconcile_waiters, &GenServer.reply(&1, :ok))
-
-    if state.reconcile_tick_pending? do
-      Process.send_after(self(), :reconcile, state.reconcile_interval_ms)
-    end
-
-    %{state | reconciling?: false, reconcile_waiters: [], reconcile_tick_pending?: false}
+    %{state | reconciling?: false, reconcile_waiters: []}
   end
 
   defp reconcile_batch(state, 0, descriptors) do
@@ -821,23 +816,21 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     {descriptor, state}
   end
 
-  defp emit_reconciliation_evictions(_state, []), do: :ok
+  # Select and delete together before yielding to commits and hits.
+  defp emit_reconciliation_evictions(state, descriptors),
+    do: evict(state, Enum.map(descriptors, &full_eviction_victim/1), :startup)
 
-  defp emit_reconciliation_evictions(state, descriptors) do
-    # Select and delete together before yielding to replacements and hits.
-    victims = Enum.map(descriptors, &full_eviction_victim/1)
-    opts = [root: state.root]
-    FileSystem.delete_victims(victims, opts)
+  defp evict(_state, [], _trigger), do: :ok
 
-    bytes = Enum.reduce(descriptors, 0, fn descriptor, acc -> acc + descriptor.size_bytes end)
+  defp evict(state, victims, trigger) do
+    FileSystem.delete_victims(victims, root: state.root)
+    bytes = Enum.reduce(victims, 0, &(&1.size_bytes + &2))
 
     Telemetry.execute(
       tel_opts(state),
       [:cache, :eviction, :stop],
-      %{count: length(descriptors), bytes: bytes},
-      %{trigger: :reconcile, pool: state.pool}
+      %{count: length(victims), bytes: bytes},
+      %{trigger: trigger, pool: state.pool}
     )
-
-    :ok
   end
 end

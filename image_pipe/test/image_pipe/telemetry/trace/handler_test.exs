@@ -543,8 +543,8 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
        %{attention: "{0.5, 0.5}", face: "{0.2, 0.3}", blended: "{0.3, 0.4}", weight: 0.6}},
       {[:cache, :coordination], %{operation: :source, pool: :input, result: :acquired},
        %{operation: "source", pool: "input", result: "acquired"}},
-      {[:cache, :eviction, :stop], %{trigger: :reconcile, pool: :output},
-       %{trigger: "reconcile", pool: "output"}}
+      {[:cache, :eviction, :stop], %{trigger: :admission, pool: :output},
+       %{trigger: "admission", pool: "output"}}
     ]
 
     Telemetry.span([], [:send], %{}, fn ->

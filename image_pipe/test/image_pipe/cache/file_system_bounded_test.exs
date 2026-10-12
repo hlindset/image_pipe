@@ -343,7 +343,7 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     assert {:hit, _} = FileSystem.get(newer, opts)
   end
 
-  test "a popular entry needing more victims than the limit displaces unrequested entries", %{
+  test "a popular entry evicts every victim it needs before it's stored", %{
     root: root
   } do
     opts = bounded_opts(root, max_size_bytes: 10_000)
@@ -352,7 +352,7 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     FileSystem.Admission.await_scan(pid)
 
     # 200 never-requested 50-byte entries fill the cache, so admitting a
-    # 5,000-byte entry takes 100 victims, past the default limit of 64.
+    # 5,000-byte entry takes 100 victims.
     for index <- 1..200 do
       assert :ok = put_entry(distinct_key(index), entry(String.duplicate("s", 50)), opts)
     end
@@ -363,40 +363,9 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
 
     assert :ok in results
 
-    # The write evicts 64 entries and leaves the remaining overshoot to the
-    # reconciliation batch it queues ahead of this call.
     assert tracked_bytes(pid) <= 10_000
     assert total_body_bytes(root) == tracked_bytes(pid)
     assert {:hit, %{body: ^body}} = FileSystem.get(candidate, opts)
-  end
-
-  test "a write whose victims reach protected entries still respects the victim limit", %{
-    root: root
-  } do
-    opts = bounded_opts(root, max_size_bytes: 1_000, eviction_victim_limit: 4)
-    start_supervised!(bounded_child_spec(opts, window_ratio: 0.0))
-    pid = admission_pid(root)
-    FileSystem.Admission.await_scan(pid)
-
-    # Ten 100-byte entries fill the cache. Reading one promotes it to protected.
-    for index <- 1..10 do
-      assert :ok = put_entry(distinct_key(index), entry(String.duplicate("s", 100)), opts)
-    end
-
-    assert {:hit, _} = FileSystem.get(distinct_key(1), opts)
-    _ = :sys.get_state(pid)
-
-    # Admitting 1,000 bytes takes all nine probationary entries plus the
-    # protected one, past the limit of 4.
-    candidate = distinct_key(0)
-    body = String.duplicate("l", 1_000)
-
-    for _request <- 1..3 do
-      assert {:ok, :rejected} = put_entry(candidate, entry(body), opts)
-    end
-
-    assert tracked_bytes(pid) == 1_000
-    assert {:hit, _} = FileSystem.get(distinct_key(1), opts)
   end
 
   test "protected eviction follows LRU order", %{root: root} do

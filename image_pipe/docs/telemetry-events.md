@@ -472,12 +472,14 @@ Span. Emitted by a cache when it decides whether to keep a new entry.
 
 ### `[:cache, :eviction, :stop]`
 
-One-shot. Emitted for each batch of entries a cache evicts in the
-background to get back under its size limit.
+One-shot. Emitted each time a cache evicts entries to stay under its size
+limit.
 
-- Measurements: `:count` (integer), entries evicted in the batch, and `:bytes`
+- Measurements: `:count` (integer), entries evicted, and `:bytes`
   (integer), their total size.
-- Metadata: `:trigger` (`:reconcile`) and `:pool` (atom).
+- Metadata: `:pool` (atom), and `:trigger` (atom): `:admission` for the
+  entries a write evicts to make room, or `:startup` for each batch the
+  startup scan evicts to get under a lowered cap.
 
 ## Transform events
 

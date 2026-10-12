@@ -49,47 +49,28 @@ defmodule ImagePipe.Cache.FileSystem.Policy do
   Both queues must be enumerables ordered LRU-first. They are consumed lazily,
   so only the entries the walk reaches are read.
 
-  The probationary walk is unbounded: Admission evicts the first `limit`
-  victims at once and lets reconciliation evict the rest, which it reaches
-  in the same LRU order. Reconciliation evicts probationary before protected,
-  so it would reach the newly admitted entry before any protected victim. A
-  walk that extends into protected therefore stays within `limit` victims in
-  total.
-
   Returns:
   - `{:ok, victims}` — enough bytes can be freed
   - `{:error, :no_evictable_victims}` — both queues combined cannot
     free enough bytes
-  - `{:error, :victim_limit_exceeded}` — the walk extends into protected
-    and needs more than `limit` victims in total
   """
   @spec victim_walk(
           Enumerable.t(descriptor()),
           Enumerable.t(descriptor()),
-          non_neg_integer(),
-          pos_integer()
-        ) ::
-          {:ok, [descriptor()]}
-          | {:error, :no_evictable_victims}
-          | {:error, :victim_limit_exceeded}
-  def victim_walk(probationary, protected, needed_bytes, limit)
-      when is_integer(needed_bytes) and needed_bytes >= 0 and is_integer(limit) and limit > 0 do
+          non_neg_integer()
+        ) :: {:ok, [descriptor()]} | {:error, :no_evictable_victims}
+  def victim_walk(probationary, protected, needed_bytes)
+      when is_integer(needed_bytes) and needed_bytes >= 0 do
     case take_until_bytes(probationary, needed_bytes) do
       {:done, victims} -> {:ok, victims}
-      {:short, victims, still_needed} -> walk_protected(protected, victims, still_needed, limit)
+      {:short, victims, still_needed} -> walk_protected(protected, victims, still_needed)
     end
   end
 
-  defp walk_protected(protected, victims, still_needed, limit) do
+  defp walk_protected(protected, victims, still_needed) do
     case take_until_bytes(protected, still_needed) do
-      {:done, more} when length(victims) + length(more) > limit ->
-        {:error, :victim_limit_exceeded}
-
-      {:done, more} ->
-        {:ok, victims ++ more}
-
-      {:short, _more, _remaining} ->
-        {:error, :no_evictable_victims}
+      {:done, more} -> {:ok, victims ++ more}
+      {:short, _more, _remaining} -> {:error, :no_evictable_victims}
     end
   end
 

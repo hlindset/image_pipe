@@ -328,13 +328,9 @@ Caches on the local filesystem: `output` for processed images, `input` for origi
 | Key | Type | Default |
 | --- | --- | --- |
 | `output.max_size_bytes` | integer > 0 |  |
-| `output.eviction_victim_limit` | integer > 0 | `64` |
-| `output.reconcile_interval` | integer > 0 | `60` |
 | `output.root` | string (absolute path) |  |
 | `output.max_body_bytes` | integer ≥ 0 |  |
 | `input.max_size_bytes` | integer > 0 |  |
-| `input.eviction_victim_limit` | integer > 0 | `64` |
-| `input.reconcile_interval` | integer > 0 | `60` |
 | `input.root` | string (absolute path) |  |
 | `storage_inputs` | array of `{ header = … }` or `{ cookie = … }` (string) |  |
 

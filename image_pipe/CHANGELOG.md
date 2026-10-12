@@ -99,6 +99,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A request that continues an inbound trace follows the caller's sampled
   flag under the SDK's default parent-based sampler. It was always recorded
   before.
+- **Breaking:** `[:cache, :eviction, :stop]` reports the entries a write
+  evicts, with `trigger: :admission`, and the startup scan's batches with
+  `trigger: :startup`. Update handlers that match `trigger: :reconcile`.
 - `trim` is faster on images under a megapixel: 2 ms instead of 6.5 ms on a
   256×256 image.
 - **Breaking:** `cache` and `input_cache` need `max_size_bytes`, and an
@@ -126,6 +129,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   delete the `.cache_state` directory under each cache's `root`.
 - The `[:cache, :warm_start]`, `[:cache, :flush, :stop]`, and
   `[:cache, :cleanup, :stop]` telemetry events.
+- **Breaking:** The `eviction_victim_limit` and `reconcile_interval` options
+  of `cache` and `input_cache`. Remove them from your configuration. A write
+  now evicts every entry it needs before it's stored, so the stored bodies
+  never exceed `max_size_bytes`, and the cache no longer runs a background
+  eviction pass every minute.
 - **Breaking:** The `window_ratio`, `sketch_depth`, `sketch_width`,
   `aging_sample_size`, `doorkeeper_cardinality`, `doorkeeper_fpr`, and
   `path_prefix` options of `cache` and `input_cache`. Remove them from your

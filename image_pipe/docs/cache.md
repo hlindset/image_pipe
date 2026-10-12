@@ -280,28 +280,16 @@ until they are requested again.
 
 ### Eviction and startup scan
 
-`max_size_bytes` is a soft cap on the total size of stored bodies in the
-`root`:
+`max_size_bytes` caps the total size of stored bodies in the `root`:
 
-- Each write either stores the new entry, evicting less valuable entries to
-  make room, or rejects it. Rejected and replaced bodies are deleted from
-  disk.
+- Each write either evicts every entry it needs to make room and then stores
+  the new entry, or rejects it. The stored bodies never exceed the cap.
 - An entry larger than `max_size_bytes` is always rejected.
-- A write that needs to evict more than `eviction_victim_limit` entries (64
-  by default) evicts that many and starts background eviction for the rest.
-  Until background eviction finishes, the cache can exceed the cap. If the
-  entries it needs to evict include ones read recently, the write is
-  rejected instead, because background eviction would remove the new entry
-  before them.
 - On startup the process scans the entries already on disk in the
-  background, evicts until the cache is at or under the cap, and then
-  deletes [leftover files](#leftover-files).
-- Every `reconcile_interval` (60 seconds by default) it evicts again until
-  the cache is at or under the cap.
-
-Background eviction removes entries in batches so requests can run between
-batches. Each batch removes at most `eviction_victim_limit` entries.
-Background eviction reports its evictions with `trigger: :reconcile`.
+  background, evicts until the cache is at or under the cap, for example
+  after you lower `max_size_bytes`, and then deletes
+  [leftover files](#leftover-files). It evicts in batches, so requests can
+  use the cache between them.
 
 A write that waits more than 5 seconds for the cache process is reported as
 a [cache write](telemetry-events.md#cache-write) error with

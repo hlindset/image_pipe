@@ -104,7 +104,24 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
                     %{result: :rejected, reason: :over_cap, victim_count: 0, pool: :input}}
   end
 
-  test "emits an eviction stop event when reconciliation evicts", ctx do
+  test "emits an eviction stop event when a write evicts", ctx do
+    start_supervised!({Admission, opts(ctx, max_size_bytes: 10_000, window_ratio: 0.0)})
+    attach(ctx.prefix, [[:cache, :eviction, :stop]])
+    pool = cache_opts(ctx, max_size_bytes: 10_000)
+
+    assert :ok = put(pool, String.duplicate("a", 5_000))
+    assert :ok = put(pool, String.duplicate("b", 5_000))
+    # The first write of a new key loses to an entry requested as often.
+    assert {:ok, :rejected} = put(pool, String.duplicate("c", 5_000))
+    assert :ok = put(pool, String.duplicate("c", 5_000))
+
+    stop_event = ctx.prefix ++ [:cache, :eviction, :stop]
+
+    assert_receive {:telemetry, ^stop_event, %{count: 1, bytes: 5_000},
+                    %{trigger: :admission, pool: :input}}
+  end
+
+  test "emits an eviction stop event when the startup scan evicts", ctx do
     # Entries an earlier run left: written through a cache on a staging root
     # and copied into place, since this root's registry is already taken.
     staging = ctx.tmp_dir <> "_staging"
@@ -124,8 +141,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
 
     stop_event = ctx.prefix ++ [:cache, :eviction, :stop]
 
-    assert_receive {:telemetry, ^stop_event, %{count: count, bytes: bytes},
-                    %{trigger: :reconcile}}
+    assert_receive {:telemetry, ^stop_event, %{count: count, bytes: bytes}, %{trigger: :startup}}
 
     assert count >= 1
     assert bytes >= 5_000
