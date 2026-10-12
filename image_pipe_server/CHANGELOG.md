@@ -11,9 +11,25 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   configuration, for platforms that can't mount a configuration file. `IPS_`
   setting variables override it as they override the file. Setting both
   `IPS_CONFIG` and `IPS_CONFIG_TOML` is an error.
+- SVG originals and SVG watermarks render like other images. An SVG renders
+  straight at the size the request needs, so it stays sharp at any size, and
+  a resize can make it larger than its own size without `enlarge`. Without a
+  `format` or a negotiated one, the result is a PNG.
+- `[processing.svg]` configures SVG rendering: `font_dirs` and
+  `fallback_family` for the fonts SVG text renders in (mount a font
+  directory into the container, since no system fonts are used), and
+  `max_bytes`, `max_render_work`, and `max_render_pixels` to limit the work
+  an SVG can cause. A `font_dirs` entry that doesn't exist, or a file in it
+  that isn't a font, stops the server from starting.
+- Logs and traces have an `image_pipe.source.svg_render` span for each SVG
+  rendered, with its own and rendered sizes, the estimated work, and the
+  limit that rejected an SVG.
 
 ### Changed
 
+- Cached images from earlier versions miss once, since cache keys now
+  include the SVG renderer and the fonts. Changing the fonts or the
+  fallback family makes cached images miss again.
 - The server uses about 140 MiB less memory: it loads its code when it first
   needs it instead of all at startup. Set `RELEASE_MODE=embedded` to load
   everything at startup.
