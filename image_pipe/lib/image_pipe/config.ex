@@ -118,7 +118,8 @@ defmodule ImagePipe.Config do
           Directories searched, with their subdirectories, for the TrueType \
           and OpenType fonts (`.ttf`, `.otf`, `.ttc`, `.otc`) that SVG text \
           renders in. System fonts are never used, so without fonts SVG text \
-          isn't drawn. A file that isn't a valid font raises.
+          isn't drawn. A directory that doesn't exist, or a file that isn't a \
+          valid font, raises.
           """
         ],
         fallback_family: [

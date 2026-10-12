@@ -47,6 +47,20 @@ defmodule ImagePipe.API.SVGSourceWireTest do
     assert pixel(response, 201, 100) == [0, 0, 255, 255]
   end
 
+  test "renders a fractional size straight at the requested size" do
+    fractional =
+      ~s(<svg xmlns="http://www.w3.org/2000/svg" width="40.4" height="20" ) <>
+        ~s(viewBox="0 0 40 20" preserveAspectRatio="none">) <>
+        ~s(<rect width="20" height="20" fill="#ff0000"/>) <>
+        ~s(<rect x="20" width="20" height="20" fill="#0000ff"/></svg>)
+
+    response = request("w=400/format=png", mount(fractional))
+
+    assert dimensions(response) == {400, 200}
+    assert pixel(response, 199, 100) == [255, 0, 0, 255]
+    assert pixel(response, 200, 100) == [0, 0, 255, 255]
+  end
+
   test "applies DPR past the intrinsic size" do
     assert dimensions(request("w=40/dpr=2/format=png", mount(@svg))) == {80, 40}
   end
@@ -119,13 +133,19 @@ defmodule ImagePipe.API.SVGSourceWireTest do
                etag.(mount(@text, svg: [font_dirs: [@font_dir], fallback_family: "Geist Mono"]))
     end
 
+    # A configuration built at compile time may see other fonts than the
+    # server that renders with it.
     @tag :tmp_dir
-    test "fail requests when they change after configuration", %{tmp_dir: dir} do
+    test "key the ETag by the fonts that render", %{tmp_dir: dir} do
+      options = [font_dirs: [dir], fallback_family: "Geist Mono"]
       File.cp!(Path.join(@font_dir, "GeistMono-Regular.ttf"), Path.join(dir, "font.ttf"))
-      config = mount(@text, svg: [font_dirs: [dir]])
+      config = mount(@text, svg: options)
       File.rm!(Path.join(dir, "font.ttf"))
+      File.cp!(Path.join(@font_dir, "GeistMono-Regular.ttf"), Path.join(dir, "renamed.ttf"))
+      etag = fn config -> request("w=50", config) |> get_resp_header("etag") end
 
-      assert request("format=png", config).status == 500
+      assert drawn?(request("format=png", config))
+      assert etag.(config) == etag.(mount(@text, svg: options))
     end
 
     test "fail configuration when the fallback family isn't loaded" do

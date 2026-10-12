@@ -76,10 +76,11 @@ docker run --read-only --tmpfs /tmp -p 8080:8080 -v ./config.toml:/etc/image_pip
 
 <!-- tabs-close -->
 
-Fonts load when ImagePipe starts. A file that isn't a valid font, or a
-`fallback_family` that none of the fonts has, stops ImagePipe from starting.
-Cache keys include the fonts, so changing the fonts makes every cached image
-miss once.
+ImagePipe checks the fonts when it starts. A directory that doesn't exist,
+a file that isn't a valid font, or a `fallback_family` that none of the
+fonts has stops ImagePipe from starting. It loads the fonts it renders with
+at the first SVG request and keeps them until it restarts. Cache keys
+include the fonts, so changing them makes every cached image miss once.
 
 ## Limit the work an SVG can cause
 

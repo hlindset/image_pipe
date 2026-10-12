@@ -75,6 +75,18 @@ defmodule ImagePipe.Decode do
     end
   end
 
+  @doc """
+  Cache key and ETag material for the resolved `svg` configuration: what can
+  change how the same SVG renders. Whether a source is an SVG isn't known
+  before the fetch, so with SVG support every key and ETag carries it.
+  """
+  @spec svg_material(map() | nil) :: keyword()
+  def svg_material(nil), do: []
+
+  if @svg_available do
+    def svg_material(config), do: [svg: ImagePipe.Decode.SVG.identity(config)]
+  end
+
   @doc "Returns whether a JPEG or PNG prefix opens successfully with the matching decoder."
   defdelegate streamable_source?(prefix), to: Streaming, as: :eligible?
 

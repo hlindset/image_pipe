@@ -30,8 +30,7 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
     Resolves the validated `svg` options for `max_input_pixels`. Loads the
     fonts to fail on a bad font file or fallback family, but keeps only plain
     data: a router may build the configuration at compile time, where a
-    loaded font set can't be stored. The identity covers everything that can
-    change how the same SVG renders, so it enters the cache key and ETag.
+    loaded font set can't be stored.
     """
     @spec config!(keyword(), pos_integer()) :: map()
     def config!(options, max_input_pixels) do
@@ -39,20 +38,26 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
       fallback_family = options[:fallback_family]
 
       case SVG.load_fonts(font_dirs, fallback_family: fallback_family) do
-        {:ok, fonts} ->
+        {:ok, _fonts} ->
           %{
             font_dirs: font_dirs,
             fallback_family: fallback_family,
             max_bytes: Keyword.fetch!(options, :max_bytes),
             max_render_work: Keyword.fetch!(options, :max_render_work),
-            max_render_pixels: options[:max_render_pixels] || 4 * max_input_pixels,
-            identity: Map.put(SVG.versions(), :fonts, fonts.fingerprint)
+            max_render_pixels: options[:max_render_pixels] || 4 * max_input_pixels
           }
 
         {:error, message} ->
           raise ArgumentError, "invalid ImagePipe configuration: svg: #{message}"
       end
     end
+
+    @doc """
+    Everything that can change how the same SVG renders: the resvg version
+    and the fonts, as loaded for rendering. It enters the cache key and ETag.
+    """
+    @spec identity(map()) :: map()
+    def identity(config), do: Map.put(SVG.versions(), :fonts, fonts(config).fingerprint)
 
     @spec decode(Decode.seekable(), Spec.t(), keyword()) ::
             {:ok, State.t(), SourceGeometry.t(), map()} | {:error, Decode.error()}
@@ -137,8 +142,8 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
              request
              |> Executor.decode_options(geometry)
              |> Keyword.get(:scale)
-             |> fit_scale(document, max_input_pixels),
-           {width, height} = render_size(document, scale),
+             |> fit_scale(storage, max_input_pixels),
+           {width, height} = render_size(storage, scale),
            :ok <- check_pixels(width * height, max_input_pixels),
            cost = SVG.cost(document, width, height),
            :ok <- check_budget(cost, config),
@@ -248,11 +253,13 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
       end
     end
 
-    # The fonts load on first use and stay loaded for the life of the VM, keyed
-    # by the font set and its fingerprint taken at startup. One process loads
-    # them: replacing a persistent term makes every process scan its heap.
-    defp fonts(%{font_dirs: dirs, fallback_family: fallback, identity: %{fonts: fingerprint}}) do
-      key = {__MODULE__, :fonts, dirs, fallback, fingerprint}
+    # The fonts load on first use and stay loaded for the life of the VM. The
+    # cache key takes its fingerprint from this same set, so it always
+    # matches the fonts that render, even when the configuration was built
+    # elsewhere. One process loads them: replacing a persistent term makes
+    # every process scan its heap.
+    defp fonts(%{font_dirs: dirs, fallback_family: fallback}) do
+      key = {__MODULE__, :fonts, dirs, fallback}
 
       case :persistent_term.get(key, nil) do
         nil -> :global.trans({key, self()}, fn -> load_fonts(key) end, [node()])
@@ -260,26 +267,16 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
       end
     end
 
-    defp load_fonts({_module, :fonts, dirs, fallback, fingerprint} = key) do
+    defp load_fonts({_module, :fonts, dirs, fallback} = key) do
       with nil <- :persistent_term.get(key, nil) do
-        fonts = load_fonts!(dirs, fallback, fingerprint)
-        :persistent_term.put(key, fonts)
-        fonts
-      end
-    end
+        case SVG.load_fonts(dirs, fallback_family: fallback) do
+          {:ok, fonts} ->
+            :persistent_term.put(key, fonts)
+            fonts
 
-    # The cache key and ETag carry the fingerprint taken at startup, so fonts
-    # that changed since must not render under it.
-    defp load_fonts!(dirs, fallback, fingerprint) do
-      case SVG.load_fonts(dirs, fallback_family: fallback) do
-        {:ok, %{fingerprint: ^fingerprint} = fonts} ->
-          fonts
-
-        {:ok, _fonts} ->
-          raise "svg: the fonts in #{inspect(dirs)} changed after ImagePipe started; restart it"
-
-        {:error, message} ->
-          raise "svg: can't load the fonts in #{inspect(dirs)}: #{message}"
+          {:error, message} ->
+            raise "svg: can't load the fonts in #{inspect(dirs)}: #{message}"
+        end
       end
     end
 
@@ -288,18 +285,21 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
     # crop then zoom renders the whole document at the zoomed scale, which
     # would otherwise reject an SVG whose raster twin succeeds.
     # The margin covers rounding the render size up.
-    defp fit_scale(scale, document, max_input_pixels) when is_float(scale) and scale > 1.0 do
-      fitting = :math.sqrt(max_input_pixels / ((document.width + 1) * (document.height + 1)))
+    defp fit_scale(scale, {width, height}, max_input_pixels)
+         when is_float(scale) and scale > 1.0 do
+      fitting = :math.sqrt(max_input_pixels / ((width + 1) * (height + 1)))
       min(scale, max(1.0, fitting))
     end
 
-    defp fit_scale(scale, _document, _max_input_pixels), do: scale
+    defp fit_scale(scale, _storage, _max_input_pixels), do: scale
 
-    defp render_size(document, nil),
-      do: {max(1, round(document.width)), max(1, round(document.height))}
+    # The scale was planned against the rounded intrinsic size, so it
+    # applies to that size: a fractional width would otherwise render a
+    # pixel off the requested size and be resampled to it.
+    defp render_size(storage, nil), do: storage
 
-    defp render_size(document, scale),
-      do: {max(1, round(document.width * scale)), max(1, round(document.height * scale))}
+    defp render_size({width, height}, scale),
+      do: {max(1, round(width * scale)), max(1, round(height * scale))}
 
     defp check_pixels(pixels, max) when pixels <= max, do: :ok
 

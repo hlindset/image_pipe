@@ -499,17 +499,14 @@ defmodule ImagePipe.Transform.Executor do
   end
 
   defp drawn_asset(%{render: render}, width, height, %State{} = state, opts) do
-    with :ok <- render_limits(width, height, state),
+    with :ok <- render_limits(width, height, state) |> transform_error(),
          {:ok, image} <- render.(width, height),
          do: conditioned_asset(image, state, opts)
   end
 
   defp render_limits(width, height, %State{max_intermediate_pixels: limit}) do
-    with :ok <- WorkLimits.axes(width, height) |> transform_error() do
-      if width * height <= limit,
-        do: :ok,
-        else: {:error, {:transform, {:intermediate_pixel_limit, width * height, limit}}}
-    end
+    with :ok <- WorkLimits.axes(width, height),
+         do: WorkLimits.dimensions({width, height}, limit)
   end
 
   defp transform_error(:ok), do: :ok
