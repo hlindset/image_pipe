@@ -181,6 +181,7 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
     defp limit({:too_many_svg_bytes, _bytes, _max}), do: :svg_bytes
     defp limit({:too_many_svg_elements, _count, _max}), do: :svg_elements
     defp limit({:svg_entity_expansion, _size, _max}), do: :svg_entities
+    defp limit({:too_much_svg_text, _bytes}), do: :svg_text
     defp limit({:too_many_input_pixels, _pixels, _max}), do: :pixels
     defp limit(:svg_nesting_too_deep), do: :svg_nesting
     defp limit({:svg_render_budget, :work, _work, _max}), do: :svg_render_work
@@ -213,6 +214,9 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
 
         {:error, {:too_many_elements, count}} ->
           {:error, {:input_limit, {:too_many_svg_elements, count, @max_elements}}}
+
+        {:error, {:too_much_text, bytes}} ->
+          {:error, {:input_limit, {:too_much_svg_text, bytes}}}
 
         {:error, {:entity_expansion, size}} ->
           {:error, {:input_limit, {:svg_entity_expansion, size, @max_entity_expansion}}}

@@ -111,10 +111,13 @@ lists the other limits.
 
 <!-- tabs-close -->
 
-An SVG original rendered larger than the
-[input pixel limit](deployment.md), with more than 200,000 elements after
-expanding `<use>`, or with entities that expand past 1,000,000 characters, is
-rejected too. Rejected SVGs fail with `413`, and
+An SVG original is rejected too when it renders larger than the
+[input pixel limit](deployment.md), or has:
+
+- more than 200,000 elements after expanding `<use>`;
+- entities that expand past 1,000,000 characters;
+- more than 10,000 bytes of text in one `<text>` element, or 1,000,000 in
+  all. Rejected SVGs fail with `413`, and
 an SVG that isn't valid XML fails with `415`.
 
 ## Embed images in SVGs

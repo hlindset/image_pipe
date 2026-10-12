@@ -20,6 +20,11 @@ pub struct Limits {
     pub max_image_pixels: u64,
     /// Characters entity references expand to, estimated before parsing.
     pub max_entity_expansion: u64,
+    /// Text bytes in any one `<text>` element. usvg lays text out while it
+    /// parses, at a cost that grows with the square of one element's text.
+    pub max_text_per_element: u64,
+    /// Text bytes in all `<text>` elements, counting `<use>` copies.
+    pub max_text: u64,
 }
 
 #[derive(Debug)]
@@ -27,6 +32,7 @@ pub enum Error {
     Parse(String),
     TooManyElements(u64),
     EntityExpansion(u64),
+    TooMuchText(u64),
     ImageTooLarge(u64),
     NestingTooDeep,
 }
@@ -78,6 +84,14 @@ fn checked_document<'input>(
     if elements > limits.max_elements {
         return Err(Error::TooManyElements(elements));
     }
+
+    let text = text_bytes(&doc);
+    if text.largest > limits.max_text_per_element {
+        return Err(Error::TooMuchText(text.largest));
+    }
+    if text.total > limits.max_text {
+        return Err(Error::TooMuchText(text.total));
+    }
     Ok(doc)
 }
 
@@ -109,7 +123,11 @@ fn options(
                 // as nothing.
                 match std::str::from_utf8(&data).map(|text| checked_document(text, &limits)) {
                     Ok(Ok(_)) => {}
-                    Ok(Err(error @ (Error::EntityExpansion(_) | Error::TooManyElements(_)))) => {
+                    Ok(Err(
+                        error @ (Error::EntityExpansion(_)
+                        | Error::TooManyElements(_)
+                        | Error::TooMuchText(_)),
+                    )) => {
                         record(&violation, error);
                         return None;
                     }
@@ -200,4 +218,78 @@ fn size<'a, 'input>(
 
     sizes.insert(node.id(), Some(total));
     total
+}
+
+struct TextBytes {
+    total: u64,
+    largest: u64,
+}
+
+/// Counts the text usvg will lay out: bytes of text inside `<text>` elements,
+/// with each `<use>` target counted where it's copied, and the most in any
+/// one `<text>` element. Whitespace between other elements isn't laid out.
+fn text_bytes(doc: &roxmltree::Document) -> TextBytes {
+    let ids: HashMap<&str, Node> = doc
+        .descendants()
+        .filter_map(|node| node.attribute("id").map(|id| (id, node)))
+        .collect();
+    let mut walk = TextWalk {
+        ids,
+        memo: HashMap::new(),
+        largest: 0,
+    };
+    let total = walk.bytes(doc.root_element(), false);
+    TextBytes {
+        total,
+        largest: walk.largest,
+    }
+}
+
+struct TextWalk<'a, 'input> {
+    ids: HashMap<&'a str, Node<'a, 'input>>,
+    memo: HashMap<(NodeId, bool), Option<u64>>,
+    largest: u64,
+}
+
+impl<'a, 'input> TextWalk<'a, 'input> {
+    fn bytes(&mut self, node: Node<'a, 'input>, inside: bool) -> u64 {
+        if node.is_text() {
+            return if inside {
+                node.text().map_or(0, |t| t.len() as u64)
+            } else {
+                0
+            };
+        }
+        match self.memo.get(&(node.id(), inside)) {
+            Some(Some(bytes)) => return *bytes,
+            // A reference cycle, which usvg skips.
+            Some(None) => return 0,
+            None => {}
+        }
+        self.memo.insert((node.id(), inside), None);
+
+        let starts_text = !inside && node.tag_name().name() == "text";
+        let inside = inside || starts_text;
+        let mut total: u64 = 0;
+        for child in node.children() {
+            total = total.saturating_add(self.bytes(child, inside));
+        }
+        if node.tag_name().name() == "use" {
+            let href = node
+                .attribute((XLINK_NS, "href"))
+                .or_else(|| node.attribute("href"));
+            if let Some(target) = href
+                .and_then(|href| href.strip_prefix('#'))
+                .and_then(|id| self.ids.get(id).copied())
+            {
+                total = total.saturating_add(self.bytes(target, inside));
+            }
+        }
+
+        if starts_text {
+            self.largest = self.largest.max(total);
+        }
+        self.memo.insert((node.id(), inside), Some(total));
+        total
+    }
 }

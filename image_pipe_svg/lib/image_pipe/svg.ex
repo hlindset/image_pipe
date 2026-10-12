@@ -18,6 +18,7 @@ defmodule ImagePipe.SVG do
           {:parse, String.t()}
           | {:too_many_elements, non_neg_integer()}
           | {:entity_expansion, non_neg_integer()}
+          | {:too_much_text, non_neg_integer()}
           | {:image_too_large, non_neg_integer()}
           | :nesting_too_deep
 
@@ -109,17 +110,25 @@ defmodule ImagePipe.SVG do
       may expand to, estimated before parsing. A few kilobytes of entity
       declarations can otherwise expand to hundreds of megabytes. Defaults to
       1,000,000.
+    * `:max_text_per_element` - bytes of text in any one `<text>` element,
+      including its `<tspan>`s. Text is laid out while parsing, at a cost
+      that grows with the square of one element's text. Defaults to 10,000.
+    * `:max_text` - bytes of text in all `<text>` elements, counting each
+      `<use>` copy. Defaults to 1,000,000.
 
   The limits apply to embedded SVGs too.
   """
   @spec parse(binary(), Fonts.t(), keyword()) :: {:ok, Document.t()} | {:error, parse_error()}
   def parse(data, %Fonts{ref: fonts}, opts \\ []) when is_binary(data) do
-    max_elements = Keyword.get(opts, :max_elements, 200_000)
-    max_image_pixels = Keyword.get(opts, :max_image_pixels, 40_000_000)
-    max_entity_expansion = Keyword.get(opts, :max_entity_expansion, 1_000_000)
+    limits = {
+      Keyword.get(opts, :max_elements, 200_000),
+      Keyword.get(opts, :max_image_pixels, 40_000_000),
+      Keyword.get(opts, :max_entity_expansion, 1_000_000),
+      Keyword.get(opts, :max_text_per_element, 10_000),
+      Keyword.get(opts, :max_text, 1_000_000)
+    }
 
-    with {:ok, {ref, width, height}} <-
-           Native.parse(data, fonts, max_elements, max_image_pixels, max_entity_expansion) do
+    with {:ok, {ref, width, height}} <- Native.parse(data, fonts, limits) do
       {:ok, %Document{ref: ref, width: width, height: height}}
     end
   end

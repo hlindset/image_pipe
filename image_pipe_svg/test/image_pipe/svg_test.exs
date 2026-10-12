@@ -132,6 +132,32 @@ defmodule ImagePipe.SVGTest do
       assert {:error, {:entity_expansion, _}} = SVG.parse(svg(image), fonts)
     end
 
+    test "fails before laying out too much text in one element", %{fonts: fonts} do
+      spans = String.duplicate("<tspan>" <> String.duplicate("abc ", 25) <> "</tspan>", 101)
+      long = svg(~s(<text y="10">#{spans}</text>))
+
+      assert {:error, {:too_much_text, 10_100}} = SVG.parse(long, fonts)
+      assert {:ok, _} = SVG.parse(long, fonts, max_text_per_element: 10_100)
+    end
+
+    test "fails before laying out too much text in all", %{fonts: fonts} do
+      label = ~s(<text y="10">) <> String.duplicate("a", 100) <> "</text>"
+      # 50 labels, each drawn 300 times through <use>: 1,500,000 characters.
+      labels =
+        svg(
+          ~s(<defs><g id="l">#{String.duplicate(label, 50)}</g></defs>) <>
+            String.duplicate(~s(<use href="#l"/>), 300)
+        )
+
+      assert {:error, {:too_much_text, total}} = SVG.parse(labels, fonts)
+      assert total >= 1_500_000
+      assert {:ok, _} = SVG.parse(labels, fonts, max_text: 2_000_000)
+
+      # Whitespace between elements isn't laid out, so it doesn't count.
+      spaced = svg(String.duplicate(~s(<rect width="1" height="1"/>\n          ), 1000))
+      assert {:ok, _} = SVG.parse(spaced, fonts, max_text: 10)
+    end
+
     test "fails before expanding a <use> bomb", %{fonts: fonts} do
       levels =
         for level <- 1..5 do

@@ -34,6 +34,7 @@ enum ParseError {
     Parse(String),
     TooManyElements(u64),
     EntityExpansion(u64),
+    TooMuchText(u64),
     ImageTooLarge(u64),
     NestingTooDeep,
 }
@@ -44,6 +45,7 @@ impl From<parse::Error> for ParseError {
             parse::Error::Parse(message) => ParseError::Parse(message),
             parse::Error::TooManyElements(count) => ParseError::TooManyElements(count),
             parse::Error::EntityExpansion(size) => ParseError::EntityExpansion(size),
+            parse::Error::TooMuchText(bytes) => ParseError::TooMuchText(bytes),
             parse::Error::ImageTooLarge(pixels) => ParseError::ImageTooLarge(pixels),
             parse::Error::NestingTooDeep => ParseError::NestingTooDeep,
         }
@@ -91,14 +93,16 @@ fn load_fonts(
 fn parse(
     data: Binary,
     fonts: ResourceArc<Fonts>,
-    max_elements: u64,
-    max_image_pixels: u64,
-    max_entity_expansion: u64,
+    limits: (u64, u64, u64, u64, u64),
 ) -> NifResult<Result<Parsed, ParseError>> {
+    let (max_elements, max_image_pixels, max_entity_expansion, max_text_per_element, max_text) =
+        limits;
     let limits = parse::Limits {
         max_elements,
         max_image_pixels,
         max_entity_expansion,
+        max_text_per_element,
+        max_text,
     };
     let data = data.as_slice();
     let fontdb = fonts.0.clone();

@@ -227,6 +227,14 @@ defmodule ImagePipe.API.SVGSourceWireTest do
     assert request("w=8", mount(bomb)).status == 413
   end
 
+  test "fails an SVG with too much text in one element, before laying it out" do
+    text =
+      ~s(<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><text>) <>
+        String.duplicate("a", 10_001) <> "</text></svg>"
+
+    assert request("w=8", mount(text)).status == 413
+  end
+
   test "rejects a malformed SVG as an unsupported source" do
     malformed = ~s(<svg xmlns="http://www.w3.org/2000/svg" width="8"><rect)
     assert request("w=8", mount(malformed)).status == 415
