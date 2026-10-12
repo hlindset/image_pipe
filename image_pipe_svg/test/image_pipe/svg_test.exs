@@ -49,7 +49,9 @@ defmodule ImagePipe.SVGTest do
     lock = File.read!("native/image_pipe_svg_nif/Cargo.lock")
     [_, resvg] = Regex.run(~r/name = "resvg"\nversion = "([^"]+)"/, lock)
 
-    assert SVG.versions() == %{nif: Mix.Project.config()[:version], resvg: resvg}
+    assert %{nif: nif, resvg: ^resvg, render: render} = SVG.versions()
+    assert nif == Mix.Project.config()[:version]
+    assert is_integer(render)
   end
 
   describe "load_fonts/2" do
@@ -179,7 +181,8 @@ defmodule ImagePipe.SVGTest do
       chain = Enum.map_join(0..299_999, &~s(<!ENTITY e#{&1} "&e#{&1 + 1};">))
       doctype = ~s(<!DOCTYPE svg [#{chain}<!ENTITY e300000 "a">]>)
 
-      assert {:error, {:entity_expansion, _}} = SVG.parse(doctype <> svg("<text>&e0;</text>"), fonts)
+      assert {:error, {:entity_expansion, _}} =
+               SVG.parse(doctype <> svg("<text>&e0;</text>"), fonts)
     end
 
     test "scans many ampersands in linear time", %{fonts: fonts} do
@@ -223,7 +226,9 @@ defmodule ImagePipe.SVGTest do
       image = ~s(<image width="10" height="10" href="#{inner}"/>)
 
       assert {:ok, _} = SVG.parse(svg(image), fonts, max_elements: 1_000)
-      assert {:error, {:too_many_elements, _}} = SVG.parse(svg(rects <> image), fonts, max_elements: 1_000)
+
+      assert {:error, {:too_many_elements, _}} =
+               SVG.parse(svg(rects <> image), fonts, max_elements: 1_000)
     end
 
     test "checks embedded SVGs for entity bombs too", %{fonts: fonts} do

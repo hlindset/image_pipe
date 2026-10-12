@@ -46,8 +46,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - With `image_pipe_svg` installed, cache keys and ETags include the resvg
-  version and the fonts, so every cached image misses once after installing
-  it, and again after changing the fonts or upgrading it.
+  version, the fonts, and the fallback family, so every cached image misses
+  once after installing it, and again after changing the fonts or fallback
+  family, or upgrading `image_pipe_svg` to a version that renders SVGs
+  differently.
 - **Breaking:** An HTTP source's `allowed_hosts` entry without a port allows
   only the scheme's default port, 80 or 443, including for redirect targets.
   Before, any port on a listed host was reachable. Add an entry with the port,

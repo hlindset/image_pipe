@@ -148,10 +148,12 @@ defmodule ImagePipe.Config do
         max_render_pixels: [
           type: :pos_integer,
           doc: """
-          Maximum pixels of an SVG's intermediate images held at once while \
-          it renders, which bounds its memory use. Defaults to four times \
-          `:max_input_pixels`. An SVG that needs more fails the request \
-          before it renders.
+          Maximum pixels, at 4 bytes each, of an SVG's images held at once \
+          while it renders: the canvas, plus a layer for each group with \
+          opacity, a filter, a clip path, or a mask. Defaults to four times \
+          `:max_input_pixels`, a canvas of the largest size allowed and \
+          three layers, which with the default `:max_input_pixels` is about \
+          640 MB. An SVG that needs more fails the request before it renders.
           """
         ]
       ]
@@ -486,7 +488,11 @@ defmodule ImagePipe.Config do
           validated
           |> Keyword.update!(
             :svg,
-            &Decode.svg_config!(&1, Keyword.has_key?(options, :svg), validated)
+            &Decode.svg_config!(
+              &1,
+              Keyword.has_key?(options, :svg),
+              Keyword.fetch!(validated, :max_input_pixels)
+            )
           )
           |> processing!()
           |> Keyword.merge(url.options)

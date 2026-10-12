@@ -76,11 +76,11 @@ docker run --read-only --tmpfs /tmp -p 8080:8080 -v ./config.toml:/etc/image_pip
 
 <!-- tabs-close -->
 
-ImagePipe checks the fonts when it starts. A directory that doesn't exist,
-a file that isn't a valid font, or a `fallback_family` that none of the
-fonts has stops ImagePipe from starting. It loads the fonts it renders with
-at the first SVG request and keeps them until it restarts. Cache keys
-include the fonts, so changing them makes every cached image miss once.
+ImagePipe loads the fonts when it starts and keeps them until it restarts.
+A directory that doesn't exist, a file that isn't a valid font, or a
+`fallback_family` that none of the fonts has stops ImagePipe from starting.
+Cache keys include the fonts and the fallback family, so changing either
+makes every cached image miss once.
 
 ## Limit the work an SVG can cause
 
@@ -116,13 +116,15 @@ An SVG original is rejected too when the whole SVG is larger than the
 [input pixel limit](deployment.md) at its own size, unless the request
 shrinks it below the limit, or has:
 
-- more than 200,000 elements after expanding `<use>`
+- more than 200,000 elements, counting reused content at each use, such as
+  `<use>` copies and markers at each point of a line
 - entities that expand past 1,000,000 characters
 - more than 10,000 bytes of text in one `<text>` element, or 1,000,000 in
   all
 
-Rejected SVGs fail with `413`, and an SVG that isn't valid XML fails with
-`415`.
+Rejected SVGs fail with `413`. An SVG that isn't valid XML, nests elements
+more than 1,024 levels deep, or defines an entity whose value holds markup
+fails with `415`.
 
 ## Embed images in SVGs
 
@@ -136,9 +138,13 @@ over the input pixel limit, or SVGs nested deeper, fail the request with
 
 ## Size SVGs in requests
 
-An SVG's own size is its `width` and `height` at 96 pixels per inch, or its
-`viewBox` when those are missing, or the extent of its content when it has
-neither. Crops and regions measure the SVG at that size.
+An SVG's own size, rounded to whole pixels, is its `width` and `height` at
+96 pixels per inch, or its `viewBox` when those are missing, or the extent
+of its content when it has neither. Crops and regions measure the SVG at that
+size, and resizes keep its aspect ratio. In a very small SVG, rounding
+changes that ratio: a `viewBox` of `0 0 1 1.5` is 1×2 pixels, so a resize
+makes it twice as tall as it is wide. Give such an SVG a larger `width` and
+`height`.
 
 A resize renders the SVG at the requested size, larger than its own size
 too, without [`enlarge`](processing/resize.md#enlarge), except in two
@@ -189,13 +195,14 @@ server's address, and for a Plug add the path you forwarded to
 curl -o logo.png "http://localhost:8080/w=400/src/logo.svg"
 ```
 
-The log shows the SVG's own size and the size it rendered at:
+The log names what rendered (an original or a watermark), the SVG's own
+size, and the size it rendered at:
 
 ```text
-[info] image_pipe source svg_render: ok (40x20 rendered at 400x200, 0 images)
+[info] image_pipe source svg_render: ok (original 40x20 rendered at 400x200, 0 images)
 ```
 
 A rejected SVG names the limit, such as
-`svg_render: processing_error (input_limit, svg_render_work limit)`. The
-[`[:source, :svg_render]`](telemetry-events.md#source-svg_render) event
+`svg_render: processing_error (original, input_limit, svg_render_work limit)`.
+The [`[:source, :svg_render]`](telemetry-events.md#source-svg_render) event
 lists every limit.

@@ -61,14 +61,14 @@ defmodule ImagePipe.Decode do
   Returns `nil` without the `image_pipe_svg` package, and raises when `given?`
   says the host set SVG options that nothing would use.
   """
-  @spec svg_config!(keyword(), boolean(), keyword()) :: map() | nil
+  @spec svg_config!(keyword(), boolean(), pos_integer()) :: map() | nil
   if @svg_available do
-    def svg_config!(options, _given?, config),
-      do: ImagePipe.Decode.SVG.config!(options, Keyword.fetch!(config, :max_input_pixels))
+    def svg_config!(options, _given?, max_input_pixels),
+      do: ImagePipe.Decode.SVG.config!(options, max_input_pixels)
   else
-    def svg_config!(_options, false, _config), do: nil
+    def svg_config!(_options, false, _max_input_pixels), do: nil
 
-    def svg_config!(_options, true, _config) do
+    def svg_config!(_options, true, _max_input_pixels) do
       raise ArgumentError,
             "invalid ImagePipe configuration: svg needs the optional image_pipe_svg " <>
               "package; add it to your dependencies"

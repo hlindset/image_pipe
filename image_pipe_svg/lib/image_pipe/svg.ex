@@ -29,16 +29,22 @@ defmodule ImagePipe.SVG do
           image_pixels: non_neg_integer()
         }
 
-  @doc """
-  Returns the versions of this package's NIF and the resvg it was built with.
+  # Raise when a release changes how this package's own code renders an SVG,
+  # so cached renders miss.
+  @render_revision 1
 
-  ImagePipe puts them in the cache key, since a new resvg can render the same
-  SVG differently.
+  @doc """
+  Returns the versions of this package's NIF and the resvg it was built
+  with, and its render revision.
+
+  A change to either can change how the same SVG renders, so they suit a
+  cache key. The render revision changes when this package's own parsing or
+  rendering does.
   """
-  @spec versions() :: %{nif: String.t(), resvg: String.t()}
+  @spec versions() :: %{nif: String.t(), resvg: String.t(), render: pos_integer()}
   def versions do
     {nif, resvg} = Native.versions()
-    %{nif: nif, resvg: resvg}
+    %{nif: nif, resvg: resvg, render: @render_revision}
   end
 
   @doc """
@@ -113,10 +119,10 @@ defmodule ImagePipe.SVG do
 
   ## Options
 
-    * `:max_elements` - elements allowed after copying content where it's
-      used, checked before copying it: `<use>` targets, markers at each
-      vertex, and clip paths, masks, patterns, and filter images that are
-      copied for each element using them. Defaults to 200,000.
+    * `:max_elements` - elements allowed once copies are counted, checked
+      before copying: `<use>` targets, markers at each vertex,
+      `objectBoundingBox` clip paths, masks, and patterns, and filters with
+      an element `feImage`. Defaults to 200,000.
     * `:max_image_pixels` - pixels allowed in any one embedded raster
       image, read from its header. Defaults to 40,000,000.
     * `:max_entity_expansion` - characters the document's entity references

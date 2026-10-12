@@ -7,7 +7,8 @@ defmodule ImagePipe.API.SVGSourceWireTest do
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias Vix.Vips.Operation
 
-  @font_dir Path.expand("../../support/fonts", __DIR__)
+  # The sibling image_pipe_svg project's test font.
+  @font_dir Path.expand("../../../../image_pipe_svg/test/support/fonts", __DIR__)
 
   # Red left half, blue right half, at an intrinsic 40×20.
   @svg ~s(<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20" viewBox="0 0 40 20">) <>
@@ -140,12 +141,22 @@ defmodule ImagePipe.API.SVGSourceWireTest do
       options = [font_dirs: [dir], fallback_family: "Geist Mono"]
       File.cp!(Path.join(@font_dir, "GeistMono-Regular.ttf"), Path.join(dir, "font.ttf"))
       config = mount(@text, svg: options)
+      # As if the configuration was built in another VM.
+      :persistent_term.erase({ImagePipe.Decode.SVG, :fonts, [dir], "Geist Mono"})
       File.rm!(Path.join(dir, "font.ttf"))
       File.cp!(Path.join(@font_dir, "GeistMono-Regular.ttf"), Path.join(dir, "renamed.ttf"))
       etag = fn config -> request("w=50", config) |> get_resp_header("etag") end
 
       assert drawn?(request("format=png", config))
       assert etag.(config) == etag.(mount(@text, svg: options))
+    end
+
+    test "change the ETag with the fallback family" do
+      etag = fn config -> request("w=50", config) |> get_resp_header("etag") end
+      fonts = [font_dirs: [@font_dir]]
+
+      refute etag.(mount(@text, svg: fonts)) ==
+               etag.(mount(@text, svg: fonts ++ [fallback_family: "Geist Mono"]))
     end
 
     test "fail configuration when the fallback family isn't loaded" do
@@ -158,6 +169,27 @@ defmodule ImagePipe.API.SVGSourceWireTest do
   test "fails an SVG larger than svg.max_bytes" do
     assert request("w=40", mount(@svg, svg: [max_bytes: byte_size(@svg)])).status == 200
     assert request("w=40", mount(@svg, svg: [max_bytes: byte_size(@svg) - 1])).status == 413
+  end
+
+  @tag :tmp_dir
+  test "serves a repeat from the output cache, keyed by the fonts", %{tmp_dir: dir, test: name} do
+    prefix = [:svg_cache_wire, name]
+    event = prefix ++ [:source, :svg_render, :stop]
+    handler = {__MODULE__, make_ref()}
+    :ok = :telemetry.attach(handler, event, &__MODULE__.forward_render/4, self())
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    options = [telemetry_prefix: prefix, cache: [root: dir]]
+    plain = mount(@svg, options)
+    with_fonts = mount(@svg, options ++ [svg: [font_dirs: [@font_dir]]])
+
+    assert request("w=40/format=png", plain).status == 200
+    assert_received :rendered
+    assert request("w=40/format=png", plain).status == 200
+    refute_received :rendered
+
+    assert request("w=40/format=png", with_fonts).status == 200
+    assert_received :rendered
   end
 
   test "fails a render over svg.max_render_work" do
@@ -280,6 +312,8 @@ defmodule ImagePipe.API.SVGSourceWireTest do
     malformed = ~s(<svg xmlns="http://www.w3.org/2000/svg" width="8"><rect)
     assert request("w=8", mount(malformed)).status == 415
   end
+
+  def forward_render(_event, _measurements, _metadata, pid), do: send(pid, :rendered)
 
   defp drawn?(response) do
     {_color, alpha} = response.resp_body |> Image.from_binary!() |> Image.split_alpha()

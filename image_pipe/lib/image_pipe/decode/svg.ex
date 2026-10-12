@@ -27,37 +27,52 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
     @max_entity_expansion 1_000_000
 
     @doc """
-    Resolves the validated `svg` options for `max_input_pixels`. Loads the
-    fonts to fail on a bad font file or fallback family, but keeps only plain
-    data: a router may build the configuration at compile time, where a
-    loaded font set can't be stored.
+    Resolves the validated `svg` options for `max_input_pixels`, and loads
+    the fonts, failing on a bad font file or fallback family. The result is
+    plain data: a router may build the configuration at compile time, where
+    a loaded font set can't be stored. The fonts loaded here stay loaded for
+    rendering, unless the configuration was built in another VM, which loads
+    them on first use.
     """
     @spec config!(keyword(), pos_integer()) :: map()
     def config!(options, max_input_pixels) do
-      font_dirs = Keyword.fetch!(options, :font_dirs)
-      fallback_family = options[:fallback_family]
+      config = %{
+        font_dirs: Keyword.fetch!(options, :font_dirs),
+        fallback_family: options[:fallback_family],
+        max_bytes: Keyword.fetch!(options, :max_bytes),
+        max_render_work: Keyword.fetch!(options, :max_render_work),
+        max_render_pixels: options[:max_render_pixels] || 4 * max_input_pixels
+      }
 
-      case SVG.load_fonts(font_dirs, fallback_family: fallback_family) do
-        {:ok, _fonts} ->
-          %{
-            font_dirs: font_dirs,
-            fallback_family: fallback_family,
-            max_bytes: Keyword.fetch!(options, :max_bytes),
-            max_render_work: Keyword.fetch!(options, :max_render_work),
-            max_render_pixels: options[:max_render_pixels] || 4 * max_input_pixels
-          }
+      case :persistent_term.get(fonts_key(config), nil) do
+        nil ->
+          case SVG.load_fonts(config.font_dirs, fallback_family: config.fallback_family) do
+            {:ok, fonts} ->
+              :persistent_term.put(fonts_key(config), fonts)
 
-        {:error, message} ->
-          raise ArgumentError, "invalid ImagePipe configuration: svg: #{message}"
+            {:error, message} ->
+              raise ArgumentError, "invalid ImagePipe configuration: svg: #{message}"
+          end
+
+        _fonts ->
+          :ok
       end
+
+      config
     end
 
     @doc """
-    Everything that can change how the same SVG renders: the resvg version
-    and the fonts, as loaded for rendering. It enters the cache key and ETag.
+    Everything that can change how the same SVG renders: the resvg version,
+    the render revision, and the fonts, as loaded for rendering, with the
+    fallback family. It enters the cache key and ETag.
     """
     @spec identity(map()) :: map()
-    def identity(config), do: Map.put(SVG.versions(), :fonts, fonts(config).fingerprint)
+    def identity(config) do
+      config
+      |> fonts()
+      |> then(&%{fonts: &1.fingerprint, fallback_family: config.fallback_family})
+      |> Map.merge(Map.take(SVG.versions(), [:resvg, :render]))
+    end
 
     @spec decode(Decode.seekable(), Spec.t(), keyword()) ::
             {:ok, State.t(), SourceGeometry.t(), map()} | {:error, Decode.error()}
@@ -253,19 +268,22 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
       end
     end
 
-    # The fonts load on first use and stay loaded for the life of the VM. The
-    # cache key takes its fingerprint from this same set, so it always
-    # matches the fonts that render, even when the configuration was built
-    # elsewhere. One process loads them: replacing a persistent term makes
-    # every process scan its heap.
-    defp fonts(%{font_dirs: dirs, fallback_family: fallback}) do
-      key = {__MODULE__, :fonts, dirs, fallback}
+    # The fonts load with the configuration, or on first use when it was built
+    # in another VM, and stay loaded for the life of the VM. The cache key
+    # takes its fingerprint from this same set, so it always matches the
+    # fonts that render. One process loads them: replacing a persistent term
+    # makes every process scan its heap.
+    defp fonts(config) do
+      key = fonts_key(config)
 
       case :persistent_term.get(key, nil) do
         nil -> :global.trans({key, self()}, fn -> load_fonts(key) end, [node()])
         fonts -> fonts
       end
     end
+
+    defp fonts_key(%{font_dirs: dirs, fallback_family: fallback}),
+      do: {__MODULE__, :fonts, dirs, fallback}
 
     defp load_fonts({_module, :fonts, dirs, fallback} = key) do
       with nil <- :persistent_term.get(key, nil) do
@@ -293,9 +311,10 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
 
     defp fit_scale(scale, _storage, _max_input_pixels), do: scale
 
-    # The scale was planned against the rounded intrinsic size, so it
-    # applies to that size: a fractional width would otherwise render a
-    # pixel off the requested size and be resampled to it.
+    # The SVG's own size is its intrinsic size rounded to whole pixels, which
+    # the request's geometry resolves against, so the render scales that
+    # size: a fractional width would otherwise render a pixel off the
+    # requested size and be resampled to it.
     defp render_size(storage, nil), do: storage
 
     defp render_size({width, height}, scale),

@@ -117,6 +117,9 @@ settings.
 
 1. Set `@version` in `image_pipe_svg/mix.exs`,
    [update its changelog](#update-the-changelogs), and merge to `main`.
+   When the release changes how an SVG renders, other than by upgrading
+   resvg, also raise `@render_revision` in
+   `image_pipe_svg/lib/image_pipe/svg.ex`, so cached renders miss.
 2. Tag the merge commit and push the tag:
 
    ```sh
