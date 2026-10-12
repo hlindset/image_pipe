@@ -214,9 +214,7 @@ defmodule ImagePipeServer.Config do
     Store.options_schema()
     |> Keyword.delete(:pool)
     |> Keyword.merge(
-      root: [type: {:convert, &cache_root/2, "string (absolute path)"}, required: true],
-      window_ratio: [type: :float],
-      doorkeeper_fpr: [type: :float]
+      root: [type: {:convert, &cache_root/2, "string (absolute path)"}, required: true]
     )
   end
 

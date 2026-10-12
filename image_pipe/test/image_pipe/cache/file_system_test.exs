@@ -119,31 +119,6 @@ defmodule ImagePipe.Cache.FileSystemTest do
              {:error, {:invalid_root, "relative/cache"}}
   end
 
-  test "rejects traversal-shaped path prefixes", %{root: root} do
-    assert FileSystem.get(key(), opts(root, path_prefix: "../outside")) ==
-             {:error, {:invalid_path_prefix, "../outside"}}
-
-    assert FileSystem.get(key(), opts(root, path_prefix: "/absolute")) ==
-             {:error, {:invalid_path_prefix, "/absolute"}}
-
-    assert FileSystem.get(key(), opts(root, path_prefix: "processed/./images")) ==
-             {:error, {:invalid_path_prefix, "processed/./images"}}
-
-    assert FileSystem.get(key(), opts(root, path_prefix: "processed//images")) ==
-             {:error, {:invalid_path_prefix, "processed//images"}}
-
-    assert FileSystem.get(key(), opts(root, path_prefix: "processed\\..\\outside")) ==
-             {:error, {:invalid_path_prefix, "processed\\..\\outside"}}
-
-    assert FileSystem.validate_options(opts(root, path_prefix: "../outside")) ==
-             {:error, {:invalid_path_prefix, "../outside"}}
-  end
-
-  test "accepts tilde as a normal relative path segment", %{root: root} do
-    assert {:ok, opts} = FileSystem.validate_options(opts(root, path_prefix: "~cache"))
-    assert Keyword.take(opts, [:root, :path_prefix]) == [root: root, path_prefix: "~cache"]
-  end
-
   test "rejects unknown filesystem adapter options", %{root: root} do
     assert FileSystem.validate_options(opts(root, path_prefx: "processed")) ==
              {:error, {:unknown_options, [:path_prefx]}}
@@ -197,19 +172,16 @@ defmodule ImagePipe.Cache.FileSystemTest do
   test "writes and reads body and metadata under hash-partitioned paths", %{root: root} do
     cache_key = key("abcdef" <> String.duplicate("1", 58))
 
-    assert put_entry(cache_key, entry(), opts(root, path_prefix: "processed")) == :ok
-    assert {:hit, cached_entry} = FileSystem.get(cache_key, opts(root, path_prefix: "processed"))
+    assert put_entry(cache_key, entry(), opts(root)) == :ok
+    assert {:hit, cached_entry} = FileSystem.get(cache_key, opts(root))
 
     assert cached_entry.body == "encoded image"
     assert cached_entry.content_type == "image/webp"
     assert cached_entry.headers == [{"vary", "Accept"}]
     assert cached_entry.created_at == ~U[2026-04-29 10:15:00Z]
 
-    assert File.exists?(
-             Path.join([root, "processed", "ab", "cd", body_filename(cache_key, "encoded image")])
-           )
-
-    assert File.exists?(Path.join([root, "processed", "ab", "cd", cache_key.hash <> ".meta"]))
+    assert File.exists?(Path.join([root, "ab", "cd", body_filename(cache_key, "encoded image")]))
+    assert File.exists?(Path.join([root, "ab", "cd", cache_key.hash <> ".meta"]))
   end
 
   test "round-trips a Debug.Info through metadata serialize/deserialize", %{root: root} do
@@ -611,7 +583,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
   describe "paths_from_hash/2" do
     test "builds partitioned paths for a 64-char hash", %{root: root} do
       hash = String.duplicate("a", 64)
-      opts = [root: root, path_prefix: ""]
+      opts = [root: root]
 
       assert {:ok, paths} = FileSystem.paths_from_hash(hash, opts)
       assert paths.dir == Path.join([root, "aa", "aa"])
@@ -696,28 +668,12 @@ defmodule ImagePipe.Cache.FileSystemTest do
                )
     end
 
-    test "derives sketch_width and doorkeeper_cardinality from max_size_bytes" do
+    test "defaults eviction_victim_limit and reconcile_interval" do
       {:ok, opts} =
         FileSystem.validate_options(root: "/tmp", max_size_bytes: 10_000_000_000)
 
-      assert opts[:sketch_width] == 400_000
-      assert opts[:doorkeeper_cardinality] == 800_000
-      assert opts[:doorkeeper_fpr] == 0.01
       assert opts[:eviction_victim_limit] == 64
-      assert opts[:aging_sample_size] == 2_000_000
       assert opts[:reconcile_interval] == 60
-    end
-
-    test "aging_sample_size does not change when sketch_width is overridden" do
-      {:ok, opts} =
-        FileSystem.validate_options(
-          root: "/tmp",
-          max_size_bytes: 10_000_000_000,
-          sketch_width: 16_384
-        )
-
-      assert opts[:sketch_width] == 16_384
-      assert opts[:aging_sample_size] == 2_000_000
     end
 
     test "accepts custom :eviction_victim_limit" do
@@ -737,35 +693,6 @@ defmodule ImagePipe.Cache.FileSystemTest do
                  root: "/tmp",
                  max_size_bytes: 100_000_000,
                  eviction_victim_limit: 0
-               )
-    end
-
-    test "rejects :window_ratio outside [0.0, 1.0]" do
-      assert {:error, _} =
-               FileSystem.validate_options(
-                 root: "/tmp",
-                 max_size_bytes: 100_000_000,
-                 window_ratio: 1.5
-               )
-    end
-
-    test "accepts :window_ratio of 0.0 (window disabled)" do
-      assert {:ok, opts} =
-               FileSystem.validate_options(
-                 root: "/tmp",
-                 max_size_bytes: 100_000_000,
-                 window_ratio: 0.0
-               )
-
-      assert opts[:window_ratio] == 0.0
-    end
-
-    test "rejects :doorkeeper_fpr outside (0.0, 1.0)" do
-      assert {:error, _} =
-               FileSystem.validate_options(
-                 root: "/tmp",
-                 max_size_bytes: 100_000_000,
-                 doorkeeper_fpr: 1.0
                )
     end
   end

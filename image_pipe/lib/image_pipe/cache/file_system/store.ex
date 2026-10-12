@@ -24,101 +24,41 @@ defmodule ImagePipe.Cache.FileSystem.Store do
                       inside the other. Plug initialization fails otherwise.
                       """
                     ],
-                    path_prefix: [
-                      default: "",
-                      type: {:custom, __MODULE__, :validate_path_prefix, []},
-                      type_doc: "relative path (`t:String.t/0`)",
-                      doc: """
-                      Subdirectory of `:root` where entries are written. Must be a relative \
-                      path without backslashes, `.` or `..` segments, or empty segments \
-                      (such as `a//b` or a trailing `/`).
-                      """
-                    ],
                     pool: [
                       type: {:in, [:input, :output]},
                       type_doc: "`:input` or `:output`",
                       doc: """
                       Tags the cache's telemetry events with `pool`, so events from an \
                       originals cache can be told apart from the processed-image cache. \
-                      Defaults to `:output`. A cache configured as `:input_cache` gets \
-                      `pool: :input` automatically.
+                      Defaults to `:output`, or `:input` for a cache configured as \
+                      `:input_cache`.
                       """
                     ],
-                    # The tuning options below default to values derived from
-                    # max_size_bytes, in derive_bounded_options/1.
                     max_size_bytes: [
                       required: true,
                       type: :pos_integer,
                       doc: """
                       Soft cap, in bytes, on the total size of stored bodies. Writes \
-                      evict the least valuable entries to stay under it.
-                      """
-                    ],
-                    window_ratio: [
-                      type: {:custom, __MODULE__, :validate_window_ratio, []},
-                      type_doc: "`t:float/0` from `0.0` to `1.0`",
-                      doc: """
-                      Share of `:max_size_bytes` reserved for newly stored responses. A \
-                      larger ratio favors recently added responses over often-requested \
-                      ones. `0.0` reserves no space. Defaults to `0.01`.
-                      """
-                    ],
-                    sketch_depth: [
-                      type: :pos_integer,
-                      doc: """
-                      Number of counter rows used to count requests per response. More rows \
-                      count more accurately but use more memory. Defaults to `4`.
-                      """
-                    ],
-                    sketch_width: [
-                      type: :pos_integer,
-                      doc: """
-                      Number of counters per row. More counters count more accurately but \
-                      use more memory. Defaults to one per 25,000 bytes of \
-                      `:max_size_bytes`, and at least 4,096.
-                      """
-                    ],
-                    aging_sample_size: [
-                      type: :pos_integer,
-                      doc: """
-                      Number of counted requests after which every count is halved, so \
-                      old popularity fades. A smaller value forgets faster. Defaults to one \
-                      per 5,000 bytes of `:max_size_bytes`, and at least 81,920.
-                      """
-                    ],
-                    doorkeeper_cardinality: [
-                      type: :pos_integer,
-                      doc: """
-                      Number of distinct responses the node tracks as requested once. A \
-                      response is counted only from its second request, so one-off \
-                      requests don't push out popular responses. Defaults to one per \
-                      12,500 bytes of `:max_size_bytes`, and at least 8,192.
-                      """
-                    ],
-                    doorkeeper_fpr: [
-                      type: {:custom, __MODULE__, :validate_doorkeeper_fpr, []},
-                      type_doc: "`t:float/0` greater than `0.0` and less than `1.0`",
-                      doc: """
-                      Rate at which a first request is mistaken for a repeat and counted \
-                      early. Lower rates use more memory. Defaults to `0.01`.
+                      evict rarely requested entries to stay under it.
                       """
                     ],
                     eviction_victim_limit: [
                       type: :pos_integer,
+                      default: 64,
                       doc: """
                       Maximum number of entries one write or one background eviction \
                       batch removes. A write that needs to evict more removes this many \
                       and starts background eviction for the rest, so the cache can \
                       briefly exceed `:max_size_bytes`. If the entries it needs to evict \
-                      include ones read recently, the write is rejected instead. \
-                      Defaults to `64`.
+                      include ones read recently, the write is rejected instead.
                       """
                     ],
                     reconcile_interval: [
                       type: :pos_integer,
+                      default: 60,
                       doc: """
                       Seconds between background passes that evict entries until the stored \
-                      size is at or under `:max_size_bytes`. Defaults to `60`.
+                      size is at or under `:max_size_bytes`.
                       """
                     ]
                   )
@@ -130,8 +70,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   def child_spec(opts), do: Root.child_spec(opts)
 
   @doc false
-  def root_dir(opts),
-    do: Path.join(Keyword.fetch!(opts, :root), Keyword.get(opts, :path_prefix, ""))
+  def root_dir(opts), do: Keyword.fetch!(opts, :root)
 
   @doc false
   # The processes a cache runs on a root this node owns: Admission, the
@@ -151,20 +90,36 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   end
 
   @doc false
-  # The options Admission.init/1 reads, from cache options: defaults
-  # derived from `:max_size_bytes` filled in, intervals in milliseconds, and
-  # the registry Admission registers in. Tests and benchmarks that start
-  # Admission directly go through this too.
+  # The options Admission.init/1 reads, from cache options: the policy's
+  # tuning derived from `:max_size_bytes`, intervals in milliseconds, and the
+  # registry Admission registers in. Tests and benchmarks that start Admission
+  # directly go through this too, and may override the tuning.
   def admission_options(opts, registry_name) do
-    opts = derive_bounded_options(opts)
+    opts = Keyword.merge(admission_defaults(opts), opts)
 
     opts
     |> Keyword.delete(:reconcile_interval)
     |> Keyword.merge(
       registry: registry_name,
-      path_prefix: Keyword.get(opts, :path_prefix, ""),
       reconcile_interval_ms: Keyword.fetch!(opts, :reconcile_interval) * 1000
     )
+  end
+
+  # A 1% window: docs/plans/cache-admission-policy.md found 1%, 5% and 20%
+  # windows within noise.
+  defp admission_defaults(opts) do
+    max_size_bytes = Keyword.fetch!(opts, :max_size_bytes)
+
+    [
+      window_ratio: 0.01,
+      sketch_depth: 4,
+      sketch_width: max(4096, div(max_size_bytes, 25_000)),
+      aging_sample_size: max(81_920, div(max_size_bytes, 5_000)),
+      doorkeeper_cardinality: max(8192, div(max_size_bytes, 12_500)),
+      doorkeeper_fpr: 0.01,
+      eviction_victim_limit: 64,
+      reconcile_interval: 60
+    ]
   end
 
   # Each cache root runs one Registry and Admission. Deriving the Registry
@@ -402,38 +357,15 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   def validate_options(opts) when is_list(opts) do
     with {:ok, validated_opts} <- validate_known_options(opts),
-         derived_opts = derive_bounded_options(validated_opts),
-         :ok <- validate_representative_cache_dir(derived_opts) do
-      {:ok, derived_opts}
+         :ok <- validate_representative_cache_dir(validated_opts) do
+      {:ok, validated_opts}
     end
   end
 
   defp validate_representative_cache_dir(validated_opts) do
     root = Keyword.fetch!(validated_opts, :root)
-    path_prefix = Keyword.fetch!(validated_opts, :path_prefix)
     # Probe the directory shape every cache key will use after hash partitioning.
-    dir = Path.join([root, path_prefix, "00", "00"])
-
-    validate_under_root(root, dir)
-  end
-
-  # Fill derived defaults for the tuning options. User-supplied values are
-  # treated as overrides and are never clobbered.
-  defp derive_bounded_options(opts) do
-    max_size_bytes = Keyword.fetch!(opts, :max_size_bytes)
-
-    defaults = [
-      window_ratio: 0.01,
-      sketch_depth: 4,
-      sketch_width: max(4096, div(max_size_bytes, 25_000)),
-      aging_sample_size: max(81_920, div(max_size_bytes, 5_000)),
-      doorkeeper_cardinality: max(8192, div(max_size_bytes, 12_500)),
-      doorkeeper_fpr: 0.01,
-      eviction_victim_limit: 64,
-      reconcile_interval: 60
-    ]
-
-    Keyword.merge(defaults, opts)
+    validate_under_root(root, Path.join([root, "00", "00"]))
   end
 
   defp validate_known_options(opts) do
@@ -454,47 +386,6 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   def validate_root(root), do: {:error, "expected absolute path string, got: #{inspect(root)}"}
 
-  @doc false
-  def validate_path_prefix(""), do: {:ok, ""}
-
-  def validate_path_prefix(prefix) when is_binary(prefix) do
-    invalid_segment? =
-      prefix
-      |> String.split("/", trim: false)
-      |> Enum.any?(fn segment ->
-        segment in ["", ".", ".."]
-      end)
-
-    if Path.type(prefix) == :relative and not String.contains?(prefix, "\\") and
-         not invalid_segment? do
-      {:ok, prefix}
-    else
-      {:error, "expected relative path without traversal, got: #{inspect(prefix)}"}
-    end
-  end
-
-  def validate_path_prefix(prefix),
-    do: {:error, "expected relative path string, got: #{inspect(prefix)}"}
-
-  @doc false
-  # window_ratio carves the byte budget for the window LRU; an out-of-range
-  # value would size the window past (or below) the total cap and break the
-  # soft-cap invariant. Inclusive [0.0, 1.0] (0.0 disables the window).
-  def validate_window_ratio(ratio) when is_float(ratio) and ratio >= 0.0 and ratio <= 1.0,
-    do: {:ok, ratio}
-
-  def validate_window_ratio(ratio),
-    do: {:error, "expected float in [0.0, 1.0], got: #{inspect(ratio)}"}
-
-  @doc false
-  # doorkeeper_fpr is a Bloom-filter false-positive probability; 0.0 and 1.0
-  # are degenerate, so the open interval (0.0, 1.0) is required.
-  def validate_doorkeeper_fpr(fpr) when is_float(fpr) and fpr > 0.0 and fpr < 1.0,
-    do: {:ok, fpr}
-
-  def validate_doorkeeper_fpr(fpr),
-    do: {:error, "expected float in (0.0, 1.0), got: #{inspect(fpr)}"}
-
   defp options_validation_error(%NimbleOptions.ValidationError{key: unknown_keys})
        when is_list(unknown_keys),
        do: {:unknown_options, Enum.uniq(unknown_keys)}
@@ -505,9 +396,6 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   defp options_validation_error(%NimbleOptions.ValidationError{key: :root, value: root}),
     do: {:invalid_root, root}
-
-  defp options_validation_error(%NimbleOptions.ValidationError{key: :path_prefix, value: prefix}),
-    do: {:invalid_path_prefix, prefix}
 
   defp options_validation_error(%NimbleOptions.ValidationError{key: key, message: message}),
     do: {:invalid_option, key, message}
@@ -778,10 +666,9 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   # The options were validated with the cache configuration.
   def paths_from_hash(hash, opts) when is_binary(hash) and is_list(opts) do
     root = Keyword.fetch!(opts, :root)
-    path_prefix = Keyword.get(opts, :path_prefix, "")
 
     with {:ok, {first_partition, second_partition}} <- partitions(hash) do
-      dir = Path.join([root, path_prefix, first_partition, second_partition])
+      dir = Path.join([root, first_partition, second_partition])
       meta_path = Path.join(dir, hash <> ".meta")
 
       with :ok <- checked_partition(root, dir) do

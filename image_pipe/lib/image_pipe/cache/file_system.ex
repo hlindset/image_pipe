@@ -13,8 +13,8 @@ defmodule ImagePipe.Cache.FileSystem do
         MyAppWeb.Endpoint
       ]
 
-  `:max_size_bytes` is a soft cap: writes evict the least valuable entries,
-  and a background pass evicts any overshoot. Entries requested most often
+  `:max_size_bytes` is a soft cap: writes evict rarely requested entries, and
+  a background pass evicts any overshoot. Entries requested most often
   are kept longest (a W-TinyLFU policy).
 
   To set up processed-image and originals caches, see

@@ -211,10 +211,9 @@ callers outside the Plug.
 
 Each `root` serves one node. When an ImagePipe instance (see
 `ImagePipe.child_spec/1`) starts, it writes a `.image-pipe-owner` file naming
-its hostname into each cache's directory (`root`, plus `path_prefix` when
-set). The instance rewrites the file every 5 seconds and deletes it when it
-stops. A node that restarts with the same hostname takes the `root` over at
-once.
+its hostname into each cache's `root`. The instance rewrites the file every 5
+seconds and deletes it when it stops. A node that restarts with the same
+hostname takes the `root` over at once.
 
 When the file names another hostname, the instance starts without that cache
 and checks the file every 25 seconds:

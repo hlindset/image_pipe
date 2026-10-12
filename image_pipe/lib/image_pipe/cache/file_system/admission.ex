@@ -32,7 +32,6 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       # Lifecycle events use the prefix captured at init, without request options.
       telemetry_prefix: [:image_pipe],
       pool: :output,
-      path_prefix: "",
       window: nil,
       probationary: nil,
       protected: nil,
@@ -92,8 +91,6 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     state = %State{
       registry: Keyword.fetch!(opts, :registry),
       root: Keyword.fetch!(opts, :root),
-      # Scan the same partition root the cache writes to.
-      path_prefix: Keyword.fetch!(opts, :path_prefix),
       max_size_bytes: max_size,
       window_budget: trunc(max_size * Keyword.fetch!(opts, :window_ratio)),
       sketch_depth: sketch_depth,
@@ -148,8 +145,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   defp scan_directory(state, admission_pid) do
-    entry_root = Path.join(state.root, state.path_prefix)
-    {listings, descriptor_map} = read_entries(entry_root)
+    {listings, descriptor_map} = read_entries(state.root)
 
     # Phase A: put every entry on probation in mtime order, oldest first. A
     # hit promotes it, so entries requested after a restart regain their
@@ -286,7 +282,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   defp stored_descriptor(state, key_hash) do
-    opts = [root: state.root, path_prefix: state.path_prefix]
+    opts = [root: state.root]
 
     with {:ok, paths} <- FileSystem.paths_from_hash(key_hash, opts),
          {:ok, descriptor, _mtime} <- FileSystem.read_descriptor(paths.meta_path) do
@@ -361,7 +357,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     case FileSystem.publish_sink(prepared, body_filename) do
       {:ok, descriptor} ->
         {result, state} = admit_descriptor(state, descriptor)
-        opts = [root: state.root, path_prefix: state.path_prefix]
+        opts = [root: state.root]
         {:reply, finish_commit(result, descriptor, opts), state}
 
       {:error, _reason} = error ->
@@ -830,7 +826,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   defp emit_reconciliation_evictions(state, descriptors) do
     # Select and delete together before yielding to replacements and hits.
     victims = Enum.map(descriptors, &full_eviction_victim/1)
-    opts = [root: state.root, path_prefix: state.path_prefix]
+    opts = [root: state.root]
     FileSystem.delete_victims(victims, opts)
 
     bytes = Enum.reduce(descriptors, 0, fn descriptor, acc -> acc + descriptor.size_bytes end)

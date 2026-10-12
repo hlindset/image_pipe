@@ -13,24 +13,15 @@ defmodule ImagePipe.Cache.FileSystemPropertyTest do
 
   property "generated cache paths stay under the configured root" do
     check all hash <- sha256_hex(),
-              prefix <- safe_prefix(),
               max_runs: 100 do
       root = unique_root()
 
-      assert {:ok, paths} = FileSystem.paths(key(hash), root: root, path_prefix: prefix)
+      assert {:ok, paths} = FileSystem.paths(key(hash), root: root)
 
       assert Enum.all?(
                Map.values(Map.take(paths, [:dir, :meta_path])),
                &under_root?(&1, root)
              )
-    end
-  end
-
-  property "unsafe path prefixes are rejected" do
-    check all prefix <- unsafe_prefix(),
-              max_runs: 100 do
-      assert {:error, {:invalid_path_prefix, ^prefix}} =
-               FileSystem.validate_options(root: unique_root(), path_prefix: prefix)
     end
   end
 
@@ -163,25 +154,6 @@ defmodule ImagePipe.Cache.FileSystemPropertyTest do
   end
 
   defp body_filename(cache_key, body), do: "#{cache_key.hash}.#{body_sha256(body)}.body"
-
-  defp safe_prefix do
-    one_of([
-      constant(""),
-      map(list_of(path_segment(), min_length: 1, max_length: 4), &Enum.join(&1, "/"))
-    ])
-  end
-
-  defp unsafe_prefix do
-    one_of([
-      constant("../outside"),
-      constant("processed/../outside"),
-      constant("processed/./images"),
-      constant("processed//images"),
-      constant("/absolute")
-    ])
-  end
-
-  defp path_segment, do: string(:alphanumeric, min_length: 1, max_length: 16)
 
   defp allowed_header do
     map(

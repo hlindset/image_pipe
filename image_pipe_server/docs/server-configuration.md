@@ -327,29 +327,15 @@ Caches on the local filesystem: `output` for processed images, `input` for origi
 
 | Key | Type | Default |
 | --- | --- | --- |
-| `output.path_prefix` | string | `""` |
 | `output.max_size_bytes` | integer > 0 |  |
-| `output.sketch_depth` | integer > 0 |  |
-| `output.sketch_width` | integer > 0 |  |
-| `output.aging_sample_size` | integer > 0 |  |
-| `output.doorkeeper_cardinality` | integer > 0 |  |
-| `output.eviction_victim_limit` | integer > 0 |  |
-| `output.reconcile_interval` | integer > 0 |  |
+| `output.eviction_victim_limit` | integer > 0 | `64` |
+| `output.reconcile_interval` | integer > 0 | `60` |
 | `output.root` | string (absolute path) |  |
-| `output.window_ratio` | number |  |
-| `output.doorkeeper_fpr` | number |  |
 | `output.max_body_bytes` | integer ≥ 0 |  |
-| `input.path_prefix` | string | `""` |
 | `input.max_size_bytes` | integer > 0 |  |
-| `input.sketch_depth` | integer > 0 |  |
-| `input.sketch_width` | integer > 0 |  |
-| `input.aging_sample_size` | integer > 0 |  |
-| `input.doorkeeper_cardinality` | integer > 0 |  |
-| `input.eviction_victim_limit` | integer > 0 |  |
-| `input.reconcile_interval` | integer > 0 |  |
+| `input.eviction_victim_limit` | integer > 0 | `64` |
+| `input.reconcile_interval` | integer > 0 | `60` |
 | `input.root` | string (absolute path) |  |
-| `input.window_ratio` | number |  |
-| `input.doorkeeper_fpr` | number |  |
 | `storage_inputs` | array of `{ header = … }` or `{ cookie = … }` (string) |  |
 
 ### `[processing]`

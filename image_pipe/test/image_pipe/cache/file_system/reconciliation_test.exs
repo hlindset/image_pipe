@@ -162,7 +162,7 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
   end
 
   defp start_cache(opts) do
-    start_supervised!(FileSystem.child_spec(opts))
+    start_supervised!(FileSystem.child_spec(opts ++ [window_ratio: 0.0]))
     root = Keyword.fetch!(opts, :root)
     [{pid, _}] = Registry.lookup(FileSystem.registry_name(root), root)
     pid
@@ -173,7 +173,6 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
       root: root,
       telemetry_prefix: prefix,
       max_size_bytes: cap,
-      window_ratio: 0.0,
       eviction_victim_limit: limit
     ]
 

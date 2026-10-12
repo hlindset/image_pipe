@@ -42,21 +42,22 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     )
   end
 
-  # Small sketches, like admission_test.exs base_opts/1. The caller supplies
-  # :root and :max_size_bytes.
   defp bounded_opts(root, overrides) do
-    Keyword.merge(
-      [
-        root: root,
-        max_size_bytes: overrides[:max_size_bytes] || 1_000_000,
-        window_ratio: 0.01,
-        sketch_depth: 4,
-        sketch_width: 256,
-        doorkeeper_cardinality: 1024,
-        doorkeeper_fpr: 0.01
-      ],
-      Keyword.drop(overrides, [:max_size_bytes])
-    )
+    Keyword.merge([root: root, max_size_bytes: 1_000_000], overrides)
+  end
+
+  # Small sketches, like admission_test.exs base_opts/1. Policy tuning reaches
+  # only the supervision tree, never the validated cache options.
+  defp bounded_child_spec(opts, tuning \\ []) do
+    small_sketches = [
+      window_ratio: 0.01,
+      sketch_depth: 4,
+      sketch_width: 256,
+      doorkeeper_cardinality: 1024,
+      doorkeeper_fpr: 0.01
+    ]
+
+    FileSystem.child_spec(opts ++ Keyword.merge(small_sketches, tuning))
   end
 
   defp put_entry(cache_key, %Entry{} = e, opts) do
@@ -135,7 +136,7 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
 
   test "admitted entry is written and tracked by Admission", %{root: root} do
     opts = bounded_opts(root, max_size_bytes: 1_000_000)
-    start_supervised!(FileSystem.child_spec(opts))
+    start_supervised!(bounded_child_spec(opts))
 
     cache_key = key()
     assert :ok = put_entry(cache_key, entry("encoded image"), opts)
@@ -153,8 +154,8 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
   end
 
   test "window overflow keeps newer entries and promotes an accessed main entry", %{root: root} do
-    opts = bounded_opts(root, max_size_bytes: 100, window_ratio: 0.1)
-    start_supervised!(FileSystem.child_spec(opts))
+    opts = bounded_opts(root, max_size_bytes: 100)
+    start_supervised!(bounded_child_spec(opts, window_ratio: 0.1))
     pid = admission_pid(root)
     FileSystem.Admission.await_scan(pid)
 
@@ -174,8 +175,8 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
   test "an entry larger than the window budget is admitted to main when it has room", %{
     root: root
   } do
-    opts = bounded_opts(root, max_size_bytes: 100, window_ratio: 0.1)
-    start_supervised!(FileSystem.child_spec(opts))
+    opts = bounded_opts(root, max_size_bytes: 100)
+    start_supervised!(bounded_child_spec(opts, window_ratio: 0.1))
     pid = admission_pid(root)
     FileSystem.Admission.await_scan(pid)
     small = distinct_key(1)
@@ -194,7 +195,7 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
   test "rejected (over-cap) entry deletes the written body and meta", %{root: root} do
     # max_size_bytes smaller than the entry forces {:reject, :over_cap}.
     opts = bounded_opts(root, max_size_bytes: 4)
-    start_supervised!(FileSystem.child_spec(opts))
+    start_supervised!(bounded_child_spec(opts))
 
     cache_key = key()
     # commit_sink signals admission rejection so the Sink can record the
@@ -214,7 +215,7 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
 
   test "get/2 casts a hit descriptor to Admission, synthesizing tracking", %{root: root} do
     bounded = bounded_opts(root, max_size_bytes: 1_000_000)
-    start_supervised!(FileSystem.child_spec(bounded))
+    start_supervised!(bounded_child_spec(bounded))
 
     cache_key = key()
 
@@ -266,8 +267,8 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     body_size = 10_000
     count = 15
 
-    opts = bounded_opts(root, max_size_bytes: cap, window_ratio: 0.01)
-    start_supervised!(FileSystem.child_spec(opts))
+    opts = bounded_opts(root, max_size_bytes: cap)
+    start_supervised!(bounded_child_spec(opts, window_ratio: 0.01))
 
     body = String.duplicate("x", body_size)
 
@@ -293,8 +294,8 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
   end
 
   test "growing a cached body keeps disk usage within the cap", %{root: root} do
-    opts = bounded_opts(root, max_size_bytes: 100, window_ratio: 1.0)
-    start_supervised!(FileSystem.child_spec(opts))
+    opts = bounded_opts(root, max_size_bytes: 100)
+    start_supervised!(bounded_child_spec(opts, window_ratio: 1.0))
 
     original = String.duplicate("a", 40)
     replacement = String.duplicate("c", 80)
@@ -311,8 +312,8 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
   end
 
   test "main admission evicts only enough bytes to cover the free-space deficit", %{root: root} do
-    opts = bounded_opts(root, max_size_bytes: 100, window_ratio: 0.0)
-    start_supervised!(FileSystem.child_spec(opts))
+    opts = bounded_opts(root, max_size_bytes: 100)
+    start_supervised!(bounded_child_spec(opts, window_ratio: 0.0))
 
     assert :ok = put_entry(distinct_key(1), entry(String.duplicate("a", 40)), opts)
     assert :ok = put_entry(distinct_key(2), entry(String.duplicate("b", 40)), opts)
@@ -327,8 +328,8 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
   end
 
   test "main admission evicts the least recently used entry", %{root: root} do
-    opts = bounded_opts(root, max_size_bytes: 100, window_ratio: 0.0)
-    start_supervised!(FileSystem.child_spec(opts))
+    opts = bounded_opts(root, max_size_bytes: 100)
+    start_supervised!(bounded_child_spec(opts, window_ratio: 0.0))
     older = distinct_key(1)
     newer = distinct_key(2)
     candidate = distinct_key(3)
@@ -345,8 +346,8 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
   test "a popular entry needing more victims than the limit displaces unrequested entries", %{
     root: root
   } do
-    opts = bounded_opts(root, max_size_bytes: 10_000, window_ratio: 0.0)
-    start_supervised!(FileSystem.child_spec(opts))
+    opts = bounded_opts(root, max_size_bytes: 10_000)
+    start_supervised!(bounded_child_spec(opts, window_ratio: 0.0))
     pid = admission_pid(root)
     FileSystem.Admission.await_scan(pid)
 
@@ -372,10 +373,8 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
   test "a write whose victims reach protected entries still respects the victim limit", %{
     root: root
   } do
-    opts =
-      bounded_opts(root, max_size_bytes: 1_000, window_ratio: 0.0, eviction_victim_limit: 4)
-
-    start_supervised!(FileSystem.child_spec(opts))
+    opts = bounded_opts(root, max_size_bytes: 1_000, eviction_victim_limit: 4)
+    start_supervised!(bounded_child_spec(opts, window_ratio: 0.0))
     pid = admission_pid(root)
     FileSystem.Admission.await_scan(pid)
 
@@ -401,8 +400,8 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
   end
 
   test "protected eviction follows LRU order", %{root: root} do
-    opts = bounded_opts(root, max_size_bytes: 100, window_ratio: 0.0)
-    start_supervised!(FileSystem.child_spec(opts), id: :cache)
+    opts = bounded_opts(root, max_size_bytes: 100)
+    start_supervised!(bounded_child_spec(opts, window_ratio: 0.0), id: :cache)
     older = distinct_key(1)
     newer = distinct_key(2)
 
@@ -430,8 +429,8 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
             max_runs: 30
           ) do
       cache_root = Path.join(root, Integer.to_string(System.unique_integer([:positive])))
-      opts = bounded_opts(cache_root, max_size_bytes: 100, window_ratio: ratio)
-      start_supervised!(FileSystem.child_spec(opts), id: cache_root)
+      opts = bounded_opts(cache_root, max_size_bytes: 100)
+      start_supervised!(bounded_child_spec(opts, window_ratio: ratio), id: cache_root)
 
       for {index, size} <- writes do
         cache_key = distinct_key(index)
@@ -453,8 +452,8 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
   end
 
   test "rejected growth removes superseded files and accounting", %{root: root} do
-    opts = bounded_opts(root, max_size_bytes: 100, window_ratio: 0.5)
-    start_supervised!(FileSystem.child_spec(opts))
+    opts = bounded_opts(root, max_size_bytes: 100)
+    start_supervised!(bounded_child_spec(opts, window_ratio: 0.5))
     cache_key = key()
     original = String.duplicate("a", 20)
     replacement = String.duplicate("b", 80)
@@ -469,7 +468,7 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
 
   test "re-committing the same key with a new body deletes the old body", %{root: root} do
     opts = bounded_opts(root, max_size_bytes: 1_000_000)
-    start_supervised!(FileSystem.child_spec(opts))
+    start_supervised!(bounded_child_spec(opts))
 
     cache_key = key()
     assert :ok = put_entry(cache_key, entry("first body"), opts)
@@ -502,8 +501,8 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
 
     # Both supervision trees boot without clashing on a Registry process name:
     # each derives its Registry from its own root.
-    start_supervised!(FileSystem.child_spec(opts_a), id: :cache_a)
-    start_supervised!(FileSystem.child_spec(opts_b), id: :cache_b)
+    start_supervised!(bounded_child_spec(opts_a), id: :cache_a)
+    start_supervised!(bounded_child_spec(opts_b), id: :cache_b)
 
     refute FileSystem.registry_name(root) == FileSystem.registry_name(other_root)
 

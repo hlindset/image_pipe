@@ -66,8 +66,8 @@ defmodule ImagePipe.Cache.FileReadTest do
   end
 
   test "input invalidation releases bounded cache accounting", %{root: root} do
-    opts = [root: root, max_size_bytes: 100, window_ratio: 1.0]
-    start_supervised!(FileSystem.child_spec(opts))
+    opts = [root: root, max_size_bytes: 100]
+    start_supervised!(FileSystem.child_spec(opts ++ [window_ratio: 1.0]))
     [{admission, _}] = Registry.lookup(FileSystem.registry_name(root), root)
     assert :ok = Admission.await_scan(admission)
     key = put(root, "image", opts)
@@ -80,8 +80,8 @@ defmodule ImagePipe.Cache.FileReadTest do
   end
 
   test "invalidation releases accounting even when the body is already missing", %{root: root} do
-    opts = [root: root, max_size_bytes: 100, window_ratio: 1.0]
-    start_supervised!(FileSystem.child_spec(opts))
+    opts = [root: root, max_size_bytes: 100]
+    start_supervised!(FileSystem.child_spec(opts ++ [window_ratio: 1.0]))
     [{admission, _}] = Registry.lookup(FileSystem.registry_name(root), root)
     assert :ok = Admission.await_scan(admission)
     key = put(root, "image", opts)
@@ -94,8 +94,8 @@ defmodule ImagePipe.Cache.FileReadTest do
   end
 
   test "failed metadata invalidation retains the body and accounting", %{root: root} do
-    opts = [root: root, max_size_bytes: 100, window_ratio: 1.0]
-    start_supervised!(FileSystem.child_spec(opts))
+    opts = [root: root, max_size_bytes: 100]
+    start_supervised!(FileSystem.child_spec(opts ++ [window_ratio: 1.0]))
     [{admission, _}] = Registry.lookup(FileSystem.registry_name(root), root)
     assert :ok = Admission.await_scan(admission)
     key = put(root, "image", opts)

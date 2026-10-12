@@ -1532,7 +1532,6 @@ defmodule ImagePipe.PlugTest do
           root_url: "http://origin.test",
           origin_req_options: [plug: {CountingOriginImage, test_pid: self()}]
         ],
-        path_prefix: "processed",
         max_body_bytes: 10_000_000
       )
 

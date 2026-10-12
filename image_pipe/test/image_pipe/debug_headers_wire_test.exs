@@ -178,7 +178,6 @@ defmodule ImagePipe.DebugHeadersWireTest do
         ],
         cache: [
           root: cache_root,
-          path_prefix: "processed",
           max_body_bytes: 10_000_000
         ]
       ]

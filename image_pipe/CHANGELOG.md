@@ -106,7 +106,7 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   each cache, and move a configuration with a cache from an inline
   `ImagePipe.Plug` mount or a `run/4` call into an instance.
 - **Breaking:** Each `root` of `cache` and `input_cache` serves one node. An
-  instance writes a `.image-pipe-owner` file into each cache's directory.
+  instance writes a `.image-pipe-owner` file into each cache's `root`.
   While another node keeps that file updated, the instance logs an error and
   runs without that cache, and it takes the `root` over once the other node
   stops. Give each replica its own cache directories, such as its own volume.
@@ -126,6 +126,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   delete the `.cache_state` directory under each cache's `root`.
 - The `[:cache, :warm_start]`, `[:cache, :flush, :stop]`, and
   `[:cache, :cleanup, :stop]` telemetry events.
+- **Breaking:** The `window_ratio`, `sketch_depth`, `sketch_width`,
+  `aging_sample_size`, `doorkeeper_cardinality`, `doorkeeper_fpr`, and
+  `path_prefix` options of `cache` and `input_cache`. Remove them from your
+  configuration. The cache uses the defaults those options had. To keep the
+  entries of a cache with `path_prefix`, set its `root` to the prefixed
+  directory instead.
 - **Breaking:** The `rescan_interval` option of `cache` and `input_cache`, and
   the `[:cache, :rescan]` telemetry event. Remove `rescan_interval` from your
   configuration. A cache deletes leftover files after its startup scan

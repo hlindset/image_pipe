@@ -99,14 +99,8 @@ defmodule ImagePipe.CacheTest do
   end
 
   test "ImagePipe init rejects invalid filesystem cache options early" do
-    for cache <- [
-          [root: "relative/cache"],
-          [root: System.tmp_dir!(), path_prefix: "../outside"],
-          [root: System.tmp_dir!(), path_prefix: "processed//images"]
-        ] do
-      assert_raise ArgumentError, ~r/invalid cache config/, fn ->
-        ImagePipe.Plug.init(Caches.cap(mount(cache: cache)))
-      end
+    assert_raise ArgumentError, ~r/invalid cache config/, fn ->
+      ImagePipe.Plug.init(Caches.cap(mount(cache: [root: "relative/cache"])))
     end
   end
 
@@ -153,7 +147,6 @@ defmodule ImagePipe.CacheTest do
 
     assert cache_opts = Keyword.fetch!(opts, :cache)
     assert cache_opts[:root] == Path.expand(root)
-    assert cache_opts[:path_prefix] == ""
   end
 
   test "open_sink records the entry's cost_us with the stored entry", %{root: root} do
