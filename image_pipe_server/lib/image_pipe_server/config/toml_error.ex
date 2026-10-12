@@ -17,10 +17,13 @@ defmodule ImagePipeServer.Config.TomlError do
   @key ~r/\A\s*[A-Za-z0-9_\-."' ]+?\s*=\s*/
   @caret ~r/\A\s*\^ at column (\d+)\z/
 
-  @doc "Formats the parser's `reason` for the file at `path`, which holds `contents`."
-  @spec message(String.t(), Path.t(), String.t()) :: String.t()
-  def message(reason, path, contents) do
-    location = " in #{Path.relative_to_cwd(path)} on line "
+  @doc """
+  Formats the parser's `reason` for `contents`, read from `name`: a file's path
+  or the variable that holds them.
+  """
+  @spec message(String.t(), String.t(), String.t()) :: String.t()
+  def message(reason, name, contents) do
+    location = " in #{Path.relative_to_cwd(name)} on line "
 
     with [summary, context] <- String.split(reason, ":\n", parts: 2),
          [problem, line] <- String.split(summary, location, parts: 2),

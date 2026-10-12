@@ -5,6 +5,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- The `IPS_CONFIG_TOML` environment variable holds the whole TOML
+  configuration, for platforms that can't mount a configuration file. `IPS_`
+  setting variables override it as they override the file. Setting both
+  `IPS_CONFIG` and `IPS_CONFIG_TOML` is an error.
+
 ### Changed
 
 - The server uses about 140 MiB less memory: it loads its code when it first
