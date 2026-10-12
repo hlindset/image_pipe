@@ -83,7 +83,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
       )
 
     config = IP.Plug.init(config: shared, http_cache: :auto)
-    %{config: config, shared: shared, state: state, root: root}
+    %{config: config, shared: shared, state: state, root: root, red: red}
   end
 
   test "native and HTTP calls share output hits and input bytes across variants", %{
@@ -552,6 +552,29 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     assert request(config, 12).resp_body == first.resp_body
     assert request(config, 8).status == 200
     refute_received {:origin, _, _}
+  end
+
+  test "cache writes and hits report the body size", %{config: config, red: red} do
+    prefix = [__MODULE__, :body_bytes]
+    handler = make_ref()
+
+    :telemetry.attach_many(
+      handler,
+      [prefix ++ [:cache, :write, :stop], prefix ++ [:cache, :lookup, :stop]],
+      fn event, _, metadata, owner -> send(owner, {Enum.at(event, -2), metadata}) end,
+      self()
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+    config = Keyword.put(config, :telemetry_prefix, prefix)
+    response = request(config, 12)
+    assert response.status == 200
+    input_bytes = byte_size(red)
+    output_bytes = byte_size(response.resp_body)
+    assert_receive {:write, %{pool: :input, cache: :write, bytes: ^input_bytes}}
+    assert_receive {:write, %{pool: :output, cache: :write, bytes: ^output_bytes}}
+    assert request(config, 12).resp_body == response.resp_body
+    assert_receive {:lookup, %{entry: :response, cache: :hit, bytes: ^output_bytes}}
   end
 
   test "input eviction leaves fresh output evidence available", %{config: config, root: root} do

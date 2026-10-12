@@ -184,7 +184,11 @@ defmodule ImagePipe.Cache.Sink do
 
     Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], start_metadata, fn ->
       result = FileSystem.commit_sink(sink.state, sink.cache_opts)
-      {:ok, Map.put(commit_stop_metadata(result, sink), :cache_key, sink.key.hash)}
+
+      {:ok,
+       result
+       |> commit_stop_metadata(sink)
+       |> Map.merge(%{cache_key: sink.key.hash, bytes: sink.size})}
     end)
   end
 

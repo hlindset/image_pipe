@@ -66,15 +66,8 @@ defmodule ImagePipe.Cache.Input do
     end)
   end
 
-  defp open_result({:ok, path, _lease} = result) do
-    bytes =
-      case File.stat(path) do
-        {:ok, stat} -> stat.size
-        _error -> 0
-      end
-
-    {result, %{result: :ok, cache: :hit, bytes: bytes}}
-  end
+  defp open_result({:ok, path, _lease} = result),
+    do: {result, %{result: :ok, cache: :hit, bytes: size(path)}}
 
   defp open_result(:miss), do: {:miss, %{result: :ok, cache: :miss}}
   defp open_result({:error, _reason}), do: {:miss, %{result: :cache_error, cache: :read_error}}
@@ -196,11 +189,18 @@ defmodule ImagePipe.Cache.Input do
 
         Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], start_metadata, fn ->
           result = store(key, path, sha256, record, cost, pool)
-          {result, Map.put(write_metadata(result), :cache_key, key.hash)}
+          {result, Map.merge(write_metadata(result), %{cache_key: key.hash, bytes: size(path)})}
         end)
     end
   rescue
     _exception -> :ok
+  end
+
+  defp size(path) do
+    case File.stat(path) do
+      {:ok, stat} -> stat.size
+      _error -> 0
+    end
   end
 
   defp write_metadata({:error, _reason}), do: %{result: :cache_error, cache: :write_error}

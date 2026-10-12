@@ -260,7 +260,7 @@ defmodule ImagePipe.CacheTest do
     capture_log(fn -> assert :ok = Cache.commit_sink(sink, opts) end)
 
     assert_receive {:telemetry_event, _event, _measurements,
-                    %{result: :cache_error, cache: :write_error, output_format: :webp}}
+                    %{result: :cache_error, cache: :write_error, output_format: :webp, bytes: 3}}
   end
 
   test "commit_sink reports admission rejection on the cache write span", %{root: root} do
@@ -285,7 +285,7 @@ defmodule ImagePipe.CacheTest do
     assert :ok = Cache.commit_sink(sink, opts)
 
     assert_receive {:telemetry_event, _event, _measurements,
-                    %{result: :ok, cache: :admission_rejected, output_format: :webp}}
+                    %{result: :ok, cache: :admission_rejected, output_format: :webp, bytes: 3}}
 
     assert {:miss, %Key{}} = Cache.lookup_entry(cache_key(), opts)
   end
