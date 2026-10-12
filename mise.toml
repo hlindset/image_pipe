@@ -69,7 +69,7 @@ run = [
 ]
 
 [tasks."precommit:svg"]
-description = "image_pipe_svg checks: format, compile (warnings as errors), credo, dialyzer, test, cargo fmt, clippy"
+description = "image_pipe_svg checks: format, compile (warnings as errors), credo, dialyzer, test, cargo fmt, clippy, cargo test"
 dir = "image_pipe_svg"
 run = [
   "mix format --check-formatted",
@@ -79,6 +79,7 @@ run = [
   "mix test",
   "cd native/image_pipe_svg_nif && cargo fmt --check",
   "cd native/image_pipe_svg_nif && cargo clippy --all-targets -- -D warnings",
+  "cd native/image_pipe_svg_nif && cargo test",
 ]
 
 [tasks."server:image"]
