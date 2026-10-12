@@ -53,6 +53,8 @@ jobs:
       actions: read
       pull-requests: write
     env:
+      # Use only the tools mise-action installs, not every tool in mise.toml.
+      MISE_EXEC_AUTO_INSTALL: "false"
       # The bench decodes responses only to compare their dimensions, so the
       # libvips bundled with vix is enough; the servers run their own.
       MIX_ENV: test
@@ -183,6 +185,8 @@ jobs:
           # name the release. Remove once mise maps ubuntu26 itself.
           echo "MISE_ERLANG_PRECOMPILED_OS=${ImageOS/ubuntu/ubuntu-}.04" >> "$GITHUB_ENV"
       - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          install_args: erlang elixir rust
       - name: Install Hex and Rebar
         run: |
           mise exec -- mix local.hex --force

@@ -35,6 +35,8 @@ jobs:
           - { elixir: 1.19.6-otp-28, erlang: "28" }
           - { elixir: 1.20.4-otp-29, erlang: "29.1.1" }
     env:
+      # Use only the tools mise-action installs, not every tool in mise.toml.
+      MISE_EXEC_AUTO_INSTALL: "false"
       MISE_ERLANG_VERSION: ${{ matrix.toolchain.erlang }}
       MISE_ELIXIR_VERSION: ${{ matrix.toolchain.elixir }}
       MIX_ENV: test
@@ -58,6 +60,8 @@ jobs:
           # (linux_precompiled_os_version in src/plugins/core/erlang.rs).
           echo "MISE_ERLANG_PRECOMPILED_OS=${ImageOS/ubuntu/ubuntu-}.04" >> "$GITHUB_ENV"
       - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          install_args: erlang elixir
       - name: Install Hex
         run: mise exec -- mix local.hex --force
       - name: Install Rebar
@@ -96,6 +100,8 @@ jobs:
     # Build current libvips for clamp/maxpair, PNG palette quantization, and
     # JPEG XL source decoding. Compile vix against the same build.
     env:
+      # Use only the tools mise-action installs, not every tool in mise.toml.
+      MISE_EXEC_AUTO_INSTALL: "false"
       MISE_ERLANG_VERSION: ${{ matrix.toolchain.erlang }}
       MISE_ELIXIR_VERSION: ${{ matrix.toolchain.elixir }}
       VIX_COMPILATION_MODE: PLATFORM_PROVIDED_LIBVIPS
@@ -126,6 +132,8 @@ jobs:
           # (linux_precompiled_os_version in src/plugins/core/erlang.rs).
           echo "MISE_ERLANG_PRECOMPILED_OS=${ImageOS/ubuntu/ubuntu-}.04" >> "$GITHUB_ENV"
       - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          install_args: erlang elixir rust
       # Downloaded packages are cached so a slow or failing Ubuntu mirror only
       # affects the package index fetch. Only the first matrix job saves.
       - name: Restore apt packages

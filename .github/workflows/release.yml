@@ -39,6 +39,10 @@ jobs:
     name: Hex packages
     needs: verify
     runs-on: ubuntu-26.04
+    env:
+      # Use only the tools mise-action installs, not every tool in mise.toml.
+      MISE_EXEC_AUTO_INSTALL: "false"
+      MISE_TASK_RUN_AUTO_INSTALL: "false"
     environment: ${{ github.event_name == 'push' && 'release' || 'release-dry-run' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -52,7 +56,7 @@ jobs:
         run: echo "MISE_ERLANG_PRECOMPILED_OS=${ImageOS/ubuntu/ubuntu-}.04" >> "$GITHUB_ENV"
       - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
-          install_args: erlang elixir
+          install_args: erlang elixir rust
       - name: Install Hex
         run: mise exec -- mix local.hex --force
       - name: Install Rebar

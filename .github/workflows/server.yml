@@ -26,6 +26,8 @@ jobs:
     name: image_pipe_server tests
     runs-on: ubuntu-26.04
     env:
+      # Use only the tools mise-action installs, not every tool in mise.toml.
+      MISE_EXEC_AUTO_INSTALL: "false"
       MIX_ENV: test
     defaults:
       run:
@@ -47,6 +49,8 @@ jobs:
           # (linux_precompiled_os_version in src/plugins/core/erlang.rs).
           echo "MISE_ERLANG_PRECOMPILED_OS=${ImageOS/ubuntu/ubuntu-}.04" >> "$GITHUB_ENV"
       - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          install_args: erlang elixir rust
       - name: Install Hex
         run: mise exec -- mix local.hex --force
       - name: Install Rebar
@@ -75,11 +79,14 @@ jobs:
   # releases the server may use library code that isn't on Hex yet, so the job
   # reports the answer as an annotation and always succeeds. Its cache is the
   # one the Server release workflow reads.
+
   releasable:
     name: Releasable without a library release
     if: github.event_name == 'push'
     runs-on: ubuntu-26.04
     env:
+      # Use only the tools mise-action installs, not every tool in mise.toml.
+      MISE_EXEC_AUTO_INSTALL: "false"
       MIX_ENV: test
       IMAGE_PIPE_LIBS: hex
     defaults:
@@ -96,6 +103,8 @@ jobs:
           # Workaround: see the test job.
           echo "MISE_ERLANG_PRECOMPILED_OS=${ImageOS/ubuntu/ubuntu-}.04" >> "$GITHUB_ENV"
       - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          install_args: erlang elixir rust
       - name: Install Hex
         run: mise exec -- mix local.hex --force
       - name: Install Rebar
