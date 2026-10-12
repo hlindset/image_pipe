@@ -6,8 +6,10 @@ defmodule ImagePipe.Test.ImgproxyBench.CompareReport do
 
   Each case's value for an image is the median of its rounds. A family's
   ratio is the geometric mean of its cases' ratios, and its spread is the
-  lowest and highest of the same ratio computed round by round. A family is
-  marked when every round has it more than 10% worse.
+  lowest and highest of the same ratio computed round by round. Ratios are
+  shown as the percentage change from the compared image. A value is marked
+  worse when every round has it more than 10% worse, and better when every
+  round has it more than 10% better.
   """
   use Boundary, top_level?: true, deps: []
 
@@ -112,10 +114,11 @@ defmodule ImagePipe.Test.ImgproxyBench.CompareReport do
   end
 
   defp intro do
-    "Each value is the candidate ÷ the image it's compared against, so above 1 is " <>
-      "worse: slower, or more memory. Values are geometric means per family, with " <>
-      "the lowest and highest round in brackets. Time under load is the inverse of " <>
-      "throughput. A family in bold was more than 10% worse in every round."
+    "Each value is the candidate's change from the image it's compared against, so " <>
+      "a positive change is worse: slower, or more memory. Values are geometric means " <>
+      "per family, with the lowest and highest round in brackets. Time under load is " <>
+      "the inverse of throughput. 🔴 marks a value more than 10% worse in every round, " <>
+      "🟢 one more than 10% better in every round."
   end
 
   defp describe(results, key) do
@@ -144,7 +147,7 @@ defmodule ImagePipe.Test.ImgproxyBench.CompareReport do
         "<tr><td title=\"#{escape(c["native"])}\">#{escape(c["id"])}</td>" <>
           "<td>#{escape(c["family"])}</td>" <>
           Enum.map_join(@metrics, "", fn {name, _fun} ->
-            "<td>#{format(ratios[name])}</td>"
+            "<td>#{percent(ratios[name])}</td>"
           end) <> "</tr>"
       end)
 
@@ -267,32 +270,53 @@ defmodule ImagePipe.Test.ImgproxyBench.CompareReport do
     end
   end
 
-  defp worse?({_ratio, []}), do: false
-  defp worse?({_ratio, per_round}), do: Enum.min(per_round) > @threshold
+  # :worse or :better when every round is past the threshold that way.
+  defp verdict({_ratio, []}), do: nil
+
+  defp verdict({_ratio, per_round}) do
+    cond do
+      Enum.min(per_round) > @threshold -> :worse
+      Enum.max(per_round) < 1 / @threshold -> :better
+      true -> nil
+    end
+  end
 
   defp spread({_ratio, []}), do: ""
 
   defp spread({_ratio, per_round}),
-    do: " (#{format(Enum.min(per_round))}–#{format(Enum.max(per_round))})"
+    do: " (#{change(Enum.min(per_round))}…#{change(Enum.max(per_round))})"
 
   defp markdown_cell({ratio, _per_round} = cell) do
-    text = format(ratio) <> spread(cell)
-    if worse?(cell), do: "**#{text}**", else: text
+    text = percent(ratio) <> spread(cell)
+
+    case verdict(cell) do
+      :worse -> "🔴 #{text}"
+      :better -> "🟢 #{text}"
+      nil -> text
+    end
   end
 
   defp html_cell({ratio, _per_round} = cell) do
     class =
-      cond do
-        worse?(cell) -> " class=\"worse\""
-        is_number(ratio) and ratio < 1 / @threshold -> " class=\"better\""
-        true -> ""
+      case verdict(cell) do
+        nil -> ""
+        verdict -> " class=\"#{verdict}\""
       end
 
-    "<td#{class}>#{format(ratio)}<span class=\"muted\">#{spread(cell)}</span></td>"
+    "<td#{class}>#{percent(ratio)}<span class=\"muted\">#{spread(cell)}</span></td>"
   end
 
-  defp format(nil), do: "–"
-  defp format(value), do: :erlang.float_to_binary(value * 1.0, decimals: 2)
+  defp percent(nil), do: "–"
+  defp percent(ratio), do: change(ratio) <> "%"
+
+  # The ratio as a signed whole-number percentage change.
+  defp change(ratio) do
+    case round((ratio - 1) * 100) do
+      0 -> "±0"
+      n when n > 0 -> "+#{n}"
+      n -> "−#{-n}"
+    end
+  end
 
   defp escape(nil), do: ""
 
