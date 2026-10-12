@@ -116,6 +116,8 @@ jobs:
     runs-on: ubuntu-26.04
     environment: release
     env:
+      # Use only the tools mise-action installs, not every tool in mise.toml.
+      MISE_EXEC_AUTO_INSTALL: "false"
       # Download the NIFs just released instead of building from source.
       IMAGE_PIPE_SVG_PUBLISH: "1"
     defaults:
