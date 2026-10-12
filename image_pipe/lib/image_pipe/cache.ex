@@ -30,6 +30,7 @@ defmodule ImagePipe.Cache do
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Owner
   alias ImagePipe.Cache.FileSystem.PeriodicSweep
+  alias ImagePipe.Cache.FileSystem.Root
   alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.FileSystem.Sweep
   alias ImagePipe.Cache.Input
@@ -83,8 +84,7 @@ defmodule ImagePipe.Cache do
 
   @doc false
   # The processes an instance runs for its caches: the claim on each root,
-  # the toucher that records reads, periodic cleanup, and a bounded cache's
-  # Admission. Takes resolved configuration options.
+  # Admission, and periodic cleanup. Takes resolved configuration options.
   @spec child_specs(keyword()) :: [Supervisor.child_spec()]
   def child_specs(options) do
     for key <- [:cache, :input_cache],
@@ -94,11 +94,13 @@ defmodule ImagePipe.Cache do
   end
 
   @doc false
-  # Only a supervised instance runs a bounded cache's Admission.
-  @spec needs_instance?(keyword()) :: boolean()
-  def needs_instance?(options) do
+  # Whether a configured cache's processes aren't running. Only an instance
+  # starts them.
+  @spec unsupervised?(keyword()) :: boolean()
+  def unsupervised?(options) do
     Enum.any?([:cache, :input_cache], fn key ->
-      Keyword.has_key?(Keyword.get(options, key) || [], :max_size_bytes)
+      cache_opts = Keyword.get(options, key)
+      cache_opts != nil and not Root.running?(cache_opts)
     end)
   end
 

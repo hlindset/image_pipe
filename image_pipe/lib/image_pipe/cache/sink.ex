@@ -196,7 +196,7 @@ defmodule ImagePipe.Cache.Sink do
     do: %{result: :ok, cache: :write, output_format: sink.output_format}
 
   # The cache accepted the bytes but its admission policy declined to keep
-  # the entry (bounded mode). This is a successful, non-error outcome: nothing
+  # the entry. This is a successful, non-error outcome: nothing
   # was stored, so the request path is unaffected (fail-open). Report it on the
   # write span the same way `:write_error` is reported — commit-level outcomes
   # live on `[:cache, :write]`, not on a separate stage event.

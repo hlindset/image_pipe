@@ -4,6 +4,7 @@ defmodule ImagePipe.Cache.FileSystem.MetadataDecodeTest do
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Test.Caches
 
   @moduletag :tmp_dir
 
@@ -37,9 +38,7 @@ defmodule ImagePipe.Cache.FileSystem.MetadataDecodeTest do
       debug: debug
     }
 
-    {:ok, sink} = FileSystem.open_sink(key, metadata, root: root)
-    {:ok, sink} = FileSystem.write_chunk(sink, "body", root: root)
-    :ok = FileSystem.commit_sink(sink, root: root)
+    Caches.write!([root: root], key, metadata, "body")
     key
   end
 

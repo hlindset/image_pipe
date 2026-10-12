@@ -265,7 +265,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
         end)
 
         Telemetry.span(opts, [:cache, :sweep], %{pool: :input}, fn ->
-          {:ok, %{result: :ok, pins: 0, temps: 0, bodies: 1, expired: 1, bytes: 9}}
+          {:ok, %{result: :ok, pins: 0, temps: 0, bodies: 1, unreadable: 1, bytes: 9}}
         end)
       end)
 

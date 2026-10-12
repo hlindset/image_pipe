@@ -8,81 +8,18 @@ running in your app (see [Getting started with Phoenix](phoenix-getting-started.
 
 ## Add a processed-image cache
 
-Point the cache at a directory that ImagePipe can write to. ImagePipe creates
-the directory if it is missing.
+Point the cache at a directory that ImagePipe can write to, and cap its size
+with `max_size_bytes`, below the free space on that disk. ImagePipe creates
+the directory if it is missing, and evicts rarely requested images to stay
+under the cap.
 
 <!-- tabs-open -->
 
 ### Plug
 
-```elixir
-# lib/my_app_web/router.ex
-forward "/images", ImagePipe.Plug,
-  sources: [
-    media: [
-      adapter: ImagePipe.Source.File,
-      match: :path,
-      options: [root: "/srv/images", root_id: "media"]
-    ]
-  ],
-  cache: [root: "/var/cache/image_pipe/processed"]
-```
-
-### image_pipe_server
-
-```toml
-[cache.output]
-root = "/var/cache/image_pipe/processed"
-```
-
-In the Docker image, put cache directories under `/var/cache/image_pipe` and
-mount a volume there, as shown in
-[Running](../../image_pipe_server/docs/server-deployment.md#running).
-
-<!-- tabs-close -->
-
-## Add an originals cache
-
-Add an originals cache when you serve several sizes or formats of the same
-image from a remote source: new sizes are then made from the stored original
-instead of downloading it again. It needs its own directory.
-
-<!-- tabs-open -->
-
-### Plug
-
-```elixir
-cache: [root: "/var/cache/image_pipe/processed"],
-input_cache: [root: "/var/cache/image_pipe/originals"]
-```
-
-### image_pipe_server
-
-```toml
-[cache.input]
-root = "/var/cache/image_pipe/originals"
-```
-
-<!-- tabs-close -->
-
-Local files are read where they are. To keep copies of them in the originals
-cache, for example on a network filesystem, set the file source's `copy`
-option to `keep` (see
-[copy files from network storage](serving-local-files.md#copy-files-from-network-storage)).
-
-## Bound the cache size
-
-By default, a cache has no size limit and deletes images nobody has read for 7
-days ([`max_age`](cache.md#unread-entries)). Set `max_size_bytes` to cap a
-cache. The cache then evicts rarely requested images to stay under it.
-
-<!-- tabs-open -->
-
-### Plug
-
-Move the configuration from your `forward` into an instance, which starts the
-processes a bounded cache needs. Add the instance to your application's
-supervision tree, before the endpoint:
+A cache needs an instance, which starts the processes that track the cache's
+size. Move the configuration from your `forward` into an instance, and add it
+to your application's supervision tree, before the endpoint:
 
 ```elixir
 # lib/my_app/application.ex
@@ -111,9 +48,6 @@ forward "/images", ImagePipe.Plug, instance: MyApp.Images
 Mount options such as `http_cache` stay on the `forward` (see
 [Mounting an instance](ImagePipe.Plug.html#module-mounting-an-instance)).
 
-To bound an originals cache, add `max_size_bytes` to the instance's
-`input_cache` options.
-
 ### image_pipe_server
 
 ```toml
@@ -122,10 +56,44 @@ root = "/var/cache/image_pipe/processed"
 max_size_bytes = 5_000_000_000
 ```
 
-The server starts the cache's processes itself. Bound `[cache.input]` the same
-way.
+In the Docker image, put cache directories under `/var/cache/image_pipe` and
+mount a volume there, as shown in
+[Running](../../image_pipe_server/docs/server-deployment.md#running).
 
 <!-- tabs-close -->
+
+## Add an originals cache
+
+Add an originals cache when you serve several sizes or formats of the same
+image from a remote source: new sizes are then made from the stored original
+instead of downloading it again. It needs its own directory and its own
+`max_size_bytes`.
+
+<!-- tabs-open -->
+
+### Plug
+
+Add `input_cache` to the instance's options:
+
+```elixir
+cache: [root: "/var/cache/image_pipe/processed", max_size_bytes: 5_000_000_000],
+input_cache: [root: "/var/cache/image_pipe/originals", max_size_bytes: 20_000_000_000]
+```
+
+### image_pipe_server
+
+```toml
+[cache.input]
+root = "/var/cache/image_pipe/originals"
+max_size_bytes = 20_000_000_000
+```
+
+<!-- tabs-close -->
+
+Local files are read where they are. To keep copies of them in the originals
+cache, for example on a network filesystem, set the file source's `copy`
+option to `keep` (see
+[copy files from network storage](serving-local-files.md#copy-files-from-network-storage)).
 
 ## Run several replicas
 
@@ -143,7 +111,8 @@ Allow debug headers for now:
 ### Plug
 
 ```elixir
-allow_debug_headers: true
+# lib/my_app_web/router.ex
+forward "/images", ImagePipe.Plug, instance: MyApp.Images, allow_debug_headers: true
 ```
 
 ### image_pipe_server
@@ -197,7 +166,7 @@ sources.
 - [Serving images through a CDN](serving-through-a-cdn.md) adds CDN caching
   in front.
 - `ImagePipe.Cache.FileSystem` lists every cache option, and
-  [Cache storage](cache.md) what is stored and how bounded mode behaves.
+  [Cache storage](cache.md) what is stored and how the size limit works.
 - The
   [server configuration reference](../../image_pipe_server/docs/server-configuration.md#cache)
   lists every `[cache]` key.

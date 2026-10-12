@@ -5,6 +5,7 @@ defmodule ImagePipe.API.SVGSourceWireTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.Caches
   alias Vix.Vips.Operation
 
   # The sibling image_pipe_svg project's test font.
@@ -179,7 +180,7 @@ defmodule ImagePipe.API.SVGSourceWireTest do
     :ok = :telemetry.attach(handler, event, &__MODULE__.forward_render/4, self())
     on_exit(fn -> :telemetry.detach(handler) end)
 
-    options = [telemetry_prefix: prefix, cache: [root: dir]]
+    options = Caches.start!(telemetry_prefix: prefix, cache: [root: dir])
     plain = mount(@svg, options)
     with_fonts = mount(@svg, options ++ [svg: [font_dirs: [@font_dir]]])
 

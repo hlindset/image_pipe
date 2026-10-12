@@ -27,14 +27,23 @@ defmodule ImagePipe.Cache.FileSystem.Root do
     }
   end
 
+  def start_link(opts), do: Supervisor.start_link(__MODULE__, opts, name: name(opts))
+
+  @doc false
   # Named after the directory, so a second cache on a root this VM already
   # runs fails to start before it touches the owner file. Roots are static
   # host configuration, so the derived atoms are bounded.
-  def start_link(opts) do
-    dir = Store.root_dir(opts)
-    hash = :crypto.hash(:sha256, dir) |> Base.encode16(case: :lower) |> binary_part(0, 16)
-    Supervisor.start_link(__MODULE__, opts, name: Module.concat(__MODULE__, hash))
+  def name(opts) do
+    hash =
+      :crypto.hash(:sha256, Store.root_dir(opts))
+      |> Base.encode16(case: :lower)
+      |> binary_part(0, 16)
+
+    Module.concat(__MODULE__, hash)
   end
+
+  @doc false
+  def running?(opts), do: Process.whereis(name(opts)) != nil
 
   @impl true
   def init(opts) do

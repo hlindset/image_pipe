@@ -85,7 +85,7 @@ Settings, headers, events, and rules to look up.
 - [Elixir configuration](configuration.md): where each Elixir setting goes, and which wins when they overlap.
 - [Configuring image_pipe_server](../../image_pipe_server/docs/server-configuration.md): the server's TOML and environment variables.
 - [Shared URL settings](shared-url-settings.md): settings the URL builder and the server must agree on.
-- [Cache storage](cache.md): what the caches store, cache key inputs, and bounded mode.
+- [Cache storage](cache.md): what the caches store, cache key inputs, and size limits.
 - [HTTP cache headers](cdn-http-cache.md): `Cache-Control`, `ETag`, `Vary`, and `304` responses.
 - [Error responses](errors.md): which status each failure returns.
 - [Telemetry event reference](telemetry-events.md): event names, measurements, metadata, and outcomes.

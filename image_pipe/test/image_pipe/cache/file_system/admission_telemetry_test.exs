@@ -5,15 +5,17 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
   # `[:image_pipe]` prefix) never match these handlers.
   use ExUnit.Case, async: true
 
+  alias ImagePipe.Cache.Entry
+  alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Admission
   alias ImagePipe.Cache.FileSystem.Store
+  alias ImagePipe.Cache.Key
+  alias ImagePipe.Test.Caches
 
   setup do
     tmp_dir = Path.join(System.tmp_dir!(), "admission_tel_#{System.unique_integer([:positive])}")
     File.mkdir_p!(tmp_dir)
     on_exit(fn -> File.rm_rf!(tmp_dir) end)
-
-    alias ImagePipe.Cache.FileSystem
 
     registry = FileSystem.registry_name(tmp_dir)
     start_supervised!({Registry, keys: :unique, name: registry})
@@ -59,14 +61,29 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
     on_exit(fn -> :telemetry.detach(handler_id) end)
   end
 
-  test "emits an admission span with an admitted result", ctx do
-    alias ImagePipe.Test.CacheEntry
+  # Commits `body` through the running Admission.
+  defp put(pool, body) do
+    key = %Key{hash: Base.encode16(:crypto.hash(:sha256, body), case: :lower), data: []}
+    {:ok, sink} = FileSystem.open_sink(key, metadata(), pool)
+    {:ok, sink} = FileSystem.write_chunk(sink, body, pool)
+    FileSystem.commit_sink(sink, pool)
+  end
 
+  defp metadata do
+    %Entry.Metadata{
+      content_type: "image/png",
+      headers: [],
+      created_at: DateTime.utc_now(),
+      output_format: :png
+    }
+  end
+
+  test "emits an admission span with an admitted result", ctx do
     start_supervised!({Admission, opts(ctx, [])})
     attach(ctx.prefix, [[:cache, :admission, :stop]])
 
     pool = cache_opts(ctx, [])
-    assert :ok = CacheEntry.put(pool, String.duplicate("x", 5_000))
+    assert :ok = put(pool, String.duplicate("x", 5_000))
 
     stop_event = ctx.prefix ++ [:cache, :admission, :stop]
 
@@ -75,13 +92,11 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
   end
 
   test "emits an admission span with a rejected result on over-cap", ctx do
-    alias ImagePipe.Test.CacheEntry
-
     start_supervised!({Admission, opts(ctx, max_size_bytes: 4)})
     attach(ctx.prefix, [[:cache, :admission, :stop]])
 
     pool = cache_opts(ctx, max_size_bytes: 4)
-    assert {:ok, :rejected} = CacheEntry.put(pool, String.duplicate("x", 100))
+    assert {:ok, :rejected} = put(pool, String.duplicate("x", 100))
 
     stop_event = ctx.prefix ++ [:cache, :admission, :stop]
 
@@ -90,23 +105,17 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
   end
 
   test "emits an eviction stop event when reconciliation evicts", ctx do
-    alias ImagePipe.Cache.Entry
-    alias ImagePipe.Cache.FileSystem
-    alias ImagePipe.Cache.Key
-
-    metadata = %Entry.Metadata{
-      content_type: "image/png",
-      headers: [],
-      created_at: DateTime.utc_now(),
-      output_format: :png
-    }
+    # Entries an earlier run left: written through a cache on a staging root
+    # and copied into place, since this root's registry is already taken.
+    staging = ctx.tmp_dir <> "_staging"
+    on_exit(fn -> File.rm_rf!(staging) end)
 
     for i <- 1..3 do
       key = %Key{hash: String.duplicate(Integer.to_string(i), 64), data: []}
-      pool = [root: ctx.tmp_dir]
-      {:ok, sink} = FileSystem.open_sink(key, metadata, pool)
-      {:ok, sink} = FileSystem.write_chunk(sink, String.duplicate("x", 5_000), pool)
-      assert :ok = FileSystem.commit_sink(sink, pool)
+      paths = Caches.write!([root: staging], key, metadata(), String.duplicate("x", 5_000))
+      dir = Path.join(ctx.tmp_dir, Path.relative_to(paths.dir, staging))
+      File.mkdir_p!(dir)
+      File.cp_r!(paths.dir, dir)
     end
 
     attach(ctx.prefix, [[:cache, :eviction, :stop]])

@@ -104,7 +104,7 @@ defmodule ImagePipeServer.ApplicationTest do
           pool: [max_concurrency: 2],
           cache: [
             cache: [root: Path.join(dir, "out"), max_size_bytes: 1_000_000],
-            input_cache: [root: Path.join(dir, "in")]
+            input_cache: [root: Path.join(dir, "in"), max_size_bytes: 1_000_000]
           ]
         )
 

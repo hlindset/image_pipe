@@ -64,18 +64,15 @@ defmodule ImagePipe.InstanceTest do
       assert [_ | _] = stored_bodies(ctx.cache_root)
     end
 
-    test "per-call caches the instance already runs, or that need no processes", ctx do
+    test "accepts a per-call cache the instance already runs", ctx do
       start_instance(ctx)
       builder = ImagePipe.URL.new(ImagePipe.url_config(ctx.name))
-      unbounded = [root: ctx.cache_root <> "-unbounded"]
 
-      for cache <- [ctx.bounded, unbounded] do
-        assert {:ok, _result} =
-                 ImagePipe.run(ctx.name, builder, {:source, "red.png"}, cache: cache)
-      end
+      assert {:ok, _result} =
+               ImagePipe.run(ctx.name, builder, {:source, "red.png"}, cache: ctx.bounded)
     end
 
-    test "rejects a per-call cache that needs processes", ctx do
+    test "rejects a per-call cache the instance doesn't run", ctx do
       start_instance(ctx)
       builder = ImagePipe.URL.new(ImagePipe.url_config(ctx.name))
       other = Keyword.put(ctx.bounded, :root, ctx.cache_root <> "-other")
@@ -333,7 +330,7 @@ defmodule ImagePipe.InstanceTest do
   end
 
   describe "inline configuration" do
-    test "ImagePipe.run/4 rejects a config whose cache needs processes", ctx do
+    test "ImagePipe.run/4 rejects a config whose cache isn't running", ctx do
       config = ImagePipe.config(sources: ctx.sources, cache: ctx.bounded)
       builder = ImagePipe.URL.new(ImagePipe.url_config(config))
 
@@ -342,7 +339,7 @@ defmodule ImagePipe.InstanceTest do
       end
     end
 
-    test "Plug.init/1 rejects a bounded input cache", ctx do
+    test "Plug.init/1 rejects an input cache that isn't running", ctx do
       assert_raise ArgumentError, ~r/ImagePipe instance/, fn ->
         ImagePipe.Plug.init(sources: ctx.sources, input_cache: ctx.bounded)
       end

@@ -4,6 +4,7 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
 
   alias ImagePipe.Source.HTTP
   alias ImagePipe.Source.Origin
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.PacedSourceOrigin
   alias ImagePipe.Test.ProcessingSource
   alias Vix.Vips.Image, as: VipsImage
@@ -40,22 +41,24 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
 
     config =
       ImagePipe.Plug.init(
-        telemetry_prefix: prefix,
-        max_body_bytes: 20_000_000,
-        max_input_pixels: 60_000_000,
-        sources: [
-          url: [
-            adapter: HTTP,
-            match: [scheme: ["http", "https"]],
-            options: [
-              allowed_hosts: [URI.parse(url).authority],
-              address_policy: [allow_loopback: true]
+        Caches.start!(
+          telemetry_prefix: prefix,
+          max_body_bytes: 20_000_000,
+          max_input_pixels: 60_000_000,
+          sources: [
+            url: [
+              adapter: HTTP,
+              match: [scheme: ["http", "https"]],
+              options: [
+                allowed_hosts: [URI.parse(url).authority],
+                address_policy: [allow_loopback: true]
+              ]
             ]
-          ]
-        ],
-        cache: [root: Path.join(root, "output")],
-        input_cache: [root: Path.join(root, "input")],
-        http_cache: :auto
+          ],
+          cache: [root: Path.join(root, "output")],
+          input_cache: [root: Path.join(root, "input")],
+          http_cache: :auto
+        )
       )
 
     tasks = start_supervised!(Task.Supervisor)
@@ -148,23 +151,25 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
 
     config =
       ImagePipe.Plug.init(
-        sources: [
-          path: [
-            adapter: ProcessingSource,
-            match: :path,
-            options: [
-              test: self(),
-              bytes: context.body,
-              stream: stream,
-              origin: origin,
-              copy?: true
+        Caches.cap(
+          sources: [
+            path: [
+              adapter: ProcessingSource,
+              match: :path,
+              options: [
+                test: self(),
+                bytes: context.body,
+                stream: stream,
+                origin: origin,
+                copy?: true
+              ]
             ]
-          ]
-        ],
-        cache: [root: Path.join(context.root, "output")],
-        input_cache: [root: Path.join(context.root, "input")],
-        max_body_bytes: 20_000_000,
-        max_input_pixels: 60_000_000
+          ],
+          cache: [root: Path.join(context.root, "output")],
+          input_cache: [root: Path.join(context.root, "input")],
+          max_body_bytes: 20_000_000,
+          max_input_pixels: 60_000_000
+        )
       )
 
     response =
@@ -212,24 +217,26 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
 
     config =
       ImagePipe.Plug.init(
-        telemetry_prefix: [__MODULE__, context.test],
-        sources: [
-          path: [
-            adapter: ProcessingSource,
-            match: :path,
-            options: [
-              test: observer,
-              bytes: context.body,
-              stream: stream,
-              origin: origin,
-              copy?: true
+        Caches.cap(
+          telemetry_prefix: [__MODULE__, context.test],
+          sources: [
+            path: [
+              adapter: ProcessingSource,
+              match: :path,
+              options: [
+                test: observer,
+                bytes: context.body,
+                stream: stream,
+                origin: origin,
+                copy?: true
+              ]
             ]
-          ]
-        ],
-        cache: [root: Path.join(context.root, "output")],
-        input_cache: [root: Path.join(context.root, "input")],
-        max_body_bytes: 20_000_000,
-        max_input_pixels: 60_000_000
+          ],
+          cache: [root: Path.join(context.root, "output")],
+          input_cache: [root: Path.join(context.root, "input")],
+          max_body_bytes: 20_000_000,
+          max_input_pixels: 60_000_000
+        )
       )
 
     context = %{context | config: config, url: "burst.jpg"}
@@ -318,25 +325,27 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
 
       config =
         ImagePipe.Plug.init(
-          telemetry_prefix: [__MODULE__, context.test],
-          skip_processing_formats: [:jpeg],
-          sources: [
-            path: [
-              adapter: ProcessingSource,
-              match: :path,
-              options: [
-                test: observer,
-                bytes: context.body,
-                stream: stream,
-                origin: origin,
-                copy?: true
+          Caches.start!(
+            telemetry_prefix: [__MODULE__, context.test],
+            skip_processing_formats: [:jpeg],
+            sources: [
+              path: [
+                adapter: ProcessingSource,
+                match: :path,
+                options: [
+                  test: observer,
+                  bytes: context.body,
+                  stream: stream,
+                  origin: origin,
+                  copy?: true
+                ]
               ]
-            ]
-          ],
-          cache: [root: Path.join(root, "output")],
-          input_cache: [root: Path.join(root, "input")],
-          max_body_bytes: 20_000_000,
-          max_input_pixels: 60_000_000
+            ],
+            cache: [root: Path.join(root, "output")],
+            input_cache: [root: Path.join(root, "input")],
+            max_body_bytes: 20_000_000,
+            max_input_pixels: 60_000_000
+          )
         )
 
       try do
@@ -439,27 +448,29 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
 
     config =
       ImagePipe.Plug.init(
-        telemetry_prefix: [__MODULE__, context.test],
-        max_body_bytes: 20_000_000,
-        max_input_pixels: 60_000_000,
-        sources: [
-          url: [
-            adapter: HTTP,
-            match: [scheme: ["http", "https"]],
-            options: [
-              allowed_hosts: [URI.parse(context.url).authority],
-              address_policy: [allow_loopback: true]
+        Caches.cap(
+          telemetry_prefix: [__MODULE__, context.test],
+          max_body_bytes: 20_000_000,
+          max_input_pixels: 60_000_000,
+          sources: [
+            url: [
+              adapter: HTTP,
+              match: [scheme: ["http", "https"]],
+              options: [
+                allowed_hosts: [URI.parse(context.url).authority],
+                address_policy: [allow_loopback: true]
+              ]
+            ],
+            files: [
+              adapter: ImagePipe.Source.File,
+              match: :path,
+              options: [root: context.root, root_id: "overlap"]
             ]
           ],
-          files: [
-            adapter: ImagePipe.Source.File,
-            match: :path,
-            options: [root: context.root, root_id: "overlap"]
-          ]
-        ],
-        cache: [root: Path.join(context.root, "output")],
-        input_cache: [root: Path.join(context.root, "input")],
-        watermarks: %{logo: [source: "mark.png"]}
+          cache: [root: Path.join(context.root, "output")],
+          input_cache: [root: Path.join(context.root, "input")],
+          watermarks: %{logo: [source: "mark.png"]}
+        )
       )
 
     task =

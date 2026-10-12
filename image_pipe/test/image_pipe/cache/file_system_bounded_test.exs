@@ -9,6 +9,7 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Test.Caches
 
   defp key(hash \\ String.duplicate("a", 64)) do
     %Key{
@@ -217,11 +218,19 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
 
     cache_key = key()
 
-    # Place the entry on disk WITHOUT going through bounded admit, so Admission
-    # is not yet tracking it (mirrors a cold-boot hit before the scan reaches
-    # the key). Unbounded opts skip the admit path entirely.
-    unbounded = [root: root]
-    assert :ok = put_entry(cache_key, entry("encoded image"), unbounded)
+    # Place the entry on disk WITHOUT going through this root's Admission, so
+    # it is not yet tracking it (mirrors a cold-boot hit before the scan
+    # reaches the key): write it through a cache on a staging root and copy it
+    # into place.
+    staging = root <> "_staging"
+    on_exit(fn -> File.rm_rf!(staging) end)
+
+    paths =
+      Caches.write!([root: staging], cache_key, entry_metadata([]), "encoded image")
+
+    dir = Path.join(root, Path.relative_to(paths.dir, staging))
+    File.mkdir_p!(dir)
+    File.cp_r!(paths.dir, dir)
 
     pid = admission_pid(root)
     assert :sys.get_state(pid).probationary_bytes == 0

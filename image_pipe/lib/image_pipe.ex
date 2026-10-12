@@ -18,7 +18,7 @@ defmodule ImagePipe do
   An instance is a supervised process that holds a configuration and starts
   the processes its caches need. Run one with `child_spec/1` when a mount's
   configuration reads runtime values, such as environment variables, or when
-  the configuration uses a bounded cache. `ImagePipe.Plug` mounts, `run/4`,
+  the configuration uses a cache. `ImagePipe.Plug` mounts, `run/4`,
   `write/5`, `validate/2`, and `url_config/2` find it by name.
   """
 
@@ -111,12 +111,13 @@ defmodule ImagePipe do
   Mount it with the `:instance` option of `ImagePipe.Plug`, and pass its name
   to `run/4`, `write/5`, `validate/2`, and `url_config/2`.
 
-  A bounded cache (one with `max_size_bytes`) runs processes that track the
-  cache's size, and only an instance starts them. A configuration with such a
-  cache must be used through an instance. An inline `ImagePipe.Plug` mount,
-  and `run/4` with a configuration from `config/1`, raise `ArgumentError` for
-  it. Setting one up is covered in
-  [Caching processed images](caching-processed-images.md).
+  A configuration with `cache` or `input_cache` must be used through an
+  instance, which starts the processes that track each cache's size. An
+  inline `ImagePipe.Plug` mount, and `run/4` with a configuration from
+  `config/1`, raise `ArgumentError` unless an instance already runs each of
+  their caches, and that instance's size limits then apply.
+  [Caching processed images](caching-processed-images.md) covers setting up a
+  cache.
 
   ## Options
 
@@ -194,7 +195,7 @@ defmodule ImagePipe do
       #=> "image/webp"
 
   `config` comes from `config/1`, or is the name of a running instance. A
-  configuration with a bounded cache must be passed by its instance's name.
+  configuration with a cache must be passed by its instance's name.
   Presets and request defaults come from `config`, as for a request to an
   `ImagePipe.Plug` mount. The builder's own URL configuration isn't used.
   Matching source bytes, plans, settings, and `Accept` preferences give the
@@ -225,9 +226,9 @@ defmodule ImagePipe do
 
   Every option of `config/1` overrides the configuration for this call, such
   as `max_input_pixels: 50_000_000`. Invalid options raise `ArgumentError`.
-  An instance name takes the same options, but a bounded `:cache` or
-  `:input_cache` raises `ArgumentError` unless it is one of the instance's
-  own caches. `run/4` and `write/5` also take:
+  An instance name takes the same options, but a `:cache` or `:input_cache`
+  raises `ArgumentError` unless it is one of the instance's own caches.
+  `run/4` and `write/5` also take:
 
   #{ImagePipe.Run.options_docs()}
 

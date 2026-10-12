@@ -23,10 +23,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   watermark, with its intrinsic and rendered sizes and the estimated work,
   and names the limit that rejected an SVG. The default Logger logs it.
 
-- Without `max_size_bytes`, `cache` and `input_cache` delete entries nobody has
-  read for `max_age` seconds, 7 days by default, so images that are no longer
-  requested don't stay on disk. Set `max_age: nil` to keep them. Only a running
-  instance deletes them (see `ImagePipe.child_spec/1`).
+- `cache` and `input_cache` delete metadata files they can't read, such as
+  ones another ImagePipe version wrote, and their bodies, once the files are
+  more than an hour old. The `[:cache, :sweep]` event reports them as
+  `:unreadable`.
 - The `image_pipe.request` span carries a `request_id` attribute when Logger
   metadata has a `:request_id`, such as the one `Plug.RequestId` sets.
 - The `[:cache, :lookup]`, `[:cache, :write]`, and `[:cache, :stage]`
@@ -101,6 +101,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   before.
 - `trim` is faster on images under a megapixel: 2 ms instead of 6.5 ms on a
   256×256 image.
+- **Breaking:** `cache` and `input_cache` need `max_size_bytes`, and an
+  ImagePipe instance (see `ImagePipe.child_spec/1`). Add `max_size_bytes` to
+  each cache, and move a configuration with a cache from an inline
+  `ImagePipe.Plug` mount or a `run/4` call into an instance.
 - **Breaking:** Each `root` of `cache` and `input_cache` serves one node. An
   instance writes a `.image-pipe-owner` file into each cache's directory.
   While another node keeps that file updated, the instance logs an error and
@@ -115,16 +119,16 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `default/0`. A detector is configured as a module, so a composite struct
   could not be configured. Configure `ImagePipe.Transform.Detector.Composite`
   itself to get the default face and object detectors.
-- **Breaking:** Bounded caches keep request counts in memory only. Remove
+- **Breaking:** Caches keep request counts in memory only. Remove
   `node_id`, `state_dir`, `flush_interval`, `cleanup_interval`, and
-  `state_ttl` from `cache` and `input_cache`. After a restart, a bounded
+  `state_ttl` from `cache` and `input_cache`. After a restart, a
   cache keeps its entries and learns again which are requested most. You can
-  delete the `.cache_state` directory under each bounded cache's `root`.
+  delete the `.cache_state` directory under each cache's `root`.
 - The `[:cache, :warm_start]`, `[:cache, :flush, :stop]`, and
   `[:cache, :cleanup, :stop]` telemetry events.
 - **Breaking:** The `rescan_interval` option of `cache` and `input_cache`, and
   the `[:cache, :rescan]` telemetry event. Remove `rescan_interval` from your
-  configuration. A bounded cache deletes leftover files after its startup scan
+  configuration. A cache deletes leftover files after its startup scan
   and then every 24 hours.
 - `[:cache, :stage]` no longer reports `cache: :stage_cleanup_error`.
   Discarding a staged entry doesn't fail.

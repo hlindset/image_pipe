@@ -26,7 +26,7 @@ children = [
        options: [root: "/srv/images", root_id: "media"]
      ]
    ],
-   cache: [root: "/var/cache/image_pipe/processed"]},
+   cache: [root: "/var/cache/image_pipe/processed", max_size_bytes: 5_000_000_000]},
   MyAppWeb.Endpoint
 ]
 ```

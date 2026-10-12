@@ -3,8 +3,10 @@
 ImagePipe has two caches: `cache` stores complete processed responses, and
 `input_cache` stores originals fetched from remote sources. Both store files
 on disk and take a keyword list, such as
-`[root: "/var/cache/image_pipe/processed"]`. The options are listed in
-`ImagePipe.Cache.FileSystem`, and the server's `[cache]` keys in the
+`[root: "/var/cache/image_pipe/processed", max_size_bytes: 5_000_000_000]`.
+Each cache needs an ImagePipe instance (see `ImagePipe.child_spec/1`). The
+options are listed in `ImagePipe.Cache.FileSystem`, and the server's
+`[cache]` keys in the
 [server configuration reference](../../image_pipe_server/docs/server-configuration.md#cache).
 Setting up the caches is covered in
 [Caching processed images](caching-processed-images.md), and how long cached
@@ -190,9 +192,9 @@ Before reading a cached body, the cache checks that its size matches its
 metadata. An entry that fails the check, has invalid metadata, or can't be
 read is logged and treated as a miss. Only the size is checked when a body is
 read, so never change cache files in place: a changed body of the same size
-is served as it is. A body removed after the check, for example by eviction in
-[bounded mode](#bounded-mode), is still sent in full from the file already
-opened, as a chunked response without `content-length`.
+is served as it is. A body removed after the check, for example by
+[eviction](#size-limit), is still sent in full from the file already opened,
+as a chunked response without `content-length`.
 
 A path that leads outside `root` through a symlink fails as a cache error.
 Each node checks each entry's directory under `root` the first time it uses
@@ -247,14 +249,12 @@ A node that stops abruptly, for example after a crash or `kill -9`, can leave
 temporary entry files behind, links that requests used to hold originals
 open, and bodies that no metadata file names. A running node can leave them
 too, for example when a request is killed while its image is being written.
-ImagePipe deletes them in the background once they are more than an hour old:
+Metadata files the cache can't read, such as ones another ImagePipe version
+wrote, count as left behind too, and so do their bodies. ImagePipe deletes
+them in the background once they are more than an hour old:
 
-- In an unbounded cache's `root`, when an ImagePipe instance starts (see
-  `ImagePipe.child_spec/1`) and every 24 hours while it runs.
-  `image_pipe_server` always runs an instance. An unbounded cache without an
-  instance isn't cleaned.
-- In a bounded cache's `root`, after its startup scan and every 24 hours
-  while the instance runs.
+- In each cache's `root`, after its startup scan and every 24 hours while the
+  instance runs.
 - In the `image_pipe` directory under the system temporary directory
   (`TMPDIR`, or `/tmp`), where originals are staged while they download,
   when the `:image_pipe` application starts and every 24 hours after.
@@ -262,47 +262,24 @@ ImagePipe deletes them in the background once they are more than an hour old:
 The `[:cache, :sweep]` event reports what each cleanup removed (see
 [cache events](telemetry-events.md#cache-events)).
 
-### Unread entries
+## Size limit
 
-Without `max_size_bytes`, an entry nobody has read for `max_age` seconds, 7
-days by default, is deleted by the next cleanup of
-[leftover files](#leftover-files). That includes images made before an upgrade
-that changes how requests are cached.
-
-In a bounded cache, eviction removes rarely requested entries, and the
-cleanup of [leftover files](#leftover-files) deletes only metadata files the
-cache can't read, such as ones written by another ImagePipe version, once
-they are older than `max_age`.
-
-Read times are saved to disk hourly, or four times per `max_age` when that is
-shorter. After a crash, an entry can be deleted up to that much early, and is
-made again when next requested.
-
-Only a running ImagePipe instance (see `ImagePipe.child_spec/1`) deletes
-unread entries. Without one, nothing is deleted. Behind a CDN, the cache sees
-only the CDN's misses, so an image the CDN still serves can go unread for
-longer than `max_age`. `max_age: nil` keeps entries until they are evicted or
-deleted.
-
-## Bounded mode
-
-`max_size_bytes` turns on bounded mode. Without it the cache has no size
-limit. The other bounded-mode options, listed in
-`ImagePipe.Cache.FileSystem`, require `max_size_bytes` and have defaults.
+The cache evicts rarely requested entries to stay under `max_size_bytes`,
+including images made before an upgrade that changed how requests are
+cached.
 
 ### Cache process and restarts
 
-A bounded `root` runs one process that tracks the cache's size
-and chooses which entries to keep by how often each is requested. A bounded
-cache must be configured on an instance, which starts that process (see
-`ImagePipe.child_spec/1` and
-[Bound the cache size](caching-processed-images.md#bound-the-cache-size)).
+Each `root` runs one process that tracks the cache's size and chooses which
+entries to keep by how often each is requested. Only an instance starts that
+process (see `ImagePipe.child_spec/1` and
+[Add a processed-image cache](caching-processed-images.md#add-a-processed-image-cache)).
 
 Request counts live only in memory. After a restart they start from zero,
 and entries already on disk are next in line for eviction, oldest first,
 until they are requested again.
 
-### Size cap and startup scan
+### Eviction and startup scan
 
 `max_size_bytes` is a soft cap on the total size of stored bodies in the
 `root`:
@@ -332,7 +309,7 @@ a [cache write](telemetry-events.md#cache-write) error with
 `error: :admission_timeout`. The cache process still handles the queued write
 and stores or rejects the entry as usual.
 
-### Bounded-mode limitations
+### Eviction limitations
 
 - A crash between writing a body and writing its metadata can leave a body
   file the cache doesn't track. Its size isn't counted against
@@ -341,5 +318,5 @@ and stores or rejects the entry as usual.
 - Two writes to the same key at once both store their body. The last one
   wins, and the other body is deleted.
 
-The bounded-mode telemetry events are listed in
+The admission and eviction telemetry events are listed in
 [cache events](telemetry-events.md#cache-events).

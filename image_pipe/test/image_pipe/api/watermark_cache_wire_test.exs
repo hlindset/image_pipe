@@ -5,6 +5,7 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
   import Plug.Test
 
   alias ImagePipe, as: IP
+  alias ImagePipe.Test.Caches
 
   @path "/wm=logo/format=png/src/https://origin.test/image.png"
 
@@ -76,24 +77,26 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
 
     shared =
       IP.config(
-        sources: [
-          url: [
-            adapter: ImagePipe.Source.HTTP,
-            match: [scheme: ["http", "https"]],
-            options: [
-              allowed_hosts: ["origin.test"],
-              address_resolver: fn _ -> {:ok, [{93, 184, 216, 34}]} end,
-              req_options: [plug: plug]
+        Caches.start!(
+          sources: [
+            url: [
+              adapter: ImagePipe.Source.HTTP,
+              match: [scheme: ["http", "https"]],
+              options: [
+                allowed_hosts: ["origin.test"],
+                address_resolver: fn _ -> {:ok, [{93, 184, 216, 34}]} end,
+                req_options: [plug: plug]
+              ]
             ]
-          ]
-        ],
-        cache: [root: Path.join(root, "output")],
-        input_cache: [root: Path.join(root, "input")],
-        clock: fn -> Agent.get(state, & &1.now) end,
-        watermarks: %{
-          logo: [source: "https://origin.test/mark.png"],
-          missing: [source: "https://origin.test/missing.png"]
-        }
+          ],
+          cache: [root: Path.join(root, "output")],
+          input_cache: [root: Path.join(root, "input")],
+          clock: fn -> Agent.get(state, & &1.now) end,
+          watermarks: %{
+            logo: [source: "https://origin.test/mark.png"],
+            missing: [source: "https://origin.test/missing.png"]
+          }
+        )
       )
 
     %{config: IP.Plug.init(config: shared, http_cache: :auto), state: state}

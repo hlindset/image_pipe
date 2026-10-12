@@ -7,6 +7,7 @@ defmodule ImagePipe.Cache.CompleteBodySinkTest do
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Test.Caches
 
   @content_type "text/plain; charset=utf-8"
   @hash "LEHV6nWB2yk8pyo0adR*.7kCMdnj"
@@ -25,7 +26,7 @@ defmodule ImagePipe.Cache.CompleteBodySinkTest do
       File.rm_rf(root)
     end)
 
-    %{root: root, opts: Cache.validate_config!(cache: [root: root])}
+    %{root: root, opts: Cache.validate_config!(Caches.start!(cache: [root: root]))}
   end
 
   defp cache_key, do: %Key{hash: String.duplicate("a", 64), data: [schema_version: 2]}

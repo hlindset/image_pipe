@@ -8,6 +8,7 @@ defmodule ImagePipe.CacheTest do
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.Key
   alias ImagePipe.Output.Resolved
+  alias ImagePipe.Test.Caches
 
   setup do
     root = Path.join(System.tmp_dir!(), "cache-test-#{System.unique_integer([:positive])}")
@@ -86,7 +87,7 @@ defmodule ImagePipe.CacheTest do
           [root: root, max_body_bytes: "10MB"]
         ] do
       assert_raise ArgumentError, ~r/invalid cache config/, fn ->
-        ImagePipe.Plug.init(mount(cache: cache))
+        ImagePipe.Plug.init(Caches.cap(mount(cache: cache)))
       end
     end
   end
@@ -104,13 +105,14 @@ defmodule ImagePipe.CacheTest do
           [root: System.tmp_dir!(), path_prefix: "processed//images"]
         ] do
       assert_raise ArgumentError, ~r/invalid cache config/, fn ->
-        ImagePipe.Plug.init(mount(cache: cache))
+        ImagePipe.Plug.init(Caches.cap(mount(cache: cache)))
       end
     end
   end
 
   test "ImagePipe init rejects cache pools whose roots overlap" do
     root = Path.join(System.tmp_dir!(), "image_pipe_overlapping_roots")
+    on_exit(fn -> File.rm_rf(root) end)
 
     for {output, input} <- [
           {root, root},
@@ -120,27 +122,34 @@ defmodule ImagePipe.CacheTest do
         ] do
       assert_raise ArgumentError, ~r/cache_pools_require_separate_roots/, fn ->
         ImagePipe.Plug.init(
-          mount(
-            cache: [root: output],
-            input_cache: [root: input]
+          Caches.cap(
+            mount(
+              cache: [root: output],
+              input_cache: [root: input]
+            )
           )
         )
       end
     end
 
     assert ImagePipe.Plug.init(
-             mount(
-               cache: [root: Path.join(root, "output")],
-               input_cache: [root: Path.join(root, "output-input")]
+             Caches.start!(
+               mount(
+                 cache: [root: Path.join(root, "output")],
+                 input_cache: [root: Path.join(root, "output-input")]
+               )
              )
            )
   end
 
   test "ImagePipe init preserves normalized filesystem cache options" do
     root = Path.join(System.tmp_dir!(), "image_pipe_cache_init")
+    on_exit(fn -> File.rm_rf(root) end)
 
     opts =
-      ImagePipe.Plug.init(mount(cache: [root: root <> "/../image_pipe_cache_init"]))
+      ImagePipe.Plug.init(
+        Caches.start!(mount(cache: [root: root <> "/../image_pipe_cache_init"]))
+      )
 
     assert cache_opts = Keyword.fetch!(opts, :cache)
     assert cache_opts[:root] == Path.expand(root)
@@ -273,8 +282,6 @@ defmodule ImagePipe.CacheTest do
         cache: [max_size_bytes: 2]
       )
 
-    start_supervised!(FileSystem.child_spec(Keyword.fetch!(opts, :cache)))
-
     sink =
       cache_key()
       |> Cache.open_sink(resolved_output(), [], opts)
@@ -290,9 +297,11 @@ defmodule ImagePipe.CacheTest do
     assert {:miss, %Key{}} = Cache.lookup_entry(cache_key(), opts)
   end
 
+  # Validated options for a cache on `root` whose processes run, so writes are
+  # admitted.
   defp cache_opts(root, extra \\ []) do
     {cache, extra} = Keyword.pop(extra, :cache, [])
-    Cache.validate_config!([cache: [root: root] ++ cache] ++ extra)
+    Cache.validate_config!(Caches.start!([cache: [root: root] ++ cache] ++ extra))
   end
 
   # Regular files left in the cache root, outside its bookkeeping directories.

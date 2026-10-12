@@ -206,7 +206,7 @@ defmodule ImagePipeServer.Config do
 
   defp file_system(value, schema, path) do
     with {:ok, options} <- Convert.options(value, schema, path),
-         {:ok, options} <- Convert.require_keys(options, [:root], path),
+         {:ok, options} <- Convert.require_keys(options, [:root, :max_size_bytes], path),
          do: {:ok, options}
   end
 

@@ -1,6 +1,7 @@
 defmodule ImagePipe.API.SourceIntegrityFaultWireTest do
   use ExUnit.Case, async: false
 
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.ProcessingSource
 
   setup do
@@ -30,17 +31,19 @@ defmodule ImagePipe.API.SourceIntegrityFaultWireTest do
 
       config =
         ImagePipe.Plug.init(
-          sources: [
-            path: [
-              adapter: ProcessingSource,
-              match: :path,
-              options: [test: observer, bytes: context.body, stream: stream, copy?: true]
-            ]
-          ],
-          cache: [root: Path.join(context.root, "output")],
-          input_cache: [root: Path.join(context.root, "input")],
-          max_body_bytes: 20_000_000,
-          max_input_pixels: 60_000_000
+          Caches.start!(
+            sources: [
+              path: [
+                adapter: ProcessingSource,
+                match: :path,
+                options: [test: observer, bytes: context.body, stream: stream, copy?: true]
+              ]
+            ],
+            cache: [root: Path.join(context.root, "output")],
+            input_cache: [root: Path.join(context.root, "input")],
+            max_body_bytes: 20_000_000,
+            max_input_pixels: 60_000_000
+          )
         )
 
       Code.ensure_loaded!(File)

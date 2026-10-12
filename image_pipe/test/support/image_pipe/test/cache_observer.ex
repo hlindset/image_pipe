@@ -24,16 +24,17 @@ defmodule ImagePipe.Test.CacheObserver do
   import ExUnit.Callbacks, only: [on_exit: 1]
 
   alias ImagePipe.Cache.FileSystem.Store
+  alias ImagePipe.Test.Caches
 
   @doc """
-  Returns `opts` with an output cache on a new temporary root, merged with
-  `cache_opts`, and a telemetry prefix: the one `opts` already has, or a new
+  Returns `opts` with a started output cache on a new temporary root, merged
+  with `cache_opts`, and a telemetry prefix: the one `opts` already has, or a new
   private one. Cache events under that prefix go to the calling process.
   """
   def observe(opts, cache_opts \\ []) do
     root = Path.join(System.tmp_dir!(), "cache-observer-#{System.unique_integer([:positive])}")
     File.mkdir_p!(root)
-    cache = Keyword.merge([root: root], cache_opts)
+    [cache: cache] = Caches.start!(cache: Keyword.merge([root: root], cache_opts))
 
     prefix =
       Keyword.get_lazy(opts, :telemetry_prefix, fn ->

@@ -7,6 +7,9 @@ defmodule ImagePipe.Cache.FileSystemPropertyTest do
   alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.Key
   alias ImagePipe.Format
+  alias ImagePipe.Test.Caches
+
+  @max_size_bytes 1_000_000_000
 
   property "generated cache paths stay under the configured root" do
     check all hash <- sha256_hex(),
@@ -52,8 +55,11 @@ defmodule ImagePipe.Cache.FileSystemPropertyTest do
           created_at: ~U[2026-04-29 10:15:00Z]
         }
 
-        assert :ok = seed_entry(cache_key, entry, root: root)
-        assert {:hit, cached_entry} = FileSystem.get(cache_key, root: root)
+        seed_entry(cache_key, entry, root: root)
+
+        assert {:hit, cached_entry} =
+                 FileSystem.get(cache_key, root: root, max_size_bytes: @max_size_bytes)
+
         assert cached_entry == entry
       after
         File.rm_rf!(root)
@@ -75,23 +81,28 @@ defmodule ImagePipe.Cache.FileSystemPropertyTest do
         output_format: :webp
       }
 
+      {:ok, opts} = FileSystem.validate_options(root: root, max_size_bytes: @max_size_bytes)
+      spec = FileSystem.child_spec(opts)
+      start_supervised!(spec)
+
       try do
-        assert {:ok, sink} = FileSystem.open_sink(cache_key, metadata, root: root)
+        assert {:ok, sink} = FileSystem.open_sink(cache_key, metadata, opts)
 
         sink =
           Enum.reduce(["" | chunks] ++ [""], sink, fn bytes, state ->
-            assert {:ok, next} = FileSystem.write_chunk(state, bytes, root: root)
+            assert {:ok, next} = FileSystem.write_chunk(state, bytes, opts)
             next
           end)
 
-        assert :ok = FileSystem.commit_sink(sink, root: root)
-        assert {:hit, entry} = FileSystem.get(cache_key, root: root)
+        assert :ok = FileSystem.commit_sink(sink, opts)
+        assert {:hit, entry} = FileSystem.get(cache_key, opts)
         assert entry.body == body
-        assert :ok = Store.verify(cache_key, root: root)
-        assert {:ok, metadata} = Store.metadata(cache_key, root: root)
+        assert :ok = Store.verify(cache_key, opts)
+        assert {:ok, metadata} = Store.metadata(cache_key, opts)
         assert metadata.body_byte_size == byte_size(body)
         assert metadata.body_sha256 == body_sha256(body)
       after
+        stop_supervised!(spec.id)
         File.rm_rf!(root)
       end
     end
@@ -112,14 +123,14 @@ defmodule ImagePipe.Cache.FileSystemPropertyTest do
         File.write!(paths.meta_path, metadata_bytes)
 
         assert {:error, _reason} =
-                 FileSystem.get(cache_key, root: root)
+                 FileSystem.get(cache_key, root: root, max_size_bytes: @max_size_bytes)
       after
         File.rm_rf!(root)
       end
     end
   end
 
-  # Seed an entry through the FileSystem adapter's own sink callbacks
+  # Seed an entry through a running cache's own sink callbacks
   # (open_sink -> write_chunk -> commit_sink) — the same path the request
   # lifecycle uses to stage a cache entry.
   defp seed_entry(cache_key, %Entry{} = entry, opts) do
@@ -132,10 +143,7 @@ defmodule ImagePipe.Cache.FileSystemPropertyTest do
       output_format: output_format
     }
 
-    with {:ok, state} <- FileSystem.open_sink(cache_key, metadata, opts),
-         {:ok, state} <- FileSystem.write_chunk(state, entry.body, opts) do
-      FileSystem.commit_sink(state, opts)
-    end
+    Caches.write!(opts, cache_key, metadata, entry.body)
   end
 
   defp key(hash \\ String.duplicate("a", 64)) do

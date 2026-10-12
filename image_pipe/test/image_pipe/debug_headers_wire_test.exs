@@ -6,6 +6,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
 
   alias ImagePipe.Security.Signature
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.Caches
 
   # ---------------------------------------------------------------------------
   # Source stubs
@@ -182,6 +183,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
         ]
       ]
       |> Keyword.merge(overrides)
+      |> Caches.start!()
 
     {opts, cache_root}
   end

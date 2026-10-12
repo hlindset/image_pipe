@@ -310,7 +310,7 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
 
   test "captures the cache sweep span with its removal counts" do
     Telemetry.span([], [:cache, :sweep], %{pool: :input}, fn ->
-      {:ok, %{result: :ok, pins: 1, temps: 2, bodies: 0, expired: 3, bytes: 10}}
+      {:ok, %{result: :ok, pins: 1, temps: 2, bodies: 0, unreadable: 3, bytes: 10}}
     end)
 
     assert_receive {:span,
@@ -322,7 +322,7 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
                         pins: 1,
                         temps: 2,
                         bodies: 0,
-                        expired: 3,
+                        unreadable: 3,
                         bytes: 10
                       }
                     }}

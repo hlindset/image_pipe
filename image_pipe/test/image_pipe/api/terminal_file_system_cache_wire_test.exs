@@ -5,6 +5,7 @@ defmodule ImagePipe.API.TerminalFileSystemCacheWireTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.Caches
 
   @terminals [
     {"output=info", nil},
@@ -62,20 +63,22 @@ defmodule ImagePipe.API.TerminalFileSystemCacheWireTest do
     end
 
     ImagePipe.Plug.init(
-      sources: [
-        path: [
-          adapter: RootHTTPAdapter,
-          match: :path,
-          options: [
-            root_url: "http://origin.test",
-            internal_cache: :enabled,
-            req_options: [plug: origin]
+      Caches.start!(
+        sources: [
+          path: [
+            adapter: RootHTTPAdapter,
+            match: :path,
+            options: [
+              root_url: "http://origin.test",
+              internal_cache: :enabled,
+              req_options: [plug: origin]
+            ]
           ]
-        ]
-      ],
-      cache: [root: root],
-      http_cache: :auto,
-      allow_debug_headers: true
+        ],
+        cache: [root: root],
+        http_cache: :auto,
+        allow_debug_headers: true
+      )
     )
   end
 

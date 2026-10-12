@@ -368,8 +368,9 @@ defmodule ImagePipe.Config do
                   type_doc: "keyword list",
                   doc: """
                   Cache for processed images, stored on disk, such as \
-                  `[root: "/var/cache/image_pipe/processed"]`. Takes the options of \
-                  `ImagePipe.Cache.FileSystem`. See \
+                  `[root: "/var/cache/image_pipe/processed", max_size_bytes: 5_000_000_000]`. \
+                  Takes the options of `ImagePipe.Cache.FileSystem`, and needs an \
+                  instance (see `ImagePipe.child_spec/1`). See \
                   [caching processed images](caching-processed-images.md). Off by \
                   default.
                   """
@@ -609,12 +610,12 @@ defmodule ImagePipe.Config do
 
   @doc false
   # Only a supervised instance starts cache processes, so a configuration
-  # used without one must not need them.
+  # used without one needs its caches' processes running already.
   @spec reject_unsupervised_processes!(t()) :: t()
   def reject_unsupervised_processes!(%__MODULE__{instance: nil} = config) do
-    if Cache.needs_instance?(config.options) do
+    if Cache.unsupervised?(config.options) do
       raise ArgumentError,
-            "a bounded cache (one with max_size_bytes) " <>
+            "a configuration with cache or input_cache " <>
               "must be used through an ImagePipe instance " <>
               "started with {ImagePipe, name: ..., ...}"
     end

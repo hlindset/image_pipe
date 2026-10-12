@@ -7,6 +7,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
   alias ImagePipe.Cache.FileSystem.Sketch
   alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Test.Caches
 
   setup do
     # Start the per-test Registry and a private tmp cache root. A single setup
@@ -104,14 +105,12 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     opts = base_opts(registry: registry, tmp_dir: tmp_dir, window_ratio: 0.0)
     pid = start_supervised!({Admission, opts})
 
-    alias ImagePipe.Test.CacheEntry
-
     pool = [root: tmp_dir, max_size_bytes: 1_000_000]
-    assert :ok = CacheEntry.put(pool, String.duplicate("x", 5_000))
+    assert :ok = put_with_cost(pool, "entry", 1_000)
 
     state = :sys.get_state(pid)
     assert state.window_bytes == 0
-    assert state.probationary_bytes == 5_000
+    assert state.probationary_bytes == 1_000
   end
 
   describe "protected segment" do
@@ -298,7 +297,11 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
       end)
 
     assert tracked_bytes(pid) == 0
-    assert FileSystem.get(%Key{hash: hash, data: []}, root: ctx.tmp_dir) == :miss
+
+    assert FileSystem.get(%Key{hash: hash, data: []},
+             root: ctx.tmp_dir,
+             max_size_bytes: 1_000_000
+           ) == :miss
   end
 
   test "a scan snapshot of an entry evicted mid-scan is skipped", ctx do
@@ -365,6 +368,8 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     descriptor
   end
 
+  # Leaves an entry on disk that no Admission tracks, as an earlier run would:
+  # it's written through a cache on a staging root and copied into place.
   defp put_disk_entry(root, hash, body) do
     cache_key = %Key{
       hash: hash,
@@ -379,10 +384,12 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
         output_format: :webp
       )
 
-    opts = [root: root]
-    {:ok, state} = FileSystem.open_sink(cache_key, metadata, opts)
-    {:ok, state} = FileSystem.write_chunk(state, body, opts)
-    :ok = FileSystem.commit_sink(state, opts)
+    staging = root <> "_staging"
+    paths = Caches.write!([root: staging], cache_key, metadata, body)
+    dir = Path.join(root, Path.relative_to(paths.dir, staging))
+    File.mkdir_p!(dir)
+    File.cp_r!(paths.dir, dir)
+    File.rm_rf!(staging)
   end
 
   # Find the descriptor for a key_hash across all three queues.

@@ -2,6 +2,7 @@ defmodule ImagePipe.ConfiguredBuilderTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe, as: IP
+  alias ImagePipe.Test.Caches
 
   test "one validated configuration serves direct execution and a Plug mount" do
     config = IP.config(quality: 63, max_result_width: 12)
@@ -79,18 +80,20 @@ defmodule ImagePipe.ConfiguredBuilderTest do
 
     config =
       IP.config(
-        sources: [
-          path: [
-            adapter: ImagePipe.Source.File,
-            match: :path,
-            options: [
-              root: Path.expand("test/support/image_pipe/test/sources"),
-              root_id: "test-images",
-              stable: :immutable
+        Caches.start!(
+          sources: [
+            path: [
+              adapter: ImagePipe.Source.File,
+              match: :path,
+              options: [
+                root: Path.expand("test/support/image_pipe/test/sources"),
+                root_id: "test-images",
+                stable: :immutable
+              ]
             ]
-          ]
-        ],
-        cache: [root: root]
+          ],
+          cache: [root: root]
+        )
       )
 
     client = IP.URL.new() |> IP.URL.group(resize: [width: 3]) |> IP.URL.output(format: :png)

@@ -387,15 +387,16 @@ Span. Wraps committing an entry to either pool.
   entry's cache key).
 - Stop metadata:
   - `:result` (atom): `:ok` or `:cache_error`.
-  - `:cache` (atom): `:write` when stored, or `:write_error`. A cache in
-    [bounded mode](cache.md#bounded-mode) that declines the entry reports
-    `:admission_rejected` (output pool) or `:stage_skipped` (input pool).
+  - `:cache` (atom): `:write` when stored, or `:write_error`. A cache that
+    declines the entry to stay under its [size limit](cache.md#size-limit)
+    reports `:admission_rejected` (output pool) or `:stage_skipped` (input
+    pool).
   - `:error` (atom): the error category, on an output-pool write error.
   - `:output_format` (atom): the stored format. Output pool only.
   - `:bytes` (integer): the size of the entry's body. On `:write`, the span's
     duration includes syncing the body to disk, so `:bytes` divided by the
-    duration gives a rough write speed. In bounded mode, the duration also
-    includes waiting for the admission decision.
+    duration gives a rough write speed. The duration also includes waiting for
+    the admission decision.
   - `:cache_key` (string): as on start.
 
 A write error after a streamed response doesn't fail the response, because
@@ -440,9 +441,7 @@ are coordinated (see [request coalescing](caching-and-freshness.md#request-coale
 Span. Emitted each time ImagePipe checks for
 [leftover files](cache.md#leftover-files), whether or not it finds any:
 
-- For an unbounded cache, when an instance
-  starts and every 24 hours after.
-- For a bounded cache, after its startup scan and then every 24 hours.
+- For a cache, after its startup scan and then every 24 hours.
 - For staged originals, when the `:image_pipe` application starts and every
   24 hours after.
 
@@ -456,16 +455,14 @@ The default Logger logs a check that deleted nothing at `:debug`.
   - For a cache, `:pins`, `:temps` and `:bodies` (integer): how many
     originals held open by requests, temporary writes, and bodies no
     metadata named were deleted.
-  - For a cache, `:expired` (integer): how many entries were deleted because
-    nobody had read them within the cache's
-    [`max_age`](cache.md#unread-entries). In a bounded cache, only metadata
-    files the cache can't read. Their bodies are counted in `:bodies`.
+  - For a cache, `:unreadable` (integer): how many metadata files the cache
+    can't read were deleted. Their bodies are counted in `:bodies`.
   - For `:staging`, `:staged` (integer): how many staged originals were
     deleted.
 
 ### `[:cache, :admission]`
 
-Span. Emitted by a bounded cache when it decides whether to keep a new entry.
+Span. Emitted by a cache when it decides whether to keep a new entry.
 
 - Start metadata: `:pool` (atom).
 - Stop metadata:
@@ -475,7 +472,7 @@ Span. Emitted by a bounded cache when it decides whether to keep a new entry.
 
 ### `[:cache, :eviction, :stop]`
 
-One-shot. Emitted for each batch of entries a bounded cache evicts in the
+One-shot. Emitted for each batch of entries a cache evicts in the
 background to get back under its size limit.
 
 - Measurements: `:count` (integer), entries evicted in the batch, and `:bytes`

@@ -15,17 +15,19 @@ defmodule ImagePipe.Cache.FileSystem.OwnerTest do
   end
 
   test "claims a root nobody owns", %{tmp_dir: root, path: path} do
-    start_supervised!({Root, root: root, host: "this-host"})
+    start_supervised!({Root, root: root, max_size_bytes: 1_000_000, host: "this-host"})
     assert host(path) == "this-host"
     refute MapSet.member?(Owner.refused(), root)
   end
 
   test "a second cache on a root this VM runs fails to start", %{tmp_dir: root, path: path} do
-    start_supervised!({Root, root: root, host: "this-host"})
+    start_supervised!({Root, root: root, max_size_bytes: 1_000_000, host: "this-host"})
     claimed = File.read!(path)
 
     assert {:error, {:already_started, _pid}} =
-             start_supervised(Supervisor.child_spec({Root, root: root}, id: :second))
+             start_supervised(
+               Supervisor.child_spec({Root, root: root, max_size_bytes: 1_000_000}, id: :second)
+             )
 
     assert File.read!(path) == claimed
     refute MapSet.member?(Owner.refused(), root)
@@ -33,7 +35,11 @@ defmodule ImagePipe.Cache.FileSystem.OwnerTest do
 
   test "an instance claims its cache roots while it runs", %{tmp_dir: root, path: path} do
     name = :"#{__MODULE__}.Instance#{System.unique_integer([:positive])}"
-    start_supervised!({ImagePipe, name: name, sources: [], cache: [root: root]})
+
+    start_supervised!(
+      {ImagePipe, name: name, sources: [], cache: [root: root, max_size_bytes: 1_000_000]}
+    )
+
     assert File.exists?(path)
 
     :ok = stop_supervised(name)
@@ -43,7 +49,7 @@ defmodule ImagePipe.Cache.FileSystem.OwnerTest do
   test "takes over a root this host owned before a restart", %{tmp_dir: root, path: path} do
     File.write!(path, "this-host\nold-token\n7\n")
 
-    start_supervised!({Root, root: root, host: "this-host"})
+    start_supervised!({Root, root: root, max_size_bytes: 1_000_000, host: "this-host"})
     refute File.read!(path) =~ "old-token"
   end
 
@@ -54,7 +60,12 @@ defmodule ImagePipe.Cache.FileSystem.OwnerTest do
       {root_sup, log} =
         with_log(fn ->
           start_supervised!(
-            {Root, root: root, host: "this-host", watch_ms: 60_000, heartbeat_ms: 10}
+            {Root,
+             root: root,
+             max_size_bytes: 1_000_000,
+             host: "this-host",
+             watch_ms: 60_000,
+             heartbeat_ms: 10}
           )
         end)
 
@@ -98,7 +109,9 @@ defmodule ImagePipe.Cache.FileSystem.OwnerTest do
     Owner.refuse(ctx.tmp_dir)
 
     capture_log(fn ->
-      root_sup = start_supervised!({Root, root: ctx.tmp_dir, host: "this-host"})
+      root_sup =
+        start_supervised!({Root, root: ctx.tmp_dir, max_size_bytes: 1_000_000, host: "this-host"})
+
       assert [{_id, _pid, _type, [OwnerWatch]}] = Supervisor.which_children(root_sup)
     end)
 

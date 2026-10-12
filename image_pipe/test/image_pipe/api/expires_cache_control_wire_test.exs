@@ -6,13 +6,15 @@ defmodule ImagePipe.API.ExpiresCacheControlWireTest do
   import Plug.Conn
   import Plug.Test
 
+  alias ImagePipe.Test.Caches
+
   @now 1_000_000
   @expires @now + 3600
   @path "/expires=#{@expires}/format=png/src/beach.jpg"
 
   setup %{tmp_dir: tmp_dir} do
     clock = start_supervised!({Agent, fn -> @now end})
-    %{clock: clock, cache: [root: tmp_dir]}
+    %{clock: clock, cache: Caches.start!(cache: [root: tmp_dir])[:cache]}
   end
 
   defp mount(%{clock: clock, cache: cache}, overrides) do

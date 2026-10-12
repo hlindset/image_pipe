@@ -3,8 +3,8 @@ defmodule ImagePipe.Test.CacheEntry do
   use Boundary, top_level?: true, check: [out: false]
 
   alias ImagePipe.Cache.Entry.Metadata
-  alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Test.Caches
 
   def put(opts, body) do
     key = %Key{hash: Base.encode16(:crypto.hash(:sha256, body), case: :lower), data: []}
@@ -17,9 +17,7 @@ defmodule ImagePipe.Test.CacheEntry do
       cost_us: 1000
     }
 
-    with {:ok, sink} <- FileSystem.open_sink(key, metadata, opts),
-         {:ok, sink} <- FileSystem.write_chunk(sink, body, opts) do
-      FileSystem.commit_sink(sink, opts)
-    end
+    Caches.write!(opts, key, metadata, body)
+    :ok
   end
 end

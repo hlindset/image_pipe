@@ -8,7 +8,6 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   alias ImagePipe.Cache.FileSystem.PeriodicSweep
   alias ImagePipe.Cache.FileSystem.Root
   alias ImagePipe.Cache.FileSystem.Sweep
-  alias ImagePipe.Cache.FileSystem.Toucher
   alias ImagePipe.Cache.Key
   alias ImagePipe.SafePath
 
@@ -39,32 +38,20 @@ defmodule ImagePipe.Cache.FileSystem.Store do
                       type: {:in, [:input, :output]},
                       type_doc: "`:input` or `:output`",
                       doc: """
-                      Tags bounded-mode telemetry events with `pool`, so events from an \
+                      Tags the cache's telemetry events with `pool`, so events from an \
                       originals cache can be told apart from the processed-image cache. \
                       Defaults to `:output`. A cache configured as `:input_cache` gets \
                       `pool: :input` automatically.
                       """
                     ],
-                    max_age: [
-                      type: {:or, [nil, :pos_integer]},
-                      type_doc: "`t:pos_integer/0` or `nil`",
-                      default: 604_800,
-                      doc: """
-                      Seconds an entry may go unread before it is deleted. With \
-                      `:max_size_bytes`, only metadata files the cache can't read are \
-                      deleted by age, and eviction handles other entries. `nil` keeps \
-                      entries until they are evicted or deleted. Only a running \
-                      `ImagePipe` instance deletes them (see `ImagePipe.child_spec/1`).
-                      """
-                    ],
-                    # Bounded-mode options: all optional per key. Cross-key
-                    # requirements and derived defaults are applied in
-                    # derive_bounded_options/1 after per-key validation.
+                    # The tuning options below default to values derived from
+                    # max_size_bytes, in derive_bounded_options/1.
                     max_size_bytes: [
+                      required: true,
                       type: :pos_integer,
                       doc: """
-                      Soft cap, in bytes, on the total size of stored responses. Setting it \
-                      turns on bounded mode. Every option below requires `:max_size_bytes`.
+                      Soft cap, in bytes, on the total size of stored bodies. Writes \
+                      evict the least valuable entries to stay under it.
                       """
                     ],
                     window_ratio: [
@@ -136,10 +123,6 @@ defmodule ImagePipe.Cache.FileSystem.Store do
                     ]
                   )
 
-  # Every option except these turns on, or tunes, bounded mode.
-  @bounded_option_keys Keyword.keys(@options_schema.schema) --
-                         [:root, :path_prefix, :pool, :max_age]
-
   @doc false
   def options_schema, do: @options_schema.schema
 
@@ -151,43 +134,24 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     do: Path.join(Keyword.fetch!(opts, :root), Keyword.get(opts, :path_prefix, ""))
 
   @doc false
-  # The processes a cache runs on a root this node owns: a bounded cache's
-  # Admission and the registry it's found in, the toucher that records reads,
-  # and the periodic sweep.
+  # The processes a cache runs on a root this node owns: Admission, the
+  # registry it's found in, and the periodic sweep. Admission's startup scan
+  # sweeps, so the periodic sweep's first run waits an interval.
   def cache_children(opts) do
-    bounded =
-      if Keyword.has_key?(opts, :max_size_bytes) do
-        registry_name = registry_name(Keyword.fetch!(opts, :root))
-
-        [
-          {Registry, keys: :unique, name: registry_name},
-          {Admission, admission_options(opts, registry_name)}
-        ]
-      else
-        []
-      end
-
-    bounded ++ [Toucher.child_spec(opts), sweep_spec(opts)]
-  end
-
-  # An unbounded pool sweeps at start and periodically after. A bounded
-  # pool's startup scan sweeps, so its first periodic sweep waits an interval,
-  # and it expires only metadata Admission can't read.
-  defp sweep_spec(opts) do
-    root = root_dir(opts)
-    pool = Keyword.get(opts, :pool, :output)
+    registry_name = registry_name(Keyword.fetch!(opts, :root))
     telemetry = Keyword.take(opts, [:telemetry_prefix])
-    bounded? = Keyword.has_key?(opts, :max_size_bytes)
-    expiry = {if(bounded?, do: :unreadable, else: :all), Keyword.get(opts, :max_age)}
+    sweep = [root_dir(opts), Keyword.get(opts, :pool, :output), telemetry]
 
-    {PeriodicSweep,
-     id: {Sweep, Keyword.fetch!(opts, :root)},
-     delay_first?: bounded?,
-     sweep: {Sweep, :run, [root, pool, telemetry, expiry]}}
+    [
+      {Registry, keys: :unique, name: registry_name},
+      {Admission, admission_options(opts, registry_name)},
+      {PeriodicSweep,
+       id: {Sweep, Keyword.fetch!(opts, :root)}, delay_first?: true, sweep: {Sweep, :run, sweep}}
+    ]
   end
 
   @doc false
-  # The options Admission.init/1 reads, from bounded cache options: defaults
+  # The options Admission.init/1 reads, from cache options: defaults
   # derived from `:max_size_bytes` filled in, intervals in milliseconds, and
   # the registry Admission registers in. Tests and benchmarks that start
   # Admission directly go through this too.
@@ -203,9 +167,9 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     )
   end
 
-  # Bounded mode runs one Registry + Admission supervisor per cache root.
-  # Deriving the Registry name from the root (rather than one global name) lets
-  # multiple bounded FileSystem caches coexist in a single VM without clashing
+  # Each cache root runs one Registry and Admission. Deriving the Registry
+  # name from the root (rather than one global name) lets multiple
+  # FileSystem caches coexist in a single VM without clashing
   # on the Registry process name. Roots are static host configuration, so the
   # set of derived atoms is bounded and not driven by request input.
   @doc false
@@ -244,8 +208,6 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   end
 
   defp maybe_cast_hit(opts, descriptor) do
-    Toucher.record(opts, descriptor.key_hash)
-
     case lookup_admission(opts) do
       {:ok, pid} -> Admission.hit(pid, descriptor)
       _ -> :ok
@@ -330,38 +292,17 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   def commit_sink(state, opts) when is_map(state) do
     case lookup_admission(opts) do
-      :unbounded ->
-        unbounded_commit(state)
-
       {:ok, pid} ->
         commit_bounded(state, pid, opts)
 
       :unavailable ->
-        # Bounded mode but the Admission process is missing. We cannot account
-        # for a write, so we MUST NOT leave an untracked entry on disk (it
-        # would silently grow the cache past cap). Nothing has been renamed
-        # yet, so clean the temp files and fail open.
+        # Without Admission a write can't be counted, and an uncounted entry
+        # would grow the cache past its cap. Nothing has been renamed yet, so
+        # clean the temp files and fail open.
         require Logger
-        Logger.warning("Admission process unavailable in bounded mode; skipping write")
+        Logger.warning("Admission process unavailable; skipping cache write")
         cleanup_sink_state(state)
         :ok
-    end
-  end
-
-  # Unbounded mode has no admission to name a replaced body as a victim, so
-  # the commit removes the body the superseded metadata pointed at.
-  defp unbounded_commit(state) do
-    case prepare_sink_commit(state) do
-      {:ok, state, body_filename} ->
-        previous = previous_body_path(state.paths)
-
-        with :ok <- commit_prepared_sink(state, body_filename) do
-          remove_replaced_body(previous, Path.join(state.paths.dir, body_filename))
-        end
-
-      {:error, reason, state} ->
-        cleanup_sink_state(state)
-        {:error, reason}
     end
   end
 
@@ -413,22 +354,15 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   end
 
   defp lookup_admission(opts) do
-    if Keyword.has_key?(opts, :max_size_bytes) do
-      root = Keyword.fetch!(opts, :root)
+    root = Keyword.fetch!(opts, :root)
 
-      try do
-        case Registry.lookup(registry_name(root), root) do
-          [{pid, _}] -> {:ok, pid}
-          [] -> :unavailable
-        end
-      rescue
-        # The Registry itself is not started (bounded mode configured but the
-        # supervision tree never came up). Fail closed, same as a missing entry.
-        ArgumentError -> :unavailable
-      end
-    else
-      :unbounded
+    case Registry.lookup(registry_name(root), root) do
+      [{pid, _}] -> {:ok, pid}
+      [] -> :unavailable
     end
+  rescue
+    # No instance runs this cache, so its Registry isn't started either.
+    ArgumentError -> :unavailable
   end
 
   # The body reaches the disk before its rename publishes it, so a crash can't
@@ -468,7 +402,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   def validate_options(opts) when is_list(opts) do
     with {:ok, validated_opts} <- validate_known_options(opts),
-         {:ok, derived_opts} <- apply_bounded_validation(validated_opts),
+         derived_opts = derive_bounded_options(validated_opts),
          :ok <- validate_representative_cache_dir(derived_opts) do
       {:ok, derived_opts}
     end
@@ -483,22 +417,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     validate_under_root(root, dir)
   end
 
-  # With max_size_bytes, fill derived defaults. Without it, reject any
-  # bounded-mode option (unbounded mode).
-  defp apply_bounded_validation(opts) do
-    if Keyword.has_key?(opts, :max_size_bytes) do
-      {:ok, derive_bounded_options(opts)}
-    else
-      bounded_only_keys = @bounded_option_keys -- [:max_size_bytes]
-
-      case Enum.filter(bounded_only_keys, &Keyword.has_key?(opts, &1)) do
-        [] -> {:ok, opts}
-        stray_keys -> {:error, {:bounded_options_require_max_size_bytes, stray_keys}}
-      end
-    end
-  end
-
-  # Fill derived defaults for bounded-mode opts. User-supplied values are
+  # Fill derived defaults for the tuning options. User-supplied values are
   # treated as overrides and are never clobbered.
   defp derive_bounded_options(opts) do
     max_size_bytes = Keyword.fetch!(opts, :max_size_bytes)
@@ -580,8 +499,9 @@ defmodule ImagePipe.Cache.FileSystem.Store do
        when is_list(unknown_keys),
        do: {:unknown_options, Enum.uniq(unknown_keys)}
 
-  defp options_validation_error(%NimbleOptions.ValidationError{key: :root, value: nil}),
-    do: {:missing_required_option, :root}
+  defp options_validation_error(%NimbleOptions.ValidationError{key: key, value: nil})
+       when key in [:root, :max_size_bytes],
+       do: {:missing_required_option, key}
 
   defp options_validation_error(%NimbleOptions.ValidationError{key: :root, value: root}),
     do: {:invalid_root, root}
@@ -640,7 +560,6 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     with {:ok, paths} <- paths(key, opts) do
       case lookup_admission(opts) do
         {:ok, pid} -> Admission.refresh_source_record(pid, paths, previous, record)
-        :unbounded -> refresh_entry(paths, previous, record)
         :unavailable -> :ok
       end
     end
@@ -670,7 +589,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     with {:ok, paths} <- paths(key, opts) do
       case lookup_admission(opts) do
         {:ok, pid} -> Admission.delete(pid, paths)
-        _unmanaged -> unwrap_delete(delete_entry(paths))
+        :unavailable -> unwrap_delete(delete_entry(paths))
       end
     end
   end
@@ -688,18 +607,6 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   defp read_metadata(paths) do
     with {:ok, binary} <- read_cache_file(paths.meta_path, :metadata), do: decode_metadata(binary)
-  end
-
-  defp remove_replaced_body(previous, current) when previous in [nil, current], do: :ok
-  defp remove_replaced_body(previous, _current), do: rm_tolerant(previous)
-
-  defp previous_body_path(paths) do
-    with {:ok, metadata} <- read_metadata(paths),
-         {:ok, path} <- body_path_from_metadata(paths, metadata) do
-      path
-    else
-      _miss_or_invalid -> nil
-    end
   end
 
   defp read_cache_file(path, kind) do

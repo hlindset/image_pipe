@@ -6,6 +6,7 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Admission
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Test.Caches
 
   setup do
     root = Path.join(System.tmp_dir!(), "reconciliation_#{System.unique_integer([:positive])}")
@@ -21,7 +22,7 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
               max_runs: 12 do
       root = Path.join(ctx.root, "run-#{System.unique_integer([:positive])}")
       prefix = ctx.prefix ++ [:"run_#{System.unique_integer([:positive])}"]
-      Enum.each(1..count, &put_entry(key(&1), "body", root: root))
+      Enum.each(1..count, &seed_entry(key(&1), "body", root))
       attach_batches(prefix, self(), false)
       opts = opts(root, prefix, cap_entries * 4, limit)
       pid = start_cache(opts)
@@ -38,8 +39,7 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
     body = String.duplicate("x", 100)
 
     for index <- 1..3 do
-      assert :ok = put_entry(key(index), body, root: ctx.root)
-      {:ok, paths} = FileSystem.paths(key(index), root: ctx.root)
+      paths = seed_entry(key(index), body, ctx.root)
       File.touch!(paths.meta_path, System.os_time(:second) - 100 + index)
     end
 
@@ -76,7 +76,7 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
   end
 
   test "the startup sweep waits for the scan's reconciliation", ctx do
-    Enum.each(1..3, &put_entry(key(&1), "body", root: ctx.root))
+    Enum.each(1..3, &seed_entry(key(&1), "body", ctx.root))
     orphan = orphan_body(ctx.root)
     gate = attach_batches(ctx.prefix, self(), true)
     attach_sweep(ctx.prefix, self())
@@ -180,15 +180,20 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
   defp key(index),
     do: %Key{hash: Base.encode16(:crypto.hash(:sha256, "key-#{index}"), case: :lower), data: []}
 
-  defp put_entry(key, body, opts) do
-    metadata = %Entry.Metadata{
+  defp metadata do
+    %Entry.Metadata{
       content_type: "image/png",
       headers: [],
       created_at: DateTime.utc_now(),
       output_format: :png
     }
+  end
 
-    {:ok, sink} = FileSystem.open_sink(key, metadata, opts)
+  # Leaves an entry on disk, as an earlier run would, and returns its paths.
+  defp seed_entry(key, body, root), do: Caches.write!([root: root], key, metadata(), body)
+
+  defp put_entry(key, body, opts) do
+    {:ok, sink} = FileSystem.open_sink(key, metadata(), opts)
     {:ok, sink} = FileSystem.write_chunk(sink, body, opts)
     FileSystem.commit_sink(sink, opts)
   end

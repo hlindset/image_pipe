@@ -5,6 +5,7 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
   import Plug.Test
 
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
 
   @path "/w=12/format=png/src/media/beach.jpg"
 
@@ -167,7 +168,7 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
 
   test "by default the original is read in place and never copied", ctx do
     input_root = Path.join(ctx.root, "input-pool")
-    opts = mount(ctx, input_cache: [root: input_root])
+    opts = mount(ctx, Caches.start!(input_cache: [root: input_root]))
 
     assert get(@path, opts).status == 200
     assert get("/w=8/format=png/src/media/beach.jpg", opts).status == 200
@@ -178,10 +179,7 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
     input_root = Path.join(ctx.root, "input-pool")
 
     opts =
-      mount(ctx,
-        file_options: [copy: :keep],
-        input_cache: [root: input_root]
-      )
+      mount(ctx, [file_options: [copy: :keep]] ++ Caches.start!(input_cache: [root: input_root]))
 
     assert get(@path, opts).status == 200
     assert [_original | _] = pooled(input_root)
@@ -191,7 +189,9 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
     moved = Path.join(ctx.root, "moved")
     File.mkdir_p!(moved)
     File.cp!("priv/static/images/beach.jpg", Path.join(moved, "beach.jpg"))
-    input_cache = [root: Path.join(ctx.root, "input-pool")]
+
+    input_cache =
+      Caches.start!(input_cache: [root: Path.join(ctx.root, "input-pool")])[:input_cache]
 
     etag = fn file_options ->
       opts =
@@ -216,7 +216,7 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
     File.mkdir_p!(moved)
     File.cp!("priv/static/images/beach.jpg", Path.join(moved, "beach.jpg"))
 
-    caches = [input_cache: [root: Path.join(ctx.root, "input-pool")]]
+    caches = Caches.start!(input_cache: [root: Path.join(ctx.root, "input-pool")])
 
     first = get(@path, mount(ctx, [file_options: [stable: :immutable, copy: :keep]] ++ caches))
     assert first.status == 200

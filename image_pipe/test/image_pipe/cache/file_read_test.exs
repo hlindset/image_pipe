@@ -6,6 +6,9 @@ defmodule ImagePipe.Cache.FileReadTest do
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Admission
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Test.Caches
+
+  @max_size_bytes 1_000_000_000
 
   setup do
     root = Path.join(System.tmp_dir!(), "image-pipe-read-#{System.unique_integer([:positive])}")
@@ -16,7 +19,10 @@ defmodule ImagePipe.Cache.FileReadTest do
   test "a pinned cache hit survives eviction and delivers bounded chunks", %{root: root} do
     body = :binary.copy("image", 40_000)
     key = put(root, body)
-    assert {:hit, entry} = Cache.lookup_entry(key, cache: [root: root])
+
+    assert {:hit, entry} =
+             Cache.lookup_entry(key, cache: [root: root, max_size_bytes: @max_size_bytes])
+
     assert %Cache.File{} = entry.body
     File.rm_rf!(Path.join(root, "aa"))
     chunks = Enum.to_list(Cache.File.stream(entry.body))
@@ -31,7 +37,7 @@ defmodule ImagePipe.Cache.FileReadTest do
     File.write!(body, "imag")
 
     assert {:miss, ^key, {:cache_read, _}} =
-             Cache.lookup_entry(key, cache: [root: root])
+             Cache.lookup_entry(key, cache: [root: root, max_size_bytes: @max_size_bytes])
   end
 
   for corruption <- [:overwrite, :bit_flip] do
@@ -55,7 +61,7 @@ defmodule ImagePipe.Cache.FileReadTest do
       assert File.stat!(path).size == byte_size(original)
 
       assert {:error, {:invalid_metadata, :body_digest_mismatch}} =
-               Cache.Input.verify(key, input_cache: [root: root])
+               Cache.Input.verify(key, input_cache: [root: root, max_size_bytes: @max_size_bytes])
     end
   end
 
@@ -104,7 +110,7 @@ defmodule ImagePipe.Cache.FileReadTest do
   end
 
   defp put(root, body, opts \\ nil) do
-    opts = opts || [root: root]
+    opts = opts || [root: root, max_size_bytes: @max_size_bytes]
     key = %Key{hash: String.duplicate("a", 64), data: []}
 
     metadata = %Metadata{
@@ -114,15 +120,13 @@ defmodule ImagePipe.Cache.FileReadTest do
       output_format: :jpeg
     }
 
-    {:ok, sink} = FileSystem.open_sink(key, metadata, opts)
-    {:ok, sink} = FileSystem.write_chunk(sink, body, opts)
-    :ok = FileSystem.commit_sink(sink, opts)
+    Caches.write!(opts, key, metadata, body)
     key
   end
 
   test "invalidation rejects serialized filenames outside the entry", %{root: root} do
     key = put(root, "image")
-    {:ok, paths} = FileSystem.paths(key, root: root)
+    {:ok, paths} = FileSystem.paths(key, root: root, max_size_bytes: @max_size_bytes)
     outside = Path.join(root, "unrelated")
     File.write!(outside, "keep")
     metadata = paths.meta_path |> File.read!() |> :erlang.binary_to_term()
@@ -132,7 +136,9 @@ defmodule ImagePipe.Cache.FileReadTest do
       :erlang.term_to_binary(%{metadata | body_filename: "../../unrelated"})
     )
 
-    assert {:error, _} = Cache.Input.discard(key, input_cache: [root: root])
+    assert {:error, _} =
+             Cache.Input.discard(key, input_cache: [root: root, max_size_bytes: @max_size_bytes])
+
     assert File.read!(outside) == "keep"
   end
 end

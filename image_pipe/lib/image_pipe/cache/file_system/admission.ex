@@ -32,9 +32,6 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       # Lifecycle events use the prefix captured at init, without request options.
       telemetry_prefix: [:image_pipe],
       pool: :output,
-      # Seconds an entry may go unread. The sweep expires only metadata this
-      # Admission can't read; eviction removes the unread entries it counts.
-      max_age: nil,
       path_prefix: "",
       window: nil,
       probationary: nil,
@@ -111,7 +108,6 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       reconcile_interval_ms: Keyword.fetch!(opts, :reconcile_interval_ms),
       telemetry_prefix: Keyword.get(opts, :telemetry_prefix, Telemetry.default_prefix()),
       pool: Keyword.get(opts, :pool, :output),
-      max_age: Keyword.get(opts, :max_age),
       # Only the GenServer writes; :protected permits cross-process inspection.
       window: :ets.new(:window, [:ordered_set, :protected]),
       probationary: :ets.new(:probationary, [:ordered_set, :protected]),
@@ -171,7 +167,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     GenServer.call(admission_pid, :reconcile_to_cap, :infinity)
 
     # Phase C: remove files a VM that died left behind.
-    Sweep.run_listings(listings, state.pool, tel_opts(state), {:unreadable, state.max_age})
+    Sweep.run_listings(listings, state.pool, tel_opts(state))
 
     GenServer.call(admission_pid, :scan_complete, :infinity)
   end

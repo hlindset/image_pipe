@@ -1,16 +1,11 @@
 defmodule ImagePipe.Cache.FileSystem.Sweep do
   # Removes files a VM that died left behind: temp files and pins whose owner
-  # is gone, and bodies no metadata names. A file counts as left behind only
-  # once it is older than the grace period, so nodes sharing a root can all
-  # sweep it without touching each other's live files. No request holds a temp
-  # file for anywhere near an hour.
-  #
-  # It also expires entries: with `{:all, max_age}`, every entry whose
-  # metadata mtime, its last read (see `Toucher`), is older than `max_age`
-  # seconds. A bounded cache passes `{:unreadable, max_age}`: its Admission
-  # evicts unread entries it counts, so the sweep only expires metadata it
-  # can't read, which Admission never counts. Either way an expired entry's
-  # body is then left behind and goes with the other leftovers.
+  # is gone, and bodies no metadata names. It also removes metadata files the
+  # cache can't read, such as ones another ImagePipe version wrote, which
+  # Admission never counts, and their bodies then go as unnamed. A file
+  # counts only once it is older than the grace period, so the sweep leaves
+  # alone what this node's requests are still writing. No request holds a
+  # temp file for anywhere near an hour.
   @moduledoc false
 
   alias ImagePipe.Cache.FileSystem.Store
@@ -30,14 +25,14 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   def pin_name(random), do: ".image-pipe-pin-#{System.os_time(:millisecond)}-#{random}.tmp"
 
   @doc false
-  def run(root, pool, telemetry_opts, expiry \\ nil),
-    do: span(pool, telemetry_opts, fn -> sweep_root(root, expiry) end)
+  def run(root, pool, telemetry_opts),
+    do: span(pool, telemetry_opts, fn -> sweep_root(root) end)
 
   @doc false
   # Sweeps `listings`, the `{partition_dir, names}` of a pool's tree, so a
   # caller that already listed the tree doesn't list it again.
-  def run_listings(listings, pool, telemetry_opts, expiry \\ nil),
-    do: span(pool, telemetry_opts, fn -> sweep_listings(listings, expiry) end)
+  def run_listings(listings, pool, telemetry_opts),
+    do: span(pool, telemetry_opts, fn -> sweep_listings(listings) end)
 
   defp span(pool, telemetry_opts, sweep) do
     Telemetry.span(telemetry_opts, [:cache, :sweep], %{pool: pool}, fn ->
@@ -55,57 +50,39 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   end
 
   @doc false
-  def sweep_root(root, expiry \\ nil) do
+  def sweep_root(root) do
     sweep_listings(
-      for(dir <- partitions(root), partition <- partitions(dir), do: listing(partition)),
-      expiry
+      for(dir <- partitions(root), partition <- partitions(dir), do: listing(partition))
     )
   end
 
-  defp sweep_listings(listings, expiry) do
+  defp sweep_listings(listings) do
     cutoff = cutoff()
-    expiry = expiry_cutoff(expiry)
-    counts = %{pins: 0, temps: 0, bodies: 0, expired: 0, bytes: 0}
+    counts = %{pins: 0, temps: 0, bodies: 0, unreadable: 0, bytes: 0}
 
     Enum.reduce(listings, counts, fn {dir, names}, counts ->
-      {names, counts} = expire_partition(dir, names, expiry, counts)
+      {names, counts} = remove_unreadable(dir, names, cutoff, counts)
       sweep_partition(dir, names, cutoff, counts)
     end)
   end
 
-  defp expiry_cutoff(nil), do: nil
-  defp expiry_cutoff({_mode, nil}), do: nil
-  defp expiry_cutoff({mode, max_age}), do: {mode, System.os_time(:second) - max_age}
-
-  # Returns the names still present, so the leftover pass sees expired
-  # entries' bodies as unnamed.
-  defp expire_partition(_dir, names, nil, counts), do: {names, counts}
-
-  defp expire_partition(dir, names, {mode, cutoff}, counts) do
+  # Returns the names still present, so the leftover pass sees the removed
+  # metadata's bodies as unnamed. A rewrite moves the mtime, so the age check
+  # runs again just before the unlink.
+  defp remove_unreadable(dir, names, cutoff, counts) do
     Enum.reduce(names, {[], counts}, fn name, {kept, counts} ->
       path = Path.join(dir, name)
 
-      if String.ends_with?(name, ".meta") and idle?(path, cutoff) and expires?(path, mode) and
-           idle?(path, cutoff) do
-        {kept, remove(path, :expired, counts)}
+      if String.ends_with?(name, ".meta") and older?(path, cutoff) and unreadable?(path) and
+           older?(path, cutoff) do
+        {kept, remove(path, :unreadable, counts)}
       else
         {[name | kept], counts}
       end
     end)
   end
 
-  # A read or a rewrite moves the mtime, so the idle check runs again just
-  # before the unlink.
-  defp idle?(path, cutoff) do
-    case File.stat(path, time: :posix) do
-      {:ok, %{mtime: mtime}} -> mtime < cutoff
-      {:error, _reason} -> false
-    end
-  end
-
-  defp expires?(_path, :all), do: true
-
-  defp expires?(path, :unreadable) do
+  defp unreadable?(path) do
     case Store.read_descriptor(path) do
       {:ok, _descriptor, _mtime} -> false
       {:error, :enoent} -> false
@@ -182,10 +159,9 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
 
   # A body is left behind when its key has no meta, or when the meta names
   # another body, as after two commits for one key race. A meta this node
-  # can't read keeps its body: it may be corrupt, or written by a newer version
-  # sharing the root. A commit can rename a fresh body over an old one and name
-  # it in a new meta at any moment, so the checks run again just before the
-  # unlink.
+  # can't read keeps its body until the meta is old enough to remove. A commit
+  # can rename a fresh body over an old one and name it in a new meta at any
+  # moment, so the checks run again just before the unlink.
   defp sweep_body(path, meta_path, metas, cutoff, counts) do
     listed? = MapSet.member?(metas, Path.basename(meta_path))
 

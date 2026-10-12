@@ -7,6 +7,7 @@ defmodule ImagePipe.TelemetryTest do
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Source
   alias ImagePipe.Source.Response, as: SourceResponse
+  alias ImagePipe.Test.Caches
   alias Vix.Vips.Image, as: VipsImage
 
   # `:telemetry` handlers are global and fire for every emission of an event
@@ -207,7 +208,7 @@ defmodule ImagePipe.TelemetryTest do
     conn =
       :get
       |> conn("/w=100/format=jpeg/src/images/beach.jpg")
-      |> ImagePipe.Plug.call(base_opts(cache: [root: tmp_dir]))
+      |> ImagePipe.Plug.call(base_opts(Caches.start!(cache: [root: tmp_dir])))
 
     assert conn.status == 200
 
@@ -478,7 +479,7 @@ defmodule ImagePipe.TelemetryTest do
 
   @tag :tmp_dir
   test "fail-open cache read errors are reported on cache lookup telemetry", %{tmp_dir: tmp_dir} do
-    opts = base_opts(cache: [root: tmp_dir])
+    opts = base_opts(Caches.start!(cache: [root: tmp_dir]))
 
     request = fn ->
       :get |> conn("/format=jpeg/src/images/beach.jpg") |> ImagePipe.Plug.call(opts)
@@ -517,13 +518,14 @@ defmodule ImagePipe.TelemetryTest do
   test "fail-open cache staging write errors are reported on cache stage telemetry", %{
     tmp_dir: tmp_dir
   } do
+    opts = base_opts(Caches.start!(cache: [root: tmp_dir]))
     File.chmod!(tmp_dir, 0o500)
     on_exit(fn -> File.chmod(tmp_dir, 0o700) end)
 
     conn =
       :get
       |> conn("/format=jpeg/src/images/beach.jpg")
-      |> ImagePipe.Plug.call(base_opts(cache: [root: tmp_dir]))
+      |> ImagePipe.Plug.call(opts)
 
     assert conn.status == 200
     events = telemetry_events()

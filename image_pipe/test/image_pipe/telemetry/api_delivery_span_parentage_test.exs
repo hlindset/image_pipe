@@ -10,6 +10,7 @@ defmodule ImagePipe.Telemetry.APIDeliverySpanParentageTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.PlugFixture.OriginImage
   alias ImagePipe.Test.Trace.SpanWalk
   alias ImagePipe.Test.Trace.TestExporter
@@ -40,14 +41,16 @@ defmodule ImagePipe.Telemetry.APIDeliverySpanParentageTest do
        %{tmp_dir: tmp_dir} do
     config =
       ImagePipe.Plug.init(
-        sources: [
-          path: [
-            adapter: RootHTTPAdapter,
-            match: :path,
-            options: [root_url: "http://origin.test", req_options: [plug: OriginImage]]
-          ]
-        ],
-        cache: [root: tmp_dir]
+        Caches.start!(
+          sources: [
+            path: [
+              adapter: RootHTTPAdapter,
+              match: :path,
+              options: [root_url: "http://origin.test", req_options: [plug: OriginImage]]
+            ]
+          ],
+          cache: [root: tmp_dir]
+        )
       )
 
     conn = ImagePipe.Plug.call(conn(:get, "/w=64/src/images/cat.jpg"), config)

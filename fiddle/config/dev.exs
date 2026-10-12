@@ -77,7 +77,7 @@ config :image_pipe_fiddle, ImagePipeFiddleWeb.Endpoint,
     ]
   ]
 
-# Set to enable a bounded filesystem cache for the dev fiddle:
+# Set to enable a filesystem cache for the dev fiddle:
 # config :image_pipe_fiddle, :cache,
 #   root: Path.expand("../_build/dev/image_pipe_fiddle/cache", __DIR__),
 #   path_prefix: "processed",

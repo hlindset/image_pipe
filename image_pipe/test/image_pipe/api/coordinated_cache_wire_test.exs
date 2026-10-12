@@ -5,6 +5,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
   alias ImagePipe, as: IP
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.Work
+  alias ImagePipe.Test.Caches
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
 
@@ -66,20 +67,22 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
 
     shared =
       IP.config(
-        sources: [
-          url: [
-            adapter: ImagePipe.Source.HTTP,
-            match: [scheme: ["http", "https"]],
-            options: [
-              allowed_hosts: ["origin.test"],
-              address_resolver: fn _ -> {:ok, [{93, 184, 216, 34}]} end,
-              req_options: [plug: plug]
+        Caches.start!(
+          sources: [
+            url: [
+              adapter: ImagePipe.Source.HTTP,
+              match: [scheme: ["http", "https"]],
+              options: [
+                allowed_hosts: ["origin.test"],
+                address_resolver: fn _ -> {:ok, [{93, 184, 216, 34}]} end,
+                req_options: [plug: plug]
+              ]
             ]
-          ]
-        ],
-        cache: [root: Path.join(root, "output")],
-        input_cache: [root: Path.join(root, "input")],
-        clock: fn -> Agent.get(state, & &1.now) end
+          ],
+          cache: [root: Path.join(root, "output")],
+          input_cache: [root: Path.join(root, "input")],
+          clock: fn -> Agent.get(state, & &1.now) end
+        )
       )
 
     config = IP.Plug.init(config: shared, http_cache: :auto)
@@ -252,7 +255,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
       assert {:ok, _} = IP.run(shared, IP.URL.new(), input)
     end
 
-    refute File.exists?(root)
+    assert Path.wildcard(Path.join(root, "**/*.body")) == []
 
     for inputs <- [
           [unknown: "secret"],
@@ -263,7 +266,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     end
 
     refute_received {:origin, _, _}
-    refute File.exists?(root)
+    assert Path.wildcard(Path.join(root, "**/*.body")) == []
   end
 
   test "native execution honors no-store and rejects expiry before source or cache access", %{
@@ -279,7 +282,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
              )
 
     refute_received {:origin, _, _}
-    refute File.exists?(root)
+    assert Path.wildcard(Path.join(root, "**/*.body")) == []
     Agent.update(state, &%{&1 | control: "no-store"})
     assert {:ok, _} = native(shared, 12)
     assert_receive {:origin, _, []}
@@ -593,14 +596,14 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
   } do
     {:ok, input} =
       FileSystem.validate_options(
-        root: Path.join(root, "input"),
+        root: Path.join(root, "bounded-input"),
         pool: :input,
         max_size_bytes: 1
       )
 
     {:ok, output} =
       FileSystem.validate_options(
-        root: Path.join(root, "output"),
+        root: Path.join(root, "bounded-output"),
         max_size_bytes: 100_000
       )
 
@@ -615,7 +618,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     first = request(config, 12)
     assert first.status == 200
     assert_receive {:origin, _, []}
-    assert Path.wildcard(Path.join(root, "input/**/*.body")) == []
+    assert Path.wildcard(Path.join(root, "bounded-input/**/*.body")) == []
     assert request(config, 12).resp_body == first.resp_body
     refute_received {:origin, _, _}
     assert request(config, 8).status == 200

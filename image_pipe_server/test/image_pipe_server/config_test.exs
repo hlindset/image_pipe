@@ -66,14 +66,14 @@ defmodule ImagePipeServer.ConfigTest do
         Config.options!(%{
           "cache" => %{
             "output" => %{"root" => "/var/cache/out", "max_size_bytes" => 1_000_000},
-            "input" => %{"root" => {:env, "/var/cache/in"}},
+            "input" => %{"root" => {:env, "/var/cache/in"}, "max_size_bytes" => 2_000_000},
             "storage_inputs" => [%{"header" => "x-tenant"}]
           }
         })[:cache]
 
       output = cache[:cache]
       assert Enum.sort(output) == [max_size_bytes: 1_000_000, root: "/var/cache/out"]
-      assert cache[:input_cache] == [root: "/var/cache/in"]
+      assert Enum.sort(cache[:input_cache]) == [max_size_bytes: 2_000_000, root: "/var/cache/in"]
       assert cache[:storage_inputs] == [{:header, "x-tenant"}]
     end
 
@@ -297,6 +297,11 @@ defmodule ImagePipeServer.ConfigTest do
                Config.options!(%{"cache" => %{"input" => %{"max_size_bytes" => 1}}})
              end) ==
                "invalid configuration: cache.input.root: required"
+
+      assert error(fn ->
+               Config.options!(%{"cache" => %{"output" => %{"root" => "/var/cache/out"}}})
+             end) ==
+               "invalid configuration: cache.output.max_size_bytes: required"
     end
 
     test "names the source in the library's source errors" do

@@ -323,12 +323,11 @@ table leaves out, from `AWS_WEB_IDENTITY_TOKEN_FILE`, `AWS_ROLE_ARN`,
 
 ### `[cache]`
 
-Caches on the local filesystem: `output` for processed images, `input` for originals. Their `root` directories must be separate, neither inside the other. Setting `max_size_bytes` bounds a cache. See [caching processed images](../../image_pipe/docs/caching-processed-images.md).
+Caches on the local filesystem: `output` for processed images, `input` for originals. Their `root` directories must be separate, neither inside the other. Each cache needs `root` and `max_size_bytes`. See [caching processed images](../../image_pipe/docs/caching-processed-images.md).
 
 | Key | Type | Default |
 | --- | --- | --- |
 | `output.path_prefix` | string | `""` |
-| `output.max_age` | integer > 0 | `604800` |
 | `output.max_size_bytes` | integer > 0 |  |
 | `output.sketch_depth` | integer > 0 |  |
 | `output.sketch_width` | integer > 0 |  |
@@ -341,7 +340,6 @@ Caches on the local filesystem: `output` for processed images, `input` for origi
 | `output.doorkeeper_fpr` | number |  |
 | `output.max_body_bytes` | integer ≥ 0 |  |
 | `input.path_prefix` | string | `""` |
-| `input.max_age` | integer > 0 | `604800` |
 | `input.max_size_bytes` | integer > 0 |  |
 | `input.sketch_depth` | integer > 0 |  |
 | `input.sketch_width` | integer > 0 |  |
