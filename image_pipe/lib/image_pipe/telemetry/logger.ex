@@ -196,7 +196,8 @@ defmodule ImagePipe.Telemetry.Logger do
       "#{point(meta[:blended])} (face #{point(meta[:face])}, weight #{meta[:weight]})"
   end
 
-  defp message([:cache, :lookup | _], _m, meta), do: "image_pipe cache lookup: #{meta[:cache]}"
+  defp message([:cache, :lookup | _], _m, meta),
+    do: "image_pipe cache lookup: #{meta[:cache]}#{bytes(meta[:bytes])}"
 
   defp message([:cache, :write | _], _m, meta) do
     detail =
@@ -207,7 +208,7 @@ defmodule ImagePipe.Telemetry.Logger do
         other -> inspect(other)
       end
 
-    "image_pipe cache write: #{detail}"
+    "image_pipe cache write: #{detail}#{bytes(meta[:bytes])}"
   end
 
   defp message([:cache, :admission | _], _m, meta) do
@@ -415,6 +416,9 @@ defmodule ImagePipe.Telemetry.Logger do
 
   defp point({x, y}), do: "(#{round2(x)},#{round2(y)})"
   defp point(_other), do: "(?,?)"
+
+  defp bytes(nil), do: ""
+  defp bytes(bytes), do: " #{bytes}b"
 
   defp round2(n) when is_number(n), do: Float.round(n * 1.0, 2)
   defp round2(_other), do: nil

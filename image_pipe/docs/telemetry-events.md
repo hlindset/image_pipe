@@ -318,6 +318,9 @@ Span. Wraps the output-cache lookup.
   - `:result` (atom): `:ok`, or `:cache_error` when the read failed.
   - `:cache` (atom): `:disabled`, `:hit`, `:miss`, or `:read_error`. A read
     error is served as a miss.
+  - `:bytes` (integer): the size of the cached body, on a hit for a processed
+    response. The span ends before the body is read, so its duration doesn't
+    include reading it.
   - `:cache_key` and `:entry`: as on start.
   - `:error` (atom): the error category, on a read error.
 
@@ -355,6 +358,10 @@ Span. Wraps committing an entry to either pool.
     `:admission_rejected` (output pool) or `:stage_skipped` (input pool).
   - `:error` (atom): the error category, on an output-pool write error.
   - `:output_format` (atom): the stored format. Output pool only.
+  - `:bytes` (integer): the size of the entry's body. On `:write`, the span's
+    duration includes syncing the body to disk, so `:bytes` divided by the
+    duration gives a rough write speed. In bounded mode, the duration also
+    includes waiting for the admission decision.
   - `:cache_key` (string): as on start.
 
 A write error after a streamed response doesn't fail the response, because

@@ -299,7 +299,11 @@ defmodule ImagePipe.Cache do
   defp entry_lookup_start_metadata(_cache_opts), do: %{cache: nil, pool: :output}
 
   defp entry_lookup_stop_metadata(:disabled), do: %{result: :ok, cache: :disabled}
-  defp entry_lookup_stop_metadata({:hit, _entry_or_record}), do: %{result: :ok, cache: :hit}
+
+  defp entry_lookup_stop_metadata({:hit, %Entry{body: %ImagePipe.Cache.File{size: size}}}),
+    do: %{result: :ok, cache: :hit, bytes: size}
+
+  defp entry_lookup_stop_metadata({:hit, _record}), do: %{result: :ok, cache: :hit}
   defp entry_lookup_stop_metadata({:miss, %Key{}}), do: %{result: :ok, cache: :miss}
 
   defp entry_lookup_stop_metadata({:miss, %Key{}, {:cache_read, error}}),

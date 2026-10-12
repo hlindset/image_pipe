@@ -155,11 +155,11 @@ defmodule ImagePipe.Telemetry.LoggerTest do
         :telemetry.execute(
           [:image_pipe, :cache, :lookup, :stop],
           %{duration: System.convert_time_unit(2, :millisecond, :native)},
-          %{result: :ok, cache: :hit}
+          %{result: :ok, cache: :hit, bytes: 12_345}
         )
       end)
 
-    assert log =~ "cache lookup: hit"
+    assert log =~ "cache lookup: hit 12345b"
   end
 
   test "drops events below Logger's level and still logs warnings" do
@@ -597,6 +597,21 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
     assert log =~ "[warning]"
     assert log =~ "cache write"
+  end
+
+  test "renders the stored body size on cache writes" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :cache, :write, :stop],
+          %{duration: 1000},
+          %{result: :ok, cache: :write, pool: :output, bytes: 12_345}
+        )
+      end)
+
+    assert log =~ "cache write: stored 12345b"
   end
 
   test "renders exception events as exceptions at warning level" do
