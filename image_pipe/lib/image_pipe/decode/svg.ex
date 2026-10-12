@@ -57,11 +57,14 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
     @spec decode(Decode.seekable(), Spec.t(), keyword()) ::
             {:ok, State.t(), SourceGeometry.t(), map()} | {:error, Decode.error()}
     def decode(input, %Spec{} = request, opts) do
-      with {:ok, data} <- read(input) do
-        Telemetry.span(Telemetry.telemetry_opts(opts), [:source, :svg_render], %{}, fn ->
-          traced_render(data, request, opts)
-        end)
-      end
+      Telemetry.span(
+        Telemetry.telemetry_opts(opts),
+        [:source, :svg_render],
+        %{asset: :original},
+        fn ->
+          traced_render(input, request, opts)
+        end
+      )
     end
 
     @doc """
@@ -74,7 +77,7 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
     def watermark(data, opts) do
       config = Keyword.fetch!(opts, :svg)
 
-      with :ok <- check_bytes(byte_size(data), config.max_bytes),
+      with {:ok, data} <- read({:buffer, data}, config.max_bytes),
            {:ok, document} <-
              parse(data, fonts(config), Keyword.fetch!(opts, :max_input_pixels)) do
         dims = {max(1, round(document.width)), max(1, round(document.height))}
@@ -83,39 +86,44 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
     end
 
     defp render_watermark(document, dims, config, opts, width, height) do
-      Telemetry.span(Telemetry.telemetry_opts(opts), [:source, :svg_render], %{}, fn ->
-        cost = SVG.cost(document, width, height)
+      Telemetry.span(
+        Telemetry.telemetry_opts(opts),
+        [:source, :svg_render],
+        %{asset: :watermark},
+        fn ->
+          cost = SVG.cost(document, width, height)
 
-        with :ok <- check_budget(cost, config),
-             {:ok, image} <- image(SVG.render(document, width, height), width, height) do
-          {{:ok, image},
-           %{
-             result: :ok,
-             intrinsic_dims: dims,
-             rendered_dims: {width, height},
-             work: cost.work,
-             peak: cost.peak,
-             images: cost.images,
-             image_pixels: cost.image_pixels
-           }}
-        else
-          {:error, reason} = error -> {error, error_metadata(reason)}
+          with :ok <- check_budget(cost, config),
+               {:ok, image} <- image(SVG.render(document, width, height), width, height) do
+            {{:ok, image},
+             %{
+               result: :ok,
+               intrinsic_dims: dims,
+               rendered_dims: {width, height},
+               work: cost.work,
+               peak: cost.peak,
+               images: cost.images,
+               image_pixels: cost.image_pixels
+             }}
+          else
+            {:error, reason} = error -> {error, error_metadata(reason)}
+          end
         end
-      end)
+      )
     end
 
-    defp traced_render(data, request, opts) do
-      case render(data, request, opts) do
+    defp traced_render(input, request, opts) do
+      case render(input, request, opts) do
         {:ok, rendered} -> {decoded(rendered, opts), render_metadata(rendered)}
         {:error, reason} = error -> {error, error_metadata(reason)}
       end
     end
 
-    defp render(data, request, opts) do
+    defp render(input, request, opts) do
       max_input_pixels = Keyword.fetch!(opts, :max_input_pixels)
       config = Keyword.fetch!(opts, :svg)
 
-      with :ok <- check_bytes(byte_size(data), config.max_bytes),
+      with {:ok, data} <- read(input, config.max_bytes),
            {:ok, document} <- parse(data, fonts(config), max_input_pixels),
            storage = {max(1, round(document.width)), max(1, round(document.height))},
            geometry = %SourceGeometry{
@@ -125,7 +133,11 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
              source_format: :svg,
              debug_facts: %{source_bytes: byte_size(data)}
            },
-           scale = Keyword.get(Executor.decode_options(request, geometry), :scale),
+           scale =
+             request
+             |> Executor.decode_options(geometry)
+             |> Keyword.get(:scale)
+             |> fit_scale(document, max_input_pixels),
            {width, height} = render_size(document, scale),
            :ok <- check_pixels(width * height, max_input_pixels),
            cost = SVG.cost(document, width, height),
@@ -144,7 +156,7 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
         image: image,
         source_dimensions: if(scale, do: storage),
         decode_shrink: decode_shrink,
-        vector?: true,
+        vector?: scale != nil,
         materialized?: true,
         pending_orientation: geometry.pending_orientation,
         telemetry_opts: Telemetry.telemetry_opts(opts)
@@ -188,11 +200,18 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
     defp limit({:svg_render_budget, :peak, _peak, _max}), do: :svg_render_pixels
     defp limit(_reason), do: nil
 
-    defp read({:buffer, data}), do: {:ok, data}
+    # A staged body is measured before it's read into memory.
+    defp read({:buffer, data}, max_bytes) do
+      with :ok <- check_bytes(byte_size(data), max_bytes), do: {:ok, data}
+    end
 
-    defp read({:path, path}) do
-      case File.read(path) do
-        {:ok, data} -> {:ok, data}
+    defp read({:path, path}, max_bytes) do
+      with {:ok, %File.Stat{size: size}} <- File.stat(path),
+           :ok <- check_bytes(size, max_bytes),
+           {:ok, data} <- File.read(path) do
+        {:ok, data}
+      else
+        {:error, {:input_limit, _reason}} = error -> error
         {:error, reason} -> {:error, {:decode, {:peek_failed, reason}}}
       end
     end
@@ -230,20 +249,51 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
     end
 
     # The fonts load on first use and stay loaded for the life of the VM, keyed
-    # by the font set and its fingerprint taken at startup.
+    # by the font set and its fingerprint taken at startup. One process loads
+    # them: replacing a persistent term makes every process scan its heap.
     defp fonts(%{font_dirs: dirs, fallback_family: fallback, identity: %{fonts: fingerprint}}) do
       key = {__MODULE__, :fonts, dirs, fallback, fingerprint}
 
       case :persistent_term.get(key, nil) do
-        nil ->
-          {:ok, fonts} = SVG.load_fonts(dirs, fallback_family: fallback)
-          :persistent_term.put(key, fonts)
-          fonts
-
-        fonts ->
-          fonts
+        nil -> :global.trans({key, self()}, fn -> load_fonts(key) end, [node()])
+        fonts -> fonts
       end
     end
+
+    defp load_fonts({_module, :fonts, dirs, fallback, fingerprint} = key) do
+      with nil <- :persistent_term.get(key, nil) do
+        fonts = load_fonts!(dirs, fallback, fingerprint)
+        :persistent_term.put(key, fonts)
+        fonts
+      end
+    end
+
+    # The cache key and ETag carry the fingerprint taken at startup, so fonts
+    # that changed since must not render under it.
+    defp load_fonts!(dirs, fallback, fingerprint) do
+      case SVG.load_fonts(dirs, fallback_family: fallback) do
+        {:ok, %{fingerprint: ^fingerprint} = fonts} ->
+          fonts
+
+        {:ok, _fonts} ->
+          raise "svg: the fonts in #{inspect(dirs)} changed after ImagePipe started; restart it"
+
+        {:error, message} ->
+          raise "svg: can't load the fonts in #{inspect(dirs)}: #{message}"
+      end
+    end
+
+    # Renders larger than the source's intrinsic size are capped at
+    # `max_input_pixels`, and the rest of the resize enlarges the raster. A
+    # crop then zoom renders the whole document at the zoomed scale, which
+    # would otherwise reject an SVG whose raster twin succeeds.
+    # The margin covers rounding the render size up.
+    defp fit_scale(scale, document, max_input_pixels) when is_float(scale) and scale > 1.0 do
+      fitting = :math.sqrt(max_input_pixels / ((document.width + 1) * (document.height + 1)))
+      min(scale, max(1.0, fitting))
+    end
+
+    defp fit_scale(scale, _document, _max_input_pixels), do: scale
 
     defp render_size(document, nil),
       do: {max(1, round(document.width)), max(1, round(document.height))}

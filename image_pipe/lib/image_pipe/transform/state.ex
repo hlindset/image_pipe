@@ -36,6 +36,8 @@ defmodule ImagePipe.Transform.State do
   #   map crop dimensions back to the image frame.
   # - `vector?`: the source is a vector image rendered at the decode scale, so
   #   the first group's resize isn't clamped to the source's intrinsic size.
+  #   False when it rendered at its intrinsic size, as for a first group that
+  #   trims, since enlarging that render would only resample it.
   # - `dpr`: the effective DPR of the most recently executed group, after the
   #   enlargement clamp and its floor; 1.0 before any group runs.
   # - `source_color_profile` and `color_imported?`: input-color-management results

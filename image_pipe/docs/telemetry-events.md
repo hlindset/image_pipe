@@ -296,10 +296,12 @@ size. The default Logger doesn't log it.
 
 ### `[:source, :svg_render]`
 
-Span. Wraps rendering an SVG original, during
-[`[:source, :fetch_decode]`](#source-fetch_decode): parsing it, estimating
-the rendering cost, and rendering it at the size the request needs.
+Span. Wraps rendering an SVG: parsing it, estimating the rendering cost, and
+rendering it at the size the request needs. An SVG original renders during
+[`[:source, :fetch_decode]`](#source-fetch_decode), and an SVG watermark
+during [`[:transform, :execute]`](#transform-execute).
 
+- Start metadata: `:asset` (atom), `:original` or `:watermark`.
 - Stop metadata on success:
   - `:result` (atom): `:ok`.
   - `:intrinsic_dims` (`{width, height}`): the SVG's own size in pixels.

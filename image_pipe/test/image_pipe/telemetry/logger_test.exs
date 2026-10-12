@@ -877,18 +877,31 @@ defmodule ImagePipe.Telemetry.LoggerTest do
         :telemetry.execute(
           [:image_pipe, :source, :svg_render, :stop],
           %{duration: System.convert_time_unit(2, :millisecond, :native)},
-          %{result: :ok, intrinsic_dims: {40, 20}, rendered_dims: {400, 200}, images: 2}
+          %{
+            result: :ok,
+            asset: :original,
+            intrinsic_dims: {40, 20},
+            rendered_dims: {400, 200},
+            images: 2
+          }
         )
 
         :telemetry.execute(
           [:image_pipe, :source, :svg_render, :stop],
           %{duration: System.convert_time_unit(1, :millisecond, :native)},
-          %{result: :processing_error, error: :input_limit, limit: :svg_render_work}
+          %{
+            result: :processing_error,
+            asset: :watermark,
+            error: :input_limit,
+            limit: :svg_render_work
+          }
         )
       end)
 
-    assert log =~ "source svg_render: ok (40x20 rendered at 400x200, 2 images)"
-    assert log =~ "source svg_render: processing_error (input_limit, svg_render_work limit)"
+    assert log =~ "source svg_render: ok (original 40x20 rendered at 400x200, 2 images)"
+
+    assert log =~
+             "source svg_render: processing_error (watermark, input_limit, svg_render_work limit)"
   end
 
   test "renders a skipped source on the fetch_decode span" do

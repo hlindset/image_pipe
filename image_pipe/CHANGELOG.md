@@ -20,9 +20,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   limit the work an SVG can cause. With `image_pipe_svg` installed, cache
   keys and ETags include the resvg version and the fonts, so changing the
   fonts makes cached images miss.
-- A `[:source, :svg_render]` span wraps rendering an SVG original, with
-  its intrinsic and rendered sizes and the estimated work, and names the
-  limit that rejected an SVG. The default Logger logs it.
+- A `[:source, :svg_render]` span wraps rendering an SVG original or
+  watermark, with which one it is, its intrinsic and rendered sizes and the
+  estimated work, and names the limit that rejected an SVG. The default
+  Logger logs it.
 
 - Without `max_size_bytes`, `cache` and `input_cache` delete entries nobody has
   read for `max_age` seconds, 7 days by default, so images that are no longer

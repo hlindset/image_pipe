@@ -119,7 +119,8 @@ defmodule ImagePipe.Transform.Executor do
   defp scale_axis(value, headroom), do: value * headroom
 
   @spec execute(State.t(), Spec.t(), keyword()) ::
-          {:ok, State.t()} | {:error, {:transform, term()} | {:decode, term()}}
+          {:ok, State.t()}
+          | {:error, {:transform, term()} | {:decode, term()} | {:input_limit, term()}}
   def execute(%State{} = state, %Spec{} = request, opts) do
     state = %State{
       state

@@ -82,11 +82,23 @@ defmodule ImagePipe.API.SVGSourceWireTest do
     assert %{"width" => 400, "height" => 200} = info["result"]
   end
 
-  test "fails a render larger than max_input_pixels" do
+  test "fails an SVG over max_input_pixels at both its own and its requested size" do
+    config = mount(@svg, max_input_pixels: 799)
+
+    assert dimensions(request("w=20/format=png", config)) == {20, 10}
+    assert request("w=400/format=png", config).status == 413
+  end
+
+  test "renders at most max_input_pixels, then enlarges the rendered image" do
     config = mount(@svg, max_input_pixels: 4_000)
 
-    assert request("w=80/format=png", config).status == 200
-    assert request("w=100/format=png", config).status == 413
+    assert dimensions(request("w=400/format=png", config)) == {400, 200}
+    # A crop then zoom renders the whole SVG at the zoomed scale.
+    assert dimensions(request("region=20,0,20,20/w=100/format=png", config)) == {100, 100}
+  end
+
+  test "keeps the enlargement clamp when the first group trims" do
+    assert dimensions(request("trim=auto/w=400/format=png", mount(@transparent))) == {20, 20}
   end
 
   describe "fonts" do
@@ -105,6 +117,15 @@ defmodule ImagePipe.API.SVGSourceWireTest do
 
       refute etag.(mount(@text)) ==
                etag.(mount(@text, svg: [font_dirs: [@font_dir], fallback_family: "Geist Mono"]))
+    end
+
+    @tag :tmp_dir
+    test "fail requests when they change after configuration", %{tmp_dir: dir} do
+      File.cp!(Path.join(@font_dir, "GeistMono-Regular.ttf"), Path.join(dir, "font.ttf"))
+      config = mount(@text, svg: [font_dirs: [dir]])
+      File.rm!(Path.join(dir, "font.ttf"))
+
+      assert request("format=png", config).status == 500
     end
 
     test "fail configuration when the fallback family isn't loaded" do

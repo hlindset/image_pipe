@@ -605,7 +605,7 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
 
   test "nests an SVG render under the fetch_decode span with its sizes and cost" do
     Telemetry.span([], [:source, :fetch_decode], %{}, fn ->
-      Telemetry.span([], [:source, :svg_render], %{}, fn ->
+      Telemetry.span([], [:source, :svg_render], %{asset: :original}, fn ->
         {:ok,
          %{
            result: :ok,
@@ -624,6 +624,7 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
     assert_receive {:span, %Span{name: "image_pipe.source.svg_render"} = render}
     assert_receive {:span, %Span{name: "image_pipe.source.fetch_decode"} = decode}
     assert render.parent_span_id == decode.span_id
+    assert render.attributes[:asset] == "original"
     assert render.attributes[:rendered_dims] == "{400, 200}"
     assert render.attributes[:work] == 81_000
     assert render.attributes[:peak] == 80_000

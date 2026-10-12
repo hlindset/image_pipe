@@ -111,8 +111,9 @@ lists the other limits.
 
 <!-- tabs-close -->
 
-An SVG original is rejected too when it renders larger than the
-[input pixel limit](deployment.md), or has:
+An SVG original is rejected too when it's larger than the
+[input pixel limit](deployment.md) both at its own size and at the
+requested size, or has:
 
 - more than 200,000 elements after expanding `<use>`;
 - entities that expand past 1,000,000 characters;
@@ -137,9 +138,19 @@ An SVG's own size is its `width` and `height` at 96 pixels per inch, or its
 neither. Crops and regions measure the SVG at that size.
 
 A resize renders the SVG at the requested size, larger than its own size
-too, without [`enlarge`](processing/resize.md#enlarge). Without
-[`format`](processing/output.md#format), the result is a PNG, or AVIF or
-WebP when the browser accepts them, unless an opaque
+too, without [`enlarge`](processing/resize.md#enlarge), except in two
+cases:
+
+- The SVG at that size would be larger than the input pixel limit. It
+  renders as large as the limit allows, and the rendered image is enlarged
+  the rest of the way, so its edges blur. A crop followed by a large resize
+  renders the whole SVG at the zoomed size, so it reaches the limit sooner.
+- The request [trims](processing/crop.md#trim) before its first resize.
+  The SVG renders at its own size, and `enlarge` applies as it does to a
+  raster image.
+
+Without [`format`](processing/output.md#format), the result is a PNG, or
+AVIF or WebP when the browser accepts them, unless an opaque
 [`bg`](processing/resize.md#bg) fills its transparency. SVG watermarks
 render at the size they are drawn, so a small logo stays sharp at any
 [`wm-scale`](processing/watermark.md#wm-scale).

@@ -121,8 +121,10 @@ defmodule ImagePipe.Telemetry.Trace.Handler do
     :page,
     # a libvips open's access mode (:sequential or :random)
     :access,
-    # an SVG render: its intrinsic and rendered sizes ({width, height}), the
-    # estimated work and peak pixmap pixels, and its embedded raster images
+    # an SVG render: whether it's the original or a watermark, its intrinsic
+    # and rendered sizes ({width, height}), the estimated work and peak pixmap
+    # pixels, and its embedded raster images
+    :asset,
     :intrinsic_dims,
     :rendered_dims,
     :work,
