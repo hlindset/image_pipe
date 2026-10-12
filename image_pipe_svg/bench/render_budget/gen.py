@@ -14,6 +14,7 @@ def noise_png(width, height):
 
 
 d = sys.argv[1]
+os.makedirs(d, exist_ok=True)
 def w(name, s):
     open(os.path.join(d, name + ".svg"), "w").write(s)
 H = '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="100" height="100" viewBox="0 0 100 100">'
