@@ -89,9 +89,8 @@ defmodule ImagePipe.Telemetry.Logger do
 
   defp level_for([:debug, :collect, :error | _], _metadata, _base), do: :warning
 
-  # Background sweeps and re-scans repeat every few minutes, so a pass that
-  # changed nothing logs at :debug.
-  defp level_for([:cache, stage, :stop], metadata, base) when stage in [:sweep, :rescan] do
+  # Background sweeps repeat, so a pass that changed nothing logs at :debug.
+  defp level_for([:cache, :sweep, :stop], metadata, base) do
     if quiet_pass?(metadata), do: :debug, else: base
   end
 
@@ -115,7 +114,7 @@ defmodule ImagePipe.Telemetry.Logger do
 
   defp quiet_pass?(metadata) do
     Enum.all?(
-      [:pins, :temps, :bodies, :expired, :staged, :adopted, :dropped, :resynced],
+      [:pins, :temps, :bodies, :expired, :staged],
       &(Map.get(metadata, &1, 0) == 0)
     )
   end

@@ -612,16 +612,14 @@ defmodule ImagePipe.Config do
   # used without one must not need them.
   @spec reject_unsupervised_processes!(t()) :: t()
   def reject_unsupervised_processes!(%__MODULE__{instance: nil} = config) do
-    case Cache.child_specs(config.options) do
-      [] ->
-        config
-
-      [_ | _] ->
-        raise ArgumentError,
-              "a bounded cache (one with max_size_bytes) " <>
-                "must be used through an ImagePipe instance " <>
-                "started with {ImagePipe, name: ..., ...}"
+    if Cache.needs_instance?(config.options) do
+      raise ArgumentError,
+            "a bounded cache (one with max_size_bytes) " <>
+              "must be used through an ImagePipe instance " <>
+              "started with {ImagePipe, name: ..., ...}"
     end
+
+    config
   end
 
   def reject_unsupervised_processes!(%__MODULE__{} = config), do: config
@@ -641,8 +639,14 @@ defmodule ImagePipe.Config do
   end
 
   @doc false
+  # Requests run without the caches whose root another node holds.
   @spec fetch_instance!(atom(), atom() | nil) :: t()
   def fetch_instance!(name, mount) do
+    config = published!(name, mount)
+    %{config | options: Cache.drop_refused(config.options)}
+  end
+
+  defp published!(name, mount) do
     case {:persistent_term.get({__MODULE__, name}, nil), mount} do
       {nil, _mount} ->
         raise ArgumentError, "ImagePipe instance #{inspect(name)} is not running"

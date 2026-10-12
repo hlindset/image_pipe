@@ -6,6 +6,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   alias ImagePipe.Cache.FileSystem.Admission
   alias ImagePipe.Cache.FileSystem.CheckedDirs
   alias ImagePipe.Cache.FileSystem.PeriodicSweep
+  alias ImagePipe.Cache.FileSystem.Root
   alias ImagePipe.Cache.FileSystem.Sweep
   alias ImagePipe.Cache.FileSystem.Toucher
   alias ImagePipe.Cache.Key
@@ -132,15 +133,6 @@ defmodule ImagePipe.Cache.FileSystem.Store do
                       Seconds between background passes that evict entries until the stored \
                       size is at or under `:max_size_bytes`. Defaults to `60`.
                       """
-                    ],
-                    rescan_interval: [
-                      type: :pos_integer,
-                      doc: """
-                      Seconds between background passes that list the cache directory, so this \
-                      node counts entries other nodes sharing `:root` wrote or removed, and then \
-                      delete left-over files. Each pass is delayed or advanced by up to a fifth \
-                      of the interval at random. Defaults to `300`.
-                      """
                     ]
                   )
 
@@ -151,35 +143,46 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   @doc false
   def options_schema, do: @options_schema.schema
 
-  @doc "Returns the supervision tree required by a bounded filesystem cache."
-  def child_spec(opts) do
-    if Keyword.has_key?(opts, :max_size_bytes) do
-      registry_name = registry_name(Keyword.fetch!(opts, :root))
-
-      children = [
-        {Registry, keys: :unique, name: registry_name},
-        {Admission, admission_options(opts, registry_name)}
-      ]
-
-      %{
-        id: {__MODULE__, Keyword.fetch!(opts, :root)},
-        start: {Supervisor, :start_link, [children, [strategy: :one_for_all]]},
-        type: :supervisor
-      }
-    end
-  end
+  @doc "Returns the supervision tree an instance runs for a filesystem cache."
+  def child_spec(opts), do: Root.child_spec(opts)
 
   @doc false
-  # An instance sweeps each unbounded pool at start and periodically after.
-  def sweep_spec(opts) do
-    root = Path.join(Keyword.fetch!(opts, :root), Keyword.get(opts, :path_prefix, ""))
+  def root_dir(opts),
+    do: Path.join(Keyword.fetch!(opts, :root), Keyword.get(opts, :path_prefix, ""))
+
+  @doc false
+  # The processes a cache runs on a root this node owns: a bounded cache's
+  # Admission and the registry it's found in, the toucher that records reads,
+  # and the periodic sweep.
+  def cache_children(opts) do
+    bounded =
+      if Keyword.has_key?(opts, :max_size_bytes) do
+        registry_name = registry_name(Keyword.fetch!(opts, :root))
+
+        [
+          {Registry, keys: :unique, name: registry_name},
+          {Admission, admission_options(opts, registry_name)}
+        ]
+      else
+        []
+      end
+
+    bounded ++ [Toucher.child_spec(opts), sweep_spec(opts)]
+  end
+
+  # An unbounded pool sweeps at start and periodically after. A bounded
+  # pool's startup scan sweeps, so its first periodic sweep waits an interval,
+  # and it expires only metadata Admission can't read.
+  defp sweep_spec(opts) do
+    root = root_dir(opts)
     pool = Keyword.get(opts, :pool, :output)
     telemetry = Keyword.take(opts, [:telemetry_prefix])
-
-    expiry = {:all, Keyword.get(opts, :max_age)}
+    bounded? = Keyword.has_key?(opts, :max_size_bytes)
+    expiry = {if(bounded?, do: :unreadable, else: :all), Keyword.get(opts, :max_age)}
 
     {PeriodicSweep,
      id: {Sweep, Keyword.fetch!(opts, :root)},
+     delay_first?: bounded?,
      sweep: {Sweep, :run, [root, pool, telemetry, expiry]}}
   end
 
@@ -192,12 +195,11 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     opts = derive_bounded_options(opts)
 
     opts
-    |> Keyword.drop([:reconcile_interval, :rescan_interval])
+    |> Keyword.delete(:reconcile_interval)
     |> Keyword.merge(
       registry: registry_name,
       path_prefix: Keyword.get(opts, :path_prefix, ""),
-      reconcile_interval_ms: Keyword.fetch!(opts, :reconcile_interval) * 1000,
-      rescan_interval_ms: Keyword.fetch!(opts, :rescan_interval) * 1000
+      reconcile_interval_ms: Keyword.fetch!(opts, :reconcile_interval) * 1000
     )
   end
 
@@ -232,10 +234,6 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
             {:hit, entry, meta}
 
-          :miss ->
-            maybe_cast_gone(opts, key.hash)
-            :miss
-
           other ->
             other
         end
@@ -250,14 +248,6 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
     case lookup_admission(opts) do
       {:ok, pid} -> Admission.hit(pid, descriptor)
-      _ -> :ok
-    end
-  end
-
-  # Another node sharing the root may have deleted an entry this node counts.
-  defp maybe_cast_gone(opts, key_hash) do
-    case lookup_admission(opts) do
-      {:ok, pid} -> Admission.gone(pid, key_hash)
       _ -> :ok
     end
   end
@@ -521,8 +511,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
       doorkeeper_cardinality: max(8192, div(max_size_bytes, 12_500)),
       doorkeeper_fpr: 0.01,
       eviction_victim_limit: 64,
-      reconcile_interval: 60,
-      rescan_interval: 300
+      reconcile_interval: 60
     ]
 
     Keyword.merge(defaults, opts)
@@ -642,12 +631,8 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
         {:ok, metadata}
 
-      :miss ->
-        maybe_cast_gone(opts, key.hash)
-        :miss
-
-      error ->
-        error
+      other ->
+        other
     end
   end
 
@@ -944,53 +929,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
       rm_tolerant(body_path)
     end
 
-    if victim.delete_meta? do
-      delete_victim_meta(victim, victim_paths)
-    end
-  end
-
-  # Another node sharing the root may have replaced the entry since this node
-  # tracked it. The metadata is taken with a rename before it's read, so only
-  # metadata naming the victim's body is deleted. Any other metadata is put
-  # back, unless something newer has been written there in the meantime.
-  defp delete_victim_meta(victim, paths) do
-    taken = temp_path(paths)
-
-    case :file.rename(paths.meta_path, taken) do
-      :ok ->
-        if names_body?(taken, victim.body_sha256),
-          do: rm_tolerant(taken),
-          else: restore_meta(taken, paths.meta_path)
-
-      {:error, :enoent} ->
-        :ok
-
-      {:error, reason} ->
-        log_delete_failure(reason)
-    end
-  end
-
-  defp names_body?(meta_path, body_sha256) do
-    case read_cache_file(meta_path, :metadata) do
-      {:ok, binary} -> match?({:ok, %{body_sha256: ^body_sha256}}, decode_metadata(binary))
-      _missing_or_unreadable -> false
-    end
-  end
-
-  defp restore_meta(taken, meta_path) do
-    case :file.make_link(taken, meta_path) do
-      :ok ->
-        rm_tolerant(taken)
-
-      {:error, :eexist} ->
-        rm_tolerant(taken)
-
-      # Without hard links there's no rename that refuses to replace a file,
-      # so this checks first. Metadata written between the check and the
-      # rename is replaced.
-      {:error, _no_links} ->
-        if File.exists?(meta_path), do: rm_tolerant(taken), else: File.rename(taken, meta_path)
-    end
+    if victim.delete_meta?, do: rm_tolerant(victim_paths.meta_path)
   end
 
   defp rm_tolerant(path) do

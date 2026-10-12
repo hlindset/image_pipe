@@ -46,7 +46,7 @@ Guides for deploying, connecting sources, caching, securing, and monitoring.
 - [Serving images from local files](serving-local-files.md): read originals from a directory.
 - [Serving images from an HTTP origin](serving-from-http.md): download originals from a web server.
 - [Serving images from S3](serving-from-s3.md): read originals from private S3-compatible buckets.
-- [Caching processed images](caching-processed-images.md): store processed images on disk and share them between replicas.
+- [Caching processed images](caching-processed-images.md): store processed images and originals on disk.
 - [Serving images through a CDN](serving-through-a-cdn.md): cache headers, source lifetimes, and CDN settings.
 - [Signing URLs and rotating keys](signing-urls.md): require signed URLs and replace keys safely.
 - [Defining presets](defining-presets.md): named sets of URL options.

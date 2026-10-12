@@ -205,21 +205,56 @@ ImagePipe must be able to write there.
 `ImagePipe.Cache.FileSystem.get/2` returns the whole body as a binary, for
 callers outside the Plug.
 
+### Cache root owner file
+
+Each `root` serves one node. When an ImagePipe instance (see
+`ImagePipe.child_spec/1`) starts, it writes a `.image-pipe-owner` file naming
+its hostname into each cache's directory (`root`, plus `path_prefix` when
+set). The instance rewrites the file every 5 seconds and deletes it when it
+stops. A node that restarts with the same hostname takes the `root` over at
+once.
+
+When the file names another hostname, the instance starts without that cache
+and checks the file every 25 seconds:
+
+- While the other node keeps rewriting the file, the instance logs an error
+  once.
+- Once the file is gone, or hasn't changed since the last check, the
+  instance takes the `root` over, reads the file back 5 seconds later, and
+  starts using the cache. If another node took the `root` at the same time,
+  the instance keeps checking.
+
+A waiting instance starts using the cache:
+
+- about 30 seconds after it starts, when it replaces a node killed with
+  `kill -9`
+- within 30 seconds of the other node stopping and deleting the file
+- within about a minute of the other node stopping without deleting the file
+
+A running node that finds its file rewritten by another node logs an error
+and runs without that cache, watching the file as a starting instance does.
+This happens when two nodes with the same hostname share a `root` (the node
+that started later keeps it), or when a node stops rewriting its file for
+about 25 to 50 seconds or more while another node waits for the `root`, as on
+a hung network mount.
+
+If the instance can't write the file, for example because `root` isn't
+writable, it logs a warning and uses the cache anyway.
+
 ### Leftover files
 
 A node that stops abruptly, for example after a crash or `kill -9`, can leave
 temporary entry files behind, links that requests used to hold originals
 open, and bodies that no metadata file names. A running node can leave them
-too, for example when a request is killed while its image is being written. ImagePipe deletes them in the background once they
-are more than an hour old, so nodes that share a `root` can clean it while
-the others keep running:
+too, for example when a request is killed while its image is being written.
+ImagePipe deletes them in the background once they are more than an hour old:
 
 - In an unbounded cache's `root`, when an ImagePipe instance starts (see
   `ImagePipe.child_spec/1`) and every 24 hours while it runs.
   `image_pipe_server` always runs an instance. An unbounded cache without an
   instance isn't cleaned.
-- In a bounded cache's `root`, after its startup scan and after each
-  [re-scan](#size-cap-and-directory-scans).
+- In a bounded cache's `root`, after its startup scan and every 24 hours
+  while the instance runs.
 - In the `image_pipe` directory under the system temporary directory
   (`TMPDIR`, or `/tmp`), where originals are staged while they download,
   when the `:image_pipe` application starts and every 24 hours after.
@@ -234,16 +269,14 @@ days by default, is deleted by the next cleanup of
 [leftover files](#leftover-files). That includes images made before an upgrade
 that changes how requests are cached.
 
-In a bounded cache, eviction removes rarely requested entries. Its startup
-scan and each re-scan delete only metadata files the cache can't read, such
-as ones written by another ImagePipe version, once they are older than
-`max_age`.
+In a bounded cache, eviction removes rarely requested entries, and the
+cleanup of [leftover files](#leftover-files) deletes only metadata files the
+cache can't read, such as ones written by another ImagePipe version, once
+they are older than `max_age`.
 
 Read times are saved to disk hourly, or four times per `max_age` when that is
 shorter. After a crash, an entry can be deleted up to that much early, and is
-made again when next requested. Nodes that share
-a `root` each save their own reads, so an entry stays while any of them reads
-it.
+made again when next requested.
 
 Only a running ImagePipe instance (see `ImagePipe.child_spec/1`) deletes
 unread entries. Without one, nothing is deleted. Behind a CDN, the cache sees
@@ -259,7 +292,7 @@ limit. The other bounded-mode options, listed in
 
 ### Cache process and restarts
 
-On each node, a bounded `root` runs one process that tracks the cache's size
+A bounded `root` runs one process that tracks the cache's size
 and chooses which entries to keep by how often each is requested. A bounded
 cache must be configured on an instance, which starts that process (see
 `ImagePipe.child_spec/1` and
@@ -269,10 +302,10 @@ Request counts live only in memory. After a restart they start from zero,
 and entries already on disk are next in line for eviction, oldest first,
 until they are requested again.
 
-### Size cap and directory scans
+### Size cap and startup scan
 
 `max_size_bytes` is a soft cap on the total size of stored bodies in the
-`root`, including bodies other nodes that share it wrote:
+`root`:
 
 - Each write either stores the new entry, evicting less valuable entries to
   make room, or rejects it. Rejected and replaced bodies are deleted from
@@ -289,13 +322,6 @@ until they are requested again.
   deletes [leftover files](#leftover-files).
 - Every `reconcile_interval` (60 seconds by default) it evicts again until
   the cache is at or under the cap.
-- Every `rescan_interval` (300 seconds by default, moved earlier or later by
-  up to a fifth at random) it lists the `root` again. It starts counting
-  entries other nodes wrote, stops counting entries they deleted, evicts
-  until the cache is at or under the cap, and deletes leftover files.
-
-A node counts what other nodes write only when it re-scans, so a shared
-`root` can exceed the cap by what all its nodes write between two re-scans.
 
 Background eviction removes entries in batches so requests can run between
 batches. Each batch removes at most `eviction_victim_limit` entries.
@@ -308,20 +334,12 @@ and stores or rejects the entry as usual.
 
 ### Bounded-mode limitations
 
-- On each node, all writes to one `root` go through one process.
 - A crash between writing a body and writing its metadata can leave a body
-  file the cache doesn't track. It doesn't count against `max_size_bytes`
-  until a startup at least an hour after the crash deletes it.
+  file the cache doesn't track. Its size isn't counted against
+  `max_size_bytes`. A cleanup of [leftover files](#leftover-files) deletes it
+  once it is more than an hour old.
 - Two writes to the same key at once both store their body. The last one
   wins, and the other body is deleted.
-- Nodes that share a `root` count entry sizes separately. When one node
-  deletes or replaces an entry, the other nodes keep counting its old size
-  until their next re-scan, or until they read, evict, delete, or rewrite
-  that entry. Until then a node's count is off by the difference, so it
-  evicts too early or too late.
-- Nodes that share a `root` and re-scan at about the same time can each
-  evict entries to remove the same excess, so the cache briefly drops below
-  the cap.
 
 The bounded-mode telemetry events are listed in
 [cache events](telemetry-events.md#cache-events).

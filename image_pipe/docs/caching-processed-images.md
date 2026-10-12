@@ -129,10 +129,10 @@ way.
 
 ## Run several replicas
 
-Replicas can share a cache volume. Give them all the same `max_size_bytes`,
-which limits the shared `root`, not each replica's share. Each replica counts
-requests on its own, and a replica that restarts keeps the cached images but
-starts counting requests again.
+Give each replica its own cache directories, such as its own volume. A
+replica that finds another replica using its `root` logs an error and runs
+without that cache until the other replica stops (see
+[cache root owner file](cache.md#cache-root-owner-file)).
 
 ## Confirm caching works
 

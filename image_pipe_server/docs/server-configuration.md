@@ -336,7 +336,6 @@ Caches on the local filesystem: `output` for processed images, `input` for origi
 | `output.doorkeeper_cardinality` | integer > 0 |  |
 | `output.eviction_victim_limit` | integer > 0 |  |
 | `output.reconcile_interval` | integer > 0 |  |
-| `output.rescan_interval` | integer > 0 |  |
 | `output.root` | string (absolute path) |  |
 | `output.window_ratio` | number |  |
 | `output.doorkeeper_fpr` | number |  |
@@ -350,7 +349,6 @@ Caches on the local filesystem: `output` for processed images, `input` for origi
 | `input.doorkeeper_cardinality` | integer > 0 |  |
 | `input.eviction_victim_limit` | integer > 0 |  |
 | `input.reconcile_interval` | integer > 0 |  |
-| `input.rescan_interval` | integer > 0 |  |
 | `input.root` | string (absolute path) |  |
 | `input.window_ratio` | number |  |
 | `input.doorkeeper_fpr` | number |  |

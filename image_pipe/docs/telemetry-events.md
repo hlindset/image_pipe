@@ -442,8 +442,7 @@ Span. Emitted each time ImagePipe checks for
 
 - For an unbounded cache, when an instance
   starts and every 24 hours after.
-- For a bounded cache, after its startup scan and after each
-  [re-scan](#cache-rescan).
+- For a bounded cache, after its startup scan and then every 24 hours.
 - For staged originals, when the `:image_pipe` application starts and every
   24 hours after.
 
@@ -463,24 +462,6 @@ The default Logger logs a check that deleted nothing at `:debug`.
     files the cache can't read. Their bodies are counted in `:bodies`.
   - For `:staging`, `:staged` (integer): how many staged originals were
     deleted.
-
-### `[:cache, :rescan]`
-
-Span. Emitted each time a bounded cache lists its `root` again to count
-entries other nodes that share it wrote or deleted (see
-[size cap and directory scans](cache.md#size-cap-and-directory-scans)). The
-span covers the eviction and the leftover-file check that follow. The default
-Logger logs a re-scan that adopted, dropped, and resynced nothing at
-`:debug`.
-
-- Start metadata: `:pool` (atom).
-- Stop metadata:
-  - `:result` (atom): `:ok`.
-  - `:adopted` (integer): entries this node started counting.
-  - `:dropped` (integer): entries whose metadata file was gone or
-    unreadable, which this node stopped counting.
-  - `:resynced` (integer): entries another node replaced, whose new size
-    this node now counts.
 
 ### `[:cache, :admission]`
 

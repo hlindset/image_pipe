@@ -110,7 +110,6 @@ defmodule ImagePipe.Instance do
     # running.
     children =
       Cache.child_specs(config.options) ++
-        Cache.startup_specs(config.options) ++
         [{Publisher, {name, config, mounts}}] ++ warmup_children(config, warmup)
 
     Supervisor.init(children, strategy: :one_for_one)

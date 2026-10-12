@@ -2,6 +2,7 @@ defmodule ImagePipe.InstanceTest do
   use ExUnit.Case, async: true
   import Plug.Test
 
+  alias ImagePipe.Cache.FileSystem.Owner
   alias ImagePipe.Test.DetectorFixtures.UnavailableDetector
   alias ImagePipe.Test.DetectorFixtures.WarmingDetector
   alias ImagePipe.Transform.Detector.Warmup
@@ -161,6 +162,15 @@ defmodule ImagePipe.InstanceTest do
       assert conn.status == 200
       assert conn.resp_body |> Image.from_binary!() |> Image.width() == 8
       assert [_ | _] = stored_bodies(ctx.cache_root)
+    end
+
+    test "serves requests without a cache whose root another node holds", ctx do
+      start_instance(ctx)
+      Owner.refuse(ctx.cache_root)
+      on_exit(fn -> Owner.accept(ctx.cache_root) end)
+
+      assert request("/w=8/format=png/src/red.png", instance: ctx.name).status == 200
+      assert stored_bodies(ctx.cache_root) == []
     end
 
     test "serves an instance without a cache", ctx do

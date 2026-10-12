@@ -3,6 +3,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
 
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
+  alias ImagePipe.Cache.FileSystem.Admission
   alias ImagePipe.Cache.FileSystem.PeriodicSweep
   alias ImagePipe.Cache.Key
 
@@ -630,20 +631,9 @@ defmodule ImagePipe.Cache.FileSystemTest do
   end
 
   describe "child_spec/1" do
-    test "returns a supervisor spec when max_size_bytes is set", %{root: root} do
-      opts = [root: root, max_size_bytes: 10_000_000]
-      assert %{id: _, start: _} = FileSystem.child_spec(opts)
-    end
-
-    test "returns nil for unbounded mode" do
-      assert FileSystem.child_spec(root: "/tmp") == nil
-    end
-
     test "an instance sweeps an unbounded pool at start and while it runs", %{root: root} do
       first = leftover(root, "a")
-      [spec] = sweep_specs(cache: [root: root])
-      pid = start_supervised!(spec)
-      _ = :sys.get_state(pid)
+      pid = start_sweep(root: root)
       refute File.exists?(first)
 
       later = leftover(root, "b")
@@ -652,14 +642,33 @@ defmodule ImagePipe.Cache.FileSystemTest do
       refute File.exists?(later)
     end
 
-    test "an instance runs no periodic sweep for a bounded pool", %{root: root} do
-      bounded = [root: root, max_size_bytes: 10_000_000]
-      assert sweep_specs(cache: bounded) == []
+    test "an instance sweeps a bounded pool while it runs, after its startup scan", %{
+      root: root
+    } do
+      pid = start_sweep(root: root, max_size_bytes: 10_000_000)
+      path = leftover(root, "a")
+      _ = :sys.get_state(pid)
+      assert File.exists?(path)
+
+      send(pid, :sweep)
+      _ = :sys.get_state(pid)
+      refute File.exists?(path)
     end
   end
 
-  defp sweep_specs(options),
-    do: Enum.filter(ImagePipe.Cache.startup_specs(options), &match?({PeriodicSweep, _}, &1))
+  # Starts the cache's processes and returns its periodic sweep once its
+  # first message, and a bounded cache's startup scan, have been handled.
+  defp start_sweep(opts) do
+    {:ok, opts} = FileSystem.validate_options(opts)
+
+    children =
+      opts |> FileSystem.child_spec() |> start_supervised!() |> Supervisor.which_children()
+
+    for {{Admission, _root}, pid, _type, _modules} <- children, do: Admission.await_scan(pid)
+    [pid] = for {_id, pid, _type, [PeriodicSweep]} <- children, do: pid
+    _ = :sys.get_state(pid)
+    pid
+  end
 
   describe "bounded mode config validation" do
     test "rejects max_size_bytes: 0" do
@@ -692,7 +701,6 @@ defmodule ImagePipe.Cache.FileSystemTest do
       assert opts[:eviction_victim_limit] == 64
       assert opts[:aging_sample_size] == 2_000_000
       assert opts[:reconcile_interval] == 60
-      assert opts[:rescan_interval] == 300
     end
 
     test "aging_sample_size does not change when sketch_width is overridden" do

@@ -101,6 +101,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   before.
 - `trim` is faster on images under a megapixel: 2 ms instead of 6.5 ms on a
   256×256 image.
+- **Breaking:** Each `root` of `cache` and `input_cache` serves one node. An
+  instance writes a `.image-pipe-owner` file into each cache's directory.
+  While another node keeps that file updated, the instance logs an error and
+  runs without that cache, and it takes the `root` over once the other node
+  stops. Give each replica its own cache directories, such as its own volume.
+  After a node is killed, a replacement with a new hostname starts using its
+  cache about 30 seconds after it starts.
 
 ### Removed
 
@@ -115,6 +122,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   delete the `.cache_state` directory under each bounded cache's `root`.
 - The `[:cache, :warm_start]`, `[:cache, :flush, :stop]`, and
   `[:cache, :cleanup, :stop]` telemetry events.
+- **Breaking:** The `rescan_interval` option of `cache` and `input_cache`, and
+  the `[:cache, :rescan]` telemetry event. Remove `rescan_interval` from your
+  configuration. A bounded cache deletes leftover files after its startup scan
+  and then every 24 hours.
 - `[:cache, :stage]` no longer reports `cache: :stage_cleanup_error`.
   Discarding a staged entry doesn't fail.
 - **Breaking:** `ImagePipe.Telemetry.Trace.LogExporter`,

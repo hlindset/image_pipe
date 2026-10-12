@@ -28,10 +28,10 @@ defmodule ImagePipe.Cache do
 
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
+  alias ImagePipe.Cache.FileSystem.Owner
   alias ImagePipe.Cache.FileSystem.PeriodicSweep
   alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.FileSystem.Sweep
-  alias ImagePipe.Cache.FileSystem.Toucher
   alias ImagePipe.Cache.Input
   alias ImagePipe.Cache.Key
   alias ImagePipe.Cache.Sink
@@ -82,33 +82,44 @@ defmodule ImagePipe.Cache do
     do: {PeriodicSweep, id: {Sweep, :staged}, sweep: {__MODULE__, :sweep_staged, []}}
 
   @doc false
-  # Upkeep an instance runs for its caches: the toucher that records reads,
-  # and periodic cleanup for unbounded caches. A bounded cache's Admission
-  # sweeps on each re-scan. A cache used without an instance gets neither.
-  @spec startup_specs(keyword()) :: [Supervisor.child_spec()]
-  def startup_specs(options) do
-    for key <- [:cache, :input_cache],
-        cache_opts = Keyword.get(options, key),
-        cache_opts != nil,
-        spec <- [Toucher.child_spec(cache_opts) | sweep_specs(cache_opts)],
-        do: spec
-  end
-
-  defp sweep_specs(cache_opts) do
-    if Keyword.has_key?(cache_opts, :max_size_bytes), do: [], else: [Store.sweep_spec(cache_opts)]
-  end
-
-  @doc false
-  # Processes the configured bounded caches need. Takes resolved
-  # configuration options.
+  # The processes an instance runs for its caches: the claim on each root,
+  # the toucher that records reads, periodic cleanup, and a bounded cache's
+  # Admission. Takes resolved configuration options.
   @spec child_specs(keyword()) :: [Supervisor.child_spec()]
   def child_specs(options) do
     for key <- [:cache, :input_cache],
         cache_opts = Keyword.get(options, key),
         cache_opts != nil,
-        spec = FileSystem.child_spec(cache_opts),
-        spec != nil,
-        do: Supervisor.child_spec(spec, [])
+        do: FileSystem.child_spec(cache_opts)
+  end
+
+  @doc false
+  # Only a supervised instance runs a bounded cache's Admission.
+  @spec needs_instance?(keyword()) :: boolean()
+  def needs_instance?(options) do
+    Enum.any?([:cache, :input_cache], fn key ->
+      Keyword.has_key?(Keyword.get(options, key) || [], :max_size_bytes)
+    end)
+  end
+
+  @doc false
+  # Removes the caches whose root another node holds, so requests run
+  # without them (see `Owner`).
+  @spec drop_refused(keyword()) :: keyword()
+  def drop_refused(options) do
+    refused = Owner.refused()
+
+    if MapSet.size(refused) == 0 do
+      options
+    else
+      Enum.reject(options, fn
+        {key, cache_opts} when key in [:cache, :input_cache] and is_list(cache_opts) ->
+          MapSet.member?(refused, Store.root_dir(cache_opts))
+
+        _other ->
+          false
+      end)
+    end
   end
 
   @doc false
