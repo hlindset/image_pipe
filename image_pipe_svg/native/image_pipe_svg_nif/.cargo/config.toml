@@ -1,0 +1,8 @@
+# musl targets statically link the CRT by default, which cannot produce the
+# cdylib a NIF needs. Disable crt-static so the precompiled (cross) builds
+# emit a dynamic library. Other targets are unaffected.
+[target.x86_64-unknown-linux-musl]
+rustflags = ["-C", "target-feature=-crt-static"]
+
+[target.aarch64-unknown-linux-musl]
+rustflags = ["-C", "target-feature=-crt-static"]

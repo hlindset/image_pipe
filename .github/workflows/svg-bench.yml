@@ -1,0 +1,61 @@
+name: SVG render budget calibration
+
+# Times image_pipe_svg's renders of pathological SVGs against its work
+# estimate, so the render budget's default can be checked on CI hardware.
+# Runs on pull requests that change the benchmark or the cost model, and by
+# hand.
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "image_pipe_svg/bench/**"
+      - "image_pipe_svg/native/image_pipe_svg_nif/src/cost.rs"
+      - ".github/workflows/svg-bench.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  calibrate:
+    name: Calibrate the render budget
+    runs-on: ubuntu-26.04
+    env:
+      # Use only the tools mise-action installs, not every tool in mise.toml.
+      MISE_EXEC_AUTO_INSTALL: "false"
+      MIX_ENV: dev
+    defaults:
+      run:
+        working-directory: image_pipe_svg
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Workaround: mise (2026.9.18) maps ImageOS to builds.hex.pm's Erlang
+      # builds only up to ubuntu24 and compiles from source otherwise, so name
+      # the release. Remove once mise maps ubuntu26 itself
+      # (linux_precompiled_os_version in src/plugins/core/erlang.rs).
+      - name: Precompiled Erlang
+        run: echo "MISE_ERLANG_PRECOMPILED_OS=${ImageOS/ubuntu/ubuntu-}.04" >> "$GITHUB_ENV"
+      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          install_args: erlang elixir rust python
+      - name: Install Hex
+        run: mise exec -- mix local.hex --force
+      - name: Install Rebar
+        run: mise exec -- mix local.rebar --force
+      - name: Install dependencies
+        run: mise exec -- mix deps.get
+      - name: Compile
+        run: mise exec -- mix compile
+      - name: Generate cases
+        run: mise exec -- python3 bench/render_budget/gen.py "$RUNNER_TEMP/cases"
+      - name: Calibrate
+        run: |
+          {
+            echo "## SVG render budget calibration"
+            echo
+            echo "Runner: $(nproc) CPUs, $(lscpu | sed -n 's/^Model name: *//p')"
+            echo
+            mise exec -- mix run bench/render_budget/calibrate.exs "$RUNNER_TEMP/cases"
+          } | tee -a "$GITHUB_STEP_SUMMARY"

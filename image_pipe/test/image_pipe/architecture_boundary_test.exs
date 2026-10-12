@@ -138,6 +138,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_deps(config, [
       ImagePipe.API,
       ImagePipe.Cache,
+      ImagePipe.Decode,
       ImagePipe.Format,
       ImagePipe.Plan,
       ImagePipe.Security,

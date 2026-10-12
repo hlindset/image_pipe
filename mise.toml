@@ -3,7 +3,7 @@ erlang = "29.1.1"
 elixir = "1.20.4-otp-29"
 node = "26.10.0"
 pnpm = "12.8.1"
-rust = "1.98.1"
+rust = { version = "1.98.1", components = "rustfmt,clippy" }
 python = "3.14.7"
 uv = "0.12.21"
 "pipx:shot-scraper" = "1.9.1"
@@ -20,6 +20,7 @@ run = [
   "cd image_pipe_url && mix deps.get",
   "cd image_pipe && mix deps.get",
   "cd image_pipe_server && mix deps.get",
+  "cd image_pipe_svg && mix deps.get",
   "cd fiddle && mix deps.get",
   "pnpm -C fiddle install --frozen-lockfile",
   "pnpm -C fiddle/assets run build",
@@ -65,6 +66,20 @@ run = [
   "mix format --check-formatted",
   "mix compile --warnings-as-errors",
   "mix test",
+]
+
+[tasks."precommit:svg"]
+description = "image_pipe_svg checks: format, compile (warnings as errors), credo, dialyzer, test, cargo fmt, clippy, cargo test"
+dir = "image_pipe_svg"
+run = [
+  "mix format --check-formatted",
+  "mix compile --warnings-as-errors",
+  "mix credo --strict",
+  "mix dialyzer",
+  "mix test",
+  "cd native/image_pipe_svg_nif && cargo fmt --check",
+  "cd native/image_pipe_svg_nif && cargo clippy --all-targets -- -D warnings",
+  "cd native/image_pipe_svg_nif && cargo test",
 ]
 
 [tasks."server:image"]

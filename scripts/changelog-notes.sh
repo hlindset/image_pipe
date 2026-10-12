@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
 # Prints a version's release notes. For the libraries, combines the
 # image_pipe_url and image_pipe changelogs, grouped by project. For the server,
-# prints its changelog's notes and the image_pipe version it releases with.
-# Fails when a changelog is missing notes for that version.
+# prints its changelog's notes and the image_pipe version it releases with. For
+# image_pipe_svg, prints its changelog's notes. Fails when a changelog is missing
+# notes for that version.
 #
-# Usage: changelog-notes.sh libraries|server VERSION
+# Usage: changelog-notes.sh libraries|server|svg VERSION
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 target="${1:-}"
 version="${2:-}"
 
-if [[ -z "$version" || ! "$target" =~ ^(libraries|server)$ ]]; then
-  echo "usage: $0 libraries|server VERSION" >&2
+if [[ -z "$version" || ! "$target" =~ ^(libraries|server|svg)$ ]]; then
+  echo "usage: $0 libraries|server|svg VERSION" >&2
   exit 1
 fi
 
@@ -47,5 +48,8 @@ case "$target" in
     pinned="$("$root/scripts/check-versions.sh" server-libraries)"
     section="$(notes image_pipe_server)"
     printf '%s\n\nBuilt with image_pipe and image_pipe_url %s.\n' "$section" "$pinned"
+    ;;
+  svg)
+    notes image_pipe_svg
     ;;
 esac

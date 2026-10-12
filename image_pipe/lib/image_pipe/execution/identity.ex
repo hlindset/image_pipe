@@ -1,7 +1,8 @@
 defmodule ImagePipe.Execution.Identity do
   # Builds representation identity from canonical request data and the
   # resolved output policy. Byte-affecting groups, terminal, output selection,
-  # and detector identity enter both the cache key and ETag. Info identity also
+  # detector identity, and SVG renderer identity enter both the cache key and
+  # ETag. Info identity also
   # carries the placeholders it includes.
   #
   # The cachebuster and configured request-header/cookie storage inputs partition
@@ -13,6 +14,7 @@ defmodule ImagePipe.Execution.Identity do
   # opacity folded into the effective opacity; host entry names do not.
   @moduledoc false
 
+  alias ImagePipe.Decode
   alias ImagePipe.Execution.Inputs
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Terminal.Blurhash
@@ -40,7 +42,7 @@ defmodule ImagePipe.Execution.Identity do
         %{request | groups: Enum.map(request.groups, &Map.from_struct/1)},
         policy,
         detector_identity
-      )
+      ) ++ Decode.svg_material(Keyword.get(config, :svg))
 
     vary_header_names =
       if varies_by_accept?(policy) do

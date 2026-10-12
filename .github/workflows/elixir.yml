@@ -14,6 +14,10 @@ on:
       - "image_pipe/config/**"
       - "image_pipe/mix.exs"
       - "image_pipe/mix.lock"
+      - "image_pipe_svg/lib/**"
+      - "image_pipe_svg/native/**"
+      - "image_pipe_svg/mix.exs"
+      - "image_pipe_svg/mix.lock"
       - "mise.toml"
       - ".github/workflows/elixir.yml"
   pull_request:

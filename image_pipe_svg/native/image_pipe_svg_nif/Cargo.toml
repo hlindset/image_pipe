@@ -1,0 +1,27 @@
+[package]
+name = "image_pipe_svg_nif"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97.1"
+publish = false
+
+[lib]
+name = "image_pipe_svg_nif"
+crate-type = ["cdylib"]
+
+[dependencies]
+rustler = { version = "0.38.0", default-features = false, features = ["derive"] }
+resvg = { version = "=0.48.1", default-features = false, features = ["text", "raster-images"] }
+imagesize = "0.13"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
+
+[features]
+default = ["nif_version_2_15"]
+nif_version_2_15 = ["rustler/nif_version_2_15"]
+nif_version_2_16 = ["rustler/nif_version_2_16"]
+nif_version_2_17 = ["rustler/nif_version_2_17"]
+
+[dev-dependencies]
+proptest = "1"

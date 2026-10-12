@@ -35,6 +35,7 @@ defmodule ImagePipe.MixProject do
       "docs/signing-urls.md",
       "docs/defining-presets.md",
       "docs/enabling-detection.md",
+      "docs/serving-svg-images.md",
       "docs/processing-controls.md",
       "docs/choosing-an-autoquality-target.md",
       "docs/telemetry.md",
@@ -220,6 +221,7 @@ defmodule ImagePipe.MixProject do
   defp deps do
     base = [
       image_pipe_url_dep(),
+      image_pipe_svg_dep(),
       {:plug, "~> 1.18"},
       {:mime, "~> 2.0"},
       {:telemetry, "~> 1.0"},
@@ -244,6 +246,10 @@ defmodule ImagePipe.MixProject do
       # 0.9. The override only matters where makeup_syntect is present, but its
       # `only:` applies to ssimulacra2's copy too, so it must cover those envs.
       {:rustler_precompiled, "~> 0.9", only: [:dev, :test], override: true},
+      # Builds image_pipe_svg's NIF from source (config/config.exs). Overrides
+      # makeup_syntect's ~> 0.37.1, which it doesn't use: it downloads
+      # precompiled NIFs.
+      {:rustler, "~> 0.38.0", only: [:dev, :test], runtime: false, override: true},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
       {:ex_dna, "~> 1.5", only: [:dev, :test], runtime: false},
@@ -281,6 +287,17 @@ defmodule ImagePipe.MixProject do
       {:image_pipe_url, "== #{@version}"}
     else
       {:image_pipe_url, path: "../image_pipe_url"}
+    end
+  end
+
+  # Optional SVG source support, which renders SVGs through a precompiled
+  # NIF. Development and CI use the sibling project and build its NIF from
+  # source (config/config.exs).
+  defp image_pipe_svg_dep do
+    if System.get_env("IMAGE_PIPE_PUBLISH") in ["1", "true"] do
+      {:image_pipe_svg, "~> 0.1.0", optional: true}
+    else
+      {:image_pipe_svg, path: "../image_pipe_svg", optional: true}
     end
   end
 

@@ -41,6 +41,10 @@ defmodule ImagePipeFiddle.MixProject do
   defp deps do
     [
       {:image_pipe, path: "../image_pipe"},
+      # Renders SVG originals; the sibling project builds its NIF from source
+      # (config/config.exs), which needs rustler.
+      {:image_pipe_svg, path: "../image_pipe_svg"},
+      {:rustler, "~> 0.38.0", runtime: false, override: true},
       {:image_vision, "~> 0.4"},
       {:ortex, "~> 0.1"},
       {:phoenix, "~> 1.8.7"},

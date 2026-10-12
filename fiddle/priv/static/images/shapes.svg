@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="640" viewBox="0 0 960 640">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1e3a8a"/>
+      <stop offset="1" stop-color="#f97316"/>
+    </linearGradient>
+    <radialGradient id="sun" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fef3c7"/>
+      <stop offset="1" stop-color="#fbbf24"/>
+    </radialGradient>
+  </defs>
+  <rect width="960" height="640" fill="url(#sky)"/>
+  <circle cx="680" cy="250" r="110" fill="url(#sun)"/>
+  <path d="M0 520 L220 300 L380 460 L560 260 L960 560 L960 640 L0 640 Z" fill="#14532d"/>
+  <path d="M0 580 L300 420 L520 560 L760 440 L960 600 L960 640 L0 640 Z" fill="#166534" opacity="0.9"/>
+  <g fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round">
+    <path d="M140 140 q20 -20 40 0 q20 -20 40 0"/>
+    <path d="M260 100 q16 -16 32 0 q16 -16 32 0"/>
+  </g>
+</svg>

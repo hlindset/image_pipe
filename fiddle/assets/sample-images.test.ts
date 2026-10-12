@@ -10,7 +10,7 @@ describe("sample image virtual module", () => {
     );
 
     for (const image of sampleImages) {
-      expect(image.path).toMatch(/^images\/.+\.(avif|jpe?g|png|webp)$/);
+      expect(image.path).toMatch(/^images\/.+\.(avif|jpe?g|png|svg|webp)$/);
       expect(image.label).toBe(image.path.replace(/^images\//, ""));
       expect(image.width).toBeGreaterThan(0);
       expect(image.height).toBeGreaterThan(0);
@@ -36,6 +36,12 @@ describe("sample image virtual module", () => {
         height: 512,
       });
     }
+    expect(sampleImages).toContainEqual({
+      path: "images/shapes.svg",
+      label: "shapes.svg",
+      width: 960,
+      height: 640,
+    });
     expect(sampleImages.map((image) => image.path)).not.toContain("images/waterfall.jpg");
   });
 });

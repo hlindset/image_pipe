@@ -603,6 +603,33 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
     assert open.attributes[:access] == "sequential"
   end
 
+  test "nests an SVG render under the fetch_decode span with its sizes and cost" do
+    Telemetry.span([], [:source, :fetch_decode], %{}, fn ->
+      Telemetry.span([], [:source, :svg_render], %{asset: :original}, fn ->
+        {:ok,
+         %{
+           result: :ok,
+           intrinsic_dims: {40, 20},
+           rendered_dims: {400, 200},
+           work: 81_000,
+           peak: 80_000,
+           images: 0,
+           image_pixels: 0
+         }}
+      end)
+
+      {:ok, %{result: :ok}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.source.svg_render"} = render}
+    assert_receive {:span, %Span{name: "image_pipe.source.fetch_decode"} = decode}
+    assert render.parent_span_id == decode.span_id
+    assert render.attributes[:asset] == "original"
+    assert render.attributes[:rendered_dims] == "{400, 200}"
+    assert render.attributes[:work] == 81_000
+    assert render.attributes[:peak] == 80_000
+  end
+
   test "nests the ssimulacra2 probe cost legs (encode/decode/metric) under the probe span" do
     Telemetry.span([], [:encode, :search, :probe], %{quality: 62, phase: :objective}, fn ->
       Telemetry.span([], [:encode, :search, :probe, :encode], %{quality: 62}, fn ->

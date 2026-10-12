@@ -305,6 +305,19 @@ defmodule ImagePipe.Telemetry.Logger do
   defp message([:source, :watermark | _], _m, meta),
     do: "image_pipe source watermark #{meta[:phase]}: #{outcome(meta)}"
 
+  defp message([:source, :svg_render | _], _m, %{rendered_dims: {width, height}} = meta) do
+    {intrinsic_width, intrinsic_height} = meta[:intrinsic_dims]
+
+    "image_pipe source svg_render: #{result(meta)} (#{meta[:asset]} " <>
+      "#{intrinsic_width}x#{intrinsic_height} rendered at #{width}x#{height}, " <>
+      "#{meta[:images]} images)"
+  end
+
+  defp message([:source, :svg_render | _], _m, meta) do
+    notes = Enum.reject([meta[:asset], error_category(meta), limit_note(meta)], &is_nil/1)
+    "image_pipe source svg_render: #{result(meta)} (#{Enum.join(notes, ", ")})"
+  end
+
   defp message([:source, :fetch_decode | _], _m, meta) do
     notes =
       Enum.reject(

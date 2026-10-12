@@ -5,12 +5,15 @@
 major.minor version and releases its patch versions on its own, so a server
 fix ships new images without a Hex release. `scripts/check-versions.sh`, run
 by `mise run precommit`, fails when the versions break these rules.
+`image_pipe_svg` has its own version and release cadence, since each release
+rebuilds its precompiled NIFs.
 
 Each project keeps its own release notes:
 
 - [ImagePipe](image_pipe/CHANGELOG.md): processing, sources, and library APIs.
 - [ImagePipe URL](image_pipe_url/CHANGELOG.md): plans, URL generation, and signing.
 - [ImagePipe server](image_pipe_server/CHANGELOG.md): service configuration and deployment.
+- [ImagePipe SVG](image_pipe_svg/CHANGELOG.md): SVG rendering.
 
 ## Update the changelogs
 
@@ -30,7 +33,8 @@ To release a version, move the `Unreleased` notes under
 categories with entries. Add a version link to the comparison with the
 previous release, or to the tag for the first release. Update the
 `Unreleased` link to compare the new tag with `HEAD`. Library links use
-`vX.Y.Z` tags, and server links use `image_pipe_server-vX.Y.Z` tags.
+`vX.Y.Z` tags, server links use `image_pipe_server-vX.Y.Z` tags, and SVG
+package links use `image_pipe_svg-vX.Y.Z` tags.
 
 ## Release the libraries
 
@@ -46,6 +50,11 @@ previous release, or to the tag for the first release. Update the
    git tag vX.Y.Z
    git push origin vX.Y.Z
    ```
+
+`image_pipe` depends on `image_pipe_svg`, which releases on its own, so a
+version matching `image_pipe`'s requirement must already be on Hex. Otherwise
+the release stops before publishing `image_pipe`. See
+[Release the SVG package](#release-the-svg-package).
 
 The tag starts the [Library release workflow](.github/workflows/release.yml):
 
@@ -104,6 +113,38 @@ A failure or an unapproved run before step 4 leaves only untagged images. GHCR c
 the package private on its first push. Make it public once in the package
 settings.
 
+## Release the SVG package
+
+1. Set `@version` in `image_pipe_svg/mix.exs`,
+   [update its changelog](#update-the-changelogs), and merge to `main`.
+   When the release changes how an SVG renders, other than by upgrading
+   resvg, also raise `@render_revision` in
+   `image_pipe_svg/lib/image_pipe/svg.ex`, so cached renders miss. When it
+   changes the parsing code or upgrades resvg, run each fuzz target for 20
+   minutes first, and fix what they find
+   ([fuzzing the SVG parser](image_pipe_svg/native/image_pipe_svg_nif/fuzz/README.md)).
+2. Tag the merge commit and push the tag:
+
+   ```sh
+   git tag image_pipe_svg-vX.Y.Z
+   git push origin image_pipe_svg-vX.Y.Z
+   ```
+
+The tag starts the [SVG package release workflow](.github/workflows/release-svg.yml):
+
+1. It checks that the tag matches the package version, is on `main`, and has
+   notes in the changelog.
+2. It builds the NIF for every target and NIF version.
+3. It creates the GitHub release from the changelog, with the NIFs attached.
+   The published package downloads them from there.
+4. It downloads the NIFs' checksums and publishes `image_pipe_svg` to Hex in
+   the `release` environment.
+
+When `image_pipe` needs the new version, raise its `image_pipe_svg`
+requirement in a library release. Library and server releases resolve
+`image_pipe_svg` from Hex, so a version matching their requirements must be on
+Hex before either is released.
+
 ## Release a new minor version
 
 1. Set all three `@version` values and `@image_pipe_version` to `X.Y.0`,
@@ -124,10 +165,11 @@ withdraws a library version.
 
 ## Try a release without publishing
 
-Run either release workflow by hand from any branch. Neither publishes
-anything.
+Run any release workflow by hand from any branch. None publishes anything.
 
 - The Library release workflow builds and checks the Hex packages.
+- The SVG package release workflow builds every NIF. It also runs on each
+  pull request that changes the NIF crate.
 - The Server release workflow tests, builds, and smoke-tests every image.
   It builds against Hex when `@image_pipe_version` is published there, and
   against the sibling projects otherwise. The run summary says which. A run
@@ -140,9 +182,10 @@ mise run release:hex --dry-run
 ```
 
 A dry run builds both packages and their docs, failing on documentation
-warnings, without publishing. Until `image_pipe_url` at the new version is on
-Hex, `image_pipe` can't resolve it, so its check stops just short of that one
-dependency.
+warnings, without publishing. Until `image_pipe_url` at the new version and a
+matching `image_pipe_svg` are on Hex, `image_pipe` can't resolve them, so its
+check builds from the sibling projects and stops just short of those
+dependencies.
 
 Build the server against the Hex libraries locally by setting
 `IMAGE_PIPE_LIBS=hex`, for `mix` in `image_pipe_server/` or as a Docker build

@@ -12,6 +12,7 @@ defmodule ImagePipe.Config do
     deps: [
       ImagePipe.API,
       ImagePipe.Cache,
+      ImagePipe.Decode,
       ImagePipe.Format,
       ImagePipe.Plan,
       ImagePipe.Security,
@@ -24,6 +25,7 @@ defmodule ImagePipe.Config do
 
   alias ImagePipe.API.Presets
   alias ImagePipe.Cache
+  alias ImagePipe.Decode
   alias ImagePipe.Format
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
   alias ImagePipe.Security
@@ -99,6 +101,62 @@ defmodule ImagePipe.Config do
       Maximum frames or pages an original may declare. An original with \
       more fails the request.
       """
+    ],
+    svg: [
+      type: :keyword_list,
+      default: [],
+      doc: """
+      How SVG originals render. Rendering needs the optional \
+      `image_pipe_svg` package; without it, SVG originals fail with `415` \
+      and setting this option raises.
+      """,
+      keys: [
+        font_dirs: [
+          type: {:list, :string},
+          default: [],
+          doc: """
+          Directories searched, with their subdirectories, for the TrueType \
+          and OpenType fonts (`.ttf`, `.otf`, `.ttc`, `.otc`) that SVG text \
+          renders in. System fonts are never used, so without fonts SVG text \
+          isn't drawn. A directory that doesn't exist, or a file that isn't a \
+          valid font, raises.
+          """
+        ],
+        fallback_family: [
+          type: :string,
+          doc: """
+          Font family that text renders in when the SVG names a family that \
+          isn't loaded, or a generic one such as `sans-serif`. Must be one \
+          of the fonts in `:font_dirs`. Without it, that text isn't drawn.
+          """
+        ],
+        max_bytes: [
+          type: :pos_integer,
+          default: 10_000_000,
+          doc: "Maximum size of an SVG original, in bytes. A larger one fails the request."
+        ],
+        max_render_work: [
+          type: :pos_integer,
+          default: 100_000_000,
+          doc: """
+          Maximum estimated work to render an SVG: the pixels its layers, \
+          masks, filters, and images process, weighted by how slow each is. \
+          The default allows about a second of rendering. A heavier SVG \
+          fails the request before it renders.
+          """
+        ],
+        max_render_pixels: [
+          type: :pos_integer,
+          doc: """
+          Maximum pixels, at 4 bytes each, of an SVG's images held at once \
+          while it renders: the canvas, plus a layer for each group with \
+          opacity, a filter, a clip path, or a mask. Defaults to four times \
+          `:max_input_pixels`, a canvas of the largest size allowed and \
+          three layers, which with the default `:max_input_pixels` is about \
+          640 MB. An SVG that needs more fails the request before it renders.
+          """
+        ]
+      ]
     ],
     max_result_width: [
       type: :pos_integer,
@@ -203,8 +261,9 @@ defmodule ImagePipe.Config do
       Keep high bit depth in output formats that support it.
       """
     ],
+    # An SVG served unchanged would reach browsers unsanitized.
     skip_processing_formats: [
-      type: {:list, {:in, Format.source_formats()}},
+      type: {:list, {:in, Format.source_formats() -- [:svg]}},
       type_doc: "list of `t:atom/0`",
       default: [],
       doc: """
@@ -427,6 +486,14 @@ defmodule ImagePipe.Config do
 
         resolved =
           validated
+          |> Keyword.update!(
+            :svg,
+            &Decode.svg_config!(
+              &1,
+              Keyword.has_key?(options, :svg),
+              Keyword.fetch!(validated, :max_input_pixels)
+            )
+          )
           |> processing!()
           |> Keyword.merge(url.options)
           |> Keyword.merge(presets)

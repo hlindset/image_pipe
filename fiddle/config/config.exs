@@ -7,6 +7,10 @@
 # General application configuration
 import Config
 
+# The sibling image_pipe_svg project has no released precompiled NIF to
+# download yet, so build it from source.
+config :rustler_precompiled, :force_build, image_pipe_svg: true
+
 config :image_pipe_fiddle,
   generators: [timestamp_type: :utc_datetime],
   loopback_http_source: false

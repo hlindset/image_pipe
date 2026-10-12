@@ -38,7 +38,10 @@ defmodule ImagePipe.Decode do
   alias Vix.Vips.Image, as: VipsImage
 
   @peek_bytes 32 * 1024
-  @reject_families [:bmp, :ico, :svg, :avif_sequence, :unknown]
+  # SVG decodes only with the optional image_pipe_svg package installed.
+  @svg_available Code.ensure_loaded?(ImagePipe.SVG)
+  @reject_families [:bmp, :ico, :avif_sequence, :unknown] ++
+                     if(@svg_available, do: [], else: [:svg])
 
   @type error() ::
           {:source, term()}
@@ -50,6 +53,39 @@ defmodule ImagePipe.Decode do
 
   @typedoc "A fetched source body that every decode can reopen."
   @type seekable() :: {:path, Path.t()} | {:buffer, binary()}
+
+  @doc """
+  Resolves the validated `svg` configuration options: loads the fonts and fills
+  in the defaults that depend on other options.
+
+  Returns `nil` without the `image_pipe_svg` package, and raises when `given?`
+  says the host set SVG options that nothing would use.
+  """
+  @spec svg_config!(keyword(), boolean(), pos_integer()) :: map() | nil
+  if @svg_available do
+    def svg_config!(options, _given?, max_input_pixels),
+      do: ImagePipe.Decode.SVG.config!(options, max_input_pixels)
+  else
+    def svg_config!(_options, false, _max_input_pixels), do: nil
+
+    def svg_config!(_options, true, _max_input_pixels) do
+      raise ArgumentError,
+            "invalid ImagePipe configuration: svg needs the optional image_pipe_svg " <>
+              "package; add it to your dependencies"
+    end
+  end
+
+  @doc """
+  Cache key and ETag material for the resolved `svg` configuration: what can
+  change how the same SVG renders. Whether a source is an SVG isn't known
+  before the fetch, so with SVG support every key and ETag carries it.
+  """
+  @spec svg_material(map() | nil) :: keyword()
+  def svg_material(nil), do: []
+
+  if @svg_available do
+    def svg_material(config), do: [svg: ImagePipe.Decode.SVG.identity(config)]
+  end
 
   @doc "Returns whether a JPEG or PNG prefix opens successfully with the matching decoder."
   defdelegate streamable_source?(prefix), to: Streaming, as: :eligible?
@@ -151,21 +187,43 @@ defmodule ImagePipe.Decode do
     end)
   end
 
+  @typedoc """
+  A decoded watermark asset: a raster image, or a vector image with its
+  intrinsic size and a function that renders it at a given size.
+  """
+  @type watermark_asset() ::
+          %{image: VipsImage.t()}
+          | %{
+              dims: {pos_integer(), pos_integer()},
+              render: (pos_integer(), pos_integer() -> {:ok, VipsImage.t()} | {:error, error()})
+            }
+
   @doc """
-  Decodes a watermark asset's bytes into its default image in display
-  orientation.
+  Decodes a watermark asset's bytes. A raster asset decodes into its default
+  image in display orientation. An SVG asset parses once and renders later,
+  at the size the watermark is drawn.
 
   Applies the same family allowlist, frame limit, and per-frame pixel limit as
   `with_image/4`. Failures are `{:decode, _}` or `{:input_limit, _}`.
   """
-  @spec watermark(binary(), keyword()) :: {:ok, VipsImage.t()} | {:error, error()}
+  @spec watermark(binary(), keyword()) :: {:ok, watermark_asset()} | {:error, error()}
   def watermark(bytes, opts) when is_binary(bytes) do
     input = {:buffer, bytes}
 
     with {:ok, peek} <- peek_bytes(input) |> wrap_decode_error(),
          detected = Detector.detect(peek),
-         :ok <- gate_detected(detected) |> wrap_decode_error(),
-         :ok <- validate_header_pixels(peek, opts) |> wrap_input_limit_error(),
+         :ok <- gate_detected(detected) |> wrap_decode_error() do
+      watermark_detected(detected, input, peek, opts)
+    end
+  end
+
+  if @svg_available do
+    defp watermark_detected(:svg, {:buffer, bytes}, _peek, opts),
+      do: ImagePipe.Decode.SVG.watermark(bytes, opts)
+  end
+
+  defp watermark_detected(detected, input, peek, opts) do
+    with :ok <- validate_header_pixels(peek, opts) |> wrap_input_limit_error(),
          :ok <- validate_container_frames(peek, input, opts),
          {:ok, image} <-
            open_seekable_input(input, [access: :random, fail_on: :error], opts)
@@ -177,7 +235,7 @@ defmodule ImagePipe.Decode do
            validate_pixels({Image.width(image), Image.height(image)}, 1, opts)
            |> wrap_input_limit_error() do
       case Image.autorotate(image) do
-        {:ok, {image, _flags}} -> {:ok, image}
+        {:ok, {image, _flags}} -> {:ok, %{image: image}}
         error -> wrap_decode_error(error)
       end
     end
@@ -202,8 +260,18 @@ defmodule ImagePipe.Decode do
          {:ok, peek} <- peek_bytes(input) |> wrap_decode_error(),
          detected = Detector.detect(peek),
          :ok <- check_skip(detected, skip_formats, input),
-         :ok <- gate_detected(detected) |> wrap_decode_error(),
-         :ok <- validate_header_pixels(peek, opts) |> wrap_input_limit_error(),
+         :ok <- gate_detected(detected) |> wrap_decode_error() do
+      decode_detected(detected, input, peek, request, opts, auto_rotate?)
+    end
+  end
+
+  if @svg_available do
+    defp decode_detected(:svg, input, _peek, request, opts, _auto_rotate?),
+      do: ImagePipe.Decode.SVG.decode(input, request, opts)
+  end
+
+  defp decode_detected(detected, input, peek, request, opts, auto_rotate?) do
+    with :ok <- validate_header_pixels(peek, opts) |> wrap_input_limit_error(),
          :ok <- validate_container_frames(peek, input, opts),
          :ok <- verify_file_loader(detected, input) |> wrap_decode_error(),
          {:ok, header_image} <-

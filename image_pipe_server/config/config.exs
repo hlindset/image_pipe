@@ -12,4 +12,9 @@ config :opentelemetry,
 
 config :logger, :default_formatter, metadata: [:request_id]
 
+# The sibling image_pipe_svg project builds its NIF from source; the Hex
+# package downloads the precompiled one.
+config :rustler_precompiled, :force_build,
+  image_pipe_svg: System.get_env("IMAGE_PIPE_LIBS") != "hex"
+
 import_config "#{config_env()}.exs"

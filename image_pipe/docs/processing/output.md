@@ -21,7 +21,9 @@ With `format`, the response is always that format. Without it:
   unless the server's configuration changes the order or turns either
   format off, or the server can't encode it.
 - Otherwise JPEG and PNG originals keep their format, and any other original
-  becomes PNG if the result has transparency, JPEG if not.
+  becomes PNG if the result has transparency, JPEG if not. An SVG original
+  has transparency, so it becomes PNG unless an opaque [`bg`](resize.md#bg)
+  fills it.
 - The response carries `Vary: Accept`, because the same URL can return
   different formats. If the server can't return AVIF or WebP, the response
   has no `Vary: Accept`.

@@ -7,6 +7,22 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- SVG sources, when the optional `image_pipe_svg` package is installed.
+  An SVG renders straight at the size the request needs, so it stays sharp
+  at any size, and a resize can make it larger than its own `width` and
+  `height` without `enlarge`, up to the input pixel limit, past which the
+  rendered image is enlarged. Regions and crops in pixels measure the SVG at
+  its own size. With no `format` and no negotiated format, the result is a
+  PNG. Watermark images can be SVGs too, and render at the size they're
+  drawn. Without `image_pipe_svg`, SVG sources still fail with `415`.
+- The `:svg` option configures SVG sources: `:font_dirs` and
+  `:fallback_family` for the fonts SVG text renders in (no system fonts are
+  used), and `:max_bytes`, `:max_render_work`, and `:max_render_pixels` to
+  limit the work an SVG can cause.
+- A `[:source, :svg_render]` span wraps rendering an SVG original or
+  watermark, with its intrinsic and rendered sizes and the estimated work,
+  and names the limit that rejected an SVG. The default Logger logs it.
+
 - Without `max_size_bytes`, `cache` and `input_cache` delete entries nobody has
   read for `max_age` seconds, 7 days by default, so images that are no longer
   requested don't stay on disk. Set `max_age: nil` to keep them. Only a running
@@ -29,6 +45,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- With `image_pipe_svg` installed, cache keys and ETags include the resvg
+  version, the fonts, and the fallback family, so every cached image misses
+  once after installing it, and again after changing the fonts or fallback
+  family, or upgrading `image_pipe_svg` to a version that renders SVGs
+  differently.
 - **Breaking:** An HTTP source's `allowed_hosts` entry without a port allows
   only the scheme's default port, 80 or 443, including for redirect targets.
   Before, any port on a listed host was reachable. Add an entry with the port,

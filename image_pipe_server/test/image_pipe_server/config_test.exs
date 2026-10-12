@@ -98,6 +98,25 @@ defmodule ImagePipeServer.ConfigTest do
       assert processing[:source_cache_policy] == [freshness: :origin]
     end
 
+    test "converts [processing.svg]" do
+      processing =
+        Config.options!(%{
+          "processing" => %{
+            "svg" => %{
+              "font_dirs" => {:env, "/fonts,/more-fonts"},
+              "fallback_family" => "Noto Sans",
+              "max_render_work" => 1_000_000
+            }
+          }
+        })[:processing]
+
+      assert processing[:svg] == [
+               fallback_family: "Noto Sans",
+               font_dirs: ["/fonts", "/more-fonts"],
+               max_render_work: 1_000_000
+             ]
+    end
+
     test "keeps Elixir-only processing settings out of the file" do
       for key <- ["clock", "preset_lookup", "max_preset_lookups"] do
         assert error(fn -> Config.options!(%{"processing" => %{key => 1}}) end) =~
@@ -297,6 +316,12 @@ defmodule ImagePipeServer.ConfigTest do
                Config.build!(Config.options!(%{"processing" => %{"quality" => 500}}))
              end) =~
                "quality"
+    end
+
+    test "reports an SVG fallback family that isn't among the fonts" do
+      options = %{"processing" => %{"svg" => %{"fallback_family" => "Noto Sans"}}}
+
+      assert error(fn -> Config.build!(Config.options!(options)) end) =~ "Noto Sans"
     end
 
     test "keeps only a hash of the auth token" do

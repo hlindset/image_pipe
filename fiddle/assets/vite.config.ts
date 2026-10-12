@@ -10,7 +10,7 @@ import { transformWithOxc, type Plugin } from "vite";
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const sampleImagesModuleId = "virtual:sample-images";
 const resolvedSampleImagesModuleId = `\0${sampleImagesModuleId}.ts`;
-const sampleImageExtensions = new Set([".avif", ".jpeg", ".jpg", ".png", ".webp"]);
+const sampleImageExtensions = new Set([".avif", ".jpeg", ".jpg", ".png", ".svg", ".webp"]);
 const maxFiddleOriginBytes = 10_000_000;
 const maxFiddleInputPixels = 40_000_000;
 

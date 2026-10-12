@@ -1,10 +1,15 @@
 # Publishes image_pipe_url and then image_pipe to Hex at their shared version.
 # A version already on Hex is skipped, so a failed release can be rerun.
 #
+# image_pipe also depends on image_pipe_svg, released on its own, so an
+# image_pipe_svg release matching image_pipe's requirement must already be on
+# Hex.
+#
 # With --dry-run, builds and checks both packages without publishing. While
-# image_pipe_url's version isn't on Hex yet, image_pipe can't resolve it, so
-# the dry run builds image_pipe's docs and package and accepts only the error
-# for that missing dependency.
+# image_pipe_url's version or a matching image_pipe_svg isn't on Hex yet,
+# image_pipe can't resolve it, so the dry run builds image_pipe's docs and
+# package from the sibling projects and accepts only the error for those path
+# dependencies.
 #
 # Usage: mise run release:hex [--dry-run]
 
@@ -12,7 +17,7 @@ Mix.install([{:req, "~> 0.8.0-rc.0"}])
 
 defmodule ReleaseHex do
   @root Path.expand("..", __DIR__)
-  @missing_url_dep "Dependencies excluded from the package (only Hex packages can be dependencies): image_pipe_url"
+  @path_deps_excluded "Dependencies excluded from the package (only Hex packages can be dependencies): image_pipe_url, image_pipe_svg"
 
   def main(args) do
     dry_run? =
@@ -37,11 +42,19 @@ defmodule ReleaseHex do
         published?("image_pipe", version) ->
           :ok
 
+        not svg_published?() and not dry_run? ->
+          Mix.raise(
+            "image_pipe needs image_pipe_svg #{svg_requirement()} on Hex; release image_pipe_svg first (RELEASING.md)"
+          )
+
+        not svg_published?() ->
+          check_image_pipe_from_siblings(version)
+
         not dry_run? or published?("image_pipe_url", version) ->
           publish_image_pipe(dry_run?)
 
         true ->
-          check_image_pipe_without_url(version)
+          check_image_pipe_from_siblings(version)
       end
     end)
   end
@@ -72,6 +85,30 @@ defmodule ReleaseHex do
     end
   end
 
+  # The image_pipe_svg requirement image_pipe publishes with.
+  defp svg_requirement do
+    mix_exs = File.read!(Path.join([@root, "image_pipe", "mix.exs"]))
+
+    case Regex.run(~r/\{:image_pipe_svg, "([^"]+)", optional: true\}/, mix_exs) do
+      [_, requirement] -> requirement
+      nil -> Mix.raise("image_pipe/mix.exs has no Hex requirement for image_pipe_svg")
+    end
+  end
+
+  defp svg_published? do
+    case Req.get!("https://hex.pm/api/packages/image_pipe_svg") do
+      %{status: 200, body: %{"releases" => releases}} ->
+        requirement = Version.parse_requirement!(svg_requirement())
+        Enum.any?(releases, &Version.match?(&1["version"], requirement))
+
+      %{status: 404} ->
+        false
+
+      %{status: status} ->
+        Mix.raise("hex.pm returned #{status} for image_pipe_svg")
+    end
+  end
+
   # Switching to the Hex dependency rewrites mix.lock; restore it afterwards.
   defp publish_image_pipe(dry_run?) do
     lock = Path.join([@root, "image_pipe", "mix.lock"])
@@ -87,7 +124,7 @@ defmodule ReleaseHex do
     end
   end
 
-  defp check_image_pipe_without_url(version) do
+  defp check_image_pipe_from_siblings(version) do
     mix!("image_pipe", ["deps.get"])
     mix!("image_pipe", ["docs", "--warnings-as-errors"])
 
@@ -100,15 +137,17 @@ defmodule ReleaseHex do
            ) do
         {output, 0} ->
           IO.puts(output)
-          Mix.raise("expected the build to stop on the unpublished image_pipe_url")
+          Mix.raise("expected the build to stop on the path dependencies")
 
         {output, _status} ->
-          if build_errors(output) != [@missing_url_dep] do
+          if build_errors(output) != [@path_deps_excluded] do
             IO.puts(output)
             Mix.raise("image_pipe package build failed")
           end
 
-          IO.puts("image_pipe package is valid apart from the unpublished image_pipe_url #{version}")
+          IO.puts(
+            "image_pipe #{version} package is valid apart from the unpublished image_pipe_url or image_pipe_svg"
+          )
       end
     after
       File.rm(tmp)
