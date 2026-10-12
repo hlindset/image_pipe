@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -9,6 +9,10 @@ use crate::entities;
 
 /// Nested `data:image/svg+xml` images may go this many levels deep.
 const MAX_NESTING: u32 = 2;
+
+/// Elements may nest this deep, as usvg allows. roxmltree recurses once per
+/// level with no limit of its own, so deeper nesting would overflow the stack.
+const MAX_DEPTH: usize = 1024;
 
 const XLINK_NS: &str = "http://www.w3.org/1999/xlink";
 
@@ -76,10 +80,10 @@ pub fn parse(
     limits: &Limits,
 ) -> Result<usvg::Tree, Error> {
     let text = std::str::from_utf8(data).map_err(|_| Error::Parse("not UTF-8".into()))?;
-    let (doc, _usage) = checked_document(text, limits)?;
+    let (doc, usage) = checked_document(text, limits)?;
 
     let violation = Arc::new(Mutex::new(None));
-    let options = options(fontdb, *limits, violation.clone());
+    let options = options(fontdb, *limits, usage, violation.clone());
     let tree = usvg::Tree::from_xmltree(&doc, &options);
 
     if let Some(error) = violation.lock().unwrap().take() {
@@ -95,10 +99,17 @@ fn checked_document<'input>(
     text: &'input str,
     limits: &Limits,
 ) -> Result<(roxmltree::Document<'input>, Usage), Error> {
-    let expansion = entities::expanded_size(text);
+    let entities = entities::scan(text);
+    if entities.markup {
+        return Err(Error::Parse(
+            "entities containing markup aren't supported".into(),
+        ));
+    }
+    let expansion = entities.expansion;
     if expansion > limits.max_entity_expansion {
         return Err(Error::EntityExpansion(expansion));
     }
+    check_depth(text)?;
 
     let xml_opt = roxmltree::ParsingOptions {
         allow_dtd: true,
@@ -108,22 +119,20 @@ fn checked_document<'input>(
     let doc = roxmltree::Document::parse_with_options(text, xml_opt)
         .map_err(|error| Error::Parse(error.to_string()))?;
 
-    let elements = expanded_elements(&doc);
-    if elements > limits.max_elements {
-        return Err(Error::TooManyElements(elements));
+    let expanded = expand(&doc);
+    if expanded.elements > limits.max_elements {
+        return Err(Error::TooManyElements(expanded.elements));
     }
-
-    let text = text_bytes(&doc);
-    if text.largest > limits.max_text_per_element {
-        return Err(Error::TooMuchText(text.largest));
+    if expanded.largest_text > limits.max_text_per_element {
+        return Err(Error::TooMuchText(expanded.largest_text));
     }
-    if text.total > limits.max_text {
-        return Err(Error::TooMuchText(text.total));
+    if expanded.text > limits.max_text {
+        return Err(Error::TooMuchText(expanded.text));
     }
     let usage = Usage {
-        elements,
+        elements: expanded.elements,
         expansion,
-        text: text.total,
+        text: expanded.text,
     };
     Ok((doc, usage))
 }
@@ -131,12 +140,13 @@ fn checked_document<'input>(
 fn options(
     fontdb: Arc<usvg::fontdb::Database>,
     limits: Limits,
+    outer: Usage,
     violation: Arc<Mutex<Option<Error>>>,
 ) -> Options<'static> {
     let depth = Arc::new(AtomicU32::new(0));
-    // Embedded SVGs share one set of limits, since usvg parses an image again
-    // for each `<use>` copy of it.
-    let nested = Arc::new(Mutex::new(Usage::default()));
+    // Embedded SVGs share the outer document's limits, since usvg parses an
+    // image again for each `<use>` copy of it.
+    let nested = Arc::new(Mutex::new(outer));
 
     let resolve_data = move |mime: &str, data: Arc<Vec<u8>>, opts: &Options| {
         if data.starts_with(&[0x1f, 0x8b]) {
@@ -230,121 +240,348 @@ fn record(violation: &Mutex<Option<Error>>, error: Error) {
     violation.lock().unwrap().get_or_insert(error);
 }
 
-/// Counts elements as usvg will after copying each `<use>` target in place,
-/// memoizing each referenced subtree. A reference cycle counts as empty,
-/// since usvg skips it.
-fn expanded_elements(doc: &roxmltree::Document) -> u64 {
+/// Fails when elements nest deeper than `MAX_DEPTH`, by reading the tags
+/// alone. Comments, CDATA, processing instructions, the DOCTYPE, and quoted
+/// attribute values are skipped, so markup inside them doesn't count. Each
+/// byte is read once.
+fn check_depth(text: &str) -> Result<(), Error> {
+    let bytes = text.as_bytes();
+    let skip_to = |from: usize, end: &str| {
+        text[from..]
+            .find(end)
+            .map_or(bytes.len(), |at| from + at + end.len())
+    };
+    let mut depth = 0usize;
+    let mut i = 0;
+
+    while let Some(at) = bytes[i..].iter().position(|&b| b == b'<') {
+        i += at;
+        let rest = &text[i..];
+        i = if rest.starts_with("<!--") {
+            skip_to(i + 4, "-->")
+        } else if rest.starts_with("<![CDATA[") {
+            skip_to(i + 9, "]]>")
+        } else if rest.starts_with("<?") {
+            skip_to(i + 2, "?>")
+        } else if rest.starts_with("<!") {
+            declaration_end(text, i + 2)
+        } else if rest.starts_with("</") {
+            depth = depth.saturating_sub(1);
+            tag_end(bytes, i + 2).0
+        } else {
+            let (end, empty) = tag_end(bytes, i + 1);
+            if !empty {
+                depth += 1;
+                if depth > MAX_DEPTH {
+                    return Err(Error::Parse(format!(
+                        "elements nest deeper than {MAX_DEPTH} levels"
+                    )));
+                }
+            }
+            end
+        };
+    }
+    Ok(())
+}
+
+/// Where a tag that starts at `i` ends, and whether it's an empty-element tag.
+fn tag_end(bytes: &[u8], mut i: usize) -> (usize, bool) {
+    let mut last = 0u8;
+    while let Some(&byte) = bytes.get(i) {
+        match byte {
+            b'>' => return (i + 1, last == b'/'),
+            b'"' | b'\'' => i = quote_end(bytes, i),
+            _ => {
+                if !byte.is_ascii_whitespace() {
+                    last = byte;
+                }
+                i += 1;
+            }
+        }
+    }
+    (bytes.len(), false)
+}
+
+/// Where a `<!...>` declaration such as the DOCTYPE ends, past its internal
+/// subset and any comments, processing instructions, and quoted literals.
+fn declaration_end(text: &str, mut i: usize) -> usize {
+    let bytes = text.as_bytes();
+    let mut brackets = 0usize;
+    while let Some(&byte) = bytes.get(i) {
+        let rest = &text[i..];
+        if rest.starts_with("<!--") {
+            i = text[i + 4..]
+                .find("-->")
+                .map_or(bytes.len(), |at| i + 4 + at + 3);
+            continue;
+        }
+        if rest.starts_with("<?") {
+            i = text[i + 2..]
+                .find("?>")
+                .map_or(bytes.len(), |at| i + 2 + at + 2);
+            continue;
+        }
+        match byte {
+            b'"' | b'\'' => {
+                i = quote_end(bytes, i);
+                continue;
+            }
+            b'[' => brackets += 1,
+            b']' => brackets = brackets.saturating_sub(1),
+            b'>' if brackets == 0 => return i + 1,
+            _ => {}
+        }
+        i += 1;
+    }
+    bytes.len()
+}
+
+/// The index just past the quote that closes the one at `i`.
+fn quote_end(bytes: &[u8], i: usize) -> usize {
+    let quote = bytes[i];
+    bytes[i + 1..]
+        .iter()
+        .position(|&b| b == quote)
+        .map_or(bytes.len(), |at| i + 1 + at + 1)
+}
+
+/// What usvg will build from a document once it copies content in place:
+/// each `<use>` or `feImage` target where it's used, each marker at each vertex of the
+/// shapes that use it, and each clip path, mask, or pattern sized to the
+/// bounding box of the element that uses it, and each filter holding an
+/// `feImage` of an element, for every element that uses them. The counts err
+/// high: every number in a shape counts as a vertex, and a reference from a
+/// stylesheet counts as made by every element.
+struct Expanded {
+    elements: u64,
+    /// Bytes of text inside `<text>` elements, counting every copy.
+    text: u64,
+    /// The most text in any one `<text>` element.
+    largest_text: u64,
+}
+
+fn expand(doc: &roxmltree::Document) -> Expanded {
     let ids: HashMap<&str, Node> = doc
         .descendants()
         .filter_map(|node| node.attribute("id").map(|id| (id, node)))
         .collect();
-    let mut sizes = HashMap::new();
-    size(doc.root_element(), &ids, &mut sizes)
-}
+    let copied: HashSet<&str> = ids
+        .iter()
+        .filter(|(_, node)| copied_per_use(node))
+        .map(|(id, _)| *id)
+        .collect();
 
-fn size<'a, 'input>(
-    node: Node<'a, 'input>,
-    ids: &HashMap<&str, Node<'a, 'input>>,
-    sizes: &mut HashMap<NodeId, Option<u64>>,
-) -> u64 {
-    match sizes.get(&node.id()) {
-        Some(Some(size)) => return *size,
-        Some(None) => return 0,
-        None => {}
-    }
-    sizes.insert(node.id(), None);
-
-    let mut total: u64 = 1;
-    for child in node.children().filter(Node::is_element) {
-        total = total.saturating_add(size(child, ids, sizes));
-    }
-
-    if node.tag_name().name() == "use" {
-        let href = node
-            .attribute((XLINK_NS, "href"))
-            .or_else(|| node.attribute("href"));
-        if let Some(target) = href
-            .and_then(|href| href.strip_prefix('#'))
-            .and_then(|id| ids.get(id))
-        {
-            total = total.saturating_add(size(*target, ids, sizes));
+    // References from stylesheets, which may apply to any element.
+    let mut styled = Vec::new();
+    let mut styled_markers = Vec::new();
+    for style in doc.descendants().filter(|n| n.tag_name().name() == "style") {
+        for id in style.text().map(url_ids).into_iter().flatten() {
+            match ids.get(id) {
+                Some(node) if node.tag_name().name() == "marker" => styled_markers.push(id),
+                Some(_) if copied.contains(id) => styled.push(id),
+                _ => {}
+            }
         }
     }
 
-    sizes.insert(node.id(), Some(total));
-    total
-}
-
-struct TextBytes {
-    total: u64,
-    largest: u64,
-}
-
-/// Counts the text usvg will lay out: bytes of text inside `<text>` elements,
-/// with each `<use>` target counted where it's copied, and the most in any
-/// one `<text>` element. Whitespace between other elements isn't laid out.
-fn text_bytes(doc: &roxmltree::Document) -> TextBytes {
-    let ids: HashMap<&str, Node> = doc
-        .descendants()
-        .filter_map(|node| node.attribute("id").map(|id| (id, node)))
-        .collect();
-    let mut walk = TextWalk {
+    let mut walk = Walk {
         ids,
+        copied,
+        styled,
+        styled_markers,
         memo: HashMap::new(),
-        largest: 0,
+        largest_text: 0,
     };
-    let total = walk.bytes(doc.root_element(), false);
-    TextBytes {
-        total,
-        largest: walk.largest,
+    let (elements, text) = walk.node(doc.root_element(), false, NO_MARKERS);
+    Expanded {
+        elements,
+        text,
+        largest_text: walk.largest_text,
     }
 }
 
-struct TextWalk<'a, 'input> {
-    ids: HashMap<&'a str, Node<'a, 'input>>,
-    memo: HashMap<(NodeId, bool), Option<u64>>,
-    largest: u64,
+/// Whether usvg copies a definition's content for each element that uses it.
+fn copied_per_use(node: &Node) -> bool {
+    match node.tag_name().name() {
+        "clipPath" => node.attribute("clipPathUnits") == Some("objectBoundingBox"),
+        "mask" => node.attribute("maskContentUnits") == Some("objectBoundingBox"),
+        "pattern" => node.attribute("patternContentUnits") == Some("objectBoundingBox"),
+        "filter" => node
+            .descendants()
+            .filter(|n| n.tag_name().name() == "feImage")
+            .any(|n| href(n).is_some_and(|href| href.starts_with('#'))),
+        _ => false,
+    }
 }
 
-impl<'a, 'input> TextWalk<'a, 'input> {
-    fn bytes(&mut self, node: Node<'a, 'input>, inside: bool) -> u64 {
+/// The markers a shape draws at its start, middle vertices, and end.
+type Markers<'a> = [Option<&'a str>; 3];
+const NO_MARKERS: Markers = [None, None, None];
+
+struct Walk<'a, 'input> {
+    ids: HashMap<&'a str, Node<'a, 'input>>,
+    copied: HashSet<&'a str>,
+    styled: Vec<&'a str>,
+    styled_markers: Vec<&'a str>,
+    memo: HashMap<(NodeId, bool, Markers<'a>), Option<(u64, u64)>>,
+    largest_text: u64,
+}
+
+impl<'a, 'input> Walk<'a, 'input> {
+    /// The elements and text bytes a node expands to. A reference cycle,
+    /// which usvg skips, counts as empty.
+    fn node(&mut self, node: Node<'a, 'input>, inside: bool, markers: Markers<'a>) -> (u64, u64) {
         if node.is_text() {
-            return if inside {
+            let bytes = if inside {
                 node.text().map_or(0, |t| t.len() as u64)
             } else {
                 0
             };
+            return (0, bytes);
         }
-        match self.memo.get(&(node.id(), inside)) {
-            Some(Some(bytes)) => return *bytes,
-            // A reference cycle, which usvg skips.
-            Some(None) => return 0,
+        if !node.is_element() {
+            return (0, 0);
+        }
+        let key = (node.id(), inside, markers);
+        match self.memo.get(&key) {
+            Some(Some(counts)) => return *counts,
+            Some(None) => return (0, 0),
             None => {}
         }
-        self.memo.insert((node.id(), inside), None);
+        self.memo.insert(key, None);
 
-        let starts_text = !inside && node.tag_name().name() == "text";
+        let name = node.tag_name().name();
+        let starts_text = !inside && name == "text";
         let inside = inside || starts_text;
-        let mut total: u64 = 0;
+        let markers = own_markers(node, markers);
+        let mut total = (1u64, 0u64);
+        let add = |total: &mut (u64, u64), (elements, text): (u64, u64), times: u64| {
+            total.0 = total.0.saturating_add(elements.saturating_mul(times));
+            total.1 = total.1.saturating_add(text.saturating_mul(times));
+        };
+
         for child in node.children() {
-            total = total.saturating_add(self.bytes(child, inside));
+            let counts = self.node(child, inside, markers);
+            add(&mut total, counts, 1);
         }
-        if node.tag_name().name() == "use" {
-            let href = node
-                .attribute((XLINK_NS, "href"))
-                .or_else(|| node.attribute("href"));
-            if let Some(target) = href
+        if matches!(name, "use" | "feImage")
+            && let Some(target) = href(node)
                 .and_then(|href| href.strip_prefix('#'))
                 .and_then(|id| self.ids.get(id).copied())
-            {
-                total = total.saturating_add(self.bytes(target, inside));
+        {
+            let counts = self.node(target, inside, markers);
+            add(&mut total, counts, 1);
+        }
+
+        let referenced: Vec<&str> = ["clip-path", "mask", "filter", "fill", "stroke"]
+            .into_iter()
+            .filter_map(|name| property(node, name).and_then(url_id))
+            .filter(|id| self.copied.contains(id))
+            .chain(self.styled.iter().copied())
+            .collect();
+        for id in referenced {
+            if let Some(target) = self.ids.get(id).copied() {
+                let counts = self.node(target, false, NO_MARKERS);
+                add(&mut total, counts, 1);
+            }
+        }
+
+        if matches!(name, "path" | "line" | "polyline" | "polygon") {
+            let vertices = vertices(node);
+            let drawn: Vec<(&str, u64)> = markers
+                .iter()
+                .zip([1, vertices, 1])
+                .filter_map(|(id, times)| id.map(|id| (id, times)))
+                .chain(
+                    self.styled_markers
+                        .iter()
+                        .map(|id| (*id, vertices.saturating_add(2))),
+                )
+                .collect();
+            for (id, times) in drawn {
+                if let Some(target) = self.ids.get(id).copied() {
+                    let counts = self.node(target, false, NO_MARKERS);
+                    add(&mut total, counts, times);
+                }
             }
         }
 
         if starts_text {
-            self.largest = self.largest.max(total);
+            self.largest_text = self.largest_text.max(total.1);
         }
-        self.memo.insert((node.id(), inside), Some(total));
+        self.memo.insert(key, Some(total));
         total
     }
+}
+
+/// The markers in effect on `node`: its own marker properties, or those it
+/// inherits.
+fn own_markers<'a>(node: Node<'a, '_>, inherited: Markers<'a>) -> Markers<'a> {
+    let mut markers = inherited;
+    if let Some(all) = property(node, "marker") {
+        markers = [url_id(all); 3];
+    }
+    for (slot, name) in ["marker-start", "marker-mid", "marker-end"]
+        .into_iter()
+        .enumerate()
+    {
+        if let Some(value) = property(node, name) {
+            markers[slot] = url_id(value);
+        }
+    }
+    markers
+}
+
+/// A presentation property set in the `style` attribute, which wins, or as
+/// an attribute.
+fn property<'a>(node: Node<'a, '_>, name: &str) -> Option<&'a str> {
+    let styled = node.attribute("style").and_then(|style| {
+        style.split(';').find_map(|declaration| {
+            let (key, value) = declaration.split_once(':')?;
+            (key.trim() == name).then(|| value.trim())
+        })
+    });
+    styled.or_else(|| node.attribute(name))
+}
+
+/// The id in a `url(#id)` reference, or `None` for anything else.
+fn url_id(value: &str) -> Option<&str> {
+    let inner = value.trim().strip_prefix("url(")?;
+    let inner = &inner[..inner.find(')')?];
+    inner.trim().trim_matches(['"', '\'']).strip_prefix('#')
+}
+
+/// Every id referenced as `url(#id)` in a stylesheet.
+fn url_ids(text: &str) -> impl Iterator<Item = &str> {
+    text.match_indices("url(")
+        .filter_map(|(i, _)| url_id(&text[i..]))
+}
+
+fn href<'a>(node: Node<'a, '_>) -> Option<&'a str> {
+    node.attribute((XLINK_NS, "href"))
+        .or_else(|| node.attribute("href"))
+}
+
+/// An upper bound on a shape's vertices: every run of digits in its path data
+/// or points counts as a number, and every path command as one more.
+fn vertices(node: Node) -> u64 {
+    let data = match node.tag_name().name() {
+        "line" => return 2,
+        "path" => node.attribute("d"),
+        _ => node.attribute("points"),
+    };
+    let Some(data) = data else { return 0 };
+    let mut count = 0u64;
+    let mut in_digits = false;
+    for byte in data.bytes() {
+        let digit = byte.is_ascii_digit();
+        if digit && !in_digits {
+            count += 1;
+        }
+        if byte.is_ascii_alphabetic() && byte != b'e' && byte != b'E' {
+            count += 1;
+        }
+        in_digits = digit;
+    }
+    count
 }

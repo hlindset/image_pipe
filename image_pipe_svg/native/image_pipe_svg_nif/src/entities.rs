@@ -8,22 +8,40 @@
 
 use std::collections::HashMap;
 
-/// The total characters the document's entity references expand to, counting
-/// each reference once per occurrence. Declarations and references are found
-/// anywhere in the text, without parsing the DTD, so comments, quoted
-/// literals, or processing instructions can't hide them. References inside
-/// declarations or comments count too, and a name declared more than once
-/// counts its largest value, so the bound only errs high.
-pub fn expanded_size(text: &str) -> u64 {
+/// Entity references nest at most this deep. roxmltree stops at 10, so a
+/// deeper chain fails to parse anyway, and counting it as unbounded keeps the
+/// walk's recursion shallow.
+const MAX_DEPTH: u32 = 10;
+
+pub struct Scan {
+    /// The total characters the document's entity references expand to.
+    pub expansion: u64,
+    /// Whether an entity's value holds markup. Elements inside entities would
+    /// nest past the depth check, which reads only the document's own tags.
+    pub markup: bool,
+}
+
+/// Counts each reference once per occurrence. Declarations and references
+/// are found anywhere in the text, without parsing the DTD, so comments,
+/// quoted literals, or processing instructions can't hide them. References
+/// inside declarations or comments count too, and a name declared more than
+/// once counts its largest value, so the bound only errs high. The scan is
+/// linear in the length of the text.
+pub fn scan(text: &str) -> Scan {
     let entities = declarations(text);
+    let markup = entities.values().flatten().any(|value| value.contains('<'));
     if entities.is_empty() {
-        return 0;
+        return Scan {
+            expansion: 0,
+            markup,
+        };
     }
 
     let mut sizes = HashMap::new();
-    references(text, &entities)
-        .map(|name| size(name, &entities, &mut sizes))
-        .fold(0u64, u64::saturating_add)
+    let expansion = references(text, &entities)
+        .map(|name| size(name, &entities, &mut sizes, 0))
+        .fold(0u64, u64::saturating_add);
+    Scan { expansion, markup }
 }
 
 /// Every quoted `<!ENTITY>` value in the text, by name. roxmltree registers
@@ -36,7 +54,8 @@ fn declarations(text: &str) -> HashMap<&str, Vec<&str>> {
     entities
 }
 
-/// Records one `<!ENTITY [%] name "value">` starting after `<!ENTITY`.
+/// Records one `<!ENTITY [%] name "value">` starting after `<!ENTITY`. A value
+/// whose quote never closes has no value.
 fn entity<'a>(text: &'a str, mut i: usize, entities: &mut HashMap<&'a str, Vec<&'a str>>) {
     let bytes = text.as_bytes();
     let skip_spaces = |mut i: usize| {
@@ -51,54 +70,65 @@ fn entity<'a>(text: &'a str, mut i: usize, entities: &mut HashMap<&'a str, Vec<&
         i = skip_spaces(i + 1);
     }
     let start = i;
-    while bytes.get(i).is_some_and(|b| !b.is_ascii_whitespace()) {
+    while bytes.get(i).copied().is_some_and(name_byte) {
         i += 1;
     }
     let name = &text[start..i];
     i = skip_spaces(i);
 
-    match bytes.get(i) {
-        Some(&quote) if quote == b'"' || quote == b'\'' => {
-            let end = closing_quote(text, i);
-            let value = &text[i + 1..end.saturating_sub(1).max(i + 1)];
-            entities.entry(name).or_default().push(value);
-        }
-        _ => {}
+    if let Some(&quote) = bytes.get(i)
+        && (quote == b'"' || quote == b'\'')
+        && let Some(end) = text[i + 1..].find(quote as char)
+    {
+        let value = &text[i + 1..i + 1 + end];
+        entities.entry(name).or_default().push(value);
     }
 }
 
-/// The index just past the quote that closes the one at `i`.
-fn closing_quote(text: &str, i: usize) -> usize {
-    let quote = text.as_bytes()[i] as char;
-    text[i + 1..]
-        .find(quote)
-        .map_or(text.len(), |end| i + 1 + end + 1)
+/// Whether `byte` can be part of an XML name. Bytes of multibyte characters
+/// count, which errs toward longer names.
+fn name_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_' | b':') || byte >= 0x80
 }
 
-/// Names of declared entities referenced as `&name;` in `text`.
+/// Names of declared entities referenced as `&name;` in `text`. Each name is
+/// read up to the first byte that can't be in one, so the scan stays linear.
 fn references<'k>(
     text: &str,
     entities: &HashMap<&'k str, Vec<&'k str>>,
 ) -> impl Iterator<Item = &'k str> {
+    let bytes = text.as_bytes();
     text.match_indices('&').filter_map(move |(i, _)| {
-        let end = text[i + 1..].find(';')?;
-        let name = &text[i + 1..i + 1 + end];
-        entities.get_key_value(name).map(|(name, _)| *name)
+        let start = i + 1;
+        let mut end = start;
+        while bytes.get(end).copied().is_some_and(name_byte) {
+            end += 1;
+        }
+        if end == start || bytes.get(end) != Some(&b';') {
+            return None;
+        }
+        entities
+            .get_key_value(&text[start..end])
+            .map(|(name, _)| *name)
     })
 }
 
 /// An entity's expanded size: its largest value plus what each reference in
 /// that value expands to. A reference cycle, which roxmltree rejects anyway,
-/// counts as unbounded.
+/// or a chain deeper than roxmltree allows, counts as unbounded.
 fn size<'a>(
     name: &'a str,
     entities: &HashMap<&'a str, Vec<&'a str>>,
     sizes: &mut HashMap<&'a str, Option<u64>>,
+    depth: u32,
 ) -> u64 {
     match sizes.get(name) {
         Some(Some(size)) => return *size,
         Some(None) => return u64::MAX,
         None => {}
+    }
+    if depth > MAX_DEPTH {
+        return u64::MAX;
     }
     sizes.insert(name, None);
 
@@ -106,7 +136,7 @@ fn size<'a>(
         .iter()
         .map(|value| {
             references(value, entities)
-                .map(|reference| size(reference, entities, sizes))
+                .map(|reference| size(reference, entities, sizes, depth + 1))
                 .fold(value.len() as u64, u64::saturating_add)
         })
         .max()

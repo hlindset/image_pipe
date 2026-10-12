@@ -166,6 +166,66 @@ defmodule ImagePipe.SVGTest do
       assert {:error, {:too_much_text, _}} = SVG.parse(svg(images), fonts, max_text: 1_000)
     end
 
+    test "fails before parsing elements nested too deep", %{fonts: fonts} do
+      deep = String.duplicate("<g>", 150_000) <> String.duplicate("</g>", 150_000)
+      assert {:error, {:parse, _}} = SVG.parse(svg(deep), fonts)
+
+      # Entities could nest markup past the scan, so markup in them is refused.
+      markup = ~s(<!DOCTYPE svg [<!ENTITY g "<g/>">]>)
+      assert {:error, {:parse, _}} = SVG.parse(markup <> svg("&g;"), fonts)
+    end
+
+    test "fails on a long chain of entities without overflowing", %{fonts: fonts} do
+      chain = Enum.map_join(0..299_999, &~s(<!ENTITY e#{&1} "&e#{&1 + 1};">))
+      doctype = ~s(<!DOCTYPE svg [#{chain}<!ENTITY e300000 "a">]>)
+
+      assert {:error, {:entity_expansion, _}} = SVG.parse(doctype <> svg("<text>&e0;</text>"), fonts)
+    end
+
+    test "scans many ampersands in linear time", %{fonts: fonts} do
+      doctype = ~s(<!DOCTYPE svg [<!ENTITY a "b">]>)
+      body = svg("<!-- " <> String.duplicate("&", 1_000_000) <> " -->")
+
+      {microseconds, {:ok, _}} = :timer.tc(fn -> SVG.parse(doctype <> body, fonts) end)
+      assert microseconds < 5_000_000
+    end
+
+    test "fails on an unclosed entity value instead of panicking", %{fonts: fonts} do
+      assert {:error, {:parse, _}} = SVG.parse(~s(<!-- <!ENTITY a "é), fonts)
+    end
+
+    test "counts what markers, bounding-box clip paths and filter images copy", %{fonts: fonts} do
+      opts = [max_elements: 1_000]
+      rects = &String.duplicate(~s[<rect width="1" height="1" #{&1}/>], 100)
+      shapes = String.duplicate(~s(<rect width="1" height="1"/>), 20)
+
+      marker = ~s(<marker id="m">#{shapes}</marker>)
+      points = Enum.map_join(1..100, " ", &"#{&1},#{&1}")
+      path = ~s[<polyline marker-mid="url(#m)" points="#{points}"/>]
+      assert {:error, {:too_many_elements, _}} = SVG.parse(svg(marker <> path), fonts, opts)
+
+      clip = ~s(<clipPath id="c" clipPathUnits="objectBoundingBox">#{shapes}</clipPath>)
+      clipped = rects.(~s[clip-path="url(#c)"])
+      assert {:error, {:too_many_elements, _}} = SVG.parse(svg(clip <> clipped), fonts, opts)
+
+      # Shared in user space, so not copied per use.
+      shared = ~s(<clipPath id="c">#{shapes}</clipPath>)
+      assert {:ok, _} = SVG.parse(svg(shared <> clipped), fonts, opts)
+
+      filter = ~s(<g id="s">#{shapes}</g><filter id="f"><feImage href="#s"/></filter>)
+      filtered = rects.(~s[filter="url(#f)"])
+      assert {:error, {:too_many_elements, _}} = SVG.parse(svg(filter <> filtered), fonts, opts)
+    end
+
+    test "counts the outer document and embedded SVGs against the same limits", %{fonts: fonts} do
+      rects = String.duplicate(~s(<rect width="1" height="1"/>), 600)
+      inner = data_uri("image/svg+xml", svg(rects))
+      image = ~s(<image width="10" height="10" href="#{inner}"/>)
+
+      assert {:ok, _} = SVG.parse(svg(image), fonts, max_elements: 1_000)
+      assert {:error, {:too_many_elements, _}} = SVG.parse(svg(rects <> image), fonts, max_elements: 1_000)
+    end
+
     test "checks embedded SVGs for entity bombs too", %{fonts: fonts} do
       x = String.duplicate("a", 2000)
       y = String.duplicate("&x;", 250)

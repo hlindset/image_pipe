@@ -108,10 +108,15 @@ defmodule ImagePipe.SVG do
   declared media type matches their contents. Others, and gzip-compressed
   SVG, render as empty. Embedded SVGs nest at most two levels deep.
 
+  Fails to parse when elements nest more than 1,024 levels deep, or an
+  entity's value holds markup.
+
   ## Options
 
-    * `:max_elements` - elements allowed after expanding `<use>`, checked
-      before expanding them. Defaults to 200,000.
+    * `:max_elements` - elements allowed after copying content where it's
+      used, checked before copying it: `<use>` targets, markers at each
+      vertex, and clip paths, masks, patterns, and filter images that are
+      copied for each element using them. Defaults to 200,000.
     * `:max_image_pixels` - pixels allowed in any one embedded raster
       image, read from its header. Defaults to 40,000,000.
     * `:max_entity_expansion` - characters the document's entity references
@@ -122,9 +127,11 @@ defmodule ImagePipe.SVG do
       including its `<tspan>`s. Text is laid out while parsing, at a cost
       that grows with the square of one element's text. Defaults to 10,000.
     * `:max_text` - bytes of text in all `<text>` elements, counting each
-      `<use>` copy. Defaults to 1,000,000.
+      copy. Defaults to 1,000,000.
 
-  The limits apply to embedded SVGs too.
+  The document and the SVGs embedded in it share `:max_elements`,
+  `:max_entity_expansion`, and `:max_text`, counting each copy of an
+  embedded SVG.
   """
   @spec parse(binary(), Fonts.t(), keyword()) :: {:ok, Document.t()} | {:error, parse_error()}
   def parse(data, %Fonts{ref: fonts}, opts \\ []) when is_binary(data) do
