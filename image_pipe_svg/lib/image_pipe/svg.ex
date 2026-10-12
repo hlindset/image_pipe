@@ -114,15 +114,17 @@ defmodule ImagePipe.SVG do
   declared media type matches their contents. Others, and gzip-compressed
   SVG, render as empty. Embedded SVGs nest at most two levels deep.
 
-  Fails to parse when elements nest more than 1,024 levels deep, or an
-  entity's value holds markup.
+  Fails to parse when elements nest more than 1,024 levels deep, nesting and
+  references such as `<use>` and `feImage` together go more than 2,048
+  levels deep, references form a cycle, an entity's value holds markup, or
+  an attribute or stylesheet has a number larger than 10^15.
 
   ## Options
 
     * `:max_elements` - elements allowed once copies are counted, checked
-      before copying: `<use>` targets, markers at each vertex,
-      `objectBoundingBox` clip paths, masks, and patterns, and filters with
-      an element `feImage`. Defaults to 200,000.
+      before copying: `<use>` and `feImage` targets, markers at each vertex,
+      and masks, patterns, filters, and `objectBoundingBox` clip paths for
+      each element using them. Defaults to 200,000.
     * `:max_image_pixels` - pixels allowed in any one embedded raster
       image, read from its header. Defaults to 40,000,000.
     * `:max_entity_expansion` - characters the document's entity references
@@ -173,10 +175,18 @@ defmodule ImagePipe.SVG do
   @doc """
   Renders `document` scaled to `width` × `height`, returning 8-bit
   straight-alpha RGBA pixels, row by row.
+
+  Refuses with `{:out_of_range, pixels}` when drawn geometry reaches more
+  than 32,767 pixels from the canvas at that size, counting control points
+  and stroke width: the renderer's fixed-point edges overflow past that.
   """
-  @spec render(Document.t(), pos_integer(), pos_integer()) :: binary()
+  @spec render(Document.t(), pos_integer(), pos_integer()) ::
+          {:ok, binary()} | {:error, {:out_of_range, non_neg_integer()}}
   def render(%Document{ref: ref}, width, height)
       when is_integer(width) and width > 0 and is_integer(height) and height > 0 do
-    Native.render(ref, width, height)
+    case Native.render(ref, width, height) do
+      {:ok, rgba} -> {:ok, rgba}
+      {:error, extent} -> {:error, {:out_of_range, extent}}
+    end
   end
 end

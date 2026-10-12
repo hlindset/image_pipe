@@ -18,7 +18,8 @@ defmodule ImagePipe.SVGTest do
 
   defp render!(source, fonts, width, height) do
     {:ok, document} = SVG.parse(source, fonts)
-    SVG.render(document, width, height)
+    {:ok, rgba} = SVG.render(document, width, height)
+    rgba
   end
 
   defp pixel(rgba, width, x, y) do
@@ -215,9 +216,59 @@ defmodule ImagePipe.SVGTest do
       shared = ~s(<clipPath id="c">#{shapes}</clipPath>)
       assert {:ok, _} = SVG.parse(svg(shared <> clipped), fonts, opts)
 
+      # A mask's region is the user's bounding box by default, so each user
+      # gets its own copy whatever its content units.
+      mask = ~s(<mask id="k">#{shapes}</mask>)
+      masked = rects.(~s[mask="url(#k)"])
+      assert {:error, {:too_many_elements, _}} = SVG.parse(svg(mask <> masked), fonts, opts)
+
+      # Ids aren't unique in every document, so another element with the
+      # clip path's id must not hide its copies.
+      duplicate = clip <> clipped <> ~s(<svg xmlns="urn:other"><path id="c"/></svg>)
+      assert {:error, {:too_many_elements, _}} = SVG.parse(svg(duplicate), fonts, opts)
+
       filter = ~s(<g id="s">#{shapes}</g><filter id="f"><feImage href="#s"/></filter>)
       filtered = rects.(~s[filter="url(#f)"])
       assert {:error, {:too_many_elements, _}} = SVG.parse(svg(filter <> filtered), fonts, opts)
+    end
+
+    test "fails on numbers too large to compute with", %{fonts: fonts} do
+      # The fuzzer's input: usvg spent seconds and gigabytes converting it.
+      arc = ~s(<svg><path d="M1 9A1 1013333333333333333333333333333 7,119,1 "/></svg>)
+      assert {:error, {:parse, _}} = SVG.parse(arc, fonts)
+
+      assert {:error, {:parse, _}} =
+               SVG.parse(svg(~s(<rect width="1" height="1" stroke-width="2e16"/>)), fonts)
+
+      styled = svg(~s(<style>.a{stroke-width:1e30}</style><rect class="a" width="1" height="1"/>))
+      assert {:error, {:parse, _}} = SVG.parse(styled, fonts)
+
+      assert {:ok, _} = SVG.parse(svg(~s(<rect id="a1e99" width="1e9" height="1"/>)), fonts)
+    end
+
+    test "fails on elements that reference each other in a cycle", %{fonts: fonts} do
+      # usvg follows this cycle until the stack overflows, which would end the VM.
+      cycle =
+        ~s(<filter id="f"><feImage href="#b"/></filter><filter id="h"><feImage href="#a"/></filter>) <>
+          ~s[<g id="a" filter="url(#f)"><rect width="8" height="8"/></g>] <>
+          ~s[<g id="b" filter="url(#h)"><rect width="8" height="8"/></g>]
+
+      assert {:error, {:parse, _}} = SVG.parse(svg(cycle), fonts)
+
+      use_cycle = ~s(<g id="a"><use href="#b"/></g><g id="b"><use href="#a"/></g>)
+      assert {:error, {:parse, _}} = SVG.parse(svg(use_cycle), fonts)
+    end
+
+    test "fails on a reference chain deeper than the stack allows", %{fonts: fonts} do
+      chain = fn length ->
+        Enum.map_join(0..(length - 1), fn i ->
+          ~s[<filter id="f#{i}"><feImage href="#g#{i + 1}"/></filter>] <>
+            ~s[<g id="g#{i}" filter="url(#f#{i})"><rect width="1" height="1"/></g>]
+        end) <> ~s(<g id="g#{length}"/>)
+      end
+
+      assert {:error, {:parse, _}} =
+               SVG.parse(svg(chain.(3_000)), fonts, max_elements: 10_000_000)
     end
 
     test "counts the outer document and embedded SVGs against the same limits", %{fonts: fonts} do
@@ -265,6 +316,20 @@ defmodule ImagePipe.SVGTest do
       # Whitespace between elements isn't laid out, so it doesn't count.
       spaced = svg(String.duplicate(~s(<rect width="1" height="1"/>\n          ), 1000))
       assert {:ok, _} = SVG.parse(spaced, fonts, max_text: 10)
+    end
+
+    test "counts stroked curves by their length", %{fonts: fonts} do
+      # Smooth quadratic curves that swing 10,000 pixels each way. Stroking
+      # them takes seconds though they cover little of the canvas.
+      d = "M0 0 Q5 10000 10 0" <> String.duplicate(" T 20 0 T 30 0", 500)
+
+      work = fn paint ->
+        {:ok, document} = SVG.parse(svg(~s(<path d="#{d}" #{paint}/>)), fonts)
+        SVG.cost(document, 64, 64).work
+      end
+
+      assert work.(~s(stroke="#000" fill="none")) > 100_000_000
+      assert work.(~s(fill="#000")) < 100_000_000
     end
 
     test "counts each clip path's paths once per use", %{fonts: fonts} do
@@ -315,10 +380,23 @@ defmodule ImagePipe.SVGTest do
     {:ok, document} = SVG.parse(source, fonts)
     assert %{peak: peak} = SVG.cost(document, 10, 10)
     assert peak > depth * 100
-    assert [255, 0, 0, _] = pixel(SVG.render(document, 10, 10), 10, 5, 5)
+    assert {:ok, rgba} = SVG.render(document, 10, 10)
+    assert [255, 0, 0, _] = pixel(rgba, 10, 5, 5)
   end
 
   describe "render/3" do
+    test "refuses geometry far past the canvas, which would overflow", %{fonts: fonts} do
+      # The fuzzer's input: tiny-skia aborted the VM drawing this curve.
+      far = ~s(<svg width="8" height="4"><path d="M4,0S4,578888888 6,0 6 3,6 9"/></svg>)
+      {:ok, document} = SVG.parse(far, fonts)
+      assert {:error, {:out_of_range, extent}} = SVG.render(document, 8, 4)
+      assert extent > 500_000_000
+
+      near = svg(~s(<rect x="-30000" width="30010" height="10"/>))
+      {:ok, document} = SVG.parse(near, fonts)
+      assert {:ok, _rgba} = SVG.render(document, 10, 10)
+    end
+
     test "renders at the requested size", %{fonts: fonts} do
       rgba = render!(svg(~s(<rect width="5" height="10" fill="#ff0000"/>)), fonts, 40, 40)
 

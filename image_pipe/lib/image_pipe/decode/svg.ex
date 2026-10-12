@@ -25,6 +25,8 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
     @max_elements 200_000
     # Characters entity references may expand to, estimated before parsing.
     @max_entity_expansion 1_000_000
+    # Pixels from the canvas drawn geometry may reach (ImagePipe.SVG.render/3).
+    @max_extent 32_767
 
     @doc """
     Resolves the validated `svg` options for `max_input_pixels`, and loads
@@ -114,7 +116,8 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
           cost = SVG.cost(document, width, height)
 
           with :ok <- check_budget(cost, config),
-               {:ok, image} <- image(SVG.render(document, width, height), width, height) do
+               {:ok, rgba} <- draw(document, width, height),
+               {:ok, image} <- image(rgba, width, height) do
             {{:ok, image},
              %{
                result: :ok,
@@ -162,7 +165,8 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
            :ok <- check_pixels(width * height, max_input_pixels),
            cost = SVG.cost(document, width, height),
            :ok <- check_budget(cost, config),
-           {:ok, image} <- image(SVG.render(document, width, height), width, height) do
+           {:ok, rgba} <- draw(document, width, height),
+           {:ok, image} <- image(rgba, width, height) do
         {:ok, %{image: image, geometry: geometry, scale: scale, cost: cost}}
       end
     end
@@ -218,6 +222,7 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
     defp limit(:svg_nesting_too_deep), do: :svg_nesting
     defp limit({:svg_render_budget, :work, _work, _max}), do: :svg_render_work
     defp limit({:svg_render_budget, :peak, _peak, _max}), do: :svg_render_pixels
+    defp limit({:svg_render_budget, :extent, _extent, _max}), do: :svg_render_extent
     defp limit(_reason), do: nil
 
     # A staged body is measured before it's read into memory.
@@ -332,6 +337,16 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
       do: {:error, {:input_limit, {:svg_render_budget, :peak, peak, max}}}
 
     defp check_budget(_cost, _config), do: :ok
+
+    defp draw(document, width, height) do
+      case SVG.render(document, width, height) do
+        {:ok, rgba} ->
+          {:ok, rgba}
+
+        {:error, {:out_of_range, extent}} ->
+          {:error, {:input_limit, {:svg_render_budget, :extent, extent, @max_extent}}}
+      end
+    end
 
     # The NIF renders straight-alpha sRGB, which libvips wraps without copying.
     defp image(rgba, width, height) do

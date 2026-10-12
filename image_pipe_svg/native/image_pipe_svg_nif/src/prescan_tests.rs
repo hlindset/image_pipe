@@ -8,7 +8,7 @@ use proptest::prelude::*;
 use resvg::usvg::roxmltree;
 
 use crate::entities;
-use crate::parse::max_depth;
+use crate::parse::{max_depth, numbers};
 
 /// Fragments that steer the scanners into their edge cases.
 fn fragment() -> impl Strategy<Value = String> {
@@ -174,6 +174,13 @@ proptest! {
     fn scans_never_panic(text in prop_oneof![soup(), any::<String>()]) {
         entities::scan(&text);
         max_depth(&text, usize::MAX);
+        numbers(&text).for_each(drop);
+    }
+
+    #[test]
+    fn numbers_read_what_svg_writes(values in prop::collection::vec(-1e20f64..1e20, 0..20)) {
+        let text = values.iter().map(|v| format!("{v:e}")).collect::<Vec<_>>().join(",");
+        prop_assert_eq!(numbers(&text).collect::<Vec<_>>(), values);
     }
 
     #[test]

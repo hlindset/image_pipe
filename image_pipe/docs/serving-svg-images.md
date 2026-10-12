@@ -121,10 +121,13 @@ shrinks it below the limit, or has:
 - entities that expand past 1,000,000 characters
 - more than 10,000 bytes of text in one `<text>` element, or 1,000,000 in
   all
+- shapes that reach more than 32,767 pixels from the image at the size it
+  renders, which the renderer can't draw
 
-Rejected SVGs fail with `413`. An SVG that isn't valid XML, nests elements
-more than 1,024 levels deep, or defines an entity whose value holds markup
-fails with `415`.
+Rejected SVGs fail with `413`. An SVG fails with `415` when it isn't valid
+XML, nests elements more than 1,024 levels deep, chains references such as
+`<use>` too deep, has elements that refer to each other in a loop, defines
+an entity whose value holds markup, or has a number larger than 10^15.
 
 ## Embed images in SVGs
 

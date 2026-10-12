@@ -323,8 +323,9 @@ during [`[:transform, :execute]`](#transform-execute).
     characters), `:svg_text` (more than 10,000 bytes of text in one
     `<text>` element, or 1,000,000 in all), `:svg_nesting` (embedded SVGs
     nested too deep), `:pixels` (an original's render, or an embedded image,
-    is over `max_input_pixels`), `:svg_render_work`, or
-    `:svg_render_pixels`.
+    is over `max_input_pixels`), `:svg_render_work`, `:svg_render_pixels`,
+    or `:svg_render_extent` (drawn geometry reaches more than 32,767 pixels
+    from the canvas, which the renderer can't draw).
 
 ### `[:source, :watermark]`
 

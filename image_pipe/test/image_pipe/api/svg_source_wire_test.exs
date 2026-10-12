@@ -192,6 +192,14 @@ defmodule ImagePipe.API.SVGSourceWireTest do
     assert_received :rendered
   end
 
+  test "fails a render whose geometry reaches too far past the canvas" do
+    far =
+      ~s(<svg xmlns="http://www.w3.org/2000/svg" width="8" height="4">) <>
+        ~s(<path d="M4,0S4,578888888 6,0 6 3,6 9"/></svg>)
+
+    assert request("format=png", mount(far)).status == 413
+  end
+
   test "fails a render over svg.max_render_work" do
     assert request("w=40", mount(@svg, svg: [max_render_work: 1_000])).status == 413
   end

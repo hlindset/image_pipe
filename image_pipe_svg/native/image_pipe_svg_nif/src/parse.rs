@@ -14,6 +14,18 @@ const MAX_NESTING: u32 = 2;
 /// level with no limit of its own, so deeper nesting would overflow the stack.
 const MAX_DEPTH: usize = 1024;
 
+/// Nesting and references together may go this deep: following a `<use>`,
+/// `feImage`, marker, or paint server continues a level below the element
+/// that refers to it. usvg recurses through these as it builds the tree, as
+/// does the walk that counts them, so a long chain would overflow the stack.
+const MAX_REFERENCE_DEPTH: usize = 2048;
+
+/// Numbers in attributes and stylesheets may be this large. usvg computes in
+/// 32-bit floats, and arcs with radii much past this overflow while it turns
+/// them into curves, which then takes seconds and gigabytes. Squares and
+/// products of numbers this size stay well within range.
+const MAX_NUMBER: f64 = 1e15;
+
 const XLINK_NS: &str = "http://www.w3.org/1999/xlink";
 
 #[derive(Clone, Copy)]
@@ -93,6 +105,15 @@ pub fn parse(
     tree.map_err(|error| Error::Parse(error.to_string()))
 }
 
+/// The elements a document expands to, as the limit counts them, or `None`
+/// when the checks reject it.
+#[cfg(fuzzing)]
+pub fn estimated_elements(text: &str, limits: &Limits) -> Option<u64> {
+    checked_document(text, limits)
+        .ok()
+        .map(|(_, usage)| usage.elements)
+}
+
 /// Parses `text` with roxmltree once its entities and `<use>` expansion are
 /// known to stay within `limits`, and returns what it used of them.
 fn checked_document<'input>(
@@ -119,7 +140,23 @@ fn checked_document<'input>(
     let doc = roxmltree::Document::parse_with_options(text, xml_opt)
         .map_err(|error| Error::Parse(error.to_string()))?;
 
+    if let Some(number) = largest_number(&doc).filter(|n| *n > MAX_NUMBER) {
+        return Err(Error::Parse(format!(
+            "a number in the SVG is too large: {number:e}"
+        )));
+    }
+
     let expanded = expand(&doc);
+    if expanded.cycle {
+        return Err(Error::Parse(
+            "elements reference each other in a cycle".into(),
+        ));
+    }
+    if expanded.too_deep {
+        return Err(Error::Parse(format!(
+            "elements and references nest deeper than {MAX_REFERENCE_DEPTH} levels"
+        )));
+    }
     if expanded.elements > limits.max_elements {
         return Err(Error::TooManyElements(expanded.elements));
     }
@@ -357,28 +394,40 @@ fn quote_end(bytes: &[u8], i: usize) -> usize {
 }
 
 /// What usvg will build from a document once it copies content in place:
-/// each `<use>` or `feImage` target where it's used, each marker at each vertex of the
-/// shapes that use it, and each clip path, mask, or pattern sized to the
-/// bounding box of the element that uses it, and each filter holding an
-/// `feImage` of an element, for every element that uses them. The counts err
-/// high: every number in a shape counts as a vertex, and a reference from a
-/// stylesheet counts as made by every element.
+/// each `<use>` or `feImage` target where it's used, each marker at each
+/// vertex of the shapes that use it, and each mask, pattern, filter, and
+/// clip path sized to the bounding box, for every element that uses them.
+/// The counts err high: every number in a shape counts as a vertex, and a
+/// reference from a stylesheet counts as made by every element.
 struct Expanded {
     elements: u64,
     /// Bytes of text inside `<text>` elements, counting every copy.
     text: u64,
     /// The most text in any one `<text>` element.
     largest_text: u64,
+    /// Whether references lead back to an element they started from. usvg
+    /// skips some cycles but follows others, such as two filters whose
+    /// `feImage`s each show the other's element, until the stack overflows.
+    cycle: bool,
+    /// Whether nesting and references go deeper than `MAX_REFERENCE_DEPTH`.
+    /// The counts stop there.
+    too_deep: bool,
 }
 
 fn expand(doc: &roxmltree::Document) -> Expanded {
-    let ids: HashMap<&str, Node> = doc
-        .descendants()
-        .filter_map(|node| node.attribute("id").map(|id| (id, node)))
-        .collect();
+    // A document can give several elements the same id, and which one a
+    // reference reaches depends on rules this walk doesn't model, such as
+    // usvg ignoring elements outside the SVG namespace. So a reference
+    // counts as reaching whichever of them costs the most.
+    let mut ids: HashMap<&str, Vec<Node>> = HashMap::new();
+    for node in doc.descendants() {
+        if let Some(id) = node.attribute("id") {
+            ids.entry(id).or_default().push(node);
+        }
+    }
     let copied: HashSet<&str> = ids
         .iter()
-        .filter(|(_, node)| copied_per_use(node))
+        .filter(|(_, nodes)| nodes.iter().any(copied_per_use))
         .map(|(id, _)| *id)
         .collect();
 
@@ -387,10 +436,11 @@ fn expand(doc: &roxmltree::Document) -> Expanded {
     let mut styled_markers = Vec::new();
     for style in doc.descendants().filter(|n| n.tag_name().name() == "style") {
         for id in style.text().map(url_ids).into_iter().flatten() {
-            match ids.get(id) {
-                Some(node) if node.tag_name().name() == "marker" => styled_markers.push(id),
-                Some(_) if copied.contains(id) => styled.push(id),
-                _ => {}
+            let nodes = ids.get(id).map_or(&[][..], Vec::as_slice);
+            if nodes.iter().any(|node| node.tag_name().name() == "marker") {
+                styled_markers.push(id);
+            } else if copied.contains(id) {
+                styled.push(id);
             }
         }
     }
@@ -402,25 +452,28 @@ fn expand(doc: &roxmltree::Document) -> Expanded {
         styled_markers,
         memo: HashMap::new(),
         largest_text: 0,
+        cycle: false,
+        depth: 0,
+        too_deep: false,
     };
     let (elements, text) = walk.node(doc.root_element(), false, NO_MARKERS);
     Expanded {
         elements,
         text,
         largest_text: walk.largest_text,
+        cycle: walk.cycle,
+        too_deep: walk.too_deep,
     }
 }
 
 /// Whether usvg copies a definition's content for each element that uses it.
+/// Masks, patterns, and filters size their region to the bounding box of the
+/// element using them by default, so usvg resolves them per element. Clip
+/// paths are shared unless their content is sized that way.
 fn copied_per_use(node: &Node) -> bool {
     match node.tag_name().name() {
         "clipPath" => node.attribute("clipPathUnits") == Some("objectBoundingBox"),
-        "mask" => node.attribute("maskContentUnits") == Some("objectBoundingBox"),
-        "pattern" => node.attribute("patternContentUnits") == Some("objectBoundingBox"),
-        "filter" => node
-            .descendants()
-            .filter(|n| n.tag_name().name() == "feImage")
-            .any(|n| href(n).is_some_and(|href| href.starts_with('#'))),
+        "mask" | "pattern" | "filter" => true,
         _ => false,
     }
 }
@@ -430,18 +483,42 @@ type Markers<'a> = [Option<&'a str>; 3];
 const NO_MARKERS: Markers = [None, None, None];
 
 struct Walk<'a, 'input> {
-    ids: HashMap<&'a str, Node<'a, 'input>>,
+    ids: HashMap<&'a str, Vec<Node<'a, 'input>>>,
     copied: HashSet<&'a str>,
     styled: Vec<&'a str>,
     styled_markers: Vec<&'a str>,
     memo: HashMap<(NodeId, bool, Markers<'a>), Option<(u64, u64)>>,
     largest_text: u64,
+    cycle: bool,
+    depth: usize,
+    too_deep: bool,
 }
 
 impl<'a, 'input> Walk<'a, 'input> {
-    /// The elements and text bytes a node expands to. A reference cycle,
-    /// which usvg skips, counts as empty.
+    /// The most any element with `id` expands to.
+    fn target(&mut self, id: &str, inside: bool, markers: Markers<'a>) -> (u64, u64) {
+        let count = self.ids.get(id).map_or(0, Vec::len);
+        (0..count).fold((0, 0), |(elements, text), i| {
+            let target = self.ids[id][i];
+            let counts = self.node(target, inside, markers);
+            (elements.max(counts.0), text.max(counts.1))
+        })
+    }
+
+    /// The elements and text bytes a node expands to. Reaching a node still
+    /// being counted means references form a cycle, which is recorded.
     fn node(&mut self, node: Node<'a, 'input>, inside: bool, markers: Markers<'a>) -> (u64, u64) {
+        if self.depth >= MAX_REFERENCE_DEPTH {
+            self.too_deep = true;
+            return (0, 0);
+        }
+        self.depth += 1;
+        let counts = self.counts(node, inside, markers);
+        self.depth -= 1;
+        counts
+    }
+
+    fn counts(&mut self, node: Node<'a, 'input>, inside: bool, markers: Markers<'a>) -> (u64, u64) {
         if node.is_text() {
             let bytes = if inside {
                 node.text().map_or(0, |t| t.len() as u64)
@@ -456,7 +533,10 @@ impl<'a, 'input> Walk<'a, 'input> {
         let key = (node.id(), inside, markers);
         match self.memo.get(&key) {
             Some(Some(counts)) => return *counts,
-            Some(None) => return (0, 0),
+            Some(None) => {
+                self.cycle = true;
+                return (0, 0);
+            }
             None => {}
         }
         self.memo.insert(key, None);
@@ -476,11 +556,9 @@ impl<'a, 'input> Walk<'a, 'input> {
             add(&mut total, counts, 1);
         }
         if matches!(name, "use" | "feImage")
-            && let Some(target) = href(node)
-                .and_then(|href| href.strip_prefix('#'))
-                .and_then(|id| self.ids.get(id).copied())
+            && let Some(id) = href(node).and_then(|href| href.strip_prefix('#'))
         {
-            let counts = self.node(target, inside, markers);
+            let counts = self.target(id, inside, markers);
             add(&mut total, counts, 1);
         }
 
@@ -491,10 +569,8 @@ impl<'a, 'input> Walk<'a, 'input> {
             .chain(self.styled.iter().copied())
             .collect();
         for id in referenced {
-            if let Some(target) = self.ids.get(id).copied() {
-                let counts = self.node(target, false, NO_MARKERS);
-                add(&mut total, counts, 1);
-            }
+            let counts = self.target(id, false, NO_MARKERS);
+            add(&mut total, counts, 1);
         }
 
         if matches!(name, "path" | "line" | "polyline" | "polygon") {
@@ -510,10 +586,8 @@ impl<'a, 'input> Walk<'a, 'input> {
                 )
                 .collect();
             for (id, times) in drawn {
-                if let Some(target) = self.ids.get(id).copied() {
-                    let counts = self.node(target, false, NO_MARKERS);
-                    add(&mut total, counts, times);
-                }
+                let counts = self.target(id, false, NO_MARKERS);
+                add(&mut total, counts, times);
             }
         }
 
@@ -571,6 +645,71 @@ fn url_ids(text: &str) -> impl Iterator<Item = &str> {
 fn href<'a>(node: Node<'a, '_>) -> Option<&'a str> {
     node.attribute((XLINK_NS, "href"))
         .or_else(|| node.attribute("href"))
+}
+
+/// The largest magnitude of any number in the document's attributes and
+/// stylesheets. Ids, classes, and links are names, not numbers, and are
+/// skipped. Each byte is read once.
+fn largest_number(doc: &roxmltree::Document) -> Option<f64> {
+    let attributes = doc
+        .descendants()
+        .flat_map(|node| node.attributes())
+        .filter(|a| !matches!(a.name(), "id" | "class" | "href"))
+        .map(|a| a.value());
+    let stylesheets = doc
+        .descendants()
+        .filter(|node| node.tag_name().name() == "style")
+        .filter_map(|node| node.text());
+    attributes
+        .chain(stylesheets)
+        .flat_map(numbers)
+        .map(f64::abs)
+        .reduce(f64::max)
+}
+
+/// The numbers in `text`, read as SVG writes them: an optional sign, digits
+/// with an optional fraction, and an optional exponent.
+pub(crate) fn numbers(text: &str) -> impl Iterator<Item = f64> + '_ {
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    std::iter::from_fn(move || {
+        while i < bytes.len() {
+            let start = i;
+            if matches!(bytes[i], b'+' | b'-') {
+                i += 1;
+            }
+            let digits = i;
+            while i < bytes.len() && bytes[i].is_ascii_digit() {
+                i += 1;
+            }
+            if i < bytes.len() && bytes[i] == b'.' {
+                i += 1;
+                while i < bytes.len() && bytes[i].is_ascii_digit() {
+                    i += 1;
+                }
+            }
+            if i == digits || (i == digits + 1 && bytes[digits] == b'.') {
+                i = start + 1;
+                continue;
+            }
+            if i < bytes.len() && matches!(bytes[i], b'e' | b'E') {
+                let mut j = i + 1;
+                if j < bytes.len() && matches!(bytes[j], b'+' | b'-') {
+                    j += 1;
+                }
+                if j < bytes.len() && bytes[j].is_ascii_digit() {
+                    while j < bytes.len() && bytes[j].is_ascii_digit() {
+                        j += 1;
+                    }
+                    i = j;
+                }
+            }
+            if let Ok(number) = text[start..i].parse::<f64>() {
+                return Some(number);
+            }
+        }
+        None
+    })
 }
 
 /// An upper bound on a shape's vertices: every run of digits in its path data

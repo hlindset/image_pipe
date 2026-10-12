@@ -40,7 +40,7 @@ defmodule Calibrate do
 
         ms =
           if cost.work <= @max_work do
-            {us, _rgba} = :timer.tc(fn -> SVG.render(document, width, height) end)
+            {us, {:ok, _rgba}} = :timer.tc(fn -> SVG.render(document, width, height) end)
             us / 1000
           end
 

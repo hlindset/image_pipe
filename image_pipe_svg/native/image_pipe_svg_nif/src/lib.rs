@@ -131,13 +131,28 @@ fn cost(
     Ok((cost.work, cost.peak, cost.images, cost.image_pixels))
 }
 
+/// Drawn geometry must stay this close to the canvas, in pixels. tiny-skia
+/// turns paths into fixed-point edges without the clipping Skia does first,
+/// so geometry much further away overflows them. That panics inside a
+/// destructor, which aborts the VM instead of unwinding. Skia keeps clipped
+/// paths within the same range.
+const MAX_EXTENT: f64 = 32767.0;
+
+/// Renders the document, or returns how far its geometry reaches when that's
+/// past `MAX_EXTENT`.
 #[rustler::nif(schedule = "DirtyCpu")]
 fn render<'a>(
     env: Env<'a>,
     document: ResourceArc<Document>,
     width: u32,
     height: u32,
-) -> NifResult<Binary<'a>> {
+) -> NifResult<Result<Binary<'a>, u64>> {
+    let tree = &document.0;
+    let extent = with_stack(|| cost::estimate(tree, width, height).extent)?;
+    if extent > MAX_EXTENT {
+        return Ok(Err(extent.min(u64::MAX as f64) as u64));
+    }
+
     let length = (width as usize)
         .checked_mul(height as usize)
         .and_then(|pixels| pixels.checked_mul(4))
@@ -145,9 +160,8 @@ fn render<'a>(
     let mut binary = OwnedBinary::new(length).ok_or(rustler::Error::RaiseAtom("enomem"))?;
     let pixels = binary.as_mut_slice();
     pixels.fill(0);
-    let tree = &document.0;
     with_stack(|| render::render(tree, width, height, pixels))?;
-    Ok(binary.release(env))
+    Ok(Ok(binary.release(env)))
 }
 
 rustler::init!("Elixir.ImagePipe.SVG.Native");
