@@ -21,6 +21,8 @@ jobs:
     name: Calibrate the render budget
     runs-on: ubuntu-26.04
     env:
+      # Use only the tools mise-action installs, not every tool in mise.toml.
+      MISE_EXEC_AUTO_INSTALL: "false"
       MIX_ENV: dev
     defaults:
       run:

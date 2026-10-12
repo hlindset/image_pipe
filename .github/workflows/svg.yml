@@ -29,6 +29,8 @@ jobs:
     env:
       MISE_ERLANG_VERSION: ${{ matrix.toolchain.erlang }}
       MISE_ELIXIR_VERSION: ${{ matrix.toolchain.elixir }}
+      # Use only the tools mise-action installs, not every tool in mise.toml.
+      MISE_EXEC_AUTO_INSTALL: "false"
       MIX_ENV: test
     defaults:
       run:
