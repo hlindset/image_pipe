@@ -2,9 +2,11 @@ defmodule ImagePipe.Cache.FileSystem.OwnerWatch do
   # Watches the owner file of a root this node refused, while requests run
   # without that cache. A file that changes between checks belongs to a live
   # owner, logged once. A file that's gone, or unchanged since the last check,
-  # means the owner stopped: the watch takes the root over (see
-  # `Owner.take_over/1`) and stops, which stops its `Root`, and the restart
-  # starts the cache with the claim. A file it can't read is watched on.
+  # means the owner stopped: the watch writes its claim, confirms it a
+  # heartbeat later (see `Owner.confirm/1`) and stops, which stops its
+  # `Root`, and the restart starts the cache with the claim. A watch stopped
+  # before it confirmed removes its claim, so no one waits on a file nobody
+  # rewrites. A file it can't read is watched on.
   @moduledoc false
 
   use GenServer
@@ -17,8 +19,9 @@ defmodule ImagePipe.Cache.FileSystem.OwnerWatch do
 
   @impl true
   def init(claim) do
+    Process.flag(:trap_exit, true)
     schedule(claim)
-    {:ok, %{claim: claim, found: read(claim), logged?: false}}
+    {:ok, %{claim: claim, found: read(claim), logged?: false, written: nil}}
   end
 
   @impl true
@@ -36,11 +39,28 @@ defmodule ImagePipe.Cache.FileSystem.OwnerWatch do
     end
   end
 
-  defp take_over(%{claim: claim} = state) do
-    case Owner.take_over(claim) do
+  def handle_info(:confirm, %{written: claim} = state) do
+    state = %{state | written: nil}
+
+    case Owner.confirm(claim) do
       :ok -> {:stop, {:shutdown, :root_free}, state}
       {:owned, _host} -> {:noreply, live_owner(state, read(claim))}
       {:error, _reason} -> {:noreply, live_owner(state, read(claim))}
+    end
+  end
+
+  @impl true
+  def terminate(_reason, %{written: nil}), do: :ok
+  def terminate(_reason, %{written: claim}), do: Owner.release(claim)
+
+  defp take_over(%{claim: claim} = state) do
+    case Owner.write_claim(claim) do
+      {:ok, claim} ->
+        Process.send_after(self(), :confirm, claim.heartbeat_ms)
+        {:noreply, %{state | written: claim}}
+
+      {:error, _reason} ->
+        {:noreply, live_owner(state, read(claim))}
     end
   end
 

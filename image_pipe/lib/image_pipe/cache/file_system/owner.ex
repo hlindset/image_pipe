@@ -55,23 +55,32 @@ defmodule ImagePipe.Cache.FileSystem.Owner do
     end
   end
 
-  defp create(claim) do
+  # A file that vanishes between the failed link and the read can be another
+  # node's, deleted or replaced as it claims, so the claim retries the link,
+  # which creates the file only if none exists. A file that keeps vanishing
+  # is left to a watch.
+  @create_attempts 5
+
+  defp create(claim, attempts \\ @create_attempts) do
     with :ok <- File.mkdir_p(claim.dir) do
       case publish(claim, &File.ln/2) do
         :ok -> {:ok, claim}
-        {:error, :eexist} -> found(claim)
+        {:error, :eexist} -> found(claim, attempts)
         {:error, _reason} = error -> error
       end
     end
   end
 
-  defp found(claim) do
+  defp found(claim, attempts) do
     case File.read(claim.path) do
       {:ok, found} ->
         if restart?(claim, found), do: write(claim), else: {:watch, host(found), claim}
 
+      {:error, :enoent} when attempts > 1 ->
+        create(claim, attempts - 1)
+
       {:error, :enoent} ->
-        write(claim)
+        {:watch, nil, claim}
 
       {:error, _reason} = error ->
         error
@@ -84,16 +93,27 @@ defmodule ImagePipe.Cache.FileSystem.Owner do
     do: host(found) == claim.host and not refused?(claim.dir)
 
   @doc """
-  Takes a free root over for an `OwnerWatch`. Nodes that found the same file
-  free both write it, and the last write wins, so the file is read back a
-  heartbeat later. On success the claim waits for the restarted `Root`.
+  Writes `claim` into a root an `OwnerWatch` found free. Nodes that found the
+  same file free both write it, and the last write wins, so the watch checks
+  with `confirm/1` a heartbeat later.
   """
-  def take_over(claim) do
-    with {:ok, claim} <- write(claim),
-         :ok <- Process.sleep(claim.heartbeat_ms),
-         {:ok, found} <- File.read(claim.path) do
+  def write_claim(claim), do: write(claim)
+
+  @doc """
+  Confirms a claim `write_claim/1` wrote. When the file still holds it, the
+  claim waits for the restarted `Root`. Otherwise returns the host that wrote
+  the file since.
+  """
+  def confirm(claim) do
+    with {:ok, found} <- File.read(claim.path) do
       if found == contents(claim), do: hand_off(claim), else: {:owned, host(found)}
     end
+  end
+
+  @doc "Deletes the owner file if it still holds `claim`."
+  def release(claim) do
+    if File.read(claim.path) == {:ok, contents(claim)}, do: File.rm(claim.path)
+    :ok
   end
 
   defp hand_off(claim), do: :persistent_term.put({__MODULE__, :handoff, claim.dir}, claim)
@@ -156,10 +176,7 @@ defmodule ImagePipe.Cache.FileSystem.Owner do
   @impl true
   def terminate(_reason, %{count: nil}), do: :ok
 
-  def terminate(_reason, state) do
-    if File.read(state.path) == {:ok, contents(state)}, do: File.rm(state.path)
-    :ok
-  end
+  def terminate(_reason, state), do: release(state)
 
   @doc false
   def host(contents), do: contents |> String.split("\n") |> hd()
