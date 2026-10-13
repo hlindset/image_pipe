@@ -11,6 +11,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   instead of building a URL without them. In a URL, `unset` clears an option.
 - `ImagePipe.URL.group/2` rejects the detection class `"unset"`, which URLs
   don't accept.
+- A float of 2^53 or more, such as `rotate: 1.0e300` or a trim tolerance of
+  `1.0e308`, keeps its exact value in the built URL. The URL used to carry a
+  nearby whole number instead, so `rotate: 1.0e300` built a URL that rotated
+  by 280 degrees rather than 0.
 
 ## [0.2.0] - 2026-10-13
 

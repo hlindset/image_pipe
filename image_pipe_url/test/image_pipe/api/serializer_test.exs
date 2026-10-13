@@ -214,6 +214,16 @@ defmodule ImagePipe.API.SerializerTest do
     end
   end
 
+  test "floats beyond integer precision keep their exact value" do
+    for value <- [9_007_199_254_740_993.0, 1.0e20, 1.0e300, -1.0e300, 1.0e308] do
+      IP.URL.new() |> IP.URL.group(rotate: value) |> assert_round_trip()
+    end
+
+    for tolerance <- [9_007_199_254_740_992.0, 1.0e300, 1.0e308] do
+      IP.URL.new() |> IP.URL.group(trim: {"red", tolerance}) |> assert_round_trip()
+    end
+  end
+
   defp segments(plan) do
     Serializer.segments(plan.plan)
   end
