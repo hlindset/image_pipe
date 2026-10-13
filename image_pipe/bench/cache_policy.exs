@@ -530,7 +530,7 @@ end
 
 defmodule CachePolicyBench.Model do
   # In-memory copy of Admission's queue handling: window LRU, probationary and
-  # protected segments, the main gate, and reconciliation to the cap. It calls
+  # protected segments, and the main gate. It calls
   # the real Sketch, Doorkeeper and Policy, so it tracks scoring changes, but a
   # change to Admission's queue handling must be mirrored here. Check with
   # `--real` that both agree.
@@ -538,7 +538,6 @@ defmodule CachePolicyBench.Model do
   alias ImagePipe.Cache.FileSystem.Policy
   alias ImagePipe.Cache.FileSystem.Sketch
 
-  @victim_limit 64
   @queues [:window, :probationary, :protected]
 
   def sketch_options(cap) do
@@ -736,19 +735,14 @@ defmodule CachePolicyBench.Model do
       Policy.victim_walk(
         lru(model.trees.probationary),
         lru(model.trees.protected),
-        needed,
-        @victim_limit
+        needed
       )
 
     with {:ok, victims} <- victims,
          true <- admit?(model, descriptor, victims) do
-      {now, later} = Enum.split(victims, @victim_limit)
-
-      model =
-        Enum.reduce(now, model, fn victim, acc -> acc |> drop(victim.key_hash) |> elem(1) end)
-
-      model = put(model, :probationary, descriptor)
-      if later == [], do: model, else: reconcile(model)
+      victims
+      |> Enum.reduce(model, fn victim, acc -> acc |> drop(victim.key_hash) |> elem(1) end)
+      |> put(:probationary, descriptor)
     else
       _rejected -> model
     end
@@ -772,19 +766,6 @@ defmodule CachePolicyBench.Model do
       do: :rand.uniform(one_in) == 1
 
   def random_admit?(_admission, _frequency), do: false
-
-  defp reconcile(model) do
-    over? = model.bytes.window + model.bytes.probationary + model.bytes.protected > model.max
-    queue = Enum.find([:probationary, :protected], &(not :gb_trees.is_empty(model.trees[&1])))
-
-    if over? and queue do
-      {_position, descriptor} = :gb_trees.smallest(model.trees[queue])
-      {_descriptor, model} = drop(model, descriptor.key_hash)
-      reconcile(model)
-    else
-      model
-    end
-  end
 
   defp lru(tree) do
     Stream.unfold(:gb_trees.iterator(tree), fn iterator ->
