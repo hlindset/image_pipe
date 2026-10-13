@@ -203,13 +203,13 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     assert tracked_bytes(pid) == byte_size("encoded image")
   end
 
-  test "bounded mode with no Admission process fails closed (skips write)", %{root: root} do
-    # Bounded opts but no supervision tree started: lookup_admission/1 returns
-    # :unavailable, so commit_sink must NOT leave an untracked entry on disk.
+  test "a write without an Admission process fails and leaves nothing on disk", %{root: root} do
+    # No supervision tree started: an uncounted entry would grow the cache
+    # past its cap, so the write is reported as failed, not stored.
     opts = bounded_opts(root, max_size_bytes: 1_000_000)
 
     cache_key = key()
-    assert :ok = put_entry(cache_key, entry("encoded image"), opts)
+    assert {:error, :admission_unavailable} = put_entry(cache_key, entry("encoded image"), opts)
 
     refute File.exists?(meta_path(root, cache_key))
     refute File.exists?(body_path(root, cache_key, "encoded image"))

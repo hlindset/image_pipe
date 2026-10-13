@@ -236,11 +236,9 @@ defmodule ImagePipe.Cache.FileSystem.Store do
       :unavailable ->
         # Without Admission a write can't be counted, and an uncounted entry
         # would grow the cache past its cap. Nothing has been renamed yet, so
-        # clean the temp files and fail open.
-        require Logger
-        Logger.warning("Admission process unavailable; skipping cache write")
+        # clean the temp files and report the write as failed.
         cleanup_sink_state(state)
-        :ok
+        {:error, :admission_unavailable}
     end
   end
 

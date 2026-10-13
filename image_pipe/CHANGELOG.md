@@ -178,6 +178,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `[:cache, :write]` reports a write error instead of `cache: :write` when
+  the cache's process isn't running, since nothing was stored.
 - A `crop` placed with `focus` on an image with an EXIF orientation other than
   1 or 5 could land one pixel off from the same crop on an untagged image,
   when the crop's position fell on a half pixel.
