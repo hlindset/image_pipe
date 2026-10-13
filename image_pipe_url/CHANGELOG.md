@@ -5,6 +5,17 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `ImagePipe.URL.config/1` raises `ArgumentError` when a preset
+  or the request defaults in `:validate_against` set options that can't be
+  combined, such as `anchor=top/detect=face` or `q=80/autoquality=50`. It also
+  raises when they name a watermark that the `:watermarks` list leaves out, or
+  use `wm-src64` or `wm-enc` with `request_watermarks: false`. A server
+  running the matching `image_pipe` release fails at startup with the same
+  presets. Remove one of the conflicting options, or the watermark option,
+  from the server's presets and the builder's copy.
+
 ### Fixed
 
 - `ImagePipe.URL.new/1` rejects `filename: "unset"` and `cachebuster: "unset"`

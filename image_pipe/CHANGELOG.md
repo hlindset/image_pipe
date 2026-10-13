@@ -7,6 +7,16 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Breaking:** `ImagePipe.config/1` raises `ArgumentError` for a preset or
+  request defaults whose own options can't be combined, such as
+  `anchor=top/detect=face` or `q=80/autoquality=50`. It also raises for a `wm`
+  name missing from `:watermarks`, and for `wm-src64` or `wm-enc` without
+  `request_watermarks: true`. Requests that used them failed with `400`
+  unless the URL replaced the conflicting options. Remove one of the
+  conflicting options, or the watermark option.
+- A preset from a preset lookup whose own options can't be combined answers
+  `500`, like other invalid stored presets, instead of `400`, and
+  `ImagePipe.run/4` returns `{:preset, :invalid_definition}` for it.
 - A request with `pad=0` gets the cache key and ETag of the same request
   without `pad`, and a `gradient` or `progressive-blur` that starts or stops
   at `-0.0` gets those of one at `0`. Cached copies of such requests miss once

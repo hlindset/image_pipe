@@ -1,7 +1,7 @@
 defmodule ImagePipe.API.URL do
   @moduledoc false
 
-  alias ImagePipe.API.{Path, Serializer}
+  alias ImagePipe.API.{Path, Presets, Serializer}
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Source, as: PlanSource
   alias ImagePipe.Plan.Spec.Issue
@@ -165,18 +165,13 @@ defmodule ImagePipe.API.URL do
         Plan.built(plan)
 
       %{presets: presets, request_defaults: defaults, lookup?: lookup?} = known ->
-        watermarks = watermarks(known.watermarks, known.request_watermarks)
+        watermarks = Presets.watermarks(known.watermarks, known.request_watermarks)
 
         if lookup?,
           do: Plan.validate_known(plan, presets, defaults, watermarks),
           else: Plan.validate(plan, presets, defaults, watermarks)
     end
   end
-
-  defp watermarks(nil, nil), do: nil
-
-  defp watermarks(names, request_sources?),
-    do: %{names: names, request_sources?: request_sources? != false}
 
   defp segments(plan) do
     segments = Serializer.segments(plan)

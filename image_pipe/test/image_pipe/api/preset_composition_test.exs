@@ -201,11 +201,10 @@ defmodule ImagePipe.API.PresetCompositionTest do
     assert {:ok, ^ratio_expected} = parse("/preset=nested", presets)
   end
 
-  test "same-layer canvas contradictions remain errors and stranded dependents drop" do
-    assert {:error, {:invalid_request, diagnostics}} =
-             parse("/preset=bad", %{"bad" => "w=60/h=40/extend/extend-ratio"})
-
-    assert Enum.any?(diagnostics, &(&1.reason == :mutually_exclusive_options))
+  test "same-layer canvas contradictions fail configuration and stranded dependents drop" do
+    assert_raise ArgumentError, ~r/mutually_exclusive_options/, fn ->
+      ImagePipe.Plug.init(presets: %{"bad" => "w=60/h=40/extend/extend-ratio"})
+    end
 
     assert {:ok, %{ignored: []} = request} =
              parse("/preset=bad", %{"bad" => "w=60/h=40/extend=false/extend-at=top"})
@@ -213,17 +212,16 @@ defmodule ImagePipe.API.PresetCompositionTest do
     assert {:ok, ^request} = parse("/w=60/h=40", %{})
   end
 
-  test "contradictory alternatives in one layer remain errors" do
+  test "contradictory alternatives in one layer fail configuration" do
     for fragment <- [
           "crop=60,40/region=10,20,30,40",
           "crop=60,40/anchor=top-left/focus=0.75,0.25",
           "crop=60,40/anchor=top-left/detect=face",
           "crop=60,40/focus=0.75,0.25/detect=face"
         ] do
-      assert {:error, {:invalid_request, diagnostics}} =
-               parse("/preset=bad", %{"bad" => fragment})
-
-      assert Enum.any?(diagnostics, &(&1.reason == :mutually_exclusive_options))
+      assert_raise ArgumentError, ~r/mutually_exclusive_options/, fn ->
+        ImagePipe.Plug.init(presets: %{"bad" => fragment})
+      end
     end
   end
 

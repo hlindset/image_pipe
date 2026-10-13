@@ -140,6 +140,7 @@ defmodule ImagePipe.PresetLookupTest do
       {[presets: %{"card" => "w=400\n"}], 500},
       {[presets: %{"card" => "pad=1\n"}], 500},
       {[presets: %{"card" => "preset=missing"}], 500},
+      {[presets: %{"card" => "w=10/h=10/fit=cover/anchor=top/detect=face"}], 500},
       {[presets: %{"card" => "preset=loop", "loop" => "preset=card"}], 500}
     ]
 

@@ -15,14 +15,25 @@ defmodule ImagePipe.API.Presets do
 
   @type compiled :: %{presets: map(), request_defaults: map() | nil}
 
-  @spec compile(term(), term()) :: {:ok, compiled()} | {:error, String.t()}
-  def compile(presets, request_defaults) do
+  # `watermarks` are the host's watermark facts, or nil when unknown.
+  @spec compile(term(), term(), Presets.watermarks()) ::
+          {:ok, compiled()} | {:error, String.t()}
+  def compile(presets, request_defaults, watermarks \\ nil) do
     with {:ok, parsed} <- parse_presets(presets),
          {:ok, compiled} <- Presets.compile(parsed),
-         {:ok, defaults} <- parse_defaults(request_defaults) do
+         {:ok, defaults} <- parse_defaults(request_defaults),
+         :ok <- check_conflicts(compiled, defaults, watermarks) do
       {:ok, %{presets: compiled, request_defaults: defaults}}
     end
   end
+
+  # Watermark facts from the server's `watermarks` names and
+  # `request_watermarks` setting, each nil when unknown.
+  @spec watermarks([String.t()] | nil, boolean() | nil) :: Presets.watermarks()
+  def watermarks(nil, nil), do: nil
+
+  def watermarks(names, request_sources?),
+    do: %{names: names, request_sources?: request_sources? != false}
 
   # One looked-up fragment; `:error` when it does not parse.
   @spec parse_fragment(String.t()) :: {:ok, map()} | :error
@@ -40,8 +51,10 @@ defmodule ImagePipe.API.Presets do
   # Compiles looked-up presets over the static compiled map they may reference.
   @spec compile_lookup(map(), map()) :: {:ok, map()} | :error
   def compile_lookup(parsed, static) do
-    case Presets.compile(parsed, static) do
-      {:ok, compiled} -> {:ok, compiled}
+    with {:ok, compiled} <- Presets.compile(parsed, static),
+         :ok <- check_conflicts(Map.take(compiled, Map.keys(parsed)), nil, nil) do
+      {:ok, compiled}
+    else
       {:error, _message} -> :error
     end
   end
@@ -76,6 +89,21 @@ defmodule ImagePipe.API.Presets do
           {:ok, defaults}
       end
     end
+  end
+
+  defp check_conflicts(presets, defaults, watermarks) do
+    named = for {name, preset} <- Enum.sort(presets), do: {"preset #{inspect(name)}", preset}
+
+    Enum.find_value([{"request_defaults", defaults} | named], :ok, fn
+      {_label, nil} ->
+        nil
+
+      {label, preset} ->
+        case Presets.conflicts(preset, watermarks) do
+          [] -> nil
+          issues -> {:error, "#{label} is invalid: #{Issue.summary(issues)}"}
+        end
+    end)
   end
 
   defp parse_value(label, value) do
