@@ -16,6 +16,7 @@ defmodule ImagePipe.Cache.Writer do
   use GenServer, restart: :temporary, shutdown: 25_000
 
   alias ImagePipe.Cache.FileSystem
+  alias ImagePipe.Cache.FileSystem.Owner
   alias ImagePipe.Cache.FileSystem.Writers
   alias ImagePipe.Cache.OutputWork
   alias ImagePipe.Cache.Sink
@@ -62,18 +63,25 @@ defmodule ImagePipe.Cache.Writer do
 
   def start_link(args), do: GenServer.start_link(__MODULE__, args)
 
+  # The temp body is opened after the writer starts, so the request doesn't
+  # wait for the disk, and neither do other writers starting on the root.
   @impl true
   def init(args) do
     Process.flag(:trap_exit, true)
     RequestContext.adopt(args.request_context)
+    {:ok, Map.put(args, :store, nil), {:continue, :open}}
+  end
 
-    case FileSystem.open_sink(args.key, args.metadata, args.cache_opts) do
+  @impl true
+  def handle_continue(:open, state) do
+    case FileSystem.open_sink(state.key, state.metadata, state.cache_opts) do
       {:ok, store} ->
         Process.send_after(self(), :expire, @max_age)
-        {:ok, Map.put(args, :store, store)}
+        {:noreply, %{state | store: store}}
 
       {:error, reason} ->
-        {:stop, {:shutdown, {:open, reason}}}
+        Sink.open_failed(state, reason)
+        {:stop, :normal, state}
     end
   end
 
@@ -102,9 +110,13 @@ defmodule ImagePipe.Cache.Writer do
     {:stop, :normal, state}
   end
 
-  # A shutdown finishes a write whose chunks and commit already arrived.
+  # A shutdown finishes a write whose chunks and commit already arrived,
+  # unless another node took the root over: the entry would land in a root
+  # this node no longer counts.
   def handle_info({:EXIT, _pid, reason}, state) do
-    {:stop, reason, drain(state)}
+    if MapSet.member?(Owner.refused(), state.root),
+      do: {:stop, reason, state},
+      else: {:stop, reason, drain(state)}
   end
 
   @impl true
@@ -119,8 +131,10 @@ defmodule ImagePipe.Cache.Writer do
   defp drain(state) do
     receive do
       {:chunk, _chunk} = message ->
-        {:noreply, state} = handle_info(message, state)
-        drain(state)
+        case handle_info(message, state) do
+          {:noreply, state} -> drain(state)
+          {:stop, _reason, state} -> state
+        end
 
       {:commit, lease} ->
         commit(state, lease)

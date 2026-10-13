@@ -225,9 +225,12 @@ defmodule ImagePipe.CacheTest do
     opts = cache_opts(root, telemetry_prefix: prefix)
     File.chmod!(root, 0o500)
 
+    # The writer opens the entry's file after the request moves on.
     log =
       capture_log(fn ->
-        assert Cache.open_sink(cache_key(), resolved_output(), [], opts) == nil
+        sink = Cache.open_sink(cache_key(), resolved_output(), [], opts)
+        assert :ok = Cache.commit_sink(Cache.write_chunk(sink, "abc", opts), opts)
+        Caches.await_writes(opts)
       end)
 
     assert log =~ "cache sink open error"
@@ -261,6 +264,8 @@ defmodule ImagePipe.CacheTest do
       |> Cache.open_sink(resolved_output(), [], opts)
       |> Cache.write_chunk("abc", opts)
 
+    # The writer has opened the entry's file once it handles a call.
+    _ = :sys.get_state(sink.writer)
     {:ok, %{dir: dir}} = FileSystem.paths(cache_key(), Keyword.fetch!(opts, :cache))
     File.chmod!(dir, 0o500)
 

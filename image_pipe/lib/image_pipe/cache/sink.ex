@@ -125,9 +125,13 @@ defmodule ImagePipe.Cache.Sink do
   @spec abort(t() | nil, atom(), keyword()) :: :ok
   def abort(nil, _reason, _opts), do: :ok
 
+  # A writer that already finished reported why.
   def abort(%__MODULE__{} = sink, reason, _opts) do
     send(sink.writer, {:abort, reason})
-    emit_stage_event(:stage_abandoned, reason, nil, sink)
+
+    if not Writer.finished?(sink.counters),
+      do: emit_stage_event(:stage_abandoned, reason, nil, sink)
+
     :ok
   end
 
@@ -161,6 +165,13 @@ defmodule ImagePipe.Cache.Sink do
           {:error, reason}
       end
     end
+  end
+
+  @doc false
+  # A writer that couldn't open its temp body reports it.
+  def open_failed(writer_state, reason) do
+    Logger.warning("cache sink open error: #{inspect(reason)}")
+    emit_stage_event(:stage_error, :open, reason, writer_state)
   end
 
   @doc false
@@ -222,10 +233,6 @@ defmodule ImagePipe.Cache.Sink do
 
       # No instance runs this cache.
       {:error, :unavailable} ->
-        nil
-
-      {:error, {:shutdown, {:open, reason}}} ->
-        handle_open_error(reason, key, metadata.output_format, opts)
         nil
     end
   end

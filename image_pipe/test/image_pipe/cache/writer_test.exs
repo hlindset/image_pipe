@@ -6,8 +6,10 @@ defmodule ImagePipe.Cache.WriterTest do
   alias ImagePipe.Cache
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
+  alias ImagePipe.Cache.FileSystem.Owner
   alias ImagePipe.Cache.FileSystem.Writers
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Cache.Publication
   alias ImagePipe.Test.Caches
 
   @content_type "text/plain"
@@ -112,6 +114,52 @@ defmodule ImagePipe.Cache.WriterTest do
     assert Writers.pending(ctx.root) == 0
   end
 
+  test "opens the entry's file after the request moves on, and reports a failure", ctx do
+    opts = cache_opts(ctx, [])
+    {:ok, paths} = FileSystem.paths(key(), Keyword.fetch!(opts, :cache))
+    File.mkdir_p!(Path.dirname(paths.dir))
+    File.write!(paths.dir, "not a directory")
+
+    sink = Cache.open_sink(key(), {:complete_body, @content_type}, [], opts)
+    assert sink != nil
+    assert_receive {:stage, %{cache: :stage_error, error: _error}}
+
+    assert :ok = Cache.commit_sink(Cache.write_chunk(sink, "body", opts), opts)
+    Caches.await_writes(opts)
+    assert stored_bodies(ctx.root) == []
+  end
+
+  test "a shutdown doesn't finish a write into a root another node took over", ctx do
+    opts = cache_opts(ctx, [])
+    sink = Cache.open_sink(key(), {:complete_body, @content_type}, [], opts)
+    ref = Process.monitor(sink.writer)
+    :sys.suspend(sink.writer)
+
+    Process.exit(sink.writer, :shutdown)
+    sink = Cache.write_chunk(sink, "body", opts)
+    assert :ok = Cache.commit_sink(sink, opts)
+    Owner.refuse(ctx.root)
+    on_exit(fn -> Owner.accept(ctx.root) end)
+
+    :sys.resume(sink.writer)
+    assert_receive {:DOWN, ^ref, :process, _pid, :shutdown}
+    assert stored_bodies(ctx.root) == []
+  end
+
+  test "an abort after the writer dropped the write reports nothing more", ctx do
+    opts = cache_opts(ctx, [])
+    sink = Cache.open_sink(key(), {:complete_body, @content_type}, [], opts)
+    sink = Cache.write_chunk(sink, "body", opts)
+
+    ref = Process.monitor(sink.writer)
+    send(sink.writer, :expire)
+    assert_receive {:DOWN, ^ref, :process, _pid, :normal}
+    assert_receive {:stage, %{cache: :stage_dropped, reason: :deadline}}
+
+    assert :ok = Cache.abort_sink(sink, :client_closed, opts)
+    refute_received {:stage, %{cache: :stage_abandoned}}
+  end
+
   describe "a fetch's writes" do
     test "skip the original and run the rest at the writer limit", ctx do
       opts = originals_opts(ctx)
@@ -166,7 +214,7 @@ defmodule ImagePipe.Cache.WriterTest do
       test = self()
 
       for stop <- [:cancel, :exit] do
-        writer = spawn(&ImagePipe.Cache.Publication.await/0)
+        writer = spawn(&Publication.await/0)
         send(writer, {:finish, fn -> send(test, {:released, stop}) end})
         waiting(writer)
 
