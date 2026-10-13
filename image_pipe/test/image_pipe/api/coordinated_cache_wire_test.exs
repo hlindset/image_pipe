@@ -956,6 +956,9 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     first = request.()
     assert first.status == 200
     assert_receive {:origin, _, []}
+    # The original's record is stored after the response. A leader that reads
+    # no record has no validation cohort, so the follower couldn't share it.
+    Caches.await_writes(config)
     Agent.update(state, &%{&1 | block: true})
     supervisor = start_supervised!(Task.Supervisor)
     leader = Task.Supervisor.async_nolink(supervisor, request)
