@@ -79,17 +79,21 @@ defmodule CostCalibration do
       try do
         variants = make_variants(media, quick?)
         cache_root = Path.join(root, "cache")
-        name = start_instance(cache_root, media)
-        attach()
 
-        {rows, skipped} = measure_all(name, cache_root, cases(variants, quick?), iterations)
+        {rows, skipped} =
+          with_instance(cache_root, media, fn name ->
+            attach()
+            measure_all(name, cache_root, cases(variants, quick?), iterations)
+          end)
+
         if rows == [], do: raise("every case was skipped: #{inspect(skipped)}")
         if path = opts[:csv], do: write_csv(path, rows)
         result = report(rows, skipped, iterations)
         if path = opts[:json], do: write_json(path, rows, skipped, iterations, result)
         result.pass?
       after
-        File.rm_rf!(root)
+        # A leftover temp directory isn't worth failing a finished run over.
+        File.rm_rf(root)
       end
 
     if not pass?, do: System.halt(1)
@@ -274,11 +278,23 @@ defmodule CostCalibration do
 
   # ── running ─────────────────────────────────────────────────────────────
 
+  # Stops the instance before the temp directory goes, so its writers and
+  # sweep don't add files while it's removed.
+  defp with_instance(cache_root, media, fun) do
+    supervisor = start_instance(cache_root, media)
+
+    try do
+      fun.(CostCalibration.Instance)
+    after
+      Supervisor.stop(supervisor)
+    end
+  end
+
   defp start_instance(cache_root, media) do
     name = CostCalibration.Instance
 
     # The converted sources are larger than the default `max_body_bytes`.
-    {:ok, _pid} =
+    {:ok, supervisor} =
       Supervisor.start_link(
         [
           {ImagePipe,
@@ -297,7 +313,7 @@ defmodule CostCalibration do
         strategy: :one_for_one
       )
 
-    name
+    supervisor
   end
 
   defp attach do
