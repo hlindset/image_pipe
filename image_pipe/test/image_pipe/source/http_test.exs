@@ -368,7 +368,7 @@ defmodule ImagePipe.Source.HTTPTest do
            end)
   end
 
-  test "stripping byte headers also drops Req's range and compressed options" do
+  test "stripping byte headers also drops Req's range option" do
     test_pid = self()
 
     plug = fn conn ->
@@ -382,7 +382,7 @@ defmodule ImagePipe.Source.HTTPTest do
           allowed_hosts: ["assets.example.com"],
           internal_cache: :enabled,
           address_resolver: stub_resolver(),
-          req_options: [plug: plug, range: 0..9, compressed: true]
+          req_options: [plug: plug, range: 0..9]
         ],
         %URL{scheme: :https, host: "assets.example.com", path: ["cat.jpg"]}
       )
@@ -390,9 +390,7 @@ defmodule ImagePipe.Source.HTTPTest do
     assert Enum.join(stream) == "image bytes"
     assert_receive {:http_request, headers}
 
-    refute Enum.any?(headers, fn {name, _value} ->
-             String.downcase(name) in ["range", "accept-encoding"]
-           end)
+    refute Enum.any?(headers, fn {name, _value} -> String.downcase(name) == "range" end)
   end
 
   test "conditional headers in req_options are dropped, so a first fetch gets the full body" do

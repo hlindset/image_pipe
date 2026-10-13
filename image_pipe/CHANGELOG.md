@@ -44,25 +44,27 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the error for that header's lifetime. A client error (`4xx`) still keeps
   it.
 - A request to an HTTP or S3 source that waited past `pool_timeout` for a
-  free connection crashed instead of failing. Behind Bandit, its client got
-  no response and the connection stayed open. Such requests now fail with
-  `504`.
-
-- HTTP and S3 sources drop conditional headers, such as `if-none-match`,
-  from `req_options`. An origin that answered one with `304` on a first
-  fetch made the request fail.
-- Sources that drop the `range` header from `req_options` also drop Req's
-  `:range` and `:compressed` options, which set the `range` and
-  `accept-encoding` headers. With `range:`, the origin sent part of the
-  image, which was then processed as the whole original.
+  free connection crashed the request process. Behind Bandit, the client got
+  no response and the connection stayed open. Such requests now fail with a
+  `{:source, :pool_timeout}` error, which the Plug answers with `504`.
+- A conditional header in an HTTP or S3 source's `req_options`, such as
+  `if-none-match`, made the request fail when the origin answered a first
+  fetch with `304`. Sources now drop `if-none-match`, `if-modified-since`,
+  `if-match`, `if-unmodified-since`, and `if-range` from `req_options`.
+- Req's `:range` option in `req_options` set a `range` header even on sources
+  that drop `range` headers, which is every source except one with
+  `internal_cache: :disabled` that isn't immutable. The origin then sent part
+  of the image, which was processed as the whole original. These sources now
+  drop the `:range` option too.
 - An HTTP source URL whose query has a space or a non-ASCII character, such
   as `?a b`, is fetched with those characters percent-encoded. Before, the
   request failed with `502`.
-- An HTTP source whose host name resolves to several addresses could keep
-  a fetch going for several times `fetch_timeout`, because it waited the
-  full `receive_timeout` at each address in turn. Fetches now end by
-  `fetch_timeout`. An origin that closes a connection after receiving the
-  request no longer gets the same request again at its next address.
+- An HTTP source whose host name resolves to several addresses could run
+  past `fetch_timeout`, because it waited for a response at each address in
+  turn. Fetches now end by `fetch_timeout`, apart from a connection attempt,
+  which can run past it by up to `connect_timeout`. An origin that closes a
+  connection after receiving the request no longer gets it again at each of
+  its other addresses.
 
 ## [0.2.0] - 2026-10-13
 

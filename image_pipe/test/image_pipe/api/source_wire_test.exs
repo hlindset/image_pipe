@@ -103,15 +103,16 @@ defmodule ImagePipe.API.SourceWireTest do
         ]
       )
 
-    statuses =
-      1..60
-      |> Enum.map(fn n ->
+    requests =
+      Enum.map(1..60, fn n ->
         spawn_monitor(fn ->
           source = "http://origin.test:#{port}/cat.jpg?n=#{n}"
           exit({:status, request("format=jpeg", source, config).status})
         end)
       end)
-      |> Enum.map(fn {pid, ref} ->
+
+    statuses =
+      Enum.map(requests, fn {pid, ref} ->
         assert_receive {:DOWN, ^ref, :process, ^pid, reason}, 5_000
         reason
       end)

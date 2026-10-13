@@ -343,14 +343,15 @@ defmodule ImagePipe.Source.ReqStreamTest do
   test "fetches that find the connection pool full return an error instead of exiting" do
     {url, server} = start_silent_origin(:every_connection)
 
-    results =
-      1..60
-      |> Enum.map(fn _ ->
+    fetches =
+      Enum.map(1..60, fn _ ->
         spawn_monitor(fn ->
           exit({:returned, ReqStream.open([url: url], pool_timeout: 100, receive_timeout: 1_000)})
         end)
       end)
-      |> Enum.map(fn {pid, ref} ->
+
+    results =
+      Enum.map(fetches, fn {pid, ref} ->
         assert_receive {:DOWN, ^ref, :process, ^pid, reason}, 5_000
         reason
       end)

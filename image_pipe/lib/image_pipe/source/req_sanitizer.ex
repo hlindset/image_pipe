@@ -6,8 +6,8 @@ defmodule ImagePipe.Source.ReqSanitizer do
   # unsafe forwarded headers never leak to the origin. The adapter passes its own
   # always-denied base set (host/signing headers). Conditional headers are always
   # stripped: revalidation sends its own validators, and a host's would make an
-  # origin answer a first fetch with 304. The byte headers below, and the Req
-  # options that set them, are additionally stripped when the adapter requests
+  # origin answer a first fetch with 304. The byte headers below, and Req's
+  # `range:` option, are additionally stripped when the adapter requests
   # byte-header stripping.
 
   @conditional_header_names [
@@ -18,7 +18,7 @@ defmodule ImagePipe.Source.ReqSanitizer do
     "if-range"
   ]
   @cacheable_byte_header_names ["range", "accept", "accept-encoding"]
-  @byte_option_keys [:range, :compressed]
+  @byte_option_keys [:range]
 
   @spec sanitize_req_options(keyword(), [atom()], [String.t()], boolean()) :: keyword()
   def sanitize_req_options(

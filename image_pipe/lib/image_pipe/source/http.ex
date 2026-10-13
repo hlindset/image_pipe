@@ -70,17 +70,16 @@ defmodule ImagePipe.Source.HTTP do
                         default: [],
                         doc: """
                         Options for `Req.request/1`, such as `headers:` or `auth:`. \
-                        The adapter drops `:url`, `:base_url`, `:method`, `:body`, \
-                        `:params`, `:into`, `:retry`, `:redirect`, and `:max_redirects`, \
-                        a `host` header, and the conditional headers `if-none-match`, \
-                        `if-modified-since`, `if-match`, `if-unmodified-since`, and \
-                        `if-range`. Setting Req's `:adapter` or `:unix_socket` is \
+                        The adapter drops the `:url`, `:base_url`, `:method`, `:body`, \
+                        `:params`, `:into`, `:retry`, `:redirect`, and `:max_redirects` \
+                        options, the `host` header, and the conditional headers \
+                        `if-none-match`, `if-modified-since`, `if-match`, \
+                        `if-unmodified-since`, and `if-range`. Setting Req's `:adapter` or `:unix_socket` is \
                         a configuration error, because both connect somewhere other than \
                         the address the source checked \
                         ([Source network policy](source-network-policy.md)). \
                         It also drops `range`, `accept`, and `accept-encoding` headers, \
-                        and the `:range` and `:compressed` options that set them, \
-                        except on a source with `internal_cache: :disabled` that isn't \
+                        and the `:range` option, except on a source with `internal_cache: :disabled` that isn't \
                         immutable. Requests for one URL must always return the same \
                         bytes, because cached originals and processed images are \
                         reused per URL.

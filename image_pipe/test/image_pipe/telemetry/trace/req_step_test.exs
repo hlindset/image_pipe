@@ -1,5 +1,6 @@
 defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
   use ExUnit.Case, async: false
+  alias ImagePipe.Source.ReqStream
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.Trace.{ReqStep, TestReqAdapter}
   alias ImagePipe.Test.Trace.{Span, TestExporter}
@@ -49,7 +50,7 @@ defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
     {:ok, {_address, port}} = ThousandIsland.listener_info(origin)
 
     Telemetry.span([], [:request], %{}, fn ->
-      {:ok, response} = ImagePipe.Source.ReqStream.open([url: "http://127.0.0.1:#{port}/"], [])
+      {:ok, response} = ReqStream.open([url: "http://127.0.0.1:#{port}/"], [])
       assert Enum.join(response.stream) == "image bytes"
       {:ok, %{result: :ok}}
     end)

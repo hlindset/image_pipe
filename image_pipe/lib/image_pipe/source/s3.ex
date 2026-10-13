@@ -58,14 +58,14 @@ defmodule ImagePipe.Source.S3 do
                        default: [],
                        doc: """
                        Options for `Req.request/1`, such as `headers:`. The adapter \
-                       drops `:url`, `:base_url`, `:method`, `:body`, `:params`, \
+                       drops the `:url`, `:base_url`, `:method`, `:body`, `:params`, \
                        `:into`, `:retry`, `:redirect`, `:max_redirects`, `:auth`, and \
-                       `:aws_sigv4`, and the `authorization`, `host`, \
+                       `:aws_sigv4` options, the `authorization`, `host`, \
                        `x-amz-content-sha256`, and `x-amz-security-token` headers, and \
                        the conditional headers `if-none-match`, `if-modified-since`, \
                        `if-match`, `if-unmodified-since`, and `if-range`. It also drops \
                        `range`, `accept`, and `accept-encoding` headers, and the \
-                       `:range` and `:compressed` options that set them, except on a source with `internal_cache: :disabled` that isn't \
+                       `:range` option, except on a source with `internal_cache: :disabled` that isn't \
                        immutable. Requests for one object must always return the \
                        same bytes.
                        """
