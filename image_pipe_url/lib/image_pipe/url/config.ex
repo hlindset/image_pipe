@@ -41,6 +41,12 @@ defmodule ImagePipe.URL.Config do
               validation results. In an app that serves its own URLs,
               `ImagePipe.url_config/2` returns the URL configuration with this
               filled in, and `ImagePipe.config/1` doesn't accept it.
+
+              `ImagePipe.URL.config/1` raises `ArgumentError` when a preset or
+              the request defaults set options that can't be combined, such as
+              `anchor` and `detect`, name a watermark missing from
+              `:watermarks`, or set `watermark_source` or `watermark_token`
+              with `request_watermarks: false`.
               """,
               keys: [
                 presets: [
@@ -74,8 +80,9 @@ defmodule ImagePipe.URL.Config do
                   doc: """
                   The server's watermark names, such as `[:logo]`. A `watermark:`
                   name missing from the list fails the check. Without this
-                  option, watermark names aren't checked. The check covers
-                  presets too, so list the server's `:presets` as well.
+                  option, watermark names aren't checked. `ImagePipe.URL.config/1`
+                  also checks the names in `:presets` and `:request_defaults`,
+                  and raises for a missing one.
                   """
                 ],
                 request_watermarks: [
@@ -84,8 +91,9 @@ defmodule ImagePipe.URL.Config do
                   The server's `request_watermarks` setting: whether it accepts
                   watermark sources that a request names. With `false`, a
                   `watermark_source:` fails the check. Without this option,
-                  watermark sources aren't checked. The check covers presets
-                  too, so list the server's `:presets` as well.
+                  watermark sources aren't checked. With `false`,
+                  `ImagePipe.URL.config/1` also raises for a watermark source in
+                  `:presets` or `:request_defaults`.
                   """
                 ]
               ]
@@ -144,7 +152,9 @@ defmodule ImagePipe.URL.Config do
     presets =
       Map.new(Keyword.fetch!(options, :presets), fn {name, value} -> {name, plan(value)} end)
 
-    case Presets.compile(presets, plan(options[:request_defaults])) do
+    watermarks = Presets.watermarks(options[:watermarks], options[:request_watermarks])
+
+    case Presets.compile(presets, plan(options[:request_defaults]), watermarks) do
       {:ok, compiled} ->
         [
           validate_against:

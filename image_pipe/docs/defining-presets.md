@@ -50,10 +50,26 @@ its URL spelling:
 <!-- tabs-close -->
 
 Names use letters, digits, `.`, `_`, and `-`. A fragment can't hold a source
-or a signature. The configuration is checked at startup: an invalid name, an
-invalid option, a reference to an undefined preset, or presets that name each
-other in a cycle stop the server, or make `ImagePipe.config/1` raise
-`ArgumentError`, such as `invalid ImagePipe configuration: unknown preset: crad`.
+or a signature. The configuration is checked at startup. Any of these stops
+the server, or makes `ImagePipe.config/1` raise `ArgumentError`:
+
+- An invalid name or option.
+- A reference to an undefined preset.
+- Presets that name each other in a cycle.
+- Options in one group of a preset that can't be combined, such as `anchor`
+  and `detect`.
+- A [`wm`](processing/watermark.md#wm) name that isn't a configured
+  watermark.
+- [`wm-src64` or `wm-enc`](processing/watermark.md#wm-src64-and-wm-enc)
+  while `request_watermarks` is off. See
+  [`[processing]`](../../image_pipe_server/docs/server-configuration.md#processing)
+  for the server, or `ImagePipe.config/1` for the Plug.
+
+The error names the problem, such as
+`invalid ImagePipe configuration: unknown preset: crad`.
+
+A preset may set options that do nothing on their own, such as `fit=cover`
+without a size, since a URL can add what they need.
 
 ## Set request defaults
 
@@ -78,7 +94,8 @@ request_defaults = "q=80"
 
 <!-- tabs-close -->
 
-Request defaults can't name presets.
+Request defaults can't name presets. The checks in [Add presets](#add-presets)
+apply to them too.
 
 ## Use a preset in a URL
 

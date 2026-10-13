@@ -166,7 +166,7 @@ defmodule ImagePipe.Plan.Spec do
       saturation: assemble_one_identity(Map.get(group_map, :saturation)),
       colorize: assemble_opacity_effect(Map.get(group_map, :colorize)),
       gradient: assemble_opacity_effect(Map.get(group_map, :gradient)),
-      pad: Map.get(group_map, :padding),
+      pad: assemble_padding(Map.get(group_map, :padding)),
       bg: assemble_bg(Map.get(group_map, :background)),
       watermark: assemble_watermark(group_map)
     }
@@ -325,7 +325,7 @@ defmodule ImagePipe.Plan.Spec do
 
   defp assemble_progressive_blur(nil), do: nil
   defp assemble_progressive_blur(%{sigma: sigma}) when sigma == 0.0, do: nil
-  defp assemble_progressive_blur(effect), do: %{effect | angle: Angle.normalize(effect.angle)}
+  defp assemble_progressive_blur(effect), do: assemble_band(effect)
 
   defp assemble_zero_identity(nil), do: nil
   defp assemble_zero_identity(value) when value == 0, do: nil
@@ -342,10 +342,15 @@ defmodule ImagePipe.Plan.Spec do
   defp assemble_opacity_effect(nil), do: nil
   defp assemble_opacity_effect(%{opacity: opacity}) when opacity == 0, do: nil
 
-  defp assemble_opacity_effect(%{angle: angle} = effect),
-    do: %{effect | angle: Angle.normalize(angle)}
+  defp assemble_opacity_effect(%{angle: _angle} = effect), do: assemble_band(effect)
 
   defp assemble_opacity_effect(effect), do: effect
+
+  defp assemble_band(%{angle: angle, start: start, stop: stop} = effect),
+    do: %{effect | angle: Angle.normalize(angle), start: fraction(start), stop: fraction(stop)}
+
+  defp assemble_padding({0, 0, 0, 0}), do: nil
+  defp assemble_padding(padding), do: padding
 
   defp assemble_bg(nil), do: nil
   defp assemble_bg({{r, g, b}, nil}), do: {r, g, b, 1.0}

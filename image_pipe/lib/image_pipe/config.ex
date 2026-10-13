@@ -469,18 +469,19 @@ defmodule ImagePipe.Config do
     case NimbleOptions.validate(resolved, @schema) do
       {:ok, validated} ->
         {preset_options, validated} = Keyword.split(validated, @preset_keys)
-        {presets, validate_against} = presets!(preset_options)
 
         validated =
           validated
           |> Keyword.put_new(:clock, &__MODULE__.system_time/0)
           |> Keyword.update!(:watermarks, &watermarks!(&1, validated))
 
-        validate_against =
-          Map.merge(validate_against, %{
-            watermarks: Map.keys(Keyword.fetch!(validated, :watermarks)),
-            request_watermarks: Keyword.fetch!(validated, :request_watermarks)
-          })
+        known_watermarks = %{
+          watermarks: Map.keys(Keyword.fetch!(validated, :watermarks)),
+          request_watermarks: Keyword.fetch!(validated, :request_watermarks)
+        }
+
+        {presets, validate_against} = presets!(preset_options, known_watermarks)
+        validate_against = Map.merge(validate_against, known_watermarks)
 
         url = URLConfig.put_validate_against(url, validate_against)
         concealed_watermarks!(presets, url)
@@ -524,11 +525,14 @@ defmodule ImagePipe.Config do
 
   # Compiles static presets and request defaults; returns the resolved options
   # and the builder's view of them for `ImagePipe.url_config/2`.
-  defp presets!(options) do
+  defp presets!(options, known_watermarks) do
     presets =
       Map.new(Keyword.fetch!(options, :presets), fn {name, value} -> {name, plan(value)} end)
 
-    case Presets.compile(presets, plan(options[:request_defaults])) do
+    watermarks =
+      Presets.watermarks(known_watermarks.watermarks, known_watermarks.request_watermarks)
+
+    case Presets.compile(presets, plan(options[:request_defaults]), watermarks) do
       {:ok, compiled} ->
         lookup = lookup_options!(options)
 

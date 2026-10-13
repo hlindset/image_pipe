@@ -510,6 +510,54 @@ defmodule ImagePipe.URLTest do
       end
     end
 
+    test "presets and request defaults whose own options conflict fail at init" do
+      for fragment <- [
+            "anchor=top/detect=face",
+            "q=80/autoquality=50",
+            "w=10/h=10/extend/extend-ratio",
+            "crop=10,10/region=0,0,5,5",
+            "anchor=top/focus=0.5,0.5"
+          ],
+          options <- [[presets: %{"card" => fragment}], [request_defaults: fragment]] do
+        assert_raise ArgumentError, ~r/mutually_exclusive_options/, fn ->
+          IP.URL.config(validate_against: options)
+        end
+      end
+
+      for options <- [
+            [presets: %{"card" => "wm=other"}, watermarks: [:logo]],
+            [request_defaults: "wm=other", watermarks: [:logo]],
+            [
+              presets: %{"card" => "wm-src64=#{Base.url_encode64("logo.png", padding: false)}"},
+              request_watermarks: false
+            ]
+          ] do
+        assert_raise ArgumentError, ~r/validate_against.*watermark/, fn ->
+          IP.URL.config(validate_against: options)
+        end
+      end
+    end
+
+    test "presets may set options that do nothing on their own or that a later layer replaces" do
+      config =
+        IP.URL.config(
+          validate_against: [
+            request_defaults: "anchor=top/fit=cover",
+            presets: %{
+              "partial" => "w=auto/fit=cover/anchor=left",
+              "top" => "anchor=top",
+              "faces" => "preset=top/detect=face",
+              "branded" => "wm=logo"
+            }
+          ]
+        )
+
+      assert {:ok, _warnings} =
+               IP.URL.new(config)
+               |> IP.URL.group(presets: ["partial", "faces"], resize: [height: 10])
+               |> IP.URL.validate()
+    end
+
     test "unset options are written as key=unset and clear presets" do
       config =
         IP.URL.config(

@@ -374,6 +374,7 @@ defmodule ImagePipe.Plug.ConfigTest do
           {[presets: %{"wm" => "wm-enc=AQID"}], ~s(preset "wm")},
           {[request_defaults: "wm-enc=AQID"], "request_defaults"}
         ] do
+      options = [request_watermarks: true] ++ options
       error = assert_raise ArgumentError, fn -> ImagePipe.config(options) end
       assert error.message =~ "#{owner} uses wm-enc, which needs source_encryption_keys"
     end

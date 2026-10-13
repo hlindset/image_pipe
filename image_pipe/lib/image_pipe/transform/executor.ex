@@ -447,7 +447,6 @@ defmodule ImagePipe.Transform.Executor do
   end
 
   defp execute_padding(state, nil, _dpr, _opts), do: {:ok, state}
-  defp execute_padding(state, {0, 0, 0, 0}, _dpr, _opts), do: {:ok, state}
 
   defp execute_padding(state, sides, dpr, opts) do
     [top, right, bottom, left] =
@@ -1010,7 +1009,7 @@ defmodule ImagePipe.Transform.Executor do
           {group.colorize, :colorize},
           {group.gradient, :gradient},
           {group.canvas, :canvas},
-          {padding_name(group.pad), :padding},
+          {group.pad, :padding},
           {group.bg, :background},
           {group.watermark, :watermark}
         ],
@@ -1021,7 +1020,4 @@ defmodule ImagePipe.Transform.Executor do
   defp crop_name(%Group{region: region}) when region != nil, do: :crop_region
   defp crop_name(%Group{crop: crop}) when crop != nil, do: :crop_guided
   defp crop_name(%Group{}), do: nil
-  defp padding_name(nil), do: nil
-  defp padding_name({0, 0, 0, 0}), do: nil
-  defp padding_name({_top, _right, _bottom, _left}), do: :padding
 end

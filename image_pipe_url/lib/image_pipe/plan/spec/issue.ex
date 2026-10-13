@@ -48,8 +48,6 @@ defmodule ImagePipe.Plan.Spec.Issue do
       the request ignores it.
     * `:mutually_exclusive_options` - the options can't be combined, such as
       `extend` and `extend_ratio`.
-    * `:invalid_offset` - a pixel offset is too large to multiply by the
-      group's `dpr`.
     * `:unknown_preset` - a named preset isn't defined.
     * `:pipeline_preset_with_group_options`, `:pipeline_preset_with_preset`,
       `:multiple_pipeline_presets` - a preset that defines several groups is

@@ -39,7 +39,7 @@ defmodule ImagePipe.PresetLookup do
   | --- | --- | --- |
   | A requested name is missing from the map | `400` | `{:invalid_request, issues}` |
   | `{:error, reason}`, a raise, an exit, a value other than `{:ok, map}`, or a non-string fragment | `503` | `{:preset, :lookup_unavailable}` |
-  | A fragment that doesn't parse, references an unknown preset, or forms a cycle | `500` | `{:preset, :invalid_definition}` |
+  | A fragment that doesn't parse, references an unknown preset, forms a cycle, or sets options that can't be combined | `500` | `{:preset, :invalid_definition}` |
   | The request itself names more than `:max_preset_lookups` presets to look up | `400` | `{:preset, :too_many_presets}` |
   | References in looked-up definitions bring the total above `:max_preset_lookups` | `500` | `{:preset, :invalid_definition}` |
 

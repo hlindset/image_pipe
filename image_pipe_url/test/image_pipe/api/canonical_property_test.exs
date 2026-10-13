@@ -306,6 +306,10 @@ defmodule ImagePipe.API.CanonicalPropertyTest do
             {["trim=red,0"], ["trim=red,-0.0"]},
             {["gradient=1,red,0"], ["gradient=1,red,-0.0"]},
             {["progressive-blur=4,0"], ["progressive-blur=4,-0.0"]},
+            {["gradient=1,red,0,0,1"], ["gradient=1,red,0,-0.0,1"]},
+            {["gradient=1,red,0,0,0"], ["gradient=1,red,0,-0.0,-0.0"]},
+            {["progressive-blur=4,0,0,1"], ["progressive-blur=4,0,-0.0,1"]},
+            {["progressive-blur=4,0,0,0"], ["progressive-blur=4,0,-0.0,-0.0"]},
             {[], ["rotate=-0.0"]},
             {["gradient=1,red,0"], ["gradient=1,red,-0.000000000000000000001"]},
             {["progressive-blur=4,0"], ["progressive-blur=4,-0.000000000000000000001"]}
@@ -315,6 +319,14 @@ defmodule ImagePipe.API.CanonicalPropertyTest do
 
         assert :erlang.term_to_binary(zero_request) ==
                  :erlang.term_to_binary(negative_zero_request)
+      end
+    end
+
+    test "zero padding has the serialized identity of no padding" do
+      for padding <- ["pad=0", "pad=0,0", "pad=0,0,0,0"] do
+        assert {:ok, plain} = parse(["w=10"])
+        assert {:ok, padded} = parse(["w=10", padding])
+        assert :erlang.term_to_binary(plain) == :erlang.term_to_binary(padded)
       end
     end
 

@@ -22,8 +22,12 @@ defmodule ImagePipe.API.SerializedValue do
 
   # The grammar accepts plain decimals. Expand the shortest round-trippable
   # float representation rather than rounding small values to a fixed precision.
+  # From 2^53 every float is a whole number, and the shortest representation
+  # pads with zeros to a different integer, which the parser keeps exactly.
+  # Write the float's own integer value instead.
   defp decimal(value) when value == 0, do: "0"
   defp decimal(value) when value < 0, do: "-" <> decimal(-value)
+  defp decimal(value) when value >= 9_007_199_254_740_992, do: Integer.to_string(trunc(value))
 
   defp decimal(value) do
     case String.split(Float.to_string(value), "e") do

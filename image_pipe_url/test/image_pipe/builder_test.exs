@@ -110,6 +110,8 @@ defmodule ImagePipe.BuilderTest do
           {[detect: []], {:group, 0, :detect}},
           {[detect: ["face", "face"]], {:group, 0, :detect}},
           {[detect: [{"face", 0}]], {:group, 0, :detect}},
+          {[detect: ["unset"]], {:group, 0, :detect}},
+          {[detect: [{"unset", 2}, "face"]], {:group, 0, :detect}},
           {[background: {"red", 2}], {:group, 0, :background}},
           {[background: "transparent"], {:group, 0, :background}},
           {[gradient: [opacity: 0.5, color: "red", start: -1]], {:group, 0, :gradient}},
@@ -147,6 +149,12 @@ defmodule ImagePipe.BuilderTest do
 
     assert [%Spec.Issue{reason: :invalid_value, locations: [{:request, :page}]}] =
              errors(IP.URL.new(page: -1))
+
+    # The URL reads `unset` as clearing the option, so it can't be a value.
+    for key <- [:filename, :cachebuster] do
+      assert [%Spec.Issue{reason: :invalid_value, locations: [{:request, ^key}]}] =
+               errors(IP.URL.new([{key, "unset"}]))
+    end
   end
 
   test "records an unknown option name as an error" do

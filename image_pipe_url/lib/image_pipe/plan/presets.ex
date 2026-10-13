@@ -42,6 +42,7 @@ defmodule ImagePipe.Plan.Presets do
   ]
 
   @type compiled :: %{groups: %{non_neg_integer() => map()}, request: map()}
+  @type watermarks :: Validation.watermarks()
 
   # `compiled` seeds already-compiled presets that `parsed` fragments may
   # reference, such as the static map under request-time lookup.
@@ -127,6 +128,20 @@ defmodule ImagePipe.Plan.Presets do
     |> Enum.sort()
     |> Enum.flat_map(fn {_index, options} -> Map.get(options, :presets, []) end)
     |> Enum.uniq()
+  end
+
+  # The errors among a compiled preset's own options, which no request can
+  # use: a request option replaces both sides of a conflict. Options that do
+  # nothing on their own aren't errors, since a request may supply what they
+  # need.
+  @doc false
+  @spec conflicts(compiled(), watermarks()) :: [Issue.t()]
+  def conflicts(%{groups: groups, request: request}, watermarks) do
+    groups
+    |> Enum.sort()
+    |> Enum.map(&drop_unset(elem(&1, 1)))
+    |> Validation.errors(drop_unset(request), MapSet.new(), watermarks)
+    |> Enum.filter(&(&1.severity == :error))
   end
 
   @doc false

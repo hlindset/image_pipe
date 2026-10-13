@@ -5,6 +5,28 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `ImagePipe.URL.config/1` raises `ArgumentError` when a preset
+  or the request defaults in `:validate_against` set options that can't be
+  combined, such as `anchor=top/detect=face` or `q=80/autoquality=50`. It also
+  raises when they name a watermark that the `:watermarks` list leaves out, or
+  use `wm-src64` or `wm-enc` with `request_watermarks: false`. A server
+  running the matching `image_pipe` release fails at startup with the same
+  presets. Remove one of the conflicting options, or the watermark option,
+  from the server's presets and the builder's copy.
+
+### Fixed
+
+- `ImagePipe.URL.new/1` rejects `filename: "unset"` and `cachebuster: "unset"`
+  instead of building a URL without them. In a URL, `unset` clears an option.
+- `ImagePipe.URL.group/2` rejects the detection class `"unset"`, which URLs
+  don't accept.
+- A float of 2^53 or more, such as `rotate: 1.0e300` or a trim tolerance of
+  `1.0e308`, keeps its exact value in the built URL. The URL used to carry a
+  nearby whole number instead, so `rotate: 1.0e300` built a URL that rotated
+  by 280 degrees rather than 0.
+
 ## [0.2.0] - 2026-10-13
 
 ### Removed

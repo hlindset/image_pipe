@@ -140,6 +140,26 @@ defmodule ImagePipe.PresetsTest do
     assert_raise ArgumentError, ~r/invalid_value/, fn -> IP.config(request_defaults: invalid) end
   end
 
+  test "a preset or request default whose own options conflict fails configuration" do
+    for options <- [
+          [presets: %{"card" => "anchor=top/detect=face"}],
+          [request_defaults: "anchor=top/detect=face"],
+          [request_defaults: IP.URL.new() |> IP.URL.output(quality: 80, autoquality: 50)]
+        ] do
+      assert_raise ArgumentError, ~r/mutually_exclusive_options/, fn -> IP.config(options) end
+    end
+
+    for options <- [
+          [presets: %{"card" => "wm=missing"}],
+          [
+            request_defaults: "wm-src64=#{Base.url_encode64("logo.png", padding: false)}",
+            request_watermarks: false
+          ]
+        ] do
+      assert_raise ArgumentError, ~r/watermark/, fn -> IP.config(options) end
+    end
+  end
+
   test "URL generation clears request defaults with unset" do
     url_config =
       IP.url_config(IP.config(request_defaults: "jpeg-options=progressive/format-q=jpeg:70"))
