@@ -497,7 +497,6 @@ defmodule ImagePipe.API.Parser do
   defp semantic_message(%{detail: :auto_dimension}),
     do: "auto dimension has no concrete partner"
 
-  defp semantic_message(%{detail: :invalid_offset}), do: message_for(:invalid_offset)
   defp semantic_message(%{detail: :unknown_watermark}), do: message_for(:unknown_watermark)
 
   defp semantic_message(%{detail: :watermark_source_disabled}),
