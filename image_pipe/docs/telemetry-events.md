@@ -422,8 +422,8 @@ The default Logger logs dropped writes at `:warning`.
     `:stage_dropped` when the cache dropped the write to keep up with its
     storage (see [writing entries](cache.md#writing-entries)), or
     `:stage_error` when opening or writing the staged entry failed. Writes
-    of originals report only `:stage_dropped`, with `:writer_limit` or
-    `:pending_limit`.
+    of originals report only `:stage_dropped`, with `:writer_limit`,
+    `:pending_limit` or `:deadline`.
   - `:result` (atom): `:ok` for skipped, abandoned and dropped entries,
     `:cache_error` otherwise.
   - `:reason` (atom): why the entry was skipped, abandoned or dropped, such
@@ -431,7 +431,8 @@ The default Logger logs dropped writes at `:warning`.
     runs its maximum number of writes), `:pending_limit` (its unfinished
     writes hold too many bytes), `:lagging` (the client got too far ahead of
     the write), or `:deadline` (a processed image's write was unfinished 30
-    seconds after it started).
+    seconds after it started, or an original's writes waited past the
+    2-second limit and another request may have stored it since).
   - `:error` (atom): the error category, for `:stage_error`.
   - `:output_format` (atom), or `nil` for an original or a body that isn't
     an image, such as a BlurHash.

@@ -31,7 +31,13 @@ defmodule ImagePipe.Cache.WriterTest do
     )
 
     on_exit(fn -> :telemetry.detach(handler) end)
-    %{root: Path.join(root, "cache"), images: images, prefix: prefix}
+
+    %{
+      root: Path.join(root, "cache"),
+      originals: Path.join(root, "originals"),
+      images: images,
+      prefix: prefix
+    }
   end
 
   test "a response completes while the cache's storage is stalled", ctx do
@@ -106,29 +112,72 @@ defmodule ImagePipe.Cache.WriterTest do
     assert Writers.pending(ctx.root) == 0
   end
 
-  test "at the writer limit, a fetch's writes skip the original and run the rest", ctx do
-    opts = cache_opts(ctx, [])
-    test = self()
+  describe "a fetch's writes" do
+    test "skip the original and run the rest at the writer limit", ctx do
+      opts = originals_opts(ctx)
+      test = self()
 
-    blockers =
-      for n <- 1..64 do
-        spec = Supervisor.child_spec({Task, fn -> receive(do: (:stop -> :ok)) end}, id: n)
-        {:ok, pid} = Writers.start_child(ctx.root, spec)
-        pid
+      blockers =
+        for n <- 1..64 do
+          spec = Supervisor.child_spec({Task, fn -> receive(do: (:stop -> :ok)) end}, id: n)
+          {:ok, pid} = Writers.start_child(ctx.originals, spec)
+          pid
+        end
+
+      on_exit(fn -> Enum.each(blockers, &send(&1, :stop)) end)
+
+      Cache.publish("source", nil, staged(ctx, test), opts)
+      assert_received :record
+      refute_received :original
+      assert_received {:stage, %{cache: :stage_dropped, reason: :writer_limit, pool: :input}}
+
+      Cache.publish("source", nil, fn -> send(test, :invalidated) end, opts)
+      assert_received :invalidated
+    end
+
+    test "skip the original without an originals cache, and reserve nothing", ctx do
+      opts = cache_opts(ctx, [])
+      test = self()
+
+      Cache.publish("source", nil, staged(ctx, test), opts)
+      Caches.await_writes(opts)
+
+      assert_received :record
+      refute_received :original
+      refute_received {:stage, _metadata}
+      assert Writers.pending(ctx.root) == 0
+    end
+
+    test "run an invalidation after their lease expired, and drop the rest", ctx do
+      opts = originals_opts(ctx)
+      test = self()
+      expired = make_ref()
+
+      Cache.publish("source", expired, {:invalidate, fn -> send(test, :invalidated) end}, opts)
+      Cache.publish("source", expired, fn -> send(test, :remembered) end, opts)
+      Caches.await_writes(opts)
+
+      assert_received :invalidated
+      refute_received :remembered
+      assert_received {:stage, %{cache: :stage_dropped, reason: :deadline}}
+    end
+
+    test "release their reservation when the request never hands them over" do
+      test = self()
+
+      for stop <- [:cancel, :exit] do
+        writer = spawn(&ImagePipe.Cache.Publication.await/0)
+        send(writer, {:finish, fn -> send(test, {:released, stop}) end})
+        waiting(writer)
+
+        case stop do
+          :cancel -> send(writer, :cancel)
+          :exit -> Process.exit(writer, :shutdown)
+        end
+
+        assert_receive {:released, ^stop}
       end
-
-    on_exit(fn -> Enum.each(blockers, &send(&1, :stop)) end)
-
-    staged =
-      {:staged, "unused", fn _path -> send(test, :original) end, fn -> send(test, :record) end}
-
-    Cache.publish("source", nil, staged, opts)
-    assert_received :record
-    refute_received :original
-    assert_received {:stage, %{cache: :stage_dropped, reason: :writer_limit, pool: :input}}
-
-    Cache.publish("source", nil, fn -> send(test, :invalidated) end, opts)
-    assert_received :invalidated
+    end
   end
 
   test "unfinished writes count against max_size_bytes", ctx do
@@ -145,6 +194,33 @@ defmodule ImagePipe.Cache.WriterTest do
     assert :ok = commit(cache, key("b"), String.duplicate("b", 4_700))
     assert {:hit, entry} = Cache.lookup_entry(key("b"), opts)
     Entry.close(entry)
+  end
+
+  # Returns once `pid` has handled its messages and waits for more, so it
+  # traps exits by then.
+  defp waiting(pid) do
+    case Process.info(pid, [:message_queue_len, :status]) do
+      [message_queue_len: 0, status: :waiting] -> :ok
+      _busy -> waiting(pid)
+    end
+  end
+
+  defp originals_opts(ctx) do
+    Cache.validate_config!(
+      Caches.start!(
+        cache: [root: ctx.root],
+        input_cache: [root: ctx.originals],
+        telemetry_prefix: ctx.prefix
+      )
+    )
+  end
+
+  # A staged original in a real file, whose write and record report here.
+  defp staged(ctx, test) do
+    path = Path.join(ctx.originals <> "_staging", "original")
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, "original bytes")
+    {:staged, path, fn _path -> send(test, :original) end, fn -> send(test, :record) end}
   end
 
   defp cache_opts(ctx, cache) do

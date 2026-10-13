@@ -3,11 +3,11 @@ defmodule ImagePipe.Cache.Publication do
   # writers. The writer takes the source's lease (`Work.transfer/3`), so the
   # requests waiting for the source wake when it publishes, or after a
   # deadline. A staged original the writes read is pinned for the writer and
-  # counted as pending against the originals cache. The write is dropped when
-  # the cache runs its maximum number of writers or its pending bytes would
-  # pass the limit. Without a running cache, or when the original can't be
-  # pinned, the writes run in the request. At the writer limit, only the
-  # original is dropped. The deadline and the writer's maximum age are guesses
+  # counted as pending against the originals cache. The original is dropped
+  # when the cache runs its maximum number of writers or its pending bytes
+  # would pass the limit, and the other writes still run. Without a running
+  # cache, or when the original can't be pinned, the writes run in the
+  # request. The deadline and the writer's maximum age are guesses
   # (image_plug-sole).
   @moduledoc false
 
@@ -22,21 +22,35 @@ defmodule ImagePipe.Cache.Publication do
   @max_age 30_000
 
   @doc """
-  Publishes `write` for the source `hash` under `lease`. `write` is a
-  function, or `{:staged, path, put, then}` when `put` stores the staged
-  original at `path`, given the path to read, and `then`, a function or nil,
-  runs after it. A dropped original still runs `then`.
+  Publishes `write` for the source `hash` under `lease`. `write` is one of:
+
+    * a function,
+    * `{:staged, path, put, then}`, where `put` stores the staged original at
+      `path`, given the path to read, and `then`, a function or nil, runs
+      after it. A dropped original still runs `then`.
+    * `{:invalidate, fun}`, which runs even after the lease has expired, since
+      dropping an entry is always safe.
+
+  Without an originals cache, a staged original isn't stored, so only `then`
+  runs.
   """
   def publish(hash, lease, write, opts) do
-    case writers_root(opts) do
-      nil -> Work.publish(hash, lease, inline(write))
-      root -> hand_off(root, hash, lease, write, opts)
+    case {writers_root(opts), stored(write, opts)} do
+      {_root, nil} -> :ok
+      {nil, write} -> run(hash, lease, inline(write), opts)
+      {root, write} -> hand_off(root, hash, lease, write, opts)
     end
   end
 
+  defp stored({:staged, _path, _put, then} = write, opts),
+    do: if(Keyword.get(opts, :input_cache), do: write, else: then)
+
+  defp stored(write, _opts), do: write
+
   defp hand_off(root, hash, lease, write, opts) do
     with {:ok, writer} <- Writers.start_child(root, job()),
-         {:ok, run, finish} <- prepare(write, writer, root, hash, opts) do
+         {:ok, writes, finish} <- prepare(write, writer, root, hash, opts) do
+      send(writer, {:finish, finish})
       Work.transfer(lease, writer, @lease_deadline)
       context = RequestContext.capture()
 
@@ -44,26 +58,33 @@ defmodule ImagePipe.Cache.Publication do
         writer,
         {:publish, context,
          fn ->
-           try do
-             Work.publish(hash, lease, run)
-             Work.unlock(lease)
-           after
-             finish.()
-           end
+           run(hash, lease, writes, opts)
+           Work.unlock(lease)
          end}
       )
 
       :ok
     else
       {:error, :unavailable} ->
-        Work.publish(hash, lease, inline(write))
+        run(hash, lease, inline(write), opts)
 
       {:error, :writer_limit} ->
-        Work.publish(hash, lease, without_original(write, hash, opts))
+        run(hash, lease, without_original(write, hash, opts), opts)
 
       {:error, :unpinned, writer} ->
         send(writer, :cancel)
-        Work.publish(hash, lease, inline(write))
+        run(hash, lease, inline(write), opts)
+    end
+  end
+
+  # A lease that expired before the writer took the publication lock means
+  # another fetch may have written since, so the writes are skipped, except
+  # an invalidation.
+  defp run(hash, _lease, {:invalidate, fun}, _opts), do: Work.publish(hash, nil, fun)
+
+  defp run(hash, lease, fun, opts) do
+    with :unavailable <- Work.publish(hash, lease, fun) do
+      dropped(hash, :deadline, opts)
     end
   end
 
@@ -81,7 +102,7 @@ defmodule ImagePipe.Cache.Publication do
     end
   end
 
-  defp prepare(fun, _writer, _root, _hash, _opts), do: {:ok, fun, fn -> :ok end}
+  defp prepare(write, _writer, _root, _hash, _opts), do: {:ok, write, fn -> :ok end}
 
   defp pinned(path, size, writer, root, put, then) do
     case Input.pin(path) do
@@ -117,16 +138,16 @@ defmodule ImagePipe.Cache.Publication do
     end
   end
 
-  defp inline(fun), do: fun
+  defp inline(write), do: write
 
-  # Without a writer, the original isn't stored, but the writes that keep the
-  # cache correct, such as an invalidation, still run in the request.
+  # Without a writer, the original isn't stored, but the other writes still
+  # run in the request.
   defp without_original({:staged, _path, _put, then}, hash, opts) do
     dropped(hash, :writer_limit, opts)
     fn -> run_then(then) end
   end
 
-  defp without_original(fun, _hash, _opts), do: fun
+  defp without_original(write, _hash, _opts), do: write
 
   defp run_then(nil), do: :ok
   defp run_then(then), do: then.()
@@ -143,16 +164,35 @@ defmodule ImagePipe.Cache.Publication do
   defp job, do: Supervisor.child_spec({Task, &await/0}, shutdown: 25_000)
 
   @doc false
+  # The writer owns the reservation from the moment it's made, so a request
+  # that dies before handing over the writes, a cancellation, a timeout and a
+  # shutdown all release it. A shutdown lets a publication in progress finish.
   def await do
+    Process.flag(:trap_exit, true)
+    await(fn -> :ok end)
+  end
+
+  defp await(finish) do
     receive do
+      {:finish, finish} ->
+        await(finish)
+
       {:publish, context, fun} ->
         RequestContext.adopt(context)
-        fun.()
+
+        try do
+          fun.()
+        after
+          finish.()
+        end
 
       :cancel ->
-        :ok
+        finish.()
+
+      {:EXIT, _from, _reason} ->
+        finish.()
     after
-      @max_age -> :ok
+      @max_age -> finish.()
     end
   end
 
