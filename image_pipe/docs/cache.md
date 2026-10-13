@@ -4,7 +4,8 @@ ImagePipe has two caches: `cache` stores complete processed responses, and
 `input_cache` stores originals fetched from remote sources. Both store files
 on disk and take a keyword list, such as
 `[root: "/var/cache/image_pipe/processed", max_size_bytes: 5_000_000_000]`.
-Each cache needs an ImagePipe instance (see `ImagePipe.child_spec/1`). The
+In Elixir, each cache needs an ImagePipe instance (see
+`ImagePipe.child_spec/1`). `image_pipe_server` runs one itself. The
 options are listed in `ImagePipe.Cache.FileSystem`, and the server's
 `[cache]` keys in the
 [server configuration reference](../../image_pipe_server/docs/server-configuration.md#cache).
@@ -149,8 +150,9 @@ written to the cache in the background as it streams. The response never
 waits for the cache's disk: each chunk is written as it arrives, and the
 entry is synced and stored after the response is sent. An original
 downloaded for a request is stored in the background too, while the request
-processes it. Without an originals cache, those writes count toward the
-processed-image cache's limits below. The entry is stored only when:
+processes it. Without an originals cache, the details kept to recheck an
+original are stored in the processed-image cache and count toward its limits
+below. The entry is stored only when:
 
 - the encoder finished,
 - every chunk reached the client,
@@ -160,21 +162,23 @@ A client disconnect, a failure after the first chunk, or a body over
 `max_body_bytes` [leaves nothing in the cache](streaming-failures.md). The
 client still receives the full response in the last case.
 
-When the cache's disk can't keep up, writes are dropped rather than queued
-without limit. The response is still delivered, and the
-[`[:cache, :stage]`](telemetry-events.md#cache-stage) event reports the drop.
 A cache drops a write when:
 
 - it already runs 64 writes,
 - its unfinished writes hold more than 256 MiB, or a twentieth of its
   `max_size_bytes` when that is smaller,
-- the client is more than 8 MiB ahead of the write,
-- or a processed image's write is still unfinished 30 seconds after the
+- the client is more than 8 MiB ahead of a processed image's write,
+- a processed image's write is still unfinished 30 seconds after the
   response started.
 
-Each stored entry leaves room for the unfinished writes, so the stored
-entries and the unfinished writes exceed `max_size_bytes` by at most the
-limit on unfinished writes.
+The response is still delivered, and the
+[`[:cache, :stage]`](telemetry-events.md#cache-stage) event reports the
+dropped write.
+
+A write counts toward the unfinished writes as it goes, so an entry larger
+than that limit is never stored. A cache of 100 MB, for example, never
+stores an image over 5 MB. The cache's files can take up to
+`max_size_bytes` plus the limit on unfinished writes.
 
 Cache errors never fail a request. A failed write is logged and reported in
 telemetry, and the response is delivered without being stored. A failed or
@@ -251,17 +255,17 @@ and checks the file every 25 seconds:
 
 A waiting instance starts using the cache:
 
-- about 30 seconds after it starts, when it replaces a node killed with
-  `kill -9`
+- about 30 seconds after it starts, when the other node was already gone,
+  for example killed with `kill -9`
 - within 30 seconds of the other node stopping and deleting the file
 - within about a minute of the other node stopping without deleting the file
 
 A running node that finds its file rewritten by another node logs an error
 and runs without that cache, watching the file as a starting instance does.
 This happens when two nodes with the same hostname share a `root` (the node
-that started later keeps it), or when a node stops rewriting its file for
-about 25 to 50 seconds or more while another node waits for the `root`, as on
-a hung network mount.
+that started later keeps it), or when a node stops rewriting its file for 25
+to 50 seconds, depending on when the waiting node checks, while another node
+waits for the `root`, as on a hung network mount.
 
 If the instance can't write the file, for example because `root` isn't
 writable, it logs a warning and uses the cache anyway.
@@ -308,11 +312,16 @@ again.
 ### Work to make an entry
 
 The work to make a processed image is estimated from what its request did:
-the original's format and size, the output's format, size and encoder
-effort, each quality that [automatic quality](processing/output.md#autoquality)
-tries, and object detection. It isn't timed, so a busy server doesn't make
-entries look more expensive. Originals in the originals cache are scored by
-how long their download took.
+
+- the original's format and size, and whether it has transparency
+- the output's format, size, and encoder effort
+- each quality that [automatic quality](processing/output.md#autoquality)
+  tries
+- object detection
+
+The estimate isn't timed, so a busy server doesn't make entries look more
+expensive. Originals in the originals cache are scored by how long their
+download took.
 
 ### Eviction and startup scan
 
@@ -320,11 +329,12 @@ how long their download took.
 
 - To make room for a write, the cache picks 16 entries at random, chooses
   the one least worth keeping, and repeats until the write fits. If the new
-  entry is worth more than the chosen entries, the cache evicts them and
-  stores it. Otherwise it rejects the write and evicts nothing, except one
-  time in 128 for an entry requested at least six times. The stored bodies
-  never exceed the cap.
-- An entry larger than `max_size_bytes` is always rejected.
+  entry is worth more than the chosen entries on average, the cache evicts
+  them and stores it. Otherwise it rejects the write and evicts nothing. A
+  rejected entry requested at least six times is stored anyway one time in
+  128. The stored bodies never exceed the cap.
+- An entry larger than the limit on unfinished writes is never stored (see
+  [writing entries](#writing-entries)).
 - On startup the process lists the entries on disk in the background,
   reading only file names. If the cache is over the cap, for example after
   you lower `max_size_bytes`, it evicts in batches until it's under, so
@@ -340,8 +350,8 @@ and stores or rejects the entry as usual.
 
 - A crash between writing a body and writing its metadata can leave a body
   file the cache doesn't track. Its size isn't counted against
-  `max_size_bytes`. A cleanup of [leftover files](#leftover-files) deletes it
-  once it is more than an hour old.
+  `max_size_bytes`. The first cleanup of [leftover files](#leftover-files)
+  after it is an hour old deletes it, which can be up to a day later.
 - Two writes to the same key at once both store their body. The last one
   wins, and the other body is deleted.
 

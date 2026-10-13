@@ -40,7 +40,9 @@ defmodule ImagePipe.Cache.FileSystem.Store do
                       type: :pos_integer,
                       doc: """
                       Cap, in bytes, on the total size of stored bodies. Writes evict \
-                      rarely requested entries to stay under it.
+                      the entries least worth keeping to stay under it: those requested \
+                      least often and quickest to make for their size. An entry larger \
+                      than a twentieth of the cap, or 256 MiB, is never stored.
                       """
                     ]
                   )

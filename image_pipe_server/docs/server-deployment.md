@@ -222,7 +222,7 @@ that pods share (see
 ## Caches
 
 To set up `[cache.output]` for processed images and `[cache.input]` for
-originals, and to bound their size, see
+originals, and to set their size limits, see
 [Caching processed images](../../image_pipe/docs/caching-processed-images.md).
 
 Whether a response is cached also depends on its source:

@@ -381,9 +381,10 @@ starts. It runs outside any request.
 
 ### `[:cache, :write]`
 
-Span. Wraps committing an entry to either pool. Output-pool writes run after
-the response is sent, and input-pool writes while the request processes the
-original. Either can end after the request's span, which it nests under.
+Span. Wraps committing an entry to either pool. Writes of processed images
+and placeholders run after the response is sent. Writes of originals and the
+details kept to recheck them run while the request processes the original. A
+write nests under the request's span and can end after it.
 
 - Start metadata: `:pool` (atom), and `:cache_key` (string, the hash of the
   entry's cache key).
@@ -397,8 +398,8 @@ original. Either can end after the request's span, which it nests under.
   - `:output_format` (atom): the stored format. Output pool only.
   - `:estimated_cost_us` (integer): the estimated
     [work to make the entry](cache.md#work-to-make-an-entry), in
-    microseconds on a reference core. The cache scores entries by it.
-    Output pool only, and not on source records.
+    microseconds, comparable only with other entries' estimates. The cache
+    scores entries by it. Output pool only, and not on source records.
   - `:bytes` (integer): the size of the entry's body. On `:write`, the span's
     duration includes syncing the body to disk, so `:bytes` divided by the
     duration gives a rough write speed. The duration also includes waiting for

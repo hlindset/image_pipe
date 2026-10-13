@@ -10,8 +10,8 @@ running in your app (see [Getting started with Phoenix](phoenix-getting-started.
 
 Point the cache at a directory that ImagePipe can write to, and cap its size
 with `max_size_bytes`, below the free space on that disk. ImagePipe creates
-the directory if it is missing, and evicts rarely requested images to stay
-under the cap.
+the directory if it is missing, and evicts the images least worth keeping
+to stay under the cap (see [size limit](cache.md#size-limit)).
 
 <!-- tabs-open -->
 

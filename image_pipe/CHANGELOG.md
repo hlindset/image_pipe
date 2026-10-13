@@ -22,7 +22,6 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A `[:source, :svg_render]` span wraps rendering an SVG original or
   watermark, with its intrinsic and rendered sizes and the estimated work,
   and names the limit that rejected an SVG. The default Logger logs it.
-
 - `cache` and `input_cache` delete metadata files they can't read, such as
   ones another ImagePipe version wrote, and their bodies, once the files are
   more than an hour old. The `[:cache, :sweep]` event reports them as
@@ -30,6 +29,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `[:cache, :stage]` reports writes the cache drops to keep up with its
   storage as `:stage_dropped`, for processed images and originals. The
   default Logger logs them at `:warning`.
+- `[:cache, :coordination]` carries `reason: :deadline` when a request stops
+  waiting for another request's image because it wasn't stored in time.
 - The `image_pipe.request` span carries a `request_id` attribute when Logger
   metadata has a `:request_id`, such as the one `Plug.RequestId` sets.
 - The `[:cache, :lookup]`, `[:cache, :write]`, and `[:cache, :stage]`
@@ -66,8 +67,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A response to a URL with `expires` drops `stale-while-revalidate` and
   `stale-if-error`, including ones the host sets, because caches can't use them
   alongside its `must-revalidate`.
-- Processed images cached by an earlier version are not reused, because the
-  cache key changed. The cache refills as requests come in.
+- Processed images and originals cached by an earlier version are not
+  reused, because the cache key changed and entry files are named
+  differently. The cache refills as requests come in, and deletes the old
+  files as [leftover files](docs/cache.md#leftover-files).
 - Requests for PNG and other sources that need no shrink-on-load open the
   source once instead of twice, which saves about 0.3 ms per request.
 - A custom detector's `identity/1`, `available?/1`, and `ready?/1` receive only
@@ -110,34 +113,33 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `trigger: :startup`. Update handlers that match `trigger: :reconcile`.
 - Responses no longer wait for the cache's disk. A processed image is stored
   in the background after it's sent, and a downloaded original while the
-  request processes it. Requests waiting for another request's image or
-  original stop waiting when it isn't stored 2 seconds after the image is
-  sent or the original downloaded. When the disk can't keep up, writes are
-  dropped instead of queued without limit (see
-  [writing entries](docs/cache.md#writing-entries)), and unfinished writes
-  count against `max_size_bytes`. The `[:cache, :write]` span can end after
-  the request.
+  request processes it. The `[:cache, :write]` span can end after the
+  request.
+- A request waiting for another request's image or original stops waiting
+  when the image or original isn't stored 2 seconds after it was sent or
+  downloaded.
+- When the disk can't keep up, writes are dropped instead of queued without
+  limit, and unfinished writes count against `max_size_bytes`. An entry
+  larger than a twentieth of `max_size_bytes`, or 256 MiB, is never stored
+  (see [writing entries](docs/cache.md#writing-entries)).
 - `trim` is faster on images under a megapixel: 2 ms instead of 6.5 ms on a
   256×256 image.
 - **Breaking:** `cache` and `input_cache` need `max_size_bytes`, and an
   ImagePipe instance (see `ImagePipe.child_spec/1`). Add `max_size_bytes` to
-  each cache, and move a configuration with a cache from an inline
-  `ImagePipe.Plug` mount or a `run/4` call into an instance.
+  each cache, and move a configuration with a cache from `ImagePipe.Plug`
+  options or an `ImagePipe.run/4` call into an instance.
 - **Breaking:** Each `root` of `cache` and `input_cache` serves one node. An
   instance writes a `.image-pipe-owner` file into each cache's `root`.
   While another node keeps that file updated, the instance logs an error and
   runs without that cache, and it takes the `root` over once the other node
   stops. Give each replica its own cache directories, such as its own volume.
-  After a node is killed, a replacement with a new hostname starts using its
-  cache about 30 seconds after it starts.
-- The processed-image cache keeps the entries that are requested often and
-  took the most work to make for their size, and estimates that work from
-  the request instead of timing it (see
+  When a node is killed, a node on another host that starts after the kill
+  takes over its `root` about 30 seconds after starting.
+- `cache` and `input_cache` keep the entries that are requested often and
+  took the most work to make for their size. For a processed image, that work
+  is estimated from the request instead of timed (see
   [work to make an entry](docs/cache.md#work-to-make-an-entry)). On startup
-  it reads only file names, so a large cache is ready sooner.
-- Entries stored by an earlier version miss once, because entry files are
-  named differently. Their files are deleted as
-  [leftover files](docs/cache.md#leftover-files).
+  a cache reads only file names, so a large cache is ready sooner.
 
 ### Removed
 
@@ -160,9 +162,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Breaking:** The `window_ratio`, `sketch_depth`, `sketch_width`,
   `aging_sample_size`, `doorkeeper_cardinality`, `doorkeeper_fpr`, and
   `path_prefix` options of `cache` and `input_cache`. Remove them from your
-  configuration. The cache uses the defaults those options had. To keep the
-  entries of a cache with `path_prefix`, set its `root` to the prefixed
-  directory instead.
+  configuration. The cache no longer reads or cleans up the old entries under
+  a `path_prefix` directory, so delete that directory.
 - **Breaking:** The `rescan_interval` option of `cache` and `input_cache`, and
   the `[:cache, :rescan]` telemetry event. Remove `rescan_interval` from your
   configuration. A cache deletes leftover files after its startup scan

@@ -195,7 +195,8 @@ defmodule ImagePipe do
       #=> "image/webp"
 
   `config` comes from `config/1`, or is the name of a running instance. A
-  configuration with a cache must be passed by its instance's name.
+  configuration with a cache must be passed by its instance's name, unless
+  an instance already runs each of its caches.
   Presets and request defaults come from `config`, as for a request to an
   `ImagePipe.Plug` mount. The builder's own URL configuration isn't used.
   Matching source bytes, plans, settings, and `Accept` preferences give the
@@ -227,7 +228,7 @@ defmodule ImagePipe do
   Every option of `config/1` overrides the configuration for this call, such
   as `max_input_pixels: 50_000_000`. Invalid options raise `ArgumentError`.
   An instance name takes the same options, but a `:cache` or `:input_cache`
-  raises `ArgumentError` unless it is one of the instance's own caches.
+  raises `ArgumentError` unless an instance already runs it.
   `run/4` and `write/5` also take:
 
   #{ImagePipe.Run.options_docs()}
