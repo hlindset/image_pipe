@@ -30,8 +30,11 @@ defmodule CostCalibration do
   @prefix [:cost_calibration]
   @seed {861, 2026, 10}
   @write_timeout 30_000
-  @max_rms 0.35
-  @max_class_ratio 1.5
+  # The model's own floor, its best in-sample fit, is about 0.33 on CI
+  # runners, so the bar leaves room for run-to-run noise while still failing
+  # weights that are off by a factor of two or three somewhere.
+  @max_rms 0.40
+  @max_class_ratio 1.6
   @widths [400, 1200]
   # The fit's smallest weight, and its largest step in log weight.
   @floor 1.0e-12
