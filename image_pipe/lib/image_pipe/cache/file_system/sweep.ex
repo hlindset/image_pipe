@@ -1,8 +1,10 @@
 defmodule ImagePipe.Cache.FileSystem.Sweep do
   # Removes files a VM that died left behind: temp files and pins whose owner
   # is gone, and bodies no metadata names. It also removes metadata files the
-  # cache can't read, such as ones another ImagePipe version wrote, which
-  # Admission never counts, and their bodies then go as unnamed. A file
+  # cache can't decode, such as ones another ImagePipe version wrote, and
+  # their bodies then go as unnamed. A metadata file it can't read, as on a
+  # permission or I/O error, stays. A sweep returns the entries it removed,
+  # so Admission stops counting them. A file
   # counts only once it is older than the grace period, so the sweep leaves
   # alone what this node's requests are still writing. No request holds a
   # temp file for anywhere near an hour.
@@ -26,19 +28,28 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   def pin_name(random), do: ".image-pipe-pin-#{System.os_time(:millisecond)}-#{random}.tmp"
 
   @doc false
-  def run(root, pool, telemetry_opts),
-    do: span(pool, telemetry_opts, fn -> sweep_root(root) end)
+  # Sweeps the cache at `root` and tells its Admission, found in `registry`,
+  # what it removed.
+  def run(root, pool, telemetry_opts, registry) do
+    removed = span(pool, telemetry_opts, fn -> sweep_root(root) end)
+
+    case Registry.lookup(registry, root) do
+      [{admission, _value}] -> GenServer.cast(admission, {:swept, removed})
+      [] -> :ok
+    end
+  end
 
   @doc false
   # Sweeps `listings`, the `{partition_dir, names}` of a pool's tree, so a
-  # caller that already listed the tree doesn't list it again.
+  # caller that already listed the tree doesn't list it again. Returns the
+  # removed entries, as `{key_hash, body_filename | :meta}`.
   def run_listings(listings, pool, telemetry_opts),
     do: span(pool, telemetry_opts, fn -> sweep_listings(listings) end)
 
   defp span(pool, telemetry_opts, sweep) do
     Telemetry.span(telemetry_opts, [:cache, :sweep], %{pool: pool}, fn ->
-      counts = sweep.()
-      {counts, Map.put(counts, :result, :ok)}
+      {removed, counts} = Map.pop(sweep.(), :removed)
+      {removed, Map.put(counts, :result, :ok)}
     end)
   end
 
@@ -59,7 +70,7 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
 
   defp sweep_listings(listings) do
     cutoff = cutoff()
-    counts = %{pins: 0, temps: 0, bodies: 0, unreadable: 0, bytes: 0}
+    counts = %{pins: 0, temps: 0, bodies: 0, unreadable: 0, bytes: 0, removed: []}
 
     Enum.reduce(listings, counts, fn {dir, names}, counts ->
       {names, counts} = remove_unreadable(dir, names, cutoff, counts)
@@ -85,9 +96,8 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
 
   defp unreadable?(path) do
     case Store.read_descriptor(path) do
-      {:ok, _descriptor, _mtime} -> false
-      {:error, :enoent} -> false
-      {:error, _unreadable} -> true
+      {:error, {:invalid_metadata, _reason}} -> true
+      _readable_missing_or_failed -> false
     end
   end
 
@@ -192,9 +202,22 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   defp remove(path, kind, counts) do
     with {:ok, %{size: size}} <- File.stat(path),
          :ok <- File.rm(path) do
-      counts |> Map.update!(kind, &(&1 + 1)) |> Map.update!(:bytes, &(&1 + size))
+      counts
+      |> Map.update!(kind, &(&1 + 1))
+      |> Map.update!(:bytes, &(&1 + size))
+      |> removed(kind, Path.basename(path))
     else
       _gone_or_failed -> counts
     end
   end
+
+  defp removed(counts, :unreadable, name),
+    do: Map.update!(counts, :removed, &[{Path.rootname(name), :meta} | &1])
+
+  defp removed(counts, :bodies, name),
+    do: Map.update!(counts, :removed, &[{key_hash(name), name} | &1])
+
+  defp removed(counts, _kind, _name), do: counts
+
+  defp key_hash(name), do: name |> String.split(".", parts: 2) |> hd()
 end

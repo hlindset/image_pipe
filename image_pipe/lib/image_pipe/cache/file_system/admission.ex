@@ -148,7 +148,8 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     GenServer.call(admission_pid, :reconcile_to_cap, :infinity)
 
     # Remove files a VM that died left behind.
-    Sweep.run_listings(listings, state.pool, tel_opts(state))
+    removed = Sweep.run_listings(listings, state.pool, tel_opts(state))
+    GenServer.cast(admission_pid, {:swept, removed})
 
     GenServer.call(admission_pid, :scan_complete, :infinity)
   end
@@ -246,6 +247,21 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       else: {:noreply, put(state, descriptor)}
   end
 
+  # The sweep removed these files, so their entries no longer count: an
+  # entry whose metadata went, or whose counted body went.
+  def handle_cast({:swept, removed}, state) do
+    {:noreply, Enum.reduce(removed, state, &forget_swept/2)}
+  end
+
+  defp forget_swept({key_hash, :meta}, state), do: forget(state, key_hash)
+
+  defp forget_swept({key_hash, body_filename}, state) do
+    case entry(state, key_hash) do
+      %{body_filename: ^body_filename} -> forget(state, key_hash)
+      _other -> state
+    end
+  end
+
   defp stored?(state, descriptor) do
     with {:ok, paths} <- FileSystem.paths_from_hash(descriptor.key_hash, root: state.root),
          {:ok, %{body_filename: named}, _mtime} <- FileSystem.read_descriptor(paths.meta_path) do
@@ -337,12 +353,15 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     %{state | scan_complete?: true, scan_waiters: [], scan_changes: nil}
   end
 
-  # A write replacing its key's entry doesn't count the bytes it replaces.
+  # A write replacing its key's entry doesn't count the bytes it replaces. A
+  # cache already over its cap, as after the cap was lowered, frees only the
+  # bytes the write adds, and the startup scan's batches evict the rest, so
+  # one write doesn't evict the whole excess while every request waits.
   defp decide(state, descriptor, pending) do
     replaced = state |> entry(descriptor.key_hash) |> entry_size()
+    added = pending + descriptor.size_bytes - replaced
 
-    needed =
-      state.stored_bytes - replaced + pending + descriptor.size_bytes - state.max_size_bytes
+    needed = min(state.stored_bytes + added - state.max_size_bytes, added)
 
     cond do
       descriptor.size_bytes > state.max_size_bytes ->

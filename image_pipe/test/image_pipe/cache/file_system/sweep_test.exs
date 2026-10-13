@@ -104,6 +104,18 @@ defmodule ImagePipe.Cache.FileSystem.SweepTest do
     assert {:hit, _entry} = FileSystem.get(readable_key, root: root, max_size_bytes: 1_000_000)
   end
 
+  test "keeps metadata it can't read for now, such as on a permission error", %{root: root} do
+    {key, paths} = entry!(root, "4")
+    age!(paths, @old)
+    File.chmod!(paths.meta_path, 0o000)
+    on_exit(fn -> File.chmod(paths.meta_path, 0o644) end)
+
+    assert %{unreadable: 0, bodies: 0} = Sweep.sweep_root(root)
+
+    File.chmod!(paths.meta_path, 0o644)
+    assert {:hit, _entry} = FileSystem.get(key, root: root, max_size_bytes: 1_000_000)
+  end
+
   test "removes an entry whose body is named by digest alone", %{root: root} do
     {_key, paths} = entry!(root, "3")
     metadata = paths.meta_path |> File.read!() |> :erlang.binary_to_term()

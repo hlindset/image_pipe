@@ -115,6 +115,55 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     refute File.exists?(leftover)
   end
 
+  test "an entry the startup sweep removes is no longer counted", %{
+    registry: registry,
+    tmp_dir: tmp_dir
+  } do
+    hash = hex_hash("e1")
+    put_disk_entry(tmp_dir, hash, String.duplicate("x", 4_000))
+    {:ok, paths} = FileSystem.paths_from_hash(hash, root: tmp_dir)
+    File.write!(paths.meta_path, "not a term")
+
+    for path <- Path.wildcard(Path.join(paths.dir, "*")),
+        do: File.touch!(path, System.os_time(:second) - 7_200)
+
+    pid = start_supervised!({Admission, base_opts(registry: registry, tmp_dir: tmp_dir)})
+    :ok = Admission.await_scan(pid)
+
+    assert entry_row(pid, hash) == nil
+    assert stored_bytes(pid) == 0
+  end
+
+  test "the scan ignores a body name with a signed size", %{registry: registry, tmp_dir: tmp_dir} do
+    hash = hex_hash("e2")
+    put_disk_entry(tmp_dir, hash, "body")
+    {:ok, paths} = FileSystem.paths_from_hash(hash, root: tmp_dir)
+    [body] = Path.wildcard(Path.join(paths.dir, "*.body"))
+
+    File.rename!(
+      body,
+      Path.join(paths.dir, "#{hash}.#{String.duplicate("a", 64)}.-9000000.0.body")
+    )
+
+    pid = start_supervised!({Admission, base_opts(registry: registry, tmp_dir: tmp_dir)})
+    :ok = Admission.await_scan(pid)
+
+    assert stored_bytes(pid) == 0
+  end
+
+  test "a write into a cache over its cap evicts only its own bytes", ctx do
+    pid = start_cache(ctx, 10_000)
+    pool = [root: ctx.tmp_dir, max_size_bytes: 10_000]
+    for i <- 1..10, do: :ok = put_with_cost(pool, "resident-#{i}", 1_000)
+
+    # As after the cap was lowered, before the startup batches catch up. The
+    # new entry costs far more, so it wins the admission gate.
+    :sys.replace_state(pid, &%{&1 | max_size_bytes: 5_000})
+
+    assert :ok = put_with_cost(pool, "new", 1_000_000)
+    assert stored_bytes(pid) == 10_000
+  end
+
   describe "admission gate" do
     setup %{registry: registry, tmp_dir: tmp_dir} do
       opts = base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: 10_000)

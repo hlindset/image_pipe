@@ -65,7 +65,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   def cache_children(opts) do
     registry_name = registry_name(Keyword.fetch!(opts, :root))
     telemetry = Keyword.take(opts, [:telemetry_prefix])
-    sweep = [root_dir(opts), Keyword.get(opts, :pool, :output), telemetry]
+    sweep = [root_dir(opts), Keyword.get(opts, :pool, :output), telemetry, registry_name]
 
     [
       {Registry, keys: :unique, name: registry_name},
@@ -764,8 +764,8 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   def parse_body_filename(body_filename) do
     with [hash, body_sha256, size, cost, "body"] <- String.split(body_filename, "."),
          true <- hex64?(hash, :lower) and valid_body_sha256?(body_sha256),
-         {size, ""} <- Integer.parse(size),
-         {cost, ""} <- Integer.parse(cost) do
+         {:ok, size} <- digits(size),
+         {:ok, cost} <- digits(cost) do
       {:ok,
        %{
          key_hash: hash,
@@ -778,6 +778,16 @@ defmodule ImagePipe.Cache.FileSystem.Store do
       _invalid -> {:error, :invalid_body_filename}
     end
   end
+
+  # Digits only: a sign would let a planted name count negative bytes.
+  defp digits(<<digit, _rest::binary>> = string) when digit in ?0..?9 do
+    case Integer.parse(string) do
+      {integer, ""} -> {:ok, integer}
+      _other -> :error
+    end
+  end
+
+  defp digits(_string), do: :error
 
   defp temp_path(paths) do
     random = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)

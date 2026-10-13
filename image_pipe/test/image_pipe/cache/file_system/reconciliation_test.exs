@@ -35,7 +35,7 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
     end
   end
 
-  test "replacement and hit queued during a batch run before the next batch", ctx do
+  test "a replacement queued during a batch runs before the next batch", ctx do
     body = String.duplicate("x", 100)
     keys = Enum.map(1..3, &key/1)
     Enum.each(keys, &seed_entry(&1, body, ctx.root))
@@ -61,10 +61,13 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
       assert_receive {:trace, _, :send, {:"$gen_call", _, {:commit, _, _}}, ^pid}, 1000
       send(pid, :release_batch)
       assert :ok = Task.await(replacement)
+
+      # The replacement adds no bytes, so it evicts nothing, and the next
+      # batch evicts the other entry.
+      assert_receive {:batch, ^pid, 1}, 1000
+      send(pid, :release_batch)
       assert :ok = Admission.await_scan(pid)
-      # The replacement evicted the other entry, so no batch followed.
-      assert_received {:admission_eviction, ^pid, 1}
-      refute_received {:batch, ^pid, _count}
+      refute_received {:admission_eviction, ^pid, _count}
       assert {:hit, %{body: retained}} = FileSystem.get(kept, opts)
       assert retained == String.duplicate("y", 100)
       assert FileSystem.get(other, opts) == :miss
