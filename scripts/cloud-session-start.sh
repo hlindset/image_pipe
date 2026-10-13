@@ -9,6 +9,7 @@
 #   - runs `mise run setup` (deps for every project, fiddle assets)
 #   - installs the DoltHub key from DOLTHUB_CREDS_JWK (set in the cloud
 #     environment's settings) as Dolt's active credential
+#   - restricts .beads to 0700, as bd expects
 #   - clones the beads database from the DoltHub remote in .beads/config.yaml
 #     (`bd bootstrap` is a no-op once the database exists)
 #
@@ -96,6 +97,10 @@ if [ -n "${DOLTHUB_CREDS_JWK:-}" ]; then
 else
   echo "!! DOLTHUB_CREDS_JWK not set; bd can't sync with DoltHub" >> "$LOGFILE"
 fi
+
+# The clone leaves .beads at 0755, and bd warns on every command until it's
+# 0700.
+run chmod 700 .beads
 
 if command -v bd >/dev/null 2>&1; then
   run bd bootstrap --yes
