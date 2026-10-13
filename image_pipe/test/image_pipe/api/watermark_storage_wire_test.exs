@@ -6,6 +6,7 @@ defmodule ImagePipe.API.WatermarkStorageWireTest do
 
   alias ImagePipe, as: IP
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
 
   @path "/wm=logo/format=png/debug/src/https://origin.test/image.png"
 
@@ -164,6 +165,7 @@ defmodule ImagePipe.API.WatermarkStorageWireTest do
 
   # Source-index records share the output cache, so only PNG bodies are outputs.
   defp output_entries(cache) do
+    Caches.await_writes(cache)
     root = cache |> Keyword.fetch!(:cache) |> Keyword.fetch!(:root)
 
     for meta <- Path.wildcard(Path.join(root, "**/*.meta")),

@@ -3,6 +3,7 @@ defmodule ImagePipe.InstanceTest do
   import Plug.Test
 
   alias ImagePipe.Cache.FileSystem.Owner
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.DetectorFixtures.UnavailableDetector
   alias ImagePipe.Test.DetectorFixtures.WarmingDetector
   alias ImagePipe.Transform.Detector.Warmup
@@ -37,7 +38,10 @@ defmodule ImagePipe.InstanceTest do
     )
   end
 
-  defp stored_bodies(root), do: Path.wildcard(Path.join(root, "**/*.body"))
+  defp stored_bodies(root) do
+    Caches.await_writes(cache: [root: root])
+    Path.wildcard(Path.join(root, "**/*.body"))
+  end
 
   defp request(path, plug_options) do
     ImagePipe.Plug.call(conn(:get, path), ImagePipe.Plug.init(plug_options))
