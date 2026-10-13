@@ -5,6 +5,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `ImagePipe.URL.new/1` rejects `filename: "unset"` and `cachebuster: "unset"`
+  instead of building a URL without them. In a URL, `unset` clears an option.
+- `ImagePipe.URL.group/2` rejects the detection class `"unset"`, which URLs
+  don't accept.
+
 ## [0.2.0] - 2026-10-13
 
 ### Removed

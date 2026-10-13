@@ -163,6 +163,9 @@ defmodule ImagePipe.Plan.Builder.Values do
     end
   end
 
+  # The URL reads `unset` as clearing the option.
+  defp normalize("unset", :path_token), do: :error
+
   defp normalize(value, :path_token) when is_binary(value) do
     case chars?(value, :token) do
       true -> {:ok, value}
@@ -278,6 +281,7 @@ defmodule ImagePipe.Plan.Builder.Values do
   defp detect_pair(name), do: detect_pair({name, 1.0})
   defp valid_class?(:all), do: true
   defp valid_class?("all"), do: false
+  defp valid_class?("unset"), do: false
 
   defp valid_class?(<<first, rest::binary>>),
     do: (first in ?a..?z or first in ?0..?9) and (rest == "" or chars?(rest, :name))
