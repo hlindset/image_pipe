@@ -90,8 +90,12 @@ defmodule ImagePipe.Cache.FileSystemTest do
   defp start_cache!(opts) do
     {:ok, opts} = FileSystem.validate_options(opts)
 
-    children =
-      opts |> FileSystem.child_spec() |> start_supervised!() |> Supervisor.which_children()
+    root = opts |> FileSystem.child_spec() |> start_supervised!()
+
+    {:cache, cache, :supervisor, _modules} =
+      List.keyfind(Supervisor.which_children(root), :cache, 0)
+
+    children = Supervisor.which_children(cache)
 
     for {{Admission, _root}, pid, _type, _modules} <- children, do: Admission.await_scan(pid)
     children

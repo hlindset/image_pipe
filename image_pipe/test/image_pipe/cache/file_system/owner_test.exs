@@ -3,6 +3,7 @@ defmodule ImagePipe.Cache.FileSystem.OwnerTest do
 
   import ExUnit.CaptureLog
 
+  alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Owner
   alias ImagePipe.Cache.FileSystem.OwnerWatch
   alias ImagePipe.Cache.FileSystem.Root
@@ -18,6 +19,21 @@ defmodule ImagePipe.Cache.FileSystem.OwnerTest do
     start_supervised!({Root, root: root, max_size_bytes: 1_000_000, host: "this-host"})
     assert host(path) == "this-host"
     refute MapSet.member?(Owner.refused(), root)
+  end
+
+  test "a crashed cache process restarts without giving the root up", %{tmp_dir: root} do
+    root_pid = start_supervised!({Root, root: root, max_size_bytes: 1_000_000, host: "this-host"})
+    root_ref = Process.monitor(root_pid)
+    owner = child(root_pid, Owner)
+    admission = admission(root)
+    ref = Process.monitor(admission)
+
+    Process.exit(admission, :kill)
+    assert_receive {:DOWN, ^ref, :process, _pid, :killed}
+
+    assert restarted_admission(root, admission) != admission
+    assert child(root_pid, Owner) == owner
+    refute_received {:DOWN, ^root_ref, :process, _pid, _reason}
   end
 
   test "a second cache on a root this VM runs fails to start", %{tmp_dir: root, path: path} do
@@ -211,4 +227,23 @@ defmodule ImagePipe.Cache.FileSystem.OwnerTest do
   end
 
   defp host(path), do: path |> File.read!() |> String.split("\n") |> hd()
+
+  defp child(supervisor, id) do
+    {^id, pid, _type, _modules} = List.keyfind(Supervisor.which_children(supervisor), id, 0)
+    pid
+  end
+
+  defp admission(root) do
+    [{pid, _value}] = Registry.lookup(FileSystem.registry_name(root), root)
+    pid
+  end
+
+  # The cache's supervisor restarts Admission after its exit, which this
+  # process sees first.
+  defp restarted_admission(root, crashed) do
+    case Registry.lookup(FileSystem.registry_name(root), root) do
+      [{pid, _value}] when pid != crashed -> pid
+      _crashed_or_restarting -> restarted_admission(root, crashed)
+    end
+  end
 end

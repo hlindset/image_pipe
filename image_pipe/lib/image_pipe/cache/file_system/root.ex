@@ -3,9 +3,9 @@ defmodule ImagePipe.Cache.FileSystem.Root do
   # the root (see `Owner`), and the cache's processes start only once the
   # claim holds. When the root's owner file names another node, the root is
   # refused, requests run without this cache, and only an `OwnerWatch` runs
-  # until the root is free. Any child stopping stops this supervisor,
-  # including the owner finding its root taken over and the watch taking a
-  # free root over, and the restart claims the root again.
+  # until the root is free. The owner or the watch stopping stops this
+  # supervisor, as when the owner finds its root taken over or the watch
+  # takes a free root over, and the restart claims the root again.
   @moduledoc false
 
   use Supervisor
@@ -52,7 +52,7 @@ defmodule ImagePipe.Cache.FileSystem.Root do
     case Owner.claim(dir, Keyword.take(opts, @owner_options)) do
       {:ok, claim} ->
         Owner.accept(dir)
-        start([{Owner, claim} | Store.cache_children(opts)])
+        start([{Owner, claim}, cache(opts)])
 
       {:watch, host, claim} ->
         Owner.refuse(dir)
@@ -69,10 +69,21 @@ defmodule ImagePipe.Cache.FileSystem.Root do
       {:error, reason} ->
         Owner.accept(dir)
         Logger.warning("cache: could not claim cache root #{dir}: reason=#{inspect(reason)}")
-        start(Store.cache_children(opts))
+        start([cache(opts)])
     end
   end
 
   defp start(children),
     do: Supervisor.init(children, strategy: :one_for_all, max_restarts: 0)
+
+  # The cache's processes run under their own supervisor with the usual
+  # restart limits, so a crash restarts the crashed process and those after
+  # it, not the claim, and doesn't spend the instance's restarts.
+  defp cache(opts) do
+    %{
+      id: :cache,
+      type: :supervisor,
+      start: {Supervisor, :start_link, [Store.cache_children(opts), [strategy: :rest_for_one]]}
+    }
+  end
 end
