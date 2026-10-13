@@ -144,9 +144,13 @@ jobs:
       # exists, only a build from source compiles, so this step builds the NIF.
       - name: Download NIF checksums
         run: mise exec -- mix rustler_precompiled.download ImagePipe.SVG.Native --all --print
+      # Download the NIFs just released instead of building from source. The
+      # setting comes from an environment variable, which Mix doesn't track,
+      # so recompile before publishing.
       - name: Publish
-        run: mise exec -- mix hex.publish --yes
+        run: |
+          mise exec -- mix compile --force
+          mise exec -- mix hex.publish --yes
         env:
           HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
-          # Download the NIFs just released instead of building from source.
           IMAGE_PIPE_SVG_PUBLISH: "1"
