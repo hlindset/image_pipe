@@ -14,7 +14,8 @@ detail than the response, which deliberately says less.
   the URL is malformed or unauthorized, the source doesn't exist, or the source
   isn't an image ImagePipe will process.
 - **5xx** means ImagePipe, its host configuration, or the origin failed. The
-  same request may succeed later or on another deployment.
+  same request may succeed later or on another deployment, so the response
+  carries `Cache-Control: no-store`.
 - **Sources are concealed.** A client learns that a source wasn't found,
   couldn't be processed, or that the origin failed. It never learns an origin's
   status code, whether ImagePipe's credentials were rejected, or which of
@@ -51,7 +52,7 @@ All of these return before source resolution, fetch, or cache access.
 | `413` | The source body exceeds `max_body_bytes`. |
 | `500` | A local file or a cached original exists but can't be read, source credentials are unavailable, or a custom source adapter returns an invalid result. |
 | `502` | The origin is unreachable, answers any other error status, redirects badly, or sends a truncated or malformed response. |
-| `504` | The origin doesn't answer in time. |
+| `504` | The origin doesn't answer in time, or no connection to it frees up within the source's `pool_timeout`. |
 
 ### Decode and processing
 

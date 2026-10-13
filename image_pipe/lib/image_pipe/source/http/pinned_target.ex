@@ -5,41 +5,66 @@ defmodule ImagePipe.Source.HTTP.PinnedTarget do
 
   # Pin at the transport boundary, after signing and other request steps. Logical
   # URLs stay intact for redirects, origin validators and request authentication.
-  @spec attach(Req.Request.t(), [:inet.ip_address()] | nil) :: Req.Request.t()
-  def attach(request, nil), do: request
+  #
+  # A fetch moves to the next address only while the deadline (a monotonic
+  # time in milliseconds, or `:infinity`) leaves time for it. Each address
+  # waits for a pooled connection and for the response no longer than the
+  # time left.
+  @spec attach(Req.Request.t(), [:inet.ip_address()] | nil, integer() | :infinity) ::
+          Req.Request.t()
+  def attach(request, nil, _deadline), do: request
 
-  def attach(%Req.Request{adapter: Req.Finch} = request, addresses) do
+  def attach(%Req.Request{adapter: Req.Finch} = request, addresses, deadline) do
     addresses = live_first(addresses, request.url)
 
     request
     |> Req.Request.put_header("host", authority(request.url))
     |> Req.Request.append_request_steps(
       image_pipe_pin: fn req, acc, fun, state, next ->
-        connect(req, addresses, acc, fun, state, next)
+        connect(req, addresses, deadline, acc, fun, state, next)
       end
     )
   end
 
-  def attach(request, _addresses), do: request
+  def attach(request, _addresses, _deadline), do: request
 
-  defp connect(req, [ip | rest], acc, fun, state, next) do
+  defp connect(req, [ip | rest], deadline, acc, fun, state, next) do
     callback = fn event, response, acc, state ->
       response = put_in(response.request.url, req.url)
       fun.(event, response, acc, state)
     end
 
-    {pinned, key} = pin(req, ip)
+    {pinned, key} = req |> within_deadline(deadline) |> pin(ip)
 
     case next.(pinned, acc, callback, state) do
       {{:error, %Req.TransportError{}}, %Req.Response{status: nil}, _, _} = result ->
         PinnedPools.connected(key, false)
-        if rest == [], do: result, else: connect(req, rest, acc, fun, state, next)
+
+        if rest == [] or remaining(deadline) == 0,
+          do: result,
+          else: connect(req, rest, deadline, acc, fun, state, next)
 
       result ->
         PinnedPools.connected(key, true)
         result
     end
   end
+
+  defp within_deadline(req, :infinity), do: req
+
+  defp within_deadline(req, deadline) do
+    left = remaining(deadline)
+
+    req
+    |> Req.Request.put_option(:receive_timeout, min(req.options.receive_timeout, left))
+    |> Req.Request.put_option(
+      :finch,
+      Keyword.update!(req.options.finch, :pool_timeout, &min(&1, left))
+    )
+  end
+
+  defp remaining(:infinity), do: :infinity
+  defp remaining(deadline), do: max(deadline - System.monotonic_time(:millisecond), 0)
 
   defp pin(req, ip) do
     hostname = req.url.host

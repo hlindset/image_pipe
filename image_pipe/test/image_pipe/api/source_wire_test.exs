@@ -42,6 +42,85 @@ defmodule ImagePipe.API.SourceWireTest do
     assert_receive {:origin_request, "/images//my%20photo.jpg", "token=a%26b%3Dc"}
   end
 
+  test "HTTP source escapes query bytes an origin can't receive raw" do
+    pid = self()
+
+    origin =
+      start_supervised!(
+        {Bandit,
+         plug: fn conn, _opts ->
+           send(pid, {:origin_request, conn.query_string})
+           conn |> put_resp_content_type("image/jpeg") |> send_resp(200, @image)
+         end,
+         ip: {127, 0, 0, 1},
+         port: 0}
+      )
+
+    {:ok, {_address, port}} = ThousandIsland.listener_info(origin)
+
+    config =
+      mount(
+        sources: [
+          http: [
+            adapter: HTTP,
+            match: [scheme: "http"],
+            options: [
+              allowed_hosts: ["origin.test:#{port}"],
+              address_policy: [allow_loopback: true],
+              address_resolver: fn "origin.test" -> {:ok, [{127, 0, 0, 1}]} end
+            ]
+          ]
+        ]
+      )
+
+    response = request("format=jpeg", "http://origin.test:#{port}/cat.jpg?a b&c=é", config)
+
+    assert response.status == 200
+    assert_receive {:origin_request, "a%20b&c=%C3%A9"}
+  end
+
+  test "requests that find the source's connection pool full fail with 504" do
+    {:ok, listen_socket} =
+      :gen_tcp.listen(0, [:binary, ip: {127, 0, 0, 1}, active: false, backlog: 128])
+
+    {:ok, {_address, port}} = :inet.sockname(listen_socket)
+    silent = spawn(fn -> accept_silently(listen_socket, []) end)
+
+    config =
+      mount(
+        sources: [
+          http: [
+            adapter: HTTP,
+            match: [scheme: "http"],
+            options: [
+              allowed_hosts: ["origin.test:#{port}"],
+              address_policy: [allow_loopback: true],
+              address_resolver: fn "origin.test" -> {:ok, [{127, 0, 0, 1}]} end,
+              pool_timeout: 100,
+              receive_timeout: 1_000
+            ]
+          ]
+        ]
+      )
+
+    requests =
+      Enum.map(1..60, fn n ->
+        spawn_monitor(fn ->
+          source = "http://origin.test:#{port}/cat.jpg?n=#{n}"
+          exit({:status, request("format=jpeg", source, config).status})
+        end)
+      end)
+
+    statuses =
+      Enum.map(requests, fn {pid, ref} ->
+        assert_receive {:DOWN, ^ref, :process, ^pid, reason}, 5_000
+        reason
+      end)
+
+    assert Enum.frequencies(statuses) == %{{:status, 504} => 60}
+    Process.exit(silent, :kill)
+  end
+
   test "S3 objects route through the core adapter with revision semantics" do
     pid = self()
 
@@ -316,6 +395,12 @@ defmodule ImagePipe.API.SourceWireTest do
 
   defp encode_source_byte(byte) do
     "%" <> (byte |> Integer.to_string(16) |> String.upcase() |> String.pad_leading(2, "0"))
+  end
+
+  # Accepts connections and never reads from or answers them.
+  defp accept_silently(listen_socket, sockets) do
+    {:ok, socket} = :gen_tcp.accept(listen_socket)
+    accept_silently(listen_socket, [socket | sockets])
   end
 
   defp public_resolver, do: fn "assets.example.com" -> {:ok, [{93, 184, 216, 34}]} end

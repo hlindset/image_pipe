@@ -22,6 +22,48 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   at `-0.0` gets those of one at `0`. Cached copies of such requests miss once
   after an upgrade.
 
+### Fixed
+
+- On a URL with `expires`, a response gets `Cache-Control: no-store`, even
+  when an earlier Plug set `Cache-Control`, if storage is denied by its origin
+  or by configuration, or if a crop fell back because content detection
+  failed. Before, it got the earlier Plug's `Cache-Control` capped at the
+  expiry, and a CDN could store it.
+- On a URL with `expires`, a `Cache-Control` set by an earlier Plug is capped
+  at the expiry in more cases:
+  - A quoted value, such as `max-age="86400"`, is read as seconds. A
+    `max-age` that isn't a whole number of seconds, such as
+    `max-age=86400.5`, is replaced, and an `s-maxage` like that is dropped.
+    Before, both failed the request with `500`.
+  - Directive names match in any case, so `MAX-AGE=86400` is lowered too.
+  - A `Cache-Control` without `max-age`, such as `public`, gets one that ends
+    at the expiry.
+- A server error (`5xx`), such as a `502` for a failing origin, gets
+  `Cache-Control: no-store`, even when an earlier Plug set `Cache-Control`.
+  Before, it kept the earlier Plug's `Cache-Control`, and a CDN could serve
+  the error for that header's lifetime. A client error (`4xx`) still keeps
+  it.
+- A request to an HTTP or S3 source that waited past `pool_timeout` for a
+  free connection crashed the request process. Behind Bandit, the client got
+  no response and the connection stayed open. Such requests now fail with a
+  `{:source, :pool_timeout}` error, which the Plug answers with `504`.
+- A conditional header in an HTTP or S3 source's `req_options`, such as
+  `if-none-match`, made the request fail when the origin answered a first
+  fetch with `304`. Sources now drop `if-none-match`, `if-modified-since`,
+  `if-match`, `if-unmodified-since`, and `if-range` from `req_options`.
+- Req's `:range` option in `req_options` set a `range` header even on sources
+  that drop `range` headers, which is every source except one with
+  `internal_cache: :disabled` that isn't immutable. The origin then sent part
+  of the image, which was processed as the whole original. These sources now
+  drop the `:range` option too.
+- An HTTP source URL whose query has a space or a non-ASCII character, such
+  as `?a b`, is fetched with those characters percent-encoded. Before, the
+  request failed with `502`.
+- An HTTP source whose host name resolves to several addresses could run
+  past `fetch_timeout`, because it waited for a response at each address in
+  turn. Fetches now end by `fetch_timeout`, apart from a connection attempt,
+  which can run past it by up to `connect_timeout`.
+
 ## [0.2.0] - 2026-10-13
 
 ### Added

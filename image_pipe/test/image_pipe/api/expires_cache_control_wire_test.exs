@@ -114,7 +114,17 @@ defmodule ImagePipe.API.ExpiresCacheControlWireTest do
            "public, s-maxage=3600, max-age=60, must-revalidate"},
           {"public, max-age=60, stale-while-revalidate=30, stale-if-error=60",
            "public, max-age=60, must-revalidate"},
-          {"no-store", "no-store"}
+          {"no-store", "no-store"},
+          {"public, max-age=\"86400\"", "public, max-age=3600, must-revalidate"},
+          {"public, max-age=86400.5", "public, max-age=3600, must-revalidate"},
+          {"public, max-age=abc", "public, max-age=3600, must-revalidate"},
+          {"public, MAX-AGE=86400", "public, max-age=3600, must-revalidate"},
+          {"public, S-MaxAge=86400, max-age=60",
+           "public, s-maxage=3600, max-age=60, must-revalidate"},
+          {"public, s-maxage=abc, max-age=60", "public, max-age=60, must-revalidate"},
+          {"public", "public, max-age=3600, must-revalidate"},
+          {"public, max-age=60, Must-Revalidate", "public, max-age=60, Must-Revalidate"},
+          {"No-Store", "No-Store"}
         ] do
       response =
         conn(:get, @path)
@@ -186,6 +196,24 @@ defmodule ImagePipe.API.ExpiresCacheControlWireTest do
         assert get_resp_header(response, "cache-control") == [
                  "public, max-age=60, must-revalidate"
                ]
+      end
+    end
+
+    test "an unstorable origin stays no-store under a host Cache-Control", %{
+      config: config,
+      origin: origin
+    } do
+      for control <- ["no-store", "private, max-age=600"] do
+        Agent.update(origin, fn _ -> control end)
+
+        response =
+          conn(:get, origin_path(@expires))
+          |> put_resp_header("cache-control", "public, max-age=86400")
+          |> ImagePipe.Plug.call(config)
+
+        assert response.status == 200
+        assert get_resp_header(response, "cache-control") == ["no-store"], control
+        assert get_resp_header(response, "etag") == []
       end
     end
   end

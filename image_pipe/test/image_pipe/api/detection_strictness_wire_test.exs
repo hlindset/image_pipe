@@ -120,6 +120,20 @@ defmodule ImagePipe.API.DetectionStrictnessWireTest do
       end
     end
 
+    test "stays no-store on an expiring URL with a host Cache-Control" do
+      FlakyDetector.set(:fail?, true)
+      expires = System.os_time(:second) + 600
+
+      response =
+        conn(:get, "/expires=#{expires}/w=50/h=50/fit=cover/detect=car/format=png/src/beach.jpg")
+        |> put_resp_header("cache-control", "public, max-age=86400")
+        |> call_pipe(mount(detector: FlakyDetector))
+
+      assert response.status == 200
+      assert get_resp_header(response, "cache-control") == ["no-store"]
+      assert get_resp_header(response, "etag") == []
+    end
+
     test "is reported on in-process results" do
       FlakyDetector.set(:fail?, true)
       config = ImagePipe.config(detector: FlakyDetector)

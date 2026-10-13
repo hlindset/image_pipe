@@ -340,6 +340,27 @@ defmodule ImagePipe.Source.ReqStreamTest do
     Process.exit(server, :kill)
   end
 
+  test "fetches that find the connection pool full return an error instead of exiting" do
+    {url, server} = start_silent_origin(:every_connection)
+
+    fetches =
+      Enum.map(1..60, fn _ ->
+        spawn_monitor(fn ->
+          exit({:returned, ReqStream.open([url: url], pool_timeout: 100, receive_timeout: 1_000)})
+        end)
+      end)
+
+    results =
+      Enum.map(fetches, fn {pid, ref} ->
+        assert_receive {:DOWN, ^ref, :process, ^pid, reason}, 5_000
+        reason
+      end)
+
+    assert Enum.all?(results, &match?({:returned, {:error, {:source, _}}}, &1)), inspect(results)
+    assert {:returned, {:error, {:source, :pool_timeout}}} in results
+    Process.exit(server, :kill)
+  end
+
   test "a mid-body receive timeout surfaces as :receive_timeout" do
     {url, server} = start_stalling_origin()
     server_ref = Process.monitor(server)
@@ -399,21 +420,33 @@ defmodule ImagePipe.Source.ReqStreamTest do
   # A raw origin that returns a chunked 200 head and then never sends a body
   # chunk, holding the connection open until the client gives up — the mid-body
   # receive-timeout path.
-  # Reads the request and never answers.
-  defp start_silent_origin do
+  # Reads the request and never answers, on the first connection or on
+  # `:every_connection`.
+  defp start_silent_origin(connections \\ :first) do
     {:ok, listen_socket} =
-      :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true])
+      :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true, backlog: 128])
 
     {:ok, {_address, port}} = :inet.sockname(listen_socket)
 
     server =
       spawn(fn ->
-        {:ok, socket} = :gen_tcp.accept(listen_socket)
-        {:ok, _request} = :gen_tcp.recv(socket, 0)
-        :gen_tcp.recv(socket, 0, :infinity)
+        case connections do
+          :first ->
+            {:ok, socket} = :gen_tcp.accept(listen_socket)
+            {:ok, _request} = :gen_tcp.recv(socket, 0)
+            :gen_tcp.recv(socket, 0, :infinity)
+
+          :every_connection ->
+            accept_silently(listen_socket, [])
+        end
       end)
 
     {"http://127.0.0.1:#{port}", server}
+  end
+
+  defp accept_silently(listen_socket, sockets) do
+    {:ok, socket} = :gen_tcp.accept(listen_socket)
+    accept_silently(listen_socket, [socket | sockets])
   end
 
   # Sends one body byte every `interval` milliseconds, forever.

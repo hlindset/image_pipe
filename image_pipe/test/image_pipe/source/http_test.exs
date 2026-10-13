@@ -368,6 +368,67 @@ defmodule ImagePipe.Source.HTTPTest do
            end)
   end
 
+  test "stripping byte headers also drops Req's range option" do
+    test_pid = self()
+
+    plug = fn conn ->
+      send(test_pid, {:http_request, conn.req_headers})
+      Plug.Conn.send_resp(conn, 200, "image bytes")
+    end
+
+    stream =
+      fetch_stream(
+        [
+          allowed_hosts: ["assets.example.com"],
+          internal_cache: :enabled,
+          address_resolver: stub_resolver(),
+          req_options: [plug: plug, range: 0..9]
+        ],
+        %URL{scheme: :https, host: "assets.example.com", path: ["cat.jpg"]}
+      )
+
+    assert Enum.join(stream) == "image bytes"
+    assert_receive {:http_request, headers}
+
+    refute Enum.any?(headers, fn {name, _value} -> String.downcase(name) == "range" end)
+  end
+
+  test "conditional headers in req_options are dropped, so a first fetch gets the full body" do
+    test_pid = self()
+
+    plug = fn conn ->
+      send(test_pid, {:http_request, conn.req_headers})
+
+      case Plug.Conn.get_req_header(conn, "if-none-match") do
+        [] -> Plug.Conn.send_resp(conn, 200, "image bytes")
+        _validators -> Plug.Conn.send_resp(conn, 304, "")
+      end
+    end
+
+    stream =
+      fetch_stream(
+        [
+          allowed_hosts: ["assets.example.com"],
+          address_resolver: stub_resolver(),
+          req_options: [
+            plug: plug,
+            headers: [
+              {"If-None-Match", ~s("v1")},
+              {:if_modified_since, "Tue, 13 Oct 2026 00:00:00 GMT"},
+              {"if-match", ~s("v1")},
+              {"if-unmodified-since", "Tue, 13 Oct 2026 00:00:00 GMT"},
+              {"if-range", ~s("v1")}
+            ]
+          ]
+        ],
+        %URL{scheme: :https, host: "assets.example.com", path: ["cat.jpg"]}
+      )
+
+    assert Enum.join(stream) == "image bytes"
+    assert_receive {:http_request, headers}
+    refute Enum.any?(headers, fn {name, _value} -> String.starts_with?(name, "if-") end)
+  end
+
   test "configured max redirects allows bounded redirects" do
     plug = fn
       %{request_path: "/redirect.jpg"} = conn ->

@@ -48,7 +48,7 @@ defmodule ImagePipe.Source do
     * `{:bad_status, code}` - the origin's HTTP status. `401`, `403`, `404`,
       and `410` give `404`. Any other status gives `502`.
     * `:body_too_large` - `413`.
-    * `:receive_timeout` - `504`.
+    * `:receive_timeout` and `:pool_timeout` - `504`.
     * `:unreadable` and `:credentials_unavailable` - `500`.
 
   Any other reason gives `502`. To choose the status, lead the reason with

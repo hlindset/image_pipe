@@ -320,6 +320,27 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
              )
   end
 
+  test "a silent origin on every resolved address fails by fetch_timeout" do
+    port = silent_origin()
+    started = System.monotonic_time(:millisecond)
+
+    assert {:error, {:source, :receive_timeout}} =
+             fetch(
+               "origin.test",
+               port,
+               [
+                 address_resolver: fn _ -> {:ok, [@loopback, {127, 0, 0, 2}, {127, 0, 0, 3}]} end,
+                 req_options: [],
+                 receive_timeout: 900,
+                 fetch_timeout: 1_000
+               ],
+               [],
+               :http
+             )
+
+    assert System.monotonic_time(:millisecond) - started < 1_500
+  end
+
   test "signs the logical hostname and non-default port before pinning" do
     test_pid = self()
 
@@ -419,6 +440,24 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
 
     {:ok, {_address, port}} = ThousandIsland.listener_info(pid)
     port
+  end
+
+  # A plain HTTP origin listening on every IPv4 address. It reads each request
+  # and never answers.
+  defp silent_origin do
+    {:ok, listen_socket} =
+      :gen_tcp.listen(0, [:binary, ip: {0, 0, 0, 0}, active: false, reuseaddr: true])
+
+    {:ok, {_address, port}} = :inet.sockname(listen_socket)
+    spawn(fn -> accept(listen_socket) end)
+    port
+  end
+
+  defp accept(listen_socket) do
+    with {:ok, socket} <- :gen_tcp.accept(listen_socket) do
+      _request = :gen_tcp.recv(socket, 0)
+      accept(listen_socket)
+    end
   end
 
   defp fetch(host, port, opts \\ [], runtime \\ [], scheme \\ :https) do
