@@ -66,4 +66,4 @@
 # - github.token    → use GITHUB_TOKEN env var instead
 
 sync:
-    remote: "git+https://github.com/hlindset/image_pipe.git"
+    remote: "https://doltremoteapi.dolthub.com/hlindset/image-pipe-beads"

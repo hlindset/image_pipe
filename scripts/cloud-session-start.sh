@@ -7,8 +7,10 @@
 #   - trusts mise.toml and installs its pinned toolchain, including bd
 #   - installs Hex and rebar for the pinned Elixir
 #   - runs `mise run setup` (deps for every project, fiddle assets)
-#   - clones the beads database from origin's refs/dolt/data (`bd bootstrap`
-#     is a no-op once the database exists)
+#   - installs the DoltHub key from DOLTHUB_CREDS_JWK (set in the cloud
+#     environment's settings) as Dolt's active credential
+#   - clones the beads database from the DoltHub remote in .beads/config.yaml
+#     (`bd bootstrap` is a no-op once the database exists)
 #
 # Stdout of a SessionStart hook becomes session context, so all output goes to
 # .cloud-setup.log. Failures are non-fatal: the session still starts, and the
@@ -52,6 +54,47 @@ if command -v mise >/dev/null 2>&1; then
   run mise run setup
 else
   echo "!! mise not installed; add it to the cloud environment's setup script" >> "$LOGFILE"
+fi
+
+# Dolt reads the active key from ~/.dolt/config_global.json ("user.creds") and
+# loads ~/.dolt/creds/<key id>.jwk, where the key id is the SHA-512/224 hash
+# of the public key in Dolt's base32 alphabet. Dolt's .jwk files keep the
+# public key in "d" and the private key in "x" (dolt creds/jwk.go).
+install_dolthub_creds() {
+  python3 - <<'PY'
+import base64, hashlib, json, os
+
+jwk_text = os.environ["DOLTHUB_CREDS_JWK"].strip()
+pub = base64.urlsafe_b64decode(json.loads(jwk_text)["d"])
+std = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+dolt = "0123456789abcdefghijklmnopqrstuv"
+digest = hashlib.new("sha512_224", pub).digest()
+kid = base64.b32encode(digest).decode().rstrip("=").translate(str.maketrans(std, dolt))
+
+home = os.path.expanduser("~/.dolt")
+os.makedirs(os.path.join(home, "creds"), mode=0o700, exist_ok=True)
+path = os.path.join(home, "creds", kid + ".jwk")
+fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, "w") as f:
+    f.write(jwk_text)
+
+config_path = os.path.join(home, "config_global.json")
+try:
+    with open(config_path) as f:
+        config = json.load(f)
+except (OSError, ValueError):
+    config = {}
+config["user.creds"] = kid
+with open(config_path, "w") as f:
+    json.dump(config, f)
+print("installed DoltHub key " + kid)
+PY
+}
+
+if [ -n "${DOLTHUB_CREDS_JWK:-}" ]; then
+  run install_dolthub_creds
+else
+  echo "!! DOLTHUB_CREDS_JWK not set; bd can't sync with DoltHub" >> "$LOGFILE"
 fi
 
 if command -v bd >/dev/null 2>&1; then
