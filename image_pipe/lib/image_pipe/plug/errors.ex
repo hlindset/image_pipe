@@ -7,7 +7,7 @@ defmodule ImagePipe.Plug.Errors do
   # limit, encode, and output errors use `ImagePipe.Response.ErrorStatus`.
   @moduledoc false
 
-  import Plug.Conn, only: [put_resp_content_type: 2, send_resp: 3]
+  import Plug.Conn, only: [put_resp_content_type: 2, put_resp_header: 3, send_resp: 3]
 
   alias ImagePipe.API.Diagnostic
   alias ImagePipe.API.Path
@@ -74,9 +74,17 @@ defmodule ImagePipe.Plug.Errors do
     {status, message} = ErrorStatus.resolve_status(reason)
 
     conn
+    |> server_error_no_store(status)
     |> put_resp_content_type("text/plain")
     |> send_resp(status, message)
   end
+
+  # A server error is transient, so a host lifetime meant for images must not
+  # keep it in a cache. Client errors keep the host's `Cache-Control`.
+  defp server_error_no_store(conn, status) when status >= 500,
+    do: put_resp_header(conn, "cache-control", "no-store")
+
+  defp server_error_no_store(conn, _status), do: conn
 
   defp diagnostic_path(conn), do: conn |> Request.mount_relative_path() |> Path.diagnostic_path()
 

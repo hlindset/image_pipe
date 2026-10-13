@@ -38,6 +38,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Directive names match in any case, so `MAX-AGE=86400` is lowered too.
   - A `Cache-Control` without `max-age`, such as `public`, gets one that ends
     at the expiry.
+- A server error (`5xx`), such as a `502` for a failing origin, gets
+  `Cache-Control: no-store`, even when an earlier Plug set `Cache-Control`.
+  Before, it kept the earlier Plug's `Cache-Control`, and a CDN could serve
+  the error for that header's lifetime. A client error (`4xx`) still keeps
+  it.
 
 ## [0.2.0] - 2026-10-13
 

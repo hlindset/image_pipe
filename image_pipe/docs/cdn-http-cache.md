@@ -50,6 +50,7 @@ In every mode:
   [content detection](content-aware-gravity.md) failed.
 - A URL with an expiry gets a lifetime that ends with it (see
   [expiring URLs](#expiring-urls)).
+- A server error (`5xx`) gets `Cache-Control: no-store`.
 
 ## Per-source modes
 
@@ -255,6 +256,8 @@ ones, in every mode:
 - An earlier `Cache-Control` is kept. On an [expiring URL](#expiring-urls),
   a capped copy replaces it unless it has `no-store`. ImagePipe may still
   add its `ETag`.
+- A server error (`5xx`) gets `no-store` even when an earlier Plug set
+  `Cache-Control`. A client error (`4xx`) keeps the earlier `Cache-Control`.
 - An earlier `ETag` is kept, and ImagePipe sends no generated `ETag`. A
   request that matches the earlier `ETag` doesn't get a `304`.
 - A response with `Set-Cookie` gets no generated `Cache-Control` or `ETag`.

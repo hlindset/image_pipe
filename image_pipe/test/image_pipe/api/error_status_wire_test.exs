@@ -15,6 +15,26 @@ defmodule ImagePipe.API.ErrorStatusWireTest do
       do: Plug.Conn.send_resp(conn, Keyword.fetch!(opts, :status), "origin says no")
   end
 
+  defmodule ColdDetector do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    @impl true
+    def supported_classes(_opts), do: ["face"]
+
+    @impl true
+    def detect(_image, _opts), do: {:ok, []}
+
+    @impl true
+    def available?(_opts), do: true
+
+    @impl true
+    def ready?(_opts), do: false
+
+    @impl true
+    def identity(_opts), do: {__MODULE__, :v1}
+  end
+
   test "a path without src/ points past its end and names the marker" do
     config = ImagePipe.Plug.init([])
 
@@ -104,6 +124,47 @@ defmodule ImagePipe.API.ErrorStatusWireTest do
 
         assert conn.status == unquote(status)
         refute conn.resp_body =~ Integer.to_string(unquote(origin_status))
+      end
+    end
+  end
+
+  describe "a Cache-Control set by the host" do
+    test "is kept on client errors and replaced with no-store on server errors" do
+      for {origin_status, path, status, control} <- [
+            {200, "/w=abc/format=png/src/images/cat.jpg", 400, "public, max-age=86400"},
+            {404, "/format=png/src/images/cat.jpg", 404, "public, max-age=86400"},
+            {500, "/format=png/src/images/cat.jpg", 502, "no-store"},
+            {200, "/crop=20,20/detect=face/format=png/src/images/cat.jpg", 503, "no-store"}
+          ] do
+        config =
+          ImagePipe.Plug.init(
+            detector: ColdDetector,
+            detector_required: true,
+            sources: [
+              path: [
+                adapter: RootHTTPAdapter,
+                match: :path,
+                options: [
+                  root_url: "http://origin.test",
+                  req_options: [plug: {StatusOrigin, status: origin_status}]
+                ]
+              ]
+            ]
+          )
+
+        conn =
+          conn(:get, path)
+          |> Plug.Conn.put_resp_header("cache-control", "public, max-age=86400")
+          |> ImagePipe.Plug.call(config)
+
+        assert {conn.status, Plug.Conn.get_resp_header(conn, "cache-control")} ==
+                 {status, [control]},
+               path
+
+        if status >= 500 do
+          conn = conn(:get, path) |> ImagePipe.Plug.call(config)
+          assert Plug.Conn.get_resp_header(conn, "cache-control") == ["no-store"]
+        end
       end
     end
   end
