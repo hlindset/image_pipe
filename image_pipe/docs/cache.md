@@ -47,7 +47,7 @@ settings, `stable`, `internal_cache`, and `http_cache`, are listed in
 - `stable: :immutable` marks a source whose identifiers always name the same
   bytes.
 - `internal_cache: :disabled` turns off both caches for the source. The
-  default, `:auto`, caches whatever the source's storage policy allows.
+  default, `:enabled`, caches whatever the source's storage policy allows.
 - `http_cache` is described in [HTTP cache headers](cdn-http-cache.md#per-source-modes).
 
 ## What is stored
