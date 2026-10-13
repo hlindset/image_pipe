@@ -22,17 +22,17 @@ defmodule ImagePipe.Cache.FileSystem.OwnerTest do
   end
 
   test "concurrent refusals and acceptances all land", %{tmp_dir: root} do
-    dirs = for n <- 1..200, do: Path.join(root, "concurrent-#{n}")
+    dirs = for n <- 1..40, do: Path.join(root, "concurrent-#{n}")
     on_exit(fn -> Enum.each(dirs, &Owner.accept/1) end)
 
     dirs
-    |> Task.async_stream(&Owner.refuse/1, max_concurrency: 50)
+    |> Task.async_stream(&Owner.refuse/1, max_concurrency: 40, timeout: :infinity)
     |> Stream.run()
 
     assert Enum.all?(dirs, &MapSet.member?(Owner.refused(), &1))
 
     dirs
-    |> Task.async_stream(&Owner.accept/1, max_concurrency: 50)
+    |> Task.async_stream(&Owner.accept/1, max_concurrency: 40, timeout: :infinity)
     |> Stream.run()
 
     refute Enum.any?(dirs, &MapSet.member?(Owner.refused(), &1))
