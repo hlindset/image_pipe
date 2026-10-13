@@ -21,6 +21,23 @@ defmodule ImagePipe.Cache.FileSystem.OwnerTest do
     refute MapSet.member?(Owner.refused(), root)
   end
 
+  test "concurrent refusals and acceptances all land", %{tmp_dir: root} do
+    dirs = for n <- 1..200, do: Path.join(root, "concurrent-#{n}")
+    on_exit(fn -> Enum.each(dirs, &Owner.accept/1) end)
+
+    dirs
+    |> Task.async_stream(&Owner.refuse/1, max_concurrency: 50)
+    |> Stream.run()
+
+    assert Enum.all?(dirs, &MapSet.member?(Owner.refused(), &1))
+
+    dirs
+    |> Task.async_stream(&Owner.accept/1, max_concurrency: 50)
+    |> Stream.run()
+
+    refute Enum.any?(dirs, &MapSet.member?(Owner.refused(), &1))
+  end
+
   test "a crashed cache process restarts without giving the root up", %{tmp_dir: root} do
     root_pid = start_supervised!({Root, root: root, max_size_bytes: 1_000_000, host: "this-host"})
     root_ref = Process.monitor(root_pid)

@@ -124,11 +124,19 @@ defmodule ImagePipe.Cache.FileSystem.Owner do
   def accept(dir), do: update_refused(&MapSet.delete(&1, dir))
 
   # Each update replaces a persistent term, so it skips unchanged sets.
+  # Updates from different roots can run at once, so they take a node-local
+  # lock, or one could overwrite another's change. Reads take none.
   defp update_refused(update) do
-    refused = refused()
-    updated = update.(refused)
-    if updated != refused, do: :persistent_term.put(@refused, updated)
-    :ok
+    :global.trans(
+      {@refused, self()},
+      fn ->
+        refused = refused()
+        updated = update.(refused)
+        if updated != refused, do: :persistent_term.put(@refused, updated)
+        :ok
+      end,
+      [node()]
+    )
   end
 
   def start_link(claim), do: GenServer.start_link(__MODULE__, claim)
