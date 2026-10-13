@@ -1,12 +1,12 @@
-# Compares bounded FileSystem admission (W-TinyLFU) with a plain LRU of the
-# same byte budget, and with cheaper policies, on synthetic traffic. Run from
-# image_pipe/:
+# Compares the bounded FileSystem cache's sampled eviction with W-TinyLFU, a
+# plain LRU of the same byte budget, and LRU with a doorkeeper, on synthetic
+# traffic. Run from image_pipe/:
 #
 #   mise exec -- mix run bench/cache_policy.exs
 #   mise exec -- mix run bench/cache_policy.exs zipf-0.8 5
 #   mise exec -- mix run bench/cache_policy.exs --cdn
 #   mise exec -- mix run bench/cache_policy.exs shield+scan 5
-#   mise exec -- mix run bench/cache_policy.exs --real shift 5
+#   mise exec -- mix run bench/cache_policy.exs --real zipf-0.8 5
 #   mise exec -- mix run bench/cache_policy.exs --random-sweep
 #   mise exec -- mix run bench/cache_policy.exs --restart-sweep
 #
@@ -16,16 +16,16 @@
 # reach the cache under test, as on a node behind a CDN.
 # `--random-sweep` replaces the policy list with a grid of random admission
 # thresholds and odds, each run with three seeds for the random draws.
-# `--restart-sweep` restarts the cache every N requests, either starting cold
-# with every entry on probation by write time (as Admission does) or by last
-# access, or keeping its sketch and protected list as a persisted state would.
+# `--restart-sweep` restarts W-TinyLFU every N requests, either starting cold
+# with every entry on probation by write time or by last access, or keeping
+# its sketch and protected list as a persisted state would.
 #
-# By default W-TinyLFU runs an in-memory model of Admission's queues that
-# calls the real Sketch, Doorkeeper and Policy modules, so the full matrix
-# takes seconds. `--real` drives the real Admission process through the
-# adapter instead, which every commit's datasync makes take minutes per cell.
-# Use it to check that the model still matches Admission after a change.
-# Real runs store bodies at 1/100 scale; both backends derive sketch,
+# Every policy runs as an in-memory model calling the real Sketch, Doorkeeper
+# and Policy modules, so the full matrix takes minutes. `sampled-16` mirrors
+# Admission. `--real` runs that row through the real Admission process and
+# the adapter instead, which every commit's datasync makes take minutes per
+# cell. Use it to check that the model still matches Admission after a
+# change. Real runs store bodies at 1/100 scale; both backends derive sketch,
 # doorkeeper and aging options from the unscaled cap with the adapter's
 # default formulas.
 #
@@ -212,16 +212,12 @@ defmodule CachePolicyBench do
   defp seed({:sampled, _k, %{seed: seed}}), do: seed
   defp seed(_policy), do: 9
 
-  defp supported?(:real, %{
-         admission: {:random, 6, 128},
-         aging: :default,
-         gate: :average,
-         restart: nil
-       }),
-       do: true
+  # Only the policy Admission runs.
+  defp supported?(:real, {:sampled, 16, options}),
+    do: options == options([], options.mean_entry_bytes)
 
-  defp supported?(:real, %{}), do: false
-  defp supported?(_backend, _policy), do: true
+  defp supported?(:real, _policy), do: false
+  defp supported?(:model, _policy), do: true
 
   # -- traffic -----------------------------------------------------------------
 
@@ -411,15 +407,15 @@ defmodule CachePolicyBench do
     {Lru.new(cap, doorkeeper: max(k * div(cap, mean_entry_bytes), 1)), &lru_step/4}
   end
 
-  defp start(_backend, {:sampled, k, options}, cap) do
+  defp start(:real, {:sampled, _k, options}, cap), do: start_admission(options.cost, cap)
+
+  defp start(:model, {:sampled, k, options}, cap) do
     {Sampled.new(cap, k, options), &model_step(&1, &2, &3, &4, options.cost, Sampled)}
   end
 
   defp start(:model, options, cap) do
     {Model.new(cap, options), &model_step(&1, &2, &3, &4, options.cost, Model)}
   end
-
-  defp start(:real, options, cap), do: start_admission(options.window, options.cost, cap)
 
   # Noisy cost: each render records its true cost scaled by load, about ±3×.
   # Static cost: a model that estimates cost from the class and size, without
@@ -458,7 +454,7 @@ defmodule CachePolicyBench do
 
   # -- real Admission ------------------------------------------------------------
 
-  defp start_admission(window_ratio, cost_mode, cap) do
+  defp start_admission(cost_mode, cap) do
     root = Path.join(System.tmp_dir!(), "cache-policy-#{System.unique_integer([:positive])}")
     File.mkdir_p!(root)
     registry = FileSystem.registry_name(root)
@@ -468,8 +464,7 @@ defmodule CachePolicyBench do
     {:ok, admission} =
       Admission.start_link(
         Store.admission_options(
-          [root: root, max_size_bytes: scaled_cap, window_ratio: window_ratio] ++
-            Model.sketch_options(cap),
+          [root: root, max_size_bytes: scaled_cap] ++ Model.sketch_options(cap),
           registry
         )
       )
@@ -529,11 +524,10 @@ defmodule CachePolicyBench do
 end
 
 defmodule CachePolicyBench.Model do
-  # In-memory copy of Admission's queue handling: window LRU, probationary and
-  # protected segments, and the main gate. It calls
-  # the real Sketch, Doorkeeper and Policy, so it tracks scoring changes, but a
-  # change to Admission's queue handling must be mirrored here. Check with
-  # `--real` that both agree.
+  # W-TinyLFU over a byte budget: window LRU, probationary and protected
+  # segments, and a main gate that walks victims in LRU order. It calls the
+  # real Sketch, Doorkeeper and Policy scoring, as a baseline for sampled
+  # eviction.
   alias ImagePipe.Cache.FileSystem.Doorkeeper
   alias ImagePipe.Cache.FileSystem.Policy
   alias ImagePipe.Cache.FileSystem.Sketch
@@ -731,12 +725,7 @@ defmodule CachePolicyBench.Model do
   end
 
   defp score(model, descriptor, needed) do
-    victims =
-      Policy.victim_walk(
-        lru(model.trees.probationary),
-        lru(model.trees.protected),
-        needed
-      )
+    victims = victim_walk(lru(model.trees.probationary), lru(model.trees.protected), needed)
 
     with {:ok, victims} <- victims,
          true <- admit?(model, descriptor, victims) do
@@ -766,6 +755,23 @@ defmodule CachePolicyBench.Model do
       do: :rand.uniform(one_in) == 1
 
   def random_admit?(_admission, _frequency), do: false
+
+  # Probationary LRU-first, then protected LRU-first, until the victims free
+  # `needed` bytes.
+  defp victim_walk(probationary, protected, needed) do
+    {victims, freed} =
+      probationary
+      |> Stream.concat(protected)
+      |> Enum.reduce_while({[], 0}, fn victim, {victims, freed} ->
+        freed = freed + victim.size_bytes
+
+        if freed >= needed,
+          do: {:halt, {[victim | victims], freed}},
+          else: {:cont, {[victim | victims], freed}}
+      end)
+
+    if freed >= needed, do: {:ok, Enum.reverse(victims)}, else: :error
+  end
 
   defp lru(tree) do
     Stream.unfold(:gb_trees.iterator(tree), fn iterator ->
@@ -895,11 +901,13 @@ defmodule CachePolicyBench.Lru do
 end
 
 defmodule CachePolicyBench.Sampled do
-  # W-TinyLFU's admission without the window, queues or LRU order: the same
-  # sketch, doorkeeper, cost-aware score, size-weighted average gate and
-  # random admission, but each victim is the lowest-scoring of `k` entries
-  # sampled at random, as in Ristretto. It needs only the total bytes and a
-  # way to sample stored entries, here a slot map.
+  # In-memory copy of Admission's sampled eviction: each victim is the
+  # lowest-scoring of `k` distinct entries sampled at random, until the
+  # candidate fits, and the candidate is then gated against its victims with
+  # the size-weighted average and random admission. It calls the real Sketch,
+  # Doorkeeper and Policy, but a change to Admission's sampling must be
+  # mirrored here; check with `--real` that both agree. Entries are sampled
+  # from a slot map.
   alias CachePolicyBench.Model
   alias ImagePipe.Cache.FileSystem.Policy
 
@@ -949,12 +957,20 @@ defmodule CachePolicyBench.Sampled do
   end
 
   defp lowest(state) do
-    1..state.k
-    |> Enum.map(fn _draw ->
-      key = Map.fetch!(state.slots, :rand.uniform(map_size(state.slots)) - 1)
-      Map.fetch!(state.entries, key)
-    end)
-    |> Enum.min_by(&Policy.score(&1, Model.frequency(state, &1.key_hash)))
+    state
+    |> sample()
+    |> Enum.map(&Map.fetch!(state.entries, Map.fetch!(state.slots, &1)))
+    |> Enum.min_by(&Policy.victim_score(&1, Model.frequency(state, &1.key_hash)))
+  end
+
+  # Up to `k` distinct slots, or every slot when there are no more.
+  defp sample(%{slots: slots, k: k}) when map_size(slots) <= k, do: Map.keys(slots)
+  defp sample(state), do: draw(MapSet.new(), state)
+
+  defp draw(picked, state) do
+    if MapSet.size(picked) == state.k,
+      do: MapSet.to_list(picked),
+      else: picked |> MapSet.put(:rand.uniform(map_size(state.slots)) - 1) |> draw(state)
   end
 
   defp gate(state, descriptor, {taken, victims}) do
