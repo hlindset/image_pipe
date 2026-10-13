@@ -43,6 +43,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Before, it kept the earlier Plug's `Cache-Control`, and a CDN could serve
   the error for that header's lifetime. A client error (`4xx`) still keeps
   it.
+- HTTP and S3 sources drop conditional headers, such as `if-none-match`,
+  from `req_options`. An origin that answered one with `304` on a first
+  fetch made the request fail.
+- Sources that drop the `range` header from `req_options` also drop Req's
+  `:range` and `:compressed` options, which set the `range` and
+  `accept-encoding` headers. With `range:`, the origin sent part of the
+  image, which was then processed as the whole original.
 
 ## [0.2.0] - 2026-10-13
 
