@@ -8,11 +8,14 @@ defmodule ImagePipe.Cache.Cost do
   # An estimate is a sum of features, each an amount times a weight:
   #
   #   request   one per render: fetching, planning, buffering
-  #   decode    source pixels × the source format's weight. Shrink-on-load
-  #             saves less than its scale, so source pixels predict it better
-  #             than decoded ones. An SVG renders at its decoded size.
-  #   pixels    decoded pixels, for the resize and conversions on them
+  #   decode    source pixels × the source format's weight, which includes
+  #             the resize and conversions after it. Shrink-on-load saves
+  #             little for JPEG, so source pixels predict it. WebP decodes
+  #             at the shrunk size, and an SVG renders at it, so those count
+  #             decoded pixels.
   #   alpha     decoded pixels again when the source has an alpha channel
+  #   op        decoded pixels for an operation before the resize (trim,
+  #             rotate, a guided crop), output pixels for an effect after it
   #   encode    output pixels × the encoder's weight at its effort
   #   search    each autoquality iteration encodes again, decodes the
   #             candidate and scores it (all pixels, or 512 × 512 tiles for
@@ -34,20 +37,19 @@ defmodule ImagePipe.Cache.Cost do
 
   @weights %{
     :request => 3_600,
-    :pixels => 2.5,
     :alpha => 13,
     :metric => 38,
     :detect => 150_000,
     {:decode, :jpeg} => 1.6,
-    {:decode, :png} => 2.6,
-    {:decode, :webp} => 1.2,
-    {:decode, :avif} => 4.8,
-    {:decode, :heif} => 4.8,
-    {:decode, :jpeg_xl} => 2.8,
-    {:decode, :jpeg2000} => 10,
-    {:decode, :tiff} => 0.4,
-    {:decode, :gif} => 1.2,
-    {:decode, :svg} => 9,
+    {:decode, :png} => 5.1,
+    {:decode, :webp} => 5,
+    {:decode, :avif} => 7.3,
+    {:decode, :heif} => 7.3,
+    {:decode, :jpeg_xl} => 5.3,
+    {:decode, :jpeg2000} => 12,
+    {:decode, :tiff} => 2.9,
+    {:decode, :gif} => 3.7,
+    {:decode, :svg} => 11,
     {:encode, :jpeg} => 1.2,
     {:encode, :png} => 36,
     {:encode, :png_palette} => 86,
@@ -68,6 +70,14 @@ defmodule ImagePipe.Cache.Cost do
     {:encode, :avif, 7} => 1_100,
     {:encode, :avif, 8} => 1_500,
     {:encode, :avif, 9} => 2_000,
+    {:op, :rotate} => 10,
+    {:op, :trim} => 8,
+    {:op, :crop_guided} => 5,
+    {:op, :blur} => 15,
+    {:op, :progressive_blur} => 40,
+    {:op, :sharpen} => 8,
+    {:op, :pixelate} => 3,
+    {:op, :watermark} => 5,
     {:terminal, :info} => 960,
     {:terminal, :blurhash} => 5_300,
     {:terminal, :lqip_css} => 7_800
@@ -94,13 +104,13 @@ defmodule ImagePipe.Cache.Cost do
 
     [
       {:request, 1},
-      {:pixels, decoded_kpx},
       {:alpha, if(info.source_alpha?, do: decoded_kpx, else: 0)},
       {decode_feature(info.source_format), decode_kpx(info, decoded_kpx)},
       {encoder(output.format, output.encoder_options), output_kpx * (1 + iterations)},
       {decode_feature(output.format), output_kpx * iterations},
       {:metric, scored_kpx(info.aq, output_kpx) * iterations},
       {:detect, info.detections}
+      | operations(info.pipeline, decoded_kpx, output_kpx)
     ]
     |> Enum.reject(fn {_feature, amount} -> amount == 0 end)
     |> Enum.reduce(%{}, fn {feature, amount}, acc ->
@@ -129,8 +139,21 @@ defmodule ImagePipe.Cache.Cost do
     kpx(width, height) / (shrink_w * shrink_h)
   end
 
-  defp decode_kpx(%Info{source_format: :svg}, decoded_kpx), do: decoded_kpx
+  defp decode_kpx(%Info{source_format: format}, decoded_kpx) when format in [:webp, :svg],
+    do: decoded_kpx
+
   defp decode_kpx(%Info{} = info, _decoded_kpx), do: kpx(info.source_width, info.source_height)
+
+  # Operations with a cost of their own. The others are cheap next to the
+  # decode and encode.
+  @before_resize [:rotate, :trim, :crop_guided]
+  @after_resize [:blur, :progressive_blur, :sharpen, :pixelate, :watermark]
+
+  defp operations(pipeline, decoded_kpx, output_kpx) do
+    for name <- pipeline, name in @before_resize or name in @after_resize do
+      {{:op, name}, if(name in @before_resize, do: decoded_kpx, else: output_kpx)}
+    end
+  end
 
   # A format without its own weight decodes like PNG.
   defp decode_feature(format) do

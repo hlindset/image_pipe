@@ -318,6 +318,10 @@ The work to make a processed image is estimated from what its request did:
 
 - the original's format and size, and whether it has transparency
 - the output's format, size, and encoder effort
+- costlier operations, such as [`trim`](processing/crop.md#trim),
+  [`rotate`](processing/crop.md#rotate), [`blur`](processing/effects.md#blur),
+  and [`sharpen`](processing/effects.md#sharpen), each by the size of the
+  image it runs on
 - each quality that [automatic quality](processing/output.md#autoquality)
   tries
 - object detection

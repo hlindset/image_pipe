@@ -39,9 +39,24 @@ defmodule ImagePipe.Cache.CostTest do
              Cost.render(info(), output(:jpeg))
   end
 
-  test "shrink-on-load lowers the decode cost" do
-    shrunk = info(shrink: %{w: 4.0, h: 4.0})
-    assert Cost.render(shrunk, output(:jpeg)) < Cost.render(info(), output(:jpeg))
+  test "shrink-on-load lowers a WebP decode, not a JPEG one" do
+    shrunk = %{w: 4.0, h: 4.0}
+
+    assert Cost.render(info(source_format: :webp, shrink: shrunk), output(:jpeg)) <
+             Cost.render(info(source_format: :webp), output(:jpeg))
+
+    assert Cost.render(info(shrink: shrunk), output(:jpeg)) == Cost.render(info(), output(:jpeg))
+  end
+
+  test "an operation before the resize counts decoded pixels, an effect output pixels" do
+    small = [source_width: 1_000, source_height: 750]
+    plain = fn fields -> Cost.render(info(fields), output(:jpeg)) end
+    trim = fn fields -> plain.([pipeline: [:trim]] ++ fields) - plain.(fields) end
+    blur = fn fields -> plain.([pipeline: [:blur]] ++ fields) - plain.(fields) end
+
+    assert trim.([]) > trim.(small)
+    assert blur.([]) == blur.(small)
+    assert blur.([]) > 0
   end
 
   test "modern encoders cost more than JPEG, and more with higher effort" do
