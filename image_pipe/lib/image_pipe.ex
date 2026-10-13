@@ -113,8 +113,9 @@ defmodule ImagePipe do
 
   A configuration with `cache` or `input_cache` must be used through an
   instance, which starts the processes that track each cache's size.
-  `ImagePipe.Plug` options and `run/4` with a configuration from `config/1`
-  raise `ArgumentError` when they configure a cache.
+  An `ImagePipe.Plug` mount without `:instance`, and `run/4` with a
+  configuration from `config/1`, raise `ArgumentError` for a configuration
+  with a cache.
   [Caching processed images](caching-processed-images.md) covers setting up a
   cache.
 

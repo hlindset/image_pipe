@@ -36,6 +36,7 @@ defmodule ImagePipe.Processing.DebugBuilder do
       aq: aq_from_meta(resolved_output, search_meta),
       pipeline: prepared.operations,
       detections: prepared.detections,
+      rotations: prepared.rotations,
       timings: Map.put(prepared.timings, :encode, encode_us)
     }
   end

@@ -25,6 +25,7 @@ defmodule ImagePipe.Debug.Info do
             aq: nil,
             pipeline: [],
             detections: 0,
+            rotations: 0,
             timings: %{}
 
   @type aq :: %{
@@ -60,6 +61,7 @@ defmodule ImagePipe.Debug.Info do
           aq: aq() | nil,
           pipeline: [String.t()],
           detections: non_neg_integer(),
+          rotations: non_neg_integer(),
           timings: %{optional(atom()) => non_neg_integer()}
         }
 end

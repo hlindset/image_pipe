@@ -8,6 +8,7 @@ defmodule ImagePipe.Processing.Prepared do
     :shrink,
     :operations,
     :detections,
+    :rotations,
     :timings
   ]
   defstruct @enforce_keys

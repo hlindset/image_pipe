@@ -208,6 +208,15 @@ defmodule ImagePipe.Transform.Executor do
   defp detects?(%Group{guide: {:smart, :face_assist}}), do: true
   defp detects?(%Group{}), do: false
 
+  @doc """
+  Counts the groups that rotate by an angle other than a quarter turn. A
+  quarter turn folds into the deferred orientation and costs next to
+  nothing.
+  """
+  @spec arbitrary_rotations(Spec.t()) :: non_neg_integer()
+  def arbitrary_rotations(%Spec{groups: groups}),
+    do: Enum.count(groups, &(&1.rotate != nil and &1.rotate not in [0, 90, 180, 270]))
+
   defp execute_groups(state, groups, opts) do
     Enum.reduce_while(groups, {:ok, state}, fn group, {:ok, state} ->
       case execute_group(state, group, opts) do

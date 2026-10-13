@@ -14,8 +14,9 @@ defmodule ImagePipe.Cache.Cost do
   #             at the shrunk size, and an SVG renders at it, so those count
   #             decoded pixels.
   #   alpha     decoded pixels again when the source has an alpha channel
-  #   op        decoded pixels for an operation before the resize (trim,
-  #             rotate, a guided crop), output pixels for an effect after it
+  #   op        decoded pixels for an operation before the resize (trim, a
+  #             rotation other than a quarter turn, a guided crop), output
+  #             pixels for an effect after it
   #   encode    output pixels × the encoder's weight at its effort
   #   search    each autoquality iteration encodes again, decodes the
   #             candidate and scores it (all pixels, or 512 × 512 tiles for
@@ -109,7 +110,8 @@ defmodule ImagePipe.Cache.Cost do
       {encoder(output.format, output.encoder_options), output_kpx * (1 + iterations)},
       {decode_feature(output.format), output_kpx * iterations},
       {:metric, scored_kpx(info.aq, output_kpx) * iterations},
-      {:detect, info.detections}
+      {:detect, info.detections},
+      {{:op, :rotate}, decoded_kpx * info.rotations}
       | operations(info.pipeline, decoded_kpx, output_kpx)
     ]
     |> Enum.reject(fn {_feature, amount} -> amount == 0 end)
@@ -146,7 +148,7 @@ defmodule ImagePipe.Cache.Cost do
 
   # Operations with a cost of their own. The others are cheap next to the
   # decode and encode.
-  @before_resize [:rotate, :trim, :crop_guided]
+  @before_resize [:trim, :crop_guided]
   @after_resize [:blur, :progressive_blur, :sharpen, :pixelate, :watermark]
 
   defp operations(pipeline, decoded_kpx, output_kpx) do

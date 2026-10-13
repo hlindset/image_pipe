@@ -91,6 +91,15 @@ defmodule ImagePipe.Cache.CostTest do
     assert two - one == one - plain
   end
 
+  test "a rotation by an arbitrary angle counts decoded pixels, a quarter turn nothing" do
+    plain = Cost.render(info(), output(:jpeg))
+    quarter = Cost.render(info(pipeline: [:rotate]), output(:jpeg))
+    arbitrary = Cost.render(info(pipeline: [:rotate], rotations: 1), output(:jpeg))
+
+    assert quarter == plain
+    assert arbitrary > plain
+  end
+
   test "terminals have a positive constant cost" do
     for kind <- [:info, :blurhash, :lqip_css], do: assert(Cost.terminal(kind) > 0)
   end
