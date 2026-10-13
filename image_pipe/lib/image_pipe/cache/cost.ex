@@ -26,62 +26,63 @@ defmodule ImagePipe.Cache.Cost do
   # A placeholder or info response is one constant per kind. Pixel amounts
   # are in thousands, so a pixel weight is in milliseconds per megapixel. The
   # weights are the geometric mean of `bench/cost_calibration.exs` fits on x86
-  # and ARM CI runners. Efforts it doesn't measure are interpolated, and
-  # HEIF, JPEG 2000 and SVG keep their first guesses' ratio to measured
-  # formats. Detection isn't measured. A baseline JPEG decodes much faster with
-  # shrink-on-load than a progressive one, which the debug info doesn't tell
-  # apart, so a large baseline source is overestimated.
+  # and ARM CI runners (its `--combine`). Efforts it doesn't measure are
+  # interpolated, HEIF decodes like AVIF, and JPEG 2000 and SVG keep their
+  # first guesses' ratio to PNG. Detection and watermarks aren't measured, and
+  # a guided crop fitted to about nothing. A baseline JPEG decodes much faster
+  # with shrink-on-load than a progressive one, which the debug info doesn't
+  # tell apart, so a large baseline source is overestimated.
   @moduledoc false
 
   alias ImagePipe.Debug.Info
   alias ImagePipe.Output.Resolved
 
   @weights %{
-    :request => 3_600,
-    :alpha => 13,
-    :metric => 38,
+    :request => 5_900,
+    :alpha => 8.1,
+    :metric => 30,
     :detect => 150_000,
-    {:decode, :jpeg} => 1.6,
-    {:decode, :png} => 5.1,
-    {:decode, :webp} => 5,
-    {:decode, :avif} => 7.3,
-    {:decode, :heif} => 7.3,
-    {:decode, :jpeg_xl} => 5.3,
-    {:decode, :jpeg2000} => 12,
-    {:decode, :tiff} => 2.9,
-    {:decode, :gif} => 3.7,
-    {:decode, :svg} => 11,
-    {:encode, :jpeg} => 1.2,
-    {:encode, :png} => 36,
-    {:encode, :png_palette} => 86,
-    {:encode, :webp, 0} => 10,
-    {:encode, :webp, 1} => 13,
-    {:encode, :webp, 2} => 17,
-    {:encode, :webp, 3} => 27,
-    {:encode, :webp, 4} => 41,
-    {:encode, :webp, 5} => 54,
-    {:encode, :webp, 6} => 71,
-    {:encode, :avif, 0} => 12,
-    {:encode, :avif, 1} => 23,
-    {:encode, :avif, 2} => 43,
-    {:encode, :avif, 3} => 56,
-    {:encode, :avif, 4} => 270,
-    {:encode, :avif, 5} => 440,
+    {:decode, :jpeg} => 1.7,
+    {:decode, :png} => 5.6,
+    {:decode, :webp} => 23,
+    {:decode, :avif} => 6.3,
+    {:decode, :heif} => 6.3,
+    {:decode, :jpeg_xl} => 4.5,
+    {:decode, :jpeg2000} => 13,
+    {:decode, :tiff} => 2,
+    {:decode, :gif} => 2.6,
+    {:decode, :svg} => 12,
+    {:encode, :jpeg} => 2.9,
+    {:encode, :png} => 33,
+    {:encode, :png_palette} => 74,
+    {:encode, :webp, 0} => 9,
+    {:encode, :webp, 1} => 12,
+    {:encode, :webp, 2} => 15,
+    {:encode, :webp, 3} => 23,
+    {:encode, :webp, 4} => 34,
+    {:encode, :webp, 5} => 56,
+    {:encode, :webp, 6} => 92,
+    {:encode, :avif, 0} => 10,
+    {:encode, :avif, 1} => 19,
+    {:encode, :avif, 2} => 37,
+    {:encode, :avif, 3} => 53,
+    {:encode, :avif, 4} => 260,
+    {:encode, :avif, 5} => 420,
     {:encode, :avif, 6} => 810,
     {:encode, :avif, 7} => 1_100,
     {:encode, :avif, 8} => 1_500,
     {:encode, :avif, 9} => 2_000,
-    {:op, :rotate} => 10,
-    {:op, :trim} => 8,
-    {:op, :crop_guided} => 5,
-    {:op, :blur} => 15,
-    {:op, :progressive_blur} => 40,
-    {:op, :sharpen} => 8,
-    {:op, :pixelate} => 3,
+    {:op, :rotate} => 8.8,
+    {:op, :trim} => 3.7,
+    {:op, :crop_guided} => 1,
+    {:op, :blur} => 14,
+    {:op, :progressive_blur} => 72,
+    {:op, :sharpen} => 17,
+    {:op, :pixelate} => 10,
     {:op, :watermark} => 5,
-    {:terminal, :info} => 960,
-    {:terminal, :blurhash} => 5_300,
-    {:terminal, :lqip_css} => 7_800
+    {:terminal, :info} => 1_100,
+    {:terminal, :blurhash} => 11_000,
+    {:terminal, :lqip_css} => 13_000
   }
 
   @default_effort %{webp: 4, avif: 3}
