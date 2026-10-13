@@ -8,8 +8,9 @@ defmodule ImagePipe.Source.Parser do
   #     decoded string is split into segments on `/` with no further decoding.
   #     An optional leading slash is normalized for ordinary root-relative paths.
   #   * `http://` or `https://` (when a configured source matches the scheme) —
-  #     an absolute `%Source.URL{}`. Inner URL path segments keep their
-  #     percent-encoding, and the HTTP adapter sends them as written.
+  #     an absolute `%Source.URL{}`. Inner URL path segments and the query
+  #     keep their percent-encoding, bytes that can't appear raw are escaped,
+  #     and the HTTP adapter sends them as written.
   #   * `s3://` (when a configured source matches the scheme) — an
   #     `%Source.Object{}` with the query carried as its immutable
   #     revision.
@@ -87,7 +88,7 @@ defmodule ImagePipe.Source.Parser do
          host: String.downcase(uri.host),
          port: port || uri.port,
          path: path,
-         query: uri.query
+         query: encode_query(uri.query)
        }}
     else
       {:error, reason} -> {:error, {:invalid_source, reason}}
@@ -220,6 +221,10 @@ defmodule ImagePipe.Source.Parser do
   def encode_path_segment(segment), do: URI.encode(segment, &path_char?/1)
 
   defp path_char?(char), do: URI.char_unreserved?(char) or char in ~c"!$&'()*+,;=:@%"
+
+  # The same for a query, which may also hold `/` and `?`.
+  defp encode_query(nil), do: nil
+  defp encode_query(query), do: URI.encode(query, &(path_char?(&1) or &1 in ~c"/?"))
 
   defp percent_decode(value) do
     with :ok <- validate_percent_encoding(value) do

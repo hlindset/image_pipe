@@ -42,6 +42,43 @@ defmodule ImagePipe.API.SourceWireTest do
     assert_receive {:origin_request, "/images//my%20photo.jpg", "token=a%26b%3Dc"}
   end
 
+  test "HTTP source escapes query bytes an origin can't receive raw" do
+    pid = self()
+
+    origin =
+      start_supervised!(
+        {Bandit,
+         plug: fn conn, _opts ->
+           send(pid, {:origin_request, conn.query_string})
+           conn |> put_resp_content_type("image/jpeg") |> send_resp(200, @image)
+         end,
+         ip: {127, 0, 0, 1},
+         port: 0}
+      )
+
+    {:ok, {_address, port}} = ThousandIsland.listener_info(origin)
+
+    config =
+      mount(
+        sources: [
+          http: [
+            adapter: HTTP,
+            match: [scheme: "http"],
+            options: [
+              allowed_hosts: ["origin.test:#{port}"],
+              address_policy: [allow_loopback: true],
+              address_resolver: fn "origin.test" -> {:ok, [{127, 0, 0, 1}]} end
+            ]
+          ]
+        ]
+      )
+
+    response = request("format=jpeg", "http://origin.test:#{port}/cat.jpg?a b&c=é", config)
+
+    assert response.status == 200
+    assert_receive {:origin_request, "a%20b&c=%C3%A9"}
+  end
+
   test "S3 objects route through the core adapter with revision semantics" do
     pid = self()
 

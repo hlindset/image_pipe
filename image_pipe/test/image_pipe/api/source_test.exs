@@ -116,6 +116,11 @@ defmodule ImagePipe.API.SourceTest do
                Source.translate("https://example.com/my photoé.jpg", url_config())
     end
 
+    test "inner URL query bytes that can't appear in a query are escaped" do
+      assert {:ok, %URL{query: "a%20b&c=%C3%A9%22%0D%0A/?:@%41"}} =
+               Source.translate(~s(https://example.com/cat.jpg?a b&c=é"\r\n/?:@%41), url_config())
+    end
+
     test "preserves empty inner URL path components" do
       assert {:ok, %URL{path: ["images", "", "cat.jpg", ""]}} =
                Source.translate("https://example.com/images//cat.jpg/", url_config())

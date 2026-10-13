@@ -50,6 +50,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `:range` and `:compressed` options, which set the `range` and
   `accept-encoding` headers. With `range:`, the origin sent part of the
   image, which was then processed as the whole original.
+- An HTTP source URL whose query has a space or a non-ASCII character, such
+  as `?a b`, is fetched with those characters percent-encoded. Before, the
+  request failed with `502`.
 
 ## [0.2.0] - 2026-10-13
 
