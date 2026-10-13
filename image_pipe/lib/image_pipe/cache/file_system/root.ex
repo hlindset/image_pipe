@@ -55,8 +55,8 @@ defmodule ImagePipe.Cache.FileSystem.Root do
         Owner.refuse(dir)
 
         Logger.warning(
-          "cache: cache root #{dir} belongs to host #{inspect(host)}. Requests run " <>
-            "without this cache until that host stops using it."
+          "cache: cache root #{dir} belongs to #{owner(host)}. Requests run " <>
+            "without this cache until it stops using it."
         )
 
         start([{OwnerWatch, claim}])
@@ -69,6 +69,10 @@ defmodule ImagePipe.Cache.FileSystem.Root do
         start([cache(opts)])
     end
   end
+
+  # A file that kept vanishing as it was read names no host.
+  defp owner(nil), do: "another node"
+  defp owner(host), do: "host #{inspect(host)}"
 
   defp start(children),
     do: Supervisor.init(children, strategy: :one_for_all, max_restarts: 0)

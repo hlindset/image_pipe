@@ -21,6 +21,42 @@ defmodule ImagePipe.Cache.FileSystem.OwnerTest do
     refute Owner.refused?(root)
   end
 
+  test "doesn't overwrite an owner file that vanishes as it's read", %{tmp_dir: root, path: path} do
+    # A dangling link exists to a create but reads as missing, like a file
+    # another node deletes and recreates between the two.
+    File.ln_s!(Path.join(root, "gone"), path)
+
+    assert {:watch, nil, _claim} = Owner.claim(root, host: "this-host")
+    assert {:ok, _target} = File.read_link(path)
+  end
+
+  test "a watch stopped before confirming its takeover removes its claim", %{
+    tmp_dir: root,
+    path: path
+  } do
+    File.write!(path, "other-host\ntoken\n0\n")
+
+    {root_sup, _log} =
+      with_log(fn ->
+        start_supervised!(
+          {Root,
+           root: root,
+           max_size_bytes: 1_000_000,
+           host: "this-host",
+           watch_ms: 60_000,
+           heartbeat_ms: 60_000}
+        )
+      end)
+
+    watch = child(root_sup, OwnerWatch)
+    send(watch, :check)
+    _ = :sys.get_state(watch)
+    assert host(path) == "this-host"
+
+    :ok = stop_supervised({Root, root})
+    refute File.exists?(path)
+  end
+
   test "concurrent refusals and acceptances all land", %{tmp_dir: root} do
     dirs = for n <- 1..40, do: Path.join(root, "concurrent-#{n}")
     on_exit(fn -> Enum.each(dirs, &Owner.accept/1) end)
