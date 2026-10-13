@@ -23,9 +23,7 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
     :ok = :telemetry.attach(handler, event, &__MODULE__.forward/4, self())
     on_exit(fn -> :telemetry.detach(handler) end)
 
-    observed = CacheObserver.observe(telemetry_prefix: prefix)
-
-    %{root: root, prefix: prefix, cache: Keyword.fetch!(observed, :cache)}
+    %{root: root, prefix: prefix}
   end
 
   test "a file that can change gets a digest ETag and a cached output", ctx do
@@ -160,7 +158,7 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
       :get
       |> conn(@path)
       |> put_resp_header("etag", ~s("host"))
-      |> ImagePipe.Plug.call(mount(ctx))
+      |> ImagePipe.Plug.call(Caches.plug(mount(ctx)))
 
     assert response.status == 200
     assert get_resp_header(response, "etag") == [~s("host")]
@@ -168,7 +166,7 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
 
   test "by default the original is read in place and never copied", ctx do
     input_root = Path.join(ctx.root, "input-pool")
-    opts = mount(ctx, Caches.start!(input_cache: [root: input_root]))
+    opts = mount(ctx, input_cache: [root: input_root])
 
     assert get(@path, opts).status == 200
     assert get("/w=8/format=png/src/media/beach.jpg", opts).status == 200
@@ -178,8 +176,7 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
   test "copy: :keep keeps the original in the input pool", ctx do
     input_root = Path.join(ctx.root, "input-pool")
 
-    opts =
-      mount(ctx, [file_options: [copy: :keep]] ++ Caches.start!(input_cache: [root: input_root]))
+    opts = mount(ctx, file_options: [copy: :keep], input_cache: [root: input_root])
 
     assert get(@path, opts).status == 200
     assert [_original | _] = pooled(input_root)
@@ -190,16 +187,14 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
     File.mkdir_p!(moved)
     File.cp!("priv/static/images/beach.jpg", Path.join(moved, "beach.jpg"))
 
-    input_cache =
-      Caches.start!(input_cache: [root: Path.join(ctx.root, "input-pool")])[:input_cache]
+    first =
+      mount(ctx,
+        file_options: [stable: :immutable],
+        input_cache: [root: Path.join(ctx.root, "input-pool")]
+      )
 
     etag = fn file_options ->
-      opts =
-        mount(ctx,
-          file_options: [stable: :immutable] ++ file_options,
-          input_cache: input_cache
-        )
-
+      opts = remount(first, ctx, file_options: [stable: :immutable] ++ file_options)
       [etag] = get_resp_header(get(@path, opts), "etag")
       etag
     end
@@ -216,14 +211,18 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
     File.mkdir_p!(moved)
     File.cp!("priv/static/images/beach.jpg", Path.join(moved, "beach.jpg"))
 
-    caches = Caches.start!(input_cache: [root: Path.join(ctx.root, "input-pool")])
+    first_opts =
+      mount(ctx,
+        file_options: [stable: :immutable, copy: :keep],
+        input_cache: [root: Path.join(ctx.root, "input-pool")]
+      )
 
-    first = get(@path, mount(ctx, [file_options: [stable: :immutable, copy: :keep]] ++ caches))
+    first = get(@path, first_opts)
     assert first.status == 200
     flush_fetches()
 
     moved_opts =
-      mount(ctx, [file_options: [stable: :immutable, copy: :keep, root: moved]] ++ caches)
+      remount(first_opts, ctx, file_options: [stable: :immutable, copy: :keep, root: moved])
 
     again = get(@path, moved_opts)
     assert again.resp_body == first.resp_body
@@ -256,7 +255,8 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
     other = Path.join(ctx.root, "other")
 
     assert_raise ArgumentError, ~r/root_id/, fn ->
-      mount(ctx,
+      ctx
+      |> options(
         sources: [
           media: [
             adapter: ImagePipe.Source.File,
@@ -270,6 +270,7 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
           ]
         ]
       )
+      |> ImagePipe.Plug.init()
     end
   end
 
@@ -299,7 +300,7 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
     conn =
       Enum.reduce(headers, conn, fn {name, value}, acc -> put_req_header(acc, name, value) end)
 
-    response = ImagePipe.Plug.call(conn, opts)
+    response = ImagePipe.Plug.call(conn, Caches.plug(opts))
     Caches.await_writes(opts)
     response
   end
@@ -308,9 +309,23 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
 
   defp pooled(root), do: Path.wildcard(Path.join(root, "**/*.body"))
 
+  # Observes a new output cache with the options for `overrides`, and returns
+  # the options its instance runs with.
+  defp mount(ctx, overrides \\ []), do: ctx |> options(overrides) |> CacheObserver.observe()
+
+  # Replaces the instance running `previous` with one that keeps its caches.
+  defp remount(previous, ctx, overrides) do
+    stop_supervised!(Caches.instance(previous))
+
+    ctx
+    |> options(overrides)
+    |> Keyword.merge(Keyword.take(previous, [:cache, :input_cache]))
+    |> Caches.start!()
+  end
+
   # The clock runs ahead by default so a file copied during setup counts as
   # written before it was hashed.
-  defp mount(ctx, overrides \\ []) do
+  defp options(ctx, overrides) do
     {file_options, overrides} = Keyword.pop(overrides, :file_options, [])
 
     [
@@ -321,12 +336,10 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
           options: Keyword.merge([root: ctx.root, root_id: "media"], file_options)
         ]
       ],
-      cache: ctx.cache,
       http_cache: :auto,
       telemetry_prefix: ctx.prefix,
       clock: fn -> System.os_time(:second) + 10 end
     ]
     |> Keyword.merge(overrides)
-    |> ImagePipe.Plug.init()
   end
 end

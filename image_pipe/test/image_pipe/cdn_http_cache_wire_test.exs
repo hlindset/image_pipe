@@ -70,7 +70,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   # The suite's baseline mount: a strong-byte-identity source, an observed
-  # output cache, and the generated cache-header policy switched on.
+  # output cache, and the generated cache-header policy switched on. Returns
+  # its options, which `call_pipe/2` mounts.
   defp mount(overrides \\ []) do
     [
       sources: [path: [adapter: StableSource, match: :path, options: [test_pid: self()]]],
@@ -78,7 +79,6 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     ]
     |> Keyword.merge(overrides)
     |> CacheObserver.observe()
-    |> ImagePipe.Plug.init()
   end
 
   # Requests `path` once so the cache holds its response, and returns that
@@ -101,7 +101,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   # Cache writes finish after the response, so wait for them before a test
   # asserts what was stored.
   defp call_pipe(conn, opts) do
-    conn = ImagePipe.Plug.call(conn, opts)
+    conn = ImagePipe.Plug.call(conn, Caches.plug(opts))
     Caches.await_writes(opts)
     conn
   end
@@ -674,7 +674,6 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
           telemetry_prefix: prefix
         ]
         |> CacheObserver.observe()
-        |> ImagePipe.Plug.init()
 
       first = call_pipe(conn(:get, @image_path), opts)
       assert [etag] = get_resp_header(first, "etag")
@@ -697,7 +696,6 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
           telemetry_prefix: prefix
         ]
         |> CacheObserver.observe()
-        |> ImagePipe.Plug.init()
 
       conn = call_pipe(conn(:get, @image_path), opts)
 

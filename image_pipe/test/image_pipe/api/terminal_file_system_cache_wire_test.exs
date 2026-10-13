@@ -62,7 +62,7 @@ defmodule ImagePipe.API.TerminalFileSystemCacheWireTest do
       conn |> put_resp_content_type("image/jpeg") |> send_resp(200, body)
     end
 
-    ImagePipe.Plug.init(
+    Caches.plug(
       Caches.start!(
         sources: [
           path: [

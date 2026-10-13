@@ -1,34 +1,58 @@
 defmodule ImagePipe.Test.Caches do
   @moduledoc false
-  # Starts the processes for the caches a configuration names, as an instance
-  # would, so a test can mount an inline configuration or call `run/4` with
-  # it. Caches without a size cap get a large one. Call it from the test
-  # process: the processes stop with the test.
+  # Starts an ImagePipe instance for the caches a test's options name, since
+  # a cache runs only on an instance. A test keeps passing the same options to
+  # the cache functions, mounts the instance with `plug/1`, and passes
+  # `instance/1` to `ImagePipe.run/4`. Caches without a size cap get a large
+  # one. Call it from the test process: the instance stops with the test.
 
   use Boundary, top_level?: true, check: [out: false]
 
   import ExUnit.Callbacks, only: [start_supervised!: 1]
 
-  alias ImagePipe.Cache
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Writers
 
   @max_size_bytes 1_000_000_000
 
   @doc """
-  Starts the caches in `options`, or in a configuration built with
-  `ImagePipe.config/1`, and returns it, with the caps added to `options`.
+  Starts an instance with the shared options in `options`, and returns
+  `options` with the caps added. Mount-only options, such as
+  `allow_debug_headers`, are left for `plug/1`.
   """
   def start!(options) when is_list(options) do
     options = cap(options)
-    options |> Cache.validate_config!() |> start_validated!()
+    name = instance(options)
+    {_mount, shared} = Keyword.split(options, mount_keys())
+    start_supervised!(Supervisor.child_spec({ImagePipe, [name: name] ++ shared}, id: name))
     options
   end
 
-  def start!(%ImagePipe.Config{} = config) do
-    start_validated!(config.options)
-    config
+  @doc "The name of the instance `start!/1` started for `options`."
+  def instance(options) do
+    roots =
+      for key <- [:cache, :input_cache], cache = options[key], cache != nil, do: cache[:root]
+
+    hash = :crypto.hash(:sha256, Enum.join(roots, "\n")) |> Base.encode16() |> binary_part(0, 16)
+    Module.concat(__MODULE__, hash)
   end
+
+  @doc "Plug options mounting the instance for `options`, with its mount-only options."
+  def plug(options) do
+    {mount, _shared} = Keyword.split(options, mount_keys())
+    ImagePipe.Plug.init([instance: instance(options)] ++ mount)
+  end
+
+  @doc """
+  The instance's options as a request sees them, for a test that calls an
+  internal function or adds test-only keys to a mount.
+  """
+  def options(options), do: ImagePipe.Config.fetch_instance!(instance(options), nil).options
+
+  @doc "The resolved options of `plug/1`'s mount, as `ImagePipe.Plug.call/2` gets them."
+  def plug_options(options), do: options |> plug() |> ImagePipe.Plug.Config.resolve()
+
+  defp mount_keys, do: Keyword.keys(ImagePipe.Plug.Config.options_schema())
 
   @doc "Adds the size cap to the caches in `options` that don't set one."
   def cap(options) do
@@ -110,12 +134,6 @@ defmodule ImagePipe.Test.Caches do
       {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
     after
       timeout -> raise "cache writer #{inspect(pid)} still running"
-    end
-  end
-
-  defp start_validated!(options) do
-    for key <- [:cache, :input_cache], cache = Keyword.get(options, key), cache != nil do
-      start_supervised!(FileSystem.child_spec(cache))
     end
   end
 end

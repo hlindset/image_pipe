@@ -28,10 +28,7 @@ defmodule ImagePipe.WorkBudgetTest do
 
     %{
       config: ImagePipe.Plug.init(sources: sources, watermarks: %{mark: [source: "alpha.png"]}),
-      cached:
-        ImagePipe.Plug.init(
-          Caches.start!(sources: sources, cache: [root: Path.join(dir, "cache")])
-        )
+      cached: Caches.plug(Caches.start!(sources: sources, cache: [root: Path.join(dir, "cache")]))
     }
   end
 

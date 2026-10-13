@@ -129,7 +129,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ImagePipe instance (see `ImagePipe.child_spec/1`). Add `max_size_bytes` to
   each cache, and to the options of `ImagePipe.Cache.FileSystem.get/2`, and
   move a configuration with a cache from `ImagePipe.Plug` options or an
-  `ImagePipe.run/4` call into an instance.
+  `ImagePipe.run/4` call into an instance. `run/4` with an instance name
+  can't set `cache` or `input_cache` per call.
 - **Breaking:** Each `root` of `cache` and `input_cache` serves one node. An
   instance writes a `.image-pipe-owner` file into each cache's `root`.
   While another node keeps that file updated, the instance logs an error and

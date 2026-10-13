@@ -75,31 +75,30 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
       end
     end
 
-    shared =
-      IP.config(
-        Caches.start!(
-          sources: [
-            url: [
-              adapter: ImagePipe.Source.HTTP,
-              match: [scheme: ["http", "https"]],
-              options: [
-                allowed_hosts: ["origin.test"],
-                address_resolver: fn _ -> {:ok, [{93, 184, 216, 34}]} end,
-                req_options: [plug: plug]
-              ]
+    config =
+      Caches.start!(
+        sources: [
+          url: [
+            adapter: ImagePipe.Source.HTTP,
+            match: [scheme: ["http", "https"]],
+            options: [
+              allowed_hosts: ["origin.test"],
+              address_resolver: fn _ -> {:ok, [{93, 184, 216, 34}]} end,
+              req_options: [plug: plug]
             ]
-          ],
-          cache: [root: Path.join(root, "output")],
-          input_cache: [root: Path.join(root, "input")],
-          clock: fn -> Agent.get(state, & &1.now) end,
-          watermarks: %{
-            logo: [source: "https://origin.test/mark.png"],
-            missing: [source: "https://origin.test/missing.png"]
-          }
-        )
+          ]
+        ],
+        cache: [root: Path.join(root, "output")],
+        input_cache: [root: Path.join(root, "input")],
+        clock: fn -> Agent.get(state, & &1.now) end,
+        watermarks: %{
+          logo: [source: "https://origin.test/mark.png"],
+          missing: [source: "https://origin.test/missing.png"]
+        },
+        http_cache: :auto
       )
 
-    %{config: IP.Plug.init(config: shared, http_cache: :auto), state: state}
+    %{config: Caches.plug(config), state: state}
   end
 
   test "input-cached assets serve later requests without refetching", %{config: config} do

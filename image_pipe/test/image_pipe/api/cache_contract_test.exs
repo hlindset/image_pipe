@@ -6,6 +6,7 @@ defmodule ImagePipe.API.CacheContractTest do
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.PlugFixture.OriginImage
 
   test "equivalent_requests/1 groups each share a cache key and an ETag" do
@@ -122,11 +123,7 @@ defmodule ImagePipe.API.CacheContractTest do
     ]
   end
 
-  defp build_config(opts) do
-    config = ImagePipe.Plug.init(CacheObserver.observe(opts))
-
-    config
-  end
+  defp build_config(opts), do: opts |> CacheObserver.observe() |> Caches.plug()
 
   defp request(path, config, nil), do: ImagePipe.Plug.call(conn(:get, path), config)
 

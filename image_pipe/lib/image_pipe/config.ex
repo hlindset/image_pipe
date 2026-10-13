@@ -609,21 +609,21 @@ defmodule ImagePipe.Config do
     do: {:error, "expected a {module, options} tuple implementing ImagePipe.PresetLookup"}
 
   @doc false
-  # Only a supervised instance starts cache processes, so a configuration
-  # used without one needs its caches' processes running already.
-  @spec reject_unsupervised_processes!(t()) :: t()
-  def reject_unsupervised_processes!(%__MODULE__{instance: nil} = config) do
-    if Cache.unsupervised?(config.options) do
+  # A cache runs only on an instance, which starts its processes, so a
+  # configuration with one must come from an instance.
+  @spec reject_caches_without_instance!(t()) :: t()
+  def reject_caches_without_instance!(%__MODULE__{instance: nil} = config) do
+    if Enum.any?([:cache, :input_cache], &Keyword.get(config.options, &1)) do
       raise ArgumentError,
-            "a configuration with cache or input_cache " <>
-              "must be used through an ImagePipe instance " <>
-              "started with {ImagePipe, name: ..., ...}"
+            "a configuration with cache or input_cache must be used through an " <>
+              "ImagePipe instance: start {ImagePipe, name: ..., ...}, then mount it " <>
+              "with ImagePipe.Plug's :instance option or pass its name to run/4"
     end
 
     config
   end
 
-  def reject_unsupervised_processes!(%__MODULE__{} = config), do: config
+  def reject_caches_without_instance!(%__MODULE__{} = config), do: config
 
   @doc false
   # Supervised instances store their configuration here, keyed by name, so
@@ -648,8 +648,8 @@ defmodule ImagePipe.Config do
 
   @doc false
   # Requests run without the caches whose root another node holds. A root
-  # can be refused after a configuration is built, so each request drops
-  # them.
+  # can be refused after a configuration is built, so each request through an
+  # instance drops them.
   @spec drop_refused(keyword()) :: keyword()
   def drop_refused(options), do: Cache.drop_refused(options)
 
@@ -677,9 +677,9 @@ defmodule ImagePipe.Config do
   @spec override(t(), keyword()) :: t()
   def override(%__MODULE__{} = config, []), do: config
 
-  # The result keeps the instance only while the instance runs every cache
-  # process it needs.
-  # URL options alone leave the caches and everything else as they are.
+  # URL options alone leave the caches and everything else as they are. The
+  # caches belong to the instance, so an instance's configuration can't
+  # override them.
   def override(%__MODULE__{} = config, options) do
     case Keyword.keys(options) -- @url_keys do
       [] -> put_url_options(config, options)
@@ -687,14 +687,17 @@ defmodule ImagePipe.Config do
     end
   end
 
-  defp override_all(config, options) do
-    overridden = new!(Keyword.merge(config.raw, options))
-    running = Cache.child_specs(config.options)
+  defp override_all(%__MODULE__{instance: nil} = config, options),
+    do: new!(Keyword.merge(config.raw, options))
 
-    if config.instance != nil and
-         Enum.all?(Cache.child_specs(overridden.options), &(&1 in running)),
-       do: %{overridden | instance: config.instance},
-       else: overridden
+  defp override_all(config, options) do
+    if Enum.any?([:cache, :input_cache], &Keyword.has_key?(options, &1)) do
+      raise ArgumentError,
+            "cache and input_cache belong to the instance #{inspect(config.instance)} " <>
+              "and can't be overridden per call"
+    end
+
+    %{new!(Keyword.merge(config.raw, options)) | instance: config.instance}
   end
 
   @doc false

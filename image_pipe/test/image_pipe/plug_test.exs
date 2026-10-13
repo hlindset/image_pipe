@@ -209,6 +209,20 @@ defmodule ImagePipe.PlugTest do
     Keyword.merge(ImagePipe.Plug.init(mount_opts), post_init)
   end
 
+  # Options with an observed cache. A cache runs only on an instance, so this
+  # mounts the instance and resolves the mount to append the post-init keys.
+  defp observed(opts, cache_opts \\ []) do
+    {post_init, shared} =
+      opts
+      |> translate_origin_test_opts()
+      |> Keyword.split(@post_init_config_keys)
+
+    shared
+    |> CacheObserver.observe(cache_opts)
+    |> Caches.plug_options()
+    |> Keyword.merge(post_init)
+  end
+
   # Cache writes finish after the response, so wait for them before a test
   # asserts what was stored.
   defp call_image_pipe(conn, opts) do
@@ -287,7 +301,7 @@ defmodule ImagePipe.PlugTest do
   # Stores the response to `conn` in the observed cache: a miss that fetches
   # origin and writes an entry. Returns the response and its cache key hash.
   defp prime_cache(conn, observed) do
-    conn = call_image_pipe(conn, counting_origin_opts() ++ observed)
+    conn = call_image_pipe(conn, observed)
 
     assert conn.status == 200
     assert_received :origin_was_called
@@ -299,7 +313,7 @@ defmodule ImagePipe.PlugTest do
   # Repeats a primed request against the same origin and cache, asserting it
   # is served without fetching origin or storing anything new.
   defp serve_from_cache(conn, observed) do
-    conn = call_image_pipe(conn, counting_origin_opts() ++ observed)
+    conn = call_image_pipe(conn, observed)
 
     refute_received :origin_was_called
     refute_received {:cache_put, _hash, _body}
@@ -315,7 +329,7 @@ defmodule ImagePipe.PlugTest do
 
   # An observed cache whose root refuses writes, so storing an entry fails.
   defp unwritable_cache do
-    observed = CacheObserver.observe([])
+    observed = observed(counting_origin_opts())
     root = Keyword.fetch!(observed[:cache], :root)
     File.chmod!(root, 0o500)
     on_exit(fn -> File.chmod(root, 0o700) end)
@@ -563,7 +577,7 @@ defmodule ImagePipe.PlugTest do
     conn =
       call_image_pipe(
         conn,
-        CacheObserver.observe(
+        observed(
           root_url: "http://origin.test",
           origin_req_options: [plug: OriginShouldNotBeCalled]
         )
@@ -580,7 +594,7 @@ defmodule ImagePipe.PlugTest do
     conn =
       call_image_pipe(
         conn,
-        CacheObserver.observe(
+        observed(
           root_url: "http://origin.test",
           origin_req_options: [plug: OriginShouldNotBeCalled]
         )
@@ -592,7 +606,7 @@ defmodule ImagePipe.PlugTest do
   end
 
   test "serves cache hits without fetching origin" do
-    observed = CacheObserver.observe([])
+    observed = observed(counting_origin_opts())
     {stored, hash} = prime_cache(conn(:get, "/src/images/beach.jpg"), observed)
 
     conn = serve_from_cache(conn(:get, "/src/images/beach.jpg"), observed)
@@ -611,7 +625,7 @@ defmodule ImagePipe.PlugTest do
     conn =
       call_image_pipe(
         conn,
-        CacheObserver.observe(
+        observed(
           root_url: "http://origin.test",
           origin_req_options: [
             plug: fn conn -> CountingOriginImage.call(conn, test_pid: test_pid) end
@@ -642,7 +656,7 @@ defmodule ImagePipe.PlugTest do
     conn =
       call_image_pipe(
         conn,
-        CacheObserver.observe(
+        observed(
           root_url: "http://origin.test",
           origin_req_options: [
             plug: fn conn -> CountingOriginImage.call(conn, test_pid: test_pid) end
@@ -659,7 +673,7 @@ defmodule ImagePipe.PlugTest do
   end
 
   test "automatic cache key normalizes equivalent raw Accept headers at cache boundary" do
-    observed = CacheObserver.observe([])
+    observed = observed(counting_origin_opts())
 
     {first_conn, hash} =
       :get
@@ -686,7 +700,7 @@ defmodule ImagePipe.PlugTest do
       |> conn("/src/images/beach.jpg")
       |> put_req_header("accept", "image/jpeg")
       |> call_image_pipe(
-        CacheObserver.observe(
+        observed(
           root_url: "http://origin.test",
           image_module: FailingStreamBeforeHeaderImage,
           origin_req_options: [plug: {CountingOriginImage, test_pid: self()}]
@@ -874,7 +888,7 @@ defmodule ImagePipe.PlugTest do
   end
 
   test "automatic AVIF cache hits do not fetch origin" do
-    observed = CacheObserver.observe([])
+    observed = observed(counting_origin_opts())
 
     request = fn ->
       :get
@@ -892,7 +906,7 @@ defmodule ImagePipe.PlugTest do
   end
 
   test "automatic JPEG source-format cache hits do not fetch origin" do
-    observed = CacheObserver.observe([])
+    observed = observed(counting_origin_opts())
 
     request = fn ->
       :get
@@ -910,7 +924,7 @@ defmodule ImagePipe.PlugTest do
   end
 
   test "deferred source-format cache hits can serve disabled modern formats without origin" do
-    observed = CacheObserver.observe(auto_avif: false, auto_webp: false)
+    observed = observed(counting_origin_opts() ++ [auto_avif: false, auto_webp: false])
 
     {stored, hash} =
       :get
@@ -930,7 +944,7 @@ defmodule ImagePipe.PlugTest do
   end
 
   test "automatic cache key is available before source fetch when modern formats are disabled" do
-    observed = CacheObserver.observe(auto_avif: false, auto_webp: false)
+    observed = observed(counting_origin_opts() ++ [auto_avif: false, auto_webp: false])
 
     request = fn ->
       :get
@@ -1026,7 +1040,7 @@ defmodule ImagePipe.PlugTest do
     conn =
       call_image_pipe(
         conn,
-        CacheObserver.observe(
+        observed(
           root_url: "http://origin.test",
           origin_req_options: [plug: OriginShouldNotBeCalled]
         )
@@ -1257,14 +1271,14 @@ defmodule ImagePipe.PlugTest do
 
   test "cache hit reuses successful response across source body limits" do
     observed =
-      CacheObserver.observe(
+      observed(
         root_url: "http://origin.test",
         origin_req_options: [plug: LargeImageOrigin]
       )
 
     permissive =
       conn(:get, "/format=jpeg/src/images/beach.jpg")
-      |> call_image_pipe([max_body_bytes: 10_000_001] ++ observed)
+      |> call_image_pipe(Keyword.merge(observed, max_body_bytes: 10_000_001))
 
     assert permissive.status == 200
     assert_received {:cache_lookup, :response, permissive_hash}
@@ -1415,7 +1429,7 @@ defmodule ImagePipe.PlugTest do
   end
 
   test "cache read errors fail open by default and continue to origin" do
-    observed = CacheObserver.observe([])
+    observed = observed(counting_origin_opts())
     {_stored, hash} = prime_cache(conn(:get, "/format=jpeg/src/images/beach.jpg"), observed)
 
     {:ok, %{meta_path: meta_path}} = Store.paths_from_hash(hash, observed[:cache])
@@ -1423,12 +1437,7 @@ defmodule ImagePipe.PlugTest do
 
     conn =
       conn(:get, "/format=jpeg/src/images/beach.jpg")
-      |> call_image_pipe(
-        [
-          root_url: "http://origin.test",
-          origin_req_options: [plug: {CountingOriginImage, test_pid: self()}]
-        ] ++ observed
-      )
+      |> call_image_pipe(observed)
 
     assert conn.status == 200
     assert get_resp_header(conn, "content-type") == ["image/jpeg"]
@@ -1441,12 +1450,7 @@ defmodule ImagePipe.PlugTest do
 
     conn =
       conn(:get, "/format=jpeg/src/images/beach.jpg")
-      |> call_image_pipe(
-        [
-          root_url: "http://origin.test",
-          origin_req_options: [plug: {CountingOriginImage, test_pid: self()}]
-        ] ++ observed
-      )
+      |> call_image_pipe(observed)
 
     assert conn.status == 200
     assert get_resp_header(conn, "content-type") == ["image/jpeg"]
@@ -1462,12 +1466,7 @@ defmodule ImagePipe.PlugTest do
       :get
       |> conn("/src/images/beach.jpg")
       |> put_req_header("accept", "image/jpeg")
-      |> call_image_pipe(
-        [
-          root_url: "http://origin.test",
-          origin_req_options: [plug: {CountingOriginImage, test_pid: self()}]
-        ] ++ observed
-      )
+      |> call_image_pipe(observed)
 
     assert conn.status == 200
     assert get_resp_header(conn, "content-type") == ["image/jpeg"]
@@ -1481,7 +1480,7 @@ defmodule ImagePipe.PlugTest do
     conn =
       conn(:get, "/format=jpeg/src/images/beach.jpg")
       |> call_image_pipe(
-        CacheObserver.observe(
+        observed(
           [
             root_url: "http://origin.test",
             origin_req_options: [plug: {CountingOriginImage, test_pid: self()}]
@@ -1499,7 +1498,7 @@ defmodule ImagePipe.PlugTest do
     conn =
       conn(:get, "/format=jpeg/src/images/beach.jpg")
       |> call_image_pipe(
-        CacheObserver.observe(
+        observed(
           [
             root_url: "http://origin.test",
             image_module: BoundedCacheStreamingImage,
@@ -1520,7 +1519,7 @@ defmodule ImagePipe.PlugTest do
     conn =
       conn(:get, "/format=png/src/images/beach.jpg")
       |> call_image_pipe(
-        CacheObserver.observe(
+        observed(
           root_url: "http://origin.test",
           origin_req_options: [plug: InvalidOriginImage]
         )
@@ -1533,7 +1532,7 @@ defmodule ImagePipe.PlugTest do
 
   test "filesystem cache persists processed responses across requests" do
     opts =
-      CacheObserver.observe(
+      observed(
         [
           root_url: "http://origin.test",
           origin_req_options: [plug: {CountingOriginImage, test_pid: self()}]

@@ -6,6 +6,7 @@ defmodule ImagePipe.API.MetadataWireTest do
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.MutableImage, as: VipsMutableImage
   alias Vix.Vips.Operation
@@ -38,7 +39,7 @@ defmodule ImagePipe.API.MetadataWireTest do
   end
 
   test "the implicit copyright policy shares identity and cache while other modes vary" do
-    config = [] |> CacheObserver.observe() |> mount()
+    config = observed_mount()
 
     implicit = response("format=jpeg", config)
     assert implicit.status == 200
@@ -120,7 +121,7 @@ defmodule ImagePipe.API.MetadataWireTest do
     end
 
     test "different densities have different cache keys and ETags" do
-      config = [] |> CacheObserver.observe() |> mount()
+      config = observed_mount()
 
       implicit = response("format=jpeg", config)
       assert [implicit_key] = Enum.uniq(CacheObserver.lookup_hashes())
@@ -238,7 +239,11 @@ defmodule ImagePipe.API.MetadataWireTest do
     etag
   end
 
-  defp mount(overrides \\ []) do
+  defp mount(overrides \\ []), do: overrides |> options() |> ImagePipe.Plug.init()
+
+  defp observed_mount, do: [] |> options() |> CacheObserver.observe() |> Caches.plug()
+
+  defp options(overrides) do
     body = metadata_jpeg()
     pid = self()
 
@@ -265,7 +270,6 @@ defmodule ImagePipe.API.MetadataWireTest do
       max_input_pixels: 40_000_000
     ]
     |> Keyword.merge(overrides)
-    |> ImagePipe.Plug.init()
   end
 
   defp metadata_jpeg do

@@ -292,7 +292,7 @@ defmodule ImagePipe.API.InfoWireTest do
   end
 
   test "info reuses its complete body across Accept values and strong conditionals", %{body: body} do
-    config = mount(body, CacheObserver.observe(http_cache: :auto))
+    config = observed_mount(body, http_cache: :auto)
     first = request("output=info", config, "image/webp")
     assert first.status == 200
     assert_received :origin_fetch
@@ -327,14 +327,13 @@ defmodule ImagePipe.API.InfoWireTest do
   end
 
   test "cache read failures leave source info available", %{body: body} do
-    extra = CacheObserver.observe([])
-    config = mount(body, extra)
+    {_plug, opts} = config = observed_mount(body, [])
     assert request("output=info", config).status == 200
     assert_received {:cache_put, hash, _body}
     assert_received :origin_fetch
     _ = CacheObserver.lookup_hashes()
 
-    {:ok, %{meta_path: meta_path}} = FileSystem.paths_from_hash(hash, extra[:cache])
+    {:ok, %{meta_path: meta_path}} = FileSystem.paths_from_hash(hash, opts[:cache])
     File.write!(meta_path, "not cache metadata")
     response = request("output=info", config)
 
@@ -345,7 +344,7 @@ defmodule ImagePipe.API.InfoWireTest do
   end
 
   test "expiry uses the host clock and rejects before side effects", %{body: body} do
-    config = mount(body, CacheObserver.observe(clock: fn -> 100 end))
+    config = observed_mount(body, clock: fn -> 100 end)
     assert request("output=info/expires=99", config).status == 410
     refute_received :origin_fetch
     refute_received {:cache_lookup, _, _}
@@ -373,13 +372,24 @@ defmodule ImagePipe.API.InfoWireTest do
 
   # Cache writes finish after the response, so wait for them before a test
   # asserts what was stored.
-  defp call_pipe(conn, config) do
-    conn = ImagePipe.Plug.call(conn, config)
-    Caches.await_writes(config)
+  defp call_pipe(conn, {plug, opts}) do
+    conn = ImagePipe.Plug.call(conn, plug)
+    Caches.await_writes(opts)
     conn
   end
 
-  defp mount(body, extra \\ [], content_type \\ "image/jpeg") do
+  defp call_pipe(conn, config), do: ImagePipe.Plug.call(conn, config)
+
+  # A mount with an observed cache, and the options its instance runs with.
+  defp observed_mount(body, extra) do
+    opts = body |> options(extra) |> CacheObserver.observe()
+    {Caches.plug(opts), opts}
+  end
+
+  defp mount(body, extra \\ [], content_type \\ "image/jpeg"),
+    do: body |> options(extra, content_type) |> ImagePipe.Plug.init()
+
+  defp options(body, extra, content_type \\ "image/jpeg") do
     pid = self()
 
     origin = fn conn ->
@@ -402,6 +412,5 @@ defmodule ImagePipe.API.InfoWireTest do
       ]
     ]
     |> Keyword.merge(extra)
-    |> ImagePipe.Plug.init()
   end
 end

@@ -64,7 +64,7 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
 
   defp call(path, opts) do
     conn = conn(:get, path)
-    ImagePipe.Plug.call(conn, ImagePipe.Plug.init(opts))
+    ImagePipe.Plug.call(conn, Caches.plug(opts))
   end
 
   defp miss_opts(cache_root) do

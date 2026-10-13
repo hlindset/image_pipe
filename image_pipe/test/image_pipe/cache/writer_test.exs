@@ -59,7 +59,7 @@ defmodule ImagePipe.Cache.WriterTest do
     :sys.suspend(admission)
 
     conn = conn(:get, "/w=8/format=png/src/red.png")
-    conn = ImagePipe.Plug.call(conn, ImagePipe.Plug.init(opts))
+    conn = ImagePipe.Plug.call(conn, Caches.plug(opts))
     assert conn.status == 200
     assert conn.resp_body |> Image.from_binary!() |> Image.width() == 8
     assert stored_bodies(ctx.root) == []

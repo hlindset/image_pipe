@@ -64,7 +64,10 @@ defmodule ImagePipe.APIWireTest do
 
   defp opts, do: opts([])
 
-  defp observed_opts(extra \\ []), do: opts(CacheObserver.observe(extra))
+  # Options with an observed cache, which `call_pipe/2` mounts on their
+  # instance.
+  defp observed_opts(extra \\ []),
+    do: CacheObserver.observe(Keyword.merge([sources: @default_sources], extra))
 
   test "nested pipeline presets share bytes, identity and cache with explicit requests" do
     config =
@@ -131,10 +134,12 @@ defmodule ImagePipe.APIWireTest do
   # Cache writes finish after the response, so wait for them before a test
   # asserts what was stored.
   defp call_pipe(conn, config) do
-    conn = ImagePipe.Plug.call(conn, config)
+    conn = ImagePipe.Plug.call(conn, mount(config))
     Caches.await_writes(config)
     conn
   end
+
+  defp mount(config), do: if(config[:cache], do: Caches.plug(config), else: config)
 
   defp decoded_dims(body) do
     {:ok, image} = Image.from_binary(body)

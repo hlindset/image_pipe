@@ -126,7 +126,7 @@ defmodule ImagePipe.CacheTest do
       end
     end
 
-    assert ImagePipe.Plug.init(
+    assert Caches.plug(
              Caches.start!(
                mount(
                  cache: [root: Path.join(root, "output")],
@@ -140,12 +140,14 @@ defmodule ImagePipe.CacheTest do
     root = Path.join(System.tmp_dir!(), "image_pipe_cache_init")
     on_exit(fn -> File.rm_rf(root) end)
 
-    opts =
-      ImagePipe.Plug.init(
-        Caches.start!(mount(cache: [root: root <> "/../image_pipe_cache_init"]))
-      )
+    opts = Caches.start!(mount(cache: [root: root <> "/../image_pipe_cache_init"]))
 
-    assert cache_opts = Keyword.fetch!(opts, :cache)
+    assert cache_opts =
+             Keyword.fetch!(
+               Caches.options(opts),
+               :cache
+             )
+
     assert cache_opts[:root] == Path.expand(root)
   end
 

@@ -44,7 +44,7 @@ defmodule ImagePipe.API.CacheFailOpenWireTest do
       baseline = ImagePipe.Plug.call(conn(:get, path), ImagePipe.Plug.init(opts))
 
       cached_opts = CacheObserver.observe(opts)
-      config = ImagePipe.Plug.init(cached_opts)
+      config = Caches.plug(cached_opts)
       _stored = ImagePipe.Plug.call(conn(:get, path), config)
       Caches.await_writes(cached_opts)
       assert_received {:cache_put, hash, _body}
@@ -102,7 +102,7 @@ defmodule ImagePipe.API.CacheFailOpenWireTest do
 
       cached_opts = CacheObserver.observe(opts)
       root = cached_opts |> Keyword.fetch!(:cache) |> Keyword.fetch!(:root)
-      config = ImagePipe.Plug.init(cached_opts)
+      config = Caches.plug(cached_opts)
       File.chmod!(root, 0o500)
       on_exit(fn -> File.chmod(root, 0o700) end)
 

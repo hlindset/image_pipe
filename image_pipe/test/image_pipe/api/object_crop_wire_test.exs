@@ -6,6 +6,7 @@ defmodule ImagePipe.API.ObjectCropWireTest do
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.DetectorFixtures.CornerObjectDetector
   alias ImagePipe.Test.DetectorFixtures.PartialDetector
   alias ImagePipe.Test.DetectorFixtures.RecordingDetector
@@ -58,12 +59,10 @@ defmodule ImagePipe.API.ObjectCropWireTest do
     on_exit(fn -> :telemetry.detach(handler) end)
 
     opts =
-      mount(
-        CacheObserver.observe(
-          detector: PartialDetector,
-          detector_required: true,
-          telemetry_prefix: prefix
-        )
+      observed_mount(
+        detector: PartialDetector,
+        detector_required: true,
+        telemetry_prefix: prefix
       )
 
     assert response("crop=20,20/detect=car", opts).status == 501
@@ -152,7 +151,7 @@ defmodule ImagePipe.API.ObjectCropWireTest do
   def forward_event(event, _measurements, _metadata, pid), do: send(pid, {:source_event, event})
 
   defp identities(options, detector) do
-    response = response(options, mount(CacheObserver.observe(detector: detector)))
+    response = response(options, observed_mount(detector: detector))
     assert response.status == 200
     assert [etag] = get_resp_header(response, "etag")
     assert_receive {:cache_put, hash, _body}
@@ -171,7 +170,12 @@ defmodule ImagePipe.API.ObjectCropWireTest do
   defp dimensions(image), do: {Image.width(image), Image.height(image)}
   defp pixels(image), do: VipsImage.write_to_binary(image)
 
-  defp mount(overrides) do
+  defp mount(overrides), do: overrides |> options() |> ImagePipe.Plug.init()
+
+  defp observed_mount(overrides),
+    do: overrides |> options() |> CacheObserver.observe() |> Caches.plug()
+
+  defp options(overrides) do
     {origin, overrides} = Keyword.pop_lazy(overrides, :origin, &default_origin/0)
 
     [
@@ -192,7 +196,6 @@ defmodule ImagePipe.API.ObjectCropWireTest do
       max_input_pixels: 40_000_000
     ]
     |> Keyword.merge(overrides)
-    |> ImagePipe.Plug.init()
   end
 
   defp default_origin do

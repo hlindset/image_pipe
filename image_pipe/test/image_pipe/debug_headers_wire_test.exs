@@ -189,7 +189,11 @@ defmodule ImagePipe.DebugHeadersWireTest do
 
   defp call(path, opts) do
     conn(:get, path)
-    |> ImagePipe.Plug.call(ImagePipe.Plug.init(opts))
+    |> ImagePipe.Plug.call(mount(opts))
+  end
+
+  defp mount(opts) do
+    if opts[:cache], do: Caches.plug(opts), else: ImagePipe.Plug.init(opts)
   end
 
   defp header(conn, name) do

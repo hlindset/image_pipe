@@ -42,9 +42,6 @@ defmodule ImagePipe.Cache.FileSystem.Root do
     Module.concat(__MODULE__, hash)
   end
 
-  @doc false
-  def running?(opts), do: Process.whereis(name(opts)) != nil
-
   @impl true
   def init(opts) do
     dir = Store.root_dir(opts)

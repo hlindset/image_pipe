@@ -30,7 +30,7 @@ defmodule ImagePipe.API.SourceIntegrityFaultWireTest do
         )
 
       config =
-        ImagePipe.Plug.init(
+        Caches.plug(
           Caches.start!(
             sources: [
               path: [

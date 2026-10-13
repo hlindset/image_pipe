@@ -6,6 +6,7 @@ defmodule ImagePipe.API.DeliveryControlsWireTest do
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
 
   @image File.read!("priv/static/images/beach.jpg")
 
@@ -162,7 +163,7 @@ defmodule ImagePipe.API.DeliveryControlsWireTest do
       max_input_pixels: 40_000_000
     ]
     |> CacheObserver.observe()
-    |> ImagePipe.Plug.init()
+    |> Caches.plug()
   end
 
   defp attachment(filename), do: ~s(attachment; filename="#{filename}")

@@ -6,6 +6,7 @@ defmodule ImagePipe.API.MultiFrameWireTest do
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.DecodeOpens
   alias ImagePipe.Test.MultiFrameSources
   alias Vix.Vips.Image, as: VipsImage
@@ -51,12 +52,10 @@ defmodule ImagePipe.API.MultiFrameWireTest do
   end
 
   test "sources declaring more frames than max_input_frames are rejected after one loader open" do
-    cache = observed_cache()
-
     for family <- [:tiff, :avif, :jxl, :gif], terminal <- @terminals do
       flush_mailbox()
       body = MultiFrameSources.encode(family, 3)
-      response = request(terminal, mount(body, max_input_frames: 2, cache: cache))
+      response = request(terminal, observed_mount(body, max_input_frames: 2))
 
       assert response.status == 413, "#{family} #{terminal}: #{response.status}"
       assert_received {:loader_open, _}
@@ -72,11 +71,10 @@ defmodule ImagePipe.API.MultiFrameWireTest do
 
   test "an animated WebP over max_input_frames is rejected before any libvips open" do
     body = MultiFrameSources.repeated_frame_webp(6)
-    cache = observed_cache()
 
     for terminal <- @terminals do
       flush_mailbox()
-      response = request(terminal, mount(body, max_input_frames: 5, cache: cache))
+      response = request(terminal, observed_mount(body, max_input_frames: 5))
 
       assert response.status == 413, "#{terminal}: #{response.status}"
       refute_received {:loader_open, _}
@@ -157,12 +155,14 @@ defmodule ImagePipe.API.MultiFrameWireTest do
 
   test "a response cached under a higher frame limit is served under a lower one" do
     body = MultiFrameSources.encode(:tiff, 3)
-    cache = observed_cache()
+    opts = body |> options(max_input_frames: 3) |> CacheObserver.observe()
 
-    assert request("format=png", mount(body, max_input_frames: 3, cache: cache)).status == 200
+    assert request("format=png", Caches.plug(opts)).status == 200
     assert_received :origin_fetch
 
-    response = request("format=png", mount(body, max_input_frames: 1, cache: cache))
+    stop_supervised!(Caches.instance(opts))
+    lower = opts |> Keyword.put(:max_input_frames, 1) |> Caches.start!() |> Caches.plug()
+    response = request("format=png", lower)
     assert response.status == 200
     refute_received :origin_fetch
   end
@@ -182,8 +182,8 @@ defmodule ImagePipe.API.MultiFrameWireTest do
            "#{family}: pixel #{inspect([r, g, b])}, expected frame #{frame}"
   end
 
-  defp observed_cache do
-    [telemetry_prefix: @prefix] |> CacheObserver.observe() |> Keyword.fetch!(:cache)
+  defp observed_mount(body, extra) do
+    body |> options(extra) |> CacheObserver.observe() |> Caches.plug()
   end
 
   defp flush_mailbox do
@@ -199,7 +199,9 @@ defmodule ImagePipe.API.MultiFrameWireTest do
   defp request(options, config),
     do: conn(:get, "/#{options}/src/source") |> ImagePipe.Plug.call(config)
 
-  defp mount(body, extra \\ []) do
+  defp mount(body, extra \\ []), do: body |> options(extra) |> ImagePipe.Plug.init()
+
+  defp options(body, extra) do
     pid = self()
 
     origin = fn conn ->
@@ -218,6 +220,5 @@ defmodule ImagePipe.API.MultiFrameWireTest do
       telemetry_prefix: @prefix
     ]
     |> Keyword.merge(extra)
-    |> ImagePipe.Plug.init()
   end
 end

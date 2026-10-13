@@ -1,6 +1,5 @@
 defmodule ImagePipe.InstanceTest do
   use ExUnit.Case, async: true
-  import Plug.Conn, only: [get_resp_header: 2]
   import Plug.Test
 
   alias ImagePipe.Cache.FileSystem.Owner
@@ -77,21 +76,15 @@ defmodule ImagePipe.InstanceTest do
       assert [_ | _] = stored_bodies(ctx.cache_root)
     end
 
-    test "accepts a per-call cache the instance already runs", ctx do
-      start_instance(ctx)
-      builder = ImagePipe.URL.new(ImagePipe.url_config(ctx.name))
-
-      assert {:ok, _result} =
-               ImagePipe.run(ctx.name, builder, {:source, "red.png"}, cache: ctx.bounded)
-    end
-
-    test "rejects a per-call cache the instance doesn't run", ctx do
+    test "rejects a per-call cache, even the instance's own", ctx do
       start_instance(ctx)
       builder = ImagePipe.URL.new(ImagePipe.url_config(ctx.name))
       other = Keyword.put(ctx.bounded, :root, ctx.cache_root <> "-other")
 
-      assert_raise ArgumentError, ~r/ImagePipe instance/, fn ->
-        ImagePipe.run(ctx.name, builder, {:source, "red.png"}, cache: other)
+      for cache <- [ctx.bounded, other] do
+        assert_raise ArgumentError, ~r/belong to the instance/, fn ->
+          ImagePipe.run(ctx.name, builder, {:source, "red.png"}, cache: cache)
+        end
       end
     end
 
@@ -181,21 +174,6 @@ defmodule ImagePipe.InstanceTest do
 
       assert request("/w=8/format=png/src/red.png", instance: ctx.name).status == 200
       assert stored_bodies(ctx.cache_root) == []
-    end
-
-    test "an inline mount reads no cache whose root another node holds", ctx do
-      start_instance(ctx)
-      opts = [sources: ctx.sources, cache: ctx.bounded, allow_debug_headers: true]
-      path = "/w=8/format=png/debug/src/red.png"
-
-      assert request(path, opts).status == 200
-      assert [_ | _] = stored_bodies(ctx.cache_root)
-      assert get_resp_header(request(path, opts), "x-imagepipe-cache") == ["hit"]
-
-      Owner.refuse(ctx.cache_root)
-      on_exit(fn -> Owner.accept(ctx.cache_root) end)
-
-      refute get_resp_header(request(path, opts), "x-imagepipe-cache") == ["hit"]
     end
 
     test "run/4 with options reads no cache whose root another node holds", ctx do
@@ -387,7 +365,7 @@ defmodule ImagePipe.InstanceTest do
   end
 
   describe "inline configuration" do
-    test "ImagePipe.run/4 rejects a config whose cache isn't running", ctx do
+    test "ImagePipe.run/4 rejects a config with a cache", ctx do
       config = ImagePipe.config(sources: ctx.sources, cache: ctx.bounded)
       builder = ImagePipe.URL.new(ImagePipe.url_config(config))
 
@@ -396,9 +374,13 @@ defmodule ImagePipe.InstanceTest do
       end
     end
 
-    test "Plug.init/1 rejects an input cache that isn't running", ctx do
-      assert_raise ArgumentError, ~r/ImagePipe instance/, fn ->
-        ImagePipe.Plug.init(sources: ctx.sources, input_cache: ctx.bounded)
+    test "Plug.init/1 rejects a cache, even one an instance runs", ctx do
+      start_instance(ctx)
+
+      for cache <- [cache: ctx.bounded, input_cache: ctx.bounded] do
+        assert_raise ArgumentError, ~r/ImagePipe instance/, fn ->
+          ImagePipe.Plug.init([sources: ctx.sources] ++ [cache])
+        end
       end
     end
   end

@@ -167,18 +167,24 @@ defmodule ImagePipe.API.DetectionStrictnessWireTest do
     end
   end
 
-  defp observed(overrides), do: overrides |> CacheObserver.observe() |> mount()
+  # A mount with an observed cache, and the options its instance runs with.
+  defp observed(overrides) do
+    opts = overrides |> options() |> CacheObserver.observe()
+    {Caches.plug(opts), opts}
+  end
 
   defp response(options, config),
     do: conn(:get, "/#{options}/format=png/src/beach.jpg") |> call_pipe(config)
 
   # Cache writes finish after the response, so wait for them before a test
   # asserts what was stored.
-  defp call_pipe(conn, config) do
-    conn = ImagePipe.Plug.call(conn, config)
-    Caches.await_writes(config)
+  defp call_pipe(conn, {plug, opts}) do
+    conn = ImagePipe.Plug.call(conn, plug)
+    Caches.await_writes(opts)
     conn
   end
+
+  defp call_pipe(conn, config), do: ImagePipe.Plug.call(conn, config)
 
   defp image(response) do
     assert response.status == 200
@@ -187,7 +193,9 @@ defmodule ImagePipe.API.DetectionStrictnessWireTest do
 
   defp pixels(image), do: VipsImage.write_to_binary(image)
 
-  defp mount(overrides) do
+  defp mount(overrides), do: overrides |> options() |> ImagePipe.Plug.init()
+
+  defp options(overrides) do
     [
       sources: [
         path: [
@@ -206,7 +214,6 @@ defmodule ImagePipe.API.DetectionStrictnessWireTest do
       max_input_pixels: 40_000_000
     ]
     |> Keyword.merge(overrides)
-    |> ImagePipe.Plug.init()
   end
 
   defp origin do

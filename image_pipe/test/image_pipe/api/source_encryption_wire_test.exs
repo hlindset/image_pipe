@@ -28,7 +28,7 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
 
     tokens =
       for options <- [[], [iv: :random], [iv: :random], [iv: <<7::128>>]] do
-        assert {:ok, token} = Security.encrypt_source(@source, config, options)
+        assert {:ok, token} = Security.encrypt_source(@source, instance_options(config), options)
         token
       end
 
@@ -51,7 +51,7 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
     conditional =
       conn(:get, signed("/w=12/format=png/enc/#{hd(tokens)}", config))
       |> put_req_header("if-none-match", etag)
-      |> ImagePipe.Plug.call(config)
+      |> ImagePipe.Plug.call(plug(config))
 
     assert conditional.status == 304
     refute_received :origin_fetch
@@ -113,14 +113,17 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
     config = mount()
 
     for path <- ["/format=png/enc/invalid*", "/format=png/enc/"] do
-      response = conn(:get, "/sig=invalid#{path}") |> ImagePipe.Plug.call(config)
+      response = conn(:get, "/sig=invalid#{path}") |> ImagePipe.Plug.call(plug(config))
       assert response.status == 403
       assert response.resp_body == "invalid signature"
     end
 
     token = encrypt_source(@source, config)
     url = signed("/w=12/format=png/enc/#{token}", config)
-    response = conn(:get, String.replace(url, "/w=12/", "/w=13/")) |> ImagePipe.Plug.call(config)
+
+    response =
+      conn(:get, String.replace(url, "/w=12/", "/w=13/")) |> ImagePipe.Plug.call(plug(config))
+
     assert response.status == 403
     refute_received :origin_fetch
     refute_received {:cache_lookup, _, _key}
@@ -164,7 +167,7 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
     on_exit(fn -> :telemetry.detach(handler) end)
 
     invalid_path = "/w=oops/enc/#{token}"
-    invalid_signature = Signature.sign(invalid_path, config)
+    invalid_signature = Signature.sign(invalid_path, instance_options(config))
     invalid = request(invalid_path, config)
     assert invalid.status == 400
     valid = request("/w=12/format=png/debug/enc/#{token}", config)
@@ -173,13 +176,14 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
     unsigned_config = mount(keys: [], source_encryption_keys: [])
 
     unsigned =
-      conn(:get, "/sig=unexpected/w=12/enc/#{token}") |> ImagePipe.Plug.call(unsigned_config)
+      conn(:get, "/sig=unexpected/w=12/enc/#{token}")
+      |> ImagePipe.Plug.call(plug(unsigned_config))
 
     assert unsigned.status == 400
 
     misplaced =
       conn(:get, "/w=oops/sig=#{invalid_signature}/enc/#{token}")
-      |> ImagePipe.Plug.call(unsigned_config)
+      |> ImagePipe.Plug.call(plug(unsigned_config))
 
     assert misplaced.status == 400
 
@@ -219,17 +223,23 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
   end
 
   defp request(path, config) do
-    response = conn(:get, signed(path, config)) |> ImagePipe.Plug.call(config)
-    Caches.await_writes(config)
+    response = conn(:get, signed(path, config)) |> ImagePipe.Plug.call(plug(config))
+    Caches.await_writes(instance_options(config))
     response
   end
 
-  defp signed(path, config), do: "/sig=#{Signature.sign(path, config)}#{path}"
+  defp signed(path, config), do: "/sig=#{Signature.sign(path, instance_options(config))}#{path}"
 
   defp encrypt_source(source, config) do
-    assert {:ok, token} = Security.encrypt_source(source, config, [])
+    assert {:ok, token} = Security.encrypt_source(source, instance_options(config), [])
     token
   end
+
+  defp plug({plug, _options}), do: plug
+
+  # The options the instance runs with, which hold its signing and source
+  # encryption keys.
+  defp instance_options({_plug, options}), do: options
 
   defp mount(overrides \\ []) do
     body = Image.new!(24, 16, color: :red) |> Image.write!(:memory, suffix: ".png")
@@ -240,26 +250,28 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
       conn |> put_resp_content_type("image/png") |> send_resp(200, body)
     end
 
-    [
-      keys: [@signing_key],
-      source_encryption_keys: [@encryption_key],
-      sources: [
-        path: [
-          adapter: RootHTTPAdapter,
-          match: :path,
-          options: [
-            root_url: "http://origin.test",
-            byte_identity: :strong,
-            internal_cache: :enabled,
-            req_options: [plug: origin]
+    opts =
+      [
+        keys: [@signing_key],
+        source_encryption_keys: [@encryption_key],
+        sources: [
+          path: [
+            adapter: RootHTTPAdapter,
+            match: :path,
+            options: [
+              root_url: "http://origin.test",
+              byte_identity: :strong,
+              internal_cache: :enabled,
+              req_options: [plug: origin]
+            ]
           ]
-        ]
-      ],
-      http_cache: :auto,
-      telemetry_prefix: @prefix
-    ]
-    |> Keyword.merge(overrides)
-    |> CacheObserver.observe()
-    |> ImagePipe.Plug.init()
+        ],
+        http_cache: :auto,
+        telemetry_prefix: @prefix
+      ]
+      |> Keyword.merge(overrides)
+      |> CacheObserver.observe()
+
+    {Caches.plug(opts), Caches.options(opts)}
   end
 end

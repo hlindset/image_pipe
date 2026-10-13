@@ -40,7 +40,7 @@ defmodule ImagePipe.Telemetry.APIDeliverySpanParentageTest do
   test "stage spans of a cache-miss streamed API request are semantic descendants of the request root",
        %{tmp_dir: tmp_dir} do
     config =
-      ImagePipe.Plug.init(
+      Caches.plug(
         Caches.start!(
           sources: [
             path: [

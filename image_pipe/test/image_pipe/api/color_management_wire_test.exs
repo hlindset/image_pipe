@@ -7,6 +7,7 @@ defmodule ImagePipe.API.ColorManagementWireTest do
   alias ImagePipe.Output.ColorProfile
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.MutableImage
   alias Vix.Vips.Operation
@@ -277,22 +278,22 @@ defmodule ImagePipe.API.ColorManagementWireTest do
   test "named profile conversion cannot silently discard requested HDR preservation" do
     origin = fn _conn -> flunk("conflicting color policy fetched its source") end
 
-    guarded =
-      CacheObserver.observe(
-        sources: [
-          path: [
-            adapter: RootHTTPAdapter,
-            match: :path,
-            options: [root_url: "http://origin.test", req_options: [plug: origin]]
-          ]
+    guarded = [
+      sources: [
+        path: [
+          adapter: RootHTTPAdapter,
+          match: :path,
+          options: [root_url: "http://origin.test", req_options: [plug: origin]]
         ]
-      )
+      ]
+    ]
 
     for {options, opts} <- [
           {"format=png/profile=display-p3/hdr=preserve", []},
           {"format=png/profile=srgb", [preserve_hdr: true]}
         ] do
-      response = response(options, "rgb16.png", guarded ++ opts)
+      mount = (guarded ++ opts) |> config() |> CacheObserver.observe() |> Caches.plug()
+      response = conn(:get, "/#{options}/src/rgb16.png") |> ImagePipe.Plug.call(mount)
       assert response.status == 400
       refute_received {:cache_lookup, _, _key}
       refute_received {:cache_put, _key, _body}
@@ -410,7 +411,12 @@ defmodule ImagePipe.API.ColorManagementWireTest do
   end
 
   defp response(options, name, opts \\ []) do
-    config =
+    conn(:get, "/#{options}/src/#{name}")
+    |> ImagePipe.Plug.call(opts |> config() |> ImagePipe.Plug.init())
+  end
+
+  defp config(opts) do
+    Keyword.merge(
       [
         sources: [
           path: [
@@ -420,11 +426,9 @@ defmodule ImagePipe.API.ColorManagementWireTest do
           ]
         ],
         http_cache: :auto
-      ]
-      |> Keyword.merge(opts)
-      |> ImagePipe.Plug.init()
-
-    conn(:get, "/#{options}/src/#{name}") |> ImagePipe.Plug.call(config)
+      ],
+      opts
+    )
   end
 
   defp decoded(response) do

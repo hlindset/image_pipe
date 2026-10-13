@@ -4,6 +4,7 @@ defmodule ImagePipe.RequestSafetyTest do
 
   alias ImagePipe.SourceTest.ValidAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
 
   defmodule DenyingSourceAdapter do
     @behaviour ImagePipe.Source
@@ -219,9 +220,7 @@ defmodule ImagePipe.RequestSafetyTest do
         max_body_bytes: 1_000_000
       )
 
-    opts = ImagePipe.Plug.init(config)
-
-    conn = ImagePipe.Plug.call(conn(:get, "/format=jpeg/src/images/cat.jpg"), opts)
+    conn = ImagePipe.Plug.call(conn(:get, "/format=jpeg/src/images/cat.jpg"), Caches.plug(config))
 
     assert conn.status == 200
     assert_received {:source_resolve_runtime_opts, resolve_runtime_opts}
@@ -278,5 +277,5 @@ defmodule ImagePipe.RequestSafetyTest do
     refute_received {:cache_put, _, _}
   end
 
-  defp observed_init(opts), do: ImagePipe.Plug.init(CacheObserver.observe(opts))
+  defp observed_init(opts), do: Caches.plug(CacheObserver.observe(opts))
 end

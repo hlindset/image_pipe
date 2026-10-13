@@ -25,7 +25,7 @@ defmodule ImagePipe.Telemetry.Trace.CrossProcessTest do
 
   defp call(path, opts) do
     conn = conn(:get, path)
-    ImagePipe.Plug.call(conn, ImagePipe.Plug.init(opts))
+    ImagePipe.Plug.call(conn, Caches.plug(opts))
   end
 
   # A cache-miss request that fetches + decodes a real source and writes to cache.

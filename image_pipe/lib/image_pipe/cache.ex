@@ -31,7 +31,6 @@ defmodule ImagePipe.Cache do
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Owner
   alias ImagePipe.Cache.FileSystem.PeriodicSweep
-  alias ImagePipe.Cache.FileSystem.Root
   alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.FileSystem.Sweep
   alias ImagePipe.Cache.Input
@@ -93,17 +92,6 @@ defmodule ImagePipe.Cache do
         cache_opts = Keyword.get(options, key),
         cache_opts != nil,
         do: FileSystem.child_spec(cache_opts)
-  end
-
-  @doc false
-  # Whether a configured cache's processes aren't running. Only an instance
-  # starts them.
-  @spec unsupervised?(keyword()) :: boolean()
-  def unsupervised?(options) do
-    Enum.any?([:cache, :input_cache], fn key ->
-      cache_opts = Keyword.get(options, key)
-      cache_opts != nil and not Root.running?(cache_opts)
-    end)
   end
 
   @doc false

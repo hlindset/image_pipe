@@ -112,10 +112,9 @@ defmodule ImagePipe do
   to `run/4`, `write/5`, `validate/2`, and `url_config/2`.
 
   A configuration with `cache` or `input_cache` must be used through an
-  instance, which starts the processes that track each cache's size. An
-  inline `ImagePipe.Plug` mount, and `run/4` with a configuration from
-  `config/1`, raise `ArgumentError` unless an instance already runs each of
-  their caches, and that instance's size limits then apply.
+  instance, which starts the processes that track each cache's size.
+  `ImagePipe.Plug` options and `run/4` with a configuration from `config/1`
+  raise `ArgumentError` when they configure a cache.
   [Caching processed images](caching-processed-images.md) covers setting up a
   cache.
 
@@ -195,8 +194,7 @@ defmodule ImagePipe do
       #=> "image/webp"
 
   `config` comes from `config/1`, or is the name of a running instance. A
-  configuration with a cache must be passed by its instance's name, unless
-  an instance already runs each of its caches.
+  configuration with a cache must be passed by its instance's name.
   Presets and request defaults come from `config`, as for a request to an
   `ImagePipe.Plug` mount. The builder's own URL configuration isn't used.
   Matching source bytes, plans, settings, and `Accept` preferences give the
@@ -227,8 +225,9 @@ defmodule ImagePipe do
 
   Every option of `config/1` overrides the configuration for this call, such
   as `max_input_pixels: 50_000_000`. Invalid options raise `ArgumentError`.
-  An instance name takes the same options, but a `:cache` or `:input_cache`
-  raises `ArgumentError` unless an instance already runs it.
+  An instance name takes the same options, except `:cache` and
+  `:input_cache`, which raise `ArgumentError`: the caches belong to the
+  instance.
   `run/4` and `write/5` also take:
 
   #{ImagePipe.Run.options_docs()}

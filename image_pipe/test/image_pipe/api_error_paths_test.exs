@@ -113,14 +113,18 @@ defmodule ImagePipe.APIErrorPathsTest do
   ]
 
   # `on_bracket_exit` and `image_module` are test-injection seams that
-  # `ImagePipe.Plug.init/1` would reject as unknown options, so they are
-  # appended after it.
+  # `ImagePipe.Plug.init/1` would reject as unknown options. A cache runs only
+  # on an instance, so this mounts the instance with an observed cache and
+  # appends the seams to the resolved mount.
   @test_only_seam_keys [:on_bracket_exit, :image_module]
 
-  defp opts(extra) do
+  defp observed_opts(extra) do
     {seams, known} = Keyword.split(extra, @test_only_seam_keys)
-    base = ImagePipe.Plug.init(Keyword.merge([sources: @default_sources], known))
-    Keyword.merge(base, seams)
+
+    Keyword.merge([sources: @default_sources], known)
+    |> CacheObserver.observe()
+    |> Caches.plug_options()
+    |> Keyword.merge(seams)
   end
 
   defp get(path, config, headers \\ []) do
@@ -170,19 +174,17 @@ defmodule ImagePipe.APIErrorPathsTest do
       test_pid = self()
 
       config =
-        opts(
-          CacheObserver.observe(
-            sources: [
-              path: [
-                adapter: RootHTTPAdapter,
-                match: :path,
-                options: [
-                  root_url: "http://origin.test",
-                  req_options: [plug: {Origin503, test_pid: test_pid}]
-                ]
+        observed_opts(
+          sources: [
+            path: [
+              adapter: RootHTTPAdapter,
+              match: :path,
+              options: [
+                root_url: "http://origin.test",
+                req_options: [plug: {Origin503, test_pid: test_pid}]
               ]
             ]
-          )
+          ]
         )
 
       conn = get("/w=64/src/images/cat.jpg", config)
@@ -205,20 +207,18 @@ defmodule ImagePipe.APIErrorPathsTest do
       prefix = [:"api_error_paths_#{System.unique_integer([:positive])}"]
 
       config =
-        opts(
-          CacheObserver.observe(
-            telemetry_prefix: prefix,
-            sources: [
-              path: [
-                adapter: RootHTTPAdapter,
-                match: :path,
-                options: [
-                  root_url: "http://origin.test",
-                  req_options: [plug: {Origin503, test_pid: test_pid}]
-                ]
+        observed_opts(
+          telemetry_prefix: prefix,
+          sources: [
+            path: [
+              adapter: RootHTTPAdapter,
+              match: :path,
+              options: [
+                root_url: "http://origin.test",
+                req_options: [plug: {Origin503, test_pid: test_pid}]
               ]
             ]
-          )
+          ]
         )
 
       handler_id = "api-error-paths-#{inspect(prefix)}"
@@ -312,19 +312,17 @@ defmodule ImagePipe.APIErrorPathsTest do
       test_pid = self()
 
       config =
-        opts(
-          CacheObserver.observe(
-            sources: [
-              path: [
-                adapter: RootHTTPAdapter,
-                match: :path,
-                options: [
-                  root_url: "http://origin.test",
-                  req_options: [plug: {CorruptImageOrigin, test_pid: test_pid}]
-                ]
+        observed_opts(
+          sources: [
+            path: [
+              adapter: RootHTTPAdapter,
+              match: :path,
+              options: [
+                root_url: "http://origin.test",
+                req_options: [plug: {CorruptImageOrigin, test_pid: test_pid}]
               ]
             ]
-          )
+          ]
         )
 
       conn = get("/w=64/src/images/cat.jpg", config)
@@ -356,12 +354,10 @@ defmodule ImagePipe.APIErrorPathsTest do
       on_exit(fn -> :telemetry.detach(handler_id) end)
 
       config =
-        opts(
-          CacheObserver.observe(
-            image_module: RaisingAfterFirstChunkImage,
-            on_bracket_exit: fn -> send(test_pid, :bracket_cleanup) end,
-            telemetry_prefix: prefix
-          )
+        observed_opts(
+          image_module: RaisingAfterFirstChunkImage,
+          on_bracket_exit: fn -> send(test_pid, :bracket_cleanup) end,
+          telemetry_prefix: prefix
         )
 
       log =
@@ -403,11 +399,9 @@ defmodule ImagePipe.APIErrorPathsTest do
       test_pid = self()
 
       config =
-        opts(
-          CacheObserver.observe(
-            image_module: RaisingBeforeFirstChunkImage,
-            on_bracket_exit: fn -> send(test_pid, :bracket_cleanup) end
-          )
+        observed_opts(
+          image_module: RaisingBeforeFirstChunkImage,
+          on_bracket_exit: fn -> send(test_pid, :bracket_cleanup) end
         )
 
       conn = get("/w=64/src/images/cat.jpg", config)
@@ -432,7 +426,7 @@ defmodule ImagePipe.APIErrorPathsTest do
 
   describe "row 6: cache-lookup failure (corrupt entry)" do
     test "an unreadable cache entry still fails open: the generated response is delivered" do
-      config = opts(CacheObserver.observe([]))
+      config = observed_opts([])
 
       assert get("/w=64/src/images/cat.jpg", config).status == 200
       assert_received {:cache_put, hash, _body}
@@ -459,7 +453,7 @@ defmodule ImagePipe.APIErrorPathsTest do
 
   describe "row 7: cache-write failure (unwritable cache root)" do
     test "a cache that cannot store the entry still fails open: the response is delivered, nothing is stored" do
-      config = opts(CacheObserver.observe([]))
+      config = observed_opts([])
       prefix = Keyword.fetch!(config, :telemetry_prefix)
       root = config |> Keyword.fetch!(:cache) |> Keyword.fetch!(:root)
       handler_id = {__MODULE__, make_ref()}
@@ -583,14 +577,12 @@ defmodule ImagePipe.APIErrorPathsTest do
       on_exit(fn -> :telemetry.detach(handler_id) end)
 
       config =
-        opts(
-          CacheObserver.observe(
-            telemetry_prefix: prefix,
-            max_result_width: 10,
-            max_result_height: 10,
-            image_module: RaisingClampImage,
-            on_bracket_exit: fn -> send(test_pid, :bracket_cleanup) end
-          )
+        observed_opts(
+          telemetry_prefix: prefix,
+          max_result_width: 10,
+          max_result_height: 10,
+          image_module: RaisingClampImage,
+          on_bracket_exit: fn -> send(test_pid, :bracket_cleanup) end
         )
 
       conn = get("/w=64/src/images/cat.jpg", config)

@@ -8,6 +8,7 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
   alias ImagePipe.Execution.{Inputs, Output}
   alias ImagePipe.ProcessingPool
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.ProcessingSource
 
   # These tests coordinate who generates an output, not what it looks like, so
@@ -34,13 +35,19 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
         ]
       )
 
-    %{tasks: tasks, pool: pool, config: ImagePipe.config(options), options: options}
+    %{
+      tasks: tasks,
+      pool: pool,
+      options: options,
+      mount: Caches.plug(options),
+      instance: Caches.instance(options)
+    }
   end
 
   def event(_event, _measurements, metadata, test), do: send(test, {:coordination, metadata})
 
   test "matching Plug and Elixir misses share one generation across terminals", context do
-    mount = ImagePipe.Plug.init(config: context.config)
+    mount = context.mount
 
     for {terminal, path} <- [
           image: "format=jpeg",
@@ -58,7 +65,7 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
         ImagePipe.URL.new() |> ImagePipe.URL.output(output_options(terminal))
 
       elixir =
-        async(context, fn -> ImagePipe.run(context.config, builder, {:source, "blocked"}) end)
+        async(context, fn -> ImagePipe.run(context.instance, builder, {:source, "blocked"}) end)
 
       assert_receive {:coordination, %{pool: :output, result: :waiting}}
 
@@ -85,7 +92,7 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
   end
 
   test "a missing committed entry falls back to generation once", context do
-    mount = ImagePipe.Plug.init(context.options)
+    mount = context.mount
     root = context.options |> Keyword.fetch!(:cache) |> Keyword.fetch!(:root)
     handler = make_ref()
 
@@ -115,10 +122,8 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
   end
 
   test "different cache instances and output variants do not join", context do
-    mount = ImagePipe.Plug.init(config: context.config)
-
-    other =
-      ImagePipe.Plug.init(CacheObserver.observe(context.options))
+    mount = context.mount
+    other = context.options |> CacheObserver.observe() |> Caches.plug()
 
     leader = async(context, fn -> request(mount, "output=info") end)
     assert_receive {:fetch, ["blocked"], worker}
@@ -135,15 +140,14 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
 
     for action <- [:cancel, :disconnect, :complete] do
       # A fresh cache per round, so each round misses.
-      config = context.options |> CacheObserver.observe() |> ImagePipe.config()
-      context = %{context | config: config}
-      mount = ImagePipe.Plug.init(config: config)
+      options = CacheObserver.observe(context.options)
+      config = instance_options(options)
+      mount = Caches.plug(options)
 
       leader =
         async(context, fn ->
           builder = ImagePipe.URL.new() |> ImagePipe.URL.output(format: :jpeg)
           {:ok, request} = ImagePipe.Plan.to_spec(builder.plan)
-          config = context.config.options
           {:ok, policy} = ImagePipe.Processing.prepare(request, config, "")
           {:ok, source, config} = ImagePipe.Source.from_input({:source, "blocked"}, config)
 
@@ -202,7 +206,7 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
   @tag capture_log: true
   test "cache write failures and rejected entries leave followers able to generate", context do
     for {failure, path} <- [unwritable: "format=jpeg", too_large: "output=info"] do
-      mount = ImagePipe.Plug.init(failing_cache(context.options, failure))
+      mount = Caches.plug(failing_cache(context.options, failure))
       leader = async(context, fn -> request(mount, path) end)
       assert_receive {:fetch, ["blocked"], worker}
       follower = async(context, fn -> request(mount, path) end)
@@ -224,15 +228,15 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
       |> Keyword.put(:processing_pool, pool)
       |> CacheObserver.observe(max_body_bytes: 0)
 
-    config = ImagePipe.config(options)
-    mount = ImagePipe.Plug.init(config: config)
+    config = instance_options(options)
+    mount = Caches.plug(options)
 
     leader =
       async(context, fn ->
         builder = ImagePipe.URL.new() |> ImagePipe.URL.output(format: :jpeg)
         {:ok, request} = ImagePipe.Plan.to_spec(builder.plan)
-        {:ok, policy} = ImagePipe.Processing.prepare(request, config.options, "")
-        {:ok, source, options} = ImagePipe.Source.from_input({:source, "blocked"}, config.options)
+        {:ok, policy} = ImagePipe.Processing.prepare(request, config, "")
+        {:ok, source, options} = ImagePipe.Source.from_input({:source, "blocked"}, config)
         {:ok, execution} = Execution.prepare(request, source, [], policy, %Inputs{}, options)
         {:ok, output} = Execution.open(execution)
         send(test, :prepared)
@@ -259,14 +263,18 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
   end
 
   test "a failed leader does not impose its safety limits on followers", context do
-    mount = ImagePipe.Plug.init(config: context.config)
-    restricted = ImagePipe.Plug.init(Keyword.put(context.options, :max_input_pixels, 1))
-    leader = async(context, fn -> request(restricted, "output=info") end)
+    builder = ImagePipe.URL.new() |> ImagePipe.URL.output(terminal: :info)
+
+    leader =
+      async(context, fn ->
+        ImagePipe.run(context.instance, builder, {:source, "blocked"}, max_input_pixels: 1)
+      end)
+
     assert_receive {:fetch, ["blocked"], worker}
-    follower = async(context, fn -> request(mount, "output=info") end)
+    follower = async(context, fn -> request(context.mount, "output=info") end)
     assert_receive {:coordination, %{pool: :output, result: :waiting}}
     send(worker, :continue)
-    assert Task.await(leader).status == 413
+    assert {:error, {:input_limit, _reason}} = Task.await(leader)
     assert_receive {:fetch, ["blocked"], second}
     send(second, :continue)
     assert Task.await(follower).status == 200
@@ -281,6 +289,10 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
     on_exit(fn -> File.chmod(root, 0o700) end)
     options
   end
+
+  # The options requests through the instance for `options` run with.
+  defp instance_options(options),
+    do: Caches.options(options)
 
   defp async(context, fun), do: Task.Supervisor.async_nolink(context.tasks, fun)
   defp request(mount, path), do: ImagePipe.Plug.call(conn(:get, "/#{path}/src/blocked"), mount)

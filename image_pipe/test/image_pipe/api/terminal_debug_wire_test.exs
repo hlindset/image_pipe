@@ -6,6 +6,7 @@ defmodule ImagePipe.API.TerminalDebugWireTest do
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
 
   @terminals ["output=info", "w=12/output=blurhash"]
 
@@ -21,7 +22,7 @@ defmodule ImagePipe.API.TerminalDebugWireTest do
   test "complete-body debug miss reports cache and terminal timing without invented dimensions",
        %{body: body} do
     for terminal <- @terminals do
-      config = mount(body, allow_debug_headers: true)
+      config = body |> observed() |> mount(true)
       response = request("#{terminal}/debug", config)
 
       assert response.status == 200, terminal
@@ -45,7 +46,7 @@ defmodule ImagePipe.API.TerminalDebugWireTest do
   test "plain and debug requests share a complete-body entry while current request controls headers",
        %{body: body} do
     for terminal <- @terminals do
-      config = mount(body, allow_debug_headers: true)
+      config = body |> observed() |> mount(true)
 
       plain = request(terminal, config)
       assert plain.status == 200, terminal
@@ -74,8 +75,8 @@ defmodule ImagePipe.API.TerminalDebugWireTest do
     body: body
   } do
     for terminal <- @terminals do
-      cache = CacheObserver.observe([])
-      denied_config = mount(body, cache: cache, allow_debug_headers: false)
+      opts = observed(body)
+      denied_config = mount(opts, false)
 
       denied = request("#{terminal}/debug", denied_config)
       assert denied.status == 200, terminal
@@ -83,7 +84,7 @@ defmodule ImagePipe.API.TerminalDebugWireTest do
       assert header(denied, "server-timing") == nil, terminal
       assert_receive :origin_fetch
 
-      allowed_config = mount(body, cache: cache, allow_debug_headers: true)
+      allowed_config = mount(opts, true)
       allowed = request("#{terminal}/debug", allowed_config)
 
       assert allowed.resp_body == denied.resp_body, terminal
@@ -98,33 +99,32 @@ defmodule ImagePipe.API.TerminalDebugWireTest do
     |> ImagePipe.Plug.call(config)
   end
 
-  defp mount(body, options) do
-    test_pid = self()
+  defp mount(opts, allow_debug_headers) do
+    Caches.plug(opts ++ [allow_debug_headers: allow_debug_headers])
+  end
 
-    cache = Keyword.get_lazy(options, :cache, fn -> CacheObserver.observe([]) end)
+  defp observed(body) do
+    test_pid = self()
 
     origin = fn conn ->
       send(test_pid, :origin_fetch)
       conn |> put_resp_content_type("image/jpeg") |> send_resp(200, body)
     end
 
-    ImagePipe.Plug.init(
-      [
-        sources: [
-          path: [
-            adapter: RootHTTPAdapter,
-            match: :path,
-            options: [
-              root_url: "http://origin.test",
-              byte_identity: :strong,
-              internal_cache: :enabled,
-              req_options: [plug: origin]
-            ]
+    CacheObserver.observe(
+      sources: [
+        path: [
+          adapter: RootHTTPAdapter,
+          match: :path,
+          options: [
+            root_url: "http://origin.test",
+            byte_identity: :strong,
+            internal_cache: :enabled,
+            req_options: [plug: origin]
           ]
-        ],
-        http_cache: :auto,
-        allow_debug_headers: Keyword.fetch!(options, :allow_debug_headers)
-      ] ++ cache
+        ]
+      ],
+      http_cache: :auto
     )
   end
 

@@ -53,8 +53,8 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
 
   test "image and terminal cache hits plus conditional responses bypass a full pool", context do
     pool = start_supervised!({ProcessingPool, max_concurrency: 1})
-    config = config(pool, context.prefix, cached: true)
-    mount = ImagePipe.Plug.init(config: config)
+    opts = observed(pool, context.prefix)
+    mount = Caches.plug(opts)
 
     warmed =
       for options <- ["w=32/format=jpeg", "output=info", "output=blurhash", "output=lqip-css"] do
@@ -64,7 +64,7 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
       end
 
     # Cache writes finish after the response; the hits below need them stored.
-    Caches.await_writes(config)
+    Caches.await_writes(opts)
 
     active =
       Task.Supervisor.async_nolink(context.tasks, fn -> request(mount, "w=32", "blocked") end)
@@ -129,7 +129,8 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
 
   test "a stored terminal's generation cost excludes the wait for a processing slot", context do
     pool = start_supervised!({ProcessingPool, max_concurrency: 1})
-    mount = ImagePipe.Plug.init(config: config(pool, context.prefix, cached: true))
+    opts = observed(pool, context.prefix)
+    mount = Caches.plug(opts)
     test = self()
 
     Task.Supervisor.async_nolink(context.tasks, fn ->
@@ -147,7 +148,7 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
     started_at = System.monotonic_time(:microsecond)
     assert request(mount, "output=info").status == 200
     elapsed_us = System.monotonic_time(:microsecond) - started_at
-    Caches.await_writes(mount)
+    Caches.await_writes(opts)
     assert_received {:held, held_us}
     assert_received {:cache_open_sink, _hash, %{cost_us: cost_us}}
 
@@ -173,8 +174,12 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
     assert_raise ArgumentError, fn -> ImagePipe.config(processing_pool: "untrusted") end
   end
 
-  defp config(pool, prefix, opts \\ []) do
-    options = [
+  defp config(pool, prefix), do: ImagePipe.config(options(pool, prefix))
+
+  defp observed(pool, prefix), do: pool |> options(prefix) |> CacheObserver.observe()
+
+  defp options(pool, prefix) do
+    [
       processing_pool: pool,
       telemetry_prefix: prefix,
       sources: [
@@ -185,10 +190,6 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
         ]
       ]
     ]
-
-    if Keyword.get(opts, :cached, false),
-      do: ImagePipe.config(CacheObserver.observe(options)),
-      else: ImagePipe.config(options)
   end
 
   defp request(mount, options, source \\ "ready"),

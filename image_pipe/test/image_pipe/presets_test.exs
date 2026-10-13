@@ -6,6 +6,7 @@ defmodule ImagePipe.PresetsTest do
   alias ImagePipe.Plug.Request, as: ParsedRequest
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
   alias Vix.Vips.Image, as: VipsImage
 
   test "request defaults and nested presets execute identically through Plug and builder" do
@@ -88,8 +89,8 @@ defmodule ImagePipe.PresetsTest do
   end
 
   test "unknown names and pipeline conflicts fail before execution side effects" do
-    config = IP.config(CacheObserver.observe(presets: %{"pipeline" => "w=30/-/gray"}))
-    url_config = IP.url_config(config)
+    instance = Caches.instance(CacheObserver.observe(presets: %{"pipeline" => "w=30/-/gray"}))
+    url_config = IP.url_config(instance)
 
     for builder <- [
           IP.URL.new(url_config) |> IP.URL.group(presets: ["missing"]),
@@ -98,7 +99,7 @@ defmodule ImagePipe.PresetsTest do
       assert {:error, [_ | _]} = IP.URL.validate(builder)
 
       assert {:error, {:invalid_request, [_ | _]}} =
-               IP.run(config, builder, {:file, "/missing.png"})
+               IP.run(instance, builder, {:file, "/missing.png"})
 
       refute_received {:cache_lookup, _, _}
     end
@@ -206,32 +207,31 @@ defmodule ImagePipe.PresetsTest do
   end
 
   test "a builder pipeline preset warms the cache for equivalent Plug requests" do
-    config =
-      IP.config(
-        CacheObserver.observe(
-          presets: %{"poster" => "w=30/-/pad=2/format=png"},
-          sources: [
-            path: [
-              adapter: RootHTTPAdapter,
-              match: :path,
-              options: [
-                root_url: "http://origin.test",
-                byte_identity: :strong,
-                req_options: [
-                  plug: {ImagePipe.Test.PlugFixture.CountingOriginImage, test_pid: self()}
-                ]
+    opts =
+      CacheObserver.observe(
+        presets: %{"poster" => "w=30/-/pad=2/format=png"},
+        sources: [
+          path: [
+            adapter: RootHTTPAdapter,
+            match: :path,
+            options: [
+              root_url: "http://origin.test",
+              byte_identity: :strong,
+              req_options: [
+                plug: {ImagePipe.Test.PlugFixture.CountingOriginImage, test_pid: self()}
               ]
             ]
           ]
-        )
+        ]
       )
 
-    builder = IP.URL.new(IP.url_config(config)) |> IP.URL.group(presets: ["poster"])
-    assert {:ok, native} = IP.run(config, builder, {:source, "photo.jpg"})
+    instance = Caches.instance(opts)
+    builder = IP.URL.new(IP.url_config(instance)) |> IP.URL.group(presets: ["poster"])
+    assert {:ok, native} = IP.run(instance, builder, {:source, "photo.jpg"})
     assert_received :origin_fetch
 
     for url <- [IP.URL.url!(builder, "photo.jpg"), "/w=30/-/pad=2/format=png/src/photo.jpg"] do
-      response = Plug.Test.conn(:get, url) |> IP.Plug.call(IP.Plug.init(config))
+      response = Plug.Test.conn(:get, url) |> IP.Plug.call(Caches.plug(opts))
       assert response.status == 200
       assert response.resp_body == native.data
       refute_received :origin_fetch

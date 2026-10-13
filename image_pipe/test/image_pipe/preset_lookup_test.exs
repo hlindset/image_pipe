@@ -6,6 +6,7 @@ defmodule ImagePipe.PresetLookupTest do
   alias ImagePipe, as: IP
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.PresetLookup
 
   @prefix [:image_pipe_preset_lookup_test]
@@ -17,7 +18,10 @@ defmodule ImagePipe.PresetLookupTest do
 
   defp lookup(options), do: {PresetLookup, Keyword.put(options, :test_pid, self())}
 
-  defp config(body, options) do
+  defp config(body, options), do: IP.config(options(body, options))
+
+  # The test's complete options, for `CacheObserver.observe/2`.
+  defp options(body, options) do
     pid = self()
 
     origin = fn conn ->
@@ -25,29 +29,30 @@ defmodule ImagePipe.PresetLookupTest do
       conn |> Plug.Conn.put_resp_content_type("image/png") |> Plug.Conn.send_resp(200, body)
     end
 
-    IP.config(
-      [
-        sources: [
-          path: [
-            adapter: RootHTTPAdapter,
-            match: :path,
-            options: [
-              root_url: "http://origin.test",
-              byte_identity: :strong,
-              req_options: [plug: origin]
-            ]
+    [
+      sources: [
+        path: [
+          adapter: RootHTTPAdapter,
+          match: :path,
+          options: [
+            root_url: "http://origin.test",
+            byte_identity: :strong,
+            req_options: [plug: origin]
           ]
         ]
-      ] ++ options
-    )
+      ]
+    ] ++ options
   end
 
   defp get(config, path, headers \\ []) do
     Enum.reduce(headers, conn(:get, path), fn {k, v}, conn ->
       Plug.Conn.put_req_header(conn, k, v)
     end)
-    |> IP.Plug.call(IP.Plug.init(config))
+    |> IP.Plug.call(mount(config))
   end
+
+  defp mount(%IP.Config{} = config), do: IP.Plug.init(config)
+  defp mount(observed), do: Caches.plug(observed)
 
   defp dimensions(response) do
     image = Image.from_binary!(response.resp_body)
@@ -139,7 +144,7 @@ defmodule ImagePipe.PresetLookupTest do
     ]
 
     for {lookup_options, status} <- cases do
-      config = config(body, CacheObserver.observe(preset_lookup: lookup(lookup_options)))
+      config = CacheObserver.observe(options(body, preset_lookup: lookup(lookup_options)))
       response = get(config, "/preset=card/src/photo.png")
       assert response.status == status, inspect(lookup_options)
       refute_received :source_fetch
@@ -166,9 +171,8 @@ defmodule ImagePipe.PresetLookupTest do
   test "a URL naming more presets than max_preset_lookups is a 400 before any lookup",
        %{body: body} do
     config =
-      config(
-        body,
-        CacheObserver.observe(
+      CacheObserver.observe(
+        options(body,
           presets: %{"static" => "format=png"},
           preset_lookup: lookup(presets: %{"a" => "w=30", "b" => "blur=1"}),
           max_preset_lookups: 1
@@ -181,7 +185,7 @@ defmodule ImagePipe.PresetLookupTest do
     refute_received :source_fetch
     refute_received {:cache_lookup, _, _}
 
-    assert IP.validate(config, IP.URL.new() |> IP.URL.group(presets: ["a", "b"])) ==
+    assert IP.validate(Caches.instance(config), IP.URL.new() |> IP.URL.group(presets: ["a", "b"])) ==
              {:error, {:preset, :too_many_presets}}
 
     assert get(config, "/preset=a,static/src/photo.png").status == 200
@@ -199,7 +203,7 @@ defmodule ImagePipe.PresetLookupTest do
   end
 
   test "an option unset next to a missing looked-up preset is a 400", %{body: body} do
-    config = config(body, CacheObserver.observe(preset_lookup: lookup(presets: %{})))
+    config = CacheObserver.observe(options(body, preset_lookup: lookup(presets: %{})))
 
     for path <- [
           "/extend=unset/preset=gone/src/photo.png",

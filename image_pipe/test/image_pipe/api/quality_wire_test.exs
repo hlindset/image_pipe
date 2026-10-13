@@ -7,6 +7,7 @@ defmodule ImagePipe.API.QualityWireTest do
   alias ImagePipe.Output.Ssim2Metric
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
   alias Vix.Vips.Image, as: VipsImage
 
   @moduletag timeout: 180_000
@@ -100,7 +101,7 @@ defmodule ImagePipe.API.QualityWireTest do
   end
 
   test "lossless WebP rejects explicit search requests before source or cache access" do
-    config = mount(CacheObserver.observe(webp_options: [lossless: true]))
+    config = observed_mount(webp_options: [lossless: true])
 
     for option <- ["autoquality", "autoquality=75", "max-bytes=1000"] do
       assert response("format=webp/#{option}", config).status == 400
@@ -221,7 +222,7 @@ defmodule ImagePipe.API.QualityWireTest do
   end
 
   test "the auto-quality target changes both cache and ETag identity" do
-    config = mount(CacheObserver.observe([]))
+    config = observed_mount([])
     first = response("w=128/format=jpeg/autoquality=70", config)
     assert first.status == 200
     assert_receive {:cache_put, first_hash, _body}
@@ -233,7 +234,7 @@ defmodule ImagePipe.API.QualityWireTest do
   end
 
   test "invalid and conflicting output controls reject before source or cache access" do
-    config = mount(CacheObserver.observe([]))
+    config = observed_mount([])
 
     for options <- [
           "format-q=webp:0",
@@ -300,7 +301,12 @@ defmodule ImagePipe.API.QualityWireTest do
   defp pixels(response),
     do: response.resp_body |> Image.from_binary!() |> VipsImage.write_to_binary()
 
-  defp mount(overrides \\ []) do
+  defp mount(overrides \\ []), do: overrides |> options() |> ImagePipe.Plug.init()
+
+  defp observed_mount(overrides),
+    do: overrides |> options() |> CacheObserver.observe() |> Caches.plug()
+
+  defp options(overrides) do
     body = File.read!("priv/static/images/beach.jpg")
     pid = self()
 
@@ -327,6 +333,5 @@ defmodule ImagePipe.API.QualityWireTest do
       max_input_pixels: 40_000_000
     ]
     |> Keyword.merge(overrides)
-    |> ImagePipe.Plug.init()
   end
 end

@@ -16,8 +16,7 @@ defmodule ImagePipe.Plug do
   An inline mount accepts every option of `ImagePipe.config/1`, or a
   `:config` built with it, plus the mount options below. It can't start the
   processes a cache needs, so `init/1` raises `ArgumentError` for a
-  configuration with `:cache` or `:input_cache`, unless an instance already
-  runs that cache. To use a cache, read runtime
+  configuration with `:cache` or `:input_cache`. To use a cache, read runtime
   values, or share the configuration with `ImagePipe.run/4`, mount an
   instance instead.
 
