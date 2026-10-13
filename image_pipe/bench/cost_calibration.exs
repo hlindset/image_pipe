@@ -8,7 +8,9 @@
 # gets its own cachebuster, so each one renders and writes, and the estimate
 # is read from the `[:cache, :write]` stop event, as the cache stores it.
 # Cases run in a shuffled order, one warm-up each, then in rounds that run
-# every case once.
+# every case once. Run it with VIPS_CONCURRENCY=1, as CI does: one libvips
+# thread per render measures CPU time, which is what a render costs a loaded
+# server, and doesn't depend on the machine's core count.
 #
 # Only ratios between estimates matter to the cache, so every comparison
 # divides out one overall scale (this machine against the reference core).

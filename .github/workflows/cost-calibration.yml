@@ -109,7 +109,11 @@ jobs:
         run: mise exec -- mix deps.get
       - name: Compile
         run: mise exec -- mix compile
+      # One libvips thread per render measures the CPU time a render takes,
+      # which is what it costs a loaded server, whatever the runner's cores.
       - name: Calibrate
+        env:
+          VIPS_CONCURRENCY: "1"
         run: |
           {
             echo "## Render cost calibration (${{ matrix.platform.arch }})"
