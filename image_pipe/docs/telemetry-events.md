@@ -416,7 +416,7 @@ The default Logger logs dropped writes at `:warning`.
 
 - Metadata:
   - `:pool` (atom): `:output` for a processed image or placeholder, `:input`
-    for an original.
+    for an original or the details kept to recheck it.
   - `:cache` (atom): `:stage_skipped` when the body crossed `max_body_bytes`,
     `:stage_abandoned` when delivery stopped early or the stream failed,
     `:stage_dropped` when the cache dropped the write to keep up with its
@@ -430,8 +430,8 @@ The default Logger logs dropped writes at `:warning`.
     as `:too_large`. A dropped write has `:writer_limit` (the cache already
     runs its maximum number of writes), `:pending_limit` (its unfinished
     writes hold too many bytes), `:lagging` (the client got too far ahead of
-    the write), or `:deadline` (a processed image's write was unfinished 30
-    seconds after it started, or an original's writes waited past the
+    the write), or `:deadline` (a response's write was unfinished 30 seconds
+    after it started, or an original's writes waited past the
     2-second limit and another request may have stored it since).
   - `:error` (atom): the error category, for `:stage_error`.
   - `:output_format` (atom), or `nil` for an original or a body that isn't

@@ -630,7 +630,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
   describe "child_spec/1" do
     @describetag cache: false
 
-    test "an instance sweeps a bounded pool while it runs, after its startup scan", %{
+    test "an instance sweeps a pool while it runs, after its startup scan", %{
       root: root
     } do
       pid = start_sweep(root: root, max_size_bytes: 10_000_000)
@@ -653,7 +653,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
     pid
   end
 
-  describe "bounded mode config validation" do
+  describe "config validation" do
     test "rejects max_size_bytes: 0" do
       assert {:error, _} = FileSystem.validate_options(root: "/tmp", max_size_bytes: 0)
     end
@@ -667,7 +667,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
                {:error, {:missing_required_option, :max_size_bytes}}
     end
 
-    test "accepts a complete bounded config" do
+    test "accepts a complete config" do
       assert {:ok, _opts} =
                FileSystem.validate_options(
                  root: "/tmp",

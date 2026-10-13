@@ -65,7 +65,7 @@ defmodule ImagePipe.Cache.FileReadTest do
     end
   end
 
-  test "input invalidation releases bounded cache accounting", %{root: root} do
+  test "input invalidation releases cache accounting", %{root: root} do
     opts = [root: root, max_size_bytes: 100]
     start_supervised!(FileSystem.child_spec(opts))
     [{admission, _}] = Registry.lookup(FileSystem.registry_name(root), root)

@@ -4,13 +4,14 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   # row per entry with its size, cost and body filename. The startup scan
   # reads those from body filenames, so it reads no metadata.
   #
-  # A write that doesn't fit takes victims by sampled eviction
-  # (docs/plans/sampled-eviction.md): sample @sample entries, evict the
-  # lowest-scoring one, and repeat until the write fits. The write is then
-  # gated against its victims: score = frequency × cost / size, with the
-  # frequency from a count-min sketch behind a doorkeeper, as in W-TinyLFU.
-  # Admission evicts the victims before it publishes the write, or rejects
-  # the write without publishing it, so the stored bytes never pass the cap.
+  # A write that doesn't fit takes victims by sampled eviction: sample
+  # @sample entries, evict the lowest-scoring one, and repeat until the write
+  # fits. The write is then gated against its victims: score = frequency ×
+  # cost / size, with the frequency from a count-min sketch behind a
+  # doorkeeper, as in W-TinyLFU. Admission evicts the victims before it
+  # publishes the write, or rejects the write without publishing it, so once
+  # the startup scan has counted the entries on disk, the stored bytes never
+  # pass the cap.
   @moduledoc false
 
   use GenServer

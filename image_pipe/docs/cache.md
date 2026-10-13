@@ -146,13 +146,10 @@ directory of your own.
 ## Writing entries
 
 A response is processed and streamed to the client at the same time, and
-written to the cache in the background as it streams. The response never
-waits for the cache's disk: each chunk is written as it arrives, and the
-entry is synced and stored after the response is sent. An original
-downloaded for a request is stored in the background too, while the request
-processes it. Without an originals cache, the details kept to recheck an
-original are stored in the processed-image cache and count toward its limits
-below. The entry is stored only when:
+written to the cache as it streams. The response never waits for the cache's
+disk: each chunk is written as it arrives, and the entry is synced and stored
+after the response is sent. The entry is stored
+only when:
 
 - the encoder finished,
 - every chunk reached the client,
@@ -162,14 +159,20 @@ A client disconnect, a failure after the first chunk, or a body over
 `max_body_bytes` [leaves nothing in the cache](streaming-failures.md). The
 client still receives the full response in the last case.
 
+An original downloaded for a request is stored in the background too, while
+the request processes it. The details kept to recheck an original are stored
+in the processed-image cache. Without an originals cache, storing those
+details takes one of the processed-image cache's 64 writes, or runs in the
+request when none is free.
+
 A cache drops a write when:
 
-- it already runs 64 writes,
+- it has 64 writes in progress,
 - its unfinished writes hold more than 256 MiB, or a twentieth of its
   `max_size_bytes` when that is smaller,
-- the client is more than 8 MiB ahead of a processed image's write,
-- a processed image's write is still unfinished 30 seconds after the
-  response started.
+- the client is more than 8 MiB ahead of a response's write,
+- a response's write is still unfinished 30 seconds after the response
+  started.
 
 The response is still delivered, and the
 [`[:cache, :stage]`](telemetry-events.md#cache-stage) event reports the
@@ -178,7 +181,8 @@ dropped write.
 A write counts toward the unfinished writes as it goes, so an entry larger
 than that limit is never stored. A cache of 100 MB, for example, never
 stores an image over 5 MB. The cache's files can take up to
-`max_size_bytes` plus the limit on unfinished writes.
+`max_size_bytes` plus the limit on unfinished writes, plus evicted originals
+that requests are still reading.
 
 Cache errors never fail a request. A failed write is logged and reported in
 telemetry, and the response is delivered without being stored. A failed or
@@ -243,8 +247,8 @@ its hostname into each cache's `root`. The instance rewrites the file every 5
 seconds and deletes it when it stops. A node that restarts with the same
 hostname takes the `root` over at once.
 
-When the file names another hostname, the instance starts without that cache
-and checks the file every 25 seconds:
+When the file names another hostname, the instance logs a warning, starts
+without that cache, and checks the file every 25 seconds:
 
 - While the other node keeps rewriting the file, the instance logs an error
   once.
@@ -291,8 +295,7 @@ The `[:cache, :sweep]` event reports what each cleanup removed (see
 
 ## Size limit
 
-The cache evicts entries to stay under `max_size_bytes`, including images
-made before an upgrade that changed how requests are cached. It keeps the
+The cache evicts entries to stay under `max_size_bytes`. It keeps the
 entries that are requested often and took the most work to make for their
 size, so an AVIF made with automatic quality outlasts a JPEG thumbnail
 requested as often.
@@ -332,7 +335,9 @@ download took.
   entry is worth more than the chosen entries on average, the cache evicts
   them and stores it. Otherwise it rejects the write and evicts nothing. A
   rejected entry requested at least six times is stored anyway one time in
-  128. The stored bodies never exceed the cap.
+  128. The stored bodies never exceed the cap, except briefly while the
+  startup scan runs: until the scan has counted the entries on disk, writes
+  are measured against only the entries counted so far.
 - An entry larger than the limit on unfinished writes is never stored (see
   [writing entries](#writing-entries)).
 - On startup the process lists the entries on disk in the background,
@@ -354,6 +359,10 @@ and stores or rejects the entry as usual.
   after it is an hour old deletes it, which can be up to a day later.
 - Two writes to the same key at once both store their body. The last one
   wins, and the other body is deleted.
+- Entries an earlier ImagePipe version stored in another format aren't
+  counted against `max_size_bytes`. A cleanup of
+  [leftover files](#leftover-files) deletes them, which can be up to a day
+  after the upgrade for files written in its last hour.
 
 The admission and eviction telemetry events are listed in
 [cache events](telemetry-events.md#cache-events).

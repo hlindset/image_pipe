@@ -410,7 +410,7 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     assert tracked_bytes(admission_pid(root)) == byte_size("second body")
   end
 
-  test "two bounded caches with distinct roots coexist in one VM", %{root: root} do
+  test "two caches with distinct roots coexist in one VM", %{root: root} do
     other_root = root <> "_second"
     File.mkdir_p!(other_root)
     on_exit(fn -> File.rm_rf!(other_root) end)

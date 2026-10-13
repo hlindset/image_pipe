@@ -482,7 +482,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
   end
 
-  test "bounded-mode FileSystem cache code stays within the cache boundary" do
+  test "FileSystem cache code stays within the cache boundary" do
     forbidden_terms = ["ImagePipe.Source", "ImagePipe.Response"]
 
     cache_filesystem_sources =
@@ -498,7 +498,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
           term <- forbidden_terms,
           String.contains?(line, term) do
         "#{file}:#{number} must not depend on #{term}; " <>
-          "bounded-mode cache code stays within the ImagePipe.Cache boundary"
+          "FileSystem cache code stays within the ImagePipe.Cache boundary"
       end
 
     assert violations == []

@@ -70,7 +70,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Processed images and originals cached by an earlier version are not
   reused, because the cache key changed and entry files are named
   differently. The cache refills as requests come in, and deletes the old
-  files as [leftover files](docs/cache.md#leftover-files).
+  files as
+  [leftover files](https://hexdocs.pm/image_pipe/cache.html#leftover-files).
 - Requests for PNG and other sources that need no shrink-on-load open the
   source once instead of twice, which saves about 0.3 ms per request.
 - A custom detector's `identity/1`, `available?/1`, and `ready?/1` receive only
@@ -118,16 +119,17 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A request waiting for another request's image or original stops waiting
   when the image or original isn't stored 2 seconds after it was sent or
   downloaded.
-- When the disk can't keep up, writes are dropped instead of queued without
-  limit, and unfinished writes count against `max_size_bytes`. An entry
-  larger than a twentieth of `max_size_bytes`, or 256 MiB, is never stored
-  (see [writing entries](docs/cache.md#writing-entries)).
+- When the disk can't keep up, writes are dropped, and unfinished writes
+  count against `max_size_bytes`. An entry larger than a twentieth of
+  `max_size_bytes`, or 256 MiB, is never stored (see
+  [writing entries](https://hexdocs.pm/image_pipe/cache.html#writing-entries)).
 - `trim` is faster on images under a megapixel: 2 ms instead of 6.5 ms on a
   256×256 image.
 - **Breaking:** `cache` and `input_cache` need `max_size_bytes`, and an
   ImagePipe instance (see `ImagePipe.child_spec/1`). Add `max_size_bytes` to
-  each cache, and move a configuration with a cache from `ImagePipe.Plug`
-  options or an `ImagePipe.run/4` call into an instance.
+  each cache, and to the options of `ImagePipe.Cache.FileSystem.get/2`, and
+  move a configuration with a cache from `ImagePipe.Plug` options or an
+  `ImagePipe.run/4` call into an instance.
 - **Breaking:** Each `root` of `cache` and `input_cache` serves one node. An
   instance writes a `.image-pipe-owner` file into each cache's `root`.
   While another node keeps that file updated, the instance logs an error and
@@ -138,8 +140,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `cache` and `input_cache` keep the entries that are requested often and
   took the most work to make for their size. For a processed image, that work
   is estimated from the request instead of timed (see
-  [work to make an entry](docs/cache.md#work-to-make-an-entry)). On startup
-  a cache reads only file names, so a large cache is ready sooner.
+  [work to make an entry](https://hexdocs.pm/image_pipe/cache.html#work-to-make-an-entry)).
+  On startup a cache reads only file names, so a large cache is ready sooner.
 
 ### Removed
 
@@ -147,18 +149,18 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `default/0`. A detector is configured as a module, so a composite struct
   could not be configured. Configure `ImagePipe.Transform.Detector.Composite`
   itself to get the default face and object detectors.
-- **Breaking:** Caches keep request counts in memory only. Remove
+- **Breaking:** Bounded caches keep request counts in memory only. Remove
   `node_id`, `state_dir`, `flush_interval`, `cleanup_interval`, and
-  `state_ttl` from `cache` and `input_cache`. After a restart, a
+  `state_ttl` from `cache` and `input_cache`. After a restart, a bounded
   cache keeps its entries and learns again which are requested most. You can
-  delete the `.cache_state` directory under each cache's `root`.
+  delete the `.cache_state` directory under each bounded cache's `root`.
 - The `[:cache, :warm_start]`, `[:cache, :flush, :stop]`, and
   `[:cache, :cleanup, :stop]` telemetry events.
 - **Breaking:** The `eviction_victim_limit` and `reconcile_interval` options
   of `cache` and `input_cache`. Remove them from your configuration. A write
   now evicts every entry it needs before it's stored, so the stored bodies
-  never exceed `max_size_bytes`, and the cache no longer runs a background
-  eviction pass every minute.
+  stay under `max_size_bytes` once the startup scan has run, and the cache no
+  longer runs a background eviction pass every minute.
 - **Breaking:** The `window_ratio`, `sketch_depth`, `sketch_width`,
   `aging_sample_size`, `doorkeeper_cardinality`, `doorkeeper_fpr`, and
   `path_prefix` options of `cache` and `input_cache`. Remove them from your

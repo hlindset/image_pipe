@@ -57,7 +57,7 @@ defmodule ImagePipe.InstanceTest do
   end
 
   describe "direct execution" do
-    test "stores in a bounded cache started by the instance", ctx do
+    test "stores in a cache started by the instance", ctx do
       start_instance(ctx)
 
       builder =
@@ -164,7 +164,7 @@ defmodule ImagePipe.InstanceTest do
   end
 
   describe "Plug with instance:" do
-    test "serves requests and stores in the instance's bounded cache", ctx do
+    test "serves requests and stores in the instance's cache", ctx do
       start_instance(ctx)
 
       conn = request("/w=8/format=png/src/red.png", instance: ctx.name)
