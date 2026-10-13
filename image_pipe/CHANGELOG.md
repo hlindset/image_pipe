@@ -22,6 +22,14 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   at `-0.0` gets those of one at `0`. Cached copies of such requests miss once
   after an upgrade.
 
+### Fixed
+
+- On a URL with `expires`, a response gets `Cache-Control: no-store`, even
+  when an earlier Plug set `Cache-Control`, if storage is denied by its origin
+  or by configuration, or if a crop fell back because content detection
+  failed. Before, it got the earlier Plug's `Cache-Control` capped at the
+  expiry, and a CDN could store it.
+
 ## [0.2.0] - 2026-10-13
 
 ### Added

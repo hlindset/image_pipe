@@ -180,6 +180,17 @@ defmodule ImagePipe.Response.CachePolicy do
         ) :: CacheHeaders.t()
   def limit_to_expiry(prepared, _conn, nil, _now, _mode, _config), do: prepared
 
+  # The policy forbade storage, which a host `Cache-Control` must not undo.
+  def limit_to_expiry(
+        %CacheHeaders{headers: [{"cache-control", @no_store}]} = prepared,
+        _,
+        _,
+        _,
+        _,
+        _
+      ),
+      do: prepared
+
   def limit_to_expiry(prepared, conn, expires, now, mode, config) do
     remaining = max(0, expires - now)
     host = get_resp_header(conn, "cache-control")

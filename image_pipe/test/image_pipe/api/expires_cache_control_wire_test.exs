@@ -188,6 +188,24 @@ defmodule ImagePipe.API.ExpiresCacheControlWireTest do
                ]
       end
     end
+
+    test "an unstorable origin stays no-store under a host Cache-Control", %{
+      config: config,
+      origin: origin
+    } do
+      for control <- ["no-store", "private, max-age=600"] do
+        Agent.update(origin, fn _ -> control end)
+
+        response =
+          conn(:get, origin_path(@expires))
+          |> put_resp_header("cache-control", "public, max-age=86400")
+          |> ImagePipe.Plug.call(config)
+
+        assert response.status == 200
+        assert get_resp_header(response, "cache-control") == ["no-store"], control
+        assert get_resp_header(response, "etag") == []
+      end
+    end
   end
 
   defp origin_path(expires),
