@@ -22,7 +22,8 @@ defmodule ImagePipe.Cache do
       OutputWork,
       Key,
       FileSystem,
-      FileSystem.CheckedDirs
+      FileSystem.CheckedDirs,
+      FileSystem.RefusedRoots
     ]
 
   require Logger
@@ -99,19 +100,13 @@ defmodule ImagePipe.Cache do
   # without them (see `Owner`).
   @spec drop_refused(keyword()) :: keyword()
   def drop_refused(options) do
-    refused = Owner.refused()
+    Enum.reject(options, fn
+      {key, cache_opts} when key in [:cache, :input_cache] and is_list(cache_opts) ->
+        Owner.refused?(Store.root_dir(cache_opts))
 
-    if MapSet.size(refused) == 0 do
-      options
-    else
-      Enum.reject(options, fn
-        {key, cache_opts} when key in [:cache, :input_cache] and is_list(cache_opts) ->
-          MapSet.member?(refused, Store.root_dir(cache_opts))
-
-        _other ->
-          false
-      end)
-    end
+      _other ->
+        false
+    end)
   end
 
   @doc false

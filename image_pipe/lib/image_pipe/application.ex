@@ -24,6 +24,7 @@ defmodule ImagePipe.Application do
       ImagePipe.Source.HTTP.PinnedPools,
       ImagePipe.Cache.Resources,
       ImagePipe.Cache.FileSystem.CheckedDirs,
+      ImagePipe.Cache.FileSystem.RefusedRoots,
       {Task.Supervisor, name: ImagePipe.Cache.RefreshTasks},
       ImagePipe.Cache.Work,
       ImagePipe.Cache.OutputWork,

@@ -467,7 +467,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Cache.OutputWork,
       ImagePipe.Cache.Key,
       ImagePipe.Cache.FileSystem,
-      ImagePipe.Cache.FileSystem.CheckedDirs
+      ImagePipe.Cache.FileSystem.CheckedDirs,
+      ImagePipe.Cache.FileSystem.RefusedRoots
     ])
   end
 

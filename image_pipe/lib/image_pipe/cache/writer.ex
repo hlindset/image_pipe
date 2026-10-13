@@ -114,7 +114,7 @@ defmodule ImagePipe.Cache.Writer do
   # unless another node took the root over: the entry would land in a root
   # this node no longer counts.
   def handle_info({:EXIT, _pid, reason}, state) do
-    if MapSet.member?(Owner.refused(), state.root),
+    if Owner.refused?(state.root),
       do: {:stop, reason, state},
       else: {:stop, reason, drain(state)}
   end

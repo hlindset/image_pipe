@@ -10,10 +10,10 @@ defmodule ImagePipe.Cache.FileSystem.Owner do
   # `Root`. Comparing contents rather than timestamps keeps clocks out of it.
   # Claiming never waits, so a contested root doesn't hold up the instance.
   #
-  # A refused root is recorded here, and requests run without its cache (see
-  # `ImagePipe.Cache.drop_refused/1`). An owner can find its root taken over,
-  # by a node on its own host or after its heartbeats stalled for a whole
-  # watch, as on a hung network mount. It refuses the root and stops, which
+  # A refused root is recorded in `RefusedRoots`, and requests run without
+  # its cache (see `ImagePipe.Cache.drop_refused/1`). An owner can find its
+  # root taken over, by a node on its own host or after its heartbeats
+  # stalled for a whole watch, as on a hung network mount. It refuses the root and stops, which
   # stops the root's cache processes. Their restart watches even a file from
   # its own host, so two nodes on one host don't take the root from each
   # other.
@@ -23,10 +23,11 @@ defmodule ImagePipe.Cache.FileSystem.Owner do
 
   require Logger
 
+  alias ImagePipe.Cache.FileSystem.RefusedRoots
+
   @file_name ".image-pipe-owner"
   @heartbeat_ms 5_000
   @watch_ms 25_000
-  @refused {__MODULE__, :refused}
 
   @doc false
   def file_name, do: @file_name
@@ -80,7 +81,7 @@ defmodule ImagePipe.Cache.FileSystem.Owner do
   # A file from this host was left by this node's previous run, unless this
   # node lost the root to another node on its host.
   defp restart?(claim, found),
-    do: host(found) == claim.host and not MapSet.member?(refused(), claim.dir)
+    do: host(found) == claim.host and not refused?(claim.dir)
 
   @doc """
   Takes a free root over for an `OwnerWatch`. Nodes that found the same file
@@ -114,30 +115,12 @@ defmodule ImagePipe.Cache.FileSystem.Owner do
     end
   end
 
-  @doc "The roots this node refused, as a set of directories."
-  def refused, do: :persistent_term.get(@refused, MapSet.new())
-
+  @doc "Whether this node refused the root at `dir`."
+  defdelegate refused?(dir), to: RefusedRoots
   @doc false
-  def refuse(dir), do: update_refused(&MapSet.put(&1, dir))
-
+  defdelegate refuse(dir), to: RefusedRoots
   @doc false
-  def accept(dir), do: update_refused(&MapSet.delete(&1, dir))
-
-  # Each update replaces a persistent term, so it skips unchanged sets.
-  # Updates from different roots can run at once, so they take a node-local
-  # lock, or one could overwrite another's change. Reads take none.
-  defp update_refused(update) do
-    :global.trans(
-      {@refused, self()},
-      fn ->
-        refused = refused()
-        updated = update.(refused)
-        if updated != refused, do: :persistent_term.put(@refused, updated)
-        :ok
-      end,
-      [node()]
-    )
-  end
+  defdelegate accept(dir), to: RefusedRoots
 
   def start_link(claim), do: GenServer.start_link(__MODULE__, claim)
 

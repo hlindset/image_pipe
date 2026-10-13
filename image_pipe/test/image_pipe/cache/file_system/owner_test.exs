@@ -18,7 +18,7 @@ defmodule ImagePipe.Cache.FileSystem.OwnerTest do
   test "claims a root nobody owns", %{tmp_dir: root, path: path} do
     start_supervised!({Root, root: root, max_size_bytes: 1_000_000, host: "this-host"})
     assert host(path) == "this-host"
-    refute MapSet.member?(Owner.refused(), root)
+    refute Owner.refused?(root)
   end
 
   test "concurrent refusals and acceptances all land", %{tmp_dir: root} do
@@ -29,13 +29,13 @@ defmodule ImagePipe.Cache.FileSystem.OwnerTest do
     |> Task.async_stream(&Owner.refuse/1, max_concurrency: 40, timeout: :infinity)
     |> Stream.run()
 
-    assert Enum.all?(dirs, &MapSet.member?(Owner.refused(), &1))
+    assert Enum.all?(dirs, &Owner.refused?(&1))
 
     dirs
     |> Task.async_stream(&Owner.accept/1, max_concurrency: 40, timeout: :infinity)
     |> Stream.run()
 
-    refute Enum.any?(dirs, &MapSet.member?(Owner.refused(), &1))
+    refute Enum.any?(dirs, &Owner.refused?(&1))
   end
 
   test "a crashed cache process restarts without giving the root up", %{tmp_dir: root} do
@@ -63,7 +63,7 @@ defmodule ImagePipe.Cache.FileSystem.OwnerTest do
              )
 
     assert File.read!(path) == claimed
-    refute MapSet.member?(Owner.refused(), root)
+    refute Owner.refused?(root)
   end
 
   test "an instance claims its cache roots while it runs", %{tmp_dir: root, path: path} do
@@ -108,7 +108,7 @@ defmodule ImagePipe.Cache.FileSystem.OwnerTest do
 
     test "is refused at once, and only watched", ctx do
       assert ctx.log =~ ~s(belongs to host "other-host")
-      assert MapSet.member?(Owner.refused(), ctx.tmp_dir)
+      assert Owner.refused?(ctx.tmp_dir)
       assert host(ctx.path) == "other-host"
     end
 
@@ -122,7 +122,7 @@ defmodule ImagePipe.Cache.FileSystem.OwnerTest do
         end)
 
       assert log =~ ~s(host "other-host" is using cache root)
-      assert MapSet.member?(Owner.refused(), ctx.tmp_dir)
+      assert Owner.refused?(ctx.tmp_dir)
       assert host(ctx.path) == "other-host"
     end
 
@@ -164,7 +164,7 @@ defmodule ImagePipe.Cache.FileSystem.OwnerTest do
       end)
 
     assert log =~ ~s(host "other-host" took over cache root)
-    assert MapSet.member?(Owner.refused(), ctx.tmp_dir)
+    assert Owner.refused?(ctx.tmp_dir)
     assert File.read!(ctx.path) == "other-host\ntoken\n0\n"
   end
 
@@ -220,7 +220,7 @@ defmodule ImagePipe.Cache.FileSystem.OwnerTest do
 
     assert host(ctx.path) == "this-host"
     assert File.read!(ctx.path) =~ taken |> String.split("\n") |> Enum.at(1)
-    refute MapSet.member?(Owner.refused(), ctx.tmp_dir)
+    refute Owner.refused?(ctx.tmp_dir)
   end
 
   # The Root's exit reaches the test supervisor apart from this process's
