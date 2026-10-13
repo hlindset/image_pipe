@@ -60,9 +60,15 @@ The tag starts the [Library release workflow](.github/workflows/release.yml):
 
 1. It checks that the tag matches both library versions, is on `main`, and
    has notes in both changelogs.
-2. It publishes `image_pipe_url` and then `image_pipe` to Hex with their docs,
-   in the `release` environment, which holds the `HEX_API_KEY` secret.
+2. It waits for a maintainer to approve the `release` environment on the
+   run's page. Then it publishes `image_pipe_url` and then `image_pipe` to
+   Hex with their docs.
 3. It creates the GitHub release from both changelogs, grouped by project.
+
+The `release` environment holds the `HEX_API_KEY` secret. It accepts only
+tags that match its deployment rules, `v*.*.*` and `image_pipe_svg-v*.*.*`,
+and refuses a job started by any other tag. A new tag prefix that publishes
+to Hex needs its own rule in the environment's settings.
 
 Server images don't change. To ship the new libraries in images, set
 `@image_pipe_version` in the next server release.
@@ -137,8 +143,10 @@ The tag starts the [SVG package release workflow](.github/workflows/release-svg.
 2. It builds the NIF for every target and NIF version.
 3. It creates the GitHub release from the changelog, with the NIFs attached.
    The published package downloads them from there.
-4. It downloads the NIFs' checksums and publishes `image_pipe_svg` to Hex in
-   the `release` environment.
+4. It waits for a maintainer to approve the `release` environment on the
+   run's page. Then it downloads the NIFs' checksums and publishes
+   `image_pipe_svg` to Hex. Until then, the GitHub release has no Hex
+   package.
 
 When `image_pipe` needs the new version, raise its `image_pipe_svg`
 requirement in a library release. Library and server releases resolve
