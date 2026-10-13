@@ -118,8 +118,6 @@ jobs:
     env:
       # Use only the tools mise-action installs, not every tool in mise.toml.
       MISE_EXEC_AUTO_INSTALL: "false"
-      # Download the NIFs just released instead of building from source.
-      IMAGE_PIPE_SVG_PUBLISH: "1"
     defaults:
       run:
         working-directory: image_pipe_svg
@@ -135,16 +133,20 @@ jobs:
         run: echo "MISE_ERLANG_PRECOMPILED_OS=${ImageOS/ubuntu/ubuntu-}.04" >> "$GITHUB_ENV"
       - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
-          install_args: erlang elixir
+          install_args: erlang elixir rust
       - name: Install Hex
         run: mise exec -- mix local.hex --force
       - name: Install Rebar
         run: mise exec -- mix local.rebar --force
       - name: Install dependencies
         run: mise exec -- mix deps.get
+      # The download task compiles the package first. Until the checksum file
+      # exists, only a build from source compiles, so this step builds the NIF.
       - name: Download NIF checksums
         run: mise exec -- mix rustler_precompiled.download ImagePipe.SVG.Native --all --print
       - name: Publish
         run: mise exec -- mix hex.publish --yes
         env:
           HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+          # Download the NIFs just released instead of building from source.
+          IMAGE_PIPE_SVG_PUBLISH: "1"
