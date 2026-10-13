@@ -161,6 +161,7 @@ defmodule ImagePipe.Cache.Publication do
       result: :ok,
       cache: :stage_dropped,
       reason: reason,
+      pool: :input,
       output_format: nil,
       cache_key: hash
     })

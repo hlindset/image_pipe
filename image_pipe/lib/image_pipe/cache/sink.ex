@@ -320,7 +320,7 @@ defmodule ImagePipe.Cache.Sink do
       %{},
       cache_status
       |> stage_metadata(reason, error, output_format)
-      |> Map.put(:cache_key, key.hash)
+      |> Map.merge(%{pool: :output, cache_key: key.hash})
     )
   end
 

@@ -67,7 +67,7 @@ defmodule ImagePipe.Cache.WriterTest do
     sink = Cache.open_sink(key(), {:complete_body, @content_type}, [], opts)
 
     assert Cache.write_chunk(sink, String.duplicate("x", 200), opts) == nil
-    assert_receive {:stage, %{cache: :stage_dropped, reason: :pending_limit}}
+    assert_receive {:stage, %{cache: :stage_dropped, reason: :pending_limit, pool: :output}}
 
     Caches.await_writes(opts)
     assert {:miss, _key} = Cache.lookup_entry(key(), opts)
@@ -125,7 +125,7 @@ defmodule ImagePipe.Cache.WriterTest do
     Cache.publish("source", nil, staged, opts)
     assert_received :record
     refute_received :original
-    assert_received {:stage, %{cache: :stage_dropped, reason: :writer_limit}}
+    assert_received {:stage, %{cache: :stage_dropped, reason: :writer_limit, pool: :input}}
 
     Cache.publish("source", nil, fn -> send(test, :invalidated) end, opts)
     assert_received :invalidated

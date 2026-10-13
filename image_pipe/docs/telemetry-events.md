@@ -415,6 +415,8 @@ One-shot. Emitted when a cache write stops before committing the entry.
 The default Logger logs dropped writes at `:warning`.
 
 - Metadata:
+  - `:pool` (atom): `:output` for a processed image or placeholder, `:input`
+    for an original.
   - `:cache` (atom): `:stage_skipped` when the body crossed `max_body_bytes`,
     `:stage_abandoned` when delivery stopped early or the stream failed,
     `:stage_dropped` when the cache dropped the write to keep up with its

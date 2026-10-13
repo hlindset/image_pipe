@@ -27,8 +27,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   more than an hour old. The `[:cache, :sweep]` event reports them as
   `:unreadable`.
 - `[:cache, :stage]` reports writes the cache drops to keep up with its
-  storage as `:stage_dropped`, for processed images and originals. The
-  default Logger logs them at `:warning`.
+  storage as `:stage_dropped`, for processed images and originals, and
+  carries `:pool`. The default Logger logs dropped writes at `:warning`.
 - `[:cache, :coordination]` carries `reason: :deadline` when a request stops
   waiting for another request's image because it wasn't stored in time.
 - The `image_pipe.request` span carries a `request_id` attribute when Logger
