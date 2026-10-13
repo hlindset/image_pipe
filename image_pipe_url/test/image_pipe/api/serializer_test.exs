@@ -190,6 +190,24 @@ defmodule ImagePipe.API.SerializerTest do
     end
   end
 
+  property "effect fractions and padding survive canonical serialization" do
+    fraction = one_of([member_of([0, 0.0, -0.0, 1, 1.0]), float(min: 0.0, max: 1.0)])
+
+    check all start <- fraction,
+              stop <- fraction,
+              opacity <- fraction,
+              padding <-
+                one_of([constant(0), integer(0..20), tuple({integer(0..2), constant(0)})]) do
+      IP.URL.new()
+      |> IP.URL.group(
+        progressive_blur: [sigma: 2, start: start, stop: stop],
+        gradient: [opacity: opacity, color: "red", start: start, stop: stop],
+        padding: padding
+      )
+      |> assert_round_trip()
+    end
+  end
+
   test "tiny and large decimals retain their value without exponent notation" do
     for value <- [1.0e-30, 1.0e30, 0.000001, 1.2345678901234567] do
       IP.URL.new() |> IP.URL.group(contrast: value) |> assert_round_trip()

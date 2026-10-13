@@ -5,6 +5,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- A request with `pad=0` gets the cache key and ETag of the same request
+  without `pad`, and a `gradient` or `progressive-blur` that starts or stops
+  at `-0.0` gets those of one at `0`. Cached copies of such requests miss once
+  after an upgrade.
+
 ## [0.2.0] - 2026-10-13
 
 ### Added
