@@ -144,7 +144,7 @@ defmodule ImagePipe.Cache.Sink do
 
     Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], start_metadata, fn ->
       result = store_body(key, metadata, body, cache_opts)
-      {:ok, commit_metadata(result, key, nil, byte_size(body), metadata.cost_us)}
+      {:ok, commit_metadata(result, key, nil, byte_size(body), nil)}
     end)
 
     :ok
@@ -175,12 +175,17 @@ defmodule ImagePipe.Cache.Sink do
     do: emit_stage_event(:stage_dropped, reason, nil, writer_state)
 
   @doc false
-  # The `[:cache, :write]` stop metadata for a commit's result.
+  # The `[:cache, :write]` stop metadata for a commit's result. A source
+  # record has no render cost.
   def commit_metadata(result, %Key{} = key, output_format, size, cost_us) do
     result
     |> commit_stop_metadata(output_format)
-    |> Map.merge(%{cache_key: key.hash, bytes: size, estimated_cost_us: cost_us})
+    |> Map.merge(%{cache_key: key.hash, bytes: size})
+    |> put_cost(cost_us)
   end
+
+  defp put_cost(metadata, nil), do: metadata
+  defp put_cost(metadata, cost_us), do: Map.put(metadata, :estimated_cost_us, cost_us)
 
   defp start(key, metadata, cache_opts, opts) do
     root = Keyword.fetch!(cache_opts, :root)
