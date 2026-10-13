@@ -94,7 +94,10 @@ defmodule ImagePipe.Response.ErrorStatus do
 
   defp source_domain_class({:bad_status, code}) when code in @absent_statuses, do: :not_found
   defp source_domain_class({:bad_status, _code}), do: :bad_gateway
-  defp source_domain_class(:receive_timeout), do: :gateway_timeout
+
+  defp source_domain_class(reason) when reason in [:receive_timeout, :pool_timeout],
+    do: :gateway_timeout
+
   defp source_domain_class(:body_too_large), do: :payload_too_large
 
   defp source_domain_class(reason)
@@ -147,7 +150,9 @@ defmodule ImagePipe.Response.ErrorStatus do
   def message_for({:source, :too_many_redirects}), do: "too many redirects"
   def message_for({:source, :redirect_not_followed}), do: "redirect not followed"
   def message_for({:source, :invalid_redirect}), do: "invalid redirect"
-  def message_for({:source, :receive_timeout}), do: "source timeout"
+
+  def message_for({:source, reason}) when reason in [:receive_timeout, :pool_timeout],
+    do: "source timeout"
 
   def message_for({:source, reason})
       when reason in [:unexpected_not_modified, :invalid_not_modified],

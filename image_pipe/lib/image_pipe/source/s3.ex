@@ -95,7 +95,8 @@ defmodule ImagePipe.Source.S3 do
                        type: :non_neg_integer,
                        doc: """
                        Milliseconds to wait for a free connection from the pool. \
-                       The default value is `5000`.
+                       A request that waits longer fails with `504`. The default \
+                       value is `5000`.
                        """
                      ]
                    ] ++ CacheSettings.schema()

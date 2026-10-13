@@ -43,6 +43,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Before, it kept the earlier Plug's `Cache-Control`, and a CDN could serve
   the error for that header's lifetime. A client error (`4xx`) still keeps
   it.
+- A request to an HTTP or S3 source that waited past `pool_timeout` for a
+  free connection crashed instead of failing. Behind Bandit, its client got
+  no response and the connection stayed open. Such requests now fail with
+  `504`.
+
 - HTTP and S3 sources drop conditional headers, such as `if-none-match`,
   from `req_options`. An origin that answered one with `304` on a first
   fetch made the request fail.

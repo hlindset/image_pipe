@@ -37,6 +37,28 @@ defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
     assert s.duration_native > 0
   end
 
+  test "a source fetch records its client span under the caller's span" do
+    origin =
+      start_supervised!(
+        {Bandit,
+         plug: fn conn, _opts -> Plug.Conn.send_resp(conn, 200, "image bytes") end,
+         ip: {127, 0, 0, 1},
+         port: 0}
+      )
+
+    {:ok, {_address, port}} = ThousandIsland.listener_info(origin)
+
+    Telemetry.span([], [:request], %{}, fn ->
+      {:ok, response} = ImagePipe.Source.ReqStream.open([url: "http://127.0.0.1:#{port}/"], [])
+      assert Enum.join(response.stream) == "image bytes"
+      {:ok, %{result: :ok}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.http.client"} = client}
+    assert_receive {:span, %Span{name: "image_pipe.request"} = request}
+    assert client.parent_span_id == request.span_id
+  end
+
   test "sends traceparent only, not the parent's tracestate or the context's baggage" do
     :otel_propagator_text_map.extract_to(
       :otel_ctx.get_current(),

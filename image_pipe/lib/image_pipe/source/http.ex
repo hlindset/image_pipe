@@ -111,7 +111,8 @@ defmodule ImagePipe.Source.HTTP do
                         type: :non_neg_integer,
                         doc: """
                         Milliseconds to wait for a free connection from the pool. \
-                        The default value is `5000`.
+                        A request that waits longer fails with `504`. The default \
+                        value is `5000`.
                         """
                       ],
                       max_redirects: [

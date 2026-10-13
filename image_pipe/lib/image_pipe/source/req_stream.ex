@@ -6,6 +6,7 @@ defmodule ImagePipe.Source.ReqStream do
   alias ImagePipe.Source.ReqSanitizer
   alias ImagePipe.Source.Response
   alias ImagePipe.Source.StreamError
+  alias ImagePipe.Telemetry.RequestContext
   alias ImagePipe.Telemetry.Trace.ReqStep
 
   @default_receive_timeout 5_000
@@ -136,6 +137,7 @@ defmodule ImagePipe.Source.ReqStream do
     end
   end
 
+  defp request_error(:pool_timeout), do: :pool_timeout
   defp request_error(%Req.HTTPError{}), do: :invalid_body
 
   # An origin that accepts the connection but sends no headers in time.
@@ -174,7 +176,87 @@ defmodule ImagePipe.Source.ReqStream do
     |> PinnedTarget.attach(addresses, Keyword.fetch!(runtime_opts, :deadline))
   end
 
+  # With `into: :self`, Finch sends the response to the process that made the
+  # request, from a process linked to it. When no pooled connection frees up
+  # within the pool timeout, that linked process raises, which would kill the
+  # caller. So a monitored relay makes the request and passes every response
+  # message on, and the caller reads them as if it had made the request.
+  # Requests to a test plug don't use Finch and run in the caller.
+  defp send_request(%Req.Request{options: %{plug: _plug}} = request),
+    do: request_in_place(request)
+
   defp send_request(request) do
+    caller = self()
+    context = RequestContext.capture()
+    callers = [caller | Process.get(:"$callers", [])]
+
+    {relay, monitor} =
+      spawn_monitor(fn ->
+        RequestContext.adopt(context)
+        Process.put(:"$callers", callers)
+        relay_request(caller, request)
+      end)
+
+    receive do
+      {^relay, {:raised, kind, reason, stacktrace}} ->
+        Process.demonitor(monitor, [:flush])
+        :erlang.raise(kind, reason, stacktrace)
+
+      {^relay, result} ->
+        Process.demonitor(monitor, [:flush])
+        result
+
+      {:DOWN, ^monitor, :process, ^relay, reason} ->
+        relay_exit(reason)
+    end
+  end
+
+  defp relay_request(caller, request) do
+    caller_monitor = Process.monitor(caller)
+
+    result =
+      try do
+        request_in_place(request)
+      catch
+        kind, reason -> {:raised, kind, reason, __STACKTRACE__}
+      end
+
+    send(caller, {self(), result})
+
+    case result do
+      {:ok, %Req.Response{body: %Req.Response.Async{ref: ref}}} ->
+        relay(caller, caller_monitor, ref)
+
+      _other ->
+        :ok
+    end
+  end
+
+  # Ends after the last message, or with the caller. Cancelling the response
+  # stops the linked Finch process, which ends the relay too.
+  defp relay(caller, caller_monitor, ref) do
+    receive do
+      {^ref, message} = response_message ->
+        send(caller, response_message)
+
+        case message do
+          :done -> :ok
+          {:error, _reason} -> :ok
+          _more -> relay(caller, caller_monitor, ref)
+        end
+
+      {:DOWN, ^caller_monitor, :process, ^caller, _reason} ->
+        exit(:shutdown)
+    end
+  end
+
+  # Finch reports a full pool by raising this message in the linked process.
+  defp relay_exit({%RuntimeError{message: "Finch was unable to provide a connection" <> _}, _}),
+    do: {:error, :pool_timeout}
+
+  defp relay_exit(reason), do: exit(reason)
+
+  defp request_in_place(request) do
     Req.request(request)
   rescue
     exception in Finch.Error -> {:error, exception}
@@ -404,10 +486,18 @@ defmodule ImagePipe.Source.ReqStream do
     Keyword.get(runtime_opts, key, Keyword.get(req_options, key, default))
   end
 
+  # Also stops the relay, which an HTTP/2 cancel leaves waiting.
   defp cancel_response(%Req.Response{} = response) do
     Req.cancel_async_response(response)
-    :ok
+    stop_relay(response.body)
   rescue
     ArgumentError -> :ok
   end
+
+  defp stop_relay(%Req.Response.Async{pid: relay}) when relay != self() do
+    Process.exit(relay, :shutdown)
+    :ok
+  end
+
+  defp stop_relay(_body), do: :ok
 end
