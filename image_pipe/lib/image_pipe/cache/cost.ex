@@ -21,8 +21,10 @@ defmodule ImagePipe.Cache.Cost do
   #
   # A placeholder or info response is one constant per kind. Pixel amounts
   # are in thousands, so a pixel weight is in milliseconds per megapixel. The
-  # weights come from `bench/cost_calibration.exs`. Efforts it doesn't
-  # measure are interpolated. A baseline JPEG decodes much faster with
+  # weights are the geometric mean of `bench/cost_calibration.exs` fits on x86
+  # and ARM CI runners. Efforts it doesn't measure are interpolated, and
+  # HEIF, JPEG 2000 and SVG keep their first guesses' ratio to measured
+  # formats. Detection isn't measured. A baseline JPEG decodes much faster with
   # shrink-on-load than a progressive one, which the debug info doesn't tell
   # apart, so a large baseline source is overestimated.
   @moduledoc false
@@ -31,44 +33,44 @@ defmodule ImagePipe.Cache.Cost do
   alias ImagePipe.Output.Resolved
 
   @weights %{
-    :request => 3_900,
-    :pixels => 0.7,
-    :alpha => 10,
-    :metric => 4,
+    :request => 3_600,
+    :pixels => 2.5,
+    :alpha => 13,
+    :metric => 38,
     :detect => 150_000,
-    {:decode, :jpeg} => 2.6,
-    {:decode, :png} => 10,
-    {:decode, :webp} => 1.9,
-    {:decode, :avif} => 9.4,
-    {:decode, :heif} => 9.4,
-    {:decode, :jpeg_xl} => 8,
-    {:decode, :jpeg2000} => 30,
-    {:decode, :tiff} => 2.6,
-    {:decode, :gif} => 4.5,
-    {:decode, :svg} => 20,
-    {:encode, :jpeg} => 2.1,
-    {:encode, :png} => 64,
-    {:encode, :png_palette} => 110,
-    {:encode, :webp, 0} => 18,
-    {:encode, :webp, 1} => 23,
-    {:encode, :webp, 2} => 28,
-    {:encode, :webp, 3} => 40,
-    {:encode, :webp, 4} => 56,
-    {:encode, :webp, 5} => 74,
-    {:encode, :webp, 6} => 96,
-    {:encode, :avif, 0} => 9.8,
-    {:encode, :avif, 1} => 18,
-    {:encode, :avif, 2} => 33,
-    {:encode, :avif, 3} => 43,
-    {:encode, :avif, 4} => 200,
-    {:encode, :avif, 5} => 320,
-    {:encode, :avif, 6} => 590,
-    {:encode, :avif, 7} => 770,
-    {:encode, :avif, 8} => 1_000,
-    {:encode, :avif, 9} => 1_300,
-    {:terminal, :info} => 1_800,
-    {:terminal, :blurhash} => 7_600,
-    {:terminal, :lqip_css} => 11_000
+    {:decode, :jpeg} => 1.6,
+    {:decode, :png} => 2.6,
+    {:decode, :webp} => 1.2,
+    {:decode, :avif} => 4.8,
+    {:decode, :heif} => 4.8,
+    {:decode, :jpeg_xl} => 2.8,
+    {:decode, :jpeg2000} => 10,
+    {:decode, :tiff} => 0.4,
+    {:decode, :gif} => 1.2,
+    {:decode, :svg} => 9,
+    {:encode, :jpeg} => 1.2,
+    {:encode, :png} => 36,
+    {:encode, :png_palette} => 86,
+    {:encode, :webp, 0} => 10,
+    {:encode, :webp, 1} => 13,
+    {:encode, :webp, 2} => 17,
+    {:encode, :webp, 3} => 27,
+    {:encode, :webp, 4} => 41,
+    {:encode, :webp, 5} => 54,
+    {:encode, :webp, 6} => 71,
+    {:encode, :avif, 0} => 12,
+    {:encode, :avif, 1} => 23,
+    {:encode, :avif, 2} => 43,
+    {:encode, :avif, 3} => 56,
+    {:encode, :avif, 4} => 270,
+    {:encode, :avif, 5} => 440,
+    {:encode, :avif, 6} => 810,
+    {:encode, :avif, 7} => 1_100,
+    {:encode, :avif, 8} => 1_500,
+    {:encode, :avif, 9} => 2_000,
+    {:terminal, :info} => 960,
+    {:terminal, :blurhash} => 5_300,
+    {:terminal, :lqip_css} => 7_800
   }
 
   @default_effort %{webp: 4, avif: 3}
