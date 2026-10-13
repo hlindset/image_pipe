@@ -6,8 +6,9 @@ defmodule ImagePipe.Cache.Publication do
   # counted as pending against the originals cache. The write is dropped when
   # the cache runs its maximum number of writers or its pending bytes would
   # pass the limit. Without a running cache, or when the original can't be
-  # pinned, the writes run in the request. The deadline and the writer's
-  # maximum age are guesses (image_plug-sole).
+  # pinned, the writes run in the request. At the writer limit, only the
+  # original is dropped. The deadline and the writer's maximum age are guesses
+  # (image_plug-sole).
   @moduledoc false
 
   alias ImagePipe.Cache.FileSystem.Writers
@@ -58,7 +59,7 @@ defmodule ImagePipe.Cache.Publication do
         Work.publish(hash, lease, inline(write))
 
       {:error, :writer_limit} ->
-        dropped(hash, :writer_limit, opts)
+        Work.publish(hash, lease, without_original(write, hash, opts))
 
       {:error, :unpinned, writer} ->
         send(writer, :cancel)
@@ -117,6 +118,15 @@ defmodule ImagePipe.Cache.Publication do
   end
 
   defp inline(fun), do: fun
+
+  # Without a writer, the original isn't stored, but the writes that keep the
+  # cache correct, such as an invalidation, still run in the request.
+  defp without_original({:staged, _path, _put, then}, hash, opts) do
+    dropped(hash, :writer_limit, opts)
+    fn -> run_then(then) end
+  end
+
+  defp without_original(fun, _hash, _opts), do: fun
 
   defp run_then(nil), do: :ok
   defp run_then(then), do: then.()

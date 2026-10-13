@@ -106,6 +106,31 @@ defmodule ImagePipe.Cache.WriterTest do
     assert Writers.pending(ctx.root) == 0
   end
 
+  test "at the writer limit, a fetch's writes skip the original and run the rest", ctx do
+    opts = cache_opts(ctx, [])
+    test = self()
+
+    blockers =
+      for n <- 1..64 do
+        spec = Supervisor.child_spec({Task, fn -> receive(do: (:stop -> :ok)) end}, id: n)
+        {:ok, pid} = Writers.start_child(ctx.root, spec)
+        pid
+      end
+
+    on_exit(fn -> Enum.each(blockers, &send(&1, :stop)) end)
+
+    staged =
+      {:staged, "unused", fn _path -> send(test, :original) end, fn -> send(test, :record) end}
+
+    Cache.publish("source", nil, staged, opts)
+    assert_received :record
+    refute_received :original
+    assert_received {:stage, %{cache: :stage_dropped, reason: :writer_limit}}
+
+    Cache.publish("source", nil, fn -> send(test, :invalidated) end, opts)
+    assert_received :invalidated
+  end
+
   test "unfinished writes count against max_size_bytes", ctx do
     opts = cache_opts(ctx, max_size_bytes: 10_000)
     cache = Keyword.fetch!(opts, :cache)
