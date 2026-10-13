@@ -4,6 +4,7 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.Trace.TestExporter
 
   # Inline plug: serves beach.jpg for any request path (ignores query params).
@@ -54,17 +55,20 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
 
   @moduletag :tmp_dir
 
+  # The cache's own processes trace these as separate roots, outside the request.
+  @cache_process_spans ["image_pipe.cache.sweep", "image_pipe.cache.admission"]
+
   setup do
     TestExporter.attach(self(), finch_spans: false)
   end
 
   defp call(path, opts) do
     conn = conn(:get, path)
-    ImagePipe.Plug.call(conn, ImagePipe.Plug.init(opts))
+    ImagePipe.Plug.call(conn, Caches.plug(opts))
   end
 
   defp miss_opts(cache_root) do
-    [
+    Caches.start!(
       sources: [
         path: [
           adapter: RootHTTPAdapter,
@@ -76,11 +80,11 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
         ]
       ],
       cache: [root: cache_root]
-    ]
+    )
   end
 
   defp signed_miss_opts(cache_root) do
-    [
+    Caches.start!(
       sources: [
         path: [
           adapter: SignedRootHTTPAdapter,
@@ -89,7 +93,11 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
         ]
       ],
       cache: [root: cache_root]
-    ]
+    )
+  end
+
+  defp request_spans do
+    Enum.reject(TestExporter.collect(), &(&1.name in @cache_process_spans))
   end
 
   defp request_path, do: "/w=120/h=90/format=jpeg/src/images/beach.jpg"
@@ -98,7 +106,7 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
     conn = call(request_path(), miss_opts(tmp_dir))
     assert conn.status == 200
 
-    spans = TestExporter.collect()
+    spans = request_spans()
     assert [_trace_id] = spans |> Enum.map(& &1.trace_id) |> Enum.uniq()
 
     names = Enum.map(spans, & &1.name)
@@ -113,7 +121,7 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
     conn = call(request_path(), miss_opts(tmp_dir))
     assert conn.status == 200
 
-    spans = TestExporter.collect()
+    spans = request_spans()
     request = Enum.find(spans, &(&1.name == "image_pipe.request"))
     assert request, "request root span missing"
     assert length(spans) >= 3

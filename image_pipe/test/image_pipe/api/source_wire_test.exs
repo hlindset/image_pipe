@@ -8,6 +8,7 @@ defmodule ImagePipe.API.SourceWireTest do
   alias ImagePipe.Source.S3
   alias ImagePipe.SourceTest.CredentialProvider
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
 
   @image File.read!("priv/static/images/beach.jpg")
 
@@ -78,7 +79,6 @@ defmodule ImagePipe.API.SourceWireTest do
   end
 
   test "an S3 cache hit does not fetch credentials or object bytes" do
-    cache = CacheObserver.observe([])
     owner = self()
 
     origin = fn conn ->
@@ -92,23 +92,21 @@ defmodule ImagePipe.API.SourceWireTest do
     end
 
     config =
-      mount(
-        [
-          sources: [
-            s3: [
-              adapter: S3,
-              match: [scheme: "s3"],
-              options: [
-                default: [
-                  endpoint: "https://objects.example.com",
-                  region: "eu-west-1",
-                  credentials: {:provider, CredentialProvider, report_to: self()},
-                  req_options: [plug: origin]
-                ]
+      observed_mount(
+        sources: [
+          s3: [
+            adapter: S3,
+            match: [scheme: "s3"],
+            options: [
+              default: [
+                endpoint: "https://objects.example.com",
+                region: "eu-west-1",
+                credentials: {:provider, CredentialProvider, report_to: self()},
+                req_options: [plug: origin]
               ]
             ]
           ]
-        ] ++ cache
+        ]
       )
 
     response = request("format=jpeg", "s3://bucket/images/cat.jpg?v1", config)
@@ -175,7 +173,6 @@ defmodule ImagePipe.API.SourceWireTest do
   end
 
   test "rotated S3 credentials keep cached results and the ETag" do
-    cache = CacheObserver.observe([])
     tokens = start_supervised!({Agent, fn -> ["TOKEN_1", "TOKEN_2"] end})
     owner = self()
 
@@ -190,23 +187,21 @@ defmodule ImagePipe.API.SourceWireTest do
     end
 
     config =
-      mount(
-        [
-          sources: [
-            s3: [
-              adapter: S3,
-              match: [scheme: "s3"],
-              options: [
-                default: [
-                  endpoint: "https://objects.example.com",
-                  region: "eu-west-1",
-                  credentials: {:provider, RotatingProvider, tokens: tokens, report_to: owner},
-                  req_options: [plug: origin]
-                ]
+      observed_mount(
+        sources: [
+          s3: [
+            adapter: S3,
+            match: [scheme: "s3"],
+            options: [
+              default: [
+                endpoint: "https://objects.example.com",
+                region: "eu-west-1",
+                credentials: {:provider, RotatingProvider, tokens: tokens, report_to: owner},
+                req_options: [plug: origin]
               ]
             ]
           ]
-        ] ++ cache
+        ]
       )
 
     first = request("format=jpeg", "s3://bucket/images/cat.jpg?v1", config)
@@ -224,7 +219,6 @@ defmodule ImagePipe.API.SourceWireTest do
   end
 
   test "S3 mounts with different configured credentials keep separate cached results" do
-    cache = CacheObserver.observe([])
     owner = self()
 
     origin = fn conn ->
@@ -237,50 +231,51 @@ defmodule ImagePipe.API.SourceWireTest do
       |> send_resp(200, @image)
     end
 
-    configs =
-      for key_id <- ["AKIA_ONE", "AKIA_TWO"] do
-        mount(
-          [
-            sources: [
-              s3: [
-                adapter: S3,
-                match: [scheme: "s3"],
-                options: [
-                  default: [
-                    endpoint: "https://objects.example.com",
-                    region: "eu-west-1",
-                    credentials: {:static, access_key_id: key_id, secret_access_key: "S"},
-                    req_options: [plug: origin]
-                  ]
-                ]
+    sources = fn key_id ->
+      [
+        sources: [
+          s3: [
+            adapter: S3,
+            match: [scheme: "s3"],
+            options: [
+              default: [
+                endpoint: "https://objects.example.com",
+                region: "eu-west-1",
+                credentials: {:static, access_key_id: key_id, secret_access_key: "S"},
+                req_options: [plug: origin]
               ]
             ]
-          ] ++ cache
-        )
-      end
-
-    for config <- configs do
-      assert request("format=jpeg", "s3://bucket/images/cat.jpg?v1", config).status == 200
-      assert_receive :object_fetch
+          ]
+        ]
+      ]
     end
+
+    {_plug, opts} = first = observed_mount(sources.("AKIA_ONE"))
+    assert request("format=jpeg", "s3://bucket/images/cat.jpg?v1", first).status == 200
+    assert_receive :object_fetch
+
+    # The second mount takes over the first one's cache.
+    stop_supervised!(Caches.instance(opts))
+    other = opts |> Keyword.merge(sources.("AKIA_TWO")) |> Caches.start!()
+    second = {Caches.plug(other), other}
+    assert request("format=jpeg", "s3://bucket/images/cat.jpg?v1", second).status == 200
+    assert_receive :object_fetch
   end
 
   test "malformed URL sources reject before source resolution or cache access" do
     config =
-      mount(
-        [
-          sources: [
-            https: [
-              adapter: HTTP,
-              match: [scheme: "https"],
-              options: [
-                allowed_hosts: ["assets.example.com"],
-                address_resolver: public_resolver(),
-                req_options: [plug: fn _conn -> flunk("invalid URL fetched its source") end]
-              ]
+      observed_mount(
+        sources: [
+          https: [
+            adapter: HTTP,
+            match: [scheme: "https"],
+            options: [
+              allowed_hosts: ["assets.example.com"],
+              address_resolver: public_resolver(),
+              req_options: [plug: fn _conn -> flunk("invalid URL fetched its source") end]
             ]
           ]
-        ] ++ CacheObserver.observe([])
+        ]
       )
 
     for source <- [
@@ -294,6 +289,12 @@ defmodule ImagePipe.API.SourceWireTest do
       refute_received {:cache_lookup, _, _key}
       refute_received {:cache_put, _key, _body}
     end
+  end
+
+  defp request(options, source, {plug, opts}) do
+    response = request(options, source, plug)
+    Caches.await_writes(opts)
+    response
   end
 
   defp request(options, source, config) do
@@ -319,9 +320,14 @@ defmodule ImagePipe.API.SourceWireTest do
 
   defp public_resolver, do: fn "assets.example.com" -> {:ok, [{93, 184, 216, 34}]} end
 
-  defp mount(overrides) do
-    [max_body_bytes: 10_000_000, max_input_pixels: 40_000_000]
-    |> Keyword.merge(overrides)
-    |> ImagePipe.Plug.init()
+  defp mount(overrides), do: overrides |> options() |> ImagePipe.Plug.init()
+
+  # A mount with an observed cache, and the options its instance runs with.
+  defp observed_mount(overrides) do
+    opts = overrides |> options() |> CacheObserver.observe()
+    {Caches.plug(opts), opts}
   end
+
+  defp options(overrides),
+    do: Keyword.merge([max_body_bytes: 10_000_000, max_input_pixels: 40_000_000], overrides)
 end

@@ -89,11 +89,13 @@ defmodule ImagePipe.Telemetry.Logger do
 
   defp level_for([:debug, :collect, :error | _], _metadata, _base), do: :warning
 
-  # Background sweeps and re-scans repeat every few minutes, so a pass that
-  # changed nothing logs at :debug.
-  defp level_for([:cache, stage, :stop], metadata, base) when stage in [:sweep, :rescan] do
+  # Background sweeps repeat, so a pass that changed nothing logs at :debug.
+  defp level_for([:cache, :sweep, :stop], metadata, base) do
     if quiet_pass?(metadata), do: :debug, else: base
   end
+
+  # Steady drops mean the cache's storage can't keep up with its writes.
+  defp level_for([:cache, :stage], %{cache: :stage_dropped}, _base), do: :warning
 
   defp level_for([:cache, :coordination], %{result: result}, _base)
        when result in [:busy, :bypass, :timeout], do: :warning
@@ -115,7 +117,7 @@ defmodule ImagePipe.Telemetry.Logger do
 
   defp quiet_pass?(metadata) do
     Enum.all?(
-      [:pins, :temps, :bodies, :expired, :staged, :adopted, :dropped, :resynced],
+      [:pins, :temps, :bodies, :unreadable, :staged],
       &(Map.get(metadata, &1, 0) == 0)
     )
   end
@@ -210,6 +212,9 @@ defmodule ImagePipe.Telemetry.Logger do
 
     "image_pipe cache write: #{detail}#{bytes(meta[:bytes])}"
   end
+
+  defp message([:cache, :stage], _m, %{cache: :stage_dropped} = meta),
+    do: "image_pipe cache stage: stage_dropped (#{meta[:reason]})"
 
   defp message([:cache, :admission | _], _m, meta) do
     "image_pipe cache admission: #{meta[:result]}"

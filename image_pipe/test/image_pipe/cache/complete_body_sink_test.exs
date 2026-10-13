@@ -7,6 +7,7 @@ defmodule ImagePipe.Cache.CompleteBodySinkTest do
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Test.Caches
 
   @content_type "text/plain; charset=utf-8"
   @hash "LEHV6nWB2yk8pyo0adR*.7kCMdnj"
@@ -25,7 +26,7 @@ defmodule ImagePipe.Cache.CompleteBodySinkTest do
       File.rm_rf(root)
     end)
 
-    %{root: root, opts: Cache.validate_config!(cache: [root: root])}
+    %{root: root, opts: Cache.validate_config!(Caches.start!(cache: [root: root]))}
   end
 
   defp cache_key, do: %Key{hash: String.duplicate("a", 64), data: [schema_version: 2]}
@@ -41,6 +42,7 @@ defmodule ImagePipe.Cache.CompleteBodySinkTest do
       |> Cache.write_chunk(@hash, opts)
 
     assert :ok = Cache.commit_sink(sink, opts)
+    Caches.await_writes(opts)
 
     assert {:hit, %Entry{} = entry} = Cache.lookup_entry(key, opts)
     Entry.close(entry)
@@ -54,9 +56,13 @@ defmodule ImagePipe.Cache.CompleteBodySinkTest do
   test "fail-open preserved on sink open errors", %{root: root, opts: opts} do
     File.chmod!(root, 0o500)
 
+    # The writer opens the entry's file after the request moves on, and the
+    # request's write still completes.
     log =
       capture_log(fn ->
-        assert Cache.open_sink(cache_key(), {:complete_body, @content_type}, [], opts) == nil
+        sink = Cache.open_sink(cache_key(), {:complete_body, @content_type}, [], opts)
+        assert :ok = Cache.commit_sink(Cache.write_chunk(sink, "body", opts), opts)
+        Caches.await_writes(opts)
       end)
 
     assert log =~ "cache sink open error"

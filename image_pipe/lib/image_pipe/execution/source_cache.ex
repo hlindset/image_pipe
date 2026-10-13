@@ -165,8 +165,12 @@ defmodule ImagePipe.Execution.SourceCache do
     end
   end
 
+  # A record whose source no longer allows storage never reads a stored
+  # original, even before the publication that discards it has run.
   def input(source, key, record, preparation, config) do
-    case Input.open(key, record, config) do
+    stored = if storable?(record, source), do: Input.open(key, record, config), else: :miss
+
+    case stored do
       {:ok, path, lease} ->
         checked_input(record, path, lease, config)
 
@@ -251,14 +255,15 @@ defmodule ImagePipe.Execution.SourceCache do
 
   # Only writes take the publication lock, so a check that changes nothing,
   # the steady state for a local file, doesn't. A lease that is no longer
-  # current skips the writes.
+  # current skips the writes. The writes run off the request, in a cache
+  # writer that takes the lease (see `Cache.publish/4`).
   defp publish_coordinated(result, source, key, previous, cost, config, lease) do
     case publication(result, source, key, previous, cost, config) do
       {result, nil} ->
         result
 
       {result, write} ->
-        Work.publish(key.hash, lease, write)
+        Cache.publish(key.hash, lease, write, config)
         result
     end
   end
@@ -276,7 +281,7 @@ defmodule ImagePipe.Execution.SourceCache do
 
     write =
       if not unchanged_record?(previous, record, source, config),
-        do: fn -> remember(source, key, record, config) end
+        do: remember(source, key, record, config)
 
     {{:ok, %Acquisition{record: record}}, write}
   end
@@ -299,7 +304,7 @@ defmodule ImagePipe.Execution.SourceCache do
           nil
 
         true ->
-          fn -> invalidate(key, config) end
+          invalidation(key, config)
       end
 
     {result, write}
@@ -314,7 +319,7 @@ defmodule ImagePipe.Execution.SourceCache do
          config
        )
        when status in [401, 403, 404, 410],
-       do: {error, fn -> invalidate(key, config) end}
+       do: {error, invalidation(key, config)}
 
   defp publication(error, _source, _key, _previous, _cost, _config), do: {error, nil}
 
@@ -324,13 +329,11 @@ defmodule ImagePipe.Execution.SourceCache do
 
     cond do
       copy? and remember? ->
-        fn ->
-          Input.put(key, response.path, sha256, record, cost, config)
-          Cache.remember_source(key, record, config)
-        end
+        {:staged, response.path, &Input.put(key, &1, sha256, record, cost, config),
+         fn -> Cache.remember_source(key, record, config) end}
 
       copy? ->
-        fn -> Input.put(key, response.path, sha256, record, cost, config) end
+        {:staged, response.path, &Input.put(key, &1, sha256, record, cost, config), nil}
 
       remember? ->
         fn -> Cache.remember_source(key, record, config) end
@@ -343,13 +346,19 @@ defmodule ImagePipe.Execution.SourceCache do
   defp remember(source, key, record, config) do
     case storable?(record, source) do
       true ->
-        Input.refresh(key, record, config)
-        Cache.remember_source(key, record, config)
+        fn ->
+          Input.refresh(key, record, config)
+          Cache.remember_source(key, record, config)
+        end
 
       false ->
-        invalidate(key, config)
+        invalidation(key, config)
     end
   end
+
+  # An invalidation runs even after its lease has expired: dropping an entry
+  # is always safe, and skipping one could keep serving a removed source.
+  defp invalidation(key, config), do: {:invalidate, fn -> invalidate(key, config) end}
 
   # A check that moved only the receipt times of a record that must be
   # validated on every use leaves the stored record as useful as the new one,

@@ -6,6 +6,7 @@ defmodule ImagePipe.API.TerminalHeadersWireTest do
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
 
   setup do
     body = Image.new!(24, 16, color: :red) |> Image.write!(:memory, suffix: ".jpg")
@@ -33,7 +34,7 @@ defmodule ImagePipe.API.TerminalHeadersWireTest do
         http_cache: :auto
       ]
       |> CacheObserver.observe()
-      |> ImagePipe.Plug.init()
+      |> Caches.plug()
 
     %{config: config}
   end

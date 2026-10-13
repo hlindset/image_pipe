@@ -7,6 +7,7 @@ defmodule ImagePipe.TelemetryTest do
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Source
   alias ImagePipe.Source.Response, as: SourceResponse
+  alias ImagePipe.Test.Caches
   alias Vix.Vips.Image, as: VipsImage
 
   # `:telemetry` handlers are global and fire for every emission of an event
@@ -204,12 +205,16 @@ defmodule ImagePipe.TelemetryTest do
   # change that silently stops emitting one of these fails here.
   @tag :tmp_dir
   test "an image request emits the complete stage-span set", %{tmp_dir: tmp_dir} do
+    {mount, opts} = cached(tmp_dir)
+
     conn =
       :get
       |> conn("/w=100/format=jpeg/src/images/beach.jpg")
-      |> ImagePipe.Plug.call(base_opts(cache: [root: tmp_dir]))
+      |> ImagePipe.Plug.call(mount)
 
     assert conn.status == 200
+    # The cache write span runs in the cache's writer, after the response.
+    Caches.await_writes(opts)
 
     assert_spans(telemetry_events(), [
       [:request],
@@ -478,13 +483,14 @@ defmodule ImagePipe.TelemetryTest do
 
   @tag :tmp_dir
   test "fail-open cache read errors are reported on cache lookup telemetry", %{tmp_dir: tmp_dir} do
-    opts = base_opts(cache: [root: tmp_dir])
+    {mount, opts} = cached(tmp_dir)
 
     request = fn ->
-      :get |> conn("/format=jpeg/src/images/beach.jpg") |> ImagePipe.Plug.call(opts)
+      :get |> conn("/format=jpeg/src/images/beach.jpg") |> ImagePipe.Plug.call(mount)
     end
 
     assert request.().status == 200
+    Caches.await_writes(opts)
 
     hash =
       assert_event(telemetry_events(), @prefix ++ [:cache, :write, :stop], fn _measurements,
@@ -517,15 +523,17 @@ defmodule ImagePipe.TelemetryTest do
   test "fail-open cache staging write errors are reported on cache stage telemetry", %{
     tmp_dir: tmp_dir
   } do
+    {mount, opts} = cached(tmp_dir)
     File.chmod!(tmp_dir, 0o500)
     on_exit(fn -> File.chmod(tmp_dir, 0o700) end)
 
     conn =
       :get
       |> conn("/format=jpeg/src/images/beach.jpg")
-      |> ImagePipe.Plug.call(base_opts(cache: [root: tmp_dir]))
+      |> ImagePipe.Plug.call(mount)
 
     assert conn.status == 200
+    Caches.await_writes(opts)
     events = telemetry_events()
 
     assert_event(events, @prefix ++ [:cache, :stage], fn _measurements, metadata ->
@@ -798,6 +806,12 @@ defmodule ImagePipe.TelemetryTest do
 
   defp base_opts(overrides \\ []) do
     init_opts(overrides)
+  end
+
+  # A mount with a cache on `root`, and the options its instance runs with.
+  defp cached(root) do
+    opts = [cache: [root: root]] |> opts() |> Caches.start!()
+    {Caches.plug(opts), opts}
   end
 
   def handle_telemetry_event(event, measurements, metadata, test_pid) do

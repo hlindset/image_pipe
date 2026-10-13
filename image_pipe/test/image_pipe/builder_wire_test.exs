@@ -8,6 +8,7 @@ defmodule ImagePipe.BuilderWireTest do
   alias ImagePipe.Plan
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
@@ -26,7 +27,7 @@ defmodule ImagePipe.BuilderWireTest do
     end
 
     config =
-      IP.Plug.init(
+      Caches.plug(
         CacheObserver.observe(
           sources: [
             path: [

@@ -46,7 +46,7 @@ Guides for deploying, connecting sources, caching, securing, and monitoring.
 - [Serving images from local files](serving-local-files.md): read originals from a directory.
 - [Serving images from an HTTP origin](serving-from-http.md): download originals from a web server.
 - [Serving images from S3](serving-from-s3.md): read originals from private S3-compatible buckets.
-- [Caching processed images](caching-processed-images.md): store processed images on disk and share them between replicas.
+- [Caching processed images](caching-processed-images.md): store processed images and originals on disk.
 - [Serving images through a CDN](serving-through-a-cdn.md): cache headers, source lifetimes, and CDN settings.
 - [Signing URLs and rotating keys](signing-urls.md): require signed URLs and replace keys safely.
 - [Defining presets](defining-presets.md): named sets of URL options.
@@ -85,7 +85,7 @@ Settings, headers, events, and rules to look up.
 - [Elixir configuration](configuration.md): where each Elixir setting goes, and which wins when they overlap.
 - [Configuring image_pipe_server](../../image_pipe_server/docs/server-configuration.md): the server's TOML and environment variables.
 - [Shared URL settings](shared-url-settings.md): settings the URL builder and the server must agree on.
-- [Cache storage](cache.md): what the caches store, cache key inputs, and bounded mode.
+- [Cache storage](cache.md): what the caches store, cache key inputs, and size limits.
 - [HTTP cache headers](cdn-http-cache.md): `Cache-Control`, `ETag`, `Vary`, and `304` responses.
 - [Error responses](errors.md): which status each failure returns.
 - [Telemetry event reference](telemetry-events.md): event names, measurements, metadata, and outcomes.

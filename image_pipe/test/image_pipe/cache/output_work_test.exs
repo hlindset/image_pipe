@@ -19,7 +19,10 @@ defmodule ImagePipe.Cache.OutputWorkTest do
     %{tasks: tasks, opts: opts, cache: {__MODULE__, scope: make_ref()}}
   end
 
-  def event(_event, _measurements, metadata, test), do: send(test, metadata.result)
+  def event(_event, _measurements, metadata, test) do
+    send(test, metadata.result)
+    if reason = metadata[:reason], do: send(test, {:reason, reason})
+  end
 
   test "completion wakes all followers and expired waits bypass without disturbing the leader",
        context do
@@ -99,6 +102,41 @@ defmodule ImagePipe.Cache.OutputWorkTest do
     assert_receive :waiting
     OutputWork.complete(lease, :ready)
     assert Task.await(follower) == :ready
+  end
+
+  test "a handed-off lease is completed only by its new owner", context do
+    {:leader, lease} = join(context)
+    follower = async(context, fn -> join(context) end)
+    assert_receive :waiting
+
+    writer =
+      async(context, fn -> receive(do: (:complete -> OutputWork.complete(lease, :ready))) end)
+
+    OutputWork.transfer(lease, writer.pid, 60_000)
+    OutputWork.complete(lease, :bypass)
+    refute Task.yield(follower, 0)
+
+    send(writer.pid, :complete)
+    assert Task.await(follower) == :ready
+  end
+
+  test "a handed-off lease releases its waiters at its deadline", context do
+    {:leader, {server, token} = lease} = join(context)
+    follower = async(context, fn -> join(context) end)
+    assert_receive :waiting
+
+    writer =
+      async(context, fn -> receive(do: (:complete -> OutputWork.complete(lease, :ready))) end)
+
+    OutputWork.transfer(lease, writer.pid, 60_000)
+    send(server, {:deadline, token})
+    assert Task.await(follower) == {:bypass, :deadline}
+    assert_receive {:reason, :deadline}
+
+    send(writer.pid, :complete)
+    assert Task.await(writer) == :ok
+    {:leader, next} = join(context)
+    OutputWork.complete(next, :ready)
   end
 
   defp join(context, timeout \\ 60_000),

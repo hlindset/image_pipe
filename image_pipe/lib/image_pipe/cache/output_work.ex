@@ -1,4 +1,10 @@
 defmodule ImagePipe.Cache.OutputWork do
+  # Single-flight leases for generating a processed image. The first request
+  # for a key leads, and the others wait for it to complete the lease, or for
+  # it to stop. A lease belongs to one process at a time: only the owner
+  # completes it, so a request that handed its lease to a stream or a cache
+  # writer can't complete it early. A lease handed off with a deadline
+  # releases its waiters with `:bypass` when the deadline passes first.
   @moduledoc false
   use GenServer
 
@@ -7,6 +13,8 @@ defmodule ImagePipe.Cache.OutputWork do
   @max_keys 64
   @max_waiters 1024
   @wait_timeout 60_000
+
+  @type lease :: {GenServer.server(), reference()}
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
@@ -39,13 +47,22 @@ defmodule ImagePipe.Cache.OutputWork do
     :bypass
   end
 
+  defp joined({:bypass, :deadline} = result, opts) do
+    report(opts, :bypass, %{reason: :deadline})
+    result
+  end
+
   defp joined(result, opts) do
     report(opts, result)
     result
   end
 
-  def transfer(nil), do: :ok
-  def transfer({server, token}), do: call(server, {:transfer, token, self()})
+  def transfer(lease), do: transfer(lease, self(), nil)
+
+  def transfer(nil, _owner, _deadline), do: :ok
+
+  def transfer({server, token}, owner, deadline),
+    do: call(server, {:transfer, token, owner, deadline})
 
   def complete(nil, _result), do: :ok
   def complete({server, token}, result), do: call(server, {:complete, token, result})
@@ -73,11 +90,12 @@ defmodule ImagePipe.Cache.OutputWork do
     end
   end
 
-  def handle_call({:transfer, token, owner}, _from, state) do
+  def handle_call({:transfer, token, owner, deadline}, _from, state) do
     case Map.fetch(state.members, token) do
       {:ok, member} ->
         Process.demonitor(member.monitor, [:flush])
-        member = %{member | monitor: Process.monitor(owner)}
+        if deadline, do: Process.send_after(self(), {:deadline, token}, deadline)
+        member = %{member | monitor: Process.monitor(owner), owner: owner}
         {:reply, :ok, put_in(state.members[token], member)}
 
       :error ->
@@ -85,14 +103,14 @@ defmodule ImagePipe.Cache.OutputWork do
     end
   end
 
-  def handle_call({:complete, token, result}, _from, state) do
+  def handle_call({:complete, token, result}, {caller, _tag}, state) do
     case Map.fetch(state.members, token) do
-      {:ok, %{key: key}} ->
+      {:ok, %{key: key, owner: ^caller}} ->
         %{owner: ^token, waiters: waiters} = Map.fetch!(state.flights, key)
         state = Enum.reduce(waiters, state, &reply_and_remove(&2, &1, result))
         {:reply, :ok, state |> remove(token) |> delete_flight(key)}
 
-      :error ->
+      _completed_or_handed_off ->
         {:reply, :ok, state}
     end
   end
@@ -102,6 +120,7 @@ defmodule ImagePipe.Cache.OutputWork do
 
     member = %{
       key: key,
+      owner: pid,
       monitor: Process.monitor(pid),
       from: {pid, token},
       timer: nil,
@@ -140,6 +159,18 @@ defmodule ImagePipe.Cache.OutputWork do
         end
 
       nil ->
+        {:noreply, state}
+    end
+  end
+
+  def handle_info({:deadline, token}, state) do
+    case Map.fetch(state.members, token) do
+      {:ok, %{key: key}} ->
+        %{owner: ^token, waiters: waiters} = Map.fetch!(state.flights, key)
+        state = Enum.reduce(waiters, state, &reply_and_remove(&2, &1, {:bypass, :deadline}))
+        {:noreply, state |> remove(token) |> delete_flight(key)}
+
+      :error ->
         {:noreply, state}
     end
   end
@@ -188,12 +219,13 @@ defmodule ImagePipe.Cache.OutputWork do
 
   defp delete_flight(state, key), do: %{state | flights: Map.delete(state.flights, key)}
 
-  defp report(opts, result) do
-    Telemetry.execute(opts, [:cache, :coordination], %{}, %{
-      pool: :output,
-      operation: :output,
-      result: result
-    })
+  defp report(opts, result, extra \\ %{}) do
+    Telemetry.execute(
+      opts,
+      [:cache, :coordination],
+      %{},
+      Map.merge(%{pool: :output, operation: :output, result: result}, extra)
+    )
   end
 
   @impl true

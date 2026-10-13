@@ -3,8 +3,13 @@ defmodule ImagePipe.Cache.FileSystemTest do
 
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
+  alias ImagePipe.Cache.FileSystem.Admission
   alias ImagePipe.Cache.FileSystem.PeriodicSweep
+  alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Test.Caches
+
+  @max_size_bytes 1_000_000_000
 
   defp key(hash \\ String.duplicate("a", 64)) do
     %Key{
@@ -56,7 +61,8 @@ defmodule ImagePipe.Cache.FileSystemTest do
     |> Base.encode16(case: :lower)
   end
 
-  defp body_filename(cache_key, body), do: "#{cache_key.hash}.#{body_sha256(body)}.body"
+  defp body_filename(cache_key, body),
+    do: Store.body_filename(cache_key.hash, body_sha256(body), byte_size(body), 0)
 
   defp metadata(cache_key, body, overrides \\ []) do
     Map.merge(
@@ -76,6 +82,25 @@ defmodule ImagePipe.Cache.FileSystemTest do
     )
   end
 
+  # Options for a cache on `root`.
+  defp opts(root, extra \\ []), do: [root: root, max_size_bytes: @max_size_bytes] ++ extra
+
+  # Starts the cache's processes, so writes are admitted, and returns them
+  # once the startup scan has run.
+  defp start_cache!(opts) do
+    {:ok, opts} = FileSystem.validate_options(opts)
+
+    root = opts |> FileSystem.child_spec() |> start_supervised!()
+
+    {:cache, cache, :supervisor, _modules} =
+      List.keyfind(Supervisor.which_children(root), :cache, 0)
+
+    children = Supervisor.which_children(cache)
+
+    for {{Admission, _root}, pid, _type, _modules} <- children, do: Admission.await_scan(pid)
+    children
+  end
+
   defp root(context) do
     Path.join(System.tmp_dir!(), "image_pipe_fs_cache_#{context.test}")
   end
@@ -85,6 +110,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
     File.rm_rf!(root)
     File.mkdir_p!(root)
     on_exit(fn -> File.rm_rf!(root) end)
+    if Map.get(context, :cache, true), do: start_cache!(opts(root))
     {:ok, root: root}
   end
 
@@ -100,44 +126,19 @@ defmodule ImagePipe.Cache.FileSystemTest do
              {:error, {:invalid_root, "relative/cache"}}
   end
 
-  test "rejects traversal-shaped path prefixes", %{root: root} do
-    assert FileSystem.get(key(), root: root, path_prefix: "../outside") ==
-             {:error, {:invalid_path_prefix, "../outside"}}
-
-    assert FileSystem.get(key(), root: root, path_prefix: "/absolute") ==
-             {:error, {:invalid_path_prefix, "/absolute"}}
-
-    assert FileSystem.get(key(), root: root, path_prefix: "processed/./images") ==
-             {:error, {:invalid_path_prefix, "processed/./images"}}
-
-    assert FileSystem.get(key(), root: root, path_prefix: "processed//images") ==
-             {:error, {:invalid_path_prefix, "processed//images"}}
-
-    assert FileSystem.get(key(), root: root, path_prefix: "processed\\..\\outside") ==
-             {:error, {:invalid_path_prefix, "processed\\..\\outside"}}
-
-    assert FileSystem.validate_options(root: root, path_prefix: "../outside") ==
-             {:error, {:invalid_path_prefix, "../outside"}}
-  end
-
-  test "accepts tilde as a normal relative path segment", %{root: root} do
-    assert {:ok, opts} = FileSystem.validate_options(root: root, path_prefix: "~cache")
-    assert Keyword.take(opts, [:root, :path_prefix]) == [root: root, path_prefix: "~cache"]
-  end
-
   test "rejects unknown filesystem adapter options", %{root: root} do
-    assert FileSystem.validate_options(root: root, path_prefx: "processed") ==
+    assert FileSystem.validate_options(opts(root, path_prefx: "processed")) ==
              {:error, {:unknown_options, [:path_prefx]}}
 
-    assert FileSystem.get(key(), root: root, path_prefx: "processed") ==
+    assert FileSystem.get(key(), opts(root, path_prefx: "processed")) ==
              {:error, {:unknown_options, [:path_prefx]}}
 
-    assert FileSystem.validate_options(root: root, fail_on_cache_error: true) ==
+    assert FileSystem.validate_options(opts(root, fail_on_cache_error: true)) ==
              {:error, {:unknown_options, [:fail_on_cache_error]}}
   end
 
   test "accepts filesystem root as cache root" do
-    assert FileSystem.get(key(), root: "/") == :miss
+    assert FileSystem.get(key(), opts("/")) == :miss
   end
 
   test "rejects cache paths that resolve outside the root through symlinks", %{root: root} do
@@ -151,13 +152,13 @@ defmodule ImagePipe.Cache.FileSystemTest do
 
     # A rejection is never remembered, so a fixed partition is accepted.
     for _attempt <- 1..2 do
-      assert FileSystem.get(key(hash), root: root) ==
+      assert FileSystem.get(key(hash), opts(root)) ==
                {:error, {:path_outside_root, Path.join([root, "aa", "bb"])}}
     end
 
     File.rm!(Path.join(root, "aa"))
     File.mkdir_p!(Path.join([root, "aa", "bb"]))
-    assert FileSystem.get(key(hash), root: root) == :miss
+    assert FileSystem.get(key(hash), opts(root)) == :miss
   end
 
   test "rejects invalid hashes before path construction", %{root: root} do
@@ -165,32 +166,29 @@ defmodule ImagePipe.Cache.FileSystemTest do
     non_hex_hash = String.duplicate("g", 64)
     path_shaped_hash = "abcd/" <> String.duplicate("a", 59)
 
-    assert FileSystem.get(key(too_short_hash), root: root) ==
+    assert FileSystem.get(key(too_short_hash), opts(root)) ==
              {:error, {:invalid_hash, too_short_hash}}
 
-    assert FileSystem.get(key(non_hex_hash), root: root) ==
+    assert FileSystem.get(key(non_hex_hash), opts(root)) ==
              {:error, {:invalid_hash, non_hex_hash}}
 
-    assert FileSystem.get(key(path_shaped_hash), root: root) ==
+    assert FileSystem.get(key(path_shaped_hash), opts(root)) ==
              {:error, {:invalid_hash, path_shaped_hash}}
   end
 
   test "writes and reads body and metadata under hash-partitioned paths", %{root: root} do
     cache_key = key("abcdef" <> String.duplicate("1", 58))
 
-    assert put_entry(cache_key, entry(), root: root, path_prefix: "processed") == :ok
-    assert {:hit, cached_entry} = FileSystem.get(cache_key, root: root, path_prefix: "processed")
+    assert put_entry(cache_key, entry(), opts(root)) == :ok
+    assert {:hit, cached_entry} = FileSystem.get(cache_key, opts(root))
 
     assert cached_entry.body == "encoded image"
     assert cached_entry.content_type == "image/webp"
     assert cached_entry.headers == [{"vary", "Accept"}]
     assert cached_entry.created_at == ~U[2026-04-29 10:15:00Z]
 
-    assert File.exists?(
-             Path.join([root, "processed", "ab", "cd", body_filename(cache_key, "encoded image")])
-           )
-
-    assert File.exists?(Path.join([root, "processed", "ab", "cd", cache_key.hash <> ".meta"]))
+    assert File.exists?(Path.join([root, "ab", "cd", body_filename(cache_key, "encoded image")]))
+    assert File.exists?(Path.join([root, "ab", "cd", cache_key.hash <> ".meta"]))
   end
 
   test "round-trips a Debug.Info through metadata serialize/deserialize", %{root: root} do
@@ -215,12 +213,12 @@ defmodule ImagePipe.Cache.FileSystemTest do
         debug: info
       )
 
-    assert {:ok, state} = FileSystem.open_sink(cache_key, metadata, root: root)
-    assert {:ok, state} = FileSystem.write_chunk(state, "BODYBYTES", root: root)
-    assert :ok = FileSystem.commit_sink(state, root: root)
+    assert {:ok, state} = FileSystem.open_sink(cache_key, metadata, opts(root))
+    assert {:ok, state} = FileSystem.write_chunk(state, "BODYBYTES", opts(root))
+    assert :ok = FileSystem.commit_sink(state, opts(root))
 
     assert {:hit, %Entry{debug: read_back, representation: {:image, :avif}}} =
-             FileSystem.get(cache_key, root: root)
+             FileSystem.get(cache_key, opts(root))
 
     assert read_back == info
   end
@@ -235,12 +233,12 @@ defmodule ImagePipe.Cache.FileSystemTest do
         representation: {:complete_body, "application/json"}
       )
 
-    assert {:ok, state} = FileSystem.open_sink(cache_key, metadata, root: root)
-    assert {:ok, state} = FileSystem.write_chunk(state, ~s({"ok":true}), root: root)
-    assert :ok = FileSystem.commit_sink(state, root: root)
+    assert {:ok, state} = FileSystem.open_sink(cache_key, metadata, opts(root))
+    assert {:ok, state} = FileSystem.write_chunk(state, ~s({"ok":true}), opts(root))
+    assert :ok = FileSystem.commit_sink(state, opts(root))
 
     assert {:hit, %Entry{representation: {:complete_body, "application/json"}}} =
-             FileSystem.get(cache_key, root: root)
+             FileSystem.get(cache_key, opts(root))
   end
 
   test "sink writes chunks to temp files and makes the entry visible only at commit", %{
@@ -248,16 +246,16 @@ defmodule ImagePipe.Cache.FileSystemTest do
   } do
     cache_key = key("abcdef" <> String.duplicate("1", 58))
 
-    assert {:ok, state} = FileSystem.open_sink(cache_key, entry_metadata(), root: root)
-    assert {:ok, state} = FileSystem.write_chunk(state, "encoded ", root: root)
-    assert {:ok, state} = FileSystem.write_chunk(state, "image", root: root)
+    assert {:ok, state} = FileSystem.open_sink(cache_key, entry_metadata(), opts(root))
+    assert {:ok, state} = FileSystem.write_chunk(state, "encoded ", opts(root))
+    assert {:ok, state} = FileSystem.write_chunk(state, "image", opts(root))
 
-    assert FileSystem.get(cache_key, root: root) == :miss
-    assert {:ok, paths} = FileSystem.paths(cache_key, root: root)
+    assert FileSystem.get(cache_key, opts(root)) == :miss
+    assert {:ok, paths} = FileSystem.paths(cache_key, opts(root))
     assert Enum.any?(File.ls!(paths.dir), &String.ends_with?(&1, ".tmp"))
 
-    assert :ok = FileSystem.commit_sink(state, root: root)
-    assert {:hit, cached_entry} = FileSystem.get(cache_key, root: root)
+    assert :ok = FileSystem.commit_sink(state, opts(root))
+    assert {:hit, cached_entry} = FileSystem.get(cache_key, opts(root))
     assert cached_entry.body == "encoded image"
     assert cached_entry.content_type == "image/webp"
     assert cached_entry.headers == [{"vary", "Accept"}]
@@ -267,7 +265,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
 
   test "sink write errors return the unchanged state", %{root: root} do
     cache_key = key("abcdef" <> String.duplicate("2", 58))
-    assert {:ok, paths} = FileSystem.paths(cache_key, root: root)
+    assert {:ok, paths} = FileSystem.paths(cache_key, opts(root))
     File.mkdir_p!(paths.dir)
 
     read_only_path = Path.join(paths.dir, "read-only.tmp")
@@ -286,7 +284,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
 
     try do
       assert {:error, :ebadf, returned_state} =
-               FileSystem.write_chunk(state, "not written", root: root)
+               FileSystem.write_chunk(state, "not written", opts(root))
 
       assert returned_state.size == state.size
       assert returned_state.hash_context == state.hash_context
@@ -298,41 +296,41 @@ defmodule ImagePipe.Cache.FileSystemTest do
   test "sink abort removes temp files and leaves no visible entry", %{root: root} do
     cache_key = key("b" <> String.duplicate("1", 63))
 
-    assert {:ok, state} = FileSystem.open_sink(cache_key, entry_metadata(), root: root)
-    assert {:ok, state} = FileSystem.write_chunk(state, "partial", root: root)
-    assert {:ok, paths} = FileSystem.paths(cache_key, root: root)
+    assert {:ok, state} = FileSystem.open_sink(cache_key, entry_metadata(), opts(root))
+    assert {:ok, state} = FileSystem.write_chunk(state, "partial", opts(root))
+    assert {:ok, paths} = FileSystem.paths(cache_key, opts(root))
     assert Enum.any?(File.ls!(paths.dir), &String.ends_with?(&1, ".tmp"))
 
-    assert :ok = FileSystem.abort_sink(state, root: root)
-    assert FileSystem.get(cache_key, root: root) == :miss
+    assert :ok = FileSystem.abort_sink(state, opts(root))
+    assert FileSystem.get(cache_key, opts(root)) == :miss
     refute Enum.any?(File.ls!(paths.dir), &String.ends_with?(&1, ".tmp"))
   end
 
   test "sink abort treats temp cleanup errors as best effort", %{root: root} do
     cache_key = key("bcbcbc" <> String.duplicate("1", 58))
-    assert {:ok, paths} = FileSystem.paths(cache_key, root: root)
+    assert {:ok, paths} = FileSystem.paths(cache_key, opts(root))
     File.mkdir_p!(paths.dir)
     temp_obstruction = Path.join(paths.dir, ".#{cache_key.hash}.forced.tmp")
     File.mkdir_p!(temp_obstruction)
 
-    assert {:ok, state} = FileSystem.open_sink(cache_key, entry_metadata(), root: root)
+    assert {:ok, state} = FileSystem.open_sink(cache_key, entry_metadata(), opts(root))
 
-    assert :ok = FileSystem.abort_sink(%{state | temp_body_path: temp_obstruction}, root: root)
-    assert FileSystem.get(cache_key, root: root) == :miss
+    assert :ok = FileSystem.abort_sink(%{state | temp_body_path: temp_obstruction}, opts(root))
+    assert FileSystem.get(cache_key, opts(root)) == :miss
   end
 
   test "sink commit cleans up when body rename fails", %{root: root} do
     cache_key = key("cecece" <> String.duplicate("1", 58))
-    assert {:ok, paths} = FileSystem.paths(cache_key, root: root)
+    assert {:ok, paths} = FileSystem.paths(cache_key, opts(root))
     File.mkdir_p!(paths.dir)
 
     body_path = Path.join(paths.dir, body_filename(cache_key, "body"))
     File.mkdir_p!(body_path)
 
-    assert {:ok, state} = FileSystem.open_sink(cache_key, entry_metadata(), root: root)
-    assert {:ok, state} = FileSystem.write_chunk(state, "body", root: root)
+    assert {:ok, state} = FileSystem.open_sink(cache_key, entry_metadata(), opts(root))
+    assert {:ok, state} = FileSystem.write_chunk(state, "body", opts(root))
 
-    assert {:error, _reason} = FileSystem.commit_sink(state, root: root)
+    assert {:error, _reason} = FileSystem.commit_sink(state, opts(root))
     assert File.dir?(body_path)
     refute File.exists?(paths.meta_path)
     refute Enum.any?(File.ls!(paths.dir), &String.ends_with?(&1, ".tmp"))
@@ -345,9 +343,9 @@ defmodule ImagePipe.Cache.FileSystemTest do
       ["body-one", "body-two"]
       |> Task.async_stream(
         fn body ->
-          {:ok, state} = FileSystem.open_sink(cache_key, entry_metadata(), root: root)
-          {:ok, state} = FileSystem.write_chunk(state, body, root: root)
-          FileSystem.commit_sink(state, root: root)
+          {:ok, state} = FileSystem.open_sink(cache_key, entry_metadata(), opts(root))
+          {:ok, state} = FileSystem.write_chunk(state, body, opts(root))
+          FileSystem.commit_sink(state, opts(root))
         end,
         max_concurrency: 2,
         timeout: :infinity
@@ -355,19 +353,19 @@ defmodule ImagePipe.Cache.FileSystemTest do
       |> Enum.map(fn {:ok, result} -> result end)
 
     assert results == [:ok, :ok]
-    assert {:hit, cached_entry} = FileSystem.get(cache_key, root: root)
+    assert {:hit, cached_entry} = FileSystem.get(cache_key, opts(root))
     assert cached_entry.body in ["body-one", "body-two"]
   end
 
   test "missing metadata or body is a miss", %{root: root} do
     cache_key = key("123456" <> String.duplicate("a", 58))
-    assert FileSystem.get(cache_key, root: root) == :miss
+    assert FileSystem.get(cache_key, opts(root)) == :miss
 
     dir = Path.join([root, "12", "34"])
     File.mkdir_p!(dir)
     File.write!(Path.join(dir, body_filename(cache_key, "body")), "body")
 
-    assert FileSystem.get(cache_key, root: root) == :miss
+    assert FileSystem.get(cache_key, opts(root)) == :miss
 
     meta_only_key = key("223456" <> String.duplicate("a", 58))
     meta_only_dir = Path.join([root, "22", "34"])
@@ -378,7 +376,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
       :erlang.term_to_binary(metadata(meta_only_key, "body"))
     )
 
-    assert FileSystem.get(meta_only_key, root: root) == :miss
+    assert FileSystem.get(meta_only_key, opts(root)) == :miss
   end
 
   test "invalid metadata is returned as an error", %{root: root} do
@@ -392,18 +390,18 @@ defmodule ImagePipe.Cache.FileSystemTest do
       :erlang.term_to_binary(%{metadata_version: 999})
     )
 
-    assert FileSystem.get(cache_key, root: root) ==
+    assert FileSystem.get(cache_key, opts(root)) ==
              {:error, {:invalid_metadata, :version_mismatch}}
   end
 
   test "body byte-size mismatch is returned as invalid metadata", %{root: root} do
     cache_key = key("bbbbbb" <> String.duplicate("c", 58))
-    assert put_entry(cache_key, entry("12345"), root: root) == :ok
+    assert put_entry(cache_key, entry("12345"), opts(root)) == :ok
 
     dir = Path.join([root, "bb", "bb"])
     File.write!(Path.join(dir, body_filename(cache_key, "12345")), "123")
 
-    assert FileSystem.get(cache_key, root: root) ==
+    assert FileSystem.get(cache_key, opts(root)) ==
              {:error, {:invalid_metadata, :body_byte_size_mismatch}}
   end
 
@@ -417,12 +415,12 @@ defmodule ImagePipe.Cache.FileSystemTest do
       :erlang.term_to_binary(
         metadata(cache_key, "body",
           body_sha256: "not-a-sha256",
-          body_filename: "#{cache_key.hash}.not-a-sha256.body"
+          body_filename: "#{cache_key.hash}.not-a-sha256.4.0.body"
         )
       )
     )
 
-    assert FileSystem.get(cache_key, root: root) ==
+    assert FileSystem.get(cache_key, opts(root)) ==
              {:error, {:invalid_metadata, :invalid_body_filename}}
   end
 
@@ -440,7 +438,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
     )
 
     assert {:error, {:invalid_metadata, {:invalid_content_type, _reason}}} =
-             FileSystem.get(cache_key, root: root)
+             FileSystem.get(cache_key, opts(root))
   end
 
   test "serialized representation must agree with its content type", %{root: root} do
@@ -463,7 +461,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
       )
 
       assert {:error, {:invalid_metadata, {:invalid_representation, ^representation}}} =
-               FileSystem.get(cache_key, root: root)
+               FileSystem.get(cache_key, opts(root))
     end
   end
 
@@ -478,59 +476,59 @@ defmodule ImagePipe.Cache.FileSystemTest do
       :erlang.term_to_binary(metadata(cache_key, "body", headers: [{"vary", :not_binary}]))
     )
 
-    assert FileSystem.get(cache_key, root: root) ==
+    assert FileSystem.get(cache_key, opts(root)) ==
              {:error, {:invalid_metadata, :invalid_headers}}
   end
 
   test "replacing an entry with a new body removes the old body", %{root: root} do
     cache_key = key("ababab" <> String.duplicate("1", 58))
 
-    assert put_entry(cache_key, entry("body-one"), root: root) == :ok
-    assert put_entry(cache_key, entry("body-two"), root: root) == :ok
-    assert put_entry(cache_key, entry("body-two"), root: root) == :ok
+    assert put_entry(cache_key, entry("body-one"), opts(root)) == :ok
+    assert put_entry(cache_key, entry("body-two"), opts(root)) == :ok
+    assert put_entry(cache_key, entry("body-two"), opts(root)) == :ok
 
-    assert {:ok, paths} = FileSystem.paths(cache_key, root: root)
+    assert {:ok, paths} = FileSystem.paths(cache_key, opts(root))
 
     assert File.ls!(paths.dir) |> Enum.filter(&String.ends_with?(&1, ".body")) ==
              [body_filename(cache_key, "body-two")]
 
-    assert {:hit, cached_entry} = FileSystem.get(cache_key, root: root)
+    assert {:hit, cached_entry} = FileSystem.get(cache_key, opts(root))
     assert cached_entry.body == "body-two"
   end
 
   test "put succeeds when the content-addressed body already exists", %{root: root} do
     cache_key = key("adadad" <> String.duplicate("1", 58))
-    assert {:ok, paths} = FileSystem.paths(cache_key, root: root)
+    assert {:ok, paths} = FileSystem.paths(cache_key, opts(root))
     File.mkdir_p!(paths.dir)
     File.write!(Path.join(paths.dir, body_filename(cache_key, "body")), "body")
 
-    assert put_entry(cache_key, entry("body"), root: root) == :ok
-    assert {:hit, cached_entry} = FileSystem.get(cache_key, root: root)
+    assert put_entry(cache_key, entry("body"), opts(root)) == :ok
+    assert {:hit, cached_entry} = FileSystem.get(cache_key, opts(root))
     assert cached_entry.body == "body"
   end
 
   test "reusing an existing body moves its mtime", %{root: root} do
     cache_key = key("aeaeae" <> String.duplicate("1", 58))
-    assert {:ok, paths} = FileSystem.paths(cache_key, root: root)
+    assert {:ok, paths} = FileSystem.paths(cache_key, opts(root))
     File.mkdir_p!(paths.dir)
     body = Path.join(paths.dir, body_filename(cache_key, "body"))
     File.write!(body, "body")
     old = System.os_time(:second) - 7_200
     File.touch!(body, old)
 
-    assert put_entry(cache_key, entry("body"), root: root) == :ok
+    assert put_entry(cache_key, entry("body"), opts(root)) == :ok
     assert File.stat!(body, time: :posix).mtime > old
   end
 
   test "unexpected body read error is returned", %{root: root} do
     cache_key = key("fafafa" <> String.duplicate("2", 58))
-    assert put_entry(cache_key, entry("body"), root: root) == :ok
+    assert put_entry(cache_key, entry("body"), opts(root)) == :ok
 
     body_path = Path.join([root, "fa", "fa", body_filename(cache_key, "body")])
     File.rm!(body_path)
     File.mkdir_p!(body_path)
 
-    assert FileSystem.get(cache_key, root: root) == {:error, {:body_read, :eisdir}}
+    assert FileSystem.get(cache_key, opts(root)) == {:error, {:body_read, :eisdir}}
   end
 
   test "cleans temp files when metadata write fails", %{root: root} do
@@ -539,7 +537,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
     File.mkdir_p!(dir)
     File.mkdir_p!(Path.join(dir, cache_key.hash <> ".meta"))
 
-    assert {:error, _reason} = put_entry(cache_key, entry(), root: root)
+    assert {:error, _reason} = put_entry(cache_key, entry(), opts(root))
     refute File.ls!(dir) |> Enum.any?(&String.ends_with?(&1, ".tmp"))
   end
 
@@ -553,19 +551,19 @@ defmodule ImagePipe.Cache.FileSystemTest do
     File.write!(body_path, "old body")
     File.mkdir_p!(meta_path)
 
-    assert {:error, _reason} = put_entry(cache_key, entry("new body"), root: root)
+    assert {:error, _reason} = put_entry(cache_key, entry("new body"), opts(root))
     assert File.read!(body_path) == "old body"
   end
 
   test "keeps a content-addressed body orphan when metadata commit fails", %{root: root} do
     cache_key = key("cecece" <> String.duplicate("d", 58))
-    assert {:ok, paths} = FileSystem.paths(cache_key, root: root)
+    assert {:ok, paths} = FileSystem.paths(cache_key, opts(root))
     File.mkdir_p!(paths.dir)
     File.mkdir_p!(paths.meta_path)
 
     new_body_path = Path.join(paths.dir, body_filename(cache_key, "new body"))
 
-    assert {:error, _reason} = put_entry(cache_key, entry("new body"), root: root)
+    assert {:error, _reason} = put_entry(cache_key, entry("new body"), opts(root))
     assert File.exists?(new_body_path)
     refute File.ls!(paths.dir) |> Enum.any?(&String.ends_with?(&1, ".tmp"))
   end
@@ -573,7 +571,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
   describe "cost_us metadata" do
     test "is persisted in the meta file and returned on hit", %{root: root} do
       cache_key = key()
-      opts = [root: root]
+      opts = opts(root)
       metadata = entry_metadata(cost_us: 42_000)
 
       {:ok, state} = FileSystem.open_sink(cache_key, metadata, opts)
@@ -592,7 +590,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
   describe "paths_from_hash/2" do
     test "builds partitioned paths for a 64-char hash", %{root: root} do
       hash = String.duplicate("a", 64)
-      opts = [root: root, path_prefix: ""]
+      opts = [root: root]
 
       assert {:ok, paths} = FileSystem.paths_from_hash(hash, opts)
       assert paths.dir == Path.join([root, "aa", "aa"])
@@ -610,8 +608,8 @@ defmodule ImagePipe.Cache.FileSystemTest do
       hash_a = "aabb" <> String.duplicate("1", 60)
       hash_b = "ccdd" <> String.duplicate("1", 60)
 
-      assert {:ok, paths_a} = FileSystem.paths_from_hash(hash_a, root: root)
-      assert {:ok, paths_b} = FileSystem.paths_from_hash(hash_b, root: root)
+      assert {:ok, paths_a} = FileSystem.paths_from_hash(hash_a, opts(root))
+      assert {:ok, paths_b} = FileSystem.paths_from_hash(hash_b, opts(root))
 
       assert paths_a.dir == Path.join([root, "aa", "bb"])
       assert paths_b.dir == Path.join([root, "cc", "dd"])
@@ -630,38 +628,32 @@ defmodule ImagePipe.Cache.FileSystemTest do
   end
 
   describe "child_spec/1" do
-    test "returns a supervisor spec when max_size_bytes is set", %{root: root} do
-      opts = [root: root, max_size_bytes: 10_000_000]
-      assert %{id: _, start: _} = FileSystem.child_spec(opts)
-    end
+    @describetag cache: false
 
-    test "returns nil for unbounded mode" do
-      assert FileSystem.child_spec(root: "/tmp") == nil
-    end
-
-    test "an instance sweeps an unbounded pool at start and while it runs", %{root: root} do
-      first = leftover(root, "a")
-      [spec] = sweep_specs(cache: [root: root])
-      pid = start_supervised!(spec)
+    test "an instance sweeps a pool while it runs, after its startup scan", %{
+      root: root
+    } do
+      pid = start_sweep(root: root, max_size_bytes: 10_000_000)
+      path = leftover(root, "a")
       _ = :sys.get_state(pid)
-      refute File.exists?(first)
+      assert File.exists?(path)
 
-      later = leftover(root, "b")
       send(pid, :sweep)
       _ = :sys.get_state(pid)
-      refute File.exists?(later)
-    end
-
-    test "an instance runs no periodic sweep for a bounded pool", %{root: root} do
-      bounded = [root: root, max_size_bytes: 10_000_000]
-      assert sweep_specs(cache: bounded) == []
+      refute File.exists?(path)
     end
   end
 
-  defp sweep_specs(options),
-    do: Enum.filter(ImagePipe.Cache.startup_specs(options), &match?({PeriodicSweep, _}, &1))
+  # Starts the cache's processes and returns its periodic sweep once its
+  # first message, and the startup scan, have been handled.
+  defp start_sweep(opts) do
+    children = start_cache!(opts)
+    [pid] = for {_id, pid, _type, [PeriodicSweep]} <- children, do: pid
+    _ = :sys.get_state(pid)
+    pid
+  end
 
-  describe "bounded mode config validation" do
+  describe "config validation" do
     test "rejects max_size_bytes: 0" do
       assert {:error, _} = FileSystem.validate_options(root: "/tmp", max_size_bytes: 0)
     end
@@ -670,89 +662,16 @@ defmodule ImagePipe.Cache.FileSystemTest do
       assert {:error, _} = FileSystem.validate_options(root: "/tmp", max_size_bytes: -1)
     end
 
-    test "rejects bounded options without max_size_bytes" do
-      assert {:error, _} = FileSystem.validate_options(root: "/tmp", window_ratio: 0.5)
+    test "requires max_size_bytes" do
+      assert FileSystem.validate_options(root: "/tmp") ==
+               {:error, {:missing_required_option, :max_size_bytes}}
     end
 
-    test "accepts a complete bounded config" do
+    test "accepts a complete config" do
       assert {:ok, _opts} =
                FileSystem.validate_options(
                  root: "/tmp",
                  max_size_bytes: 100_000_000
-               )
-    end
-
-    test "derives sketch_width and doorkeeper_cardinality from max_size_bytes" do
-      {:ok, opts} =
-        FileSystem.validate_options(root: "/tmp", max_size_bytes: 10_000_000_000)
-
-      assert opts[:sketch_width] == 400_000
-      assert opts[:doorkeeper_cardinality] == 800_000
-      assert opts[:doorkeeper_fpr] == 0.01
-      assert opts[:eviction_victim_limit] == 64
-      assert opts[:aging_sample_size] == 2_000_000
-      assert opts[:reconcile_interval] == 60
-      assert opts[:rescan_interval] == 300
-    end
-
-    test "aging_sample_size does not change when sketch_width is overridden" do
-      {:ok, opts} =
-        FileSystem.validate_options(
-          root: "/tmp",
-          max_size_bytes: 10_000_000_000,
-          sketch_width: 16_384
-        )
-
-      assert opts[:sketch_width] == 16_384
-      assert opts[:aging_sample_size] == 2_000_000
-    end
-
-    test "accepts custom :eviction_victim_limit" do
-      {:ok, opts} =
-        FileSystem.validate_options(
-          root: "/tmp",
-          max_size_bytes: 100_000_000,
-          eviction_victim_limit: 32
-        )
-
-      assert opts[:eviction_victim_limit] == 32
-    end
-
-    test "rejects non-positive :eviction_victim_limit" do
-      assert {:error, _} =
-               FileSystem.validate_options(
-                 root: "/tmp",
-                 max_size_bytes: 100_000_000,
-                 eviction_victim_limit: 0
-               )
-    end
-
-    test "rejects :window_ratio outside [0.0, 1.0]" do
-      assert {:error, _} =
-               FileSystem.validate_options(
-                 root: "/tmp",
-                 max_size_bytes: 100_000_000,
-                 window_ratio: 1.5
-               )
-    end
-
-    test "accepts :window_ratio of 0.0 (window disabled)" do
-      assert {:ok, opts} =
-               FileSystem.validate_options(
-                 root: "/tmp",
-                 max_size_bytes: 100_000_000,
-                 window_ratio: 0.0
-               )
-
-      assert opts[:window_ratio] == 0.0
-    end
-
-    test "rejects :doorkeeper_fpr outside (0.0, 1.0)" do
-      assert {:error, _} =
-               FileSystem.validate_options(
-                 root: "/tmp",
-                 max_size_bytes: 100_000_000,
-                 doorkeeper_fpr: 1.0
                )
     end
   end
@@ -763,24 +682,25 @@ defmodule ImagePipe.Cache.FileSystemTest do
     results =
       ["body-one", "body-two"]
       |> Task.async_stream(
-        fn body -> put_entry(cache_key, entry(body), root: root) end,
+        fn body -> put_entry(cache_key, entry(body), opts(root)) end,
         max_concurrency: 2,
         timeout: :infinity
       )
       |> Enum.map(fn {:ok, result} -> result end)
 
     assert results == [:ok, :ok]
-    assert {:hit, cached_entry} = FileSystem.get(cache_key, root: root)
+    assert {:hit, cached_entry} = FileSystem.get(cache_key, opts(root))
     assert cached_entry.body in ["body-one", "body-two"]
   end
 
   test "a source record is read from metadata, without the body", %{root: root} do
-    opts = ImagePipe.Cache.validate_config!(cache: [root: root])
+    opts = ImagePipe.Cache.validate_config!(cache: opts(root))
     input_key = key(String.duplicate("b", 64))
     {:ok, source, _config} = ImagePipe.Source.from_input({:binary, "bytes"}, sources: %{})
     record = ImagePipe.Source.Record.new(source, :crypto.hash(:sha256, "bytes"), nil, 0)
 
     :ok = ImagePipe.Cache.remember_source(input_key, record, opts)
+    Caches.await_writes(opts)
     assert ImagePipe.Cache.source_record(input_key, opts) == record
 
     for body <- Path.wildcard(Path.join(root, "**/*.body")), do: File.rm!(body)

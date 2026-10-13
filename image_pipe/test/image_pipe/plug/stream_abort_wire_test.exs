@@ -12,6 +12,7 @@ defmodule ImagePipe.Plug.StreamAbortWireTest do
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.PlugFixture.OriginImage
 
   @path "/w=64/format=jpeg/src/images/cat.jpg"
@@ -153,14 +154,14 @@ defmodule ImagePipe.Plug.StreamAbortWireTest do
     {config, _hash, _body} = warm(@path)
     conn = :get |> conn(@path) |> Map.put(:adapter, {ClosedClientAdapter, nil})
 
-    assert %Plug.Conn{state: :file} = ImagePipe.Plug.call(conn, config)
+    assert %Plug.Conn{state: :file} = ImagePipe.Plug.call(conn, mount(config))
   end
 
   # Stores the response for `path` in a fresh cache and returns a config
   # that serves it as a hit.
   defp warm(path) do
-    config = ImagePipe.Plug.init(CacheObserver.observe(sources: @sources))
-    assert %Plug.Conn{status: 200} = ImagePipe.Plug.call(conn(:get, path), config)
+    config = CacheObserver.observe(sources: @sources)
+    assert %Plug.Conn{status: 200} = ImagePipe.Plug.call(conn(:get, path), mount(config))
     assert_receive {:cache_put, hash, body}
     {config, hash, body}
   end
@@ -194,9 +195,14 @@ defmodule ImagePipe.Plug.StreamAbortWireTest do
     Keyword.merge(ImagePipe.Plug.init([sources: @sources] ++ known), seams)
   end
 
+  # A cached config runs on its instance, so it mounts the instance.
+  defp mount(config) do
+    if config[:cache], do: Caches.plug(config), else: config
+  end
+
   defp start_bandit(config) do
     start_supervised!(
-      {Bandit, plug: {Mounted, config}, port: 0, ip: :loopback, startup_log: false}
+      {Bandit, plug: {Mounted, mount(config)}, port: 0, ip: :loopback, startup_log: false}
     )
   end
 

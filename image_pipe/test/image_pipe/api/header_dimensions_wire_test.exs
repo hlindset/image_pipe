@@ -6,6 +6,7 @@ defmodule ImagePipe.API.HeaderDimensionsWireTest do
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.DecodeOpens
   alias Vix.Vips.Image, as: VipsImage
 
@@ -32,11 +33,14 @@ defmodule ImagePipe.API.HeaderDimensionsWireTest do
 
     on_exit(fn -> :telemetry.detach(handler) end)
 
-    limits = CacheObserver.observe(max_input_pixels: 100, telemetry_prefix: @prefix)
-
     for suffix <- [".png", ".jpg", ".webp"], terminal <- ["format=png", "output=info"] do
-      body = encoded(suffix)
-      config = mount(body, limits)
+      config =
+        suffix
+        |> encoded()
+        |> options(max_input_pixels: 100)
+        |> CacheObserver.observe()
+        |> Caches.plug()
+
       response = request(terminal, config)
 
       assert response.status == 413
@@ -124,7 +128,9 @@ defmodule ImagePipe.API.HeaderDimensionsWireTest do
   defp request(options, config),
     do: conn(:get, "/#{options}/src/source") |> ImagePipe.Plug.call(config)
 
-  defp mount(body, extra \\ []) do
+  defp mount(body, extra \\ []), do: body |> options(extra) |> ImagePipe.Plug.init()
+
+  defp options(body, extra) do
     pid = self()
 
     origin = fn conn ->
@@ -143,6 +149,5 @@ defmodule ImagePipe.API.HeaderDimensionsWireTest do
       telemetry_prefix: @prefix
     ]
     |> Keyword.merge(extra)
-    |> ImagePipe.Plug.init()
   end
 end

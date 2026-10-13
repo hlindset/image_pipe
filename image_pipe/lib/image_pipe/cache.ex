@@ -13,6 +13,7 @@ defmodule ImagePipe.Cache do
       ImagePipe.Telemetry
     ],
     exports: [
+      Cost,
       Entry,
       File,
       Input,
@@ -21,19 +22,21 @@ defmodule ImagePipe.Cache do
       OutputWork,
       Key,
       FileSystem,
-      FileSystem.CheckedDirs
+      FileSystem.CheckedDirs,
+      FileSystem.RefusedRoots
     ]
 
   require Logger
 
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
+  alias ImagePipe.Cache.FileSystem.Owner
   alias ImagePipe.Cache.FileSystem.PeriodicSweep
   alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.FileSystem.Sweep
-  alias ImagePipe.Cache.FileSystem.Toucher
   alias ImagePipe.Cache.Input
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Cache.OutputWork
   alias ImagePipe.Cache.Sink
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.Skipped
@@ -82,33 +85,28 @@ defmodule ImagePipe.Cache do
     do: {PeriodicSweep, id: {Sweep, :staged}, sweep: {__MODULE__, :sweep_staged, []}}
 
   @doc false
-  # Upkeep an instance runs for its caches: the toucher that records reads,
-  # and periodic cleanup for unbounded caches. A bounded cache's Admission
-  # sweeps on each re-scan. A cache used without an instance gets neither.
-  @spec startup_specs(keyword()) :: [Supervisor.child_spec()]
-  def startup_specs(options) do
-    for key <- [:cache, :input_cache],
-        cache_opts = Keyword.get(options, key),
-        cache_opts != nil,
-        spec <- [Toucher.child_spec(cache_opts) | sweep_specs(cache_opts)],
-        do: spec
-  end
-
-  defp sweep_specs(cache_opts) do
-    if Keyword.has_key?(cache_opts, :max_size_bytes), do: [], else: [Store.sweep_spec(cache_opts)]
-  end
-
-  @doc false
-  # Processes the configured bounded caches need. Takes resolved
-  # configuration options.
+  # The processes an instance runs for its caches: the claim on each root,
+  # Admission, and periodic cleanup. Takes resolved configuration options.
   @spec child_specs(keyword()) :: [Supervisor.child_spec()]
   def child_specs(options) do
     for key <- [:cache, :input_cache],
         cache_opts = Keyword.get(options, key),
         cache_opts != nil,
-        spec = FileSystem.child_spec(cache_opts),
-        spec != nil,
-        do: Supervisor.child_spec(spec, [])
+        do: FileSystem.child_spec(cache_opts)
+  end
+
+  @doc false
+  # Removes the caches whose root another node holds, so requests run
+  # without them (see `Owner`).
+  @spec drop_refused(keyword()) :: keyword()
+  def drop_refused(options) do
+    Enum.reject(options, fn
+      {key, cache_opts} when key in [:cache, :input_cache] and is_list(cache_opts) ->
+        Owner.refused?(Store.root_dir(cache_opts))
+
+      _other ->
+        false
+    end)
   end
 
   @doc false
@@ -135,17 +133,24 @@ defmodule ImagePipe.Cache do
   end
 
   @doc false
+  # Stores the record from the calling process, a publication that already
+  # runs off the request, so the record is in place when it releases the
+  # source's lease.
   def remember_source(input_key, record, opts) do
-    body = :erlang.term_to_binary(record, [:deterministic])
+    case Keyword.get(opts, :cache) do
+      nil ->
+        :ok
 
-    source_index_key(input_key)
-    |> open_sink(
-      {:complete_body, "application/vnd.imagepipe.source"},
-      [source_record: record],
-      opts
-    )
-    |> write_chunk(body, opts)
-    |> commit_sink(opts)
+      cache_opts ->
+        Sink.store(
+          source_index_key(input_key),
+          "application/vnd.imagepipe.source",
+          :erlang.term_to_binary(record, [:deterministic]),
+          cache_opts,
+          [source_record: record],
+          opts
+        )
+    end
   end
 
   defp source_index_key(%Key{hash: hash}) do
@@ -220,8 +225,12 @@ defmodule ImagePipe.Cache do
     do: Sink.write_chunk(sink, chunk, opts)
 
   @doc false
-  @spec commit_sink(sink() | nil, keyword()) :: :ok
-  def commit_sink(sink, opts), do: Sink.commit(sink, opts)
+  defdelegate publish(hash, lease, write, opts), to: ImagePipe.Cache.Publication
+
+  @doc false
+  # Hands the write, and the output lease when given, to the cache's writer.
+  @spec commit_sink(sink() | nil, keyword(), OutputWork.lease() | nil) :: :ok
+  def commit_sink(sink, opts, lease \\ nil), do: Sink.commit(sink, opts, lease)
 
   @doc false
   @spec abort_sink(sink() | nil, atom(), keyword()) :: :ok

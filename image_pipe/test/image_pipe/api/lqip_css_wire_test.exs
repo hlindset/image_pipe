@@ -7,6 +7,7 @@ defmodule ImagePipe.API.LqipCssWireTest do
   alias Image.Lqip.Css
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
   alias Vix.Vips.Operation
 
   setup do
@@ -208,7 +209,7 @@ defmodule ImagePipe.API.LqipCssWireTest do
   test "cache reuse ignores Accept and option order, with conditional requests before access", %{
     body: body
   } do
-    config = mount(body, CacheObserver.observe(http_cache: :auto))
+    config = observed_mount(body, http_cache: :auto)
     first = request("gray/output=lqip-css", config, "image/webp")
     assert first.status == 200
     assert_received :origin_fetch
@@ -229,7 +230,7 @@ defmodule ImagePipe.API.LqipCssWireTest do
     conditional =
       conn(:get, "/gray/output=lqip-css/src/source.png")
       |> put_req_header("if-none-match", etag)
-      |> ImagePipe.Plug.call(config)
+      |> call_pipe(config)
 
     assert conditional.status == 304
     assert conditional.resp_body == ""
@@ -273,10 +274,29 @@ defmodule ImagePipe.API.LqipCssWireTest do
   defp request(options, config, accept \\ "*/*") do
     conn(:get, "/#{options}/src/source.png")
     |> put_req_header("accept", accept)
-    |> ImagePipe.Plug.call(config)
+    |> call_pipe(config)
   end
 
-  defp mount(body, extra \\ [], content_type \\ "image/png") do
+  # Cache writes finish after the response, so wait for them before a test
+  # asserts what was stored.
+  defp call_pipe(conn, {plug, opts}) do
+    conn = ImagePipe.Plug.call(conn, plug)
+    Caches.await_writes(opts)
+    conn
+  end
+
+  defp call_pipe(conn, config), do: ImagePipe.Plug.call(conn, config)
+
+  # A mount with an observed cache, and the options its instance runs with.
+  defp observed_mount(body, extra) do
+    opts = body |> options(extra) |> CacheObserver.observe()
+    {Caches.plug(opts), opts}
+  end
+
+  defp mount(body, extra \\ [], content_type \\ "image/png"),
+    do: body |> options(extra, content_type) |> ImagePipe.Plug.init()
+
+  defp options(body, extra, content_type \\ "image/png") do
     pid = self()
 
     origin = fn conn ->
@@ -299,6 +319,5 @@ defmodule ImagePipe.API.LqipCssWireTest do
       ]
     ]
     |> Keyword.merge(extra)
-    |> ImagePipe.Plug.init()
   end
 end

@@ -5,6 +5,7 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
   import Plug.Test
 
   alias ImagePipe, as: IP
+  alias ImagePipe.Test.Caches
 
   @path "/wm=logo/format=png/src/https://origin.test/image.png"
 
@@ -74,8 +75,8 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
       end
     end
 
-    shared =
-      IP.config(
+    config =
+      Caches.start!(
         sources: [
           url: [
             adapter: ImagePipe.Source.HTTP,
@@ -93,10 +94,11 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
         watermarks: %{
           logo: [source: "https://origin.test/mark.png"],
           missing: [source: "https://origin.test/missing.png"]
-        }
+        },
+        http_cache: :auto
       )
 
-    %{config: IP.Plug.init(config: shared, http_cache: :auto), state: state}
+    %{config: Caches.plug(config), state: state}
   end
 
   test "input-cached assets serve later requests without refetching", %{config: config} do

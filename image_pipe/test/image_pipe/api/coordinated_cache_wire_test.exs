@@ -3,8 +3,8 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
   import Plug.Conn
   import Plug.Test
   alias ImagePipe, as: IP
-  alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.Work
+  alias ImagePipe.Test.Caches
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
 
@@ -65,7 +65,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     end
 
     shared =
-      IP.config(
+      Caches.start!(
         sources: [
           url: [
             adapter: ImagePipe.Source.HTTP,
@@ -82,16 +82,15 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
         clock: fn -> Agent.get(state, & &1.now) end
       )
 
-    config = IP.Plug.init(config: shared, http_cache: :auto)
-    %{config: config, shared: shared, state: state, root: root, red: red}
+    %{config: http(shared), shared: shared, state: state, root: root, red: red}
   end
 
   test "native and HTTP calls share output hits and input bytes across variants", %{
     shared: shared
   } do
     prefix = [__MODULE__, :native_reuse]
-    shared = IP.config(Keyword.put(shared.raw, :telemetry_prefix, prefix))
-    config = IP.Plug.init(config: shared, http_cache: :auto)
+    shared = restart(shared, telemetry_prefix: prefix)
+    config = http(shared)
     observe_transforms(prefix)
 
     assert {:ok, native} = native(shared, 12)
@@ -162,12 +161,8 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
   end
 
   test "native storage inputs match HTTP headers and cookies", %{shared: shared} do
-    shared =
-      IP.config(
-        Keyword.put(shared.raw, :storage_inputs, [{:header, "X-Tenant"}, {:cookie, "session"}])
-      )
-
-    config = IP.Plug.init(config: shared, http_cache: :auto)
+    shared = restart(shared, storage_inputs: [{:header, "X-Tenant"}, {:cookie, "session"}])
+    config = http(shared)
     opts = [request_inputs: [headers: [{"X-Tenant", "one"}], cookies: %{"session" => "abc"}]]
     assert {:ok, first} = native(shared, 12, opts)
     assert_receive {:origin, _, []}
@@ -186,14 +181,12 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
 
   test "native Accept negotiation shares the corresponding HTTP variant", %{shared: shared} do
     prefix = [__MODULE__, :native_accept]
-    shared = IP.config(Keyword.merge(shared.raw, auto_webp: true, telemetry_prefix: prefix))
+    shared = restart(shared, auto_webp: true, telemetry_prefix: prefix)
     observe_transforms(prefix)
     client = IP.URL.new() |> IP.URL.group(resize: [width: 12])
 
     assert {:ok, result} =
-             IP.run(shared, client, {:source, "https://origin.test/image.png"},
-               accept: "image/webp"
-             )
+             run(shared, client, {:source, "https://origin.test/image.png"}, accept: "image/webp")
 
     assert result.format == :webp
     assert_receive :transformed
@@ -203,7 +196,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
       conn(:get, IP.URL.url!(client, "https://origin.test/image.png"))
       |> put_req_header("accept", "image/webp")
 
-    http = IP.Plug.call(conn, IP.Plug.init(shared))
+    http = call(conn, shared)
     assert http.status == 200
     assert http.resp_body == result.data
     assert get_resp_header(http, "vary") == ["Accept"]
@@ -216,18 +209,14 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
       client = IP.URL.new() |> IP.URL.output(terminal: terminal)
 
       assert {:ok, native} =
-               IP.run(shared, client, {:source, "https://origin.test/image.png"})
+               run(shared, client, {:source, "https://origin.test/image.png"})
 
-      http =
-        IP.Plug.call(
-          conn(:get, IP.URL.url!(client, "https://origin.test/image.png")),
-          IP.Plug.init(shared)
-        )
+      http = call(conn(:get, IP.URL.url!(client, "https://origin.test/image.png")), shared)
 
       assert http.status == 200
 
       assert {:ok, again} =
-               IP.run(shared, client, {:source, "https://origin.test/image.png"})
+               run(shared, client, {:source, "https://origin.test/image.png"})
 
       assert again == native
 
@@ -248,11 +237,11 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     file = "test/support/image_pipe/test/sources/small.png"
 
     for input <- [{:file, file}, {:binary, File.read!(file)}] do
-      assert {:ok, _} = IP.run(shared, IP.URL.new(), input)
-      assert {:ok, _} = IP.run(shared, IP.URL.new(), input)
+      assert {:ok, _} = run(shared, IP.URL.new(), input)
+      assert {:ok, _} = run(shared, IP.URL.new(), input)
     end
 
-    refute File.exists?(root)
+    assert Path.wildcard(Path.join(root, "**/*.body")) == []
 
     for inputs <- [
           [unknown: "secret"],
@@ -263,7 +252,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     end
 
     refute_received {:origin, _, _}
-    refute File.exists?(root)
+    assert Path.wildcard(Path.join(root, "**/*.body")) == []
   end
 
   test "native execution honors no-store and rejects expiry before source or cache access", %{
@@ -272,14 +261,14 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     root: root
   } do
     assert {:error, :expired} =
-             IP.run(
+             run(
                shared,
                IP.URL.new(expires: 999),
                {:source, "https://origin.test/image.png"}
              )
 
     refute_received {:origin, _, _}
-    refute File.exists?(root)
+    assert Path.wildcard(Path.join(root, "**/*.body")) == []
     Agent.update(state, &%{&1 | control: "no-store"})
     assert {:ok, _} = native(shared, 12)
     assert_receive {:origin, _, []}
@@ -290,7 +279,9 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
 
   defp native(shared, width, options \\ []) do
     builder = IP.URL.new() |> IP.URL.group(resize: [width: width]) |> IP.URL.output(format: :png)
-    IP.run(shared, builder, {:source, "https://origin.test/image.png"}, options)
+    result = run(shared, builder, {:source, "https://origin.test/image.png"}, options)
+    Caches.await_writes(shared)
+    result
   end
 
   defp observe_transforms(prefix) do
@@ -323,6 +314,8 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     monitor = Process.monitor(worker)
     send(worker, :continue)
     assert_receive {:DOWN, ^monitor, :process, ^worker, _}, 5_000
+    # The refresh's cache writes finish after it does.
+    Caches.await_writes(config)
     Agent.update(state, &%{&1 | block: false})
     refreshed = request(config, 12)
     assert refreshed.status == 200
@@ -398,7 +391,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
       end)
 
     get = fn options ->
-      ImagePipe.Plug.call(conn(:get, "/#{options}/src/https://origin.test/cmyk.jpg"), config)
+      call(conn(:get, "/#{options}/src/https://origin.test/cmyk.jpg"), config)
     end
 
     assert get.("format=png/profile=strip").status == 200
@@ -451,7 +444,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     )
 
     on_exit(fn -> :telemetry.detach(handler) end)
-    config = Keyword.put(config, :telemetry_prefix, prefix)
+    config = restart(config, telemetry_prefix: prefix)
     assert request(config, 12).status == 200
     assert request(config, 8).status == 200
     assert_receive {:input_read, %{cache: :hit, pool: :input, bytes: bytes}}
@@ -497,10 +490,10 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     first = request(config, 12)
     assert first.status == 200
     assert_receive {:origin, _, []}
-    constrained = Keyword.put(config, :max_body_bytes, 1)
+    constrained = restart(config, max_body_bytes: 1)
     assert request(constrained, 12).status == 200
     assert request(constrained, 8).status == 413
-    pixel_constrained = Keyword.put(config, :max_input_pixels, 1)
+    pixel_constrained = restart(config, max_input_pixels: 1)
     assert request(pixel_constrained, 12).status == 200
     assert request(pixel_constrained, 8).status == 413
     refute_received {:origin, _, _}
@@ -524,6 +517,8 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     monitor = Process.monitor(worker)
     send(worker, :continue)
     assert_receive {:DOWN, ^monitor, :process, ^worker, _}, 5_000
+    # The refresh's cache writes finish after it does.
+    Caches.await_writes(config)
     Agent.update(state, &%{&1 | block: false})
     refreshed = request(config, 12)
     assert refreshed.status == 200
@@ -532,7 +527,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
 
   test "origin restrictions can be overridden explicitly", %{config: config, state: state} do
     Agent.update(state, &%{&1 | control: "private, no-store, no-cache"})
-    config = Keyword.put(config, :source_cache_policy, storage: :allow, freshness: {:force, 60})
+    config = restart(config, source_cache_policy: [storage: :allow, freshness: {:force, 60}])
     assert request(config, 12).status == 200
     assert_receive {:origin, _, []}
     assert request(config, 8).status == 200
@@ -566,7 +561,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     )
 
     on_exit(fn -> :telemetry.detach(handler) end)
-    config = Keyword.put(config, :telemetry_prefix, prefix)
+    config = restart(config, telemetry_prefix: prefix)
     response = request(config, 12)
     assert response.status == 200
     input_bytes = byte_size(red)
@@ -591,31 +586,16 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     config: config,
     root: root
   } do
-    {:ok, input} =
-      FileSystem.validate_options(
-        root: Path.join(root, "input"),
-        pool: :input,
-        max_size_bytes: 1
-      )
-
-    {:ok, output} =
-      FileSystem.validate_options(
-        root: Path.join(root, "output"),
-        max_size_bytes: 100_000
-      )
-
-    start_supervised!(FileSystem.child_spec(input))
-    start_supervised!(FileSystem.child_spec(output))
-
     config =
-      config
-      |> Keyword.put(:input_cache, input)
-      |> Keyword.put(:cache, output)
+      restart(config,
+        input_cache: [root: Path.join(root, "bounded-input"), max_size_bytes: 1],
+        cache: [root: Path.join(root, "bounded-output"), max_size_bytes: 100_000]
+      )
 
     first = request(config, 12)
     assert first.status == 200
     assert_receive {:origin, _, []}
-    assert Path.wildcard(Path.join(root, "input/**/*.body")) == []
+    assert Path.wildcard(Path.join(root, "bounded-input/**/*.body")) == []
     assert request(config, 12).resp_body == first.resp_body
     refute_received {:origin, _, _}
     assert request(config, 8).status == 200
@@ -624,8 +604,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
 
   test "a cachebuster bypasses both pools while preserving byte validators", %{config: config} do
     request_version = fn version ->
-      conn(:get, "/cb=#{version}/w=12/format=png/src/https://origin.test/image.png")
-      |> ImagePipe.Plug.call(config)
+      call(conn(:get, "/cb=#{version}/w=12/format=png/src/https://origin.test/image.png"), config)
     end
 
     first = request_version.("one")
@@ -664,6 +643,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     monitor = Process.monitor(worker)
     send(worker, :continue)
     assert_receive {:DOWN, ^monitor, :process, ^worker, _}, 5_000
+    Caches.await_writes(config)
     Agent.update(state, &%{&1 | now: 1_005, block: false})
     assert request(config, 12).status == 502
   end
@@ -685,8 +665,8 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
 
   test "a revalidating warm hit reads the source record once", %{shared: shared, state: state} do
     prefix = [__MODULE__, :single_source_read]
-    shared = IP.config(Keyword.put(shared.raw, :telemetry_prefix, prefix))
-    config = IP.Plug.init(config: shared, http_cache: :auto)
+    shared = restart(shared, telemetry_prefix: prefix)
+    config = http(shared)
     handler = make_ref()
 
     :telemetry.attach(
@@ -814,17 +794,19 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     Agent.update(state, &%{&1 | control: "no-cache"})
     assert request(config, 12).status == 200
     assert_receive {:origin, _, []}
-    strict = IP.Plug.init(config: IP.config(Keyword.put(shared.raw, :max_body_bytes, 1)))
     Agent.update(state, &%{&1 | block: true})
     supervisor = start_supervised!(Task.Supervisor)
     leader = Task.Supervisor.async_nolink(supervisor, fn -> request(config, 12) end)
     assert_receive {:blocked, worker}
-    follower = Task.Supervisor.async_nolink(supervisor, fn -> request(strict, 8) end)
+
+    follower =
+      Task.Supervisor.async_nolink(supervisor, fn -> native(shared, 8, max_body_bytes: 1) end)
+
     await_source_waiter(follower)
     Agent.update(state, &%{&1 | block: false})
     send(worker, :continue)
     assert Task.await(leader).status == 200
-    assert Task.await(follower).status == 413
+    assert {:error, {:source, :body_too_large}} = Task.await(follower)
     assert_receive {:origin, _, [~s("v1")]}
     assert_receive {:origin, _, [~s("v1")]}
     refute_received {:origin, _, _}
@@ -835,7 +817,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     state: state
   } do
     prefix = [__MODULE__, :cohort_input_leases]
-    config = IP.Plug.init(config: IP.config(Keyword.put(shared.raw, :telemetry_prefix, prefix)))
+    config = restart(shared, telemetry_prefix: prefix)
     Agent.update(state, &%{&1 | control: "no-cache"})
     first = request(config, 12)
     assert_receive {:origin, _, []}
@@ -945,11 +927,9 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
 
   test "S3 conditional validations complete a queued cohort", %{
     shared: shared,
-    config: http_config,
     state: state
   } do
-    {_module, options} = http_config[:sources].sources.url
-    req_options = Keyword.fetch!(options, :req_options)
+    req_options = shared[:sources][:url][:options][:req_options]
 
     sources = [
       objects: [
@@ -966,16 +946,19 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
       ]
     ]
 
-    config = IP.Plug.init(config: IP.config(Keyword.put(shared.raw, :sources, sources)))
+    config = restart(shared, sources: sources)
 
     request = fn ->
-      conn(:get, "/w=12/format=png/src/s3://images/image.png") |> IP.Plug.call(config)
+      conn(:get, "/w=12/format=png/src/s3://images/image.png") |> call(config)
     end
 
     Agent.update(state, &%{&1 | control: "no-cache"})
     first = request.()
     assert first.status == 200
     assert_receive {:origin, _, []}
+    # The original's record is stored after the response. A leader that reads
+    # no record has no validation cohort, so the follower couldn't share it.
+    Caches.await_writes(config)
     Agent.update(state, &%{&1 | block: true})
     supervisor = start_supervised!(Task.Supervisor)
     leader = Task.Supervisor.async_nolink(supervisor, request)
@@ -1053,8 +1036,8 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     state: state
   } do
     prefix = [__MODULE__, :publish_between_read_and_lock]
-    shared = IP.config(Keyword.put(shared.raw, :telemetry_prefix, prefix))
-    config = IP.Plug.init(config: shared, http_cache: :auto)
+    shared = restart(shared, telemetry_prefix: prefix)
+    config = http(shared)
     assert request(config, 12).status == 200
     assert_receive {:origin, _, []}
 
@@ -1125,7 +1108,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     config =
       config
       |> update_url_mount(&Keyword.put(&1, :stable, :immutable))
-      |> Keyword.put(:source_cache_policy, storage: :allow)
+      |> restart(source_cache_policy: [storage: :allow])
 
     first = request(config, 12)
     assert first.status == 200
@@ -1195,7 +1178,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
 
   describe "validators mode with headers set by the host" do
     setup %{shared: shared} do
-      %{validators: IP.Plug.init(config: shared, http_cache: :validators)}
+      %{validators: Keyword.put(shared, :http_cache, :validators)}
     end
 
     test "a changeable source carries its lifetime and an ETag", %{validators: config} do
@@ -1236,7 +1219,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
         |> conn("/w=12/src/https://origin.test/image.png")
         |> put_req_header("accept", "image/webp")
         |> put_resp_header("vary", "Accept-Encoding")
-        |> ImagePipe.Plug.call(config)
+        |> call(config)
 
       assert conn.status == 200
       assert get_resp_header(conn, "vary") == ["Accept-Encoding, Accept"]
@@ -1247,7 +1230,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     :get
     |> conn("/w=12/format=png/src/https://origin.test/image.png")
     |> host_plug.()
-    |> ImagePipe.Plug.call(config)
+    |> call(config)
   end
 
   defp request(config, width, headers \\ []) do
@@ -1256,13 +1239,25 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     conn =
       Enum.reduce(headers, conn, fn {name, value}, conn -> put_req_header(conn, name, value) end)
 
-    ImagePipe.Plug.call(conn, config)
+    response = call(conn, config)
+    Caches.await_writes(config)
+    response
   end
 
-  # Changes the validated options of the `url` mount in place.
-  defp update_url_mount(config, fun) do
-    update_in(config, [:sources, Access.key!(:sources), :url], fn {module, opts} ->
-      {module, fun.(opts)}
-    end)
+  defp call(conn, config), do: ImagePipe.Plug.call(conn, Caches.plug(config))
+
+  defp http(shared), do: Keyword.put(shared, :http_cache, :auto)
+
+  defp run(shared, builder, input, options \\ []),
+    do: IP.run(Caches.instance(shared), builder, input, options)
+
+  # Replaces the running instance with one serving `config` with `overrides`.
+  defp restart(config, overrides) do
+    stop_supervised!(Caches.instance(config))
+    Caches.start!(Keyword.merge(config, overrides))
   end
+
+  # Restarts the instance with `fun` applied to the options of the `url` source.
+  defp update_url_mount(config, fun),
+    do: restart(config, sources: update_in(config[:sources], [:url, :options], fun))
 end

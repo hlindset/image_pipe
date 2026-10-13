@@ -1,8 +1,9 @@
 defmodule ImagePipe.Delivery.TraceParentageTest do
   @moduledoc """
   Checks that `ImagePipe.Delivery.stream/4` carries the caller's request
-  trace to its coordinator and producer, with both processes' spans
-  descending transitively from that request root.
+  trace to its coordinator, producer and cache writer, with their spans
+  descending transitively from that request root. The writer's span can end
+  after the request's.
   """
 
   use ExUnit.Case, async: false
@@ -11,6 +12,7 @@ defmodule ImagePipe.Delivery.TraceParentageTest do
   alias ImagePipe.Delivery
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Telemetry
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.Trace.SpanWalk
   alias ImagePipe.Test.Trace.TestExporter
 
@@ -57,9 +59,9 @@ defmodule ImagePipe.Delivery.TraceParentageTest do
     end
   end
 
-  test "spans from both delivery hops are semantic descendants of the caller's request span",
+  test "spans from every delivery hop are semantic descendants of the caller's request span",
        %{tmp_dir: tmp_dir} do
-    config = [cache: [root: tmp_dir]]
+    config = Caches.start!(cache: [root: tmp_dir])
 
     Telemetry.span(Telemetry.telemetry_opts(config), [:request], %{}, fn ->
       {:ok, prepared} =
@@ -69,11 +71,14 @@ defmodule ImagePipe.Delivery.TraceParentageTest do
           config
         )
 
-      # Drain to EOF so the coordinator commits its sink — that commit is the
-      # coordinator-hop span this test asserts on.
+      # Drain to EOF so the coordinator commits its sink. The commit hands the
+      # entry to the cache's writer, whose write span adopts the request's
+      # trace but may end after the request span.
       :ok = drain(prepared)
       {:ok, %{}}
     end)
+
+    Caches.await_writes(config)
 
     spans = SpanWalk.collect()
     root = Enum.find(spans, &(&1.name == "image_pipe.request"))

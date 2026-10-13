@@ -42,7 +42,6 @@ defmodule ImagePipe.Delivery.Coordinator do
     :cancel_reason,
     :cache_sink,
     :fetch_started_at,
-    :processing_started_at,
     :failure,
     phase: :new
   ]
@@ -116,14 +115,8 @@ defmodule ImagePipe.Delivery.Coordinator do
     coordinator = self()
     pool = Keyword.get(state.config, :processing_pool)
 
-    # Generation cost starts once a processing slot is held, so time queued
-    # behind other work doesn't inflate it. The producer reports the start
-    # before its first chunk.
     build = fn pump ->
-      ProcessingPool.within(pool, coordinator, state.config, fn ->
-        send(coordinator, {:processing_started, self(), System.monotonic_time(:microsecond)})
-        state.build_fun.(pump)
-      end)
+      ProcessingPool.within(pool, coordinator, state.config, fn -> state.build_fun.(pump) end)
     end
 
     {:ok, producer} = Producer.start_link(build, state.request_context)
@@ -217,10 +210,6 @@ defmodule ImagePipe.Delivery.Coordinator do
     end
   end
 
-  def handle_info({:processing_started, producer, started_at}, %{producer: producer} = state) do
-    {:noreply, %{state | processing_started_at: started_at}}
-  end
-
   def handle_info({ref, result}, %{producer_request_ref: ref} = state) when is_reference(ref) do
     handle_producer_result(result, %{state | producer_request_ref: nil})
   end
@@ -310,17 +299,19 @@ defmodule ImagePipe.Delivery.Coordinator do
        ) do
     with_owner_check(state, fn state ->
       # Time-to-first-chunk completes the producer's stage timings as
-      # `:total`. The cache's admission/eviction policy scores an entry by
-      # the part spent holding a processing slot.
+      # `:total`.
       now = System.monotonic_time(:microsecond)
-      cost_us = now - state.processing_started_at
       debug = put_total_timing(debug, now - state.fetch_started_at)
 
       cache_sink =
         Cache.open_sink(
           cache_key,
           resolved_output,
-          [cost_us: cost_us, debug: debug, source_record: state.source_record],
+          [
+            cost_us: cost(debug, resolved_output),
+            debug: debug,
+            source_record: state.source_record
+          ],
           config
         )
 
@@ -359,8 +350,7 @@ defmodule ImagePipe.Delivery.Coordinator do
 
   defp handle_producer_result({:ok, :done}, %{pending: {:next, from}} = state) do
     with_owner_check(state, fn state ->
-      Cache.commit_sink(state.cache_sink, state.config)
-      Cache.OutputWork.complete(state.output_lease, :ready)
+      Cache.commit_sink(state.cache_sink, state.config, state.output_lease)
       GenServer.reply(from, :done)
 
       state =
@@ -510,8 +500,12 @@ defmodule ImagePipe.Delivery.Coordinator do
 
   defp mark_failed(state), do: %{state | phase: :failed}
 
-  defp put_total_timing(nil, _cost_us), do: nil
+  # A source delivered unchanged has no debug info and isn't stored.
+  defp cost(nil, _skipped), do: 0
+  defp cost(%Info{} = debug, resolved_output), do: Cache.Cost.render(debug, resolved_output)
 
-  defp put_total_timing(%Info{} = info, cost_us),
-    do: %{info | timings: Map.put(info.timings, :total, cost_us)}
+  defp put_total_timing(nil, _total_us), do: nil
+
+  defp put_total_timing(%Info{} = info, total_us),
+    do: %{info | timings: Map.put(info.timings, :total, total_us)}
 end

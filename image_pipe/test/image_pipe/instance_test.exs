@@ -2,6 +2,8 @@ defmodule ImagePipe.InstanceTest do
   use ExUnit.Case, async: true
   import Plug.Test
 
+  alias ImagePipe.Cache.FileSystem.Owner
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.DetectorFixtures.UnavailableDetector
   alias ImagePipe.Test.DetectorFixtures.WarmingDetector
   alias ImagePipe.Transform.Detector.Warmup
@@ -36,14 +38,25 @@ defmodule ImagePipe.InstanceTest do
     )
   end
 
-  defp stored_bodies(root), do: Path.wildcard(Path.join(root, "**/*.body"))
+  defp stored_bodies(root) do
+    Caches.await_writes(cache: [root: root])
+    Path.wildcard(Path.join(root, "**/*.body"))
+  end
+
+  defp flush_lookups do
+    receive do
+      {:lookup, _cache} -> flush_lookups()
+    after
+      0 -> :ok
+    end
+  end
 
   defp request(path, plug_options) do
     ImagePipe.Plug.call(conn(:get, path), ImagePipe.Plug.init(plug_options))
   end
 
   describe "direct execution" do
-    test "stores in a bounded cache started by the instance", ctx do
+    test "stores in a cache started by the instance", ctx do
       start_instance(ctx)
 
       builder =
@@ -63,24 +76,15 @@ defmodule ImagePipe.InstanceTest do
       assert [_ | _] = stored_bodies(ctx.cache_root)
     end
 
-    test "per-call caches the instance already runs, or that need no processes", ctx do
-      start_instance(ctx)
-      builder = ImagePipe.URL.new(ImagePipe.url_config(ctx.name))
-      unbounded = [root: ctx.cache_root <> "-unbounded"]
-
-      for cache <- [ctx.bounded, unbounded] do
-        assert {:ok, _result} =
-                 ImagePipe.run(ctx.name, builder, {:source, "red.png"}, cache: cache)
-      end
-    end
-
-    test "rejects a per-call cache that needs processes", ctx do
+    test "rejects a per-call cache, even the instance's own", ctx do
       start_instance(ctx)
       builder = ImagePipe.URL.new(ImagePipe.url_config(ctx.name))
       other = Keyword.put(ctx.bounded, :root, ctx.cache_root <> "-other")
 
-      assert_raise ArgumentError, ~r/ImagePipe instance/, fn ->
-        ImagePipe.run(ctx.name, builder, {:source, "red.png"}, cache: other)
+      for cache <- [ctx.bounded, other] do
+        assert_raise ArgumentError, ~r/belong to the instance/, fn ->
+          ImagePipe.run(ctx.name, builder, {:source, "red.png"}, cache: cache)
+        end
       end
     end
 
@@ -153,7 +157,7 @@ defmodule ImagePipe.InstanceTest do
   end
 
   describe "Plug with instance:" do
-    test "serves requests and stores in the instance's bounded cache", ctx do
+    test "serves requests and stores in the instance's cache", ctx do
       start_instance(ctx)
 
       conn = request("/w=8/format=png/src/red.png", instance: ctx.name)
@@ -161,6 +165,44 @@ defmodule ImagePipe.InstanceTest do
       assert conn.status == 200
       assert conn.resp_body |> Image.from_binary!() |> Image.width() == 8
       assert [_ | _] = stored_bodies(ctx.cache_root)
+    end
+
+    test "serves requests without a cache whose root another node holds", ctx do
+      start_instance(ctx)
+      Owner.refuse(ctx.cache_root)
+      on_exit(fn -> Owner.accept(ctx.cache_root) end)
+
+      assert request("/w=8/format=png/src/red.png", instance: ctx.name).status == 200
+      assert stored_bodies(ctx.cache_root) == []
+    end
+
+    test "run/4 with options reads no cache whose root another node holds", ctx do
+      prefix = [:"instance_#{System.unique_integer([:positive])}"]
+      start_instance(ctx, telemetry_prefix: prefix)
+      test = self()
+
+      :telemetry.attach(
+        ctx.name,
+        prefix ++ [:cache, :lookup, :stop],
+        fn _event, _measurements, meta, _config -> send(test, {:lookup, meta.cache}) end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(ctx.name) end)
+      builder = ImagePipe.URL.new(ImagePipe.url_config(ctx.name))
+      assert {:ok, _result} = ImagePipe.run(ctx.name, builder, {:source, "red.png"})
+      assert [_ | _] = stored_bodies(ctx.cache_root)
+
+      Owner.refuse(ctx.cache_root)
+      on_exit(fn -> Owner.accept(ctx.cache_root) end)
+      flush_lookups()
+
+      assert {:ok, _result} =
+               ImagePipe.run(ctx.name, builder, {:source, "red.png"},
+                 max_input_pixels: 50_000_000
+               )
+
+      refute_received {:lookup, :hit}
     end
 
     test "serves an instance without a cache", ctx do
@@ -323,7 +365,7 @@ defmodule ImagePipe.InstanceTest do
   end
 
   describe "inline configuration" do
-    test "ImagePipe.run/4 rejects a config whose cache needs processes", ctx do
+    test "ImagePipe.run/4 rejects a config with a cache", ctx do
       config = ImagePipe.config(sources: ctx.sources, cache: ctx.bounded)
       builder = ImagePipe.URL.new(ImagePipe.url_config(config))
 
@@ -332,9 +374,13 @@ defmodule ImagePipe.InstanceTest do
       end
     end
 
-    test "Plug.init/1 rejects a bounded input cache", ctx do
-      assert_raise ArgumentError, ~r/ImagePipe instance/, fn ->
-        ImagePipe.Plug.init(sources: ctx.sources, input_cache: ctx.bounded)
+    test "Plug.init/1 rejects a cache, even one an instance runs", ctx do
+      start_instance(ctx)
+
+      for cache <- [cache: ctx.bounded, input_cache: ctx.bounded] do
+        assert_raise ArgumentError, ~r/ImagePipe instance/, fn ->
+          ImagePipe.Plug.init([sources: ctx.sources] ++ [cache])
+        end
       end
     end
   end

@@ -206,5 +206,5 @@ resized, cropped, and converted copies. From here:
   and process them in code with one configuration.
 
 Before running this in production, read
-[Caching processed images](caching-processed-images.md). A cache with a size
-limit needs a supervised ImagePipe instance (see `ImagePipe.child_spec/1`).
+[Caching processed images](caching-processed-images.md). A cache needs a
+supervised ImagePipe instance (see `ImagePipe.child_spec/1`).

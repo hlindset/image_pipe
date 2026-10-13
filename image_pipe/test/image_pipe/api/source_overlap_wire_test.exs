@@ -4,6 +4,7 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
 
   alias ImagePipe.Source.HTTP
   alias ImagePipe.Source.Origin
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.PacedSourceOrigin
   alias ImagePipe.Test.ProcessingSource
   alias Vix.Vips.Image, as: VipsImage
@@ -38,8 +39,8 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
 
     on_exit(fn -> :telemetry.detach(handler) end)
 
-    config =
-      ImagePipe.Plug.init(
+    options =
+      Caches.start!(
         telemetry_prefix: prefix,
         max_body_bytes: 20_000_000,
         max_input_pixels: 60_000_000,
@@ -59,7 +60,16 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
       )
 
     tasks = start_supervised!(Task.Supervisor)
-    %{config: config, origin: origin, url: url, tasks: tasks, body: body, root: root}
+
+    %{
+      options: options,
+      config: Caches.plug(options),
+      origin: origin,
+      url: url,
+      tasks: tasks,
+      body: body,
+      root: root
+    }
   end
 
   test "opens progressive JPEG before EOF, preserves pixels, and reuses cached output", context do
@@ -104,11 +114,12 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
   end
 
   test "a skipped source found during overlap streams the completed download", context do
-    config = Keyword.put(context.config, :skip_processing_formats, [:jpeg])
+    context = restart(context, Keyword.put(context.options, :skip_processing_formats, [:jpeg]))
 
     task =
       Task.Supervisor.async_nolink(context.tasks, fn ->
-        Plug.Test.conn(:get, "/w=100/src/#{context.url}/image") |> ImagePipe.Plug.call(config)
+        Plug.Test.conn(:get, "/w=100/src/#{context.url}/image")
+        |> ImagePipe.Plug.call(context.config)
       end)
 
     assert_receive {:origin_held, origin}, 2_000
@@ -146,8 +157,8 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
         {now, now}
       )
 
-    config =
-      ImagePipe.Plug.init(
+    context =
+      restart(context,
         sources: [
           path: [
             adapter: ProcessingSource,
@@ -168,7 +179,8 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
       )
 
     response =
-      Plug.Test.conn(:get, "/w=100/format=png/src/empty.jpg") |> ImagePipe.Plug.call(config)
+      Plug.Test.conn(:get, "/w=100/format=png/src/empty.jpg")
+      |> ImagePipe.Plug.call(context.config)
 
     assert response.status == 200
     assert_pixels(response, context, [])
@@ -210,8 +222,8 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
         {now, now}
       )
 
-    config =
-      ImagePipe.Plug.init(
+    context =
+      restart(context,
         telemetry_prefix: [__MODULE__, context.test],
         sources: [
           path: [
@@ -232,7 +244,7 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
         max_input_pixels: 60_000_000
       )
 
-    context = %{context | config: config, url: "burst.jpg"}
+    context = %{context | url: "burst.jpg"}
     task = Task.Supervisor.async_nolink(context.tasks, fn -> request(context) end)
     assert_receive {:burst_held, producer}, 2_000
     assert_receive {:decoded, %{result: :ok}}, 2_000
@@ -316,8 +328,8 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
           {now, now}
         )
 
-      config =
-        ImagePipe.Plug.init(
+      options =
+        Caches.start!(
           telemetry_prefix: [__MODULE__, context.test],
           skip_processing_formats: [:jpeg],
           sources: [
@@ -339,6 +351,8 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
           max_input_pixels: 60_000_000
         )
 
+      config = Caches.plug(options)
+
       try do
         task =
           Task.Supervisor.async_nolink(context.tasks, fn ->
@@ -349,6 +363,7 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
         if mode == :overlap, do: assert_receive({:decoded, %{result: :ok, skipped: true}}, 2_000)
         send(producer, {ref, :continue})
         response = Task.await(task, 10_000)
+        Caches.await_writes(options)
 
         assert response.status == 200
         assert response.resp_body == context.body
@@ -424,7 +439,7 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
   end
 
   test "pixel limits still reject a speculative candidate", context do
-    context = %{context | config: Keyword.put(context.config, :max_input_pixels, 100)}
+    context = restart(context, Keyword.put(context.options, :max_input_pixels, 100))
     task = Task.Supervisor.async_nolink(context.tasks, fn -> request(context) end)
     assert_receive {:origin_held, origin}, 2_000
     assert_receive {:decoded, %{error: :input_limit}}, 2_000
@@ -437,8 +452,8 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
     mark = Image.new!(20, 20, color: [255, 0, 0]) |> Image.write!(:memory, suffix: ".png")
     File.write!(Path.join(context.root, "mark.png"), mark)
 
-    config =
-      ImagePipe.Plug.init(
+    context =
+      restart(context,
         telemetry_prefix: [__MODULE__, context.test],
         max_body_bytes: 20_000_000,
         max_input_pixels: 60_000_000,
@@ -464,7 +479,7 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
 
     task =
       Task.Supervisor.async_nolink(context.tasks, fn ->
-        request(%{context | config: config}, "w=100/wm=logo/wm-at=top-left")
+        request(context, "w=100/wm=logo/wm-at=top-left")
       end)
 
     assert_receive {:origin_held, origin}, 2_000
@@ -506,7 +521,18 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
   defp append_group(builder, operations), do: ImagePipe.URL.group(builder, operations)
 
   defp request(context, options \\ "w=100") do
-    Plug.Test.conn(:get, "/#{options}/format=png/src/#{context.url}/image")
-    |> ImagePipe.Plug.call(context.config)
+    response =
+      Plug.Test.conn(:get, "/#{options}/format=png/src/#{context.url}/image")
+      |> ImagePipe.Plug.call(context.config)
+
+    Caches.await_writes(context.options)
+    response
+  end
+
+  # Replaces the setup's instance with one running `options` on the same caches.
+  defp restart(context, options) do
+    stop_supervised!(Caches.instance(context.options))
+    options = Caches.start!(options)
+    %{context | options: options, config: Caches.plug(options)}
   end
 end

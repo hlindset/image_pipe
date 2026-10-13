@@ -5,6 +5,7 @@ defmodule ImagePipe.API.CredentialedOriginWireTest do
   import Plug.Test
 
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
 
   # Source credentials come from host configuration, so an authenticated
   # fetch follows the origin's cache directives like any other.
@@ -53,6 +54,6 @@ defmodule ImagePipe.API.CredentialedOriginWireTest do
       http_cache: :auto
     ]
     |> CacheObserver.observe()
-    |> ImagePipe.Plug.init()
+    |> Caches.plug()
   end
 end

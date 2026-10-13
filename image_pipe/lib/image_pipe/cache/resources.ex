@@ -8,6 +8,11 @@ defmodule ImagePipe.Cache.Resources do
 
   def start_link(table), do: GenServer.start_link(__MODULE__, table, name: __MODULE__)
   def track(path), do: call({:track, self(), path})
+
+  # Hands a tracked file to `owner`, which then releases it, or leaves it to
+  # be deleted when it stops.
+  def transfer({token, _path}, owner), do: call({:transfer, token, owner})
+
   def release(:unavailable), do: :ok
 
   def release({token, path}) do
@@ -39,6 +44,20 @@ defmodule ImagePipe.Cache.Resources do
     ref = Process.monitor(owner)
     :ets.insert(state.table, {ref, owner, path, ref})
     {:reply, {ref, path}, %{state | monitors: Map.put(state.monitors, ref, ref)}}
+  end
+
+  def handle_call({:transfer, token, owner}, _from, state) do
+    case :ets.lookup(state.table, token) do
+      [{^token, _owner, path, monitor}] ->
+        Process.demonitor(monitor, [:flush])
+        new_monitor = Process.monitor(owner)
+        :ets.insert(state.table, {token, owner, path, new_monitor})
+        monitors = state.monitors |> Map.delete(monitor) |> Map.put(new_monitor, token)
+        {:reply, :ok, %{state | monitors: monitors}}
+
+      [] ->
+        {:reply, :error, state}
+    end
   end
 
   def handle_call({:release, token}, _from, state) do

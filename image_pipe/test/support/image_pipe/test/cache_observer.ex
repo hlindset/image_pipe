@@ -24,27 +24,33 @@ defmodule ImagePipe.Test.CacheObserver do
   import ExUnit.Callbacks, only: [on_exit: 1]
 
   alias ImagePipe.Cache.FileSystem.Store
+  alias ImagePipe.Test.Caches
 
   @doc """
   Returns `opts` with an output cache on a new temporary root, merged with
   `cache_opts`, and a telemetry prefix: the one `opts` already has, or a new
-  private one. Cache events under that prefix go to the calling process.
+  private one. It starts an instance with the result (see `Caches.start!/1`),
+  so `opts` must be the test's complete configuration: mount it with
+  `Caches.plug/1`, or pass `Caches.instance/1` to `ImagePipe.run/4`. Cache
+  events under the prefix go to the calling process.
   """
   def observe(opts, cache_opts \\ []) do
     root = Path.join(System.tmp_dir!(), "cache-observer-#{System.unique_integer([:positive])}")
     File.mkdir_p!(root)
-    cache = Keyword.merge([root: root], cache_opts)
 
     prefix =
       Keyword.get_lazy(opts, :telemetry_prefix, fn ->
         [__MODULE__, :"#{System.unique_integer([:positive])}"]
       end)
 
-    attach(prefix, cache, self())
+    opts =
+      opts
+      |> Keyword.put(:cache, Keyword.merge([root: root], cache_opts))
+      |> Keyword.put(:telemetry_prefix, prefix)
+      |> Caches.start!()
 
+    attach(prefix, Keyword.fetch!(opts, :cache), self())
     opts
-    |> Keyword.put(:cache, cache)
-    |> Keyword.put(:telemetry_prefix, prefix)
   end
 
   @doc """

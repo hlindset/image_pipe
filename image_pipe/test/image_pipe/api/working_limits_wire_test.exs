@@ -4,6 +4,7 @@ defmodule ImagePipe.API.WorkingLimitsWireTest do
   import Plug.Test
 
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.ProcessingSource
   alias Vix.Vips.Image, as: VipsImage
 
@@ -12,7 +13,7 @@ defmodule ImagePipe.API.WorkingLimitsWireTest do
          |> Image.write!(:memory, suffix: ".png")
 
   test "unsupported numeric values fail before fetching or touching the cache" do
-    mount = mount(CacheObserver.observe([]))
+    mount = [] |> options() |> CacheObserver.observe() |> Caches.plug()
 
     for options <- [
           "blur=1001",
@@ -132,15 +133,16 @@ defmodule ImagePipe.API.WorkingLimitsWireTest do
   end
 
   test "a lower work limit preserves cache identity and serves an existing successful response" do
-    cache = CacheObserver.observe([])
+    opts = [] |> options() |> CacheObserver.observe()
     options = "w=32/h=24/fit=stretch"
-    original = request(mount(cache), options)
+    original = request(Caches.plug(opts), options)
     assert original.status == 200
     assert [_etag] = Plug.Conn.get_resp_header(original, "etag")
     assert_receive {:fetch, _, _}
 
-    cached =
-      request(mount(cache ++ [max_intermediate_pixels: 100]), options)
+    stop_supervised!(Caches.instance(opts))
+    lower = opts |> Keyword.put(:max_intermediate_pixels, 100) |> Caches.start!()
+    cached = request(Caches.plug(lower), options)
 
     assert cached.status == 200
     assert cached.resp_body == original.resp_body
@@ -157,25 +159,22 @@ defmodule ImagePipe.API.WorkingLimitsWireTest do
     assert request(config, "wm=logo/dpr=2147483647").status == 422
   end
 
-  defp mount(extra \\ []) do
-    config =
-      ImagePipe.config(
-        Keyword.merge(
-          [
-            max_intermediate_pixels: 100_000,
-            sources: [
-              path: [
-                adapter: ProcessingSource,
-                match: :path,
-                options: [test: self(), bytes: @image]
-              ]
-            ]
-          ],
-          extra
-        )
-      )
+  defp mount(extra \\ []), do: ImagePipe.Plug.init(config: ImagePipe.config(options(extra)))
 
-    ImagePipe.Plug.init(config: config)
+  defp options(extra) do
+    Keyword.merge(
+      [
+        max_intermediate_pixels: 100_000,
+        sources: [
+          path: [
+            adapter: ProcessingSource,
+            match: :path,
+            options: [test: self(), bytes: @image]
+          ]
+        ]
+      ],
+      extra
+    )
   end
 
   defp request(mount, options),

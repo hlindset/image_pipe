@@ -1,7 +1,9 @@
 defmodule ImagePipe.Cache.FileSystem.PeriodicSweep do
   # Runs a leftover sweep at start and then once every interval, so files left
-  # while a node keeps running are removed without a restart. A sweep that
-  # crashes stops the repeats, as a one-shot sweep would.
+  # while a node keeps running are removed without a restart. With
+  # `delay_first?: true` the first sweep waits an interval too, for a pool
+  # whose startup scan already sweeps. A sweep that crashes stops the repeats,
+  # as a one-shot sweep would.
   @moduledoc false
 
   use GenServer
@@ -20,8 +22,14 @@ defmodule ImagePipe.Cache.FileSystem.PeriodicSweep do
 
   @impl GenServer
   def init(opts) do
-    send(self(), :sweep)
-    {:ok, %{sweep: Keyword.fetch!(opts, :sweep), timer: nil}}
+    state = %{sweep: Keyword.fetch!(opts, :sweep), timer: nil}
+
+    if Keyword.get(opts, :delay_first?, false) do
+      {:ok, %{state | timer: Process.send_after(self(), :sweep, @interval_ms)}}
+    else
+      send(self(), :sweep)
+      {:ok, state}
+    end
   end
 
   @impl GenServer

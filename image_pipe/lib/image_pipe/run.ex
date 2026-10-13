@@ -55,7 +55,9 @@ defmodule ImagePipe.Run do
       end
 
     %Config{options: config} =
-      shared |> Config.override(options) |> Config.reject_unsupervised_processes!()
+      shared |> Config.override(options) |> Config.reject_caches_without_instance!()
+
+    config = Config.drop_refused(config)
 
     Telemetry.span(Telemetry.telemetry_opts(config), [:request], %{}, fn ->
       result = execute(plan, input, config, accept, inputs)

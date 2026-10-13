@@ -1,6 +1,5 @@
 defmodule ImagePipe.Cache.FileSystem.PolicyTest do
   use ExUnit.Case, async: true
-  use ExUnitProperties
 
   alias ImagePipe.Cache.FileSystem.Policy
 
@@ -38,6 +37,20 @@ defmodule ImagePipe.Cache.FileSystem.PolicyTest do
     end
   end
 
+  describe "victim_score/2" do
+    test "ranks unseen entries by cost per byte" do
+      cheap = %{key_hash: "a", size_bytes: 1_000, body_sha256: "x", cost_us: 1_000}
+      dear = %{key_hash: "b", size_bytes: 1_000, body_sha256: "y", cost_us: 50_000}
+
+      assert Policy.victim_score(cheap, 0) < Policy.victim_score(dear, 0)
+    end
+
+    test "ranks a seen entry above the same entry unseen" do
+      entry = %{key_hash: "a", size_bytes: 1_000, body_sha256: "x", cost_us: 1_000}
+      assert Policy.victim_score(entry, 0) < Policy.victim_score(entry, 3)
+    end
+  end
+
   describe "weighted_avg_score/2" do
     test "returns 0.0 for empty victim list" do
       assert Policy.weighted_avg_score([], fn _ -> 0 end) == 0.0
@@ -52,73 +65,6 @@ defmodule ImagePipe.Cache.FileSystem.PolicyTest do
       # sum(size) = 300
       # weighted_avg = 3000/300 = 10.0
       assert_in_delta Policy.weighted_avg_score([v1, v2], freq_fn), 10.0, 0.0001
-    end
-  end
-
-  describe "victim_walk/4" do
-    test "walks probationary LRU outward until enough bytes" do
-      probationary = [
-        descriptor(key_hash: "lru", size_bytes: 100),
-        descriptor(key_hash: "mid", size_bytes: 100),
-        descriptor(key_hash: "mru", size_bytes: 100)
-      ]
-
-      protected = []
-
-      assert {:ok, [v1]} = Policy.victim_walk(probationary, protected, 100, 64)
-      assert v1.key_hash == "lru"
-
-      assert {:ok, [v1, v2]} = Policy.victim_walk(probationary, protected, 150, 64)
-      assert [v1.key_hash, v2.key_hash] == ["lru", "mid"]
-    end
-
-    test "extends into protected LRU when probationary exhausted" do
-      probationary = [descriptor(key_hash: "p_lru", size_bytes: 100)]
-      protected = [descriptor(key_hash: "prot_lru", size_bytes: 200)]
-
-      assert {:ok, victims} = Policy.victim_walk(probationary, protected, 250, 64)
-      assert Enum.map(victims, & &1.key_hash) == ["p_lru", "prot_lru"]
-    end
-
-    test "cross-queue walk succeeds when total victims are within the limit" do
-      # Regression: the probationary victim must not be double-counted against
-      # the limit when extending into protected. 1 probationary + 1 protected =
-      # 2 victims, exactly at limit 2 — must succeed, not :victim_limit_exceeded.
-      probationary = [descriptor(key_hash: "p_lru", size_bytes: 100)]
-      protected = [descriptor(key_hash: "prot_lru", size_bytes: 200)]
-
-      assert {:ok, victims} = Policy.victim_walk(probationary, protected, 250, 2)
-      assert Enum.map(victims, & &1.key_hash) == ["p_lru", "prot_lru"]
-    end
-
-    test "limit caps the total victim count across both queues" do
-      # 2 probationary + 1 protected would be needed to free 250 bytes, but the
-      # limit of 2 covers only the probationary victims — extending into
-      # protected would exceed it.
-      probationary = [
-        descriptor(key_hash: "p1", size_bytes: 100),
-        descriptor(key_hash: "p2", size_bytes: 100)
-      ]
-
-      protected = [descriptor(key_hash: "prot", size_bytes: 100)]
-
-      assert {:error, :victim_limit_exceeded} =
-               Policy.victim_walk(probationary, protected, 250, 2)
-    end
-
-    test "returns :no_evictable_victims when both queues together cannot free enough" do
-      probationary = [descriptor(size_bytes: 50)]
-      protected = [descriptor(size_bytes: 50)]
-
-      assert {:error, :no_evictable_victims} =
-               Policy.victim_walk(probationary, protected, 200, 64)
-    end
-
-    test "a walk within probationary may take more victims than the limit" do
-      probationary = for i <- 1..10, do: descriptor(key_hash: "k#{i}", size_bytes: 100)
-
-      assert {:ok, victims} = Policy.victim_walk(probationary, [], 500, 3)
-      assert Enum.map(victims, & &1.key_hash) == ["k1", "k2", "k3", "k4", "k5"]
     end
   end
 
@@ -144,34 +90,4 @@ defmodule ImagePipe.Cache.FileSystem.PolicyTest do
       assert Policy.admit?(candidate, [], fn _ -> 0 end) == true
     end
   end
-
-  property "victim_walk/4 takes the shortest LRU prefix and limits only walks into protected" do
-    check all(
-            probationary <- list_of(integer(1..50), max_length: 12),
-            protected <- list_of(integer(1..50), max_length: 12),
-            needed <- integer(0..400),
-            limit <- integer(1..6)
-          ) do
-      probationary = Enum.map(probationary, &descriptor(size_bytes: &1))
-      protected = Enum.map(protected, &descriptor(size_bytes: &1))
-      queues = probationary ++ protected
-      prefix_length = Enum.find(0..length(queues), &(bytes(Enum.take(queues, &1)) >= needed))
-
-      reaches_protected? = prefix_length != nil and prefix_length > length(probationary)
-
-      case Policy.victim_walk(Stream.map(probationary, & &1), protected, needed, limit) do
-        {:ok, victims} ->
-          assert victims == Enum.take(queues, prefix_length)
-          refute reaches_protected? and prefix_length > limit
-
-        {:error, :victim_limit_exceeded} ->
-          assert reaches_protected? and prefix_length > limit
-
-        {:error, :no_evictable_victims} ->
-          assert prefix_length == nil
-      end
-    end
-  end
-
-  defp bytes(descriptors), do: descriptors |> Enum.map(& &1.size_bytes) |> Enum.sum()
 end

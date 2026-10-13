@@ -2,6 +2,7 @@ defmodule ImagePipe.ConfiguredBuilderTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe, as: IP
+  alias ImagePipe.Test.Caches
 
   test "one validated configuration serves direct execution and a Plug mount" do
     config = IP.config(quality: 63, max_result_width: 12)
@@ -77,8 +78,9 @@ defmodule ImagePipe.ConfiguredBuilderTest do
 
     on_exit(fn -> File.rm_rf!(root) end)
 
-    config =
-      IP.config(
+    # The instance admits no input, so only a stored entry can answer it.
+    opts =
+      Caches.start!(
         sources: [
           path: [
             adapter: ImagePipe.Source.File,
@@ -90,25 +92,24 @@ defmodule ImagePipe.ConfiguredBuilderTest do
             ]
           ]
         ],
-        cache: [root: root]
+        cache: [root: root],
+        max_input_pixels: 1
       )
 
+    instance = Caches.instance(opts)
     client = IP.URL.new() |> IP.URL.group(resize: [width: 3]) |> IP.URL.output(format: :png)
-    assert {:ok, first} = IP.run(config, client, {:source, "small.png"})
 
-    http =
-      IP.Plug.call(
-        Plug.Test.conn(:get, IP.URL.url!(client, "small.png")),
-        IP.Plug.init(config: config, max_input_pixels: 1)
-      )
+    assert {:ok, first} =
+             IP.run(instance, client, {:source, "small.png"}, max_input_pixels: 1_000_000)
+
+    http = IP.Plug.call(Plug.Test.conn(:get, IP.URL.url!(client, "small.png")), Caches.plug(opts))
 
     assert http.status == 200
     assert http.resp_body == first.data
-    assert {:ok, again} = IP.run(config, client, {:source, "small.png"}, max_input_pixels: 1)
+    assert {:ok, again} = IP.run(instance, client, {:source, "small.png"})
     assert again == first
     uncached = IP.URL.new() |> IP.URL.group(resize: [width: 4]) |> IP.URL.output(format: :png)
 
-    assert {:error, {:input_limit, _}} =
-             IP.run(config, uncached, {:source, "small.png"}, max_input_pixels: 1)
+    assert {:error, {:input_limit, _}} = IP.run(instance, uncached, {:source, "small.png"})
   end
 end

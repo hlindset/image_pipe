@@ -4,6 +4,7 @@ defmodule ImagePipe.Telemetry.Trace.CrossProcessTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.Trace.{Span, TestExporter}
 
   @moduletag :tmp_dir
@@ -24,14 +25,14 @@ defmodule ImagePipe.Telemetry.Trace.CrossProcessTest do
 
   defp call(path, opts) do
     conn = conn(:get, path)
-    ImagePipe.Plug.call(conn, ImagePipe.Plug.init(opts))
+    ImagePipe.Plug.call(conn, Caches.plug(opts))
   end
 
   # A cache-miss request that fetches + decodes a real source and writes to cache.
   # The empty cache stores the response, so the [:cache, :write] span fires from
   # the delivery coordinator process (hop A target).
   defp miss_opts(cache_root) do
-    [
+    Caches.start!(
       sources: [
         path: [
           adapter: RootHTTPAdapter,
@@ -43,7 +44,7 @@ defmodule ImagePipe.Telemetry.Trace.CrossProcessTest do
         ]
       ],
       cache: [root: cache_root]
-    ]
+    )
   end
 
   defp request_path, do: "/w=120/h=90/format=jpeg/src/images/beach.jpg"
@@ -86,12 +87,9 @@ defmodule ImagePipe.Telemetry.Trace.CrossProcessTest do
     assert root, "expected request root span"
 
     # Admission runs in the shared Admission GenServer with no request context
-    # threaded (spec §8.1): it must NOT share the request trace. This unbounded
-    # cache runs no admission GenServer, so the span is typically absent here and this
-    # guard is effectively a no-op. The real POSITIVE coverage — a [:cache, :admission]
-    # span emitted from a live Admission GenServer staying a separate root even with a
-    # caller context adopted on the stack — lives in
-    # ImagePipe.Telemetry.Trace.AdmissionRootTest.
+    # threaded (spec §8.1): it must NOT share the request trace. The coverage of a
+    # [:cache, :admission] span staying a separate root even with a caller context
+    # adopted on the stack lives in ImagePipe.Telemetry.Trace.AdmissionRootTest.
     if admission do
       assert admission.parent_span_id == nil
       assert admission.trace_id != root.trace_id

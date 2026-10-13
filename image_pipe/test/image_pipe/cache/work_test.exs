@@ -2,6 +2,57 @@ defmodule ImagePipe.Cache.WorkTest do
   use ExUnit.Case, async: false
   alias ImagePipe.Cache.Work
 
+  test "a lease handed to a writer stays locked until the writer unlocks it" do
+    key = make_ref()
+    parent = self()
+
+    writer =
+      Task.async(fn ->
+        receive do
+          {:publish, lease} ->
+            assert Work.current?(lease)
+            send(parent, :published)
+            receive(do: (:unlock -> Work.unlock(lease)))
+        end
+      end)
+
+    assert :handed_off =
+             Work.run(key, fn lease, _outcome ->
+               :ok = Work.transfer(lease, writer.pid, 60_000)
+               send(writer.pid, {:publish, lease})
+               :handed_off
+             end)
+
+    assert_receive :published
+
+    assert Work.run(key, fn _lease, _outcome -> flunk("lock released early") end, wait: 50) ==
+             :timeout
+
+    send(writer.pid, :unlock)
+    Task.await(writer)
+    assert Work.run(key, fn _lease, outcome -> outcome end, wait: 1_000) == :acquired
+  end
+
+  test "a handed-off lease is released at its deadline" do
+    key = make_ref()
+    parent = self()
+
+    writer = Task.async(fn -> receive(do: (:stop -> :ok)) end)
+
+    Work.run(key, fn lease, _outcome ->
+      :ok = Work.transfer(lease, writer.pid, 60_000)
+      send(parent, {:lease, lease})
+    end)
+
+    assert_receive {:lease, lease}
+    send(Work, {:deadline, lease})
+    refute Work.current?(lease)
+    assert Work.run(key, fn _lease, outcome -> outcome end, wait: 1_000) == :acquired
+
+    send(writer.pid, :stop)
+    Task.await(writer)
+  end
+
   test "an unavailable coordinator falls back without failing the request" do
     :ok = Supervisor.terminate_child(ImagePipe.Supervisor, Work)
     on_exit(fn -> Supervisor.restart_child(ImagePipe.Supervisor, Work) end)

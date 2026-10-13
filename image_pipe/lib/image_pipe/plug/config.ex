@@ -75,10 +75,13 @@ defmodule ImagePipe.Plug.Config do
   def validate!(%SharedConfig{} = config), do: validate!(config: config)
 
   @doc false
-  # Resolves a mount on a supervised instance for one request.
-  @spec resolve({:instance, atom(), atom() | nil, keyword()}) :: keyword()
+  # Resolves a mount's options for one request. Only an instance's mount has
+  # caches.
+  @spec resolve({:instance, atom(), atom() | nil, keyword()} | keyword()) :: keyword()
   def resolve({:instance, name, mount_name, mount}),
     do: Keyword.merge(mount, SharedConfig.fetch_instance!(name, mount_name).options)
+
+  def resolve(opts) when is_list(opts), do: opts
 
   # Shared configuration belongs to the instance, so only mount-only options
   # and the name of one of the instance's named mounts are accepted.
@@ -101,7 +104,7 @@ defmodule ImagePipe.Plug.Config do
     config =
       shared
       |> shared_config(shared_options)
-      |> SharedConfig.reject_unsupervised_processes!()
+      |> SharedConfig.reject_caches_without_instance!()
 
     mount
     |> validate_known_opts!()

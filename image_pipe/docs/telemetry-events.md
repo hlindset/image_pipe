@@ -381,21 +381,29 @@ starts. It runs outside any request.
 
 ### `[:cache, :write]`
 
-Span. Wraps committing an entry to either pool.
+Span. Wraps committing an entry to either pool. Writes of processed images
+and placeholders run after the response is sent. Writes of originals and the
+details kept to recheck them run while the request processes the original. A
+write nests under the request's span and can end after it.
 
 - Start metadata: `:pool` (atom), and `:cache_key` (string, the hash of the
   entry's cache key).
 - Stop metadata:
   - `:result` (atom): `:ok` or `:cache_error`.
-  - `:cache` (atom): `:write` when stored, or `:write_error`. A cache in
-    [bounded mode](cache.md#bounded-mode) that declines the entry reports
-    `:admission_rejected` (output pool) or `:stage_skipped` (input pool).
+  - `:cache` (atom): `:write` when stored, or `:write_error`. A cache that
+    declines the entry to stay under its [size limit](cache.md#size-limit)
+    reports `:admission_rejected` (output pool) or `:stage_skipped` (input
+    pool).
   - `:error` (atom): the error category, on an output-pool write error.
   - `:output_format` (atom): the stored format. Output pool only.
+  - `:estimated_cost_us` (integer): the estimated
+    [work to make the entry](cache.md#work-to-make-an-entry), in
+    microseconds, comparable only with other entries' estimates. The cache
+    scores entries by it. Output pool only, and not on source records.
   - `:bytes` (integer): the size of the entry's body. On `:write`, the span's
     duration includes syncing the body to disk, so `:bytes` divided by the
-    duration gives a rough write speed. In bounded mode, the duration also
-    includes waiting for the admission decision.
+    duration gives a rough write speed. The duration also includes waiting for
+    the admission decision.
   - `:cache_key` (string): as on start.
 
 A write error after a streamed response doesn't fail the response, because
@@ -403,20 +411,33 @@ the body was already sent.
 
 ### `[:cache, :stage]`
 
-One-shot. Emitted when a streamed output-cache miss stops collecting the
-entry before committing it.
+One-shot. Emitted when a cache write stops before committing the entry.
+The default Logger logs dropped writes at `:warning`.
 
 - Metadata:
+  - `:pool` (atom): `:output` for a processed image or placeholder, `:input`
+    for an original or the details kept to recheck it.
   - `:cache` (atom): `:stage_skipped` when the body crossed `max_body_bytes`,
-    `:stage_abandoned` when delivery stopped early or the stream failed, or
-    `:stage_error` when opening or writing the staged entry failed.
-  - `:result` (atom): `:ok` for skipped and abandoned entries, `:cache_error`
-    otherwise.
-  - `:reason` (atom): why the entry was skipped or abandoned, such as
-    `:too_large`.
+    `:stage_abandoned` when delivery stopped early or the stream failed,
+    `:stage_dropped` when the cache dropped the write to keep up with its
+    storage (see [writing entries](cache.md#writing-entries)), or
+    `:stage_error` when opening or writing the staged entry failed. Writes
+    of originals report only `:stage_dropped`, with `:writer_limit`,
+    `:pending_limit` or `:deadline`.
+  - `:result` (atom): `:ok` for skipped, abandoned and dropped entries,
+    `:cache_error` otherwise.
+  - `:reason` (atom): why the entry was skipped, abandoned or dropped, such
+    as `:too_large`. A dropped write has `:writer_limit` (the cache already
+    runs its maximum number of writes), `:pending_limit` (its unfinished
+    writes hold too many bytes), `:lagging` (the client got too far ahead of
+    the write), or `:deadline` (a response's write was unfinished 30 seconds
+    after it started, or an original's writes waited past the
+    2-second limit and another request may have stored it since).
   - `:error` (atom): the error category, for `:stage_error`.
-  - `:output_format` (atom).
-  - `:cache_key` (string): the hash of the entry's cache key.
+  - `:output_format` (atom), or `nil` for an original or a body that isn't
+    an image, such as a BlurHash.
+  - `:cache_key` (string): the hash of the entry's cache key, or of the
+    original's source for an original.
 
 ### `[:cache, :coordination]`
 
@@ -434,16 +455,16 @@ are coordinated (see [request coalescing](caching-and-freshness.md#request-coale
     For `:output`, `:acquired` (this request generates), `:waiting` (it
     waits for another), `:ready` (it can check the cache again), `:bypass`
     (it generates on its own), or `:busy` (coordination is at capacity).
+  - `:reason` (atom): `:deadline` on an `:output` `:bypass` when the image
+    wasn't stored within 2 seconds of being sent (see
+    [coordination limits](cache.md#coordination-limits)).
 
 ### `[:cache, :sweep]`
 
 Span. Emitted each time ImagePipe checks for
 [leftover files](cache.md#leftover-files), whether or not it finds any:
 
-- For an unbounded cache, when an instance
-  starts and every 24 hours after.
-- For a bounded cache, after its startup scan and after each
-  [re-scan](#cache-rescan).
+- For a cache, after its startup scan and then every 24 hours.
 - For staged originals, when the `:image_pipe` application starts and every
   24 hours after.
 
@@ -457,34 +478,14 @@ The default Logger logs a check that deleted nothing at `:debug`.
   - For a cache, `:pins`, `:temps` and `:bodies` (integer): how many
     originals held open by requests, temporary writes, and bodies no
     metadata named were deleted.
-  - For a cache, `:expired` (integer): how many entries were deleted because
-    nobody had read them within the cache's
-    [`max_age`](cache.md#unread-entries). In a bounded cache, only metadata
-    files the cache can't read. Their bodies are counted in `:bodies`.
+  - For a cache, `:unreadable` (integer): how many metadata files the cache
+    can't read were deleted. Their bodies are counted in `:bodies`.
   - For `:staging`, `:staged` (integer): how many staged originals were
     deleted.
 
-### `[:cache, :rescan]`
-
-Span. Emitted each time a bounded cache lists its `root` again to count
-entries other nodes that share it wrote or deleted (see
-[size cap and directory scans](cache.md#size-cap-and-directory-scans)). The
-span covers the eviction and the leftover-file check that follow. The default
-Logger logs a re-scan that adopted, dropped, and resynced nothing at
-`:debug`.
-
-- Start metadata: `:pool` (atom).
-- Stop metadata:
-  - `:result` (atom): `:ok`.
-  - `:adopted` (integer): entries this node started counting.
-  - `:dropped` (integer): entries whose metadata file was gone or
-    unreadable, which this node stopped counting.
-  - `:resynced` (integer): entries another node replaced, whose new size
-    this node now counts.
-
 ### `[:cache, :admission]`
 
-Span. Emitted by a bounded cache when it decides whether to keep a new entry.
+Span. Emitted by a cache when it decides whether to keep a new entry.
 
 - Start metadata: `:pool` (atom).
 - Stop metadata:
@@ -494,12 +495,14 @@ Span. Emitted by a bounded cache when it decides whether to keep a new entry.
 
 ### `[:cache, :eviction, :stop]`
 
-One-shot. Emitted for each batch of entries a bounded cache evicts in the
-background to get back under its size limit.
+One-shot. Emitted each time a cache evicts entries to stay under its size
+limit.
 
-- Measurements: `:count` (integer), entries evicted in the batch, and `:bytes`
+- Measurements: `:count` (integer), entries evicted, and `:bytes`
   (integer), their total size.
-- Metadata: `:trigger` (`:reconcile`) and `:pool` (atom).
+- Metadata: `:pool` (atom), and `:trigger` (atom): `:admission` for the
+  entries a write evicts to make room, or `:startup` for each batch the
+  startup scan evicts to get under a lowered cap.
 
 ## Transform events
 

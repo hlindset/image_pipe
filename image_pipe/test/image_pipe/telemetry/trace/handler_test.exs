@@ -310,7 +310,7 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
 
   test "captures the cache sweep span with its removal counts" do
     Telemetry.span([], [:cache, :sweep], %{pool: :input}, fn ->
-      {:ok, %{result: :ok, pins: 1, temps: 2, bodies: 0, expired: 3, bytes: 10}}
+      {:ok, %{result: :ok, pins: 1, temps: 2, bodies: 0, unreadable: 3, bytes: 10}}
     end)
 
     assert_receive {:span,
@@ -322,22 +322,9 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
                         pins: 1,
                         temps: 2,
                         bodies: 0,
-                        expired: 3,
+                        unreadable: 3,
                         bytes: 10
                       }
-                    }}
-  end
-
-  test "captures the cache re-scan span with its entry counts" do
-    Telemetry.span([], [:cache, :rescan], %{pool: :output}, fn ->
-      {:ok, %{result: :ok, adopted: 3, dropped: 1, resynced: 0}}
-    end)
-
-    assert_receive {:span,
-                    %Span{
-                      name: "image_pipe.cache.rescan",
-                      status: :unset,
-                      attributes: %{pool: "output", adopted: 3, dropped: 1, resynced: 0}
                     }}
   end
 
@@ -556,8 +543,8 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
        %{attention: "{0.5, 0.5}", face: "{0.2, 0.3}", blended: "{0.3, 0.4}", weight: 0.6}},
       {[:cache, :coordination], %{operation: :source, pool: :input, result: :acquired},
        %{operation: "source", pool: "input", result: "acquired"}},
-      {[:cache, :eviction, :stop], %{trigger: :reconcile, pool: :output},
-       %{trigger: "reconcile", pool: "output"}}
+      {[:cache, :eviction, :stop], %{trigger: :admission, pool: :output},
+       %{trigger: "admission", pool: "output"}}
     ]
 
     Telemetry.span([], [:send], %{}, fn ->

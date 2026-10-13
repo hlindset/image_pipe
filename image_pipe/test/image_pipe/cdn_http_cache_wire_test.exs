@@ -9,6 +9,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.DetectorFixtures
 
   @image_path "/format=jpeg/src/beach.jpg"
@@ -69,7 +70,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   # The suite's baseline mount: a strong-byte-identity source, an observed
-  # output cache, and the generated cache-header policy switched on.
+  # output cache, and the generated cache-header policy switched on. Returns
+  # its options, which `call_pipe/2` mounts.
   defp mount(overrides \\ []) do
     [
       sources: [path: [adapter: StableSource, match: :path, options: [test_pid: self()]]],
@@ -77,7 +79,6 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     ]
     |> Keyword.merge(overrides)
     |> CacheObserver.observe()
-    |> ImagePipe.Plug.init()
   end
 
   # Requests `path` once so the cache holds its response, and returns that
@@ -94,7 +95,15 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     :get
     |> conn(path)
     |> put_req_headers(req_headers)
-    |> ImagePipe.Plug.call(opts)
+    |> call_pipe(opts)
+  end
+
+  # Cache writes finish after the response, so wait for them before a test
+  # asserts what was stored.
+  defp call_pipe(conn, opts) do
+    conn = ImagePipe.Plug.call(conn, Caches.plug(opts))
+    Caches.await_writes(opts)
+    conn
   end
 
   defp put_req_headers(conn, headers) do
@@ -170,12 +179,12 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     private =
       conn(:get, @image_path)
       |> put_resp_header("cache-control", "private, max-age=10")
-      |> ImagePipe.Plug.call(opts)
+      |> call_pipe(opts)
 
     assert get_resp_header(private, "cache-control") == ["private, max-age=10"]
 
     response_cookie =
-      conn(:get, @image_path) |> put_resp_cookie("session", "a") |> ImagePipe.Plug.call(opts)
+      conn(:get, @image_path) |> put_resp_cookie("session", "a") |> call_pipe(opts)
 
     assert get_resp_header(response_cookie, "cache-control") == [
              "max-age=0, private, must-revalidate"
@@ -201,7 +210,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "stable public route emits cache-control and a stable etag", %{opts: opts} do
-    conn = ImagePipe.Plug.call(conn(:get, @image_path), opts)
+    conn = call_pipe(conn(:get, @image_path), opts)
 
     assert conn.status == 200
     assert get_resp_header(conn, "cache-control") == ["public, max-age=31536000, immutable"]
@@ -211,12 +220,12 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     # The validator is a pure function of the request, so replaying the same
     # request reproduces it byte for byte.
-    replay = ImagePipe.Plug.call(conn(:get, @image_path), opts)
+    replay = call_pipe(conn(:get, @image_path), opts)
     assert get_resp_header(replay, "etag") == [etag]
   end
 
   test "matching if-none-match returns before cache lookup and source fetch", %{opts: opts} do
-    first = ImagePipe.Plug.call(conn(:get, @image_path), opts)
+    first = call_pipe(conn(:get, @image_path), opts)
     [etag] = get_resp_header(first, "etag")
 
     assert_received :source_fetch_called
@@ -226,7 +235,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       :get
       |> conn(@image_path)
       |> put_req_header("if-none-match", etag)
-      |> ImagePipe.Plug.call(opts)
+      |> call_pipe(opts)
 
     assert conn.status == 304
     assert conn.resp_body == ""
@@ -237,10 +246,10 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "HEAD emits the same cache-control and etag as GET", %{opts: opts} do
-    get = ImagePipe.Plug.call(conn(:get, @image_path), opts)
+    get = call_pipe(conn(:get, @image_path), opts)
     flush_messages()
 
-    head = ImagePipe.Plug.call(conn(:head, @image_path), opts)
+    head = call_pipe(conn(:head, @image_path), opts)
 
     assert head.status == 200
     assert get_resp_header(head, "etag") != []
@@ -250,7 +259,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
   test "matching if-none-match on a HEAD returns 304 before cache lookup and source fetch",
        %{opts: opts} do
-    first = ImagePipe.Plug.call(conn(:get, @image_path), opts)
+    first = call_pipe(conn(:get, @image_path), opts)
     [etag] = get_resp_header(first, "etag")
 
     assert_received :source_fetch_called
@@ -260,7 +269,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       :head
       |> conn(@image_path)
       |> put_req_header("if-none-match", etag)
-      |> ImagePipe.Plug.call(opts)
+      |> call_pipe(opts)
 
     assert conn.status == 304
     assert get_resp_header(conn, "etag") == [etag]
@@ -321,14 +330,14 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       |> conn(@automatic_path)
       |> put_req_header("accept", "image/webp")
       |> put_resp_header("vary", "Accept-Encoding")
-      |> ImagePipe.Plug.call(opts)
+      |> call_pipe(opts)
 
     assert conn.status == 200
     assert get_resp_header(conn, "vary") == ["Accept-Encoding, Accept"]
   end
 
   test "request cookie does not change generated headers or the cache entry", %{opts: opts} do
-    without_cookie = ImagePipe.Plug.call(conn(:get, @image_path), opts)
+    without_cookie = call_pipe(conn(:get, @image_path), opts)
     [etag] = get_resp_header(without_cookie, "etag")
     assert_received {:cache_lookup, :response, hash}
 
@@ -338,7 +347,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       :get
       |> conn(@image_path)
       |> put_req_header("cookie", "session=private")
-      |> ImagePipe.Plug.call(opts)
+      |> call_pipe(opts)
 
     assert get_resp_header(with_cookie, "etag") == [etag]
     refute "cookie" in vary_tokens(with_cookie)
@@ -351,7 +360,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       :get
       |> conn(@image_path)
       |> put_resp_cookie("session", "abc")
-      |> ImagePipe.Plug.call(opts)
+      |> call_pipe(opts)
 
     assert conn.status == 200
     assert get_resp_header(conn, "cache-control") == ["max-age=0, private, must-revalidate"]
@@ -363,7 +372,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     opts = mount()
     first = warm(opts)
 
-    conn = ImagePipe.Plug.call(conn(:get, @image_path), opts)
+    conn = call_pipe(conn(:get, @image_path), opts)
 
     assert conn.status == 200
     assert conn.resp_body == first.resp_body
@@ -388,7 +397,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       :get
       |> conn(@image_path)
       |> put_req_header("if-none-match", "*")
-      |> ImagePipe.Plug.call(opts)
+      |> call_pipe(opts)
 
     assert conn.status == 200
     assert conn.resp_body != ""
@@ -410,7 +419,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       :get
       |> conn(@image_path)
       |> put_req_header("if-none-match", "*")
-      |> ImagePipe.Plug.call(opts)
+      |> call_pipe(opts)
 
     assert conn.status == 304
     assert conn.resp_body == ""
@@ -426,7 +435,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       :head
       |> conn(@image_path)
       |> put_req_header("if-none-match", "*")
-      |> ImagePipe.Plug.call(opts)
+      |> call_pipe(opts)
 
     assert conn.status == 304
     assert conn.resp_body == ""
@@ -441,7 +450,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       :get
       |> conn(@image_path)
       |> put_req_header("if-none-match", ~s("nonmatching-validator", *))
-      |> ImagePipe.Plug.call(opts)
+      |> call_pipe(opts)
 
     assert conn.status == 304
     assert conn.resp_body == ""
@@ -452,7 +461,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     opts = mount(allow_origin: "https://cdn.test")
     first = warm(opts)
 
-    conn = ImagePipe.Plug.call(conn(:get, @image_path), opts)
+    conn = call_pipe(conn(:get, @image_path), opts)
 
     assert conn.status == 200
     assert conn.resp_body == first.resp_body
@@ -463,7 +472,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   test "CORS header lands on a 304 Not Modified response when allow_origin is set" do
     opts = mount(allow_origin: "https://cdn.test")
 
-    first = ImagePipe.Plug.call(conn(:get, @image_path), opts)
+    first = call_pipe(conn(:get, @image_path), opts)
     [etag] = get_resp_header(first, "etag")
     flush_messages()
 
@@ -471,7 +480,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       :get
       |> conn(@image_path)
       |> put_req_header("if-none-match", etag)
-      |> ImagePipe.Plug.call(opts)
+      |> call_pipe(opts)
 
     assert conn.status == 304
     assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
@@ -483,7 +492,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     miss_conn =
       conn(:get, @image_path)
       |> put_resp_header("content-disposition", ~s(attachment; filename="custom.jpg"))
-      |> ImagePipe.Plug.call(opts)
+      |> call_pipe(opts)
 
     assert miss_conn.status == 200
 
@@ -497,7 +506,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     hit_conn =
       conn(:get, @image_path)
       |> put_resp_header("content-disposition", ~s(attachment; filename="custom.jpg"))
-      |> ImagePipe.Plug.call(opts)
+      |> call_pipe(opts)
 
     assert hit_conn.status == 200
     refute_received :source_fetch_called
@@ -513,7 +522,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       opts = mount(detector: detector)
 
       conn =
-        ImagePipe.Plug.call(
+        call_pipe(
           conn(:get, "/w=50/h=50/fit=cover/anchor=smart-face/format=jpeg/src/beach.jpg"),
           opts
         )
@@ -530,14 +539,14 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     url = "/w=50/h=50/fit=stretch/format=jpeg/src/beach.jpg"
 
     clean =
-      ImagePipe.Plug.call(
+      call_pipe(
         conn(:get, url),
         mount()
       )
 
     failing_opts = mount()
     fail_commits(failing_opts)
-    raising = ImagePipe.Plug.call(conn(:get, url), failing_opts)
+    raising = call_pipe(conn(:get, url), failing_opts)
 
     assert_received {:cache_write_error, _hash}
     assert clean.status == 200
@@ -555,7 +564,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     opts = mount()
     url = "/crop=100,100/focus=0.3,0.7/w=200/h=100/fit=stretch/format=jpeg/src/beach.jpg"
 
-    conn = ImagePipe.Plug.call(conn(:get, url), opts)
+    conn = call_pipe(conn(:get, url), opts)
 
     assert conn.status == 200
     assert [etag] = get_resp_header(conn, "etag")
@@ -598,7 +607,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     test "a strong-identity request prepares generated headers and emits no no-store fallback",
          %{prefix: prefix} do
-      conn = ImagePipe.Plug.call(conn(:get, @image_path), mount(telemetry_prefix: prefix))
+      conn = call_pipe(conn(:get, @image_path), mount(telemetry_prefix: prefix))
 
       assert conn.status == 200
 
@@ -612,7 +621,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     test "a matching conditional request emits the conditional-match event", %{prefix: prefix} do
       opts = mount(telemetry_prefix: prefix)
 
-      first = ImagePipe.Plug.call(conn(:get, @image_path), opts)
+      first = call_pipe(conn(:get, @image_path), opts)
       [etag] = get_resp_header(first, "etag")
       flush_messages()
 
@@ -632,7 +641,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
         :head
         |> conn(@image_path)
         |> put_req_header("if-none-match", "*")
-        |> ImagePipe.Plug.call(opts)
+        |> call_pipe(opts)
 
       assert conn.status == 304
       match = prefix ++ [:http_cache, :conditional, :match]
@@ -647,7 +656,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
           telemetry_prefix: prefix
         )
 
-      conn = ImagePipe.Plug.call(conn(:get, @image_path), opts)
+      conn = call_pipe(conn(:get, @image_path), opts)
 
       assert conn.status == 200
       assert [_etag] = get_resp_header(conn, "etag")
@@ -665,9 +674,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
           telemetry_prefix: prefix
         ]
         |> CacheObserver.observe()
-        |> ImagePipe.Plug.init()
 
-      first = ImagePipe.Plug.call(conn(:get, @image_path), opts)
+      first = call_pipe(conn(:get, @image_path), opts)
       assert [etag] = get_resp_header(first, "etag")
       assert get_resp_header(first, "cache-control") == ["max-age=0, private, must-revalidate"]
       assert_received {:http_cache, _prepare, %{effective_mode: :validators}}
@@ -688,9 +696,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
           telemetry_prefix: prefix
         ]
         |> CacheObserver.observe()
-        |> ImagePipe.Plug.init()
 
-      conn = ImagePipe.Plug.call(conn(:get, @image_path), opts)
+      conn = call_pipe(conn(:get, @image_path), opts)
 
       assert get_resp_header(conn, "cache-control") == ["public, max-age=31536000, immutable"]
       assert_received {:http_cache, _prepare, %{effective_mode: :auto, etag: true}}
@@ -710,7 +717,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
           telemetry_prefix: prefix
         )
 
-      conn = ImagePipe.Plug.call(conn(:get, @image_path), opts)
+      conn = call_pipe(conn(:get, @image_path), opts)
 
       assert get_resp_header(conn, "cache-control") == ["private, max-age=31536000, immutable"]
       assert_received {:http_cache, _prepare, %{effective_mode: :private, etag: true}}

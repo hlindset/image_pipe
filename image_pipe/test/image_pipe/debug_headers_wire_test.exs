@@ -6,6 +6,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
 
   alias ImagePipe.Security.Signature
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.Caches
 
   # ---------------------------------------------------------------------------
   # Source stubs
@@ -177,18 +178,22 @@ defmodule ImagePipe.DebugHeadersWireTest do
         ],
         cache: [
           root: cache_root,
-          path_prefix: "processed",
           max_body_bytes: 10_000_000
         ]
       ]
       |> Keyword.merge(overrides)
+      |> Caches.start!()
 
     {opts, cache_root}
   end
 
   defp call(path, opts) do
     conn(:get, path)
-    |> ImagePipe.Plug.call(ImagePipe.Plug.init(opts))
+    |> ImagePipe.Plug.call(mount(opts))
+  end
+
+  defp mount(opts) do
+    if opts[:cache], do: Caches.plug(opts), else: ImagePipe.Plug.init(opts)
   end
 
   defp header(conn, name) do

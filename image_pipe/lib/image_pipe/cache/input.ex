@@ -107,7 +107,10 @@ defmodule ImagePipe.Cache.Input do
     CacheFile.close(file)
   end
 
-  defp pin(path) do
+  @doc false
+  # Hard-links `path` to a pin beside it, tracked by `Resources`, so the
+  # bytes stay readable after whoever owns `path` deletes it.
+  def pin(path) do
     pinned = Path.join(Path.dirname(path), Sweep.pin_name(random()))
     ref = Resources.track(pinned)
     pin(path, pinned, ref)

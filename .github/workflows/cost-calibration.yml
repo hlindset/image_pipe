@@ -1,0 +1,136 @@
+name: Render cost calibration
+
+# Times renders against ImagePipe.Cache.Cost's estimate on x86 and ARM, and
+# fits the estimate's weights, so they can be checked on CI hardware. The job
+# fails when the current weights miss the bench's acceptance bar. Runs on
+# pull requests that change the benchmark or the cost model, and by hand.
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "image_pipe/bench/cost_calibration.exs"
+      - "image_pipe/lib/image_pipe/cache/cost.ex"
+      - ".github/workflows/cost-calibration.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  calibrate:
+    name: Calibrate (${{ matrix.platform.arch }})
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { arch: amd64, runner: ubuntu-26.04 }
+          - { arch: arm64, runner: ubuntu-26.04-arm }
+    # The libvips build and its dependencies match elixir.yml's, so the
+    # encoders and decoders are the ones the tests use.
+    env:
+      # Use only the tools mise-action installs, not every tool in mise.toml.
+      MISE_EXEC_AUTO_INSTALL: "false"
+      MIX_ENV: dev
+      VIX_COMPILATION_MODE: PLATFORM_PROVIDED_LIBVIPS
+      VIPS_VERSION: "8.18.7"
+      # Upstream SHA256 of vips-${VIPS_VERSION}.tar.xz (release .sha256sum asset).
+      VIPS_SHA256: "5baaead3b0bb20ffdb9e9ff09aa9fda08620923df77b63b436654cb5e0b3bf94"
+      VIPS_PREFIX: ${{ github.workspace }}/.vips
+      PKG_CONFIG_PATH: ${{ github.workspace }}/.vips/lib/pkgconfig
+      LD_LIBRARY_PATH: ${{ github.workspace }}/.vips/lib
+    defaults:
+      run:
+        # An explicit bash sets pipefail, so a crash in a piped step fails it.
+        shell: bash
+        working-directory: image_pipe
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Runner image
+        id: runner
+        working-directory: .
+        run: |
+          echo "image=$ImageOS-${{ matrix.platform.arch }}" >> "$GITHUB_OUTPUT"
+          # Workaround: mise (2026.9.18) maps ImageOS to builds.hex.pm's Erlang
+          # builds only up to ubuntu24 and compiles from source otherwise, so
+          # name the release. Remove once mise maps ubuntu26 itself
+          # (linux_precompiled_os_version in src/plugins/core/erlang.rs).
+          echo "MISE_ERLANG_PRECOMPILED_OS=${ImageOS/ubuntu/ubuntu-}.04" >> "$GITHUB_ENV"
+      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          install_args: erlang elixir rust
+      - name: Install libvips build and runtime dependencies
+        working-directory: .
+        run: |
+          echo force-unsafe-io | sudo tee /etc/dpkg/dpkg.cfg.d/force-unsafe-io >/dev/null
+          sudo rm -f /var/lib/man-db/auto-update
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential meson ninja-build pkg-config \
+            libglib2.0-dev libexpat1-dev libjpeg-turbo8-dev libpng-dev \
+            libwebp-dev libtiff-dev libgif-dev libheif-dev librsvg2-dev \
+            liborc-0.4-dev liblcms2-dev libjxl-dev libcgif-dev libexif-dev \
+            libheif-plugin-aomenc libheif-plugin-aomdec libimagequant-dev
+      - name: Cache libvips build
+        id: cache-vips
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.VIPS_PREFIX }}
+          key: vips-${{ steps.runner.outputs.image }}-${{ env.VIPS_VERSION }}-jxl-exif-quant-v4
+      - name: Build libvips
+        if: steps.cache-vips.outputs.cache-hit != 'true'
+        working-directory: .
+        run: |
+          tarball="vips-${VIPS_VERSION}.tar.xz"
+          curl -fsSL -o "${tarball}" "https://github.com/libvips/libvips/releases/download/v${VIPS_VERSION}/${tarball}"
+          echo "${VIPS_SHA256}  ${tarball}" | sha256sum --check --strict
+          tar xJf "${tarball}"
+          cd "vips-${VIPS_VERSION}"
+          meson setup build --prefix="${VIPS_PREFIX}" --libdir=lib --buildtype=release \
+            -Dimagequant=enabled
+          meson compile -C build
+          meson install -C build
+      - name: Verify libvips can read JPEG XL and write quantized PNG
+        run: |
+          "${VIPS_PREFIX}/bin/vips" --version
+          "${VIPS_PREFIX}/bin/vips" -l | grep -iq jxlload || { echo "JXL load missing from build"; exit 1; }
+          # Functional check: a palette PNG must encode (needs libimagequant).
+          "${VIPS_PREFIX}/bin/vips" black /tmp/q.v 16 16
+          "${VIPS_PREFIX}/bin/vips" pngsave /tmp/q.v /tmp/q.png[palette=true,bitdepth=4] || {
+            echo "PNG palette quantization missing from build"; exit 1; }
+      - name: Install Hex
+        run: mise exec -- mix local.hex --force
+      - name: Install Rebar
+        run: mise exec -- mix local.rebar --force
+      - name: Install dependencies
+        run: mise exec -- mix deps.get
+      - name: Compile
+        run: mise exec -- mix compile
+      # One libvips thread per render measures the CPU time a render takes,
+      # which is what it costs a loaded server, whatever the runner's cores.
+      - name: Calibrate
+        env:
+          VIPS_CONCURRENCY: "1"
+        run: |
+          {
+            echo "## Render cost calibration (${{ matrix.platform.arch }})"
+            echo
+            echo "Runner: $(nproc) CPUs, $(lscpu | sed -n 's/^Model name: *//p')"
+            echo
+            mise exec -- mix run bench/cost_calibration.exs \
+              --csv "$RUNNER_TEMP/cost.csv" --json "$RUNNER_TEMP/cost.json"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      # Also after a failed acceptance check, whose measurements are the
+      # ones worth refitting from.
+      - name: Upload measurements
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cost-calibration-${{ matrix.platform.arch }}
+          path: |
+            ${{ runner.temp }}/cost.csv
+            ${{ runner.temp }}/cost.json
+          if-no-files-found: error

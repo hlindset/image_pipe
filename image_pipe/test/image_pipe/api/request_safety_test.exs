@@ -6,6 +6,7 @@ defmodule ImagePipe.API.RequestSafetyTest do
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.PlugFixture.CountingOriginImage
 
   @signing_key "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
@@ -61,12 +62,7 @@ defmodule ImagePipe.API.RequestSafetyTest do
     ]
   end
 
-  defp build_config(opts) do
-    config =
-      ImagePipe.Plug.init(CacheObserver.observe(opts))
-
-    config
-  end
+  defp build_config(opts), do: opts |> CacheObserver.observe() |> Caches.plug()
 
   # ── generated-test bodies ────────────────────────────────────────────────
 

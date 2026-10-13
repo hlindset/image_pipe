@@ -35,12 +35,8 @@ defmodule ImagePipe.Telemetry.Trace.Handler do
     :pins,
     :temps,
     :bodies,
-    :expired,
+    :unreadable,
     :staged,
-    # entries a re-scan started or stopped counting, or resized
-    :adopted,
-    :dropped,
-    :resynced,
     :active,
     :queued,
     :operation,
@@ -81,6 +77,8 @@ defmodule ImagePipe.Telemetry.Trace.Handler do
     :max_bytes,
     :quality,
     :bytes,
+    # a stored entry's estimated render cost, in reference microseconds
+    :estimated_cost_us,
     :score,
     # Stop-metadata verdicts (the per-result facts an observer reads off a
     # finished span). All product-neutral; sourced from request inputs or

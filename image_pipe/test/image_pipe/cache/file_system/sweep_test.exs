@@ -3,6 +3,7 @@ defmodule ImagePipe.Cache.FileSystem.SweepTest do
 
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Sweep
+  alias ImagePipe.Test.Caches
 
   @hash String.duplicate("a", 64)
   @other String.duplicate("b", 64)
@@ -24,16 +25,19 @@ defmodule ImagePipe.Cache.FileSystem.SweepTest do
     path
   end
 
+  # A body named for its 5-byte content ("bytes") and no cost.
+  defp body_name(hash, sha), do: "#{hash}.#{sha}.5.0.body"
+
   defp pin_name(ms), do: ".image-pipe-pin-#{ms}-Ab_c-dE.tmp"
 
   test "removes expired temps and untracked bodies and keeps everything live", %{
     root: root,
     dir: dir
   } do
-    tracked = write!(dir, "#{@hash}.#{@sha}.body", @old)
+    tracked = write!(dir, body_name(@hash, @sha), @old)
     write!(dir, "#{@hash}.meta")
-    untracked = write!(dir, "#{@other}.#{@sha}.body", @old)
-    fresh_untracked = write!(dir, "#{@other}.#{String.duplicate("d", 64)}.body")
+    untracked = write!(dir, body_name(@other, @sha), @old)
+    fresh_untracked = write!(dir, body_name(@other, String.duplicate("d", 64)))
 
     expired_pin = write!(dir, pin_name(System.os_time(:millisecond) - 7_200_000))
     fresh_pin = Path.join(dir, pin_name(System.os_time(:millisecond)))
@@ -54,8 +58,8 @@ defmodule ImagePipe.Cache.FileSystem.SweepTest do
         do: assert(File.exists?(path))
   end
 
-  test "an undecodable meta still keeps its body", %{root: root, dir: dir} do
-    body = write!(dir, "#{@hash}.#{@sha}.body", @old)
+  test "a new undecodable meta still keeps its body", %{root: root, dir: dir} do
+    body = write!(dir, body_name(@hash, @sha), @old)
     File.write!(Path.join(dir, "#{@hash}.meta"), "not a term")
 
     assert %{bodies: 0} = Sweep.sweep_root(root)
@@ -64,7 +68,7 @@ defmodule ImagePipe.Cache.FileSystem.SweepTest do
 
   test "removes an old body whose key's meta names another body", %{root: root} do
     key = %ImagePipe.Cache.Key{hash: @hash, data: [schema_version: 1]}
-    opts = [root: root]
+    opts = [root: root, max_size_bytes: 1_000_000]
 
     metadata =
       struct!(ImagePipe.Cache.Entry.Metadata,
@@ -74,15 +78,11 @@ defmodule ImagePipe.Cache.FileSystem.SweepTest do
         output_format: :webp
       )
 
-    {:ok, sink} = FileSystem.open_sink(key, metadata, opts)
-    {:ok, sink} = FileSystem.write_chunk(sink, "current body", opts)
-    FileSystem.commit_sink(sink, opts)
-
-    {:ok, paths} = FileSystem.paths(key, opts)
+    paths = Caches.write!(opts, key, metadata, "current body")
     [current] = Path.wildcard(Path.join(paths.dir, "*.body"))
     File.touch!(current, @old)
-    stranded = write!(paths.dir, "#{@hash}.#{String.duplicate("e", 64)}.body", @old)
-    fresh = write!(paths.dir, "#{@hash}.#{String.duplicate("f", 64)}.body")
+    stranded = write!(paths.dir, body_name(@hash, String.duplicate("e", 64)), @old)
+    fresh = write!(paths.dir, body_name(@hash, String.duplicate("f", 64)))
 
     assert %{bodies: 1} = Sweep.sweep_root(root)
     refute File.exists?(stranded)
@@ -91,44 +91,41 @@ defmodule ImagePipe.Cache.FileSystem.SweepTest do
     assert {:hit, _entry} = FileSystem.get(key, opts)
   end
 
-  describe "expiry" do
-    @day 86_400
-    @unread System.os_time(:second) - 2 * 86_400
+  test "removes old metadata the cache can't read, with its body", %{root: root} do
+    {readable_key, readable} = entry!(root, "1")
+    {_key, unreadable} = entry!(root, "2")
+    File.write!(unreadable.meta_path, "not a term")
+    age!(readable, @old)
+    age!(unreadable, @old)
 
-    test "{:all, max_age} removes an entry unread for max_age with its body", %{root: root} do
-      {unread_key, unread} = entry!(root, "1")
-      {read_key, read} = entry!(root, "2")
-      age!(unread, @unread)
-      age!(read, @unread)
-      File.touch!(read.meta_path)
+    assert %{unreadable: 1, bodies: 1} = Sweep.sweep_root(root)
 
-      assert %{expired: 1, bodies: 1} = Sweep.sweep_root(root, {:all, @day})
+    refute File.exists?(unreadable.meta_path)
+    assert {:hit, _entry} = FileSystem.get(readable_key, root: root, max_size_bytes: 1_000_000)
+  end
 
-      refute File.exists?(unread.meta_path)
-      assert Path.wildcard(Path.join(unread.dir, "#{unread_key.hash}.*.body")) == []
-      assert {:hit, _entry} = FileSystem.get(read_key, root: root)
-    end
+  test "keeps metadata it can't read for now, such as on a permission error", %{root: root} do
+    {key, paths} = entry!(root, "4")
+    age!(paths, @old)
+    File.chmod!(paths.meta_path, 0o000)
+    on_exit(fn -> File.chmod(paths.meta_path, 0o644) end)
 
-    test "{:unreadable, max_age} expires only metadata the cache can't read", %{root: root} do
-      {readable_key, readable} = entry!(root, "1")
-      {_key, unreadable} = entry!(root, "2")
-      File.write!(unreadable.meta_path, "not a term")
-      age!(readable, @unread)
-      age!(unreadable, @unread)
+    assert %{unreadable: 0, bodies: 0} = Sweep.sweep_root(root)
 
-      assert %{expired: 1, bodies: 1} = Sweep.sweep_root(root, {:unreadable, @day})
+    File.chmod!(paths.meta_path, 0o644)
+    assert {:hit, _entry} = FileSystem.get(key, root: root, max_size_bytes: 1_000_000)
+  end
 
-      refute File.exists?(unreadable.meta_path)
-      assert {:hit, _entry} = FileSystem.get(readable_key, root: root)
-    end
+  test "removes an entry whose body is named by digest alone", %{root: root} do
+    {_key, paths} = entry!(root, "3")
+    metadata = paths.meta_path |> File.read!() |> :erlang.binary_to_term()
+    old_name = "#{String.duplicate("3", 64)}.#{metadata.body_sha256}.body"
+    File.rename!(Path.join(paths.dir, metadata.body_filename), Path.join(paths.dir, old_name))
+    File.write!(paths.meta_path, :erlang.term_to_binary(%{metadata | body_filename: old_name}))
+    age!(paths, @old)
 
-    test "a nil max_age expires nothing", %{root: root} do
-      {key, paths} = entry!(root, "1")
-      age!(paths, @unread)
-
-      assert %{expired: 0} = Sweep.sweep_root(root, {:all, nil})
-      assert {:hit, _entry} = FileSystem.get(key, root: root)
-    end
+    assert %{unreadable: 1, bodies: 1} = Sweep.sweep_root(root)
+    assert File.ls!(paths.dir) == []
   end
 
   defp entry!(root, digit) do
@@ -142,11 +139,7 @@ defmodule ImagePipe.Cache.FileSystem.SweepTest do
         output_format: :webp
       )
 
-    {:ok, sink} = FileSystem.open_sink(key, metadata, root: root)
-    {:ok, sink} = FileSystem.write_chunk(sink, "body " <> digit, root: root)
-    :ok = FileSystem.commit_sink(sink, root: root)
-    {:ok, paths} = FileSystem.paths(key, root: root)
-    {key, paths}
+    {key, Caches.write!([root: root], key, metadata, "body " <> digit)}
   end
 
   defp age!(paths, mtime) do
@@ -163,7 +156,7 @@ defmodule ImagePipe.Cache.FileSystem.SweepTest do
   end
 
   test "a missing root is an empty sweep" do
-    assert %{pins: 0, temps: 0, bodies: 0, expired: 0, bytes: 0} =
+    assert %{pins: 0, temps: 0, bodies: 0, unreadable: 0, bytes: 0} =
              Sweep.sweep_root(Path.join(System.tmp_dir!(), "missing-#{System.unique_integer()}"))
   end
 

@@ -6,6 +6,7 @@ defmodule ImagePipe.API.RequestIdWireTest do
 
   alias ImagePipe.ProcessingPool
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.ProcessingSource
 
   @image File.read!("priv/static/images/beach.jpg")
@@ -42,9 +43,11 @@ defmodule ImagePipe.API.RequestIdWireTest do
   end
 
   test "stage events in every request process carry the response's request ID", context do
-    mount = mount(context, @image, &CacheObserver.observe/1)
+    opts = context |> options(@image) |> CacheObserver.observe()
 
-    conn = request(mount, "w=32/format=png")
+    conn = request(Caches.plug(opts), "w=32/format=png")
+    # The cache write runs in the cache's writer and ends after the response.
+    Caches.await_writes(opts)
 
     assert conn.status == 200
     id = response_id(conn)
@@ -118,23 +121,21 @@ defmodule ImagePipe.API.RequestIdWireTest do
     send(test_pid, {:event, event, self(), Logger.metadata()[:request_id], metadata})
   end
 
-  defp mount(context, bytes, with_cache \\ & &1) do
-    config =
-      [
-        processing_pool: context.pool,
-        telemetry_prefix: context.prefix,
-        sources: [
-          path: [
-            adapter: ProcessingSource,
-            match: :path,
-            options: [test: self(), bytes: bytes]
-          ]
+  defp mount(context, bytes),
+    do: ImagePipe.Plug.init(config: context |> options(bytes) |> ImagePipe.config())
+
+  defp options(context, bytes) do
+    [
+      processing_pool: context.pool,
+      telemetry_prefix: context.prefix,
+      sources: [
+        path: [
+          adapter: ProcessingSource,
+          match: :path,
+          options: [test: self(), bytes: bytes]
         ]
       ]
-      |> with_cache.()
-      |> ImagePipe.config()
-
-    ImagePipe.Plug.init(config: config)
+    ]
   end
 
   defp request(mount, options, source \\ "ready") do

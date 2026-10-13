@@ -458,6 +458,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     refute_boundary_deps(cache, [ImagePipe.Transform])
 
     assert_boundary_exports(cache, [
+      ImagePipe.Cache.Cost,
       ImagePipe.Cache.Entry,
       ImagePipe.Cache.File,
       ImagePipe.Cache.Input,
@@ -466,7 +467,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Cache.OutputWork,
       ImagePipe.Cache.Key,
       ImagePipe.Cache.FileSystem,
-      ImagePipe.Cache.FileSystem.CheckedDirs
+      ImagePipe.Cache.FileSystem.CheckedDirs,
+      ImagePipe.Cache.FileSystem.RefusedRoots
     ])
   end
 
@@ -481,7 +483,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
   end
 
-  test "bounded-mode FileSystem cache code stays within the cache boundary" do
+  test "FileSystem cache code stays within the cache boundary" do
     forbidden_terms = ["ImagePipe.Source", "ImagePipe.Response"]
 
     cache_filesystem_sources =
@@ -497,7 +499,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
           term <- forbidden_terms,
           String.contains?(line, term) do
         "#{file}:#{number} must not depend on #{term}; " <>
-          "bounded-mode cache code stays within the ImagePipe.Cache boundary"
+          "FileSystem cache code stays within the ImagePipe.Cache boundary"
       end
 
     assert violations == []

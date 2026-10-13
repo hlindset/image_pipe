@@ -14,9 +14,10 @@ defmodule ImagePipe.Plug do
   setting up a mount.
 
   An inline mount accepts every option of `ImagePipe.config/1`, or a
-  `:config` built with it, plus the mount options below. It can't start the processes a bounded cache needs, so
-  `init/1` raises `ArgumentError` for one. To read runtime values, use a
-  bounded cache, or share the configuration with `ImagePipe.run/4`, mount an
+  `:config` built with it, plus the mount options below. It can't start the
+  processes a cache needs, so `init/1` raises `ArgumentError` for a
+  configuration with `:cache` or `:input_cache`. To use a cache, read runtime
+  values, or share the configuration with `ImagePipe.run/4`, mount an
   instance instead.
 
   The URLs a mount serves are described in
@@ -26,7 +27,7 @@ defmodule ImagePipe.Plug do
 
   Phoenix evaluates `forward` options at compile time. When the configuration
   reads runtime values, such as keys from environment variables, or uses a
-  bounded cache, run it as an instance (see `ImagePipe.child_spec/1`) and
+  cache, run it as an instance (see `ImagePipe.child_spec/1`) and
   mount the instance by name:
 
       forward "/images", ImagePipe.Plug, instance: MyApp.Images, http_cache: :auto
@@ -79,11 +80,5 @@ defmodule ImagePipe.Plug do
   def init(opts), do: Config.validate!(opts)
 
   @impl Plug
-  def call(%Plug.Conn{} = conn, {:instance, _name, _mount_name, _mount} = mount) do
-    Runner.run(conn, Config.resolve(mount))
-  end
-
-  def call(%Plug.Conn{} = conn, opts) do
-    Runner.run(conn, opts)
-  end
+  def call(%Plug.Conn{} = conn, opts), do: Runner.run(conn, Config.resolve(opts))
 end

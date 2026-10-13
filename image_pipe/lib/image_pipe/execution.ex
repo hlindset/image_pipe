@@ -378,6 +378,9 @@ defmodule ImagePipe.Execution do
       {:leader, lease} -> generate_leader(context, lease)
       :ready -> cached_or_generate(context)
       :bypass -> generate_uncoalesced(context)
+      # Another request's image wasn't stored in time, so the disk is slow:
+      # this render isn't stored, so it doesn't add to the writes.
+      {:bypass, :deadline} -> generate_uncoalesced(context, nil, false)
     end
   end
 
@@ -408,11 +411,11 @@ defmodule ImagePipe.Execution do
       :erlang.raise(kind, reason, __STACKTRACE__)
   end
 
-  defp generate_uncoalesced(context, lease \\ nil) do
+  defp generate_uncoalesced(context, lease \\ nil, store? \\ true) do
     result =
       with {:ok, watermark_inputs} <- watermark_inputs(context) do
         session = [source_record: context.acquisition.record, output_lease: lease]
-        key = if storable?(context), do: context.representation.cache_key
+        key = if store? and storable?(context), do: context.representation.cache_key
         generate(context, watermark_inputs, session, key)
       end
 
@@ -450,8 +453,7 @@ defmodule ImagePipe.Execution do
 
   defp generate(context, inputs, session, key) do
     config = context.config
-    # The cache scores an entry by its cost while holding a processing slot,
-    # so time queued behind other work doesn't inflate it.
+
     {pooled, total} =
       Timing.measure(fn ->
         ProcessingPool.run(
@@ -461,7 +463,7 @@ defmodule ImagePipe.Execution do
         )
       end)
 
-    with {:rendered, result, cost} <- pooled,
+    with {:rendered, result} <- pooled,
          {:ok, type, data, degraded?} <- result do
       body =
         if context.request.output.terminal == :info, do: JSON.encode_to_iodata!(data), else: data
@@ -473,7 +475,8 @@ defmodule ImagePipe.Execution do
         if(degraded?, do: nil, else: key),
         type,
         body,
-        facts(session, debug, cost),
+        facts(session, debug, Cache.Cost.terminal(context.request.output.terminal)),
+        Keyword.get(session, :output_lease),
         config
       )
 
@@ -482,14 +485,8 @@ defmodule ImagePipe.Execution do
     end
   end
 
-  defp render_terminal(context, config, inputs) do
-    {result, cost} =
-      Timing.measure(fn ->
-        Terminal.render(decode_input(context), context.request, config, inputs)
-      end)
-
-    {:rendered, result, cost}
-  end
+  defp render_terminal(context, config, inputs),
+    do: {:rendered, Terminal.render(decode_input(context), context.request, config, inputs)}
 
   defp degraded?(%Resolved{degraded?: degraded?}), do: degraded?
   defp degraded?(_skipped), do: false
@@ -505,13 +502,15 @@ defmodule ImagePipe.Execution do
   defp facts(session, debug, cost),
     do: [cost_us: cost, debug: debug, source_record: Keyword.get(session, :source_record)]
 
-  defp store_body(nil, _type, _body, _facts, _config), do: :ok
+  defp store_body(nil, _type, _body, _facts, _lease, _config), do: :ok
 
-  defp store_body(key, type, body, facts, config) do
+  # The writer takes the lease with the body, so waiters wake when it's
+  # stored. The leader's own completion then does nothing.
+  defp store_body(key, type, body, facts, lease, config) do
     key
     |> Cache.open_sink({:complete_body, type}, facts, config)
     |> Cache.write_chunk(body, config)
-    |> Cache.commit_sink(config)
+    |> Cache.commit_sink(config, lease)
 
     :ok
   end

@@ -3,8 +3,11 @@
 ImagePipe has two caches: `cache` stores complete processed responses, and
 `input_cache` stores originals fetched from remote sources. Both store files
 on disk and take a keyword list, such as
-`[root: "/var/cache/image_pipe/processed"]`. The options are listed in
-`ImagePipe.Cache.FileSystem`, and the server's `[cache]` keys in the
+`[root: "/var/cache/image_pipe/processed", max_size_bytes: 5_000_000_000]`.
+In Elixir, each cache needs an ImagePipe instance (see
+`ImagePipe.child_spec/1`). `image_pipe_server` runs one itself. The
+options are listed in `ImagePipe.Cache.FileSystem`, and the server's
+`[cache]` keys in the
 [server configuration reference](../../image_pipe_server/docs/server-configuration.md#cache).
 Setting up the caches is covered in
 [Caching processed images](caching-processed-images.md), and how long cached
@@ -44,7 +47,7 @@ settings, `stable`, `internal_cache`, and `http_cache`, are listed in
 - `stable: :immutable` marks a source whose identifiers always name the same
   bytes.
 - `internal_cache: :disabled` turns off both caches for the source. The
-  default, `:auto`, caches whatever the source's storage policy allows.
+  default, `:enabled`, caches whatever the source's storage policy allows.
 - `http_cache` is described in [HTTP cache headers](cdn-http-cache.md#per-source-modes).
 
 ## What is stored
@@ -143,7 +146,10 @@ directory of your own.
 ## Writing entries
 
 A response is processed and streamed to the client at the same time, and
-written to the cache as it streams. The entry is stored only when:
+written to the cache as it streams. The response never waits for the cache's
+disk: each chunk is written as it arrives, and the entry is synced and stored
+after the response is sent. The entry is stored
+only when:
 
 - the encoder finished,
 - every chunk reached the client,
@@ -152,6 +158,31 @@ written to the cache as it streams. The entry is stored only when:
 A client disconnect, a failure after the first chunk, or a body over
 `max_body_bytes` [leaves nothing in the cache](streaming-failures.md). The
 client still receives the full response in the last case.
+
+An original downloaded for a request is stored in the background too, while
+the request processes it. The details kept to recheck an original are stored
+in the processed-image cache. Without an originals cache, storing those
+details takes one of the processed-image cache's 64 writes, or runs in the
+request when none is free.
+
+A cache drops a write when:
+
+- it has 64 writes in progress,
+- its unfinished writes hold more than 256 MiB, or a twentieth of its
+  `max_size_bytes` when that is smaller,
+- the client is more than 8 MiB ahead of a response's write,
+- a response's write is still unfinished 30 seconds after the response
+  started.
+
+The response is still delivered, and the
+[`[:cache, :stage]`](telemetry-events.md#cache-stage) event reports the
+dropped write.
+
+A write counts toward the unfinished writes as it goes, so an entry larger
+than that limit is never stored. A cache of 100 MB, for example, never
+stores an image over 5 MB. The cache's files can take up to
+`max_size_bytes` plus the limit on unfinished writes, plus evicted originals
+that requests are still reading.
 
 Cache errors never fail a request. A failed write is logged and reported in
 telemetry, and the response is delivered without being stored. A failed or
@@ -169,12 +200,15 @@ background checks (see
   original itself, without waiting. A request waiting for an HTTP or S3
   original gives up after waiting that source's `fetch_timeout` (see
   `ImagePipe.Source.HTTP` and `ImagePipe.Source.S3`) plus one second, and
-  answers `504`.
+  answers `504`. When the original isn't stored 2 seconds after it was
+  downloaded, the next waiting request takes over, and downloads it again
+  if it still isn't stored.
 - Up to 16 background checks run at once. Each has a 60-second deadline.
   After a check of an original finishes, that original isn't checked in the
   background again for one second.
 - Up to 64 processed images can be made at once while other requests wait for
-  them, with up to 1,024 requests waiting. A request waits at most 60 seconds.
+  them, with up to 1,024 requests waiting. A request waits at most 60 seconds,
+  and at most 2 seconds after the image was sent if it isn't stored by then.
   Past any of these limits, a request processes the image itself, still
   subject to the [processing pool](processing-controls.md).
 
@@ -190,9 +224,9 @@ Before reading a cached body, the cache checks that its size matches its
 metadata. An entry that fails the check, has invalid metadata, or can't be
 read is logged and treated as a miss. Only the size is checked when a body is
 read, so never change cache files in place: a changed body of the same size
-is served as it is. A body removed after the check, for example by eviction in
-[bounded mode](#bounded-mode), is still sent in full from the file already
-opened, as a chunked response without `content-length`.
+is served as it is. A body removed after the check, for example by
+[eviction](#size-limit), is still sent in full from the file already opened,
+as a chunked response without `content-length`.
 
 A path that leads outside `root` through a symlink fails as a cache error.
 Each node checks each entry's directory under `root` the first time it uses
@@ -205,21 +239,53 @@ ImagePipe must be able to write there.
 `ImagePipe.Cache.FileSystem.get/2` returns the whole body as a binary, for
 callers outside the Plug.
 
+### Cache root owner file
+
+Each `root` serves one node. When an ImagePipe instance (see
+`ImagePipe.child_spec/1`) starts, it writes a `.image-pipe-owner` file naming
+its hostname into each cache's `root`. The instance rewrites the file every 5
+seconds and deletes it when it stops. A node that restarts with the same
+hostname takes the `root` over at once.
+
+When the file names another hostname, the instance logs a warning, starts
+without that cache, and checks the file every 25 seconds:
+
+- While the other node keeps rewriting the file, the instance logs an error
+  once.
+- Once the file is gone, or hasn't changed since the last check, the
+  instance takes the `root` over, reads the file back 5 seconds later, and
+  starts using the cache. If another node took the `root` at the same time,
+  the instance keeps checking.
+
+A waiting instance starts using the cache:
+
+- about 30 seconds after it starts, when the other node was already gone,
+  for example killed with `kill -9`
+- within 30 seconds of the other node stopping and deleting the file
+- within about a minute of the other node stopping without deleting the file
+
+A running node that finds its file rewritten by another node logs an error
+and runs without that cache, watching the file as a starting instance does.
+This happens when two nodes with the same hostname share a `root` (the node
+that started later keeps it), or when a node stops rewriting its file for 25
+to 50 seconds, depending on when the waiting node checks, while another node
+waits for the `root`, as on a hung network mount.
+
+If the instance can't write the file, for example because `root` isn't
+writable, it logs a warning and uses the cache anyway.
+
 ### Leftover files
 
 A node that stops abruptly, for example after a crash or `kill -9`, can leave
 temporary entry files behind, links that requests used to hold originals
 open, and bodies that no metadata file names. A running node can leave them
-too, for example when a request is killed while its image is being written. ImagePipe deletes them in the background once they
-are more than an hour old, so nodes that share a `root` can clean it while
-the others keep running:
+too, for example when a request is killed while its image is being written.
+Metadata files the cache can't read, such as ones another ImagePipe version
+wrote, count as left behind too, and so do their bodies. ImagePipe deletes
+them in the background once they are more than an hour old:
 
-- In an unbounded cache's `root`, when an ImagePipe instance starts (see
-  `ImagePipe.child_spec/1`) and every 24 hours while it runs.
-  `image_pipe_server` always runs an instance. An unbounded cache without an
-  instance isn't cleaned.
-- In a bounded cache's `root`, after its startup scan and after each
-  [re-scan](#size-cap-and-directory-scans).
+- In each cache's `root`, after its startup scan and every 24 hours while the
+  instance runs.
 - In the `image_pipe` directory under the system temporary directory
   (`TMPDIR`, or `/tmp`), where originals are staged while they download,
   when the `:image_pipe` application starts and every 24 hours after.
@@ -227,101 +293,81 @@ the others keep running:
 The `[:cache, :sweep]` event reports what each cleanup removed (see
 [cache events](telemetry-events.md#cache-events)).
 
-### Unread entries
+## Size limit
 
-Without `max_size_bytes`, an entry nobody has read for `max_age` seconds, 7
-days by default, is deleted by the next cleanup of
-[leftover files](#leftover-files). That includes images made before an upgrade
-that changes how requests are cached.
-
-In a bounded cache, eviction removes rarely requested entries. Its startup
-scan and each re-scan delete only metadata files the cache can't read, such
-as ones written by another ImagePipe version, once they are older than
-`max_age`.
-
-Read times are saved to disk hourly, or four times per `max_age` when that is
-shorter. After a crash, an entry can be deleted up to that much early, and is
-made again when next requested. Nodes that share
-a `root` each save their own reads, so an entry stays while any of them reads
-it.
-
-Only a running ImagePipe instance (see `ImagePipe.child_spec/1`) deletes
-unread entries. Without one, nothing is deleted. Behind a CDN, the cache sees
-only the CDN's misses, so an image the CDN still serves can go unread for
-longer than `max_age`. `max_age: nil` keeps entries until they are evicted or
-deleted.
-
-## Bounded mode
-
-`max_size_bytes` turns on bounded mode. Without it the cache has no size
-limit. The other bounded-mode options, listed in
-`ImagePipe.Cache.FileSystem`, require `max_size_bytes` and have defaults.
+The cache evicts entries to stay under `max_size_bytes`. It keeps the
+entries that are requested often and took the most work to make for their
+size, so an AVIF made with automatic quality outlasts a JPEG thumbnail
+requested as often.
 
 ### Cache process and restarts
 
-On each node, a bounded `root` runs one process that tracks the cache's size
-and chooses which entries to keep by how often each is requested. A bounded
-cache must be configured on an instance, which starts that process (see
+Each `root` runs one process that tracks the cache's size and chooses which
+entries to keep. Only an instance starts that process (see
 `ImagePipe.child_spec/1` and
-[Bound the cache size](caching-processed-images.md#bound-the-cache-size)).
+[Add a processed-image cache](caching-processed-images.md#add-a-processed-image-cache)).
 
 Request counts live only in memory. After a restart they start from zero,
-and entries already on disk are next in line for eviction, oldest first,
-until they are requested again.
+and entries already on disk are next in line for eviction, roughly those
+that took the least work for their size first, until they are requested
+again.
 
-### Size cap and directory scans
+### Work to make an entry
 
-`max_size_bytes` is a soft cap on the total size of stored bodies in the
-`root`, including bodies other nodes that share it wrote:
+The work to make a processed image is estimated from what its request did:
 
-- Each write either stores the new entry, evicting less valuable entries to
-  make room, or rejects it. Rejected and replaced bodies are deleted from
-  disk.
-- An entry larger than `max_size_bytes` is always rejected.
-- A write that needs to evict more than `eviction_victim_limit` entries (64
-  by default) evicts that many and starts background eviction for the rest.
-  Until background eviction finishes, the cache can exceed the cap. If the
-  entries it needs to evict include ones read recently, the write is
-  rejected instead, because background eviction would remove the new entry
-  before them.
-- On startup the process scans the entries already on disk in the
-  background, evicts until the cache is at or under the cap, and then
-  deletes [leftover files](#leftover-files).
-- Every `reconcile_interval` (60 seconds by default) it evicts again until
-  the cache is at or under the cap.
-- Every `rescan_interval` (300 seconds by default, moved earlier or later by
-  up to a fifth at random) it lists the `root` again. It starts counting
-  entries other nodes wrote, stops counting entries they deleted, evicts
-  until the cache is at or under the cap, and deletes leftover files.
+- the original's format and size, and whether it has transparency
+- the output's format, size, and encoder effort
+- operations with a cost of their own, such as
+  [`trim`](processing/crop.md#trim), [`blur`](processing/effects.md#blur),
+  [`sharpen`](processing/effects.md#sharpen), and
+  [`rotate`](processing/crop.md#rotate) by an angle other than a quarter
+  turn, each by the size of the image it runs on
+- each quality that [automatic quality](processing/output.md#autoquality)
+  tries
+- object detection
 
-A node counts what other nodes write only when it re-scans, so a shared
-`root` can exceed the cap by what all its nodes write between two re-scans.
+The estimate isn't timed, so a busy server doesn't make entries look more
+expensive. Originals in the originals cache are scored by how long their
+download took.
 
-Background eviction removes entries in batches so requests can run between
-batches. Each batch removes at most `eviction_victim_limit` entries.
-Background eviction reports its evictions with `trigger: :reconcile`.
+### Eviction and startup scan
+
+`max_size_bytes` caps the total size of stored bodies in the `root`:
+
+- To make room for a write, the cache picks 16 entries at random, chooses
+  the one least worth keeping, and repeats until the write fits. If the new
+  entry is worth more than the chosen entries on average, the cache evicts
+  them and stores it. Otherwise it rejects the write and evicts nothing. A
+  rejected entry requested at least six times is stored anyway one time in
+  128. The stored bodies never exceed the cap, except briefly while the
+  startup scan runs: until the scan has counted the entries on disk, writes
+  are measured against only the entries counted so far.
+- An entry larger than the limit on unfinished writes is never stored (see
+  [writing entries](#writing-entries)).
+- On startup the process lists the entries on disk in the background,
+  reading only file names. If the cache is over the cap, for example after
+  you lower `max_size_bytes`, it evicts in batches until it's under, so
+  requests can use the cache between batches. Then it deletes
+  [leftover files](#leftover-files).
 
 A write that waits more than 5 seconds for the cache process is reported as
 a [cache write](telemetry-events.md#cache-write) error with
 `error: :admission_timeout`. The cache process still handles the queued write
 and stores or rejects the entry as usual.
 
-### Bounded-mode limitations
+### Eviction limitations
 
-- On each node, all writes to one `root` go through one process.
 - A crash between writing a body and writing its metadata can leave a body
-  file the cache doesn't track. It doesn't count against `max_size_bytes`
-  until a startup at least an hour after the crash deletes it.
+  file the cache doesn't track. Its size isn't counted against
+  `max_size_bytes`. The first cleanup of [leftover files](#leftover-files)
+  after it is an hour old deletes it, which can be up to a day later.
 - Two writes to the same key at once both store their body. The last one
   wins, and the other body is deleted.
-- Nodes that share a `root` count entry sizes separately. When one node
-  deletes or replaces an entry, the other nodes keep counting its old size
-  until their next re-scan, or until they read, evict, delete, or rewrite
-  that entry. Until then a node's count is off by the difference, so it
-  evicts too early or too late.
-- Nodes that share a `root` and re-scan at about the same time can each
-  evict entries to remove the same excess, so the cache briefly drops below
-  the cap.
+- Entries an earlier ImagePipe version stored in another format aren't
+  counted against `max_size_bytes`. A cleanup of
+  [leftover files](#leftover-files) deletes them, which can be up to a day
+  after the upgrade for files written in its last hour.
 
-The bounded-mode telemetry events are listed in
+The admission and eviction telemetry events are listed in
 [cache events](telemetry-events.md#cache-events).

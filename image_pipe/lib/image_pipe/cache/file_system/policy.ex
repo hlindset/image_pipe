@@ -2,10 +2,10 @@ defmodule ImagePipe.Cache.FileSystem.Policy do
   @moduledoc false
 
   @type descriptor :: %{
-          key_hash: binary(),
-          size_bytes: non_neg_integer(),
-          body_sha256: binary(),
-          cost_us: non_neg_integer()
+          required(:key_hash) => binary(),
+          required(:size_bytes) => non_neg_integer(),
+          required(:cost_us) => non_neg_integer(),
+          optional(atom()) => term()
         }
 
   @doc """
@@ -21,6 +21,14 @@ defmodule ImagePipe.Cache.FileSystem.Policy do
     effective_cost = if cost_us > 0, do: cost_us, else: size_bytes
     freq * effective_cost / max(size_bytes, 1)
   end
+
+  @doc """
+  Ranks an entry for eviction, lowest first. Counting one more sighting than
+  the sketch holds keeps cost in the ranking for entries not seen since a
+  restart, whose frequency is 0.
+  """
+  @spec victim_score(descriptor(), non_neg_integer()) :: float()
+  def victim_score(descriptor, freq), do: score(descriptor, freq + 1)
 
   @doc """
   Compute the weighted-average value-per-byte across a list of victim
@@ -40,77 +48,6 @@ defmodule ImagePipe.Cache.FileSystem.Policy do
       end)
 
     if denominator == 0, do: 0.0, else: numerator / denominator
-  end
-
-  @doc """
-  Walk probationary LRU outward, then protected LRU outward, collecting
-  victims until cumulative size_bytes >= needed_bytes.
-
-  Both queues must be enumerables ordered LRU-first. They are consumed lazily,
-  so only the entries the walk reaches are read.
-
-  The probationary walk is unbounded: Admission evicts the first `limit`
-  victims at once and lets reconciliation evict the rest, which it reaches
-  in the same LRU order. Reconciliation evicts probationary before protected,
-  so it would reach the newly admitted entry before any protected victim. A
-  walk that extends into protected therefore stays within `limit` victims in
-  total.
-
-  Returns:
-  - `{:ok, victims}` — enough bytes can be freed
-  - `{:error, :no_evictable_victims}` — both queues combined cannot
-    free enough bytes
-  - `{:error, :victim_limit_exceeded}` — the walk extends into protected
-    and needs more than `limit` victims in total
-  """
-  @spec victim_walk(
-          Enumerable.t(descriptor()),
-          Enumerable.t(descriptor()),
-          non_neg_integer(),
-          pos_integer()
-        ) ::
-          {:ok, [descriptor()]}
-          | {:error, :no_evictable_victims}
-          | {:error, :victim_limit_exceeded}
-  def victim_walk(probationary, protected, needed_bytes, limit)
-      when is_integer(needed_bytes) and needed_bytes >= 0 and is_integer(limit) and limit > 0 do
-    case take_until_bytes(probationary, needed_bytes) do
-      {:done, victims} -> {:ok, victims}
-      {:short, victims, still_needed} -> walk_protected(protected, victims, still_needed, limit)
-    end
-  end
-
-  defp walk_protected(protected, victims, still_needed, limit) do
-    case take_until_bytes(protected, still_needed) do
-      {:done, more} when length(victims) + length(more) > limit ->
-        {:error, :victim_limit_exceeded}
-
-      {:done, more} ->
-        {:ok, victims ++ more}
-
-      {:short, _more, _remaining} ->
-        {:error, :no_evictable_victims}
-    end
-  end
-
-  # Returns {:done, victims} or {:short, victims, still_needed_bytes}, with
-  # victims in walk order.
-  defp take_until_bytes(_entries, needed_bytes) when needed_bytes <= 0, do: {:done, []}
-
-  defp take_until_bytes(entries, needed_bytes) do
-    entries
-    |> Enum.reduce_while({:short, [], 0}, fn victim, {:short, victims, bytes} ->
-      victims = [victim | victims]
-      bytes = bytes + victim.size_bytes
-
-      if bytes >= needed_bytes,
-        do: {:halt, {:done, victims}},
-        else: {:cont, {:short, victims, bytes}}
-    end)
-    |> case do
-      {:done, victims} -> {:done, Enum.reverse(victims)}
-      {:short, victims, bytes} -> {:short, Enum.reverse(victims), needed_bytes - bytes}
-    end
   end
 
   @doc """

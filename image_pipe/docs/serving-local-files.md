@@ -81,8 +81,10 @@ so other sizes and formats don't read it over the network again:
 
 ### Plug
 
+In your ImagePipe instance's options (see `ImagePipe.child_spec/1`):
+
 ```elixir
-input_cache: [root: "/var/cache/image_pipe/originals"],
+input_cache: [root: "/var/cache/image_pipe/originals", max_size_bytes: 20_000_000_000],
 sources: [
   media: [
     adapter: ImagePipe.Source.File,
@@ -97,6 +99,7 @@ sources: [
 ```toml
 [cache.input]
 root = "/var/cache/image_pipe/originals"
+max_size_bytes = 20_000_000_000
 
 [sources.media]
 adapter = "file"

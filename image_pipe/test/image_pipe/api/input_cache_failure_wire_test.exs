@@ -5,6 +5,7 @@ defmodule ImagePipe.API.InputCacheFailureWireTest do
 
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Admission
+  alias ImagePipe.Test.Caches
 
   setup do
     root = Path.join(System.tmp_dir!(), "input_failure_#{System.unique_integer([:positive])}")
@@ -60,6 +61,7 @@ defmodule ImagePipe.API.InputCacheFailureWireTest do
 
     %{
       config: config,
+      pool: pool,
       admission: admission,
       tasks: tasks,
       origin_status: origin_status,
@@ -78,6 +80,7 @@ defmodule ImagePipe.API.InputCacheFailureWireTest do
   @tag capture_log: true
   test "input metadata refresh failure still delivers revalidated bytes", ctx do
     assert %{status: 200, resp_body: original} = request(ctx.config)
+    Caches.await_writes(input_cache: ctx.pool)
     Agent.update(ctx.cache_control, fn _ -> "public, max-age=0, must-revalidate" end)
     result = fail_admission(ctx, :refresh_source_record)
     assert %Plug.Conn{status: 200, resp_body: ^original} = result
@@ -85,8 +88,10 @@ defmodule ImagePipe.API.InputCacheFailureWireTest do
 
   test "a revalidation that changes nothing leaves the stored metadata alone", ctx do
     assert %{status: 200, resp_body: original} = request(ctx.config)
+    Caches.await_writes(input_cache: ctx.pool)
     :erlang.trace(ctx.admission, true, [:receive])
     assert %{status: 200, resp_body: ^original} = request(ctx.config)
+    Caches.await_writes(input_cache: ctx.pool)
     _ = :sys.get_state(ctx.admission)
     :erlang.trace(ctx.admission, false, [:receive])
 
@@ -97,20 +102,21 @@ defmodule ImagePipe.API.InputCacheFailureWireTest do
   @tag capture_log: true
   test "invalidation failure preserves the origin error response", ctx do
     assert %{status: 200} = request(ctx.config)
+    Caches.await_writes(input_cache: ctx.pool)
     Agent.update(ctx.origin_status, fn _ -> 404 end)
     assert %Plug.Conn{status: 404} = fail_admission(ctx, :delete)
   end
 
+  # The cache's writes run off the request, so the call to fail is traced
+  # where it arrives: at the suspended Admission.
   defp fail_admission(ctx, operation) do
-    parent = self()
     admission = ctx.admission
     monitor = Process.monitor(admission)
     :sys.suspend(admission)
+    :erlang.trace(admission, true, [:receive])
 
     task =
       Task.Supervisor.async_nolink(ctx.tasks, fn ->
-        :erlang.trace(self(), true, [:send, {:tracer, parent}])
-
         try do
           request(ctx.config)
         catch
@@ -119,14 +125,16 @@ defmodule ImagePipe.API.InputCacheFailureWireTest do
       end)
 
     try do
-      assert_receive {:trace, _, :send, {:"$gen_call", _, message}, ^admission}, 5_000
+      assert_receive {:trace, ^admission, :receive, {:"$gen_call", _, message}}, 5_000
       assert elem(message, 0) == operation
     after
       Process.exit(admission, :kill)
     end
 
     assert_receive {:DOWN, ^monitor, :process, ^admission, :killed}
-    Task.await(task)
+    result = Task.await(task)
+    Caches.await_writes(input_cache: ctx.pool)
+    result
   end
 
   defp request(config) do

@@ -5,6 +5,7 @@ defmodule ImagePipe.API.SVGSourceWireTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.Caches
   alias Vix.Vips.Operation
 
   # The sibling image_pipe_svg project's test font.
@@ -180,13 +181,15 @@ defmodule ImagePipe.API.SVGSourceWireTest do
     on_exit(fn -> :telemetry.detach(handler) end)
 
     options = [telemetry_prefix: prefix, cache: [root: dir]]
-    plain = mount(@svg, options)
-    with_fonts = mount(@svg, options ++ [svg: [font_dirs: [@font_dir]]])
+    plain = cached_mount(@svg, options)
 
     assert request("w=40/format=png", plain).status == 200
     assert_received :rendered
     assert request("w=40/format=png", plain).status == 200
     refute_received :rendered
+
+    stop_supervised!(Caches.instance(options))
+    with_fonts = cached_mount(@svg, options ++ [svg: [font_dirs: [@font_dir]]])
 
     assert request("w=40/format=png", with_fonts).status == 200
     assert_received :rendered
@@ -332,9 +335,12 @@ defmodule ImagePipe.API.SVGSourceWireTest do
   defp request(options, config),
     do: conn(:get, "/#{options}/src/source.svg") |> ImagePipe.Plug.call(config)
 
-  defp mount(body, options \\ [])
+  defp mount(body, options \\ []), do: ImagePipe.Plug.init(options(body, options))
 
-  defp mount(bodies, options) when is_map(bodies) do
+  defp cached_mount(body, options),
+    do: body |> options(options) |> Caches.start!() |> Caches.plug()
+
+  defp options(bodies, options) when is_map(bodies) do
     origin(
       fn conn ->
         conn
@@ -345,7 +351,7 @@ defmodule ImagePipe.API.SVGSourceWireTest do
     )
   end
 
-  defp mount(body, options) do
+  defp options(body, options) do
     origin(
       fn conn -> conn |> put_resp_content_type("image/svg+xml") |> send_resp(200, body) end,
       options
@@ -353,17 +359,15 @@ defmodule ImagePipe.API.SVGSourceWireTest do
   end
 
   defp origin(origin, options) do
-    ImagePipe.Plug.init(
-      [
-        sources: [
-          path: [
-            adapter: RootHTTPAdapter,
-            match: :path,
-            options: [root_url: "http://origin.test", req_options: [plug: origin]]
-          ]
+    [
+      sources: [
+        path: [
+          adapter: RootHTTPAdapter,
+          match: :path,
+          options: [root_url: "http://origin.test", req_options: [plug: origin]]
         ]
-      ] ++ options
-    )
+      ]
+    ] ++ options
   end
 
   defp content_type(response) do

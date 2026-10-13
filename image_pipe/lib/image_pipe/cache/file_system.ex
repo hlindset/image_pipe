@@ -1,16 +1,9 @@
 defmodule ImagePipe.Cache.FileSystem do
   @moduledoc """
   Stores processed images, or originals, as files on local disk. The `cache`
-  and `input_cache` options take its options:
-
-      cache: [root: "/var/cache/image_pipe/processed"]
-
-  Without `:max_size_bytes` the cache grows without limit. With it, the cache
-  runs in bounded mode, with `:max_size_bytes` as a soft cap: writes evict the
-  least valuable entries, and a background pass evicts any overshoot. Entries
-  requested most often are kept longest (a W-TinyLFU policy). Bounded mode
-  runs processes that track the cache's size, so a bounded cache must be
-  configured on an instance, which starts them (see `ImagePipe.child_spec/1`):
+  and `input_cache` options take its options, and need an instance, which
+  starts the processes that track the cache's size (see
+  `ImagePipe.child_spec/1`):
 
       children = [
         {ImagePipe,
@@ -19,6 +12,10 @@ defmodule ImagePipe.Cache.FileSystem do
          cache: [root: "/var/cache/image_pipe/processed", max_size_bytes: 5_000_000_000]},
         MyAppWeb.Endpoint
       ]
+
+  `:max_size_bytes` caps the stored bodies: a write evicts entries to make
+  room before it's stored, or is rejected. The cache keeps the entries that
+  are requested often and took the most work to make for their size.
 
   To set up processed-image and originals caches, see
   [Caching processed images](caching-processed-images.md).

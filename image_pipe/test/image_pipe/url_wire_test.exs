@@ -7,6 +7,7 @@ defmodule ImagePipe.URLWireTest do
   alias ImagePipe, as: IP
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
   alias Vix.Vips.Image, as: VipsImage
 
   @key Base.encode16(:binary.copy(<<71>>, 32))
@@ -93,7 +94,7 @@ defmodule ImagePipe.URLWireTest do
     assert_received :source_fetch
 
     tampered = String.replace(signed, "%2e", ".")
-    mount = IP.Plug.init(IP.config(CacheObserver.observe(keys: [@key], sources: sources)))
+    mount = Caches.plug(CacheObserver.observe(keys: [@key], sources: sources))
     assert conn(:get, tampered) |> IP.Plug.call(mount) |> Map.fetch!(:status) == 403
     refute_received :source_fetch
     refute_received {:cache_lookup, _, _}
@@ -194,10 +195,9 @@ defmodule ImagePipe.URLWireTest do
     url_options = [keys: [@key], source_encryption_keys: [@encryption_key], encrypt_source: true]
     url_config = IP.URL.config(url_options)
 
-    config =
-      IP.config(CacheObserver.observe(url_options ++ [sources: sources, clock: fn -> 100 end]))
+    mount =
+      Caches.plug(CacheObserver.observe(url_options ++ [sources: sources, clock: fn -> 100 end]))
 
-    mount = IP.Plug.init(config)
     expired = IP.URL.url!(IP.URL.new(url_config, expires: 99), "photo.jpg")
 
     tampered =

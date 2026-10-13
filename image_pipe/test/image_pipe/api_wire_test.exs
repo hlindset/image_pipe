@@ -12,6 +12,7 @@ defmodule ImagePipe.APIWireTest do
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Telemetry.RequestContext
   alias ImagePipe.Test.CacheObserver
+  alias ImagePipe.Test.Caches
   alias ImagePipe.Test.PlugFixture.CountingOriginImage
   alias ImagePipe.Test.PlugFixture.OriginImage
   alias ImagePipe.Test.PlugFixture.OriginShouldNotFetch
@@ -63,7 +64,10 @@ defmodule ImagePipe.APIWireTest do
 
   defp opts, do: opts([])
 
-  defp observed_opts(extra \\ []), do: opts(CacheObserver.observe(extra))
+  # Options with an observed cache, which `call_pipe/2` mounts on their
+  # instance.
+  defp observed_opts(extra \\ []),
+    do: CacheObserver.observe(Keyword.merge([sources: @default_sources], extra))
 
   test "nested pipeline presets share bytes, identity and cache with explicit requests" do
     config =
@@ -124,8 +128,18 @@ defmodule ImagePipe.APIWireTest do
   defp get(path, config, headers \\ []) do
     conn = conn(:get, path)
     conn = Enum.reduce(headers, conn, fn {k, v}, c -> put_req_header(c, k, v) end)
-    ImagePipe.Plug.call(conn, config)
+    call_pipe(conn, config)
   end
+
+  # Cache writes finish after the response, so wait for them before a test
+  # asserts what was stored.
+  defp call_pipe(conn, config) do
+    conn = ImagePipe.Plug.call(conn, mount(config))
+    Caches.await_writes(config)
+    conn
+  end
+
+  defp mount(config), do: if(config[:cache], do: Caches.plug(config), else: config)
 
   defp decoded_dims(body) do
     {:ok, image} = Image.from_binary(body)
@@ -203,7 +217,7 @@ defmodule ImagePipe.APIWireTest do
           conn(:get, "/w=64/src/images/cat.jpg")
           |> put_req_header("if-none-match", etag)
           |> put_resp_header(name, value)
-          |> ImagePipe.Plug.call(config)
+          |> call_pipe(config)
 
         assert response.status == 200
         assert get_resp_header(response, "etag") == []
@@ -424,8 +438,8 @@ defmodule ImagePipe.APIWireTest do
       assert conn.resp_body =~ ~r/^[0-9A-Za-z#$%*+,\-.:;=?@\[\]^_{|}~]+$/
     end
 
-    # The BlurHash terminal never goes through `Delivery` (it computes and
-    # caches its complete body inline in `write_complete_body_cache/3`), so
+    # The BlurHash terminal never goes through `Delivery` (it computes its
+    # complete body and hands it to the cache's writer in `store_body/6`), so
     # gap 3's `cost_us` fix on the streamed path does not reach it. A ~30-byte
     # hash is cheap to store but expensive to regenerate (full decode +
     # transform), so a zero here mis-scores it as worthless under the
@@ -647,7 +661,7 @@ defmodule ImagePipe.APIWireTest do
   defp call_method(method, path, config) do
     method
     |> conn(path)
-    |> ImagePipe.Plug.call(config)
+    |> call_pipe(config)
   end
 
   describe "OPTIONS / method layer" do

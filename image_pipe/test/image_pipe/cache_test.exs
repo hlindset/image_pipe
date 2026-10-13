@@ -8,6 +8,7 @@ defmodule ImagePipe.CacheTest do
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.Key
   alias ImagePipe.Output.Resolved
+  alias ImagePipe.Test.Caches
 
   setup do
     root = Path.join(System.tmp_dir!(), "cache-test-#{System.unique_integer([:positive])}")
@@ -86,7 +87,7 @@ defmodule ImagePipe.CacheTest do
           [root: root, max_body_bytes: "10MB"]
         ] do
       assert_raise ArgumentError, ~r/invalid cache config/, fn ->
-        ImagePipe.Plug.init(mount(cache: cache))
+        ImagePipe.Plug.init(Caches.cap(mount(cache: cache)))
       end
     end
   end
@@ -98,19 +99,14 @@ defmodule ImagePipe.CacheTest do
   end
 
   test "ImagePipe init rejects invalid filesystem cache options early" do
-    for cache <- [
-          [root: "relative/cache"],
-          [root: System.tmp_dir!(), path_prefix: "../outside"],
-          [root: System.tmp_dir!(), path_prefix: "processed//images"]
-        ] do
-      assert_raise ArgumentError, ~r/invalid cache config/, fn ->
-        ImagePipe.Plug.init(mount(cache: cache))
-      end
+    assert_raise ArgumentError, ~r/invalid cache config/, fn ->
+      ImagePipe.Plug.init(Caches.cap(mount(cache: [root: "relative/cache"])))
     end
   end
 
   test "ImagePipe init rejects cache pools whose roots overlap" do
     root = Path.join(System.tmp_dir!(), "image_pipe_overlapping_roots")
+    on_exit(fn -> File.rm_rf(root) end)
 
     for {output, input} <- [
           {root, root},
@@ -120,31 +116,39 @@ defmodule ImagePipe.CacheTest do
         ] do
       assert_raise ArgumentError, ~r/cache_pools_require_separate_roots/, fn ->
         ImagePipe.Plug.init(
-          mount(
-            cache: [root: output],
-            input_cache: [root: input]
+          Caches.cap(
+            mount(
+              cache: [root: output],
+              input_cache: [root: input]
+            )
           )
         )
       end
     end
 
-    assert ImagePipe.Plug.init(
-             mount(
-               cache: [root: Path.join(root, "output")],
-               input_cache: [root: Path.join(root, "output-input")]
+    assert Caches.plug(
+             Caches.start!(
+               mount(
+                 cache: [root: Path.join(root, "output")],
+                 input_cache: [root: Path.join(root, "output-input")]
+               )
              )
            )
   end
 
   test "ImagePipe init preserves normalized filesystem cache options" do
     root = Path.join(System.tmp_dir!(), "image_pipe_cache_init")
+    on_exit(fn -> File.rm_rf(root) end)
 
-    opts =
-      ImagePipe.Plug.init(mount(cache: [root: root <> "/../image_pipe_cache_init"]))
+    opts = Caches.start!(mount(cache: [root: root <> "/../image_pipe_cache_init"]))
 
-    assert cache_opts = Keyword.fetch!(opts, :cache)
+    assert cache_opts =
+             Keyword.fetch!(
+               Caches.options(opts),
+               :cache
+             )
+
     assert cache_opts[:root] == Path.expand(root)
-    assert cache_opts[:path_prefix] == ""
   end
 
   test "open_sink records the entry's cost_us with the stored entry", %{root: root} do
@@ -155,6 +159,7 @@ defmodule ImagePipe.CacheTest do
     |> Cache.write_chunk("abc", opts)
     |> Cache.commit_sink(opts)
 
+    Caches.await_writes(opts)
     {:ok, %{meta_path: meta_path}} = FileSystem.paths(cache_key(), Keyword.fetch!(opts, :cache))
     assert {:ok, %{cost_us: 42_000}, _mtime} = FileSystem.read_descriptor(meta_path)
   end
@@ -178,6 +183,7 @@ defmodule ImagePipe.CacheTest do
     |> Cache.write_chunk("abc", opts)
     |> Cache.commit_sink(opts)
 
+    Caches.await_writes(opts)
     assert {:hit, %Entry{} = entry} = Cache.lookup_entry(cache_key(), opts)
     Entry.close(entry)
     assert entry.content_type == "image/webp"
@@ -196,6 +202,7 @@ defmodule ImagePipe.CacheTest do
       |> Cache.write_chunk("def", opts)
 
     assert :ok = Cache.commit_sink(sink, opts)
+    Caches.await_writes(opts)
 
     assert {:hit, %Entry{body: "abcdef"}} =
              FileSystem.get(cache_key(), Keyword.fetch!(opts, :cache))
@@ -210,6 +217,7 @@ defmodule ImagePipe.CacheTest do
       |> Cache.write_chunk("abc", opts)
 
     assert :ok = Cache.abort_sink(sink, :cancelled, opts)
+    Caches.await_writes(opts)
     assert {:miss, %Key{}} = Cache.lookup_entry(cache_key(), opts)
     assert stored_files(root) == []
   end
@@ -219,9 +227,12 @@ defmodule ImagePipe.CacheTest do
     opts = cache_opts(root, telemetry_prefix: prefix)
     File.chmod!(root, 0o500)
 
+    # The writer opens the entry's file after the request moves on.
     log =
       capture_log(fn ->
-        assert Cache.open_sink(cache_key(), resolved_output(), [], opts) == nil
+        sink = Cache.open_sink(cache_key(), resolved_output(), [], opts)
+        assert :ok = Cache.commit_sink(Cache.write_chunk(sink, "abc", opts), opts)
+        Caches.await_writes(opts)
       end)
 
     assert log =~ "cache sink open error"
@@ -237,9 +248,10 @@ defmodule ImagePipe.CacheTest do
     sink = Cache.open_sink(cache_key(), resolved_output(), [], opts)
 
     assert Cache.write_chunk(sink, "abcd", opts) == nil
+    Caches.await_writes(opts)
 
-    assert_receive {:telemetry_event, _event, _measurements,
-                    %{cache: :stage_skipped, reason: :too_large, output_format: :webp}}
+    assert_received {:telemetry_event, _event, _measurements,
+                     %{cache: :stage_skipped, reason: :too_large, output_format: :webp}}
 
     assert {:miss, %Key{}} = Cache.lookup_entry(cache_key(), opts)
     assert stored_files(root) == []
@@ -254,26 +266,39 @@ defmodule ImagePipe.CacheTest do
       |> Cache.open_sink(resolved_output(), [], opts)
       |> Cache.write_chunk("abc", opts)
 
+    # The writer has opened the entry's file once it handles a call.
+    _ = :sys.get_state(sink.writer)
     {:ok, %{dir: dir}} = FileSystem.paths(cache_key(), Keyword.fetch!(opts, :cache))
     File.chmod!(dir, 0o500)
 
-    capture_log(fn -> assert :ok = Cache.commit_sink(sink, opts) end)
+    capture_log(fn ->
+      assert :ok = Cache.commit_sink(sink, opts)
+      Caches.await_writes(opts)
+    end)
 
-    assert_receive {:telemetry_event, _event, _measurements,
-                    %{result: :cache_error, cache: :write_error, output_format: :webp, bytes: 3}}
+    assert_received {:telemetry_event, _event, _measurements,
+                     %{result: :cache_error, cache: :write_error, output_format: :webp, bytes: 3}}
   end
 
   test "commit_sink reports admission rejection on the cache write span", %{root: root} do
     prefix = attach_telemetry([[:cache, :write, :stop]])
+    opts = cache_opts(root, telemetry_prefix: prefix, cache: [max_size_bytes: 100])
 
-    # A bounded cache smaller than the entry declines to keep it.
-    opts =
-      cache_opts(root,
-        telemetry_prefix: prefix,
-        cache: [max_size_bytes: 2]
-      )
+    # A stored entry fills the cache, and a new key seen once doesn't score
+    # higher than the entry it would evict, so the cache declines it.
+    resident = %Key{hash: String.duplicate("b", 64), data: [schema_version: 2]}
 
-    start_supervised!(FileSystem.child_spec(Keyword.fetch!(opts, :cache)))
+    Caches.write!(
+      Keyword.fetch!(opts, :cache),
+      resident,
+      %Entry.Metadata{
+        content_type: "image/webp",
+        headers: [],
+        created_at: DateTime.utc_now(),
+        output_format: :webp
+      },
+      String.duplicate("x", 98)
+    )
 
     sink =
       cache_key()
@@ -283,16 +308,19 @@ defmodule ImagePipe.CacheTest do
     # Rejection is a successful, non-error outcome: the request path fails open
     # (nothing stored) and Cache.commit_sink still returns :ok.
     assert :ok = Cache.commit_sink(sink, opts)
+    Caches.await_writes(opts)
 
-    assert_receive {:telemetry_event, _event, _measurements,
-                    %{result: :ok, cache: :admission_rejected, output_format: :webp, bytes: 3}}
+    assert_received {:telemetry_event, _event, _measurements,
+                     %{result: :ok, cache: :admission_rejected, output_format: :webp, bytes: 3}}
 
     assert {:miss, %Key{}} = Cache.lookup_entry(cache_key(), opts)
   end
 
+  # Validated options for a cache on `root` whose processes run, so writes are
+  # admitted.
   defp cache_opts(root, extra \\ []) do
     {cache, extra} = Keyword.pop(extra, :cache, [])
-    Cache.validate_config!([cache: [root: root] ++ cache] ++ extra)
+    Cache.validate_config!(Caches.start!([cache: [root: root] ++ cache] ++ extra))
   end
 
   # Regular files left in the cache root, outside its bookkeeping directories.

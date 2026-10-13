@@ -7,13 +7,14 @@ defmodule ImagePipe.Cache.LookupEntryTest do
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Test.Caches
 
   setup do
     root = Path.join(System.tmp_dir!(), "lookup-entry-test-#{System.unique_integer([:positive])}")
     File.mkdir_p!(root)
     on_exit(fn -> File.rm_rf(root) end)
 
-    opts = Cache.validate_config!(cache: [root: root])
+    opts = Cache.validate_config!(Caches.start!(cache: [root: root]))
     %{opts: opts}
   end
 
@@ -26,6 +27,8 @@ defmodule ImagePipe.Cache.LookupEntryTest do
     |> Cache.open_sink({:complete_body, "text/plain"}, [], opts)
     |> Cache.write_chunk(body, opts)
     |> Cache.commit_sink(opts)
+
+    Caches.await_writes(opts)
   end
 
   defp rewrite_metadata(opts, fun) do

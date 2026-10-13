@@ -57,7 +57,6 @@ defmodule ImagePipe.Telemetry.Catalog do
     {[:cache, :write], :span, :cache},
     {[:cache, :admission], :span, :cache},
     {[:cache, :sweep], :span, :cache},
-    {[:cache, :rescan], :span, :cache},
     {[:cache, :coordination], :oneshot, :cache},
     {[:cache, :stage], :oneshot, :cache},
     {[:cache, :eviction, :stop], :oneshot, :cache},

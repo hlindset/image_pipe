@@ -6,8 +6,9 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   alias ImagePipe.Cache.FileSystem.Admission
   alias ImagePipe.Cache.FileSystem.CheckedDirs
   alias ImagePipe.Cache.FileSystem.PeriodicSweep
+  alias ImagePipe.Cache.FileSystem.Root
   alias ImagePipe.Cache.FileSystem.Sweep
-  alias ImagePipe.Cache.FileSystem.Toucher
+  alias ImagePipe.Cache.FileSystem.Writers
   alias ImagePipe.Cache.Key
   alias ImagePipe.SafePath
 
@@ -24,186 +25,84 @@ defmodule ImagePipe.Cache.FileSystem.Store do
                       inside the other. Plug initialization fails otherwise.
                       """
                     ],
-                    path_prefix: [
-                      default: "",
-                      type: {:custom, __MODULE__, :validate_path_prefix, []},
-                      type_doc: "relative path (`t:String.t/0`)",
-                      doc: """
-                      Subdirectory of `:root` where entries are written. Must be a relative \
-                      path without backslashes, `.` or `..` segments, or empty segments \
-                      (such as `a//b` or a trailing `/`).
-                      """
-                    ],
                     pool: [
                       type: {:in, [:input, :output]},
                       type_doc: "`:input` or `:output`",
                       doc: """
-                      Tags bounded-mode telemetry events with `pool`, so events from an \
+                      Tags the cache's telemetry events with `pool`, so events from an \
                       originals cache can be told apart from the processed-image cache. \
-                      Defaults to `:output`. A cache configured as `:input_cache` gets \
-                      `pool: :input` automatically.
+                      Defaults to `:output`, or `:input` for a cache configured as \
+                      `:input_cache`.
                       """
                     ],
-                    max_age: [
-                      type: {:or, [nil, :pos_integer]},
-                      type_doc: "`t:pos_integer/0` or `nil`",
-                      default: 604_800,
-                      doc: """
-                      Seconds an entry may go unread before it is deleted. With \
-                      `:max_size_bytes`, only metadata files the cache can't read are \
-                      deleted by age, and eviction handles other entries. `nil` keeps \
-                      entries until they are evicted or deleted. Only a running \
-                      `ImagePipe` instance deletes them (see `ImagePipe.child_spec/1`).
-                      """
-                    ],
-                    # Bounded-mode options: all optional per key. Cross-key
-                    # requirements and derived defaults are applied in
-                    # derive_bounded_options/1 after per-key validation.
                     max_size_bytes: [
+                      required: true,
                       type: :pos_integer,
                       doc: """
-                      Soft cap, in bytes, on the total size of stored responses. Setting it \
-                      turns on bounded mode. Every option below requires `:max_size_bytes`.
-                      """
-                    ],
-                    window_ratio: [
-                      type: {:custom, __MODULE__, :validate_window_ratio, []},
-                      type_doc: "`t:float/0` from `0.0` to `1.0`",
-                      doc: """
-                      Share of `:max_size_bytes` reserved for newly stored responses. A \
-                      larger ratio favors recently added responses over often-requested \
-                      ones. `0.0` reserves no space. Defaults to `0.01`.
-                      """
-                    ],
-                    sketch_depth: [
-                      type: :pos_integer,
-                      doc: """
-                      Number of counter rows used to count requests per response. More rows \
-                      count more accurately but use more memory. Defaults to `4`.
-                      """
-                    ],
-                    sketch_width: [
-                      type: :pos_integer,
-                      doc: """
-                      Number of counters per row. More counters count more accurately but \
-                      use more memory. Defaults to one per 25,000 bytes of \
-                      `:max_size_bytes`, and at least 4,096.
-                      """
-                    ],
-                    aging_sample_size: [
-                      type: :pos_integer,
-                      doc: """
-                      Number of counted requests after which every count is halved, so \
-                      old popularity fades. A smaller value forgets faster. Defaults to one \
-                      per 5,000 bytes of `:max_size_bytes`, and at least 81,920.
-                      """
-                    ],
-                    doorkeeper_cardinality: [
-                      type: :pos_integer,
-                      doc: """
-                      Number of distinct responses the node tracks as requested once. A \
-                      response is counted only from its second request, so one-off \
-                      requests don't push out popular responses. Defaults to one per \
-                      12,500 bytes of `:max_size_bytes`, and at least 8,192.
-                      """
-                    ],
-                    doorkeeper_fpr: [
-                      type: {:custom, __MODULE__, :validate_doorkeeper_fpr, []},
-                      type_doc: "`t:float/0` greater than `0.0` and less than `1.0`",
-                      doc: """
-                      Rate at which a first request is mistaken for a repeat and counted \
-                      early. Lower rates use more memory. Defaults to `0.01`.
-                      """
-                    ],
-                    eviction_victim_limit: [
-                      type: :pos_integer,
-                      doc: """
-                      Maximum number of entries one write or one background eviction \
-                      batch removes. A write that needs to evict more removes this many \
-                      and starts background eviction for the rest, so the cache can \
-                      briefly exceed `:max_size_bytes`. If the entries it needs to evict \
-                      include ones read recently, the write is rejected instead. \
-                      Defaults to `64`.
-                      """
-                    ],
-                    reconcile_interval: [
-                      type: :pos_integer,
-                      doc: """
-                      Seconds between background passes that evict entries until the stored \
-                      size is at or under `:max_size_bytes`. Defaults to `60`.
-                      """
-                    ],
-                    rescan_interval: [
-                      type: :pos_integer,
-                      doc: """
-                      Seconds between background passes that list the cache directory, so this \
-                      node counts entries other nodes sharing `:root` wrote or removed, and then \
-                      delete left-over files. Each pass is delayed or advanced by up to a fifth \
-                      of the interval at random. Defaults to `300`.
+                      Cap, in bytes, on the total size of stored bodies. Writes evict \
+                      the entries least worth keeping to stay under it: those requested \
+                      least often and quickest to make for their size. An entry larger \
+                      than a twentieth of the cap, or 256 MiB, is never stored.
                       """
                     ]
                   )
 
-  # Every option except these turns on, or tunes, bounded mode.
-  @bounded_option_keys Keyword.keys(@options_schema.schema) --
-                         [:root, :path_prefix, :pool, :max_age]
-
   @doc false
   def options_schema, do: @options_schema.schema
 
-  @doc "Returns the supervision tree required by a bounded filesystem cache."
-  def child_spec(opts) do
-    if Keyword.has_key?(opts, :max_size_bytes) do
-      registry_name = registry_name(Keyword.fetch!(opts, :root))
-
-      children = [
-        {Registry, keys: :unique, name: registry_name},
-        {Admission, admission_options(opts, registry_name)}
-      ]
-
-      %{
-        id: {__MODULE__, Keyword.fetch!(opts, :root)},
-        start: {Supervisor, :start_link, [children, [strategy: :one_for_all]]},
-        type: :supervisor
-      }
-    end
-  end
+  @doc "Returns the supervision tree an instance runs for a filesystem cache."
+  def child_spec(opts), do: Root.child_spec(opts)
 
   @doc false
-  # An instance sweeps each unbounded pool at start and periodically after.
-  def sweep_spec(opts) do
-    root = Path.join(Keyword.fetch!(opts, :root), Keyword.get(opts, :path_prefix, ""))
-    pool = Keyword.get(opts, :pool, :output)
+  def root_dir(opts), do: Keyword.fetch!(opts, :root)
+
+  @doc false
+  # The processes a cache runs on a root this node owns: Admission, the
+  # registry it's found in, the writers, and the periodic sweep. Admission's
+  # startup scan sweeps, so the periodic sweep's first run waits an interval.
+  # The writers start after Admission, so a shutdown drains them while
+  # Admission still runs.
+  def cache_children(opts) do
+    registry_name = registry_name(Keyword.fetch!(opts, :root))
     telemetry = Keyword.take(opts, [:telemetry_prefix])
+    sweep = [root_dir(opts), Keyword.get(opts, :pool, :output), telemetry, registry_name]
 
-    expiry = {:all, Keyword.get(opts, :max_age)}
-
-    {PeriodicSweep,
-     id: {Sweep, Keyword.fetch!(opts, :root)},
-     sweep: {Sweep, :run, [root, pool, telemetry, expiry]}}
+    [
+      {Registry, keys: :unique, name: registry_name},
+      {Admission, admission_options(opts, registry_name)},
+      {Writers, opts},
+      {PeriodicSweep,
+       id: {Sweep, Keyword.fetch!(opts, :root)}, delay_first?: true, sweep: {Sweep, :run, sweep}}
+    ]
   end
 
   @doc false
-  # The options Admission.init/1 reads, from bounded cache options: defaults
-  # derived from `:max_size_bytes` filled in, intervals in milliseconds, and
-  # the registry Admission registers in. Tests and benchmarks that start
-  # Admission directly go through this too.
+  # The options Admission.init/1 reads, from cache options: the policy's
+  # tuning derived from `:max_size_bytes`, and the registry Admission
+  # registers in. Tests and benchmarks that start Admission
+  # directly go through this too, and may override the tuning.
   def admission_options(opts, registry_name) do
-    opts = derive_bounded_options(opts)
+    opts = Keyword.merge(admission_defaults(opts), opts)
 
-    opts
-    |> Keyword.drop([:reconcile_interval, :rescan_interval])
-    |> Keyword.merge(
-      registry: registry_name,
-      path_prefix: Keyword.get(opts, :path_prefix, ""),
-      reconcile_interval_ms: Keyword.fetch!(opts, :reconcile_interval) * 1000,
-      rescan_interval_ms: Keyword.fetch!(opts, :rescan_interval) * 1000
-    )
+    Keyword.put(opts, :registry, registry_name)
   end
 
-  # Bounded mode runs one Registry + Admission supervisor per cache root.
-  # Deriving the Registry name from the root (rather than one global name) lets
-  # multiple bounded FileSystem caches coexist in a single VM without clashing
+  defp admission_defaults(opts) do
+    max_size_bytes = Keyword.fetch!(opts, :max_size_bytes)
+
+    [
+      sketch_depth: 4,
+      sketch_width: max(4096, div(max_size_bytes, 25_000)),
+      aging_sample_size: max(81_920, div(max_size_bytes, 5_000)),
+      doorkeeper_cardinality: max(8192, div(max_size_bytes, 12_500)),
+      doorkeeper_fpr: 0.01,
+      reconcile_batch: 64
+    ]
+  end
+
+  # Each cache root runs one Registry and Admission. Deriving the Registry
+  # name from the root (rather than one global name) lets multiple
+  # FileSystem caches coexist in a single VM without clashing
   # on the Registry process name. Roots are static host configuration, so the
   # set of derived atoms is bounded and not driven by request input.
   @doc false
@@ -223,18 +122,9 @@ defmodule ImagePipe.Cache.FileSystem.Store do
           {:hit, entry, meta} ->
             # read_entry already parsed/validated the meta payload; reuse its
             # fields rather than re-reading the file.
-            maybe_cast_hit(opts, %{
-              key_hash: key.hash,
-              size_bytes: meta.body_byte_size,
-              body_sha256: meta.body_sha256,
-              cost_us: Map.get(meta, :cost_us, 0)
-            })
+            maybe_cast_hit(opts, hit_descriptor(key, meta))
 
             {:hit, entry, meta}
-
-          :miss ->
-            maybe_cast_gone(opts, key.hash)
-            :miss
 
           other ->
             other
@@ -245,28 +135,28 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     end
   end
 
-  defp maybe_cast_hit(opts, descriptor) do
-    Toucher.record(opts, descriptor.key_hash)
+  defp hit_descriptor(key, metadata),
+    do: %{
+      key_hash: key.hash,
+      size_bytes: metadata.body_byte_size,
+      cost_us: metadata.cost_us,
+      body_filename: metadata.body_filename
+    }
 
+  defp maybe_cast_hit(opts, descriptor) do
     case lookup_admission(opts) do
       {:ok, pid} -> Admission.hit(pid, descriptor)
       _ -> :ok
     end
   end
 
-  # Another node sharing the root may have deleted an entry this node counts.
-  defp maybe_cast_gone(opts, key_hash) do
-    case lookup_admission(opts) do
-      {:ok, pid} -> Admission.gone(pid, key_hash)
-      _ -> :ok
-    end
-  end
-
+  # The body is a raw file, so only the process that opens the sink can
+  # write, sync and close it: the cache's writer, or a test.
   def open_sink(%Key{} = key, metadata, opts) when is_list(opts) do
     with {:ok, paths} <- paths(key, opts),
          :ok <- File.mkdir_p(paths.dir),
          temp_body_path = temp_path(paths),
-         {:ok, body_io} <- File.open(temp_body_path, [:write, :binary, :exclusive]) do
+         {:ok, body_io} <- :file.open(temp_body_path, [:write, :binary, :exclusive, :raw]) do
       {:ok,
        %{
          paths: paths,
@@ -281,18 +171,18 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   end
 
   def write_chunk(state, chunk, _opts) when is_binary(chunk) do
-    IO.binwrite(state.body_io, chunk)
+    case :file.write(state.body_io, chunk) do
+      :ok ->
+        {:ok,
+         %{
+           state
+           | size: state.size + byte_size(chunk),
+             hash_context: :crypto.hash_update(state.hash_context, chunk)
+         }}
 
-    {:ok,
-     %{
-       state
-       | size: state.size + byte_size(chunk),
-         hash_context: :crypto.hash_update(state.hash_context, chunk)
-     }}
-  rescue
-    exception in [ErlangError] -> {:error, exception.original, state}
-  catch
-    :exit, reason -> {:error, reason, state}
+      {:error, reason} ->
+        {:error, reason, state}
+    end
   end
 
   @doc false
@@ -340,44 +230,22 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   def commit_sink(state, opts) when is_map(state) do
     case lookup_admission(opts) do
-      :unbounded ->
-        unbounded_commit(state)
-
       {:ok, pid} ->
         commit_bounded(state, pid, opts)
 
       :unavailable ->
-        # Bounded mode but the Admission process is missing. We cannot account
-        # for a write, so we MUST NOT leave an untracked entry on disk (it
-        # would silently grow the cache past cap). Nothing has been renamed
-        # yet, so clean the temp files and fail open.
-        require Logger
-        Logger.warning("Admission process unavailable in bounded mode; skipping write")
+        # Without Admission a write can't be counted, and an uncounted entry
+        # would grow the cache past its cap. Nothing has been renamed yet, so
+        # clean the temp files and report the write as failed.
         cleanup_sink_state(state)
-        :ok
-    end
-  end
-
-  # Unbounded mode has no admission to name a replaced body as a victim, so
-  # the commit removes the body the superseded metadata pointed at.
-  defp unbounded_commit(state) do
-    case prepare_sink_commit(state) do
-      {:ok, state, body_filename} ->
-        previous = previous_body_path(state.paths)
-
-        with :ok <- commit_prepared_sink(state, body_filename) do
-          remove_replaced_body(previous, Path.join(state.paths.dir, body_filename))
-        end
-
-      {:error, reason, state} ->
-        cleanup_sink_state(state)
-        {:error, reason}
+        {:error, :admission_unavailable}
     end
   end
 
   defp commit_bounded(state, pid, opts) do
     case prepare_sink_commit(state) do
       {:ok, prepared, body_filename} ->
+        prepared = Map.put(prepared, :held, Writers.held())
         admit_commit(prepared, body_filename, pid, opts)
 
       {:error, reason, prepared} ->
@@ -403,42 +271,30 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   end
 
   @doc false
-  def publish_sink(prepared, body_filename) do
-    with :ok <- commit_prepared_sink(prepared, body_filename) do
-      {:ok, build_descriptor(prepared, body_filename)}
-    end
+  # Admission's descriptor of a prepared write, before it's published, read
+  # back from the body filename prepare_sink_commit/1 built.
+  def descriptor(_prepared, body_filename) do
+    {:ok, descriptor} = parse_body_filename(body_filename)
+    descriptor
   end
 
-  # prepare_sink_commit/1 encodes body_sha256 into body_filename
-  # ("<hash>.<sha>.body"); recover it rather than recomputing the digest.
-  defp build_descriptor(prepared, body_filename) do
-    {:ok, body_sha256} = body_sha256_from_filename(body_filename)
+  @doc false
+  def publish_prepared(prepared, body_filename),
+    do: commit_prepared_sink(prepared, body_filename)
 
-    %{
-      key_hash: prepared.paths.hash,
-      size_bytes: prepared.size,
-      body_sha256: body_sha256,
-      cost_us: prepared.metadata.cost_us
-    }
-  end
+  @doc false
+  def discard_prepared(prepared), do: cleanup_sink_state(prepared)
 
   defp lookup_admission(opts) do
-    if Keyword.has_key?(opts, :max_size_bytes) do
-      root = Keyword.fetch!(opts, :root)
+    root = Keyword.fetch!(opts, :root)
 
-      try do
-        case Registry.lookup(registry_name(root), root) do
-          [{pid, _}] -> {:ok, pid}
-          [] -> :unavailable
-        end
-      rescue
-        # The Registry itself is not started (bounded mode configured but the
-        # supervision tree never came up). Fail closed, same as a missing entry.
-        ArgumentError -> :unavailable
-      end
-    else
-      :unbounded
+    case Registry.lookup(registry_name(root), root) do
+      [{pid, _}] -> {:ok, pid}
+      [] -> :unavailable
     end
+  rescue
+    # No instance runs this cache, so its Registry isn't started either.
+    ArgumentError -> :unavailable
   end
 
   # The body reaches the disk before its rename publishes it, so a crash can't
@@ -449,7 +305,8 @@ defmodule ImagePipe.Cache.FileSystem.Store do
          :ok <- :file.datasync(state.body_io),
          :ok <- close_body_io(state),
          body_sha256 = sink_body_sha256(state),
-         body_filename = body_filename(state.paths.hash, body_sha256),
+         body_filename =
+           body_filename(state.paths.hash, body_sha256, state.size, cost_us(state.metadata)),
          encoded_metadata = sink_metadata(state, body_sha256, body_filename),
          {:ok, temp_meta_path} <- write_sink_metadata(state.paths, encoded_metadata) do
       prepared = state |> Map.put(:temp_meta_path, temp_meta_path) |> Map.delete(:body_io)
@@ -478,54 +335,15 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   def validate_options(opts) when is_list(opts) do
     with {:ok, validated_opts} <- validate_known_options(opts),
-         {:ok, derived_opts} <- apply_bounded_validation(validated_opts),
-         :ok <- validate_representative_cache_dir(derived_opts) do
-      {:ok, derived_opts}
+         :ok <- validate_representative_cache_dir(validated_opts) do
+      {:ok, validated_opts}
     end
   end
 
   defp validate_representative_cache_dir(validated_opts) do
     root = Keyword.fetch!(validated_opts, :root)
-    path_prefix = Keyword.fetch!(validated_opts, :path_prefix)
     # Probe the directory shape every cache key will use after hash partitioning.
-    dir = Path.join([root, path_prefix, "00", "00"])
-
-    validate_under_root(root, dir)
-  end
-
-  # With max_size_bytes, fill derived defaults. Without it, reject any
-  # bounded-mode option (unbounded mode).
-  defp apply_bounded_validation(opts) do
-    if Keyword.has_key?(opts, :max_size_bytes) do
-      {:ok, derive_bounded_options(opts)}
-    else
-      bounded_only_keys = @bounded_option_keys -- [:max_size_bytes]
-
-      case Enum.filter(bounded_only_keys, &Keyword.has_key?(opts, &1)) do
-        [] -> {:ok, opts}
-        stray_keys -> {:error, {:bounded_options_require_max_size_bytes, stray_keys}}
-      end
-    end
-  end
-
-  # Fill derived defaults for bounded-mode opts. User-supplied values are
-  # treated as overrides and are never clobbered.
-  defp derive_bounded_options(opts) do
-    max_size_bytes = Keyword.fetch!(opts, :max_size_bytes)
-
-    defaults = [
-      window_ratio: 0.01,
-      sketch_depth: 4,
-      sketch_width: max(4096, div(max_size_bytes, 25_000)),
-      aging_sample_size: max(81_920, div(max_size_bytes, 5_000)),
-      doorkeeper_cardinality: max(8192, div(max_size_bytes, 12_500)),
-      doorkeeper_fpr: 0.01,
-      eviction_victim_limit: 64,
-      reconcile_interval: 60,
-      rescan_interval: 300
-    ]
-
-    Keyword.merge(defaults, opts)
+    validate_under_root(root, Path.join([root, "00", "00"]))
   end
 
   defp validate_known_options(opts) do
@@ -546,59 +364,16 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   def validate_root(root), do: {:error, "expected absolute path string, got: #{inspect(root)}"}
 
-  @doc false
-  def validate_path_prefix(""), do: {:ok, ""}
-
-  def validate_path_prefix(prefix) when is_binary(prefix) do
-    invalid_segment? =
-      prefix
-      |> String.split("/", trim: false)
-      |> Enum.any?(fn segment ->
-        segment in ["", ".", ".."]
-      end)
-
-    if Path.type(prefix) == :relative and not String.contains?(prefix, "\\") and
-         not invalid_segment? do
-      {:ok, prefix}
-    else
-      {:error, "expected relative path without traversal, got: #{inspect(prefix)}"}
-    end
-  end
-
-  def validate_path_prefix(prefix),
-    do: {:error, "expected relative path string, got: #{inspect(prefix)}"}
-
-  @doc false
-  # window_ratio carves the byte budget for the window LRU; an out-of-range
-  # value would size the window past (or below) the total cap and break the
-  # soft-cap invariant. Inclusive [0.0, 1.0] (0.0 disables the window).
-  def validate_window_ratio(ratio) when is_float(ratio) and ratio >= 0.0 and ratio <= 1.0,
-    do: {:ok, ratio}
-
-  def validate_window_ratio(ratio),
-    do: {:error, "expected float in [0.0, 1.0], got: #{inspect(ratio)}"}
-
-  @doc false
-  # doorkeeper_fpr is a Bloom-filter false-positive probability; 0.0 and 1.0
-  # are degenerate, so the open interval (0.0, 1.0) is required.
-  def validate_doorkeeper_fpr(fpr) when is_float(fpr) and fpr > 0.0 and fpr < 1.0,
-    do: {:ok, fpr}
-
-  def validate_doorkeeper_fpr(fpr),
-    do: {:error, "expected float in (0.0, 1.0), got: #{inspect(fpr)}"}
-
   defp options_validation_error(%NimbleOptions.ValidationError{key: unknown_keys})
        when is_list(unknown_keys),
        do: {:unknown_options, Enum.uniq(unknown_keys)}
 
-  defp options_validation_error(%NimbleOptions.ValidationError{key: :root, value: nil}),
-    do: {:missing_required_option, :root}
+  defp options_validation_error(%NimbleOptions.ValidationError{key: key, value: nil})
+       when key in [:root, :max_size_bytes],
+       do: {:missing_required_option, key}
 
   defp options_validation_error(%NimbleOptions.ValidationError{key: :root, value: root}),
     do: {:invalid_root, root}
-
-  defp options_validation_error(%NimbleOptions.ValidationError{key: :path_prefix, value: prefix}),
-    do: {:invalid_path_prefix, prefix}
 
   defp options_validation_error(%NimbleOptions.ValidationError{key: key, message: message}),
     do: {:invalid_option, key, message}
@@ -633,21 +408,12 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   def metadata_hit(%Key{} = key, opts) do
     case metadata(key, opts) do
       {:ok, metadata} ->
-        maybe_cast_hit(opts, %{
-          key_hash: key.hash,
-          size_bytes: metadata.body_byte_size,
-          body_sha256: metadata.body_sha256,
-          cost_us: Map.get(metadata, :cost_us, 0)
-        })
+        maybe_cast_hit(opts, hit_descriptor(key, metadata))
 
         {:ok, metadata}
 
-      :miss ->
-        maybe_cast_gone(opts, key.hash)
-        :miss
-
-      error ->
-        error
+      other ->
+        other
     end
   end
 
@@ -655,7 +421,6 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     with {:ok, paths} <- paths(key, opts) do
       case lookup_admission(opts) do
         {:ok, pid} -> Admission.refresh_source_record(pid, paths, previous, record)
-        :unbounded -> refresh_entry(paths, previous, record)
         :unavailable -> :ok
       end
     end
@@ -685,7 +450,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     with {:ok, paths} <- paths(key, opts) do
       case lookup_admission(opts) do
         {:ok, pid} -> Admission.delete(pid, paths)
-        _unmanaged -> unwrap_delete(delete_entry(paths))
+        :unavailable -> unwrap_delete(delete_entry(paths))
       end
     end
   end
@@ -703,18 +468,6 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   defp read_metadata(paths) do
     with {:ok, binary} <- read_cache_file(paths.meta_path, :metadata), do: decode_metadata(binary)
-  end
-
-  defp remove_replaced_body(previous, current) when previous in [nil, current], do: :ok
-  defp remove_replaced_body(previous, _current), do: rm_tolerant(previous)
-
-  defp previous_body_path(paths) do
-    with {:ok, metadata} <- read_metadata(paths),
-         {:ok, path} <- body_path_from_metadata(paths, metadata) do
-      path
-    else
-      _miss_or_invalid -> nil
-    end
   end
 
   defp read_cache_file(path, kind) do
@@ -775,8 +528,12 @@ defmodule ImagePipe.Cache.FileSystem.Store do
          } = metadata
        )
        when is_integer(size) and size >= 0 and is_binary(sha) and is_binary(filename) and
-              is_integer(cost) and cost >= 0,
-       do: {:ok, metadata}
+              is_integer(cost) and cost >= 0 do
+    case parse_body_filename(filename) do
+      {:ok, %{body_sha256: ^sha, size_bytes: ^size, cost_us: ^cost}} -> {:ok, metadata}
+      _other -> {:error, :invalid_body_filename}
+    end
+  end
 
   defp validate_metadata(%{metadata_version: version}) when version != @metadata_version,
     do: {:error, :version_mismatch}
@@ -786,9 +543,10 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   defp body_path_from_metadata(
          paths,
-         %{body_filename: body_filename, body_sha256: body_sha256}
+         %{body_filename: body_filename, body_sha256: body_sha256} = metadata
        ) do
-    expected_body_filename = body_filename(paths.hash, body_sha256)
+    expected_body_filename =
+      body_filename(paths.hash, body_sha256, metadata.body_byte_size, metadata.cost_us)
 
     if valid_body_sha256?(body_sha256) and body_filename == expected_body_filename do
       {:ok, Path.join(paths.dir, body_filename)}
@@ -817,12 +575,14 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     end
   end
 
+  defp cost_us(metadata), do: Map.get(metadata, :cost_us, 0)
+
   defp commit_metadata_file(meta_path, meta_tmp_path) do
     File.rename(meta_tmp_path, meta_path)
   end
 
   defp matching_body_file?(body_path, body_filename) do
-    with {:ok, expected_sha256} <- body_sha256_from_filename(body_filename),
+    with {:ok, %{body_sha256: expected_sha256}} <- parse_body_filename(body_filename),
          {:ok, actual_sha256} <- file_sha256(body_path) do
       actual_sha256 == expected_sha256
     else
@@ -846,15 +606,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     end
   end
 
-  defp close_body_io(%{body_io: body_io}) do
-    case File.close(body_io) do
-      :ok -> :ok
-      {:error, :terminated} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  catch
-    :exit, reason -> {:error, {:close_failed, reason}}
-  end
+  defp close_body_io(%{body_io: body_io}), do: :file.close(body_io)
 
   defp sink_body_sha256(%{body_sha256: body_sha256}), do: body_sha256
   defp sink_body_sha256(state), do: finalize_body_sha256(state.hash_context)
@@ -886,10 +638,9 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   # The options were validated with the cache configuration.
   def paths_from_hash(hash, opts) when is_binary(hash) and is_list(opts) do
     root = Keyword.fetch!(opts, :root)
-    path_prefix = Keyword.get(opts, :path_prefix, "")
 
     with {:ok, {first_partition, second_partition}} <- partitions(hash) do
-      dir = Path.join([root, path_prefix, first_partition, second_partition])
+      dir = Path.join([root, first_partition, second_partition])
       meta_path = Path.join(dir, hash <> ".meta")
 
       with :ok <- checked_partition(root, dir) do
@@ -905,7 +656,8 @@ defmodule ImagePipe.Cache.FileSystem.Store do
              key_hash: binary(),
              size_bytes: non_neg_integer(),
              body_sha256: binary(),
-             cost_us: non_neg_integer()
+             cost_us: non_neg_integer(),
+             body_filename: String.t()
            }, integer()}
           | {:error, term()}
   def read_descriptor(meta_path) do
@@ -919,7 +671,8 @@ defmodule ImagePipe.Cache.FileSystem.Store do
          key_hash: Path.basename(meta_path, ".meta"),
          size_bytes: metadata.body_byte_size,
          body_sha256: metadata.body_sha256,
-         cost_us: metadata.cost_us
+         cost_us: metadata.cost_us,
+         body_filename: metadata.body_filename
        }, mtime}
     else
       :miss -> {:error, :enoent}
@@ -939,58 +692,9 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   end
 
   defp delete_victim_files(victim, victim_paths) do
-    if victim.delete_body? do
-      body_path = Path.join(victim_paths.dir, "#{victim.key_hash}.#{victim.body_sha256}.body")
-      rm_tolerant(body_path)
-    end
+    rm_tolerant(Path.join(victim_paths.dir, victim.body_filename))
 
-    if victim.delete_meta? do
-      delete_victim_meta(victim, victim_paths)
-    end
-  end
-
-  # Another node sharing the root may have replaced the entry since this node
-  # tracked it. The metadata is taken with a rename before it's read, so only
-  # metadata naming the victim's body is deleted. Any other metadata is put
-  # back, unless something newer has been written there in the meantime.
-  defp delete_victim_meta(victim, paths) do
-    taken = temp_path(paths)
-
-    case :file.rename(paths.meta_path, taken) do
-      :ok ->
-        if names_body?(taken, victim.body_sha256),
-          do: rm_tolerant(taken),
-          else: restore_meta(taken, paths.meta_path)
-
-      {:error, :enoent} ->
-        :ok
-
-      {:error, reason} ->
-        log_delete_failure(reason)
-    end
-  end
-
-  defp names_body?(meta_path, body_sha256) do
-    case read_cache_file(meta_path, :metadata) do
-      {:ok, binary} -> match?({:ok, %{body_sha256: ^body_sha256}}, decode_metadata(binary))
-      _missing_or_unreadable -> false
-    end
-  end
-
-  defp restore_meta(taken, meta_path) do
-    case :file.make_link(taken, meta_path) do
-      :ok ->
-        rm_tolerant(taken)
-
-      {:error, :eexist} ->
-        rm_tolerant(taken)
-
-      # Without hard links there's no rename that refuses to replace a file,
-      # so this checks first. Metadata written between the check and the
-      # rename is replaced.
-      {:error, _no_links} ->
-        if File.exists?(meta_path), do: rm_tolerant(taken), else: File.rename(taken, meta_path)
-    end
+    if victim.delete_meta?, do: rm_tolerant(victim_paths.meta_path)
   end
 
   defp rm_tolerant(path) do
@@ -1050,21 +754,40 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     end
   end
 
-  defp body_filename(hash, body_sha256), do: "#{hash}.#{body_sha256}.body"
+  @doc false
+  # A body's filename carries what Admission needs to count and score the
+  # entry, so its startup scan lists names instead of reading metadata.
+  def body_filename(hash, body_sha256, size, cost),
+    do: "#{hash}.#{body_sha256}.#{size}.#{cost}.body"
 
-  defp body_sha256_from_filename(body_filename) do
-    case String.split(body_filename, ".", parts: 3) do
-      [_hash, body_sha256, "body"] ->
-        if valid_body_sha256?(body_sha256) do
-          {:ok, body_sha256}
-        else
-          {:error, :invalid_body_filename}
-        end
-
-      _parts ->
-        {:error, :invalid_body_filename}
+  @doc false
+  def parse_body_filename(body_filename) do
+    with [hash, body_sha256, size, cost, "body"] <- String.split(body_filename, "."),
+         true <- hex64?(hash, :lower) and valid_body_sha256?(body_sha256),
+         {:ok, size} <- digits(size),
+         {:ok, cost} <- digits(cost) do
+      {:ok,
+       %{
+         key_hash: hash,
+         body_sha256: body_sha256,
+         size_bytes: size,
+         cost_us: cost,
+         body_filename: body_filename
+       }}
+    else
+      _invalid -> {:error, :invalid_body_filename}
     end
   end
+
+  # Digits only: a sign would let a planted name count negative bytes.
+  defp digits(<<digit, _rest::binary>> = string) when digit in ?0..?9 do
+    case Integer.parse(string) do
+      {integer, ""} -> {:ok, integer}
+      _other -> :error
+    end
+  end
+
+  defp digits(_string), do: :error
 
   defp temp_path(paths) do
     random = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)

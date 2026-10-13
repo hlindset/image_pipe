@@ -3,14 +3,17 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
 
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
+  alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.Key
 
   setup do
     root = Path.join(System.tmp_dir!(), "cache_commit_#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(root) end)
-    opts = [root: root, max_size_bytes: 1000, window_ratio: 1.0]
+    opts = [root: root, max_size_bytes: 1000]
     prefix = [:"cache_concurrent_#{System.unique_integer([:positive])}"]
-    start_supervised!(FileSystem.child_spec(Keyword.put(opts, :telemetry_prefix, prefix)))
+
+    start_supervised!(FileSystem.child_spec(opts ++ [telemetry_prefix: prefix]))
+
     tasks = start_supervised!({Task.Supervisor, []})
     [{admission, _}] = Registry.lookup(FileSystem.registry_name(root), root)
     key = %Key{hash: String.duplicate("a", 64), data: []}
@@ -42,8 +45,7 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
 
     assert Task.await_many([first, second]) == [:ok, :ok]
     assert {:hit, %{body: "original"}} = FileSystem.get(key, opts)
-    state = :sys.get_state(admission)
-    assert state.window_bytes + state.probationary_bytes + state.protected_bytes == 8
+    assert :sys.get_state(admission).stored_bytes == 8
     assert [body_path] = Path.wildcard(Path.join(root, "**/*.body"))
     assert File.read!(body_path) == "original"
   end
@@ -73,12 +75,14 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
     bodies = Path.wildcard(Path.join(ctx.root, "**/*.body"))
     assert length(bodies) == 4
     assert Enum.sum(Enum.map(bodies, &File.stat!(&1).size)) == 400
-    state = :sys.get_state(ctx.admission)
-    assert state.window_bytes + state.probationary_bytes + state.protected_bytes == 400
+    assert :sys.get_state(ctx.admission).stored_bytes == 400
   end
 
   test "a read racing eviction does not restore deleted entry accounting", ctx do
     assert :ok = put_entry(ctx.key, String.duplicate("a", 500), ctx.opts)
+    other = %Key{hash: String.duplicate("b", 64), data: []}
+    # A first sighting of the other key loses the gate, so its next write wins.
+    assert {:ok, :rejected} = put_entry(other, String.duplicate("b", 800), ctx.opts)
     parent = self()
     handler = make_ref()
     event = ctx.prefix ++ [:cache, :admission, :stop]
@@ -98,7 +102,6 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
       )
 
     on_exit(fn -> :telemetry.detach(handler) end)
-    other = %Key{hash: String.duplicate("b", 64), data: []}
 
     writer =
       Task.Supervisor.async_nolink(ctx.tasks, fn ->
@@ -115,8 +118,7 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
     end
 
     assert Task.await(writer) == :ok
-    state = :sys.get_state(ctx.admission)
-    assert state.window_bytes + state.probationary_bytes + state.protected_bytes == 800
+    assert :sys.get_state(ctx.admission).stored_bytes == 800
     assert FileSystem.get(ctx.key, ctx.opts) == :miss
     assert {:hit, _} = FileSystem.get(other, ctx.opts)
   end
@@ -125,13 +127,13 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
     assert :ok = put_entry(ctx.key, "original", ctx.opts)
     body = "replacement"
     sha = :crypto.hash(:sha256, body) |> Base.encode16(case: :lower)
-    body_path = Path.join([ctx.root, "aa", "aa", "#{ctx.key.hash}.#{sha}.body"])
+    body_filename = Store.body_filename(ctx.key.hash, sha, byte_size(body), 0)
+    body_path = Path.join([ctx.root, "aa", "aa", body_filename])
     File.mkdir!(body_path)
 
     assert {:error, _} = put_entry(ctx.key, body, ctx.opts)
     assert {:hit, %{body: "original"}} = FileSystem.get(ctx.key, ctx.opts)
-    state = :sys.get_state(ctx.admission)
-    assert state.window_bytes + state.probationary_bytes + state.protected_bytes == 8
+    assert :sys.get_state(ctx.admission).stored_bytes == 8
   end
 
   test "a commit that times out while queued is still published", ctx do
@@ -158,8 +160,7 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
       :sys.resume(admission)
     end
 
-    state = :sys.get_state(admission)
-    assert state.window_bytes + state.probationary_bytes + state.protected_bytes == 11
+    assert :sys.get_state(admission).stored_bytes == 11
     assert {:hit, %{body: "replacement"}} = FileSystem.get(ctx.key, ctx.opts)
     assert Path.wildcard(Path.join(ctx.root, "**/*.tmp"), match_dot: true) == []
   end

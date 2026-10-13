@@ -53,7 +53,9 @@ docker run --read-only --tmpfs /tmp -p 8080:8080 -v ./config.toml:/etc/image_pip
 - The server writes only to `/tmp` and to cache directories, so the root
   filesystem can be read-only. Mount `/tmp` as a `tmpfs`.
 - Put caches under `/var/cache/image_pipe`, which is writable by the server's
-  user.
+  user. Give each container its own cache volume. A container that finds
+  another container using its cache runs without that cache and logs an
+  error.
 - Make your images and their directories readable by uid 10001, for example
   with `chmod -R a+rX images`. A request for a file the server can't read
   gets `500` with the body `source unavailable`.
@@ -213,13 +215,14 @@ spec:
         medium: Memory
 ```
 
-For cache volumes shared between pods, see
-[Run several replicas](../../image_pipe/docs/caching-processed-images.md#run-several-replicas).
+The `emptyDir` gives each pod its own cache. Don't replace it with a volume
+that pods share (see
+[Run several replicas](../../image_pipe/docs/caching-processed-images.md#run-several-replicas)).
 
 ## Caches
 
 To set up `[cache.output]` for processed images and `[cache.input]` for
-originals, and to bound their size, see
+originals, and to set their size limits, see
 [Caching processed images](../../image_pipe/docs/caching-processed-images.md).
 
 Whether a response is cached also depends on its source:

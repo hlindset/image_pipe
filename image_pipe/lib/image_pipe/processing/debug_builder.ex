@@ -35,6 +35,8 @@ defmodule ImagePipe.Processing.DebugBuilder do
       output_color_profile: color_profile(resolved_output.color_profile),
       aq: aq_from_meta(resolved_output, search_meta),
       pipeline: prepared.operations,
+      detections: prepared.detections,
+      rotations: prepared.rotations,
       timings: Map.put(prepared.timings, :encode, encode_us)
     }
   end
