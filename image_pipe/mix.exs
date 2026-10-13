@@ -1,7 +1,7 @@
 defmodule ImagePipe.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.2.0"
   @source_url "https://github.com/hlindset/image_pipe"
   @guide_groups [
     "Getting started": [
@@ -110,7 +110,8 @@ defmodule ImagePipe.MixProject do
         source_url: @source_url,
         source_url_pattern: "#{@source_url}/blob/v#{@version}/image_pipe/%{path}#L%{line}",
         skip_code_autolink_to: @internal_doc_references,
-        skip_undefined_reference_warnings_on: @internal_typespec_references,
+        # The changelog names functions that releases removed.
+        skip_undefined_reference_warnings_on: ["CHANGELOG.md" | @internal_typespec_references],
         assets: %{"docs/assets" => "docs/assets"},
         extras:
           Enum.map(@guide_paths, fn

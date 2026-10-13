@@ -3,8 +3,8 @@ defmodule ImagePipeServer.MixProject do
 
   # Shares major.minor with image_pipe and image_pipe_url; patch releases are
   # independent. Released images build against this image_pipe version from Hex.
-  @version "0.1.0"
-  @image_pipe_version "0.1.0"
+  @version "0.2.0"
+  @image_pipe_version "0.2.0"
 
   def project do
     [
