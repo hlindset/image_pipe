@@ -15,9 +15,9 @@ There are two variants:
 
 Both read every input format ImagePipe supports, including JPEG XL.
 
-The `0.1` tags move to each new 0.1 patch release, so pulling them again
-picks up fixes. To pin one release, use its full version, such as `0.1.0` or
-`0.1.0-vision`.
+The `0.2` tags move to each new 0.2 patch release, so pulling them again
+picks up fixes. To pin one release, use its full version, such as `0.2.0` or
+`0.2.0-vision`.
 
 The `-vision` image loads the models for every detection class when it
 starts. To save memory, load only the ones your URLs use by setting
@@ -278,7 +278,7 @@ request still takes a few tens of milliseconds longer than later ones. Set
 
 ## Detection
 
-Face and object detection need the `0.1-vision` image. Enabling it,
+Face and object detection need the `-vision` image. Enabling it,
 requiring it, and checking that it runs are covered in
 [Enabling face and object detection](../../image_pipe/docs/enabling-detection.md).
 
