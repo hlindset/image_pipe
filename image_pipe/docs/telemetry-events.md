@@ -395,6 +395,10 @@ original. Either can end after the request's span, which it nests under.
     pool).
   - `:error` (atom): the error category, on an output-pool write error.
   - `:output_format` (atom): the stored format. Output pool only.
+  - `:estimated_cost_us` (integer): the estimated
+    [work to make the entry](cache.md#work-to-make-an-entry), in
+    microseconds on a reference core. The cache scores entries by it.
+    Output pool only.
   - `:bytes` (integer): the size of the entry's body. On `:write`, the span's
     duration includes syncing the body to disk, so `:bytes` divided by the
     duration gives a rough write speed. The duration also includes waiting for

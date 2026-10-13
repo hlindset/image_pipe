@@ -242,6 +242,7 @@ defmodule ImagePipe.Processing do
          policy: policy,
          shrink: shrink,
          operations: operations,
+         detections: Executor.detections(request),
          timings: %{decode: decode_us, transform: transform_us}
        }}
     else

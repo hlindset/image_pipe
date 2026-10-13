@@ -25,16 +25,19 @@ defmodule ImagePipe.Cache.FileSystem.SweepTest do
     path
   end
 
+  # A body named for its 5-byte content ("bytes") and no cost.
+  defp body_name(hash, sha), do: "#{hash}.#{sha}.5.0.body"
+
   defp pin_name(ms), do: ".image-pipe-pin-#{ms}-Ab_c-dE.tmp"
 
   test "removes expired temps and untracked bodies and keeps everything live", %{
     root: root,
     dir: dir
   } do
-    tracked = write!(dir, "#{@hash}.#{@sha}.body", @old)
+    tracked = write!(dir, body_name(@hash, @sha), @old)
     write!(dir, "#{@hash}.meta")
-    untracked = write!(dir, "#{@other}.#{@sha}.body", @old)
-    fresh_untracked = write!(dir, "#{@other}.#{String.duplicate("d", 64)}.body")
+    untracked = write!(dir, body_name(@other, @sha), @old)
+    fresh_untracked = write!(dir, body_name(@other, String.duplicate("d", 64)))
 
     expired_pin = write!(dir, pin_name(System.os_time(:millisecond) - 7_200_000))
     fresh_pin = Path.join(dir, pin_name(System.os_time(:millisecond)))
@@ -56,7 +59,7 @@ defmodule ImagePipe.Cache.FileSystem.SweepTest do
   end
 
   test "a new undecodable meta still keeps its body", %{root: root, dir: dir} do
-    body = write!(dir, "#{@hash}.#{@sha}.body", @old)
+    body = write!(dir, body_name(@hash, @sha), @old)
     File.write!(Path.join(dir, "#{@hash}.meta"), "not a term")
 
     assert %{bodies: 0} = Sweep.sweep_root(root)
@@ -78,8 +81,8 @@ defmodule ImagePipe.Cache.FileSystem.SweepTest do
     paths = Caches.write!(opts, key, metadata, "current body")
     [current] = Path.wildcard(Path.join(paths.dir, "*.body"))
     File.touch!(current, @old)
-    stranded = write!(paths.dir, "#{@hash}.#{String.duplicate("e", 64)}.body", @old)
-    fresh = write!(paths.dir, "#{@hash}.#{String.duplicate("f", 64)}.body")
+    stranded = write!(paths.dir, body_name(@hash, String.duplicate("e", 64)), @old)
+    fresh = write!(paths.dir, body_name(@hash, String.duplicate("f", 64)))
 
     assert %{bodies: 1} = Sweep.sweep_root(root)
     refute File.exists?(stranded)
@@ -99,6 +102,18 @@ defmodule ImagePipe.Cache.FileSystem.SweepTest do
 
     refute File.exists?(unreadable.meta_path)
     assert {:hit, _entry} = FileSystem.get(readable_key, root: root, max_size_bytes: 1_000_000)
+  end
+
+  test "removes an entry whose body is named by digest alone", %{root: root} do
+    {_key, paths} = entry!(root, "3")
+    metadata = paths.meta_path |> File.read!() |> :erlang.binary_to_term()
+    old_name = "#{String.duplicate("3", 64)}.#{metadata.body_sha256}.body"
+    File.rename!(Path.join(paths.dir, metadata.body_filename), Path.join(paths.dir, old_name))
+    File.write!(paths.meta_path, :erlang.term_to_binary(%{metadata | body_filename: old_name}))
+    age!(paths, @old)
+
+    assert %{unreadable: 1, bodies: 1} = Sweep.sweep_root(root)
+    assert File.ls!(paths.dir) == []
   end
 
   defp entry!(root, digit) do

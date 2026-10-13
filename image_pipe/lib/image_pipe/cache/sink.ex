@@ -144,7 +144,7 @@ defmodule ImagePipe.Cache.Sink do
 
     Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], start_metadata, fn ->
       result = store_body(key, metadata, body, cache_opts)
-      {:ok, commit_metadata(result, key, nil, byte_size(body))}
+      {:ok, commit_metadata(result, key, nil, byte_size(body), metadata.cost_us)}
     end)
 
     :ok
@@ -176,10 +176,10 @@ defmodule ImagePipe.Cache.Sink do
 
   @doc false
   # The `[:cache, :write]` stop metadata for a commit's result.
-  def commit_metadata(result, %Key{} = key, output_format, size) do
+  def commit_metadata(result, %Key{} = key, output_format, size, cost_us) do
     result
     |> commit_stop_metadata(output_format)
-    |> Map.merge(%{cache_key: key.hash, bytes: size})
+    |> Map.merge(%{cache_key: key.hash, bytes: size, estimated_cost_us: cost_us})
   end
 
   defp start(key, metadata, cache_opts, opts) do

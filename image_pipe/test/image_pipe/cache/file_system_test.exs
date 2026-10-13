@@ -5,6 +5,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Admission
   alias ImagePipe.Cache.FileSystem.PeriodicSweep
+  alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.Key
   alias ImagePipe.Test.Caches
 
@@ -60,7 +61,8 @@ defmodule ImagePipe.Cache.FileSystemTest do
     |> Base.encode16(case: :lower)
   end
 
-  defp body_filename(cache_key, body), do: "#{cache_key.hash}.#{body_sha256(body)}.body"
+  defp body_filename(cache_key, body),
+    do: Store.body_filename(cache_key.hash, body_sha256(body), byte_size(body), 0)
 
   defp metadata(cache_key, body, overrides \\ []) do
     Map.merge(
@@ -409,7 +411,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
       :erlang.term_to_binary(
         metadata(cache_key, "body",
           body_sha256: "not-a-sha256",
-          body_filename: "#{cache_key.hash}.not-a-sha256.body"
+          body_filename: "#{cache_key.hash}.not-a-sha256.4.0.body"
         )
       )
     )

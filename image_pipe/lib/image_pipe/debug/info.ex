@@ -24,6 +24,7 @@ defmodule ImagePipe.Debug.Info do
             output_color_profile: nil,
             aq: nil,
             pipeline: [],
+            detections: 0,
             timings: %{}
 
   @type aq :: %{
@@ -58,6 +59,7 @@ defmodule ImagePipe.Debug.Info do
           output_color_profile: atom() | nil,
           aq: aq() | nil,
           pipeline: [String.t()],
+          detections: non_neg_integer(),
           timings: %{optional(atom()) => non_neg_integer()}
         }
 end

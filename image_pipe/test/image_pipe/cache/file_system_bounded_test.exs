@@ -8,6 +8,7 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
 
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
+  alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.Key
   alias ImagePipe.Test.Caches
 
@@ -50,7 +51,6 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
   # only the supervision tree, never the validated cache options.
   defp bounded_child_spec(opts, tuning \\ []) do
     small_sketches = [
-      window_ratio: 0.01,
       sketch_depth: 4,
       sketch_width: 256,
       doorkeeper_cardinality: 1024,
@@ -81,7 +81,7 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
 
   defp body_path(root, cache_key, body) do
     sha = :crypto.hash(:sha256, body) |> Base.encode16(case: :lower)
-    Path.join([root, "aa", "aa", "#{cache_key.hash}.#{sha}.body"])
+    Path.join([root, "aa", "aa", Store.body_filename(cache_key.hash, sha, byte_size(body), 0)])
   end
 
   defp meta_path(root, cache_key) do
@@ -145,51 +145,11 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     assert File.exists?(meta_path(root, cache_key))
     assert File.exists?(body_path(root, cache_key, "encoded image"))
 
-    # Admission tracked the candidate (probationary or window bytes > 0).
-    state = :sys.get_state(admission_pid(root))
-    assert state.window_bytes + state.probationary_bytes + state.protected_bytes > 0
+    # Admission tracked the candidate.
+    assert tracked_bytes(admission_pid(root)) == byte_size("encoded image")
 
     assert {:hit, hit} = FileSystem.get(cache_key, opts)
     assert hit.body == "encoded image"
-  end
-
-  test "window overflow keeps newer entries and promotes an accessed main entry", %{root: root} do
-    opts = bounded_opts(root, max_size_bytes: 100)
-    start_supervised!(bounded_child_spec(opts, window_ratio: 0.1))
-    pid = admission_pid(root)
-    FileSystem.Admission.await_scan(pid)
-
-    for index <- 1..3 do
-      assert :ok = put_entry(distinct_key(index), entry("image"), opts)
-    end
-
-    state = :sys.get_state(pid)
-    assert state.window_bytes == 10
-    assert state.probationary_bytes == 5
-    assert {:hit, _} = FileSystem.get(distinct_key(1), opts)
-    state = :sys.get_state(pid)
-    assert state.protected_bytes == 5
-    assert state.probationary_bytes == 0
-  end
-
-  test "an entry larger than the window budget is admitted to main when it has room", %{
-    root: root
-  } do
-    opts = bounded_opts(root, max_size_bytes: 100)
-    start_supervised!(bounded_child_spec(opts, window_ratio: 0.1))
-    pid = admission_pid(root)
-    FileSystem.Admission.await_scan(pid)
-    small = distinct_key(1)
-    oversized = distinct_key(2)
-    body = String.duplicate("o", 20)
-
-    assert :ok = put_entry(small, entry("image"), opts)
-    assert :ok = put_entry(oversized, entry(body), opts)
-
-    state = :sys.get_state(pid)
-    assert state.window_bytes == 5
-    assert state.probationary_bytes == 20
-    assert {:hit, %{body: ^body}} = FileSystem.get(oversized, opts)
   end
 
   test "rejected (over-cap) entry deletes the written body and meta", %{root: root} do
@@ -207,8 +167,7 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     refute File.exists?(body_path(root, cache_key, "this body is way over the cap"))
 
     # No accounting for the rejected entry.
-    state = :sys.get_state(admission_pid(root))
-    assert state.window_bytes + state.probationary_bytes + state.protected_bytes == 0
+    assert tracked_bytes(admission_pid(root)) == 0
 
     assert FileSystem.get(cache_key, opts) == :miss
   end
@@ -234,15 +193,14 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     File.cp_r!(paths.dir, dir)
 
     pid = admission_pid(root)
-    assert :sys.get_state(pid).probationary_bytes == 0
+    assert tracked_bytes(pid) == 0
 
     # A bounded get hits and casts the descriptor to Admission.
     assert {:hit, hit} = FileSystem.get(cache_key, bounded)
     assert hit.body == "encoded image"
 
-    # Flush the async hit cast, then assert the synthesized probationary entry.
-    _ = :sys.get_state(pid)
-    assert :sys.get_state(pid).probationary_bytes == byte_size("encoded image")
+    # The async hit cast is handled before :sys.get_state/1 in tracked_bytes/1.
+    assert tracked_bytes(pid) == byte_size("encoded image")
   end
 
   test "bounded mode with no Admission process fails closed (skips write)", %{root: root} do
@@ -260,15 +218,14 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
 
   test "cycling ~1.5x cap worth of entries keeps on-disk bytes within the cap",
        %{root: root} do
-    # 100 KB cap, 10 KB bodies: 15 distinct entries = 1.5x cap. With a tiny
-    # window the main gate must reject or evict enough that on-disk body bytes
-    # never exceed the cap.
+    # 100 KB cap, 10 KB bodies: 15 distinct entries = 1.5x cap. Admission must
+    # reject or evict enough that on-disk body bytes never exceed the cap.
     cap = 100_000
     body_size = 10_000
     count = 15
 
     opts = bounded_opts(root, max_size_bytes: cap)
-    start_supervised!(bounded_child_spec(opts, window_ratio: 0.01))
+    start_supervised!(bounded_child_spec(opts))
 
     body = String.duplicate("x", body_size)
 
@@ -287,15 +244,14 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     assert total_body_bytes(root) <= cap
 
     # Admission's accounting agrees with the on-disk realization.
-    state = :sys.get_state(admission_pid(root))
-    tracked = state.window_bytes + state.probationary_bytes + state.protected_bytes
+    tracked = tracked_bytes(admission_pid(root))
     assert tracked <= cap
     assert tracked == total_body_bytes(root)
   end
 
   test "growing a cached body keeps disk usage within the cap", %{root: root} do
     opts = bounded_opts(root, max_size_bytes: 100)
-    start_supervised!(bounded_child_spec(opts, window_ratio: 1.0))
+    start_supervised!(bounded_child_spec(opts))
 
     original = String.duplicate("a", 40)
     replacement = String.duplicate("c", 80)
@@ -311,9 +267,9 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     assert {:hit, %{body: ^replacement}} = FileSystem.get(cache_key, opts)
   end
 
-  test "main admission evicts only enough bytes to cover the free-space deficit", %{root: root} do
+  test "admission evicts only enough bytes to cover the free-space deficit", %{root: root} do
     opts = bounded_opts(root, max_size_bytes: 100)
-    start_supervised!(bounded_child_spec(opts, window_ratio: 0.0))
+    start_supervised!(bounded_child_spec(opts))
 
     assert :ok = put_entry(distinct_key(1), entry(String.duplicate("a", 40)), opts)
     assert :ok = put_entry(distinct_key(2), entry(String.duplicate("b", 40)), opts)
@@ -327,27 +283,28 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     assert {:hit, %{body: ^body}} = FileSystem.get(candidate, opts)
   end
 
-  test "main admission evicts the least recently used entry", %{root: root} do
+  test "admission evicts the lowest-scoring entry", %{root: root} do
     opts = bounded_opts(root, max_size_bytes: 100)
-    start_supervised!(bounded_child_spec(opts, window_ratio: 0.0))
-    older = distinct_key(1)
-    newer = distinct_key(2)
+    start_supervised!(bounded_child_spec(opts))
+    unpopular = distinct_key(1)
+    popular = distinct_key(2)
     candidate = distinct_key(3)
 
-    assert :ok = put_entry(older, entry(String.duplicate("a", 40)), opts)
-    assert :ok = put_entry(newer, entry(String.duplicate("b", 40)), opts)
+    assert :ok = put_entry(unpopular, entry(String.duplicate("a", 40)), opts)
+    assert :ok = put_entry(popular, entry(String.duplicate("b", 40)), opts)
+    assert {:hit, _} = FileSystem.get(popular, opts)
     assert {:ok, :rejected} = put_entry(candidate, entry(String.duplicate("c", 30)), opts)
     assert :ok = put_entry(candidate, entry(String.duplicate("c", 30)), opts)
 
-    assert FileSystem.get(older, opts) == :miss
-    assert {:hit, _} = FileSystem.get(newer, opts)
+    assert FileSystem.get(unpopular, opts) == :miss
+    assert {:hit, _} = FileSystem.get(popular, opts)
   end
 
   test "a popular entry evicts every victim it needs before it's stored", %{
     root: root
   } do
     opts = bounded_opts(root, max_size_bytes: 10_000)
-    start_supervised!(bounded_child_spec(opts, window_ratio: 0.0))
+    start_supervised!(bounded_child_spec(opts))
     pid = admission_pid(root)
     FileSystem.Admission.await_scan(pid)
 
@@ -368,40 +325,17 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     assert {:hit, %{body: ^body}} = FileSystem.get(candidate, opts)
   end
 
-  test "protected eviction follows LRU order", %{root: root} do
-    opts = bounded_opts(root, max_size_bytes: 100)
-    start_supervised!(bounded_child_spec(opts, window_ratio: 0.0), id: :cache)
-    older = distinct_key(1)
-    newer = distinct_key(2)
-
-    for cache_key <- [older, newer] do
-      assert :ok = put_entry(cache_key, entry("small"), opts)
-      assert {:hit, _} = FileSystem.get(cache_key, opts)
-    end
-
-    assert :ok = put_entry(distinct_key(3), entry(String.duplicate("c", 90)), opts)
-    candidate = distinct_key(4)
-    body = String.duplicate("d", 95)
-    assert {:ok, :rejected} = put_entry(candidate, entry(body), opts)
-    assert :ok = put_entry(candidate, entry(body), opts)
-
-    assert FileSystem.get(older, opts) == :miss
-    assert {:hit, _} = FileSystem.get(newer, opts)
-    assert total_body_bytes(root) == 100
-  end
-
   property "replacement sequences preserve the disk budget and accounting", %{root: root} do
     check all(
-            ratio <- member_of([0.0, 0.25, 1.0]),
             writes <-
               list_of(tuple({integer(1..3), integer(1..100)}), min_length: 5, max_length: 20),
             max_runs: 30
           ) do
       cache_root = Path.join(root, Integer.to_string(System.unique_integer([:positive])))
       opts = bounded_opts(cache_root, max_size_bytes: 100)
-      start_supervised!(bounded_child_spec(opts, window_ratio: ratio), id: cache_root)
+      start_supervised!(bounded_child_spec(opts), id: cache_root)
 
-      for {index, size} <- writes do
+      Enum.reduce(writes, %{}, fn {index, size}, stored ->
         cache_key = distinct_key(index)
         body = String.duplicate(Integer.to_string(index), size)
         result = put_entry(cache_key, entry(body), opts)
@@ -410,29 +344,47 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
         assert tracked_bytes(admission_pid(cache_root)) == total_body_bytes(cache_root)
         assert tracked_hashes(admission_pid(cache_root)) == meta_hashes(cache_root)
 
+        # A rejected replacement keeps the entry it would have replaced,
+        # unless an earlier write evicted it.
         case {result, FileSystem.get(cache_key, opts)} do
-          {:ok, {:hit, hit}} -> assert hit.body == body
-          {{:ok, :rejected}, :miss} -> :ok
+          {:ok, {:hit, hit}} ->
+            assert hit.body == body
+            Map.put(stored, index, body)
+
+          {{:ok, :rejected}, {:hit, hit}} ->
+            assert hit.body == Map.fetch!(stored, index)
+            stored
+
+          {{:ok, :rejected}, :miss} ->
+            stored
         end
-      end
+      end)
 
       stop_supervised!(cache_root)
     end
   end
 
-  test "rejected growth removes superseded files and accounting", %{root: root} do
+  test "a rejected replacement keeps the entry it would have replaced", %{root: root} do
     opts = bounded_opts(root, max_size_bytes: 100)
-    start_supervised!(bounded_child_spec(opts, window_ratio: 0.5))
+    start_supervised!(bounded_child_spec(opts))
     cache_key = key()
+    popular = distinct_key(2)
     original = String.duplicate("a", 20)
     replacement = String.duplicate("b", 80)
 
     assert :ok = put_entry(cache_key, entry(original), opts)
+    assert :ok = put_entry(popular, entry(String.duplicate("p", 70)), opts)
+
+    for _hit <- 1..2 do
+      assert {:hit, _} = FileSystem.get(popular, opts)
+    end
+
+    # The replacement needs the popular entry's bytes and loses the gate.
     assert {:ok, :rejected} = put_entry(cache_key, entry(replacement), opts)
-    assert FileSystem.get(cache_key, opts) == :miss
-    assert total_body_bytes(root) == 0
-    assert tracked_bytes(admission_pid(root)) == 0
-    refute File.exists?(meta_path(root, cache_key))
+    assert {:hit, %{body: ^original}} = FileSystem.get(cache_key, opts)
+    refute File.exists?(body_path(root, cache_key, replacement))
+    assert total_body_bytes(root) == 90
+    assert tracked_bytes(admission_pid(root)) == 90
   end
 
   test "re-committing the same key with a new body deletes the old body", %{root: root} do
@@ -443,8 +395,8 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     assert :ok = put_entry(cache_key, entry("first body"), opts)
     assert File.exists?(body_path(root, cache_key, "first body"))
 
-    # Same key, new content → new body_sha256. same_key_replace emits a
-    # body-only victim for the superseded body; the meta is rewritten in place.
+    # Same key, new content → new body_sha256. The superseded body is deleted
+    # after the publish; the meta is rewritten in place.
     assert :ok = put_entry(cache_key, entry("second body"), opts)
 
     refute File.exists?(body_path(root, cache_key, "first body"))
@@ -455,9 +407,7 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     assert hit.body == "second body"
 
     # Accounting tracks only the current body, not both.
-    state = :sys.get_state(admission_pid(root))
-    tracked = state.window_bytes + state.probationary_bytes + state.protected_bytes
-    assert tracked == byte_size("second body")
+    assert tracked_bytes(admission_pid(root)) == byte_size("second body")
   end
 
   test "two bounded caches with distinct roots coexist in one VM", %{root: root} do
@@ -487,18 +437,11 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     assert tracked_bytes(admission_pid(other_root)) == byte_size("body b")
   end
 
-  defp tracked_bytes(pid) do
-    state = :sys.get_state(pid)
-    state.window_bytes + state.probationary_bytes + state.protected_bytes
-  end
+  defp tracked_bytes(pid), do: :sys.get_state(pid).stored_bytes
 
   defp tracked_hashes(pid) do
     state = :sys.get_state(pid)
-
-    for table <- [state.window, state.probationary, state.protected],
-        {{_position, hash}, _descriptor} <- :ets.tab2list(table),
-        into: MapSet.new(),
-        do: hash
+    for {hash, _size, _cost, _body} <- :ets.tab2list(state.entries), into: MapSet.new(), do: hash
   end
 
   defp meta_hashes(root) do

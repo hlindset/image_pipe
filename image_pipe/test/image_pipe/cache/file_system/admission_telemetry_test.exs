@@ -105,7 +105,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
   end
 
   test "emits an eviction stop event when a write evicts", ctx do
-    start_supervised!({Admission, opts(ctx, max_size_bytes: 10_000, window_ratio: 0.0)})
+    start_supervised!({Admission, opts(ctx, max_size_bytes: 10_000)})
     attach(ctx.prefix, [[:cache, :eviction, :stop]])
     pool = cache_opts(ctx, max_size_bytes: 10_000)
 
@@ -136,14 +136,12 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
     end
 
     attach(ctx.prefix, [[:cache, :eviction, :stop]])
-    pid = start_supervised!({Admission, opts(ctx, max_size_bytes: 10_000, window_ratio: 0.0)})
+    pid = start_supervised!({Admission, opts(ctx, max_size_bytes: 10_000)})
     Admission.await_scan(pid)
 
     stop_event = ctx.prefix ++ [:cache, :eviction, :stop]
 
-    assert_receive {:telemetry, ^stop_event, %{count: count, bytes: bytes}, %{trigger: :startup}}
-
-    assert count >= 1
-    assert bytes >= 5_000
+    assert_receive {:telemetry, ^stop_event, %{count: 1, bytes: 5_000},
+                    %{trigger: :startup, pool: :input}}
   end
 end

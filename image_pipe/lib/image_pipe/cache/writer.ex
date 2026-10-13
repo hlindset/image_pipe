@@ -137,7 +137,8 @@ defmodule ImagePipe.Cache.Writer do
       Writers.hold(:atomics.get(state.counters, @reserved))
       result = FileSystem.commit_sink(state.store, state.cache_opts)
       size = confirmed(state.counters)
-      {:ok, Sink.commit_metadata(result, state.key, state.output_format, size)}
+      cost_us = state.metadata.cost_us
+      {:ok, Sink.commit_metadata(result, state.key, state.output_format, size, cost_us)}
     end)
 
     OutputWork.complete(lease, :ready)

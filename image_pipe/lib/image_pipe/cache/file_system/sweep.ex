@@ -17,7 +17,8 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   # creation time is in their name.
   @pin ~r/\A\.image-pipe-pin-(\d+)-[A-Za-z0-9_-]+\.tmp\z/
   @temp ~r/\A\.[0-9a-f]{64}\.[A-Za-z0-9_-]+\.tmp\z/
-  @body ~r/\A([0-9a-f]{64})\.[0-9a-f]{64}\.body\z/
+  # Bodies stored before their names carried size and cost end at the digest.
+  @body ~r/\A([0-9a-f]{64})\.[0-9a-f]{64}(?:\.\d+\.\d+)?\.body\z/
   @staged ~r/\A\.image-pipe-[A-Za-z0-9_-]+\.tmp\z/
   @partition ~r/\A[0-9a-f]{2}\z/
 
@@ -175,7 +176,7 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
 
   defp unnamed?(path, meta_path, true = _listed?) do
     case Store.read_descriptor(meta_path) do
-      {:ok, %{body_sha256: sha}, _mtime} -> not String.ends_with?(path, ".#{sha}.body")
+      {:ok, %{body_filename: named}, _mtime} -> Path.basename(path) != named
       {:error, :enoent} -> true
       {:error, _unreadable} -> false
     end

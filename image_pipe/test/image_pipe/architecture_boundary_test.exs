@@ -458,6 +458,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     refute_boundary_deps(cache, [ImagePipe.Transform])
 
     assert_boundary_exports(cache, [
+      ImagePipe.Cache.Cost,
       ImagePipe.Cache.Entry,
       ImagePipe.Cache.File,
       ImagePipe.Cache.Input,

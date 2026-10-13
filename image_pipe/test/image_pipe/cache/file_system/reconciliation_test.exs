@@ -5,6 +5,7 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Admission
+  alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.Key
   alias ImagePipe.Test.Caches
 
@@ -30,17 +31,14 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
       assert Enum.all?(batches, &(&1 <= limit))
       assert Enum.sum(batches) == count - cap_entries
       assert length(Path.wildcard(Path.join(root, "**/*.body"))) == cap_entries
-      assert tracked_bytes(pid) == cap_entries * 4
+      assert stored_bytes(pid) == cap_entries * 4
     end
   end
 
   test "replacement and hit queued during a batch run before the next batch", ctx do
     body = String.duplicate("x", 100)
-
-    for index <- 1..3 do
-      paths = seed_entry(key(index), body, ctx.root)
-      File.touch!(paths.meta_path, System.os_time(:second) - 100 + index)
-    end
+    keys = Enum.map(1..3, &key/1)
+    Enum.each(keys, &seed_entry(&1, body, ctx.root))
 
     gate = attach_batches(ctx.prefix, self(), true)
     opts = opts(ctx.root, ctx.prefix, 100)
@@ -51,24 +49,26 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
 
     try do
       assert_receive {:batch, ^pid, 1}, 1000
-      assert {:hit, %{body: ^body}} = FileSystem.get(key(2), opts)
+      [kept, other] = Enum.filter(keys, &(FileSystem.get(&1, opts) != :miss))
+      assert {:hit, %{body: ^body}} = FileSystem.get(kept, opts)
 
       replacement =
         Task.Supervisor.async_nolink(tasks, fn ->
           :erlang.trace(self(), true, [:send, {:tracer, parent}])
-          put_entry(key(2), String.duplicate("y", 100), opts)
+          put_entry(kept, String.duplicate("y", 100), opts)
         end)
 
       assert_receive {:trace, _, :send, {:"$gen_call", _, {:commit, _, _}}, ^pid}, 1000
       send(pid, :release_batch)
       assert :ok = Task.await(replacement)
-      assert_receive {:batch, ^pid, 1}, 1000
-      send(pid, :release_batch)
       assert :ok = Admission.await_scan(pid)
-      assert {:hit, %{body: retained}} = FileSystem.get(key(2), opts)
+      # The replacement evicted the other entry, so no batch followed.
+      assert_received {:admission_eviction, ^pid, 1}
+      refute_received {:batch, ^pid, _count}
+      assert {:hit, %{body: retained}} = FileSystem.get(kept, opts)
       assert retained == String.duplicate("y", 100)
-      assert FileSystem.get(key(3), opts) == :miss
-      assert tracked_bytes(pid) == 100
+      assert FileSystem.get(other, opts) == :miss
+      assert stored_bytes(pid) == 100
     after
       close_gate(ctx.prefix, gate, pid)
     end
@@ -103,17 +103,21 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
       :telemetry.attach(
         {__MODULE__, prefix},
         prefix ++ [:cache, :eviction, :stop],
-        fn _, %{count: count}, _, _ ->
-          wait? = hold? and :atomics.compare_exchange(gate, 1, 0, 1) == :ok
-          send(parent, {:batch, self(), count})
+        fn
+          _, %{count: count}, %{trigger: :startup}, _ ->
+            wait? = hold? and :atomics.compare_exchange(gate, 1, 0, 1) == :ok
+            send(parent, {:batch, self(), count})
 
-          if wait? do
-            receive do
-              :release_batch -> :ok
+            if wait? do
+              receive do
+                :release_batch -> :ok
+              end
+
+              :atomics.compare_exchange(gate, 1, 1, 0)
             end
 
-            :atomics.compare_exchange(gate, 1, 1, 0)
-          end
+          _, %{count: count}, %{trigger: :admission}, _ ->
+            send(parent, {:admission_eviction, self(), count})
         end,
         nil
       )
@@ -144,7 +148,10 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
   defp orphan_body(root) do
     {:ok, paths} = FileSystem.paths(key(:orphan), root: root)
     File.mkdir_p!(paths.dir)
-    orphan = Path.join(paths.dir, "#{paths.hash}.#{String.duplicate("a", 64)}.body")
+
+    orphan =
+      Path.join(paths.dir, Store.body_filename(paths.hash, String.duplicate("a", 64), 6, 0))
+
     File.write!(orphan, "orphan")
     File.touch!(orphan, System.os_time(:second) - 7200)
     orphan
@@ -161,7 +168,7 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
   end
 
   defp start_cache(opts, batch) do
-    start_supervised!(FileSystem.child_spec(opts ++ [window_ratio: 0.0, reconcile_batch: batch]))
+    start_supervised!(FileSystem.child_spec(opts ++ [reconcile_batch: batch]))
     root = Keyword.fetch!(opts, :root)
     [{pid, _}] = Registry.lookup(FileSystem.registry_name(root), root)
     pid
@@ -191,8 +198,5 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
     FileSystem.commit_sink(sink, opts)
   end
 
-  defp tracked_bytes(pid) do
-    state = :sys.get_state(pid)
-    state.window_bytes + state.probationary_bytes + state.protected_bytes
-  end
+  defp stored_bytes(pid), do: :sys.get_state(pid).stored_bytes
 end

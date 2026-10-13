@@ -290,7 +290,7 @@ defmodule ImagePipe.CacheTest do
         created_at: DateTime.utc_now(),
         output_format: :webp
       },
-      String.duplicate("x", 97)
+      String.duplicate("x", 98)
     )
 
     sink =

@@ -13,6 +13,7 @@ defmodule ImagePipe.Cache do
       ImagePipe.Telemetry
     ],
     exports: [
+      Cost,
       Entry,
       File,
       Input,

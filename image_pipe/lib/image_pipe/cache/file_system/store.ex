@@ -85,13 +85,10 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     Keyword.put(opts, :registry, registry_name)
   end
 
-  # A 1% window: docs/plans/cache-admission-policy.md found 1%, 5% and 20%
-  # windows within noise.
   defp admission_defaults(opts) do
     max_size_bytes = Keyword.fetch!(opts, :max_size_bytes)
 
     [
-      window_ratio: 0.01,
       sketch_depth: 4,
       sketch_width: max(4096, div(max_size_bytes, 25_000)),
       aging_sample_size: max(81_920, div(max_size_bytes, 5_000)),
@@ -123,12 +120,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
           {:hit, entry, meta} ->
             # read_entry already parsed/validated the meta payload; reuse its
             # fields rather than re-reading the file.
-            maybe_cast_hit(opts, %{
-              key_hash: key.hash,
-              size_bytes: meta.body_byte_size,
-              body_sha256: meta.body_sha256,
-              cost_us: Map.get(meta, :cost_us, 0)
-            })
+            maybe_cast_hit(opts, hit_descriptor(key, meta))
 
             {:hit, entry, meta}
 
@@ -140,6 +132,14 @@ defmodule ImagePipe.Cache.FileSystem.Store do
         error
     end
   end
+
+  defp hit_descriptor(key, metadata),
+    do: %{
+      key_hash: key.hash,
+      size_bytes: metadata.body_byte_size,
+      cost_us: metadata.cost_us,
+      body_filename: metadata.body_filename
+    }
 
   defp maybe_cast_hit(opts, descriptor) do
     case lookup_admission(opts) do
@@ -271,19 +271,11 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   end
 
   @doc false
-  # Admission's descriptor of a prepared write, before it's published.
-  # prepare_sink_commit/1 encodes body_sha256 into body_filename
-  # ("<hash>.<sha>.body"); recover it rather than recomputing the digest.
-  def descriptor(prepared, body_filename) do
-    {:ok, body_sha256} = body_sha256_from_filename(body_filename)
-
-    %{
-      key_hash: prepared.paths.hash,
-      size_bytes: prepared.size,
-      body_sha256: body_sha256,
-      cost_us: prepared.metadata.cost_us,
-      body_filename: body_filename
-    }
+  # Admission's descriptor of a prepared write, before it's published, read
+  # back from the body filename prepare_sink_commit/1 built.
+  def descriptor(_prepared, body_filename) do
+    {:ok, descriptor} = parse_body_filename(body_filename)
+    descriptor
   end
 
   @doc false
@@ -313,7 +305,8 @@ defmodule ImagePipe.Cache.FileSystem.Store do
          :ok <- :file.datasync(state.body_io),
          :ok <- close_body_io(state),
          body_sha256 = sink_body_sha256(state),
-         body_filename = body_filename(state.paths.hash, body_sha256),
+         body_filename =
+           body_filename(state.paths.hash, body_sha256, state.size, cost_us(state.metadata)),
          encoded_metadata = sink_metadata(state, body_sha256, body_filename),
          {:ok, temp_meta_path} <- write_sink_metadata(state.paths, encoded_metadata) do
       prepared = state |> Map.put(:temp_meta_path, temp_meta_path) |> Map.delete(:body_io)
@@ -415,12 +408,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   def metadata_hit(%Key{} = key, opts) do
     case metadata(key, opts) do
       {:ok, metadata} ->
-        maybe_cast_hit(opts, %{
-          key_hash: key.hash,
-          size_bytes: metadata.body_byte_size,
-          body_sha256: metadata.body_sha256,
-          cost_us: Map.get(metadata, :cost_us, 0)
-        })
+        maybe_cast_hit(opts, hit_descriptor(key, metadata))
 
         {:ok, metadata}
 
@@ -540,8 +528,12 @@ defmodule ImagePipe.Cache.FileSystem.Store do
          } = metadata
        )
        when is_integer(size) and size >= 0 and is_binary(sha) and is_binary(filename) and
-              is_integer(cost) and cost >= 0,
-       do: {:ok, metadata}
+              is_integer(cost) and cost >= 0 do
+    case parse_body_filename(filename) do
+      {:ok, %{body_sha256: ^sha, size_bytes: ^size, cost_us: ^cost}} -> {:ok, metadata}
+      _other -> {:error, :invalid_body_filename}
+    end
+  end
 
   defp validate_metadata(%{metadata_version: version}) when version != @metadata_version,
     do: {:error, :version_mismatch}
@@ -551,9 +543,10 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   defp body_path_from_metadata(
          paths,
-         %{body_filename: body_filename, body_sha256: body_sha256}
+         %{body_filename: body_filename, body_sha256: body_sha256} = metadata
        ) do
-    expected_body_filename = body_filename(paths.hash, body_sha256)
+    expected_body_filename =
+      body_filename(paths.hash, body_sha256, metadata.body_byte_size, metadata.cost_us)
 
     if valid_body_sha256?(body_sha256) and body_filename == expected_body_filename do
       {:ok, Path.join(paths.dir, body_filename)}
@@ -582,12 +575,14 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     end
   end
 
+  defp cost_us(metadata), do: Map.get(metadata, :cost_us, 0)
+
   defp commit_metadata_file(meta_path, meta_tmp_path) do
     File.rename(meta_tmp_path, meta_path)
   end
 
   defp matching_body_file?(body_path, body_filename) do
-    with {:ok, expected_sha256} <- body_sha256_from_filename(body_filename),
+    with {:ok, %{body_sha256: expected_sha256}} <- parse_body_filename(body_filename),
          {:ok, actual_sha256} <- file_sha256(body_path) do
       actual_sha256 == expected_sha256
     else
@@ -661,7 +656,8 @@ defmodule ImagePipe.Cache.FileSystem.Store do
              key_hash: binary(),
              size_bytes: non_neg_integer(),
              body_sha256: binary(),
-             cost_us: non_neg_integer()
+             cost_us: non_neg_integer(),
+             body_filename: String.t()
            }, integer()}
           | {:error, term()}
   def read_descriptor(meta_path) do
@@ -675,7 +671,8 @@ defmodule ImagePipe.Cache.FileSystem.Store do
          key_hash: Path.basename(meta_path, ".meta"),
          size_bytes: metadata.body_byte_size,
          body_sha256: metadata.body_sha256,
-         cost_us: metadata.cost_us
+         cost_us: metadata.cost_us,
+         body_filename: metadata.body_filename
        }, mtime}
     else
       :miss -> {:error, :enoent}
@@ -695,10 +692,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   end
 
   defp delete_victim_files(victim, victim_paths) do
-    if victim.delete_body? do
-      body_path = Path.join(victim_paths.dir, "#{victim.key_hash}.#{victim.body_sha256}.body")
-      rm_tolerant(body_path)
-    end
+    rm_tolerant(Path.join(victim_paths.dir, victim.body_filename))
 
     if victim.delete_meta?, do: rm_tolerant(victim_paths.meta_path)
   end
@@ -760,19 +754,28 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     end
   end
 
-  defp body_filename(hash, body_sha256), do: "#{hash}.#{body_sha256}.body"
+  @doc false
+  # A body's filename carries what Admission needs to count and score the
+  # entry, so its startup scan lists names instead of reading metadata.
+  def body_filename(hash, body_sha256, size, cost),
+    do: "#{hash}.#{body_sha256}.#{size}.#{cost}.body"
 
-  defp body_sha256_from_filename(body_filename) do
-    case String.split(body_filename, ".", parts: 3) do
-      [_hash, body_sha256, "body"] ->
-        if valid_body_sha256?(body_sha256) do
-          {:ok, body_sha256}
-        else
-          {:error, :invalid_body_filename}
-        end
-
-      _parts ->
-        {:error, :invalid_body_filename}
+  @doc false
+  def parse_body_filename(body_filename) do
+    with [hash, body_sha256, size, cost, "body"] <- String.split(body_filename, "."),
+         true <- hex64?(hash, :lower) and valid_body_sha256?(body_sha256),
+         {size, ""} <- Integer.parse(size),
+         {cost, ""} <- Integer.parse(cost) do
+      {:ok,
+       %{
+         key_hash: hash,
+         body_sha256: body_sha256,
+         size_bytes: size,
+         cost_us: cost,
+         body_filename: body_filename
+       }}
+    else
+      _invalid -> {:error, :invalid_body_filename}
     end
   end
 

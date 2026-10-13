@@ -287,33 +287,49 @@ The `[:cache, :sweep]` event reports what each cleanup removed (see
 
 ## Size limit
 
-The cache evicts rarely requested entries to stay under `max_size_bytes`,
-including images made before an upgrade that changed how requests are
-cached.
+The cache evicts entries to stay under `max_size_bytes`, including images
+made before an upgrade that changed how requests are cached. It keeps the
+entries that are requested often and took the most work to make for their
+size, so an AVIF made with automatic quality outlasts a JPEG thumbnail
+requested as often.
 
 ### Cache process and restarts
 
 Each `root` runs one process that tracks the cache's size and chooses which
-entries to keep by how often each is requested. Only an instance starts that
-process (see `ImagePipe.child_spec/1` and
+entries to keep. Only an instance starts that process (see
+`ImagePipe.child_spec/1` and
 [Add a processed-image cache](caching-processed-images.md#add-a-processed-image-cache)).
 
 Request counts live only in memory. After a restart they start from zero,
-and entries already on disk are next in line for eviction, oldest first,
-until they are requested again.
+and entries already on disk are next in line for eviction, roughly those
+that took the least work for their size first, until they are requested
+again.
+
+### Work to make an entry
+
+The work to make a processed image is estimated from what its request did:
+the original's format and size, the output's format, size and encoder
+effort, each quality that [automatic quality](processing/output.md#autoquality)
+tries, and object detection. It isn't timed, so a busy server doesn't make
+entries look more expensive. Originals in the originals cache are scored by
+how long their download took.
 
 ### Eviction and startup scan
 
 `max_size_bytes` caps the total size of stored bodies in the `root`:
 
-- Each write either evicts every entry it needs to make room and then stores
-  the new entry, or rejects it. The stored bodies never exceed the cap.
+- To make room for a write, the cache picks 16 entries at random, chooses
+  the one least worth keeping, and repeats until the write fits. If the new
+  entry is worth more than the chosen entries, the cache evicts them and
+  stores it. Otherwise it rejects the write and evicts nothing, except one
+  time in 128 for an entry requested at least six times. The stored bodies
+  never exceed the cap.
 - An entry larger than `max_size_bytes` is always rejected.
-- On startup the process scans the entries already on disk in the
-  background, evicts until the cache is at or under the cap, for example
-  after you lower `max_size_bytes`, and then deletes
-  [leftover files](#leftover-files). It evicts in batches, so requests can
-  use the cache between them.
+- On startup the process lists the entries on disk in the background,
+  reading only file names. If the cache is over the cap, for example after
+  you lower `max_size_bytes`, it evicts in batches until it's under, so
+  requests can use the cache between batches. Then it deletes
+  [leftover files](#leftover-files).
 
 A write that waits more than 5 seconds for the cache process is reported as
 a [cache write](telemetry-events.md#cache-write) error with

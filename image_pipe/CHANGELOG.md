@@ -37,6 +37,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `[:cache, :lookup]` carries `:entry`, which says whether it read a processed
   response or a source record. The tracer adds them to their spans and span
   events.
+- The `[:cache, :write]` stop event carries `:estimated_cost_us`, the work
+  the cache estimates it took to make a processed image. The tracer adds it
+  to the span.
 - The `[:cache, :write]` stop event carries `:bytes`, the size of the stored
   body, so dividing it by the span's duration gives a rough write speed for the
   cache storage. `[:cache, :lookup]` carries `:bytes` on a hit for a processed
@@ -127,6 +130,14 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stops. Give each replica its own cache directories, such as its own volume.
   After a node is killed, a replacement with a new hostname starts using its
   cache about 30 seconds after it starts.
+- The processed-image cache keeps the entries that are requested often and
+  took the most work to make for their size, and estimates that work from
+  the request instead of timing it (see
+  [work to make an entry](docs/cache.md#work-to-make-an-entry)). On startup
+  it reads only file names, so a large cache is ready sooner.
+- Entries stored by an earlier version miss once, because entry files are
+  named differently. Their files are deleted as
+  [leftover files](docs/cache.md#leftover-files).
 
 ### Removed
 

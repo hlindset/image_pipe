@@ -10,6 +10,7 @@ defmodule ImagePipe.Delivery.ContractTest do
 
   use ExUnit.Case, async: true
 
+  alias ImagePipe.Cache.Cost
   alias ImagePipe.Cache.Key
   alias ImagePipe.Debug.Info
   alias ImagePipe.Delivery
@@ -82,18 +83,28 @@ defmodule ImagePipe.Delivery.ContractTest do
     end
   end
 
-  # ── cost_us: time-to-first-chunk, measured by the coordinator ────────────
+  # ── cost_us: estimated from the debug info by the coordinator ────────────
 
   describe "generation cost" do
-    test "the cache entry records a real cost_us, which cache admission scores by" do
-      assert {:ok, prepared} = stream(cache_key(), cache_config())
+    test "the cache entry records the cost estimated from the debug info" do
+      debug = %Info{
+        source_format: :png,
+        source_width: 400,
+        source_height: 300,
+        output_format: :jpeg,
+        output_width: 200,
+        output_height: 150
+      }
+
+      assert {:ok, prepared} = stream(cache_key(), cache_config(), debug)
       :ok = drain(prepared)
 
       assert_receive {:cache_open_sink, @hash, metadata}
+      assert metadata.cost_us == Cost.render(debug, resolved_output())
       assert metadata.cost_us > 0
     end
 
-    test "cost_us completes the producer's stage timings as :total" do
+    test "time to first chunk completes the producer's stage timings as :total" do
       debug = %Info{timings: %{decode: 1, encode: 2}}
 
       assert {:ok, prepared} = stream(cache_key(), cache_config(), debug)

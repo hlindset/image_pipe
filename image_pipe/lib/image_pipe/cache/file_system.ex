@@ -13,9 +13,9 @@ defmodule ImagePipe.Cache.FileSystem do
         MyAppWeb.Endpoint
       ]
 
-  `:max_size_bytes` caps the stored bodies: a write evicts rarely requested
-  entries to make room before it's stored, or is rejected. Entries requested
-  most often are kept longest (a W-TinyLFU policy).
+  `:max_size_bytes` caps the stored bodies: a write evicts entries to make
+  room before it's stored, or is rejected. The cache keeps the entries that
+  are requested often and took the most work to make for their size.
 
   To set up processed-image and originals caches, see
   [Caching processed images](caching-processed-images.md).

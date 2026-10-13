@@ -67,21 +67,20 @@ defmodule ImagePipe.Cache.FileReadTest do
 
   test "input invalidation releases bounded cache accounting", %{root: root} do
     opts = [root: root, max_size_bytes: 100]
-    start_supervised!(FileSystem.child_spec(opts ++ [window_ratio: 1.0]))
+    start_supervised!(FileSystem.child_spec(opts))
     [{admission, _}] = Registry.lookup(FileSystem.registry_name(root), root)
     assert :ok = Admission.await_scan(admission)
     key = put(root, "image", opts)
-    assert :sys.get_state(admission).window_bytes == 5
+    assert :sys.get_state(admission).stored_bytes == 5
 
     assert :ok = Cache.Input.discard(key, input_cache: opts)
     assert FileSystem.get(key, opts) == :miss
-    state = :sys.get_state(admission)
-    assert state.window_bytes + state.probationary_bytes + state.protected_bytes == 0
+    assert :sys.get_state(admission).stored_bytes == 0
   end
 
   test "invalidation releases accounting even when the body is already missing", %{root: root} do
     opts = [root: root, max_size_bytes: 100]
-    start_supervised!(FileSystem.child_spec(opts ++ [window_ratio: 1.0]))
+    start_supervised!(FileSystem.child_spec(opts))
     [{admission, _}] = Registry.lookup(FileSystem.registry_name(root), root)
     assert :ok = Admission.await_scan(admission)
     key = put(root, "image", opts)
@@ -89,13 +88,13 @@ defmodule ImagePipe.Cache.FileReadTest do
     File.rm!(body)
 
     assert {:error, :enoent} = Cache.Input.discard(key, input_cache: opts)
-    assert :sys.get_state(admission).window_bytes == 0
+    assert :sys.get_state(admission).stored_bytes == 0
     assert FileSystem.get(key, opts) == :miss
   end
 
   test "failed metadata invalidation retains the body and accounting", %{root: root} do
     opts = [root: root, max_size_bytes: 100]
-    start_supervised!(FileSystem.child_spec(opts ++ [window_ratio: 1.0]))
+    start_supervised!(FileSystem.child_spec(opts))
     [{admission, _}] = Registry.lookup(FileSystem.registry_name(root), root)
     assert :ok = Admission.await_scan(admission)
     key = put(root, "image", opts)
@@ -104,7 +103,7 @@ defmodule ImagePipe.Cache.FileReadTest do
     File.mkdir!(paths.meta_path)
 
     assert {:error, _} = Cache.Input.discard(key, input_cache: opts)
-    assert :sys.get_state(admission).window_bytes == 5
+    assert :sys.get_state(admission).stored_bytes == 5
     assert [body] = Path.wildcard(Path.join(root, "**/*.body"))
     assert File.read!(body) == "image"
   end

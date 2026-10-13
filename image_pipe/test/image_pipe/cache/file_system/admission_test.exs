@@ -59,10 +59,27 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     {:ok, paths} = FileSystem.paths_from_hash(hash, root: tmp_dir)
     {:ok, descriptor, _} = FileSystem.read_descriptor(paths.meta_path)
     Admission.hit(pid, descriptor)
-    state = :sys.get_state(pid)
 
-    assert in_queue?(state.probationary, hash)
-    assert state.probationary_bytes == byte_size("persisted body")
+    assert entry_row(pid, hash) ==
+             {hash, byte_size("persisted body"), 0, descriptor.body_filename}
+
+    assert stored_bytes(pid) == byte_size("persisted body")
+  end
+
+  test "hit/2 on an untracked key deleted since it was read is dropped",
+       %{registry: registry, tmp_dir: tmp_dir} do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
+    pid = start_supervised!({Admission, opts})
+    Admission.await_scan(pid)
+    hash = hex_hash("f")
+    put_disk_entry(tmp_dir, hash, "persisted body")
+    {:ok, paths} = FileSystem.paths_from_hash(hash, root: tmp_dir)
+    {:ok, descriptor, _} = FileSystem.read_descriptor(paths.meta_path)
+    :ok = Store.delete(%Key{hash: hash, data: []}, root: tmp_dir)
+    Admission.hit(pid, descriptor)
+
+    assert entry_row(pid, hash) == nil
+    assert stored_bytes(pid) == 0
   end
 
   test "aging triggers when local CMS sample threshold is hit", %{
@@ -98,60 +115,9 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     refute File.exists?(leftover)
   end
 
-  test "window_ratio 0.0 disables the window; admits land in the main gate", %{
-    registry: registry,
-    tmp_dir: tmp_dir
-  } do
-    opts = base_opts(registry: registry, tmp_dir: tmp_dir, window_ratio: 0.0)
-    pid = start_supervised!({Admission, opts})
-
-    pool = [root: tmp_dir, max_size_bytes: 1_000_000]
-    assert :ok = put_with_cost(pool, "entry", 1_000)
-
-    state = :sys.get_state(pid)
-    assert state.window_bytes == 0
-    assert state.probationary_bytes == 1_000
-  end
-
-  describe "protected segment" do
-    setup %{registry: registry, tmp_dir: tmp_dir} do
-      opts =
-        base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: 20_000, window_ratio: 0.0)
-
-      pid = start_supervised!({Admission, opts})
-      Admission.await_scan(pid)
-      %{pid: pid}
-    end
-
-    test "keeps up to 80% of the main budget", %{pid: pid, tmp_dir: tmp_dir} do
-      descriptors = for i <- 1..8, do: persisted_descriptor(tmp_dir, "key-#{i}", 2_000)
-      Enum.each(descriptors, &hit_twice(pid, &1))
-
-      state = :sys.get_state(pid)
-      assert state.protected_bytes == 16_000
-      assert Enum.all?(descriptors, &in_queue?(state.protected, &1.key_hash))
-    end
-
-    test "demotes until it is back within its budget", %{pid: pid, tmp_dir: tmp_dir} do
-      [small, medium, large] =
-        for {seed, size} <- [{"small", 1_600}, {"medium", 8_000}, {"large", 9_600}],
-            do: persisted_descriptor(tmp_dir, seed, size)
-
-      Enum.each([small, medium, large], &hit_twice(pid, &1))
-
-      state = :sys.get_state(pid)
-      assert state.protected_bytes == 9_600
-      assert in_queue?(state.protected, large.key_hash)
-      assert in_queue?(state.probationary, small.key_hash)
-      assert in_queue?(state.probationary, medium.key_hash)
-    end
-  end
-
   describe "admission gate" do
     setup %{registry: registry, tmp_dir: tmp_dir} do
-      opts =
-        base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: 10_000, window_ratio: 0.0)
-
+      opts = base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: 10_000)
       pid = start_supervised!({Admission, opts})
       Admission.await_scan(pid)
       pool = [root: tmp_dir, max_size_bytes: 10_000]
@@ -162,11 +128,13 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     test "admits a once-seen entry that is costlier per byte than its victim", ctx do
       assert :ok = put_with_cost(ctx.pool, "costly", 100_000)
       assert tracked?(ctx.pid, "costly")
+      assert stored_bytes(ctx.pid) == 10_000
     end
 
     test "rejects a once-seen entry that is cheaper per byte than its victim", ctx do
       assert {:ok, :rejected} = put_with_cost(ctx.pool, "cheap", 10)
       refute tracked?(ctx.pid, "cheap")
+      assert stored_bytes(ctx.pid) == 10_000
     end
 
     test "may admit a losing entry once it has been requested six times", ctx do
@@ -181,50 +149,95 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     end
   end
 
-  defp put_with_cost(pool, seed, cost_us) do
-    body = String.pad_leading(seed, 1_000, "x")
-    key = %Key{hash: hash(seed), data: []}
+  describe "sampled eviction" do
+    test "evicts the lowest-scoring entry", ctx do
+      pid = start_cache(ctx, 3_000)
+      pool = [root: ctx.tmp_dir, max_size_bytes: 3_000]
 
-    metadata =
-      struct!(Entry.Metadata,
-        content_type: "image/png",
-        headers: [],
-        output_format: :png,
-        created_at: ~U[2026-04-29 10:15:00Z],
-        cost_us: cost_us
-      )
+      # Scores (frequency × cost / size): a 4 × 1_000, b 1 × 2_000, c 1 × 3_000.
+      :ok = put_entry(pool, "a", 1_000, 1_000)
+      :ok = put_entry(pool, "b", 1_000, 2_000)
+      :ok = put_entry(pool, "c", 1_000, 3_000)
+      for _ <- 1..3, do: {:hit, _} = FileSystem.get(key("a"), pool)
 
-    with {:ok, sink} <- FileSystem.open_sink(key, metadata, pool),
-         {:ok, sink} <- FileSystem.write_chunk(sink, body, pool) do
-      FileSystem.commit_sink(sink, pool)
+      assert :ok = put_entry(pool, "candidate", 1_000, 100_000)
+
+      refute tracked?(pid, "b")
+      assert FileSystem.get(key("b"), pool) == :miss
+      assert Enum.all?(["a", "c", "candidate"], &tracked?(pid, &1))
+      assert stored_bytes(pid) == 3_000
+    end
+
+    test "takes the lowest-scoring entries until the write fits", ctx do
+      pid = start_cache(ctx, 4_000)
+      pool = [root: ctx.tmp_dir, max_size_bytes: 4_000]
+
+      for cost <- [3_000, 1_000, 4_000, 2_000],
+          do: :ok = put_entry(pool, "cost-#{cost}", 1_000, cost)
+
+      assert :ok = put_entry(pool, "candidate", 2_500, 1_000_000)
+
+      for cost <- [1_000, 2_000, 3_000] do
+        refute tracked?(pid, "cost-#{cost}")
+        assert FileSystem.get(key("cost-#{cost}"), pool) == :miss
+      end
+
+      assert tracked?(pid, "cost-4000")
+      assert tracked?(pid, "candidate")
+      assert stored_bytes(pid) == 3_500
+    end
+
+    test "a rejected replacement leaves the entry it would replace", ctx do
+      pid = start_cache(ctx, 2_000)
+      pool = [root: ctx.tmp_dir, max_size_bytes: 2_000]
+      old_body = body("a", 1_000)
+
+      :ok = put_entry(pool, "a", 1_000, 1_000_000)
+      :ok = put_entry(pool, "b", 1_000, 1_000_000)
+      old_row = entry_row(pid, hash("a"))
+
+      assert {:ok, :rejected} = put_entry(pool, "a", 1_500, 1)
+
+      assert {:hit, %{body: ^old_body}} = FileSystem.get(key("a"), pool)
+      assert entry_row(pid, hash("a")) == old_row
+      assert tracked?(pid, "b")
+      assert stored_bytes(pid) == 2_000
     end
   end
 
-  defp tracked?(pid, seed), do: :ets.member(:sys.get_state(pid).index, hash(seed))
-
-  defp hash(seed), do: :crypto.hash(:sha256, seed) |> Base.encode16(case: :lower)
-
-  defp hit_twice(pid, descriptor) do
-    Admission.hit(pid, descriptor)
-    Admission.hit(pid, descriptor)
-  end
-
-  test "background scan inserts on-disk entries into probationary", %{
+  test "background scan builds entries from body filenames", %{
     registry: registry,
     tmp_dir: tmp_dir
   } do
-    # Pre-place a real entry on disk via the FileSystem adapter so the
-    # meta payload is valid for read_descriptor/1.
-    put_disk_entry(tmp_dir, hex_hash("a"), "encoded image body")
+    hash = hex_hash("a")
+    put_disk_entry(tmp_dir, hash, "encoded image body", 1_234)
+    {:ok, paths} = FileSystem.paths_from_hash(hash, root: tmp_dir)
+    {:ok, descriptor, _mtime} = FileSystem.read_descriptor(paths.meta_path)
 
-    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
-    pid = start_supervised!({Admission, opts})
-
+    pid = start_supervised!({Admission, base_opts(registry: registry, tmp_dir: tmp_dir)})
     Admission.await_scan(pid, 5_000)
 
-    state = :sys.get_state(pid)
-    assert state.probationary_bytes > 0
-    assert in_queue?(state.probationary, hex_hash("a"))
+    size = byte_size("encoded image body")
+    assert entry_row(pid, hash) == {hash, size, 1_234, descriptor.body_filename}
+    assert stored_bytes(pid) == size
+  end
+
+  test "background scan reads no metadata for a key with one body", %{
+    registry: registry,
+    tmp_dir: tmp_dir
+  } do
+    hash = hex_hash("a")
+    put_disk_entry(tmp_dir, hash, "encoded image body", 1_234)
+    {:ok, paths} = FileSystem.paths_from_hash(hash, root: tmp_dir)
+    {:ok, descriptor, _mtime} = FileSystem.read_descriptor(paths.meta_path)
+    File.write!(paths.meta_path, "not metadata")
+
+    pid = start_supervised!({Admission, base_opts(registry: registry, tmp_dir: tmp_dir)})
+    Admission.await_scan(pid, 5_000)
+
+    size = byte_size("encoded image body")
+    assert entry_row(pid, hash) == {hash, size, 1_234, descriptor.body_filename}
+    assert stored_bytes(pid) == size
   end
 
   test "scan does not overwrite a key already inserted by runtime traffic", %{
@@ -235,7 +248,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     # Pre-place an entry on disk with one size.
     put_disk_entry(tmp_dir, hash, "old-on-disk-body")
     {:ok, paths} = FileSystem.paths_from_hash(hash, root: tmp_dir)
-    {:ok, snapshot, mtime} = FileSystem.read_descriptor(paths.meta_path)
+    {:ok, snapshot, _mtime} = FileSystem.read_descriptor(paths.meta_path)
     :ok = Store.delete(%Key{hash: hash, data: []}, root: tmp_dir)
 
     opts = base_opts(registry: registry, tmp_dir: tmp_dir)
@@ -245,14 +258,13 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     put_disk_entry(tmp_dir, hash, String.duplicate("x", 4_321))
     {:ok, runtime_descriptor, _} = FileSystem.read_descriptor(paths.meta_path)
     Admission.hit(pid, runtime_descriptor)
-    assert :ok = GenServer.call(pid, {:apply_scan_batch, [Map.put(snapshot, :mtime, mtime)]})
+    assert :ok = GenServer.call(pid, {:apply_scan_batch, [snapshot]})
 
-    state = :sys.get_state(pid)
-    # The runtime descriptor survives; the scan did not overwrite it with
-    # the on-disk descriptor (which has a different size and body_sha256).
-    located = locate_descriptor(state, hash)
-    assert located.size_bytes == 4_321
-    assert located.body_sha256 == runtime_descriptor.body_sha256
+    # The runtime entry survives; the scan did not overwrite it with the
+    # snapshot, which has a different size and body.
+    assert {^hash, 4_321, _cost, body_filename} = entry_row(pid, hash)
+    assert body_filename == runtime_descriptor.body_filename
+    assert stored_bytes(pid) == 4_321
   end
 
   # Puts Admission back in the state it keeps while a startup scan runs, so the
@@ -271,16 +283,11 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
 
   defp snapshot(root, hash) do
     {:ok, paths} = FileSystem.paths_from_hash(hash, root: root)
-    {:ok, descriptor, mtime} = FileSystem.read_descriptor(paths.meta_path)
-    {paths, descriptor, Map.put(descriptor, :mtime, mtime)}
+    {:ok, descriptor, _mtime} = FileSystem.read_descriptor(paths.meta_path)
+    {paths, descriptor}
   end
 
   defp apply_snapshot(pid, entry), do: GenServer.call(pid, {:apply_scan_batch, [entry]})
-
-  defp tracked_bytes(pid) do
-    state = :sys.get_state(pid)
-    state.probationary_bytes + state.protected_bytes + state.window_bytes
-  end
 
   test "a scan snapshot of an entry deleted mid-scan is skipped", ctx do
     hash = hex_hash("d")
@@ -289,14 +296,14 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     pid =
       during_scan(ctx, opts, fn pid ->
         put_disk_entry(ctx.tmp_dir, hash, "old body")
-        {paths, _descriptor, entry} = snapshot(ctx.tmp_dir, hash)
+        {paths, entry} = snapshot(ctx.tmp_dir, hash)
         assert Admission.delete(pid, paths) == :ok
 
         assert :ok = apply_snapshot(pid, entry)
-        assert tracked_bytes(pid) == 0
+        assert stored_bytes(pid) == 0
       end)
 
-    assert tracked_bytes(pid) == 0
+    assert stored_bytes(pid) == 0
 
     assert FileSystem.get(%Key{hash: hash, data: []},
              root: ctx.tmp_dir,
@@ -310,59 +317,109 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
 
     during_scan(ctx, opts, fn pid ->
       put_disk_entry(ctx.tmp_dir, hash, String.duplicate("x", 100))
-      {_paths, descriptor, entry} = snapshot(ctx.tmp_dir, hash)
+      {_paths, entry} = snapshot(ctx.tmp_dir, hash)
 
       # A hit tracks the entry before the scan reaches it, and the over-cap
       # entry is then evicted.
-      Admission.hit(pid, descriptor)
-      assert tracked_bytes(pid) == 100
+      Admission.hit(pid, entry)
+      assert stored_bytes(pid) == 100
       assert :ok = GenServer.call(pid, :reconcile_to_cap)
-      assert tracked_bytes(pid) == 0
+      assert stored_bytes(pid) == 0
 
       assert :ok = apply_snapshot(pid, entry)
-      assert tracked_bytes(pid) == 0
+      assert stored_bytes(pid) == 0
     end)
   end
 
-  test "boot reconciliation evicts LRU until usage is under cap", %{
+  test "boot reconciliation evicts until usage is under cap", %{
     registry: registry,
     tmp_dir: tmp_dir
   } do
-    # Place several entries on disk whose total exceeds a small cap.
-    h1 = hex_hash("c1")
-    h2 = hex_hash("c2")
-    h3 = hex_hash("c3")
+    hashes = for seed <- ["c1", "c2", "c3"], do: hex_hash(seed)
+    for hash <- hashes, do: put_disk_entry(tmp_dir, hash, String.duplicate("x", 4_000))
 
-    body = String.duplicate("x", 4_000)
-    put_disk_entry(tmp_dir, h1, body)
-    put_disk_entry(tmp_dir, h2, body)
-    put_disk_entry(tmp_dir, h3, body)
-
-    # max_size_bytes small enough that all three (12_000 bytes) overshoot.
+    # All three (12_000 bytes) overshoot the cap; evicting one fits.
     opts = base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: 9_000)
     pid = start_supervised!({Admission, opts})
     Admission.await_scan(pid, 5_000)
 
-    state = :sys.get_state(pid)
-    total = state.window_bytes + state.probationary_bytes + state.protected_bytes
-    assert total <= 9_000
+    assert stored_bytes(pid) == 8_000
 
-    # At least one on-disk meta file should have been deleted by reconcile.
     remaining =
-      [h1, h2, h3]
-      |> Enum.count(fn h ->
-        {:ok, paths} = FileSystem.paths_from_hash(h, root: tmp_dir)
+      Enum.filter(hashes, fn hash ->
+        {:ok, paths} = FileSystem.paths_from_hash(hash, root: tmp_dir)
         File.exists?(paths.meta_path)
       end)
 
-    assert remaining < 3
+    assert length(remaining) == 2
+    assert Enum.all?(remaining, &(entry_row(pid, &1) != nil))
   end
+
+  test "boot reconciliation evicts the cheapest entry when none has been seen", %{
+    registry: registry,
+    tmp_dir: tmp_dir
+  } do
+    [cheap, dear_a, dear_b] = for seed <- ["d1", "d2", "d3"], do: hex_hash(seed)
+    put_disk_entry(tmp_dir, cheap, String.duplicate("x", 4_000), 1_000)
+    put_disk_entry(tmp_dir, dear_a, String.duplicate("x", 4_000), 90_000)
+    put_disk_entry(tmp_dir, dear_b, String.duplicate("x", 4_000), 90_000)
+
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: 9_000)
+    pid = start_supervised!({Admission, opts})
+    Admission.await_scan(pid, 5_000)
+
+    assert entry_row(pid, cheap) == nil
+    assert entry_row(pid, dear_a) != nil
+    assert entry_row(pid, dear_b) != nil
+  end
+
+  defp start_cache(ctx, max_size_bytes) do
+    opts = base_opts(registry: ctx.registry, tmp_dir: ctx.tmp_dir, max_size_bytes: max_size_bytes)
+    pid = start_supervised!({Admission, opts})
+    Admission.await_scan(pid)
+    pid
+  end
+
+  defp put_with_cost(pool, seed, cost_us), do: put_entry(pool, seed, 1_000, cost_us)
+
+  defp put_entry(pool, seed, size, cost_us) do
+    metadata =
+      struct!(Entry.Metadata,
+        content_type: "image/png",
+        headers: [],
+        output_format: :png,
+        created_at: ~U[2026-04-29 10:15:00Z],
+        cost_us: cost_us
+      )
+
+    with {:ok, sink} <- FileSystem.open_sink(key(seed), metadata, pool),
+         {:ok, sink} <- FileSystem.write_chunk(sink, body(seed, size), pool) do
+      FileSystem.commit_sink(sink, pool)
+    end
+  end
+
+  defp body(seed, size), do: String.pad_leading(seed, size, "x")
+
+  defp key(seed), do: %Key{hash: hash(seed), data: []}
+
+  defp tracked?(pid, seed), do: entry_row(pid, hash(seed)) != nil
+
+  defp entry_row(pid, key_hash) do
+    case :ets.lookup(:sys.get_state(pid).entries, key_hash) do
+      [row] -> row
+      [] -> nil
+    end
+  end
+
+  defp stored_bytes(pid), do: :sys.get_state(pid).stored_bytes
+
+  defp hash(seed), do: :crypto.hash(:sha256, seed) |> Base.encode16(case: :lower)
 
   defp hex_hash(seed), do: seed <> String.duplicate("0", 64 - byte_size(seed))
 
-  defp persisted_descriptor(root, seed, size \\ 100) do
-    hash = :crypto.hash(:sha256, seed) |> Base.encode16(case: :lower)
-    put_disk_entry(root, hash, String.duplicate("x", size))
+  defp persisted_descriptor(root, seed) do
+    hash = hash(seed)
+    put_disk_entry(root, hash, String.duplicate("x", 100))
     {:ok, paths} = FileSystem.paths_from_hash(hash, root: root)
     {:ok, descriptor, _mtime} = FileSystem.read_descriptor(paths.meta_path)
     descriptor
@@ -370,7 +427,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
 
   # Leaves an entry on disk that no Admission tracks, as an earlier run would:
   # it's written through a cache on a staging root and copied into place.
-  defp put_disk_entry(root, hash, body) do
+  defp put_disk_entry(root, hash, body, cost_us \\ 0) do
     cache_key = %Key{
       hash: hash,
       data: [schema_version: 1]
@@ -381,7 +438,8 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
         content_type: "image/webp",
         headers: [{"vary", "Accept"}],
         created_at: ~U[2026-04-29 10:15:00Z],
-        output_format: :webp
+        output_format: :webp,
+        cost_us: cost_us
       )
 
     staging = root <> "_staging"
@@ -390,17 +448,6 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     File.mkdir_p!(dir)
     File.cp_r!(paths.dir, dir)
     File.rm_rf!(staging)
-  end
-
-  # Find the descriptor for a key_hash across all three queues.
-  defp locate_descriptor(state, key_hash) do
-    [state.window, state.probationary, state.protected]
-    |> Enum.find_value(fn table ->
-      case :ets.match_object(table, {{:_, key_hash}, :_}) do
-        [{_key, descriptor}] -> descriptor
-        _ -> nil
-      end
-    end)
   end
 
   # Small sketches, aging every 10 sightings per counter, so tests reach aging
@@ -412,7 +459,6 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
       [
         root: overrides[:tmp_dir],
         max_size_bytes: overrides[:max_size_bytes] || 1_000_000,
-        window_ratio: overrides[:window_ratio] || 0.01,
         sketch_depth: 4,
         sketch_width: sketch_width,
         aging_sample_size: sketch_width * 10,
@@ -422,8 +468,4 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
       overrides[:registry]
     )
   end
-
-  # Test-local introspection helper: reads the GenServer's :protected ETS
-  # queue tables by key_hash. Admission's own in_queue?/2 is private.
-  defp in_queue?(table, key_hash), do: :ets.match_object(table, {{:_, key_hash}, :_}) != []
 end

@@ -200,6 +200,14 @@ defmodule ImagePipe.Transform.Executor do
   def operation_names(%Spec{groups: groups}),
     do: Enum.flat_map(groups, &group_operation_names/1)
 
+  @doc "Counts the groups whose crop runs a detector."
+  @spec detections(Spec.t()) :: non_neg_integer()
+  def detections(%Spec{groups: groups}), do: Enum.count(groups, &detects?/1)
+
+  defp detects?(%Group{guide: {:detect, _}}), do: true
+  defp detects?(%Group{guide: {:smart, :face_assist}}), do: true
+  defp detects?(%Group{}), do: false
+
   defp execute_groups(state, groups, opts) do
     Enum.reduce_while(groups, {:ok, state}, fn group, {:ok, state} ->
       case execute_group(state, group, opts) do

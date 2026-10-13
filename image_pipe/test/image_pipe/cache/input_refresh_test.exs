@@ -15,7 +15,7 @@ defmodule ImagePipe.Cache.InputRefreshTest do
     root = Path.join(System.tmp_dir!(), "input_refresh_#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(root) end)
     pool = [root: root, max_size_bytes: 100]
-    start_supervised!(FileSystem.child_spec(pool ++ [window_ratio: 1.0]))
+    start_supervised!(FileSystem.child_spec(pool))
     tasks = start_supervised!({Task.Supervisor, []})
     [{admission, _}] = Registry.lookup(FileSystem.registry_name(root), root)
     assert :ok = Admission.await_scan(admission)
@@ -125,7 +125,8 @@ defmodule ImagePipe.Cache.InputRefreshTest do
     path = Path.join(Keyword.fetch!(ctx.pool, :root), "replacement")
     File.write!(path, "new image")
     {:ok, paths} = FileSystem.paths(ctx.key, ctx.pool)
-    filename = "#{ctx.key.hash}.#{Base.encode16(sha256("new image"), case: :lower)}.body"
+    sha = Base.encode16(sha256("new image"), case: :lower)
+    filename = Store.body_filename(ctx.key.hash, sha, byte_size("new image"), 25)
     File.mkdir!(Path.join(paths.dir, filename))
     admission = ctx.admission
     ref = Process.monitor(admission)
@@ -226,7 +227,7 @@ defmodule ImagePipe.Cache.InputRefreshTest do
 
     assert Task.await_many([deletion, refresh]) == [:ok, :ok]
     assert Store.metadata(ctx.key, ctx.pool) == :miss
-    assert :sys.get_state(ctx.admission).window_bytes == 0
+    assert :sys.get_state(ctx.admission).stored_bytes == 0
   end
 
   defp queued(tasks, parent, fun) do
