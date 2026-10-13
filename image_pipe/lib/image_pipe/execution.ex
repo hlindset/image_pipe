@@ -378,6 +378,9 @@ defmodule ImagePipe.Execution do
       {:leader, lease} -> generate_leader(context, lease)
       :ready -> cached_or_generate(context)
       :bypass -> generate_uncoalesced(context)
+      # Another request's image wasn't stored in time, so the disk is slow:
+      # this render isn't stored, so it doesn't add to the writes.
+      {:bypass, :deadline} -> generate_uncoalesced(context, nil, false)
     end
   end
 
@@ -408,11 +411,11 @@ defmodule ImagePipe.Execution do
       :erlang.raise(kind, reason, __STACKTRACE__)
   end
 
-  defp generate_uncoalesced(context, lease \\ nil) do
+  defp generate_uncoalesced(context, lease \\ nil, store? \\ true) do
     result =
       with {:ok, watermark_inputs} <- watermark_inputs(context) do
         session = [source_record: context.acquisition.record, output_lease: lease]
-        key = if storable?(context), do: context.representation.cache_key
+        key = if store? and storable?(context), do: context.representation.cache_key
         generate(context, watermark_inputs, session, key)
       end
 

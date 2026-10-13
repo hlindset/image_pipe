@@ -47,9 +47,9 @@ defmodule ImagePipe.Cache.OutputWork do
     :bypass
   end
 
-  defp joined({:bypass, :deadline}, opts) do
+  defp joined({:bypass, :deadline} = result, opts) do
     report(opts, :bypass, %{reason: :deadline})
-    :bypass
+    result
   end
 
   defp joined(result, opts) do

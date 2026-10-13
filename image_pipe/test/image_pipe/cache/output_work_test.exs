@@ -130,7 +130,7 @@ defmodule ImagePipe.Cache.OutputWorkTest do
 
     OutputWork.transfer(lease, writer.pid, 60_000)
     send(server, {:deadline, token})
-    assert Task.await(follower) == :bypass
+    assert Task.await(follower) == {:bypass, :deadline}
     assert_receive {:reason, :deadline}
 
     send(writer.pid, :complete)
