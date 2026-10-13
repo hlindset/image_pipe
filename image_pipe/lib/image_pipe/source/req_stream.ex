@@ -171,7 +171,7 @@ defmodule ImagePipe.Source.ReqStream do
     |> Req.Request.append_request_steps(
       conditional_headers: &put_conditional_headers(&1, previous)
     )
-    |> PinnedTarget.attach(addresses)
+    |> PinnedTarget.attach(addresses, Keyword.fetch!(runtime_opts, :deadline))
   end
 
   defp send_request(request) do

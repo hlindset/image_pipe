@@ -53,6 +53,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - An HTTP source URL whose query has a space or a non-ASCII character, such
   as `?a b`, is fetched with those characters percent-encoded. Before, the
   request failed with `502`.
+- An HTTP source whose host name resolves to several addresses could keep
+  a fetch going for several times `fetch_timeout`, because it waited the
+  full `receive_timeout` at each address in turn. Fetches now end by
+  `fetch_timeout`. An origin that closes a connection after receiving the
+  request no longer gets the same request again at its next address.
 
 ## [0.2.0] - 2026-10-13
 
