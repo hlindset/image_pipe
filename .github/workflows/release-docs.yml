@@ -1,0 +1,106 @@
+name: Library docs
+
+# Republishes the HexDocs of image_pipe_url and image_pipe for a version that
+# is already on Hex, from a ref whose only changes since the vX.Y.Z tag are
+# Markdown files and doc assets, such as a docs/vX.Y.Z branch made from the
+# tag. The server guides are image_pipe extras, so they publish with it.
+# Run it from main: the ref's own copy of this workflow may be older. Without
+# `publish`, it only builds the docs.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or commit to build the docs from
+        required: true
+      publish:
+        description: Publish to HexDocs
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify ref
+    runs-on: ubuntu-26.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Released version with only docs changes since its tag
+        id: version
+        run: |
+          version="$(scripts/check-versions.sh libraries)"
+
+          if ! git rev-parse -q --verify "refs/tags/v$version" > /dev/null; then
+            echo "::error::No tag v$version for the libraries' version at this ref"
+            exit 1
+          fi
+
+          changed="$(git diff --name-only "v$version" HEAD | grep -vE '\.md$|^image_pipe/docs/assets/' || true)"
+          if [[ -n "$changed" ]]; then
+            echo "::error::Files other than docs changed since v$version"
+            echo "$changed"
+            exit 1
+          fi
+
+          for package in image_pipe_url image_pipe; do
+            if ! curl -fsS -o /dev/null "https://hex.pm/api/packages/$package/releases/$version"; then
+              echo "::error::$package $version is not on Hex"
+              exit 1
+            fi
+          done
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  docs:
+    name: Docs ${{ needs.verify.outputs.version }}
+    needs: verify
+    runs-on: ubuntu-26.04
+    env:
+      # Use only the tools mise-action installs, not every tool in mise.toml.
+      MISE_EXEC_AUTO_INSTALL: "false"
+    environment: ${{ inputs.publish && 'release' || 'release-dry-run' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      # Workaround: mise (2026.9.18) maps ImageOS to builds.hex.pm's Erlang
+      # builds only up to ubuntu24 and compiles from source otherwise, so name
+      # the release. Remove once mise maps ubuntu26 itself
+      # (linux_precompiled_os_version in src/plugins/core/erlang.rs).
+      - name: Precompiled Erlang
+        run: echo "MISE_ERLANG_PRECOMPILED_OS=${ImageOS/ubuntu/ubuntu-}.04" >> "$GITHUB_ENV"
+      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          install_args: erlang elixir rust
+      - name: Install Hex
+        run: mise exec -- mix local.hex --force
+      - name: Install Rebar
+        run: mise exec -- mix local.rebar --force
+      # image_pipe builds against the released image_pipe_url and
+      # image_pipe_svg from Hex, as it does when publishing the package.
+      - name: Build docs
+        run: |
+          (cd image_pipe_url && mise exec -- mix deps.get && mise exec -- mix docs --warnings-as-errors)
+          (cd image_pipe && mise exec -- mix deps.get && mise exec -- mix docs --warnings-as-errors)
+        env:
+          IMAGE_PIPE_PUBLISH: "1"
+      - name: Publish
+        if: inputs.publish
+        run: |
+          (cd image_pipe_url && mise exec -- mix hex.publish docs --yes)
+          (cd image_pipe && mise exec -- mix hex.publish docs --yes)
+        env:
+          IMAGE_PIPE_PUBLISH: "1"
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}

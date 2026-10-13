@@ -66,9 +66,10 @@ The tag starts the [Library release workflow](.github/workflows/release.yml):
 3. It creates the GitHub release from both changelogs, grouped by project.
 
 The `release` environment holds the `HEX_API_KEY` secret. It accepts only
-tags that match its deployment rules, `v*.*.*` and `image_pipe_svg-v*.*.*`,
-and refuses a job started by any other tag. A new tag prefix that publishes
-to Hex needs its own rule in the environment's settings.
+jobs from the refs in its deployment rules: the `v*.*.*` and
+`image_pipe_svg-v*.*.*` tags, and `main` for
+[republishing docs](#fix-the-docs-of-a-release). A new tag prefix that
+publishes to Hex needs its own rule in the environment's settings.
 
 Server images don't change. To ship the new libraries in images, set
 `@image_pipe_version` in the next server release.
@@ -170,6 +171,26 @@ published.
 Never move a tag. Fix a bad release with the next patch version. Within Hex's
 revert window, `mix hex.publish --revert X.Y.Z` in the package directory
 withdraws a library version.
+
+## Fix the docs of a release
+
+HexDocs for `image_pipe_url` and `image_pipe` can be republished without a
+new release. The server guides are `image_pipe` extras, so they publish with
+it. Docs built from `main` would describe unreleased changes, so build them
+from the release tag plus the fixes:
+
+1. Merge the fix to `main` as usual.
+2. Make a `docs/vX.Y.Z` branch from the `vX.Y.Z` tag, or reuse it, and
+   cherry-pick the fix onto it. Push the branch.
+3. Run the [Library docs workflow](.github/workflows/release-docs.yml) from
+   `main` with that branch as `ref`. Without `publish`, it only builds the
+   docs. With `publish`, it waits for a maintainer to approve the `release`
+   environment, then replaces the docs of both packages on HexDocs.
+
+The workflow checks that the ref's version is on Hex and that only Markdown
+files and `image_pipe/docs/assets/` changed since the tag. A fix to a
+`@moduledoc`, `@doc`, or the ExDoc configuration changes code, so it waits
+for the next release.
 
 ## Try a release without publishing
 
