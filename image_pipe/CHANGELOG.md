@@ -29,6 +29,15 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   or by configuration, or if a crop fell back because content detection
   failed. Before, it got the earlier Plug's `Cache-Control` capped at the
   expiry, and a CDN could store it.
+- On a URL with `expires`, a `Cache-Control` set by an earlier Plug is capped
+  at the expiry in more cases:
+  - A quoted value, such as `max-age="86400"`, is read as seconds. A
+    `max-age` that isn't a whole number of seconds, such as
+    `max-age=86400.5`, is replaced, and an `s-maxage` like that is dropped.
+    Before, both failed the request with `500`.
+  - Directive names match in any case, so `MAX-AGE=86400` is lowered too.
+  - A `Cache-Control` without `max-age`, such as `public`, gets one that ends
+    at the expiry.
 
 ## [0.2.0] - 2026-10-13
 

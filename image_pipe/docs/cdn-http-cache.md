@@ -124,7 +124,12 @@ immutable without being marked.
 A URL with an [`expires`](processing/request.md#expires) time never gets a cache
 lifetime that outlasts it:
 
-- `max-age` and `s-maxage` are lowered to the time left.
+- `max-age` is lowered to the time left, or set to the time left when it's
+  missing.
+- `s-maxage` is lowered to the time left.
+- A `max-age` that isn't a whole number of seconds, such as
+  `max-age=86400.5`, is replaced with the time left. An `s-maxage` like that
+  is dropped.
 - `stale-while-revalidate` and `stale-if-error` are dropped.
 - `must-revalidate` is added.
 

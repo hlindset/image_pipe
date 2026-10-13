@@ -229,54 +229,70 @@ defmodule ImagePipe.Response.CachePolicy do
 
   # Caches subtract `Age` from `max-age`, so the freshness left is the
   # difference. `must-revalidate` forbids serving stale responses, so stale
-  # windows are dropped rather than left for caches to ignore.
+  # windows are dropped rather than left for caches to ignore. A host value
+  # that isn't a delta-seconds counts as absent, and a missing `max-age`
+  # would leave caches free to use a heuristic lifetime past the expiry.
   defp cap_control(control, age, remaining) do
     directives =
-      control |> String.split(",") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
+      control
+      |> String.split(",")
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.map(&{directive_name(&1), &1})
 
-    if "no-store" in directives do
+    if List.keymember?(directives, "no-store", 0) do
       control
     else
-      directives =
-        directives
-        |> put_directive("stale-while-revalidate", 0)
-        |> put_directive("stale-if-error", 0)
+      cap = remaining + age
 
       directives =
-        if directive_seconds(directives, "max-age") - age > remaining,
-          do: put_directive(directives, "max-age", remaining + age),
-          else: directives
+        Enum.flat_map(directives, fn
+          {name, _directive} when name in ["stale-while-revalidate", "stale-if-error"] ->
+            []
 
-      # Shared caches use `s-maxage` in place of `max-age`.
+          {name, directive} when name in ["max-age", "s-maxage"] ->
+            cap_seconds(name, directive_seconds(directive), age, remaining, cap)
+
+          {name, directive} ->
+            [{name, directive}]
+        end)
+
       directives =
-        if directive_seconds(directives, "s-maxage") - age > remaining,
-          do: put_directive(directives, "s-maxage", remaining + age),
-          else: directives
+        if List.keymember?(directives, "max-age", 0),
+          do: directives,
+          else: directives ++ [{"max-age", "max-age=#{cap}"}]
 
-      directives
-      |> Enum.concat(["must-revalidate"])
-      |> Enum.uniq()
-      |> Enum.join(", ")
+      directives =
+        if List.keymember?(directives, "must-revalidate", 0),
+          do: directives,
+          else: directives ++ [{"must-revalidate", "must-revalidate"}]
+
+      Enum.map_join(directives, ", ", &elem(&1, 1))
     end
   end
 
-  defp directive_seconds(directives, name) do
-    Enum.find_value(directives, 0, fn directive ->
-      case String.split(directive, "=", parts: 2) do
-        [^name, seconds] -> String.to_integer(seconds)
-        _other -> nil
-      end
-    end)
+  # Shared caches use `s-maxage` in place of `max-age`, so an unusable one is
+  # dropped and `max-age` bounds them too.
+  defp cap_seconds("s-maxage", nil, _age, _remaining, _cap), do: []
+
+  defp cap_seconds(name, seconds, age, remaining, cap)
+       when is_nil(seconds) or seconds - age > remaining,
+       do: [{name, "#{name}=#{cap}"}]
+
+  defp cap_seconds(name, seconds, _age, _remaining, _cap), do: [{name, "#{name}=#{seconds}"}]
+
+  defp directive_name(directive) do
+    directive |> String.split("=", parts: 2) |> hd() |> String.trim() |> String.downcase()
   end
 
-  defp put_directive(directives, name, seconds) do
-    Enum.flat_map(directives, fn directive ->
-      case String.split(directive, "=", parts: 2) do
-        [^name, _seconds] when seconds == 0 and name != "max-age" -> []
-        [^name, _seconds] -> ["#{name}=#{seconds}"]
-        _other -> [directive]
-      end
-    end)
+  defp directive_seconds(directive) do
+    with [_name, value] <- String.split(directive, "=", parts: 2),
+         value = value |> String.trim() |> String.trim("\""),
+         {seconds, ""} when seconds >= 0 <- Integer.parse(value) do
+      seconds
+    else
+      _unusable -> nil
+    end
   end
 
   defp response_age(headers) do
