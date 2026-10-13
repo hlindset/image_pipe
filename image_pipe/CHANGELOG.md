@@ -62,9 +62,7 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - An HTTP source whose host name resolves to several addresses could run
   past `fetch_timeout`, because it waited for a response at each address in
   turn. Fetches now end by `fetch_timeout`, apart from a connection attempt,
-  which can run past it by up to `connect_timeout`. An origin that closes a
-  connection after receiving the request no longer gets it again at each of
-  its other addresses.
+  which can run past it by up to `connect_timeout`.
 
 ## [0.2.0] - 2026-10-13
 

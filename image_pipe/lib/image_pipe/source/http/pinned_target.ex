@@ -6,10 +6,10 @@ defmodule ImagePipe.Source.HTTP.PinnedTarget do
   # Pin at the transport boundary, after signing and other request steps. Logical
   # URLs stay intact for redirects, origin validators and request authentication.
   #
-  # A fetch moves to the next address only when connecting failed, and only
-  # while the deadline (a monotonic time in milliseconds, or `:infinity`)
-  # leaves time for it. Each address waits for a pooled connection and for the
-  # response no longer than the time left.
+  # A fetch moves to the next address only while the deadline (a monotonic
+  # time in milliseconds, or `:infinity`) leaves time for it. Each address
+  # waits for a pooled connection and for the response no longer than the
+  # time left.
   @spec attach(Req.Request.t(), [:inet.ip_address()] | nil, integer() | :infinity) ::
           Req.Request.t()
   def attach(request, nil, _deadline), do: request
@@ -28,11 +28,6 @@ defmodule ImagePipe.Source.HTTP.PinnedTarget do
 
   def attach(request, _addresses, _deadline), do: request
 
-  # A connection the origin closes or resets after accepting it has already
-  # received the request, so another address would get it again. Mint reports
-  # a connect timeout and a wait for the response headers alike, as `:timeout`.
-  @sent_reasons [:closed, :econnreset, :epipe]
-
   defp connect(req, [ip | rest], deadline, acc, fun, state, next) do
     callback = fn event, response, acc, state ->
       response = put_in(response.request.url, req.url)
@@ -42,10 +37,10 @@ defmodule ImagePipe.Source.HTTP.PinnedTarget do
     {pinned, key} = req |> within_deadline(deadline) |> pin(ip)
 
     case next.(pinned, acc, callback, state) do
-      {{:error, %Req.TransportError{reason: reason}}, %Req.Response{status: nil}, _, _} = result ->
+      {{:error, %Req.TransportError{}}, %Req.Response{status: nil}, _, _} = result ->
         PinnedPools.connected(key, false)
 
-        if rest == [] or reason in @sent_reasons or remaining(deadline) == 0,
+        if rest == [] or remaining(deadline) == 0,
           do: result,
           else: connect(req, rest, deadline, acc, fun, state, next)
 

@@ -321,7 +321,7 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
   end
 
   test "a silent origin on every resolved address fails by fetch_timeout" do
-    port = raw_origin(:silent)
+    port = silent_origin()
     started = System.monotonic_time(:millisecond)
 
     assert {:error, {:source, :receive_timeout}} =
@@ -339,25 +339,6 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
              )
 
     assert System.monotonic_time(:millisecond) - started < 1_500
-  end
-
-  test "a connection the origin closes after the request doesn't move to the next address" do
-    port = raw_origin(:close)
-
-    assert {:error, {:source, :connect_error}} =
-             fetch(
-               "origin.test",
-               port,
-               [
-                 address_resolver: fn _ -> {:ok, [@loopback, {127, 0, 0, 2}]} end,
-                 req_options: []
-               ],
-               [],
-               :http
-             )
-
-    assert_receive {:accepted, @loopback}
-    refute_received {:accepted, {127, 0, 0, 2}}
   end
 
   test "signs the logical hostname and non-default port before pinning" do
@@ -461,29 +442,21 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
     port
   end
 
-  # A plain HTTP origin listening on every IPv4 address. It reports the local
-  # address of each connection, reads the request, and then never answers
-  # (`:silent`) or closes the connection (`:close`).
-  defp raw_origin(behavior) do
-    test_pid = self()
-
+  # A plain HTTP origin listening on every IPv4 address. It reads each request
+  # and never answers.
+  defp silent_origin do
     {:ok, listen_socket} =
       :gen_tcp.listen(0, [:binary, ip: {0, 0, 0, 0}, active: false, reuseaddr: true])
 
     {:ok, {_address, port}} = :inet.sockname(listen_socket)
-    spawn(fn -> accept(listen_socket, test_pid, behavior) end)
+    spawn(fn -> accept(listen_socket) end)
     port
   end
 
-  defp accept(listen_socket, test_pid, behavior) do
+  defp accept(listen_socket) do
     with {:ok, socket} <- :gen_tcp.accept(listen_socket) do
-      with {:ok, {address, _port}} <- :inet.sockname(socket) do
-        send(test_pid, {:accepted, address})
-      end
-
       _request = :gen_tcp.recv(socket, 0)
-      if behavior == :close, do: :gen_tcp.close(socket)
-      accept(listen_socket, test_pid, behavior)
+      accept(listen_socket)
     end
   end
 
