@@ -213,9 +213,7 @@ defmodule ImagePipeServer.Config do
   defp store_schema do
     Store.options_schema()
     |> Keyword.delete(:pool)
-    |> Keyword.merge(
-      root: [type: {:convert, &cache_root/2, "string (absolute path)"}, required: true]
-    )
+    |> Keyword.merge(root: [type: {:convert, &cache_root/2, "string (absolute path)"}])
   end
 
   defp cache_root(value, path) do
