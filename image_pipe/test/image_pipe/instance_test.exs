@@ -1,5 +1,6 @@
 defmodule ImagePipe.InstanceTest do
   use ExUnit.Case, async: true
+  import Plug.Conn, only: [get_resp_header: 2]
   import Plug.Test
 
   alias ImagePipe.Cache.FileSystem.Owner
@@ -41,6 +42,14 @@ defmodule ImagePipe.InstanceTest do
   defp stored_bodies(root) do
     Caches.await_writes(cache: [root: root])
     Path.wildcard(Path.join(root, "**/*.body"))
+  end
+
+  defp flush_lookups do
+    receive do
+      {:lookup, _cache} -> flush_lookups()
+    after
+      0 -> :ok
+    end
   end
 
   defp request(path, plug_options) do
@@ -172,6 +181,50 @@ defmodule ImagePipe.InstanceTest do
 
       assert request("/w=8/format=png/src/red.png", instance: ctx.name).status == 200
       assert stored_bodies(ctx.cache_root) == []
+    end
+
+    test "an inline mount reads no cache whose root another node holds", ctx do
+      start_instance(ctx)
+      opts = [sources: ctx.sources, cache: ctx.bounded, allow_debug_headers: true]
+      path = "/w=8/format=png/debug/src/red.png"
+
+      assert request(path, opts).status == 200
+      assert [_ | _] = stored_bodies(ctx.cache_root)
+      assert get_resp_header(request(path, opts), "x-imagepipe-cache") == ["hit"]
+
+      Owner.refuse(ctx.cache_root)
+      on_exit(fn -> Owner.accept(ctx.cache_root) end)
+
+      refute get_resp_header(request(path, opts), "x-imagepipe-cache") == ["hit"]
+    end
+
+    test "run/4 with options reads no cache whose root another node holds", ctx do
+      prefix = [:"instance_#{System.unique_integer([:positive])}"]
+      start_instance(ctx, telemetry_prefix: prefix)
+      test = self()
+
+      :telemetry.attach(
+        ctx.name,
+        prefix ++ [:cache, :lookup, :stop],
+        fn _event, _measurements, meta, _config -> send(test, {:lookup, meta.cache}) end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(ctx.name) end)
+      builder = ImagePipe.URL.new(ImagePipe.url_config(ctx.name))
+      assert {:ok, _result} = ImagePipe.run(ctx.name, builder, {:source, "red.png"})
+      assert [_ | _] = stored_bodies(ctx.cache_root)
+
+      Owner.refuse(ctx.cache_root)
+      on_exit(fn -> Owner.accept(ctx.cache_root) end)
+      flush_lookups()
+
+      assert {:ok, _result} =
+               ImagePipe.run(ctx.name, builder, {:source, "red.png"},
+                 max_input_pixels: 50_000_000
+               )
+
+      refute_received {:lookup, :hit}
     end
 
     test "serves an instance without a cache", ctx do

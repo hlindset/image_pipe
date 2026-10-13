@@ -81,11 +81,5 @@ defmodule ImagePipe.Plug do
   def init(opts), do: Config.validate!(opts)
 
   @impl Plug
-  def call(%Plug.Conn{} = conn, {:instance, _name, _mount_name, _mount} = mount) do
-    Runner.run(conn, Config.resolve(mount))
-  end
-
-  def call(%Plug.Conn{} = conn, opts) do
-    Runner.run(conn, opts)
-  end
+  def call(%Plug.Conn{} = conn, opts), do: Runner.run(conn, Config.resolve(opts))
 end

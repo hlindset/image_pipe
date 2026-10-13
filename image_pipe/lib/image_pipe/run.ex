@@ -57,6 +57,8 @@ defmodule ImagePipe.Run do
     %Config{options: config} =
       shared |> Config.override(options) |> Config.reject_unsupervised_processes!()
 
+    config = Config.drop_refused(config)
+
     Telemetry.span(Telemetry.telemetry_opts(config), [:request], %{}, fn ->
       result = execute(plan, input, config, accept, inputs)
       {result, request_metadata(result)}

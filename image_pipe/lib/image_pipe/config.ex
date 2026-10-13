@@ -640,12 +640,18 @@ defmodule ImagePipe.Config do
   end
 
   @doc false
-  # Requests run without the caches whose root another node holds.
   @spec fetch_instance!(atom(), atom() | nil) :: t()
   def fetch_instance!(name, mount) do
     config = published!(name, mount)
-    %{config | options: Cache.drop_refused(config.options)}
+    %{config | options: drop_refused(config.options)}
   end
+
+  @doc false
+  # Requests run without the caches whose root another node holds. A root
+  # can be refused after a configuration is built, so each request drops
+  # them.
+  @spec drop_refused(keyword()) :: keyword()
+  def drop_refused(options), do: Cache.drop_refused(options)
 
   defp published!(name, mount) do
     case {:persistent_term.get({__MODULE__, name}, nil), mount} do
