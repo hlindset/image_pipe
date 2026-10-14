@@ -278,7 +278,7 @@ Accepts these fields. Default: the host's PNG encoder settings.
 | --- | --- | --- |
 | `interlace` | boolean | Interlaced PNG |
 | `palette` | boolean | Palette (indexed color) PNG. [`q`](#q) sets its quantization quality |
-| `bitdepth` | `1`, `2`, `4`, `8`, `16` | Bits per channel |
+| `bitdepth` | `1`, `2`, `4`, `8`, `16` | Bits per channel. `1`, `2`, and `4` apply to grayscale without alpha and to a palette. Other images use `8` |
 | `filter` | `none`, `sub`, `up`, `avg`, `paeth`, `all` | Row filter |
 
 <!-- tabs-open -->

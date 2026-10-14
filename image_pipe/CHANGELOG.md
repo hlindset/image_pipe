@@ -59,6 +59,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - An HTTP source URL whose query has a space or a non-ASCII character, such
   as `?a b`, is fetched with those characters percent-encoded. Before, the
   request failed with `502`.
+- `png-options` with `bitdepth:2` or `bitdepth:4` wrote wrong gray levels,
+  such as gray 150 coming back as 102 at 4 bits. A `bitdepth` of `1`, `2`,
+  or `4` on a result with alpha or color failed with `500`. Grayscale
+  results without alpha now keep their gray levels, and other results
+  without a palette encode at 8 bits.
 - An HTTP source whose host name resolves to several addresses could run
   past `fetch_timeout`, because it waited for a response at each address in
   turn. Fetches now end by `fetch_timeout`, apart from a connection attempt,

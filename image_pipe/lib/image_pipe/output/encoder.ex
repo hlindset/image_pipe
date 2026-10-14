@@ -42,7 +42,8 @@ defmodule ImagePipe.Output.Encoder do
   def stream_output(%VixImage{} = image, %Resolved{} = resolved_output, source_color, opts) do
     {mime_type, suffix} = output_format(resolved_output)
 
-    with {:ok, finalized} <- finalize(image, resolved_output, source_color) do
+    with {:ok, finalized} <- finalize(image, resolved_output, source_color),
+         {:ok, finalized, resolved_output} <- fit_png_depth(finalized, resolved_output) do
       deliver(finalized, resolved_output, mime_type, suffix, opts)
     end
   rescue
@@ -221,6 +222,42 @@ defmodule ImagePipe.Output.Encoder do
 
       {:error, reason} ->
         {:error, {:decode, reason}}
+    end
+  end
+
+  # PNG stores gray+alpha and color at 8 or 16 bits only, so a bit depth below
+  # 8 applies to a one-band result and the rest encode at 8 bits. A palette
+  # PNG takes any depth.
+  defp fit_png_depth(
+         image,
+         %Resolved{format: :png, encoder_options: %PngOptions{bitdepth: depth, palette: palette}} =
+           resolved
+       )
+       when depth in [1, 2, 4] and palette != true do
+    if Image.bands(image) == 1 do
+      with {:ok, image} <- keep_gray_levels(image, depth), do: {:ok, image, resolved}
+    else
+      {:ok, image, put_in(resolved.encoder_options.bitdepth, nil)}
+    end
+  end
+
+  defp fit_png_depth(image, resolved), do: {:ok, image, resolved}
+
+  # Workaround for libvips 8.18: its libpng saver packs the low bits of each
+  # gray value at 2 and 4 bits, so 150 at 4 bits reads back as 102. Its spng
+  # saver shifts by 8 - bitdepth first, which this does. 1 bit thresholds
+  # correctly. Tracked in image_plug-i14h.
+  defp keep_gray_levels(image, 1), do: {:ok, image}
+
+  defp keep_gray_levels(image, depth) do
+    shift = if VixImage.format(image) == :VIPS_FORMAT_USHORT, do: 16 - depth, else: 8 - depth
+
+    with {:ok, shifted} <-
+           Operation.boolean_const(image, :VIPS_OPERATION_BOOLEAN_RSHIFT, [shift * 1.0]),
+         {:ok, shifted} <- Operation.cast(shifted, :VIPS_FORMAT_UCHAR) do
+      {:ok, shifted}
+    else
+      {:error, reason} -> {:error, {:encode, encode_error(reason), []}}
     end
   end
 
