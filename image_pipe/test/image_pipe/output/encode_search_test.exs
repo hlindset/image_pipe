@@ -199,6 +199,27 @@ defmodule ImagePipe.Output.EncodeSearchTest do
              )
   end
 
+  test "an objective search doesn't leave max_bytes a lower quality than max_bytes alone" do
+    rs = %RQS.Ssimulacra2{
+      target: 80.0,
+      min_quality: 25,
+      max_quality: 95,
+      start_quality: 30,
+      allowed_error: 0.0
+    }
+
+    enc = fn q -> {:ok, :binary.copy(<<0>>, q * 1000)} end
+    score = fn bin -> byte_size(bin) / 1000 end
+
+    {:ok, _bin, alone} = EncodeSearch.search(:none, 60_000, encode_fun: enc, base_quality: 90)
+
+    {:ok, _bin, combined} =
+      EncodeSearch.search(rs, 60_000, encode_fun: enc, score_fun: score)
+
+    assert combined.outcome == :hit
+    assert combined.quality >= alone.quality
+  end
+
   test "max_bytes alone searches [10, base] for the highest fit" do
     enc = fn q -> {:ok, :binary.copy(<<0>>, q * 1000)} end
 
@@ -250,7 +271,8 @@ defmodule ImagePipe.Output.EncodeSearchTest do
              EncodeSearch.search(rs, 60_000,
                encode_fun: enc,
                score_fun: score,
-               max_iterations: 3
+               max_iterations: 3,
+               cap_iterations: 0
              )
   end
 
@@ -261,7 +283,8 @@ defmodule ImagePipe.Output.EncodeSearchTest do
              EncodeSearch.search(:none, 40_000,
                encode_fun: enc,
                base_quality: 90,
-               max_iterations: 1
+               max_iterations: 1,
+               cap_iterations: 0
              )
   end
 
