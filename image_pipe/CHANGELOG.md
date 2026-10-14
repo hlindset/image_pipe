@@ -87,7 +87,7 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The detector warmup gave up after three failed attempts, about a third of
   a second, so with `detector_required: true` detection requests answered
   `503` until a restart. It now retries, at most a minute apart, until the
-  models load.
+  models load, and logs at `info` when they do.
 - Req's `:range` option in `req_options` set a `range` header even on sources
   that drop `range` headers, which is every source except one with
   `internal_cache: :disabled` that isn't immutable. The origin then sent part

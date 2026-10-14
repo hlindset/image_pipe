@@ -12,8 +12,9 @@ defmodule ImagePipe.Transform.Detector.Warmup do
   `:detector` accepts `:default` (the bundled adapter, used when omitted), `nil`
   (no work), or a custom detector module, matching the plug option.
 
-  A failed warmup is logged and retried, with exponential backoff capped at
-  a minute, until it succeeds. The worker then exits normally, so
+  A failed warmup is logged as a warning and retried, with exponential backoff
+  capped at a minute, until it succeeds. A success after failures is logged at
+  info level. After it succeeds, the worker exits normally, so
   `restart: :transient` does not restart it. Unavailable detectors are
   skipped. It does not trap exits; shutdown during a download needs no
   cleanup.
@@ -74,6 +75,13 @@ defmodule ImagePipe.Transform.Detector.Warmup do
   defp attempt(state) do
     case Detector.warmup(state.module, state.warmup_opts) do
       :ok ->
+        if state.failures > 0 do
+          Logger.info(
+            "ImagePipe detector warmup succeeded for #{inspect(state.module)} " <>
+              "after #{state.failures} failed #{attempts(state.failures)}"
+          )
+        end
+
         {:stop, :normal, state}
 
       {:error, reason} ->
@@ -87,6 +95,9 @@ defmodule ImagePipe.Transform.Detector.Warmup do
         {:noreply, %{state | failures: state.failures + 1}}
     end
   end
+
+  defp attempts(1), do: "attempt"
+  defp attempts(_failures), do: "attempts"
 
   defp backoff_ms(prior_failures) do
     min(@backoff_cap_ms, @backoff_base_ms * Integer.pow(2, min(prior_failures, 20)))
