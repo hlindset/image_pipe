@@ -329,7 +329,7 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
                "origin.test",
                port,
                [
-                 address_resolver: fn _ -> {:ok, [@loopback, {127, 0, 0, 2}, {127, 0, 0, 3}]} end,
+                 address_resolver: fn _ -> {:ok, [@loopback, @loopback6]} end,
                  req_options: [],
                  receive_timeout: 900,
                  fetch_timeout: 1_000
@@ -442,14 +442,16 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
     port
   end
 
-  # A plain HTTP origin listening on every IPv4 address. It reads each request
-  # and never answers.
+  # A plain HTTP origin on the IPv4 and IPv6 loopback addresses, the ones
+  # every platform answers. It reads each request and never answers.
   defp silent_origin do
-    {:ok, listen_socket} =
-      :gen_tcp.listen(0, [:binary, ip: {0, 0, 0, 0}, active: false, reuseaddr: true])
+    {:ok, ipv4} = :gen_tcp.listen(0, [:binary, ip: @loopback, active: false, reuseaddr: true])
+    {:ok, {_address, port}} = :inet.sockname(ipv4)
 
-    {:ok, {_address, port}} = :inet.sockname(listen_socket)
-    spawn(fn -> accept(listen_socket) end)
+    {:ok, ipv6} =
+      :gen_tcp.listen(port, [:binary, :inet6, ip: @loopback6, active: false, reuseaddr: true])
+
+    for socket <- [ipv4, ipv6], do: spawn(fn -> accept(socket) end)
     port
   end
 
