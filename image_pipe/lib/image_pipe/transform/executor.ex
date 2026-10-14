@@ -16,6 +16,7 @@ defmodule ImagePipe.Transform.Executor do
   alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.Executor.Geometry
   alias ImagePipe.Transform.Executor.Step
+  alias ImagePipe.Transform.Geometry, as: TransformGeometry
   alias ImagePipe.Transform.GrayFrame
   alias ImagePipe.Transform.InputColorManagement
   alias ImagePipe.Transform.Materializer
@@ -322,14 +323,17 @@ defmodule ImagePipe.Transform.Executor do
   defp execute_crop(state, %Group{region: nil, crop: nil}, _opts), do: {:ok, state}
 
   defp execute_crop(%State{} = state, %Group{region: region}, opts) when region != nil do
-    crop = region_crop(region, Geometry.display_effective_dims(state))
+    display = Geometry.display_effective_dims(state)
+    crop = region_crop(region, display)
 
     with {:ok, state} <- flush_display(state),
-         do: run_crop(state, Geometry.rescale_crop(crop, state.decode_shrink), opts)
+         do: run_crop(state, rescale(crop, state), crop_extent(crop, display), opts)
   end
 
   defp execute_crop(%State{} = state, %Group{} = group, opts) do
-    crop = guided_crop(group, Geometry.display_effective_dims(state))
+    display = Geometry.display_effective_dims(state)
+    crop = guided_crop(group, display)
+    extent = crop_extent(crop, display)
 
     case {Geometry.pending_class(state), Step.random_access?(crop)} do
       {:pending, false} ->
@@ -338,20 +342,44 @@ defmodule ImagePipe.Transform.Executor do
         crop
         |> Geometry.rescale_crop(Geometry.orient_decode_shrink(state.decode_shrink, pending))
         |> Geometry.compensate_crop(pending)
-        |> then(&run_crop(state, &1, opts))
+        |> then(&run_crop(state, &1, PendingOrientation.display_dims(extent, pending), opts))
 
       {_class, true} ->
         with {:ok, state} <- flush_display(state),
-             do: run_crop(state, Geometry.rescale_crop(crop, state.decode_shrink), opts)
+             do: run_crop(state, rescale(crop, state), extent, opts)
 
       {_class, false} ->
-        run_crop(state, Geometry.rescale_crop(crop, state.decode_shrink), opts)
+        run_crop(state, rescale(crop, state), extent, opts)
     end
   end
 
-  defp run_crop(state, crop, opts) do
+  defp rescale(crop, state), do: Geometry.rescale_crop(crop, state.decode_shrink)
+
+  # The crop's full-resolution size, in the frame it runs in.
+  defp crop_extent(%Crop{width: width, height: height}, {display_width, display_height}),
+    do:
+      {TransformGeometry.resolve_dimension(width, display_width),
+       TransformGeometry.resolve_dimension(height, display_height)}
+
+  # `extent` is the crop's full-resolution size. On a shrunk decode the frame
+  # becomes that size, so a later resize doesn't multiply the crop's rounding
+  # by the shrink and sizes don't depend on whether the format shrinks on load.
+  defp run_crop(%State{decode_shrink: nil} = state, crop, _extent, opts) do
     with {:ok, state} <- Step.run(state, crop, opts),
          do: {:ok, Geometry.clear_source_frame(state)}
+  end
+
+  defp run_crop(%State{} = state, crop, {width, height}, opts) do
+    with {:ok, %State{} = state} <- Step.run(state, crop, opts) do
+      {live_width, live_height} = Geometry.live_dims(state)
+
+      {:ok,
+       %State{
+         state
+         | source_dimensions: {width, height},
+           decode_shrink: %{w: width / live_width, h: height / live_height}
+       }}
+    end
   end
 
   defp execute_resize(state, %Group{resize: nil, dpr: dpr}, _opts), do: {:ok, state, dpr}

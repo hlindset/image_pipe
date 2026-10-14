@@ -146,8 +146,8 @@ defmodule ImagePipe.ShrinkThroughCropTest do
     pw = Image.width(png_img)
     ph = Image.height(png_img)
 
-    assert abs(jw - pw) <= 1 and abs(jh - ph) <= 1,
-           "shrink path #{jw}x#{jh} drifted >1px from full-decode #{pw}x#{ph} for #{label} (shrink #{shrink})"
+    assert {jw, jh} == {pw, ph},
+           "shrink path #{jw}x#{jh} differs from full-decode #{pw}x#{ph} for #{label} (shrink #{shrink})"
 
     mae = coarse_mae(jpeg_img, png_img)
 
@@ -175,6 +175,21 @@ defmodule ImagePipe.ShrinkThroughCropTest do
     {:ok, difference} = Operation.abs(difference)
     {:ok, mean} = Operation.avg(difference)
     assert mean < 15, "mean difference #{mean} from the full decode"
+  end
+
+  # A narrow crop's rounding on the shrunk decode must not change the output
+  # size: the resize works from the full-resolution crop.
+  for options <- ["crop=101,1500/w=50", "region=0,0,25,1500/w=3"] do
+    test "#{options} gives the same size on a shrunk and a full decode" do
+      options = unquote(options)
+      {jpeg_img, shrink} = run(structured(2003, 1501, ".jpg"), options)
+      {png_img, nil} = run(structured(2003, 1501, ".png"), options)
+
+      assert shrink != nil
+
+      assert {Image.width(jpeg_img), Image.height(jpeg_img)} ==
+               {Image.width(png_img), Image.height(png_img)}
+    end
   end
 
   # 3200×3200 source so a width-only fit:400 drives load_shrink ~8 even after a
@@ -418,8 +433,8 @@ defmodule ImagePipe.ShrinkThroughCropTest do
     ew = Image.width(eager)
     eh = Image.height(eager)
 
-    assert abs(dw - ew) <= 1 and abs(dh - eh) <= 1,
-           "deferred #{dw}x#{dh} drifted >1px from eager flush #{ew}x#{eh} for #{label}"
+    assert {dw, dh} == {ew, eh},
+           "deferred #{dw}x#{dh} differs from eager flush #{ew}x#{eh} for #{label}"
 
     mae = coarse_mae(deferred, eager)
 
