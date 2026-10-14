@@ -63,6 +63,18 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   past `fetch_timeout`, because it waited for a response at each address in
   turn. Fetches now end by `fetch_timeout`, apart from a connection attempt,
   which can run past it by up to `connect_timeout`.
+- A FileSystem cache could hold more than `max_size_bytes` on disk and not
+  bring it back down:
+  - A read of an entry the startup scan hadn't counted yet counted it
+    without evicting. The cache now evicts back under its cap.
+  - A startup scan that crashed skipped evicting down to a lowered cap. It
+    now evicts as a completed scan does.
+  - A write during the startup scan that was rejected or failed left its
+    key's existing entry on disk uncounted. A write that replaced such an
+    entry left its old body on disk. Both are now counted or deleted.
+  - An entry written again after the startup sweep removed its unreadable
+    metadata, as after an upgrade that changes the metadata format, wasn't
+    counted.
 
 ## [0.2.0] - 2026-10-13
 
