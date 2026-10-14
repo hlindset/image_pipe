@@ -75,6 +75,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `if-none-match`, made the request fail when the origin answered a first
   fetch with `304`. Sources now drop `if-none-match`, `if-modified-since`,
   `if-match`, `if-unmodified-since`, and `if-range` from `req_options`.
+- The detector warmup gave up after three failed attempts, about a third of
+  a second, so with `detector_required: true` detection requests answered
+  `503` until a restart. It now retries, at most a minute apart, until the
+  models load.
 - Req's `:range` option in `req_options` set a `range` header even on sources
   that drop `range` headers, which is every source except one with
   `internal_cache: :disabled` that isn't immutable. The origin then sent part

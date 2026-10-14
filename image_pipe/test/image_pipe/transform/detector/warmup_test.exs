@@ -9,8 +9,7 @@ defmodule ImagePipe.Transform.Detector.WarmupTest do
           [classes: "face"],
           [classes: [:face]],
           [opts: %{test_pid: self()}],
-          [retries: -1],
-          [retries: 1.5]
+          [retries: 1]
         ] do
       opts =
         Keyword.merge([detector: __MODULE__.SignalDetector, opts: [test_pid: self()]], invalid)
@@ -60,7 +59,8 @@ defmodule ImagePipe.Transform.Detector.WarmupTest do
     end
   end
 
-  defmodule FailingDetector do
+  # Fails until its fifth attempt.
+  defmodule FlakyDetector do
     @behaviour ImagePipe.Transform.Detector
     @impl true
     def supported_classes(_o), do: ["face"]
@@ -69,11 +69,13 @@ defmodule ImagePipe.Transform.Detector.WarmupTest do
     @impl true
     def available?(_o), do: true
     @impl true
-    def identity(_o), do: {__MODULE__, :failing}
+    def identity(_o), do: {__MODULE__, :flaky}
     @impl true
     def warmup(opts) do
-      send(Keyword.fetch!(opts, :test_pid), :warmup_attempt)
-      {:error, :boom}
+      counter = Keyword.fetch!(opts, :counter)
+      :counters.add(counter, 1, 1)
+      send(Keyword.fetch!(opts, :test_pid), {:warmup_attempt, self()})
+      if :counters.get(counter, 1) >= 5, do: :ok, else: {:error, :boom}
     end
   end
 
@@ -103,19 +105,20 @@ defmodule ImagePipe.Transform.Detector.WarmupTest do
     refute_received :warmup_called
   end
 
-  test "available detector that keeps failing retries a bounded number of times" do
-    pid =
-      start_supervised!(
-        {Warmup,
-         detector: FailingDetector, classes: ["face"], opts: [test_pid: self()], retries: 1}
-      )
-
+  test "a failing warmup keeps retrying until it succeeds, then terminates :normal" do
+    opts = [test_pid: self(), counter: :counters.new(1, [])]
+    pid = start_supervised!({Warmup, detector: FlakyDetector, classes: ["face"], opts: opts})
     ref = Process.monitor(pid)
-    # retries: 1 → the initial attempt plus one backed-off retry, then it stops.
-    assert_receive :warmup_attempt
-    assert_receive :warmup_attempt
-    assert_receive {:DOWN, ^ref, :process, ^pid, reason} when reason in [:normal, :noproc]
-    refute_received :warmup_attempt
+
+    # Each retry waits on a backoff timer; send its message to run it now.
+    for _failure <- 1..4 do
+      assert_receive {:warmup_attempt, ^pid}
+      refute_received {:DOWN, ^ref, :process, ^pid, _reason}
+      send(pid, :retry)
+    end
+
+    assert_receive {:warmup_attempt, ^pid}
+    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
   end
 
   test "nil detector disables warmup as a clean no-op" do
