@@ -74,7 +74,8 @@ An [ImagePipe instance](phoenix-getting-started.md#starting-imagepipe)
 loads both models when it starts, so the first detection request doesn't
 wait for them. It also downloads the face model, YuNet (about 340 KB), and
 any other model that isn't on disk yet. Loading runs in the background and
-doesn't delay startup. If you only use face detection, set
+doesn't delay startup. A failed download is retried, at most a minute
+apart, until it succeeds. If you only use face detection, set
 `detector_warmup` to skip RT-DETR:
 
 ```elixir

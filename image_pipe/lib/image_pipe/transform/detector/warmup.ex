@@ -12,10 +12,11 @@ defmodule ImagePipe.Transform.Detector.Warmup do
   `:detector` accepts `:default` (the bundled adapter, used when omitted), `nil`
   (no work), or a custom detector module, matching the plug option.
 
-  Failed warmup results are logged and retried with bounded exponential backoff.
-  The worker then exits normally, so `restart: :transient` does not restart it.
-  Unavailable detectors are skipped. It does not trap exits; shutdown during a
-  download needs no cleanup.
+  A failed warmup is logged and retried, with exponential backoff capped at
+  a minute, until it succeeds. The worker then exits normally, so
+  `restart: :transient` does not restart it. Unavailable detectors are
+  skipped. It does not trap exits; shutdown during a download needs no
+  cleanup.
 
   Model loading runs in `handle_continue/2`, allowing `start_link/1` to return
   without waiting for the download.
@@ -27,15 +28,14 @@ defmodule ImagePipe.Transform.Detector.Warmup do
   alias ImagePipe.Transform
   alias ImagePipe.Transform.Detector
 
-  # Retry delays: 100ms, 200ms, 400ms, …, capped at 1s.
+  # Retry delays: 100ms, 200ms, 400ms, …, capped at 60s.
   @backoff_base_ms 100
-  @backoff_cap_ms 1_000
+  @backoff_cap_ms 60_000
 
   @options_schema NimbleOptions.new!(
                     detector: [type: :atom, default: :default],
                     classes: [type: {:or, [{:in, [:all]}, {:list, :string}]}, default: :all],
-                    opts: [type: :keyword_list, default: []],
-                    retries: [type: :non_neg_integer, default: 2]
+                    opts: [type: :keyword_list, default: []]
                   )
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -47,47 +47,48 @@ defmodule ImagePipe.Transform.Detector.Warmup do
   end
 
   @impl true
-  def init(state), do: {:ok, state, {:continue, :warm_then_stop}}
+  def init(state), do: {:ok, state, {:continue, :warm}}
 
   @impl true
-  def handle_continue(:warm_then_stop, state) do
+  def handle_continue(:warm, state) do
     case Transform.resolve_detector(state.detector) do
-      nil -> :ok
-      module -> warm(state, module, state.retries)
+      nil -> {:stop, :normal, state}
+      module -> start(state, module)
     end
-
-    {:stop, :normal, state}
   end
 
-  defp warm(state, module, retries) do
+  @impl true
+  def handle_info(:retry, state), do: attempt(state)
+
+  defp start(state, module) do
     opts = Keyword.put(state.opts, :classes, state.classes)
 
     if module.available?(opts) do
-      attempt(state, module, opts, retries)
+      attempt(Map.merge(state, %{module: module, warmup_opts: opts, failures: 0}))
     else
       Logger.warning("ImagePipe detector warmup skipped: #{inspect(module)} is unavailable")
-      :ok
+      {:stop, :normal, state}
     end
   end
 
-  defp attempt(_state, _module, _opts, retries) when retries < 0, do: :ok
-
-  defp attempt(state, module, opts, retries) do
-    case Detector.warmup(module, opts) do
+  defp attempt(state) do
+    case Detector.warmup(state.module, state.warmup_opts) do
       :ok ->
-        :ok
+        {:stop, :normal, state}
 
       {:error, reason} ->
+        delay = backoff_ms(state.failures)
+
         Logger.warning(
-          "ImagePipe detector warmup failed (#{inspect(reason)}); #{retries} retries left"
+          "ImagePipe detector warmup failed (#{inspect(reason)}); retrying in #{delay} ms"
         )
 
-        if retries > 0, do: Process.sleep(backoff_ms(state.retries - retries))
-        attempt(state, module, opts, retries - 1)
+        Process.send_after(self(), :retry, delay)
+        {:noreply, %{state | failures: state.failures + 1}}
     end
   end
 
   defp backoff_ms(prior_failures) do
-    min(@backoff_cap_ms, @backoff_base_ms * Integer.pow(2, prior_failures))
+    min(@backoff_cap_ms, @backoff_base_ms * Integer.pow(2, min(prior_failures, 20)))
   end
 end
