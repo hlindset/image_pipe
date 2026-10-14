@@ -17,6 +17,8 @@ defmodule ImagePipe.Execution.Overlap do
       {:ok, expected, request, policy} ->
         {:ok, download} = Download.start(path, 0)
         request_context = RequestContext.capture()
+        # The pool reports a processing timeout here, where finish/1 and poll/1 wait.
+        notification = :erlang.alias()
 
         task =
           Task.Supervisor.async_nolink(ImagePipe.ProcessingPool.Tasks, fn ->
@@ -24,7 +26,7 @@ defmodule ImagePipe.Execution.Overlap do
 
             receive do
               {:prepare, prefix} ->
-                prepare(download, prefix, request, policy, config)
+                prepare(download, notification, prefix, request, policy, config)
             end
           end)
 
@@ -39,6 +41,7 @@ defmodule ImagePipe.Execution.Overlap do
             status: :observing
           })
         after
+          :erlang.unalias(notification)
           Download.close(download)
           Task.ignore(task)
         end
@@ -89,7 +92,7 @@ defmodule ImagePipe.Execution.Overlap do
   def finish(%{status: :running} = state) do
     Download.finish(state.download)
 
-    state = completed(state, Task.yield(state.task, 60_000))
+    state = completed(state, await(state.task, 60_000))
     finish(state)
   end
 
@@ -135,14 +138,33 @@ defmodule ImagePipe.Execution.Overlap do
   defp select(state, _io, _size, _remaining), do: %{state | status: :skip}
 
   defp poll(state) do
-    case Task.yield(state.task, 0) do
+    case await(state.task, 0) do
       nil -> state
       result -> completed(state, result)
     end
   end
 
+  defp await(%Task{ref: ref, pid: worker}, timeout) do
+    receive do
+      {:processing_timeout, ^worker} ->
+        :timeout
+
+      {^ref, result} ->
+        Process.demonitor(ref, [:flush])
+        {:ok, result}
+
+      {:DOWN, ^ref, :process, ^worker, reason} ->
+        {:exit, reason}
+    after
+      timeout -> nil
+    end
+  end
+
   defp completed(state, {:ok, {:error, {:processing, reason}}})
        when reason in [:overloaded, :queue_timeout], do: %{state | status: :skip}
+
+  defp completed(state, :timeout),
+    do: %{state | status: {:ready, {:error, {:processing, :timeout}}}}
 
   defp completed(state, {:ok, result}), do: %{state | status: {:ready, result}}
 
@@ -152,8 +174,10 @@ defmodule ImagePipe.Execution.Overlap do
   defp completed(state, nil),
     do: %{state | status: {:ready, {:error, {:session, :timeout}}}}
 
-  defp prepare(download, prefix, request, policy, config) do
-    ProcessingPool.within(Keyword.get(config, :processing_pool), download, config, fn ->
+  defp prepare(download, notification, prefix, request, policy, config) do
+    pool = Keyword.get(config, :processing_pool)
+
+    ProcessingPool.within(pool, download, notification, config, fn ->
       Processing.prepare_download(request, {:download, download, prefix}, policy, config)
     end)
   catch

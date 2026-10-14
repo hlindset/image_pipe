@@ -409,6 +409,26 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
     assert complete_request(context).status == 200
   end
 
+  test "a processing timeout during overlap answers 503", context do
+    pool =
+      start_supervised!(
+        {ImagePipe.ProcessingPool, max_concurrency: 2, processing_timeout: 60_000}
+      )
+
+    context = restart(context, Keyword.put(context.options, :processing_pool, pool))
+    task = Task.Supervisor.async_nolink(context.tasks, fn -> request(context) end)
+    assert_receive {:origin_held, origin}, 2_000
+    assert_receive {:decoded, %{result: :ok}}, 2_000
+
+    # Fire the active job's deadline instead of waiting for it.
+    [{token, %{phase: :active, deadline: deadline}}] = Map.to_list(:sys.get_state(pool).jobs)
+    send(pool, {:deadline, token, :active, deadline})
+    _ = :sys.get_state(pool)
+    send(origin, :continue)
+
+    assert Task.await(task, 10_000).status == 503
+  end
+
   test "request cancellation terminates speculative processing", context do
     task = Task.Supervisor.async_nolink(context.tasks, fn -> request(context) end)
     assert_receive {:origin_held, _}, 2_000
