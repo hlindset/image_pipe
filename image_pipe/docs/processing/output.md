@@ -536,15 +536,22 @@ the image the same URL returns. Use the `lqip-css` value as
   and the `dpr` of the last group. Divide the width and height by `dpr` to get
   CSS pixels. `dpr` can be lower than requested: without `enlarge`,
   `w=100/dpr=2` on a 150-pixel-wide image reports width 150 at `dpr` 1.5.
+  An explicit `format` scales the result down to fit that format's size
+  limit, such as WebP's 16,383 pixels per side when the server's result
+  limits are higher (see [Plug configuration](`ImagePipe.config/1`) and
+  [server configuration](../../../image_pipe_server/docs/server-configuration.md#processing)).
+  Without `format`, only the server's limits apply, so a WebP or AVIF
+  response can be smaller than `result` reports.
 - `blurhash` and `lqip_css` appear when named after `info`, with the same
   values `output=blurhash` and `output=lqip-css` return.
 
 Placeholders and info check the image options (`format`, `q`, `profile`,
-and the rest of this page) as an image request would, then ignore them. A URL
-that works for an image keeps working when you switch it to a placeholder or
-`info`. A URL an image request rejects, such as `profile=srgb/hdr=preserve`,
-fails with `400` for them too. These responses have a fixed content type and
-no `Vary: Accept`.
+and the rest of this page) as an image request would, then ignore them,
+except that `format` limits the size `result` reports. A URL that works for
+an image keeps working when you switch it to a placeholder or `info`. A URL
+an image request rejects, such as `profile=srgb/hdr=preserve`, fails with
+`400` for them too. These responses have a fixed content type and no
+`Vary: Accept`.
 
 <!-- tabs-open -->
 
