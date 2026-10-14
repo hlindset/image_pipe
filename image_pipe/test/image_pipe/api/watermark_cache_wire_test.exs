@@ -98,7 +98,7 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
         http_cache: :auto
       )
 
-    %{config: Caches.plug(config), state: state, root: root}
+    %{config: {Caches.plug(config), config}, state: state, root: root}
   end
 
   test "input-cached assets serve later requests without refetching", %{config: config} do
@@ -155,7 +155,7 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
     flush()
 
     conditional =
-      conn(:get, @path) |> put_req_header("if-none-match", etag) |> IP.Plug.call(config)
+      conn(:get, @path) |> put_req_header("if-none-match", etag) |> call(config)
 
     assert conditional.status == 304
     refute_received {:origin, _path, _validator}
@@ -199,7 +199,15 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
     assert leased_paths() == []
   end
 
-  defp get(path, config), do: conn(:get, path) |> IP.Plug.call(config)
+  defp get(path, config), do: conn(:get, path) |> call(config)
+
+  # Cache writes finish after the response, so wait for them before the next
+  # request or a look at what was stored.
+  defp call(conn, {plug, options}) do
+    conn = IP.Plug.call(conn, plug)
+    Caches.await_writes(options)
+    conn
+  end
 
   # Files leased by this process, which is the request's owner: a staged
   # source stays leased until the request releases it.
