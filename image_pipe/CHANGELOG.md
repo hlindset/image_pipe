@@ -131,6 +131,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   which the Plug answers with `503`.
 - A `pixelate` block size that needed many rows of padding below the image,
   such as `pixelate=2000` on a 4000×2667 JPEG, failed with `415`.
+- A `region` whose width or height came to less than half a pixel, such as
+  `region=0,0,0.3,1`, failed with `500`. It now keeps one pixel.
 
 ## [0.2.0] - 2026-10-13
 
