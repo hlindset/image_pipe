@@ -242,7 +242,7 @@ defmodule ImagePipe.Processing do
          policy: policy,
          shrink: shrink,
          operations: operations,
-         detections: Executor.detections(request),
+         detections: state.detections,
          rotations: Executor.arbitrary_rotations(request),
          timings: %{decode: decode_us, transform: transform_us}
        }}

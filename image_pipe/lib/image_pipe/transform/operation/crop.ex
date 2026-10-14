@@ -170,6 +170,16 @@ defmodule ImagePipe.Transform.Operation.Crop do
     %{left: left, top: top, width: crop_width, height: crop_height}
   end
 
+  @doc """
+  True when the crop's box is the whole image, so where it's placed can't
+  change the result.
+  """
+  @spec covers_image?(t(), State.t()) :: boolean()
+  def covers_image?(%__MODULE__{} = params, %State{} = state) do
+    {width, height} = {image_width(state), image_height(state)}
+    resolved_box_dims(params, width, height) == {width, height}
+  end
+
   def execute(%__MODULE__{gravity: :smart} = params, %State{} = state) do
     smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
   end
@@ -221,6 +231,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
   # Face assistance is optional on every mount, so a detection error falls back
   # even when the mount requires detection.
   defp face_assist_crop(%__MODULE__{} = params, %State{} = state) do
+    state = counted_detection(state)
+
     case run_detect(state, ["face"], %{}) do
       {:ok, regions} -> blend_faces(params, state, regions)
       {:error, reason} -> attention_after_error(params, state, reason)
@@ -287,6 +299,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
          spec,
          weights
        ) do
+    state = counted_detection(state)
+
     with {:ok, [_ | _] = regions} <-
            run_detect(state, spec, weights),
          {:ok, focal} <-
@@ -312,6 +326,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
 
   defp attention_after_error(params, %State{} = state, _reason),
     do: smart_crop(params, %State{state | degraded?: true}, :VIPS_INTERESTING_ATTENTION)
+
+  defp counted_detection(%State{} = state), do: %State{state | detections: state.detections + 1}
 
   defp run_detect(state, classes, weights) do
     Telemetry.span(

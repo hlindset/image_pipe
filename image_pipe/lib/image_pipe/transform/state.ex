@@ -40,6 +40,8 @@ defmodule ImagePipe.Transform.State do
   #   trims, since enlarging that render would only resample it.
   # - `dpr`: the effective DPR of the most recently executed group, after the
   #   enlargement clamp and its floor; 1.0 before any group runs.
+  # - `detections`: how many times a crop called the detector, for the cache's
+  #   cost estimate.
   # - `source_color_profile` and `color_imported?`: input-color-management results
   #   passed to the encoder. The profile holds raw source ICC bytes or `nil`; the
   #   flag records whether `icc_import` ran. Never emit these in telemetry metadata.
@@ -59,6 +61,7 @@ defmodule ImagePipe.Transform.State do
             max_intermediate_pixels: 100_000_000,
             buffer_before_resize?: false,
             dpr: 1.0,
+            detections: 0,
             source_color_profile: nil,
             color_imported?: false
 
@@ -77,6 +80,7 @@ defmodule ImagePipe.Transform.State do
           max_intermediate_pixels: pos_integer(),
           buffer_before_resize?: boolean(),
           dpr: float(),
+          detections: non_neg_integer(),
           source_color_profile: binary() | nil,
           color_imported?: boolean()
         }

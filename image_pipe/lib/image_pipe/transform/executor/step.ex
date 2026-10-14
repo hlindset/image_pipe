@@ -88,14 +88,25 @@ defmodule ImagePipe.Transform.Executor.Step do
       %{operation: name || stage, params: operation},
       fn ->
         result =
-          with {:ok, state} <- prepare(state, operation) do
-            transform_result(execute.(operation, state))
-          end
+          if moot?(operation, state),
+            do: {:ok, state},
+            else: execute_step(state, operation, execute)
 
         {result, stop_metadata(result)}
       end
     )
   end
+
+  defp execute_step(state, operation, execute) do
+    with {:ok, state} <- prepare(state, operation) do
+      transform_result(execute.(operation, state))
+    end
+  end
+
+  # A content-aware crop whose box is the whole image can't move, so it runs
+  # no detection or saliency and needs no materialization.
+  defp moot?(%Crop{} = crop, state), do: random_access?(crop) and Crop.covers_image?(crop, state)
+  defp moot?(_operation, _state), do: false
 
   defp prepare(state, operation) do
     if random_access?(operation), do: materialize(state), else: {:ok, state}
