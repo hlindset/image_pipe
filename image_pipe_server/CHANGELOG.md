@@ -10,6 +10,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A source's `bearer_token` with a line break or NUL passed the startup
   check, and every fetch from that source then failed. The server now
   refuses to start, naming the setting.
+- Every log line was preceded by a blank line, which log collectors stored
+  as an empty entry. Log lines now also start with the date, as in
+  `2026-10-14 19:55:23.967 request_id=abc [info] ...`.
 
 ## [0.2.0] - 2026-10-13
 
