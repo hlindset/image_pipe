@@ -753,9 +753,13 @@ defmodule ImagePipe.Transform.Executor do
     end
   end
 
+  # Only a region that starts at or beyond the edge is outside the image. One
+  # that starts inside the last pixel keeps it, even when its origin rounds up.
   defp region_crop({x, y, width, height}, {display_width, display_height}) do
-    left = round(resolve_length(x, display_width))
-    top = round(resolve_length(y, display_height))
+    x = resolve_length(x, display_width)
+    y = resolve_length(y, display_height)
+    left = min(round(x), display_width - 1)
+    top = min(round(y), display_height - 1)
 
     %Crop{
       width: {:pixels, region_extent(width, display_width)},
@@ -764,7 +768,7 @@ defmodule ImagePipe.Transform.Executor do
         left: {:pixels, left},
         top: {:pixels, top}
       },
-      reject_out_of_bounds: left >= display_width or top >= display_height
+      reject_out_of_bounds: x >= display_width or y >= display_height
     }
   end
 

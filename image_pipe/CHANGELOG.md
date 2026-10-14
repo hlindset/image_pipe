@@ -146,6 +146,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `ImagePipe.Source.S3.ContainerCredentials` accepted an `auth_token` with a
   line break or NUL, and every credential fetch then failed. Such a token is
   now rejected when the source is configured.
+- A `region` that started inside the last pixel column or row, such as
+  `region=2002.6,0,10,10` on a 2003-pixel-wide image or
+  `region=99.99pct,0,10,10`, failed with `400` because its origin rounded
+  past the edge. It now starts at the last pixel. Only a region that starts
+  at or beyond the edge is rejected.
 
 ## [0.2.0] - 2026-10-13
 
