@@ -380,6 +380,98 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     end)
   end
 
+  test "a write rejected mid-scan leaves its key's entry on disk counted", ctx do
+    hash = hex_hash("d2")
+    opts = base_opts(registry: ctx.registry, tmp_dir: ctx.tmp_dir, max_size_bytes: 1_000)
+
+    pid =
+      during_scan(ctx, opts, fn pid ->
+        put_disk_entry(ctx.tmp_dir, hash, String.duplicate("x", 500))
+        {paths, entry} = snapshot(ctx.tmp_dir, hash)
+        pool = [root: ctx.tmp_dir, max_size_bytes: 1_000]
+
+        assert {:ok, :rejected} =
+                 put_bytes(pool, %Key{hash: hash, data: []}, String.duplicate("y", 2_000))
+
+        assert :ok = apply_snapshot(pid, entry)
+        assert File.exists?(paths.meta_path)
+      end)
+
+    assert entry_row(pid, hash) != nil
+    assert stored_bytes(pid) == 500
+  end
+
+  test "a write replacing an entry the scan hasn't reached deletes the old body", ctx do
+    hash = hex_hash("d3")
+    opts = base_opts(registry: ctx.registry, tmp_dir: ctx.tmp_dir)
+
+    pid =
+      during_scan(ctx, opts, fn pid ->
+        put_disk_entry(ctx.tmp_dir, hash, "old body")
+        {paths, entry} = snapshot(ctx.tmp_dir, hash)
+        pool = [root: ctx.tmp_dir, max_size_bytes: 1_000_000]
+
+        assert :ok = put_bytes(pool, %Key{hash: hash, data: []}, "new body")
+        assert :ok = apply_snapshot(pid, entry)
+
+        assert [_one] = Path.wildcard(Path.join(paths.dir, "*.body"))
+      end)
+
+    assert stored_bytes(pid) == byte_size("new body")
+  end
+
+  test "a stale sweep report doesn't forget an entry committed since", ctx do
+    pid = start_cache(ctx, 1_000_000)
+    pool = [root: ctx.tmp_dir, max_size_bytes: 1_000_000]
+    :ok = put_entry(pool, "a", 700, 1_000)
+
+    # The sweep removed an older, undecodable metadata file for the key before
+    # this commit and reports it only now.
+    GenServer.cast(pid, {:swept, [{hash("a"), :meta}]})
+
+    assert tracked?(pid, "a")
+    assert stored_bytes(pid) == 700
+  end
+
+  test "a hit that counts an untracked entry over the cap evicts back under it", ctx do
+    pid = start_cache(ctx, 1_000)
+    pool = [root: ctx.tmp_dir, max_size_bytes: 1_000]
+    for seed <- ["a", "b", "c"], do: :ok = put_entry(pool, seed, 300, 1_000)
+
+    hash = hex_hash("e3")
+    put_disk_entry(ctx.tmp_dir, hash, String.duplicate("x", 400))
+    {_paths, descriptor} = snapshot(ctx.tmp_dir, hash)
+    Admission.hit(pid, descriptor)
+    _ = :sys.get_state(pid)
+
+    assert stored_bytes(pid) <= 1_000
+  end
+
+  test "a crashed scan still evicts down to the cap", ctx do
+    pid = start_cache(ctx, 1_000)
+    pool = [root: ctx.tmp_dir, max_size_bytes: 1_000]
+    for seed <- ["a", "b", "c"], do: :ok = put_entry(pool, seed, 300, 1_000)
+    ref = make_ref()
+
+    # As after the cap was lowered and the scan died before reconciling.
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | max_size_bytes: 500,
+          scan_task_ref: ref,
+          scan_complete?: false,
+          scan_changes: :ets.new(:scan_changes, [:set, :private])
+      }
+    end)
+
+    ExUnit.CaptureLog.capture_log(fn ->
+      send(pid, {:DOWN, ref, :process, self(), :boom})
+      _ = :sys.get_state(pid)
+    end)
+
+    assert stored_bytes(pid) <= 500
+  end
+
   test "boot reconciliation evicts until usage is under cap", %{
     registry: registry,
     tmp_dir: tmp_dir
@@ -431,7 +523,10 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
 
   defp put_with_cost(pool, seed, cost_us), do: put_entry(pool, seed, 1_000, cost_us)
 
-  defp put_entry(pool, seed, size, cost_us) do
+  defp put_entry(pool, seed, size, cost_us),
+    do: put_bytes(pool, key(seed), body(seed, size), cost_us)
+
+  defp put_bytes(pool, key, body, cost_us \\ 1_000) do
     metadata =
       struct!(Entry.Metadata,
         content_type: "image/png",
@@ -441,8 +536,8 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
         cost_us: cost_us
       )
 
-    with {:ok, sink} <- FileSystem.open_sink(key(seed), metadata, pool),
-         {:ok, sink} <- FileSystem.write_chunk(sink, body(seed, size), pool) do
+    with {:ok, sink} <- FileSystem.open_sink(key, metadata, pool),
+         {:ok, sink} <- FileSystem.write_chunk(sink, body, pool) do
       FileSystem.commit_sink(sink, pool)
     end
   end

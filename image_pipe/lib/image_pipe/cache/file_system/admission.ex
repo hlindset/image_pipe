@@ -221,7 +221,9 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     if reason != :normal and not state.scan_complete? do
       require Logger
       Logger.warning("cache: directory scan crashed before completion: reason=#{inspect(reason)}")
-      {:noreply, complete_scan(%{state | scan_task_ref: nil})}
+
+      {:noreply,
+       state |> Map.put(:scan_task_ref, nil) |> complete_scan() |> reconcile_if_over_cap()}
     else
       {:noreply, %{state | scan_task_ref: nil}}
     end
@@ -237,24 +239,30 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     do: GenServer.cast(server, {:hit, descriptor})
 
   # A hit on an untracked key, read before the startup scan reached it, is
-  # counted when its entry is still stored. A hit read before an eviction
-  # finds it gone and is dropped.
+  # counted when its entry is still stored, and evicts back under the cap if
+  # that passes it. A hit read before an eviction finds it gone and is dropped.
   @impl true
   def handle_cast({:hit, descriptor}, state) do
     state = sighting(state, descriptor.key_hash)
 
     if tracked?(state, descriptor.key_hash) or not stored?(state, descriptor),
       do: {:noreply, state},
-      else: {:noreply, put(state, descriptor)}
+      else: {:noreply, state |> put(descriptor) |> reconcile_if_over_cap()}
   end
 
   # The sweep removed these files, so their entries no longer count: an
-  # entry whose metadata went, or whose counted body went.
+  # entry whose metadata went, or whose counted body went. The sweep reports
+  # once it has finished, so a key committed again since keeps its entry.
   def handle_cast({:swept, removed}, state) do
     {:noreply, Enum.reduce(removed, state, &forget_swept/2)}
   end
 
-  defp forget_swept({key_hash, :meta}, state), do: forget(state, key_hash)
+  defp forget_swept({key_hash, :meta}, state) do
+    case entry(state, key_hash) do
+      nil -> state
+      entry -> if stored?(state, entry), do: state, else: forget(state, key_hash)
+    end
+  end
 
   defp forget_swept({key_hash, body_filename}, state) do
     case entry(state, key_hash) do
@@ -293,7 +301,6 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   @impl true
   def handle_call({:commit, prepared, body_filename}, _from, state) do
-    note_scan_change(state, prepared.paths.hash)
     descriptor = FileSystem.descriptor(prepared, body_filename)
     # The write's own pending bytes aren't another write's.
     pending = max(Writers.pending(state.root) - Map.get(prepared, :held, 0), 0)
@@ -315,8 +322,6 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   def handle_call({:delete, paths}, _from, state) do
-    note_scan_change(state, paths.hash)
-
     case FileSystem.delete_entry(paths) do
       {:ok, result} -> {:reply, result, forget(state, paths.hash)}
       :miss -> {:reply, :miss, forget(state, paths.hash)}
@@ -400,7 +405,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   defp finish_commit({:admit, victims}, prepared, descriptor, state) do
     evict(state, victims, :admission)
     state = Enum.reduce(victims, state, &forget(&2, &1.key_hash))
-    replaced = entry(state, descriptor.key_hash)
+    replaced = entry(state, descriptor.key_hash) || unscanned_entry(state, prepared)
 
     case FileSystem.publish_prepared(prepared, descriptor.body_filename) do
       :ok ->
@@ -417,6 +422,18 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   defp finish_commit({:reject, _reason}, prepared, _descriptor, state) do
     FileSystem.discard_prepared(prepared)
     {{:ok, :rejected}, state}
+  end
+
+  # While the scan runs, an entry the write replaces may be on disk but not
+  # yet counted. Its metadata names the body to delete; the scan then skips
+  # the key, which the write's put/2 notes.
+  defp unscanned_entry(%{scan_changes: nil}, _prepared), do: nil
+
+  defp unscanned_entry(_state, prepared) do
+    case FileSystem.read_descriptor(prepared.paths.meta_path) do
+      {:ok, descriptor, _mtime} -> descriptor
+      {:error, _missing_or_unreadable} -> nil
+    end
   end
 
   defp delete_replaced_body(_state, nil, _descriptor), do: :ok
@@ -590,6 +607,10 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   defp over_cap?(state), do: state.stored_bytes > state.max_size_bytes
+
+  defp reconcile_if_over_cap(state),
+    do:
+      if(state.scan_complete? and over_cap?(state), do: start_reconciliation(state), else: state)
 
   defp evict(_state, [], _trigger), do: :ok
 
