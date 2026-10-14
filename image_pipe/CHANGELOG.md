@@ -138,6 +138,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   such as `pixelate=2000` on a 4000×2667 JPEG, failed with `415`.
 - A `region` whose width or height came to less than half a pixel, such as
   `region=0,0,0.3,1`, failed with `500`. It now keeps one pixel.
+- With `detector_required: true`, an `anchor=smart-face` crop called the
+  detector before its models were ready, so the built-in detector could
+  download a model during the request. Until the face model is ready, such
+  a crop now uses attention cropping without calling the detector, and the
+  response isn't stored.
 
 ## [0.2.0] - 2026-10-13
 

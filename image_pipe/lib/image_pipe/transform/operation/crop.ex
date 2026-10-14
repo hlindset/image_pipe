@@ -78,6 +78,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
     ]
 
   alias ImagePipe.Telemetry
+  alias ImagePipe.Transform.Detector
   alias ImagePipe.Transform.Focal
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
@@ -189,11 +190,16 @@ defmodule ImagePipe.Transform.Operation.Crop do
   end
 
   def execute(%__MODULE__{gravity: {:smart, :face_assist}} = params, %State{} = state) do
-    if is_nil(state.detector) do
-      emit_detect_skipped(["face"], state.telemetry_opts)
-      smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
-    else
-      face_assist_crop(params, state)
+    cond do
+      is_nil(state.detector) ->
+        emit_detect_skipped(["face"], state.telemetry_opts)
+        smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
+
+      state.detector_required and not Detector.ready?(state.detector, classes: ["face"]) ->
+        attention_until_ready(params, state)
+
+      true ->
+        face_assist_crop(params, state)
     end
   end
 
@@ -326,6 +332,14 @@ defmodule ImagePipe.Transform.Operation.Crop do
 
   defp attention_after_error(params, %State{} = state, _reason),
     do: smart_crop(params, %State{state | degraded?: true}, :VIPS_INTERESTING_ATTENTION)
+
+  # A required detector doesn't load models during a request. Until the face
+  # model is ready, use attention, and don't store the result unless face
+  # detection is unavailable in this build.
+  defp attention_until_ready(params, %State{} = state) do
+    degraded? = state.degraded? or state.detector.available?(classes: ["face"])
+    smart_crop(params, %State{state | degraded?: degraded?}, :VIPS_INTERESTING_ATTENTION)
+  end
 
   defp counted_detection(%State{} = state), do: %State{state | detections: state.detections + 1}
 

@@ -67,6 +67,18 @@ defmodule ImagePipe.API.DetectionStrictnessWireTest do
       assert response("crop=50,50/detect=car,face", strict).status == 500
     end
 
+    test "use attention for face-assisted crops without calling a detector that isn't ready" do
+      FlakyDetector.set(:ready?, false)
+      opts = observed(detector: FlakyDetector, detector_required: true)
+
+      assisted = response("w=50/h=100/fit=cover/anchor=smart-face", opts)
+      assert get_resp_header(assisted, "cache-control") == ["no-store"]
+      assert flush_cache_puts() == 0
+
+      attention = response("w=50/h=100/fit=cover/anchor=smart", opts)
+      assert pixels(image(assisted)) == pixels(image(attention))
+    end
+
     test "still fall back for face-assisted attention" do
       FlakyDetector.set(:fail?, true)
       opts = mount(detector: FlakyDetector, detector_required: true)
