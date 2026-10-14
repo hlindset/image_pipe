@@ -3,7 +3,8 @@ defmodule ImagePipe.Execution.Identity do
   # resolved output policy. Byte-affecting groups, terminal, output selection,
   # detector identity, and SVG renderer identity enter both the cache key and
   # ETag. Info identity also
-  # carries the placeholders it includes.
+  # carries the placeholders it includes, and the result limits of an explicit
+  # format whose encoder lowers them.
   #
   # The cachebuster and configured request-header/cookie storage inputs partition
   # cache storage without changing the ETag. Expiry, signatures, filenames,
@@ -21,6 +22,7 @@ defmodule ImagePipe.Execution.Identity do
   alias ImagePipe.Output.Terminal.LqipCss
   alias ImagePipe.Plan.Spec
   alias ImagePipe.Plan.Spec.Output
+  alias ImagePipe.Processing
   alias ImagePipe.Representation.IdentityMaterial
 
   @doc """
@@ -41,7 +43,8 @@ defmodule ImagePipe.Execution.Identity do
       representation_material(
         %{request | groups: Enum.map(request.groups, &Map.from_struct/1)},
         policy,
-        detector_identity
+        detector_identity,
+        config
       ) ++ Decode.svg_material(Keyword.get(config, :svg))
 
     vary_header_names =
@@ -58,15 +61,16 @@ defmodule ImagePipe.Execution.Identity do
     }
   end
 
-  defp representation_material(%Spec{output: output} = request, nil, detector_identity) do
+  defp representation_material(%Spec{output: output} = request, nil, detector_identity, config) do
     [orient: request.orient] ++
       page_material(request.page) ++
       [groups: request.groups] ++
       [terminal: terminal_identity(output), output_policy: []] ++
+      info_limits_material(output, config) ++
       detector_material(detector_identity)
   end
 
-  defp representation_material(request, %Policy{} = policy, detector_identity) do
+  defp representation_material(request, %Policy{} = policy, detector_identity, _config) do
     [orient: request.orient] ++
       page_material(request.page) ++
       [
@@ -89,6 +93,16 @@ defmodule ImagePipe.Execution.Identity do
     do: {:info, Enum.map(placeholders, &placeholder_identity/1)}
 
   defp terminal_identity(%Output{terminal: terminal}), do: placeholder_identity(terminal)
+
+  # Info clamps its result to an explicit format's encoder limits, so a format
+  # that lowers them gets its own identity. Formats that don't share one.
+  defp info_limits_material(%Output{terminal: :info, format: format}, config)
+       when not is_nil(format) do
+    limits = Processing.result_limits(format, config)
+    if limits == Processing.result_limits(nil, config), do: [], else: [result_limits: limits]
+  end
+
+  defp info_limits_material(_output, _config), do: []
 
   defp placeholder_identity(:blurhash), do: Blurhash.identity()
   defp placeholder_identity(:lqip_css), do: LqipCss.identity()

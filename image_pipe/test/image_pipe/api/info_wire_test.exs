@@ -265,6 +265,22 @@ defmodule ImagePipe.API.InfoWireTest do
     end
   end
 
+  test "an explicit format whose encoder caps dimensions lowers the result and its identity" do
+    body = gradient_jpeg(100, 10)
+    limits = [max_result_width: 30_000, max_result_height: 30_000, max_result_pixels: 900_000_000]
+    config = observed_mount(body, limits)
+
+    webp = request("w=20000/enlarge/format=webp/output=info", config)
+    jpeg = request("w=20000/enlarge/format=jpeg/output=info", config)
+    plain = request("w=20000/enlarge/output=info", config)
+
+    assert JSON.decode!(webp.resp_body)["result"]["width"] == 16_383
+    assert JSON.decode!(jpeg.resp_body)["result"]["width"] == 20_000
+    assert jpeg.resp_body == plain.resp_body
+    assert get_resp_header(jpeg, "etag") == get_resp_header(plain, "etag")
+    refute get_resp_header(webp, "etag") == get_resp_header(jpeg, "etag")
+  end
+
   test "image options an image request rejects fail non-image outputs before fetch", %{
     body: body
   } do

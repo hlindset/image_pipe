@@ -43,6 +43,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Before, it kept the earlier Plug's `Cache-Control`, and a CDN could serve
   the error for that header's lifetime. A client error (`4xx`) still keeps
   it.
+- `output=info` with an explicit `format` whose encoder has a lower size limit
+  than the server's result limits, such as `format=webp` with limits above
+  16,383 pixels, shared its cache entry and ETag with other formats. A cache
+  could then serve one format's `result` dimensions for another.
 - A request to an HTTP or S3 source that waited past `pool_timeout` for a
   free connection crashed the request process. Behind Bandit, the client got
   no response and the connection stayed open. Such requests now fail with a
