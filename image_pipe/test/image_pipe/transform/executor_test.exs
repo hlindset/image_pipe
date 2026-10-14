@@ -32,8 +32,8 @@ defmodule ImagePipe.Transform.ExecutorTest do
 
     assert {:ok, result} = Executor.execute(state, request, [])
     assert {Image.width(result.image), Image.height(result.image)} == {20, 10}
-    assert result.source_dimensions == nil
-    assert result.decode_shrink == nil
+    assert result.source_dimensions == {160, 80}
+    assert result.decode_shrink == %{w: 8.0, h: 8.0}
   end
 
   # A region at 101 sits at 50.5 shrunk pixels, which rounds half to even, as

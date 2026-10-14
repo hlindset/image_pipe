@@ -38,6 +38,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Directive names match in any case, so `MAX-AGE=86400` is lowered too.
   - A `Cache-Control` without `max-age`, such as `public`, gets one that ends
     at the expiry.
+- A `crop` or `region` followed by a resize could give a different size for
+  a JPEG source than for the same image as PNG, because JPEG decodes at a
+  smaller size first. A narrow crop was off by several pixels, such as
+  `crop=101,1500/w=50` giving 50×750 instead of 50×743. The size is now the
+  same for every source format, in the image and in `output=info`.
 - A server error (`5xx`), such as a `502` for a failing origin, gets
   `Cache-Control: no-store`, even when an earlier Plug set `Cache-Control`.
   Before, it kept the earlier Plug's `Cache-Control`, and a CDN could serve
