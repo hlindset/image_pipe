@@ -63,6 +63,26 @@ defmodule ImagePipe.API.SVGSourceWireTest do
     assert pixel(response, 200, 100) == [0, 0, 255, 255]
   end
 
+  test "renders a one-axis stretch and a minimum past the intrinsic size" do
+    for {options, expected} <- [
+          {"w=400/fit=stretch/format=png", {400, 20}},
+          {"h=200/fit=stretch/format=png", {40, 200}},
+          {"min-w=400/format=png", {400, 200}},
+          {"min-h=200/format=png", {400, 200}}
+        ] do
+      response = request(options, mount(@svg))
+      assert dimensions(response) == expected, options
+
+      info = JSON.decode!(request(options <> "/output=info", mount(@svg)).resp_body)
+      assert {info["result"]["width"], info["result"]["height"]} == expected, options
+    end
+
+    # Rendered at the requested width, not enlarged from the 40-pixel raster.
+    response = request("w=400/fit=stretch/format=png", mount(@svg))
+    assert pixel(response, 198, 10) == [255, 0, 0, 255]
+    assert pixel(response, 201, 10) == [0, 0, 255, 255]
+  end
+
   test "applies DPR past the intrinsic size" do
     assert dimensions(request("w=40/dpr=2/format=png", mount(@svg))) == {80, 40}
   end

@@ -70,16 +70,26 @@ defmodule ImagePipe.Transform.Executor do
         %Spec{groups: [%Group{} = group | _]} = request,
         %SourceGeometry{} = geometry
       ) do
-    group = if geometry.source_format == :svg, do: vector_group(group), else: group
+    vector? = geometry.source_format == :svg
+    group = if vector?, do: vector_group(group), else: group
     {crop_frame, headroom} = decode_frame(group.rotate, geometry.display_dimensions)
     crop_extent = decode_crop_extent(group, crop_frame)
     extent = crop_extent || crop_frame
+    target = decode_target(request, group, extent, headroom)
+    target = if vector?, do: target || render_target(group, extent, headroom), else: target
 
-    DecodePlanner.open_options(
-      geometry.source_format,
-      extent,
-      decode_target(request, group, extent, headroom)
-    )
+    DecodePlanner.open_options(geometry.source_format, extent, target)
+  end
+
+  # A vector source renders at its first group's resize even where a raster
+  # decode couldn't shrink, as for a one-axis stretch or a minimum alone, so
+  # that resize isn't clamped to the intrinsic size.
+  defp render_target(%Group{resize: nil}, _extent, _headroom), do: nil
+  defp render_target(%Group{trim: trim}, _extent, _headroom) when trim != nil, do: nil
+
+  defp render_target(%Group{} = group, extent, headroom) do
+    {mode, target} = Geometry.resize_target(group.resize, group.dpr, extent)
+    scale_target(Geometry.resize_dimensions(mode, target, extent), headroom)
   end
 
   # A resize without target axes normalizes to nil, so the terminal's reduction

@@ -29,6 +29,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   or by configuration, or if a crop fell back because content detection
   failed. Before, it got the earlier Plug's `Cache-Control` capped at the
   expiry, and a CDN could store it.
+- An SVG source with `fit=stretch` and one axis, such as `w=480/fit=stretch`,
+  or with only `min-w` or `min-h`, stayed at its intrinsic size instead of
+  rendering at the requested size. It now renders at that size, like any
+  other first-group resize of an SVG.
 - On a URL with `expires`, a `Cache-Control` set by an earlier Plug is capped
   at the expiry in more cases:
   - A quoted value, such as `max-age="86400"`, is read as seconds. A
