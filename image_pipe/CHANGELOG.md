@@ -10,6 +10,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A file system cache logs at `info` when it claims its cache root, naming
   the host. A node that refused the root, because another node used it, logs
   at `info` when it takes the root over and requests use the cache again.
+- An S3 source logs a warning when a fetch of its provider's credentials
+  fails, naming the bucket and the provider module, and logs at `info` when a
+  fetch succeeds again.
 
 ### Changed
 

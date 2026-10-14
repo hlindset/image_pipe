@@ -179,6 +179,10 @@ defmodule ImagePipe.Source.S3 do
   Credentials from a provider are cached per provider, options, and bucket.
   Expired credentials are never sent. When they can't be refreshed, requests
   fail with `{:source, :credentials_unavailable}`, which answers `500`.
+
+  A failed fetch logs a warning, with the failure reason when it's an atom.
+  Further failures in a row log nothing more, and the fetch that succeeds
+  after them logs at info level.
   """
 
   @impl Source

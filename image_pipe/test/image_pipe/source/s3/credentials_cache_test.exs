@@ -1,6 +1,8 @@
 defmodule ImagePipe.Source.S3.CredentialsCacheTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias ImagePipe.Source.S3.Credentials
 
   defmodule CountingProvider do
@@ -84,10 +86,20 @@ defmodule ImagePipe.Source.S3.CredentialsCacheTest do
       def fetch_credentials(_scope, _opts), do: {:error, :nope}
     end
 
-    provider = {:provider, FailingProvider, []}
+    provider = {:provider, FailingProvider, [secret: "fake-option-secret"]}
+    bucket = "bucket-c-#{System.unique_integer()}"
 
-    assert {:error, {:source, :credentials_unavailable}} =
-             Credentials.fetch("bucket-c-#{System.unique_integer()}", provider)
+    log =
+      capture_log(fn ->
+        assert {:error, {:source, :credentials_unavailable}} =
+                 Credentials.fetch(bucket, provider)
+      end)
+
+    assert log =~
+             ~s(S3 credentials for bucket "#{bucket}" from #{inspect(FailingProvider)} ) <>
+               "could not be fetched: :nope"
+
+    refute log =~ "fake-option-secret"
   end
 
   test "AssumeRole provider routes through the cache and normalizes" do

@@ -67,6 +67,10 @@ ImagePipe refreshes temporary credentials before they expire, and never
 sends expired ones. If they can't be refreshed, requests fail with `500`
 until they can.
 
+When a fetch of the credentials fails, ImagePipe logs a warning that names the
+bucket and the provider module. Further failures in a row log nothing more,
+and the fetch that succeeds after them logs at info level.
+
 ## Use static keys
 
 <!-- tabs-open -->

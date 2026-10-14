@@ -1,12 +1,15 @@
 defmodule ImagePipe.Source.S3.RefreshCacheTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias ImagePipe.Source.S3.RefreshCache.Entry
 
   defp start_entry(opts) do
     key = Keyword.get(opts, :key, make_ref())
     opts = Keyword.put_new(opts, :key, key)
     opts = Keyword.put_new(opts, :name, nil)
+    opts = Keyword.put_new(opts, :label, "test value")
     start_supervised!({Entry, opts})
   end
 
@@ -129,6 +132,54 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
     assert {:ok, :good} = Entry.get(pid)
   end
 
+  test "logs the first failed fetch, and the fetch that recovers" do
+    now = ~U[2026-06-26 00:00:00Z]
+    future = ~U[2026-06-26 01:00:00Z]
+
+    results = [
+      {:ok, :good, future},
+      {:error, :transient},
+      {:error, :transient},
+      {:ok, :again, future}
+    ]
+
+    results = start_supervised!({Agent, fn -> results end})
+    fetch_fun = fn -> Agent.get_and_update(results, fn [r | rest] -> {r, rest} end) end
+    label = "recovering value #{System.unique_integer()}"
+
+    pid = start_entry(fetch_fun: fetch_fun, now_fun: fn -> now end, label: label)
+    assert {:ok, :good} = Entry.get(pid)
+
+    log =
+      capture_log(fn ->
+        for _refresh <- 1..3 do
+          send(pid, :refresh)
+          _ = :sys.get_state(pid)
+          # The refresh runs in a task, whose result reaches the entry later.
+          await_fetch(pid)
+        end
+      end)
+
+    assert log =~ "#{label} could not be fetched: :transient"
+    assert length(String.split(log, "could not be fetched")) == 2
+    assert log =~ "#{label} was fetched again"
+    assert {:ok, :again} = Entry.get(pid)
+  end
+
+  test "leaves a failure reason that isn't an atom out of the log" do
+    label = "opaque failure #{System.unique_integer()}"
+    fetch_fun = fn -> {:error, {:body, "fake-reason-secret"}} end
+
+    log =
+      capture_log(fn ->
+        pid = start_entry(fetch_fun: fetch_fun, label: label)
+        assert {:error, _reason} = Entry.get(pid)
+      end)
+
+    assert log =~ "#{label} could not be fetched"
+    refute log =~ "fake-reason-secret"
+  end
+
   test "does not serve an expired value; re-fetches on get" do
     test = self()
     calls = start_supervised!({Agent, fn -> 0 end}, id: :calls)
@@ -207,14 +258,19 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
 
     test "recreates a retired entry on the next fetch" do
       key = {:retirement, make_ref()}
-      assert {:ok, :first} = RefreshCache.fetch(key, fn -> {:ok, :first, :never} end)
+
+      assert {:ok, :first} =
+               RefreshCache.fetch(key, "test value", fn -> {:ok, :first, :never} end)
+
       [{pid, _}] = Registry.lookup(RefreshCache.Registry, key)
       ref = Process.monitor(pid)
       send(pid, :check_idle)
       send(pid, :check_idle)
       assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
       assert {:error, :retired} = Entry.get(pid)
-      assert {:ok, :second} = RefreshCache.fetch(key, fn -> {:ok, :second, :never} end)
+
+      assert {:ok, :second} =
+               RefreshCache.fetch(key, "test value", fn -> {:ok, :second, :never} end)
     end
 
     test "a warmed entry stays until its first use, then retires when idle" do
@@ -222,7 +278,7 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
       test = self()
 
       :ok =
-        RefreshCache.warm(key, fn ->
+        RefreshCache.warm(key, "test value", fn ->
           send(test, :fetched)
           {:ok, :warm, :never}
         end)
@@ -235,7 +291,9 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
       _ = :sys.get_state(pid)
       refute_received {:DOWN, ^ref, :process, ^pid, _reason}
 
-      assert {:ok, :warm} = RefreshCache.fetch(key, fn -> {:ok, :refetched, :never} end)
+      assert {:ok, :warm} =
+               RefreshCache.fetch(key, "test value", fn -> {:ok, :refetched, :never} end)
+
       refute_received :fetched
 
       send(pid, :check_idle)
@@ -245,13 +303,20 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
 
     test "retries a get queued behind idle retirement" do
       key = {:retirement_race, make_ref()}
-      assert {:ok, :first} = RefreshCache.fetch(key, fn -> {:ok, :first, :never} end)
+
+      assert {:ok, :first} =
+               RefreshCache.fetch(key, "test value", fn -> {:ok, :first, :never} end)
+
       [{pid, _}] = Registry.lookup(RefreshCache.Registry, key)
       :ok = :sys.suspend(pid)
       send(pid, :check_idle)
       send(pid, :check_idle)
 
-      caller = Task.async(fn -> RefreshCache.fetch(key, fn -> {:ok, :second, :never} end) end)
+      caller =
+        Task.async(fn ->
+          RefreshCache.fetch(key, "test value", fn -> {:ok, :second, :never} end)
+        end)
+
       wait_for_queued_get(pid)
       :ok = :sys.resume(pid)
 
@@ -267,17 +332,17 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
         {:ok, :v, :never}
       end
 
-      assert {:ok, :v} = RefreshCache.fetch(key, fun)
+      assert {:ok, :v} = RefreshCache.fetch(key, "test value", fun)
       assert_received :fetched
-      assert {:ok, :v} = RefreshCache.fetch(key, fun)
+      assert {:ok, :v} = RefreshCache.fetch(key, "test value", fun)
       refute_received :fetched
     end
 
     test "distinct keys get distinct entries" do
       k1 = {:unit, make_ref()}
       k2 = {:unit, make_ref()}
-      assert {:ok, 1} = RefreshCache.fetch(k1, fn -> {:ok, 1, :never} end)
-      assert {:ok, 2} = RefreshCache.fetch(k2, fn -> {:ok, 2, :never} end)
+      assert {:ok, 1} = RefreshCache.fetch(k1, "test value", fn -> {:ok, 1, :never} end)
+      assert {:ok, 2} = RefreshCache.fetch(k2, "test value", fn -> {:ok, 2, :never} end)
     end
   end
 
@@ -308,6 +373,13 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
     case Enum.any?(messages, &match?({:"$gen_call", _, :get}, &1)) do
       true -> :ok
       false -> wait_for_queued_get(pid)
+    end
+  end
+
+  defp await_fetch(pid) do
+    case :sys.get_state(pid) do
+      %{task: nil} -> :ok
+      _fetching -> await_fetch(pid)
     end
   end
 end
