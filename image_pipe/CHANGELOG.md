@@ -155,6 +155,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with `422` because it exceeds `max_intermediate_pixels`, such as
   `w=20000/enlarge` on a small image. It now fails with `422` too, as
   `output=blurhash` and `output=lqip-css` already did.
+- A request for another variant of a source that was still downloading, such
+  as `w=50` while `w=100` was fetching the same image, could fail with `504`.
+  It waited until the first request's processing, which can start before the
+  download finishes, was done too, and gave up a second after the source's
+  `fetch_timeout`. It now waits only for the download.
 
 ## [0.2.0] - 2026-10-13
 

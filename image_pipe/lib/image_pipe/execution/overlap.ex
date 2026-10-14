@@ -12,7 +12,10 @@ defmodule ImagePipe.Execution.Overlap do
   @observation_us 5_000
   @remaining_us 30_000
 
-  def with_session(response, preparation, config, path, fun) do
+  # Starts a session when the download is a candidate for overlapped
+  # processing, or returns nil. The caller closes it with close/1 on failure;
+  # finish/1 closes it on success.
+  def start(response, preparation, config, path) do
     case candidate(response, preparation, config) do
       {:ok, expected, request, policy} ->
         {:ok, download} = Download.start(path, 0)
@@ -32,23 +35,27 @@ defmodule ImagePipe.Execution.Overlap do
 
         Download.watch(download, task.pid)
 
-        try do
-          fun.(%{
-            download: download,
-            task: task,
-            expected: expected,
-            first: nil,
-            status: :observing
-          })
-        after
-          :erlang.unalias(notification)
-          Download.close(download)
-          Task.ignore(task)
-        end
+        %{
+          download: download,
+          task: task,
+          notification: notification,
+          expected: expected,
+          first: nil,
+          status: :observing
+        }
 
       :skip ->
-        fun.(nil)
+        nil
     end
+  end
+
+  def close(nil), do: nil
+
+  def close(state) do
+    :erlang.unalias(state.notification)
+    Download.close(state.download)
+    Task.ignore(state.task)
+    nil
   end
 
   def observe(nil, _io, _size), do: nil
@@ -85,24 +92,31 @@ defmodule ImagePipe.Execution.Overlap do
     poll(state)
   end
 
-  def finish(nil), do: nil
-  def finish(%{status: status}) when status in [:observing, :skip], do: nil
-  def finish(%{status: {:ready, result}}), do: result
+  # Called when the download is complete. A session that never started
+  # processing ends here. A running one keeps going, so that the caller can
+  # release the source's work before it waits in finish/1.
+  def complete(nil), do: nil
+  def complete(%{status: status} = state) when status in [:observing, :skip], do: close(state)
 
-  def finish(%{status: :running} = state) do
+  def complete(%{status: :running} = state) do
     Download.finish(state.download)
-
-    state = completed(state, await(state.task, 60_000))
-    finish(state)
+    state
   end
 
-  def cancel(nil), do: nil
+  def complete(%{status: {:ready, _result}} = state), do: state
 
-  def cancel(state) do
-    Download.close(state.download)
-    Task.ignore(state.task)
-    nil
+  def finish(nil), do: nil
+  def finish(%{status: :skip} = state), do: close(state)
+
+  def finish(%{status: {:ready, result}} = state) do
+    close(state)
+    result
   end
+
+  def finish(%{status: :running} = state),
+    do: state |> completed(await(state.task, 60_000)) |> finish()
+
+  def cancel(state), do: close(state)
 
   defp candidate(
          %Response{path: nil, origin: %Origin{headers: headers}},
