@@ -5,6 +5,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- A source's `bearer_token` with a line break or NUL passed the startup
+  check, and every fetch from that source then failed. The server now
+  refuses to start, naming the setting.
+
 ## [0.2.0] - 2026-10-13
 
 ### Added

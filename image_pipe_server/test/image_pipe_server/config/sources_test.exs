@@ -145,6 +145,18 @@ defmodule ImagePipeServer.Config.SourcesTest do
              }) =~ "sources.api.bearer_token: expected a non-empty string"
     end
 
+    test "reject a bearer_token with a line break or NUL without quoting it" do
+      for token <- ["sekrit\r\nX: y", "sekrit\n", "sekrit" <> <<0>>] do
+        message =
+          error(%{
+            "api" => %{"adapter" => "http", "match" => "path", "bearer_token" => token}
+          })
+
+        assert message =~ "sources.api.bearer_token: must not contain a line break or NUL"
+        refute message =~ "sekrit"
+      end
+    end
+
     test "accept the keyword form of address_policy" do
       [web: mount] =
         convert(%{
