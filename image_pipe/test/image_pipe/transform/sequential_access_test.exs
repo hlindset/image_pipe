@@ -15,7 +15,6 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
   alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.Operation.Gradient
   alias ImagePipe.Transform.Operation.Gray
-  alias ImagePipe.Transform.Operation.Pixelate
   alias ImagePipe.Transform.Operation.Resize
   alias ImagePipe.Transform.Operation.Rotate
   alias ImagePipe.Transform.Operation.Saturation
@@ -137,10 +136,6 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
         body
       )
     end
-  end
-
-  test "pixelate streams" do
-    assert_sequential_matches_random([%Pixelate{size: 8}], File.read!(@beach))
   end
 
   test "brightness streams" do

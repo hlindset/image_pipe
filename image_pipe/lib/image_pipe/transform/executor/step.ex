@@ -60,6 +60,8 @@ defmodule ImagePipe.Transform.Executor.Step do
   def random_access?(%Rotate{}), do: true
   def random_access?(%Trim{}), do: true
   def random_access?(%ProgressiveBlur{}), do: true
+  # Mirror padding reads past the bottom edge backwards, beyond the line cache.
+  def random_access?(%Pixelate{}), do: true
   def random_access?(%Crop{gravity: :smart}), do: true
   def random_access?(%Crop{gravity: {:smart, _}}), do: true
   def random_access?(%Crop{gravity: {:detect, _}}), do: true

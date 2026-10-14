@@ -36,6 +36,20 @@ defmodule ImagePipe.API.OperationExecutionWireTest do
     %{config: config, prefix: prefix}
   end
 
+  test "pixelate with a block size near the image size succeeds", %{
+    config: config
+  } do
+    for size <- [8, 2000, 5000] do
+      conn =
+        conn(:get, "/pixelate=#{size}/format=jpeg/src/images/beach.jpg")
+        |> ImagePipe.Plug.call(config)
+
+      assert conn.status == 200, "pixelate=#{size}: HTTP #{conn.status}"
+      image = Image.from_binary!(conn.resp_body)
+      assert {Image.width(image), Image.height(image)} == {4000, 2667}
+    end
+  end
+
   test "operations follow stage and group order and expose their parameters", %{config: config} do
     conn =
       conn(:get, "/gray/blur=1/-/brightness=20/format=png/src/images/beach.jpg")

@@ -129,6 +129,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A request that reached `processing_timeout` while its source was still
   downloading failed with `500` or got no response. It now fails with `{:processing, :timeout}`,
   which the Plug answers with `503`.
+- A `pixelate` block size that needed many rows of padding below the image,
+  such as `pixelate=2000` on a 4000×2667 JPEG, failed with `415`.
 
 ## [0.2.0] - 2026-10-13
 
