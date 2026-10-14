@@ -37,6 +37,11 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   @default_max_iterations 6
 
+  # The max_bytes phase gets at least this many probes of its own after an
+  # objective search, so the objective can't spend the budget the byte search
+  # needs and leave it a lower quality than max_bytes alone would ship.
+  @default_cap_iterations 5
+
   # Target search tuning (bench/autoquality.md, Part O): accept a score up to
   # this far above the target, assume this score gain per quality step until two
   # probes measure it, and step at most this many qualities at once.
@@ -85,6 +90,7 @@ defmodule ImagePipe.Output.EncodeSearch do
               probe_log: %{},
               iterations: 0,
               max_iterations: 0,
+              cap_iterations: 0,
               phase: nil,
               limiting_factor: nil,
               telemetry_opts: []
@@ -108,6 +114,7 @@ defmodule ImagePipe.Output.EncodeSearch do
       scorer: Keyword.get(opts, :scorer, :full),
       scorer_tiles: Keyword.get(opts, :scorer_tiles),
       max_iterations: Keyword.get(opts, :max_iterations, @default_max_iterations),
+      cap_iterations: Keyword.get(opts, :cap_iterations, @default_cap_iterations),
       telemetry_opts: telemetry_opts
     }
 
@@ -249,7 +256,12 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   defp cap_phase(quality_search, max_bytes, objective_q, objective_outcome, ctx) do
     floor = min(cap_floor(quality_search), objective_q)
-    ctx = %{ctx | phase: :cap}
+
+    ctx = %{
+      ctx
+      | phase: :cap,
+        max_iterations: max(ctx.max_iterations, ctx.iterations + ctx.cap_iterations)
+    }
 
     with {:ok, ctx} <- ensure_probed(objective_q, ctx) do
       upper_bytes = byte_size(Map.fetch!(ctx.encode_memo, objective_q))

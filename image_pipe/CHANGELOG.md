@@ -47,6 +47,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   free connection crashed the request process. Behind Bandit, the client got
   no response and the connection stayed open. Such requests now fail with a
   `{:source, :pool_timeout}` error, which the Plug answers with `504`.
+- `autoquality` together with `max-bytes` could ship a lower quality than
+  `max-bytes` alone, because the quality search used up the encodes the byte
+  budget needed. The byte budget now gets its own encodes.
 - A conditional header in an HTTP or S3 source's `req_options`, such as
   `if-none-match`, made the request fail when the origin answered a first
   fetch with `304`. Sources now drop `if-none-match`, `if-modified-since`,
