@@ -141,6 +141,7 @@ defmodule ImagePipe.Processing.Terminal do
   # lazily, so the clamped header has the dimensions it would deliver.
   defp executed_facts(state, request, config, lqip_css) do
     with {:ok, state} <- Executor.execute(state, request, config),
+         :ok <- Executor.check_evaluation(state),
          {:ok, clamped, _info} <- Clamp.clamp(state.image, result_limits(request, config), config) do
       result = %{
         "width" => Image.width(clamped),

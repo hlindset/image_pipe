@@ -151,6 +151,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `region=99.99pct,0,10,10`, failed with `400` because its origin rounded
   past the edge. It now starts at the last pixel. Only a region that starts
   at or beyond the edge is rejected.
+- `output=info` reported a `result` size for a URL whose image request fails
+  with `422` because it exceeds `max_intermediate_pixels`, such as
+  `w=20000/enlarge` on a small image. It now fails with `422` too, as
+  `output=blurhash` and `output=lqip-css` already did.
 
 ## [0.2.0] - 2026-10-13
 
