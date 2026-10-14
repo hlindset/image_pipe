@@ -5,6 +5,14 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** The server no longer accepts HTTP/2 over plain HTTP (h2c,
+  HTTP/2 with prior knowledge). Configure the load balancer or proxy in front
+  of the server to connect with HTTP/1.1. Before, an HTTP/2 request that took longer than
+  `[server] read_timeout` lost its response, along with every other request
+  on its connection.
+
 ### Fixed
 
 - A source's `bearer_token` with a line break or NUL passed the startup

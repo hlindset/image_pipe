@@ -118,6 +118,7 @@ defmodule ImagePipeServer.Application do
        plug: {Health, drain: drain},
        port: port,
        ip: Keyword.fetch!(server, :ip),
+       http_2_options: [enabled: false],
        thousand_island_options: [
          num_acceptors: 1,
          num_connections: 16,
@@ -132,7 +133,9 @@ defmodule ImagePipeServer.Application do
   @max_acceptors 100
 
   # Images are already compressed, and negotiating content encoding would add
-  # `Vary: Accept-Encoding` to every response.
+  # `Vary: Accept-Encoding` to every response. HTTP/2 cleartext is off: Bandit
+  # closes an HTTP/2 connection that is quiet for read_timeout, even while a
+  # slow image is still being made, losing every stream on it.
   @doc false
   @spec http_child(Config.t(), {module(), term()}) :: {module(), keyword()}
   def http_child(%Config{server: server}, plug) do
@@ -144,6 +147,7 @@ defmodule ImagePipeServer.Application do
      port: Keyword.fetch!(server, :port),
      ip: Keyword.fetch!(server, :ip),
      http_options: [compress: false],
+     http_2_options: [enabled: false],
      thousand_island_options: [
        num_acceptors: acceptors,
        num_connections: ceil(max_connections / acceptors),

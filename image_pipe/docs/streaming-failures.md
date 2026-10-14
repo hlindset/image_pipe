@@ -55,8 +55,8 @@ response without finishing it:
 
 - Over HTTP/1.1, the server closes the connection before the body is
   complete, so clients, proxies, and CDNs can tell it was cut short.
-- Over HTTP/2, Bandit (the server behind `image_pipe_server` and new Phoenix
-  apps) resets the stream, so the client sees the request fail.
+- Over HTTP/2, Bandit (the web server in new Phoenix apps) resets the
+  stream, so the client sees the request fail.
 
 A browser shows part of the image or a broken image.
 

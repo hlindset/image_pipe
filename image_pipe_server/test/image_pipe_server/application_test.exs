@@ -184,6 +184,49 @@ defmodule ImagePipeServer.ApplicationTest do
     end
   end
 
+  describe "HTTP versions" do
+    test "serves HTTP/1.1 and refuses HTTP/2 prior knowledge" do
+      config = Config.build!(server: [port: 0, bind: "127.0.0.1"])
+      {Bandit, opts} = App.http_child(config, {Health, drain: Health.new()})
+      name = :"listener_#{System.unique_integer([:positive])}"
+      opts = put_in(opts, [:thousand_island_options, :supervisor_options], name: name)
+      start_supervised!(Supervisor.child_spec({Bandit, opts}, id: :versions_listener))
+      {:ok, {_ip, port}} = ThousandIsland.listener_info(name)
+
+      assert {:ok, %{status: 200}} =
+               Req.get("http://127.0.0.1:#{port}/health/live", retry: false)
+
+      result =
+        with {:ok, conn} <- Mint.HTTP.connect(:http, "127.0.0.1", port, protocols: [:http2]),
+             {:ok, conn, ref} <- Mint.HTTP.request(conn, "GET", "/health/live", [], nil) do
+          receive_status(conn, ref)
+        end
+
+      refute match?({:ok, 200}, result)
+    end
+  end
+
+  defp receive_status(conn, ref) do
+    receive do
+      message ->
+        case Mint.HTTP.stream(conn, message) do
+          {:ok, conn, responses} ->
+            case Enum.find(responses, &match?({:status, ^ref, _}, &1)) do
+              {:status, ^ref, status} -> {:ok, status}
+              nil -> receive_status(conn, ref)
+            end
+
+          {:error, _conn, reason, _responses} ->
+            {:error, reason}
+
+          :unknown ->
+            receive_status(conn, ref)
+        end
+    after
+      2_000 -> {:error, :timeout}
+    end
+  end
+
   describe "health listener" do
     defp start_named(child, id) do
       {Bandit, opts} = child
