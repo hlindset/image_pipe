@@ -5,6 +5,15 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- A file system cache logs at `info` when it claims its cache root, naming
+  the host. A node that refused the root, because another node used it, logs
+  at `info` when it takes the root over and requests use the cache again.
+- An S3 source logs a warning when a fetch of its provider's credentials
+  fails, naming the bucket and the provider module, and logs at `info` when a
+  fetch succeeds again.
+
 ### Changed
 
 - **Breaking:** `ImagePipe.config/1` raises `ArgumentError` for a preset or
@@ -78,7 +87,7 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The detector warmup gave up after three failed attempts, about a third of
   a second, so with `detector_required: true` detection requests answered
   `503` until a restart. It now retries, at most a minute apart, until the
-  models load.
+  models load, and logs at `info` when they do.
 - Req's `:range` option in `req_options` set a `range` header even on sources
   that drop `range` headers, which is every source except one with
   `internal_cache: :disabled` that isn't immutable. The origin then sent part

@@ -2,11 +2,12 @@ defmodule ImagePipe.Source.S3.RefreshCache do
   @moduledoc false
   # Generic, value-agnostic refresh cache.
   #
-  # `warm(key, fetch_fun)` starts an entry ahead of its first use.
-  # `fetch(key, fetch_fun)` returns `{:ok, value}` or `{:error, reason}`, starting
+  # `warm(key, label, fetch_fun)` starts an entry ahead of its first use.
+  # `fetch(key, label, fetch_fun)` returns `{:ok, value}` or `{:error, reason}`, starting
   # a per-key `Entry` process on first use (registered in `@registry`, supervised
   # by `@supervisor`). The cache itself never interprets `value` — credential
-  # specifics live in `ImagePipe.Source.S3.Credentials`.
+  # specifics live in `ImagePipe.Source.S3.Credentials`. The `label` names the
+  # value in log lines, so it must not hold secrets.
   #
   # The `child_spec/1` returned here starts the Registry + DynamicSupervisor pair;
   # `ImagePipe.Application` lists this module as a single child.
@@ -33,28 +34,28 @@ defmodule ImagePipe.Source.S3.RefreshCache do
     Supervisor.init(children, strategy: :rest_for_one)
   end
 
-  @spec fetch(term(), (-> {:ok, term(), term()} | {:error, term()})) ::
+  @spec fetch(term(), String.t(), (-> {:ok, term(), term()} | {:error, term()})) ::
           {:ok, term()} | {:error, term()}
-  def fetch(key, fetch_fun) when is_function(fetch_fun, 0) do
-    case fetch_entry(key, fetch_fun) do
-      {:error, :retired} -> fetch_entry(key, fetch_fun)
+  def fetch(key, label, fetch_fun) when is_function(fetch_fun, 0) do
+    case fetch_entry(key, label, fetch_fun) do
+      {:error, :retired} -> fetch_entry(key, label, fetch_fun)
       result -> result
     end
   end
 
   # Starts the entry, which fetches at once, without waiting for the value.
   # The entry isn't retired for being idle before its first fetch/2.
-  @spec warm(term(), (-> {:ok, term(), term()} | {:error, term()})) ::
+  @spec warm(term(), String.t(), (-> {:ok, term(), term()} | {:error, term()})) ::
           :ok | {:error, :cache_entry_unavailable}
-  def warm(key, fetch_fun) when is_function(fetch_fun, 0) do
-    case ensure_entry(key, fetch_fun, warm: true) do
+  def warm(key, label, fetch_fun) when is_function(fetch_fun, 0) do
+    case ensure_entry(key, label, fetch_fun, warm: true) do
       {:ok, _server} -> :ok
       :error -> {:error, :cache_entry_unavailable}
     end
   end
 
-  defp fetch_entry(key, fetch_fun) do
-    case ensure_entry(key, fetch_fun, []) do
+  defp fetch_entry(key, label, fetch_fun) do
+    case ensure_entry(key, label, fetch_fun, []) do
       {:ok, server} ->
         Entry.get(server, @default_call_timeout)
 
@@ -63,14 +64,15 @@ defmodule ImagePipe.Source.S3.RefreshCache do
     end
   end
 
-  defp ensure_entry(key, fetch_fun, opts) do
+  defp ensure_entry(key, label, fetch_fun, opts) do
     case Registry.lookup(@registry, key) do
       [{pid, _value}] ->
         {:ok, pid}
 
       [] ->
         entry_opts =
-          [key: key, fetch_fun: fetch_fun, name: {:via, Registry, {@registry, key}}] ++ opts
+          [key: key, label: label, fetch_fun: fetch_fun, name: {:via, Registry, {@registry, key}}] ++
+            opts
 
         case DynamicSupervisor.start_child(@supervisor, {Entry, entry_opts}) do
           {:ok, pid} ->

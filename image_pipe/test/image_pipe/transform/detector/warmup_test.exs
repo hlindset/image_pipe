@@ -1,5 +1,8 @@
 defmodule ImagePipe.Transform.Detector.WarmupTest do
   use ExUnit.Case, async: true
+
+  import ExUnit.CaptureLog
+
   alias ImagePipe.Transform.Detector.Warmup
 
   test "rejects invalid startup options before invoking a detector" do
@@ -88,8 +91,14 @@ defmodule ImagePipe.Transform.Detector.WarmupTest do
     ref = Process.monitor(pid)
     # start_supervised! returned before warmup completed (it's still blocked in receive):
     assert_receive {:warm_started, worker_pid, ["face"]}
-    send(worker_pid, :release)
-    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
+
+    log =
+      capture_log(fn ->
+        send(worker_pid, :release)
+        assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
+      end)
+
+    refute log =~ "detector warmup succeeded for #{inspect(SignalDetector)}"
   end
 
   test "unavailable detector skips warmup entirely and terminates :normal" do
@@ -110,15 +119,21 @@ defmodule ImagePipe.Transform.Detector.WarmupTest do
     pid = start_supervised!({Warmup, detector: FlakyDetector, classes: ["face"], opts: opts})
     ref = Process.monitor(pid)
 
-    # Each retry waits on a backoff timer; send its message to run it now.
-    for _failure <- 1..4 do
-      assert_receive {:warmup_attempt, ^pid}
-      refute_received {:DOWN, ^ref, :process, ^pid, _reason}
-      send(pid, :retry)
-    end
+    log =
+      capture_log(fn ->
+        # Each retry waits on a backoff timer; send its message to run it now.
+        for _failure <- 1..4 do
+          assert_receive {:warmup_attempt, ^pid}
+          refute_received {:DOWN, ^ref, :process, ^pid, _reason}
+          send(pid, :retry)
+        end
 
-    assert_receive {:warmup_attempt, ^pid}
-    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
+        assert_receive {:warmup_attempt, ^pid}
+        assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
+      end)
+
+    assert log =~
+             "detector warmup succeeded for #{inspect(FlakyDetector)} after 4 failed attempts"
   end
 
   test "nil detector disables warmup as a clean no-op" do

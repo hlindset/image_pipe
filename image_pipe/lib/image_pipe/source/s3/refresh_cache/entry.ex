@@ -15,8 +15,14 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
   #   * background refresh: a timer fires `refresh_margin_ms` before expiry,
   #     with at least five seconds between successful background fetches; a
   #     refresh that fails while the value is still fresh re-arms a bounded retry,
-  #   * fail-closed: an expired value is never served.
+  #   * fail-closed: an expired value is never served,
+  #   * logging: the first failed fetch in a row logs a warning, and the fetch
+  #     that ends the run logs at info. Lines name the value by its `label`,
+  #     and include a failure reason only when it's an atom, since other
+  #     reasons can hold credentials.
   use GenServer
+
+  require Logger
 
   # Refresh this far before expiry (matches the AWS SDK's default 5-minute
   # ExpiryWindow rather than a tighter margin that risks serving a credential
@@ -60,6 +66,7 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
   def init(opts) do
     state = %{
       key: Keyword.fetch!(opts, :key),
+      label: Keyword.fetch!(opts, :label),
       fetch_fun: Keyword.fetch!(opts, :fetch_fun),
       refresh_margin_ms: Keyword.get(opts, :refresh_margin_ms, @default_refresh_margin_ms),
       idle_interval_ms: Keyword.get(opts, :idle_interval_ms, @default_idle_interval_ms),
@@ -70,7 +77,8 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
       expires_at: nil,
       task: nil,
       waiters: [],
-      refresh_timer: nil
+      refresh_timer: nil,
+      failing?: false
     }
 
     schedule_idle_check(state)
@@ -164,12 +172,14 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
     updated = %{state | value: value, expires_at: expires_at}
 
     case fresh?(updated) do
-      true -> {:ok, value} |> reply_waiters(updated) |> schedule_refresh()
+      true -> {:ok, value} |> reply_waiters(recovered(updated)) |> schedule_refresh()
       false -> handle_result({:error, :expired_value}, state)
     end
   end
 
   defp handle_result({:error, reason}, state) do
+    state = failed(state, reason)
+
     if fresh?(state) do
       # refresh failed but the current value is still valid: serve it AND re-arm
       # a bounded retry, so a transient failure does not disable all future
@@ -181,6 +191,23 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
       reply_waiters({:error, reason}, %{state | warm?: false})
     end
   end
+
+  defp failed(%{failing?: true} = state, _reason), do: state
+
+  defp failed(state, reason) do
+    Logger.warning("#{state.label} could not be fetched#{loggable(reason)}")
+    %{state | failing?: true}
+  end
+
+  defp recovered(%{failing?: true} = state) do
+    Logger.info("#{state.label} was fetched again")
+    %{state | failing?: false}
+  end
+
+  defp recovered(state), do: state
+
+  defp loggable(reason) when is_atom(reason), do: ": #{inspect(reason)}"
+  defp loggable(_reason), do: ""
 
   defp reply_waiters(reply, state) do
     Enum.each(state.waiters, fn from -> GenServer.reply(from, reply) end)

@@ -27,7 +27,11 @@ defmodule ImagePipe.Source.S3.Credentials do
   def fetch(_scope, {:static, credentials}), do: {:ok, credentials}
 
   def fetch(scope, {:provider, provider, opts}) do
-    case RefreshCache.fetch(cache_key(provider, opts, scope), fetch_fun(provider, opts, scope)) do
+    case RefreshCache.fetch(
+           cache_key(provider, opts, scope),
+           label(provider, scope),
+           fetch_fun(provider, opts, scope)
+         ) do
       {:ok, credentials} -> {:ok, credentials}
       {:error, _reason} -> {:error, {:source, :credentials_unavailable}}
     end
@@ -38,7 +42,17 @@ defmodule ImagePipe.Source.S3.Credentials do
   # Starts fetching provider credentials before any request needs them.
   @spec warm(String.t(), {:provider, module(), keyword()}) :: :ok | {:error, term()}
   def warm(scope, {:provider, provider, opts}),
-    do: RefreshCache.warm(cache_key(provider, opts, scope), fetch_fun(provider, opts, scope))
+    do:
+      RefreshCache.warm(
+        cache_key(provider, opts, scope),
+        label(provider, scope),
+        fetch_fun(provider, opts, scope)
+      )
+
+  # The provider's options can hold secrets, so the label names only the
+  # provider and the bucket.
+  defp label(provider, scope),
+    do: "S3 credentials for bucket #{inspect(scope)} from #{inspect(provider)}"
 
   defp cache_key(provider, opts, scope) do
     :crypto.hash(
