@@ -143,6 +143,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   download a model during the request. Until the face model is ready, such
   a crop now uses attention cropping without calling the detector, and the
   response isn't stored.
+- `ImagePipe.Source.S3.ContainerCredentials` accepted an `auth_token` with a
+  line break or NUL, and every credential fetch then failed. Such a token is
+  now rejected when the source is configured.
 
 ## [0.2.0] - 2026-10-13
 

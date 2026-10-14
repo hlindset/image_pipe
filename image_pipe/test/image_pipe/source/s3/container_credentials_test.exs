@@ -98,4 +98,16 @@ defmodule ImagePipe.Source.S3.ContainerCredentialsTest do
     assert :ok = ContainerCredentials.validate_options(relative_uri: "/v2/credentials/abc")
     assert {:error, _message} = ContainerCredentials.validate_options(bogus: 1)
   end
+
+  test "validate_options rejects an auth_token with a line break or NUL without quoting it" do
+    for token <- ["SECRET\r\nX: y", "SECRET\n", "SECRET" <> <<0>>] do
+      assert {:error, message} =
+               ContainerCredentials.validate_options(relative_uri: "/creds", auth_token: token)
+
+      refute message =~ "SECRET"
+    end
+
+    assert :ok =
+             ContainerCredentials.validate_options(relative_uri: "/creds", auth_token: "SECRET")
+  end
 end
