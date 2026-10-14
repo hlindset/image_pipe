@@ -56,6 +56,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `internal_cache: :disabled` that isn't immutable. The origin then sent part
   of the image, which was processed as the whole original. These sources now
   drop the `:range` option too.
+- A watermark whose stored copy in the input cache was corrupt made every
+  request using it fail with `415` until the copy was evicted. The copy is now
+  discarded after the first failure, and the next request fetches the
+  watermark again.
 - An HTTP source URL whose query has a space or a non-ASCII character, such
   as `?a b`, is fetched with those characters percent-encoded. Before, the
   request failed with `502`.

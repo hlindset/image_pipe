@@ -528,10 +528,15 @@ defmodule ImagePipe.Execution do
     SourceCache.release(output.extra_lease)
   end
 
-  def finish(%Context{input_key: nil}, _result), do: :ok
+  # A decode failure may come from the main source or a watermark asset, so
+  # each stored original is checked.
+  def finish(context, {:error, {:decode, _reason}}) do
+    [context.input_key | Enum.map(context.watermarks, & &1.input_key)]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.each(&SourceCache.check(&1, context.config))
+  end
 
-  def finish(context, {:error, {:decode, _reason}}),
-    do: SourceCache.check(context.input_key, context.config)
+  def finish(%Context{input_key: nil}, _result), do: :ok
 
   def finish(context, {:error, :source_format_required}),
     do: SourceCache.check(context.input_key, context.config)

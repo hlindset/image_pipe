@@ -98,7 +98,7 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
         http_cache: :auto
       )
 
-    %{config: Caches.plug(config), state: state}
+    %{config: Caches.plug(config), state: state, root: root}
   end
 
   test "input-cached assets serve later requests without refetching", %{config: config} do
@@ -111,6 +111,33 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
     variant = get("/w=30/wm=logo/format=png/src/https://origin.test/image.png", config)
     assert variant.status == 200
     refute_received {:origin, _path, _validator}
+  end
+
+  test "a stored asset whose bytes are corrupt is discarded after a decode failure", %{
+    config: config,
+    root: root
+  } do
+    assert get(@path, config).status == 200
+    flush()
+    mark = png(:red)
+
+    [body] =
+      root
+      |> Path.join("input/**/*.body")
+      |> Path.wildcard()
+      |> Enum.filter(&(File.read!(&1) == mark))
+
+    File.write!(body, :binary.copy(<<0>>, byte_size(mark)))
+
+    assert get("/w=30/wm=logo/format=png/src/https://origin.test/image.png", config).status ==
+             415
+
+    refute_received {:origin, "mark.png", _validator}
+
+    assert get("/w=20/wm=logo/format=png/src/https://origin.test/image.png", config).status ==
+             200
+
+    assert_received {:origin, "mark.png", []}
   end
 
   test "assets are fetched while the main source downloads", %{config: config, state: state} do
