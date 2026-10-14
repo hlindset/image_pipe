@@ -21,6 +21,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Every log line was preceded by a blank line, which log collectors stored
   as an empty entry. Log lines now also start with the date, as in
   `2026-10-14 19:55:23.967 request_id=abc [info] ...`.
+- The server closed new connections well below `[server] max_connections`.
+  The cap was split over up to 100 connection acceptors, and a connection
+  that reached a full acceptor waited about five seconds, then was closed,
+  even while the server had room. `max_connections` is now an exact cap.
 
 ## [0.2.0] - 2026-10-13
 

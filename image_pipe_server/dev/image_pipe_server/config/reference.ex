@@ -18,7 +18,6 @@ defmodule ImagePipeServer.Config.Reference do
     server:
       "The HTTP listener. Times are in milliseconds. `read_timeout` closes connections " <>
         "that send nothing for that long, idle keep-alive connections included. " <>
-        "`max_connections` rounds up to a multiple of 100 above 100 connections. " <>
         "With `auth_token`, requests other than the health checks must send " <>
         "`Authorization: Bearer <token>`. On shutdown, `/health/ready` answers `503` " <>
         "while the server keeps serving for `shutdown_delay`. Then in-flight requests " <>

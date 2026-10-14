@@ -164,23 +164,35 @@ defmodule ImagePipeServer.ApplicationTest do
   end
 
   describe "http_child/2" do
-    test "caps connections across acceptors and sets the read timeout" do
+    test "caps connections on one acceptor and sets the read timeout" do
       config = Config.build!(server: [max_connections: 2048, read_timeout: 5_000])
       {Bandit, opts} = App.http_child(config, {ImagePipeServer.Router, []})
       island = opts[:thousand_island_options]
 
-      assert island[:num_acceptors] == 100
-      assert island[:num_connections] == 21
+      assert island[:num_acceptors] == 1
+      assert island[:num_connections] == 2048
       assert island[:read_timeout] == 5_000
       assert opts[:http_options][:compress] == false
     end
 
-    test "uses fewer acceptors than connections for small caps" do
-      config = Config.build!(server: [max_connections: 10])
-      {Bandit, opts} = App.http_child(config, {ImagePipeServer.Router, []})
+    test "serves a new connection while another is held below max_connections" do
+      config = Config.build!(server: [port: 0, bind: "127.0.0.1", max_connections: 2])
+      {Bandit, opts} = App.http_child(config, {Health, drain: Health.new()})
+      name = :"listener_#{System.unique_integer([:positive])}"
+      opts = put_in(opts, [:thousand_island_options, :supervisor_options], name: name)
+      start_supervised!(Supervisor.child_spec({Bandit, opts}, id: :capped_listener))
+      {:ok, {_ip, port}} = ThousandIsland.listener_info(name)
 
-      assert opts[:thousand_island_options][:num_acceptors] == 10
-      assert opts[:thousand_island_options][:num_connections] == 1
+      {:ok, _held} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, active: false])
+
+      for _ <- 1..4 do
+        assert {:ok, %{status: 200}} =
+                 Req.get("http://127.0.0.1:#{port}/health/live",
+                   retry: false,
+                   receive_timeout: 500,
+                   headers: [connection: "close"]
+                 )
+      end
     end
   end
 

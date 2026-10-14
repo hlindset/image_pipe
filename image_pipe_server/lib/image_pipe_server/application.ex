@@ -128,10 +128,6 @@ defmodule ImagePipeServer.Application do
     end
   end
 
-  # ThousandIsland caps connections per acceptor, so the cap is spread over
-  # the acceptors and rounds up to a multiple of their count.
-  @max_acceptors 100
-
   # Images are already compressed, and negotiating content encoding would add
   # `Vary: Accept-Encoding` to every response. HTTP/2 cleartext is off: Bandit
   # closes an HTTP/2 connection that is quiet for read_timeout, even while a
@@ -139,9 +135,6 @@ defmodule ImagePipeServer.Application do
   @doc false
   @spec http_child(Config.t(), {module(), term()}) :: {module(), keyword()}
   def http_child(%Config{server: server}, plug) do
-    max_connections = Keyword.fetch!(server, :max_connections)
-    acceptors = min(@max_acceptors, max_connections)
-
     {Bandit,
      plug: plug,
      port: Keyword.fetch!(server, :port),
@@ -149,8 +142,11 @@ defmodule ImagePipeServer.Application do
      http_options: [compress: false],
      http_2_options: [enabled: false],
      thousand_island_options: [
-       num_acceptors: acceptors,
-       num_connections: ceil(max_connections / acceptors),
+       # ThousandIsland caps connections per acceptor, and an acceptor at its
+       # cap closes new connections even when others have room. One acceptor
+       # makes max_connections exact.
+       num_acceptors: 1,
+       num_connections: Keyword.fetch!(server, :max_connections),
        read_timeout: Keyword.fetch!(server, :read_timeout),
        shutdown_timeout: Keyword.fetch!(server, :shutdown_timeout),
        supervisor_options: [name: @listener]
