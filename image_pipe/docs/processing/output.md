@@ -75,9 +75,8 @@ target) fails with `400`.
 PNG is lossless, so `q` applies to it only when `palette` is on in
 [`png-options`](#png-options) or the host's PNG settings. There it sets the
 quantization quality: a lower `q` allows less accurate colors for a smaller
-file. Without a palette, `format=png` with `q` fails with `400`, and any
-other PNG response ignores `q`. For lossless WebP, `q` sets compression effort
-rather than image quality.
+file. For lossless WebP, `q` sets compression effort rather than image
+quality.
 
 <!-- tabs-open -->
 
@@ -112,8 +111,8 @@ quality from presets, the request defaults, or the server's configuration.
 A format with a `format-q` quality, from the URL, a preset, or the
 [request defaults](../presets.md#request-defaults), skips the
 [`autoquality`](#autoquality) search. So `autoquality/format-q=webp:70` encodes
-WebP at 70 and runs the search for every other format. A `png` entry fails with `400` unless `palette` is on, even when the
-response isn't PNG.
+WebP at 70 and runs the search for every other format. Like `q`, a `png`
+entry applies only when `palette` is on.
 
 Write `unset` first, as in `format-q=unset,avif:50`, to drop the qualities
 that presets and the request defaults set.

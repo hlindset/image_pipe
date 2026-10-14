@@ -103,8 +103,7 @@ defmodule ImagePipe.Output.Policy do
     output = request_policy(request, config, accept_header, quality_search)
 
     with :ok <- validate_hdr_profile(output),
-         :ok <- validate_lossless_webp_request(output, request),
-         :ok <- validate_png_quality(output, request) do
+         :ok <- validate_lossless_webp_request(output, request) do
       {:ok, output}
     else
       {:error, reason} -> {:error, {:invalid_output, reason}}
@@ -236,19 +235,6 @@ defmodule ImagePipe.Output.Policy do
   end
 
   defp validate_lossless_webp_request(%__MODULE__{}, %SpecOutput{}), do: :ok
-
-  # A PNG quality only sets palette quantization.
-  defp validate_png_quality(%__MODULE__{} = output, %SpecOutput{} = request) do
-    png_quality? =
-      Map.has_key?(request.format_qualities, :png) or
-        (output.mode == {:explicit, :png} and not is_nil(request.quality))
-
-    if png_quality? and not png_palette?(output) do
-      {:error, :png_quality_without_palette}
-    else
-      :ok
-    end
-  end
 
   defp enabled_url_autoquality?(autoquality), do: autoquality not in [nil, false]
 

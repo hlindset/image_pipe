@@ -21,9 +21,17 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   without `pad`, and a `gradient` or `progressive-blur` that starts or stops
   at `-0.0` gets those of one at `0`. Cached copies of such requests miss once
   after an upgrade.
+- A `format-q` entry for `png` applies only when PNG has a palette, like `q`.
+  Before, a URL with one and no palette failed with `400`, even when the
+  response wasn't PNG, and one in `request_defaults` or a preset made every
+  request fail.
 
 ### Fixed
 
+- `format=png` with `q`, from the URL, the request defaults, or a preset,
+  failed with `400` when PNG had no palette. A `q` in `request_defaults` or a
+  preset made every `format=png` request fail. PNG without a palette now
+  ignores `q`, as negotiated PNG already did.
 - On a URL with `expires`, a response gets `Cache-Control: no-store`, even
   when an earlier Plug set `Cache-Control`, if storage is denied by its origin
   or by configuration, or if a crop fell back because content detection

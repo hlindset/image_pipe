@@ -247,10 +247,6 @@ defmodule ImagePipe.API.QualityWireTest do
           "autoquality=target:75",
           "format=jpeg/q=50/autoquality",
           "max-bytes=0",
-          "format=png/q=50",
-          "format=png/png-options=filter:paeth/q=50",
-          "format=png/format-q=png:50",
-          "format-q=png:50",
           "jpeg-options=progressive:true",
           "output=blurhash/q=50/autoquality"
         ] do
@@ -270,6 +266,34 @@ defmodule ImagePipe.API.QualityWireTest do
 
     format_q = response("w=200/format=png/png-options=palette/format-q=png:5", config)
     assert format_q.resp_body == low.resp_body
+  end
+
+  test "format=png without a palette ignores q from the URL, request defaults, and presets" do
+    plain = response("w=200/format=png", mount())
+    assert plain.status == 200
+
+    for {options, config} <- [
+          {"w=200/format=png/q=80", mount()},
+          {"w=200/format=png", mount(request_defaults: "q=80")},
+          {"w=200/preset=hq/format=png", mount(presets: %{"hq" => "q=90"})},
+          {"w=200/format=png/output=info", mount(request_defaults: "q=80")}
+        ] do
+      response = response(options, config)
+      assert response.status == 200, options
+      if options =~ "output=info", do: :ok, else: assert(response.resp_body == plain.resp_body)
+    end
+  end
+
+  test "PNG without a palette ignores a format-q png entry" do
+    plain = response("w=200/format=png", mount())
+
+    ignored = response("w=200/format=png/format-q=png:50", mount())
+    assert ignored.status == 200
+    assert ignored.resp_body == plain.resp_body
+
+    defaults = mount(request_defaults: "format-q=png:80")
+    assert response("w=200/format=png", defaults).resp_body == plain.resp_body
+    assert response("w=50/format=webp", defaults).status == 200
   end
 
   test "BlurHash ignores configured image quality search" do
