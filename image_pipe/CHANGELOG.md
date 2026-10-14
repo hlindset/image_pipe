@@ -5,6 +5,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- A file system cache logs at `info` when it claims its cache root, naming
+  the host. A node that refused the root, because another node used it, logs
+  at `info` when it takes the root over and requests use the cache again.
+
 ### Changed
 
 - **Breaking:** `ImagePipe.config/1` raises `ArgumentError` for a preset or

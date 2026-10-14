@@ -16,7 +16,12 @@ defmodule ImagePipe.Cache.FileSystem.OwnerTest do
   end
 
   test "claims a root nobody owns", %{tmp_dir: root, path: path} do
-    start_supervised!({Root, root: root, max_size_bytes: 1_000_000, host: "this-host"})
+    log =
+      capture_log(fn ->
+        start_supervised!({Root, root: root, max_size_bytes: 1_000_000, host: "this-host"})
+      end)
+
+    assert log =~ ~s(claimed cache root #{root} as host "this-host")
     assert host(path) == "this-host"
     refute Owner.refused?(root)
   end
@@ -243,11 +248,15 @@ defmodule ImagePipe.Cache.FileSystem.OwnerTest do
       |> hd()
 
     ref = Process.monitor(ctx.root_sup)
-    send(ctx.watch, :check)
-    assert_receive {:DOWN, ^ref, :process, _pid, _reason}
 
-    restarted =
-      restarted_root(test_sup, ctx.root_sup, System.monotonic_time(:millisecond) + 5_000)
+    {restarted, log} =
+      with_log(fn ->
+        send(ctx.watch, :check)
+        assert_receive {:DOWN, ^ref, :process, _pid, _reason}
+        restarted_root(test_sup, ctx.root_sup, System.monotonic_time(:millisecond) + 5_000)
+      end)
+
+    assert log =~ "cache root #{ctx.tmp_dir} is free"
 
     taken = File.read!(ctx.path)
 

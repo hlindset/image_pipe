@@ -48,6 +48,12 @@ defmodule ImagePipe.Cache.FileSystem.Root do
 
     case Owner.claim(dir, Keyword.take(opts, @owner_options)) do
       {:ok, claim} ->
+        if Owner.refused?(dir) do
+          Logger.info("cache: cache root #{dir} is free. Requests use this cache again.")
+        else
+          Logger.info("cache: claimed cache root #{dir} as host #{inspect(claim.host)}")
+        end
+
         Owner.accept(dir)
         start([{Owner, claim}, cache(opts)])
 
