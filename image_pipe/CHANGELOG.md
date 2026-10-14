@@ -96,6 +96,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   or `4` on a result with alpha or color failed with `500`. Grayscale
   results without alpha now keep their gray levels, and other results
   without a palette encode at 8 bits.
+- A `detect`, `anchor=smart`, or `anchor=smart-face` crop whose box covers
+  the whole image, such as `crop=8000,8000/detect=face` on a smaller image,
+  ran the detector or saliency anyway. With a failing detector the response
+  wasn't stored, or failed with `500` under `detector_required: true`. Such
+  a crop now runs no detection.
 - An HTTP source whose host name resolves to several addresses could run
   past `fetch_timeout`, because it waited for a response at each address in
   turn. Fetches now end by `fetch_timeout`, apart from a connection attempt,

@@ -74,6 +74,37 @@ defmodule ImagePipe.API.DetectionStrictnessWireTest do
     end
   end
 
+  describe "a content-aware crop that covers the whole image" do
+    # beach.jpg is 4000×2667, so these boxes can't move.
+    @whole [
+      "crop=8000,8000/detect=face",
+      "w=4000/h=2667/fit=cover/detect=face",
+      "crop=8000,8000/anchor=smart-face"
+    ]
+
+    test "runs no detection" do
+      FlakyDetector.set(:fail?, true)
+      opts = mount(detector: FlakyDetector, detector_required: true)
+
+      for options <- @whole, do: assert(response(options, opts).status == 200, options)
+    end
+
+    test "costs no detection in the cache's estimate" do
+      {plug, opts} = observed(detector: FlakyDetector)
+
+      for {options, plain} <- [
+            {"crop=8000,8000/detect=face", "crop=8000,8000/anchor=center"},
+            {"crop=8000,8000/anchor=smart-face", "crop=8000,8000/anchor=center/cb=two"}
+          ] do
+        assert response(options, {plug, opts}).status == 200
+        assert_received {:cache_open_sink, _hash, %{cost_us: detected}}
+        assert response(plain, {plug, opts}).status == 200
+        assert_received {:cache_open_sink, _hash, %{cost_us: undetected}}
+        assert detected == undetected, options
+      end
+    end
+  end
+
   describe "fallback after a detection error" do
     test "is sent without storage or validator, then recovers" do
       prefix = [:detection_strictness_no_store]
