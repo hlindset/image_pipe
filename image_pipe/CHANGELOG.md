@@ -16,6 +16,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Breaking:** `ImagePipe.config/1` raises `ArgumentError` for a `:detector`
+  module that isn't loaded or doesn't implement
+  `ImagePipe.Transform.Detector`. Before, such a configuration started, and
+  every `detect` or `anchor=smart-face` request failed with `500`. Fix the
+  module name, or set `detector: nil`.
 - **Breaking:** `ImagePipe.config/1` raises `ArgumentError` for a preset or
   request defaults whose own options can't be combined, such as
   `anchor=top/detect=face` or `q=80/autoquality=50`. It also raises for a `wm`

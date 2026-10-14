@@ -12,6 +12,16 @@ defmodule ImagePipe.Plug.ConfigTest do
   @signing_key String.duplicate("a1", 32)
 
   defmodule CustomDetector do
+    @behaviour ImagePipe.Transform.Detector
+
+    @impl true
+    def supported_classes(_opts), do: ["face"]
+    @impl true
+    def detect(_image, _opts), do: {:ok, []}
+    @impl true
+    def available?(_opts), do: true
+    @impl true
+    def identity(_opts), do: {__MODULE__, 1}
   end
 
   test "detector configuration defaults to the bundled detector in graceful mode" do
@@ -24,6 +34,13 @@ defmodule ImagePipe.Plug.ConfigTest do
   test "accepts a custom detector or explicitly disabled detection" do
     assert Config.validate!(detector: CustomDetector)[:detector] == CustomDetector
     assert Config.validate!(detector: nil)[:detector] == nil
+  end
+
+  test "a detector module must implement the detector behaviour" do
+    for detector <- [ImagePipe.ConfigTest.Missing, String] do
+      error = assert_raise ArgumentError, fn -> Config.validate!(detector: detector) end
+      assert error.message =~ "detector: #{inspect(detector)}"
+    end
   end
 
   test "detector_required needs a detector that can detect at least one class" do

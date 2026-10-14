@@ -777,8 +777,26 @@ defmodule ImagePipe.Config do
       |> Keyword.update!(:format_quality, &Map.merge(@default_format_quality, &1))
       |> Keyword.update!(:detector, &Transform.resolve_detector/1)
 
+    validate_detector!(Keyword.fetch!(options, :detector))
     validate_detector_required!(options)
     options
+  end
+
+  defp validate_detector!(nil), do: :ok
+
+  defp validate_detector!(detector) do
+    callbacks =
+      Transform.Detector.behaviour_info(:callbacks) --
+        Transform.Detector.behaviour_info(:optional_callbacks)
+
+    if not (Code.ensure_loaded?(detector) and
+              Enum.all?(callbacks, fn {name, arity} ->
+                function_exported?(detector, name, arity)
+              end)) do
+      raise ArgumentError,
+            "invalid ImagePipe configuration: detector: #{inspect(detector)} " <>
+              "does not implement ImagePipe.Transform.Detector"
+    end
   end
 
   # Requests check availability per class, so a detector that can run any of
