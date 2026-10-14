@@ -21,6 +21,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   without `pad`, and a `gradient` or `progressive-blur` that starts or stops
   at `-0.0` gets those of one at `0`. Cached copies of such requests miss once
   after an upgrade.
+- A `format-q` entry for `png` applies only when PNG has a palette, like `q`.
+  Before, a URL with one and no palette failed with `400`, even when the
+  response wasn't PNG, and one in `request_defaults` or a preset made every
+  request fail.
 
 ### Fixed
 
