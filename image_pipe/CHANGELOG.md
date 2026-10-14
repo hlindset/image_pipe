@@ -24,6 +24,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `format=png` with `q`, from the URL, the request defaults, or a preset,
+  failed with `400` when PNG had no palette. A `q` in `request_defaults` or a
+  preset made every `format=png` request fail. PNG without a palette now
+  ignores `q`, as negotiated PNG already did.
 - On a URL with `expires`, a response gets `Cache-Control: no-store`, even
   when an earlier Plug set `Cache-Control`, if storage is denied by its origin
   or by configuration, or if a crop fell back because content detection

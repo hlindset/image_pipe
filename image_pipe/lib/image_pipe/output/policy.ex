@@ -237,13 +237,10 @@ defmodule ImagePipe.Output.Policy do
 
   defp validate_lossless_webp_request(%__MODULE__{}, %SpecOutput{}), do: :ok
 
-  # A PNG quality only sets palette quantization.
+  # A PNG quality only sets palette quantization. `q` sets every format's
+  # quality, so PNG without a palette ignores it.
   defp validate_png_quality(%__MODULE__{} = output, %SpecOutput{} = request) do
-    png_quality? =
-      Map.has_key?(request.format_qualities, :png) or
-        (output.mode == {:explicit, :png} and not is_nil(request.quality))
-
-    if png_quality? and not png_palette?(output) do
+    if Map.has_key?(request.format_qualities, :png) and not png_palette?(output) do
       {:error, :png_quality_without_palette}
     else
       :ok

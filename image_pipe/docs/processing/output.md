@@ -75,9 +75,8 @@ target) fails with `400`.
 PNG is lossless, so `q` applies to it only when `palette` is on in
 [`png-options`](#png-options) or the host's PNG settings. There it sets the
 quantization quality: a lower `q` allows less accurate colors for a smaller
-file. Without a palette, `format=png` with `q` fails with `400`, and any
-other PNG response ignores `q`. For lossless WebP, `q` sets compression effort
-rather than image quality.
+file. For lossless WebP, `q` sets compression effort rather than image
+quality.
 
 <!-- tabs-open -->
 
