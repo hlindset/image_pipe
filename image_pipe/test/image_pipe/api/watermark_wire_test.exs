@@ -126,6 +126,25 @@ defmodule ImagePipe.API.WatermarkWireTest do
       assert VipsImage.bands(marked) == 3
     end
 
+    test "a translucent watermark rounds to the nearest level", %{config: config} do
+      # Multiples of 1/17 fade the asset's alpha to a whole level, 15 × step.
+      for step <- 1..16 do
+        opacity = Float.round(step / 17, 6)
+        marked = image("wm=mid_logo/wm-opacity=#{opacity}", config)
+        coverage = 15 * step / 255
+
+        expected =
+          Enum.zip_with([1, 128, 200], [0, 0, 255], fn mark, base ->
+            round(mark * coverage + base * (1 - coverage))
+          end)
+
+        actual = Image.get_pixel!(marked, 30, 20)
+
+        assert actual == expected,
+               "wm-opacity=#{opacity}: #{inspect(actual)} != #{inspect(expected)}"
+      end
+    end
+
     test "a transparent frame gains coverage only where the asset is opaque", %{config: config} do
       marked = image("pad=10/wm=logo/wm-at=top-left", config)
       assert VipsImage.bands(marked) == 4

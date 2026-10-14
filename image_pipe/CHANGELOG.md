@@ -37,6 +37,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Watermarks, `bg`, `colorize` over transparent areas, JPEG output of an
+  image with transparency, and resizing or rotating an image with
+  transparency could make a color one level darker than the exact result,
+  such as 169 for 169.51. These now round to the nearest level.
 - `format=png` with `q`, from the URL, the request defaults, or a preset,
   failed with `400` when PNG had no palette. A `q` in `request_defaults` or a
   preset made every `format=png` request fail. PNG without a palette now

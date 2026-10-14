@@ -28,14 +28,15 @@ defmodule ImagePipe.Transform.Operation.Colorize do
   defp apply_colorize(image, o, color, keep_alpha) do
     with {:ok, image} <- GrayFrame.for_color(image, color) do
       case Image.split_alpha(image) do
-        {rgb, nil} -> blend_rgb(rgb, o, color)
+        {rgb, nil} -> blend_rgb(rgb, o, color, VipsImage.format(rgb))
         {rgb, alpha} -> blend_with_alpha(rgb, alpha, o, color, keep_alpha)
       end
     end
   end
 
   defp blend_with_alpha(rgb, alpha, o, color, true) do
-    with {:ok, blended} <- blend_rgb(rgb, o, color), do: Image.join_bands([blended, alpha])
+    with {:ok, blended} <- blend_rgb(rgb, o, color, VipsImage.format(rgb)),
+         do: Image.join_bands([blended, alpha])
   end
 
   # Opaque output shows transparent pixels over white, as a non-alpha format
@@ -43,13 +44,14 @@ defmodule ImagePipe.Transform.Operation.Colorize do
   defp blend_with_alpha(rgb, alpha, o, color, false) do
     with {:ok, image} <- Image.join_bands([rgb, alpha]),
          {:ok, white} <- WorkingColor.values(rgb, [255, 255, 255]),
-         {:ok, flattened} <- Operation.flatten(image, background: white) do
-      blend_rgb(flattened, o, color)
+         {:ok, float} <- Rounding.to_float(image),
+         {:ok, flattened} <- Operation.flatten(float, background: white) do
+      blend_rgb(flattened, o, color, VipsImage.format(rgb))
     end
   end
 
   # The color is sRGB; blend its value in the image's own space and depth.
-  defp blend_rgb(rgb, o, color) do
+  defp blend_rgb(rgb, o, color, format) do
     with {:ok, values} <- WorkingColor.values(rgb, color),
          {:ok, blended} <-
            Operation.linear(
@@ -57,7 +59,7 @@ defmodule ImagePipe.Transform.Operation.Colorize do
              Enum.map(values, fn _ -> 1.0 - o end),
              Enum.map(values, &(&1 * o))
            ) do
-      Rounding.cast(blended, VipsImage.format(rgb))
+      Rounding.cast(blended, format)
     end
   end
 end

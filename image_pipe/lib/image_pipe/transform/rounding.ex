@@ -9,6 +9,14 @@ defmodule ImagePipe.Transform.Rounding do
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
 
+  @doc """
+  Casts `image` to float, so that an operation which keeps its input's
+  format, such as `composite2` or `flatten`, returns float for `cast/2` to
+  round. Interpretation is kept.
+  """
+  @spec to_float(VipsImage.t()) :: {:ok, VipsImage.t()} | {:error, term()}
+  def to_float(image), do: Operation.cast(image, :VIPS_FORMAT_FLOAT)
+
   @spec cast(VipsImage.t(), atom()) :: {:ok, VipsImage.t()} | {:error, term()}
   def cast(image, format) when format in [:VIPS_FORMAT_FLOAT, :VIPS_FORMAT_DOUBLE],
     do: Operation.cast(image, format)

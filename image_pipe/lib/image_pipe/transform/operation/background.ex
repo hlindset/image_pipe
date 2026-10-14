@@ -38,8 +38,10 @@ defmodule ImagePipe.Transform.Operation.Background do
   defp flatten(image, rgb) do
     if Image.has_alpha?(image) do
       with {:ok, image} <- GrayFrame.for_color(image, rgb),
-           {:ok, values} <- WorkingColor.values(image, rgb) do
-        Operation.flatten(image, background: values)
+           {:ok, values} <- WorkingColor.values(image, rgb),
+           {:ok, float} <- Rounding.to_float(image),
+           {:ok, flattened} <- Operation.flatten(float, background: values) do
+        Rounding.cast(flattened, VipsImage.format(image))
       end
     else
       {:ok, image}
@@ -54,8 +56,10 @@ defmodule ImagePipe.Transform.Operation.Background do
          {:ok, values} <- WorkingColor.values(image, rgb),
          opacity = alpha / 255 * Alpha.opaque(VipsImage.format(image)),
          {:ok, canvas} <- canvas(image, values ++ [opacity]),
+         {:ok, float_canvas} <- Rounding.to_float(canvas),
+         {:ok, float_image} <- Rounding.to_float(image),
          {:ok, composited} <-
-           Operation.composite2(canvas, image, :VIPS_BLEND_MODE_OVER,
+           Operation.composite2(float_canvas, float_image, :VIPS_BLEND_MODE_OVER,
              "compositing-space": VipsImage.interpretation(image)
            ),
          {:ok, composited} <- Rounding.cast(composited, VipsImage.format(image)) do
