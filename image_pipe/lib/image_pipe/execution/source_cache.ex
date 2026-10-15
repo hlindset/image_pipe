@@ -122,6 +122,7 @@ defmodule ImagePipe.Execution.SourceCache do
       work_opts(source, config, cohort)
     )
     |> waited()
+    |> finish_overlap()
   end
 
   defp complete_validation(
@@ -183,6 +184,7 @@ defmodule ImagePipe.Execution.SourceCache do
           work_opts(source, config)
         )
         |> waited()
+        |> finish_overlap()
     end
   end
 
@@ -204,6 +206,13 @@ defmodule ImagePipe.Execution.SourceCache do
 
   defp waited(:timeout), do: {:error, {:source, :receive_timeout}}
   defp waited(result), do: result
+
+  # Processing that overlapped the download is awaited after the source's work
+  # is released, so requests waiting for the same source don't wait for it too.
+  defp finish_overlap({:ok, %Acquisition{processing: overlap} = acquisition}),
+    do: {:ok, %{acquisition | processing: Overlap.finish(overlap)}}
+
+  defp finish_overlap(result), do: result
 
   defp open_or_fetch(source, key, record, preparation, config, ref) when is_reference(ref) do
     case Input.open(key, record, config) do
@@ -493,10 +502,14 @@ defmodule ImagePipe.Execution.SourceCache do
       {:ok, io} ->
         _result = File.chmod(path, 0o600)
 
+        overlap = Overlap.start(response, preparation, config, path)
+
         try do
-          Overlap.with_session(response, preparation, config, path, fn overlap ->
-            spool_file(stream, io, config[:max_body_bytes], overlap)
-          end)
+          spool_file(stream, io, config[:max_body_bytes], overlap)
+        catch
+          kind, reason ->
+            Overlap.close(overlap)
+            :erlang.raise(kind, reason, __STACKTRACE__)
         after
           File.close(io)
         end
@@ -520,7 +533,7 @@ defmodule ImagePipe.Execution.SourceCache do
       end)
 
     check_staged_size!(body, io, size)
-    {finish_body(body), :crypto.hash_final(hash), size, Overlap.finish(overlap)}
+    {finish_body(body), :crypto.hash_final(hash), size, Overlap.complete(overlap)}
   end
 
   defp check_staged_size!(:file, io, size) do

@@ -16,6 +16,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Breaking:** `ImagePipe.config/1` raises `ArgumentError` for a `:detector`
+  module that isn't loaded or doesn't implement
+  `ImagePipe.Transform.Detector`. Before, such a configuration started, and
+  every `detect` or `anchor=smart-face` request failed with `500`. Fix the
+  module name, or set `detector: nil`.
 - **Breaking:** `ImagePipe.config/1` raises `ArgumentError` for a preset or
   request defaults whose own options can't be combined, such as
   `anchor=top/detect=face` or `q=80/autoquality=50`. It also raises for a `wm`
@@ -130,6 +135,35 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - An entry written again after the startup sweep removed its unreadable
     metadata, as after an upgrade that changes the metadata format, wasn't
     counted.
+- A request that reached `processing_timeout` while its source was still
+  downloading failed with `500` or got no response. It now fails with
+  `{:processing, :timeout}`, which the Plug answers with `503`.
+- A large `pixelate` block size, such as `pixelate=2000` on a 4000×2667
+  JPEG, failed with `415`. It now works.
+- A `region` whose width or height came to less than half a pixel, such as
+  `region=0,0,0.3,1`, failed with `500`. It now keeps one pixel.
+- With `detector_required: true`, an `anchor=smart-face` crop called the
+  detector before its models were ready, so the built-in detector could
+  download a model during the request. Until the face model is ready, such
+  a crop now uses attention cropping without calling the detector, and the
+  response isn't stored while the face model can still become ready.
+- `ImagePipe.Source.S3.ContainerCredentials` accepted an `auth_token` with a
+  line break or NUL, and every credential fetch then failed. Such a token is
+  now rejected when the source is configured.
+- A `region` that started inside the last pixel column or row, such as
+  `region=2002.6,0,10,10` on a 2003-pixel-wide image or
+  `region=99.99pct,0,10,10`, failed with `400` because its origin rounded
+  past the edge. It now starts at the last pixel. Only a region that starts
+  at or beyond the edge is rejected.
+- `output=info` reported a `result` size for a URL whose image request fails
+  with `422` because it exceeds `max_intermediate_pixels`, such as
+  `w=20000/enlarge` on a small image. It now fails with `422` too, as
+  `output=blurhash` and `output=lqip-css` already did.
+- A request for another variant of a source that was still downloading, such
+  as `w=50` while `w=100` was fetching the same image, could fail with `504`.
+  It waited until the first request's processing, which can start before the
+  download finishes, was done too, and gave up a second after the source's
+  `fetch_timeout`. It now waits only for the download.
 
 ## [0.2.0] - 2026-10-13
 

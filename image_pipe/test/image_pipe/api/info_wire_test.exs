@@ -89,6 +89,15 @@ defmodule ImagePipe.API.InfoWireTest do
     end
   end
 
+  test "a request over the intermediate pixel limit fails for info as for the image" do
+    config = mount(gradient_jpeg(150, 150))
+
+    for options <- ["w=20000/enlarge", "pad=6000"] do
+      assert request(options, config).status == 422, options
+      assert request(options <> "/output=info", config).status == 422, options
+    end
+  end
+
   test "result dpr is the last group's effective DPR" do
     config = mount(gradient_jpeg(120, 80))
 

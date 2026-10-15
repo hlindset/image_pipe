@@ -145,7 +145,10 @@ defmodule ImagePipe.ProcessingPool do
     within(pool, owner, owner, config, fun)
   end
 
-  defp within(pool, owner, notification, config, fun) do
+  @doc false
+  def within(nil, _owner, _notification, _config, fun), do: fun.()
+
+  def within(pool, owner, notification, config, fun) do
     # The pool monitors both lifetimes. Owner exit must not interrupt native work.
     Process.unlink(owner)
 

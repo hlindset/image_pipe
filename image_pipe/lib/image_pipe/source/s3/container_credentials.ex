@@ -78,9 +78,20 @@ defmodule ImagePipe.Source.S3.ContainerCredentials do
 
   @impl true
   def validate_options(opts) do
-    case schema_validate(opts) do
-      {:ok, validated} -> validate_full_uri(validated)
-      {:error, _message} = error -> error
+    with {:ok, validated} <- schema_validate(opts),
+         :ok <- validate_auth_token(Keyword.get(validated, :auth_token)) do
+      validate_full_uri(validated)
+    end
+  end
+
+  # Sent as a header value, so a line break would fail every fetch. The error
+  # never quotes the token.
+  defp validate_auth_token(nil), do: :ok
+
+  defp validate_auth_token(token) do
+    case String.contains?(token, ["\r", "\n", <<0>>]) do
+      true -> {:error, "auth_token must not contain a line break or NUL"}
+      false -> :ok
     end
   end
 

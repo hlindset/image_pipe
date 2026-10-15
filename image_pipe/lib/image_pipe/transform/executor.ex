@@ -753,20 +753,27 @@ defmodule ImagePipe.Transform.Executor do
     end
   end
 
+  # Only a region that starts at or beyond the edge is outside the image. One
+  # that starts inside the last pixel keeps it, even when its origin rounds up.
   defp region_crop({x, y, width, height}, {display_width, display_height}) do
-    left = round(resolve_length(x, display_width))
-    top = round(resolve_length(y, display_height))
+    x = resolve_length(x, display_width)
+    y = resolve_length(y, display_height)
+    left = min(round(x), display_width - 1)
+    top = min(round(y), display_height - 1)
 
     %Crop{
-      width: {:pixels, round(resolve_length(width, display_width))},
-      height: {:pixels, round(resolve_length(height, display_height))},
+      width: {:pixels, region_extent(width, display_width)},
+      height: {:pixels, region_extent(height, display_height)},
       crop_from: %{
         left: {:pixels, left},
         top: {:pixels, top}
       },
-      reject_out_of_bounds: left >= display_width or top >= display_height
+      reject_out_of_bounds: x >= display_width or y >= display_height
     }
   end
+
+  # A region under half a pixel still keeps one pixel.
+  defp region_extent(length, dimension), do: max(round(resolve_length(length, dimension)), 1)
 
   defp guided_crop(%Group{} = group, display_dims) do
     {crop_width, crop_height} = guided_box(group, display_dims)
@@ -937,8 +944,8 @@ defmodule ImagePipe.Transform.Executor do
          {display_width, display_height}
        ) do
     {
-      min(round(resolve_length(width, display_width)), display_width),
-      min(round(resolve_length(height, display_height)), display_height)
+      min(region_extent(width, display_width), display_width),
+      min(region_extent(height, display_height), display_height)
     }
   end
 

@@ -409,6 +409,68 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
     assert complete_request(context).status == 200
   end
 
+  test "a processing timeout during overlap answers 503", context do
+    pool =
+      start_supervised!(
+        {ImagePipe.ProcessingPool, max_concurrency: 2, processing_timeout: 60_000}
+      )
+
+    context = restart(context, Keyword.put(context.options, :processing_pool, pool))
+    task = Task.Supervisor.async_nolink(context.tasks, fn -> request(context) end)
+    assert_receive {:origin_held, origin}, 2_000
+    assert_receive {:decoded, %{result: :ok}}, 2_000
+
+    # Fire the active job's deadline instead of waiting for it.
+    [{token, %{phase: :active, deadline: deadline}}] = Map.to_list(:sys.get_state(pool).jobs)
+    send(pool, {:deadline, token, :active, deadline})
+    _ = :sys.get_state(pool)
+    send(origin, :continue)
+
+    assert Task.await(task, 10_000).status == 503
+  end
+
+  test "a sibling variant doesn't wait for the leader's overlapped processing", context do
+    pool =
+      start_supervised!({ImagePipe.ProcessingPool, max_concurrency: 1, queue_timeout: 60_000})
+
+    options =
+      context.options
+      |> Keyword.put(:processing_pool, pool)
+      |> put_in([:sources, :url, :options, :fetch_timeout], 1_000)
+
+    context = restart(context, options)
+
+    # Hold the only slot, so the leader's overlapped processing stays queued.
+    test = self()
+
+    _holder =
+      Task.Supervisor.async_nolink(context.tasks, fn ->
+        ImagePipe.ProcessingPool.run(
+          pool,
+          fn ->
+            send(test, {:holding, self()})
+            receive(do: (:release -> :ok))
+          end,
+          []
+        )
+      end)
+
+    assert_receive {:holding, holder}, 2_000
+    await_stats(pool, %{active: 1, queued: 0})
+    leader = Task.Supervisor.async_nolink(context.tasks, fn -> request(context, "w=100") end)
+    assert_receive {:origin_held, origin}, 2_000
+    await_stats(pool, %{active: 1, queued: 1})
+    sibling = Task.Supervisor.async_nolink(context.tasks, fn -> request(context, "w=50") end)
+    send(origin, :continue)
+
+    # The sibling reaches the pool only once the source's work is released.
+    await_stats(pool, %{active: 1, queued: 2})
+    send(holder, :release)
+
+    assert Task.await(leader, 10_000).status == 200
+    assert Task.await(sibling, 10_000).status == 200
+  end
+
   test "request cancellation terminates speculative processing", context do
     task = Task.Supervisor.async_nolink(context.tasks, fn -> request(context) end)
     assert_receive {:origin_held, _}, 2_000
@@ -530,6 +592,24 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
   end
 
   # Replaces the setup's instance with one running `options` on the same caches.
+  defp await_stats(pool, expected, deadline \\ System.monotonic_time(:millisecond) + 5_000) do
+    cond do
+      ImagePipe.ProcessingPool.stats(pool) == expected ->
+        :ok
+
+      System.monotonic_time(:millisecond) > deadline ->
+        flunk(
+          "pool never reached #{inspect(expected)}: #{inspect(ImagePipe.ProcessingPool.stats(pool))}"
+        )
+
+      true ->
+        receive do
+        after
+          10 -> await_stats(pool, expected, deadline)
+        end
+    end
+  end
+
   defp restart(context, options) do
     stop_supervised!(Caches.instance(context.options))
     options = Caches.start!(options)
