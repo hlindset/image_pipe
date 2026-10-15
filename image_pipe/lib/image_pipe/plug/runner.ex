@@ -41,7 +41,7 @@ defmodule ImagePipe.Plug.Runner do
   end
 
   # Telemetry belongs to the operator, so the path is as sent, concealed
-  # source included. Only credential query values are redacted.
+  # source included. Only a presigned source URL's credentials are redacted.
   defp request_metadata(conn) do
     path = ParsedRequest.mount_relative_path(conn)
     %{method: conn.method, path: Telemetry.request_path(path, conn.query_string)}

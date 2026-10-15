@@ -294,9 +294,9 @@ duration, and bytes sent, then what the request did as `key=value` fields.
 A `5xx` logs at `error`, and a `4xx` or a degraded result at `warning`.
 Health checks aren't logged. The
 [`[:request, :summary]`](../../image_pipe/docs/telemetry-events.md#request-summary)
-event lists the fields. The path is logged as sent, except that in the
-request's query string, the values of credential parameters such as
-`X-Amz-Signature` are replaced with `REDACTED`.
+event lists the fields. The path is logged as sent, except that a presigned
+source URL's credentials, such as an `X-Amz-Signature` value, are replaced
+with `REDACTED`.
 
 Change what's logged in `[telemetry]`:
 

@@ -279,26 +279,52 @@ defmodule ImagePipe.Telemetry do
   @credential_params ~w(awsaccesskeyid signature sig x-goog-signature x-amz-signature
                         x-amz-credential x-amz-security-token)
 
+  # A credential parameter's name and its `=`, after the `?` or `&` that
+  # starts it, raw or percent-encoded, as in a `src` URL in the path. The
+  # value runs to the next parameter or path segment. ImagePipe's own `sig=`
+  # segment follows a `/`, so it doesn't match.
+  @credential_value Regex.compile!(
+                      "((?:\\?|&|%3F|%26)(?:" <>
+                        Enum.map_join(@credential_params, "|", &Regex.escape/1) <>
+                        ")(?:=|%3D))[^&/]*?(?=&|%26|/|$)",
+                      "i"
+                    )
+
   @doc false
   # A request's path and query for telemetry, with the values of credential
-  # query parameters replaced by `REDACTED`.
+  # parameters replaced by `REDACTED`: in the query string, in a `src` URL in
+  # the path (percent-encoded or not), and in a `src64` URL, whose base64 is
+  # replaced whole.
   @spec request_path(String.t(), String.t()) :: String.t()
-  def request_path(path, ""), do: path
+  def request_path(path, ""), do: redact_path(path)
+  def request_path(path, query), do: redact_path(path) <> "?" <> redact_credentials("?" <> query)
 
-  def request_path(path, query) do
-    redacted = query |> String.split("&") |> Enum.map_join("&", &redact_param/1)
-    path <> "?" <> redacted
+  defp redact_path(path) do
+    path
+    |> redact_credentials()
+    |> redact_src64()
   end
 
-  defp redact_param(pair) do
-    case String.split(pair, "=", parts: 2) do
-      [name, _value] -> if credential_param?(name), do: name <> "=REDACTED", else: pair
-      [_name] -> pair
+  defp redact_credentials("?" <> _rest = query) do
+    "?" <> redacted = Regex.replace(@credential_value, query, "\\1REDACTED")
+    redacted
+  end
+
+  defp redact_credentials(value), do: Regex.replace(@credential_value, value, "\\1REDACTED")
+
+  defp redact_src64(path) do
+    case String.split(path, "/src64/", parts: 2) do
+      [options, token] -> if presigned?(token), do: options <> "/src64/REDACTED", else: path
+      [_path] -> path
     end
   end
 
-  defp credential_param?(name),
-    do: String.downcase(URI.decode_www_form(name)) in @credential_params
+  defp presigned?(token) do
+    case Base.url_decode64(token, padding: false) do
+      {:ok, url} -> redact_credentials(url) != url
+      :error -> false
+    end
+  end
 
   @doc false
   @spec span(keyword(), [atom()], map() | keyword(), (-> term())) :: term()

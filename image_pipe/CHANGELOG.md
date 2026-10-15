@@ -15,11 +15,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   from every process that served the request. The
   [event reference](docs/telemetry-events.md#request-summary) lists them.
 - The `[:request]` span's start carries `:method` and `:path` for Plug
-  requests. The path is as sent, except that in the request's query string,
-  the values of credential parameters such as `X-Amz-Signature` are replaced
-  with `REDACTED`. The
-  tracer records them on the request span as `http.request.method`,
-  `url.path`, and `url.query`.
+  requests. The path is as sent, except that a presigned source URL's
+  credentials, such as an `X-Amz-Signature` value, are replaced with
+  `REDACTED`. The tracer records them on the request span as
+  `http.request.method`, `url.path`, and `url.query`.
 - A file system cache logs at `info` when it claims its cache root, naming
   the host. A node that refused the root, because another node used it, logs
   at `info` when it takes the root over and requests use the cache again.

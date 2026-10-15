@@ -37,8 +37,8 @@ under `:image_pipe`, so a JSON formatter such as
 `image_pipe` object. One key keeps them clear of the fields a log collector
 reserves, such as Datadog's `status`.
 
-The path is logged as sent, except that in the request's query string, the
-values of credential parameters such as `X-Amz-Signature` are replaced with
+The path is logged as sent, except that a presigned source URL's
+credentials, such as an `X-Amz-Signature` value, are replaced with
 `REDACTED`.
 
 To debug a request, pass `stages: true` to also log one line for each of its
@@ -106,9 +106,9 @@ correlate by trace ID instead (see [request tracing](tracing.md)).
 
 Event metadata leaves out keys and origin credentials. The path on
 [`[:request]`](telemetry-events.md#request) and the summary is as sent,
-including its URL signature, which authorizes only that URL. In the
-request's query string, the values of credential parameters such as
-`X-Amz-Signature` are replaced with `REDACTED`. Metadata does include values
+including its URL signature, which authorizes only that URL. A presigned
+source URL's credentials, such as an `X-Amz-Signature` value, are replaced
+with `REDACTED`. Metadata does include values
 that can have many distinct values, such as paths, preset names, operation
 parameters, and image sizes. Choose which ones become metrics tags.
 

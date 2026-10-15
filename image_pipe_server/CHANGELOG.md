@@ -23,9 +23,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   line per image request instead of one per stage: the method, path,
   status, duration, and bytes sent, then the cache outcome, source, sizes,
   operations, and stage timings. A `5xx` logs at `error`, and a `4xx` or a
-  degraded result at `warning`. The path is as sent, with the values of
-  credential parameters such as `X-Amz-Signature` in its query string
-  redacted. Set `log_stages = true` to also get the stage lines that
+  degraded result at `warning`. The path is as sent, with a presigned source
+  URL's credentials, such as an `X-Amz-Signature` value, redacted. Set
+  `log_stages = true` to also get the stage lines that
   `log_requests = true` gave before, or `log_requests = false` for no
   request lines.
 - **Breaking:** The server no longer accepts HTTP/2 over plain HTTP (h2c,

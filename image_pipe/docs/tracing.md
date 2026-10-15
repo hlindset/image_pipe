@@ -84,8 +84,8 @@ or boolean becomes its `inspect/1` text.
 - `http.request.method`, `url.path`, and `url.query`: the request's method,
   path, and query string, under OpenTelemetry's HTTP names. They come from
   the [`[:request]`](telemetry-events.md#request) start. The path is as
-  sent, including its URL signature. In the query string, the values of
-  credential parameters such as `X-Amz-Signature` are `REDACTED`.
+  sent, including its URL signature, with a presigned source URL's
+  credentials `REDACTED`.
 - `request_id`, when Logger metadata has a `:request_id`, such as the one
   `Plug.RequestId` sets, so you can find a request's trace from its log
   lines.
