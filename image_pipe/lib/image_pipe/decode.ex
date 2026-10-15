@@ -266,6 +266,11 @@ defmodule ImagePipe.Decode do
   end
 
   if @svg_available do
+    # An SVG is a single page.
+    defp decode_detected(:svg, _input, _peek, %{page: page}, _opts, _auto_rotate?)
+         when is_integer(page) and page >= 1,
+         do: {:error, {:page_out_of_range, page, 1}}
+
     defp decode_detected(:svg, input, _peek, request, opts, _auto_rotate?),
       do: ImagePipe.Decode.SVG.decode(input, request, opts)
   end

@@ -118,6 +118,15 @@ defmodule ImagePipe.API.SVGSourceWireTest do
     assert %{"width" => 400, "height" => 200} = info["result"]
   end
 
+  test "has one page, so a later page is out of range" do
+    config = mount(@svg)
+    assert request("page=0", config).status == 200
+
+    for options <- ["page=1", "page=5/output=info"] do
+      assert request(options, config).status == 422, options
+    end
+  end
+
   test "fails an SVG over max_input_pixels at both its own and its requested size" do
     config = mount(@svg, max_input_pixels: 799)
 
