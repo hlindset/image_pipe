@@ -275,35 +275,26 @@ defmodule ImagePipe.Telemetry do
   def error_tag(_reason), do: :error
 
   # Query parameters that carry an origin's credentials in a presigned source
-  # URL: OTel's list for `url.query`, plus the AWS SigV4 ones it leaves out.
-  @credential_params ~w(awsaccesskeyid signature sig x-goog-signature x-amz-signature
-                        x-amz-credential x-amz-security-token)
-
-  # A credential parameter's name and its `=`, after the `?` or `&` that
-  # starts it, raw or percent-encoded, as in a source URL in the path. The
-  # value runs to the next parameter. ImagePipe's own `sig=` segment follows a
-  # `/`, so it doesn't match.
-  @credential_name "((?:\\?|&|%3F|%26)(?:" <>
-                     Enum.map_join(@credential_params, "|", &Regex.escape/1) <>
-                     ")(?:=|%3D))"
-  @credential_value Regex.compile!(@credential_name <> ".*?(?=&|%26|$)", "is")
+  # URL: OTel's list for `url.query`, plus the AWS and Google ones it leaves
+  # out.
+  @credential_params ~w(awsaccesskeyid signature sig x-goog-signature x-goog-credential
+                        x-amz-signature x-amz-credential x-amz-security-token)
 
   @doc false
-  # A request's path and query for telemetry, with the values of credential
-  # parameters replaced by `REDACTED`: in the query string, in a `src` or
-  # `wm-src` URL (percent-encoded or not), and in a `src64` or `wm-src64` URL,
-  # whose base64 is replaced whole.
+  # A request's path and query for telemetry, as sent, unless a source URL in
+  # it carries credentials:
+  #
+  #   * the query string's credential values become `REDACTED`
+  #   * a `src` URL carrying them is logged decoded, as the source parser reads
+  #     it, with those values `REDACTED`
+  #   * a `src64` or `wm-src64` URL carrying them, in any base64 spelling,
+  #     becomes `REDACTED` whole
   @spec request_path(String.t(), String.t()) :: String.t()
   def request_path(path, ""), do: redact_path(path)
-  def request_path(path, query), do: redact_path(path) <> "?" <> redact_query(query)
-
-  defp redact_query(query) do
-    "?" <> redacted = redact_credentials("?" <> query)
-    redacted
-  end
+  def request_path(path, query), do: redact_path(path) <> "?" <> redact_params(query)
 
   # The source is the path's tail and can hold `/`, so it's split off before
-  # the option segments are redacted one by one.
+  # the option segments are checked one by one.
   defp redact_path(path) do
     case Regex.run(~r{\A(.*?/)(src|src64|enc)/(.*)\z}s, path) do
       [_path, options, marker, tail] ->
@@ -315,25 +306,95 @@ defmodule ImagePipe.Telemetry do
   end
 
   defp redact_segments(options) do
-    options |> String.split("/") |> Enum.map_join("/", &redact_segment/1)
+    options |> String.split("/") |> redact_segment_list() |> Enum.join("/")
   end
 
-  defp redact_segment("wm-src64=" <> token = segment),
-    do: if(presigned?(token), do: "wm-src64=REDACTED", else: segment)
+  # Standard base64 can hold `/`, so a `wm-src64=` token is also tried joined
+  # with the segments after it.
+  defp redact_segment_list(["wm-src64=" <> token | rest] = segments) do
+    case Enum.find(
+           0..length(rest)//1,
+           &base64_presigned?(Enum.join([token | Enum.take(rest, &1)], "/"))
+         ) do
+      nil -> [hd(segments) | redact_segment_list(rest)]
+      taken -> ["wm-src64=REDACTED" | redact_segment_list(Enum.drop(rest, taken))]
+    end
+  end
 
-  defp redact_segment(segment), do: redact_credentials(segment)
+  defp redact_segment_list([segment | rest]), do: [segment | redact_segment_list(rest)]
+  defp redact_segment_list([]), do: []
 
-  defp redact_tail("src", tail), do: redact_credentials(tail)
-  defp redact_tail("src64", tail), do: if(presigned?(tail), do: "REDACTED", else: tail)
+  defp redact_tail("src", tail) do
+    with {:ok, url} <- percent_decode(tail),
+         [base, query] <- String.split(url, "?", parts: 2),
+         redacted when redacted != query <- redact_params(query) do
+      base <> "?" <> redacted
+    else
+      _as_sent -> tail
+    end
+  end
+
+  defp redact_tail("src64", tail), do: if(base64_presigned?(tail), do: "REDACTED", else: tail)
   defp redact_tail("enc", tail), do: tail
 
-  defp redact_credentials(value), do: Regex.replace(@credential_value, value, "\\1REDACTED")
+  defp percent_decode(value) do
+    {:ok, URI.decode(value)}
+  rescue
+    ArgumentError -> :error
+  end
 
-  defp presigned?(token) do
-    case Base.url_decode64(token, padding: false) do
-      {:ok, url} -> redact_credentials(url) != url
-      :error -> false
+  # Every spelling a base64 source might use, valid or not, since a request
+  # the parser rejects is logged too.
+  defp base64_presigned?(token) do
+    bare = String.replace(token, ~r/\.[A-Za-z0-9]+\z/, "")
+
+    for candidate <- Enum.uniq([token, bare]),
+        decode <- [&Base.url_decode64(&1, padding: false), &Base.url_decode64/1, &Base.decode64/1],
+        {:ok, url} <- [decode.(candidate)],
+        reduce: false do
+      found -> found or presigned_url?(url)
     end
+  end
+
+  defp presigned_url?(url) do
+    case String.split(url, "?", parts: 2) do
+      [_base, query] -> redact_params(query) != query
+      [_base] -> false
+    end
+  end
+
+  # Parameters are split on `&` and `;`. A name matches in any case and
+  # percent-encoding, as an origin reads it.
+  defp redact_params(query) do
+    query
+    |> String.split(~r/(?<=[&;])/)
+    |> Enum.map_join(&redact_param/1)
+  end
+
+  defp redact_param(pair) do
+    {pair, separator} =
+      case String.split_at(pair, -1) do
+        {rest, sep} when sep in ["&", ";"] -> {rest, sep}
+        _other -> {pair, ""}
+      end
+
+    case String.split(pair, "=", parts: 2) do
+      [name, _value] ->
+        if credential_param?(name), do: name <> "=REDACTED" <> separator, else: pair <> separator
+
+      [_name] ->
+        pair <> separator
+    end
+  end
+
+  defp credential_param?(name) do
+    decoded =
+      case percent_decode(name) do
+        {:ok, decoded} -> decoded
+        :error -> name
+      end
+
+    String.downcase(decoded) in @credential_params
   end
 
   @doc false

@@ -298,36 +298,54 @@ defmodule ImagePipe.Telemetry.SummaryTest do
     )
 
     assert_received {:summary, _m, %{path: path}}
-
-    assert path ==
-             "/w=40/src/https%3A%2F%2Forigin.test%2Fbeach.jpg%3FX-Amz-Signature%3DREDACTED%26keep%3D1"
+    assert path == "/w=40/src/https://origin.test/beach.jpg?X-Amz-Signature=REDACTED&keep=1"
   end
 
-  test "credential values are redacted from the path and the query" do
+  test "credentials are redacted however a source spells them" do
+    redacted = "/w=40/src/https://b.example/a.jpg?X-Amz-Signature=REDACTED"
+
+    for spelling <- [
+          "https%3A%2F%2Fb.example%2Fa.jpg%3FX-Amz-Signature%3Ds",
+          "https%3A%2F%2Fb.example%2Fa.jpg%3FX-Amz%2DSignature%3Ds",
+          "https%3A%2F%2Fb.example%2Fa.jpg%3Fx-amz-%53ignature%3Ds",
+          "https://b.example/a.jpg%3FX-Amz-Signature%3Ds"
+        ] do
+      assert String.downcase(Telemetry.request_path("/w=40/src/" <> spelling, "")) ==
+               String.downcase(redacted),
+             spelling
+    end
+
     assert Telemetry.request_path(
-             "/w=40/src/https%3A%2F%2Fb.example%2Fa.jpg%3FX-Amz-Credential%3DAKIA%252F1%26sig%3Ds",
+             "/w=40/src/https://b/a.jpg%3FX-Amz-Credential%3DAKIA/2026/s3%3Bsig%3Ds",
              ""
-           ) ==
-             "/w=40/src/https%3A%2F%2Fb.example%2Fa.jpg%3FX-Amz-Credential%3DREDACTED%26sig%3DREDACTED"
+           ) == "/w=40/src/https://b/a.jpg?X-Amz-Credential=REDACTED;sig=REDACTED"
 
-    # ImagePipe's own signature segment isn't a credential parameter.
-    assert Telemetry.request_path("/sig=abc/w=40/src/a.jpg", "") == "/sig=abc/w=40/src/a.jpg"
+    presigned = "https://b.example/a.jpg?X-Goog-Credential=s"
 
-    presigned = Base.url_encode64("https://b.example/a.jpg?X-Amz-Signature=s", padding: false)
+    for token <- [
+          Base.url_encode64(presigned, padding: false),
+          Base.url_encode64(presigned),
+          Base.encode64(presigned),
+          Base.url_encode64(presigned, padding: false) <> ".jpg"
+        ] do
+      assert Telemetry.request_path("/w=40/src64/" <> token, "") == "/w=40/src64/REDACTED", token
+
+      assert Telemetry.request_path("/wm-src64=#{token}/w=40/src/a.jpg", "") ==
+               "/wm-src64=REDACTED/w=40/src/a.jpg",
+             token
+    end
+  end
+
+  test "sources without credentials, and ImagePipe's own signature, are logged as sent" do
     plain = Base.url_encode64("https://b.example/a.jpg?keep=1", padding: false)
-    assert Telemetry.request_path("/w=40/src64/" <> presigned, "") == "/w=40/src64/REDACTED"
-    assert Telemetry.request_path("/w=40/src64/" <> plain, "") == "/w=40/src64/" <> plain
 
-    # Watermark sources in option segments, and a value with raw slashes in
-    # the source tail.
-    assert Telemetry.request_path("/wm-src64=#{presigned}/w=40/src/a.jpg", "") ==
-             "/wm-src64=REDACTED/w=40/src/a.jpg"
-
-    assert Telemetry.request_path(
-             "/wm-src=https%3A%2F%2Fb%2Fm.png%3Fsig%3Ds/w=40/src/https://b/a.jpg%3FX-Amz-Credential%3DAKIA/2026/s3/aws4_request%26keep%3D1",
-             ""
-           ) ==
-             "/wm-src=https%3A%2F%2Fb%2Fm.png%3Fsig%3DREDACTED/w=40/src/https://b/a.jpg%3FX-Amz-Credential%3DREDACTED%26keep%3D1"
+    for path <- [
+          "/sig=abc/w=40/src/https%3A%2F%2Fb.example%2Fa.jpg%3Fkeep%3D1",
+          "/w=40/src64/" <> plain,
+          "/w=40/enc/AQRTMotByNyaz"
+        ] do
+      assert Telemetry.request_path(path, "") == path
+    end
   end
 
   test "credential query values are redacted from the query string" do
