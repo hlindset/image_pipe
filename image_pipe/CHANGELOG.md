@@ -164,6 +164,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   It waited until the first request's processing, which can start before the
   download finishes, was done too, and gave up a second after the source's
   `fetch_timeout`. It now waits only for the download.
+- An SVG source ignored `page`, so `page=1` on an SVG answered `200` with the
+  only image, and each `page` value stored its own copy. A `page` past `0`
+  now fails with `422`, as it does for any other single-page image.
 
 ## [0.2.0] - 2026-10-13
 
