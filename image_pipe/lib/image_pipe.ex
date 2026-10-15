@@ -36,6 +36,7 @@ defmodule ImagePipe do
       ImagePipe.Plan,
       ImagePipe.Presets,
       ImagePipe.Processing,
+      ImagePipe.ProcessingPool,
       ImagePipe.Representation,
       ImagePipe.Response,
       ImagePipe.Security,

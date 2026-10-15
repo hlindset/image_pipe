@@ -102,7 +102,7 @@ clean up before it is killed.
 
 ## Processing deadline
 
-With a processing pool, `processing_timeout` (default 30 seconds) limits how
+The processing pool's `processing_timeout` (default 30 seconds) limits how
 long one request may hold a processing slot. It starts when the slot is
 granted and runs until the last chunk has been sent, including the time spent
 waiting for the client to accept data. A slow client can therefore make a

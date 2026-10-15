@@ -324,6 +324,92 @@ defmodule ImagePipe.InstanceTest do
     end
   end
 
+  describe "processing pool" do
+    defp instance_pool(name),
+      do: ImagePipe.Config.fetch_instance!(name, nil).options[:processing_pool]
+
+    defp hold_slot(pool) do
+      test = self()
+
+      Task.start_link(fn ->
+        ImagePipe.ProcessingPool.run(
+          pool,
+          fn ->
+            send(test, {:holding, self()})
+            receive(do: (:release -> :ok))
+          end,
+          []
+        )
+      end)
+
+      assert_receive {:holding, holder}
+      holder
+    end
+
+    test "an instance starts one with a slot per online scheduler", ctx do
+      start_instance(ctx)
+      pool = instance_pool(ctx.name)
+
+      assert ImagePipe.ProcessingPool.stats(pool) == %{active: 0, queued: 0}
+      assert :sys.get_state(pool).limits.max_concurrency == System.schedulers_online()
+      assert request("/w=8/format=png/src/red.png", instance: ctx.name).status == 200
+    end
+
+    test "requests and run/4 share the instance's pool and its limits", ctx do
+      start_instance(ctx, pool: [max_concurrency: 1, max_queue: 0])
+      holder = hold_slot(instance_pool(ctx.name))
+      builder = ImagePipe.URL.new(ImagePipe.url_config(ctx.name))
+
+      assert request("/w=8/format=png/src/red.png", instance: ctx.name).status == 503
+
+      assert ImagePipe.run(ctx.name, builder, {:source, "red.png"}) ==
+               {:error, {:processing, :overloaded}}
+
+      send(holder, :release)
+      assert request("/w=8/format=png/src/red.png", instance: ctx.name).status == 200
+    end
+
+    test "pool: false starts none", ctx do
+      start_instance(ctx, pool: false)
+
+      assert instance_pool(ctx.name) == nil
+      refute List.keymember?(Supervisor.which_children(ctx.name), ImagePipe.ProcessingPool, 0)
+      assert request("/w=8/format=png/src/red.png", instance: ctx.name).status == 200
+    end
+
+    test "a named processing_pool is used instead", ctx do
+      external = Module.concat(ctx.name, External)
+
+      start_supervised!(
+        {ImagePipe.ProcessingPool, name: external, max_concurrency: 1, max_queue: 0}
+      )
+
+      for options <- [[processing_pool: external], [processing_pool: external, pool: false]] do
+        start_instance(ctx, options)
+
+        assert instance_pool(ctx.name) == external
+        refute List.keymember?(Supervisor.which_children(ctx.name), ImagePipe.ProcessingPool, 0)
+        holder = hold_slot(external)
+        assert request("/w=8/format=png/src/red.png", instance: ctx.name).status == 503
+        send(holder, :release)
+        stop_supervised!(ctx.name)
+      end
+    end
+
+    test "rejects invalid pool options, and pool options with a named processing_pool", ctx do
+      for options <- [
+            [pool: [max_concurrency: 0]],
+            [pool: [name: Other]],
+            [pool: :yes],
+            [processing_pool: Other, pool: [max_concurrency: 2]]
+          ] do
+        assert_raise ArgumentError, ~r/pool/, fn ->
+          ImagePipe.child_spec([name: ctx.name, sources: ctx.sources] ++ options)
+        end
+      end
+    end
+  end
+
   describe "detector warmup" do
     setup do
       Process.register(self(), WarmingDetector)

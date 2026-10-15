@@ -1,13 +1,14 @@
 defmodule ImagePipe.Instance do
-  # Supervises one named configuration: the processes its caches need, the
-  # publisher that makes the configuration visible to mounts, and the detector
-  # warmup.
+  # Supervises one named configuration: its processing pool, the processes its
+  # caches need, the publisher that makes the configuration visible to mounts,
+  # and the detector warmup.
   @moduledoc false
   use Supervisor
 
   alias ImagePipe.Cache
   alias ImagePipe.Config
   alias ImagePipe.Instance.Publisher
+  alias ImagePipe.ProcessingPool
   alias ImagePipe.Transform
   alias ImagePipe.Transform.Detector.Warmup
 
@@ -42,6 +43,24 @@ defmodule ImagePipe.Instance do
               doc:
                 "A configuration from `ImagePipe.config/1` to start from. The other options override it."
             ],
+            pool: [
+              type: {:or, [{:in, [false]}, :keyword_list]},
+              type_doc: "`t:keyword/0` or `false`",
+              default: [],
+              doc: """
+              Options for the `ImagePipe.ProcessingPool` the instance starts, other \
+              than `:name`, such as `[max_concurrency: 4, max_queue: 16]`. \
+              `:max_concurrency` defaults to the VM's online schedulers. The pool \
+              limits how many images the instance's mounts and `ImagePipe.run/4` \
+              calls with its name process at once. With `false`, the instance starts \
+              no pool and every request starts processing as it arrives. The \
+              instance starts none either when its configuration names a pool in \
+              `:processing_pool`. Options here then raise `ArgumentError`. The \
+              instance's own pool is named after it, such as \
+              `MyApp.Images.ProcessingPool`. See \
+              [limiting concurrent processing](processing-controls.md).
+              """
+            ],
             detector_warmup: [
               type: {:or, [{:in, [:all, false]}, {:list, :string}]},
               type_doc: "`:all`, `false`, or a list of class names",
@@ -62,12 +81,17 @@ defmodule ImagePipe.Instance do
   # Validates and builds the configuration up front, so invalid options raise
   # in the caller, as `ImagePipe.Plug.init/1` does.
   def child_spec(options) do
-    {instance, options} = Keyword.split(options, [:name, :mounts, :config, :detector_warmup])
+    {instance, options} =
+      Keyword.split(options, [:name, :mounts, :config, :pool, :detector_warmup])
 
     case NimbleOptions.validate(instance, @schema) do
       {:ok, instance} ->
         name = Keyword.fetch!(instance, :name)
-        config = %{base_config(instance[:config], options) | instance: name}
+
+        {config, pool} =
+          processing_pool!(base_config(instance[:config], options), name, instance[:pool])
+
+        config = %{config | instance: name}
         check_warmup_classes!(config, instance[:detector_warmup])
 
         mounts =
@@ -77,7 +101,8 @@ defmodule ImagePipe.Instance do
 
         %{
           id: name,
-          start: {__MODULE__, :start_link, [{name, config, mounts, instance[:detector_warmup]}]},
+          start:
+            {__MODULE__, :start_link, [{name, config, mounts, pool, instance[:detector_warmup]}]},
           type: :supervisor
         }
 
@@ -100,20 +125,58 @@ defmodule ImagePipe.Instance do
   defp base_config(nil, options), do: Config.new!(options)
   defp base_config(config, options), do: Config.override(config, options)
 
-  def start_link({name, _config, _mounts, _warmup} = instance),
+  # Unless the configuration names a pool, the instance starts its own, named
+  # after it so that the published configuration survives a pool restart.
+  defp processing_pool!(config, name, pool) do
+    case {Keyword.get(config.options, :processing_pool), pool} do
+      {nil, false} ->
+        {config, nil}
+
+      {nil, options} ->
+        pool_name = Module.concat(name, ProcessingPool)
+        {Config.override(config, processing_pool: pool_name), pool_options!(pool_name, options)}
+
+      {_named, pool} when pool in [[], false] ->
+        {config, nil}
+
+      {_named, _options} ->
+        raise ArgumentError,
+              "invalid ImagePipe instance: pool: can't be combined with processing_pool, " <>
+                "which names a pool started elsewhere"
+    end
+  end
+
+  defp pool_options!(pool_name, options) do
+    schema = Keyword.delete(ProcessingPool.options_schema(), :name)
+    options = Keyword.merge([max_concurrency: System.schedulers_online()], options)
+
+    case NimbleOptions.validate(options, schema) do
+      {:ok, options} ->
+        [name: pool_name] ++ options
+
+      {:error, error} ->
+        raise ArgumentError, "invalid ImagePipe instance: pool: #{Exception.message(error)}"
+    end
+  end
+
+  def start_link({name, _config, _mounts, _pool, _warmup} = instance),
     do: Supervisor.start_link(__MODULE__, instance, name: name)
 
   @impl true
-  def init({name, config, mounts, warmup}) do
-    # The publisher starts after the caches, so a published configuration
-    # always has its cache processes. A cache restart leaves the publisher
-    # running.
+  def init({name, config, mounts, pool, warmup}) do
+    # The pool and the caches start before the publisher, so a published
+    # configuration always has its processes. A restart of either leaves the
+    # publisher running.
     children =
-      Cache.child_specs(config.options) ++
+      pool_children(pool) ++
+        Cache.child_specs(config.options) ++
         [{Publisher, {name, config, mounts}}] ++ warmup_children(config, warmup)
 
     Supervisor.init(children, strategy: :one_for_one)
   end
+
+  defp pool_children(nil), do: []
+  defp pool_children(options), do: [{ProcessingPool, options}]
 
   defp check_warmup_classes!(config, classes) when is_list(classes) do
     case Transform.resolve_detector(Keyword.fetch!(config.options, :detector)) do

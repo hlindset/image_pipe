@@ -148,8 +148,10 @@ rotating a photo whose EXIF orientation says it is turned. These copy the
 decoded image into memory, so a 40-megapixel original can take over a
 hundred megabytes while it is processed.
 
-Allow for that across the requests that run at once. A
-[processing pool](processing-controls.md) caps how many that is, and
+Allow for that across the requests that run at once. The instance's
+[processing pool](processing-controls.md) caps how many that is. An
+`ImagePipe.Plug` mount without an instance has a pool only if it names one
+in `processing_pool`.
 `max_input_pixels` caps the decoded original, and `max_intermediate_pixels`
 caps frames read during processing.
 

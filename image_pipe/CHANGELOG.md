@@ -16,6 +16,15 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Breaking:** An `ImagePipe` instance starts a processing pool unless its
+  configuration names one in `processing_pool`. It processes as many images
+  at once as the VM has online schedulers and queues up to 64 more for up to
+  10 seconds. Beyond that, requests get a `503`, and `ImagePipe.run/4`
+  returns `{:processing, :overloaded}` or `{:processing, :queue_timeout}`. An
+  image that takes longer than 30 seconds gets a `503`, or
+  `{:processing, :timeout}` from `run/4`. Set the new `pool` instance option
+  to change the limits, or `pool: false` to process every request as it
+  arrives, as before.
 - **Breaking:** `ImagePipe.config/1` raises `ArgumentError` for a `:detector`
   module that isn't loaded or doesn't implement
   `ImagePipe.Transform.Detector`. Before, such a configuration started, and

@@ -187,7 +187,9 @@ defmodule ImagePipe.Config do
       type_doc: "`t:atom/0` or `t:pid/0`",
       doc: """
       A running `ImagePipe.ProcessingPool`, by name or PID, that limits how \
-      many images are processed at once. See \
+      many images are processed at once. Without one, an `ImagePipe` instance \
+      starts its own (see its `:pool` option), and a configuration used \
+      without an instance has none. See \
       [limiting concurrent processing](processing-controls.md).
       """
     ],
