@@ -165,6 +165,66 @@ defmodule ImagePipe.Telemetry.SummaryTest do
     assert_received {:log, %{meta: %{image_pipe: %{status: 200, source: :path}}}}
   end
 
+  test "a watermark's source and decode don't replace the main image's", ctx do
+    mark = Image.new!(24, 16, color: :red) |> Image.write!(:memory, suffix: ".png")
+    marks = fn conn -> conn |> put_resp_content_type("image/png") |> send_resp(200, mark) end
+
+    marks_source = [
+      adapter: ImagePipe.Source.HTTP,
+      match: [scheme: ["https"]],
+      options: [
+        allowed_hosts: ["marks.test"],
+        address_resolver: fn _ -> {:ok, [{93, 184, 216, 34}]} end,
+        req_options: [plug: marks]
+      ]
+    ]
+
+    options =
+      start(ctx,
+        watermarks: %{logo: [source: "https://marks.test/mark.png"]},
+        extra_sources: [marks: marks_source]
+      )
+
+    config = Caches.plug(options)
+
+    assert request("/w=40/wm=logo/format=png/src/beach.jpg", config, options).status == 200
+    assert_received {:summary, _m, summary}
+    assert %{source: :path, source_fetch: :ok, input: :jpeg, input_size: {4000, 2667}} = summary
+  end
+
+  test "a request inside a summarized request keeps the outer summary", ctx do
+    builder = ImagePipe.URL.new() |> ImagePipe.URL.group(resize: [width: 10])
+    inner_config = ImagePipe.config(telemetry_prefix: [__MODULE__, :inner])
+    body = File.read!("priv/static/images/beach.jpg")
+
+    Telemetry.span([telemetry_prefix: ctx.prefix], [:request], %{method: "GET"}, fn ->
+      {:ok, _result} = ImagePipe.run(inner_config, builder, {:binary, body})
+      Summary.put(%{reason: "outer"})
+      {:ok, %{result: :ok}}
+    end)
+
+    assert_received {:summary, _m, %{method: "GET", reason: "outer"}}
+    assert Summary.current() == nil
+  end
+
+  test "a request that raises logs an exception line instead of a summary", ctx do
+    Telemetry.attach_default_logger(prefix: ctx.prefix)
+
+    log =
+      capture_log(fn ->
+        assert_raise RuntimeError, fn ->
+          Telemetry.span([telemetry_prefix: ctx.prefix], [:request], %{method: "GET"}, fn ->
+            raise "boom"
+          end)
+        end
+      end)
+
+    refute_received {:summary, _m, _metadata}
+    assert log =~ "[warning]"
+    assert log =~ "boom"
+    assert Summary.current() == nil
+  end
+
   test "ImagePipe.run/4 is summarized without a method, path, or status", ctx do
     builder = ImagePipe.URL.new() |> ImagePipe.URL.group(resize: [width: 10])
     config = ImagePipe.config(telemetry_prefix: ctx.prefix)
@@ -286,11 +346,15 @@ defmodule ImagePipe.Telemetry.SummaryTest do
 
   defp start(ctx, options \\ []) do
     body = File.read!("priv/static/images/beach.jpg")
+    {extra_sources, options} = Keyword.pop(options, :extra_sources, [])
 
     origin = fn conn ->
       case conn.path_info do
-        ["beach.jpg"] -> conn |> put_resp_content_type("image/jpeg") |> send_resp(200, body)
-        _other -> send_resp(conn, 404, "")
+        ["beach.jpg"] ->
+          conn |> put_resp_content_type("image/jpeg") |> send_resp(200, body)
+
+        _other ->
+          send_resp(conn, 404, "")
       end
     end
 
@@ -298,17 +362,18 @@ defmodule ImagePipe.Telemetry.SummaryTest do
       [
         telemetry_prefix: ctx.prefix,
         http_cache: :auto,
-        sources: [
-          path: [
-            adapter: RootHTTPAdapter,
-            match: :path,
-            options: [
-              root_url: "http://origin.test",
-              byte_identity: :strong,
-              req_options: [plug: origin]
+        sources:
+          [
+            path: [
+              adapter: RootHTTPAdapter,
+              match: :path,
+              options: [
+                root_url: "http://origin.test",
+                byte_identity: :strong,
+                req_options: [plug: origin]
+              ]
             ]
-          ]
-        ],
+          ] ++ extra_sources,
         max_input_pixels: 40_000_000
       ] ++ options
     )
@@ -324,16 +389,19 @@ defmodule ImagePipe.Telemetry.SummaryTest do
     pool = instance_config.options[:processing_pool]
     test_pid = self()
 
-    Task.start_link(fn ->
-      ImagePipe.ProcessingPool.run(
-        pool,
-        fn ->
-          send(test_pid, {:holding, self()})
-          receive(do: (:release -> :ok))
-        end,
-        []
-      )
-    end)
+    start_supervised!(
+      {Task,
+       fn ->
+         ImagePipe.ProcessingPool.run(
+           pool,
+           fn ->
+             send(test_pid, {:holding, self()})
+             receive(do: (:release -> :ok))
+           end,
+           []
+         )
+       end}
+    )
 
     assert_receive {:holding, holder}
     holder

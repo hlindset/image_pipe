@@ -21,6 +21,7 @@ defmodule ImagePipe.Execution.Watermarks do
   alias ImagePipe.Source.StreamError
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.RequestContext
+  alias ImagePipe.Telemetry.Summary
 
   @type planned :: %{asset: term(), source: ImagePipe.Source.parsed(), opacity: float()}
 
@@ -129,6 +130,8 @@ defmodule ImagePipe.Execution.Watermarks do
 
     Task.Supervisor.async_nolink(ImagePipe.ProcessingPool.Tasks, fn ->
       RequestContext.adopt(request_context)
+      # The asset's source and decode stages aren't the request's.
+      Summary.ignore()
 
       Telemetry.span(telemetry, [:source, :watermark], %{phase: phase}, fn ->
         result = fun.()

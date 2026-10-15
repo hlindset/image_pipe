@@ -18,6 +18,9 @@ defmodule ImagePipe.Telemetry.Summary do
 
   @alias_key {__MODULE__, :alias}
   @fields_key {__MODULE__, :fields}
+  # A request inside another one in the same process, such as `ImagePipe.run/4`
+  # called while a request is served, keeps the outer one's state here.
+  @outer_key {__MODULE__, :outer}
 
   @typedoc false
   @type handle :: reference() | nil
@@ -42,9 +45,13 @@ defmodule ImagePipe.Telemetry.Summary do
   end
 
   @doc false
-  # Called at `[:request]` start in the request process.
+  # Called at `[:request]` start in the request process. An outer request's
+  # state is kept, and its fields stop until this request ends.
   @spec open([atom()], map()) :: :ok
   def open(prefix, start_metadata) do
+    outer = {current(), Process.delete(@fields_key)}
+    Process.put(@outer_key, [outer | Process.get(@outer_key, [])])
+
     case :telemetry.list_handlers(prefix ++ [:request, :summary]) do
       [] ->
         adopt(nil)
@@ -55,6 +62,28 @@ defmodule ImagePipe.Telemetry.Summary do
         Process.put(@fields_key, Map.take(start_metadata, [:method, :path]))
         :ok
     end
+  end
+
+  @doc false
+  # Stops recording in a process that adopted the request for side work, such
+  # as fetching a watermark, whose stages would overwrite the main source's.
+  @spec ignore() :: :ok
+  def ignore, do: adopt(nil)
+
+  # Puts the outer request's state back.
+  defp restore do
+    case Process.get(@outer_key, []) do
+      [{alias, fields} | rest] ->
+        Process.put(@outer_key, rest)
+        adopt(alias)
+        if fields, do: Process.put(@fields_key, fields), else: Process.delete(@fields_key)
+
+      [] ->
+        adopt(nil)
+        Process.delete(@fields_key)
+    end
+
+    :ok
   end
 
   @doc false
@@ -73,9 +102,14 @@ defmodule ImagePipe.Telemetry.Summary do
   end
 
   @doc false
-  # Adds the bytes of a body sent by the request process.
-  @spec add_bytes(non_neg_integer()) :: :ok
-  def add_bytes(bytes), do: put(%{bytes: bytes})
+  # Adds the bytes of a body sent by the request process: a size, or the
+  # body, measured only when a summary is open.
+  @spec add_bytes(non_neg_integer() | iodata()) :: :ok
+  def add_bytes(bytes) when is_integer(bytes), do: put(%{bytes: bytes})
+
+  def add_bytes(body) do
+    if current(), do: put(%{bytes: IO.iodata_length(body)}), else: :ok
+  end
 
   @doc false
   # Records a stage's fields, from a span's stop or a one-shot event.
@@ -101,7 +135,7 @@ defmodule ImagePipe.Telemetry.Summary do
     case {current(), Process.delete(@fields_key)} do
       {alias, fields} when is_reference(alias) and is_map(fields) ->
         :erlang.unalias(alias)
-        adopt(nil)
+        restore()
 
         summary =
           alias
@@ -113,7 +147,7 @@ defmodule ImagePipe.Telemetry.Summary do
         :telemetry.execute(prefix ++ [:request, :summary], %{duration: duration}, summary)
 
       _no_summary ->
-        adopt(nil)
+        restore()
     end
 
     :ok
@@ -123,8 +157,6 @@ defmodule ImagePipe.Telemetry.Summary do
   # Forgets a request whose span raised, emitting nothing.
   @spec discard() :: :ok
   def discard do
-    Process.delete(@fields_key)
-
     case current() do
       nil ->
         :ok
@@ -132,8 +164,10 @@ defmodule ImagePipe.Telemetry.Summary do
       alias ->
         :erlang.unalias(alias)
         _fields = collect(alias, %{})
-        adopt(nil)
     end
+
+    Process.delete(@fields_key)
+    restore()
   end
 
   defp collect(alias, fields) do
@@ -179,7 +213,7 @@ defmodule ImagePipe.Telemetry.Summary do
     do: %{coalesced: true}
 
   defp fields([:transform, :operation], _duration, %{result: :ok} = meta),
-    do: %{ops: [meta.operation], output_size: meta[:dims]}
+    do: Map.merge(%{ops: [meta.operation]}, take(meta, output_size: :dims))
 
   defp fields([:output, :negotiate], _duration, meta), do: take(meta, output: :output_format)
   defp fields([:output, :terminal], _duration, meta), do: take(meta, output: :terminal)

@@ -51,6 +51,7 @@ defmodule ImagePipe.Telemetry.CatalogTest do
     assert subscribed(prefix, "image-pipe-default-logger") ==
              MapSet.new([
                prefix ++ [:request, :summary],
+               prefix ++ [:request, :exception],
                prefix ++ [:cache, :sweep, :stop],
                prefix ++ [:cache, :sweep, :exception],
                prefix ++ [:cache, :eviction, :stop]

@@ -501,7 +501,9 @@ defmodule ImagePipe.Telemetry.Logger do
     do: Enum.map_join(values, ",", &summary_value/1)
 
   defp summary_value({width, height}), do: "#{width}x#{height}"
-  defp summary_value(value), do: to_string(value)
+
+  defp summary_value(value) when is_atom(value) or is_number(value), do: to_string(value)
+  defp summary_value(value), do: inspect(value)
 
   defp point({x, y}), do: "(#{round2(x)},#{round2(y)})"
   defp point(_other), do: "(?,?)"

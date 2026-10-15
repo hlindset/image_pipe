@@ -157,8 +157,10 @@ defmodule ImagePipe.Response.Sender do
       end
   end
 
+  def send_body(%Plug.Conn{method: "HEAD"} = conn, body), do: send_resp(conn, 200, body)
+
   def send_body(conn, body) do
-    Summary.add_bytes(IO.iodata_length(body))
+    Summary.add_bytes(body)
     send_resp(conn, 200, body)
   end
 
@@ -340,7 +342,7 @@ defmodule ImagePipe.Response.Sender do
   defp send_chunk(conn, bytes) do
     case chunk(conn, bytes) do
       {:ok, _conn} = sent ->
-        Summary.add_bytes(IO.iodata_length(bytes))
+        Summary.add_bytes(bytes)
         sent
 
       error ->

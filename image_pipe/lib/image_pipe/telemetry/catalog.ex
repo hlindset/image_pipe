@@ -118,15 +118,19 @@ defmodule ImagePipe.Telemetry.Catalog do
 
   @doc """
   The full names of the events the Logger subscribes to for `groups` without
-  stage lines: the request summary and the events outside any one request.
+  stage lines: the request summary, a request that raised (which has no
+  summary), and the events outside any one request.
   """
   @spec summary_events([atom()], [atom()]) :: [[atom()]]
   def summary_events(groups, prefix) do
-    for {stage, kind, group, true, _traced?} <- entries(),
-        group in groups,
-        stage == [:request, :summary] or stage in @background_stages,
-        suffix <- suffixes(kind),
-        do: prefix ++ stage ++ suffix
+    raised = if :request in groups, do: [prefix ++ [:request, :exception]], else: []
+
+    raised ++
+      for {stage, kind, group, true, _traced?} <- entries(),
+          group in groups,
+          stage == [:request, :summary] or stage in @background_stages,
+          suffix <- suffixes(kind),
+          do: prefix ++ stage ++ suffix
   end
 
   @doc """
