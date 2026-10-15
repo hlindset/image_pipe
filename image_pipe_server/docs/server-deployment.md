@@ -93,8 +93,8 @@ volumes:
 
 ## HTTP
 
-The server speaks plain HTTP. Terminate TLS at a load balancer, ingress, or
-CDN in front of it.
+The server speaks plain HTTP/1.1. Terminate TLS at a load balancer, ingress,
+or CDN in front of it, and have it connect to the server with HTTP/1.1.
 
 - `[server] read_timeout` (10 seconds) closes connections that send nothing
   for that long, including idle keep-alive connections. A connection that
@@ -131,10 +131,9 @@ fail them.
 On `SIGTERM` the server shuts down in two steps:
 
 1. For `[server] shutdown_delay` milliseconds (default 5 seconds),
-   `/health/ready` answers `503`, but the server keeps serving. Every HTTP/1
-   response closes its connection, and HTTP/2 connections stay open until the
-   server stops listening. Load balancers notice and move traffic to other
-   replicas before then.
+   `/health/ready` answers `503`, but the server keeps serving. Every
+   response closes its connection. Load balancers notice and move traffic to
+   other replicas before then.
 2. The server stops accepting connections and gives in-flight requests
    `[server] shutdown_timeout` milliseconds (default 15 seconds) to finish.
 

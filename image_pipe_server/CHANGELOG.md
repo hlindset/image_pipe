@@ -5,6 +5,28 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** The server no longer accepts HTTP/2 over plain HTTP (h2c,
+  HTTP/2 with prior knowledge). Configure the load balancer or proxy in front
+  of the server to connect with HTTP/1.1. Before, an HTTP/2 request that took longer than
+  `[server] read_timeout` lost its response, along with every other request
+  on its connection.
+- Log lines start with the date and time, as in
+  `2026-10-14 19:55:23.967 request_id=abc [info] ...`.
+
+### Fixed
+
+- A source's `bearer_token` with a line break or NUL passed the startup
+  check, and every fetch from that source then failed. The server now
+  refuses to start, naming the setting.
+- Log lines are no longer preceded by a blank line, which log collectors
+  stored as an empty entry.
+- The server closed new connections well below `[server] max_connections`.
+  The cap was split over up to 100 connection acceptors, and a connection
+  that reached a full acceptor waited about five seconds, then was closed,
+  even while the server had room. `max_connections` is now an exact cap.
+
 ## [0.2.0] - 2026-10-13
 
 ### Added

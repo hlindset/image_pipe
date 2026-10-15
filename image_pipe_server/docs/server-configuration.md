@@ -153,7 +153,7 @@ TOML types; defaults are the library's.
 
 ### `[server]`
 
-The HTTP listener. Times are in milliseconds. `read_timeout` closes connections that send nothing for that long, idle keep-alive connections included. `max_connections` rounds up to a multiple of 100 above 100 connections. With `auth_token`, requests other than the health checks must send `Authorization: Bearer <token>`. On shutdown, `/health/ready` answers `503` while the server keeps serving for `shutdown_delay`. Then in-flight requests get `shutdown_timeout` to finish. `health_port` serves the health checks on a separate listener, outside `max_connections`. See [health and shutdown](server-deployment.md#health-and-shutdown).
+The HTTP listener. Times are in milliseconds. `read_timeout` closes connections that send nothing for that long, idle keep-alive connections included. With `auth_token`, requests other than the health checks must send `Authorization: Bearer <token>`. On shutdown, `/health/ready` answers `503` while the server keeps serving for `shutdown_delay`. Then in-flight requests get `shutdown_timeout` to finish. `health_port` serves the health checks on a separate listener, outside `max_connections`. See [health and shutdown](server-deployment.md#health-and-shutdown).
 
 | Key | Type | Default |
 | --- | --- | --- |

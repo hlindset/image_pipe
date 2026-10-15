@@ -281,8 +281,17 @@ defmodule ImagePipeServer.Config.Sources do
 
   defp bearer_token(value, path) do
     case Convert.string(value, path) do
-      {:ok, ""} -> {:error, path, "expected a non-empty string"}
-      result -> result
+      {:ok, ""} ->
+        {:error, path, "expected a non-empty string"}
+
+      {:ok, token} = result ->
+        case String.contains?(token, ["\r", "\n", <<0>>]) do
+          true -> {:error, path, "must not contain a line break or NUL"}
+          false -> result
+        end
+
+      error ->
+        error
     end
   end
 

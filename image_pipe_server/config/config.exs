@@ -10,7 +10,9 @@ config :opentelemetry,
   traces_exporter: :none,
   resource: [service: %{name: "image_pipe_server"}]
 
-config :logger, :default_formatter, metadata: [:request_id]
+config :logger, :default_formatter,
+  format: "$date $time $metadata[$level] $message\n",
+  metadata: [:request_id]
 
 # The sibling image_pipe_svg project builds its NIF from source; the Hex
 # package downloads the precompiled one.
