@@ -52,13 +52,14 @@ defmodule ImagePipeServer.Application do
   defp configure_log_format(format) do
     case log_formatter(format) do
       nil -> :ok
-      formatter -> :ok = :logger.update_handler_config(:default, :formatter, formatter)
+      # A host that removed the default handler keeps its own handlers.
+      formatter -> _ = :logger.update_handler_config(:default, :formatter, formatter)
     end
   end
 
   @doc false
   # The default handler's formatter for `format`, or nil to keep the text one.
-  @spec log_formatter(Config.t() | atom()) :: {module(), term()} | nil
+  @spec log_formatter(atom()) :: {module(), term()} | nil
   def log_formatter(:text), do: nil
 
   def log_formatter(format) do
