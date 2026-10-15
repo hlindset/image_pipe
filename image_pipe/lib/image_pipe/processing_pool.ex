@@ -48,6 +48,10 @@ defmodule ImagePipe.ProcessingPool do
   Limits how many images are processed at once, with a queue for requests that
   wait for a turn and a deadline for each image.
 
+  An `ImagePipe` instance starts one, configured with its `:pool` option,
+  unless its configuration names one in `:processing_pool`. Start a pool
+  yourself to share it between instances:
+
       children = [
         {ImagePipe.ProcessingPool, name: MyApp.Pool, max_concurrency: 8, max_queue: 16},
         {ImagePipe, name: MyApp.Images, processing_pool: MyApp.Pool, sources: [...]},

@@ -2,29 +2,28 @@
 
 A processing pool limits how many images ImagePipe processes at once. Requests
 beyond the limit wait in a queue or get a `503`, and each image gets a
-deadline. Without a pool, every request starts processing right away, so a
-burst of requests can use all the CPU and memory. `image_pipe_server` always
-runs one.
+deadline. An `ImagePipe` instance runs one unless you turn it off, and
+`image_pipe_server` always does, so a burst of requests waits its turn
+instead of using all the CPU and memory.
 
 This guide assumes ImagePipe is running in your app (see
 [Getting started with Phoenix](phoenix-getting-started.md)) or as
 `image_pipe_server` (see
 [Getting started with the server](../../image_pipe_server/docs/server-getting-started.md)).
 
-## Adding a pool
+## Changing the limits
 
 <!-- tabs-open -->
 
 ### Plug
 
-Start an `ImagePipe.ProcessingPool` before the instance, and name it in the
-instance's `processing_pool`:
+An instance starts its pool with the defaults below. Change them with the
+instance's `pool` option:
 
 ```elixir
 # lib/my_app/application.ex
 children = [
-  {ImagePipe.ProcessingPool, name: MyApp.Pool, max_concurrency: 8, max_queue: 16},
-  {ImagePipe, name: MyApp.Images, processing_pool: MyApp.Pool, sources: [...]},
+  {ImagePipe, name: MyApp.Images, pool: [max_concurrency: 8, max_queue: 16], sources: [...]},
   MyAppWeb.Endpoint
 ]
 ```
@@ -34,8 +33,7 @@ jobs and requests share its capacity.
 
 ### image_pipe_server
 
-The server always runs a pool. Change its limits in a `[pool]` section of
-`config.toml`:
+Change the server's limits in a `[pool]` section of `config.toml`:
 
 ```toml
 [pool]
@@ -45,10 +43,11 @@ max_queue = 16
 
 <!-- tabs-close -->
 
-## Choosing the limits
+## Choosing values
 
-- `max_concurrency` is how many images are processed at once. Start with
-  about the number of CPU cores, which is the server's default.
+- `max_concurrency` is how many images are processed at once. It defaults
+  to the number of CPU cores. Lower it when other heavy work runs on the
+  same machine.
 - `max_queue` is how many requests may wait for a turn, 64 by default. A
   request that finds the queue full gets a `503`. With `0`, every request
   beyond `max_concurrency` gets a `503` straight away.
@@ -60,6 +59,33 @@ max_queue = 16
 `ImagePipe.ProcessingPool` lists the options, and the
 [server reference](../../image_pipe_server/docs/server-configuration.md#pool)
 their TOML keys.
+
+## Sharing a pool between instances
+
+In an Elixir app, two instances that should share one limit can name the
+same pool in `processing_pool`. Start it before them:
+
+```elixir
+# lib/my_app/application.ex
+children = [
+  {ImagePipe.ProcessingPool, name: MyApp.Pool, max_concurrency: 8},
+  {ImagePipe, name: MyApp.Images, processing_pool: MyApp.Pool, sources: [...]},
+  {ImagePipe, name: MyApp.Avatars, processing_pool: MyApp.Pool, sources: [...]},
+  MyAppWeb.Endpoint
+]
+```
+
+An instance that names a pool starts none of its own, so it can't also take
+`pool` options.
+
+## Turning the pool off
+
+In an Elixir app, an instance with `pool: false` starts no pool, and every
+request starts processing as it arrives. An `ImagePipe.Plug` mount without an
+instance, and `ImagePipe.run/4` with a configuration from
+`ImagePipe.config/1`, have no pool unless they name one in
+`processing_pool`. Turn the pool off only for tests, scripts, and callers
+that limit their own concurrency.
 
 ## What uses the pool
 
@@ -97,7 +123,8 @@ for each wait for a turn and
 [`[:processing, :execute]`](telemetry-events.md#processing-execute) for each
 processed image. In Elixir, `ImagePipe.ProcessingPool.stats/1` returns how many
 workers still hold slots, including workers finishing after a timeout, and
-how many requests are waiting. The processing execution span ends when the
+how many requests are waiting. An instance's own pool is named after the
+instance, so `MyApp.Images` has `MyApp.Images.ProcessingPool`. The processing execution span ends when the
 worker finishes. `ImagePipe.ProcessingPool` lists the errors
 `ImagePipe.run/4` returns for each
 case that gives a `503` over HTTP.
