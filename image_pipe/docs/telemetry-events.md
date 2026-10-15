@@ -85,7 +85,13 @@ Span. Wraps the whole request, starting before parsing. `ImagePipe.run/4`
 emits it too, around plan checks and the shared source, transform, and output
 stages. `ImagePipe.write/5` writes its destination after the span closes.
 
-- Start metadata: none.
+- Start metadata, Plug requests only:
+  - `:method` (string): the HTTP method, such as `"GET"`.
+  - `:path` (string): the request path as sent, with its query string,
+    without the path the Plug is mounted at. In the query string, the values of `AWSAccessKeyId`,
+    `Signature`, `sig`, `X-Goog-Signature`, `X-Amz-Signature`,
+    `X-Amz-Credential`, and `X-Amz-Security-Token` are replaced with
+    `REDACTED`.
 - Stop metadata:
   - `:result` (atom): a request [result value](#result-values). When a
     response fails after streaming has started, it matches the `[:send]`
@@ -93,6 +99,47 @@ stages. `ImagePipe.write/5` writes its destination after the span closes.
   - `:status` (integer): the response status. Plug requests only.
   - `:error` (atom): the error category, on failure. `ImagePipe.run/4`
     leaves it out for `:parser_error` and `:plan_error`.
+
+### `[:request, :summary]`
+
+One-shot. Emitted once per request, right after the `[:request]` stop, with
+what the request did and how long its parts took, gathered from the events
+of every process that served it. It is emitted only if a handler is
+attached to it when the request starts. Work that runs after the response,
+such as the output cache write, isn't in it. The default Logger writes it as
+one line, and the tracer doesn't use it.
+
+- Measurements: `:duration` (integer, native time units), as on the
+  `[:request]` stop.
+- Metadata. Each field is present only when the request reached the stage
+  that produces it:
+  - `:method` and `:path`: as on the `[:request]` start.
+  - `:status`, `:result`, and `:error`: as on the `[:request]` stop.
+  - `:duration_ms` (integer): the request's duration in milliseconds.
+  - `:reason` (string): the message the error response's body gives, on
+    failure. Plug requests only.
+  - `:bytes` (integer): the body bytes sent. Plug requests only.
+  - `:cache` (atom): the output cache's answer, as on
+    [`[:cache, :lookup]`](#cache-lookup), or `:coalesced` when the response
+    came from another request's work, or `:not_modified` for a `304`.
+  - `:source` (atom): the source name, from `[:source, :resolve]`.
+  - `:source_fetch` (atom) and `:fetch_ms` (integer): the result and
+    duration of [`[:source, :fetch]`](#source-fetch).
+  - `:input` (atom), `:input_size` (`{width, height}`), and `:decode_ms`
+    (integer): the original's format and stored size, and the duration of
+    [`[:source, :fetch_decode]`](#source-fetch_decode).
+  - `:ops` (list of atoms): the operations that ran, in order.
+  - `:output_size` (`{width, height}`): the image size after the last
+    operation.
+  - `:output` (atom): the output format, or the terminal (`:info`,
+    `:blurhash`, `:lqip_css`).
+  - `:encode_ms` (integer): the duration of [`[:encode]`](#encode).
+  - `:admission` (atom) and `:queue_ms` (integer): the result and duration
+    of [`[:processing, :admission]`](#processing-admission).
+  - `:detect` (atom): the result of
+    [`[:transform, :detect]`](#transform-detect).
+  - `:degraded` (`true`): the response is a fallback that isn't stored, as
+    on [`[:http_cache, :fallback, :no_store]`](#http_cache-fallback-no_store).
 
 ### `[:parse]`
 

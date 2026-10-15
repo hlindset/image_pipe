@@ -7,6 +7,19 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A `[:request, :summary]` telemetry event, emitted once per request, with
+  what the request did as flat fields: method, path, status, duration, bytes
+  sent, cache outcome, source, the original's format and size, the
+  operations, the output format and size, and the time spent fetching,
+  decoding, encoding, and waiting for the processing pool. It gathers them
+  from every process that served the request. The
+  [event reference](docs/telemetry-events.md#request-summary) lists them.
+- The `[:request]` span's start carries `:method` and `:path` for Plug
+  requests. The path is as sent, except that in the request's query string,
+  the values of credential parameters such as `X-Amz-Signature` are replaced
+  with `REDACTED`. The
+  tracer records them on the request span as `http.request.method`,
+  `url.path`, and `url.query`.
 - A file system cache logs at `info` when it claims its cache root, naming
   the host. A node that refused the root, because another node used it, logs
   at `info` when it takes the root over and requests use the cache again.
@@ -16,6 +29,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Breaking:** `ImagePipe.Telemetry.attach_default_logger/1` logs one line
+  per request, from the new `[:request, :summary]` event, instead of one line
+  per stage. A `5xx` logs at `error`, and a `4xx` or a degraded result at
+  `warning`. Pass `stages: true` to also log the stage lines as before.
 - **Breaking:** An `ImagePipe` instance starts a processing pool unless its
   configuration names one in `processing_pool`. It processes as many images
   at once as the VM has online schedulers and queues up to 64 more for up to

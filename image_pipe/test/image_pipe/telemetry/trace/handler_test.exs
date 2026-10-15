@@ -803,6 +803,18 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
     refute Map.has_key?(parse.attributes, :request_id)
   end
 
+  test "a request span carries its method, path, and query under OTel's names" do
+    Telemetry.span([], [:request], %{method: "GET", path: "/w=40/src/a.jpg?sig=REDACTED"}, fn ->
+      {:ok, %{result: :ok}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.request"} = request}
+    assert request.attributes[:"http.request.method"] == "GET"
+    assert request.attributes[:"url.path"] == "/w=40/src/a.jpg"
+    assert request.attributes[:"url.query"] == "sig=REDACTED"
+    refute Map.has_key?(request.attributes, :path)
+  end
+
   test "a span stops by its own identity, not the most recently opened span" do
     opts = []
     outer = Telemetry.start_span(opts, [:processing, :admission], %{})

@@ -1,10 +1,9 @@
 # Monitoring with telemetry
 
-Log each stage of ImagePipe's requests, and send them to your own metrics
-or logging handlers. This guide assumes ImagePipe runs in your app, as a
-Plug or through `ImagePipe.run/4`. When you run `image_pipe_server`, set
-`log_requests = true` in its [telemetry settings](../../image_pipe_server/docs/server-configuration.md#telemetry)
-instead.
+Log ImagePipe's requests, and send them to your own metrics or logging
+handlers. This guide assumes ImagePipe runs in your app, as a Plug or through
+`ImagePipe.run/4`. `image_pipe_server` logs its requests by default (see its
+[telemetry settings](../../image_pipe_server/docs/server-configuration.md#telemetry)).
 
 ImagePipe emits [`:telemetry`](https://hexdocs.pm/telemetry) events and
 attaches no handlers itself. The [event reference](telemetry-events.md) lists
@@ -22,18 +21,30 @@ def start(_type, _args) do
 end
 ```
 
-Each request stage then logs one line, such as:
+Each request then logs one line: the method, path, status, duration, and
+bytes sent, then what the request did as `key=value` fields:
 
 ```text
-image_pipe source fetch: ok (source images)
-image_pipe output negotiate: ok (webp)
-image_pipe request: ok
+[info] GET /w=200/src/beach.jpg 200 79ms 4.7kB cache=miss source=images source_fetch=ok fetch_ms=1 input=jpeg input_size=4000x2667 decode_ms=4 ops=resize output=jpeg output_size=200x133 encode_ms=6 admission=admitted queue_ms=0
+[warning] GET /w=200/src/missing.jpg 404 1ms error=source reason="source not found" source=images source_fetch=source_error fetch_ms=0
 ```
 
-Failures and degraded results log at `:warning`. To log only some stages,
-pass `:events`, for example `events: [:request, :source, :cache]`. If you set
-a custom `telemetry_prefix`, pass the same list as `:prefix`.
-`ImagePipe.Telemetry.attach_default_logger/1` lists the groups and options.
+A `5xx` logs at `:error`, and a `4xx` or a degraded result at `:warning`. The
+[`[:request, :summary]`](telemetry-events.md#request-summary) event lists
+the fields. The fields are also in the line's Logger metadata, as a map
+under `:image_pipe`, so a JSON formatter such as
+[`logger_json`](https://hexdocs.pm/logger_json) writes them as an
+`image_pipe` object. One key keeps them clear of the fields a log collector
+reserves, such as Datadog's `status`.
+
+The path is logged as sent, except that in the request's query string, the
+values of credential parameters such as `X-Amz-Signature` are replaced with
+`REDACTED`.
+
+To debug a request, pass `stages: true` to also log one line for each of its
+stages, such as each cache lookup, the decode, and the encode. If you set a
+custom `telemetry_prefix`, pass the same list as `:prefix`.
+`ImagePipe.Telemetry.attach_default_logger/1` lists the options.
 
 ## Attaching handlers
 
@@ -93,15 +104,16 @@ correlate by trace ID instead (see [request tracing](tracing.md)).
 
 ## What events contain
 
-Event metadata leaves out anything that grants access or identifies a
-private image: signatures, credentials, source URLs, and request paths, which
-often carry signatures or presigned credentials. It does include values that
-are safe but can have many distinct values, such as preset names, operation
+Event metadata leaves out keys and origin credentials. The path on
+[`[:request]`](telemetry-events.md#request) and the summary is as sent,
+including its URL signature, which authorizes only that URL. In the
+request's query string, the values of credential parameters such as
+`X-Amz-Signature` are replaced with `REDACTED`. Metadata does include values
+that can have many distinct values, such as paths, preset names, operation
 parameters, and image sizes. Choose which ones become metrics tags.
 
-If your handler adds the request path or source URL itself, for example from
-`conn`, strip signatures and credentials before logging it or sending it to
-a third party.
+If your handler adds a source URL itself, for example from `conn`, strip any
+credentials it carries before logging it or sending it to a third party.
 
 ## Next steps
 

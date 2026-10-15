@@ -13,11 +13,13 @@ defmodule ImagePipe.Telemetry do
     deps: [],
     exports: [
       RequestContext,
+      Summary,
       Trace,
       Trace.ReqStep
     ]
 
   alias ImagePipe.Telemetry.Logger, as: DefaultLogger
+  alias ImagePipe.Telemetry.Summary
   alias ImagePipe.Telemetry.Trace
   alias ImagePipe.Telemetry.Trace.FinchHandler
   alias ImagePipe.Telemetry.Trace.Handler
@@ -43,6 +45,15 @@ defmodule ImagePipe.Telemetry do
                        "The telemetry prefix to subscribe to, a non-empty list of atoms. " <>
                          "Must match the `telemetry_prefix` ImagePipe is configured with."
                    ],
+                   stages: [
+                     type: :boolean,
+                     default: false,
+                     doc: """
+                     When `true`, also logs a line for each stage of each request, such \
+                     as parsing, each cache lookup, decoding, and encoding, for debugging. \
+                     By default, each request logs one summary line.
+                     """
+                   ],
                    debug: [
                      type: :boolean,
                      default: false,
@@ -56,9 +67,16 @@ defmodule ImagePipe.Telemetry do
   def default_prefix, do: @default_prefix
 
   @doc """
-  Attaches a `Logger` handler that logs one line per ImagePipe event.
+  Attaches a `Logger` handler that logs one line per request.
 
-      ImagePipe.Telemetry.attach_default_logger(events: [:request, :source])
+      ImagePipe.Telemetry.attach_default_logger()
+
+  The line is the [`[:request, :summary]`](telemetry-events.md#request-summary)
+  event: the method, path, status, duration, and bytes sent, then the
+  request's other fields as `key=value`. The fields are also in the line's
+  Logger metadata, as a map under `:image_pipe`. Cache sweeps and evictions,
+  which belong to no request, log their own lines. With `stages: true`,
+  every stage of each request logs a line as well.
 
   Call it once at application startup. Calling it again replaces the
   handler's options. Remove it with `detach_default_logger/0`. Setting it up
@@ -67,10 +85,13 @@ defmodule ImagePipe.Telemetry do
   ## Event groups
 
   `:events` selects groups from the
-  [event reference](telemetry-events.md):
+  [event reference](telemetry-events.md). Without `stages: true`, only the
+  `:request` group's summary and the `:cache` group's sweeps and evictions
+  have lines:
 
-    * `:request`: request, processing pool, send, deliver, and encode events,
-      except the encode-search probe cost spans, which aren't logged.
+    * `:request`: the request summary, and request, processing pool, send,
+      deliver, and encode events, except the encode-search probe cost spans,
+      which aren't logged.
     * `:parse`: parsing and preset lookup.
     * `:source`: source events.
     * `:transform`: transform and detection events.
@@ -82,7 +103,10 @@ defmodule ImagePipe.Telemetry do
 
   ## Log levels
 
-  Lines log at `:level`. These log at `:warning`:
+  Lines log at `:level`. A summary line logs at `:error` for a `5xx`
+  response, and at `:warning` for a `4xx`, a degraded result, detection that
+  fell back to attention, or a failed `ImagePipe.run/4`. With `stages: true`, these stage lines log at
+  `:warning`:
 
     * Exceptions, and results such as `:source_error`, `:cache_error`,
       `:materialize_error`, `:parser_error`, and `:plan_error`.
@@ -250,6 +274,32 @@ defmodule ImagePipe.Telemetry do
   def error_tag(tag) when is_atom(tag), do: tag
   def error_tag(_reason), do: :error
 
+  # Query parameters that carry an origin's credentials in a presigned source
+  # URL: OTel's list for `url.query`, plus the AWS SigV4 ones it leaves out.
+  @credential_params ~w(awsaccesskeyid signature sig x-goog-signature x-amz-signature
+                        x-amz-credential x-amz-security-token)
+
+  @doc false
+  # A request's path and query for telemetry, with the values of credential
+  # query parameters replaced by `REDACTED`.
+  @spec request_path(String.t(), String.t()) :: String.t()
+  def request_path(path, ""), do: path
+
+  def request_path(path, query) do
+    redacted = query |> String.split("&") |> Enum.map_join("&", &redact_param/1)
+    path <> "?" <> redacted
+  end
+
+  defp redact_param(pair) do
+    case String.split(pair, "=", parts: 2) do
+      [name, _value] -> if credential_param?(name), do: name <> "=REDACTED", else: pair
+      [_name] -> pair
+    end
+  end
+
+  defp credential_param?(name),
+    do: String.downcase(URI.decode_www_form(name)) in @credential_params
+
   @doc false
   @spec span(keyword(), [atom()], map() | keyword(), (-> term())) :: term()
   def span(telemetry_opts, stage, start_metadata, fun) when is_function(fun, 0) do
@@ -263,6 +313,7 @@ defmodule ImagePipe.Telemetry do
   @typedoc false
   @opaque span_handle() :: %{
             event: [atom()],
+            stage: [atom()],
             start_time: integer(),
             start_metadata: map(),
             closed: :atomics.atomics_ref()
@@ -301,6 +352,7 @@ defmodule ImagePipe.Telemetry do
 
     %{
       event: event,
+      stage: stage,
       start_time: start_time,
       start_metadata: start_metadata,
       closed: :atomics.new(1, signed: false)
@@ -327,12 +379,15 @@ defmodule ImagePipe.Telemetry do
   defp close_span(handle, phase, metadata) do
     if :atomics.compare_exchange(handle.closed, 1, 0, 1) == :ok do
       stop_time = System.monotonic_time()
+      duration = stop_time - handle.start_time
 
       :telemetry.execute(
         handle.event ++ [phase],
-        %{duration: stop_time - handle.start_time, monotonic_time: stop_time},
+        %{duration: duration, monotonic_time: stop_time},
         metadata
       )
+
+      if phase == :stop, do: Summary.record(handle.stage, duration, metadata)
     end
 
     :ok
@@ -341,9 +396,13 @@ defmodule ImagePipe.Telemetry do
   @doc false
   @spec execute(keyword(), [atom()], map() | keyword(), map() | keyword()) :: :ok
   def execute(telemetry_opts, stage, measurements, metadata) when is_list(stage) do
+    metadata = clean_metadata(metadata)
+
     telemetry_opts
     |> event_prefix(stage)
-    |> :telemetry.execute(Map.new(measurements), clean_metadata(metadata))
+    |> :telemetry.execute(Map.new(measurements), metadata)
+
+    Summary.record(stage, nil, metadata)
   end
 
   # Inert options the request wrote, which parsing dropped: their URL keys and
@@ -365,10 +424,30 @@ defmodule ImagePipe.Telemetry do
 
   defp do_span(telemetry_opts, stage, start_metadata, span_fun) when is_list(stage) do
     start_metadata = clean_metadata(start_metadata)
+    prefix = Keyword.get(telemetry_opts, :telemetry_prefix, @default_prefix)
+    if stage == [:request], do: Summary.open(prefix, start_metadata)
+    started = System.monotonic_time()
 
-    :telemetry.span(event_prefix(telemetry_opts, stage), start_metadata, fn ->
-      span_fun.(start_metadata)
-    end)
+    {result, stop_metadata} =
+      try do
+        :telemetry.span(prefix ++ stage, start_metadata, fn ->
+          {result, stop_metadata} = span_fun.(start_metadata)
+          {{result, stop_metadata}, stop_metadata}
+        end)
+      catch
+        kind, reason ->
+          if stage == [:request], do: Summary.discard()
+          :erlang.raise(kind, reason, __STACKTRACE__)
+      end
+
+    duration = System.monotonic_time() - started
+
+    case stage do
+      [:request] -> Summary.close(prefix, duration, stop_metadata)
+      _stage -> Summary.record(stage, duration, stop_metadata)
+    end
+
+    result
   end
 
   defp event_prefix(telemetry_opts, stage) when is_list(telemetry_opts) and is_list(stage) do

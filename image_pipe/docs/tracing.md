@@ -74,13 +74,21 @@ when the request fails. A Finch span has `http.status_code` when a response
 arrived.
 
 A span's attributes are its event's start and stop metadata, limited to keys
-known to be safe to export. Request paths, source URLs, signatures, and
-credentials are never copied. Atoms become strings, a list of atoms,
-strings, or numbers becomes a list of strings, and any other value that isn't
-a string, number, or boolean becomes its `inspect/1` text.
-`image_pipe.request` also carries a `request_id` attribute when Logger
-metadata has a `:request_id`, such as the one `Plug.RequestId` sets, so you
-can find a request's trace from its log lines.
+known to be safe to export. Keys and the credentials in source URLs are
+never copied. Atoms become strings, a list of atoms, strings, or numbers
+becomes a list of strings, and any other value that isn't a string, number,
+or boolean becomes its `inspect/1` text.
+
+`image_pipe.request` also carries:
+
+- `http.request.method`, `url.path`, and `url.query`: the request's method,
+  path, and query string, under OpenTelemetry's HTTP names. They come from
+  the [`[:request]`](telemetry-events.md#request) start. The path is as
+  sent, including its URL signature. In the query string, the values of
+  credential parameters such as `X-Amz-Signature` are `REDACTED`.
+- `request_id`, when Logger metadata has a `:request_id`, such as the one
+  `Plug.RequestId` sets, so you can find a request's trace from its log
+  lines.
 
 A span's status is unset when its event has no `:result`, or one of these
 results: `:ok`, `:admitted`, `:options`, `:not_modified`, `:detected`,

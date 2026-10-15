@@ -142,12 +142,12 @@ nodes run the app, deploy `keys: [old, new]` to every node first, then
 `keys: [new, old]`, so no node signs with a key another node doesn't accept
 yet.
 
-To see which key verified each request, turn on request logging. Set
-`log_requests = true` in the server's
+To see which key verified each request, log each request's stages. Set
+`log_stages = true` in the server's
 [`[telemetry]`](../../image_pipe_server/docs/server-configuration.md#telemetry),
-or call `ImagePipe.Telemetry.attach_default_logger/1` for the Plug. Each
-signed request logs the position of its key in the server's list, counting
-from `0`:
+or call `ImagePipe.Telemetry.attach_default_logger(stages: true)` for the
+Plug. Each signed request logs the position of its key in the server's list,
+counting from `0`:
 
 ```text
 image_pipe parse: ok (signing key 1)

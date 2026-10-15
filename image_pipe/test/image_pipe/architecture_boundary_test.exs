@@ -372,9 +372,12 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     # extraction. RequestContext is exported because execution, delivery, and
     # the processing pool carry the request's trace context and Logger metadata
     # across their process hops. Trace.ReqStep is exported because the source
-    # Req-client build site attaches it to trace outbound fetches.
+    # Req-client build site attaches it to trace outbound fetches. Summary is
+    # exported because the Plug's error responses and the response sender add
+    # the reason and the bytes sent to the request summary.
     assert_boundary_exports(telemetry, [
       ImagePipe.Telemetry.RequestContext,
+      ImagePipe.Telemetry.Summary,
       ImagePipe.Telemetry.Trace,
       ImagePipe.Telemetry.Trace.ReqStep
     ])

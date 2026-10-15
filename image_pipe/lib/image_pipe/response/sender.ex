@@ -24,6 +24,7 @@ defmodule ImagePipe.Response.Sender do
   alias ImagePipe.Response.CacheHeaders
   alias ImagePipe.Response.Disposition
   alias ImagePipe.Telemetry
+  alias ImagePipe.Telemetry.Summary
 
   @not_modified_header_allowlist ~w(age cache-control date etag expires vary)
 
@@ -136,7 +137,9 @@ defmodule ImagePipe.Response.Sender do
   # path, so a body evicted since it was opened fails there, before any
   # headers go out. The open descriptor still reads it.
   def send_body(conn, %ImagePipe.Cache.File{} = file) do
-    send_file(conn, 200, file.path, 0, file.size)
+    conn = send_file(conn, 200, file.path, 0, file.size)
+    Summary.add_bytes(file.size)
+    conn
   rescue
     exception ->
       cond do
@@ -154,7 +157,10 @@ defmodule ImagePipe.Response.Sender do
       end
   end
 
-  def send_body(conn, body), do: send_resp(conn, 200, body)
+  def send_body(conn, body) do
+    Summary.add_bytes(IO.iodata_length(body))
+    send_resp(conn, 200, body)
+  end
 
   def send_prepared_stream(
         %Plug.Conn{} = conn,
@@ -270,7 +276,7 @@ defmodule ImagePipe.Response.Sender do
 
   defp send_open_file_chunks(conn, file) do
     Enum.reduce_while(ImagePipe.Cache.File.stream(file), conn, fn bytes, conn ->
-      case chunk(conn, bytes) do
+      case send_chunk(conn, bytes) do
         {:ok, conn} -> {:cont, conn}
         {:error, _reason} -> {:halt, conn}
       end
@@ -289,7 +295,7 @@ defmodule ImagePipe.Response.Sender do
   end
 
   defp send_prepared_first_chunk(%Plug.Conn{} = conn, %PreparedStream{} = prepared_stream) do
-    case chunk(conn, prepared_stream.first_chunk) do
+    case send_chunk(conn, prepared_stream.first_chunk) do
       {:ok, conn} ->
         continue_prepared_stream(conn, prepared_stream)
 
@@ -322,12 +328,23 @@ defmodule ImagePipe.Response.Sender do
          %PreparedStream{} = prepared_stream,
          chunk
        ) do
-    case chunk(conn, chunk) do
+    case send_chunk(conn, chunk) do
       {:ok, conn} ->
         continue_prepared_stream(conn, prepared_stream)
 
       {:error, reason} ->
         {:error, conn, {:client_closed, reason}}
+    end
+  end
+
+  defp send_chunk(conn, bytes) do
+    case chunk(conn, bytes) do
+      {:ok, _conn} = sent ->
+        Summary.add_bytes(IO.iodata_length(bytes))
+        sent
+
+      error ->
+        error
     end
   end
 
