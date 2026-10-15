@@ -13,7 +13,10 @@ defmodule ImagePipe.Transform.Operation.Rotate do
   import ImagePipe.Transform.State, only: [set_image: 2]
 
   alias ImagePipe.Transform.Alpha
+  alias ImagePipe.Transform.Operation.AlphaPremultiply
   alias ImagePipe.Transform.State
+  alias Vix.Vips.Interpolate
+  alias Vix.Vips.Operation
 
   @enforce_keys [:angle]
   defstruct [:angle]
@@ -30,12 +33,28 @@ defmodule ImagePipe.Transform.Operation.Rotate do
     end
   end
 
-  # Add alpha for transparent corners: without a background, `Image.rotate/3`
-  # fills with zeros, which is transparent once the image has alpha. Bicubic
-  # keeps edges slightly crisper than libvips' default bilinear.
+  # Add alpha for transparent corners: the affine fills with zeros, which is
+  # transparent once the image has alpha. Bicubic keeps edges slightly crisper
+  # than libvips' default bilinear.
+  #
+  # Workaround for `image` 0.72.0: `Image.rotate/3` casts the unpremultiplied
+  # float result back to the band format, which truncates, so a semi-transparent
+  # [200, 120, 37, 100] comes back as [200, 119, 37, 100]. This runs the same
+  # premultiplied affine through the helper, which rounds instead. No upstream
+  # fix yet (image_plug-qeqt).
   defp rotate(image, angle) do
-    with {:ok, with_alpha} <- Alpha.ensure(image) do
-      Image.rotate(with_alpha, angle, interpolate: :bicubic)
+    radians = angle * :math.pi() / 180.0
+    matrix = [:math.cos(radians), -:math.sin(radians), :math.sin(radians), :math.cos(radians)]
+
+    with {:ok, with_alpha} <- Alpha.ensure(image),
+         {:ok, bicubic} <- Interpolate.new("bicubic") do
+      AlphaPremultiply.with_alpha_premultiplied(with_alpha, fn premultiplied ->
+        Operation.affine(premultiplied, matrix,
+          interpolate: bicubic,
+          extend: :VIPS_EXTEND_BACKGROUND,
+          premultiplied: true
+        )
+      end)
     end
   end
 end

@@ -210,8 +210,10 @@ defmodule ImagePipe.Transform.Operation.Watermark do
   defp composite(base, mark, x, y) do
     alpha? = Image.has_alpha?(base)
 
-    with {:ok, composited} <-
-           Operation.composite2(base, mark, :VIPS_BLEND_MODE_OVER,
+    with {:ok, float_base} <- Rounding.to_float(base),
+         {:ok, float_mark} <- Rounding.to_float(mark),
+         {:ok, composited} <-
+           Operation.composite2(float_base, float_mark, :VIPS_BLEND_MODE_OVER,
              x: x,
              y: y,
              "compositing-space": VipsImage.interpretation(base)

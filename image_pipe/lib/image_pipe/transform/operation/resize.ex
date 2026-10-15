@@ -7,6 +7,8 @@ defmodule ImagePipe.Transform.Operation.Resize do
   import ImagePipe.Transform.State, only: [set_image: 2]
 
   alias ImagePipe.Transform.{Materializer, State, WorkLimits}
+  alias ImagePipe.Transform.Operation.AlphaPremultiply
+  alias Vix.Vips.Operation
 
   @enforce_keys [:width, :height]
   defstruct [:width, :height]
@@ -44,13 +46,18 @@ defmodule ImagePipe.Transform.Operation.Resize do
 
       false ->
         with {:ok, state} <- prepare_resize(state),
-             {:ok, image} <-
-               Image.resize(state.image, width / source_width,
-                 vertical_scale: height / source_height
-               ) do
+             {:ok, image} <- resize(state.image, width / source_width, height / source_height) do
           {:ok, set_image(state, image)}
         end
     end
+  end
+
+  # Workaround for `image` 0.72.0: `Image.resize/3` casts the unpremultiplied
+  # float result back to the band format, which truncates, so a semi-transparent
+  # [200, 120, 37, 100] comes back as [200, 119, 37, 100]. The premultiply
+  # helper rounds instead. No upstream fix yet (image_plug-qeqt).
+  defp resize(image, scale, vscale) do
+    AlphaPremultiply.with_alpha_premultiplied(image, &Operation.resize(&1, scale, vscale: vscale))
   end
 
   # Downscaling a lazy affine rotation repeatedly evaluates overlapping regions.

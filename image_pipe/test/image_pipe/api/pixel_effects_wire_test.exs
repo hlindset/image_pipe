@@ -233,7 +233,10 @@ defmodule ImagePipe.API.PixelEffectsWireTest do
         "blur=20",
         "sharpen=0.5",
         "pixelate=7",
-        "progressive-blur=5,down,0,1"
+        "progressive-blur=5,down,0,1",
+        "w=31",
+        "w=80/enlarge",
+        "rotate=30"
       ],
       alpha <- [5, 20, 100] do
     test "#{effect} keeps the exact colour of a uniform image at alpha #{alpha}" do
@@ -259,6 +262,33 @@ defmodule ImagePipe.API.PixelEffectsWireTest do
 
     # 0.75 * [200, 120, 37] + 0.25 * [255, 0, 0] is [213.75, 90, 27.75].
     assert Image.get_pixel!(image("colorize=0.25,ff0000", config), 20, 20) == [214, 90, 28]
+  end
+
+  test "backgrounds and flattening round to the nearest level" do
+    source = Image.new!(8, 8, color: [200, 120, 37, 100], bands: 4)
+    config = mount(png_origin(Image.write!(source, :memory, suffix: ".png")))
+    a = 100 / 255
+
+    # Over white, [200, 120, 37] at alpha 100 is [233.43, 202.06, 169.51].
+    flat = Enum.map([200, 120, 37], &round(&1 * a + 255 * (1 - a)))
+    assert Image.get_pixel!(image("bg=fff", config), 4, 4) == flat
+
+    # A translucent background goes under the image: 0.75 opacity stores 191.
+    b = 191 / 255
+    alpha = a + b * (1 - a)
+    color = Enum.map([200, 120, 37], &round((&1 * a + 100 * b * (1 - a)) / alpha))
+
+    assert Image.get_pixel!(image("bg=646464,0.75", config), 4, 4) ==
+             color ++ [round(alpha * 255)]
+
+    # JPEG output flattens onto white as `bg=fff` does.
+    jpeg = fn options ->
+      response = conn(:get, "/#{options}format=jpeg/src/image.png") |> ImagePipe.Plug.call(config)
+      assert response.status == 200
+      response.resp_body
+    end
+
+    assert jpeg.("") == jpeg.("bg=fff/")
   end
 
   test "blurs keep the exact colour of a uniform opaque 8-bit image" do

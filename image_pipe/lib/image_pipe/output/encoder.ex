@@ -268,10 +268,23 @@ defmodule ImagePipe.Output.Encoder do
     if Format.supports_alpha?(format) or not Image.has_alpha?(image) do
       {:ok, image}
     else
-      case Image.flatten(image, background: [255, 255, 255]) do
+      case flatten_onto_white(image) do
         {:ok, flattened} -> {:ok, flattened}
         {:error, reason} -> {:error, {:encode, flatten_error(reason), []}}
       end
+    end
+  end
+
+  # libvips' flatten keeps its input's format and truncates, so it runs on
+  # float and rounds back.
+  defp flatten_onto_white(image) do
+    color_bands = VixImage.bands(image) - 1
+
+    with {:ok, white} <- Image.Pixel.to_pixel(image, [255, 255, 255]),
+         {:ok, float} <- Operation.cast(image, :VIPS_FORMAT_FLOAT),
+         {:ok, flattened} <- Operation.flatten(float, background: Enum.take(white, color_bands)),
+         {:ok, rounded} <- Operation.round(flattened, :VIPS_OPERATION_ROUND_RINT) do
+      Operation.cast(rounded, VixImage.format(image))
     end
   end
 
