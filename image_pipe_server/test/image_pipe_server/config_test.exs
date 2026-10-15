@@ -144,7 +144,7 @@ defmodule ImagePipeServer.ConfigTest do
       assert config.pool[:max_concurrency] == System.schedulers_online()
       assert config.pool[:max_queue] == 64
       assert config.image_pipe.options[:processing_pool] == config.pool[:name]
-      assert config.telemetry == nil
+      assert config.telemetry == [level: :info, stages: false]
       assert config.trust_traceparent == false
     end
 
@@ -202,6 +202,8 @@ defmodule ImagePipeServer.ConfigTest do
             "telemetry" => %{
               "log_level" => "warning",
               "log_requests" => true,
+              "log_stages" => true,
+              "log_format" => "gcp",
               "trust_traceparent" => true,
               "trust_request_id" => true
             }
@@ -211,7 +213,8 @@ defmodule ImagePipeServer.ConfigTest do
       assert config.pool[:max_concurrency] == 4
       assert config.image_pipe.options[:processing_pool] == config.pool[:name]
       assert config.log_level == :warning
-      assert config.telemetry == [level: :info]
+      assert config.log_format == :gcp
+      assert config.telemetry == [level: :info, stages: true]
       assert config.trust_traceparent == true
       assert config.trust_request_id == true
 
@@ -225,12 +228,28 @@ defmodule ImagePipeServer.ConfigTest do
                "pool"
     end
 
-    test "defaults [telemetry] to info, no request lines, and no inbound IDs" do
+    test "defaults [telemetry] to info, a summary line per request, text, and no inbound IDs" do
       config = Config.build!([])
 
       assert config.log_level == :info
-      assert config.telemetry == nil
+      assert config.log_format == :text
+      assert config.telemetry == [level: :info, stages: false]
       assert config.trust_request_id == false
+
+      off = Config.build!(Config.options!(%{"telemetry" => %{"log_requests" => false}}))
+      assert off.telemetry == nil
+
+      assert error(fn ->
+               Config.build!(
+                 Config.options!(%{
+                   "telemetry" => %{"log_requests" => false, "log_stages" => true}
+                 })
+               )
+             end) =~ "log_stages"
+
+      assert error(fn ->
+               Config.build!(Config.options!(%{"telemetry" => %{"log_format" => "xml"}}))
+             end) =~ "log_format"
     end
 
     test "builds validated mount options" do

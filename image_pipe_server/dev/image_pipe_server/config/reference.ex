@@ -45,8 +45,13 @@ defmodule ImagePipeServer.Config.Reference do
       "Response settings: the CORS origin, whether requests may ask for debug headers, " <>
         "and the HTTP cache headers. See [serving images through a CDN](../../image_pipe/docs/serving-through-a-cdn.md).",
     telemetry:
-      "`log_level` is the lowest level the server logs. `log_requests` logs each request " <>
-        "and its stages at `info`, and failures and degraded results at `warning`. With `trust_traceparent`, a request with a W3C `traceparent` " <>
+      "`log_level` is the lowest level the server logs. `log_requests` logs one line per " <>
+        "image request at `info`, or at `warning` for a `4xx` or a degraded result and " <>
+        "`error` for a `5xx`. With `log_requests` on, `log_stages` also logs a line for each " <>
+        "stage of each request, for debugging. `log_format` is `text`, or one JSON object " <>
+        "per line: `json`, or " <>
+        "`gcp`, `datadog`, or `elastic` for those log collectors' field names. " <>
+        "With `trust_traceparent`, a request with a W3C `traceparent` " <>
         "header joins the caller's trace when [tracing](server-deployment.md#tracing) " <>
         "is on. Any client can send that header. With `trust_request_id`, an incoming " <>
         "`x-request-id` of 1 to 200 letters, digits, and `-_.:+/=` tags the request's " <>

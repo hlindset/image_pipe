@@ -5,13 +5,34 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `[telemetry] log_stages = true` also logs a line for each stage of each
+  request, such as each cache lookup, the decode, and the encode. It needs
+  `log_requests` on.
+- `[telemetry] log_format` writes each log line as one JSON object:
+  `"json"`, or `"gcp"`, `"datadog"`, or `"elastic"` for those log collectors'
+  field names. The default is `"text"`. A request's fields are under an
+  `image_pipe` key.
+- The request span carries the method and path as `http.request.method`,
+  `url.path`, and `url.query`.
+
 ### Changed
 
+- **Breaking:** `[telemetry] log_requests` defaults to `true`, and logs one
+  line per image request instead of one per stage: the method, path,
+  status, duration, and bytes sent, then the cache outcome, source, sizes,
+  operations, and stage timings. A `5xx` logs at `error`, and a `4xx` or a
+  degraded result at `warning`. The path is as sent, with the values of
+  credential parameters such as `X-Amz-Signature` in its query string
+  redacted. Set `log_stages = true` to also get the stage lines that
+  `log_requests = true` gave before, or `log_requests = false` for no
+  request lines.
 - **Breaking:** The server no longer accepts HTTP/2 over plain HTTP (h2c,
   HTTP/2 with prior knowledge). Configure the load balancer or proxy in front
-  of the server to connect with HTTP/1.1. Before, an HTTP/2 request that took longer than
-  `[server] read_timeout` lost its response, along with every other request
-  on its connection.
+  of the server to connect with HTTP/1.1. Before, an HTTP/2 request that
+  took longer than `[server] read_timeout` lost its response, along with
+  every other request on its connection.
 - Log lines start with the date and time, as in
   `2026-10-14 19:55:23.967 request_id=abc [info] ...`.
 

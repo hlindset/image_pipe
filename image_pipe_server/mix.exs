@@ -39,6 +39,8 @@ defmodule ImagePipeServer.MixProject do
         {:bandit, "~> 1.5"},
         {:plug, "~> 1.18"},
         {:toml, "~> 0.7.0"},
+        # JSON log formats for log collectors ([telemetry] log_format).
+        {:logger_json, "~> 7.0"},
         # OpenTelemetry SDK for OTEL_* trace export; the exporter app is listed
         # first so it starts before the SDK's span processor.
         {:opentelemetry_exporter, "~> 1.8"},
