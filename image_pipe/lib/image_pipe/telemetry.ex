@@ -280,44 +280,54 @@ defmodule ImagePipe.Telemetry do
                         x-amz-credential x-amz-security-token)
 
   # A credential parameter's name and its `=`, after the `?` or `&` that
-  # starts it, raw or percent-encoded, as in a `src` URL in the path. The
-  # value runs to the next parameter or path segment. ImagePipe's own `sig=`
-  # segment follows a `/`, so it doesn't match.
-  @credential_value Regex.compile!(
-                      "((?:\\?|&|%3F|%26)(?:" <>
-                        Enum.map_join(@credential_params, "|", &Regex.escape/1) <>
-                        ")(?:=|%3D))[^&/]*?(?=&|%26|/|$)",
-                      "i"
-                    )
+  # starts it, raw or percent-encoded, as in a source URL in the path. The
+  # value runs to the next parameter. ImagePipe's own `sig=` segment follows a
+  # `/`, so it doesn't match.
+  @credential_name "((?:\\?|&|%3F|%26)(?:" <>
+                     Enum.map_join(@credential_params, "|", &Regex.escape/1) <>
+                     ")(?:=|%3D))"
+  @credential_value Regex.compile!(@credential_name <> ".*?(?=&|%26|$)", "is")
 
   @doc false
   # A request's path and query for telemetry, with the values of credential
-  # parameters replaced by `REDACTED`: in the query string, in a `src` URL in
-  # the path (percent-encoded or not), and in a `src64` URL, whose base64 is
-  # replaced whole.
+  # parameters replaced by `REDACTED`: in the query string, in a `src` or
+  # `wm-src` URL (percent-encoded or not), and in a `src64` or `wm-src64` URL,
+  # whose base64 is replaced whole.
   @spec request_path(String.t(), String.t()) :: String.t()
   def request_path(path, ""), do: redact_path(path)
-  def request_path(path, query), do: redact_path(path) <> "?" <> redact_credentials("?" <> query)
+  def request_path(path, query), do: redact_path(path) <> "?" <> redact_query(query)
 
-  defp redact_path(path) do
-    path
-    |> redact_credentials()
-    |> redact_src64()
-  end
-
-  defp redact_credentials("?" <> _rest = query) do
-    "?" <> redacted = Regex.replace(@credential_value, query, "\\1REDACTED")
+  defp redact_query(query) do
+    "?" <> redacted = redact_credentials("?" <> query)
     redacted
   end
 
-  defp redact_credentials(value), do: Regex.replace(@credential_value, value, "\\1REDACTED")
+  # The source is the path's tail and can hold `/`, so it's split off before
+  # the option segments are redacted one by one.
+  defp redact_path(path) do
+    case Regex.run(~r{\A(.*?/)(src|src64|enc)/(.*)\z}s, path) do
+      [_path, options, marker, tail] ->
+        redact_segments(options) <> marker <> "/" <> redact_tail(marker, tail)
 
-  defp redact_src64(path) do
-    case String.split(path, "/src64/", parts: 2) do
-      [options, token] -> if presigned?(token), do: options <> "/src64/REDACTED", else: path
-      [_path] -> path
+      nil ->
+        redact_segments(path)
     end
   end
+
+  defp redact_segments(options) do
+    options |> String.split("/") |> Enum.map_join("/", &redact_segment/1)
+  end
+
+  defp redact_segment("wm-src64=" <> token = segment),
+    do: if(presigned?(token), do: "wm-src64=REDACTED", else: segment)
+
+  defp redact_segment(segment), do: redact_credentials(segment)
+
+  defp redact_tail("src", tail), do: redact_credentials(tail)
+  defp redact_tail("src64", tail), do: if(presigned?(tail), do: "REDACTED", else: tail)
+  defp redact_tail("enc", tail), do: tail
+
+  defp redact_credentials(value), do: Regex.replace(@credential_value, value, "\\1REDACTED")
 
   defp presigned?(token) do
     case Base.url_decode64(token, padding: false) do

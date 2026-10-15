@@ -296,7 +296,10 @@ Health checks aren't logged. The
 [`[:request, :summary]`](../../image_pipe/docs/telemetry-events.md#request-summary)
 event lists the fields. The path is logged as sent, except that a presigned
 source URL's credentials, such as an `X-Amz-Signature` value, are replaced
-with `REDACTED`.
+with `REDACTED`. A `src64` or `wm-src64` source that carries them is
+replaced whole, as `src64/REDACTED` or `wm-src64=REDACTED`. The
+[`[:request]`](../../image_pipe/docs/telemetry-events.md#request) event
+lists the parameters.
 
 Change what's logged in `[telemetry]`:
 

@@ -257,6 +257,17 @@ defmodule ImagePipe.Telemetry.SummaryTest do
     plain = Base.url_encode64("https://b.example/a.jpg?keep=1", padding: false)
     assert Telemetry.request_path("/w=40/src64/" <> presigned, "") == "/w=40/src64/REDACTED"
     assert Telemetry.request_path("/w=40/src64/" <> plain, "") == "/w=40/src64/" <> plain
+
+    # Watermark sources in option segments, and a value with raw slashes in
+    # the source tail.
+    assert Telemetry.request_path("/wm-src64=#{presigned}/w=40/src/a.jpg", "") ==
+             "/wm-src64=REDACTED/w=40/src/a.jpg"
+
+    assert Telemetry.request_path(
+             "/wm-src=https%3A%2F%2Fb%2Fm.png%3Fsig%3Ds/w=40/src/https://b/a.jpg%3FX-Amz-Credential%3DAKIA/2026/s3/aws4_request%26keep%3D1",
+             ""
+           ) ==
+             "/wm-src=https%3A%2F%2Fb%2Fm.png%3Fsig%3DREDACTED/w=40/src/https://b/a.jpg%3FX-Amz-Credential%3DREDACTED%26keep%3D1"
   end
 
   test "credential query values are redacted from the query string" do
