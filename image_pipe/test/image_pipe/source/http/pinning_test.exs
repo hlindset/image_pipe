@@ -335,18 +335,18 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
                [
                  address_resolver: fn _ -> {:ok, [@loopback, @loopback6]} end,
                  req_options: [],
-                 receive_timeout: 1_800,
-                 fetch_timeout: 2_000
+                 receive_timeout: 2_000,
+                 fetch_timeout: 3_000
                ],
                [],
                :http
              )
 
-    # The second address waits only for what is left of the deadline, not for
-    # another full receive_timeout.
-    assert_received {:accepted, @loopback}
-    assert_received {:accepted, @loopback6}
-    assert System.monotonic_time(:millisecond) - started < 3_000
+    # The second address waits only for the second left of the deadline, not
+    # for another full receive_timeout, which would take 4 seconds in all.
+    assert_receive {:accepted, @loopback}
+    assert_receive {:accepted, @loopback6}
+    assert System.monotonic_time(:millisecond) - started < 3_800
   end
 
   test "signs the logical hostname and non-default port before pinning" do
