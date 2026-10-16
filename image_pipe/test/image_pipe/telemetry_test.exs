@@ -532,6 +532,7 @@ defmodule ImagePipe.TelemetryTest do
   end
 
   @tag :tmp_dir
+  @tag :file_permissions
   test "fail-open cache staging write errors are reported on cache stage telemetry", %{
     tmp_dir: tmp_dir
   } do

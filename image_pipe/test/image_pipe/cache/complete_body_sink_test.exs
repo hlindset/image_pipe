@@ -53,6 +53,7 @@ defmodule ImagePipe.Cache.CompleteBodySinkTest do
     assert {:hit, %Entry{body: @hash}} = FileSystem.get(key, Keyword.fetch!(opts, :cache))
   end
 
+  @tag :file_permissions
   test "fail-open preserved on sink open errors", %{root: root, opts: opts} do
     File.chmod!(root, 0o500)
 

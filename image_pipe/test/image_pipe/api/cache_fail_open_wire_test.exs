@@ -78,6 +78,7 @@ defmodule ImagePipe.API.CacheFailOpenWireTest do
         {"w=12/format=png", "image/png"},
         {"output=info", "application/json; charset=utf-8"}
       ] do
+    @tag :file_permissions
     test "#{output} is delivered when the cache can't open an entry" do
       body = Image.new!(24, 16, color: :red) |> Image.write!(:memory, suffix: ".jpg")
       origin = fn conn -> conn |> put_resp_content_type("image/jpeg") |> send_resp(200, body) end

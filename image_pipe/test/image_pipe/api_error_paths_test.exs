@@ -452,6 +452,7 @@ defmodule ImagePipe.APIErrorPathsTest do
   # ── row 7: cache-write failure (fail-open) ───────────────────────────────
 
   describe "row 7: cache-write failure (unwritable cache root)" do
+    @tag :file_permissions
     test "a cache that cannot store the entry still fails open: the response is delivered, nothing is stored" do
       config = observed_opts([])
       prefix = Keyword.fetch!(config, :telemetry_prefix)

@@ -535,6 +535,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     assert etag_for.(DetectorFixtures.FaceVerFakeV1) != etag_for.(DetectorFixtures.FaceVerFakeV2)
   end
 
+  @tag :file_permissions
   test "a failed cache commit still delivers the complete body, byte-identical to a clean cache (#183)" do
     url = "/w=50/h=50/fit=stretch/format=jpeg/src/beach.jpg"
 
