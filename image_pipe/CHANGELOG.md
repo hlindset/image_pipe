@@ -31,6 +31,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Cached `output=blurhash`, `output=lqip-css`, and `output=info` responses
+  that include a placeholder miss once after upgrading, since placeholders of
+  transparent images changed.
 - **Breaking:** `ImagePipe.Telemetry.attach_default_logger/1` logs one line
   per request, from the new `[:request, :summary]` event, instead of one line
   per stage. A `5xx`, or a response that failed partway through sending,
@@ -72,6 +75,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `output=blurhash` and `output=lqip-css` rendered transparency on black, so
+  a transparent PNG's placeholder could be dark while the JPEG the same URL
+  returns is light. Placeholders now render transparency on white, unless
+  `bg` sets a background.
 - A mount configured at compile time, such as in a router's `forward` options,
   could fail to compile with "does not implement ImagePipe.Transform.Detector"
   when its custom detector was compiled in the same pass. Configuration now

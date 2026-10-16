@@ -309,7 +309,7 @@ defmodule ImagePipe.API.IdentityTest do
       placeholders = material(request!(["output=info,lqip-css,blurhash"]), nil)
 
       assert Keyword.fetch!(placeholders.representation, :terminal) ==
-               {:info, [{:blurhash, 1}, {:lqip_css, 1}]}
+               {:info, [{:blurhash, 2}, {:lqip_css, 2}]}
     end
 
     test "filename and attachment stay outside representation and storage identity" do

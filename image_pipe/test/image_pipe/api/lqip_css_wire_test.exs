@@ -72,6 +72,23 @@ defmodule ImagePipe.API.LqipCssWireTest do
     end
   end
 
+  # Placeholder responses don't vary on Accept, so leftover transparency
+  # renders on white, as it does in the JPEG the same URL can return.
+  test "a transparent source's blurhash matches the delivered JPEG's" do
+    body =
+      Image.new!(60, 60, color: [0, 0, 0, 0])
+      |> Image.Draw.rect!(20, 20, 20, 20, color: [255, 255, 255, 255])
+      |> Image.write!(:memory, suffix: ".png")
+
+    config = mount(body)
+    jpeg = request("format=jpeg", config).resp_body |> Image.from_binary!()
+    {:ok, jpeg_hash} = Image.Blurhash.encode(jpeg)
+    response = request("format=jpeg/output=blurhash", config)
+
+    assert response.status == 200
+    assert blurhash_difference(response.resp_body, jpeg_hash) < 3
+  end
+
   defp blurhash_difference(a, b) do
     {:ok, a} = Image.Blurhash.decode(a, 32, 24)
     {:ok, b} = Image.Blurhash.decode(b, 32, 24)
@@ -126,14 +143,14 @@ defmodule ImagePipe.API.LqipCssWireTest do
     assert response.resp_body == Css.encode!(reference)
   end
 
-  test "transparent pixels are flattened on black and tiny sources can be encoded" do
+  test "transparent pixels are flattened on white and tiny sources can be encoded" do
     for {width, height} <- [{1, 1}, {1, 30}, {40, 1}, {15, 20}] do
       image = Image.new!(width, height, color: [255, 0, 0, 0], bands: 4)
       body = Image.write!(image, :memory, suffix: ".png")
       response = request("output=lqip-css", mount(body))
 
       assert response.status == 200
-      assert response.resp_body == "#00000000"
+      assert response.resp_body == "#ffffffff"
     end
   end
 
