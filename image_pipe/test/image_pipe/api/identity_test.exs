@@ -411,6 +411,37 @@ defmodule ImagePipe.API.IdentityTest do
     end
   end
 
+  describe "settings for other formats" do
+    defp etag_for(segments, config, accept \\ "") do
+      request = request!(segments)
+      config = Keyword.merge([auto_avif: true, auto_webp: true], config)
+      policy = output_policy!(request, config, accept)
+      build(source_identity(), material(request, policy)).etag
+    end
+
+    @avif_changes [format_quality: %{avif: 40}, avif_options: [effort: 6]]
+
+    test "AVIF settings leave an explicit WebP response's ETag unchanged" do
+      assert etag_for(["format=webp"], []) == etag_for(["format=webp"], @avif_changes)
+    end
+
+    test "AVIF settings leave an Accept-negotiated WebP response's ETag unchanged" do
+      assert etag_for([], [], "image/webp") == etag_for([], @avif_changes, "image/webp")
+    end
+
+    test "AVIF settings change an AVIF response's ETag" do
+      refute etag_for(["format=avif"], []) ==
+               etag_for(["format=avif"], format_quality: %{avif: 40})
+
+      refute etag_for([], [], "image/avif") ==
+               etag_for([], [avif_options: [effort: 6]], "image/avif")
+    end
+
+    test "AVIF settings change a response whose format follows the source" do
+      refute etag_for([], []) == etag_for([], format_quality: %{avif: 40})
+    end
+  end
+
   describe "expires and signature never enter identity" do
     test "requests differing only in expires produce identical material" do
       request_a = request!(["w=300"])

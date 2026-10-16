@@ -337,6 +337,46 @@ defmodule ImagePipe.APIWireTest do
     end
   end
 
+  describe "settings for other formats" do
+    @avif_settings [format_quality: %{avif: 40}, avif_options: [effort: 6]]
+
+    defp etag_before_avif_change(path, headers) do
+      conn = get(path, opts(sources: counting_sources()), headers)
+      assert conn.status == 200
+      assert_received :origin_fetch
+      [etag] = get_resp_header(conn, "etag")
+      etag
+    end
+
+    defp after_avif_change(path, headers) do
+      get(path, observed_opts(Keyword.put(@avif_settings, :sources, counting_sources())), headers)
+    end
+
+    test "AVIF settings keep a WebP response's ETag, so a conditional GET still answers 304" do
+      for {path, headers} <- [
+            {"/w=64/format=webp/src/images/cat.jpg", []},
+            {"/w=64/src/images/cat.jpg", [{"accept", "image/webp"}]}
+          ] do
+        etag = etag_before_avif_change(path, headers)
+        conn = after_avif_change(path, [{"if-none-match", etag} | headers])
+
+        assert conn.status == 304
+        refute_received :origin_fetch
+        refute_received {:cache_lookup, _, _key}
+      end
+    end
+
+    test "AVIF settings change an AVIF response's ETag" do
+      headers = [{"accept", "image/avif"}]
+      etag = etag_before_avif_change("/w=64/src/images/cat.jpg", headers)
+      conn = after_avif_change("/w=64/src/images/cat.jpg", [{"if-none-match", etag} | headers])
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "content-type") == ["image/avif"]
+      refute get_resp_header(conn, "etag") == [etag]
+    end
+  end
+
   # ── conditional GET: 304 before any cache lookup or source fetch ───────
 
   describe "conditional GET is evaluated before the cache lookup" do
