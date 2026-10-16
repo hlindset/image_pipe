@@ -135,7 +135,7 @@ defmodule ImagePipe.Cache.Sink do
 
   @doc false
   # Stores a complete body from the calling process, without a writer, for a
-  # caller that already runs off the request.
+  # caller that already runs off the request. Returns the commit's result.
   def store(%Key{} = key, content_type, body, cache_opts, facts, opts) do
     metadata = %{
       complete_body_metadata(content_type, Keyword.get(facts, :cost_us, 0), nil)
@@ -146,10 +146,8 @@ defmodule ImagePipe.Cache.Sink do
 
     Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], start_metadata, fn ->
       result = store_body(key, metadata, body, cache_opts)
-      {:ok, commit_metadata(result, key, nil, byte_size(body), nil)}
+      {result, commit_metadata(result, key, nil, byte_size(body), nil)}
     end)
-
-    :ok
   end
 
   defp store_body(key, metadata, body, cache_opts) do

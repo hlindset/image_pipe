@@ -244,6 +244,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   response still sent to that write as waiting to be written. Until the next
   restart, the cache dropped more writes and evicted more entries than it
   needed to. Those bytes are no longer counted.
+- A FileSystem cache that was full and busy with other writes could turn
+  away an original's new expiry time or content identity after checking the
+  original with the origin, and keep the outdated ones. Requests then checked
+  with the origin, or downloaded the changed original, every time until the
+  cache stored the update. The cache now removes the outdated details when it
+  turns an update away.
 
 ## [0.2.0] - 2026-10-13
 

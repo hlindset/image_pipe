@@ -42,6 +42,8 @@ defmodule ImagePipe.Cache do
   alias ImagePipe.Output.Skipped
   alias ImagePipe.Telemetry
 
+  @source_type "application/vnd.imagepipe.source"
+
   @shared_cache_option_keys [:max_body_bytes]
   @shared_cache_option_schema NimbleOptions.new!(
                                 max_body_bytes: [
@@ -135,22 +137,28 @@ defmodule ImagePipe.Cache do
   @doc false
   # Stores the record from the calling process, a publication that already
   # runs off the request, so the record is in place when it releases the
-  # source's lease.
+  # source's lease. A record the cache rejects or fails to store drops the
+  # older one, which lookups would otherwise prefer to the originals cache's
+  # newer record.
   def remember_source(input_key, record, opts) do
     case Keyword.get(opts, :cache) do
       nil ->
         :ok
 
       cache_opts ->
-        Sink.store(
-          source_index_key(input_key),
-          "application/vnd.imagepipe.source",
-          :erlang.term_to_binary(record, [:deterministic]),
-          cache_opts,
-          [source_record: record],
-          opts
-        )
+        key = source_index_key(input_key)
+        body = :erlang.term_to_binary(record, [:deterministic])
+
+        case Sink.store(key, @source_type, body, cache_opts, [source_record: record], opts) do
+          :ok -> :ok
+          _rejected_or_failed -> forget_source(key, cache_opts)
+        end
     end
+  end
+
+  defp forget_source(key, cache_opts) do
+    _result = FileSystem.delete(key, cache_opts)
+    :ok
   end
 
   defp source_index_key(%Key{hash: hash}) do
