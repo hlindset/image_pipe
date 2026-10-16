@@ -111,6 +111,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- An `extend-offset` that landed exactly on a half pixel, such as
+  `extend-offset=0,1.25` with `dpr=2`, rounded away from zero, placing the
+  image 1 pixel off. It now rounds ties to even, as crops, watermarks, and
+  padding do.
 - With a processing pool, a streamed response that finished just after
   `processing_timeout`, before the pool's timer fired, ended with
   `{:session, {:producer_down, :normal}}` instead of
