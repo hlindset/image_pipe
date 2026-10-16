@@ -137,6 +137,9 @@ one line, and the tracer doesn't use it.
     as on [`[:cache, :input]`](#cache-input). Absent when there was no
     stored original to check, such as on an output cache hit or the first
     fetch of an original.
+  - `:staging` (`:memory`) and `:staging_reason` (atom): the original was
+    held in memory instead of a temporary file, as on
+    [`[:source, :stage]`](#source-stage).
   - `:source` (atom): the source name, from `[:source, :resolve]`.
   - `:source_fetch` (atom) and `:fetch_ms` (integer): the result and
     duration of [`[:source, :fetch]`](#source-fetch).
@@ -299,6 +302,13 @@ and is skipped when a cached original is still fresh.
   - `:result` (atom): `:ok`, `:source_error`, or another request result.
   - `:error` (atom): the error category, on a source error. The categories
     are those of [`[:source, :fetch_decode]`](#source-fetch_decode).
+  - `:staging` (`:memory`): the original was held in memory because it
+    couldn't be written to a temporary file. Absent when it was written to
+    one.
+  - `:staging_reason` (atom), with `:staging`: `:dir` when the `image_pipe`
+    directory in the system's temporary directory can't be created or isn't
+    a directory only this user can access, `:open` when the temporary file
+    couldn't be created, or `:write` when writing to it failed.
 
 ### `[:source, :fetch_decode]`
 
@@ -470,7 +480,7 @@ write nests under the request's span and can end after it.
     declines the entry to stay under its [size limit](cache.md#size-limit)
     reports `:admission_rejected` (output pool) or `:stage_skipped` (input
     pool).
-  - `:error` (atom): the error category, on an output-pool write error.
+  - `:error` (atom): the error category, on a write error.
   - `:output_format` (atom): the stored format. Output pool only.
   - `:estimated_cost_us` (integer): the estimated
     [work to make the entry](cache.md#work-to-make-an-entry), in
@@ -483,12 +493,14 @@ write nests under the request's span and can end after it.
   - `:cache_key` (string): as on start.
 
 A write error after a streamed response doesn't fail the response, because
-the body was already sent.
+the body was already sent. The default Logger logs write errors and
+exceptions at `:warning`, with or without `stages: true`.
 
 ### `[:cache, :stage]`
 
 One-shot. Emitted when a cache write stops before committing the entry.
-The default Logger logs dropped writes at `:warning`.
+The default Logger logs `:stage_dropped` and `:stage_error` at `:warning`,
+with or without `stages: true`.
 
 - Metadata:
   - `:pool` (atom): `:output` for a processed image or placeholder, `:input`

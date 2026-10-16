@@ -226,6 +226,21 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
                     }}
   end
 
+  test "captures an original buffered in memory on the source staging span" do
+    prefix = [__MODULE__, :buffered]
+    :ok = TestExporter.attach(self(), prefix: prefix)
+
+    Telemetry.span([telemetry_prefix: prefix], [:source, :stage], %{}, fn ->
+      {:ok, %{result: :ok, staging: :memory, staging_reason: :open}}
+    end)
+
+    assert_receive {:span,
+                    %Span{
+                      name: "image_pipe.source.stage",
+                      attributes: %{result: "ok", staging: "memory", staging_reason: "open"}
+                    }}
+  end
+
   test "watermark acquisition spans join the request trace across the process hop" do
     prefix = [__MODULE__, :watermark]
     :ok = TestExporter.attach(self(), prefix: prefix)

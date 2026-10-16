@@ -628,6 +628,81 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "cache write: stored 12345b"
   end
 
+  test "without stages, logs failed and dropped cache writes but not other cache stages" do
+    prefix = [__MODULE__, :cache_failures]
+    Telemetry.attach_default_logger(prefix: prefix, level: :info)
+    opts = [telemetry_prefix: prefix]
+
+    log =
+      capture_log(fn ->
+        Telemetry.span(opts, [:cache, :write], %{pool: :input, cache_key: "a"}, fn ->
+          {:ok, %{result: :ok, cache: :write, cache_key: "a", bytes: 5}}
+        end)
+
+        Telemetry.span(opts, [:cache, :write], %{pool: :input, cache_key: "b"}, fn ->
+          {:ok,
+           %{result: :cache_error, cache: :write_error, error: :enospc, cache_key: "b", bytes: 7}}
+        end)
+
+        assert_raise RuntimeError, fn ->
+          Telemetry.span(opts, [:cache, :write], %{pool: :output, cache_key: "c"}, fn ->
+            raise "disk gone"
+          end)
+        end
+
+        for {result, cache, extra} <- [
+              {:ok, :stage_abandoned, %{reason: :client_closed}},
+              {:ok, :stage_dropped, %{reason: :deadline}},
+              {:cache_error, :stage_error, %{error: :eacces}}
+            ] do
+          Telemetry.execute(
+            opts,
+            [:cache, :stage],
+            %{},
+            Map.merge(extra, %{
+              result: result,
+              cache: cache,
+              pool: :input,
+              output_format: nil,
+              cache_key: "d"
+            })
+          )
+        end
+      end)
+
+    assert log =~ "[warning] image_pipe cache write: error (enospc) 7b (input pool)"
+    assert log =~ "[warning] image_pipe cache write: exception"
+    assert log =~ "[warning] image_pipe cache stage: stage_dropped (deadline) (input pool)"
+    assert log =~ "[warning] image_pipe cache stage: stage_error (eacces) (input pool)"
+    refute log =~ "stored"
+    refute log =~ "stage_abandoned"
+  end
+
+  test "a summary line warns about a cache read error and records memory staging at info" do
+    prefix = [__MODULE__, :summary_cache_health]
+    Telemetry.attach_default_logger(prefix: prefix, level: :info)
+    base = %{method: "GET", path: "/w=40/src/a.jpg", status: 200, result: :ok, duration_ms: 3}
+
+    log =
+      capture_log(fn ->
+        for fields <- [
+              %{cache: :read_error},
+              %{input_cache: :read_error},
+              %{staging: :memory, staging_reason: :dir}
+            ] do
+          :telemetry.execute(
+            prefix ++ [:request, :summary],
+            %{duration: 0},
+            Map.merge(base, fields)
+          )
+        end
+      end)
+
+    assert log =~ "[warning] GET /w=40/src/a.jpg 200 3ms cache=read_error"
+    assert log =~ "[warning] GET /w=40/src/a.jpg 200 3ms input_cache=read_error"
+    assert log =~ "[info] GET /w=40/src/a.jpg 200 3ms staging=memory staging_reason=dir"
+  end
+
   test "renders exception events as exceptions at warning level" do
     Telemetry.attach_default_logger(level: :info, stages: true)
 

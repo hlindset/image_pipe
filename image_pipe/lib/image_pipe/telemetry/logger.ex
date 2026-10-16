@@ -17,6 +17,8 @@ defmodule ImagePipe.Telemetry.Logger do
     :sig_key,
     :cache,
     :input_cache,
+    :staging,
+    :staging_reason,
     :source,
     :source_fetch,
     :fetch_ms,
@@ -46,14 +48,23 @@ defmodule ImagePipe.Telemetry.Logger do
     prefix = Keyword.get(opts, :prefix, ImagePipe.Telemetry.default_prefix())
     level = Keyword.get(opts, :level, :info)
     debug? = Keyword.get(opts, :debug, false)
+    stages? = Keyword.get(opts, :stages, false)
 
     events =
-      case Keyword.get(opts, :stages, false) do
+      case stages? do
         true -> Catalog.logged_events(groups, prefix)
         false -> Catalog.summary_events(groups, prefix)
       end
 
-    config = %{prefix: prefix, level: level, debug?: debug?, plen: length(prefix)}
+    failures_only = if stages?, do: [], else: Catalog.failure_stages()
+
+    config = %{
+      prefix: prefix,
+      level: level,
+      debug?: debug?,
+      plen: length(prefix),
+      failures_only: failures_only
+    }
 
     _ = :telemetry.detach(@handler_id)
     :telemetry.attach_many(@handler_id, events, &__MODULE__.handle_event/4, config)
@@ -69,6 +80,18 @@ defmodule ImagePipe.Telemetry.Logger do
     suffix = Enum.drop(event, config.plen)
     level = level_for(suffix, metadata, config.level)
 
+    if logged?(suffix, level, config),
+      do: log(level, event, suffix, measurements, metadata, config)
+
+    :ok
+  end
+
+  defp logged?(suffix, level, config) do
+    level in [:warning, :error] or
+      Enum.reject(suffix, &(&1 in [:stop, :exception])) not in config.failures_only
+  end
+
+  defp log(level, event, suffix, measurements, metadata, config) do
     # A host that attaches this handler often runs Logger above its level, so
     # nothing is built for an event Logger would drop.
     if :logger.allow(level, __MODULE__) do
@@ -84,8 +107,6 @@ defmodule ImagePipe.Telemetry.Logger do
         "image_pipe #{label(suffix)} raw: measurements=#{inspect(measurements)} metadata=#{inspect(metadata)}"
       end)
     end
-
-    :ok
   end
 
   defp render(suffix, measurements, metadata) do
@@ -163,6 +184,8 @@ defmodule ImagePipe.Telemetry.Logger do
   defp summary_warning?(metadata) do
     (is_nil(metadata[:status]) and metadata[:result] not in [nil, :ok, :not_modified, :options]) or
       metadata[:degraded] == true or
+      metadata[:cache] == :read_error or
+      metadata[:input_cache] == :read_error or
       metadata[:detect] in [:unavailable, :error, :no_detector] or
       metadata[:quality_search] == :best_effort or
       Map.has_key?(metadata, :clamped)
@@ -275,7 +298,7 @@ defmodule ImagePipe.Telemetry.Logger do
       case meta[:cache] do
         :write -> "stored"
         :admission_rejected -> "rejected by admission"
-        :write_error -> "error"
+        :write_error -> "error#{error_note(meta)}"
         other -> inspect(other)
       end
 
@@ -455,6 +478,13 @@ defmodule ImagePipe.Telemetry.Logger do
   # Only category atoms are rendered: some stages carry a raw reason term.
   defp error_category(%{error: error}) when is_atom(error) and not is_nil(error), do: error
   defp error_category(_meta), do: nil
+
+  defp error_note(meta) do
+    case error_category(meta) do
+      nil -> ""
+      error -> " (#{error})"
+    end
+  end
 
   defp error_prefix(meta) do
     case error_category(meta) do

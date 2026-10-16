@@ -223,20 +223,15 @@ defmodule ImagePipe.CacheTest do
   end
 
   @tag :file_permissions
-  test "open_sink fails open and logs errors", %{root: root} do
+  test "open_sink fails open and reports errors", %{root: root} do
     prefix = attach_telemetry([[:cache, :stage]])
     opts = cache_opts(root, telemetry_prefix: prefix)
     File.chmod!(root, 0o500)
 
     # The writer opens the entry's file after the request moves on.
-    log =
-      capture_log(fn ->
-        sink = Cache.open_sink(cache_key(), resolved_output(), [], opts)
-        assert :ok = Cache.commit_sink(Cache.write_chunk(sink, "abc", opts), opts)
-        Caches.await_writes(opts)
-      end)
-
-    assert log =~ "cache sink open error"
+    sink = Cache.open_sink(cache_key(), resolved_output(), [], opts)
+    assert :ok = Cache.commit_sink(Cache.write_chunk(sink, "abc", opts), opts)
+    Caches.await_writes(opts)
 
     assert_receive {:telemetry_event, _event, _measurements,
                     %{cache: :stage_error, result: :cache_error, output_format: :webp}}

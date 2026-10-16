@@ -1,8 +1,6 @@
 defmodule ImagePipe.Cache.CompleteBodySinkTest do
   use ExUnit.Case, async: true
 
-  import ExUnit.CaptureLog
-
   alias ImagePipe.Cache
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
@@ -59,13 +57,8 @@ defmodule ImagePipe.Cache.CompleteBodySinkTest do
 
     # The writer opens the entry's file after the request moves on, and the
     # request's write still completes.
-    log =
-      capture_log(fn ->
-        sink = Cache.open_sink(cache_key(), {:complete_body, @content_type}, [], opts)
-        assert :ok = Cache.commit_sink(Cache.write_chunk(sink, "body", opts), opts)
-        Caches.await_writes(opts)
-      end)
-
-    assert log =~ "cache sink open error"
+    sink = Cache.open_sink(cache_key(), {:complete_body, @content_type}, [], opts)
+    assert :ok = Cache.commit_sink(Cache.write_chunk(sink, "body", opts), opts)
+    Caches.await_writes(opts)
   end
 end

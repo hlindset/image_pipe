@@ -475,16 +475,11 @@ defmodule ImagePipe.APIErrorPathsTest do
         File.chmod(root, 0o700)
       end)
 
-      log =
-        capture_log(fn ->
-          conn = get("/w=64/src/images/cat.jpg", config)
+      conn = get("/w=64/src/images/cat.jpg", config)
 
-          assert conn.status == 200
-          assert {width, _height} = decoded_dims(conn.resp_body)
-          assert width == 64
-        end)
-
-      assert log =~ "cache sink open error"
+      assert conn.status == 200
+      assert {width, _height} = decoded_dims(conn.resp_body)
+      assert width == 64
       assert_receive {:cache_stage, :stage_error}
       refute_received {:cache_put, _hash, _body}
     end

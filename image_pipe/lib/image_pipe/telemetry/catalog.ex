@@ -82,6 +82,14 @@ defmodule ImagePipe.Telemetry.Catalog do
   # of one request, so it keeps them.
   @background_stages [[:cache, :sweep], [:cache, :eviction, :stop]]
 
+  # Cache writes can end after their request's summary, so it can't carry
+  # their failures. Without stages, these log only their warnings.
+  @failure_stages [[:cache, :write], [:cache, :stage]]
+
+  @doc "The stages that log only their warnings without stage lines."
+  @spec failure_stages() :: [[atom()]]
+  def failure_stages, do: @failure_stages
+
   @doc "Every entry as `{stage, kind, group, logged?, traced?}`."
   @spec entries() :: [{[atom()], :span | :oneshot, atom(), boolean(), boolean()}]
   def entries do
@@ -119,7 +127,8 @@ defmodule ImagePipe.Telemetry.Catalog do
   @doc """
   The full names of the events the Logger subscribes to for `groups` without
   stage lines: the request summary, a request that raised (which has no
-  summary), and the events outside any one request.
+  summary), the events outside any one request, and the cache write
+  stages whose failures the summary can't carry.
   """
   @spec summary_events([atom()], [atom()]) :: [[atom()]]
   def summary_events(groups, prefix) do
@@ -128,7 +137,8 @@ defmodule ImagePipe.Telemetry.Catalog do
     raised ++
       for {stage, kind, group, true, _traced?} <- entries(),
           group in groups,
-          stage == [:request, :summary] or stage in @background_stages,
+          stage == [:request, :summary] or stage in @background_stages or
+            stage in @failure_stages,
           suffix <- suffixes(kind),
           do: prefix ++ stage ++ suffix
   end
