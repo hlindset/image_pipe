@@ -332,6 +332,23 @@ defmodule ImagePipe.Source.ReqStreamTest do
     Process.exit(server, :kill)
   end
 
+  test "a target check that outlasts fetch_timeout fails at fetch_timeout" do
+    slow_lookup = fn _url ->
+      Process.sleep(5_000)
+      :ok
+    end
+
+    started = System.monotonic_time(:millisecond)
+
+    assert {:error, {:source, :receive_timeout}} =
+             ReqStream.open([url: "https://assets.example.com/cat.jpg"],
+               validate_target: slow_lookup,
+               fetch_timeout: 200
+             )
+
+    assert System.monotonic_time(:millisecond) - started < 1_000
+  end
+
   test "an origin that stalls before its headers fails at receive_timeout" do
     {url, server} = start_silent_origin()
 

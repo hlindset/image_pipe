@@ -65,7 +65,7 @@ defmodule ImagePipe.Source.ReqStream do
   defp follow(req_options, runtime_opts, validate, redirects_left, redirects_allowed?) do
     url = Keyword.fetch!(req_options, :url)
 
-    case validate.(url) do
+    case check_target(validate, url, Keyword.fetch!(runtime_opts, :deadline)) do
       :ok ->
         request_and_route(req_options, runtime_opts, validate, redirects_left, redirects_allowed?)
 
@@ -81,6 +81,19 @@ defmodule ImagePipe.Source.ReqStream do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  # The target check resolves the host, which can stall for as long as the
+  # resolver allows, so it too ends by the deadline.
+  defp check_target(validate, url, :infinity), do: validate.(url)
+
+  defp check_target(validate, url, deadline) do
+    task = Task.async(fn -> validate.(url) end)
+
+    case Task.yield(task, remaining(deadline)) || Task.shutdown(task, :brutal_kill) do
+      {:ok, result} -> result
+      nil -> {:error, :receive_timeout}
     end
   end
 
