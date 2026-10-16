@@ -72,6 +72,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A mount configured at compile time, such as in a router's `forward` options,
+  could fail to compile with "does not implement ImagePipe.Transform.Detector"
+  when its custom detector was compiled in the same pass. Configuration now
+  waits for the detector module to compile.
 - The `[:transform, :detect, :model]` span reported a model that is
   unavailable, such as a face model without `image_vision`, as `result:
   :error`, and the default Logger logged it as a model error. It now reports

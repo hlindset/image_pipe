@@ -791,7 +791,9 @@ defmodule ImagePipe.Config do
       Transform.Detector.behaviour_info(:callbacks) --
         Transform.Detector.behaviour_info(:optional_callbacks)
 
-    if not (Code.ensure_loaded?(detector) and
+    # `ensure_compiled/1` waits for a detector the compiler is still building,
+    # as when a module attribute holds a mount's config.
+    if not (match?({:module, _}, Code.ensure_compiled(detector)) and
               Enum.all?(callbacks, fn {name, arity} ->
                 function_exported?(detector, name, arity)
               end)) do
