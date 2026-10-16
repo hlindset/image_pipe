@@ -1092,6 +1092,12 @@ target saves more against it. AVIF bytes× at targets 70/72/75/78/80/85: 0.62,
 the old default, about 78, now takes about q56, so the fixed AVIF default could
 drop from 63 to about 56 at the same median quality.
 
+The default moved to `q56` (image_plug-nirw). Rerun on the same images,
+2026-10-16: AVIF `q56` scores 69.9 / 77.6 / 84.0 (p10/p50/p90), in line with
+JPEG `q80` and WebP `q79`. AVIF bytes× at targets 70/72/75/78/80/85: 0.756,
+0.813, 0.926, 1.077, 1.201, 1.629. Against the `q63` rerun's bytes× at each
+target, `q56` is about 18% smaller.
+
 ### Part O — target-only search vs today's search (image_plug-08wt)
 
 Held-out images: each source's images after Part N's first 6, 40 images (15

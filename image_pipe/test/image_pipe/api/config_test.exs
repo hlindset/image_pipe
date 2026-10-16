@@ -96,7 +96,7 @@ defmodule ImagePipe.Plug.ConfigTest do
       )
 
     assert config[:quality] == 72
-    assert config[:format_quality] == %{webp: 79, avif: 63, jpeg: 68}
+    assert config[:format_quality] == %{webp: 79, avif: 56, jpeg: 68}
     assert config[:autoquality] == true
     assert config[:autoquality_target] == 82.5
     assert config[:jpeg_options].interlace == true
@@ -130,7 +130,7 @@ defmodule ImagePipe.Plug.ConfigTest do
     assert config[:allow_debug_headers] == false
     assert config[:quality] == 80
     assert config[:preserve_hdr] == false
-    assert config[:format_quality] == %{webp: 79, avif: 63}
+    assert config[:format_quality] == %{webp: 79, avif: 56}
     assert config[:autoquality] == false
     assert config[:autoquality_target] == 75
     assert config[:jpeg_options] == %JpegOptions{}
@@ -246,7 +246,7 @@ defmodule ImagePipe.Plug.ConfigTest do
         avif_options: [subsample_mode: :on]
       )
 
-    assert config[:format_quality] == %{webp: 50, avif: 63}
+    assert config[:format_quality] == %{webp: 50, avif: 56}
     assert config[:jpeg_options] == %JpegOptions{interlace: true}
     assert config[:avif_options] == %AvifOptions{subsample_mode: :on, effort: 3}
   end
