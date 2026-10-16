@@ -41,6 +41,19 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- AVIF's default quality is 56, down from 63. Files are about 18% smaller.
+  The median image scores 78 instead of 82 on
+  [SSIMULACRA2](docs/choosing-an-autoquality-target.md#choosing-a-target),
+  close to the JPEG default's 77. To keep 63, set
+  `format_quality: %{avif: 63}`.
+- A response's cache key and `ETag` no longer depend on the quality and
+  encoder settings of other formats. Changing the AVIF quality or
+  `avif_options` leaves them unchanged for WebP responses and for requests
+  with a `format`, such as `format=jpeg`, so those stay cached and clients
+  keep their copies. A response without `format`, for a client that accepts
+  neither AVIF nor WebP, takes the original's format and still depends on
+  every format's settings. After upgrading, cached image responses miss once
+  and clients download each image again once.
 - **Breaking:** a `blur` or `progressive-blur` over the default
   `max_blur_work`, 4,000,000,000,000, fails with `422`. `blur=1000` on a 10-megapixel photo took about 7 seconds
   and now fails. Raise `max_blur_work` to allow larger blurs.

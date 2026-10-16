@@ -14,7 +14,7 @@ defmodule ImagePipeServer.Config.ReferenceTest do
     assert reference =~ "| `quality` | integer 1–100 | `80` |"
 
     assert reference =~
-             ~s(| `format_quality` | table of integer > 0 | `{ avif = 63, webp = 79 }` |)
+             ~s(| `format_quality` | table of integer > 0 | `{ avif = 56, webp = 79 }` |)
 
     assert reference =~
              ~s(| `http_cache` | `"validators"` or `"auto"` or `"public"` or `"private"` | `"validators"` |)

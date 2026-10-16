@@ -52,7 +52,7 @@ defmodule ImagePipe.Config do
   @url_option_doc Keyword.delete(URLConfig.schema(), :validate_against)
   @url_keys Keyword.keys(@url_option_doc)
 
-  @default_format_quality %{webp: 79, avif: 63}
+  @default_format_quality %{webp: 79, avif: 56}
 
   # A host's encoder settings win field by field over these.
   @default_encoder_options [

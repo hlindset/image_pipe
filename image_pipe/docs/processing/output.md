@@ -62,7 +62,7 @@ ImagePipe.URL.new()
 
 Accepts a whole [number](../requesting-images.md#numbers) from `1` to `100`.
 Default: the quality set in the server's configuration, 80 unless changed,
-except for formats with their own quality, such as AVIF at 63 and WebP at 79
+except for formats with their own quality, such as AVIF at 56 and WebP at 79
 (see [`format-q`](#format-q), [Plug configuration](`ImagePipe.config/1`), and
 [server configuration](../../../image_pipe_server/docs/server-configuration.md#processing)).
 

@@ -356,7 +356,7 @@ Defaults and limits for every image the server processes. The limits on original
 | `auto_avif` | boolean | `true` |
 | `auto_webp` | boolean | `true` |
 | `quality` | integer 1–100 | `80` |
-| `format_quality` | table of integer > 0 | `{ avif = 63, webp = 79 }` |
+| `format_quality` | table of integer > 0 | `{ avif = 56, webp = 79 }` |
 | `strip_metadata` | boolean | `true` |
 | `keep_copyright` | boolean | `true` |
 | `stripped_dpi` | integer 1–65535 | `72` |

@@ -254,15 +254,42 @@ defmodule ImagePipe.Output.Policy do
     do: :source_negotiated
 
   @doc """
-  Canonical keyword of the effective, config-resolved byte-affecting policy:
-  quality, format defaults/overrides, quality search (canonicalized to a
-  digestible shape), byte/metadata/color/HDR/background/encoder knobs.
+  Canonical keyword of the effective, config-resolved byte-affecting policy,
+  in a digestible shape. When `identity_selection/1` names the format, it
+  holds only that format's resolved encode, so another format's quality or
+  encoder settings don't change it. Under `:source_negotiated` the format
+  is chosen after the fetch, so it holds every format's settings.
   Deliberately excludes `mode`/`modern_candidates`/`headers` — negotiation
   enters identity only via `identity_selection/1`'s outcome, never the raw
   Accept header.
   """
   @spec identity_material(t()) :: keyword()
   def identity_material(%__MODULE__{} = policy) do
+    case identity_selection(policy) do
+      :source_negotiated -> all_formats_material(policy)
+      {_selection, format} -> resolved_material(policy, resolved(policy, format))
+    end
+  end
+
+  defp resolved_material(policy, %Resolved{} = resolved) do
+    [
+      quality: resolved.quality,
+      quality_search: resolved_search_identity(resolved.quality_search),
+      max_bytes: resolved.max_bytes,
+      strip_metadata: resolved.strip_metadata,
+      keep_copyright: resolved.keep_copyright,
+      dpi: resolved.dpi,
+      color_profile: resolved.color_profile,
+      hdr: policy.hdr,
+      encoder_options: resolved.encoder_options && Map.from_struct(resolved.encoder_options),
+      skip_formats: policy.skip_formats
+    ]
+  end
+
+  defp resolved_search_identity(:none), do: :none
+  defp resolved_search_identity(search), do: Map.from_struct(search)
+
+  defp all_formats_material(policy) do
     [
       quality: policy.quality,
       default_quality: policy.default_quality,

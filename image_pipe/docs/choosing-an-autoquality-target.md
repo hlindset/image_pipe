@@ -43,23 +43,23 @@ quality, 70 is high, and 50 is medium. The default is 75.
 
 A benchmark over 53 photos and screenshots measured the file size at each
 target, compared with each format's default quality (JPEG 80, WebP 79, AVIF
-63, see [`q`](processing/output.md#q) and
+56, see [`q`](processing/output.md#q) and
 [`format-q`](processing/output.md#format-q)):
 
 | Target | JPEG | WebP | AVIF |
 | --- | --- | --- | --- |
-| 70 | 24% smaller | 18% smaller | 38% smaller |
-| 72 | 19% smaller | 12% smaller | 33% smaller |
-| 75 | 9% smaller | 1% larger | 24% smaller |
-| 78 | 5% larger | 19% larger | 12% smaller |
-| 80 | 16% larger | 33% larger | 2% smaller |
-| 85 | 53% larger | 87% larger | 34% larger |
+| 70 | 24% smaller | 18% smaller | 24% smaller |
+| 72 | 19% smaller | 12% smaller | 19% smaller |
+| 75 | 9% smaller | 1% larger | 7% smaller |
+| 78 | 5% larger | 19% larger | 8% larger |
+| 80 | 16% larger | 33% larger | 20% larger |
+| 85 | 53% larger | 87% larger | 63% larger |
 
 WebP can't reach the higher targets for some images even at q96: 13 percent
 of them at 80, all screenshots, and 38 percent at 85. The WebP sizes at those
 targets leave them out.
 
-At a fixed quality, scores across the benchmark images varied by about 10
+At a fixed quality, scores across the benchmark images varied by 11 to 14
 points between the best and worst tenth. At target 75, most images landed
 within a point of the target, except screenshots that WebP couldn't bring up
 to it.
