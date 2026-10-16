@@ -241,7 +241,39 @@ defmodule ImagePipe.Output.Encoder do
     end
   end
 
+  # Workaround for libvips 8.18: its saver widens 8-bit color to 16 bits by
+  # 256 (with 255 special-cased), so 128 becomes 32768 instead of 32896. Gray
+  # widens by 257. Widening here first scales every band by 257. Tracked in
+  # image_plug-y7mu.
+  defp fit_png_depth(
+         image,
+         %Resolved{format: :png, encoder_options: %PngOptions{bitdepth: 16, palette: palette}} =
+           resolved
+       )
+       when palette != true do
+    if VixImage.format(image) == :VIPS_FORMAT_UCHAR do
+      with {:ok, image} <- widen_to_16_bits(image), do: {:ok, image, resolved}
+    else
+      {:ok, image, resolved}
+    end
+  end
+
   defp fit_png_depth(image, resolved), do: {:ok, image, resolved}
+
+  defp widen_to_16_bits(image) do
+    interpretation =
+      if Image.bands(image) < 3,
+        do: :VIPS_INTERPRETATION_GREY16,
+        else: :VIPS_INTERPRETATION_RGB16
+
+    with {:ok, scaled} <- Operation.linear(image, [257.0], [0.0]),
+         {:ok, wide} <- Operation.cast(scaled, :VIPS_FORMAT_USHORT),
+         {:ok, wide} <- Operation.copy(wide, interpretation: interpretation) do
+      {:ok, wide}
+    else
+      {:error, reason} -> {:error, {:encode, encode_error(reason), []}}
+    end
+  end
 
   # Workaround for libvips 8.18: its libpng saver packs the low bits of each
   # gray value at 2 and 4 bits, so 150 at 4 bits reads back as 102. Its spng
