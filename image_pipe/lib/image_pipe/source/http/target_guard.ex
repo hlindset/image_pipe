@@ -118,7 +118,7 @@ defmodule ImagePipe.Source.HTTP.TargetGuard do
     charlist = String.to_charlist(host)
 
     # The lookups are independent network round trips, so run them together.
-    # :inet.getaddrs/2 applies its own timeout.
+    # The fetch deadline bounds them.
     v6_task = Task.async(fn -> getaddrs(charlist, :inet6) end)
     v4 = getaddrs(charlist, :inet)
 

@@ -191,10 +191,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ran the detector or saliency anyway. With a failing detector the response
   wasn't stored, or failed with `500` under `detector_required: true`. Such
   a crop now runs no detection.
-- An HTTP source whose host name resolves to several addresses could run
-  past `fetch_timeout`, because it waited for a response at each address in
-  turn. Fetches now end by `fetch_timeout`, apart from a connection attempt,
-  which can run past it by up to `connect_timeout`.
+- An HTTP source could run past `fetch_timeout` in two ways. Looking up the
+  host name could take as long as the `address_resolver` allowed. A name
+  that resolved to several addresses made the fetch wait for a response at
+  each address in turn. Fetches now fail with `504` at `fetch_timeout`,
+  except that a connection attempt can run past it by up to
+  `connect_timeout`.
 - A FileSystem cache could hold more than `max_size_bytes` on disk and not
   bring it back down:
   - A read of an entry the startup scan hadn't counted yet counted it

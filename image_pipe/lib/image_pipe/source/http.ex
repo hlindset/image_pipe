@@ -95,8 +95,8 @@ defmodule ImagePipe.Source.HTTP do
                       fetch_timeout: [
                         type: :pos_integer,
                         doc: """
-                        Milliseconds for the whole download, from the first request \
-                        to the last body byte, including redirects. A connection \
+                        Milliseconds for the whole download, from the first host \
+                        name lookup to the last body byte, including redirects. A connection \
                         attempt can run past it by up to `connect_timeout`. Requests \
                         waiting for the same original give up after waiting this long \
                         plus one second. The default value is `30000`.
