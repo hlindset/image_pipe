@@ -112,6 +112,14 @@ defmodule ImagePipe.API.InfoWireTest do
              info("w=50/dpr=2/-/pad=2/dpr=2/output=info", config)["result"]
   end
 
+  test "result dpr includes the scale-down to the result limits" do
+    config = mount(gradient_jpeg(120, 80), max_result_width: 50)
+
+    # The 80px result for 40 CSS pixels scales down to 50px, so 40 CSS pixels
+    # at DPR 1.25.
+    assert %{"width" => 50, "dpr" => 1.25} = info("w=40/dpr=2/output=info", config)["result"]
+  end
+
   test "requested placeholders equal the standalone outputs with one source fetch" do
     # A photo, so a placeholder from a smaller decode differs from a full-size one.
     config = mount(File.read!("priv/static/images/beach.jpg"))

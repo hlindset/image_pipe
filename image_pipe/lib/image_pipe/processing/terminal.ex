@@ -138,21 +138,25 @@ defmodule ImagePipe.Processing.Terminal do
   end
 
   # The image path scales a result down to the result limits after executing,
-  # lazily, so the clamped header has the dimensions it would deliver.
+  # lazily, so the clamped header has the dimensions it would deliver. The
+  # scale-down lowers the DPR too, keeping width / dpr at the CSS width.
   defp executed_facts(state, request, config, lqip_css) do
     with {:ok, state} <- Executor.execute(state, request, config),
          :ok <- Executor.check_evaluation(state),
-         {:ok, clamped, _info} <- Clamp.clamp(state.image, result_limits(request, config), config) do
+         {:ok, clamped, info} <- Clamp.clamp(state.image, result_limits(request, config), config) do
       result = %{
         "width" => Image.width(clamped),
         "height" => Image.height(clamped),
-        "dpr" => state.dpr
+        "dpr" => clamped_dpr(state.dpr, info)
       }
 
       with {:ok, result} <- put_lqip_css(result, state, request, config, lqip_css),
            do: {:ok, result, state.degraded?}
     end
   end
+
+  defp clamped_dpr(dpr, nil), do: dpr
+  defp clamped_dpr(dpr, %{scale: scale}), do: dpr * scale
 
   # Without an explicit format the delivered format depends on Accept, which
   # info doesn't negotiate, so only the server's limits apply.

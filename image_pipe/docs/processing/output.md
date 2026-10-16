@@ -544,7 +544,9 @@ unless [`bg`](resize.md#bg) sets a background. Use the `lqip-css` value as
   limits are higher (see [Plug configuration](`ImagePipe.config/1`) and
   [server configuration](../../../image_pipe_server/docs/server-configuration.md#processing)).
   Without `format`, only the server's limits apply, so a WebP or AVIF
-  response can be smaller than `result` reports.
+  response can be smaller than `result` reports. Any scale-down to fit these
+  limits lowers `dpr` by the same factor, so dividing still gives the
+  requested CSS width.
 - `blurhash` and `lqip_css` appear when named after `info`, with the same
   values `output=blurhash` and `output=lqip-css` return.
 
