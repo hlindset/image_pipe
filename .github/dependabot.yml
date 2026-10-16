@@ -1,0 +1,62 @@
+version: 2
+
+# Weekly version updates. Minor and patch updates come as one pull request per
+# ecosystem; major updates come one at a time. A release must be two weeks old
+# before Dependabot proposes it. Security advisories are checked by the Audit
+# workflow, since GitHub's dependency graph doesn't read mix.lock.
+updates:
+  - package-ecosystem: mix
+    directories:
+      - "/image_pipe_url"
+      - "/image_pipe"
+      - "/image_pipe_server"
+      - "/image_pipe_svg"
+      - "/fiddle"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+    groups:
+      mix:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: cargo
+    directories:
+      - "/image_pipe_svg/native/image_pipe_svg_nif"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+    ignore:
+      # The crate's version must match the Elixir rustler dependency in
+      # image_pipe_svg/mix.exs, so the two are updated together by hand.
+      - dependency-name: rustler
+    groups:
+      cargo:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directories:
+      - "/fiddle"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+    groups:
+      npm:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directories:
+      - "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+    groups:
+      github-actions:
+        patterns: ["*"]
+        update-types: [minor, patch]
