@@ -259,7 +259,7 @@ defmodule ImagePipe.ProcessingPool do
 
   def handle_call({:release, token, result}, _from, state) do
     job = Map.fetch!(state.jobs, token)
-    result = job.result || if(now() >= job.deadline, do: :timeout, else: result)
+    result = job.result || release_result(job, result)
     state = complete(state, token, result)
     reply = if result in [:timeout, :cancelled], do: {:error, {:processing, result}}, else: :ok
     {:reply, reply, drain(state)}
@@ -394,6 +394,17 @@ defmodule ImagePipe.ProcessingPool do
     do: put_job(state, token, %{job | result: job.result || :cancelled})
 
   defp counts(state), do: %{active: state.active, queued: :queue.len(state.queue)}
+  # A worker finishing after its deadline, before the timer fires, times out
+  # as if the timer had fired, including the notification its owner waits on.
+  defp release_result(job, result) do
+    if now() >= job.deadline do
+      send(job.notification, {:processing_timeout, job.worker})
+      :timeout
+    else
+      result
+    end
+  end
+
   defp now, do: System.monotonic_time(:millisecond)
 
   defp timer(token, phase, deadline),

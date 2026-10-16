@@ -76,6 +76,28 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
     assert %{active: 0} = ProcessingPool.stats(pool)
   end
 
+  test "a stream that finishes after its deadline, before the timer fires, times out",
+       context do
+    pool = start_supervised!({ProcessingPool, max_concurrency: 1})
+    config = [processing_pool: pool, telemetry_prefix: context.prefix]
+    build = fn pump -> pump.(["one", "two"], "image/jpeg", resolved(), nil) end
+    assert {:ok, stream} = Delivery.stream(build, nil, config)
+
+    # Move the deadline into the past without firing its timer, as when the
+    # pool is busy at the moment the deadline passes.
+    past = System.monotonic_time(:millisecond) - 1
+
+    :sys.replace_state(pool, fn state ->
+      jobs = Map.new(state.jobs, fn {token, job} -> {token, %{job | deadline: past}} end)
+      %{state | jobs: jobs}
+    end)
+
+    assert stream.next.() == {:chunk, "two"}
+    assert stream.next.() == {:error, {:processing, :timeout}}
+    assert_receive {:processing_stopped, :timeout}
+    assert %{active: 0} = ProcessingPool.stats(pool)
+  end
+
   test "owner death gracefully cancels prepared streams and releases admission", context do
     pool = start_supervised!({ProcessingPool, max_concurrency: 1})
     config = [processing_pool: pool, telemetry_prefix: context.prefix]

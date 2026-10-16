@@ -75,6 +75,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- With a processing pool, a streamed response that finished just after
+  `processing_timeout`, before the pool's timer fired, ended with
+  `{:session, {:producer_down, :normal}}` instead of
+  `{:processing, :timeout}`.
 - `output=blurhash` and `output=lqip-css` rendered transparency on black, so
   a transparent PNG's placeholder could be dark while the JPEG the same URL
   returns is light. Placeholders now render transparency on white, unless
