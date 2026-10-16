@@ -115,6 +115,9 @@ defmodule ImagePipe.Transform.Operation.TrimPropertyTest do
     {Image.width(image), Image.height(image), :crypto.hash(:sha256, binary)}
   end
 
+  # 150 full-resolution searches on images up to 1500x1500 take about 20s
+  # alone, and longer beside the rest of the suite on a 4-core machine.
+  @tag timeout: 180_000
   property "finds the same box as a full-resolution search" do
     check all image <- bordered_image(),
               threshold <- member_of([10.0, 30.0]),

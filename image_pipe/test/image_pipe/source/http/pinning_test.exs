@@ -66,6 +66,7 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
       end
     end
 
+    @tag :ipv6
     test "uses the newly validated address instead of a pooled #{protocol} connection" do
       port = origin(fn conn, _ -> Plug.Conn.send_resp(conn, 200, "IPv4") end)
       origin(fn conn, _ -> Plug.Conn.send_resp(conn, 200, "IPv6") end, ip: @loopback6, port: port)
@@ -129,6 +130,7 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
              fetch("origin.test", port, req_options: tls_options(protocols: [:http2]))
   end
 
+  @tag :ipv6
   test "falls back only within the validated address set when a connection fails" do
     port = origin(fn conn, _ -> Plug.Conn.send_resp(conn, 200, "IPv6") end, ip: @loopback6)
 
@@ -306,6 +308,7 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
     assert Agent.get(dns, & &1) == []
   end
 
+  @tag :ipv6
   test "an HTTP error does not retry another validated address" do
     port = origin(fn conn, _ -> Plug.Conn.send_resp(conn, 503, "unavailable") end)
 
@@ -320,6 +323,7 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
              )
   end
 
+  @tag :ipv6
   test "a silent origin on every resolved address fails by fetch_timeout" do
     port = silent_origin()
     started = System.monotonic_time(:millisecond)

@@ -93,6 +93,7 @@ defmodule ImagePipe.API.ErrorStatusWireTest do
       end
     end
 
+    @tag :file_permissions
     test "a file the server can't read is a server error", %{config: config, dir: dir} do
       locked = Path.join(dir, "locked.png")
       File.chmod!(locked, 0o000)

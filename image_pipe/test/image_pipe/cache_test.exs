@@ -222,6 +222,7 @@ defmodule ImagePipe.CacheTest do
     assert stored_files(root) == []
   end
 
+  @tag :file_permissions
   test "open_sink fails open and logs errors", %{root: root} do
     prefix = attach_telemetry([[:cache, :stage]])
     opts = cache_opts(root, telemetry_prefix: prefix)
@@ -257,6 +258,7 @@ defmodule ImagePipe.CacheTest do
     assert stored_files(root) == []
   end
 
+  @tag :file_permissions
   test "commit_sink errors fail open through cache write telemetry", %{root: root} do
     prefix = attach_telemetry([[:cache, :write, :stop]])
     opts = cache_opts(root, telemetry_prefix: prefix)

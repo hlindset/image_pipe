@@ -1445,6 +1445,7 @@ defmodule ImagePipe.PlugTest do
     assert_received {:cache_put, ^hash, _body}
   end
 
+  @tag :file_permissions
   test "cache write errors fail open by default and still return response" do
     observed = unwritable_cache()
 
@@ -1459,6 +1460,7 @@ defmodule ImagePipe.PlugTest do
     refute_received {:cache_put, _hash, _body}
   end
 
+  @tag :file_permissions
   test "automatic cache write errors fail open and preserve negotiated Vary" do
     observed = unwritable_cache()
 

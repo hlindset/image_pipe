@@ -126,6 +126,7 @@ defmodule ImagePipe.Source.FileTest do
     end
   end
 
+  @tag :file_permissions
   test "fetch reports an unsearchable parent directory as unreadable", %{root: root} do
     assert {:ok, opts} = SourceFile.validate_options(root: root, root_id: "fixture-root")
     images = Path.join(root, "images")

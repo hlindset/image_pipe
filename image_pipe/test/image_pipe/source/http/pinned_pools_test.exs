@@ -79,6 +79,7 @@ defmodule ImagePipe.Source.HTTP.PinnedPoolsTest do
     assert Enum.join(response.stream) == "slow bytes"
   end
 
+  @tag :ipv6
   test "prefers a resolved address that already has a pool" do
     v4 = start_origin(ip: @loopback, body: "IPv4")
     start_origin(ip: @loopback6, port: v4.port, body: "IPv6")
@@ -87,6 +88,7 @@ defmodule ImagePipe.Source.HTTP.PinnedPoolsTest do
     assert fetch_body(v4.port, "/image", [@loopback6, @loopback]) == "IPv4"
   end
 
+  @tag :ipv6
   test "doesn't prefer an address that failed to connect" do
     v4 = start_origin(ip: @loopback)
     {:ok, listener} = :gen_tcp.listen(v4.port, [:inet6, :binary, ip: @loopback6, active: false])

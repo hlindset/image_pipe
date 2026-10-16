@@ -20,10 +20,42 @@
 # aliasing artifact; correct code is cache-transparent.
 Vix.Vips.cache_set_max(0)
 
+# Some tests depend on the machine more than the code. Tests tagged
+# `:file_permissions` revoke access with `chmod`, which root (as in a Claude Code
+# cloud session) ignores. Tests tagged `:ipv6` listen on `::1`, which a host
+# without IPv6 can't bind. Each tag is excluded where its precondition fails.
+file_permissions? = fn ->
+  path =
+    Path.join(System.tmp_dir!(), "image_pipe_permissions_#{System.unique_integer([:positive])}")
+
+  File.write!(path, "")
+  File.chmod!(path, 0o000)
+
+  try do
+    match?({:error, :eacces}, File.read(path))
+  after
+    File.rm(path)
+  end
+end
+
+ipv6? = fn ->
+  case :gen_tcp.listen(0, [:inet6, ip: {0, 0, 0, 0, 0, 0, 0, 1}]) do
+    {:ok, socket} ->
+      :gen_tcp.close(socket)
+      true
+
+    {:error, _reason} ->
+      false
+  end
+end
+
 ExUnit.start(
   capture_log: true,
   assert_receive_timeout: 2_000,
-  exclude: [:image_vision]
+  exclude:
+    [:image_vision] ++
+      if(file_permissions?.(), do: [], else: [:file_permissions]) ++
+      if(ipv6?.(), do: [], else: [:ipv6])
 )
 
 {:ok, _} = Application.ensure_all_started(:req)

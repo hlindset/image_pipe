@@ -89,6 +89,7 @@ defmodule ImagePipe.Source.ReqStreamTest do
     assert Enum.join(stream) == "bytes"
   end
 
+  @tag :ipv6
   test "streams an IPv6 origin with bounded connection and pool timeouts" do
     origin =
       start_supervised!(

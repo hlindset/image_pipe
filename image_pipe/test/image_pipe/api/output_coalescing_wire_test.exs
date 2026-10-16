@@ -204,6 +204,7 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
   end
 
   @tag capture_log: true
+  @tag :file_permissions
   test "cache write failures and rejected entries leave followers able to generate", context do
     for {failure, path} <- [unwritable: "format=jpeg", too_large: "output=info"] do
       mount = Caches.plug(failing_cache(context.options, failure))
