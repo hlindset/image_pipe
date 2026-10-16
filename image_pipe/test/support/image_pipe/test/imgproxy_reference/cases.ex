@@ -2455,6 +2455,76 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         native: "w=500/h=200/fit=contain/extend",
         imgproxy: "rs:fit:500:200/ex:1",
         tolerance: {2, 64}
+      },
+      # Orientation x geometry (image_plug-e4a.10): odd crops, offsets, edge gravity,
+      # extends and focus points on the transposing EXIF orientations, where deferred
+      # orientation maps gravity and rounding into the storage frame. The aperiodic
+      # placement grid turns a 1px shift into a full-contrast edge.
+      %{
+        id: "orient_crop_odd_corner_transpose",
+        kind: :png,
+        source: "exif_placement_5.jpg",
+        native: "crop=201,121/anchor=bottom-right",
+        imgproxy: "c:201:121:soea",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "orient_crop_offset_rot270",
+        kind: :png,
+        source: "exif_placement_8.jpg",
+        native: "crop=150,100/anchor=top-left/anchor-offset=13,7",
+        imgproxy: "c:150:100:nowe:13:7",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "orient_cover_odd_edge_rot270",
+        kind: :png,
+        source: "exif_placement_8.jpg",
+        native: "w=201/h=133/fit=cover/anchor=left",
+        imgproxy: "rs:fill:201:133/g:we",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "orient_extend_odd_transverse",
+        kind: :png,
+        source: "exif_placement_7.jpg",
+        native: "w=201/h=301/fit=contain/extend",
+        imgproxy: "rs:fit:201:301/ex:1",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "orient_large_cover_focus_odd",
+        kind: :png,
+        source: "exif_large_6.jpg",
+        native: "w=201/h=99/fit=cover/focus=0.7,0.3",
+        imgproxy: "rs:fill:201:99/g:fp:0.7:0.3",
+        tolerance: {2, 64}
+      },
+      # Rounding and odd sizes (image_plug-e4a.10): centering ties on an odd source
+      # and fractional percentage extents.
+      %{
+        id: "odd_crop_center_tie",
+        kind: :png,
+        source: "placement_odd.png",
+        native: "crop=200,150/anchor=center",
+        imgproxy: "c:200:150:ce",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "odd_extend_center_tie",
+        kind: :png,
+        source: "placement_odd.png",
+        native: "w=500/h=400/fit=contain/extend",
+        imgproxy: "rs:fit:500:400/ex:1",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "odd_crop_pct_third",
+        kind: :png,
+        source: "placement_odd.png",
+        native: "crop=33pct,33pct/anchor=bottom-left",
+        imgproxy: "c:0.33:0.33:sowe",
+        tolerance: {2, 64}
       }
     ]
   end
