@@ -9,6 +9,10 @@ defmodule ImagePipe.Transform.Executor.Step do
   # pixels out of row order runs after the image is copied to memory, and
   # everything else streams. Classify an operation as streaming only after
   # `test/image_pipe/transform/sequential_access_test.exs` proves it.
+  # Convolutions stream correctly, but their overlapping windows recompute the
+  # lazy frame below them, such as an enlarge or a color conversion, once per
+  # window. Buffering first made sharpen=10 after an 8000x8000 enlarge 14x
+  # faster, and blur=20 there 20x faster.
   @moduledoc false
 
   alias ImagePipe.Telemetry
@@ -55,10 +59,15 @@ defmodule ImagePipe.Transform.Executor.Step do
   defp step(%Trim{}), do: {:trim, &Trim.execute/2}
   defp step(%Watermark{}), do: {:watermark, &Watermark.execute/2}
 
-  @doc "True when `operation` reads pixels out of row order, so it runs on a materialized image."
+  @doc """
+  True when `operation` runs on a materialized image: it reads pixels out of
+  row order, or it is a convolution that would recompute its input per window.
+  """
   @spec random_access?(struct()) :: boolean()
   def random_access?(%Rotate{}), do: true
   def random_access?(%Trim{}), do: true
+  def random_access?(%Blur{}), do: true
+  def random_access?(%Sharpen{}), do: true
   def random_access?(%ProgressiveBlur{}), do: true
   # Mirror padding reads past the bottom edge backwards, beyond the line cache.
   def random_access?(%Pixelate{}), do: true

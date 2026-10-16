@@ -31,6 +31,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `blur` and `sharpen` buffer the image in memory before filtering it.
+  Filtering recomputed an enlarge or color conversion before it many times
+  over, so `sharpen=10/w=8000/h=8000/enlarge` took 14 s and now takes under
+  1 s. Requests with `blur` or `sharpen` now hold one copy of the image at
+  that point in memory.
 - Cached `output=blurhash`, `output=lqip-css`, and `output=info` responses
   that include a placeholder miss once after upgrading, since placeholders of
   transparent images changed.

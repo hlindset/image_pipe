@@ -6,7 +6,6 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
   alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.Operation.Background
   alias ImagePipe.Transform.Operation.Bitonal
-  alias ImagePipe.Transform.Operation.Blur
   alias ImagePipe.Transform.Operation.Brightness
   alias ImagePipe.Transform.Operation.Colorize
   alias ImagePipe.Transform.Operation.Contrast
@@ -18,7 +17,6 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
   alias ImagePipe.Transform.Operation.Resize
   alias ImagePipe.Transform.Operation.Rotate
   alias ImagePipe.Transform.Operation.Saturation
-  alias ImagePipe.Transform.Operation.Sharpen
   alias ImagePipe.Transform.Operation.Watermark
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.State
@@ -101,14 +99,6 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
       [%Resize{width: 100, height: 100}],
       File.read!(@beach)
     )
-  end
-
-  test "blur streams" do
-    assert_sequential_matches_random([%Blur{sigma: 2.0}], File.read!(@beach))
-  end
-
-  test "sharpen streams" do
-    assert_sequential_matches_random([%Sharpen{sigma: 1.5}], File.read!(@beach))
   end
 
   test "background flatten streams (alpha png)" do
@@ -408,14 +398,6 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
         [%Resize{width: w, height: h}],
         body
       )
-    end
-  end
-
-  property "blur streams across varied sigma" do
-    body = File.read!(@beach)
-
-    check all(sigma_tenths <- integer(5..40), max_runs: 12) do
-      assert_sequential_matches_random([%Blur{sigma: sigma_tenths / 10}], body)
     end
   end
 
