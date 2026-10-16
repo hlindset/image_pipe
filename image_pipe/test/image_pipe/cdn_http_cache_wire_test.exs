@@ -257,6 +257,27 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     assert get_resp_header(head, "cache-control") == get_resp_header(get, "cache-control")
   end
 
+  test "a HEAD miss stores the output that a later GET with the same Accept hits",
+       %{opts: opts} do
+    accept = [{"accept", "image/avif,image/webp,*/*"}]
+
+    head = :head |> conn(@automatic_path) |> put_req_headers(accept) |> call_pipe(opts)
+
+    assert head.status == 200
+    assert head.resp_body == ""
+    assert_received :source_fetch_called
+    assert_received {:cache_put, hash, _body}
+    flush_messages()
+
+    get = get(@automatic_path, opts, accept)
+
+    assert get.status == 200
+    assert get_resp_header(get, "content-type") == ["image/avif"]
+    assert get_resp_header(get, "etag") == get_resp_header(head, "etag")
+    assert_received {:cache_lookup, :response, ^hash}
+    refute_received :source_fetch_called
+  end
+
   test "matching if-none-match on a HEAD returns 304 before cache lookup and source fetch",
        %{opts: opts} do
     first = call_pipe(conn(:get, @image_path), opts)
