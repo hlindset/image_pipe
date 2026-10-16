@@ -46,7 +46,8 @@ defmodule ImagePipeServer.Config.Reference do
         "and the HTTP cache headers. See [serving images through a CDN](../../image_pipe/docs/serving-through-a-cdn.md).",
     telemetry:
       "`log_level` is the lowest level the server logs. `log_requests` logs one line per " <>
-        "image request at `info`, or at `warning` for a `4xx` or a degraded result and " <>
+        "image request at `info`, or at `warning` for a `4xx` or a result that didn't come " <>
+        "out as requested, and " <>
         "`error` for a `5xx` or a response that failed partway through sending. With " <>
         "`log_requests` on, `log_stages` also logs a line for each " <>
         "stage of each request, for debugging. `log_format` is `text`, or one JSON object " <>

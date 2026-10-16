@@ -34,7 +34,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Breaking:** `ImagePipe.Telemetry.attach_default_logger/1` logs one line
   per request, from the new `[:request, :summary]` event, instead of one line
   per stage. A `5xx`, or a response that failed partway through sending,
-  logs at `error`, and a `4xx` or a degraded result at `warning`. Pass
+  logs at `error`, and a `4xx` or a result that didn't come out as
+  requested at `warning`. Pass
   `stages: true` to also log the stage lines as before.
 - **Breaking:** An `ImagePipe` instance starts a processing pool unless its
   configuration names one in `processing_pool`. It processes as many images

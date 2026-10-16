@@ -88,17 +88,18 @@ stages. `ImagePipe.write/5` writes its destination after the span closes.
 - Start metadata, Plug requests only:
   - `:method` (string): the HTTP method, such as `"GET"`.
   - `:path` (string): the request path as sent, with its query string,
-    without the path the Plug is mounted at, unless it carries credentials:
-    the `AWSAccessKeyId`, `Signature`, `sig`, `X-Goog-Signature`,
-    `X-Goog-Credential`, `X-Amz-Signature`, `X-Amz-Credential`, or
-    `X-Amz-Security-Token` parameter, in any case or percent-encoding.
-    ImagePipe's own `sig=` path segment, the URL signature, is kept.
+    without the path the Plug is mounted at. Credential parameters
+    (`AWSAccessKeyId`, `Signature`, `sig`, `X-Goog-Signature`,
+    `X-Goog-Credential`, `X-Amz-Signature`, `X-Amz-Credential`, and
+    `X-Amz-Security-Token`), matched in any case or percent-encoding, are
+    redacted:
     - In the query string, their values are replaced with `REDACTED`.
     - A `src` URL that carries them is shown decoded, as ImagePipe reads it,
       with their values replaced with `REDACTED`.
     - A `src64` or `wm-src64` URL that carries them is replaced whole, as
       `src64/REDACTED` or `wm-src64=REDACTED`, whether or not ImagePipe
       accepts its base64.
+    - ImagePipe's own `sig=` path segment, the URL signature, is kept.
 - Stop metadata:
   - `:result` (atom): a request [result value](#result-values). When a
     response fails after streaming has started, it matches the `[:send]`

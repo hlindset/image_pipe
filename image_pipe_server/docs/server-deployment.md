@@ -292,7 +292,9 @@ duration, and bytes sent, then what the request did as `key=value` fields.
 ```
 
 A `5xx`, or a response that failed partway through sending, logs at
-`error`, and a `4xx` or a degraded result at `warning`.
+`error`. A `4xx` logs at `warning`, and so does a result that didn't come
+out as requested, such as a crop that used attention because detection
+failed or no detector is configured, or an image scaled down to the limits.
 Health checks aren't logged. The
 [`[:request, :summary]`](../../image_pipe/docs/telemetry-events.md#request-summary)
 event lists the fields. The path is logged as sent, except that a presigned
