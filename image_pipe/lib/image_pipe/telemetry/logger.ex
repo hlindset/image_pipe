@@ -16,6 +16,7 @@ defmodule ImagePipe.Telemetry.Logger do
     :reason,
     :sig_key,
     :cache,
+    :input_cache,
     :source,
     :source_fetch,
     :fetch_ms,
@@ -25,11 +26,17 @@ defmodule ImagePipe.Telemetry.Logger do
     :ops,
     :output,
     :output_size,
+    :clamped,
+    :quality,
+    :quality_search,
     :encode_ms,
     :admission,
     :queue_ms,
     :detect,
-    :degraded
+    :degraded,
+    :ignored,
+    :skipped,
+    :client_closed
   ]
 
   def all_groups, do: Catalog.groups()
@@ -99,8 +106,9 @@ defmodule ImagePipe.Telemetry.Logger do
   # The request summary follows the status: 5xx is an error, 4xx a warning. A
   # response that failed after its headers went out is an error whatever its
   # status says.
-  # Without a status (`ImagePipe.run/4`), a failure is a warning. A degraded
-  # result, or detection that fell back to attention, is a warning too.
+  # Without a status (`ImagePipe.run/4`), a failure is a warning. So is a
+  # degraded result, detection that fell back to attention, a quality search
+  # that missed its target, or a result scaled down to the limits.
   defp level_for([:request, :summary], metadata, base) do
     status = metadata[:status] || 0
 
@@ -155,7 +163,9 @@ defmodule ImagePipe.Telemetry.Logger do
   defp summary_warning?(metadata) do
     (is_nil(metadata[:status]) and metadata[:result] not in [nil, :ok, :not_modified, :options]) or
       metadata[:degraded] == true or
-      metadata[:detect] in [:unavailable, :error]
+      metadata[:detect] in [:unavailable, :error, :no_detector] or
+      metadata[:quality_search] == :best_effort or
+      Map.has_key?(metadata, :clamped)
   end
 
   defp quiet_pass?(metadata) do

@@ -268,6 +268,95 @@ defmodule ImagePipe.Telemetry.SummaryTest do
     assert log =~ "[error] GET /w=40/format=png/src/beach.jpg 200"
   end
 
+  test "the input cache's answer is recorded", ctx do
+    body = File.read!("priv/static/images/beach.jpg")
+
+    origin = fn conn ->
+      conn
+      |> put_resp_header("cache-control", "public, max-age=60")
+      |> put_resp_content_type("image/jpeg")
+      |> send_resp(200, body)
+    end
+
+    http = [
+      adapter: ImagePipe.Source.HTTP,
+      match: [scheme: ["https"]],
+      options: [
+        allowed_hosts: ["origin.test"],
+        address_resolver: fn _ -> {:ok, [{93, 184, 216, 34}]} end,
+        req_options: [plug: origin]
+      ]
+    ]
+
+    options =
+      start(ctx, input_cache: [root: Path.join(ctx.root, "input")], extra_sources: [http: http])
+
+    config = Caches.plug(options)
+
+    # The first request finds no stored original, so it doesn't look one up.
+    assert request("/w=40/format=png/src/https://origin.test/beach.jpg", config, options).status ==
+             200
+
+    assert_received {:summary, _m, first}
+    refute Map.has_key?(first, :input_cache)
+
+    assert request("/w=30/format=png/src/https://origin.test/beach.jpg", config, options).status ==
+             200
+
+    assert_received {:summary, _m, %{input_cache: :hit}}
+  end
+
+  test "a clamped result, a best-effort quality search, and a missing detector log at warning",
+       ctx do
+    options = start(ctx, max_result_width: 100, detector: nil)
+    config = Caches.plug(options)
+    Telemetry.attach_default_logger(prefix: ctx.prefix)
+
+    for {path, fields} <- [
+          {"/format=png/src/beach.jpg", %{clamped: {100, 67}}},
+          {"/w=40/max-bytes=10/format=jpeg/src/beach.jpg", %{quality_search: :best_effort}},
+          {"/crop=20,20/detect=face/format=png/src/beach.jpg", %{detect: :no_detector}}
+        ] do
+      log = capture_log(fn -> assert request(path, config, options).status == 200 end)
+      assert_received {:summary, _m, summary}
+      assert Map.take(summary, Map.keys(fields)) == fields, path
+      assert log =~ "[warning] GET #{path} 200", path
+    end
+  end
+
+  test "a quality search records the quality it chose", ctx do
+    options = start(ctx)
+    config = Caches.plug(options)
+
+    assert request("/w=40/max-bytes=100000/format=jpeg/src/beach.jpg", config, options).status ==
+             200
+
+    assert_received {:summary, _m, %{quality_search: :hit, quality: quality}}
+    assert is_integer(quality)
+  end
+
+  test "ignored options and an unprocessed original are recorded", ctx do
+    options = start(ctx, skip_processing_formats: [:jpeg])
+    config = Caches.plug(options)
+
+    assert request("/enlarge/src/beach.jpg", config, options).status == 200
+    assert_received {:summary, _m, %{ignored: ["enlarge"], skipped: true}}
+  end
+
+  test "a client that went away mid-response is recorded", ctx do
+    opts = [telemetry_prefix: ctx.prefix]
+
+    Telemetry.span(opts, [:request], %{method: "GET"}, fn ->
+      Telemetry.span(opts, [:deliver], %{output_format: :png}, fn ->
+        {:ok, %{result: :client_closed}}
+      end)
+
+      {:ok, %{result: :ok, status: 200}}
+    end)
+
+    assert_received {:summary, _m, %{client_closed: true}}
+  end
+
   test "ImagePipe.run/4 is summarized without a method, path, or status", ctx do
     builder = ImagePipe.URL.new() |> ImagePipe.URL.group(resize: [width: 10])
     config = ImagePipe.config(telemetry_prefix: ctx.prefix)

@@ -132,6 +132,10 @@ one line, and the tracer doesn't use it.
   - `:cache` (atom): the output cache's answer, as on
     [`[:cache, :lookup]`](#cache-lookup), or `:coalesced` when the response
     came from another request's work, or `:not_modified` for a `304`.
+  - `:input_cache` (atom): the input cache's answer for a stored original,
+    as on [`[:cache, :input]`](#cache-input). Absent when there was no
+    stored original to check, such as on an output cache hit or the first
+    fetch of an original.
   - `:source` (atom): the source name, from `[:source, :resolve]`.
   - `:source_fetch` (atom) and `:fetch_ms` (integer): the result and
     duration of [`[:source, :fetch]`](#source-fetch).
@@ -141,15 +145,29 @@ one line, and the tracer doesn't use it.
   - `:ops` (list of atoms): the operations that ran, in order.
   - `:output_size` (`{width, height}`): the image size after the last
     operation.
+  - `:clamped` (`{width, height}`): the size the result was scaled down to,
+    when it was larger than the result limits or the format allows, as on
+    [`[:output, :clamp]`](#output-clamp).
   - `:output` (atom): the output format, or the terminal (`:info`,
     `:blurhash`, `:lqip_css`).
   - `:encode_ms` (integer): the duration of [`[:encode]`](#encode).
+  - `:quality` (integer) and `:quality_search` (atom), from a search for
+    `autoquality` or `max-bytes`, as on [`[:encode, :search]`](#encode-search).
+    `:quality` is the quality the search chose, and `:quality_search` is its
+    outcome, `:hit` or `:best_effort`.
   - `:admission` (atom) and `:queue_ms` (integer): the result and duration
     of [`[:processing, :admission]`](#processing-admission).
   - `:detect` (atom): the result of
-    [`[:transform, :detect]`](#transform-detect).
+    [`[:transform, :detect]`](#transform-detect), or `:no_detector` when no
+    detector is configured.
   - `:degraded` (`true`): the response is a fallback that isn't stored, as
     on [`[:http_cache, :fallback, :no_store]`](#http_cache-fallback-no_store).
+  - `:ignored` (list of strings): the URL keys of options that had no
+    effect, as on [`[:request, :ignored_options]`](#request-ignored_options).
+  - `:skipped` (`true`): the original was sent unchanged under
+    `skip_processing_formats`.
+  - `:client_closed` (`true`): the client disconnected before the response
+    was sent in full.
 
 ### `[:parse]`
 

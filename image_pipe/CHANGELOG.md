@@ -9,10 +9,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - A `[:request, :summary]` telemetry event, emitted once per request, with
   what the request did as flat fields: method, path, status, duration, bytes
-  sent, cache outcome, source, the original's format and size, the
-  operations, the output format and size, and the time spent fetching,
-  decoding, encoding, and waiting for the processing pool. It gathers them
-  from every process that served the request. The
+  sent, the signing key, the output and input cache outcomes, source, the
+  original's format and size, the operations, the output format and size,
+  the quality a search chose, and the time spent fetching, decoding,
+  encoding, and waiting for the processing pool. It also records a result
+  scaled down to the limits, ignored options, an original sent unprocessed,
+  and a client that disconnected. It gathers them from every process that
+  served the request. The
   [event reference](docs/telemetry-events.md#request-summary) lists them.
 - The `[:request]` span's start carries `:method` and `:path` for Plug
   requests. The path is as sent, except that a presigned source URL's

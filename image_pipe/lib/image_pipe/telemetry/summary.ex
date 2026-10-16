@@ -228,6 +228,21 @@ defmodule ImagePipe.Telemetry.Summary do
   defp fields([:transform, :detect], _duration, meta), do: take(meta, detect: :result)
 
   defp fields([:http_cache, :fallback, :no_store], _duration, _meta), do: %{degraded: true}
+  defp fields([:cache, :input], _duration, meta), do: take(meta, input_cache: :cache)
+  defp fields([:output, :clamp], _duration, meta), do: take(meta, clamped: :dimensions)
+
+  defp fields([:encode, :search], _duration, meta),
+    do: take(meta, quality: :chosen_quality, quality_search: :outcome)
+
+  defp fields([:request, :ignored_options], _duration, meta), do: take(meta, ignored: :options)
+  defp fields([:transform, :detect, :skipped], _duration, meta), do: take(meta, detect: :result)
+
+  defp fields([:deliver], _duration, meta) do
+    %{}
+    |> Map.merge(if meta[:skipped], do: %{skipped: true}, else: %{})
+    |> Map.merge(if meta[:result] == :client_closed, do: %{client_closed: true}, else: %{})
+  end
+
   defp fields(_stage, _duration, _meta), do: %{}
 
   defp take(meta, mapping) do
