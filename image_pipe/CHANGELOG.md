@@ -7,6 +7,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `max_blur_work` limits `blur` and `progressive-blur`: the pixels of the
+  image being blurred, times the square of the sigma, can't exceed it. A blur
+  over the limit fails with `422`. See
+  [Limiting blurs](docs/deployment.md#limiting-blurs).
 - A `[:request, :summary]` telemetry event, emitted once per request, with
   what the request did as flat fields: method, path, status, duration, bytes
   sent, the signing key, the output and input cache outcomes, source, the
@@ -31,11 +35,14 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- `blur` and `sharpen` buffer the image in memory before filtering it.
-  Filtering recomputed an enlarge or color conversion before it many times
-  over, so `sharpen=10/w=8000/h=8000/enlarge` took 14 s and now takes under
-  1 s. Requests with `blur` or `sharpen` now hold one copy of the image at
-  that point in memory.
+- **Breaking:** a `blur` or `progressive-blur` over the default
+  `max_blur_work`, 4,000,000,000,000, fails with `422`. `blur=1000` on a 10-megapixel photo took about 7 seconds
+  and now fails. Raise `max_blur_work` to allow larger blurs.
+- `blur` and `sharpen` buffer the image in memory before filtering it. They
+  recomputed earlier steps, such as an enlarge or a color conversion, many
+  times over, so `sharpen=10/w=8000/h=8000/enlarge` took 14 s. It now takes
+  under 1 s. A request with `blur` or `sharpen` holds one copy of the image in
+  memory at that point.
 - Cached `output=blurhash`, `output=lqip-css`, and `output=info` responses
   that include a placeholder miss once after upgrading, since placeholders of
   transparent images changed.
@@ -88,10 +95,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a transparent PNG's placeholder could be dark while the JPEG the same URL
   returns is light. Placeholders now render transparency on white, unless
   `bg` sets a background.
-- A mount configured at compile time, such as in a router's `forward` options,
-  could fail to compile with "does not implement ImagePipe.Transform.Detector"
-  when its custom detector was compiled in the same pass. Configuration now
-  waits for the detector module to compile.
+- An `ImagePipe.Plug` configured at compile time, such as in a router's
+  `forward` options, could fail to compile with "does not implement
+  ImagePipe.Transform.Detector" when its custom detector was compiled in the
+  same pass. Configuration now waits for the detector module to compile.
 - The `[:transform, :detect, :model]` span reported a model that is
   unavailable, such as a face model without `image_vision`, as `result:
   :error`, and the default Logger logged it as a model error. It now reports

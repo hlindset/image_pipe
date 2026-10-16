@@ -51,6 +51,21 @@ defmodule ImagePipe.API.WorkingLimitsWireTest do
     end
   end
 
+  # The 43x64 source has 2752 pixels, so a budget of 2752 * 100 allows sigma 10.
+  test "a blur over max_blur_work fails with 422" do
+    mount = mount(max_blur_work: 2752 * 100)
+
+    for options <- ["blur=10.5", "progressive-blur=10.5", "w=86/enlarge/blur=8"] do
+      result = request(mount, options)
+      assert result.status == 422, options
+      assert result.resp_body == "blur exceeds the work limit"
+    end
+
+    for options <- ["blur=10", "progressive-blur=10,down,0.5", "w=21/blur=14"] do
+      assert request(mount, options).status == 200, options
+    end
+  end
+
   test "a lazy oversized frame followed by a small crop retains its coordinates and pixels" do
     result = request(mount(), "w=500/h=500/fit=stretch/enlarge/-/region=123,456,32,24")
     assert result.status == 200

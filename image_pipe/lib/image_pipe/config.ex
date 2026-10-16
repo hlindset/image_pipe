@@ -172,6 +172,16 @@ defmodule ImagePipe.Config do
       may be larger when a crop reduces them before those steps.
       """
     ],
+    max_blur_work: [
+      type: :pos_integer,
+      default: 4_000_000_000_000,
+      doc: """
+      Limit for `blur` and `progressive-blur`: the pixels of the image being \
+      blurred, times the square of the sigma. A blur over it fails with `422`. \
+      The default allows any sigma on a 2,000,000-pixel image, and a sigma \
+      up to 632 on a 10,000,000-pixel image.
+      """
+    ],
     max_result_height: [
       type: :pos_integer,
       default: 8_192,

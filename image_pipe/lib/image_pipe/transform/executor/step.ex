@@ -109,8 +109,21 @@ defmodule ImagePipe.Transform.Executor.Step do
   end
 
   defp execute_step(state, operation, execute) do
-    with {:ok, state} <- prepare(state, operation) do
+    with :ok <- work_limit(operation, state),
+         {:ok, state} <- prepare(state, operation) do
       transform_result(execute.(operation, state))
+    end
+  end
+
+  # Checked before materializing, so a rejected blur buffers nothing.
+  defp work_limit(%Blur{sigma: sigma}, state), do: blur_limit(state, sigma)
+  defp work_limit(%ProgressiveBlur{sigma: sigma}, state), do: blur_limit(state, sigma)
+  defp work_limit(_operation, _state), do: :ok
+
+  defp blur_limit(state, sigma) do
+    case WorkLimits.blur(state, sigma) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:transform, reason}}
     end
   end
 
