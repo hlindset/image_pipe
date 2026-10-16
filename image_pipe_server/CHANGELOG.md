@@ -49,6 +49,17 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   that reached a full acceptor waited about five seconds, then was closed,
   even while the server had room. `max_connections` is now an exact cap.
 
+### Security
+
+- Bandit 1.13.1 fixes two advisories:
+  - An HTTP/2 client that trickled window updates could keep a stream's
+    send blocked indefinitely (GHSA-69m6-wcv4-rwcf). Earlier releases were
+    exposed through HTTP/2 over plain HTTP, which this release also turns
+    off.
+  - An HTTP/1 request target's authority wasn't validated, so a client could
+    choose `conn.host` and `conn.port` (GHSA-v53v-9hvg-37jf). The server
+    doesn't read either.
+
 ## [0.2.0] - 2026-10-13
 
 ### Added

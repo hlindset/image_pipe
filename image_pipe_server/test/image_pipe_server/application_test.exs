@@ -330,9 +330,16 @@ defmodule ImagePipeServer.ApplicationTest do
       start_supervised!(Supervisor.child_spec({Bandit, opts}, id: :idle_listener))
       {:ok, {_ip, port}} = ThousandIsland.listener_info(name)
 
-      {:ok, socket} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, active: false])
-      assert {:ok, "HTTP/1.0 408 Request Timeout" <> _rest} = :gen_tcp.recv(socket, 0, 2_000)
-      assert {:error, :closed} = :gen_tcp.recv(socket, 0, 2_000)
+      # A connection that sends nothing is closed without a response.
+      {:ok, silent} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, active: false])
+      assert {:error, :closed} = :gen_tcp.recv(silent, 0, 2_000)
+
+      # One that stops partway through a request gets a 408 first.
+      {:ok, partial} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, active: false])
+      :ok = :gen_tcp.send(partial, "GET /health/live HTTP/1.1\r\n")
+      assert {:ok, "HTTP/1." <> response} = :gen_tcp.recv(partial, 0, 2_000)
+      assert response =~ "408"
+      assert {:error, :closed} = :gen_tcp.recv(partial, 0, 2_000)
     end
   end
 
