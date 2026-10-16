@@ -23,7 +23,7 @@ defmodule ImagePipe.Plug.Runner do
     conn = CORS.maybe_register(conn, config)
 
     Telemetry.Trace.with_inbound(conn, fn ->
-      Telemetry.span(Telemetry.telemetry_opts(config), [:request], %{}, fn ->
+      Telemetry.span(Telemetry.telemetry_opts(config), [:request], request_metadata(conn), fn ->
         {conn, metadata} = route(conn, config)
 
         # A committed 200 whose stream then failed: the shared Sender stamps
@@ -38,6 +38,13 @@ defmodule ImagePipe.Plug.Runner do
       end)
     end)
     |> abort_failed_stream()
+  end
+
+  # Telemetry belongs to the operator, so the path is as sent, concealed
+  # source included. Only a presigned source URL's credentials are redacted.
+  defp request_metadata(conn) do
+    path = ParsedRequest.mount_relative_path(conn)
+    %{method: conn.method, path: Telemetry.request_path(path, conn.query_string)}
   end
 
   # Returning the conn lets the server end the body as if it were complete.

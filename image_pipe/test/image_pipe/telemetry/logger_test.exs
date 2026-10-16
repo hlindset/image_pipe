@@ -18,15 +18,15 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "attach is idempotent and detach removes the handler" do
-    assert :ok = Telemetry.attach_default_logger()
-    assert :ok = Telemetry.attach_default_logger()
+    assert :ok = Telemetry.attach_default_logger(stages: true)
+    assert :ok = Telemetry.attach_default_logger(stages: true)
     assert :ok = Telemetry.detach_default_logger()
     assert {:error, :not_found} = Telemetry.detach_default_logger()
   end
 
   test "lines from the processing worker carry the request's Logger metadata" do
     prefix = [__MODULE__, :request_id]
-    Telemetry.attach_default_logger(prefix: prefix, events: [:transform])
+    Telemetry.attach_default_logger(prefix: prefix, events: [:transform], stages: true)
     pool = start_supervised!({ImagePipe.ProcessingPool, max_concurrency: 1})
 
     config =
@@ -60,7 +60,13 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
   test "logs processing admission and deadline outcomes at warning level" do
     prefix = [__MODULE__, :processing]
-    Telemetry.attach_default_logger(prefix: prefix, events: [:request], level: :debug)
+
+    Telemetry.attach_default_logger(
+      prefix: prefix,
+      events: [:request],
+      level: :debug,
+      stages: true
+    )
 
     log =
       capture_log([level: :warning], fn ->
@@ -82,7 +88,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
   test "renders successful source revalidation and truncated-source failures" do
     prefix = [__MODULE__, :origin_revalidation]
-    Telemetry.attach_default_logger(prefix: prefix)
+    Telemetry.attach_default_logger(prefix: prefix, stages: true)
 
     log =
       capture_log(fn ->
@@ -103,7 +109,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
   test "renders watermark acquisition phases with their outcome" do
     prefix = [__MODULE__, :watermark]
-    Telemetry.attach_default_logger(prefix: prefix)
+    Telemetry.attach_default_logger(prefix: prefix, stages: true)
 
     log =
       capture_log(fn ->
@@ -125,7 +131,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
   test "names the source on resolve and fetch lines" do
     prefix = [__MODULE__, :source_name]
-    Telemetry.attach_default_logger(prefix: prefix)
+    Telemetry.attach_default_logger(prefix: prefix, stages: true)
 
     log =
       capture_log(fn ->
@@ -148,7 +154,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "logs a cache lookup hit at the configured level" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -163,7 +169,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "drops events below Logger's level and still logs warnings" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
     level = Logger.level()
     Logger.configure(level: :warning)
     on_exit(fn -> Logger.configure(level: level) end)
@@ -195,7 +201,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
   test "logs coordinated cache stages and escalates refresh failure" do
     prefix = [__MODULE__, :coordinated]
-    Telemetry.attach_default_logger(prefix: prefix)
+    Telemetry.attach_default_logger(prefix: prefix, stages: true)
 
     log =
       capture_log(fn ->
@@ -221,7 +227,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
   test "warns about cache writes dropped to keep up with storage" do
     prefix = [__MODULE__, :dropped_write]
-    Telemetry.attach_default_logger(prefix: prefix, level: :info)
+    Telemetry.attach_default_logger(prefix: prefix, level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -239,7 +245,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
   test "output coalescing retains outcomes and warns on bypass" do
     prefix = [__MODULE__, :output_coordination]
-    Telemetry.attach_default_logger(prefix: prefix, level: :info)
+    Telemetry.attach_default_logger(prefix: prefix, level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -259,7 +265,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
   test "logs the cache sweep span" do
     prefix = [__MODULE__, :cache_sweep]
-    Telemetry.attach_default_logger(prefix: prefix, level: :info)
+    Telemetry.attach_default_logger(prefix: prefix, level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -273,7 +279,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
   test "logs cache sweeps that changed nothing at debug level" do
     prefix = [__MODULE__, :cache_quiet_passes]
-    Telemetry.attach_default_logger(prefix: prefix, level: :info)
+    Telemetry.attach_default_logger(prefix: prefix, level: :info, stages: true)
     opts = [telemetry_prefix: prefix]
 
     log =
@@ -293,7 +299,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
   test "warns when a request stops waiting for another's source download" do
     prefix = [__MODULE__, :source_wait_timeout]
-    Telemetry.attach_default_logger(prefix: prefix, level: :info)
+    Telemetry.attach_default_logger(prefix: prefix, level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -308,7 +314,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "renders the encode span with its output format" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -324,7 +330,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
   test "renders an output terminal span with its terminal and outcome" do
     prefix = [:logger_terminal_test]
-    Telemetry.attach_default_logger(level: :info, prefix: prefix)
+    Telemetry.attach_default_logger(level: :info, prefix: prefix, stages: true)
 
     log =
       capture_log(fn ->
@@ -354,7 +360,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "escalates an output terminal computation failure" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -370,7 +376,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "renders the request span with the :options (OPTIONS) outcome" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -385,7 +391,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "escalates a request-stage source/plan/parser error to warning" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     for result <- [:source_error, :plan_error, :parser_error] do
       log =
@@ -407,7 +413,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   # the base level there — unlike the same result at `[:encode]`, which is
   # always a genuine server-side compute failure (see the test above).
   test "does not escalate a request-stage processing error to warning" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -422,7 +428,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "escalates an encode processing error to warning" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -438,7 +444,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "renders the encode-search stop with outcome, chosen quality/bytes, and score" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -463,7 +469,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "renders the crop scorer in the encode-search stop line" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -489,7 +495,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "escalates a best-effort encode-search to warning" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -512,7 +518,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "renders an encode-search probe span stop with its phase, quality, bytes, score" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -528,7 +534,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "renders the delivered-probe chosen marker with quality, bytes, phase, score" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -544,7 +550,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "renders the ignored options of a request at the base level" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -560,7 +566,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "escalates an encode-search probe exception to warning" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -576,7 +582,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "renders the deliver span and does not escalate a client disconnect" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -592,7 +598,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "escalates error outcomes to warning" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -608,7 +614,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "renders the stored body size on cache writes" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -623,7 +629,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "renders exception events as exceptions at warning level" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -639,7 +645,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "escalates a configured-detector fallback (:unavailable) to warning" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -655,7 +661,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "logs the face-assist blend one-shot at base level, showing the saliency skew" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -672,7 +678,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "logs the no-detector skipped one-shot at warning" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -688,7 +694,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "logs the output clamp one-shot at warning with source -> clamped dims" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -711,7 +717,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "logs the debug collect error one-shot at warning with the error tag" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -727,7 +733,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "logs a normal no-face detect fallback at the base level, not warning" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -744,7 +750,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
   test "renders transform operation success and error outcomes" do
     prefix = [__MODULE__, :operation_outcome]
-    Telemetry.attach_default_logger(level: :debug, prefix: prefix)
+    Telemetry.attach_default_logger(level: :debug, prefix: prefix, stages: true)
     state = %State{image: Image.new!(20, 10, color: :white)}
     resize = %Resize{width: 10, height: 5}
 
@@ -767,7 +773,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "renders the transform execute aggregate with outcome and operation count" do
-    Telemetry.attach_default_logger(level: :debug)
+    Telemetry.attach_default_logger(level: :debug, stages: true)
 
     log =
       capture_log([level: :debug], fn ->
@@ -782,7 +788,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "renders the transform execute aggregate with a failure outcome" do
-    Telemetry.attach_default_logger(level: :debug)
+    Telemetry.attach_default_logger(level: :debug, stages: true)
 
     log =
       capture_log([level: :debug], fn ->
@@ -797,7 +803,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "logs input_color_management success at base level with working space" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -814,7 +820,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "logs input_color_management with imported profile marker" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -831,7 +837,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "logs input_color_management preserved HDR working space" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -847,7 +853,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "escalates input_color_management processing error to warning" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -863,7 +869,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "renders the detected source format and resolution on the fetch_decode span" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -878,7 +884,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "renders an SVG render's sizes, and a rejected render's limit" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -913,7 +919,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "renders a skipped source on the fetch_decode span" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -928,7 +934,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "renders the detected format on an unsupported-format reject" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -948,7 +954,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "renders the rejected loader on a loader-family mismatch" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -969,7 +975,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "renders the selected page and the page count" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -984,7 +990,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "renders the frame count and the rejecting input limit on the fetch_decode span" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -1006,7 +1012,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "renders the output negotiate span with its outcome and format" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -1022,7 +1028,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "renders a remote source staging failure with its error category" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -1037,7 +1043,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "escalates an output negotiate failure to warning" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -1053,7 +1059,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "renders the preset lookup span and escalates its failures" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -1082,7 +1088,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
   test "renders the signing key that verified a request on the parse span" do
     prefix = [__MODULE__, :parse]
-    Telemetry.attach_default_logger(prefix: prefix, events: [:parse], level: :info)
+    Telemetry.attach_default_logger(prefix: prefix, events: [:parse], level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -1097,7 +1103,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
   test "renders the per-model detect span with its region count and outcome" do
     prefix = [__MODULE__, :model_success]
-    Telemetry.attach_default_logger(level: :info, prefix: prefix)
+    Telemetry.attach_default_logger(level: :info, prefix: prefix, stages: true)
 
     log =
       capture_log(fn ->
@@ -1119,7 +1125,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
   test "logs composite child failures at warning level" do
     prefix = [__MODULE__, :model_failure]
-    Telemetry.attach_default_logger(level: :info, prefix: prefix)
+    Telemetry.attach_default_logger(level: :info, prefix: prefix, stages: true)
     detector = FakeDetector.returning({:error, "private detector reason"})
     composite = [detector]
 
@@ -1133,7 +1139,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "logs the http_cache prepare one-shot at base level with its mode" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -1150,7 +1156,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "logs the http_cache conditional match one-shot with the method" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -1166,7 +1172,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "logs the http_cache no-store fallback one-shot with its reason" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -1182,7 +1188,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "logs the http_cache cache-hit headers one-shot" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -1198,7 +1204,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "http_cache events can be filtered as their own group" do
-    Telemetry.attach_default_logger(level: :info, events: [:cache])
+    Telemetry.attach_default_logger(level: :info, events: [:cache], stages: true)
 
     log =
       capture_log(fn ->
@@ -1213,11 +1219,13 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "rejects an invalid log level" do
-    assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(level: :nope) end
+    assert_raise ArgumentError, fn ->
+      Telemetry.attach_default_logger(level: :nope, stages: true)
+    end
   end
 
   test ":events filter excludes other groups" do
-    Telemetry.attach_default_logger(level: :info, events: [:cache])
+    Telemetry.attach_default_logger(level: :info, events: [:cache], stages: true)
 
     log =
       capture_log(fn ->
@@ -1232,7 +1240,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
   test ":debug true logs the raw payload including high-cardinality fields" do
     prefix = [__MODULE__, :operation_debug]
-    Telemetry.attach_default_logger(level: :debug, debug: true, prefix: prefix)
+    Telemetry.attach_default_logger(level: :debug, debug: true, prefix: prefix, stages: true)
     state = %State{image: Image.new!(20, 10, color: :white)}
     resize = %Resize{width: 12, height: 5}
 
@@ -1249,7 +1257,12 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test ":prefix attaches under a custom event prefix" do
-    Telemetry.attach_default_logger(level: :info, events: [:cache], prefix: [:my_app, :images])
+    Telemetry.attach_default_logger(
+      level: :info,
+      events: [:cache],
+      prefix: [:my_app, :images],
+      stages: true
+    )
 
     log =
       capture_log(fn ->
@@ -1265,14 +1278,21 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
   test "rejects unknown options, bad event groups, a non-list prefix, and a non-boolean debug" do
     assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(bogus: true) end
-    assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(events: [:nope]) end
-    assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(prefix: "nope") end
+
+    assert_raise ArgumentError, fn ->
+      Telemetry.attach_default_logger(events: [:nope], stages: true)
+    end
+
+    assert_raise ArgumentError, fn ->
+      Telemetry.attach_default_logger(prefix: "nope", stages: true)
+    end
+
     assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(debug: :yes) end
   end
 
   test "invalid configuration leaves the existing logger attached" do
     prefix = [__MODULE__, :invalid_configuration]
-    Telemetry.attach_default_logger(prefix: prefix, events: [:cache])
+    Telemetry.attach_default_logger(prefix: prefix, events: [:cache], stages: true)
 
     for opts <- [[prefix: []], [prefix: [:app, "images"]], [events: "cache"], [events: [nil]]] do
       assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(opts) end
@@ -1292,7 +1312,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   test "orientation logs materialization of each display frame" do
     prefix = [__MODULE__, :orientation]
     opts = [telemetry_prefix: prefix]
-    Telemetry.attach_default_logger(prefix: prefix, level: :info, debug: true)
+    Telemetry.attach_default_logger(prefix: prefix, level: :info, debug: true, stages: true)
 
     state = %State{
       image: Image.new!(40, 20),
@@ -1318,7 +1338,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "materialize stop carrying materialize_error escalates to warning" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->
@@ -1334,7 +1354,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "materialize exception escalates to warning" do
-    Telemetry.attach_default_logger(level: :info)
+    Telemetry.attach_default_logger(level: :info, stages: true)
 
     log =
       capture_log(fn ->

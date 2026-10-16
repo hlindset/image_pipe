@@ -10,6 +10,10 @@ config :opentelemetry,
   traces_exporter: :none,
   resource: [service: %{name: "image_pipe_server"}]
 
+# `log_format` JSON goes through Elixir's own encoder, so the server needs
+# no Jason.
+config :logger_json, encoder: JSON
+
 config :logger, :default_formatter,
   format: "$date $time $metadata[$level] $message\n",
   metadata: [:request_id]

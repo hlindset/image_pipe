@@ -139,7 +139,7 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
     refute_received {:cache_lookup, _, _key}
   end
 
-  test "diagnostics, debug headers, and telemetry do not reveal concealed source material" do
+  test "diagnostics and debug headers do not reveal concealed source material, nor telemetry keys" do
     config = mount(allow_debug_headers: true)
     token = encrypt_source(@source, config)
     pid = self()
@@ -190,15 +190,22 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
     metadata = collect_telemetry([])
     refute metadata == []
 
-    observable =
+    # Concealment hides the source from the requester. Telemetry belongs to
+    # the operator, so it may show the token and signature, but never a key.
+    requester =
       inspect(
-        {invalid.resp_body, unsigned.resp_body, misplaced.resp_body, valid.resp_headers,
-         metadata},
+        {invalid.resp_body, unsigned.resp_body, misplaced.resp_body, valid.resp_headers},
         limit: :infinity
       )
 
     for secret <- [@source, token, invalid_signature, @signing_key, @encryption_key] do
-      refute String.contains?(observable, secret)
+      refute String.contains?(requester, secret)
+    end
+
+    operator = inspect(metadata, limit: :infinity)
+
+    for key <- [@signing_key, @encryption_key] do
+      refute String.contains?(operator, key)
     end
   end
 

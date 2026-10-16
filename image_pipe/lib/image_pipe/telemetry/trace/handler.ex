@@ -22,9 +22,13 @@ defmodule ImagePipe.Telemetry.Trace.Handler do
 
   # Keys safe to copy into span attributes (allowlist; everything else dropped).
   #
-  # Never allow source URLs/paths, request paths, signatures, tokens, or other
-  # secret-bearing data. Keep :params opaque: matching concrete transform structs
-  # here would invert the telemetry dependency boundary.
+  # Never allow keys, tokens, or other secret-bearing data. The request's
+  # method and path go on the request span under OTel's names (see
+  # start_attributes/2): the path arrives with a presigned source URL's
+  # credentials redacted. An ImagePipe URL signature authorizes only that URL, and source
+  # concealment hides the source from the requester, not the operator.
+  # Keep :params opaque: matching concrete transform structs here would invert
+  # the telemetry dependency boundary.
   @safe_keys [
     :pool,
     # hash of the cache key a lookup or write used
@@ -275,15 +279,34 @@ defmodule ImagePipe.Telemetry.Trace.Handler do
   defp name(stage), do: "image_pipe." <> Enum.map_join(stage, ".", &Atom.to_string/1)
 
   # The request span also carries the host's request ID, such as the one
-  # `Plug.RequestId` puts in Logger metadata, linking the trace to log lines.
+  # `Plug.RequestId` puts in Logger metadata, linking the trace to log lines,
+  # and the request's method and path under OTel's HTTP attribute names.
   defp start_attributes([:request], meta) do
+    attributes =
+      meta
+      |> attributes()
+      |> put_present(:"http.request.method", meta[:method])
+      |> put_url(meta[:path])
+
     case Logger.metadata()[:request_id] do
-      nil -> attributes(meta)
-      request_id -> meta |> attributes() |> Map.put(:request_id, coerce(request_id))
+      nil -> attributes
+      request_id -> Map.put(attributes, :request_id, coerce(request_id))
     end
   end
 
   defp start_attributes(_stage, meta), do: attributes(meta)
+
+  defp put_url(attributes, nil), do: attributes
+
+  defp put_url(attributes, path) do
+    case String.split(path, "?", parts: 2) do
+      [path, query] -> attributes |> Map.put(:"url.path", path) |> Map.put(:"url.query", query)
+      [path] -> Map.put(attributes, :"url.path", path)
+    end
+  end
+
+  defp put_present(attributes, _key, nil), do: attributes
+  defp put_present(attributes, key, value), do: Map.put(attributes, key, value)
 
   # Allowlisted metadata, as OpenTelemetry attribute values. The API drops
   # values that aren't primitives, so others are coerced instead.

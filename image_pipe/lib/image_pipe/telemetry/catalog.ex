@@ -5,18 +5,22 @@ defmodule ImagePipe.Telemetry.Catalog do
   # so an event added here reaches both, and `docs/telemetry-events.md`
   # documents each one.
   #
-  # Each entry is `{stage, kind, group}` or `{stage, kind, group, :trace_only}`:
+  # Each entry is `{stage, kind, group}`, or `{stage, kind, group, flag}`:
   #
   #   * kind: `:span` (emitted as `:start`, `:stop`, and `:exception`) or
   #     `:oneshot` (one event, its full name is the stage).
   #   * group: the Logger event group that selects it (`attach_default_logger/1`'s
   #     `:events` option).
-  #   * `:trace_only`: traced, but not logged.
+  #   * flag `:trace_only`: traced, but not logged.
+  #   * flag `:log_only`: logged, but not traced.
 
   @groups [:request, :parse, :source, :transform, :cache, :output, :http_cache, :debug]
 
   @entries [
     {[:request], :span, :request},
+    # One record of the whole request, emitted after its span stops. The
+    # tracer already has the spans it summarizes.
+    {[:request, :summary], :oneshot, :request, :log_only},
     {[:request, :ignored_options], :oneshot, :request},
     {[:processing, :admission], :span, :request},
     {[:processing, :execute], :span, :request},
@@ -74,24 +78,30 @@ defmodule ImagePipe.Telemetry.Catalog do
   @spec groups() :: [atom()]
   def groups, do: @groups
 
-  @doc "Every entry as `{stage, kind, group, logged?}`."
-  @spec entries() :: [{[atom()], :span | :oneshot, atom(), boolean()}]
+  # Events the summary line replaces are left out of it. These aren't part
+  # of one request, so it keeps them.
+  @background_stages [[:cache, :sweep], [:cache, :eviction, :stop]]
+
+  @doc "Every entry as `{stage, kind, group, logged?, traced?}`."
+  @spec entries() :: [{[atom()], :span | :oneshot, atom(), boolean(), boolean()}]
   def entries do
     for entry <- @entries do
       case entry do
-        {stage, kind, group} -> {stage, kind, group, true}
-        {stage, kind, group, :trace_only} -> {stage, kind, group, false}
+        {stage, kind, group} -> {stage, kind, group, true, true}
+        {stage, kind, group, :trace_only} -> {stage, kind, group, false, true}
+        {stage, kind, group, :log_only} -> {stage, kind, group, true, false}
       end
     end
   end
 
   @doc "The stages emitted as spans."
   @spec span_stages() :: [[atom()]]
-  def span_stages, do: for({stage, :span, _group, _logged?} <- entries(), do: stage)
+  def span_stages, do: for({stage, :span, _group, _logged?, _traced?} <- entries(), do: stage)
 
   @doc "The stages emitted as one-shot events."
   @spec oneshot_stages() :: [[atom()]]
-  def oneshot_stages, do: for({stage, :oneshot, _group, _logged?} <- entries(), do: stage)
+  def oneshot_stages,
+    do: for({stage, :oneshot, _group, _logged?, _traced?} <- entries(), do: stage)
 
   @doc """
   The full names of the events the Logger subscribes to for `groups`, under
@@ -100,10 +110,27 @@ defmodule ImagePipe.Telemetry.Catalog do
   """
   @spec logged_events([atom()], [atom()]) :: [[atom()]]
   def logged_events(groups, prefix) do
-    for {stage, kind, group, true} <- entries(),
+    for {stage, kind, group, true, _traced?} <- entries(),
         group in groups,
         suffix <- suffixes(kind),
         do: prefix ++ stage ++ suffix
+  end
+
+  @doc """
+  The full names of the events the Logger subscribes to for `groups` without
+  stage lines: the request summary, a request that raised (which has no
+  summary), and the events outside any one request.
+  """
+  @spec summary_events([atom()], [atom()]) :: [[atom()]]
+  def summary_events(groups, prefix) do
+    raised = if :request in groups, do: [prefix ++ [:request, :exception]], else: []
+
+    raised ++
+      for {stage, kind, group, true, _traced?} <- entries(),
+          group in groups,
+          stage == [:request, :summary] or stage in @background_stages,
+          suffix <- suffixes(kind),
+          do: prefix ++ stage ++ suffix
   end
 
   @doc """
@@ -112,7 +139,7 @@ defmodule ImagePipe.Telemetry.Catalog do
   """
   @spec traced_events([atom()]) :: [[atom()]]
   def traced_events(prefix) do
-    for {stage, kind, _group, _logged?} <- entries(),
+    for {stage, kind, _group, _logged?, true} <- entries(),
         suffix <- if(kind == :span, do: [[:start], [:stop], [:exception]], else: [[]]),
         do: prefix ++ stage ++ suffix
   end

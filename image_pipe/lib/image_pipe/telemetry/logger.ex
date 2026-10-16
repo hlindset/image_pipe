@@ -10,6 +10,35 @@ defmodule ImagePipe.Telemetry.Logger do
 
   @handler_id "image-pipe-default-logger"
 
+  # The summary fields after the line's head, in the order they're written.
+  @summary_keys [
+    :error,
+    :reason,
+    :sig_key,
+    :cache,
+    :input_cache,
+    :source,
+    :source_fetch,
+    :fetch_ms,
+    :input,
+    :input_size,
+    :decode_ms,
+    :ops,
+    :output,
+    :output_size,
+    :clamped,
+    :quality,
+    :quality_search,
+    :encode_ms,
+    :admission,
+    :queue_ms,
+    :detect,
+    :degraded,
+    :ignored,
+    :skipped,
+    :client_closed
+  ]
+
   def all_groups, do: Catalog.groups()
 
   def attach(opts) do
@@ -18,16 +47,16 @@ defmodule ImagePipe.Telemetry.Logger do
     level = Keyword.get(opts, :level, :info)
     debug? = Keyword.get(opts, :debug, false)
 
+    events =
+      case Keyword.get(opts, :stages, false) do
+        true -> Catalog.logged_events(groups, prefix)
+        false -> Catalog.summary_events(groups, prefix)
+      end
+
     config = %{prefix: prefix, level: level, debug?: debug?, plen: length(prefix)}
 
     _ = :telemetry.detach(@handler_id)
-
-    :telemetry.attach_many(
-      @handler_id,
-      Catalog.logged_events(groups, prefix),
-      &__MODULE__.handle_event/4,
-      config
-    )
+    :telemetry.attach_many(@handler_id, events, &__MODULE__.handle_event/4, config)
   end
 
   def detach, do: :telemetry.detach(@handler_id)
@@ -46,7 +75,7 @@ defmodule ImagePipe.Telemetry.Logger do
       Logger.log(
         level,
         fn -> render(suffix, measurements, metadata) end,
-        log_metadata(event, measurements, metadata)
+        log_metadata(suffix, event, measurements, metadata)
       )
     end
 
@@ -74,6 +103,22 @@ defmodule ImagePipe.Telemetry.Logger do
   end
 
   # --- level ---
+  # The request summary follows the status: 5xx is an error, 4xx a warning. A
+  # response that failed after its headers went out is an error whatever its
+  # status says.
+  # Without a status (`ImagePipe.run/4`), a failure is a warning. So is a
+  # degraded result, detection that fell back to attention, a quality search
+  # that missed its target, or a result scaled down to the limits.
+  defp level_for([:request, :summary], metadata, base) do
+    status = metadata[:status] || 0
+
+    cond do
+      status >= 500 or (status > 0 and metadata[:result] == :processing_error) -> :error
+      status >= 400 or summary_warning?(metadata) -> :warning
+      true -> base
+    end
+  end
+
   defp level_for([:output, :clamp | _], _metadata, _base), do: :warning
 
   # A best-effort encode-quality search (the objective/budget could not be met
@@ -113,6 +158,14 @@ defmodule ImagePipe.Telemetry.Logger do
 
   defp level_for(suffix, metadata, base) do
     if stage_warning?(suffix, metadata), do: :warning, else: base
+  end
+
+  defp summary_warning?(metadata) do
+    (is_nil(metadata[:status]) and metadata[:result] not in [nil, :ok, :not_modified, :options]) or
+      metadata[:degraded] == true or
+      metadata[:detect] in [:unavailable, :error, :no_detector] or
+      metadata[:quality_search] == :best_effort or
+      Map.has_key?(metadata, :clamped)
   end
 
   defp quiet_pass?(metadata) do
@@ -176,6 +229,22 @@ defmodule ImagePipe.Telemetry.Logger do
   defp preset_lookup_failure?(_suffix, _meta), do: false
 
   # --- message ---
+  # `GET /w=200/src/beach.jpg 200 71ms 4.6kB`, then the other fields as
+  # `key=value`. `ImagePipe.run/4` has no method, path, or status, so its line
+  # starts with the result.
+  defp message([:request, :summary], _m, meta) do
+    head =
+      [meta[:method], meta[:path], meta[:status] || meta[:result], "#{meta[:duration_ms]}ms"] ++
+        List.wrap(if bytes = meta[:bytes], do: size(bytes))
+
+    rest =
+      for key <- @summary_keys, value = Map.get(meta, key), value != nil do
+        "#{key}=#{summary_value(value)}"
+      end
+
+    Enum.join(Enum.reject(head, &is_nil/1) ++ rest, " ")
+  end
+
   defp message([:transform, :operation | _], _m, meta) do
     "image_pipe transform: #{meta[:operation]} #{outcome(meta)}"
   end
@@ -432,6 +501,23 @@ defmodule ImagePipe.Telemetry.Logger do
     |> Enum.map_join(" ", &Atom.to_string/1)
   end
 
+  defp size(bytes) when bytes < 1_000, do: "#{bytes}B"
+  defp size(bytes) when bytes < 1_000_000, do: "#{Float.round(bytes / 1_000, 1)}kB"
+  defp size(bytes), do: "#{Float.round(bytes / 1_000_000, 1)}MB"
+
+  # Values with spaces or quotes are quoted, as in logfmt.
+  defp summary_value(value) when is_binary(value) do
+    if String.contains?(value, [" ", "\"", "="]), do: inspect(value), else: value
+  end
+
+  defp summary_value(values) when is_list(values),
+    do: Enum.map_join(values, ",", &summary_value/1)
+
+  defp summary_value({width, height}), do: "#{width}x#{height}"
+
+  defp summary_value(value) when is_atom(value) or is_number(value), do: to_string(value)
+  defp summary_value(value), do: inspect(value)
+
   defp point({x, y}), do: "(#{round2(x)},#{round2(y)})"
   defp point(_other), do: "(?,?)"
 
@@ -442,7 +528,12 @@ defmodule ImagePipe.Telemetry.Logger do
   defp round2(_other), do: nil
 
   # --- logger metadata ---
-  defp log_metadata(event, measurements, metadata) do
+  # The summary's fields go under one key, so they can't collide with fields a
+  # JSON formatter or log collector reserves, such as Datadog's `status`.
+  defp log_metadata([:request, :summary], event, _measurements, metadata),
+    do: [event: event, image_pipe: metadata]
+
+  defp log_metadata(_suffix, event, measurements, metadata) do
     base = [event: event]
 
     base =

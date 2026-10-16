@@ -50,6 +50,7 @@ defmodule ImagePipeServer.Config do
     :http,
     :pool,
     :log_level,
+    :log_format,
     :telemetry,
     :credential_warmups
   ]
@@ -72,6 +73,8 @@ defmodule ImagePipeServer.Config do
     * `:http` - the delivery options of `ImagePipe.Plug.init/1`.
     * `:pool` - `ImagePipe.ProcessingPool` options with the pool's name.
     * `:log_level` - the lowest level the server logs.
+    * `:log_format` - `:text`, or the `logger_json` format: `:json`, `:gcp`,
+      `:datadog`, or `:elastic`.
     * `:telemetry` - default Logger options when requests are logged, or
       `nil`.
     * `:credential_warmups` - `ImagePipe.Source.S3.CredentialWarmup` options,
@@ -86,6 +89,7 @@ defmodule ImagePipeServer.Config do
           http: keyword(),
           pool: keyword(),
           log_level: Logger.level(),
+          log_format: :text | :json | :gcp | :datadog | :elastic,
           telemetry: keyword() | nil,
           credential_warmups: [keyword()]
         }
@@ -106,7 +110,9 @@ defmodule ImagePipeServer.Config do
 
   @telemetry_schema [
     log_level: [type: {:in, Logger.levels()}, default: :info],
-    log_requests: [type: :boolean, default: false],
+    log_requests: [type: :boolean, default: true],
+    log_stages: [type: :boolean, default: false],
+    log_format: [type: {:in, [:text, :json, :gcp, :datadog, :elastic]}, default: :text],
     trust_traceparent: [type: :boolean, default: false],
     trust_request_id: [type: :boolean, default: false]
   ]
@@ -297,6 +303,7 @@ defmodule ImagePipeServer.Config do
       http: http!(Keyword.get(sections, :http, [])),
       pool: pool,
       log_level: Keyword.get(Keyword.get(sections, :telemetry, []), :log_level, :info),
+      log_format: Keyword.get(Keyword.get(sections, :telemetry, []), :log_format, :text),
       telemetry: telemetry(Keyword.get(sections, :telemetry, [])),
       credential_warmups: credential_warmups(Keyword.get(sections, :sources, []))
     }
@@ -449,10 +456,20 @@ defmodule ImagePipeServer.Config do
 
   defp trust_traceparent(options), do: Keyword.get(options, :trust_traceparent, false)
 
-  # Request lines log at `info` and failures at `warning`, so `log_level`
-  # can keep only the failures.
+  # Request lines log at `info` and failures at `warning` or `error`, so
+  # `log_level` can keep only the failures.
   defp telemetry(options) do
-    if Keyword.get(options, :log_requests, false), do: [level: :info]
+    case {Keyword.get(options, :log_requests, true), Keyword.get(options, :log_stages, false)} do
+      {true, stages} ->
+        [level: :info, stages: stages]
+
+      {false, false} ->
+        nil
+
+      {false, true} ->
+        raise ConfigError,
+              "invalid configuration: telemetry.log_stages: needs log_requests = true"
+    end
   end
 
   defp validate!(options, schema, section) do

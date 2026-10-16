@@ -163,6 +163,38 @@ defmodule ImagePipeServer.ApplicationTest do
     end
   end
 
+  describe "log_formatter/1" do
+    test "keeps the text formatter for text" do
+      assert App.log_formatter(:text) == nil
+    end
+
+    test "writes one JSON object per line with the request ID and summary fields" do
+      for format <- [:json, :gcp, :datadog, :elastic] do
+        {formatter, config} = App.log_formatter(format)
+
+        event = %{
+          level: :info,
+          msg: {:string, "GET /w=40/src/a.jpg 200 3ms"},
+          meta: %{
+            time: :logger.timestamp(),
+            request_id: "req-1",
+            image_pipe: %{status: 200, input_size: {40, 27}},
+            plug: {:secret, :options}
+          }
+        }
+
+        line = event |> formatter.format(config) |> IO.iodata_to_binary()
+
+        assert %{} = JSON.decode!(line), inspect(format)
+        assert [_one_line] = String.split(String.trim(line), "\n"), inspect(format)
+        assert line =~ ~s("request_id":"req-1"), inspect(format)
+        assert line =~ ~s("image_pipe":{), inspect(format)
+        assert line =~ ~s("input_size":[40,27]), inspect(format)
+        refute line =~ "secret", inspect(format)
+      end
+    end
+  end
+
   describe "http_child/2" do
     test "caps connections on one acceptor and sets the read timeout" do
       config = Config.build!(server: [max_connections: 2048, read_timeout: 5_000])

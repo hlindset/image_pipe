@@ -14,11 +14,13 @@ defmodule ImagePipe.Plug.Errors do
   alias ImagePipe.Plug.DiagnosticRenderer
   alias ImagePipe.Plug.Request
   alias ImagePipe.Response.ErrorStatus
+  alias ImagePipe.Telemetry.Summary
 
   @spec send(Plug.Conn.t(), term()) :: Plug.Conn.t()
   def send(%Plug.Conn{} = conn, {:invalid_request, diagnostics})
       when is_list(diagnostics) do
     body = DiagnosticRenderer.render(diagnostic_path(conn), diagnostics)
+    Summary.put(%{reason: Enum.map_join(diagnostics, "; ", & &1.message)})
 
     conn
     |> put_resp_content_type("text/plain")
@@ -72,6 +74,7 @@ defmodule ImagePipe.Plug.Errors do
 
   def send(%Plug.Conn{} = conn, reason) do
     {status, message} = ErrorStatus.resolve_status(reason)
+    Summary.put(%{reason: message})
 
     conn
     |> server_error_no_store(status)

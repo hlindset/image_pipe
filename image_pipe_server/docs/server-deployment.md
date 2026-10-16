@@ -283,14 +283,39 @@ requiring it, and checking that it runs are covered in
 
 ## Logging
 
-`[telemetry] log_requests = true` turns on request logging: one line per
-request stage at `info`, with failures and degraded results at `warning`. The
-[telemetry event reference](../../image_pipe/docs/telemetry-events.md)
-describes each stage.
+The server logs one line per image request: the method, path, status,
+duration, and bytes sent, then what the request did as `key=value` fields.
 
-`[telemetry] log_level` is the lowest level the server logs, `"info"` by
-default. With request logging on, `log_level = "warning"` keeps only the
-failed and degraded requests.
+```text
+2026-10-15 21:42:21.809 request_id=GN7LZj3hjwjJ8MUAAAAB [info] GET /w=200/src/beach.jpg 200 79ms 4.7kB cache=miss source=static source_fetch=ok fetch_ms=1 input=jpeg input_size=4000x2667 decode_ms=4 ops=resize output=jpeg output_size=200x133 encode_ms=6 admission=admitted queue_ms=0
+2026-10-15 21:42:21.832 request_id=GN7LZkQkDAOjtZsAAACB [warning] GET /w=200/src/missing.jpg 404 1ms error=source reason="source not found" source=static source_fetch=source_error fetch_ms=0
+```
+
+A `5xx`, or a response that failed partway through sending, logs at
+`error`. A `4xx` logs at `warning`, and so does a result that didn't come
+out as requested, such as a crop that used attention because detection
+failed or no detector is configured, or an image scaled down to the limits.
+Health checks aren't logged. The
+[`[:request, :summary]`](../../image_pipe/docs/telemetry-events.md#request-summary)
+event lists the fields. The path is logged as sent, except that a presigned
+source URL's credentials, such as an `X-Amz-Signature` value, are replaced
+with `REDACTED`. A `src64` or `wm-src64` source that carries them is
+replaced whole, as `src64/REDACTED` or `wm-src64=REDACTED`. The
+[`[:request]`](../../image_pipe/docs/telemetry-events.md#request) event
+lists the parameters.
+
+Change what's logged in `[telemetry]`:
+
+- `log_level` is the lowest level the server logs, `"info"` by default.
+  `"warning"` keeps only failed and degraded requests.
+- `log_requests = false` turns the request lines off.
+- With `log_requests` on, `log_stages = true` also logs a line for each stage
+  of each request, such as each cache lookup, the decode, and the encode,
+  for debugging.
+- `log_format` writes each line as one JSON object instead of text:
+  `"json"`, or `"gcp"`, `"datadog"`, or `"elastic"` for those collectors'
+  field names. The request's fields are under an `image_pipe` key, next to
+  `request_id`.
 
 Every response carries an `x-request-id` header, and every log line for that
 request is tagged `request_id=<id>`. The server generates the ID. Behind a

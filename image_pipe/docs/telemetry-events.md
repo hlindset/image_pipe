@@ -85,7 +85,21 @@ Span. Wraps the whole request, starting before parsing. `ImagePipe.run/4`
 emits it too, around plan checks and the shared source, transform, and output
 stages. `ImagePipe.write/5` writes its destination after the span closes.
 
-- Start metadata: none.
+- Start metadata, Plug requests only:
+  - `:method` (string): the HTTP method, such as `"GET"`.
+  - `:path` (string): the request path as sent, with its query string,
+    without the path the Plug is mounted at. Credential parameters
+    (`AWSAccessKeyId`, `Signature`, `sig`, `X-Goog-Signature`,
+    `X-Goog-Credential`, `X-Amz-Signature`, `X-Amz-Credential`, and
+    `X-Amz-Security-Token`), matched in any case or percent-encoding, are
+    redacted:
+    - In the query string, their values are replaced with `REDACTED`.
+    - A `src` URL that carries them is shown decoded, as ImagePipe reads it,
+      with their values replaced with `REDACTED`.
+    - A `src64` or `wm-src64` URL that carries them is replaced whole, as
+      `src64/REDACTED` or `wm-src64=REDACTED`, whether or not ImagePipe
+      accepts its base64.
+    - ImagePipe's own `sig=` path segment, the URL signature, is kept.
 - Stop metadata:
   - `:result` (atom): a request [result value](#result-values). When a
     response fails after streaming has started, it matches the `[:send]`
@@ -93,6 +107,68 @@ stages. `ImagePipe.write/5` writes its destination after the span closes.
   - `:status` (integer): the response status. Plug requests only.
   - `:error` (atom): the error category, on failure. `ImagePipe.run/4`
     leaves it out for `:parser_error` and `:plan_error`.
+
+### `[:request, :summary]`
+
+One-shot. Emitted once per request, right after the `[:request]` stop, with
+what the request did and how long its parts took, gathered from the events
+of every process that served it. It is emitted only if a handler is
+attached to it when the request starts. Work that runs after the response,
+such as the output cache write, isn't in it. The default Logger writes it as
+one line, and the tracer doesn't use it.
+
+- Measurements: `:duration` (integer, native time units), as on the
+  `[:request]` stop.
+- Metadata. Each field is present only when the request reached the stage
+  that produces it:
+  - `:method` and `:path`: as on the `[:request]` start.
+  - `:status`, `:result`, and `:error`: as on the `[:request]` stop.
+  - `:duration_ms` (integer): the request's duration in milliseconds.
+  - `:reason` (string): the message the error response's body gives, on
+    failure. Plug requests only.
+  - `:bytes` (integer): the body bytes sent. Plug requests only.
+  - `:sig_key` (integer): the position in the key list of the key that
+    verified the URL signature, counting from `0`. Absent for an unsigned
+    request.
+  - `:cache` (atom): the output cache's answer, as on
+    [`[:cache, :lookup]`](#cache-lookup), or `:coalesced` when the response
+    came from another request's work, or `:not_modified` for a `304`.
+  - `:input_cache` (atom): the input cache's answer for a stored original,
+    as on [`[:cache, :input]`](#cache-input). Absent when there was no
+    stored original to check, such as on an output cache hit or the first
+    fetch of an original.
+  - `:source` (atom): the source name, from `[:source, :resolve]`.
+  - `:source_fetch` (atom) and `:fetch_ms` (integer): the result and
+    duration of [`[:source, :fetch]`](#source-fetch).
+  - `:input` (atom), `:input_size` (`{width, height}`), and `:decode_ms`
+    (integer): the original's format and stored size, and the duration of
+    [`[:source, :fetch_decode]`](#source-fetch_decode).
+  - `:ops` (list of atoms): the operations that ran, in order.
+  - `:output_size` (`{width, height}`): the image size after the last
+    operation.
+  - `:clamped` (`{width, height}`): the size the result was scaled down to,
+    when it was larger than the result limits or the format allows, as on
+    [`[:output, :clamp]`](#output-clamp).
+  - `:output` (atom): the output format, or the terminal (`:info`,
+    `:blurhash`, `:lqip_css`).
+  - `:encode_ms` (integer): the duration of [`[:encode]`](#encode).
+  - `:quality` (integer) and `:quality_search` (atom), from a search for
+    `autoquality` or `max-bytes`, as on [`[:encode, :search]`](#encode-search).
+    `:quality` is the quality the search chose, and `:quality_search` is its
+    outcome, `:hit` or `:best_effort`.
+  - `:admission` (atom) and `:queue_ms` (integer): the result and duration
+    of [`[:processing, :admission]`](#processing-admission).
+  - `:detect` (atom): the result of
+    [`[:transform, :detect]`](#transform-detect), or `:no_detector` when no
+    detector is configured.
+  - `:degraded` (`true`): the response is a fallback that isn't stored, as
+    on [`[:http_cache, :fallback, :no_store]`](#http_cache-fallback-no_store).
+  - `:ignored` (list of strings): the URL keys of options that had no
+    effect, as on [`[:request, :ignored_options]`](#request-ignored_options).
+  - `:skipped` (`true`): the original was sent unchanged under
+    `skip_processing_formats`.
+  - `:client_closed` (`true`): the client disconnected before the response
+    was sent in full.
 
 ### `[:parse]`
 
@@ -105,7 +181,7 @@ preset lookup, and URL parsing. Why a request was rejected is on the
   - `:result` (atom): `:ok` or `:error`.
   - `:sig_key_index` (integer): the position in the key list of the key that
     verified the signature (`0` for the first key), on success. Absent for an unsigned request.
-    The default Logger shows it as `(signing key 1)`.
+    With `stages: true`, the default Logger shows it as `(signing key 1)`.
 
 ### `[:request, :ignored_options]`
 

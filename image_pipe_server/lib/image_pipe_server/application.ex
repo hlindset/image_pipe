@@ -17,6 +17,7 @@ defmodule ImagePipeServer.Application do
     config = config!()
 
     Logger.configure(level: config.log_level)
+    configure_log_format(config.log_format)
 
     # Each request decodes a new original, so libvips' operation cache rarely
     # hits and mostly keeps decoded images in memory.
@@ -35,6 +36,34 @@ defmodule ImagePipeServer.Application do
              name: ImagePipeServer.Supervisor
            ),
          do: {:ok, pid, {drain, Keyword.fetch!(config.server, :shutdown_delay)}}
+  end
+
+  # JSON formats replace the default handler's formatter. The request ID and
+  # the request summary, which the default Logger puts under `:image_pipe`,
+  # become JSON keys. Other metadata, such as Bandit's startup options, is
+  # left out.
+  @log_formatters %{
+    json: LoggerJSON.Formatters.Basic,
+    gcp: LoggerJSON.Formatters.GoogleCloud,
+    datadog: LoggerJSON.Formatters.Datadog,
+    elastic: LoggerJSON.Formatters.Elastic
+  }
+
+  defp configure_log_format(format) do
+    case log_formatter(format) do
+      nil -> :ok
+      # A host that removed the default handler keeps its own handlers.
+      formatter -> _ = :logger.update_handler_config(:default, :formatter, formatter)
+    end
+  end
+
+  @doc false
+  # The default handler's formatter for `format`, or nil to keep the text one.
+  @spec log_formatter(atom()) :: {module(), term()} | nil
+  def log_formatter(:text), do: nil
+
+  def log_formatter(format) do
+    Map.fetch!(@log_formatters, format).new(metadata: [:request_id, :image_pipe])
   end
 
   # Runs on shutdown before any child stops: readiness fails and responses

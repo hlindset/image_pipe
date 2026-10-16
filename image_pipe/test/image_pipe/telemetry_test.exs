@@ -157,12 +157,22 @@ defmodule ImagePipe.TelemetryTest do
 
     assert_event(events, @prefix ++ [:request, :start], fn measurements, metadata ->
       assert is_integer(measurements.system_time)
-      assert span_metadata(metadata) == %{}
+
+      assert span_metadata(metadata) == %{
+               method: "GET",
+               path: "/format=jpeg/src/images/beach.jpg"
+             }
     end)
 
     assert_event(events, @prefix ++ [:request, :stop], fn measurements, metadata ->
       assert is_integer(measurements.duration)
-      assert span_metadata(metadata) == %{result: :ok, status: 200}
+
+      assert span_metadata(metadata) == %{
+               method: "GET",
+               path: "/format=jpeg/src/images/beach.jpg",
+               result: :ok,
+               status: 200
+             }
     end)
 
     assert_event(events, @prefix ++ [:parse, :start], fn _measurements, metadata ->
@@ -196,8 +206,10 @@ defmodule ImagePipe.TelemetryTest do
       end)
     end
 
-    refute Enum.any?(events, fn {_event, _measurements, metadata} ->
-             Map.has_key?(metadata, :request_path) or Map.has_key?(metadata, :path)
+    # The path is the request span's alone.
+    refute Enum.any?(events, fn {event, _measurements, metadata} ->
+             Enum.take(event, -2) not in [[:request, :start], [:request, :stop]] and
+               (Map.has_key?(metadata, :request_path) or Map.has_key?(metadata, :path))
            end)
   end
 

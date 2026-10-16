@@ -170,7 +170,7 @@ render at the size they are drawn, so a small logo stays sharp at any
 
 ## Check that SVGs render
 
-Turn on the default request log:
+Turn on the default request log with a line for each stage:
 
 <!-- tabs-open -->
 
@@ -178,14 +178,14 @@ Turn on the default request log:
 
 ```elixir
 # lib/my_app/application.ex, in start/2
-ImagePipe.Telemetry.attach_default_logger()
+ImagePipe.Telemetry.attach_default_logger(stages: true)
 ```
 
 ### image_pipe_server
 
 ```toml
 [telemetry]
-log_requests = true
+log_stages = true
 ```
 
 <!-- tabs-close -->

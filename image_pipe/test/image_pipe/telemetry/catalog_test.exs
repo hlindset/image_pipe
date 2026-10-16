@@ -16,37 +16,51 @@ defmodule ImagePipe.Telemetry.CatalogTest do
     reference = File.read!("docs/telemetry-events.md")
 
     undocumented =
-      for {stage, _kind, _group, _logged?} <- Catalog.entries(),
+      for {stage, _kind, _group, _logged?, _traced?} <- Catalog.entries(),
           not String.contains?(reference, "`#{inspect(stage)}`"),
           do: stage
 
     assert undocumented == []
   end
 
-  test "the Logger and the tracer subscribe to every event, except trace-only ones in the Logger" do
+  test "with stages, the Logger and the tracer subscribe to every event their flags allow" do
     prefix = [__MODULE__, :subscriptions]
-    Telemetry.attach_default_logger(prefix: prefix)
+    Telemetry.attach_default_logger(prefix: prefix, stages: true)
     Telemetry.attach_tracer(prefix: prefix, finch_spans: false)
 
     logged = subscribed(prefix, "image-pipe-default-logger")
     traced = subscribed(prefix, {Telemetry.Trace.Handler, :spans})
 
-    for {stage, kind, _group, logged?} <- Catalog.entries() do
+    for {stage, kind, _group, logged?, traced?} <- Catalog.entries() do
       {stop, start} =
         case kind do
           :span -> {prefix ++ stage ++ [:stop], prefix ++ stage ++ [:start]}
           :oneshot -> {prefix ++ stage, prefix ++ stage}
         end
 
-      assert {stage, MapSet.member?(traced, stop)} == {stage, true}
-      assert {stage, MapSet.member?(traced, start)} == {stage, true}
+      assert {stage, MapSet.member?(traced, stop)} == {stage, traced?}
+      assert {stage, MapSet.member?(traced, start)} == {stage, traced?}
       assert {stage, MapSet.member?(logged, stop)} == {stage, logged?}
     end
   end
 
+  test "without stages, the Logger subscribes to the request summary and background events" do
+    prefix = [__MODULE__, :summary]
+    Telemetry.attach_default_logger(prefix: prefix)
+
+    assert subscribed(prefix, "image-pipe-default-logger") ==
+             MapSet.new([
+               prefix ++ [:request, :summary],
+               prefix ++ [:request, :exception],
+               prefix ++ [:cache, :sweep, :stop],
+               prefix ++ [:cache, :sweep, :exception],
+               prefix ++ [:cache, :eviction, :stop]
+             ])
+  end
+
   test "the Logger subscribes only to the selected groups" do
     prefix = [__MODULE__, :groups]
-    Telemetry.attach_default_logger(prefix: prefix, events: [:output])
+    Telemetry.attach_default_logger(prefix: prefix, events: [:output], stages: true)
 
     logged = subscribed(prefix, "image-pipe-default-logger")
 
