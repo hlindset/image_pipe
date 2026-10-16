@@ -72,6 +72,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The `[:transform, :detect, :model]` span reported a model that is
+  unavailable, such as a face model without `image_vision`, as `result:
+  :error`, and the default Logger logged it as a model error. It now reports
+  `result: :unavailable`, as `[:transform, :detect]` does.
 - Watermarks, `bg`, `colorize` over transparent areas, JPEG output of an
   image with transparency, and resizing or rotating an image with
   transparency could make a color one level darker than the exact result,

@@ -1138,6 +1138,20 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     refute log =~ "private detector reason"
   end
 
+  test "logs an unavailable composite child as unavailable, not error" do
+    prefix = [__MODULE__, :model_unavailable]
+    Telemetry.attach_default_logger(level: :info, prefix: prefix, stages: true)
+    detector = FakeDetector.returning({:error, {:detector, :unavailable}})
+
+    log =
+      capture_log([level: :warning], fn ->
+        Composite.detect([detector], :image, telemetry_opts: [telemetry_prefix: prefix])
+      end)
+
+    assert log =~ "transform detect model: unavailable (0 regions"
+    refute log =~ "detect model: error"
+  end
+
   test "logs the http_cache prepare one-shot at base level with its mode" do
     Telemetry.attach_default_logger(level: :info, stages: true)
 
