@@ -1132,6 +1132,19 @@
       },
       fixture_sha256: "5eacf1059134d3a40971cee9b56b2af7e7d4635b646ecebe98e58feec9027293"
     },
+    "orient_extend_odd_transverse" => %{
+      structure: %{
+        depth: 8,
+        metadata: [],
+        icc: nil,
+        content_type: "image/png",
+        bands: 4,
+        interpretation: :VIPS_INTERPRETATION_sRGB,
+        orientation: 1,
+        alpha?: true
+      },
+      fixture_sha256: "faad56503704f714d0cf7ed657ed287fb47a18f1e25ae918bfeaad6925851d33"
+    },
     "rot270_crop_placement" => %{
       structure: %{
         depth: 8,
@@ -1551,6 +1564,19 @@
       },
       fixture_sha256: "8b3e08ab16576362a3f78ecdf07478b4b1cc95ef45a5bd077890d993db569b6c"
     },
+    "orient_large_cover_focus_odd" => %{
+      structure: %{
+        depth: 8,
+        metadata: [],
+        icc: nil,
+        content_type: "image/png",
+        bands: 3,
+        interpretation: :VIPS_INTERPRETATION_sRGB,
+        orientation: 1,
+        alpha?: false
+      },
+      fixture_sha256: "eb00e0bce0e1f8726c1710b4889a79927fae6bdd13bc5c36db5d4d221a0f01c9"
+    },
     "orient_none_crop" => %{
       structure: %{
         depth: 8,
@@ -1759,6 +1785,19 @@
       },
       fixture_sha256: "f5aac4fb68af709ea600b4ee05ced38d54ae748daa89fcf851394501e6beea57"
     },
+    "orient_crop_offset_rot270" => %{
+      structure: %{
+        depth: 8,
+        metadata: [],
+        icc: nil,
+        content_type: "image/png",
+        bands: 3,
+        interpretation: :VIPS_INTERPRETATION_sRGB,
+        orientation: 1,
+        alpha?: false
+      },
+      fixture_sha256: "0dde26d73ae720eadffaa242ad9ca623002c435da27b613c1cac6d500076521f"
+    },
     "exif_cover_focal_transpose" => %{
       structure: %{
         depth: 8,
@@ -1849,6 +1888,19 @@
         alpha?: false
       },
       fixture_sha256: "2939a6d8a0de7382492f0f268b896e4663e75b63d5be6846b86248e9f8d6c8da"
+    },
+    "orient_cover_odd_edge_rot270" => %{
+      structure: %{
+        depth: 8,
+        metadata: [],
+        icc: nil,
+        content_type: "image/png",
+        bands: 3,
+        interpretation: :VIPS_INTERPRETATION_sRGB,
+        orientation: 1,
+        alpha?: false
+      },
+      fixture_sha256: "8bb361f21b1cafbcc02c9b8e087856c3523172e2f05fcc5f1788bd0e688b6d59"
     },
     "exif_8_extend_so" => %{
       structure: %{
@@ -2113,6 +2165,19 @@
       },
       fixture_sha256: "a8b69e3cb2d73be56760aae2df633a33fb650f06a4f54fd7258a4363743872b9"
     },
+    "odd_extend_center_tie" => %{
+      structure: %{
+        depth: 8,
+        metadata: [],
+        icc: nil,
+        content_type: "image/png",
+        bands: 4,
+        interpretation: :VIPS_INTERPRETATION_sRGB,
+        orientation: 1,
+        alpha?: true
+      },
+      fixture_sha256: "60e72c8ef4eb3c2ee030e1e1794a6ce41945a424c3cc75cb3742c5707ff7ccad"
+    },
     "fill_down_target_gt_source_small" => %{
       structure: %{
         depth: 8,
@@ -2333,8 +2398,8 @@
         orientation: 1,
         alpha?: false
       },
-      height: 180,
-      content_type: "image/webp"
+      content_type: "image/webp",
+      height: 180
     },
     "padding_border" => %{
       structure: %{
@@ -2413,8 +2478,8 @@
         orientation: 1,
         alpha?: false
       },
-      height: 180,
-      content_type: "image/jpeg"
+      content_type: "image/jpeg",
+      height: 180
     },
     "grav_nowe_off" => %{
       structure: %{
@@ -2715,6 +2780,19 @@
       },
       fixture_sha256: "19b03f87ecea0020a6d281a699b174c9a963312b7de138f31477afd60508675c"
     },
+    "odd_crop_center_tie" => %{
+      structure: %{
+        depth: 8,
+        metadata: [],
+        icc: nil,
+        content_type: "image/png",
+        bands: 3,
+        interpretation: :VIPS_INTERPRETATION_sRGB,
+        orientation: 1,
+        alpha?: false
+      },
+      fixture_sha256: "6455ffd0b334b37c5516555d57024ffcfaa6bd7cdc5f918191175958a9775cec"
+    },
     "rgb16_preserve_hdr" => %{
       structure: %{
         depth: 16,
@@ -3001,6 +3079,19 @@
       },
       fixture_sha256: "02be16a7571fb51b3d772ebdf1c3a2d3c96fdcbdc7a087f1e8bcd8305b904b22"
     },
+    "odd_crop_pct_third" => %{
+      structure: %{
+        depth: 8,
+        metadata: [],
+        icc: nil,
+        content_type: "image/png",
+        bands: 3,
+        interpretation: :VIPS_INTERPRETATION_sRGB,
+        orientation: 1,
+        alpha?: false
+      },
+      fixture_sha256: "2f8b4b5dc94140add59eb919cfd4bbe52f58243057bef08d27a8483452bc5e26"
+    },
     "gray_alpha_trim" => %{
       structure: %{
         depth: 8,
@@ -3039,6 +3130,19 @@
         alpha?: true
       },
       fixture_sha256: "910aa810c9314da456f1a9f13506e2b49561180cf859741333011706d9726a2e"
+    },
+    "orient_crop_odd_corner_transpose" => %{
+      structure: %{
+        depth: 8,
+        metadata: [],
+        icc: nil,
+        content_type: "image/png",
+        bands: 3,
+        interpretation: :VIPS_INTERPRETATION_sRGB,
+        orientation: 1,
+        alpha?: false
+      },
+      fixture_sha256: "3def280c0350dc63dc2a54799d0fcb1c152c2c54390de7269d5d4e60c18886c2"
     },
     "palette_fit" => %{
       structure: %{
@@ -3104,8 +3208,8 @@
         orientation: nil,
         alpha?: false
       },
-      height: 180,
-      content_type: "image/avif"
+      content_type: "image/avif",
+      height: 180
     },
     "dps_contain_dpr_webp" => %{
       structure: %{
@@ -3186,7 +3290,7 @@
       fixture_sha256: "35676bbc730bace1fa3e2abf2dd65a0540ff8c9c642095f72a7ab2af18008e64"
     }
   },
+  imgproxy_libvips: "42.20.7",
   imgproxy_image:
-    "darthsim/imgproxy:v4.0.17@sha256:db0b4b9cd690c8b3590203dea300fb759a18c4ec2af7b37424f0bdef23ce317d",
-  imgproxy_libvips: "42.20.7"
+    "darthsim/imgproxy:v4.0.17@sha256:db0b4b9cd690c8b3590203dea300fb759a18c4ec2af7b37424f0bdef23ce317d"
 }
