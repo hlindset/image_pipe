@@ -48,8 +48,10 @@ defmodule ImagePipe.Cache.Publication do
   defp stored(write, _opts), do: write
 
   defp hand_off(root, hash, lease, write, opts) do
+    pending = Writers.counter(root)
+
     with {:ok, writer} <- Writers.start_child(root, job()),
-         {:ok, writes, finish} <- prepare(write, writer, root, hash, opts) do
+         {:ok, writes, finish} <- prepare(write, writer, pending, hash, opts) do
       send(writer, {:finish, finish})
       Work.transfer(lease, writer, @lease_deadline)
       context = RequestContext.capture()
@@ -88,10 +90,10 @@ defmodule ImagePipe.Cache.Publication do
     end
   end
 
-  defp prepare({:staged, path, put, then}, writer, root, hash, opts) do
+  defp prepare({:staged, path, put, then}, writer, pending, hash, opts) do
     with {:ok, %{size: size}} <- File.stat(path),
-         :ok <- Writers.reserve(root, size) do
-      pinned(path, size, writer, root, put, then)
+         :ok <- Writers.reserve(pending, size) do
+      pinned(path, size, writer, pending, put, then)
     else
       :full ->
         dropped(hash, :pending_limit, opts)
@@ -102,16 +104,16 @@ defmodule ImagePipe.Cache.Publication do
     end
   end
 
-  defp prepare(write, _writer, _root, _hash, _opts), do: {:ok, write, fn -> :ok end}
+  defp prepare(write, _writer, _pending, _hash, _opts), do: {:ok, write, fn -> :ok end}
 
-  defp pinned(path, size, writer, root, put, then) do
+  defp pinned(path, size, writer, pending, put, then) do
     case Input.pin(path) do
       {:ok, pinned, ref} ->
         Resources.transfer(ref, writer)
 
         finish = fn ->
           Resources.release(ref)
-          Writers.release(root, size)
+          Writers.release(pending, size)
         end
 
         # The record `then` writes goes to the other cache, so the original's
@@ -126,7 +128,7 @@ defmodule ImagePipe.Cache.Publication do
         {:ok, run, finish}
 
       :miss ->
-        Writers.release(root, size)
+        Writers.release(pending, size)
         {:error, :unpinned, writer}
     end
   end

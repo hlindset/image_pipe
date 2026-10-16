@@ -39,18 +39,18 @@ defmodule ImagePipe.Cache.Writer do
   def finished?(counters), do: :atomics.get(counters, @finished) == 1
 
   @doc """
-  Counts `bytes` as pending for the write at `root`. Returns `:finished`,
-  counting nothing, when the writer has already finished, and `:full` past
-  the root's pending limit.
+  Counts `bytes` as pending for the write, on its root's `pending` counter
+  (`Writers.counter/1`). Returns `:finished`, counting nothing, when the
+  writer has already finished, and `:full` past the root's pending limit.
   """
-  def reserve(counters, root, bytes) do
-    with :ok <- Writers.reserve(root, bytes) do
+  def reserve(counters, pending, bytes) do
+    with :ok <- Writers.reserve(pending, bytes) do
       :atomics.add(counters, @reserved, bytes)
 
       # The writer releases what's counted when it finishes. A reservation
       # that lands after that releases itself.
       if :atomics.get(counters, @finished) == 1 do
-        release(counters, root)
+        release(counters, pending)
         :finished
       else
         :ok
@@ -58,8 +58,8 @@ defmodule ImagePipe.Cache.Writer do
     end
   end
 
-  defp release(counters, root),
-    do: Writers.release(root, :atomics.exchange(counters, @reserved, 0))
+  defp release(counters, pending),
+    do: Writers.release(pending, :atomics.exchange(counters, @reserved, 0))
 
   def start_link(args), do: GenServer.start_link(__MODULE__, args)
 
@@ -123,7 +123,7 @@ defmodule ImagePipe.Cache.Writer do
   def terminate(_reason, state) do
     if state.store, do: FileSystem.abort_sink(state.store, state.cache_opts)
     :atomics.put(state.counters, @finished, 1)
-    release(state.counters, state.root)
+    release(state.counters, state.pending)
   end
 
   defp drain(%{store: nil} = state), do: state
