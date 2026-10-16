@@ -202,6 +202,11 @@ quality tried is `10` (lower if `q` is lower). With `autoquality` it is the
 lowest quality the search tries, 25 or 20 for AVIF. If the image is still too
 large at that quality, the response is larger than the budget.
 
+The budget counts the whole file, including a color profile embedded with
+[`profile`](#profile) and metadata kept with [`meta`](#meta). A CMYK JPEG
+with `profile=preserve` can carry a profile of several hundred kilobytes,
+which no quality can bring under a small budget.
+
 `max-bytes` follows the same format rules as `autoquality`. With
 `format=webp` while WebP is lossless, it fails with `400`. With `format=png`,
 it is ignored.
@@ -544,7 +549,9 @@ unless [`bg`](resize.md#bg) sets a background. Use the `lqip-css` value as
   limits are higher (see [Plug configuration](`ImagePipe.config/1`) and
   [server configuration](../../../image_pipe_server/docs/server-configuration.md#processing)).
   Without `format`, only the server's limits apply, so a WebP or AVIF
-  response can be smaller than `result` reports.
+  response can be smaller than `result` reports. Any scale-down to fit these
+  limits lowers `dpr` by the same factor, so dividing still gives the
+  requested CSS width.
 - `blurhash` and `lqip_css` appear when named after `info`, with the same
   values `output=blurhash` and `output=lqip-css` return.
 

@@ -18,6 +18,20 @@ defmodule ImagePipe.API.PngBitdepthWireTest do
     end
   end
 
+  test "an 8-bit result at 16 bits scales each value by 257" do
+    for color <- [[128], [128, 100], [128, 64, 200], [128, 64, 200, 100]] do
+      body = 16 |> Image.new!(16, color: color) |> Image.write!(:memory, suffix: ".png")
+      response = response("format=png/png-options=bitdepth:16", body)
+      assert response.status == 200, inspect(color)
+
+      image = Image.from_binary!(response.resp_body)
+      assert Image.bands(image) == length(color)
+
+      assert Image.get_pixel!(image, 8, 8) == Enum.map(color, &(&1 * 257)),
+             inspect(color)
+    end
+  end
+
   test "a result with more than one band encodes at 8 bits instead of failing" do
     for {source, options} <- [
           {"alpha.png", "bitonal/format=png/png-options=bitdepth:1"},

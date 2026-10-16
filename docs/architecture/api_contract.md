@@ -635,8 +635,10 @@ library's canonical vocabulary, including `heif`, `jpeg_xl`, and `jpeg2000`.
 
 `result` has the `width` and `height` an image request for the same URL would
 encode, and `dpr`, the effective DPR of the last group after the enlargement
-clamp and its floor. A caller divides by `dpr` for CSS dimensions: without `enlarge`,
-`w=100/dpr=2` on a 150px source reports width 150 at DPR 1.5. DPR does not
+clamp and its floor, times the scale-down to the result limits. A caller divides
+by `dpr` for CSS dimensions: without `enlarge`, `w=100/dpr=2` on a 150px source
+reports width 150 at DPR 1.5, and with `max_result_width: 50`, `w=40/dpr=2`
+reports width 50 at DPR 1.25. DPR does not
 carry across groups, so `dpr` describes the last group's lengths; an earlier
 group's enlargement clamp is not reflected in it.
 

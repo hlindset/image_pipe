@@ -111,6 +111,17 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `png-options=bitdepth:16` multiplied 8-bit color by 256 instead of 257, so
+  128 became 32768 instead of 32896 and only white reached 65535. Color now
+  scales by 257, as gray already did.
+- `output=info` reported `dpr` from before the scale-down to the result
+  limits, so dividing its width by `dpr` gave less than the CSS width. `dpr` now includes that scale-down: `w=4000/dpr=3` on a
+  9,000-pixel-wide image with an 8,192-pixel limit reports width 8192 at
+  `dpr` 2.048, not 2.25.
+- An `extend-offset` that landed exactly on a half pixel, such as
+  `extend-offset=0,1.25` with `dpr=2`, rounded away from zero, placing the
+  image 1 pixel off. It now rounds ties to even, as crops, watermarks, and
+  padding do.
 - With a processing pool, a streamed response that finished just after
   `processing_timeout`, before the pool's timer fired, ended with
   `{:session, {:producer_down, :normal}}` instead of

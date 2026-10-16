@@ -17,7 +17,8 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
     only: [
       center_origin: 2,
       image_height: 1,
-      image_width: 1
+      image_width: 1,
+      round_ties_to_even: 1
     ]
 
   alias ImagePipe.Transform.Alpha
@@ -83,7 +84,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
   # Apply the anchor's offset direction, then clamp to keep the image in bounds.
   defp offset(axis, gravity, configured_offset, image_size, canvas_size) do
     base = base_offset(axis, gravity, image_size, canvas_size)
-    signed = base + offset_direction(axis, gravity) * round(configured_offset)
+    signed = base + offset_direction(axis, gravity) * round_ties_to_even(configured_offset)
 
     signed
     |> max(0)

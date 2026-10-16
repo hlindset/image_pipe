@@ -165,6 +165,20 @@ defmodule ImagePipe.API.OffsetCanvasWireTest do
     assert rgb(Image.get_pixel!(output, 20, 1)) == [220, 30, 40]
   end
 
+  test "half-pixel canvas offsets round ties to even" do
+    origin = png_origin(solid_source(20, 10, [220, 30, 40]))
+
+    output =
+      image(
+        "w=20/h=15/fit=contain/dpr=2/enlarge/extend/extend-at=top/extend-offset=0,1.25",
+        origin
+      )
+
+    assert dimensions(output) == {40, 30}
+    assert transparent?(Image.get_pixel!(output, 20, 1))
+    assert rgb(Image.get_pixel!(output, 20, 2)) == [220, 30, 40]
+  end
+
   test "zoom changes the resize but not the box canvas" do
     origin = png_origin(solid_source(40, 20, [220, 30, 40]))
     output = image("w=40/h=30/zoom=0.5/enlarge/extend", origin)
