@@ -237,6 +237,41 @@ Whether a response is cached also depends on its source:
   aren't reused. The `root` path can differ between replicas or change over
   time.
 
+## DNS lookups
+
+Point the container's `/etc/resolv.conf` at a resolver that caches, such as
+one on the host. The server doesn't cache DNS answers itself.
+
+An HTTP source makes two lookups for every request to an origin, one for the
+hostname's IPv4 addresses and one for its IPv6 addresses, sent at the same
+time. Checking whether a cached original is still current counts as a request,
+and so does each redirect the source follows. An origin given as an IP address
+needs no lookup.
+
+Without a caching resolver, every lookup goes to an upstream DNS server, and a
+dropped reply holds the request for at least the resolver's timeout, 5 seconds
+by default. That wait counts toward the source's
+[`fetch_timeout`](server-configuration.md#sources-name), 30 seconds by
+default.
+
+On Kubernetes, CoreDNS caches answers. The default `ndots: 5` sends a name
+such as `images.example.com` through every cluster search domain, once for
+IPv4 and once for IPv6 addresses, before looking it up as written. When the
+origins are outside the cluster, lower `ndots` in the pod spec:
+
+```yaml
+spec:
+  dnsConfig:
+    options:
+      - name: ndots
+        value: "1"
+```
+
+With `ndots: 1`, give cluster services their full names, such as
+`minio.storage.svc.cluster.local`, in `base_url` and `allowed_hosts`. A
+shorter name such as `minio.storage` is first looked up outside the cluster,
+which adds a failed lookup to every request.
+
 ## Processing capacity
 
 The server processes as many images at once as it has CPU cores, counting a
