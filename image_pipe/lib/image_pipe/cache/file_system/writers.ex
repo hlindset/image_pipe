@@ -62,31 +62,30 @@ defmodule ImagePipe.Cache.FileSystem.Writers do
     :exit, _reason -> []
   end
 
-  @doc "Counts `bytes` as pending at `root`, or returns `:full` past its limit."
-  def reserve(root, bytes) do
-    case counters(root) do
-      nil ->
-        :ok
+  @doc """
+  The pending-bytes counter of the cache at `root`, or nil when no instance
+  runs it. A write takes it when it starts and counts against it until it
+  finishes, so a write that outlives a restart of the writers doesn't count
+  against the counter the restart sets up.
+  """
+  def counter(root), do: :persistent_term.get({__MODULE__, root}, nil)
 
-      counters ->
-        if :atomics.add_get(counters, 1, bytes) <= :atomics.get(counters, 2) do
-          :ok
-        else
-          :atomics.sub(counters, 1, bytes)
-          :full
-        end
+  @doc "Counts `bytes` as pending on `counter`, or returns `:full` past its limit."
+  def reserve(nil, _bytes), do: :ok
+
+  def reserve(counter, bytes) do
+    if :atomics.add_get(counter, 1, bytes) <= :atomics.get(counter, 2) do
+      :ok
+    else
+      :atomics.sub(counter, 1, bytes)
+      :full
     end
   end
 
-  @doc "Stops counting `bytes` as pending at `root`."
-  def release(_root, 0), do: :ok
-
-  def release(root, bytes) do
-    case counters(root) do
-      nil -> :ok
-      counters -> :atomics.sub(counters, 1, bytes)
-    end
-  end
+  @doc "Stops counting `bytes` as pending on `counter`."
+  def release(nil, _bytes), do: :ok
+  def release(_counter, 0), do: :ok
+  def release(counter, bytes), do: :atomics.sub(counter, 1, bytes)
 
   @doc """
   Records that this process, a writer, holds `bytes` of the pending count, so
@@ -99,13 +98,11 @@ defmodule ImagePipe.Cache.FileSystem.Writers do
 
   @doc "The bytes pending at `root`."
   def pending(root) do
-    case counters(root) do
+    case counter(root) do
       nil -> 0
-      counters -> :atomics.get(counters, 1)
+      counter -> :atomics.get(counter, 1)
     end
   end
-
-  defp counters(root), do: :persistent_term.get({__MODULE__, root}, nil)
 
   # Roots are static host configuration, so the derived atoms are bounded.
   defp name(root) do

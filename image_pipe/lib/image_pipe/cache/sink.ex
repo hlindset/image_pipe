@@ -24,7 +24,7 @@ defmodule ImagePipe.Cache.Sink do
 
   @enforce_keys [
     :key,
-    :root,
+    :pending,
     :writer,
     :counters,
     :size,
@@ -36,7 +36,7 @@ defmodule ImagePipe.Cache.Sink do
 
   @type t :: %__MODULE__{
           key: Key.t(),
-          root: Path.t(),
+          pending: :atomics.atomics_ref() | nil,
           writer: pid(),
           counters: :atomics.atomics_ref(),
           size: non_neg_integer(),
@@ -196,6 +196,7 @@ defmodule ImagePipe.Cache.Sink do
 
   defp start(key, metadata, cache_opts, opts) do
     root = Keyword.fetch!(cache_opts, :root)
+    pending = Writers.counter(root)
     counters = Writer.counters()
     telemetry_opts = Telemetry.telemetry_opts(opts)
 
@@ -204,6 +205,7 @@ defmodule ImagePipe.Cache.Sink do
       metadata: metadata,
       cache_opts: cache_opts,
       root: root,
+      pending: pending,
       counters: counters,
       output_format: metadata.output_format,
       telemetry_opts: telemetry_opts,
@@ -214,7 +216,7 @@ defmodule ImagePipe.Cache.Sink do
       {:ok, writer} ->
         %__MODULE__{
           key: key,
-          root: root,
+          pending: pending,
           writer: writer,
           counters: counters,
           size: 0,
@@ -234,7 +236,7 @@ defmodule ImagePipe.Cache.Sink do
   end
 
   defp send_chunk(sink, chunk) do
-    case Writer.reserve(sink.counters, sink.root, byte_size(chunk)) do
+    case Writer.reserve(sink.counters, sink.pending, byte_size(chunk)) do
       :ok ->
         send(sink.writer, {:chunk, chunk})
         sink

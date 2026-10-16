@@ -239,6 +239,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - An SVG source ignored `page`, so `page=1` on an SVG answered `200` with the
   only image, and each `page` value stored its own copy. A `page` past `0`
   now fails with `422`, as it does for any other single-page image.
+- A FileSystem cache that restarted while a write was stuck on disk for more
+  than 25 seconds, as on a hung network mount, kept counting the bytes the
+  response still sent to that write as waiting to be written. Until the next
+  restart, the cache dropped more writes and evicted more entries than it
+  needed to. Those bytes are no longer counted.
 
 ## [0.2.0] - 2026-10-13
 

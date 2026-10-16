@@ -160,6 +160,23 @@ defmodule ImagePipe.Cache.WriterTest do
     refute_received {:stage, %{cache: :stage_abandoned}}
   end
 
+  test "a write whose writer was killed counts nothing against the restarted writers", ctx do
+    opts = cache_opts(ctx, [])
+    sink = Cache.open_sink(key(), {:complete_body, @content_type}, [], opts)
+    sink = Cache.write_chunk(sink, "body", opts)
+
+    # A writer still stuck after the shutdown timeout is killed without
+    # running its terminate, and the cache's writers start again.
+    ref = Process.monitor(sink.writer)
+    Process.exit(sink.writer, :kill)
+    assert_receive {:DOWN, ^ref, :process, _pid, :killed}
+    restart_writers(ctx.root)
+
+    sink = Cache.write_chunk(sink, String.duplicate("x", 1_000), opts)
+    assert :ok = Cache.commit_sink(sink, opts)
+    assert Writers.pending(ctx.root) == 0
+  end
+
   describe "a fetch's writes" do
     test "skip the original and run the rest at the writer limit", ctx do
       opts = originals_opts(ctx)
@@ -235,10 +252,10 @@ defmodule ImagePipe.Cache.WriterTest do
 
     # Another write holds 400 bytes, so the next entry no longer fits beside
     # the first, and loses to it.
-    :ok = Writers.reserve(ctx.root, 400)
+    :ok = Writers.reserve(Writers.counter(ctx.root), 400)
     assert {:ok, :rejected} = commit(cache, key("b"), String.duplicate("b", 4_700))
 
-    Writers.release(ctx.root, 400)
+    Writers.release(Writers.counter(ctx.root), 400)
     assert :ok = commit(cache, key("b"), String.duplicate("b", 4_700))
     assert {:hit, entry} = Cache.lookup_entry(key("b"), opts)
     Entry.close(entry)
@@ -302,6 +319,17 @@ defmodule ImagePipe.Cache.WriterTest do
     [{pid, _value}] = Registry.lookup(FileSystem.registry_name(root), root)
     pid
   end
+
+  defp restart_writers(root) do
+    [cache] =
+      for {:cache, pid, :supervisor, _modules} <- Supervisor.which_children(root_supervisor(root)),
+          do: pid
+
+    :ok = Supervisor.terminate_child(cache, Writers)
+    {:ok, _pid} = Supervisor.restart_child(cache, Writers)
+  end
+
+  defp root_supervisor(root), do: FileSystem.Root.name(root: root)
 
   defp writer_of(root) do
     [pid] = Writers.writers(root)
