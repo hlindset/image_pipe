@@ -476,7 +476,10 @@ the server's configuration changes it to `preserve`.
 
 `hdr=preserve` keeps high bit depth through processing and into the output
 when the response is AVIF or PNG. JPEG and WebP output are always standard
-8-bit, even with `hdr=preserve`.
+8-bit, even with `hdr=preserve`. An original other than JPEG or PNG, such as
+a TIFF, that becomes PNG because its result has transparency (see
+[`format`](#format)) gives an 8-bit PNG. Set `format=png` to keep high bit
+depth.
 
 <!-- tabs-open -->
 

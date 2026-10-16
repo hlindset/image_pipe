@@ -25,15 +25,18 @@ defmodule OverlapDecodeRepro do
       )
 
     {:ok, {_ip, port}} = ThousandIsland.listener_info(origin)
-    config = configuration(root, port, prefix)
-    mount = ImagePipe.Plug.init(config: config)
+
+    {:ok, instance} =
+      Supervisor.start_link([configuration(root, port, prefix)], strategy: :one_for_one)
+
+    mount = ImagePipe.Plug.init(instance: __MODULE__.Instance)
 
     builder =
       ImagePipe.URL.new()
       |> ImagePipe.URL.group(resize: [width: 300])
       |> ImagePipe.URL.output(format: :webp)
 
-    {:ok, reference} = ImagePipe.run(config, builder, {:binary, body})
+    {:ok, reference} = ImagePipe.run(__MODULE__.Instance, builder, {:binary, body})
     expected_pixels = pixels(reference.data)
     expected_digest = :crypto.hash(:sha256, body)
     stages = [[:source, :stage], [:source, :fetch_decode], [:transform, :materialize]]
@@ -131,6 +134,7 @@ defmodule OverlapDecodeRepro do
 
       send(tracer, :stop)
       :telemetry.detach(__MODULE__)
+      Supervisor.stop(instance)
       Supervisor.stop(origin)
       File.rm_rf!(root)
       :ets.delete(events)
@@ -138,24 +142,24 @@ defmodule OverlapDecodeRepro do
   end
 
   defp configuration(root, port, prefix) do
-    ImagePipe.config(
-      telemetry_prefix: prefix,
-      max_body_bytes: 20_000_000,
-      max_input_pixels: 60_000_000,
-      sources: [
-        path: [
-          adapter: ImagePipe.Source.HTTP,
-          match: :path,
-          options: [
-            base_url: "http://127.0.0.1:#{port}",
-            address_policy: [allow_loopback: true],
-            address_resolver: fn _ -> {:ok, [{127, 0, 0, 1}]} end
-          ]
-        ]
-      ],
-      cache: [root: Path.join(root, "output")],
-      input_cache: [root: Path.join(root, "input")]
-    )
+    {ImagePipe,
+     name: __MODULE__.Instance,
+     telemetry_prefix: prefix,
+     max_body_bytes: 20_000_000,
+     max_input_pixels: 60_000_000,
+     sources: [
+       path: [
+         adapter: ImagePipe.Source.HTTP,
+         match: :path,
+         options: [
+           base_url: "http://127.0.0.1:#{port}",
+           address_policy: [allow_loopback: true],
+           address_resolver: fn _ -> {:ok, [{127, 0, 0, 1}]} end
+         ]
+       ]
+     ],
+     cache: [root: Path.join(root, "output"), max_size_bytes: 1_000_000_000],
+     input_cache: [root: Path.join(root, "input"), max_size_bytes: 1_000_000_000]}
   end
 
   def capture(event, measurements, meta, events),
