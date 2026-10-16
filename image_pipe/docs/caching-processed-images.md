@@ -102,6 +102,40 @@ replica that finds another replica using its `root` logs an error and runs
 without that cache until the other replica stops (see
 [cache root owner file](cache.md#cache-root-owner-file)).
 
+## Fill the cache ahead of time
+
+To have an image ready before its first visitor asks for it, request it with
+`HEAD`. ImagePipe processes and stores the image for a `HEAD` request just as
+for a `GET`. Unless the URL sets `format`, the cache keeps a separate copy for
+each output format that the `Accept` header selects, so send one request for
+each kind of `Accept` header your visitors send, such as one that accepts AVIF
+and one that accepts only WebP:
+
+<!-- tabs-open -->
+
+### Plug
+
+```console
+$ curl -s -I -H 'Accept: image/avif,image/webp,*/*' http://localhost:4000/images/w=400/src/photos/beach.jpg
+```
+
+To fill the cache from a job instead, call `ImagePipe.run/4` with the
+instance's name, a `{:source, path}` input, and `accept:` in place of the
+header (see [Processing in a job](combined-usage.md#processing-in-a-job)).
+
+### image_pipe_server
+
+```console
+$ curl -s -I -H 'Accept: image/avif,image/webp,*/*' http://localhost:8080/w=400/src/photos/beach.jpg
+```
+
+If `[server]` sets `auth_token`, add `-H "Authorization: Bearer <token>"`.
+
+<!-- tabs-close -->
+
+If `storage_inputs` keeps separate copies per request header or cookie, send
+those values too (see [cache key inputs](cache.md#cache-key-inputs)).
+
 ## Confirm caching works
 
 Allow debug headers for now:
