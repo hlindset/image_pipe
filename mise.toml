@@ -45,6 +45,8 @@ dir = "image_pipe"
 run = [
   # Library versions match; the server shares their major.minor (RELEASING.md).
   "../scripts/check-versions.sh > /dev/null",
+  # Erlang and Elixir pins elsewhere match mise.toml.
+  "../scripts/check-toolchain.sh",
   "mix format --check-formatted",
   "mix compile --warnings-as-errors",
   "mix credo --strict",

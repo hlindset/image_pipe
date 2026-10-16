@@ -22,6 +22,10 @@ on:
       - "image_pipe/mix.lock"
       - "mise.toml"
       - ".github/workflows/lint.yml"
+      - ".github/workflows/elixir.yml"
+      - ".github/workflows/svg.yml"
+      - "image_pipe_server/Dockerfile"
+      - "scripts/check-toolchain.sh"
   pull_request:
     branches: ["main"]
     paths: *lint_paths
@@ -39,6 +43,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Toolchain pins match mise.toml
+        run: scripts/check-toolchain.sh
       # The deps and PLT caches are keyed by runner image (e.g. ubuntu26): the
       # deps hold compiled NIFs (ortex, exla), and Dialyzer rejects a PLT
       # written by the Erlang installed on another image.
