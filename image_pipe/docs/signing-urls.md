@@ -142,22 +142,21 @@ nodes run the app, deploy `keys: [old, new]` to every node first, then
 `keys: [new, old]`, so no node signs with a key another node doesn't accept
 yet.
 
-To see which key verified each request, log each request's stages. Set
-`log_stages = true` in the server's
-[`[telemetry]`](../../image_pipe_server/docs/server-configuration.md#telemetry),
-or call `ImagePipe.Telemetry.attach_default_logger(stages: true)` for the
-Plug. Each signed request logs the position of its key in the server's list,
-counting from `0`:
+To see which key verified each request, read `sig_key` in the request's log
+line: the position of the key in the server's list, counting from `0`. The
+server logs a line per request by default. For the Plug, call
+`ImagePipe.Telemetry.attach_default_logger()` at startup (see
+[Monitoring with telemetry](telemetry.md)).
 
 ```text
-image_pipe parse: ok (signing key 1)
+[info] GET /sig=Sr0wHrHp…/w=400/src/photos%2Fbeach.jpg 200 41ms 4.6kB sig_key=1 cache=hit source=images
 ```
 
-During step 4, the server's list is `[old, new]`, so `signing key 0` means a
-URL signed with the old key was requested. With one shared `[new, old]`
-list, the old key is `signing key 1`. In your app, a custom handler reads the
-same number as `:sig_key_index` from the `[:image_pipe, :parse]` stop event
-(see [telemetry events](telemetry-events.md)).
+During step 4, the server's list is `[old, new]`, so `sig_key=0` means a URL
+signed with the old key was requested. With one shared `[new, old]` list,
+the old key is `sig_key=1`. In your app, a custom handler reads the same
+number as `:sig_key` from the
+[`[:request, :summary]`](telemetry-events.md#request-summary) event.
 
 ## Next steps
 

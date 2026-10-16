@@ -29,7 +29,8 @@ bytes sent, then what the request did as `key=value` fields:
 [warning] GET /w=200/src/missing.jpg 404 1ms error=source reason="source not found" source=images source_fetch=source_error fetch_ms=0
 ```
 
-A `5xx` logs at `:error`, and a `4xx` or a degraded result at `:warning`. The
+A `5xx`, or a response that failed partway through sending, logs at
+`:error`, and a `4xx` or a degraded result at `:warning`. The
 [`[:request, :summary]`](telemetry-events.md#request-summary) event lists
 the fields. The fields are also in the line's Logger metadata, as a map
 under `:image_pipe`, so a JSON formatter such as

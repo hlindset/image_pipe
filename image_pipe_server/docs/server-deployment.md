@@ -291,7 +291,8 @@ duration, and bytes sent, then what the request did as `key=value` fields.
 2026-10-15 21:42:21.832 request_id=GN7LZkQkDAOjtZsAAACB [warning] GET /w=200/src/missing.jpg 404 1ms error=source reason="source not found" source=static source_fetch=source_error fetch_ms=0
 ```
 
-A `5xx` logs at `error`, and a `4xx` or a degraded result at `warning`.
+A `5xx`, or a response that failed partway through sending, logs at
+`error`, and a `4xx` or a degraded result at `warning`.
 Health checks aren't logged. The
 [`[:request, :summary]`](../../image_pipe/docs/telemetry-events.md#request-summary)
 event lists the fields. The path is logged as sent, except that a presigned

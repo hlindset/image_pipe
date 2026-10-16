@@ -14,6 +14,7 @@ defmodule ImagePipe.Telemetry.Logger do
   @summary_keys [
     :error,
     :reason,
+    :sig_key,
     :cache,
     :source,
     :source_fetch,
@@ -95,14 +96,16 @@ defmodule ImagePipe.Telemetry.Logger do
   end
 
   # --- level ---
-  # The request summary follows the status: 5xx is an error, 4xx a warning.
+  # The request summary follows the status: 5xx is an error, 4xx a warning. A
+  # response that failed after its headers went out is an error whatever its
+  # status says.
   # Without a status (`ImagePipe.run/4`), a failure is a warning. A degraded
   # result, or detection that fell back to attention, is a warning too.
   defp level_for([:request, :summary], metadata, base) do
     status = metadata[:status] || 0
 
     cond do
-      status >= 500 -> :error
+      status >= 500 or (status > 0 and metadata[:result] == :processing_error) -> :error
       status >= 400 or summary_warning?(metadata) -> :warning
       true -> base
     end

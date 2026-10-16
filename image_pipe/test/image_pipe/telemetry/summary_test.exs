@@ -225,6 +225,49 @@ defmodule ImagePipe.Telemetry.SummaryTest do
     assert Summary.current() == nil
   end
 
+  test "a signed request records which key verified it", ctx do
+    new_key = String.duplicate("b2", 32)
+    old_key = String.duplicate("a1", 32)
+    options = start(ctx, keys: [new_key, old_key])
+    config = Caches.plug(options)
+    signed = ImagePipe.URL.sign_path("/w=40/src/beach.jpg", ImagePipe.URL.config(keys: [old_key]))
+
+    assert request(signed, config, options).status == 200
+    assert_received {:summary, _m, %{sig_key: 1}}
+  end
+
+  test "a response that fails after its headers went out logs at error", ctx do
+    body = File.read!("priv/static/images/beach.jpg")
+    origin = fn conn -> conn |> put_resp_content_type("image/jpeg") |> send_resp(200, body) end
+
+    # An inline mount takes the encoder seam that fails after the first chunk.
+    config =
+      [
+        telemetry_prefix: ctx.prefix,
+        sources: [
+          path: [
+            adapter: RootHTTPAdapter,
+            match: :path,
+            options: [root_url: "http://origin.test", req_options: [plug: origin]]
+          ]
+        ]
+      ]
+      |> ImagePipe.Plug.init()
+      |> Keyword.merge(image_module: ImagePipe.RunTest.LateFailureEncoder)
+
+    Telemetry.attach_default_logger(prefix: ctx.prefix)
+
+    log =
+      capture_log(fn ->
+        assert_raise ImagePipe.Plug.StreamAbortedError, fn ->
+          conn(:get, "/w=40/format=png/src/beach.jpg") |> ImagePipe.Plug.call(config)
+        end
+      end)
+
+    assert_received {:summary, _m, %{status: 200, result: :processing_error}}
+    assert log =~ "[error] GET /w=40/format=png/src/beach.jpg 200"
+  end
+
   test "ImagePipe.run/4 is summarized without a method, path, or status", ctx do
     builder = ImagePipe.URL.new() |> ImagePipe.URL.group(resize: [width: 10])
     config = ImagePipe.config(telemetry_prefix: ctx.prefix)

@@ -104,8 +104,9 @@ defmodule ImagePipe.Telemetry do
   ## Log levels
 
   Lines log at `:level`. A summary line logs at `:error` for a `5xx`
-  response, and at `:warning` for a `4xx`, a degraded result, detection that
-  fell back to attention, or a failed `ImagePipe.run/4`. With `stages: true`, these stage lines log at
+  response or one that failed partway through sending, and at `:warning` for
+  a `4xx`, a degraded result, detection that fell back to attention, or a
+  failed `ImagePipe.run/4`. With `stages: true`, these stage lines log at
   `:warning`:
 
     * Exceptions, and results such as `:source_error`, `:cache_error`,

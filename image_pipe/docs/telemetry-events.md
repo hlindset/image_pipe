@@ -126,6 +126,9 @@ one line, and the tracer doesn't use it.
   - `:reason` (string): the message the error response's body gives, on
     failure. Plug requests only.
   - `:bytes` (integer): the body bytes sent. Plug requests only.
+  - `:sig_key` (integer): the position in the key list of the key that
+    verified the URL signature, counting from `0`. Absent for an unsigned
+    request.
   - `:cache` (atom): the output cache's answer, as on
     [`[:cache, :lookup]`](#cache-lookup), or `:coalesced` when the response
     came from another request's work, or `:not_modified` for a `304`.
@@ -159,7 +162,7 @@ preset lookup, and URL parsing. Why a request was rejected is on the
   - `:result` (atom): `:ok` or `:error`.
   - `:sig_key_index` (integer): the position in the key list of the key that
     verified the signature (`0` for the first key), on success. Absent for an unsigned request.
-    The default Logger shows it as `(signing key 1)`.
+    With `stages: true`, the default Logger shows it as `(signing key 1)`.
 
 ### `[:request, :ignored_options]`
 
