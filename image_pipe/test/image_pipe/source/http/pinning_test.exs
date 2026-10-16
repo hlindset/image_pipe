@@ -325,7 +325,7 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
 
   @tag :ipv6
   test "a silent origin on every resolved address fails by fetch_timeout" do
-    port = silent_origin()
+    port = silent_origin(self())
     started = System.monotonic_time(:millisecond)
 
     assert {:error, {:source, :receive_timeout}} =
@@ -335,14 +335,18 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
                [
                  address_resolver: fn _ -> {:ok, [@loopback, @loopback6]} end,
                  req_options: [],
-                 receive_timeout: 900,
-                 fetch_timeout: 1_000
+                 receive_timeout: 1_800,
+                 fetch_timeout: 2_000
                ],
                [],
                :http
              )
 
-    assert System.monotonic_time(:millisecond) - started < 1_500
+    # The second address waits only for what is left of the deadline, not for
+    # another full receive_timeout.
+    assert_received {:accepted, @loopback}
+    assert_received {:accepted, @loopback6}
+    assert System.monotonic_time(:millisecond) - started < 3_000
   end
 
   test "signs the logical hostname and non-default port before pinning" do
@@ -448,21 +452,24 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
 
   # A plain HTTP origin on the IPv4 and IPv6 loopback addresses, the ones
   # every platform answers. It reads each request and never answers.
-  defp silent_origin do
+  defp silent_origin(test_pid) do
     {:ok, ipv4} = :gen_tcp.listen(0, [:binary, ip: @loopback, active: false, reuseaddr: true])
     {:ok, {_address, port}} = :inet.sockname(ipv4)
 
     {:ok, ipv6} =
       :gen_tcp.listen(port, [:binary, :inet6, ip: @loopback6, active: false, reuseaddr: true])
 
-    for socket <- [ipv4, ipv6], do: spawn(fn -> accept(socket) end)
+    for {socket, ip} <- [{ipv4, @loopback}, {ipv6, @loopback6}],
+        do: spawn(fn -> accept(socket, ip, test_pid) end)
+
     port
   end
 
-  defp accept(listen_socket) do
+  defp accept(listen_socket, ip, test_pid) do
     with {:ok, socket} <- :gen_tcp.accept(listen_socket) do
+      send(test_pid, {:accepted, ip})
       _request = :gen_tcp.recv(socket, 0)
-      accept(listen_socket)
+      accept(listen_socket, ip, test_pid)
     end
   end
 
