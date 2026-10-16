@@ -512,7 +512,8 @@ be followed by `blurhash`, `lqip-css`, or both, each at most once:
 | `info` | JSON describing the original and the result, `application/json` |
 
 Placeholders and info apply every group and the orientation, so they match
-the image the same URL returns. Use the `lqip-css` value as
+the image the same URL returns. Placeholders render transparency on white,
+unless [`bg`](resize.md#bg) sets a background. Use the `lqip-css` value as
 `style="--lqip: #22333091"` together with the stylesheet from
 [Image's LQIP CSS guide](https://hexdocs.pm/image/lqip_css.html).
 

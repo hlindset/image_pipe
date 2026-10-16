@@ -13,7 +13,7 @@ defmodule ImagePipe.Output.Terminal.BlurhashTest do
 
   describe "identity/0" do
     test "stays the fixed 4x3 blurhash identity tuple" do
-      assert Blurhash.identity() == {:blurhash, 1}
+      assert Blurhash.identity() == {:blurhash, 2}
     end
   end
 

@@ -78,6 +78,39 @@ only a small part of it. The crop keeps the coordinates of the requested
 image. A later downsampling step reads across that larger image and is
 subject to the limit.
 
+## Limiting blurs
+
+A large blur on a large image can take many seconds: `blur=1000` on a
+10-megapixel photo takes about 7 seconds. `max_blur_work`
+limits [`blur`](processing/effects.md#blur) and
+[`progressive-blur`](processing/effects.md#progressive-blur): the pixels of
+the image being blurred, times the square of the sigma, can't exceed it. A
+blur over the limit fails with `422`.
+
+The default, 4,000,000,000,000, allows any sigma on a 2-megapixel image, a
+sigma up to 632 on a 10-megapixel image, and up to 200 on a 100-megapixel
+image. Lower it to allow less:
+
+<!-- tabs-open -->
+
+### Plug
+
+```elixir
+{ImagePipe,
+ name: MyApp.Images,
+ max_blur_work: 1_000_000_000_000,
+ sources: [...]}
+```
+
+### image_pipe_server
+
+```toml
+[processing]
+max_blur_work = 1000000000000
+```
+
+<!-- tabs-close -->
+
 ## Timeouts for origins
 
 HTTP and S3 sources wait at most 5 seconds for a connection
@@ -143,10 +176,10 @@ explains what the client receives.
 
 ImagePipe reads most images in one pass, without holding the whole decoded
 image in memory. Some operations need the whole image at once: trimming,
-rotating by an arbitrary angle, smart and object-detection cropping, and
-rotating a photo whose EXIF orientation says it is turned. These copy the
-decoded image into memory, so a 40-megapixel original can take over a
-hundred megabytes while it is processed.
+blurring, sharpening, rotating by an arbitrary angle, smart and
+object-detection cropping, and rotating a photo whose EXIF orientation says
+it is turned. These copy the decoded image into memory, so a 40-megapixel
+original can take over a hundred megabytes while it is processed.
 
 Allow for that across the requests that run at once. The instance's
 [processing pool](processing-controls.md) caps how many that is. An

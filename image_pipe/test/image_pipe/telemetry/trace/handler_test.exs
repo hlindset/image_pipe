@@ -107,7 +107,8 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
 
     for {response, result, status} <- [
           {{:ok, []}, "ok", :unset},
-          {{:error, "private detector reason"}, "error", :error}
+          {{:error, "private detector reason"}, "error", :error},
+          {{:error, {:detector, :unavailable}}, "unavailable", :error}
         ] do
       FakeDetector.returning(response)
 

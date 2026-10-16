@@ -682,8 +682,10 @@ Span. Nested in `[:transform, :detect]` when the bundled composite detector
   - `:model` (term): the detector's `identity/1` for this request.
   - `:classes` (list of strings, or `:all`): the classes sent to this model.
 - Stop metadata:
-  - `:result` (atom): `:ok` or `:error`.
-  - `:regions` (integer): the regions this model returned. `0` on error.
+  - `:result` (atom): `:ok`, `:unavailable` (the model can't run, such as a
+    face model without `image_vision`), or `:error`.
+  - `:regions` (integer): the regions this model returned. `0` unless the
+    result is `:ok`.
 
 The union of `:classes` across a request's model spans is the set of classes
 actually detected. A requested class that appears in none was unknown to

@@ -1,7 +1,7 @@
 defmodule ImagePipe.Output.Terminal.LqipCss do
   # Encodes a CSS-only placeholder as a packed `#rrggbbaa` value.
   #
-  # Uses the shared sRGB, black-flattened, 8-bit placeholder pixel space and
+  # Uses the shared sRGB, white-flattened, 8-bit placeholder pixel space and
   # `Image.Lqip.Css`. The executor supplies a materialized 3×3 display frame.
   @moduledoc false
 
@@ -9,8 +9,8 @@ defmodule ImagePipe.Output.Terminal.LqipCss do
   alias ImagePipe.Output.Terminal.PixelSpace
   alias Vix.Vips.Image, as: Vimage
 
-  @spec identity() :: {:lqip_css, 1}
-  def identity, do: {:lqip_css, 1}
+  @spec identity() :: {:lqip_css, 2}
+  def identity, do: {:lqip_css, 2}
 
   @spec compute(Vimage.t()) :: {:ok, String.t()} | {:error, term()}
   def compute(%Vimage{} = image) do

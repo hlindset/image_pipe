@@ -20,6 +20,17 @@ defmodule ImagePipe.Transform.WorkLimits do
     end
   end
 
+  # A Gaussian blur's cost grows with the pixels and, measured, with about the
+  # 1.7th power of the sigma. The square bounds it from above.
+  def blur(%State{image: image, max_blur_work: limit}, sigma) do
+    work = Image.width(image) * Image.height(image) * sigma * sigma
+
+    case work <= limit do
+      true -> :ok
+      false -> {:error, {:blur_work_limit, work, limit}}
+    end
+  end
+
   def resize(%State{image: image} = state, width, height) do
     with :ok <- resize_axes(image, width, height) do
       case width < Image.width(image) or height < Image.height(image) do

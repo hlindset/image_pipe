@@ -142,6 +142,10 @@ defmodule ImagePipe.Transform.Detector.Composite do
   end
 
   defp result_metadata({:ok, regions}), do: %{result: :ok, regions: length(regions)}
+
+  defp result_metadata({:error, {:detector, :unavailable}}),
+    do: %{result: :unavailable, regions: 0}
+
   defp result_metadata({:error, _}), do: %{result: :error, regions: 0}
 
   @doc false

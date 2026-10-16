@@ -138,7 +138,8 @@ defmodule ImagePipe.Transform.Executor do
       | detector: Keyword.get(opts, :detector),
         detector_required: Keyword.get(opts, :detector_required, false),
         max_intermediate_pixels:
-          Keyword.get(opts, :max_intermediate_pixels, state.max_intermediate_pixels)
+          Keyword.get(opts, :max_intermediate_pixels, state.max_intermediate_pixels),
+        max_blur_work: Keyword.get(opts, :max_blur_work, state.max_blur_work)
     }
 
     with {:ok, state} <- condition_color(state, opts),

@@ -27,8 +27,8 @@ defmodule ImagePipe.Output.Terminal.Blurhash do
   change (or any other behavior change) rides identity via this tuple, not
   luck.
   """
-  @spec identity() :: {:blurhash, 1}
-  def identity, do: {:blurhash, 1}
+  @spec identity() :: {:blurhash, 2}
+  def identity, do: {:blurhash, 2}
 
   @doc """
   Computes a BlurHash string for `image`.
