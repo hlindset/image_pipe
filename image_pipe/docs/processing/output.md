@@ -202,6 +202,11 @@ quality tried is `10` (lower if `q` is lower). With `autoquality` it is the
 lowest quality the search tries, 25 or 20 for AVIF. If the image is still too
 large at that quality, the response is larger than the budget.
 
+The budget counts the whole file, including a color profile embedded with
+[`profile`](#profile) and metadata kept with [`meta`](#meta). A CMYK JPEG
+with `profile=preserve` can carry a profile of several hundred kilobytes,
+which no quality can bring under a small budget.
+
 `max-bytes` follows the same format rules as `autoquality`. With
 `format=webp` while WebP is lossless, it fails with `400`. With `format=png`,
 it is ignored.
