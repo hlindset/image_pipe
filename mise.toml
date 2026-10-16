@@ -6,6 +6,7 @@ pnpm = "12.8.1"
 rust = { version = "1.98.1", components = "rustfmt,clippy" }
 python = "3.14.7"
 uv = "0.12.21"
+osv-scanner = "2.6.0"
 "pipx:shot-scraper" = "1.9.1"
 "github:gastownhall/beads" = "latest"
 
@@ -44,6 +45,8 @@ dir = "image_pipe"
 run = [
   # Library versions match; the server shares their major.minor (RELEASING.md).
   "../scripts/check-versions.sh > /dev/null",
+  # Erlang and Elixir pins elsewhere match mise.toml.
+  "../scripts/check-toolchain.sh",
   "mix format --check-formatted",
   "mix compile --warnings-as-errors",
   "mix credo --strict",
@@ -81,6 +84,17 @@ run = [
   "cd native/image_pipe_svg_nif && cargo clippy --all-targets -- -D warnings",
   "cd native/image_pipe_svg_nif && cargo test",
 ]
+
+[tasks.audit]
+description = "Check every lockfile for known vulnerabilities with osv-scanner"
+run = """
+set -e
+args=""
+for lockfile in $(git ls-files '*mix.lock' '*Cargo.lock' '*pnpm-lock.yaml'); do
+  args="$args -L $lockfile"
+done
+osv-scanner scan source $args
+"""
 
 [tasks."server:image"]
 description = "Build the image_pipe_server Docker image and run the container smoke test. Pass `vision` for the detection variant."

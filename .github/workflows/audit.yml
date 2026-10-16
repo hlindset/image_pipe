@@ -1,0 +1,40 @@
+name: Audit
+
+# Checks every lockfile against the OSV advisory database. Runs weekly as well
+# as on lockfile changes, because advisories appear without any change here.
+on:
+  push:
+    branches: ["main"]
+    paths: &audit_paths
+      - "**/mix.lock"
+      - "**/Cargo.lock"
+      - "**/pnpm-lock.yaml"
+      - "mise.toml"
+      - ".github/workflows/audit.yml"
+  pull_request:
+    branches: ["main"]
+    paths: *audit_paths
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  osv-scanner:
+    name: osv-scanner
+    runs-on: ubuntu-26.04
+    env:
+      # Use only the tools mise-action installs, not every tool in mise.toml.
+      MISE_EXEC_AUTO_INSTALL: "false"
+      MISE_TASK_RUN_AUTO_INSTALL: "false"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          install_args: osv-scanner
+      - name: Scan lockfiles
+        run: mise run audit

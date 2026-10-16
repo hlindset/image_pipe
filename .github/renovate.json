@@ -1,0 +1,23 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Updates the tool pins in mise.toml, which Dependabot doesn't read. Dependabot (dependabot.yml) updates everything else.",
+  "extends": [
+    "config:recommended"
+  ],
+  "enabledManagers": [
+    "mise"
+  ],
+  "schedule": [
+    "before 9am on monday"
+  ],
+  "minimumReleaseAge": "14 days",
+  "packageRules": [
+    {
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "mise tools"
+    }
+  ]
+}
