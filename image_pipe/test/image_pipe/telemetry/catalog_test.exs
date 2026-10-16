@@ -44,7 +44,7 @@ defmodule ImagePipe.Telemetry.CatalogTest do
     end
   end
 
-  test "without stages, the Logger subscribes to the request summary and background events" do
+  test "without stages, the Logger subscribes to the request summary, background events, and cache write failures" do
     prefix = [__MODULE__, :summary]
     Telemetry.attach_default_logger(prefix: prefix)
 
@@ -54,7 +54,10 @@ defmodule ImagePipe.Telemetry.CatalogTest do
                prefix ++ [:request, :exception],
                prefix ++ [:cache, :sweep, :stop],
                prefix ++ [:cache, :sweep, :exception],
-               prefix ++ [:cache, :eviction, :stop]
+               prefix ++ [:cache, :eviction, :stop],
+               prefix ++ [:cache, :write, :stop],
+               prefix ++ [:cache, :write, :exception],
+               prefix ++ [:cache, :stage]
              ])
   end
 

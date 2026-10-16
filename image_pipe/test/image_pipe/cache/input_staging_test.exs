@@ -3,6 +3,8 @@ defmodule ImagePipe.Cache.InputStagingTest do
 
   @moduletag :tmp_dir
 
+  import ExUnit.CaptureLog
+
   alias ImagePipe.Cache.Input
 
   defp mode(path), do: File.lstat!(path).mode |> Bitwise.band(0o777)
@@ -33,8 +35,15 @@ defmodule ImagePipe.Cache.InputStagingTest do
     file = Path.join(tmp_dir, "file")
     File.write!(file, "")
 
-    assert Input.private_dir(link) == :error
-    assert Input.private_dir(file) == :error
+    log =
+      capture_log(fn ->
+        assert Input.private_dir(link) == :error
+        assert Input.private_dir(file) == :error
+        assert Input.private_dir(file) == :error
+      end)
+
     assert mode(target) == 0o755
+    assert log =~ "[warning] image_pipe cache: can't stage originals in #{link}"
+    assert [_once] = Regex.scan(~r/can't stage originals in #{Regex.escape(file)}/, log)
   end
 end

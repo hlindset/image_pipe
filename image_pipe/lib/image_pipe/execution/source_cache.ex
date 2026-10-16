@@ -459,9 +459,9 @@ defmodule ImagePipe.Execution.SourceCache do
           path -> File.stream!(path, 65_536)
         end
 
-      {body, digest, size, processing} =
+      {body, digest, size, processing, buffered} =
         case lease do
-          :unavailable -> spool_buffer(stream, config[:max_body_bytes])
+          :unavailable -> spool_buffer(stream, config[:max_body_bytes], :dir)
           _ref -> spool(stream, path, response, preparation, config)
         end
 
@@ -475,7 +475,8 @@ defmodule ImagePipe.Execution.SourceCache do
          lease: lease,
          source_bytes: size,
          source_sha256: digest,
-         processing: processing
+         processing: processing,
+         buffered: buffered
        }}
     rescue
       exception in Source.StreamError ->
@@ -515,7 +516,7 @@ defmodule ImagePipe.Execution.SourceCache do
         end
 
       {:error, _reason} ->
-        spool_buffer(stream, config[:max_body_bytes])
+        spool_buffer(stream, config[:max_body_bytes], :open)
     end
   end
 
@@ -533,7 +534,9 @@ defmodule ImagePipe.Execution.SourceCache do
       end)
 
     check_staged_size!(body, io, size)
-    {finish_body(body), :crypto.hash_final(hash), size, Overlap.complete(overlap)}
+    buffered = if body != :file, do: :write
+
+    {finish_body(body), :crypto.hash_final(hash), size, Overlap.complete(overlap), buffered}
   end
 
   defp check_staged_size!(:file, io, size) do
@@ -565,7 +568,8 @@ defmodule ImagePipe.Execution.SourceCache do
   defp finish_body({:buffer, reversed}),
     do: {:buffer, reversed |> Enum.reverse() |> IO.iodata_to_binary()}
 
-  defp spool_buffer(stream, limit) do
+  # `reason` says why the original isn't staged to a file.
+  defp spool_buffer(stream, limit, reason) do
     {bytes, size, hash} =
       Source.reduce_body(stream, {[], 0, :crypto.hash_init(:sha256)}, fn bytes,
                                                                          {acc, size, hash} ->
@@ -574,7 +578,7 @@ defmodule ImagePipe.Execution.SourceCache do
       end)
 
     {{:buffer, bytes |> Enum.reverse() |> IO.iodata_to_binary()}, :crypto.hash_final(hash), size,
-     nil}
+     nil, reason}
   end
 
   defp unchanged?(%Record{origin: %{headers: %{"etag" => same}}}, %{headers: %{"etag" => same}}),
@@ -598,7 +602,10 @@ defmodule ImagePipe.Execution.SourceCache do
     do: raise(Source.StreamError, reason: :body_too_large)
 
   defp check_size!(_size, _limit), do: :ok
-  defp stop_metadata({:ok, %Acquisition{}}), do: %{result: :ok}
+  defp stop_metadata({:ok, %Acquisition{buffered: nil}}), do: %{result: :ok}
+
+  defp stop_metadata({:ok, %Acquisition{buffered: reason}}),
+    do: %{result: :ok, staging: :memory, staging_reason: reason}
 
   defp stop_metadata({:error, {:source, reason}}),
     do: %{result: :source_error, error: Telemetry.error_tag(reason)}

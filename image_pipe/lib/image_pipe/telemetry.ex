@@ -75,8 +75,10 @@ defmodule ImagePipe.Telemetry do
   event: the method, path, status, duration, and bytes sent, then the
   request's other fields as `key=value`. The fields are also in the line's
   Logger metadata, as a map under `:image_pipe`. Cache sweeps and evictions,
-  which belong to no request, log their own lines. With `stages: true`,
-  every stage of each request logs a line as well.
+  which belong to no request, log their own lines. Failed and dropped cache
+  writes also log their own lines, at `:warning`, because a write can finish
+  after its request's line. With `stages: true`, every stage of each request
+  logs a line as well.
 
   Call it once at application startup. Calling it again replaces the
   handler's options. Remove it with `detach_default_logger/0`. Setting it up
@@ -86,8 +88,8 @@ defmodule ImagePipe.Telemetry do
 
   `:events` selects groups from the
   [event reference](telemetry-events.md). Without `stages: true`, only the
-  `:request` group's summary and the `:cache` group's sweeps and evictions
-  have lines:
+  `:request` group's summary and the `:cache` group's sweeps, evictions, and
+  failed or dropped writes have lines:
 
     * `:request`: the request summary, and request, processing pool, send,
       deliver, and encode events, except the encode-search probe cost spans,
@@ -105,10 +107,10 @@ defmodule ImagePipe.Telemetry do
 
   Lines log at `:level`. A summary line logs at `:error` for a `5xx`
   response or one that failed partway through sending, and at `:warning` for
-  a `4xx`, a degraded result, detection whose detector failed, was
-  unavailable, or isn't configured, a quality search that missed its target
-  or size limit, a result scaled down to fit the limits, or a failed
-  `ImagePipe.run/4`. With `stages: true`, these stage lines log at
+  a `4xx`, a degraded result, a cache read error, detection whose detector
+  failed, was unavailable, or isn't configured, a quality search that missed
+  its target or size limit, a result scaled down to fit the limits, or a
+  failed `ImagePipe.run/4`. With `stages: true`, these stage lines log at
   `:warning`:
 
     * Exceptions, and results such as `:source_error`, `:cache_error`,

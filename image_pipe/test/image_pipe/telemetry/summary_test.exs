@@ -64,6 +64,7 @@ defmodule ImagePipe.Telemetry.SummaryTest do
 
     assert summary.bytes == byte_size(miss.resp_body)
     assert is_integer(summary.duration_ms) and is_integer(summary.decode_ms)
+    refute Map.has_key?(summary, :staging)
 
     hit = request("/w=40/format=png/src/beach.jpg", config, options)
     assert_received {:summary, _measurements, %{cache: :hit, status: 200} = hit_summary}
@@ -269,27 +270,11 @@ defmodule ImagePipe.Telemetry.SummaryTest do
   end
 
   test "the input cache's answer is recorded", ctx do
-    body = File.read!("priv/static/images/beach.jpg")
-
-    origin = fn conn ->
-      conn
-      |> put_resp_header("cache-control", "public, max-age=60")
-      |> put_resp_content_type("image/jpeg")
-      |> send_resp(200, body)
-    end
-
-    http = [
-      adapter: ImagePipe.Source.HTTP,
-      match: [scheme: ["https"]],
-      options: [
-        allowed_hosts: ["origin.test"],
-        address_resolver: fn _ -> {:ok, [{93, 184, 216, 34}]} end,
-        req_options: [plug: origin]
-      ]
-    ]
-
     options =
-      start(ctx, input_cache: [root: Path.join(ctx.root, "input")], extra_sources: [http: http])
+      start(ctx,
+        input_cache: [root: Path.join(ctx.root, "input")],
+        extra_sources: [http: http_source()]
+      )
 
     config = Caches.plug(options)
 
@@ -304,6 +289,43 @@ defmodule ImagePipe.Telemetry.SummaryTest do
              200
 
     assert_received {:summary, _m, %{input_cache: :hit}}
+  end
+
+  # The test module isn't async, so no other test reads TMPDIR meanwhile.
+  test "an original buffered in memory is recorded, and the unusable staging directory warned about once",
+       ctx do
+    tmp = Path.join(ctx.root, "tmp")
+    File.mkdir_p!(tmp)
+    File.write!(Path.join(tmp, "image_pipe"), "")
+    previous = System.get_env("TMPDIR")
+    System.put_env("TMPDIR", tmp)
+
+    on_exit(fn ->
+      if previous, do: System.put_env("TMPDIR", previous), else: System.delete_env("TMPDIR")
+    end)
+
+    options = start(ctx, extra_sources: [http: http_source()])
+    config = Caches.plug(options)
+    Telemetry.attach_default_logger(prefix: ctx.prefix)
+
+    log =
+      capture_log(fn ->
+        for width <- [40, 30] do
+          path = "/w=#{width}/src/https://origin.test/beach.jpg"
+          assert request(path, config, options).status == 200
+        end
+      end)
+
+    assert_received {:summary, _m, %{status: 200, staging: :memory, staging_reason: :dir}}
+    assert_received {:summary, _m, %{status: 200, staging: :memory, staging_reason: :dir}}
+    assert log =~ "[info] GET /w=40/src/https://origin.test/beach.jpg 200"
+    assert log =~ "staging=memory staging_reason=dir"
+
+    assert [_once] =
+             Regex.scan(
+               ~r/\[warning\] image_pipe cache: can't stage originals in .*image_pipe/,
+               log
+             )
   end
 
   test "a clamped result, a best-effort quality search, and a missing detector log at warning",
@@ -527,6 +549,28 @@ defmodule ImagePipe.Telemetry.SummaryTest do
         max_input_pixels: 40_000_000
       ] ++ options
     )
+  end
+
+  # An HTTP source for `https://origin.test/`, whose originals are kept.
+  defp http_source do
+    body = File.read!("priv/static/images/beach.jpg")
+
+    origin = fn conn ->
+      conn
+      |> put_resp_header("cache-control", "public, max-age=60")
+      |> put_resp_content_type("image/jpeg")
+      |> send_resp(200, body)
+    end
+
+    [
+      adapter: ImagePipe.Source.HTTP,
+      match: [scheme: ["https"]],
+      options: [
+        allowed_hosts: ["origin.test"],
+        address_resolver: fn _ -> {:ok, [{93, 184, 216, 34}]} end,
+        req_options: [plug: origin]
+      ]
+    ]
   end
 
   defp request(path, config, options) do

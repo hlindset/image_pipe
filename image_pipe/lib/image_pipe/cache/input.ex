@@ -8,6 +8,8 @@ defmodule ImagePipe.Cache.Input do
   alias ImagePipe.Source.Record
   alias ImagePipe.Telemetry
 
+  require Logger
+
   def validate_config(opts) do
     case Keyword.get(opts, :input_cache) do
       nil ->
@@ -139,19 +141,38 @@ defmodule ImagePipe.Cache.Input do
   Makes `dir` a directory only this VM's user can read or write, creating it
   if needed. Returns `:error` for a symlink, a file, or another user's
   directory, which on a shared tmp directory could expose or replace staged
-  originals. A directory found private once stays so for the VM's lifetime.
+  originals, and logs a warning the first time. A directory found private
+  once stays so for the VM's lifetime.
   """
   @spec private_dir(Path.t()) :: :ok | :error
   def private_dir(dir) do
     key = {__MODULE__, :private_dir, dir}
 
     case :persistent_term.get(key, false) do
-      true ->
-        :ok
-
-      false ->
-        with :ok <- make_private(dir), do: :persistent_term.put(key, true)
+      true -> :ok
+      found -> check_private(key, dir, found)
     end
+  end
+
+  defp check_private(key, dir, found) do
+    case make_private(dir) do
+      :ok -> :persistent_term.put(key, true)
+      :error -> refuse(key, dir, found)
+    end
+  end
+
+  # Only the first refusal of a directory is logged.
+  defp refuse(_key, _dir, :refused), do: :error
+
+  defp refuse(key, dir, false) do
+    :persistent_term.put(key, :refused)
+
+    Logger.warning(
+      "image_pipe cache: can't stage originals in #{dir}, which must be a directory " <>
+        "only this user can access. Originals are held in memory instead."
+    )
+
+    :error
   end
 
   defp make_private(dir) do
@@ -206,7 +227,9 @@ defmodule ImagePipe.Cache.Input do
     end
   end
 
-  defp write_metadata({:error, _reason}), do: %{result: :cache_error, cache: :write_error}
+  defp write_metadata({:error, reason}),
+    do: %{result: :cache_error, cache: :write_error, error: Telemetry.error_tag(reason)}
+
   defp write_metadata({:ok, :rejected}), do: %{result: :ok, cache: :stage_skipped}
   defp write_metadata(:ok), do: %{result: :ok, cache: :write}
 

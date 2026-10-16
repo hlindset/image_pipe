@@ -41,6 +41,9 @@ defmodule ImagePipe.Telemetry.Trace.Handler do
     :bodies,
     :unreadable,
     :staged,
+    # an original held in memory instead of a staged file, and why
+    :staging,
+    :staging_reason,
     :active,
     :queued,
     :operation,

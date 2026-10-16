@@ -8,8 +8,6 @@ defmodule ImagePipe.Cache.Sink do
   # and the lease deadline, are guesses (image_plug-sole).
   @moduledoc false
 
-  require Logger
-
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Writers
@@ -170,14 +168,12 @@ defmodule ImagePipe.Cache.Sink do
   @doc false
   # A writer that couldn't open its temp body reports it.
   def open_failed(writer_state, reason) do
-    Logger.warning("cache sink open error: #{inspect(reason)}")
     emit_stage_event(:stage_error, :open, reason, writer_state)
   end
 
   @doc false
   # A writer whose disk write failed reports it, as the sink did before.
   def write_failed(writer_state, reason) do
-    Logger.warning("cache sink write error: #{inspect(reason)}")
     emit_stage_event(:stage_error, :write, reason, writer_state)
   end
 
@@ -286,7 +282,6 @@ defmodule ImagePipe.Cache.Sink do
   end
 
   defp handle_open_error(reason, key, output_format, opts) do
-    Logger.warning("cache sink open error: #{inspect(reason)}")
     emit_stage_event(:stage_error, :open, reason, {key, output_format}, opts)
   end
 
@@ -302,8 +297,6 @@ defmodule ImagePipe.Cache.Sink do
     do: %{result: :ok, cache: :admission_rejected, output_format: output_format}
 
   defp commit_stop_metadata({:error, reason}, output_format) do
-    Logger.warning("cache sink commit error: #{inspect(reason)}")
-
     %{
       result: :cache_error,
       cache: :write_error,

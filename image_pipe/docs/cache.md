@@ -140,8 +140,11 @@ temporary file while they download, in the `image_pipe` directory under the
 system temporary directory (see `System.tmp_dir/0`). Only the user running
 ImagePipe can open that directory. When that path is a symlink, a file, or
 another user's directory, those originals are held in memory instead, up to
-`max_body_bytes` each. On a host shared with other users, set `TMPDIR` to a
-directory of your own.
+`max_body_bytes` each. The first request that can't use the directory logs a
+warning naming it. With the
+[default Logger](telemetry.md#logging-with-the-default-logger) attached, each
+request whose original is held in memory has `staging=memory` on its line. On
+a host shared with other users, set `TMPDIR` to a directory of your own.
 
 ## Writing entries
 

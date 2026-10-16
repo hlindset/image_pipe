@@ -18,8 +18,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the quality a search chose, and the time spent fetching, decoding,
   encoding, and waiting for the processing pool. It also records a result
   scaled down to the limits, ignored options, an original sent unprocessed,
-  and a client that disconnected. It gathers them from every process that
-  served the request. The
+  an original held in memory because it couldn't be written to a temporary
+  file, and a client that disconnected. It gathers them from every process
+  that served the request. The
   [event reference](docs/telemetry-events.md#request-summary) lists them.
 - The `[:request]` span's start carries `:method` and `:path` for Plug
   requests. The path is as sent, except that a presigned source URL's
@@ -29,6 +30,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A file system cache logs at `info` when it claims its cache root, naming
   the host. A node that refused the root, because another node used it, logs
   at `info` when it takes the root over and requests use the cache again.
+- ImagePipe logs a warning, once per directory, when the `image_pipe`
+  directory in the system's temporary directory can't be used to stage
+  originals, so they are held in memory instead. The `[:source, :stage]`
+  span reports each original held in memory, and why, in `:staging` and
+  `:staging_reason`, which the request summary also carries.
 - An S3 source logs a warning when a fetch of its provider's credentials
   fails, naming the bucket and the provider module, and logs at `info` when a
   fetch succeeds again.
@@ -46,12 +52,17 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Cached `output=blurhash`, `output=lqip-css`, and `output=info` responses
   that include a placeholder miss once after upgrading, since placeholders of
   transparent images changed.
+- Output cache write failures are no longer logged directly. Attach the
+  default Logger to see them, as `image_pipe cache stage` and
+  `image_pipe cache write` warnings with the error category.
+- `[:cache, :write]` carries `:error` on input cache write errors too.
 - **Breaking:** `ImagePipe.Telemetry.attach_default_logger/1` logs one line
   per request, from the new `[:request, :summary]` event, instead of one line
   per stage. A `5xx`, or a response that failed partway through sending,
-  logs at `error`, and a `4xx` or a result that didn't come out as
-  requested at `warning`. Pass
-  `stages: true` to also log the stage lines as before.
+  logs at `error`, and a `4xx`, a result that didn't come out as requested,
+  or a failed cache read at `warning`. Failed and dropped cache writes log
+  their own `warning` lines. Pass `stages: true` to also log the stage lines
+  as before.
 - **Breaking:** An `ImagePipe` instance starts a processing pool unless its
   configuration names one in `processing_pool`. It processes as many images
   at once as the VM has online schedulers and queues up to 64 more for up to
