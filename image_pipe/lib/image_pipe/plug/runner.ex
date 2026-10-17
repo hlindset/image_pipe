@@ -9,6 +9,7 @@ defmodule ImagePipe.Plug.Runner do
   alias ImagePipe.Plan.Spec
   alias ImagePipe.Plug.Errors
   alias ImagePipe.Plug.Request, as: ParsedRequest
+  alias ImagePipe.ProcessingPool
   alias ImagePipe.Response.CacheHeaders
   alias ImagePipe.Response.CachePolicy
   alias ImagePipe.Response.Conditional
@@ -343,11 +344,25 @@ defmodule ImagePipe.Plug.Runner do
 
     conn =
       send_with_span(conn, config, metadata.result, fn ->
-        Errors.send(conn, reason)
+        conn |> put_retry_after(reason, config) |> Errors.send(reason)
       end)
 
     {conn, metadata}
   end
+
+  # By then, every request queued when this one failed has started or timed out.
+  defp put_retry_after(conn, {:processing, reason}, config)
+       when reason in [:overloaded, :queue_timeout] do
+    case ProcessingPool.retry_after(Keyword.fetch!(config, :processing_pool)) do
+      seconds when is_integer(seconds) ->
+        Plug.Conn.put_resp_header(conn, "retry-after", Integer.to_string(seconds))
+
+      {:error, _reason} ->
+        conn
+    end
+  end
+
+  defp put_retry_after(conn, _reason, _config), do: conn
 
   # An encode failure is a server-side fault, and its telemetry tag (`:encode`)
   # keeps nothing of what actually went wrong. This is the one funnel every

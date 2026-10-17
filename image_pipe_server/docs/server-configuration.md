@@ -407,6 +407,7 @@ How many images are processed at once, and how long requests wait for a turn. Ti
 | `max_queue` | integer ≥ 0 | `64` |
 | `queue_timeout` | integer > 0 | `10000` |
 | `processing_timeout` | integer > 0 | `30000` |
+| `low_priority_max_concurrency` | integer > 0 | half of `max_concurrency`, rounded down, at least 1 |
 
 ### `[http]`
 

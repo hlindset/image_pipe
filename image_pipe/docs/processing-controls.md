@@ -55,10 +55,42 @@ max_queue = 16
   turn before it gets a `503`.
 - `processing_timeout`, 30 seconds by default, is the request deadline once
   processing starts.
+- `low_priority_max_concurrency` is how many
+  [low-priority requests](#low-priority-requests) are processed at once. It
+  defaults to half of `max_concurrency`, rounded down, and at least 1.
+
+A `503` for a full queue or a queue timeout has a `Retry-After` header:
+`queue_timeout` in whole seconds, rounded up.
 
 `ImagePipe.ProcessingPool` lists the options, and the
 [server reference](../../image_pipe_server/docs/server-configuration.md#pool)
 their TOML keys.
+
+## Low-priority requests
+
+A request with [`priority=low`](processing/request.md#priority), or an
+`ImagePipe.run/4` call whose builder sets `priority: :low`, waits for spare
+capacity:
+
+- It starts only when no normal request is waiting.
+- It starts processing only after the original has finished downloading.
+- At most `low_priority_max_concurrency` low-priority requests are processed
+  at once.
+- A normal request that finds the queue full takes the place of the newest
+  waiting low-priority request, which gets a `503`.
+- A normal request never waits for a low-priority request that is making the
+  same image. It makes the image itself (see
+  [request coalescing](caching-and-freshness.md#request-coalescing)).
+
+A low-priority request that has started keeps its slot until it finishes, so
+a burst of normal requests can find up to `low_priority_max_concurrency`
+slots taken. Lower it if that wait matters more than how fast low-priority
+work gets done.
+
+While normal requests keep arriving, low-priority requests wait their full
+`queue_timeout` and get a `503`. If they keep failing, the pool is too
+small for the load, or the low-priority work should run when traffic is
+lower.
 
 ## Sharing a pool between instances
 
@@ -121,10 +153,11 @@ immediately. Keep the [size limits](deployment.md) as well.
 The pool emits [`[:processing, :admission]`](telemetry-events.md#processing-admission)
 for each wait for a turn and
 [`[:processing, :execute]`](telemetry-events.md#processing-execute) for each
-processed image. In Elixir, `ImagePipe.ProcessingPool.stats/1` returns how many
-workers still hold slots, including workers finishing after a timeout, and
-how many requests are waiting. An instance's own pool is named after the
-instance, so `MyApp.Images` has `MyApp.Images.ProcessingPool`. The processing execution span ends when the
+processed image. Both carry the request's `:priority`. In Elixir,
+`ImagePipe.ProcessingPool.stats/1` returns how many workers hold slots and
+how many requests are waiting, each in total and for low priority. Workers
+finishing after a timeout still count. An instance's own pool is named after
+the instance, so `MyApp.Images` has `MyApp.Images.ProcessingPool`. The processing execution span ends when the
 worker finishes. `ImagePipe.ProcessingPool` lists the errors
 `ImagePipe.run/4` returns for each
 case that gives a `503` over HTTP.

@@ -60,6 +60,7 @@ defmodule ImagePipe.Execution do
   end
 
   def prepare(request, source, watermarks, policy, inputs, config) do
+    config = Keyword.put(config, :processing_priority, request.priority)
     material = identity_material(request, policy, inputs, config)
     tasks = Watermarks.prepare_async(watermarks, material, config)
 
@@ -373,9 +374,12 @@ defmodule ImagePipe.Execution do
     end
   end
 
+  # A low-priority request may wait on a flight but never leads one, so a
+  # normal request for the same image never waits behind its queue turn.
   defp coalesce(context, cache) do
-    case Cache.OutputWork.join(cache, context.representation.cache_key.hash, context.config) do
+    case join_output_work(context, cache) do
       {:leader, lease} -> generate_leader(context, lease)
+      :none -> generate_uncoalesced(context)
       :ready -> cached_or_generate(context)
       :bypass -> generate_uncoalesced(context)
       # Another request's image wasn't stored in time, so the disk is slow:
@@ -383,6 +387,12 @@ defmodule ImagePipe.Execution do
       {:bypass, :deadline} -> generate_uncoalesced(context, nil, false)
     end
   end
+
+  defp join_output_work(%{request: %{priority: :low}} = context, cache),
+    do: Cache.OutputWork.follow(cache, context.representation.cache_key.hash, context.config)
+
+  defp join_output_work(context, cache),
+    do: Cache.OutputWork.join(cache, context.representation.cache_key.hash, context.config)
 
   defp cached_or_generate(context) do
     case lookup(context) do

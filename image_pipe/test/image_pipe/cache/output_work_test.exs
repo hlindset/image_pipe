@@ -139,8 +139,74 @@ defmodule ImagePipe.Cache.OutputWorkTest do
     OutputWork.complete(next, :ready)
   end
 
+  describe "follow/4" do
+    test "without a flight returns :none and leaves leadership free", context do
+      assert follow(context) == :none
+      {:leader, lease} = join(context)
+      OutputWork.complete(lease, :ready)
+    end
+
+    test "waits on an existing flight", context do
+      {:leader, lease} = join(context)
+      follower = async(context, fn -> follow(context) end)
+      assert_receive :waiting
+      OutputWork.complete(lease, :ready)
+      assert Task.await(follower) == :ready
+    end
+
+    test "is never promoted when the leader dies", context do
+      test = self()
+
+      owner =
+        async(context, fn ->
+          {:leader, _lease} = join(context)
+          send(test, :leading)
+          receive do: (:finish -> :ok)
+        end)
+
+      assert_receive :leading
+      follower = async(context, fn -> follow(context) end)
+      assert_receive :waiting
+
+      promoted =
+        async(context, fn ->
+          {:leader, lease} = join(context)
+          send(test, :promoted)
+          receive do: (:finish -> OutputWork.complete(lease, :ready))
+        end)
+
+      assert_receive :waiting
+      Task.shutdown(owner, :brutal_kill)
+      assert_receive :promoted
+      assert Task.yield(follower, 0) == nil
+      send(promoted.pid, :finish)
+      assert Task.await(follower) == :ready
+    end
+
+    test "is released when the leader dies with no other waiter to promote", context do
+      test = self()
+
+      owner =
+        async(context, fn ->
+          {:leader, _lease} = join(context)
+          send(test, :leading)
+          receive do: (:finish -> :ok)
+        end)
+
+      assert_receive :leading
+      follower = async(context, fn -> follow(context) end)
+      assert_receive :waiting
+      Task.shutdown(owner, :brutal_kill)
+      assert Task.await(follower) == :bypass
+      {:leader, lease} = join(context)
+      OutputWork.complete(lease, :ready)
+    end
+  end
+
   defp join(context, timeout \\ 60_000),
     do: OutputWork.join(context.cache, "output", context.opts, timeout)
+
+  defp follow(context), do: OutputWork.follow(context.cache, "output", context.opts)
 
   defp async(context, fun), do: Task.Supervisor.async_nolink(context.tasks, fun)
 end

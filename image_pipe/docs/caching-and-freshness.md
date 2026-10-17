@@ -154,3 +154,7 @@ or [detection failed](cache.md#what-is-stored), waiting requests start as soon
 as the server finds out, before the first request finishes. When too many
 requests are already waiting, new ones go ahead without waiting. The limits
 are listed under [coordination limits](cache.md#coordination-limits).
+
+A [low-priority request](processing/request.md#priority) waits for a normal
+request that is making the same image. Otherwise it makes the image itself,
+and no other request waits for it.

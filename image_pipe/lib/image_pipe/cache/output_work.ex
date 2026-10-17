@@ -1,7 +1,9 @@
 defmodule ImagePipe.Cache.OutputWork do
   # Single-flight leases for generating a processed image. The first request
   # for a key leads, and the others wait for it to complete the lease, or for
-  # it to stop. A lease belongs to one process at a time: only the owner
+  # it to stop. A follower (`follow/4`) waits on a flight but never leads one:
+  # without a flight it gets `:none`, and it's never promoted when a leader
+  # stops. A lease belongs to one process at a time: only the owner
   # completes it, so a request that handed its lease to a stream or a cache
   # writer can't complete it early. A lease handed off with a deadline
   # releases its waiters with `:bypass` when the deadline passes first.
@@ -19,8 +21,15 @@ defmodule ImagePipe.Cache.OutputWork do
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
   def join(cache, key, opts, timeout \\ @wait_timeout) do
-    result = call(__MODULE__, {:join, {cache, key}, timeout}, :infinity)
+    result = call(__MODULE__, {:join, {cache, key}, timeout, true}, :infinity)
     joined(result, opts)
+  end
+
+  def follow(cache, key, opts, timeout \\ @wait_timeout) do
+    case call(__MODULE__, {:join, {cache, key}, timeout, false}, :infinity) do
+      :none -> :none
+      result -> joined(result, opts)
+    end
   end
 
   defp joined({:waiting, {server, token}}, opts) do
@@ -77,8 +86,11 @@ defmodule ImagePipe.Cache.OutputWork do
   def init(_opts), do: {:ok, %{flights: %{}, members: %{}}}
 
   @impl true
-  def handle_call({:join, key, timeout}, from, state) do
+  def handle_call({:join, key, timeout, lead?}, from, state) do
     cond do
+      not lead? and not Map.has_key?(state.flights, key) ->
+        {:reply, :none, state}
+
       not Map.has_key?(state.flights, key) and map_size(state.flights) >= @max_keys ->
         {:reply, :busy, state}
 
@@ -86,7 +98,7 @@ defmodule ImagePipe.Cache.OutputWork do
         {:reply, :busy, state}
 
       true ->
-        join_flight(state, key, from, timeout)
+        join_flight(state, key, from, timeout, lead?)
     end
   end
 
@@ -115,11 +127,12 @@ defmodule ImagePipe.Cache.OutputWork do
     end
   end
 
-  defp join_flight(state, key, {pid, _tag}, timeout) do
+  defp join_flight(state, key, {pid, _tag}, timeout, lead?) do
     token = make_ref()
 
     member = %{
       key: key,
+      lead?: lead?,
       owner: pid,
       monitor: Process.monitor(pid),
       from: {pid, token},
@@ -187,20 +200,33 @@ defmodule ImagePipe.Cache.OutputWork do
     end
   end
 
-  defp promote(state, key, []), do: delete_flight(state, key)
+  # Promotes the first waiter that may lead and hasn't expired. Followers
+  # ahead of it keep waiting on the new leader. With no waiter to promote, the
+  # remaining followers bypass.
+  defp promote(state, key, waiters, followers \\ [])
 
-  defp promote(state, key, [token | rest]) do
+  defp promote(state, key, [], followers) do
+    followers
+    |> Enum.reverse()
+    |> Enum.reduce(state, &reply_and_remove(&2, &1, :bypass))
+    |> delete_flight(key)
+  end
+
+  defp promote(state, key, [token | rest], followers) do
     member = Map.fetch!(state.members, token)
 
-    case member.deadline > System.monotonic_time(:millisecond) do
-      true ->
+    cond do
+      not member.lead? ->
+        promote(state, key, rest, [token | followers])
+
+      member.deadline > System.monotonic_time(:millisecond) ->
         Process.cancel_timer(member.timer)
         GenServer.reply(member.from, {:leader, {self(), token}})
         state = put_in(state.members[token], %{member | timer: nil, deadline: nil})
-        put_in(state.flights[key], %{owner: token, waiters: rest})
+        put_in(state.flights[key], %{owner: token, waiters: Enum.reverse(followers, rest)})
 
-      false ->
-        state |> reply_and_remove(token, :bypass) |> promote(key, rest)
+      true ->
+        state |> reply_and_remove(token, :bypass) |> promote(key, rest, followers)
     end
   end
 

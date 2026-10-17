@@ -46,6 +46,8 @@ defmodule ImagePipe.Telemetry.Trace.Handler do
     :staging_reason,
     :active,
     :queued,
+    # a processing pool job's priority: :normal or :low
+    :priority,
     :operation,
     :index,
     :operation_count,

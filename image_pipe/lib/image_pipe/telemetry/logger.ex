@@ -166,6 +166,12 @@ defmodule ImagePipe.Telemetry.Logger do
   defp level_for([:cache, :coordination], %{result: result}, _base)
        when result in [:busy, :bypass, :timeout], do: :warning
 
+  # A low-priority request waits for spare capacity, so a full pool turning it
+  # away is expected.
+  defp level_for([:processing, :admission | _], %{priority: :low, result: result}, base)
+       when result in [:overloaded, :queue_timeout],
+       do: base
+
   defp level_for([:processing | _], %{result: result}, _base)
        when result in [
               :overloaded,

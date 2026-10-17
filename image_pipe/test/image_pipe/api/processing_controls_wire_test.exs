@@ -30,6 +30,7 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
       overloaded = request(mount, path)
       assert overloaded.status == 503
       assert overloaded.resp_body == "image processing overloaded"
+      assert Plug.Conn.get_resp_header(overloaded, "retry-after") == ["10"]
 
       builder = ImagePipe.URL.new() |> ImagePipe.URL.output(terminal: terminal)
 
@@ -122,6 +123,7 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
     expired = request(mount, "output=info")
     assert expired.status == 503
     assert expired.resp_body == "image processing queue timeout"
+    assert Plug.Conn.get_resp_header(expired, "retry-after") == ["1"]
     refute_received {:fetch, ["ready"], _}
     send(worker, :continue)
     assert Task.await(active).status == 200
@@ -156,6 +158,95 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
     # cost that excludes the wait fits in the remainder however slow the
     # generation itself is.
     assert cost_us <= elapsed_us - held_us
+  end
+
+  test "a normal request takes a full queue's place from a low-priority one", context do
+    pool =
+      start_supervised!({ProcessingPool, max_concurrency: 1, max_queue: 1, queue_timeout: 2_500})
+
+    mount = ImagePipe.Plug.init(config: config(pool, context.prefix))
+
+    active =
+      Task.Supervisor.async_nolink(context.tasks, fn -> request(mount, "w=32", "blocked") end)
+
+    assert_receive {:fetch, ["blocked"], worker}
+
+    low =
+      Task.Supervisor.async_nolink(context.tasks, fn -> request(mount, "w=32/priority=low") end)
+
+    await_queued(pool)
+    normal = Task.Supervisor.async_nolink(context.tasks, fn -> request(mount, "w=33") end)
+
+    pushed_out = Task.await(low)
+    assert pushed_out.status == 503
+    assert pushed_out.resp_body == "image processing overloaded"
+    assert Plug.Conn.get_resp_header(pushed_out, "retry-after") == ["3"]
+
+    send(worker, :continue)
+    assert Task.await(active).status == 200
+    assert Image.width(Image.from_binary!(Task.await(normal).resp_body)) == 33
+  end
+
+  test "low-priority and normal requests share one cached result", context do
+    pool = start_supervised!({ProcessingPool, max_concurrency: 1})
+    opts = observed(pool, context.prefix)
+    mount = Caches.plug(opts)
+
+    low = request(mount, "w=32/priority=low")
+    assert low.status == 200
+    Caches.await_writes(opts)
+
+    active =
+      Task.Supervisor.async_nolink(context.tasks, fn -> request(mount, "w=40", "blocked") end)
+
+    assert_receive {:fetch, ["blocked"], worker}
+    normal = request(mount, "w=32")
+    assert normal.status == 200
+    assert normal.resp_body == low.resp_body
+
+    assert Plug.Conn.get_resp_header(normal, "etag") ==
+             Plug.Conn.get_resp_header(low, "etag")
+
+    send(worker, :continue)
+    assert Task.await(active).status == 200
+  end
+
+  test "a normal request doesn't wait on a low-priority request for the same image", context do
+    pool = start_supervised!({ProcessingPool, max_concurrency: 1})
+    opts = observed(pool, context.prefix)
+    mount = Caches.plug(opts)
+
+    active =
+      Task.Supervisor.async_nolink(context.tasks, fn -> request(mount, "w=40", "blocked") end)
+
+    assert_receive {:fetch, ["blocked"], worker}
+
+    low =
+      Task.Supervisor.async_nolink(context.tasks, fn -> request(mount, "w=32/priority=low") end)
+
+    await_stats(pool, %{queued: 1, low_queued: 1})
+    normal = Task.Supervisor.async_nolink(context.tasks, fn -> request(mount, "w=32") end)
+    await_stats(pool, %{queued: 2, low_queued: 1})
+
+    send(worker, :continue)
+    assert Task.await(active).status == 200
+    assert Task.await(normal).status == 200
+    assert Task.await(low).status == 200
+  end
+
+  defp await_stats(pool, expected, deadline \\ System.monotonic_time(:millisecond) + 2_000) do
+    stats = ProcessingPool.stats(pool)
+
+    cond do
+      Map.take(stats, Map.keys(expected)) == expected ->
+        :ok
+
+      System.monotonic_time(:millisecond) > deadline ->
+        flunk("pool stats #{inspect(stats)} never matched #{inspect(expected)}")
+
+      true ->
+        await_stats(pool, expected, deadline)
+    end
   end
 
   defp await_queued(pool) do

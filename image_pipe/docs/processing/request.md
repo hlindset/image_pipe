@@ -1,9 +1,9 @@
 # Request controls
 
 These options set the download file name, pick a page or frame of the
-original, bust cached copies, limit how long a URL works, and ask for debug
-headers. Each one applies once to the whole request, wherever it appears in
-the URL.
+original, bust cached copies, limit how long a URL works, lower a request's
+priority, and ask for debug headers. Each one applies once to the whole
+request, wherever it appears in the URL.
 
 ## Downloads
 
@@ -164,6 +164,51 @@ Anyone can edit `expires` in an unsigned URL. When ImagePipe requires
 ```elixir
 ImagePipe.URL.new(expires: 2_000_000_000)
 |> ImagePipe.URL.group(resize: [width: 800])
+```
+
+<!-- tabs-close -->
+
+## Priority
+
+### priority
+
+Accepts `normal` or `low`. Default: `normal`.
+
+The server processes a limited number of images at once and queues the rest
+(see [Limiting concurrent processing](../processing-controls.md)). Use
+`priority=low` for work that can wait and retry, such as fetching
+placeholders for a whole library or warming the cache with `HEAD` requests.
+Requests that users are waiting for then go first.
+
+- A low-priority request starts only when no normal request is waiting, and
+  only while the server is processing fewer low-priority requests than its
+  [low-priority limit](../processing-controls.md#low-priority-requests).
+- When the queue is full, a normal request takes the place of the newest
+  waiting low-priority request. That request gets a `503`.
+- While normal requests keep the queue busy, a low-priority request waits
+  its full queue time and then gets a `503`.
+
+A `503` for a full or slow queue has a `Retry-After` header, set to how long
+the server lets a request wait for its turn, in whole seconds.
+
+`priority` doesn't change the stored image or its `ETag`, so low-priority
+and normal requests share cached copies. A cached copy is served right away,
+whatever the priority. `priority=normal` turns off a `priority=low` set by a
+[preset](../requesting-images.md#named-presets).
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/output=lqip-css/priority=low/src/photos/beach.jpg
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.new(priority: :low)
+|> ImagePipe.URL.output(terminal: :lqip_css)
 ```
 
 <!-- tabs-close -->
