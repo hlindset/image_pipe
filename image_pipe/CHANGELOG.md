@@ -64,6 +64,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   unchanged local file on every request. It keeps the hashes of up to 10,000
   files in memory and checks each file's size, timestamps, inode, and device
   instead. For a 5.5 MB PNG this saves about 3 ms per request.
+  For a remote original, a request with `If-None-Match` gets `304` without
+  contacting the origin while the origin's cache lifetime lasts.
   [`[:cache, :lookup]`](docs/telemetry-events.md#cache-lookup) reports these
   lookups with `pool: :memory`.
 - An HTTP source keeps the addresses a hostname resolves to for 10 seconds,
