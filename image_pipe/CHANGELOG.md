@@ -128,6 +128,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Detection requests that arrived before the bundled face or object model
+  had loaded, for example during startup warmup with
+  `detector_required: false`, each downloaded and loaded the model. They now
+  wait for one load, so the 175 MB object model downloads once.
 - `png-options=bitdepth:16` multiplied 8-bit color by 256 instead of 257, so
   128 became 32768 instead of 32896 and only white reached 65535. Color now
   scales by 257, as gray already did.
