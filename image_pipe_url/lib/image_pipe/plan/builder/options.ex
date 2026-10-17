@@ -329,7 +329,8 @@ defmodule ImagePipe.Plan.Builder.Options do
       min_height: [type: custom(:axis)],
       fit: [type: {:in, [:contain, :cover, :stretch, :auto]}],
       enlarge: [type: :boolean],
-      zoom: [type: custom(:zoom)]
+      zoom: [type: custom(:zoom)],
+      kernel: [type: {:in, ValueSpellings.values(:kernel)}]
     ]
   end
 

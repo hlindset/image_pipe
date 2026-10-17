@@ -7,6 +7,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- The `kernel` resize option (`resize: [kernel: :nearest]` in the builder)
+  sets the filter a group's resize uses: `nearest`, `linear`, `cubic`,
+  `mitchell`, `lanczos2`, `lanczos3` (the default), `mks2013`, or `mks2021`.
 - The `priority` request option (`priority: :low` in the builder) lets a
   request wait for spare capacity in the server's processing pool.
 

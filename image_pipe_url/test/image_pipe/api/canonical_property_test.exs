@@ -24,6 +24,7 @@ defmodule ImagePipe.API.CanonicalPropertyTest do
     "min-h=250",
     "fit=cover",
     "zoom=1.25,0.75",
+    "kernel=mitchell",
     "dpr=2",
     "crop=600,400",
     "crop-ratio=3:2",
@@ -161,6 +162,10 @@ defmodule ImagePipe.API.CanonicalPropertyTest do
 
     test "/w=800 canonicalizes the same as /fit=contain/w=800" do
       assert parse(["w=800"]) == parse(["fit=contain", "w=800"])
+    end
+
+    test "/w=800 canonicalizes the same as /kernel=lanczos3/w=800" do
+      assert parse(["w=800"]) == parse(["kernel=lanczos3", "w=800"])
     end
 
     test "/crop=600,400 canonicalizes the same as /crop=600,400/anchor=center" do

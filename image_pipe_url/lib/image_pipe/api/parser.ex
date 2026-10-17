@@ -562,6 +562,10 @@ defmodule ImagePipe.API.Parser do
   defp message_for(:invalid_fit),
     do: "invalid value: expected contain, cover, stretch, or auto"
 
+  defp message_for(:invalid_kernel),
+    do:
+      "invalid value: expected nearest, linear, cubic, mitchell, lanczos2, lanczos3, mks2013, or mks2021"
+
   defp message_for(:invalid_arity),
     do: "invalid value: wrong number of comma-separated elements"
 
