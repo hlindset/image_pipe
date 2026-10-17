@@ -8,7 +8,8 @@ name: Performance
 #   the curated `perf` cases, posted as a comment.
 # - Nightly, `main` against the `main` the previous scheduled run measured,
 #   the `main` of 30 days earlier, which shows drift too slow to notice night
-#   to night, and the latest release image, on the `perf` cases.
+#   to night, and the latest release image, on the `nightly` cases: the `perf`
+#   cases and the slower ImagePipe-only ones.
 # - Weekly, `main` against the `main` of 7 days earlier on every case, for a
 #   regression in a case the `perf` set leaves out.
 # - By hand, like the nightly run, on the cases chosen. Given `against`, the
@@ -27,7 +28,7 @@ on:
       cases:
         description: Cases to time
         type: choice
-        options: [perf, all]
+        options: [perf, nightly, all]
         default: perf
       against:
         description: >-
@@ -95,7 +96,7 @@ jobs:
             candidate_text="\`main\` at \`${candidate:0:7}\`"
             against_text="\`main\` at \`${against:0:7}\` from $(git log -1 --format=%cs "$against"), a week earlier"
           elif [ -n "$AGAINST_REF" ]; then
-            [ "$CASES" = all ] && only=all
+            [ -n "$CASES" ] && only=$CASES
             release=false
             # The checkout has every branch, but only as origin/<branch>.
             against=$(git rev-parse --verify --quiet "$AGAINST_REF^{commit}" ||
@@ -104,7 +105,7 @@ jobs:
             candidate_text="\`$GITHUB_REF_NAME\` at \`${candidate:0:7}\`"
             against_text="\`$AGAINST_REF\` at \`${against:0:7}\`"
           else
-            [ "$CASES" = all ] && only=all
+            only=${CASES:-nightly}
             # The commit the last successful scheduled run measured.
             against=$(gh run list --workflow performance.yml --event schedule \
               --status success --limit 1 --json headSha --jq '.[0].headSha // empty')
@@ -225,7 +226,7 @@ jobs:
           if [ -n "$MONTH" ]; then
             args+=(--against "month=image_pipe_server:month" --describe "month=$MONTH_TEXT")
           fi
-          [ "$ONLY" = perf ] && args+=(--only perf)
+          [ "$ONLY" != all ] && args+=(--only "$ONLY")
           if [ "$RELEASE" = true ]; then
             version=$(docker image inspect --format \
               '{{index .Config.Labels "org.opencontainers.image.version"}}' "$RELEASE_IMAGE")

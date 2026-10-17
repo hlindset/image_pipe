@@ -28,7 +28,9 @@ defmodule ImagePipe.WorkBudgetTest do
 
     %{
       config: ImagePipe.Plug.init(sources: sources, watermarks: %{mark: [source: "alpha.png"]}),
-      cached: Caches.plug(Caches.start!(sources: sources, cache: [root: Path.join(dir, "cache")]))
+      cached:
+        Caches.plug(Caches.start!(sources: sources, cache: [root: Path.join(dir, "cache")])),
+      dir: dir
     }
   end
 
@@ -67,6 +69,54 @@ defmodule ImagePipe.WorkBudgetTest do
     assert_budget(config, "/w=200/wm=mark/wm-scale=0.25/format=png/src/icc_p3.png", icc: 1)
   end
 
+  # Keeping the source's profile leaves the old path: the watermark converts
+  # into the profile, and the output exports to it.
+  test "a watermark on a profiled source that keeps its profile", %{config: config} do
+    assert_budget(
+      config,
+      "/w=200/wm=mark/wm-scale=0.25/profile=preserve/format=png/src/icc_p3.png",
+      icc: 2
+    )
+  end
+
+  test "a CMYK source imports its profile once", %{config: config} do
+    assert_budget(config, "/w=200/format=jpeg/src/cmyk.jpg", icc: 1)
+  end
+
+  # `buffer_loads` counts decodes from memory: each quality probe decodes its
+  # candidate to score it.
+  test "autoquality on a small WebP output probes three qualities", %{config: config} do
+    assert_budget(config, "/w=200/autoquality=75/format=webp/src/high_freq.jpg", buffer_loads: 3)
+  end
+
+  test "output=info reads the header and copies no pixels", %{config: config} do
+    assert_budget(config, "/output=info/src/high_freq.jpg", loads: 1, copies: 0)
+  end
+
+  # AVIF has no shrink-on-load, so the header and pixels come from one open.
+  test "an AVIF source resized down opens it once", %{dir: dir} do
+    source = Path.join(dir, "avif")
+    File.mkdir_p!(source)
+
+    Image.write!(
+      Image.open!(Path.join(@sources, "high_freq.jpg")),
+      Path.join(source, "high_freq.avif")
+    )
+
+    config =
+      ImagePipe.Plug.init(
+        sources: [
+          path: [
+            adapter: ImagePipe.Source.File,
+            match: :path,
+            options: [root: source, root_id: "work-budget-avif"]
+          ]
+        ]
+      )
+
+    assert_budget(config, "/w=200/format=jpeg/src/high_freq.avif", loads: 1)
+  end
+
   # Measures a second, identical request, so one-time setup doesn't count.
   defp assert_budget(config, path, budget) do
     request(config, path)
@@ -85,6 +135,13 @@ defmodule ImagePipe.WorkBudgetTest do
   end
 
   defp count(work, :find_trim, _expected), do: Map.get(work.operations, "find_trim", 0)
+
+  defp count(work, :buffer_loads, _expected) do
+    work.operations
+    |> Enum.filter(fn {name, _count} -> name =~ ~r/^VipsForeignLoad.*Buffer$/ end)
+    |> Enum.map(&elem(&1, 1))
+    |> Enum.sum()
+  end
 
   defp count(work, :reads, {file, _passes}) do
     path = Path.join(@sources, file)
