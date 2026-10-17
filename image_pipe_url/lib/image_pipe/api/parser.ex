@@ -624,6 +624,7 @@ defmodule ImagePipe.API.Parser do
       "invalid value: expected image, blurhash, lqip-css, or info optionally followed by blurhash and lqip-css flags"
 
   defp message_for(:invalid_orientation), do: "invalid value: expected auto or none"
+  defp message_for(:invalid_priority), do: "invalid value: expected normal or low"
   defp message_for(:invalid_page), do: "invalid value: expected a non-negative integer"
   defp message_for(:invalid_filename), do: "invalid value: expected [A-Za-z0-9._-]+"
   defp message_for(:invalid_cachebuster), do: "invalid value: expected [A-Za-z0-9._-]+"

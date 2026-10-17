@@ -454,6 +454,15 @@ defmodule ImagePipe.API.ParserTest do
       assert parse(["attachment=false"]) == parse([])
     end
 
+    test "priority lowers the request's processing priority" do
+      assert {:ok, %Spec{priority: :low}} = parse(["priority=low"])
+      assert {:ok, %Spec{priority: :normal}} = parse([])
+      assert parse(["priority=normal"]) == parse([])
+
+      assert {:error, {:invalid_request, [%{reason: :invalid_priority}]}} =
+               parse(["priority=high"])
+    end
+
     test "format alone (negotiated output)" do
       assert {:ok, %Spec{output: %Output{format: :avif}}} = parse(["format=avif"])
     end

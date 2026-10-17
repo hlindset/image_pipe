@@ -25,6 +25,7 @@ defmodule ImagePipe.Plan.Spec do
             filename: nil,
             attachment?: false,
             cachebuster: nil,
+            priority: :normal,
             expires: nil,
             debug?: false,
             ignored: []
@@ -37,6 +38,7 @@ defmodule ImagePipe.Plan.Spec do
           filename: String.t() | nil,
           attachment?: boolean(),
           cachebuster: String.t() | nil,
+          priority: :normal | :low,
           expires: pos_integer() | nil,
           debug?: boolean(),
           ignored: [Issue.t()]
@@ -131,6 +133,7 @@ defmodule ImagePipe.Plan.Spec do
       filename: Map.get(options, :filename),
       attachment?: Map.get(options, :attachment, false),
       cachebuster: Map.get(options, :cachebuster),
+      priority: Map.get(options, :priority, :normal),
       expires: Map.get(options, :expires),
       debug?: Map.get(options, :debug, false)
     }
