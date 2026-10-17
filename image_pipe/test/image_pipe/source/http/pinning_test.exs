@@ -159,8 +159,11 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
     {resolver, lookups} =
       counting_resolver(fn lookup -> if lookup == 1, do: [@loopback], else: [@loopback6] end)
 
+    # The held connection never completes the TLS handshake, so the first
+    # attempt ends by connect_timeout. The retry gets the same budget for its
+    # handshake with the loopback origin, and the default receive_timeout.
     assert {:ok, response} =
-             fetch("origin.test", port, address_resolver: resolver, receive_timeout: 200)
+             fetch("origin.test", port, address_resolver: resolver, connect_timeout: 1_000)
 
     assert Enum.join(response.stream) == "moved"
     assert :counters.get(lookups, 1) == 2
