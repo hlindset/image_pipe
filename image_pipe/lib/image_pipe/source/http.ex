@@ -5,6 +5,7 @@ defmodule ImagePipe.Source.HTTP do
   alias ImagePipe.Source.Auth
   alias ImagePipe.Source.CacheSettings
   alias ImagePipe.Source.HTTP.AddressPolicy
+  alias ImagePipe.Source.HTTP.DnsCache
   alias ImagePipe.Source.HTTP.TargetGuard
   alias ImagePipe.Source.Parser
   alias ImagePipe.Source.Path, as: SourcePath
@@ -145,8 +146,21 @@ defmodule ImagePipe.Source.HTTP do
                         minute is tried first, because it may still have an open \
                         connection. The rest are tried in the order returned, without \
                         duplicates. An error, an empty list, or an \
-                        exception denies the fetch. The default resolver returns IPv4 \
-                        addresses before IPv6 addresses.
+                        exception denies the fetch. When none of the addresses \
+                        accepts a connection or answers in time, the resolver is \
+                        called once more, and a changed answer is tried. The default \
+                        resolver returns IPv4 addresses before IPv6 addresses. A \
+                        resolver passed here replaces it, so `:dns_cache` doesn't \
+                        apply.
+                        """
+                      ],
+                      dns_cache: [
+                        type: :boolean,
+                        default: true,
+                        doc: """
+                        Whether the default resolver keeps the addresses a hostname \
+                        resolves to for 10 seconds. Turn it off when the server's DNS resolver \
+                        already caches and its TTLs should apply exactly.
                         """
                       ]
                     ] ++ CacheSettings.schema()
@@ -169,7 +183,11 @@ defmodule ImagePipe.Source.HTTP do
   scheme and host, resolves the host, and denies the fetch unless every
   resolved address is public or allowed by `:address_policy`. It then connects
   to a checked address while keeping the hostname for the `Host` header and
-  TLS verification. Why is explained in
+  TLS verification. The default resolver keeps an answer for 10 seconds, so a
+  busy origin isn't looked up for every fetch (see `:dns_cache`). The
+  addresses are still checked on every fetch. When none of them accepts a
+  connection or answers in time, the adapter looks the host up again and
+  tries a changed answer once. Why is explained in
   [Source network policy](source-network-policy.md). A denied fetch fails
   with `{:source, :denied_scheme}`, `{:source, :denied_host}`, or
   `{:source, :denied_address}`, which answer `404`.
@@ -498,7 +516,7 @@ defmodule ImagePipe.Source.HTTP do
       Keyword.take(opts, [:receive_timeout, :pool_timeout, :connect_timeout])
       |> Keyword.put(:fetch_timeout, fetch[:fetch_timeout])
       |> Keyword.merge(runtime_opts)
-      |> Keyword.put(:validate_target, build_target_guard(opts))
+      |> Keyword.merge(target_guard(opts))
       |> Keyword.put(:max_redirects, Keyword.fetch!(opts, :max_redirects))
 
     ReqStream.open(req_options, stream_options)
@@ -510,12 +528,29 @@ defmodule ImagePipe.Source.HTTP do
     {:ok, %{source | fetch: Keyword.put(source.fetch, :prepared_req_options, req)}}
   end
 
-  defp build_target_guard(opts) do
+  defp target_guard(opts) do
     allowed_hosts = Keyword.fetch!(opts, :allowed_hosts)
     predicate = AddressPolicy.compile(Keyword.fetch!(opts, :address_policy))
-    resolver = Keyword.get(opts, :address_resolver, &TargetGuard.default_resolver/1)
+    {resolver, invalidate} = resolver(opts)
 
-    fn url -> TargetGuard.validate(url, allowed_hosts, predicate, resolver) end
+    [
+      validate_target: &TargetGuard.validate(&1, allowed_hosts, predicate, resolver),
+      invalidate_target: invalidate
+    ]
+  end
+
+  defp resolver(opts) do
+    case {Keyword.fetch(opts, :address_resolver), Keyword.fetch!(opts, :dns_cache)} do
+      {{:ok, resolver}, _dns_cache} ->
+        {resolver, fn _url -> :ok end}
+
+      {:error, false} ->
+        {&TargetGuard.default_resolver/1, fn _url -> :ok end}
+
+      {:error, true} ->
+        {fn host -> DnsCache.resolve(host, &TargetGuard.default_resolver/1) end,
+         &DnsCache.invalidate(String.downcase(URI.parse(&1).host))}
+    end
   end
 
   defp redacted_http_identity(identity) do

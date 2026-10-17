@@ -22,6 +22,7 @@ defmodule ImagePipe.Application do
       {DynamicSupervisor, name: ImagePipe.Source.Downloads, strategy: :one_for_one},
       {DynamicSupervisor, name: ImagePipe.Source.HTTP.Pools, strategy: :one_for_one},
       ImagePipe.Source.HTTP.PinnedPools,
+      ImagePipe.Source.HTTP.DnsCache,
       ImagePipe.Cache.Resources,
       ImagePipe.Cache.FileSystem.CheckedDirs,
       ImagePipe.Cache.FileSystem.RefusedRoots,

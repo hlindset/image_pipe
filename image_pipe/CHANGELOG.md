@@ -7,6 +7,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `dns_cache: false` turns off an HTTP source's DNS cache, for a server
+  whose DNS resolver already caches and whose TTLs should apply exactly.
 - `max_blur_work` limits `blur` and `progressive-blur`: the pixels of the
   image being blurred, times the square of the sigma, can't exceed it. A blur
   over the limit fails with `422`. See
@@ -58,6 +60,14 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- An HTTP source keeps the addresses a hostname resolves to for 10 seconds,
+  so a busy origin is no longer looked up before every fetch. The addresses
+  are still checked against `:address_policy` on every fetch. A resolver
+  passed in `:address_resolver` replaces the cache.
+- When none of an HTTP source's addresses accepts a connection or answers in
+  time, the source looks the hostname up again and tries once more if the
+  answer changed. A resolver passed in `:address_resolver` can therefore be
+  called twice for one fetch.
 - AVIF's default quality is 56, down from 63. Files are about 18% smaller.
   The median image scores 78 instead of 82 on
   [SSIMULACRA2](docs/choosing-an-autoquality-target.md#choosing-a-target),
