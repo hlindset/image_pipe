@@ -54,11 +54,15 @@ defmodule ImagePipe.Transform.Detector.ImageVision.Face do
     end
   end
 
+  # Workaround for image_vision's unlocked first model load; see
+  # Model.first_load/2.
+  defp detect_faces(image), do: Model.first_load(__MODULE__, fn -> run_face_detection(image) end)
+
   # FaceDetection returns a bare list and raises on failure; rescue at this
   # dependency boundary. Boxes use absolute {x, y, width, height}; drop landmarks.
   # Dialyzer cannot resolve the function without the optional image_vision stack.
-  @dialyzer {:nowarn_function, detect_faces: 1}
-  defp detect_faces(image) do
+  @dialyzer {:nowarn_function, run_face_detection: 1}
+  defp run_face_detection(image) do
     regions =
       image
       |> Image.FaceDetection.detect(min_score: @min_score)

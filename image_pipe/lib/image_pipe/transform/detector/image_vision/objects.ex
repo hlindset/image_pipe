@@ -70,10 +70,15 @@ defmodule ImagePipe.Transform.Detector.ImageVision.Objects do
     end
   end
 
+  # Workaround for image_vision's unlocked first model load; see
+  # Model.first_load/2.
+  defp detect_objects(image, classes),
+    do: Model.first_load(__MODULE__, fn -> run_object_detection(image, classes) end)
+
   # Image.Detection.detect/2 lives in the optional image_vision+ortex stack
   # (the IMAGE_VISION=1 test lane); absent it, Dialyzer sees an unknown function.
-  @dialyzer {:nowarn_function, detect_objects: 2}
-  defp detect_objects(image, classes) do
+  @dialyzer {:nowarn_function, run_object_detection: 2}
+  defp run_object_detection(image, classes) do
     regions =
       image
       |> Image.Detection.detect(min_score: @min_score, repo: @repo, filename: @filename)
