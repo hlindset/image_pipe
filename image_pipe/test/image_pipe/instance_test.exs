@@ -112,6 +112,81 @@ defmodule ImagePipe.InstanceTest do
     end
   end
 
+  describe "source records without a cache" do
+    setup ctx do
+      prefix = [:"instance_#{System.unique_integer([:positive])}"]
+
+      start_supervised!(
+        {ImagePipe, name: ctx.name, sources: ctx.sources, telemetry_prefix: prefix}
+      )
+
+      test = self()
+      handler = {ctx.name, :records}
+
+      :telemetry.attach_many(
+        handler,
+        [prefix ++ [:cache, :lookup, :start], prefix ++ [:cache, :lookup, :stop]],
+        fn
+          event, _measurements, %{entry: :source_record} = meta, _config ->
+            send(test, {List.last(event), Map.get(meta, :pool), Map.get(meta, :cache)})
+
+          _event, _measurements, _meta, _config ->
+            :ok
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+      %{red: Path.join([ctx.cache_root, "..", "images", "red.png"]) |> Path.expand()}
+    end
+
+    test "a repeat request finds the file's record in memory", ctx do
+      backdate(ctx.red)
+
+      first = request("/w=8/src/red.png", instance: ctx.name)
+      assert_received {:start, :memory, nil}
+      assert_received {:stop, :memory, :miss}
+
+      second = request("/w=8/src/red.png", instance: ctx.name)
+      assert_received {:start, :memory, nil}
+      assert_received {:stop, :memory, :hit}
+
+      assert etag(first) == etag(second)
+    end
+
+    test "a changed file gets a new ETag", ctx do
+      backdate(ctx.red)
+      first = request("/w=8/src/red.png", instance: ctx.name)
+
+      Image.new!(24, 16, color: :blue) |> Image.write!(ctx.red)
+      backdate(ctx.red, 5)
+      second = request("/w=8/src/red.png", instance: ctx.name)
+
+      refute etag(first) == etag(second)
+    end
+
+    test "run/4 with options keeps the records", ctx do
+      backdate(ctx.red)
+      builder = ImagePipe.URL.new(ImagePipe.url_config(ctx.name))
+
+      assert {:ok, _result} = ImagePipe.run(ctx.name, builder, {:source, "red.png"}, quality: 50)
+      assert_received {:stop, :memory, :miss}
+
+      assert {:ok, _result} = ImagePipe.run(ctx.name, builder, {:source, "red.png"}, quality: 50)
+      assert_received {:stop, :memory, :hit}
+    end
+  end
+
+  # A file changed in the current second keeps no stat evidence, so its
+  # record can't be reused. Move its times into the past.
+  defp backdate(path, seconds \\ 10),
+    do: File.touch!(path, System.os_time(:second) - seconds)
+
+  defp etag(conn) do
+    assert [etag] = Plug.Conn.get_resp_header(conn, "etag")
+    etag
+  end
+
   describe "url_config/2" do
     test "builds URLs with the instance's presets", ctx do
       start_instance(ctx, presets: %{"thumb" => "w=8"})

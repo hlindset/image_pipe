@@ -45,7 +45,8 @@ would be `nil` is left out of the metadata.
   failures.
 - `:status` (integer): the HTTP status, on events that know it.
 - `:cache` (atom): the cache outcome, on cache events.
-- `:pool` (`:input` or `:output`): which cache pool emitted the event.
+- `:pool` (atom): which pool emitted the event, such as `:input` or
+  `:output`.
 - `:output_format` (atom): the output format, such as `:webp`.
 - `:source_name` (atom): the source that served the request. Absent for
   `{:file, _}` and `{:binary, _}` inputs.
@@ -432,11 +433,13 @@ original is fetched. That image's source and input-cache spans nest in it.
 
 Span. Wraps the output-cache lookup.
 
-- Start metadata: `:pool` (`:output`), `:cache_key` (string, the hash of the
-  cache key looked up), `:entry` (atom), and `:cache` (`:disabled`) when no
-  output cache is configured. `:entry` is `:response` for a processed
-  response, or `:source_record` for the record of the original that
-  responses were made from.
+- Start metadata: `:pool` (`:output` or `:memory`), `:cache_key` (string,
+  the hash of the cache key looked up), `:entry` (atom), and `:cache`
+  (`:disabled`) when no output cache is configured and the pool is
+  `:output`. `:entry` is `:response` for a processed response, or
+  `:source_record` for the record of the original that responses were made
+  from. `:pool` is `:memory` for a source record on an instance with no
+  cache.
 - Stop metadata:
   - `:result` (atom): `:ok`, or `:cache_error` when the read failed.
   - `:cache` (atom): `:disabled`, `:hit`, `:miss`, or `:read_error`. A read

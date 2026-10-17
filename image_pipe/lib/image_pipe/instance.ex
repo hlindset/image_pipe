@@ -91,7 +91,12 @@ defmodule ImagePipe.Instance do
         {config, pool} =
           processing_pool!(base_config(instance[:config], options), name, instance[:pool])
 
-        config = %{config | instance: name}
+        config = %{
+          config
+          | instance: name,
+            options: Cache.put_source_records(config.options, name)
+        }
+
         check_warmup_classes!(config, instance[:detector_warmup])
 
         mounts =

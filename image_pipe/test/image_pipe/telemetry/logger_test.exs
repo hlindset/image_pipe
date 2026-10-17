@@ -193,6 +193,22 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "cache lookup: hit 12345b"
   end
 
+  test "names the memory pool on a source record lookup" do
+    Telemetry.attach_default_logger(level: :info, stages: true)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :cache, :lookup, :stop],
+          %{duration: System.convert_time_unit(1, :millisecond, :native)},
+          %{result: :ok, cache: :hit, entry: :source_record, pool: :memory}
+        )
+      end)
+
+    assert log =~ "cache lookup: hit"
+    assert log =~ "(memory pool)"
+  end
+
   test "drops events below Logger's level and still logs warnings" do
     Telemetry.attach_default_logger(level: :info, stages: true)
     level = Logger.level()
