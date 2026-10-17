@@ -76,7 +76,7 @@ defmodule ImagePipe.Test.ImgproxyBench.Report do
     <dt>Host</dt><dd>#{escape(env["host"])}</dd>
     <dt>Docker</dt><dd>#{escape(env["docker"])}</dd>
     <dt>Server CPUs</dt><dd>#{env["server_cpus"]}, #{escape(env["memory"])} memory, #{env["concurrency"]} workers</dd>
-    <dt>oha CPUs</dt><dd>#{env["oha_cpus"]}, #{env["duration_s"]}s per measurement</dd>
+    <dt>oha CPUs</dt><dd>#{env["oha_cpus"]}, #{env["duration_s"]}s per measurement, longer for slow cases</dd>
     #{servers}
     </dl>
     """

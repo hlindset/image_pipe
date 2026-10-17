@@ -129,7 +129,7 @@ defmodule ImagePipe.Test.ImgproxyBench.CompareReport do
   defp environment(env) do
     "#{env["host"]}, #{env["docker"]}, servers on CPUs #{env["server_cpus"]} " <>
       "with #{env["concurrency"]} workers, #{env["rounds"]} round(s) of " <>
-      "#{env["duration_s"]}s measurements, #{env["date"]}."
+      "#{env["duration_s"]}s measurements, longer for slow cases, #{env["date"]}."
   end
 
   defp against_html(results, against) do

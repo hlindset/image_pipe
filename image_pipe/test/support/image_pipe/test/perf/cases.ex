@@ -1,0 +1,130 @@
+defmodule ImagePipe.Test.Perf.Cases do
+  @moduledoc """
+  Requests `mix imgproxy.bench --compare` times besides the imgproxy reference
+  cases: costs imgproxy has no equivalent for, on photo-sized sources.
+
+  The sources live under `perf/` in the bench's source directory:
+
+    * `photo12.jpg` is `priv/static/images/flower.jpg` (3024×4032, sRGB).
+    * The server under test makes the other variants from it before the
+      run, with the requests in `variants/0`, so every image compared reads
+      the same files.
+    * `photo1.heic`, `photo1.jxl`, and `cmyk1.jpg` sit in `sources/` next to
+      this file, since no server can write those formats. They're
+      `flower.jpg` at 900×1200, saved by libvips: HEIC at quality 60, JPEG XL
+      at Q 80 and effort 7, and JPEG at quality 85 after converting to
+      libvips' built-in CMYK profile, which the file embeds.
+
+  A case's `tier` is `:pr` for the set every `perf` pull request runs, or
+  `:nightly` for the slower or rarer cases only the scheduled runs time.
+  """
+  use Boundary, top_level?: true, deps: []
+
+  @type t :: %{
+          id: String.t(),
+          kind: :lossy,
+          family: String.t(),
+          tier: :pr | :nightly,
+          source: String.t(),
+          native: String.t()
+        }
+
+  @doc "The families these cases add to the reference suite's."
+  @spec families() :: [String.t()]
+  def families, do: ~w(decode colour autoquality placeholder)
+
+  @doc """
+  The files the server under test makes before the run: `{file, request}`,
+  where the request applies to `perf/photo12.jpg`.
+  """
+  @spec variants() :: [{String.t(), String.t()}]
+  def variants do
+    [
+      {"photo2.jpg", "w=1200/format=jpeg/q=90"},
+      {"p3_2.jpg", "w=1200/profile=display-p3/format=jpeg/q=90"},
+      {"p3_12.jpg", "profile=display-p3/format=jpeg/q=90"},
+      {"adobe12.jpg", "profile=adobe-rgb/format=jpeg/q=90"},
+      {"photo12.png", "format=png"},
+      {"photo12.webp", "format=webp/q=80"},
+      {"photo12.avif", "format=avif/q=60"}
+    ]
+  end
+
+  @spec all() :: [t()]
+  def all do
+    [
+      # Decoding each source format. Only JPEG and WebP shrink on load.
+      c("decode_jpeg_12mp", "decode", :pr, "photo12.jpg", "w=400/format=jpeg"),
+      c("decode_png_12mp", "decode", :nightly, "photo12.png", "w=400/format=jpeg"),
+      c("decode_webp_12mp", "decode", :nightly, "photo12.webp", "w=400/format=jpeg"),
+      c("decode_avif_12mp", "decode", :nightly, "photo12.avif", "w=400/format=jpeg"),
+      c("decode_heic_1mp", "decode", :nightly, "photo1.heic", "w=400/format=jpeg"),
+      c("decode_jxl_1mp", "decode", :nightly, "photo1.jxl", "w=400/format=jpeg"),
+      c("decode_cmyk_1mp", "decode", :pr, "cmyk1.jpg", "w=400/format=jpeg"),
+      # Colour policies on profiled sources.
+      c("colour_p3_strip", "colour", :pr, "p3_2.jpg", "w=400/format=jpeg"),
+      c("colour_p3_preserve", "colour", :pr, "p3_2.jpg", "w=400/profile=preserve/format=jpeg"),
+      c(
+        "colour_srgb_to_p3",
+        "colour",
+        :nightly,
+        "photo2.jpg",
+        "w=400/profile=display-p3/format=jpeg"
+      ),
+      c("colour_adobe_strip_12mp", "colour", :nightly, "adobe12.jpg", "w=400/format=jpeg"),
+      c(
+        "colour_cmyk_preserve",
+        "colour",
+        :nightly,
+        "cmyk1.jpg",
+        "w=400/profile=preserve/format=jpeg"
+      ),
+      # Watermarks, whose colour path depends on the source's profile.
+      c("wm_p3_srgb", "watermark", :pr, "p3_2.jpg", "w=400/wm=mark/wm-scale=0.25/format=jpeg"),
+      c(
+        "wm_p3_preserve",
+        "watermark",
+        :nightly,
+        "p3_2.jpg",
+        "w=400/wm=mark/wm-scale=0.25/profile=preserve/format=jpeg"
+      ),
+      c(
+        "wm_photo_srgb",
+        "watermark",
+        :nightly,
+        "photo2.jpg",
+        "w=400/wm=mark/wm-scale=0.25/format=jpeg"
+      ),
+      # Encoders at a typical page size.
+      c("out_jpeg_800", "output", :nightly, "photo2.jpg", "w=800/format=jpeg"),
+      c("out_webp_800", "output", :pr, "photo2.jpg", "w=800/format=webp"),
+      c("out_avif_800", "output", :pr, "photo2.jpg", "w=800/format=avif"),
+      # Quality searches: several encodes and scores a request.
+      c("aq_webp_800", "autoquality", :pr, "photo2.jpg", "w=800/format=webp/autoquality=75"),
+      c("aq_avif_800", "autoquality", :nightly, "photo2.jpg", "w=800/format=avif/autoquality=75"),
+      c("aq_jpeg_800", "autoquality", :nightly, "photo2.jpg", "w=800/format=jpeg/autoquality=75"),
+      c("aq_jpeg_12mp", "autoquality", :nightly, "photo12.jpg", "format=jpeg/autoquality=75"),
+      c(
+        "max_bytes_webp_800",
+        "autoquality",
+        :nightly,
+        "photo2.jpg",
+        "w=800/format=webp/max-bytes=40000"
+      ),
+      # Non-image outputs from a large source.
+      c("info_12mp", "placeholder", :pr, "photo12.jpg", "output=info"),
+      c("blurhash_12mp", "placeholder", :nightly, "photo12.jpg", "output=blurhash"),
+      c("lqip_css_12mp", "placeholder", :pr, "photo12.jpg", "output=lqip-css")
+    ]
+  end
+
+  defp c(id, family, tier, source, native),
+    do: %{
+      id: id,
+      kind: :lossy,
+      family: family,
+      tier: tier,
+      source: "perf/" <> source,
+      native: native
+    }
+end
