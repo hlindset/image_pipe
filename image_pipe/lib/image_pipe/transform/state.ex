@@ -42,6 +42,9 @@ defmodule ImagePipe.Transform.State do
   #   enlargement clamp and its floor; 1.0 before any group runs.
   # - `detections`: how many times a crop called the detector, for the cache's
   #   cost estimate.
+  # - `detection_frame`: the in-memory display frame a resize's detection crop
+  #   detects on, taken before the resize so the detector gets enough pixels, or
+  #   `nil` to detect on the current image.
   # - `source_color_profile` and `color_imported?`: input-color-management results
   #   passed to the encoder. The profile holds raw source ICC bytes or `nil`; the
   #   flag records whether `icc_import` ran. Never emit these in telemetry metadata.
@@ -63,6 +66,7 @@ defmodule ImagePipe.Transform.State do
             buffer_before_resize?: false,
             dpr: 1.0,
             detections: 0,
+            detection_frame: nil,
             source_color_profile: nil,
             color_imported?: false
 
@@ -83,6 +87,7 @@ defmodule ImagePipe.Transform.State do
           buffer_before_resize?: boolean(),
           dpr: float(),
           detections: non_neg_integer(),
+          detection_frame: Vix.Vips.Image.t() | nil,
           source_color_profile: binary() | nil,
           color_imported?: boolean()
         }

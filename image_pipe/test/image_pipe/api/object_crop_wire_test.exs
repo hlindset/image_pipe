@@ -72,12 +72,13 @@ defmodule ImagePipe.API.ObjectCropWireTest do
     refute_received {:cache_put, _key, _body}
   end
 
+  # Above the detection floor, so detection decodes like plain attention.
   test "optional detection and face-assisted smart crop fall back to attention" do
     opts = mount(detector: UnavailableDetector)
-    plain = response("w=50/h=50/fit=cover/anchor=smart", opts) |> image()
+    plain = response("w=700/h=700/fit=cover/anchor=smart", opts) |> image()
 
     for guide <- ["detect=face", "anchor=smart-face"] do
-      fallback = response("w=50/h=50/fit=cover/#{guide}", opts) |> image()
+      fallback = response("w=700/h=700/fit=cover/#{guide}", opts) |> image()
       assert pixels(fallback) == pixels(plain)
     end
   end
