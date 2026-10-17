@@ -5,3 +5,8 @@ adapter = "file"
 match = "path"
 root = "/data/images"
 root_id = "static"
+
+# Long enough for the draining check to see readiness fail and Docker mark the
+# container unhealthy, even when SIGTERM reaches the server late.
+[server]
+shutdown_delay = 15000
