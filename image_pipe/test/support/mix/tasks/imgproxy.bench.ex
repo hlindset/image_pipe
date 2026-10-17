@@ -13,14 +13,16 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   time. `oha` drives the load from its own container on a private Docker
   network, pinned to CPUs the servers don't use.
 
-  First each server answers every case once. A case is timed only when both
-  return 200 with the same content type and dimensions. The rest are reported
+  First each server answers every case once, then three more times to time it.
+  A case is timed only when both return 200 with the same content type and
+  dimensions. The rest are reported
   as mismatches. Then, for each server, the bench times its health endpoint as
   an HTTP baseline and every case at concurrency 1 and at the worker count,
   reading the server container's memory and CPU use from its cgroup.
 
   Results go to `tmp/imgproxy_bench/results.json` and an HTML report next to
-  it. The run takes roughly `cases × 2 servers × (2 × duration + 1s)`.
+  it. The run takes roughly `cases × 2 servers × (2 × duration + 1s)`, more
+  when slow cases measure for longer.
 
   Options:
 
@@ -32,7 +34,9 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     * `--concurrency` - server worker count and the second load level,
       default `--cpus`.
     * `--memory` - memory limit per server, default `2g`.
-    * `--duration` - seconds per measurement, default 3.
+    * `--duration` - seconds per measurement, default 3. A slower case measures
+      long enough for about 15 sequential requests, up to 10 seconds, the same
+      on every server.
     * `--corpus` - a file listing extra images, one path per line, as in
       `bench/corpus.txt`. The cases that don't depend on their source's EXIF,
       alpha, colour profile or bit depth also run on each image.
@@ -111,6 +115,10 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   # Sources whose content the cases don't depend on, so the cases also make
   # sense on a corpus photo.
   @generic_sources ~w(high_freq.jpg high_freq.webp marker.png placement.png small.png)
+  # A case's measurement window is long enough for about this many sequential
+  # requests, between `--duration` and `@max_window` seconds.
+  @window_requests 15
+  @max_window 10
   @max_input_pixels 100_000_000
   @max_body_bytes 100_000_000
 
@@ -176,7 +184,8 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       rounds: opts[:rounds] || 4,
       progress: nil,
       descriptions: descriptions(opts),
-      work: Path.expand(Path.join(output, "work"))
+      work: Path.expand(Path.join(output, "work")),
+      windows: %{}
     }
 
     File.rm_rf!(settings.work)
@@ -244,8 +253,8 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
   defp run_servers(cases, %{servers: nil} = settings) do
     servers = [imgproxy_server(settings), image_pipe_server(settings)]
-    {checks, timed, mismatched} = check_servers(servers, cases, settings)
-    settings = %{settings | progress: progress(timed, length(servers))}
+    {checks, timed, mismatched, windows} = check_servers(servers, cases, settings)
+    settings = %{settings | progress: progress(timed, length(servers)), windows: windows}
 
     runs =
       Map.new(servers, fn server ->
@@ -257,7 +266,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
     %{
       "environment" => environment(settings, runs),
-      "cases" => Enum.map(timed, &case_result(&1, runs)),
+      "cases" => Enum.map(timed, &case_result(&1, runs, settings.windows)),
       "baseline" => Map.new(runs, fn {key, run} -> {key, run.baseline} end),
       "mismatches" => Enum.map(mismatched, &mismatch(&1, checks))
     }
@@ -267,9 +276,13 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     servers =
       for {key, image} <- settings.servers, do: image_pipe_server(settings, key, image)
 
-    {checks, timed, mismatched} = check_servers(servers, cases, settings)
+    {checks, timed, mismatched, windows} = check_servers(servers, cases, settings)
 
-    settings = %{settings | progress: progress(timed, length(servers) * settings.rounds)}
+    settings = %{
+      settings
+      | progress: progress(timed, length(servers) * settings.rounds),
+        windows: windows
+    }
 
     # Alternate rounds run the images in reverse order.
     rounds =
@@ -291,22 +304,37 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       "candidate" => "candidate",
       "against" => for({key, _image} <- tl(settings.servers), do: key),
       "environment" => environment(settings, first),
-      "cases" => Enum.map(timed, &compare_result(&1, rounds)),
+      "cases" => Enum.map(timed, &compare_result(&1, rounds, settings.windows)),
       "baseline" =>
         Map.new(servers, fn s -> {s.key, Enum.map(rounds, &Map.fetch!(&1, s.key).baseline)} end),
       "mismatches" => Enum.map(mismatched, &mismatch(&1, checks))
     }
   end
 
+  # Also sizes each case's measurement window from the slowest server's time
+  # for it, so every server measures a case for as long.
   defp check_servers(servers, cases, settings) do
-    checks =
+    results =
       Map.new(servers, fn server ->
         {server.key, with_server(server, settings, &check_all(server, cases, &1))}
       end)
 
+    checks = Map.new(results, fn {key, {checked, _times}} -> {key, checked} end)
     {timed, mismatched} = Enum.split_with(cases, &matches?(checks, &1))
-    {checks, timed, mismatched}
+
+    windows =
+      Map.new(timed, fn c ->
+        slowest =
+          results |> Enum.map(fn {_key, {_checked, times}} -> times[c.id] end) |> Enum.max()
+
+        {c.id, window(slowest, settings.duration)}
+      end)
+
+    {checks, timed, mismatched, windows}
   end
+
+  defp window(seconds, duration),
+    do: (seconds * @window_requests) |> ceil() |> max(duration) |> min(@max_window)
 
   defp imgproxy_server(settings) do
     %{
@@ -486,9 +514,32 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       Mix.raise(error.message <> "\n" <> logs)
   end
 
+  # Each case's check, and the fastest of three timed requests after it, in
+  # seconds.
   defp check_all(server, cases, info) do
     Mix.shell().info("Checking #{server.label}")
-    Map.new(cases, fn c -> {c.id, check(info.base_url <> server.path.(c))} end)
+
+    results =
+      Map.new(cases, fn c ->
+        url = info.base_url <> server.path.(c)
+        {c.id, {check(url), request_seconds(url)}}
+      end)
+
+    {Map.new(results, fn {id, {checked, _time}} -> {id, checked} end),
+     Map.new(results, fn {id, {_checked, time}} -> {id, time} end)}
+  end
+
+  defp request_seconds(url) do
+    1..3
+    |> Enum.map(fn _ ->
+      {us, _result} =
+        :timer.tc(fn ->
+          Req.get(url, decode_body: false, retry: false, receive_timeout: 120_000)
+        end)
+
+      us / 1_000_000
+    end)
+    |> Enum.min()
   end
 
   # A response the bench can't read counts as a mismatch, not a crash.
@@ -532,7 +583,11 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     url = &"http://#{info.name}:8080#{&1}"
     levels = Enum.uniq([1, settings.concurrency])
 
-    baseline = Map.new(levels, &{"#{&1}", measure(url.(server.health), &1, settings, info.name)})
+    baseline =
+      Map.new(
+        levels,
+        &{"#{&1}", measure(url.(server.health), &1, settings.duration, settings, info.name)}
+      )
 
     timings =
       cases
@@ -540,7 +595,8 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       |> Map.new(fn {c, index} ->
         case_url = url.(server.path.(c))
         warm_up(case_url, settings)
-        timing = Map.new(levels, &{"#{&1}", measure(case_url, &1, settings, info.name)})
+        window = Map.fetch!(settings.windows, c.id)
+        timing = Map.new(levels, &{"#{&1}", measure(case_url, &1, window, settings, info.name)})
         report_progress(settings.progress, "#{stage}#{server.key}", index, length(cases))
         {c.id, timing}
       end)
@@ -589,11 +645,11 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
   # Reads the server's cgroup: CPU time over the run, and memory sampled every
   # 200 ms while oha runs.
-  defp measure(url, concurrency, settings, container) do
+  defp measure(url, concurrency, window, settings, container) do
     cpu_before = cpu_usec(container)
     started = System.monotonic_time(:microsecond)
     sampler = Task.async(fn -> sample_memory(container, nil) end)
-    load = oha(["-z", "#{settings.duration}s", "-c", "#{concurrency}", "-w", url], settings)
+    load = oha(["-z", "#{window}s", "-c", "#{concurrency}", "-w", url], settings)
     elapsed = System.monotonic_time(:microsecond) - started
     send(sampler.pid, :stop)
     peak = Task.await(sampler, 30_000)
@@ -654,23 +710,25 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   defp max_mib(peak, nil), do: peak
   defp max_mib(peak, sample), do: max(peak, sample)
 
-  defp case_result(c, runs) do
+  defp case_result(c, runs, windows) do
     %{
       "id" => c.id,
       "family" => c.family,
       "source" => c.source,
       "native" => c.native,
       "imgproxy" => c.imgproxy,
+      "window_s" => Map.fetch!(windows, c.id),
       "timings" => Map.new(runs, fn {key, run} -> {key, Map.fetch!(run.timings, c.id)} end)
     }
   end
 
-  defp compare_result(c, rounds) do
+  defp compare_result(c, rounds, windows) do
     %{
       "id" => c.id,
       "family" => c.family,
       "source" => c.source,
       "native" => c.native,
+      "window_s" => Map.fetch!(windows, c.id),
       "rounds" =>
         rounds
         |> Enum.flat_map(&Map.keys/1)
