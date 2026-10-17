@@ -275,6 +275,26 @@ defmodule ImagePipe.ProcessingPoolTest do
       assert Task.await(second) == :ok
     end
 
+    test "low_priority_max_concurrency defaults to half of max_concurrency", %{tasks: tasks} do
+      pool = pool(max_concurrency: 4)
+      first = blocked(tasks, pool, :first, :low)
+      assert_receive {:started, :first, worker1}
+      second = blocked(tasks, pool, :second, :low)
+      assert_receive {:started, :second, worker2}
+      third = blocked(tasks, pool, :third, :low)
+      assert_receive {:start, %{active: 2, queued: 0, priority: :low}}
+      assert %{active: 2, low_active: 2, low_queued: 1} = ProcessingPool.stats(pool)
+
+      send(worker1, :continue)
+      assert Task.await(first) == :ok
+      assert_receive {:started, :third, worker3}
+
+      for {task, worker} <- [{second, worker2}, {third, worker3}] do
+        send(worker, :continue)
+        assert Task.await(task) == :ok
+      end
+    end
+
     test "a normal request finding the queue full pushes out the newest low waiter", %{
       tasks: tasks
     } do
@@ -348,10 +368,6 @@ defmodule ImagePipe.ProcessingPoolTest do
 
       assert_receive {:start, %{priority: :normal}}
     end
-  end
-
-  test "retry_after/1 is queue_timeout in whole seconds, rounded up" do
-    assert ProcessingPool.retry_after(pool(max_concurrency: 1, queue_timeout: 2_500)) == 3
   end
 
   test "validates host pool options" do

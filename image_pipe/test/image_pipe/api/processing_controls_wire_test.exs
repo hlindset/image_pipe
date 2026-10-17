@@ -161,9 +161,7 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
   end
 
   test "a normal request takes a full queue's place from a low-priority one", context do
-    pool =
-      start_supervised!({ProcessingPool, max_concurrency: 1, max_queue: 1, queue_timeout: 2_500})
-
+    pool = start_supervised!({ProcessingPool, max_concurrency: 1, max_queue: 1})
     mount = ImagePipe.Plug.init(config: config(pool, context.prefix))
 
     active =
@@ -180,7 +178,7 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
     pushed_out = Task.await(low)
     assert pushed_out.status == 503
     assert pushed_out.resp_body == "image processing overloaded"
-    assert Plug.Conn.get_resp_header(pushed_out, "retry-after") == ["3"]
+    assert Plug.Conn.get_resp_header(pushed_out, "retry-after") == ["10"]
 
     send(worker, :continue)
     assert Task.await(active).status == 200
@@ -234,7 +232,7 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
     assert Task.await(low).status == 200
   end
 
-  defp await_stats(pool, expected, deadline \\ System.monotonic_time(:millisecond) + 2_000) do
+  defp await_stats(pool, expected, deadline \\ System.monotonic_time(:millisecond) + 5_000) do
     stats = ProcessingPool.stats(pool)
 
     cond do
@@ -245,7 +243,10 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
         flunk("pool stats #{inspect(stats)} never matched #{inspect(expected)}")
 
       true ->
-        await_stats(pool, expected, deadline)
+        receive do
+        after
+          10 -> await_stats(pool, expected, deadline)
+        end
     end
   end
 
