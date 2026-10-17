@@ -5,6 +5,7 @@ defmodule ImagePipe.Source.HTTP do
   alias ImagePipe.Source.Auth
   alias ImagePipe.Source.CacheSettings
   alias ImagePipe.Source.HTTP.AddressPolicy
+  alias ImagePipe.Source.HTTP.DnsCache
   alias ImagePipe.Source.HTTP.TargetGuard
   alias ImagePipe.Source.Parser
   alias ImagePipe.Source.Path, as: SourcePath
@@ -146,7 +147,9 @@ defmodule ImagePipe.Source.HTTP do
                         connection. The rest are tried in the order returned, without \
                         duplicates. An error, an empty list, or an \
                         exception denies the fetch. The default resolver returns IPv4 \
-                        addresses before IPv6 addresses.
+                        addresses before IPv6 addresses and keeps an answer with \
+                        addresses for 10 seconds. A resolver passed here replaces it, \
+                        so its answers aren't kept.
                         """
                       ]
                     ] ++ CacheSettings.schema()
@@ -169,7 +172,9 @@ defmodule ImagePipe.Source.HTTP do
   scheme and host, resolves the host, and denies the fetch unless every
   resolved address is public or allowed by `:address_policy`. It then connects
   to a checked address while keeping the hostname for the `Host` header and
-  TLS verification. Why is explained in
+  TLS verification. The default resolver keeps an answer for 10 seconds, so a
+  busy origin isn't looked up for every fetch. The addresses are still
+  checked every time. Why is explained in
   [Source network policy](source-network-policy.md). A denied fetch fails
   with `{:source, :denied_scheme}`, `{:source, :denied_host}`, or
   `{:source, :denied_address}`, which answer `404`.
@@ -513,7 +518,11 @@ defmodule ImagePipe.Source.HTTP do
   defp build_target_guard(opts) do
     allowed_hosts = Keyword.fetch!(opts, :allowed_hosts)
     predicate = AddressPolicy.compile(Keyword.fetch!(opts, :address_policy))
-    resolver = Keyword.get(opts, :address_resolver, &TargetGuard.default_resolver/1)
+
+    resolver =
+      Keyword.get(opts, :address_resolver, fn host ->
+        DnsCache.resolve(host, &TargetGuard.default_resolver/1)
+      end)
 
     fn url -> TargetGuard.validate(url, allowed_hosts, predicate, resolver) end
   end

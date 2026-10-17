@@ -58,6 +58,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- An HTTP source keeps the addresses a hostname resolves to for 10 seconds,
+  so a busy origin is no longer looked up before every fetch. The addresses
+  are still checked against `:address_policy` on every fetch. A resolver
+  passed in `:address_resolver` replaces this cache.
 - AVIF's default quality is 56, down from 63. Files are about 18% smaller.
   The median image scores 78 instead of 82 on
   [SSIMULACRA2](docs/choosing-an-autoquality-target.md#choosing-a-target),
