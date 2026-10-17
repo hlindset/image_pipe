@@ -222,8 +222,12 @@ defmodule ImagePipe.Telemetry.Summary do
   defp fields([:encode], duration, meta),
     do: meta |> take(output: :output_format) |> Map.put(:encode_ms, ms(duration))
 
-  defp fields([:processing, :admission], duration, meta),
-    do: meta |> take(admission: :result) |> Map.put(:queue_ms, ms(duration))
+  defp fields([:processing, :admission], duration, meta) do
+    meta
+    |> take(admission: :result)
+    |> Map.put(:queue_ms, ms(duration))
+    |> Map.merge(if meta[:priority] == :low, do: %{priority: :low}, else: %{})
+  end
 
   defp fields([:transform, :detect], _duration, meta), do: take(meta, detect: :result)
 

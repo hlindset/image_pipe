@@ -161,6 +161,8 @@ one line, and the tracer doesn't use it.
     outcome, `:hit` or `:best_effort`.
   - `:admission` (atom) and `:queue_ms` (integer): the result and duration
     of [`[:processing, :admission]`](#processing-admission).
+  - `:priority` (`:low`): the request had
+    [low priority](processing/request.md#priority).
   - `:detect` (atom): the result of
     [`[:transform, :detect]`](#transform-detect), or `:no_detector` when no
     detector is configured.

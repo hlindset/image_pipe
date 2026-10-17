@@ -51,7 +51,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   up.
 - The `[:processing, :admission]` and `[:processing, :execute]` spans carry
   the request's `:priority`, and `ImagePipe.ProcessingPool.stats/1` also
-  returns `:low_active` and `:low_queued`.
+  returns `:low_active` and `:low_queued`. The `[:request, :summary]` event
+  has `priority: :low` for a low-priority request, and the default Logger
+  logs one that a full pool turned away at its base level instead of as an
+  error.
 
 ### Changed
 

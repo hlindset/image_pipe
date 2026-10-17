@@ -110,8 +110,9 @@ defmodule ImagePipe.Telemetry do
   a `4xx`, a degraded result, a cache read error, detection whose detector
   failed, was unavailable, or isn't configured, a quality search that missed
   its target or size limit, a result scaled down to fit the limits, or a
-  failed `ImagePipe.run/4`. With `stages: true`, these stage lines log at
-  `:warning`:
+  failed `ImagePipe.run/4`. A low-priority request that a full processing
+  pool turned away logs at `:level`. With `stages: true`, these stage lines
+  log at `:warning`:
 
     * Exceptions, and results such as `:source_error`, `:cache_error`,
       `:materialize_error`, `:parser_error`, and `:plan_error`.

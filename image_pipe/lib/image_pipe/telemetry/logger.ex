@@ -129,7 +129,13 @@ defmodule ImagePipe.Telemetry.Logger do
   # status says.
   # Without a status (`ImagePipe.run/4`), a failure is a warning. So is a
   # degraded result, detection that fell back to attention, a quality search
-  # that missed its target, or a result scaled down to the limits.
+  # that missed its target, or a result scaled down to the limits. A full pool
+  # turning away a low-priority request is expected, so it logs at the base
+  # level.
+  defp level_for([:request, :summary], %{priority: :low, admission: admission}, base)
+       when admission in [:overloaded, :queue_timeout],
+       do: base
+
   defp level_for([:request, :summary], metadata, base) do
     status = metadata[:status] || 0
 

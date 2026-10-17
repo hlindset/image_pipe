@@ -106,9 +106,28 @@ defmodule ImagePipe.Telemetry.SummaryTest do
       end)
 
     send(holder, :release)
-    assert_received {:summary, _m, %{status: 503, admission: :overloaded}}
+    assert_received {:summary, _m, %{status: 503, admission: :overloaded} = summary}
+    refute Map.has_key?(summary, :priority)
     assert log =~ "[error] GET /w=40/src/beach.jpg 503"
     assert log =~ "admission=overloaded"
+  end
+
+  test "a low-priority request turned away by a full pool is summarized below warning", ctx do
+    options = start(ctx, pool: [max_concurrency: 1, max_queue: 0])
+    config = Caches.plug(options)
+    holder = hold_slot(ImagePipe.Config.fetch_instance!(Caches.instance(options), nil))
+    Telemetry.attach_default_logger(prefix: ctx.prefix)
+
+    log =
+      capture_log([level: :warning], fn ->
+        assert request("/w=40/priority=low/src/beach.jpg", config, options).status == 503
+      end)
+
+    send(holder, :release)
+
+    assert_received {:summary, _m, %{status: 503, admission: :overloaded, priority: :low}}
+
+    refute log =~ "/w=40/priority=low/src/beach.jpg 503"
   end
 
   test "a degraded crop logs at warning", ctx do
