@@ -11,11 +11,15 @@ defmodule ImagePipe.Source.HTTP.DnsCache do
   # Only answers with addresses are kept, so a host that doesn't resolve is
   # looked up again on the next request. Concurrent misses for a host share
   # one lookup, which runs outside the server so other hosts don't wait on it.
-  # A full table caches nothing new until a sweep removes expired answers.
+  # A lookup that has run longer than a healthy one would, such as one stuck
+  # in the resolver's retries during an outage, isn't joined: the next miss
+  # starts its own, so requests recover as soon as DNS does. A full table
+  # caches no new hosts until a sweep removes expired answers.
 
   use GenServer
 
   @lifetime 10_000
+  @join_within 1_000
   @max_entries 10_000
 
   @type lookup :: (String.t() -> {:ok, [:inet.ip_address()]} | {:error, term()})
@@ -25,16 +29,19 @@ defmodule ImagePipe.Source.HTTP.DnsCache do
     GenServer.start_link(__MODULE__, Keyword.put(opts, :name, name), name: name)
   end
 
-  @doc "Resolves `host` from the cache, or with `lookup` on a miss."
+  @doc """
+  Resolves `host` from the cache, or with `lookup` on a miss. While the cache
+  isn't running, such as during a restart, it calls `lookup` directly.
+  """
   @spec resolve(GenServer.server(), String.t(), lookup()) ::
           {:ok, [:inet.ip_address()]} | {:error, term()}
   def resolve(cache \\ __MODULE__, host, lookup) do
-    now = now()
-
-    case :ets.lookup(cache, host) do
-      [{^host, addresses, expires_at}] when now < expires_at -> {:ok, addresses}
-      _miss -> GenServer.call(cache, {:resolve, host, lookup}, :infinity)
+    case fresh(cache, host) do
+      {:ok, addresses} -> {:ok, addresses}
+      :miss -> GenServer.call(cache, {:resolve, host, lookup}, :infinity)
     end
+  catch
+    :exit, {_reason, {GenServer, :call, _args}} -> lookup.(host)
   end
 
   @doc "Removes `host`'s cached answer."
@@ -42,6 +49,19 @@ defmodule ImagePipe.Source.HTTP.DnsCache do
   def invalidate(cache \\ __MODULE__, host) do
     :ets.delete(cache, host)
     :ok
+  rescue
+    ArgumentError -> :ok
+  end
+
+  defp fresh(cache, host) do
+    now = now()
+
+    case :ets.lookup(cache, host) do
+      [{^host, addresses, expires_at}] when now < expires_at -> {:ok, addresses}
+      _miss -> :miss
+    end
+  rescue
+    ArgumentError -> :miss
   end
 
   @impl true
@@ -55,6 +75,7 @@ defmodule ImagePipe.Source.HTTP.DnsCache do
      %{
        table: table,
        lifetime: lifetime,
+       join_within: Keyword.get(opts, :join_within, @join_within),
        max_entries: Keyword.get(opts, :max_entries, @max_entries),
        pending: %{}
      }}
@@ -62,38 +83,27 @@ defmodule ImagePipe.Source.HTTP.DnsCache do
 
   @impl true
   def handle_call({:resolve, host, lookup}, from, state) do
-    case state.pending do
-      %{^host => {ref, waiters}} ->
-        {:noreply, put_in(state.pending[host], {ref, [from | waiters]})}
-
-      _none ->
-        server = self()
-
-        {_pid, ref} =
-          spawn_monitor(fn -> send(server, {:resolved, host, run(lookup, host)}) end)
-
-        {:noreply, put_in(state.pending[host], {ref, [from]})}
+    # Another caller's lookup may have stored an answer since this caller
+    # missed.
+    case fresh(state.table, host) do
+      {:ok, addresses} -> {:reply, {:ok, addresses}, state}
+      :miss -> {:noreply, join_or_start(state, host, lookup, from)}
     end
   end
 
   @impl true
-  def handle_info({:resolved, host, result}, state) do
-    {{ref, waiters}, pending} = Map.pop!(state.pending, host)
+  def handle_info({:resolved, pid, result}, state) do
+    {{host, waiters, _started, ref}, pending} = Map.pop!(state.pending, pid)
     Process.demonitor(ref, [:flush])
     store(state, host, result)
     Enum.each(waiters, &GenServer.reply(&1, result))
     {:noreply, %{state | pending: pending}}
   end
 
-  def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
-    case Enum.find(state.pending, fn {_host, {pending_ref, _}} -> pending_ref == ref end) do
-      {host, {^ref, waiters}} ->
-        Enum.each(waiters, &GenServer.reply(&1, {:error, reason}))
-        {:noreply, %{state | pending: Map.delete(state.pending, host)}}
-
-      nil ->
-        {:noreply, state}
-    end
+  def handle_info({:DOWN, _ref, :process, pid, reason}, state) do
+    {{_host, waiters, _started, _ref}, pending} = Map.pop!(state.pending, pid)
+    Enum.each(waiters, &GenServer.reply(&1, {:error, reason}))
+    {:noreply, %{state | pending: pending}}
   end
 
   def handle_info(:sweep, state) do
@@ -103,14 +113,27 @@ defmodule ImagePipe.Source.HTTP.DnsCache do
     {:noreply, state}
   end
 
-  defp run(lookup, host) do
-    lookup.(host)
-  catch
-    kind, reason -> {:error, {kind, reason}}
+  defp join_or_start(state, host, lookup, from) do
+    now = now()
+
+    joinable =
+      Enum.find(state.pending, fn {_pid, {pending_host, _waiters, started, _ref}} ->
+        pending_host == host and now - started < state.join_within
+      end)
+
+    case joinable do
+      {pid, {^host, waiters, started, ref}} ->
+        put_in(state.pending[pid], {host, [from | waiters], started, ref})
+
+      nil ->
+        server = self()
+        {pid, ref} = spawn_monitor(fn -> send(server, {:resolved, self(), lookup.(host)}) end)
+        put_in(state.pending[pid], {host, [from], now, ref})
+    end
   end
 
   defp store(state, host, {:ok, [_ | _] = addresses}) do
-    if :ets.info(state.table, :size) < state.max_entries do
+    if :ets.member(state.table, host) or :ets.info(state.table, :size) < state.max_entries do
       :ets.insert(state.table, {host, addresses, now() + state.lifetime})
     end
   end

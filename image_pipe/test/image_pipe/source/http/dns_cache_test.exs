@@ -88,6 +88,7 @@ defmodule ImagePipe.Source.HTTP.DnsCacheTest do
     refute_received {:lookup, _host}
   end
 
+  @tag cache: [join_within: 60_000]
   test "shares one lookup between concurrent requests for a host", %{cache: cache} do
     test_pid = self()
 
@@ -118,29 +119,85 @@ defmodule ImagePipe.Source.HTTP.DnsCacheTest do
     test_pid = self()
 
     slow = fn _host ->
-      send(test_pid, :slow_started)
+      send(test_pid, {:slow_started, self()})
       receive do: (:release -> {:ok, [@address]})
     end
 
     task = Task.async(fn -> DnsCache.resolve(cache, "slow.test", slow) end)
-    assert_receive :slow_started
+    assert_receive {:slow_started, lookup_pid}
 
     assert DnsCache.resolve(cache, "fast.test", fn _ -> {:ok, [{192, 0, 2, 9}]} end) ==
              {:ok, [{192, 0, 2, 9}]}
 
-    Task.shutdown(task, :brutal_kill)
+    send(lookup_pid, :release)
+    assert Task.await(task) == {:ok, [@address]}
   end
 
-  test "answers waiting callers with an error when the lookup crashes", %{cache: cache} do
-    assert {:error, _reason} = DnsCache.resolve(cache, "origin.test", fn _ -> raise "boom" end)
+  @tag cache: [join_within: 0]
+  test "starts a new lookup instead of joining one that has run too long", %{cache: cache} do
+    test_pid = self()
+
+    lookup = fn host ->
+      send(test_pid, {:lookup, host, self()})
+      receive do: (:release -> {:ok, [@address]})
+    end
+
+    first = Task.async(fn -> DnsCache.resolve(cache, "origin.test", lookup) end)
+    assert_receive {:lookup, "origin.test", first_lookup}
+    second = Task.async(fn -> DnsCache.resolve(cache, "origin.test", lookup) end)
+    assert_receive {:lookup, "origin.test", second_lookup}
+
+    send(second_lookup, :release)
+    assert Task.await(second) == {:ok, [@address]}
+    send(first_lookup, :release)
+    assert Task.await(first) == {:ok, [@address]}
+  end
+
+  @tag cache: [join_within: 60_000]
+  test "answers every waiting caller with an error when the lookup dies", %{cache: cache} do
+    test_pid = self()
+
+    lookup = fn host ->
+      send(test_pid, {:lookup, host, self()})
+      receive do: (:release -> {:ok, [@address]})
+    end
+
+    callers =
+      for _ <- 1..2 do
+        Task.async(fn -> DnsCache.resolve(cache, "origin.test", lookup) end)
+      end
+
+    assert_receive {:lookup, "origin.test", lookup_pid}
+    wait_for_waiters(cache, 2)
+    Process.exit(lookup_pid, :kill)
+
+    assert Enum.map(callers, &Task.await/1) == [{:error, :killed}, {:error, :killed}]
+  end
+
+  @tag cache: [max_entries: 1, lifetime: 0]
+  test "caches new hosts again once a sweep removes expired answers", %{cache: cache} do
+    DnsCache.resolve(cache, "a.test", fn _ -> {:ok, [@address]} end)
+    send(cache, :sweep)
+    _ = :sys.get_state(cache)
+
+    DnsCache.resolve(cache, "b.test", fn _ -> {:ok, [@address]} end)
+    assert [{"b.test", [@address], _expires_at}] = :ets.lookup(cache, "b.test")
+  end
+
+  test "looks hosts up directly while the cache isn't running", %{cache: cache} do
+    stop_supervised!(DnsCache)
+
+    assert DnsCache.resolve(cache, "origin.test", fn _ -> {:ok, [@address]} end) ==
+             {:ok, [@address]}
   end
 
   defp wait_for_waiters(cache, count) do
     %{pending: pending} = :sys.get_state(cache)
 
-    case pending do
-      %{"origin.test" => {_ref, waiters}} when length(waiters) == count -> :ok
-      _other -> wait_for_waiters(cache, count)
-    end
+    if Enum.any?(pending, fn {_pid, {_host, waiters, _started, _ref}} ->
+         length(waiters) == count
+       end),
+       do: :ok,
+       else: wait_for_waiters(cache, count)
   end
 end
