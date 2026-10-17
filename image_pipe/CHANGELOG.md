@@ -60,6 +60,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- An instance without `cache` or `input_cache` no longer reads and hashes an
+  unchanged local file on every request. It keeps the hashes of up to 10,000
+  files in memory and checks each file's size, timestamps, inode, and device
+  instead. For a 5.5 MB PNG this saves about 3 ms per request.
+  [`[:cache, :lookup]`](docs/telemetry-events.md#cache-lookup) reports these
+  lookups with `pool: :memory`.
 - An HTTP source keeps the addresses a hostname resolves to for 10 seconds,
   so a busy origin is no longer looked up before every fetch. The addresses
   are still checked against `:address_policy` on every fetch. A resolver

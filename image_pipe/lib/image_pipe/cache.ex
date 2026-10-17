@@ -38,6 +38,7 @@ defmodule ImagePipe.Cache do
   alias ImagePipe.Cache.Key
   alias ImagePipe.Cache.OutputWork
   alias ImagePipe.Cache.Sink
+  alias ImagePipe.Cache.SourceRecords
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.Skipped
   alias ImagePipe.Telemetry
@@ -88,13 +89,31 @@ defmodule ImagePipe.Cache do
 
   @doc false
   # The processes an instance runs for its caches: the claim on each root,
-  # Admission, and periodic cleanup. Takes resolved configuration options.
+  # Admission, and periodic cleanup, or the in-memory source records of an
+  # instance without a cache. Takes resolved configuration options.
   @spec child_specs(keyword()) :: [Supervisor.child_spec()]
   def child_specs(options) do
-    for key <- [:cache, :input_cache],
-        cache_opts = Keyword.get(options, key),
-        cache_opts != nil,
-        do: FileSystem.child_spec(cache_opts)
+    caches =
+      for key <- [:cache, :input_cache],
+          cache_opts = Keyword.get(options, key),
+          cache_opts != nil,
+          do: FileSystem.child_spec(cache_opts)
+
+    case Keyword.get(options, :source_records) do
+      nil -> caches
+      table -> [{SourceRecords, table} | caches]
+    end
+  end
+
+  @doc false
+  # An instance without a cache keeps the records of its originals in memory
+  # instead, in a table named after it, so an unchanged local file is hashed
+  # once rather than on every request.
+  @spec put_source_records(keyword(), atom()) :: keyword()
+  def put_source_records(options, instance) do
+    if Enum.any?([:cache, :input_cache], &Keyword.get(options, &1)),
+      do: options,
+      else: Keyword.put(options, :source_records, Module.concat(instance, SourceRecords))
   end
 
   @doc false
@@ -117,12 +136,30 @@ defmodule ImagePipe.Cache do
 
     lookup = fn
       nil -> :disabled
+      {:memory, table} -> memory_source_record(key, table)
       cache_opts -> read_source_record(key, cache_opts)
     end
 
-    case traced_lookup(key, :source_record, opts, lookup) do
+    case traced_lookup(key, :source_record, record_store(opts), opts, lookup) do
       {:hit, record} -> record
       _miss -> nil
+    end
+  end
+
+  defp memory_source_record(key, table) do
+    case SourceRecords.get(table, key.hash) do
+      nil -> {:miss, key}
+      record -> {:hit, record}
+    end
+  end
+
+  # Where source records live: the output cache, or memory for an instance
+  # without one.
+  defp record_store(opts) do
+    case {Keyword.get(opts, :cache), Keyword.get(opts, :source_records)} do
+      {nil, nil} -> nil
+      {nil, table} -> {:memory, table}
+      {cache_opts, _table} -> cache_opts
     end
   end
 
@@ -141,9 +178,12 @@ defmodule ImagePipe.Cache do
   # older one, which lookups would otherwise prefer to the originals cache's
   # newer record.
   def remember_source(input_key, record, opts) do
-    case Keyword.get(opts, :cache) do
+    case record_store(opts) do
       nil ->
         :ok
+
+      {:memory, table} ->
+        SourceRecords.put(table, source_index_key(input_key).hash, record)
 
       cache_opts ->
         key = source_index_key(input_key)
@@ -172,24 +212,23 @@ defmodule ImagePipe.Cache do
   """
   @spec lookup_entry(Key.t(), keyword()) :: entry_lookup_result()
   def lookup_entry(%Key{} = key, opts) when is_list(opts) do
-    traced_lookup(key, :response, opts, fn
+    traced_lookup(key, :response, Keyword.get(opts, :cache), opts, fn
       nil -> :disabled
       cache_opts -> get_entry(key, cache_opts)
     end)
   end
 
   # `entry` says what the lookup reads: a processed response, or the record
-  # of the original it was made from.
-  defp traced_lookup(%Key{} = key, entry, opts, lookup) do
-    cache_opts = Keyword.get(opts, :cache)
+  # of the original it was made from. `store` is where it reads it.
+  defp traced_lookup(%Key{} = key, entry, store, opts, lookup) do
     identity = %{cache_key: key.hash, entry: entry}
 
     Telemetry.span(
       Telemetry.telemetry_opts(opts),
       [:cache, :lookup],
-      Map.merge(entry_lookup_start_metadata(cache_opts), identity),
+      Map.merge(entry_lookup_start_metadata(store), identity),
       fn ->
-        result = lookup.(cache_opts)
+        result = lookup.(store)
         {result, Map.merge(entry_lookup_stop_metadata(result), identity)}
       end
     )
@@ -313,6 +352,7 @@ defmodule ImagePipe.Cache do
   end
 
   defp entry_lookup_start_metadata(nil), do: %{cache: :disabled, pool: :output}
+  defp entry_lookup_start_metadata({:memory, _table}), do: %{cache: nil, pool: :memory}
   defp entry_lookup_start_metadata(_cache_opts), do: %{cache: nil, pool: :output}
 
   defp entry_lookup_stop_metadata(:disabled), do: %{result: :ok, cache: :disabled}

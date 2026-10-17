@@ -713,7 +713,15 @@ defmodule ImagePipe.Config do
               "and can't be overridden per call"
     end
 
-    %{new!(Keyword.merge(config.raw, options)) | instance: config.instance}
+    overridden = new!(Keyword.merge(config.raw, options))
+
+    # So do the source records an instance without a cache keeps in memory.
+    %{
+      overridden
+      | instance: config.instance,
+        options:
+          Keyword.merge(overridden.options, Keyword.take(config.options, [:source_records]))
+    }
   end
 
   @doc false
