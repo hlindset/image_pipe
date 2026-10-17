@@ -344,10 +344,9 @@ defmodule ImagePipe.Processing do
     do: %{result: :processing_error, error: Telemetry.error_tag(error)}
 
   defp pipeline_opts(%Policy{} = policy, geometry, config) do
-    Keyword.put(
-      config,
-      :supports_hdr?,
-      Policy.supports_hdr?(policy, geometry.source_format)
+    Keyword.merge(config,
+      supports_hdr?: Policy.supports_hdr?(policy, geometry.source_format),
+      srgb_output?: Policy.srgb_output?(policy)
     )
   end
 

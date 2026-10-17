@@ -60,10 +60,11 @@ defmodule ImagePipe.WorkBudgetTest do
     assert_budget(cached, "/w=101/format=jpeg/src/high_freq.jpg", reads: {"high_freq.jpg", 0})
   end
 
-  # The watermark is converted into the source's profile and back to sRGB on
-  # output (image_plug-1u3p would bring this to 1).
+  # The frame converts to sRGB once, before the watermark is drawn. Converting
+  # the watermark into the source's profile and the result back to sRGB on
+  # output takes 3.
   test "a watermark on a profiled source with sRGB output", %{config: config} do
-    assert_budget(config, "/w=200/wm=mark/wm-scale=0.25/format=png/src/icc_p3.png", icc: 3)
+    assert_budget(config, "/w=200/wm=mark/wm-scale=0.25/format=png/src/icc_p3.png", icc: 1)
   end
 
   # Measures a second, identical request, so one-time setup doesn't count.

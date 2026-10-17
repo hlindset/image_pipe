@@ -24,6 +24,9 @@ defmodule ImagePipe.API.WatermarkWireTest do
       "gray_mark.png" => png(gray_mark()),
       "mid_mark.png" => png(Image.new!(10, 10, color: [1, 128, 200])),
       "tagged_gray.png" => png(tagged_gray()),
+      "p3_red.png" => png(p3_red()),
+      "p3_red_as_srgb.png" => png(as_srgb(p3_red())),
+      "veil.png" => png(Image.new!(10, 10, color: @blue ++ [128])),
       "rotated.jpg" => rotated_jpeg(),
       "corrupt.png" => "not an image",
       "deep.png" => deep_png()
@@ -208,10 +211,11 @@ defmodule ImagePipe.API.WatermarkWireTest do
         |> Image.write!(:memory, suffix: ".jpg", strip_metadata: true)
 
       # A profiled asset on an untagged frame drops its profile. An untagged
-      # asset on a tagged frame takes the frame's profile.
-      for {asset, source} <- [
-            {binary_part(photo, 0, 5000), "src/image.png"},
-            {binary_part(stripped, 0, 5000), "src/photo.jpg"}
+      # asset on a tagged frame takes the frame's profile when the output keeps
+      # it.
+      for {asset, options, source} <- [
+            {binary_part(photo, 0, 5000), "", "src/image.png"},
+            {binary_part(stripped, 0, 5000), "/profile=preserve", "src/photo.jpg"}
           ] do
         files = %{
           "image.png" => png(Image.new!(60, 40, color: @blue)),
@@ -222,7 +226,7 @@ defmodule ImagePipe.API.WatermarkWireTest do
         context = %{context | origin: origin(files)}
         config = observed_mount(context, watermarks: %{logo: [source: "mark.jpg"]})
 
-        result = response("w=60/wm=logo/wm-scale=0.2", config, source)
+        result = response("w=60/wm=logo/wm-scale=0.2" <> options, config, source)
         assert result.status == 415, result.resp_body
         assert_received {:materialized, %{result: :materialize_error}}
         :telemetry.detach({__MODULE__, context.test, self()})
@@ -271,10 +275,34 @@ defmodule ImagePipe.API.WatermarkWireTest do
     assert response("wm=logo", config, "src/frame.jpg").status == 415
   end
 
+  test "a color asset on a truncated tagged color frame fails as a decode error" do
+    jpeg = File.read!("priv/static/images/woman.jpg")
+
+    files = %{
+      "frame.jpg" => binary_part(jpeg, 0, div(byte_size(jpeg), 2)),
+      "mark.png" => png(Image.new!(10, 10, color: @red))
+    }
+
+    assert response("wm=logo", mount(origin(files)), "src/frame.jpg").status == 415
+  end
+
   test "a grayscale asset keeps a grayscale frame gray", %{config: config} do
     marked = image("gray/wm=gray_logo", config)
     assert VipsImage.interpretation(marked) == :VIPS_INTERPRETATION_B_W
     assert VipsImage.bands(marked) == 1
+  end
+
+  test "sRGB output composites a wide-gamut frame in sRGB", %{config: config} do
+    marked = response("wm=veil/wm-scale=1", config, "src/p3_red.png")
+    converted = response("wm=veil/wm-scale=1", config, "src/p3_red_as_srgb.png")
+
+    for {x, y} <- [{30, 20}, {0, 0}] do
+      marked = pixel(Image.from_binary!(marked.resp_body), x, y)
+      converted = pixel(Image.from_binary!(converted.resp_body), x, y)
+
+      assert Enum.zip_with(marked, converted, &abs(&1 - &2)) |> Enum.max() <= 2,
+             "#{inspect({x, y})}: #{inspect(marked)} vs #{inspect(converted)}"
+    end
   end
 
   test "assets follow a preserved high-bit-depth working space", %{config: config} do
@@ -495,6 +523,21 @@ defmodule ImagePipe.API.WatermarkWireTest do
     tagged
   end
 
+  # P3's most saturated red, outside the sRGB gamut.
+  defp p3_red do
+    p3 = Path.join([:code.priv_dir(:image_pipe), "icc", "DisplayP3.icc"])
+
+    {:ok, red} =
+      VipsOperation.icc_transform(Image.new!(60, 40, color: @red), p3, input_profile: p3)
+
+    red
+  end
+
+  defp as_srgb(image) do
+    {:ok, srgb} = VipsOperation.icc_transform(image, "sRGB", embedded: true)
+    srgb
+  end
+
   defp pixel(image, {x, y}), do: pixel(image, x, y)
   defp pixel(image, x, y), do: image |> Image.get_pixel!(x, y) |> Enum.map(&round/1)
   defp dimensions(image), do: {Image.width(image), Image.height(image)}
@@ -569,6 +612,7 @@ defmodule ImagePipe.API.WatermarkWireTest do
           ghost: [source: "alpha.png", opacity: 0.5],
           pattern: [source: "pattern.png"],
           gray_logo: [source: "gray_mark.png"],
+          veil: [source: "veil.png"],
           mid_logo: [source: "mid_mark.png"],
           turned: [source: "rotated.jpg"],
           corrupt: [source: "corrupt.png"]

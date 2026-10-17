@@ -575,6 +575,7 @@ defmodule ImagePipe.Transform.Executor do
       entry = opts |> Keyword.fetch!(:watermark_images) |> Map.fetch!(watermark.asset)
 
     with {:ok, state} <- flush_display(state),
+         {:ok, state} <- srgb_frame(state, opts),
          {frame_width, frame_height} = Geometry.live_dims(state),
          {width, height} =
            watermark_size(watermark.scale, asset_dims(entry), {frame_width, frame_height}, dpr),
@@ -687,6 +688,24 @@ defmodule ImagePipe.Transform.Executor do
          {:ok, frame} <- GrayFrame.promote(state.image) do
       {:ok, %State{state | image: frame}}
     else
+      {:error, reason} -> {:error, {:transform, {Watermark, reason}}}
+    end
+  end
+
+  # When the output is sRGB anyway, a tagged color frame converts to sRGB before
+  # compositing. That is one profile conversion, instead of one taking the asset
+  # into the frame's profile and another taking the result to sRGB on output.
+  defp srgb_frame(%State{image: frame} = state, opts) do
+    if Keyword.get(opts, :srgb_output?, false) and not GrayFrame.gray?(frame) do
+      with {:ok, state} <- materialize_tagged_frame(state), do: to_srgb_frame(state)
+    else
+      {:ok, state}
+    end
+  end
+
+  defp to_srgb_frame(state) do
+    case WorkingColor.to_srgb_frame(state) do
+      {:ok, state} -> {:ok, state}
       {:error, reason} -> {:error, {:transform, {Watermark, reason}}}
     end
   end
