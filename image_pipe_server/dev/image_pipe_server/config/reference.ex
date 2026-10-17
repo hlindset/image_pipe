@@ -186,9 +186,26 @@ defmodule ImagePipeServer.Config.Reference do
       type =
         if Keyword.has_key?(spec, :keys), do: {:table, Keyword.fetch!(spec, :keys)}, else: type
 
-      rows_for(name, type, Keyword.get(spec, :default))
+      default =
+        case Keyword.fetch(spec, :default) do
+          {:ok, default} -> default
+          :error -> stated_default(spec[:doc])
+        end
+
+      rows_for(name, type, default)
     end)
   end
+
+  # Defaults applied outside the schema are stated in the option's doc. Only
+  # integer and string literals read the same in TOML.
+  defp stated_default(doc) when is_binary(doc) do
+    case Regex.run(~r/The default value is `(-?\d+|"[^"`]*")`\.\s*\z/, doc) do
+      [_match, literal] -> {:stated, literal}
+      nil -> nil
+    end
+  end
+
+  defp stated_default(_doc), do: nil
 
   defp rows_for(name, {:table, schema}, _default), do: rows(schema, name <> ".")
 
@@ -264,6 +281,7 @@ defmodule ImagePipeServer.Config.Reference do
     end
   end
 
+  defp toml({:stated, literal}), do: literal
   defp toml(value) when is_binary(value), do: inspect(value)
   defp toml(value) when is_number(value) or is_boolean(value), do: to_string(value)
   defp toml(nil), do: nil

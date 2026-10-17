@@ -209,10 +209,10 @@ One table per source. The table name is the source's name. Besides
 | --- | --- | --- |
 | `allowed_hosts` | array of string |  |
 | `base_url` | string |  |
-| `receive_timeout` | integer ≥ 0 |  |
-| `fetch_timeout` | integer > 0 |  |
-| `connect_timeout` | integer ≥ 0 |  |
-| `pool_timeout` | integer ≥ 0 |  |
+| `receive_timeout` | integer ≥ 0 | `5000` |
+| `fetch_timeout` | integer > 0 | `30000` |
+| `connect_timeout` | integer ≥ 0 | `5000` |
+| `pool_timeout` | integer ≥ 0 | `5000` |
 | `max_redirects` | integer ≥ 0 | `0` |
 | `dns_cache` | boolean | `true` |
 | `stable` | `"auto"` or `"immutable"` | `"auto"` |
@@ -243,10 +243,10 @@ Elixir only: `req_options`, `address_resolver`.
 | --- | --- | --- |
 | `region` | string |  |
 | `endpoint` | string |  |
-| `receive_timeout` | integer ≥ 0 |  |
-| `fetch_timeout` | integer > 0 |  |
-| `connect_timeout` | integer ≥ 0 |  |
-| `pool_timeout` | integer ≥ 0 |  |
+| `receive_timeout` | integer ≥ 0 | `5000` |
+| `fetch_timeout` | integer > 0 | `30000` |
+| `connect_timeout` | integer ≥ 0 | `5000` |
+| `pool_timeout` | integer ≥ 0 | `5000` |
 | `stable` | `"auto"` or `"immutable"` | `"auto"` |
 | `internal_cache` | `"enabled"` or `"disabled"` | `"enabled"` |
 | `http_cache` | `"inherit"` or `"validators"` or `"auto"` or `"public"` or `"private"` | `"inherit"` |
@@ -286,30 +286,30 @@ table leaves out, from `AWS_WEB_IDENTITY_TOKEN_FILE`, `AWS_ROLE_ARN`,
 | `role_arn` | string |  |
 | `region` | string |  |
 | `external_id` | string |  |
-| `role_session_name` | string |  |
-| `receive_timeout` | integer ≥ 0 |  |
-| `connect_timeout` | integer ≥ 0 |  |
+| `role_session_name` | string | `"image-pipe"` |
+| `receive_timeout` | integer ≥ 0 | `5000` |
+| `connect_timeout` | integer ≥ 0 | `5000` |
 
 `provider = "container_credentials"`:
 
 | Key | Type | Default |
 | --- | --- | --- |
-| `base_url` | string |  |
+| `base_url` | string | `"http://169.254.170.2"` |
 | `full_uri` | string |  |
 | `relative_uri` | string |  |
 | `auth_token` | string |  |
 | `auth_token_file` | string |  |
-| `receive_timeout` | integer ≥ 0 |  |
-| `connect_timeout` | integer ≥ 0 |  |
+| `receive_timeout` | integer ≥ 0 | `2000` |
+| `connect_timeout` | integer ≥ 0 | `2000` |
 
 `provider = "instance_role"`:
 
 | Key | Type | Default |
 | --- | --- | --- |
-| `base_url` | string |  |
-| `ttl_seconds` | integer > 0 |  |
-| `receive_timeout` | integer ≥ 0 |  |
-| `connect_timeout` | integer ≥ 0 |  |
+| `base_url` | string | `"http://169.254.169.254"` |
+| `ttl_seconds` | integer > 0 | `21600` |
+| `receive_timeout` | integer ≥ 0 | `2000` |
+| `connect_timeout` | integer ≥ 0 | `2000` |
 
 `provider = "web_identity"`:
 
@@ -318,9 +318,9 @@ table leaves out, from `AWS_WEB_IDENTITY_TOKEN_FILE`, `AWS_ROLE_ARN`,
 | `token_file` | string |  |
 | `role_arn` | string |  |
 | `region` | string |  |
-| `role_session_name` | string |  |
-| `receive_timeout` | integer ≥ 0 |  |
-| `connect_timeout` | integer ≥ 0 |  |
+| `role_session_name` | string | `"image-pipe"` |
+| `receive_timeout` | integer ≥ 0 | `5000` |
+| `connect_timeout` | integer ≥ 0 | `5000` |
 
 ### `[cache]`
 
