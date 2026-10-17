@@ -223,15 +223,15 @@ One table per source. The table name is the source's name. Besides
 | `cache_policy.stale_while_revalidate` | `"origin"` or `"disabled"` or `{ force = … }` (integer ≥ 0) |  |
 | `path_pattern` | string (regular expression) |  |
 | `address_policy.allow` | array of string |  |
-| `address_policy.allow_loopback` | boolean |  |
-| `address_policy.allow_unspecified` | boolean |  |
-| `address_policy.allow_link_local` | boolean |  |
-| `address_policy.allow_private` | boolean |  |
-| `address_policy.allow_unique_local` | boolean |  |
-| `address_policy.allow_multicast` | boolean |  |
-| `address_policy.allow_broadcast` | boolean |  |
-| `address_policy.allow_cgnat` | boolean |  |
-| `address_policy.allow_reserved` | boolean |  |
+| `address_policy.allow_loopback` | boolean | `false` |
+| `address_policy.allow_unspecified` | boolean | `false` |
+| `address_policy.allow_link_local` | boolean | `false` |
+| `address_policy.allow_private` | boolean | `false` |
+| `address_policy.allow_unique_local` | boolean | `false` |
+| `address_policy.allow_multicast` | boolean | `false` |
+| `address_policy.allow_broadcast` | boolean | `false` |
+| `address_policy.allow_cgnat` | boolean | `false` |
+| `address_policy.allow_reserved` | boolean | `false` |
 | `request_headers` | table of string |  |
 | `bearer_token` | string |  |
 
@@ -348,7 +348,7 @@ Defaults and limits for every image the server processes. The limits on original
 | `svg.fallback_family` | string |  |
 | `svg.max_bytes` | integer > 0 | `10000000` |
 | `svg.max_render_work` | integer > 0 | `100000000` |
-| `svg.max_render_pixels` | integer > 0 |  |
+| `svg.max_render_pixels` | integer > 0 | four times `max_input_pixels` |
 | `max_result_width` | integer > 0 | `8192` |
 | `max_intermediate_pixels` | integer > 0 | `100000000` |
 | `max_blur_work` | integer > 0 | `4000000000000` |
@@ -371,7 +371,7 @@ Defaults and limits for every image the server processes. The limits on original
 | `source_cache_policy.storage` | `"origin"` or `"allow"` or `"deny"` |  |
 | `source_cache_policy.freshness` | `"origin"` or `{ fallback = … }` or `{ force = … }` (integer ≥ 0) |  |
 | `source_cache_policy.stale_while_revalidate` | `"origin"` or `"disabled"` or `{ force = … }` (integer ≥ 0) |  |
-| `format_order` | array of `"avif"` or `"webp"` |  |
+| `format_order` | array of `"avif"` or `"webp"` | `["avif", "webp"]` |
 | `jpeg_options.interlace` | boolean |  |
 | `jpeg_options.subsample_mode` | `"auto"` or `"on"` or `"off"` |  |
 | `jpeg_options.trellis_quant` | boolean |  |
@@ -386,9 +386,9 @@ Defaults and limits for every image the server processes. The limits on original
 | `webp_options.near_lossless` | boolean |  |
 | `webp_options.smart_subsample` | boolean |  |
 | `webp_options.preset` | `"default"` or `"photo"` or `"picture"` or `"drawing"` or `"icon"` or `"text"` |  |
-| `webp_options.effort` | integer 0–6 |  |
-| `avif_options.subsample_mode` | `"auto"` or `"on"` or `"off"` |  |
-| `avif_options.effort` | integer 0–9 |  |
+| `webp_options.effort` | integer 0–6 | `4` |
+| `avif_options.subsample_mode` | `"auto"` or `"on"` or `"off"` | `"off"` |
+| `avif_options.effort` | integer 0–9 | `3` |
 | `watermarks.<name>.source` | string |  |
 | `watermarks.<name>.opacity` | number | `1.0` |
 | `request_watermarks` | boolean | `false` |
