@@ -363,6 +363,14 @@ defmodule ImagePipe.Output.Policy do
   end
 
   @doc """
+  Whether the output is sRGB whatever format negotiation picks: the profile is
+  stripped, or converted to sRGB.
+  """
+  @spec srgb_output?(t()) :: boolean()
+  def srgb_output?(%__MODULE__{color_profile: profile}),
+    do: profile in [:strip, {:convert, :srgb}]
+
+  @doc """
   Whether the HDR working space should be kept (`Policy.hdr == :preserve`
   and the output format carries HDR). Computed pre-transform so it can seed the
   input-color-management stage. In the one branch where the format is only known

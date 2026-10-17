@@ -351,6 +351,22 @@ defmodule ImagePipe.Test.Golden.Cases do
         native: "w=400/h=300/fit=contain/wm=mark/wm-at=bottom-right/wm-scale=0.25",
         tolerance: {2, 64}
       },
+      # A watermark on a wide-gamut source: sRGB output composites in sRGB, a
+      # preserved profile composites in the source's space.
+      %{
+        id: "wm_p3_srgb_output",
+        kind: :png,
+        source: "icc_p3.png",
+        native: "w=400/h=300/fit=contain/wm=mark/wm-scale=0.5",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "wm_p3_preserve",
+        kind: :png,
+        source: "icc_p3.png",
+        native: "w=400/h=300/fit=contain/wm=mark/wm-scale=0.5/profile=preserve",
+        tolerance: {2, 64}
+      },
       %{
         id: "gray_colorize",
         kind: :png,

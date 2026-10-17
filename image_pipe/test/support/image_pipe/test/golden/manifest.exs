@@ -704,6 +704,35 @@
         orientation: 1
       }
     },
+    "wm_p3_preserve" => %{
+      fixture_sha256: "a34398868ee3ad8c488acddadb0b67a220590d19473c5bbb475ff28b78add64e",
+      structure: %{
+        alpha?: false,
+        bands: 3,
+        content_type: "image/png",
+        depth: 8,
+        icc: %{
+          description: "sP3C",
+          sha256: "231752984cd4a5278e1b8d2390fe496767d4511fc81f54e1a5c69ae9ab4c42b5"
+        },
+        interpretation: :VIPS_INTERPRETATION_sRGB,
+        metadata: [],
+        orientation: 1
+      }
+    },
+    "wm_p3_srgb_output" => %{
+      fixture_sha256: "8a27f6c7cedb7909d1648b126ec7ad530c058722d59dd78c6d29e43bbb23205a",
+      structure: %{
+        alpha?: false,
+        bands: 3,
+        content_type: "image/png",
+        depth: 8,
+        icc: nil,
+        interpretation: :VIPS_INTERPRETATION_sRGB,
+        metadata: [],
+        orientation: 1
+      }
+    },
     "wm_tile_gap" => %{
       fixture_sha256: "244cedd9cedafdcc9dc525186ee8a79aa045ee4ce741d69dd52b1b7662891bdd",
       structure: %{

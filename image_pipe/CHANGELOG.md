@@ -143,6 +143,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Before, a URL with one and no palette failed with `400`, even when the
   response wasn't PNG, and one in `request_defaults` or a preset made every
   request fail.
+- A watermark on an image with a color profile is about 5 ms faster when the
+  output is sRGB, which is the case with the default `profile=strip` and with
+  `profile=srgb`. Partly transparent watermark pixels over colors outside
+  sRGB, such as on a Display P3 photo, blend slightly differently.
 
 ### Fixed
 

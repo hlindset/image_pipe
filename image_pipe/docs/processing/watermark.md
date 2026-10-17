@@ -273,6 +273,10 @@ ImagePipe.URL.group(builder,
 - The watermark is turned upright according to its own EXIF orientation.
 - An animated or multi-page watermark file draws a single still frame.
 - A color watermark on a grayscale image turns the result into a color image.
+- Partly transparent parts of the watermark blend in sRGB when
+  [`profile`](output.md#profile) is `strip` or `srgb`. With `preserve`,
+  `display-p3`, or `adobe-rgb`, they blend in the original's color profile, so
+  the result can differ slightly over colors that sRGB can't show.
 - The response's metadata and color profile come from the main image, never
   from the watermark.
 
