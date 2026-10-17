@@ -74,7 +74,7 @@ defmodule ImagePipe.Source.HTTP.PinnedTarget do
     conn_opts =
       finch
       |> Keyword.fetch!(:conn_opts)
-      |> Keyword.update!(:transport_opts, &Keyword.put(&1, :inet6, tuple_size(ip) == 8))
+      |> Keyword.update!(:transport_opts, &address_family(&1, ip))
       |> connection_identity(req.url)
 
     url = %{req.url | host: address}
@@ -87,6 +87,14 @@ defmodule ImagePipe.Source.HTTP.PinnedTarget do
 
     {Req.merge(%{req | url: url}, finch: [name: name, pool_tag: tag] ++ request_options), key}
   end
+
+  # Mint retries a failed IPv6 connection over IPv4 unless `inet4` is false.
+  # A pinned IPv6 address can't be reached over IPv4, and the retry would
+  # replace the connection error with a failed lookup of the address.
+  defp address_family(transport_opts, ip) when tuple_size(ip) == 8,
+    do: Keyword.merge(transport_opts, inet6: true, inet4: false)
+
+  defp address_family(transport_opts, _ip), do: Keyword.put(transport_opts, :inet6, false)
 
   # An address whose live pool last connected may still hold an open
   # connection, so it goes first. The order is otherwise the resolver's.

@@ -147,8 +147,9 @@ defmodule ImagePipe.Source.ReqStream do
         {:error, {:bad_status, status}}
 
       {:error, exception} ->
-        request_failed(request_error(exception), reroute? and addresses != nil, fn ->
+        request_failed(exception, reroute? and addresses != nil, fn error ->
           reroute(
+            error,
             req_options,
             runtime_opts,
             validate,
@@ -160,34 +161,51 @@ defmodule ImagePipe.Source.ReqStream do
     end
   end
 
-  defp request_failed(:connect_error, true, reroute), do: reroute.()
-  defp request_failed(reason, _reroute?, _reroute), do: {:error, reason}
+  defp request_failed(exception, reroutable?, reroute) do
+    error = {:error, request_error(exception)}
+    if reroutable? and unreachable?(exception), do: reroute.(error), else: error
+  end
+
+  # Failures that a moved origin causes: nothing accepts the connection, or
+  # nothing answers in time. A TLS or protocol error means the address
+  # answered.
+  @unreachable [:econnrefused, :ehostunreach, :enetunreach, :ehostdown, :enetdown, :timeout]
+
+  defp unreachable?(%{__struct__: module, reason: reason})
+       when module in [Req.TransportError, Finch.TransportError],
+       do: reason in @unreachable
+
+  defp unreachable?(_exception), do: false
 
   # The checked addresses may come from a cached answer for an origin that has
-  # since moved, so when none of them connects, the host is looked up again
-  # and a changed answer gets one more try.
-  defp reroute(req_options, runtime_opts, validate, redirects_left, redirects_allowed?, addresses) do
+  # since moved, so when none of them is reachable, the host is looked up
+  # again and a changed answer gets one more try. Otherwise the fetch fails
+  # with the original error.
+  defp reroute(
+         error,
+         req_options,
+         runtime_opts,
+         validate,
+         redirects_left,
+         redirects_allowed?,
+         addresses
+       ) do
     url = Keyword.fetch!(req_options, :url)
     Keyword.get(runtime_opts, :invalidate_target, fn _url -> :ok end).(url)
 
-    case check_target(validate, url, Keyword.fetch!(runtime_opts, :deadline)) do
-      {:ok, fresh} ->
-        if Enum.sort(fresh) == Enum.sort(addresses) do
-          {:error, :connect_error}
-        else
-          request_and_route(
-            req_options,
-            runtime_opts,
-            validate,
-            redirects_left,
-            redirects_allowed?,
-            fresh,
-            false
-          )
-        end
-
-      _other ->
-        {:error, :connect_error}
+    with {:ok, fresh} <- check_target(validate, url, Keyword.fetch!(runtime_opts, :deadline)),
+         false <- Enum.sort(fresh) == Enum.sort(addresses) do
+      request_and_route(
+        req_options,
+        runtime_opts,
+        validate,
+        redirects_left,
+        redirects_allowed?,
+        fresh,
+        false
+      )
+    else
+      _unchanged_or_denied -> error
     end
   end
 

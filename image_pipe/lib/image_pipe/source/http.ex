@@ -146,9 +146,12 @@ defmodule ImagePipe.Source.HTTP do
                         minute is tried first, because it may still have an open \
                         connection. The rest are tried in the order returned, without \
                         duplicates. An error, an empty list, or an \
-                        exception denies the fetch. The default resolver returns IPv4 \
-                        addresses before IPv6 addresses. A resolver passed here \
-                        replaces it, so `:dns_cache` doesn't apply.
+                        exception denies the fetch. When none of the addresses \
+                        accepts a connection or answers in time, the resolver is \
+                        called once more, and a changed answer is tried. The default \
+                        resolver returns IPv4 addresses before IPv6 addresses. A \
+                        resolver passed here replaces it, so `:dns_cache` doesn't \
+                        apply.
                         """
                       ],
                       dns_cache: [
@@ -182,7 +185,9 @@ defmodule ImagePipe.Source.HTTP do
   to a checked address while keeping the hostname for the `Host` header and
   TLS verification. The default resolver keeps an answer for 10 seconds, so a
   busy origin isn't looked up for every fetch (see `:dns_cache`). The
-  addresses are still checked every time. Why is explained in
+  addresses are still checked on every fetch. When none of them accepts a
+  connection or answers in time, the adapter looks the host up again and
+  tries a changed answer once. Why is explained in
   [Source network policy](source-network-policy.md). A denied fetch fails
   with `{:source, :denied_scheme}`, `{:source, :denied_host}`, or
   `{:source, :denied_address}`, which answer `404`.

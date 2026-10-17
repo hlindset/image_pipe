@@ -27,7 +27,13 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
 
   test "rejects a certificate for a different hostname at the validated IP" do
     port = origin(fn conn, _ -> Plug.Conn.send_resp(conn, 200, "wrong host") end)
-    assert {:error, {:source, :connect_error}} = fetch("wrong.test", port)
+    {resolver, lookups} = counting_resolver(fn _lookup -> [@loopback] end)
+
+    assert {:error, {:source, :connect_error}} =
+             fetch("wrong.test", port, address_resolver: resolver)
+
+    # A certificate error isn't a moved origin, so the host isn't looked up again.
+    assert :counters.get(lookups, 1) == 1
   end
 
   for {protocol, wire_protocol} <- [http1: :"HTTP/1.1", http2: :"HTTP/2"] do
@@ -133,33 +139,83 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
   @tag :ipv6
   test "looks the host up again and connects to a changed answer when no address connects" do
     port = origin(fn conn, _ -> Plug.Conn.send_resp(conn, 200, "moved") end, ip: @loopback6)
-    answers = :counters.new(1, [])
 
-    resolver = fn _host ->
-      :counters.add(answers, 1, 1)
-      if :counters.get(answers, 1) == 1, do: {:ok, [@loopback]}, else: {:ok, [@loopback6]}
-    end
+    {resolver, lookups} =
+      counting_resolver(fn lookup -> if lookup == 1, do: [@loopback], else: [@loopback6] end)
 
     assert {:ok, response} = fetch("origin.test", port, address_resolver: resolver)
     assert Enum.join(response.stream) == "moved"
-    assert :counters.get(answers, 1) == 2
+    assert :counters.get(lookups, 1) == 2
     Response.close(response)
   end
 
   @tag :ipv6
-  test "fails without retrying when the new answer is unchanged" do
-    port = origin(fn conn, _ -> Plug.Conn.send_resp(conn, 200, "IPv6") end, ip: @loopback6)
-    answers = :counters.new(1, [])
+  test "looks the host up again when no address answers in time" do
+    {:ok, listener} = :gen_tcp.listen(0, [:binary, ip: @loopback, active: false])
+    {:ok, port} = :inet.port(listener)
+    spawn_link(fn -> hold_connections(listener) end)
+    origin(fn conn, _ -> Plug.Conn.send_resp(conn, 200, "moved") end, ip: @loopback6, port: port)
 
-    resolver = fn _host ->
-      :counters.add(answers, 1, 1)
-      {:ok, [@loopback]}
-    end
+    {resolver, lookups} =
+      counting_resolver(fn lookup -> if lookup == 1, do: [@loopback], else: [@loopback6] end)
+
+    assert {:ok, response} =
+             fetch("origin.test", port, address_resolver: resolver, receive_timeout: 200)
+
+    assert Enum.join(response.stream) == "moved"
+    assert :counters.get(lookups, 1) == 2
+    Response.close(response)
+  end
+
+  @tag :ipv6
+  test "fails when the new answer is unchanged" do
+    port = origin(fn conn, _ -> Plug.Conn.send_resp(conn, 200, "IPv6") end, ip: @loopback6)
+    {resolver, lookups} = counting_resolver(fn _lookup -> [@loopback] end)
 
     assert {:error, {:source, :connect_error}} =
              fetch("origin.test", port, address_resolver: resolver)
 
-    assert :counters.get(answers, 1) == 2
+    assert :counters.get(lookups, 1) == 2
+  end
+
+  @tag :ipv6
+  test "checks the new answer against the address policy" do
+    test_pid = self()
+
+    port =
+      origin(
+        fn conn, _ ->
+          send(test_pid, :origin_reached)
+          Plug.Conn.send_resp(conn, 200, "IPv6")
+        end,
+        ip: @loopback6
+      )
+
+    {resolver, lookups} =
+      counting_resolver(fn lookup -> if lookup == 1, do: [@loopback], else: [{10, 0, 0, 1}] end)
+
+    assert {:error, {:source, :connect_error}} =
+             fetch("origin.test", port, address_resolver: resolver)
+
+    assert :counters.get(lookups, 1) == 2
+    refute_received :origin_reached
+  end
+
+  @tag :ipv6
+  test "looks the host up again only once per fetch" do
+    {:ok, closed} = :gen_tcp.listen(0, ip: @loopback)
+    {:ok, port} = :inet.port(closed)
+    :ok = :gen_tcp.close(closed)
+
+    {resolver, lookups} =
+      counting_resolver(fn lookup ->
+        if rem(lookup, 2) == 1, do: [@loopback], else: [@loopback6]
+      end)
+
+    assert {:error, {:source, :connect_error}} =
+             fetch("origin.test", port, address_resolver: resolver)
+
+    assert :counters.get(lookups, 1) == 2
   end
 
   @tag :ipv6
@@ -503,6 +559,23 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
       _request = :gen_tcp.recv(socket, 0)
       accept(listen_socket, ip, test_pid)
     end
+  end
+
+  # Answers the nth lookup with `answer.(n)`, counting lookups.
+  defp counting_resolver(answer) do
+    lookups = :counters.new(1, [])
+
+    resolver = fn _host ->
+      :counters.add(lookups, 1, 1)
+      {:ok, answer.(:counters.get(lookups, 1))}
+    end
+
+    {resolver, lookups}
+  end
+
+  # Accepts connections and never answers them.
+  defp hold_connections(listener) do
+    with {:ok, _socket} <- :gen_tcp.accept(listener), do: hold_connections(listener)
   end
 
   defp fetch(host, port, opts \\ [], runtime \\ [], scheme \\ :https) do
