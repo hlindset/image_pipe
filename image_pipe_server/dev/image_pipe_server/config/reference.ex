@@ -146,10 +146,16 @@ defmodule ImagePipeServer.Config.Reference do
     """
   end
 
-  # Defaults computed when the server starts, which the schema can't state.
+  # Defaults the schema can't state: computed when the server starts, or
+  # applied by the library outside its schema.
   @computed_defaults %{
     "max_concurrency" => "the number of CPU cores the server can use",
-    "low_priority_max_concurrency" => "half of `max_concurrency`, rounded down, at least 1"
+    "low_priority_max_concurrency" => "half of `max_concurrency`, rounded down, at least 1",
+    "format_order" => ~s(`["avif", "webp"]`),
+    "webp_options.effort" => "`4`",
+    "avif_options.effort" => "`3`",
+    "avif_options.subsample_mode" => ~s(`"off"`),
+    "svg.max_render_pixels" => "four times `max_input_pixels`"
   }
 
   defp table(schema) do
@@ -176,6 +182,7 @@ defmodule ImagePipeServer.Config.Reference do
   end
 
   defp default_cell(_name, default) when not is_nil(default), do: "`#{default}`"
+  defp default_cell("address_policy.allow_" <> _category, nil), do: "`false`"
   defp default_cell(name, nil), do: Map.get(@computed_defaults, name, "")
 
   defp rows(schema, prefix) do

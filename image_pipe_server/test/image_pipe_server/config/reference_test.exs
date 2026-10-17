@@ -22,6 +22,22 @@ defmodule ImagePipeServer.Config.ReferenceTest do
     assert reference =~ "| `keys` | array of hex strings, each at least 64 digits | `[]` |"
   end
 
+  test "shows defaults the library applies outside the schema", %{reference: reference} do
+    assert reference =~
+             ~s(| `format_order` | array of `"avif"` or `"webp"` | `["avif", "webp"]` |)
+
+    assert reference =~ "| `webp_options.effort` | integer 0–6 | `4` |"
+    assert reference =~ "| `avif_options.effort` | integer 0–9 | `3` |"
+
+    assert reference =~
+             ~s(| `avif_options.subsample_mode` | `"auto"` or `"on"` or `"off"` | `"off"` |)
+
+    assert reference =~
+             "| `svg.max_render_pixels` | integer > 0 | four times `max_input_pixels` |"
+
+    assert reference =~ "| `address_policy.allow_private` | boolean | `false` |"
+  end
+
   test "documents explicit conversions", %{reference: reference} do
     assert reference =~
              "| `source_encryption_keys` | array of hex strings, each a 32-byte key | `[]` |"

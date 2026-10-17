@@ -48,6 +48,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   The cap was split over up to 100 connection acceptors, and a connection
   that reached a full acceptor waited about five seconds, then was closed,
   even while the server had room. `max_connections` is now an exact cap.
+- The configuration reference now gives the defaults of `format_order`,
+  `webp_options.effort`, `avif_options.effort`,
+  `avif_options.subsample_mode`, `svg.max_render_pixels`, and the
+  `address_policy.allow_*` settings, which it left blank.
 
 ### Security
 
