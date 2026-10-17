@@ -160,8 +160,9 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
         end
       end)
 
-    assert log =~ "#{label} could not be fetched: :transient"
-    assert length(String.split(log, "could not be fetched")) == 2
+    # Other tests in this async module log failures too, so only this entry's
+    # lines count.
+    assert length(String.split(log, "#{label} could not be fetched: :transient")) == 2
     assert log =~ "#{label} was fetched again"
     assert {:ok, :again} = Entry.get(pid)
   end

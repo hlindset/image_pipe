@@ -91,31 +91,37 @@ for expected in LD_PRELOAD=/usr/local/lib/libjemalloc.so.2 MALLOC_CONF=backgroun
   }
 done
 
-# On SIGTERM the server reports not ready but keeps serving, and Docker sees
-# the container turn unhealthy before it stops listening.
+# On SIGTERM the server reports not ready but keeps serving for the
+# configured shutdown_delay (15 s), and Docker sees the container turn
+# unhealthy before it stops listening. A slow runner can take seconds to
+# deliver SIGTERM, so each wait allows 10 s and reports how long it took.
 docker stop -t 30 "$name" >/dev/null &
 stopping=$!
+stop_sent=$SECONDS
 ready=200
-for _ in $(seq 1 20); do
+for _ in $(seq 1 50); do
   ready=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${port}/health/ready" || true)
   [ "$ready" = "503" ] && break
   sleep 0.2
 done
 [ "$ready" = "503" ] || {
-  echo "draining: /health/ready answered $ready, expected 503" >&2
+  echo "draining: /health/ready answered $ready $((SECONDS - stop_sent)) s after docker stop, expected 503" >&2
+  docker logs "$name" >&2 || true
   exit 1
 }
+echo "draining: readiness failed $((SECONDS - stop_sent)) s after docker stop"
 check_png pic.png
 health=starting
-for _ in $(seq 1 20); do
+for _ in $(seq 1 40); do
   health=$(docker inspect -f '{{.State.Health.Status}}' "$name" 2>/dev/null || echo exited)
   [ "$health" = "unhealthy" ] && break
   sleep 0.25
 done
 [ "$health" = "unhealthy" ] || {
-  echo "draining: container health is $health, expected unhealthy" >&2
+  echo "draining: container health is $health $((SECONDS - stop_sent)) s after docker stop, expected unhealthy" >&2
   exit 1
 }
+echo "draining: container unhealthy $((SECONDS - stop_sent)) s after docker stop"
 wait "$stopping"
 
 # An invalid configuration stops the server with one line naming the setting.
