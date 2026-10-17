@@ -27,8 +27,11 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   Options:
 
     * `--only` - comma-separated case ids or families (`resize`, `crop`,
-      `canvas`, `orientation`, `trim`, `effects`, `watermark`, `output`), or
-      `perf` for 44 cases that cover every family and kind of source.
+      `canvas`, `orientation`, `trim`, `effects`, `watermark`, `output`, and
+      with `--compare`, `decode`, `colour`, `autoquality`, `placeholder`), or
+      `perf` for 34 reference cases that cover every family and kind of
+      source. With `--compare`, `perf` adds the 10 `ImagePipe.Test.Perf.Cases`
+      every `perf` pull request times, and `nightly` all 26 of them.
     * `--cpus` - CPUs pinned to each server, default 4. Must leave at least
       one CPU for `oha`.
     * `--concurrency` - server worker count and the second load level,
@@ -59,6 +62,10 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       MIX_ENV=test mise exec -- mix imgproxy.bench \\
         --compare image_pipe_server:pr --against base=image_pipe_server:base
 
+  It also times `ImagePipe.Test.Perf.Cases`, requests imgproxy has no
+  equivalent for on photo-sized sources, after the candidate image makes the
+  photo variants they read.
+
     * `--compare` - the image to judge.
     * `--against` - `NAME=IMAGE`, an image to judge it against. Repeatable;
       each gets its own columns.
@@ -83,9 +90,12 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   alias ImagePipe.Test.ImgproxyBench.Report
   alias ImagePipe.Test.ImgproxyReference.Cases
   alias ImagePipe.Test.ImgproxyReference.Container
+  alias ImagePipe.Test.Perf.Cases, as: PerfCases
 
   @oha "ghcr.io/hatoo/oha:1.16.0@sha256:3ec3dbf549ea197793482d47a6324797411406bbf438c2fe8b91f244ec641a2f"
   @sources "test/support/image_pipe/test/sources"
+  @perf_sources "test/support/image_pipe/test/perf/sources"
+  @perf_photo "priv/static/images/flower.jpg"
   @family_keys [
     {"watermark", ["wm"]},
     {"trim", ["trim"]},
@@ -95,22 +105,22 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     {"crop", ["crop", "region"]},
     {"output", ["format", "q", "hdr", "profile", "meta"]}
   ]
-  @families ["resize" | Enum.map(@family_keys, &elem(&1, 0))]
-  # `--only perf`: a few cases per family, over every kind of source, for a
-  # comparison short enough to run on every `perf` pull request. Most of the
-  # reference cases are anchor and offset variants that cost the same.
+  @families ["resize" | Enum.map(@family_keys, &elem(&1, 0))] ++ PerfCases.families()
+  # `--only perf`: a few reference cases per family, over every kind of
+  # source, and the `:pr` tier of `PerfCases`, for a comparison short enough to
+  # run on every `perf` pull request. Most of the reference cases are anchor
+  # and offset variants that cost the same. `--only nightly` adds the rest of
+  # `PerfCases`.
   @perf_set ~w(
-    rs_fill_zone rs_fit_zone rs_fill_webp_residual size_marker cover_smart_marker
+    rs_fill_zone rs_fill_webp_residual cover_smart_marker
     alpha_resize cmyk_import palette_fit enlarge_small
-    crop_gravity_placement crop_corner_placement crop_smart_marker dps_crop_pct_resize
-    region_odd_origin
-    extend_small padding_border alpha_extend_bg gray_alpha_extend extend_ar_dpr_marker
-    rotate_exif exif_large_fit exif_user_rot90 flip_h_marker rot90_crop_north_placement
-    exif_cover_smart rgb16_rotate_crop
-    alpha_border_trim trim_resize_high_freq trim_border_equal trim_icc_p3
-    blur_zone sharpen_zone pixelate_marker alpha_blur rgba16_blur
+    crop_gravity_placement crop_smart_marker dps_crop_pct_resize region_odd_origin
+    extend_small padding_border alpha_extend_bg
+    rotate_exif exif_large_fit exif_user_rot90 exif_cover_smart rgb16_rotate_crop
+    alpha_border_trim trim_resize_high_freq trim_icc_p3
+    blur_zone sharpen_zone pixelate_marker rgba16_blur
     wm_center_scaled wm_tile gray_watermark wm_on_exif_frame
-    lossy_avif lossy_jpeg_q40 lossy_webp scp0_colorspace_124 rgb16_preserve_hdr
+    lossy_avif lossy_webp scp0_colorspace_124 rgb16_preserve_hdr
   )
   # Sources whose content the cases don't depend on, so the cases also make
   # sense on a corpus photo.
@@ -192,12 +202,15 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     sources = Path.join(settings.work, "sources")
     File.mkdir_p!(sources)
     File.cp_r!(@sources, sources)
+    File.cp_r!(@perf_sources, Path.join(sources, "perf"))
+    File.cp!(@perf_photo, Path.join(sources, "perf/photo12.jpg"))
     File.write!(Path.join(settings.work, "config.toml"), server_config(settings))
 
     cases =
       Cases.all()
       |> Enum.map(&Map.put(&1, :family, family(&1)))
       |> Kernel.++(corpus_cases(opts[:corpus], sources))
+      |> Kernel.++(perf_cases(settings))
       |> select(opts[:only])
 
     Mix.shell().info(
@@ -220,6 +233,11 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       Container.docker(["network", "rm", settings.network])
     end
   end
+
+  # ImagePipe-only cases have no imgproxy request, so only a comparison of
+  # ImagePipe images times them.
+  defp perf_cases(%{servers: nil}), do: []
+  defp perf_cases(_settings), do: PerfCases.all()
 
   # Compare mode judges one ImagePipe image against others; otherwise the
   # configured image runs against imgproxy.
@@ -276,6 +294,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     servers =
       for {key, image} <- settings.servers, do: image_pipe_server(settings, key, image)
 
+    with_server(hd(servers), settings, &make_variants(&1, settings))
     {checks, timed, mismatched, windows} = check_servers(servers, cases, settings)
 
     settings = %{
@@ -335,6 +354,24 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
   defp window(seconds, duration),
     do: (seconds * @window_requests) |> ceil() |> max(duration) |> min(@max_window)
+
+  # The candidate makes the photo variants `PerfCases` reads, so every image
+  # compared reads the same files.
+  defp make_variants(info, settings) do
+    Mix.shell().info("Making #{length(PerfCases.variants())} photo variants")
+
+    for {file, request} <- PerfCases.variants() do
+      url = "#{info.base_url}/#{request}/src/perf/photo12.jpg"
+
+      case Req.get(url, decode_body: false, retry: false, receive_timeout: 300_000) do
+        {:ok, %Req.Response{status: 200, body: body}} ->
+          File.write!(Path.join([settings.work, "sources", "perf", file]), body)
+
+        other ->
+          Mix.raise("Couldn't make perf/#{file} with #{request}: #{inspect(other)}")
+      end
+    end
+  end
 
   defp imgproxy_server(settings) do
     %{
@@ -458,12 +495,22 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
   defp select(cases, only) do
     names = String.split(only, ",", trim: true)
-    names = Enum.flat_map(names, &if(&1 == "perf", do: @perf_set, else: [&1]))
+    names = Enum.flat_map(names, &expand(&1, cases))
     selected = Enum.filter(cases, &(&1.id in names or &1.family in names))
     unknown = Enum.reject(names, &(&1 in @families or Enum.any?(cases, fn c -> c.id == &1 end)))
     if unknown != [], do: Mix.raise("Unknown case id(s) or families: #{Enum.join(unknown, ", ")}")
     selected
   end
+
+  # `perf` and `nightly` name the case sets the workflow runs. `PerfCases` are
+  # among the cases only when comparing ImagePipe images.
+  defp expand("perf", cases),
+    do: @perf_set ++ for(%{tier: :pr, id: id} <- cases, do: id)
+
+  defp expand("nightly", cases),
+    do: @perf_set ++ for(%{tier: _tier, id: id} <- cases, do: id)
+
+  defp expand(name, _cases), do: [name]
 
   # The warm-up and the two `docker exec` calls add about a second a case.
   defp estimate_minutes(cases, %{servers: nil} = settings),
@@ -546,21 +593,33 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   defp check(url) do
     with {:ok, %Req.Response{status: 200, body: body} = response} <-
            Req.get(url, decode_body: false, retry: false, receive_timeout: 120_000),
-         [content_type] <- Req.Response.get_header(response, "content-type"),
-         {:ok, image} <- Image.open(body, access: :random) do
-      %{
-        "status" => 200,
-        "content_type" => content_type,
-        "width" => Image.width(image),
-        "height" => Image.height(image)
-      }
+         [content_type] <- Req.Response.get_header(response, "content-type") do
+      checked(content_type, body)
     else
       {:ok, %Req.Response{status: status}} -> %{"status" => status}
       {:error, %{__exception__: true} = exception} -> %{"status" => Exception.message(exception)}
-      {:error, reason} -> %{"status" => "200 that doesn't decode: #{inspect(reason)}"}
       _headers -> %{"status" => "200 with no single content type"}
     end
   end
+
+  # A response that isn't an image, such as `output=info`, is compared by
+  # content type alone.
+  defp checked("image/" <> _subtype = content_type, body) do
+    case Image.open(body, access: :random) do
+      {:ok, image} ->
+        %{
+          "status" => 200,
+          "content_type" => content_type,
+          "width" => Image.width(image),
+          "height" => Image.height(image)
+        }
+
+      {:error, reason} ->
+        %{"status" => "200 that doesn't decode: #{inspect(reason)}"}
+    end
+  end
+
+  defp checked(content_type, _body), do: %{"status" => 200, "content_type" => content_type}
 
   defp matches?(checks, c) do
     responses = Enum.map(checks, fn {_key, results} -> Map.fetch!(results, c.id) end)
