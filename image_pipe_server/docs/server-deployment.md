@@ -239,25 +239,39 @@ Whether a response is cached also depends on its source:
 
 ## DNS lookups
 
-Point the container's `/etc/resolv.conf` at a resolver that caches, such as
-one on the host. The server doesn't cache DNS answers itself.
+An HTTP source keeps the addresses an origin's hostname resolves to for 10
+seconds, whatever the record's TTL, so a busy origin is looked up about once
+every 10 seconds instead of for every request. Each lookup asks for the IPv4
+and IPv6 addresses at the same time, through the resolver in the container's
+`/etc/resolv.conf`. When none of the addresses accepts a connection, the
+source looks the hostname up again.
 
-An HTTP source makes two lookups for every request to an origin, one for the
-hostname's IPv4 addresses and one for its IPv6 addresses, sent at the same
-time. Checking whether a cached original is still current counts as a request,
-and so does each redirect the source follows. An origin given as an IP address
-needs no lookup.
+A dropped DNS reply holds every request waiting on that lookup for at least
+the resolver's timeout, 5 seconds by default. That wait counts toward the
+source's [`fetch_timeout`](server-configuration.md#sources-name), 30 seconds
+by default. To make such waits rarer, point the container at a caching
+resolver close to the server, such as one on the host.
 
-Without a caching resolver, every lookup goes to an upstream DNS server, and a
-dropped reply holds the request for at least the resolver's timeout, 5 seconds
-by default. That wait counts toward the source's
-[`fetch_timeout`](server-configuration.md#sources-name), 30 seconds by
-default.
+If the resolver in `/etc/resolv.conf` already caches and its TTLs should
+apply exactly, turn off the source's cache:
 
-On Kubernetes, CoreDNS caches answers. The default `ndots: 5` sends a name
-such as `images.example.com` through every cluster search domain, once for
-IPv4 and once for IPv6 addresses, before looking it up as written. When the
-origins are outside the cluster, lower `ndots` in the pod spec:
+```toml
+[sources.web]
+adapter = "http"
+match = { scheme = "https" }
+allowed_hosts = ["images.example.com"]
+dns_cache = false
+```
+
+With `dns_cache = false`, the source looks the hostname up for every request
+to the origin, including a check whether a cached original is still current
+and each redirect it follows.
+
+On Kubernetes, CoreDNS caches answers, so `dns_cache = false` is an option
+there. The default `ndots: 5` sends each lookup of a name such as
+`images.example.com` through every cluster search domain, once for IPv4 and
+once for IPv6 addresses, before looking it up as written. When the origins
+are outside the cluster, lower `ndots` in the pod spec:
 
 ```yaml
 spec:
@@ -270,7 +284,7 @@ spec:
 With `ndots: 1`, give cluster services their full names, such as
 `minio.storage.svc.cluster.local`, in `base_url` and `allowed_hosts`. A
 shorter name such as `minio.storage` is first looked up outside the cluster,
-which adds a failed lookup to every request.
+which adds a failed lookup each time it is looked up.
 
 ## Processing capacity
 
