@@ -131,6 +131,38 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
   end
 
   @tag :ipv6
+  test "looks the host up again and connects to a changed answer when no address connects" do
+    port = origin(fn conn, _ -> Plug.Conn.send_resp(conn, 200, "moved") end, ip: @loopback6)
+    answers = :counters.new(1, [])
+
+    resolver = fn _host ->
+      :counters.add(answers, 1, 1)
+      if :counters.get(answers, 1) == 1, do: {:ok, [@loopback]}, else: {:ok, [@loopback6]}
+    end
+
+    assert {:ok, response} = fetch("origin.test", port, address_resolver: resolver)
+    assert Enum.join(response.stream) == "moved"
+    assert :counters.get(answers, 1) == 2
+    Response.close(response)
+  end
+
+  @tag :ipv6
+  test "fails without retrying when the new answer is unchanged" do
+    port = origin(fn conn, _ -> Plug.Conn.send_resp(conn, 200, "IPv6") end, ip: @loopback6)
+    answers = :counters.new(1, [])
+
+    resolver = fn _host ->
+      :counters.add(answers, 1, 1)
+      {:ok, [@loopback]}
+    end
+
+    assert {:error, {:source, :connect_error}} =
+             fetch("origin.test", port, address_resolver: resolver)
+
+    assert :counters.get(answers, 1) == 2
+  end
+
+  @tag :ipv6
   test "falls back only within the validated address set when a connection fails" do
     port = origin(fn conn, _ -> Plug.Conn.send_resp(conn, 200, "IPv6") end, ip: @loopback6)
 

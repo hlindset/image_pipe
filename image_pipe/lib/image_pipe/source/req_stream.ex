@@ -103,7 +103,8 @@ defmodule ImagePipe.Source.ReqStream do
          validate,
          redirects_left,
          redirects_allowed?,
-         addresses \\ nil
+         addresses \\ nil,
+         reroute? \\ true
        ) do
     clock = Keyword.get(runtime_opts, :clock, fn -> System.system_time(:second) end)
     previous = Keyword.get(runtime_opts, :source_validation)
@@ -146,7 +147,47 @@ defmodule ImagePipe.Source.ReqStream do
         {:error, {:bad_status, status}}
 
       {:error, exception} ->
-        {:error, request_error(exception)}
+        request_failed(request_error(exception), reroute? and addresses != nil, fn ->
+          reroute(
+            req_options,
+            runtime_opts,
+            validate,
+            redirects_left,
+            redirects_allowed?,
+            addresses
+          )
+        end)
+    end
+  end
+
+  defp request_failed(:connect_error, true, reroute), do: reroute.()
+  defp request_failed(reason, _reroute?, _reroute), do: {:error, reason}
+
+  # The checked addresses may come from a cached answer for an origin that has
+  # since moved, so when none of them connects, the host is looked up again
+  # and a changed answer gets one more try.
+  defp reroute(req_options, runtime_opts, validate, redirects_left, redirects_allowed?, addresses) do
+    url = Keyword.fetch!(req_options, :url)
+    Keyword.get(runtime_opts, :invalidate_target, fn _url -> :ok end).(url)
+
+    case check_target(validate, url, Keyword.fetch!(runtime_opts, :deadline)) do
+      {:ok, fresh} ->
+        if Enum.sort(fresh) == Enum.sort(addresses) do
+          {:error, :connect_error}
+        else
+          request_and_route(
+            req_options,
+            runtime_opts,
+            validate,
+            redirects_left,
+            redirects_allowed?,
+            fresh,
+            false
+          )
+        end
+
+      _other ->
+        {:error, :connect_error}
     end
   end
 

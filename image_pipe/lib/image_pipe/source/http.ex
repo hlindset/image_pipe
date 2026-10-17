@@ -504,6 +504,7 @@ defmodule ImagePipe.Source.HTTP do
       |> Keyword.put(:fetch_timeout, fetch[:fetch_timeout])
       |> Keyword.merge(runtime_opts)
       |> Keyword.put(:validate_target, build_target_guard(opts))
+      |> Keyword.put(:invalidate_target, &invalidate_target/1)
       |> Keyword.put(:max_redirects, Keyword.fetch!(opts, :max_redirects))
 
     ReqStream.open(req_options, stream_options)
@@ -526,6 +527,8 @@ defmodule ImagePipe.Source.HTTP do
 
     fn url -> TargetGuard.validate(url, allowed_hosts, predicate, resolver) end
   end
+
+  defp invalidate_target(url), do: DnsCache.invalidate(String.downcase(URI.parse(url).host))
 
   defp redacted_http_identity(identity) do
     case Keyword.fetch!(identity, :query) do
