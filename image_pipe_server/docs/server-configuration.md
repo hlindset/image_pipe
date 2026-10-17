@@ -399,15 +399,15 @@ Elixir only: `max_preset_lookups`, `preset_lookup`, `telemetry_prefix`, `clock`.
 
 ### `[pool]`
 
-How many images are processed at once, and how long requests wait for a turn. Times are in milliseconds. `max_concurrency` defaults to the number of CPU cores the server can use. See [limiting concurrent processing](../../image_pipe/docs/processing-controls.md).
+How many images are processed at once, and how long requests wait for a turn. Times are in milliseconds. `max_concurrency` defaults to the number of CPU cores the server can use, and `low_priority_max_concurrency` to half of `max_concurrency`, rounded down, and at least 1. See [limiting concurrent processing](../../image_pipe/docs/processing-controls.md).
 
 | Key | Type | Default |
 | --- | --- | --- |
 | `max_concurrency` | integer > 0 |  |
+| `low_priority_max_concurrency` | integer > 0 |  |
 | `max_queue` | integer ≥ 0 | `64` |
 | `queue_timeout` | integer > 0 | `10000` |
 | `processing_timeout` | integer > 0 | `30000` |
-| `low_priority_max_concurrency` | integer > 0 | half of `max_concurrency`, rounded down, at least 1 |
 
 ### `[http]`
 
