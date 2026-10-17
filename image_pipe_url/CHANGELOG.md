@@ -5,6 +5,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- The `priority` request option (`priority: :low` in the builder) lets a
+  request wait for spare capacity in the server's processing pool.
+
 ### Changed
 
 - **Breaking:** `ImagePipe.URL.config/1` raises `ArgumentError` when a preset

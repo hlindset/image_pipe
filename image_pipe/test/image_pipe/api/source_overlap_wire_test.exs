@@ -553,6 +553,18 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
     assert Enum.map(Image.get_pixel!(image, 5, 5), &round/1) == [255, 0, 0]
   end
 
+  test "low-priority requests wait for the full source instead of overlapping", context do
+    task =
+      Task.Supervisor.async_nolink(context.tasks, fn -> request(context, "w=100/priority=low") end)
+
+    assert_receive {:origin_held, origin}, 2_000
+    refute_receive {:decoded, _metadata}, 200
+    send(origin, :continue)
+    response = Task.await(task, 10_000)
+    assert response.status == 200
+    assert_pixels(response, context, [])
+  end
+
   defp complete_request(context, options \\ "w=100") do
     task = Task.Supervisor.async_nolink(context.tasks, fn -> request(context, options) end)
     assert_receive {:origin_held, origin}, 2_000
@@ -594,7 +606,7 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
   # Replaces the setup's instance with one running `options` on the same caches.
   defp await_stats(pool, expected, deadline \\ System.monotonic_time(:millisecond) + 5_000) do
     cond do
-      ImagePipe.ProcessingPool.stats(pool) == expected ->
+      Map.take(ImagePipe.ProcessingPool.stats(pool), Map.keys(expected)) == expected ->
         :ok
 
       System.monotonic_time(:millisecond) > deadline ->

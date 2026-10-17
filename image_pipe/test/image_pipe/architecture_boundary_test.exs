@@ -97,6 +97,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Plan,
       ImagePipe.Presets,
       ImagePipe.Processing,
+      ImagePipe.ProcessingPool,
       ImagePipe.Response,
       ImagePipe.Security,
       ImagePipe.Source,

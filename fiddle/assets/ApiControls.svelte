@@ -141,6 +141,7 @@
     { label: "Download image", options: "w=800/filename=sample/attachment" },
     { label: "Download info", options: "output=info/filename=source-info/attachment" },
     { label: "Cachebuster", options: "w=800/cb=v2/debug" },
+    { label: "Low priority", options: "output=lqip-css/priority=low" },
   ];
 
   function applyExample(example: Example) {

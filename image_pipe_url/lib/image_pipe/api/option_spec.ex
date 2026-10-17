@@ -456,6 +456,12 @@ defmodule ImagePipe.API.OptionSpec do
         value: &__MODULE__.parse_cachebuster/1
       },
       %__MODULE__{
+        key: "priority",
+        name: :priority,
+        scope: :request,
+        value: &__MODULE__.parse_priority/1
+      },
+      %__MODULE__{
         key: "debug",
         name: :debug,
         scope: :request,
@@ -1132,6 +1138,12 @@ defmodule ImagePipe.API.OptionSpec do
   @doc false
   @spec parse_filename(String.t()) :: {:ok, String.t()} | {:error, :invalid_filename}
   def parse_filename(string), do: parse_path_token(string, :invalid_filename)
+
+  @doc false
+  @spec parse_priority(String.t()) :: {:ok, :normal | :low} | {:error, :invalid_priority}
+  def parse_priority("normal"), do: {:ok, :normal}
+  def parse_priority("low"), do: {:ok, :low}
+  def parse_priority(_value), do: {:error, :invalid_priority}
 
   @doc false
   @spec parse_cachebuster(String.t()) :: {:ok, String.t()} | {:error, :invalid_cachebuster}

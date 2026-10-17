@@ -232,12 +232,151 @@ defmodule ImagePipe.ProcessingPoolTest do
     refute_received {:started, :waiting, _}
   end
 
+  describe "low priority" do
+    test "admits a waiting normal request before an earlier low one", %{tasks: tasks} do
+      pool = pool(max_concurrency: 1, max_queue: 2)
+      first = blocked(tasks, pool, :first)
+      assert_receive {:started, :first, worker1}
+      low = blocked(tasks, pool, :low, :low)
+      await_queued(pool, 1)
+      normal = blocked(tasks, pool, :normal)
+      await_queued(pool, 2)
+      assert %{queued: 2, low_queued: 1} = ProcessingPool.stats(pool)
+
+      send(worker1, :continue)
+      assert Task.await(first) == :ok
+      assert_receive {:started, :normal, worker2}
+      refute_received {:started, :low, _}
+      send(worker2, :continue)
+      assert Task.await(normal) == :ok
+      assert_receive {:started, :low, worker3}
+      send(worker3, :continue)
+      assert Task.await(low) == :ok
+    end
+
+    test "holds at most low_priority_max_concurrency slots", %{tasks: tasks} do
+      pool = pool(max_concurrency: 2, low_priority_max_concurrency: 1, max_queue: 1)
+      first = blocked(tasks, pool, :first, :low)
+      assert_receive {:started, :first, worker1}
+      second = blocked(tasks, pool, :second, :low)
+      await_queued(pool, 1)
+      assert %{active: 1, low_active: 1, queued: 1, low_queued: 1} = ProcessingPool.stats(pool)
+
+      normal = blocked(tasks, pool, :normal)
+      assert_receive {:started, :normal, worker2}
+      send(worker2, :continue)
+      assert Task.await(normal) == :ok
+      refute_received {:started, :second, _}
+
+      send(worker1, :continue)
+      assert Task.await(first) == :ok
+      assert_receive {:started, :second, worker3}
+      send(worker3, :continue)
+      assert Task.await(second) == :ok
+    end
+
+    test "low_priority_max_concurrency defaults to half of max_concurrency", %{tasks: tasks} do
+      pool = pool(max_concurrency: 4)
+      first = blocked(tasks, pool, :first, :low)
+      assert_receive {:started, :first, worker1}
+      second = blocked(tasks, pool, :second, :low)
+      assert_receive {:started, :second, worker2}
+      third = blocked(tasks, pool, :third, :low)
+      assert_receive {:start, %{active: 2, queued: 0, priority: :low}}
+      assert %{active: 2, low_active: 2, low_queued: 1} = ProcessingPool.stats(pool)
+
+      send(worker1, :continue)
+      assert Task.await(first) == :ok
+      assert_receive {:started, :third, worker3}
+
+      for {task, worker} <- [{second, worker2}, {third, worker3}] do
+        send(worker, :continue)
+        assert Task.await(task) == :ok
+      end
+    end
+
+    test "a normal request finding the queue full pushes out the newest low waiter", %{
+      tasks: tasks
+    } do
+      pool = pool(max_concurrency: 1, max_queue: 2)
+      first = blocked(tasks, pool, :first)
+      assert_receive {:started, :first, worker1}
+      older = blocked(tasks, pool, :older, :low)
+      await_queued(pool, 1)
+      newer = blocked(tasks, pool, :newer, :low)
+      await_queued(pool, 2)
+
+      normal = blocked(tasks, pool, :normal)
+      assert Task.await(newer) == {:error, {:processing, :overloaded}}
+      assert_receive {:stop, %{result: :overloaded, priority: :low}}
+      assert %{queued: 2, low_queued: 1} = ProcessingPool.stats(pool)
+
+      send(worker1, :continue)
+      assert Task.await(first) == :ok
+      assert_receive {:started, :normal, worker2}
+      send(worker2, :continue)
+      assert Task.await(normal) == :ok
+      assert_receive {:started, :older, worker3}
+      send(worker3, :continue)
+      assert Task.await(older) == :ok
+      refute_received {:started, :newer, _}
+    end
+
+    test "a low request finding the queue full fails", %{tasks: tasks} do
+      pool = pool(max_concurrency: 1, max_queue: 1)
+      first = blocked(tasks, pool, :first)
+      assert_receive {:started, :first, worker}
+      waiting = blocked(tasks, pool, :waiting)
+      await_queued(pool, 1)
+
+      assert {:error, {:processing, :overloaded}} =
+               ProcessingPool.run(pool, fn -> flunk() end, processing_priority: :low)
+
+      send(worker, :continue)
+      assert Task.await(first) == :ok
+      assert_receive {:started, :waiting, worker2}
+      send(worker2, :continue)
+      assert Task.await(waiting) == :ok
+    end
+
+    test "a low waiter times out while normal work holds the slots", %{tasks: tasks} do
+      pool = pool(max_concurrency: 1, max_queue: 1, queue_timeout: 50)
+      first = blocked(tasks, pool, :first)
+      assert_receive {:started, :first, worker}
+
+      assert {:error, {:processing, :queue_timeout}} =
+               ProcessingPool.run(pool, fn -> flunk() end, processing_priority: :low)
+
+      assert %{queued: 0, low_queued: 0} = ProcessingPool.stats(pool)
+      send(worker, :continue)
+      assert Task.await(first) == :ok
+    end
+
+    test "admission spans carry the request's priority", %{tasks: tasks} do
+      pool = pool(max_concurrency: 1)
+      low = blocked(tasks, pool, :low, :low)
+      assert_receive {:start, %{priority: :low}}
+      assert_receive {:started, :low, worker}
+      assert_receive {:stop, %{result: :admitted, priority: :low}}
+      send(worker, :continue)
+      assert Task.await(low) == :ok
+
+      assert ProcessingPool.run(pool, fn -> :ok end,
+               telemetry_prefix: Process.get(:pool_telemetry)
+             ) ==
+               :ok
+
+      assert_receive {:start, %{priority: :normal}}
+    end
+  end
+
   test "validates host pool options" do
     for opts <- [
           [max_concurrency: 0],
           [max_concurrency: 1, max_queue: -1],
           [max_concurrency: 1, queue_timeout: :infinity],
           [max_concurrency: 1, processing_timeout: 0],
+          [max_concurrency: 1, low_priority_max_concurrency: 0],
           [max_concurrency: 1, unknown: true]
         ] do
       assert_raise ArgumentError, fn -> ProcessingPool.start_link(opts) end
@@ -246,9 +385,9 @@ defmodule ImagePipe.ProcessingPoolTest do
 
   defp pool(opts), do: start_supervised!({ProcessingPool, opts})
 
-  defp blocked(tasks, pool, label) do
+  defp blocked(tasks, pool, label, priority \\ :normal) do
     test = self()
-    config = [telemetry_prefix: Process.get(:pool_telemetry)]
+    config = [telemetry_prefix: Process.get(:pool_telemetry), processing_priority: priority]
 
     Task.Supervisor.async_nolink(tasks, fn ->
       ProcessingPool.run(

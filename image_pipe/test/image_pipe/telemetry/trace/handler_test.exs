@@ -178,6 +178,8 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
     assert execution.attributes.result == "timeout"
     assert admission.attributes.active == 0
     assert admission.attributes.queued == 0
+    assert admission.attributes.priority == "normal"
+    assert execution.attributes.priority == "normal"
     assert execution.trace_id == request.trace_id
   end
 

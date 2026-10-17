@@ -24,6 +24,7 @@ defmodule ImagePipe.API.SerializerTest do
         attachment: true,
         filename: "photo",
         cachebuster: "v2",
+        priority: :low,
         expires: 123,
         debug: true
       ),

@@ -238,6 +238,8 @@ defmodule ImagePipe do
   separate stored copy. `expires` is compared with the configuration's
   `:clock`, and a plan is still valid at its exact `expires` second.
   `filename`, `attachment`, and `debug` don't change the result.
+  A plan with `priority: :low` waits for spare capacity in the
+  [processing pool](processing-controls.md#low-priority-requests).
 
   Options that have no effect, such as `fit: :cover` without a width or
   height, are ignored. The `[:request, :ignored_options]`

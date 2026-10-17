@@ -161,6 +161,8 @@ one line, and the tracer doesn't use it.
     outcome, `:hit` or `:best_effort`.
   - `:admission` (atom) and `:queue_ms` (integer): the result and duration
     of [`[:processing, :admission]`](#processing-admission).
+  - `:priority` (`:low`): the request had
+    [low priority](processing/request.md#priority).
   - `:detect` (atom): the result of
     [`[:transform, :detect]`](#transform-detect), or `:no_detector` when no
     detector is configured.
@@ -222,7 +224,8 @@ Span. Emitted for requests that generate an image under a
 [processing pool](processing-controls.md). Measures the wait for a pool slot.
 
 - Start metadata: `:active` and `:queued` (integer), the pool's jobs before
-  this request.
+  this request, and `:priority` (atom), `:normal` or `:low`, the request's
+  [priority](processing/request.md#priority).
 - Stop metadata: `:result` (atom), one of `:admitted`, `:overloaded`,
   `:queue_timeout`, `:cancelled`, `:worker_down`, or `:unavailable`.
 
@@ -234,7 +237,7 @@ the span when the worker dies, too. Spans of the generation stages nest in it.
 After a timeout or cancellation, the span remains open until the worker
 finishes, matching the lifetime of its processing slot.
 
-- Start metadata: `:active` and `:queued` (integer).
+- Start metadata: `:active` and `:queued` (integer), and `:priority` (atom).
 - Stop metadata: `:result` (atom), one of `:ok`, `:processing_error`,
   `:timeout`, `:cancelled`, `:worker_down`, or `:unavailable`.
 

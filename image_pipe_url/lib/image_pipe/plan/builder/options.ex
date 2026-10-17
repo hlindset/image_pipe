@@ -62,6 +62,16 @@ defmodule ImagePipe.Plan.Builder.Options do
         [`cb`](#{@docs}/request.html#cb).
         """
       ],
+      priority: [
+        type: {:in, [:normal, :low]},
+        type_doc: "`:normal` or `:low`",
+        doc: """
+        `:low` makes the request wait for spare capacity in the server's
+        processing pool, behind any `:normal` request. `:normal` turns off a
+        `:low` set by a preset. The URL option is
+        [`priority`](#{@docs}/request.html#priority).
+        """
+      ],
       expires: [
         type: :pos_integer,
         doc: """

@@ -350,7 +350,7 @@ defmodule ImagePipe.InstanceTest do
       start_instance(ctx)
       pool = instance_pool(ctx.name)
 
-      assert ImagePipe.ProcessingPool.stats(pool) == %{active: 0, queued: 0}
+      assert %{active: 0, queued: 0} = ImagePipe.ProcessingPool.stats(pool)
       assert :sys.get_state(pool).limits.max_concurrency == System.schedulers_online()
       assert request("/w=8/format=png/src/red.png", instance: ctx.name).status == 200
     end

@@ -38,6 +38,23 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - An S3 source logs a warning when a fetch of its provider's credentials
   fails, naming the bucket and the provider module, and logs at `info` when a
   fetch succeeds again.
+- A [`priority=low`](docs/processing/request.md#priority) request waits for
+  spare capacity in the processing pool: it starts only when no normal
+  request is waiting, and a normal request that finds the queue full takes
+  its place. The pool's `low_priority_max_concurrency` option limits how
+  many run at once. It defaults to half of `max_concurrency`, rounded down,
+  and at least 1. A low-priority request waits for the original to finish
+  downloading before processing starts. See
+  [Low-priority requests](docs/processing-controls.md#low-priority-requests).
+- The `503` for a full processing queue or a queue timeout has a
+  `Retry-After` header, the pool's `queue_timeout` in whole seconds, rounded
+  up.
+- The `[:processing, :admission]` and `[:processing, :execute]` spans carry
+  the request's `:priority`, and `ImagePipe.ProcessingPool.stats/1` also
+  returns `:low_active` and `:low_queued`. The `[:request, :summary]` event
+  has `priority: :low` for a low-priority request, and the default Logger
+  logs one that a full pool turned away at its base level instead of as an
+  error.
 
 ### Changed
 

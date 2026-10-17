@@ -86,6 +86,31 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "processing execute: timeout"
   end
 
+  test "logs a low-priority request's admission rejection below warning level" do
+    prefix = [__MODULE__, :low_priority]
+
+    Telemetry.attach_default_logger(
+      prefix: prefix,
+      events: [:request],
+      level: :info,
+      stages: true
+    )
+
+    reject = fn ->
+      for result <- [:overloaded, :queue_timeout] do
+        Telemetry.span(
+          [telemetry_prefix: prefix],
+          [:processing, :admission],
+          %{priority: :low},
+          fn -> {:ok, %{result: result}} end
+        )
+      end
+    end
+
+    refute capture_log([level: :warning], reject) =~ "processing admission"
+    assert capture_log([level: :info], reject) =~ "processing admission: queue_timeout"
+  end
+
   test "renders successful source revalidation and truncated-source failures" do
     prefix = [__MODULE__, :origin_revalidation]
     Telemetry.attach_default_logger(prefix: prefix, stages: true)

@@ -39,8 +39,8 @@ defmodule ImagePipeServer.Config.Reference do
         "[limiting work per request](../../image_pipe/docs/deployment.md).",
     pool:
       "How many images are processed at once, and how long requests wait for a turn. " <>
-        "Times are in milliseconds. `max_concurrency` defaults to the number of CPU " <>
-        "cores the server can use. See [limiting concurrent processing](../../image_pipe/docs/processing-controls.md).",
+        "Times are in milliseconds. " <>
+        "See [limiting concurrent processing](../../image_pipe/docs/processing-controls.md).",
     http:
       "Response settings: the CORS origin, whether requests may ask for debug headers, " <>
         "and the HTTP cache headers. See [serving images through a CDN](../../image_pipe/docs/serving-through-a-cdn.md).",
@@ -146,6 +146,12 @@ defmodule ImagePipeServer.Config.Reference do
     """
   end
 
+  # Defaults computed when the server starts, which the schema can't state.
+  @computed_defaults %{
+    "max_concurrency" => "the number of CPU cores the server can use",
+    "low_priority_max_concurrency" => "half of `max_concurrency`, rounded down, at least 1"
+  }
+
   defp table(schema) do
     {rows, elixir_only} =
       schema |> rows("") |> Enum.split_with(&match?({_name, _type, _default}, &1))
@@ -154,7 +160,7 @@ defmodule ImagePipeServer.Config.Reference do
 
     body =
       Enum.map_join(rows, "\n", fn {name, type, default} ->
-        "| `#{name}` | #{type} | #{if default, do: "`#{default}`", else: ""} |"
+        "| `#{name}` | #{type} | #{default_cell(name, default)} |"
       end)
 
     note =
@@ -168,6 +174,9 @@ defmodule ImagePipeServer.Config.Reference do
 
     header <> body <> "\n" <> note
   end
+
+  defp default_cell(_name, default) when not is_nil(default), do: "`#{default}`"
+  defp default_cell(name, nil), do: Map.get(@computed_defaults, name, "")
 
   defp rows(schema, prefix) do
     Enum.flat_map(schema, fn {key, spec} ->

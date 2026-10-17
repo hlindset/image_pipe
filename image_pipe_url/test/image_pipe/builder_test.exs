@@ -472,6 +472,7 @@ defmodule ImagePipe.BuilderTest do
         filename: "thumb",
         attachment: true,
         cachebuster: "v2",
+        priority: :low,
         expires: 2_000_000_000,
         debug: true
       )
@@ -482,7 +483,7 @@ defmodule ImagePipe.BuilderTest do
 
     assert {:ok, ^request} =
              parse(
-               "orient=none/page=2/filename=thumb/attachment/cb=v2/expires=2000000000/debug/webp-options=effort:4"
+               "orient=none/page=2/filename=thumb/attachment/cb=v2/priority=low/expires=2000000000/debug/webp-options=effort:4"
              )
   end
 

@@ -118,6 +118,10 @@ defmodule ImagePipe.Execution.Overlap do
 
   def cancel(state), do: close(state)
 
+  # Overlap holds a processing slot while the download arrives, only to save
+  # time, which a low-priority request doesn't need.
+  defp candidate(_response, {%Spec{priority: :low}, _policy}, _config), do: :skip
+
   defp candidate(
          %Response{path: nil, origin: %Origin{headers: headers}},
          {%Spec{output: %{terminal: :image}} = request, policy},
