@@ -448,7 +448,7 @@ defmodule ImagePipe.Transform.Executor do
               (gravity == {:smart, :face_assist} or
                  (is_tuple(gravity) and elem(gravity, 0) == :detect)) do
     with {:ok, state} <- shrink_to_detection_floor(state, opts),
-         {:ok, state} <- Materializer.materialize(state),
+         {:ok, %State{} = state} <- Materializer.materialize(state),
          {:ok, display} <- flush_display(state) do
       {:ok, %State{state | detection_frame: display.image}}
     end
