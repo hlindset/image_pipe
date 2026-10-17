@@ -147,9 +147,17 @@ defmodule ImagePipe.Source.HTTP do
                         connection. The rest are tried in the order returned, without \
                         duplicates. An error, an empty list, or an \
                         exception denies the fetch. The default resolver returns IPv4 \
-                        addresses before IPv6 addresses and keeps an answer with \
-                        addresses for 10 seconds. A resolver passed here replaces it, \
-                        so its answers aren't kept.
+                        addresses before IPv6 addresses. A resolver passed here \
+                        replaces it, so `:dns_cache` doesn't apply.
+                        """
+                      ],
+                      dns_cache: [
+                        type: :boolean,
+                        default: true,
+                        doc: """
+                        Whether the default resolver keeps the addresses a hostname \
+                        resolves to for 10 seconds. Turn it off when the server's DNS resolver \
+                        already caches and its TTLs should apply exactly.
                         """
                       ]
                     ] ++ CacheSettings.schema()
@@ -173,8 +181,8 @@ defmodule ImagePipe.Source.HTTP do
   resolved address is public or allowed by `:address_policy`. It then connects
   to a checked address while keeping the hostname for the `Host` header and
   TLS verification. The default resolver keeps an answer for 10 seconds, so a
-  busy origin isn't looked up for every fetch. The addresses are still
-  checked every time. Why is explained in
+  busy origin isn't looked up for every fetch (see `:dns_cache`). The
+  addresses are still checked every time. Why is explained in
   [Source network policy](source-network-policy.md). A denied fetch fails
   with `{:source, :denied_scheme}`, `{:source, :denied_host}`, or
   `{:source, :denied_address}`, which answer `404`.
@@ -503,8 +511,7 @@ defmodule ImagePipe.Source.HTTP do
       Keyword.take(opts, [:receive_timeout, :pool_timeout, :connect_timeout])
       |> Keyword.put(:fetch_timeout, fetch[:fetch_timeout])
       |> Keyword.merge(runtime_opts)
-      |> Keyword.put(:validate_target, build_target_guard(opts))
-      |> Keyword.put(:invalidate_target, &invalidate_target/1)
+      |> Keyword.merge(target_guard(opts))
       |> Keyword.put(:max_redirects, Keyword.fetch!(opts, :max_redirects))
 
     ReqStream.open(req_options, stream_options)
@@ -516,19 +523,30 @@ defmodule ImagePipe.Source.HTTP do
     {:ok, %{source | fetch: Keyword.put(source.fetch, :prepared_req_options, req)}}
   end
 
-  defp build_target_guard(opts) do
+  defp target_guard(opts) do
     allowed_hosts = Keyword.fetch!(opts, :allowed_hosts)
     predicate = AddressPolicy.compile(Keyword.fetch!(opts, :address_policy))
+    {resolver, invalidate} = resolver(opts)
 
-    resolver =
-      Keyword.get(opts, :address_resolver, fn host ->
-        DnsCache.resolve(host, &TargetGuard.default_resolver/1)
-      end)
-
-    fn url -> TargetGuard.validate(url, allowed_hosts, predicate, resolver) end
+    [
+      validate_target: &TargetGuard.validate(&1, allowed_hosts, predicate, resolver),
+      invalidate_target: invalidate
+    ]
   end
 
-  defp invalidate_target(url), do: DnsCache.invalidate(String.downcase(URI.parse(url).host))
+  defp resolver(opts) do
+    case {Keyword.fetch(opts, :address_resolver), Keyword.fetch!(opts, :dns_cache)} do
+      {{:ok, resolver}, _dns_cache} ->
+        {resolver, fn _url -> :ok end}
+
+      {:error, false} ->
+        {&TargetGuard.default_resolver/1, fn _url -> :ok end}
+
+      {:error, true} ->
+        {fn host -> DnsCache.resolve(host, &TargetGuard.default_resolver/1) end,
+         &DnsCache.invalidate(String.downcase(URI.parse(&1).host))}
+    end
+  end
 
   defp redacted_http_identity(identity) do
     case Keyword.fetch!(identity, :query) do

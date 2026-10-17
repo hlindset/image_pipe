@@ -7,6 +7,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `dns_cache: false` turns off an HTTP source's DNS cache, for a server
+  whose DNS resolver already caches and whose TTLs should apply exactly.
 - `max_blur_work` limits `blur` and `progressive-blur`: the pixels of the
   image being blurred, times the square of the sigma, can't exceed it. A blur
   over the limit fails with `422`. See
