@@ -34,7 +34,29 @@ defmodule ImagePipe.Source.HTTP.DnsCacheOptionTest do
     assert :ets.lookup(DnsCache, "localhost") == []
   end
 
+  test "checks a cached answer against each source's address policy", %{port: port} do
+    fetch(port, [])
+
+    assert fetch_result(port, address_policy: []) == {:error, {:source, :denied_address}}
+  end
+
+  @tag :ipv6
+  test "drops a cached answer whose addresses don't connect", %{port: port} do
+    # The origin listens on 127.0.0.1 only, so a stale answer of ::1 is refused.
+    :ets.insert(DnsCache, {"localhost", [{0, 0, 0, 0, 0, 0, 0, 1}], :infinity})
+
+    fetch(port, [])
+    assert [{"localhost", addresses, _expires_at}] = :ets.lookup(DnsCache, "localhost")
+    assert {127, 0, 0, 1} in addresses
+  end
+
   defp fetch(port, opts) do
+    assert {:ok, response} = fetch_result(port, opts)
+    assert Enum.join(response.stream) == "image bytes"
+    Response.close(response)
+  end
+
+  defp fetch_result(port, opts) do
     {:ok, config} =
       HTTP.validate_options(
         Keyword.merge(
@@ -50,8 +72,6 @@ defmodule ImagePipe.Source.HTTP.DnsCacheOptionTest do
         []
       )
 
-    assert {:ok, response} = HTTP.fetch(source, config, [])
-    assert Enum.join(response.stream) == "image bytes"
-    Response.close(response)
+    HTTP.fetch(source, config, [])
   end
 end

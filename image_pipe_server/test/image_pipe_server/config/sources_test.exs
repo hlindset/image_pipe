@@ -74,6 +74,20 @@ defmodule ImagePipeServer.Config.SourcesTest do
   end
 
   describe "HTTP mounts" do
+    test "turn off the DNS cache" do
+      [web: mount] =
+        convert(%{
+          "web" => %{
+            "adapter" => "http",
+            "match" => %{"scheme" => "https"},
+            "allowed_hosts" => ["images.example.com"],
+            "dns_cache" => false
+          }
+        })
+
+      assert mount[:options][:dns_cache] == false
+    end
+
     test "compile path_pattern" do
       [tmdb: mount] =
         convert(%{
