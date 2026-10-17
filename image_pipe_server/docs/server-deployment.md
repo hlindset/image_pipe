@@ -243,8 +243,8 @@ An HTTP source keeps the addresses an origin's hostname resolves to for 10
 seconds, whatever the record's TTL, so a busy origin is looked up about once
 every 10 seconds instead of for every request. Each lookup asks for the IPv4
 and IPv6 addresses at the same time, through the resolver in the container's
-`/etc/resolv.conf`. When none of the addresses accepts a connection, the
-source looks the hostname up again.
+`/etc/resolv.conf`. When none of the addresses accepts a connection or
+answers in time, the source looks the hostname up again.
 
 A dropped DNS reply holds every request waiting on that lookup for at least
 the resolver's timeout, 5 seconds by default. That wait counts toward the
@@ -267,8 +267,8 @@ With `dns_cache = false`, the source looks the hostname up for every request
 to the origin, including a check whether a cached original is still current
 and each redirect it follows.
 
-On Kubernetes, CoreDNS caches answers, so `dns_cache = false` is an option
-there. The default `ndots: 5` sends each lookup of a name such as
+On Kubernetes, CoreDNS already caches answers, so you can set
+`dns_cache = false`. The default `ndots: 5` sends each lookup of a name such as
 `images.example.com` through every cluster search domain, once for IPv4 and
 once for IPv6 addresses, before looking it up as written. When the origins
 are outside the cluster, lower `ndots` in the pod spec:
@@ -284,7 +284,7 @@ spec:
 With `ndots: 1`, give cluster services their full names, such as
 `minio.storage.svc.cluster.local`, in `base_url` and `allowed_hosts`. A
 shorter name such as `minio.storage` is first looked up outside the cluster,
-which adds a failed lookup each time it is looked up.
+which adds a failed lookup before each successful one.
 
 ## Processing capacity
 
