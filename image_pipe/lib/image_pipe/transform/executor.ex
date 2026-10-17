@@ -120,6 +120,11 @@ defmodule ImagePipe.Transform.Executor do
   # applies (see decode_resize_target/3).
   defp decode_target(_request, %Group{trim: trim}, _extent, _headroom) when trim != nil, do: nil
 
+  # The JPEG and WebP load shrinks average source pixels, which a
+  # nearest-neighbour resize must keep apart.
+  defp decode_target(_request, %Group{resize: %{kernel: :nearest}}, _extent, _headroom),
+    do: nil
+
   defp decode_target(request, group, extent, headroom) do
     target =
       decode_resize_target(group.resize, group.dpr, extent) ||
@@ -211,7 +216,8 @@ defmodule ImagePipe.Transform.Executor do
           min_w: nil,
           min_h: nil,
           zoom: {1.0, 1.0},
-          enlarge: true
+          enlarge: true,
+          kernel: :lanczos3
         },
         1.0,
         Geometry.display_effective_dims(state)
@@ -407,7 +413,7 @@ defmodule ImagePipe.Transform.Executor do
     {width, height} =
       Geometry.resize_dimensions(mode, target, Geometry.display_effective_dims(state))
 
-    resize = %Resize{width: width, height: height}
+    resize = %Resize{width: width, height: height, kernel: group.resize.kernel}
     tail = resize_tail(mode, target, group.guide, group.anchor_offset)
 
     with {:ok, state} <- prepare_detection_frame(state, resize, tail, opts),
@@ -440,14 +446,14 @@ defmodule ImagePipe.Transform.Executor do
 
   defp prepare_detection_frame(
          %State{} = state,
-         %Resize{width: width, height: height},
+         %Resize{width: width, height: height, kernel: kernel},
          %Crop{gravity: gravity},
          opts
        )
        when max(width, height) < @detection_floor and
               (gravity == {:smart, :face_assist} or
                  (is_tuple(gravity) and elem(gravity, 0) == :detect)) do
-    with {:ok, state} <- shrink_to_detection_floor(state, opts),
+    with {:ok, state} <- shrink_to_detection_floor(state, kernel, opts),
          {:ok, %State{} = state} <- Materializer.materialize(state),
          {:ok, display} <- flush_display(state) do
       {:ok, %State{state | detection_frame: display.image}}
@@ -456,7 +462,7 @@ defmodule ImagePipe.Transform.Executor do
 
   defp prepare_detection_frame(%State{} = state, _resize, _tail, _opts), do: {:ok, state}
 
-  defp shrink_to_detection_floor(%State{} = state, opts) do
+  defp shrink_to_detection_floor(%State{} = state, kernel, opts) do
     {width, height} = Geometry.live_dims(state)
     long_edge = max(width, height)
 
@@ -466,7 +472,8 @@ defmodule ImagePipe.Transform.Executor do
 
         resize = %Resize{
           width: max(round(width * scale), 1),
-          height: max(round(height * scale), 1)
+          height: max(round(height * scale), 1),
+          kernel: kernel
         }
 
         Step.run(state, resize, opts)

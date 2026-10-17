@@ -9,7 +9,7 @@ and the [value syntax](requesting-images.md#option-values) they use.
 
 | Category | URL options |
 | --- | --- |
-| [Resize](processing/resize.md#resize) | `w`, `h`, `fit`, `enlarge`, `min-w`, `min-h`, `dpr`, `zoom` |
+| [Resize](processing/resize.md#resize) | `w`, `h`, `fit`, `enlarge`, `min-w`, `min-h`, `dpr`, `zoom`, `kernel` |
 | [Canvas and padding](processing/resize.md#canvas-padding-and-background) | `extend`, `extend-ratio`, `extend-at`, `extend-offset`, `pad`, `bg` |
 | [Orientation](processing/crop.md#orientation) | `orient`, `rotate`, `flip` |
 | [Page selection](processing/request.md#page) | `page` |

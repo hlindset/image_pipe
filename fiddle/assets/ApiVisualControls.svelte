@@ -13,6 +13,7 @@
     offeredUnsets,
     presetNames,
     resetCropPixelsToSource,
+    resizeKernels,
     watermarkAssets,
     type ControlState,
     type LengthUnit,
@@ -39,7 +40,7 @@
   }
   const orientationSummary = $derived(summary("orient", "page", "rotate", "flip"));
   const trimSummary = $derived(summary("trim", "trim-symmetry"));
-  const resizeSummary = $derived(summary("w", "h", "fit", "extend"));
+  const resizeSummary = $derived(summary("w", "h", "fit", "kernel", "extend"));
   const aspectCanvasSummary = $derived(summary("extend-ratio", "extend-at"));
   const paddingSummary = $derived(summary("pad"));
   const backgroundSummary = $derived(summary("bg"));
@@ -250,6 +251,15 @@
         <option value="cover">cover</option>
         <option value="stretch">stretch</option>
         <option value="auto">auto</option>
+      </select>
+    </label>
+
+    <label class="field">
+      <span>Kernel</span>
+      <select bind:value={controlState.resizeKernel}>
+        {#each resizeKernels as kernel (kernel)}
+          <option value={kernel}>{kernel}</option>
+        {/each}
       </select>
     </label>
 
