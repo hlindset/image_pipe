@@ -139,6 +139,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   limits, so dividing its width by `dpr` gave less than the CSS width. `dpr` now includes that scale-down: `w=4000/dpr=3` on a
   9,000-pixel-wide image with an 8,192-pixel limit reports width 8192 at
   `dpr` 2.048, not 2.25.
+- Content-aware crops with `detect` or `anchor=smart-face` for a small
+  output detected on the resized image. `w=64/h=64/fit=cover` on a
+  6000×4000 source gave the detector 96×64 pixels, so small faces and
+  objects were missed. Detection now gets at least 640 pixels on the long
+  edge, or the whole source when it's smaller, and such requests decode at
+  that size.
 - An `extend-offset` that landed exactly on a half pixel, such as
   `extend-offset=0,1.25` with `dpr=2`, rounded away from zero, placing the
   image 1 pixel off. It now rounds ties to even, as crops, watermarks, and

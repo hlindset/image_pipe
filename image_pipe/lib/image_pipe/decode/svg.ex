@@ -158,7 +158,7 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
            },
            scale =
              request
-             |> Executor.decode_options(geometry)
+             |> Executor.decode_options(geometry, detector?: Keyword.get(opts, :detector) != nil)
              |> Keyword.get(:scale)
              |> fit_scale(storage, max_input_pixels),
            {width, height} = render_size(storage, scale),

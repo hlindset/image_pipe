@@ -247,8 +247,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
 
   defp blend_faces(params, state, regions) do
     with [_ | _] <- regions,
-         {:ok, {:fp, fx, fy}} <-
-           Focal.weighted_centroid(regions, image_width(state), image_height(state), %{}),
+         {:ok, {:fp, fx, fy}} <- detected_focal(regions, state, %{}),
          {:ok, {ax, ay}} <- attention_point(params, state) do
       blended = {blend_axis(ax, fx), blend_axis(ay, fy)}
       emit_blend(state.telemetry_opts, {ax, ay}, {fx, fy}, blended)
@@ -309,8 +308,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
 
     with {:ok, [_ | _] = regions} <-
            run_detect(state, spec, weights),
-         {:ok, focal} <-
-           Focal.weighted_centroid(regions, image_width(state), image_height(state), weights) do
+         {:ok, focal} <- detected_focal(regions, state, weights) do
       execute(%{params | gravity: focal}, state)
     else
       {:error, reason} when state.detector_required ->
@@ -352,7 +350,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
         detect_opts = [classes: classes, telemetry_opts: state.telemetry_opts]
 
         result =
-          with {:ok, image} <- detector_image(state.image) do
+          with {:ok, image} <- detector_image(detection_image(state)) do
             validate_detect_result(state.detector.detect(image, detect_opts))
           end
 
@@ -360,6 +358,16 @@ defmodule ImagePipe.Transform.Operation.Crop do
       end
     )
   end
+
+  # Regions are in the pixels of the frame the detector got. The focal point is
+  # normalized, so it places the crop on the current image too.
+  defp detected_focal(regions, %State{} = state, weights) do
+    image = detection_image(state)
+    Focal.weighted_centroid(regions, Image.width(image), Image.height(image), weights)
+  end
+
+  defp detection_image(%State{detection_frame: nil, image: image}), do: image
+  defp detection_image(%State{detection_frame: frame}), do: frame
 
   # Detectors such as image_vision's autorotate by the orientation tag. With
   # `orient=none` the pixels stay in the storage frame and keep the tag, so

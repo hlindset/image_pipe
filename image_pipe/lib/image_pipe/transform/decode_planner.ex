@@ -26,32 +26,55 @@ defmodule ImagePipe.Transform.DecodePlanner do
   @doc """
   Chooses decode open options for decoding `extent` (display-frame pixels)
   down to `target`. `nil` target means no shrink.
+
+  `min_long_edge` keeps the decoded extent's long edge at least that many
+  pixels, or at the extent's own size when that is smaller. `nil` sets no
+  minimum.
   """
-  @spec open_options(source_format(), {pos_integer(), pos_integer()}, target() | nil) ::
-          keyword()
+  @spec open_options(
+          source_format(),
+          {pos_integer(), pos_integer()},
+          target() | nil,
+          pos_integer() | nil
+        ) :: keyword()
+  def open_options(source_format, extent, target, min_long_edge \\ nil)
+
   # An SVG renders at any scale, so it renders straight at the target, larger
   # or smaller than its intrinsic size, and never needs resampling to reach it.
-  def open_options(:svg, {width, height}, target)
+  def open_options(:svg, {width, height}, target, min_long_edge)
       when is_integer(width) and width > 0 and is_integer(height) and height > 0 do
     case target do
-      nil -> []
-      {target_w, target_h} -> [scale: 1.0 / ratio_from_targets(width, height, target_w, target_h)]
+      nil ->
+        []
+
+      {target_w, target_h} ->
+        [scale: 1.0 / ratio(width, height, target_w, target_h, min_long_edge)]
     end
   end
 
   # The guards state the domain: a zero or negative extent would otherwise give a
   # ratio at or below 1 and silently decode at full size.
-  def open_options(source_format, {width, height}, target)
+  def open_options(source_format, {width, height}, target, min_long_edge)
       when is_atom(source_format) and is_integer(width) and width > 0 and
              is_integer(height) and height > 0 do
     load_shrink =
       case target do
         nil -> 1.0
-        {target_w, target_h} -> ratio_from_targets(width, height, target_w, target_h)
+        {target_w, target_h} -> ratio(width, height, target_w, target_h, min_long_edge)
       end
 
     append_load_option([access: :sequential, fail_on: :error], source_format, load_shrink)
   end
+
+  defp ratio(width, height, target_w, target_h, nil),
+    do: ratio_from_targets(width, height, target_w, target_h)
+
+  defp ratio(width, height, target_w, target_h, min_long_edge),
+    do:
+      min(
+        ratio_from_targets(width, height, target_w, target_h),
+        max(max(width, height) / min_long_edge, 1.0)
+      )
 
   # Use the smaller src/target ratio so neither decoded axis falls below its
   # resize target. Over-shrinking would force an upscale and soften the result.

@@ -71,11 +71,11 @@ defmodule ImagePipe.API.DetectionStrictnessWireTest do
       FlakyDetector.set(:ready?, false)
       opts = observed(detector: FlakyDetector, detector_required: true)
 
-      assisted = response("w=50/h=100/fit=cover/anchor=smart-face", opts)
+      assisted = response("w=700/h=1400/fit=cover/anchor=smart-face", opts)
       assert get_resp_header(assisted, "cache-control") == ["no-store"]
       assert flush_cache_puts() == 0
 
-      attention = response("w=50/h=100/fit=cover/anchor=smart", opts)
+      attention = response("w=700/h=1400/fit=cover/anchor=smart", opts)
       assert pixels(image(assisted)) == pixels(image(attention))
     end
 
@@ -124,19 +124,19 @@ defmodule ImagePipe.API.DetectionStrictnessWireTest do
       FlakyDetector.set(:fail?, true)
       opts = observed(detector: FlakyDetector, telemetry_prefix: prefix)
 
-      degraded = response("w=50/h=50/fit=cover/detect=car", opts)
+      degraded = response("w=700/h=700/fit=cover/detect=car", opts)
 
       assert get_resp_header(degraded, "cache-control") == ["no-store"]
       assert get_resp_header(degraded, "etag") == []
       assert_received {:telemetry, %{reason: :detection_failed}}
       assert flush_cache_puts() == 0
 
-      attention = response("w=50/h=50/fit=cover/anchor=smart", opts)
+      attention = response("w=700/h=700/fit=cover/anchor=smart", opts)
       assert pixels(image(degraded)) == pixels(image(attention))
 
       FlakyDetector.set(:fail?, false)
       _ = flush_cache_puts()
-      recovered = response("w=50/h=50/fit=cover/detect=car", opts)
+      recovered = response("w=700/h=700/fit=cover/detect=car", opts)
 
       refute pixels(image(recovered)) == pixels(image(attention))
       assert [_etag] = get_resp_header(recovered, "etag")

@@ -302,7 +302,9 @@ defmodule ImagePipe.Decode do
            pages: frames,
            debug_facts: debug_facts(input, page_image, opts)
          },
-         decode_options = Executor.decode_options(request, geometry) ++ page_option(request.page),
+         decode_options =
+           Executor.decode_options(request, geometry, detector?: detector?(opts)) ++
+             page_option(request.page),
          {:ok, image} <- reopen(input, header_image, decode_options, opts) do
       state = seed_state(image, storage_dimensions, decode_options, pending_orientation, opts)
 
@@ -605,6 +607,8 @@ defmodule ImagePipe.Decode do
       do: {:ok, header_image},
       else: input |> open_seekable_input(decode_options, opts) |> wrap_decode_error()
   end
+
+  defp detector?(opts), do: Keyword.get(opts, :detector) != nil
 
   defp page_option(nil), do: []
   defp page_option(page), do: [page: page]

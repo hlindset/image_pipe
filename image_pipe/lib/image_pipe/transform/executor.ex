@@ -49,6 +49,9 @@ defmodule ImagePipe.Transform.Executor do
 
   @default_trim_threshold 10.0
   @placeholder_terminal_reduction {32, 32}
+  # The long edge of the frame a detection crop detects on: the input size of
+  # the bundled detection models.
+  @detection_floor 640
   @working_spaces [
     :VIPS_INTERPRETATION_sRGB,
     :VIPS_INTERPRETATION_RGB,
@@ -65,11 +68,16 @@ defmodule ImagePipe.Transform.Executor do
   the frame after its rotate) with its resize target, or without a resize with
   the terminal's reduction target. A trim in the first group decodes at full
   size, since the trimmed extent isn't known yet.
+
+  With `detector?: true`, a first group whose crop detects keeps the decoded
+  extent's long edge at the detection floor, so the detector gets enough
+  pixels however small the output is.
   """
-  @spec decode_options(Spec.t(), SourceGeometry.t()) :: keyword()
+  @spec decode_options(Spec.t(), SourceGeometry.t(), keyword()) :: keyword()
   def decode_options(
         %Spec{groups: [%Group{} = group | _]} = request,
-        %SourceGeometry{} = geometry
+        %SourceGeometry{} = geometry,
+        opts \\ []
       ) do
     vector? = geometry.source_format == :svg
     group = if vector?, do: vector_group(group), else: group
@@ -78,9 +86,24 @@ defmodule ImagePipe.Transform.Executor do
     extent = crop_extent || crop_frame
     target = decode_target(request, group, extent, headroom)
     target = if vector?, do: target || render_target(group, extent, headroom), else: target
+    floor = if Keyword.get(opts, :detector?, false), do: detection_floor(group, extent)
 
-    DecodePlanner.open_options(geometry.source_format, extent, target)
+    DecodePlanner.open_options(geometry.source_format, extent, target, floor)
   end
+
+  defp detection_floor(%Group{} = group, extent) do
+    if detects?(group.guide) and (group.crop != nil or cover_resize?(group, extent)),
+      do: @detection_floor
+  end
+
+  defp detects?({:detect, _spec}), do: true
+  defp detects?({:smart, :face_assist}), do: true
+  defp detects?(_guide), do: false
+
+  defp cover_resize?(%Group{resize: nil}, _extent), do: false
+
+  defp cover_resize?(%Group{resize: resize, dpr: dpr}, extent),
+    do: elem(Geometry.resize_target(resize, dpr, extent), 0) in [:cover, :auto_cover]
 
   # A vector source renders at its first group's resize even where a raster
   # decode couldn't shrink, as for a one-axis stretch or a minimum alone, so
@@ -387,24 +410,69 @@ defmodule ImagePipe.Transform.Executor do
     resize = %Resize{width: width, height: height}
     tail = resize_tail(mode, target, group.guide, group.anchor_offset)
 
+    with {:ok, state} <- prepare_detection_frame(state, resize, tail, opts),
+         {:ok, %State{} = state} <- run_resize(state, resize, tail, opts) do
+      {:ok, %State{state | detection_frame: nil}, target.dpr}
+    end
+  end
+
+  defp run_resize(%State{} = state, resize, tail, opts) do
     case Geometry.pending_class(state) do
       :pending ->
-        pending = state.pending_orientation
-
-        {resize, tail} =
-          compensate_resize(resize, tail, pending)
+        {resize, tail} = compensate_resize(resize, tail, state.pending_orientation)
 
         with {:ok, state} <- Step.run(state, resize, opts),
              {:ok, state} <- run_pending_tail(state, tail, opts),
-             {:ok, state} <- flush_display(state) do
-          {:ok, state, target.dpr}
-        end
+             do: flush_display(state)
 
       _none_or_identity ->
         with {:ok, state} <- Step.run(state, resize, opts),
-             {:ok, state} <- run_optional(state, tail, opts) do
-          {:ok, state, target.dpr}
-        end
+             do: run_optional(state, tail, opts)
+    end
+  end
+
+  # A detection crop after a resize below the detection floor would detect on
+  # only a few pixels. It detects on the frame before the resize instead, at
+  # most twice the floor on the long edge. Detection and the resize both read
+  # that frame, so it's buffered; a display-frame copy is cheap at that size.
+  defp prepare_detection_frame(%State{detector: nil} = state, _resize, _tail, _opts),
+    do: {:ok, state}
+
+  defp prepare_detection_frame(
+         %State{} = state,
+         %Resize{width: width, height: height},
+         %Crop{gravity: gravity},
+         opts
+       )
+       when max(width, height) < @detection_floor and
+              (gravity == {:smart, :face_assist} or
+                 (is_tuple(gravity) and elem(gravity, 0) == :detect)) do
+    with {:ok, state} <- shrink_to_detection_floor(state, opts),
+         {:ok, state} <- Materializer.materialize(state),
+         {:ok, display} <- flush_display(state) do
+      {:ok, %State{state | detection_frame: display.image}}
+    end
+  end
+
+  defp prepare_detection_frame(%State{} = state, _resize, _tail, _opts), do: {:ok, state}
+
+  defp shrink_to_detection_floor(%State{} = state, opts) do
+    {width, height} = Geometry.live_dims(state)
+    long_edge = max(width, height)
+
+    case long_edge > 2 * @detection_floor do
+      true ->
+        scale = @detection_floor / long_edge
+
+        resize = %Resize{
+          width: max(round(width * scale), 1),
+          height: max(round(height * scale), 1)
+        }
+
+        Step.run(state, resize, opts)
+
+      false ->
+        {:ok, state}
     end
   end
 

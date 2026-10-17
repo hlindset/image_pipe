@@ -27,8 +27,8 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
     }
   end
 
-  defp options(request_options, geometry),
-    do: Executor.decode_options(request!(request_options), geometry)
+  defp options(request_options, geometry, opts \\ []),
+    do: Executor.decode_options(request!(request_options), geometry, opts)
 
   defp refute_shrink(opts) do
     refute Keyword.has_key?(opts, :shrink)
@@ -127,5 +127,53 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
       assert opts[:access] == :sequential
       assert opts[:fail_on] == :error
     end
+  end
+
+  # --- Detection floor ---
+
+  test "a detection guide keeps the decoded long edge at the detection floor" do
+    # A 96x64 cover target alone gives 1600/64 = 25; the 640 floor caps it at
+    # 2400/640 = 3.75.
+    for guide <- ["detect=face", "anchor=smart-face"] do
+      plan =
+        &options("w=64/h=64/fit=cover/#{guide}", geometry({2400, 1600}, {2400, 1600}, &1),
+          detector?: true
+        )
+
+      assert plan.(:jpeg)[:shrink] == 2
+      assert_in_delta plan.(:webp)[:scale], 1 / 3.75, 1.0e-12
+      refute_shrink(plan.(:png))
+    end
+  end
+
+  test "the detection floor applies to a detect crop's extent" do
+    # The 1280x1280 crop for a 64x64 resize gives 20; the floor caps it at 2.
+    opts =
+      options("crop=1280,1280/detect=face/w=64/h=64", geometry({2400, 1600}, {2400, 1600}, :jpeg),
+        detector?: true
+      )
+
+    assert opts[:shrink] == 2
+  end
+
+  test "the detection floor needs a detector and a detection guide" do
+    frame = geometry({2400, 1600}, {2400, 1600}, :jpeg)
+
+    assert options("w=64/h=64/fit=cover/detect=face", frame)[:shrink] == 8
+    assert options("w=64/h=64/fit=cover/anchor=smart", frame, detector?: true)[:shrink] == 8
+  end
+
+  test "the detection floor never shrinks a decode more than its target does" do
+    frame = geometry({2400, 1600}, {2400, 1600}, :jpeg)
+    opts = options("w=1200/h=800/fit=cover/detect=face", frame, detector?: true)
+
+    assert opts[:shrink] == 2
+  end
+
+  test "the detection floor doesn't enlarge an SVG past its intrinsic size" do
+    svg = geometry({100, 100}, {100, 100}, :svg)
+
+    assert options("w=64/h=64/fit=cover/detect=face", svg, detector?: true)[:scale] == 1.0
+    assert options("w=320/h=320/fit=cover/detect=face", svg, detector?: true)[:scale] == 3.2
   end
 end
