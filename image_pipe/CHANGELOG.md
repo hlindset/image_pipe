@@ -138,6 +138,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `autoquality` scored images with transparency as if they were shown on
+  black, so changes at their edges and in their transparency didn't count,
+  and transparent margins raised the score. A logo could get AVIF quality 22
+  where it needed 31. It now scores the visible area only, against both a
+  dark and a light background, and keeps the lower score. Images with
+  transparency can get a higher quality and larger files.
 - Detection requests that arrived before the bundled face or object model
   had loaded, for example during startup warmup with
   `detector_required: false`, each downloaded and loaded the model. They now
