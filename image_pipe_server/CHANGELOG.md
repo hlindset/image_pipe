@@ -5,8 +5,32 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-18
+
 ### Added
 
+- The `kernel` URL option sets the filter a group's resize uses: `nearest`,
+  `linear`, `cubic`, `mitchell`, `lanczos2`, `lanczos3` (the default),
+  `mks2013`, or `mks2021`. With `kernel=nearest` in the first group, a large
+  JPEG or WebP source is decoded at full size, so the request takes longer
+  and uses more memory. See [kernel](https://github.com/hlindset/image_pipe/blob/v0.3.0/image_pipe/docs/processing/resize.md#kernel).
+- A [`priority=low`](https://github.com/hlindset/image_pipe/blob/v0.3.0/image_pipe/docs/processing/request.md#priority) request waits for
+  spare capacity in the processing pool: it starts only when no normal
+  request is waiting, and a normal request that finds the queue full takes
+  its place. `[pool] low_priority_max_concurrency` limits how many run at
+  once. It defaults to half of `max_concurrency`, rounded down, and at
+  least 1. A low-priority request waits for the original to finish downloading
+  before processing starts. Its processing spans in traces carry `priority`,
+  and one that a full pool turned away logs at `info` instead of `error`.
+- The `503` for a full processing queue or a queue timeout has a
+  `Retry-After` header. Its value is `[pool] queue_timeout` converted to
+  whole seconds, rounded up.
+- `[processing] max_blur_work` limits `blur` and `progressive-blur`: the
+  pixels of the image being blurred, times the square of the sigma, can't
+  exceed it. A blur over the limit fails with `422`.
+- `dns_cache = false` in a `[sources.<name>]` table turns off the HTTP
+  source's DNS cache, for a server whose DNS resolver already caches and
+  whose TTLs should apply exactly.
 - `[telemetry] log_stages = true` also logs a line for each stage of each
   request, such as each cache lookup, the decode, and the encode. It needs
   `log_requests` on.
@@ -16,6 +40,17 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `image_pipe` key.
 - The request span carries the method and path as `http.request.method`,
   `url.path`, and `url.query`.
+- The server logs a warning, once per directory, when the `image_pipe`
+  directory in `TMPDIR` can't be used to stage originals, so they are held
+  in memory instead. The request's log line then has `staging=memory` and
+  `staging_reason`.
+- A file system cache logs at `info` when it claims its cache root, naming
+  the host. A server that refused its cache root, because another server
+  used it, logs at `info` when it takes the root over and requests use the
+  cache again.
+- An S3 source logs a warning when a fetch of its provider's credentials
+  fails, naming the bucket and the provider module, and logs at `info` when a
+  fetch succeeds again.
 
 ### Changed
 
@@ -23,10 +58,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   line per image request instead of one per stage: the method, path,
   status, duration, and bytes sent, then the cache outcome, source, sizes,
   operations, and stage timings. A `5xx`, or a response that failed partway
-  through sending, logs at `error`, and a `4xx` or a result that didn't
-  come out as requested at `warning`. The path is as sent, with a presigned source
-  URL's credentials, such as an `X-Amz-Signature` value, redacted. Set
-  `log_stages = true` to also get the stage lines that
+  through sending, logs at `error`, and a `4xx`, a result that didn't come
+  out as requested, or a failed cache read at `warning`. Failed and dropped
+  cache writes log their own `warning` lines, `image_pipe cache write` and
+  `image_pipe cache stage`, with the error category. The path is as sent,
+  with a presigned source URL's credentials, such as an `X-Amz-Signature`
+  value, redacted. Set `log_stages = true` to also get the stage lines that
   `log_requests = true` gave before, or `log_requests = false` for no
   request lines.
 - **Breaking:** The server no longer accepts HTTP/2 over plain HTTP (h2c,
@@ -34,14 +71,181 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   of the server to connect with HTTP/1.1. Before, an HTTP/2 request that
   took longer than `[server] read_timeout` lost its response, along with
   every other request on its connection.
+- **Breaking:** The server fails at startup when a preset in
+  `[processing.presets]` or `[processing] request_defaults` sets options
+  that can't be combined, such as `anchor=top/detect=face` or
+  `q=80/autoquality=50`, names a `wm` that isn't in
+  `[processing.watermarks]`, or uses `wm-src64` or `wm-enc` without
+  `request_watermarks = true`. Requests using them failed with `400` unless
+  the URL replaced the conflicting options. Remove one of the conflicting options, or the watermark option.
+- **Breaking:** A `blur` or `progressive-blur` over the default
+  `max_blur_work`, 4,000,000,000,000, fails with `422`. `blur=1000` on a
+  10-megapixel photo took about 7 seconds and now fails. Raise
+  `[processing] max_blur_work` to allow larger blurs.
+- AVIF's default quality is 56, down from 63. Files are about 18% smaller.
+  The median image scores 78 instead of 82 on
+  [SSIMULACRA2](https://github.com/hlindset/image_pipe/blob/v0.3.0/image_pipe/docs/choosing-an-autoquality-target.md#choosing-a-target),
+  close to the JPEG default's 77. To keep 63, set
+  `format_quality = { avif = 63 }` under `[processing]`.
+- A response's cache key and `ETag` no longer depend on the quality and
+  encoder settings of other formats. Changing the AVIF quality or
+  `avif_options` under `[processing]` leaves them unchanged for WebP responses and
+  for requests with a `format`, such as `format=jpeg`. A response without
+  `format`, for a client that accepts neither AVIF nor WebP, still depends
+  on every format's settings. After upgrading, cached image responses miss
+  once and clients download each image again once.
+- A request with `pad=0` gets the cache key and `ETag` of the same request
+  without `pad`, and a `gradient` or `progressive-blur` that starts or stops
+  at `-0.0` gets those of one at `0`. Cached copies of such requests miss
+  once after an upgrade.
+- Cached `output=blurhash`, `output=lqip-css`, and `output=info` responses
+  that include a placeholder miss once after upgrading, since placeholders of
+  transparent images changed.
+- A server without `[cache]` keeps the content hashes of up to 10,000 local
+  files in memory, so a request for an unchanged file checks its size and
+  timestamps instead of reading and hashing it. For a 5.5 MB PNG this saves
+  about 3 ms per request. For a remote original, a request with
+  `If-None-Match` gets `304` without contacting the origin while the
+  origin's cache lifetime lasts. Cache lookup stage lines and spans report
+  these lookups in the `memory` pool.
+- An HTTP source keeps the addresses a hostname resolves to for 10 seconds,
+  so a busy origin is no longer looked up before every fetch. The addresses
+  are still checked against `address_policy` on every fetch. When none of
+  the addresses accepts a connection or answers in time, the source looks
+  the hostname up again and tries once more if the answer changed.
+- `blur` and `sharpen` buffer the image in memory before filtering it.
+  `sharpen=10/w=8000/h=8000/enlarge` took 14 s and now takes under 1 s. A
+  request with `blur` or `sharpen` holds one copy of the image in memory at
+  that point.
+- A watermark on an image with a color profile is about 5 ms faster when the
+  output is sRGB, which is the case with the default `profile=strip` and with
+  `profile=srgb`. Partly transparent watermark pixels over colors outside
+  sRGB, such as on a Display P3 photo, blend slightly differently.
+- A `format-q` entry for `png` applies only when PNG has a palette, like `q`.
+  Before, a URL with one and no palette failed with `400`, even when the
+  response wasn't PNG, and one in `request_defaults` or a preset made every
+  request fail.
+- A `detect`, `anchor=smart`, or `anchor=smart-face` crop whose box covers
+  the whole image, such as `crop=8000,8000/detect=face` on a smaller image,
+  runs no detection. Before, with a failing detector the response wasn't
+  stored, or failed with `500` under `detector_required = true`.
+- A server error (`5xx`), such as a `502` for a failing origin, gets
+  `Cache-Control: no-store` in place of `max-age=0, private,
+  must-revalidate`, so a CDN doesn't keep it.
 - Log lines start with the date and time, as in
   `2026-10-14 19:55:23.967 request_id=abc [info] ...`.
+- Uses `image_pipe`
+  [0.3.0](https://github.com/hlindset/image_pipe/blob/v0.3.0/image_pipe/CHANGELOG.md).
 
 ### Fixed
 
-- A source's `bearer_token` with a line break or NUL passed the startup
-  check, and every fetch from that source then failed. The server now
-  refuses to start, naming the setting.
+- `autoquality` scored images with transparency as if they were shown on
+  black, so changes at their edges and in their transparency didn't count,
+  and transparent margins raised the score. A logo could get AVIF quality 22
+  where it needed 31. It now scores the visible area against both a dark and
+  a light background, and keeps the lower score. Images with transparency
+  can get a higher quality and larger files.
+- `autoquality` together with `max-bytes` could ship a lower quality than
+  `max-bytes` alone. The byte budget now gets its own encodes.
+- Content-aware crops with `detect` or `anchor=smart-face` for a small
+  output detected on the resized image. `w=64/h=64/fit=cover` on a
+  6000×4000 source gave the detector 96×64 pixels, so small faces and
+  objects were missed. Detection now gets at least 640 pixels on the long
+  edge, or the whole source when it's smaller, and such requests decode at
+  that size.
+- The detector warmup gave up after three failed attempts, about a third of
+  a second, so with `detector_required = true` detection requests answered
+  `503` until a restart. It now retries, at most a minute apart, until the
+  models load, and logs at `info` when they do.
+- Detection requests that arrived before the face or object model had
+  loaded, such as during startup warmup, each downloaded and loaded the
+  model. They now wait for one load.
+- With `detector_required = true`, an `anchor=smart-face` crop called the
+  detector before its models were ready, so it could download a model during
+  the request. Until the face model is ready, such a crop uses attention
+  cropping without calling the detector, and the response isn't stored
+  while the face model can still become ready.
+- The `image_pipe.transform.detect.model` trace span and its log line report
+  an unavailable model as `unavailable` instead of `error`.
+- A `crop` or `region` followed by a resize could give a different size for
+  a JPEG source than for the same image as PNG. `crop=101,1500/w=50` gave
+  50×750 instead of 50×743. The size is now the same for every source
+  format, in the image and in `output=info`.
+- A `region` whose width or height came to less than half a pixel, such as
+  `region=0,0,0.3,1`, failed with `500`. It now keeps one pixel.
+- A `region` that started inside the last pixel column or row, such as
+  `region=99.99pct,0,10,10`, failed with `400`. It now starts at the last
+  pixel.
+- A large `pixelate` block size, such as `pixelate=2000` on a 4000×2667
+  JPEG, failed with `415`. It now works.
+- An `extend-offset` that landed exactly on a half pixel, such as
+  `extend-offset=0,1.25` with `dpr=2`, placed the image 1 pixel off. It now
+  rounds ties to even, as crops, watermarks, and padding do.
+- Watermarks, `bg`, `colorize` over transparent areas, JPEG output of an
+  image with transparency, and resizing or rotating an image with
+  transparency could make a color one level darker than the exact result.
+  These now round to the nearest level.
+- `format=png` with `q`, from the URL, `request_defaults`, or a preset,
+  failed with `400` when PNG had no palette. PNG without a palette now
+  ignores `q`.
+- `png-options` with `bitdepth:2` or `bitdepth:4` wrote wrong gray levels,
+  and a `bitdepth` of `1`, `2`, or `4` on a result with alpha or color
+  failed with `500`. Grayscale results without alpha now keep their gray
+  levels, and other results without a palette encode at 8 bits.
+- `png-options=bitdepth:16` scaled 8-bit color by 256 instead of 257, so
+  only white reached 65535.
+- `output=blurhash` and `output=lqip-css` rendered transparency on black.
+  They now render it on white, unless `bg` sets a background, matching the
+  JPEG the same URL returns.
+- `output=info` reported `dpr` from before the scale-down to the result
+  limits, so dividing its width by `dpr` gave less than the CSS width.
+- `output=info` reported a `result` size for a URL whose image request fails
+  with `422` because it exceeds `max_intermediate_pixels`. It now fails with
+  `422` too.
+- `output=info` with `format=webp`, on a server whose result limits are
+  above 16,383 pixels, shared its cache entry and `ETag` with other formats.
+- An SVG source with `fit=stretch` and one axis, such as `w=480/fit=stretch`,
+  or with only `min-w` or `min-h`, stayed at its own size instead of
+  rendering at the requested size.
+- An SVG source ignored `page`, so `page=1` answered `200` with the only
+  image. A `page` past `0` now fails with `422`.
+- A request that reached `[pool] processing_timeout` while its source was
+  still downloading failed with `500` or got no response. It now fails with
+  `503`.
+- A request for another variant of a source that was still downloading, such
+  as `w=50` while `w=100` was fetching the same image, could fail with `504`.
+  It now waits only for the download.
+- A request to an `http` or `s3` source that waited past `pool_timeout` for
+  a free connection got no response, and the connection stayed open. Such
+  requests now fail with `504`.
+- An `http` source could run past `fetch_timeout` while looking up the host
+  name, or by waiting for a response at each of a name's addresses in turn.
+  Fetches now fail with `504` at `fetch_timeout`, except that a connection
+  attempt can run past it by up to `connect_timeout`.
+- An `http` source URL whose query has a space or a non-ASCII character,
+  such as `?a b`, is fetched with those characters percent-encoded. Before,
+  the request failed with `502`.
+- Conditional headers in an `http` source's `request_headers`, such as
+  `if-none-match`, made the request fail when the origin answered a first
+  fetch with `304`. Sources now drop `if-none-match`, `if-modified-since`,
+  `if-match`, `if-unmodified-since`, and `if-range`.
+- A watermark whose stored copy in the input cache was corrupt made every
+  request using it fail with `415` until the copy was evicted. The copy is now
+  discarded, and the next request fetches the watermark again.
+- A file system cache could hold more than `max_size_bytes` on disk and not
+  bring it back down, after a read or write during its startup scan, a
+  crashed startup scan, or an upgrade that changed its metadata format.
+- A file system cache that restarted while a write was stuck on disk for
+  more than 25 seconds, as on a hung network mount, kept counting that
+  write's bytes, so until the next restart it dropped more writes and
+  evicted more entries than it needed to.
+- A file system cache that was full and busy with other writes could keep an
+  original's outdated expiry time or content identity, so requests checked
+  with the origin, or downloaded the changed original, every time.
+- A source's `bearer_token`, or a `container_credentials` provider's
+  `auth_token`, with a line break or NUL passed the startup check, and every
+  fetch from that source then failed. The server now refuses to start,
+  naming the setting.
 - Log lines are no longer preceded by a blank line, which log collectors
   stored as an empty entry.
 - The server closed new connections well below `[server] max_connections`.
@@ -238,6 +442,7 @@ First release of the standalone ImagePipe server.
 - Choose a base image or a vision image with bundled face and object detection
   models.
 
-[Unreleased]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.2.0...HEAD
+[Unreleased]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.3.0...HEAD
+[0.3.0]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.2.0...image_pipe_server-v0.3.0
 [0.2.0]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.1.0...image_pipe_server-v0.2.0
 [0.1.0]: https://github.com/hlindset/image_pipe/releases/tag/image_pipe_server-v0.1.0
