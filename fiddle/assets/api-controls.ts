@@ -2,6 +2,17 @@ import { sampleImages, type SourceImage } from "./source";
 export type { SourceImage } from "./source";
 
 export type ResizeMode = "contain" | "cover" | "stretch" | "auto";
+export const resizeKernels = [
+  "nearest",
+  "linear",
+  "cubic",
+  "mitchell",
+  "lanczos2",
+  "lanczos3",
+  "mks2013",
+  "mks2021",
+] as const;
+export type ResizeKernel = (typeof resizeKernels)[number];
 export type Gravity =
   | "center"
   | "top"
@@ -186,6 +197,7 @@ export type ControlState = {
   trimEqualVer: boolean;
   resizeEnabled: boolean;
   resizeMode: ResizeMode;
+  resizeKernel: ResizeKernel;
   resizeWidthUnit: ResizeDimensionUnit;
   width: number;
   resizeHeightUnit: ResizeDimensionUnit;
@@ -426,6 +438,7 @@ export const defaultControlState: ControlState = {
   trimEqualVer: false,
   resizeEnabled: false,
   resizeMode: "contain",
+  resizeKernel: "lanczos3",
   resizeWidthUnit: "px",
   width: 640,
   resizeHeightUnit: "px",
@@ -644,6 +657,7 @@ export function controlOptionSegments(s: ControlState): string[] {
       `fit=${s.resizeMode}`,
     );
     if (s.enlarge) segments.push("enlarge");
+    if (s.resizeKernel !== "lanczos3") segments.push(`kernel=${s.resizeKernel}`);
     if (s.resizeExtendEnabled) segments.push("extend");
   }
   if (s.zoomEnabled) segments.push(`zoom=${s.zoom}`);
@@ -892,6 +906,9 @@ export function controlStateFromOptions(
         break;
       case "enlarge":
         s.enlarge = true;
+        break;
+      case "kernel":
+        s.resizeKernel = value as ResizeKernel;
         break;
       case "extend":
         s.resizeExtendEnabled = true;

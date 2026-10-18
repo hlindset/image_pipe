@@ -99,6 +99,31 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
     assert opts[:fail_on] == :error
   end
 
+  test "a nearest-neighbour resize disables shrink, so the decode keeps source pixels" do
+    for format <- @formats do
+      refute_shrink(
+        options("w=400/h=300/kernel=nearest", geometry({3200, 2400}, {3200, 2400}, format))
+      )
+    end
+  end
+
+  test "a filtering kernel keeps shrink" do
+    plan = &options("w=400/h=300/kernel=" <> &1, geometry({3200, 2400}, {3200, 2400}, :jpeg))
+
+    for kernel <- ~w(linear cubic mitchell lanczos2 lanczos3 mks2013 mks2021),
+        do: assert(plan.(kernel)[:shrink] == 8)
+  end
+
+  test "only the first group's kernel decides the shrink" do
+    geometry = geometry({3200, 2400}, {3200, 2400}, :jpeg)
+
+    assert options("w=400/h=300/-/w=100/kernel=nearest", geometry)[:shrink] == 8
+  end
+
+  test "an SVG still renders at a nearest-neighbour resize target" do
+    assert options("w=480/kernel=nearest", geometry({24, 24}, {24, 24}, :svg))[:scale] == 20.0
+  end
+
   # --- Terminal-aware shrink (#377) ---
 
   test "the terminal reduction alone informs load shrink" do

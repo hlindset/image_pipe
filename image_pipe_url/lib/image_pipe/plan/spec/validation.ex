@@ -119,6 +119,7 @@ defmodule ImagePipe.Plan.Spec.Validation do
     [
       {:fit, missing?, :resize},
       {:enlarge, missing?, :resize},
+      {:kernel, missing?, :resize},
       {:zoom, missing? and Map.get(group, :zoom, {1.0, 1.0}) != {1.0, 1.0}, :resize}
     ]
   end

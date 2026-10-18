@@ -7,6 +7,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- The `kernel` URL option sets the filter a group's resize uses: `nearest`,
+  `linear`, `cubic`, `mitchell`, `lanczos2`, `lanczos3` (the default),
+  `mks2013`, or `mks2021`. With `kernel=nearest` in the first group, a large
+  JPEG or WebP source is decoded at full size, so the request takes longer
+  and uses more memory. See [kernel](docs/processing/resize.md#kernel).
 - `dns_cache: false` turns off an HTTP source's DNS cache, for a server
   whose DNS resolver already caches and whose TTLs should apply exactly.
 - `max_blur_work` limits `blur` and `progressive-blur`: the pixels of the

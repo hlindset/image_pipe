@@ -264,7 +264,8 @@ defmodule ImagePipe.Plan.Spec do
         min_h: Map.get(group_map, :min_height),
         fit: Map.get(group_map, :fit, :contain),
         enlarge: Map.get(group_map, :enlarge, false),
-        zoom: Map.get(group_map, :zoom, {1.0, 1.0})
+        zoom: Map.get(group_map, :zoom, {1.0, 1.0}),
+        kernel: Map.get(group_map, :kernel, :lanczos3)
       }
     end
   end

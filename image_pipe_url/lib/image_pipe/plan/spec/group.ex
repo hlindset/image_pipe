@@ -27,8 +27,12 @@ defmodule ImagePipe.Plan.Spec.Group do
           min_h: pos_integer() | nil,
           fit: :contain | :cover | :stretch | :auto,
           enlarge: boolean(),
-          zoom: {float(), float()}
+          zoom: {float(), float()},
+          kernel: kernel()
         }
+
+  @type kernel ::
+          :nearest | :linear | :cubic | :mitchell | :lanczos2 | :lanczos3 | :mks2013 | :mks2021
 
   @type guide ::
           {:anchor, named_anchor()}

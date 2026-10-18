@@ -323,10 +323,12 @@ defmodule ImagePipe.BuilderTest do
              min_height: 100,
              fit: :stretch,
              enlarge: true,
-             zoom: {2, 1.5}
+             zoom: {2, 1.5},
+             kernel: :mks2021
            ],
            dpr: 2
-         ], "w=400/h=auto/min-w=200/min-h=100/fit=stretch/enlarge/zoom=2,1.5/dpr=2"},
+         ],
+         "w=400/h=auto/min-w=200/min-h=100/fit=stretch/enlarge/zoom=2,1.5/kernel=mks2021/dpr=2"},
         {"crop geometry",
          [
            crop: {{:pct, 80}, 200},
@@ -497,6 +499,7 @@ defmodule ImagePipe.BuilderTest do
   test "semantic failures agree across the two public input boundaries" do
     for {group, output, path} <- [
           {[resize: [fit: :cover]], [], "fit=cover"},
+          {[resize: [kernel: :nearest]], [], "kernel=nearest"},
           {[resize: [width: :auto]], [], "w=auto"},
           {[extend: true], [], "extend"},
           {[trim_symmetry: :both], [], "trim-symmetry=hv"},

@@ -147,6 +147,14 @@ describe("visual controls serialize API requests", () => {
     });
     expect(controlOptionSegments(state)).toEqual(["w=480", "h=auto", "fit=cover", "enlarge"]);
   });
+  it("writes a non-default resize kernel and reads it back", () => {
+    const state = defaults();
+    Object.assign(state, { resizeEnabled: true, width: 480, resizeKernel: "nearest" });
+    expect(controlOptionSegments(state)).toContain("kernel=nearest");
+    expect(controlStateFromOptions("w=480/kernel=mks2021", source)).toMatchObject({
+      resizeKernel: "mks2021",
+    });
+  });
 
   it("maps crop full and percentage units, ratio, and focal point", () => {
     const state = defaults();

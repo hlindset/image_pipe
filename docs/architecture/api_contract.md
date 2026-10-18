@@ -19,7 +19,7 @@ Sources, detectors, and telemetry exporters are host extension points.
 | --- | --- |
 | Validation | Reject duplicate, conflicting, or invalid options before side effects; drop inert options from the canonical request, reporting those the request itself wrote; ignore valid image-only output options on non-image outputs; canonicalize equivalent requests |
 | Requests | Presets, signing, expiry, GET/HEAD/OPTIONS, conditional GET, negotiation, caching, and streamed delivery |
-| Resize | Contain, cover, stretch, auto, enlargement, minimum dimensions, independent zoom axes, and DPR |
+| Resize | Contain, cover, stretch, auto, enlargement, minimum dimensions, independent zoom axes, DPR, and the resampling kernel |
 | Crop | Guided and explicit regions, anchors, focal points, attention, face/object detection, offsets, and ratio correction |
 | Geometry | EXIF policy, arbitrary rotation, flips, symmetric trim, canvas placement, padding, and alpha-aware background |
 | Watermarks | Host-named or opt-in request-supplied image assets with opacity, scale, anchored placement, offsets, and tiling |
@@ -142,7 +142,7 @@ DPR is the requested DPR; padding alone does not scale the source image.
 For stretch, use a uniform enlargement clamp across both axes so that
 clamping does not change the requested target aspect ratio.
 
-Default resize mode is `contain`, enlargement is off, DPR and zoom are 1,
+Default resize mode is `contain`, the kernel is `lanczos3`, enlargement is off, DPR and zoom are 1,
 the default crop anchor is center, and alpha is preserved unless a
 background is requested. `auto` with numbers in both `w` and `h` selects
 cover when the source and the zoomed target have the same orientation on
@@ -156,7 +156,10 @@ is applied; an automatic axis follows the aspect ratio after the specified
 axis is zoomed. `min-w` and `min-h` accept positive integer logical pixels;
 they uniformly expand the resize target as necessary before the enlargement
 cap. With minimum dimensions alone, the starting target is the current image.
-A non-unit zoom requires a width, height, or minimum dimension. DPR alone
+A non-unit zoom requires a width, height, or minimum dimension, and so does
+`kernel`, which applies only to its group's resize. `kernel=nearest` in the
+first group decodes the source without shrink-on-load, which would blend the
+pixels a nearest-neighbour resize keeps apart. DPR alone
 can scale padding without resizing the source. These options reset at `-`.
 
 Width, height, and minimum dimensions are at most 2,147,483,647. Pixel and

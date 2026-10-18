@@ -182,6 +182,50 @@ ImagePipe.URL.group(builder, resize: [width: 400, zoom: 1.5])
 
 <!-- tabs-close -->
 
+### kernel
+
+Accepts one of these [named values](../requesting-images.md#named-values).
+Default: `lanczos3`.
+
+Sets the filter that computes each pixel of the resized image from the source
+pixels around it.
+
+- `nearest` copies the nearest source pixel without blending, so edges stay
+  hard and the resize adds no colors. This keeps pixel art sharp when it is
+  enlarged.
+- `linear` blends with a triangle filter.
+- `cubic` blends with a cubic filter.
+- `mitchell` blends with a Mitchell filter.
+- `lanczos2` and `lanczos3` blend with a Lanczos filter. `lanczos3` blends
+  over a wider area than `lanczos2`.
+- `mks2013` and `mks2021` blend with the 2013 or 2021 version of Magic
+  Kernel Sharp.
+
+`kernel` applies to the resize of its own group. Rotation, `pixelate`,
+watermarks, [placeholder outputs](output.md#output), and the scale-down to the
+maximum output size keep their own resampling. `kernel` needs a number in `w`,
+`h`, `min-w`, or `min-h` in the same group, and is ignored without one.
+
+With `kernel=nearest` in the first group, a large JPEG or WebP source is
+decoded at full size instead of at a reduced size, so the request takes
+longer and uses more memory.
+
+<!-- tabs-open -->
+
+### URL
+
+```text
+/w=512/enlarge/kernel=nearest/src/sprites/hero.png
+```
+
+### Elixir
+
+```elixir
+ImagePipe.URL.group(builder, resize: [width: 512, enlarge: true, kernel: :nearest])
+```
+
+<!-- tabs-close -->
+
 ### dpr
 
 Accepts a positive number up to `2147483647`, the device pixel ratio. Default: `1`.

@@ -30,6 +30,7 @@ defmodule ImagePipe.API.OptionSpec do
         }
 
   @fit_map ValueSpellings.spellings(:fit)
+  @kernel_map ValueSpellings.spellings(:kernel)
   @anchor_map ValueSpellings.spellings(:anchor)
   @axis_map ValueSpellings.spellings(:axis)
   @format_map ValueSpellings.spellings(:format)
@@ -124,6 +125,12 @@ defmodule ImagePipe.API.OptionSpec do
         name: :zoom,
         scope: :group,
         value: &__MODULE__.parse_zoom/1
+      },
+      %__MODULE__{
+        key: "kernel",
+        name: :kernel,
+        scope: :group,
+        value: &__MODULE__.parse_kernel/1
       },
       %__MODULE__{
         key: "extend",
@@ -547,6 +554,10 @@ defmodule ImagePipe.API.OptionSpec do
   @spec parse_fit(String.t()) ::
           {:ok, :contain | :cover | :stretch | :auto} | {:error, :invalid_fit}
   def parse_fit(string), do: parse_enum(string, @fit_map, :invalid_fit)
+
+  @doc false
+  @spec parse_kernel(String.t()) :: {:ok, atom()} | {:error, :invalid_kernel}
+  def parse_kernel(string), do: parse_enum(string, @kernel_map, :invalid_kernel)
 
   @doc false
   @spec parse_crop(String.t()) :: {:ok, {length_value(), length_value()}} | {:error, atom()}

@@ -19,6 +19,11 @@ defmodule ImagePipe.Plan.ValueSpellings do
 
   @spellings %{
     fit: [{"contain", :contain}, {"cover", :cover}, {"stretch", :stretch}, {"auto", :auto}],
+    kernel:
+      for(
+        kernel <- ~w(nearest linear cubic mitchell lanczos2 lanczos3 mks2013 mks2021)a,
+        do: {Atom.to_string(kernel), kernel}
+      ),
     position: @positions,
     anchor: @positions ++ [{"smart", :smart}, {"smart-face", :smart_face}],
     axis: [{"h", :horizontal}, {"v", :vertical}, {"hv", :both}],
@@ -48,6 +53,7 @@ defmodule ImagePipe.Plan.ValueSpellings do
 
   @type option ::
           :fit
+          | :kernel
           | :position
           | :anchor
           | :axis

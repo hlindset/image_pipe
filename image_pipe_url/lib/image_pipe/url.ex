@@ -38,7 +38,7 @@ defmodule ImagePipe.URL do
   | URL | Builder |
   | --- | --- |
   | `w`, `h`, `min-w`, `min-h` | `resize: [width:, height:, min_width:, min_height:]` |
-  | `fit`, `enlarge`, `zoom` | `resize: [fit:, enlarge:, zoom:]` |
+  | `fit`, `enlarge`, `zoom`, `kernel` | `resize: [fit:, enlarge:, zoom:, kernel:]` |
   | `pad` | `padding:` |
   | `bg` | `background:` |
   | `preset` | `presets:` |

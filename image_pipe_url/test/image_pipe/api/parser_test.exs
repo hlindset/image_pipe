@@ -53,7 +53,8 @@ defmodule ImagePipe.API.ParserTest do
                      min_h: nil,
                      fit: :contain,
                      enlarge: false,
-                     zoom: {1.0, 1.0}
+                     zoom: {1.0, 1.0},
+                     kernel: :lanczos3
                    }
                  }
                ],
@@ -76,7 +77,8 @@ defmodule ImagePipe.API.ParserTest do
                      min_h: nil,
                      fit: :cover,
                      enlarge: false,
-                     zoom: {1.0, 1.0}
+                     zoom: {1.0, 1.0},
+                     kernel: :lanczos3
                    },
                    guide: {:focus, 0.25, 0.75}
                  }
@@ -101,7 +103,8 @@ defmodule ImagePipe.API.ParserTest do
                      min_h: nil,
                      fit: :contain,
                      enlarge: false,
-                     zoom: {1.0, 1.0}
+                     zoom: {1.0, 1.0},
+                     kernel: :lanczos3
                    }
                  }
                ],
@@ -123,7 +126,8 @@ defmodule ImagePipe.API.ParserTest do
                      min_h: nil,
                      fit: :contain,
                      enlarge: false,
-                     zoom: {1.0, 1.0}
+                     zoom: {1.0, 1.0},
+                     kernel: :lanczos3
                    }
                  },
                  %Group{trim: {{255, 255, 255}, 10}}
@@ -173,7 +177,8 @@ defmodule ImagePipe.API.ParserTest do
                      min_h: nil,
                      fit: :contain,
                      enlarge: false,
-                     zoom: {1.0, 1.0}
+                     zoom: {1.0, 1.0},
+                     kernel: :lanczos3
                    }
                  }
                ],
@@ -204,6 +209,30 @@ defmodule ImagePipe.API.ParserTest do
     test "enlarge with a resize intent" do
       assert {:ok, %Spec{groups: [%Group{resize: %{enlarge: true}}]}} =
                parse(["w=800", "enlarge"])
+    end
+
+    test "kernel with a resize intent" do
+      for kernel <- ~w(nearest linear cubic mitchell lanczos2 lanczos3 mks2013 mks2021) do
+        expected = String.to_existing_atom(kernel)
+
+        assert {:ok, %Spec{groups: [%Group{resize: %{kernel: ^expected}}]}} =
+                 parse(["w=800", "kernel=" <> kernel])
+      end
+    end
+
+    test "resize defaults to the lanczos3 kernel" do
+      assert {:ok, %Spec{groups: [%Group{resize: %{kernel: :lanczos3}}]}} = parse(["w=800"])
+    end
+
+    test "an unknown kernel is invalid" do
+      assert {:error, {:invalid_request, [%Diagnostic{message: message}]}} =
+               parse(["w=800", "kernel=bilinear"])
+
+      assert message =~ "nearest"
+    end
+
+    test "kernel without a resize intent is inert" do
+      assert ignores_option?(parse(["blur=2", "kernel=nearest"]))
     end
 
     test "minimum dimensions create resize intent without w or h" do
