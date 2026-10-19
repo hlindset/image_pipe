@@ -494,7 +494,7 @@ defmodule ImagePipe.Output.Encoder do
       if resolved.color_profile == :strip, do: nil, else: header_value(image, "icc-profile-data")
 
     minimized =
-      case Image.minimize_metadata(image, keep: keep) do
+      case minimize_metadata(image, keep) do
         {:ok, stripped} ->
           stripped
 
@@ -507,6 +507,18 @@ defmodule ImagePipe.Output.Encoder do
       end
 
     restore_icc(minimized, icc)
+  end
+
+  # Workaround for `image` 0.72.0: `Image.minimize_metadata/2` parses the whole
+  # EXIF block, and `Image.Exif.Decode.date_time/1` raises an ArgumentError on
+  # a date field whose parts aren't integers (such as `2024:01:01 02+02:00:00`)
+  # instead of keeping the raw string. No upstream fix yet. When it raises,
+  # remove all metadata, the kept copyright and artist too: the field values
+  # libvips reports can't be written back reliably.
+  defp minimize_metadata(image, keep) do
+    Image.minimize_metadata(image, keep: keep)
+  rescue
+    ArgumentError -> Image.remove_metadata(image)
   end
 
   # libvips writes xres/yres (pixels per millimetre) into JFIF, PNG pHYs, and

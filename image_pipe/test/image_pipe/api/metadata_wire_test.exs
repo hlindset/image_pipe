@@ -27,6 +27,13 @@ defmodule ImagePipe.API.MetadataWireTest do
     assert_metadata(stripped, :strip)
   end
 
+  test "a malformed EXIF date strips all metadata instead of failing" do
+    config = mount(body: metadata_jpeg(%{"exif-ifd0-DateTime" => "2024:01:01 02+02:00:00"}))
+
+    assert_metadata(response("format=jpeg/meta=copyright", config), :strip)
+    assert_metadata(response("format=avif/meta=strip", config), :strip)
+  end
+
   test "URL metadata policy overrides either host metadata policy" do
     host_keeps = mount(strip_metadata: false, keep_copyright: false)
     assert_metadata(response("format=jpeg", host_keeps), :keep)
@@ -244,7 +251,7 @@ defmodule ImagePipe.API.MetadataWireTest do
   defp observed_mount, do: [] |> options() |> CacheObserver.observe() |> Caches.plug()
 
   defp options(overrides) do
-    body = metadata_jpeg()
+    {body, overrides} = Keyword.pop_lazy(overrides, :body, &metadata_jpeg/0)
     pid = self()
 
     origin = fn conn ->
@@ -272,7 +279,7 @@ defmodule ImagePipe.API.MetadataWireTest do
     |> Keyword.merge(overrides)
   end
 
-  defp metadata_jpeg do
+  defp metadata_jpeg(extra_fields \\ %{}) do
     {:ok, image} =
       Operation.copy(Image.new!(100, 100, color: :white),
         xres: 300 / 25.4,
@@ -292,7 +299,10 @@ defmodule ImagePipe.API.MetadataWireTest do
         )
 
         VipsMutableImage.set(mutable, "xmp-data", :VipsBlob, "<x:xmpmeta/>")
-        :ok
+
+        Enum.each(extra_fields, fn {field, value} ->
+          VipsMutableImage.set(mutable, field, :gchararray, value)
+        end)
       end)
 
     Image.write!(with_metadata, :memory, suffix: ".jpg")
