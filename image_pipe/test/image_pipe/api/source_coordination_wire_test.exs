@@ -56,21 +56,39 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     assert Task.await(second).status == 200
   end
 
-  test "a download the origin forbids storing releases the requests waiting for it", context do
-    origin = %Origin{
-      status: 200,
-      headers: %{"cache-control" => ["no-store"]},
-      requested_at: 1_000,
-      received_at: 1_000,
-      resource: :crypto.hash(:sha256, "origin"),
-      vary: %{}
-    }
+  test "without an originals cache, cold requests for different sizes download at once",
+       context do
+    mount = start(context, cache: [root: Path.join(context.root, "output")])
+    first = async(context, fn -> request(mount, 12) end)
+    assert_receive {:streaming, leader}
+    second = async(context, fn -> request(mount, 8) end)
+    assert_receive {:streaming, other}
 
+    for worker <- [leader, other], do: send(worker, :continue)
+    assert Task.await(first).status == 200
+    assert Task.await(second).status == 200
+  end
+
+  test "without an originals cache, identical cold requests download at once and share the image",
+       context do
+    mount = start(context, cache: [root: Path.join(context.root, "output")])
+    first = async(context, fn -> request(mount, 12) end)
+    assert_receive {:streaming, leader}
+    second = async(context, fn -> request(mount, 12) end)
+    assert_receive {:streaming, other}
+
+    for worker <- [leader, other], do: send(worker, :continue)
+    original = Task.await(first)
+    assert original.status == 200
+    assert Task.await(second).resp_body == original.resp_body
+  end
+
+  test "a download the origin forbids storing releases the requests waiting for it", context do
     mount =
       start(context,
         cache: [root: Path.join(context.root, "output")],
         input_cache: [root: Path.join(context.root, "input")],
-        origin: origin
+        origin: origin("no-store")
       )
 
     first = async(context, fn -> request(mount, 12, "blocked") end)
@@ -110,6 +128,19 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     |> Keyword.merge(caches)
     |> Caches.start!()
     |> Caches.plug()
+  end
+
+  defp origin(control) do
+    now = System.os_time(:second)
+
+    %Origin{
+      status: 200,
+      headers: %{"cache-control" => [control]},
+      requested_at: now,
+      received_at: now,
+      resource: :crypto.hash(:sha256, "origin"),
+      vary: %{}
+    }
   end
 
   defp async(context, fun), do: Task.Supervisor.async_nolink(context.tasks, fun)

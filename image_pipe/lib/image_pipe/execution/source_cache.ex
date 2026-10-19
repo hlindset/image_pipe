@@ -100,7 +100,7 @@ defmodule ImagePipe.Execution.SourceCache do
   # with, or nil.
   defp acquire_locked(source, key, previous, preparation, config, cohort \\ nil) do
     coordinate(
-      shared_work?(source, config),
+      shared_work?(source, previous, config),
       key,
       fn coordination, outcome ->
         lease = if coordination, do: coordination
@@ -191,15 +191,19 @@ defmodule ImagePipe.Execution.SourceCache do
   end
 
   # A request waits for another one's work on the same source only when that
-  # work can leave something it uses: a stored original, or a source record
-  # that leads it to a stored or coalesced image.
+  # work can leave something it uses: a stored original, or a shared check of
+  # a known one. A request that gets only a new original's record still has
+  # to download the original to make its image, so without an originals cache
+  # it doesn't wait for a first download.
   defp coordinate(true, key, fun, opts), do: Work.run({:source, key.hash}, fun, opts)
   defp coordinate(false, _key, fun, _opts), do: fun.(false, :uncoordinated)
 
-  defp shared_work?(source, config),
+  defp shared_work?(%{internal_cache: :disabled}, _previous, _config), do: false
+
+  defp shared_work?(_source, previous, config),
     do:
-      source.internal_cache == :enabled and
-        (Keyword.has_key?(config, :cache) or Keyword.has_key?(config, :input_cache))
+      Keyword.has_key?(config, :input_cache) or
+        (previous != nil and Keyword.has_key?(config, :cache))
 
   # A request waiting behind another one's download gives up a second after
   # that download's own deadline, with the same timeout error.

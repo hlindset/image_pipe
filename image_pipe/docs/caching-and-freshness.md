@@ -145,9 +145,9 @@ When many requests for a new processed image arrive at once, the image is
 made once and sent to all of them. This needs a processed-image cache, and
 applies only to images that may be stored. Requests for different sizes of one
 original share one check with the origin when a cache is configured, and one
-download when an originals cache is configured. Without a cache, or when
-caching is turned off for the source, each request downloads the original
-itself.
+download when an originals cache is configured. Without an originals cache,
+or when caching is turned off for the source, each request downloads the
+original itself.
 
 Both kinds of sharing are local to each node, so two servers can still make
 the same image. When the first request fails or its image isn't stored, each
