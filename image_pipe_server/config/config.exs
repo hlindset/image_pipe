@@ -10,6 +10,14 @@ config :opentelemetry,
   traces_exporter: :none,
   resource: [service: %{name: "image_pipe_server"}]
 
+# Only disksup is used, for the stats endpoints' disk space. Its alarm,
+# which logs a notice, fires only for a full disk rather than one at 80%.
+config :os_mon,
+  start_cpu_sup: false,
+  start_memsup: false,
+  start_os_sup: false,
+  disk_almost_full_threshold: 1.0
+
 # `log_format` JSON goes through Elixir's own encoder, so the server needs
 # no Jason.
 config :logger_json, encoder: JSON

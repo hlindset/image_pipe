@@ -358,6 +358,29 @@ defmodule ImagePipeServer.ConfigTest do
       refute inspect(config) =~ "sekrit"
     end
 
+    test "turns stats on only with enabled and a token, keeping only the token's hash" do
+      assert Config.build!([]).stats_token_hash == nil
+
+      config =
+        Config.build!(
+          Config.options!(%{"stats" => %{"enabled" => true, "token" => {:env, "sekrit"}}})
+        )
+
+      assert config.stats_token_hash == :crypto.hash(:sha256, "sekrit")
+      refute inspect(config) =~ "sekrit"
+
+      for stats <- [
+            %{"enabled" => true},
+            %{"enabled" => true, "token" => ""},
+            %{"token" => "sekrit"},
+            %{"enabled" => false, "token" => "sekrit"}
+          ] do
+        message = error(fn -> Config.build!(Config.options!(%{"stats" => stats})) end)
+        assert message =~ "stats."
+        refute message =~ "sekrit"
+      end
+    end
+
     test "rejects an empty auth token" do
       assert error(fn -> Config.build!(Config.options!(%{"server" => %{"auth_token" => ""}})) end) =~
                "server.auth_token"

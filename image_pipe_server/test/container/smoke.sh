@@ -2,7 +2,8 @@
 # Starts an image_pipe_server container with a read-only root filesystem and
 # checks the health checks, a PNG request, a JPEG XL source (which needs the
 # libvips the image builds from source), an SVG source (which needs the
-# image_pipe_svg NIF), and draining on shutdown.
+# image_pipe_svg NIF), the cache stats (which read disk space through
+# os_mon), and draining on shutdown.
 #
 #     test/container/smoke.sh IMAGE [vision]
 #
@@ -79,6 +80,19 @@ check_png() {
 check_png pic.png
 check_png pic.jxl
 check_png pic.svg
+
+stats_status=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${port}/stats")
+[ "$stats_status" = "401" ] || {
+  echo "stats: answered $stats_status without the token, expected 401" >&2
+  exit 1
+}
+stats=$(curl -fsS -H "Authorization: Bearer smoke-stats-token" "http://127.0.0.1:${port}/stats")
+for expected in '"misses":3' '"disk_total_bytes":[0-9]'; do
+  printf '%s' "$stats" | grep -q "$expected" || {
+    echo "stats: the response lacks $expected: $stats" >&2
+    exit 1
+  }
+done
 
 # The server runs on jemalloc, whose background thread returns memory while
 # the server is idle.

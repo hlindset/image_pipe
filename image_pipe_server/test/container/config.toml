@@ -10,3 +10,13 @@ root_id = "static"
 # container unhealthy, even when SIGTERM reaches the server late.
 [server]
 shutdown_delay = 15000
+
+# The stats endpoints report this cache, on the container's tmpfs, and the
+# space left on it.
+[cache.output]
+root = "/tmp/image-pipe-cache"
+max_size_bytes = 10000000
+
+[stats]
+enabled = true
+token = "smoke-stats-token"

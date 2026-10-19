@@ -9,7 +9,10 @@ defmodule ImagePipeServer.Router do
   keep-alive clients reconnect to another replica.
 
   With `:auth_token_hash` (the SHA-256 of the auth token), requests other than
-  the health checks must send `Authorization: Bearer <token>`, or get a 401.
+  the health checks and the stats endpoints must send
+  `Authorization: Bearer <token>`, or get a 401. With `:stats` (see
+  `ImagePipeServer.Stats`), `/stats` and `/metrics` answer with the cache
+  stats, behind their own token.
 
   Every response carries an `x-request-id`, which is also the `:request_id`
   Logger metadata for the request. With `:trust_request_id`, an incoming ID
@@ -21,7 +24,9 @@ defmodule ImagePipeServer.Router do
 
   import Plug.Conn
 
+  alias ImagePipeServer.Auth
   alias ImagePipeServer.Health
+  alias ImagePipeServer.Stats
 
   @request_id ~r"\A[A-Za-z0-9\-_.:+/=]{1,200}\z"
 
@@ -32,7 +37,8 @@ defmodule ImagePipeServer.Router do
       drain: Keyword.get_lazy(opts, :drain, &Health.new/0),
       mount: Plug.Router.Utils.split(Keyword.fetch!(opts, :mount_path)),
       image_pipe: Keyword.fetch!(opts, :image_pipe),
-      auth_token_hash: Keyword.get(opts, :auth_token_hash)
+      auth_token_hash: Keyword.get(opts, :auth_token_hash),
+      stats: Keyword.get(opts, :stats)
     }
   end
 
@@ -65,36 +71,22 @@ defmodule ImagePipeServer.Router do
   defp dispatch(conn, opts) do
     cond do
       Health.check?(conn) -> Health.respond(conn, opts.drain)
+      opts.stats != nil and Stats.check?(conn) -> Stats.respond(conn, opts.stats)
       is_binary(opts.auth_token_hash) -> authorize(conn, opts)
       true -> route(conn, opts)
     end
   end
 
   defp authorize(conn, %{auth_token_hash: hash} = opts) do
-    if authorized?(conn, hash) do
-      route(conn, opts)
-    else
-      conn
-      |> put_resp_header("www-authenticate", "Bearer")
-      |> send_resp(401, "")
-    end
+    if Auth.authorized?(conn, hash),
+      do: route(conn, opts),
+      else: Auth.challenge(conn)
   end
 
   defp route(conn, %{mount: mount, image_pipe: image_pipe}) do
     case strip_prefix(conn.path_info, mount) do
       {:ok, rest} -> Plug.forward(conn, rest, ImagePipe.Plug, image_pipe)
       :error -> send_resp(conn, 404, "")
-    end
-  end
-
-  # Comparing digests keeps the comparison constant-time for any token length.
-  # The scheme is case-insensitive (RFC 9110 §11.1).
-  defp authorized?(conn, hash) do
-    with [<<scheme::binary-size(7), token::binary>>] <- get_req_header(conn, "authorization"),
-         "bearer " <- String.downcase(scheme) do
-      Plug.Crypto.secure_compare(:crypto.hash(:sha256, token), hash)
-    else
-      _other -> false
     end
   end
 

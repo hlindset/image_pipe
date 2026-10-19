@@ -5,6 +5,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `GET /stats` (JSON) and `GET /metrics` (Prometheus text) report each
+  cache's size, hits, misses, and free disk space. Turn them on with
+  `[stats] enabled = true` and a `[stats] token` that requests send as a
+  bearer token. See [cache stats](docs/server-deployment.md#cache-stats).
+
 ### Changed
 
 - `text` log lines are no longer colored when the container runs on a

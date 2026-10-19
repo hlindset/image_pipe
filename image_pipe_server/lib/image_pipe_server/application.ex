@@ -139,18 +139,34 @@ defmodule ImagePipeServer.Application do
       mount_path: Keyword.fetch!(config.server, :mount_path),
       image_pipe: ImagePipe.Plug.init([instance: @instance] ++ config.http),
       auth_token_hash: Keyword.fetch!(config.server, :auth_token_hash),
-      trust_request_id: config.trust_request_id
+      trust_request_id: config.trust_request_id,
+      stats: stats_options(config)
     ]
+  end
+
+  @doc false
+  # `ImagePipeServer.Stats` options, or nil when the endpoints are off.
+  @spec stats_options(Config.t()) :: ImagePipeServer.Stats.options() | nil
+  def stats_options(%Config{stats_token_hash: nil}), do: nil
+
+  def stats_options(%Config{} = config) do
+    roots =
+      for {key, cache} <- [cache: :output, input_cache: :input],
+          cache_opts = Keyword.get(config.image_pipe.options, key),
+          into: %{},
+          do: {cache, Keyword.fetch!(cache_opts, :root)}
+
+    %{token_hash: config.stats_token_hash, instance: @instance, roots: roots}
   end
 
   # A small listener for the health checks alone, outside the image
   # listener's connection cap.
   @doc false
   @spec health_child(Config.t(), Health.drain()) :: {module(), keyword()} | nil
-  def health_child(%Config{server: server}, drain) do
+  def health_child(%Config{server: server} = config, drain) do
     if port = Keyword.get(server, :health_port) do
       {Bandit,
-       plug: {Health, drain: drain},
+       plug: {Health, drain: drain, stats: stats_options(config)},
        port: port,
        ip: Keyword.fetch!(server, :ip),
        http_2_options: [enabled: false],

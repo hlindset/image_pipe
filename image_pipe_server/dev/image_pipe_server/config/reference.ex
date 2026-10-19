@@ -18,7 +18,8 @@ defmodule ImagePipeServer.Config.Reference do
     server:
       "The HTTP listener. Times are in milliseconds. `read_timeout` closes connections " <>
         "that send nothing for that long, idle keep-alive connections included. " <>
-        "With `auth_token`, requests other than the health checks must send " <>
+        "With `auth_token`, requests other than the health checks, `/stats`, and `/metrics` " <>
+        "must send " <>
         "`Authorization: Bearer <token>`. On shutdown, `/health/ready` answers `503` " <>
         "while the server keeps serving for `shutdown_delay`. Then in-flight requests " <>
         "get `shutdown_timeout` to finish. `health_port` serves the health checks on a " <>
@@ -59,7 +60,15 @@ defmodule ImagePipeServer.Config.Reference do
         "header joins the caller's trace when [tracing](server-deployment.md#tracing) " <>
         "is on. Any client can send that header. With `trust_request_id`, an incoming " <>
         "`x-request-id` of 1 to 200 letters, digits, and `-_.:+/=` tags the request's " <>
-        "log lines instead of a generated ID."
+        "log lines instead of a generated ID.",
+    stats:
+      "`enabled` turns on `GET /stats`, which answers with JSON, and `GET /metrics`, which " <>
+        "answers with Prometheus text. They report each cache's size, its hits and misses " <>
+        "since the server started, and the free space on the disk that holds it. Every " <>
+        "request must send `Authorization: Bearer <token>` with `token`, which is required " <>
+        "when `enabled` is true. The `[server]` `auth_token` doesn't give access to them. With " <>
+        "`health_port`, that listener serves them too. See " <>
+        "[cache stats](server-deployment.md#cache-stats)."
   ]
 
   @doc "The reference as Markdown."
