@@ -99,8 +99,9 @@ defmodule ImagePipe.Execution.SourceCache do
   # `cohort` is the validation cohort this request may share a validation
   # with, or nil.
   defp acquire_locked(source, key, previous, preparation, config, cohort \\ nil) do
-    Work.run(
-      {:source, key.hash},
+    coordinate(
+      shared_work?(source, config),
+      key,
       fn coordination, outcome ->
         lease = if coordination, do: coordination
 
@@ -176,8 +177,9 @@ defmodule ImagePipe.Execution.SourceCache do
         checked_input(record, path, lease, config)
 
       :miss ->
-        Work.run(
-          {:source, key.hash},
+        coordinate(
+          storable?(record, source) and Keyword.has_key?(config, :input_cache),
+          key,
           fn coordination, _outcome ->
             open_or_fetch(source, key, record, preparation, config, coordination)
           end,
@@ -187,6 +189,17 @@ defmodule ImagePipe.Execution.SourceCache do
         |> finish_overlap()
     end
   end
+
+  # A request waits for another one's work on the same source only when that
+  # work can leave something it uses: a stored original, or a source record
+  # that leads it to a stored or coalesced image.
+  defp coordinate(true, key, fun, opts), do: Work.run({:source, key.hash}, fun, opts)
+  defp coordinate(false, _key, fun, _opts), do: fun.(false, :uncoordinated)
+
+  defp shared_work?(source, config),
+    do:
+      source.internal_cache == :enabled and
+        (Keyword.has_key?(config, :cache) or Keyword.has_key?(config, :input_cache))
 
   # A request waiting behind another one's download gives up a second after
   # that download's own deadline, with the same timeout error.
@@ -254,12 +267,26 @@ defmodule ImagePipe.Execution.SourceCache do
     Telemetry.span(Telemetry.telemetry_opts(config), [:source, :stage], %{}, fn ->
       started = System.monotonic_time(:microsecond)
       preparation = if is_nil(previous), do: preparation
-      stage = &stage(&1, source, preparation, config, known)
+
+      stage = fn response ->
+        release_unstored(lease, response, source, config)
+        stage(response, source, preparation, config, known)
+      end
+
       result = fetch_response(source, previous, config, stage)
       cost = System.monotonic_time(:microsecond) - started
       result = publish_coordinated(result, source, key, previous || known, cost, config, lease)
       {result, stop_metadata(result)}
     end)
+  end
+
+  # Requests waiting for a download that won't be stored would only download
+  # it again once it ends, so they start now.
+  defp release_unstored(nil, _response, _source, _config), do: :ok
+
+  defp release_unstored(lease, response, source, config) do
+    if not storable?(Record.new(source, nil, response.origin, now(config)), source),
+      do: Work.release_waiters(lease)
   end
 
   # Only writes take the publication lock, so a check that changes nothing,

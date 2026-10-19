@@ -537,6 +537,9 @@ with or without `stages: true`.
 
 One-shot. Emitted when concurrent requests for the same original or image
 are coordinated (see [request coalescing](caching-and-freshness.md#request-coalescing)).
+The default Logger logs `:busy`, `:bypass`, and `:timeout` results at
+`:warning`, except a `:bypass` with reason `:not_stored`, which it logs at
+its base level.
 
 - Metadata:
   - `:operation` (atom): `:source` (fetching an original), `:refresh`
@@ -545,13 +548,15 @@ are coordinated (see [request coalescing](caching-and-freshness.md#request-coale
     `:output`.
   - `:result` (atom): for `:source` and `:refresh`, one of `:acquired`,
     `:started`, `:coalesced`, `:backoff`, or `:busy`, and for `:source`
-    also `:timeout` (it stopped waiting for another request's download).
+    also `:timeout` (it stopped waiting for another request's download) or
+    `:bypass` (it downloads the original itself).
     For `:output`, `:acquired` (this request generates), `:waiting` (it
     waits for another), `:ready` (it can check the cache again), `:bypass`
     (it generates on its own), or `:busy` (coordination is at capacity).
   - `:reason` (atom): `:deadline` on an `:output` `:bypass` when the image
     wasn't stored within 2 seconds of being sent (see
-    [coordination limits](cache.md#coordination-limits)).
+    [coordination limits](cache.md#coordination-limits)). `:not_stored` on
+    a `:source` `:bypass` when the original may not be stored.
 
 ### `[:cache, :sweep]`
 
