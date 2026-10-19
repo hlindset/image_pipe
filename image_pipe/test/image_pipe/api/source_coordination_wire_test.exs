@@ -174,6 +174,8 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
 
   test "an identical request is released when the origin forbids storing the original",
        context do
+    attach_summaries(context)
+
     mount =
       start(context,
         cache: [root: Path.join(context.root, "output")],
@@ -183,7 +185,7 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     first = async(context, fn -> request(mount, 12, "blocked") end)
     assert_receive {:fetch, ["blocked"], leader}
     second = async(context, fn -> request(mount, 12, "blocked") end)
-    assert_receive {:coordination, %{operation: :download, result: :waiting}}
+    assert_receive {:coordination, %{pool: :download, operation: :download, result: :waiting}}
     send(leader, :continue)
     assert_receive {:streaming, ^leader}
 
@@ -196,6 +198,7 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     for worker <- [leader, other], do: send(worker, :continue)
     assert Task.await(first).status == 200
     assert Task.await(second).status == 200
+    assert Enum.count(summaries(2), &(&1[:download] == :bypass)) == 1
   end
 
   test "an identical request says when a watermark that may not be stored ends its wait",
@@ -353,16 +356,7 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
   end
 
   test "the request summary says when a request used another's download", context do
-    test = self()
-
-    :telemetry.attach(
-      {context.test, :summary},
-      context.prefix ++ [:request, :summary],
-      fn _, _, summary, _ -> send(test, {:summary, summary}) end,
-      nil
-    )
-
-    on_exit(fn -> :telemetry.detach({context.test, :summary}) end)
+    attach_summaries(context)
     mount = start(context, cache: [root: Path.join(context.root, "output")])
     first = async(context, fn -> request(mount, 12) end)
     assert_receive {:streaming, leader}
@@ -372,7 +366,7 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     Task.await(first)
     Task.await(second)
 
-    summaries = for _ <- 1..2, do: assert_receive({:summary, summary}) && summary
+    summaries = summaries(2)
     assert Enum.count(summaries, &(&1[:download] == :coalesced)) == 1
     assert Enum.count(summaries, &(not Map.has_key?(&1, :download))) == 1
   end
@@ -406,8 +400,10 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
   end
 
   test "an identical request leads the download when the first request dies", context do
+    attach_summaries(context)
     mount = start(context, cache: [root: Path.join(context.root, "output")])
     first = async(context, fn -> request(mount, 12) end)
+    assert_receive {:coordination, %{operation: :download, result: :acquired}}
     assert_receive {:streaming, _leader}
     second = async(context, fn -> request(mount, 12) end)
     assert_receive {:coordination, %{operation: :download, result: :waiting}}
@@ -417,6 +413,8 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     assert_receive {:streaming, other}
     send(other, :continue)
     assert Task.await(second).status == 200
+    assert [summary] = summaries(1)
+    refute Map.has_key?(summary, :download)
   end
 
   test "identical requests for a source with caching turned off download at once", context do
@@ -488,6 +486,31 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
   end
 
   defp async(context, fun), do: Task.Supervisor.async_nolink(context.tasks, fun)
+
+  # A request decides whether to collect its summary when it starts, so this
+  # runs before the mount does.
+  defp attach_summaries(context) do
+    test = self()
+
+    :telemetry.attach(
+      {context.test, :summary},
+      context.prefix ++ [:request, :summary],
+      fn _, _, summary, _ -> send(test, {:summary, summary}) end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach({context.test, :summary}) end)
+  end
+
+  defp summaries(count) do
+    for _ <- 1..count do
+      receive do
+        {:summary, summary} -> summary
+      after
+        1_000 -> flunk("missing a request summary")
+      end
+    end
+  end
 
   # Runs `fun` in a process that stays alive after it answers, as a
   # keep-alive connection's would, and sends `{:done, pid, result}`.

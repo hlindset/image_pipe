@@ -189,11 +189,11 @@ defmodule ImagePipe.Execution do
     end
   end
 
-  # An identical request for a new original waits until this one leads, or
-  # waits on, its image's flight, which it can't name before the original's
-  # bytes give the cache key. The leader hands it the original's record,
-  # which may not be stored yet, so it finds that flight instead of fetching
-  # the original.
+  # An identical request for a new original waits until this one leads its
+  # image's flight, or until another request's flight for that image ends,
+  # since it can't name that flight before the original's bytes give the
+  # cache key. The leader hands it the original's record, which may not be
+  # stored yet, so it finds that flight instead of fetching the original.
   defp join_download(context) do
     cache = Keyword.get(context.config, :cache)
 

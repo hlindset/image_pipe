@@ -176,7 +176,8 @@ defmodule ImagePipe.Telemetry.Logger do
        when reason in [:not_stored, :watermark_not_stored],
        do: base
 
-  # A full download pool only means a request downloads its original itself.
+  # A full download pool only means a request stops waiting for an identical
+  # one, and gets the original as a request for another size would.
   defp level_for([:cache, :coordination], %{operation: :download, result: :busy}, base),
     do: base
 

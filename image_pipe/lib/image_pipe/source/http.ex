@@ -99,8 +99,9 @@ defmodule ImagePipe.Source.HTTP do
                         Milliseconds for the whole download, from the first host \
                         name lookup to the last body byte, including redirects. A connection \
                         attempt can run past it by up to `connect_timeout`. Requests \
-                        waiting for the same original give up after waiting this long \
-                        plus one second. The default value is `30000`.
+                        waiting for another request's download or check of the same \
+                        original stop waiting after this long plus one second. The \
+                        default value is `30000`.
                         """
                       ],
                       connect_timeout: [

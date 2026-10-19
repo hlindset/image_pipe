@@ -274,14 +274,12 @@ defmodule ImagePipe.Execution.SourceCache do
     end
   end
 
-  # `leases` pairs this request's lease on the source's work with the lease
-  # identical requests wait on, either nil, because both are released when the
-  # response arrives. `known` is a current record whose bytes are needed
-  # again, for another variant. A local original whose evidence still matches
-  # it isn't rehashed.
-  defp fetch(source, key, previous, preparation, config, leases, known \\ nil) do
-    {lease, download} = leases
-
+  # `lease` is this request's lease on the source's work and `download` the
+  # lease identical requests wait on, either nil. `release_unstored/5` lets
+  # both sets of waiters go when the response may not be stored. `known` is a
+  # current record whose bytes are needed again, for another variant. A local
+  # original whose evidence still matches it isn't rehashed.
+  defp fetch(source, key, previous, preparation, config, {lease, download}, known \\ nil) do
     Telemetry.span(Telemetry.telemetry_opts(config), [:source, :stage], %{}, fn ->
       started = System.monotonic_time(:microsecond)
       preparation = if is_nil(previous), do: preparation

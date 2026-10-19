@@ -10,6 +10,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `ImagePipe.cache_stats/1` reports each cache's stored bytes and entries,
   its size cap, and its hits and misses since start. See
   [Usage and hit rate](docs/cache.md#usage-and-hit-rate).
+- `[:request, :summary]` has a `:download` field for a request that waited
+  for another request's download of a new original: `:coalesced` when it
+  waited until the other request had the original, `:bypass` when it stopped
+  waiting for any other reason.
 
 ### Changed
 
@@ -21,27 +25,27 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     waited for the first download and then downloaded it again.
   - Without an originals cache, requests for different sizes or formats of
     one original download it at the same time instead of one after another.
-    Without any cache, or with caching turned off for the source, so do
-    requests for the same image.
+    Requests for the same image do too when no cache is configured, caching
+    is turned off for the source, or its configuration denies storage.
   - When the original may not be stored, waiting requests start their own
     downloads as soon as the origin responds, instead of after the first
     download finishes.
   - Requests for the same processed image that wait longer than the source's
-    `fetch_timeout` plus one second for a new original's download now
-    download it themselves instead of answering `504`. For sources without
-    a `fetch_timeout`, such as files, they wait at most 60 seconds.
-- `[:cache, :coordination]` has a `:download` operation and pool for
-  requests waiting for an identical request's download of a new original,
-  which reported as `:source` before. Handlers that match on `:operation`
-  or `:pool` must accept `:download`. `:source` events now come only from
-  requests that wait for or lead a shared download or check, so none are
-  emitted without a cache, for a source with `internal_cache: :disabled`,
-  or for a new original without an originals cache. `:source` can report
-  `:bypass` with `reason: :not_stored`, and `:download` reports `:bypass`
-  with `reason: :not_stored` or `reason: :watermark_not_stored`.
-- `[:request, :summary]` has a `:download` field for a request that waited
-  for another request's download: `:coalesced` when it used that download,
-  `:bypass` when it got the original itself.
+    `fetch_timeout` plus one second for a new original's download no longer
+    answer `504`. Without an originals cache they download it themselves.
+    With one, they wait for the stored original like requests for other
+    sizes. For sources without a `fetch_timeout`, such as files, that first
+    wait lasts at most 60 seconds.
+- **Breaking:** `[:cache, :coordination]` has a `:download` operation and
+  pool for requests waiting for an identical request's download of a new
+  original, which reported as `:source` before. Handlers that match on
+  `:operation` or `:pool` must accept `:download`. `:source` events now come
+  only from requests that wait for or lead a shared download or check, so
+  none are emitted without a cache, for a source with
+  `internal_cache: :disabled`, or for a new original without an originals
+  cache. `:source` can report `:bypass` with `reason: :not_stored`, and
+  `:download` reports `:bypass`, with `reason: :not_stored` or
+  `reason: :watermark_not_stored` when storage is the cause.
 - The default Logger shows a coordination event's reason after its result,
   as in `bypass (deadline)`. It logs a `:bypass` with reason `:not_stored`
   or `:watermark_not_stored`, and a `:download` `:busy`, at its base level.

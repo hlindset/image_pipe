@@ -200,18 +200,20 @@ background checks (see
 
 - Up to 64 originals can be shared between requests at once, with up to
   1,024 requests waiting for them. Past either limit, a request fetches its
-  original itself, without waiting. A request waiting for another request to
-  download an HTTP or S3 original for another size or format, or to check
-  an original with its origin, gives up after that source's `fetch_timeout`
-  (see `ImagePipe.Source.HTTP` and `ImagePipe.Source.S3`) plus one second,
-  and answers `504`. When the original isn't stored 2 seconds after it was
-  downloaded, the next waiting request takes over, and downloads it again if
-  it still isn't stored.
+  original itself, without waiting. A request that waits while a request for
+  another size or format downloads an HTTP or S3 original, or while another
+  request checks an original with its origin, gives up after that source's
+  `fetch_timeout` (see `ImagePipe.Source.HTTP` and `ImagePipe.Source.S3`)
+  plus one second, and answers `504`. When the original isn't stored
+  2 seconds after it was downloaded, the next waiting request takes over,
+  and downloads it again if it still isn't stored.
 - Requests for the same processed image that wait for one new original's
   download have separate limits with the same values: up to 64 images at
-  once, with up to 1,024 requests waiting. Past either limit, or after the
-  source's `fetch_timeout` plus one second (60 seconds for sources without
-  one, such as files), a request downloads the original itself.
+  once, with up to 1,024 requests waiting. Past either limit, a request
+  doesn't wait. After the source's `fetch_timeout` plus one second
+  (60 seconds for sources without one, such as files), it stops waiting.
+  Without an originals cache it downloads the original itself. With one, it
+  waits for the download like a request for another size.
 - Up to 16 background checks run at once. Each has a 60-second deadline.
   After a background check for a processed image finishes, no other check
   for that image starts for one second. Checks for other sizes or formats of

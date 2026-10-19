@@ -135,9 +135,9 @@ one line, and the tracer doesn't use it.
     [`[:cache, :lookup]`](#cache-lookup), or `:coalesced` when the response
     came from another request's work, or `:not_modified` for a `304`.
   - `:download` (atom): for a request that waited for another request's
-    download of a new original, `:coalesced` when it used that download, or
-    `:bypass` when it got the original itself (see
-    [`[:cache, :coordination]`](#cache-coordination)).
+    download of a new original, `:coalesced` when it waited until the other
+    request had the original, or `:bypass` when it stopped waiting for any
+    other reason (see [`[:cache, :coordination]`](#cache-coordination)).
   - `:input_cache` (atom): the input cache's answer for a stored original,
     as on [`[:cache, :input]`](#cache-input). Absent when there was no
     stored original to check, such as on an output cache hit or the first
@@ -546,10 +546,14 @@ Which requests emit it:
 - `:source`: none for a source with `internal_cache: :disabled`. Without an
   originals cache, only a request that checks an original downloaded earlier,
   when a processed-image cache is configured.
-- `:download`: only a request for a new original, when a processed-image
-  cache is configured, caching is on for the source, and
-  [storage](caching-and-freshness.md#storage-permission) isn't denied for it
-  in its configuration. Immutable sources don't emit it.
+- `:download`: only a request for an original that no cache has fetched yet,
+  or whose details were evicted, when a processed-image cache is configured, caching is on for the
+  source, and [storage](caching-and-freshness.md#storage-permission) isn't
+  denied for it in its configuration. An immutable source with
+  `storage: :allow` doesn't emit it, nor does a low-priority request when no
+  other request is downloading the original.
+- `:refresh`: a request that serves a stale processed image and starts or
+  joins its background check.
 - `:output`: none when no processed-image cache is configured, when the image
   may not be stored, or for a
   [low-priority request](processing/request.md#priority) when no other request
@@ -579,11 +583,12 @@ level. It shows the reason, when there is one, after the result, as in
       the coordinating process isn't running).
     - `:download`: `:acquired` (this request downloads the original),
       `:waiting` (it waits for an identical request's download), `:ready`
-      (the original is known, so the request skips its own download), `:bypass` (it stops waiting and gets the original on its
-      own, because the other request failed, the wait ran out, the
-      coordinating process isn't running, or for a `:reason` below), or
-      `:busy` (coordination is at capacity). A request that waited can then
-      emit `:output` events while it waits for the image.
+      (the other request has the original, so this one waits for its image
+      instead of downloading), `:bypass` (it stops waiting for that request,
+      because the other request failed, the wait ran out, the coordinating
+      process isn't running, or for a `:reason` below, and then gets the
+      original as a request for another size would), or `:busy` (coordination is at capacity). A request that waited
+      can then emit `:output` events while it waits for the image.
     - `:output`: `:acquired` (this request generates), `:waiting` (it
       waits for another), `:ready` (it can check the cache again), `:bypass`
       (it generates on its own), or `:busy` (coordination is at capacity).

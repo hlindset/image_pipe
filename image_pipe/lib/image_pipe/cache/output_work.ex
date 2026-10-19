@@ -27,26 +27,26 @@ defmodule ImagePipe.Cache.OutputWork do
   def start_link(opts),
     do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
 
-  # `timeout` bounds the wait, `nil` for the default.
-  def join(cache, key, opts, timeout \\ nil),
+  def join(cache, key, opts, timeout \\ @wait_timeout),
     do: join_on({__MODULE__, :output}, cache, key, opts, timeout)
 
-  def follow(cache, key, opts, timeout \\ nil),
-    do: follow_on({__MODULE__, :output}, cache, key, opts, timeout)
+  def follow(cache, key, opts),
+    do: follow_on({__MODULE__, :output}, cache, key, opts, @wait_timeout)
 
-  def join_download(cache, key, opts, timeout \\ nil),
-    do: join_on({@downloads, :download}, cache, key, opts, timeout)
+  # `timeout` bounds the wait, `nil` for the default.
+  def join_download(cache, key, opts, timeout),
+    do: join_on({@downloads, :download}, cache, key, opts, timeout || @wait_timeout)
 
-  def follow_download(cache, key, opts, timeout \\ nil),
-    do: follow_on({@downloads, :download}, cache, key, opts, timeout)
+  def follow_download(cache, key, opts, timeout),
+    do: follow_on({@downloads, :download}, cache, key, opts, timeout || @wait_timeout)
 
   defp join_on({server, _operation} = flights, cache, key, opts, timeout) do
-    result = call(server, {:join, {cache, key}, timeout || @wait_timeout, true}, :infinity)
+    result = call(server, {:join, {cache, key}, timeout, true}, :infinity)
     joined(result, flights, opts)
   end
 
   defp follow_on({server, _operation} = flights, cache, key, opts, timeout) do
-    case call(server, {:join, {cache, key}, timeout || @wait_timeout, false}, :infinity) do
+    case call(server, {:join, {cache, key}, timeout, false}, :infinity) do
       :none -> :none
       result -> joined(result, flights, opts)
     end
@@ -271,15 +271,12 @@ defmodule ImagePipe.Cache.OutputWork do
 
   defp delete_flight(state, key), do: %{state | flights: Map.delete(state.flights, key)}
 
-  defp pool(:download), do: :download
-  defp pool(:output), do: :output
-
   defp report(opts, {_server, operation}, result, extra \\ %{}) do
     Telemetry.execute(
       opts,
       [:cache, :coordination],
       %{},
-      Map.merge(%{pool: pool(operation), operation: operation, result: result}, extra)
+      Map.merge(%{pool: operation, operation: operation, result: result}, extra)
     )
   end
 

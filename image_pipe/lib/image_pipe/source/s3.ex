@@ -82,9 +82,9 @@ defmodule ImagePipe.Source.S3 do
                        doc: """
                        Milliseconds for the whole download, from the request to the \
                        last body byte. A connection attempt can run past it by up \
-                       to `connect_timeout`. Requests waiting for the same object \
-                       give up after waiting this long plus one second. The default \
-                       value is `30000`.
+                       to `connect_timeout`. Requests waiting for another request's \
+                       download or check of the same object stop waiting after this \
+                       long plus one second. The default value is `30000`.
                        """
                      ],
                      connect_timeout: [
