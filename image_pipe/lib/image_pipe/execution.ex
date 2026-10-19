@@ -208,7 +208,10 @@ defmodule ImagePipe.Execution do
 
     released = %{
       context
-      | config: Keyword.put(context.config, :on_unstored, fn -> finish_early(context) end)
+      | config:
+          Keyword.put(context.config, :on_unstored, fn ->
+            finish_early(context, {:bypass, :not_stored})
+          end)
     }
 
     case acquire(released, nil) do
@@ -237,13 +240,24 @@ defmodule ImagePipe.Execution do
 
   defp early_timeout(context), do: SourceCache.wait_timeout(context.source)
 
-  defp finish_early(%Context{early_lease: nil}), do: :ok
+  # Waiters get the original's record, or why waiting gained them nothing.
+  defp finish_early(%Context{acquisition: %{record: nil}} = context),
+    do: finish_early(context, :ready)
 
-  defp finish_early(%Context{early_lease: lease, acquisition: %{record: nil}}),
-    do: Cache.OutputWork.complete(lease, :ready)
+  defp finish_early(%Context{acquisition: %{record: record}} = context),
+    do: finish_early(context, {:ready, record})
 
-  defp finish_early(%Context{early_lease: lease, acquisition: %{record: record}}),
-    do: Cache.OutputWork.complete(lease, {:ready, record})
+  defp finish_early(%Context{early_lease: nil}, _result), do: :ok
+
+  defp finish_early(%Context{early_lease: lease}, result),
+    do: Cache.OutputWork.complete(lease, result)
+
+  defp unstored(context) do
+    case source_storable?(context.acquisition.record, context.source) do
+      true -> :watermark_not_stored
+      false -> :not_stored
+    end
+  end
 
   defp acquire(context, record) do
     case SourceCache.acquire(
@@ -444,7 +458,7 @@ defmodule ImagePipe.Execution do
         made(context, fetch)
 
       {_, false} ->
-        finish_early(context)
+        finish_early(context, {:bypass, unstored(context)})
         made(context, fetch)
 
       {cache, true} ->

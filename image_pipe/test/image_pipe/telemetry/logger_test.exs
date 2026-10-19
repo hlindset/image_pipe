@@ -354,21 +354,33 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "[warning] image_pipe cache coordination: timeout (input pool)"
   end
 
-  test "logs a source download that releases its waiters at the base level" do
+  test "logs waits ended by an image that may not be stored at the base level" do
     prefix = [__MODULE__, :source_not_stored]
     Telemetry.attach_default_logger(prefix: prefix, level: :info, stages: true)
 
     log =
       capture_log(fn ->
-        Telemetry.execute([telemetry_prefix: prefix], [:cache, :coordination], %{}, %{
-          pool: :input,
-          operation: :source,
-          result: :bypass,
-          reason: :not_stored
-        })
+        for {pool, operation, reason} <- [
+              {:input, :source, :not_stored},
+              {:output, :output, :not_stored},
+              {:output, :output, :watermark_not_stored}
+            ] do
+          Telemetry.execute([telemetry_prefix: prefix], [:cache, :coordination], %{}, %{
+            pool: pool,
+            operation: operation,
+            result: :bypass,
+            reason: reason
+          })
+        end
       end)
 
-    assert log =~ "[info] image_pipe cache coordination: bypass (input pool)"
+    assert log =~ "[info] image_pipe cache coordination: bypass (not_stored) (input pool)"
+    assert log =~ "[info] image_pipe cache coordination: bypass (not_stored) (output pool)"
+
+    assert log =~
+             "[info] image_pipe cache coordination: bypass (watermark_not_stored) (output pool)"
+
+    refute log =~ "[warning]"
   end
 
   test "renders the encode span with its output format" do

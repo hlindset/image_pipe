@@ -548,8 +548,9 @@ stored, or, for a
 [low-priority request](processing/request.md#priority), when no other request
 is making the image.
 The default Logger logs `:busy`, `:bypass`, and `:timeout` results at
-`:warning`, except a `:bypass` with reason `:not_stored`, which it logs at
-its base level.
+`:warning`, except a `:bypass` with reason `:not_stored` or
+`:watermark_not_stored`, which it logs at its base level. It shows the
+reason, when there is one, after the result.
 
 - Metadata:
   - `:operation` (atom): `:source` (fetching an original), `:refresh`
@@ -572,11 +573,17 @@ its base level.
       A request for a new original that arrives while an identical request
       is downloading it can wait twice. It emits `:waiting` and then
       `:ready` for the other request's download, and again for its image.
+      The first wait ends in `:bypass` instead when the original or a
+      watermark asset may not be stored.
       The request doing the work emits `:acquired` for each.
-  - `:reason` (atom): `:deadline` on an `:output` `:bypass` when the image
-    wasn't stored within 2 seconds of being sent (see
-    [coordination limits](cache.md#coordination-limits)). `:not_stored` on
-    a `:source` `:bypass` when the original may not be stored.
+  - `:reason` (atom), on a `:bypass`:
+    - `:deadline` (`:output`): the image wasn't stored within 2 seconds of
+      being sent (see [coordination limits](cache.md#coordination-limits)).
+    - `:not_stored` (`:source` or `:output`): the original may not be
+      stored, so the waiting request downloads it itself.
+    - `:watermark_not_stored` (`:output`): a watermark asset may not be
+      stored, so the image may not be stored either. The waiting request
+      gets the original and makes the image itself.
 
 ### `[:cache, :sweep]`
 

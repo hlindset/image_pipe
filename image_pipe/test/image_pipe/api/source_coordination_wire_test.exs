@@ -180,6 +180,10 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     assert_receive {:coordination, %{pool: :output, result: :waiting}}
     send(leader, :continue)
     assert_receive {:streaming, ^leader}
+
+    assert_receive {:coordination,
+                    %{pool: :output, operation: :output, result: :bypass, reason: :not_stored}}
+
     assert_receive {:fetch, ["blocked"], other}
     send(other, :continue)
     assert_receive {:streaming, ^other}
@@ -189,10 +193,49 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     assert Task.await(second).status == 200
   end
 
+  test "an identical request says when a watermark that may not be stored ends its wait",
+       context do
+    mark = Image.new!(8, 8, color: :blue) |> Image.write!(:memory, suffix: ".png")
+
+    marks = [
+      adapter: ProcessingSource,
+      match: [prefix: "marks"],
+      options: [test: self(), bytes: mark, copy?: true, origin: origin("no-store")]
+    ]
+
+    mount =
+      start(context,
+        cache: [root: Path.join(context.root, "output")],
+        sources: [marks: marks],
+        watermarks: %{logo: [source: "marks/mark"]}
+      )
+
+    path = "/w=12/wm=logo/format=png/src/original"
+    first = async(context, fn -> ImagePipe.Plug.call(conn(:get, path), mount) end)
+    assert_receive {:streaming, leader}
+    second = async(context, fn -> ImagePipe.Plug.call(conn(:get, path), mount) end)
+    assert_receive {:coordination, %{pool: :output, result: :waiting}}
+    send(leader, :continue)
+
+    assert_receive {:coordination,
+                    %{
+                      pool: :output,
+                      operation: :output,
+                      result: :bypass,
+                      reason: :watermark_not_stored
+                    }}
+
+    assert_receive {:streaming, other}
+    send(other, :continue)
+    assert Task.await(first).status == 200
+    assert Task.await(second).status == 200
+  end
+
   # Each download sends its process once its first bytes are read, and holds
   # the rest until that process gets `:continue`.
   defp start(context, options) do
-    {origin, caches} = Keyword.pop(options, :origin)
+    {origin, options} = Keyword.pop(options, :origin)
+    {sources, caches} = Keyword.pop(options, :sources, [])
     test = self()
 
     stream =
@@ -205,7 +248,7 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
 
     [
       telemetry_prefix: context.prefix,
-      sources: [path: [adapter: ProcessingSource, match: :path, options: source]]
+      sources: sources ++ [path: [adapter: ProcessingSource, match: :path, options: source]]
     ]
     |> Keyword.merge(caches)
     |> Caches.start!()
