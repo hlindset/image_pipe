@@ -17,7 +17,7 @@ defmodule ImagePipeServer.Application do
     config = config!()
 
     Logger.configure(level: config.log_level)
-    configure_log_format(config.log_format)
+    configure_log_format(config.log_format, config.log_colors)
 
     # Each request decodes a new original, so libvips' operation cache rarely
     # hits and mostly keeps decoded images in memory.
@@ -49,20 +49,26 @@ defmodule ImagePipeServer.Application do
     elastic: LoggerJSON.Formatters.Elastic
   }
 
-  defp configure_log_format(format) do
-    case log_formatter(format) do
-      nil -> :ok
-      # A host that removed the default handler keeps its own handlers.
-      formatter -> _ = :logger.update_handler_config(:default, :formatter, formatter)
-    end
+  # A host that removed the default handler keeps its own handlers.
+  defp configure_log_format(format, colors) do
+    _ = :logger.update_handler_config(:default, :formatter, log_formatter(format, colors))
+    :ok
   end
 
   @doc false
-  # The default handler's formatter for `format`, or nil to keep the text one.
-  @spec log_formatter(atom()) :: {module(), term()} | nil
-  def log_formatter(:text), do: nil
+  # The default handler's formatter for `format`. Text lines get colors only
+  # with `colors`: Elixir colors them whenever stdout and stderr are
+  # terminals, and some hosts run containers on a terminal while collecting
+  # its output as plain text.
+  @spec log_formatter(atom(), boolean()) :: {module(), term()}
+  def log_formatter(:text, colors) do
+    :logger
+    |> Application.get_env(:default_formatter, [])
+    |> Keyword.put(:colors, enabled: colors)
+    |> Logger.Formatter.new()
+  end
 
-  def log_formatter(format) do
+  def log_formatter(format, _colors) do
     Map.fetch!(@log_formatters, format).new(metadata: [:request_id, :image_pipe])
   end
 
@@ -133,18 +139,34 @@ defmodule ImagePipeServer.Application do
       mount_path: Keyword.fetch!(config.server, :mount_path),
       image_pipe: ImagePipe.Plug.init([instance: @instance] ++ config.http),
       auth_token_hash: Keyword.fetch!(config.server, :auth_token_hash),
-      trust_request_id: config.trust_request_id
+      trust_request_id: config.trust_request_id,
+      stats: stats_options(config)
     ]
+  end
+
+  @doc false
+  # `ImagePipeServer.Stats` options, or nil when the endpoints are off.
+  @spec stats_options(Config.t()) :: ImagePipeServer.Stats.options() | nil
+  def stats_options(%Config{stats_token_hash: nil}), do: nil
+
+  def stats_options(%Config{} = config) do
+    roots =
+      for {key, cache} <- [cache: :output, input_cache: :input],
+          cache_opts = Keyword.get(config.image_pipe.options, key),
+          into: %{},
+          do: {cache, Keyword.fetch!(cache_opts, :root)}
+
+    %{token_hash: config.stats_token_hash, instance: @instance, roots: roots}
   end
 
   # A small listener for the health checks alone, outside the image
   # listener's connection cap.
   @doc false
   @spec health_child(Config.t(), Health.drain()) :: {module(), keyword()} | nil
-  def health_child(%Config{server: server}, drain) do
+  def health_child(%Config{server: server} = config, drain) do
     if port = Keyword.get(server, :health_port) do
       {Bandit,
-       plug: {Health, drain: drain},
+       plug: {Health, drain: drain, stats: stats_options(config)},
        port: port,
        ip: Keyword.fetch!(server, :ip),
        http_2_options: [enabled: false],

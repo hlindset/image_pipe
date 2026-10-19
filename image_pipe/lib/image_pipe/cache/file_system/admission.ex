@@ -22,6 +22,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   alias ImagePipe.Cache.FileSystem.Store, as: FileSystem
   alias ImagePipe.Cache.FileSystem.Sweep
   alias ImagePipe.Cache.FileSystem.Writers
+  alias ImagePipe.Cache.Lookups
   alias ImagePipe.Telemetry
 
   @sample 16
@@ -91,6 +92,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   def init(opts) do
     doorkeeper_cardinality = Keyword.fetch!(opts, :doorkeeper_cardinality)
     doorkeeper_fpr = Keyword.fetch!(opts, :doorkeeper_fpr)
+    :ok = Lookups.ensure(Keyword.fetch!(opts, :root))
 
     state = %State{
       registry: Keyword.fetch!(opts, :registry),
@@ -136,6 +138,18 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   """
   @spec await_scan(GenServer.server(), timeout()) :: :ok
   def await_scan(server, timeout \\ 5_000), do: GenServer.call(server, :await_scan, timeout)
+
+  @doc """
+  The stored bytes and entries, the size cap, and whether the startup scan
+  is still counting the entries on disk.
+  """
+  @spec usage(GenServer.server()) :: %{
+          bytes: non_neg_integer(),
+          entries: non_neg_integer(),
+          max_bytes: pos_integer(),
+          counting?: boolean()
+        }
+  def usage(server), do: GenServer.call(server, :usage)
 
   defp scan_directory(state, admission_pid) do
     {listings, entries} = list_entries(state.root)
@@ -333,6 +347,17 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     if state.scan_complete?,
       do: {:reply, :ok, state},
       else: {:noreply, %{state | scan_waiters: [from | state.scan_waiters]}}
+  end
+
+  def handle_call(:usage, _from, state) do
+    usage = %{
+      bytes: state.stored_bytes,
+      entries: :ets.info(state.entries, :size),
+      max_bytes: state.max_size_bytes,
+      counting?: not state.scan_complete?
+    }
+
+    {:reply, usage, state}
   end
 
   def handle_call(:scan_complete, _from, state), do: {:reply, :ok, complete_scan(state)}

@@ -237,6 +237,82 @@ Whether a response is cached also depends on its source:
   aren't reused. The `root` path can differ between replicas or change over
   time.
 
+### Cache stats
+
+`GET /stats` reports the bytes and entries each cache holds, how often
+requests find what they need in the cache, and the space left on the
+cache's disk.
+`GET /metrics` reports the same numbers for Prometheus.
+
+Turn both on in `[stats]`, with a token of their own:
+
+```toml
+[stats]
+enabled = true
+token = "a-long-random-string"
+```
+
+Set the token with `IPS_STATS_TOKEN` instead to keep it out of the file.
+The stats token is separate from `[server] auth_token`, and each opens only
+its own endpoints. To serve the stats on the health listener as well, set
+[`health_port`](server-configuration.md#server).
+
+Check that it works:
+
+```bash
+curl -H "Authorization: Bearer $IPS_STATS_TOKEN" http://localhost:8080/stats
+```
+
+```json
+{
+  "output": {
+    "bytes": 812345678, "max_bytes": 1073741824, "entries": 5120,
+    "counting": false, "hits": 9120, "misses": 1310, "read_errors": 0,
+    "disk_free_bytes": 40213000000, "disk_total_bytes": 107374182400
+  },
+  "input": {"bytes": 2104000000, "...": "..."}
+}
+```
+
+- `hits` and `misses` count this replica's requests since it started. The
+  `output` cache counts each request once, and the `input` cache each
+  original a request needs: a hit when it's read from the cache, a miss
+  when it's downloaded. `read_errors` are stored entries the cache couldn't
+  read, also counted as misses.
+- `counting` is `true` for a short time after startup, while the cache
+  counts the entries an earlier run left on disk. Until then, `bytes` and
+  `entries` leave out the ones it hasn't reached.
+- `disk_free_bytes` and `disk_total_bytes` are for the filesystem that
+  holds the cache's `root` directory, such as the volume mounted there.
+  They are `null` when the server can't read them.
+- A cache that isn't configured isn't listed.
+
+`/metrics` leaves the disk metrics out when the server can't read the
+space.
+
+To collect the numbers with Prometheus, put the token alone in a file, such
+as `/etc/prometheus/image-pipe-stats-token`, and name it in the scrape
+configuration. The metrics are named `image_pipe_cache_*` and carry a
+`cache` label:
+
+```yaml
+scrape_configs:
+  - job_name: image_pipe_server
+    authorization:
+      credentials_file: /etc/prometheus/image-pipe-stats-token
+    static_configs:
+      - targets: ["image-server:8080"]
+```
+
+Once the target shows as up on Prometheus's Targets page,
+`image_pipe_cache_bytes` returns each cache's size. This query gives each
+cache's hit rate over the last five minutes:
+
+```text
+sum by (cache) (rate(image_pipe_cache_lookups_total{result="hit"}[5m]))
+  / sum by (cache) (rate(image_pipe_cache_lookups_total[5m]))
+```
+
 ## DNS lookups
 
 An HTTP source keeps the addresses an origin's hostname resolves to for 10
@@ -366,6 +442,9 @@ Change what's logged in `[telemetry]`:
   `"json"`, or `"gcp"`, `"datadog"`, or `"elastic"` for those collectors'
   field names. The request's fields are under an `image_pipe` key, next to
   `request_id`.
+- `log_colors = true` colors `text` lines by level. Lines are plain by
+  default, so a host that attaches a terminal to the container, such as
+  `docker run -t`, doesn't store color codes.
 
 Every response carries an `x-request-id` header, and every log line for that
 request is tagged `request_id=<id>`. The server generates the ID. Behind a

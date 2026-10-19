@@ -163,14 +163,22 @@ defmodule ImagePipeServer.ApplicationTest do
     end
   end
 
-  describe "log_formatter/1" do
-    test "keeps the text formatter for text" do
-      assert App.log_formatter(:text) == nil
+  describe "log_formatter/2" do
+    test "writes text without color escapes unless colors are on" do
+      event = %{level: :warning, msg: {:string, "slow"}, meta: %{time: :logger.timestamp()}}
+
+      for {colors, escapes?} <- [{false, false}, {true, true}] do
+        {formatter, config} = App.log_formatter(:text, colors)
+        line = event |> formatter.format(config) |> IO.iodata_to_binary()
+
+        assert line =~ "[warning] slow"
+        assert String.contains?(line, "\e[") == escapes?
+      end
     end
 
     test "writes one JSON object per line with the request ID and summary fields" do
       for format <- [:json, :gcp, :datadog, :elastic] do
-        {formatter, config} = App.log_formatter(format)
+        {formatter, config} = App.log_formatter(format, false)
 
         event = %{
           level: :info,

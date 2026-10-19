@@ -215,7 +215,7 @@ defmodule ImagePipe.Execution.SourceCache do
   defp finish_overlap(result), do: result
 
   defp open_or_fetch(source, key, record, preparation, config, ref) when is_reference(ref) do
-    case Input.open(key, record, config) do
+    case Input.recheck(key, record, config) do
       {:ok, path, lease} -> checked_input(record, path, lease, config)
       :miss -> fetch(source, key, nil, preparation, config, ref, record)
     end
@@ -335,6 +335,7 @@ defmodule ImagePipe.Execution.SourceCache do
   defp store(source, key, previous, record, {response, sha256}, cost, config) do
     copy? = response.path != nil and source.cache_semantics.copy?
     remember? = not unchanged_record?(previous, record, source, config)
+    if copy?, do: Input.count_miss(config)
 
     cond do
       copy? and remember? ->

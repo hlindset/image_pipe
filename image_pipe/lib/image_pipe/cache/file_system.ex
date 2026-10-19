@@ -57,6 +57,8 @@ defmodule ImagePipe.Cache.FileSystem do
   defdelegate abort_sink(state, opts), to: Store
   @doc false
   defdelegate delete(key, opts), to: Store
+  @doc false
+  defdelegate usage(opts), to: Store
 
   @doc false
   def open_sink(key, %Entry.Metadata{} = metadata, opts) do

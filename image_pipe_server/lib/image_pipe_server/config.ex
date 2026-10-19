@@ -26,9 +26,12 @@ defmodule ImagePipeServer.Config do
       defaults to the VM's online schedulers.
     * `[http]` - the delivery options of `ImagePipe.Plug.init/1`.
     * `[telemetry]` - `log_level` is the lowest level the server logs.
-      `log_requests` attaches the default Logger. `trust_traceparent`
+      `log_requests` attaches the default Logger. `log_colors` colors
+      `text` lines by level. `trust_traceparent`
       continues an inbound W3C `traceparent` when tracing is on, and
       `trust_request_id` keeps an inbound `x-request-id`.
+    * `[stats]` - `enabled` turns on the cache stats endpoints (see
+      `ImagePipeServer.Stats`), which need `token`.
 
   Invalid configuration raises `ImagePipeServer.ConfigError` (see there for
   which values a message may quote).
@@ -51,7 +54,9 @@ defmodule ImagePipeServer.Config do
     :pool,
     :log_level,
     :log_format,
+    :log_colors,
     :telemetry,
+    :stats_token_hash,
     :credential_warmups
   ]
   defstruct @enforce_keys
@@ -75,8 +80,11 @@ defmodule ImagePipeServer.Config do
     * `:log_level` - the lowest level the server logs.
     * `:log_format` - `:text`, or the `logger_json` format: `:json`, `:gcp`,
       `:datadog`, or `:elastic`.
+    * `:log_colors` - whether `:text` lines are colored by level.
     * `:telemetry` - default Logger options when requests are logged, or
       `nil`.
+    * `:stats_token_hash` - the SHA-256 of the stats token when the stats
+      endpoints are on, or `nil`.
     * `:credential_warmups` - `ImagePipe.Source.S3.CredentialWarmup` options,
       one per named S3 bucket whose credentials come from a provider.
   """
@@ -90,7 +98,9 @@ defmodule ImagePipeServer.Config do
           pool: keyword(),
           log_level: Logger.level(),
           log_format: :text | :json | :gcp | :datadog | :elastic,
+          log_colors: boolean(),
           telemetry: keyword() | nil,
+          stats_token_hash: binary() | nil,
           credential_warmups: [keyword()]
         }
 
@@ -113,8 +123,14 @@ defmodule ImagePipeServer.Config do
     log_requests: [type: :boolean, default: true],
     log_stages: [type: :boolean, default: false],
     log_format: [type: {:in, [:text, :json, :gcp, :datadog, :elastic]}, default: :text],
+    log_colors: [type: :boolean, default: false],
     trust_traceparent: [type: :boolean, default: false],
     trust_request_id: [type: :boolean, default: false]
+  ]
+
+  @stats_schema [
+    enabled: [type: :boolean, default: false],
+    token: [type: :string]
   ]
 
   @watermark_schema [
@@ -152,7 +168,8 @@ defmodule ImagePipeServer.Config do
       processing: [type: Convert.table(processing_schema())],
       pool: [type: Convert.table(pool_schema())],
       http: [type: Convert.table(http_schema())],
-      telemetry: [type: Convert.table(@telemetry_schema)]
+      telemetry: [type: Convert.table(@telemetry_schema)],
+      stats: [type: Convert.table(@stats_schema)]
     ]
   end
 
@@ -304,7 +321,9 @@ defmodule ImagePipeServer.Config do
       pool: pool,
       log_level: Keyword.get(Keyword.get(sections, :telemetry, []), :log_level, :info),
       log_format: Keyword.get(Keyword.get(sections, :telemetry, []), :log_format, :text),
+      log_colors: Keyword.get(Keyword.get(sections, :telemetry, []), :log_colors, false),
       telemetry: telemetry(Keyword.get(sections, :telemetry, [])),
+      stats_token_hash: stats_token_hash!(Keyword.get(sections, :stats, [])),
       credential_warmups: credential_warmups(Keyword.get(sections, :sources, []))
     }
   end
@@ -339,6 +358,26 @@ defmodule ImagePipeServer.Config do
         )
 
     health_port
+  end
+
+  # The errors name the setting, never the token.
+  defp stats_token_hash!(options) do
+    case {Keyword.get(options, :enabled, false), Keyword.get(options, :token)} do
+      {false, nil} ->
+        nil
+
+      {true, token} when is_binary(token) and token != "" ->
+        :crypto.hash(:sha256, token)
+
+      {true, _missing} ->
+        raise ConfigError,
+              "invalid configuration: stats.token: needs a non-empty token when " <>
+                "stats.enabled = true"
+
+      {false, _token} ->
+        raise ConfigError,
+              "invalid configuration: stats.token: is set, but stats.enabled is false"
+    end
   end
 
   defp auth_token_hash!(nil), do: nil

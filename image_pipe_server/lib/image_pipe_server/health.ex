@@ -6,8 +6,9 @@ defmodule ImagePipeServer.Health do
   answers `503` until the image listener has started, `200` while serving,
   and `503` again once the server starts draining on shutdown.
   `ImagePipeServer.Router` serves both on the image listener. As a plug,
-  this module serves only them, on the listener `[server] health_port`
-  starts, and answers `404` to anything else.
+  this module serves only them and, with `:stats`, the stats endpoints (see
+  `ImagePipeServer.Stats`), on the listener `[server] health_port` starts,
+  and answers `404` to anything else.
   """
 
   @behaviour Plug
@@ -60,10 +61,19 @@ defmodule ImagePipeServer.Health do
   end
 
   @impl Plug
-  def init(opts), do: Keyword.fetch!(opts, :drain)
+  def init(opts), do: %{drain: Keyword.fetch!(opts, :drain), stats: Keyword.get(opts, :stats)}
 
   @impl Plug
-  def call(conn, drain) do
-    if check?(conn), do: respond(conn, drain), else: send_resp(conn, 404, "")
+  def call(conn, %{drain: drain, stats: stats}) do
+    cond do
+      check?(conn) ->
+        respond(conn, drain)
+
+      stats != nil and ImagePipeServer.Stats.check?(conn) ->
+        ImagePipeServer.Stats.respond(conn, stats)
+
+      true ->
+        send_resp(conn, 404, "")
+    end
   end
 end

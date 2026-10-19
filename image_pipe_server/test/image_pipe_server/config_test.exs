@@ -204,6 +204,7 @@ defmodule ImagePipeServer.ConfigTest do
               "log_requests" => true,
               "log_stages" => true,
               "log_format" => "gcp",
+              "log_colors" => true,
               "trust_traceparent" => true,
               "trust_request_id" => true
             }
@@ -214,6 +215,7 @@ defmodule ImagePipeServer.ConfigTest do
       assert config.image_pipe.options[:processing_pool] == config.pool[:name]
       assert config.log_level == :warning
       assert config.log_format == :gcp
+      assert config.log_colors == true
       assert config.telemetry == [level: :info, stages: true]
       assert config.trust_traceparent == true
       assert config.trust_request_id == true
@@ -228,11 +230,12 @@ defmodule ImagePipeServer.ConfigTest do
                "pool"
     end
 
-    test "defaults [telemetry] to info, a summary line per request, text, and no inbound IDs" do
+    test "defaults [telemetry] to info, a summary line per request, plain text, and no inbound IDs" do
       config = Config.build!([])
 
       assert config.log_level == :info
       assert config.log_format == :text
+      assert config.log_colors == false
       assert config.telemetry == [level: :info, stages: false]
       assert config.trust_request_id == false
 
@@ -353,6 +356,29 @@ defmodule ImagePipeServer.ConfigTest do
 
       assert config.server[:auth_token_hash] == :crypto.hash(:sha256, "sekrit")
       refute inspect(config) =~ "sekrit"
+    end
+
+    test "turns stats on only with enabled and a token, keeping only the token's hash" do
+      assert Config.build!([]).stats_token_hash == nil
+
+      config =
+        Config.build!(
+          Config.options!(%{"stats" => %{"enabled" => true, "token" => {:env, "sekrit"}}})
+        )
+
+      assert config.stats_token_hash == :crypto.hash(:sha256, "sekrit")
+      refute inspect(config) =~ "sekrit"
+
+      for stats <- [
+            %{"enabled" => true},
+            %{"enabled" => true, "token" => ""},
+            %{"token" => "sekrit"},
+            %{"enabled" => false, "token" => "sekrit"}
+          ] do
+        message = error(fn -> Config.build!(Config.options!(%{"stats" => stats})) end)
+        assert message =~ "stats."
+        refute message =~ "sekrit"
+      end
     end
 
     test "rejects an empty auth token" do
