@@ -285,6 +285,11 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   @doc false
   def discard_prepared(prepared), do: cleanup_sink_state(prepared)
 
+  @doc false
+  def usage(opts) do
+    with {:ok, pid} <- lookup_admission(opts), do: {:ok, Admission.usage(pid)}
+  end
+
   defp lookup_admission(opts) do
     root = Keyword.fetch!(opts, :root)
 

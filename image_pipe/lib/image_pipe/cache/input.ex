@@ -4,6 +4,7 @@ defmodule ImagePipe.Cache.Input do
   alias ImagePipe.Cache.File, as: CacheFile
   alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.FileSystem.Sweep
+  alias ImagePipe.Cache.Lookups
   alias ImagePipe.Cache.Resources
   alias ImagePipe.Source.Record
   alias ImagePipe.Telemetry
@@ -62,9 +63,26 @@ defmodule ImagePipe.Cache.Input do
     end
   end
 
-  def open(key, record, opts) do
+  # The cache's stats count a hit when a request opens its original here, and
+  # a miss when it downloads one to store (`count_miss/1`), so a request with
+  # no record of its original yet counts too. `open/3` also counts a failed
+  # read. A request that looks again, after waiting for another request's
+  # download, uses `recheck/3`, which counts only a hit, so each request
+  # counts once.
+  def open(key, record, opts), do: traced_open(key, record, opts, [:hit, :read_error])
+
+  def recheck(key, record, opts), do: traced_open(key, record, opts, [:hit])
+
+  def count_miss(opts) do
+    case Keyword.get(opts, :input_cache) do
+      nil -> :ok
+      pool -> Lookups.count(pool, :miss)
+    end
+  end
+
+  defp traced_open(key, record, opts, counted) do
     Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :input], %{pool: :input}, fn ->
-      key |> do_open(record, opts) |> open_result()
+      key |> do_open(record, opts, counted) |> open_result()
     end)
   end
 
@@ -74,16 +92,31 @@ defmodule ImagePipe.Cache.Input do
   defp open_result(:miss), do: {:miss, %{result: :ok, cache: :miss}}
   defp open_result({:error, _reason}), do: {:miss, %{result: :cache_error, cache: :read_error}}
 
-  defp do_open(key, record, opts) do
+  defp do_open(key, record, opts, counted) do
     case Keyword.get(opts, :input_cache) do
       nil -> :miss
-      pool -> open_pool(key, record, pool)
+      pool -> key |> open_pool(record, pool) |> tap(&count_lookup(&1, pool, counted))
     end
+  end
+
+  defp count_lookup(result, pool, counted) do
+    outcome =
+      case result do
+        {:ok, _path, _lease} -> :hit
+        :miss -> :miss
+        {:error, _reason} -> :read_error
+      end
+
+    if outcome in counted, do: Lookups.count(pool, outcome), else: :ok
+  end
+
+  defp open_pool(key, record, pool) do
+    pool_entry(key, record, pool)
   rescue
     _exception -> {:error, :cache_read_failed}
   end
 
-  defp open_pool(key, record, pool) do
+  defp pool_entry(key, record, pool) do
     case Store.get(key, pool) do
       {:hit, file, %{source_record: stored}} ->
         pin_matching(file, stored, record)

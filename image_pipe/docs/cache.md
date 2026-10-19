@@ -374,3 +374,27 @@ and stores or rejects the entry as usual.
 
 The admission and eviction telemetry events are listed in
 [cache events](telemetry-events.md#cache-events).
+
+## Usage and hit rate
+
+`ImagePipe.cache_stats/1` returns an `:output` and an `:input` entry, for
+`cache` and `input_cache`, with each cache's `:bytes`, `:entries`, and
+`:max_bytes`, and its `:hits`, `:misses`, and `:read_errors` since the VM
+started:
+
+- `:output` counts each request once: a hit when the processed image is
+  served from the cache, a miss when it's made.
+- `:input` counts each original a request needs, including watermark images:
+  a hit when the original is read from the cache, a miss when it's
+  downloaded to be stored. A source that doesn't store its originals isn't
+  counted.
+- A read error is a stored entry the cache couldn't read. The request
+  treats it as a miss, so it counts as a read error and as a miss.
+- `:counting?` is `true` until the
+  [startup scan](#eviction-and-startup-scan) has counted the entries on
+  disk. Until then, `:bytes` and `:entries` leave out the ones it hasn't
+  reached.
+
+The hit rate is `hits / (hits + misses)`. Each node counts only its own
+requests. A cache that isn't configured, or whose `root` another node
+[owns](#cache-root-owner-file), isn't listed.

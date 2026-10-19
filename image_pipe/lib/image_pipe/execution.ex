@@ -261,13 +261,13 @@ defmodule ImagePipe.Execution do
     end
   end
 
-  defp lookup(context) do
+  # A recheck looks again after waiting for another request's write, so the
+  # cache's stats count the request once.
+  defp lookup(context, lookup \\ &Cache.lookup_entry/2) do
     case storable?(context) do
       true ->
         {result, time} =
-          Timing.measure(fn ->
-            Cache.lookup_entry(context.representation.cache_key, context.config)
-          end)
+          Timing.measure(fn -> lookup.(context.representation.cache_key, context.config) end)
 
         checked_hit(result, context, time)
 
@@ -395,7 +395,7 @@ defmodule ImagePipe.Execution do
     do: Cache.OutputWork.join(cache, context.representation.cache_key.hash, context.config)
 
   defp cached_or_generate(context) do
-    case lookup(context) do
+    case lookup(context, &Cache.recheck_entry/2) do
       {:hit, output} -> {:ok, output}
       :miss -> generate_uncoalesced(context)
     end
@@ -403,7 +403,7 @@ defmodule ImagePipe.Execution do
 
   defp generate_leader(context, lease) do
     result =
-      case lookup(context) do
+      case lookup(context, &Cache.recheck_entry/2) do
         {:hit, output} -> {:ok, output}
         :miss -> generate_uncoalesced(context, lease)
       end

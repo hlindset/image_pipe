@@ -334,6 +334,39 @@ defmodule ImagePipe do
   def write(config, builder, input, path, options \\ []),
     do: ImagePipe.Run.write(resolve(config), builder, input, path, options)
 
+  @doc """
+  Reports the bytes and entries a running instance's caches hold, and their
+  hits and misses since the VM started.
+
+      ImagePipe.cache_stats(MyApp.ImagePipe)
+      #=> %{
+      #=>   output: %{bytes: 812_345_678, entries: 5120, max_bytes: 1_073_741_824,
+      #=>             counting?: false, hits: 9120, misses: 1310, read_errors: 0},
+      #=>   input: %{...}
+      #=> }
+
+  The map has an `:output` entry for the `cache` option and an `:input` entry
+  for `input_cache`, and leaves out a cache that isn't configured or whose
+  `root` another node [owns](cache.md#cache-root-owner-file).
+
+    * `:bytes` and `:entries` - what the cache stores now.
+    * `:max_bytes` - the cache's `max_size_bytes`.
+    * `:counting?` - `true` until the cache has counted the entries an
+      earlier run left on disk. Until then, `:bytes` and `:entries` leave
+      out the ones it hasn't reached.
+    * `:hits` and `:misses` - requests since the VM started that found, or
+      didn't find, what they needed in the cache. See
+      [Usage and hit rate](cache.md#usage-and-hit-rate) for what each cache
+      counts.
+    * `:read_errors` - stored entries the cache couldn't read, also counted
+      as misses.
+
+  Each node reports only its own counts.
+  """
+  @spec cache_stats(atom()) :: %{optional(:output | :input) => map()}
+  def cache_stats(name) when is_atom(name),
+    do: ImagePipe.Cache.stats(Config.fetch_instance!(name, nil).options)
+
   # An instance name stands for the configuration the running instance
   # published. It raises when the instance isn't running.
   defp resolve(%Config{} = config), do: config

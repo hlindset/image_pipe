@@ -36,6 +36,7 @@ defmodule ImagePipe.Cache do
   alias ImagePipe.Cache.FileSystem.Sweep
   alias ImagePipe.Cache.Input
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Cache.Lookups
   alias ImagePipe.Cache.OutputWork
   alias ImagePipe.Cache.Sink
   alias ImagePipe.Cache.SourceRecords
@@ -209,13 +210,46 @@ defmodule ImagePipe.Cache do
   @doc """
   Looks up `key` in the configured cache, treating read errors as misses.
   The request runner builds the key with `ImagePipe.Representation.build/3`.
+  It counts the outcome for `stats/1`. A request that looks again, after
+  waiting for another request to write the entry, uses `recheck_entry/2`,
+  so each request counts once.
   """
   @spec lookup_entry(Key.t(), keyword()) :: entry_lookup_result()
   def lookup_entry(%Key{} = key, opts) when is_list(opts) do
     traced_lookup(key, :response, Keyword.get(opts, :cache), opts, fn
       nil -> :disabled
+      cache_opts -> key |> get_entry(cache_opts) |> tap(&count_lookup(&1, cache_opts))
+    end)
+  end
+
+  @doc "Looks up `key` like `lookup_entry/2`, without counting the outcome."
+  @spec recheck_entry(Key.t(), keyword()) :: entry_lookup_result()
+  def recheck_entry(%Key{} = key, opts) when is_list(opts) do
+    traced_lookup(key, :response, Keyword.get(opts, :cache), opts, fn
+      nil -> :disabled
       cache_opts -> get_entry(key, cache_opts)
     end)
+  end
+
+  defp count_lookup({:hit, _entry}, cache_opts), do: Lookups.count(cache_opts, :hit)
+  defp count_lookup({:miss, _key}, cache_opts), do: Lookups.count(cache_opts, :miss)
+  # A read error is served as a miss, and counted as both.
+  defp count_lookup({:miss, _key, _error}, cache_opts) do
+    Lookups.count(cache_opts, :miss)
+    Lookups.count(cache_opts, :read_error)
+  end
+
+  @doc false
+  # Usage and lookups since start of each cache in `options` that runs on
+  # this node.
+  @spec stats(keyword()) :: %{optional(:output | :input) => map()}
+  def stats(options) do
+    for {key, name} <- [cache: :output, input_cache: :input],
+        cache_opts = Keyword.get(options, key),
+        cache_opts != nil,
+        {:ok, usage} <- [FileSystem.usage(cache_opts)],
+        into: %{},
+        do: {name, Map.merge(usage, Lookups.read(Store.root_dir(cache_opts)))}
   end
 
   # `entry` says what the lookup reads: a processed response, or the record

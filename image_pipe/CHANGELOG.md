@@ -5,6 +5,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `ImagePipe.cache_stats/1` reports each cache's stored bytes and entries,
+  its size cap, and its hits and misses since start. See
+  [Usage and hit rate](docs/cache.md#usage-and-hit-rate).
+
 ## [0.3.0] - 2026-10-18
 
 ### Added
