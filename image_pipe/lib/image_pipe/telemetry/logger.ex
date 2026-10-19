@@ -16,6 +16,7 @@ defmodule ImagePipe.Telemetry.Logger do
     :reason,
     :sig_key,
     :cache,
+    :download,
     :input_cache,
     :staging,
     :staging_reason,
@@ -175,6 +176,10 @@ defmodule ImagePipe.Telemetry.Logger do
        when reason in [:not_stored, :watermark_not_stored],
        do: base
 
+  # A full download pool only means a request downloads its original itself.
+  defp level_for([:cache, :coordination], %{operation: :download, result: :busy}, base),
+    do: base
+
   defp level_for([:cache, :coordination], %{result: result}, _base)
        when result in [:busy, :bypass, :timeout], do: :warning
 
@@ -324,7 +329,7 @@ defmodule ImagePipe.Telemetry.Logger do
   end
 
   defp message([:cache, :coordination], _m, %{reason: reason} = meta),
-    do: "image_pipe cache coordination: #{meta[:result]} (#{reason})"
+    do: "image_pipe cache coordination: #{outcome(meta)} (#{reason})"
 
   defp message([:cache, :stage], _m, %{cache: :stage_dropped} = meta),
     do: "image_pipe cache stage: stage_dropped (#{meta[:reason]})"

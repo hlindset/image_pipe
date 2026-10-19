@@ -1155,6 +1155,48 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     assert_receive {:origin, _, [~s("v1")]}
   end
 
+  test "a changed original releases the requests waiting for its old image", %{
+    shared: shared,
+    state: state
+  } do
+    prefix = [__MODULE__, :changed_original]
+    stop_supervised!(Caches.instance(shared))
+
+    config =
+      shared
+      |> Keyword.delete(:input_cache)
+      |> Keyword.put(:telemetry_prefix, prefix)
+      |> Caches.start!()
+      |> http()
+
+    test_pid = self()
+    handler = make_ref()
+
+    :telemetry.attach(
+      handler,
+      prefix ++ [:cache, :coordination],
+      fn _, _, metadata, _ -> send(test_pid, {:coordination, metadata}) end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+    assert request(config, 12).status == 200
+    assert_receive {:origin, _, []}
+    Agent.update(state, &%{&1 | version: 2, block: true})
+    supervisor = start_supervised!(Task.Supervisor)
+    first = Task.Supervisor.async_nolink(supervisor, fn -> request(config, 6) end)
+    assert_receive {:blocked, worker}
+    second = Task.Supervisor.async_nolink(supervisor, fn -> request(config, 6) end)
+    assert_receive {:coordination, %{operation: :output, result: :waiting}}
+    Agent.update(state, &%{&1 | block: false})
+    send(worker, :continue)
+
+    assert_receive {:coordination, %{operation: :output, result: :bypass} = released}
+    refute Map.has_key?(released, :reason)
+    assert Task.await(first).status == 200
+    assert Task.await(second).status == 200
+  end
+
   test "a fetch that lost its coordination lease cannot replace newer source evidence", %{
     config: config,
     state: state
@@ -1165,6 +1207,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     assert_receive {:blocked, worker}
     assert_receive {:origin, _, []}
 
+    # The newer request would otherwise wait on the old one's download flight.
     for coordinator <- [
           ImagePipe.Cache.Work,
           ImagePipe.Cache.OutputWork,

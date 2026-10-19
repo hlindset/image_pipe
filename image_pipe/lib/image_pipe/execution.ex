@@ -169,7 +169,7 @@ defmodule ImagePipe.Execution do
       context = %{context | source: source, input_key: key, material: material}
 
       resolve_record(context, fn
-        nil -> join_early(context)
+        nil -> join_download(context)
         record -> acquire(context, record)
       end)
     end
@@ -189,28 +189,29 @@ defmodule ImagePipe.Execution do
     end
   end
 
-  # An identical request for a new original waits for this one to join its
-  # image's flight, which it can't name before the original's bytes give the
-  # cache key. The leader hands it the original's record, which may not be
-  # stored yet, so it finds that flight instead of fetching the original.
-  defp join_early(context) do
+  # An identical request for a new original waits until this one leads, or
+  # waits on, its image's flight, which it can't name before the original's
+  # bytes give the cache key. The leader hands it the original's record,
+  # which may not be stored yet, so it finds that flight instead of fetching
+  # the original.
+  defp join_download(context) do
     cache = Keyword.get(context.config, :cache)
 
     case cache != nil and source_storable?(nil, context.source) do
       true ->
         key = MaterialDigest.of(context.material)
-        joined_early(context, join_early_flight(context, cache, key))
+        joined_download(context, join_download_flight(context, cache, key))
 
       false ->
         acquire(context, nil)
     end
   end
 
-  defp joined_early(context, {:leader, lease}) do
-    context = %{context | early_lease: lease}
+  defp joined_download(context, {:leader, lease}) do
+    context = %{context | download_lease: lease}
 
     with {:error, _reason} = error <- acquire(context, nil) do
-      finish_early(context, :bypass)
+      finish_download(context, :bypass)
       error
     end
   catch
@@ -221,34 +222,29 @@ defmodule ImagePipe.Execution do
 
   # The record comes from a fetch that just finished, so it stands in for
   # this request's own check even when the origin asks for one on every use.
-  defp joined_early(context, {:ready, record}),
+  defp joined_download(context, {:ready, record}),
     do: {:ok, current(context, %Acquisition{record: record})}
 
-  defp joined_early(context, _waited),
+  defp joined_download(context, _waited),
     do: resolve_record(context, &acquire(context, &1))
 
   # A request waits as long as it would for the download itself, then fetches
   # the original. Without a download deadline it waits for the flights'
   # default.
-  defp join_early_flight(%{request: %{priority: :low}} = context, cache, key),
-    do: Cache.OutputWork.follow_download(cache, key, context.config, early_timeout(context))
+  defp join_download_flight(%{request: %{priority: :low}} = context, cache, key),
+    do: Cache.OutputWork.follow_download(cache, key, context.config, download_timeout(context))
 
-  defp join_early_flight(context, cache, key),
-    do: Cache.OutputWork.join_download(cache, key, context.config, early_timeout(context))
+  defp join_download_flight(context, cache, key),
+    do: Cache.OutputWork.join_download(cache, key, context.config, download_timeout(context))
 
-  defp early_timeout(context), do: SourceCache.wait_timeout(context.source)
+  defp download_timeout(context), do: SourceCache.wait_timeout(context.source)
 
   # Waiters get the original's record, or why waiting gained them nothing.
-  defp finish_early(%Context{acquisition: %{record: nil}} = context),
-    do: finish_early(context, :bypass)
+  defp finish_download(context),
+    do: finish_download(context, {:ready, context.acquisition.record})
 
-  defp finish_early(%Context{acquisition: %{record: record}} = context),
-    do: finish_early(context, {:ready, record})
-
-  defp finish_early(%Context{early_lease: nil}, _result), do: :ok
-
-  defp finish_early(%Context{early_lease: lease}, result),
-    do: Cache.OutputWork.complete(lease, result)
+  defp finish_download(context, result),
+    do: Cache.OutputWork.complete(context.download_lease, result)
 
   defp unstored(context) do
     case source_storable?(context.acquisition.record, context.source) do
@@ -264,7 +260,7 @@ defmodule ImagePipe.Execution do
            record,
            preparation(context),
            context.config,
-           context.early_lease
+           context.download_lease
          ) do
       {:ok, acquisition} ->
         {:ok, current(context, acquisition)}
@@ -288,7 +284,7 @@ defmodule ImagePipe.Execution do
   # Prepare owns its source lease; callers close it after their conditional gate
   # and output consumption. Output owns leases acquired later by open/1.
   def close(%Context{acquisition: acquisition} = context) do
-    finish_early(context)
+    finish_download(context)
     SourceCache.release(acquisition.lease)
   end
 
@@ -310,7 +306,7 @@ defmodule ImagePipe.Execution do
   defp open_current(context) do
     case lookup(context) do
       {:hit, output} ->
-        finish_early(context)
+        finish_download(context)
         {:ok, output}
 
       :miss ->
@@ -457,7 +453,7 @@ defmodule ImagePipe.Execution do
         make(context, fetch)
 
       {_, false} ->
-        finish_early(context, {:bypass, unstored(context)})
+        finish_download(context, {:bypass, unstored(context)})
         make(context, fetch)
 
       {cache, true} ->
@@ -465,11 +461,9 @@ defmodule ImagePipe.Execution do
     end
   end
 
-  # A low-priority request may wait on a flight but never leads one, so a
-  # normal request for the same image never waits behind its queue turn.
   defp join_output(context, cache, fetch) do
     joined = join_flight(context, cache, context.representation.cache_key.hash)
-    finish_early(context)
+    finish_download(context)
 
     case joined do
       {:leader, lease} -> make_leading(context, fetch, lease)
@@ -482,6 +476,8 @@ defmodule ImagePipe.Execution do
     end
   end
 
+  # A low-priority request may wait on a flight but never leads one, so a
+  # normal request for the same image never waits behind its queue turn.
   defp join_flight(%{request: %{priority: :low}} = context, cache, key),
     do: Cache.OutputWork.follow(cache, key, context.config)
 
@@ -497,9 +493,7 @@ defmodule ImagePipe.Execution do
 
   # An original that changed since its record makes an image with another
   # key, so the flight joined for the old key lets its waiters go.
-  defp same_key(_context, _fetched, nil), do: nil
-
-  defp same_key(context, fetched, lease) do
+  defp lease_for_key(context, fetched, lease) do
     case fetched.representation.cache_key == context.representation.cache_key do
       true ->
         lease
@@ -532,7 +526,7 @@ defmodule ImagePipe.Execution do
 
   defp make(context, fetch, lease \\ nil, store? \\ true) do
     with {:ok, fetched, input_lease} <- fetch.(context) do
-      lease = same_key(context, fetched, lease)
+      lease = lease_for_key(context, fetched, lease)
 
       try do
         attach_lease(generate_uncoalesced(fetched, lease, store?), input_lease)

@@ -213,6 +213,14 @@ defmodule ImagePipe.Telemetry.Summary do
   defp fields([:cache, :coordination], _duration, %{operation: :output, result: :waiting}),
     do: %{coalesced: true}
 
+  # A request that waited for another one's download either used it or got
+  # the original itself after all.
+  defp fields([:cache, :coordination], _duration, %{operation: :download, result: :waiting}),
+    do: %{download: :coalesced}
+
+  defp fields([:cache, :coordination], _duration, %{operation: :download, result: :bypass}),
+    do: %{download: :bypass}
+
   defp fields([:transform, :operation], _duration, %{result: :ok} = meta),
     do: Map.merge(%{ops: [meta.operation]}, take(meta, output_size: :dims))
 

@@ -155,8 +155,9 @@ All of this sharing is local to each node, so two servers can still make the
 same image. A waiting request stops waiting and does the work itself:
 
 - When the first request fails, or its image isn't stored.
-- When a watermark asset may not be stored, so neither may the image, once
-  the first request has downloaded the original.
+- When a watermark asset may not be stored, which keeps the image from being
+  stored too. Waiting requests start once the first request has downloaded
+  the original.
 - When the original [may not be stored](#storage-permission), as soon as the
   origin responds.
 - When the image is too large to store or
@@ -164,7 +165,7 @@ same image. A waiting request stops waiting and does the work itself:
   out.
 
 When too many requests are already waiting, new ones go ahead without
-waiting. The limits are listed under
+waiting. Waits are also limited in time. The limits are listed under
 [coordination limits](cache.md#coordination-limits).
 
 A [low-priority request](processing/request.md#priority) waits for a normal

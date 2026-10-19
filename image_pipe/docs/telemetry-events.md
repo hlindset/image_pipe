@@ -134,6 +134,10 @@ one line, and the tracer doesn't use it.
   - `:cache` (atom): the output cache's answer, as on
     [`[:cache, :lookup]`](#cache-lookup), or `:coalesced` when the response
     came from another request's work, or `:not_modified` for a `304`.
+  - `:download` (atom): for a request that waited for another request's
+    download of a new original, `:coalesced` when it used that download, or
+    `:bypass` when it got the original itself (see
+    [`[:cache, :coordination]`](#cache-coordination)).
   - `:input_cache` (atom): the input cache's answer for a stored original,
     as on [`[:cache, :input]`](#cache-input). Absent when there was no
     stored original to check, such as on an output cache hit or the first
@@ -542,10 +546,10 @@ Which requests emit it:
 - `:source`: none for a source with `internal_cache: :disabled`. Without an
   originals cache, only a request that checks an original downloaded earlier,
   when a processed-image cache is configured.
-- `:download`: only a request for an original the cache has no record of,
-  when a processed-image cache is configured and caching and
-  [storage](caching-and-freshness.md#storage-permission) are allowed for the
-  source.
+- `:download`: only a request for a new original, when a processed-image
+  cache is configured, caching is on for the source, and
+  [storage](caching-and-freshness.md#storage-permission) isn't denied for it
+  in its configuration. Immutable sources don't emit it.
 - `:output`: none when no processed-image cache is configured, when the image
   may not be stored, or for a
   [low-priority request](processing/request.md#priority) when no other request
@@ -553,15 +557,16 @@ Which requests emit it:
 
 The default Logger logs `:busy`, `:bypass`, and `:timeout` results at
 `:warning`, except a `:bypass` with reason `:not_stored` or
-`:watermark_not_stored`, which it logs at its base level. It shows the
-reason, when there is one, after the result, as in `bypass (deadline)`.
+`:watermark_not_stored`, and a `:download` `:busy`, which it logs at its base
+level. It shows the reason, when there is one, after the result, as in
+`bypass (deadline)`.
 
 - Metadata:
   - `:operation` (atom): `:source` (fetching an original), `:refresh`
     (a background refresh), `:download` (identical requests sharing a new
     original's download), or `:output` (generating an image).
-  - `:pool` (atom): `:input` for `:source` and `:refresh`, `:output` for
-    `:download` and `:output`.
+  - `:pool` (atom): `:input` for `:source` and `:refresh`, `:download` for
+    `:download`, and `:output` for `:output`.
   - `:result` (atom), by `:operation`:
     - `:source`: `:acquired` (this request fetches or checks the original),
       `:coalesced` (it waited for another request's download or check),
@@ -574,8 +579,7 @@ reason, when there is one, after the result, as in `bypass (deadline)`.
       the coordinating process isn't running).
     - `:download`: `:acquired` (this request downloads the original),
       `:waiting` (it waits for an identical request's download), `:ready`
-      (that download finished, so the request skips its own and waits for
-      the image), `:bypass` (it stops waiting and gets the original on its
+      (the original is known, so the request skips its own download), `:bypass` (it stops waiting and gets the original on its
       own, because the other request failed, the wait ran out, the
       coordinating process isn't running, or for a `:reason` below), or
       `:busy` (coordination is at capacity). A request that waited can then

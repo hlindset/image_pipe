@@ -198,19 +198,20 @@ Each node coordinates fetching originals, making processed images, and
 background checks (see
 [request coalescing](caching-and-freshness.md#request-coalescing)):
 
-- Up to 64 originals can be fetched or checked at once, with up to 1,024
-  requests waiting for them. Past either limit, a request fetches its
-  original itself, without waiting. A request for another size or format of
-  an HTTP or S3 original, waiting for another request's download of it,
-  gives up after that source's `fetch_timeout` (see `ImagePipe.Source.HTTP`
-  and `ImagePipe.Source.S3`) plus one second, and answers `504`. When the original isn't stored
-  2 seconds after it was downloaded, the next waiting request takes over,
-  and downloads it again if it still isn't stored.
-- Identical requests for a new original have their own limits of the same
-  size: up to 64 different images whose original is being downloaded, with
-  up to 1,024 requests waiting. A waiting request stops waiting after the
-  source's `fetch_timeout` plus one second, or after 60 seconds for sources
-  without one, such as files, and goes on without it.
+- Up to 64 originals can be shared between requests at once, with up to
+  1,024 requests waiting for them. Past either limit, a request fetches its
+  original itself, without waiting. A request waiting for another request to
+  download an HTTP or S3 original for another size or format, or to check
+  an original with its origin, gives up after that source's `fetch_timeout`
+  (see `ImagePipe.Source.HTTP` and `ImagePipe.Source.S3`) plus one second,
+  and answers `504`. When the original isn't stored 2 seconds after it was
+  downloaded, the next waiting request takes over, and downloads it again if
+  it still isn't stored.
+- Requests for the same processed image that wait for one new original's
+  download have separate limits with the same values: up to 64 images at
+  once, with up to 1,024 requests waiting. Past either limit, or after the
+  source's `fetch_timeout` plus one second (60 seconds for sources without
+  one, such as files), a request downloads the original itself.
 - Up to 16 background checks run at once. Each has a 60-second deadline.
   After a background check for a processed image finishes, no other check
   for that image starts for one second. Checks for other sizes or formats of

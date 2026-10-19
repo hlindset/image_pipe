@@ -10,6 +10,6 @@ defmodule ImagePipe.Execution.Context do
                 watermark_tasks: [],
                 acquisition: %ImagePipe.Execution.Acquisition{record: nil},
                 stale?: false,
-                early_lease: nil
+                download_lease: nil
               ]
 end

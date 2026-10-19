@@ -16,20 +16,20 @@ defmodule ImagePipe.Test.ProcessingSource do
     {:ok,
      %Resolved{
        identity: [path: source.segments],
-       internal_cache: :enabled,
+       internal_cache: Keyword.get(options, :internal_cache, :enabled),
        http_cache: :inherit,
        cache_semantics: %CacheSemantics{
          byte_identity: {:strong, source.segments},
          stable?: true,
          copy?: Keyword.get(options, :copy?, false)
        },
-       fetch: fetch(source.segments, options)
+       fetch: fetch_spec(source.segments, options)
      }}
   end
 
   # A `fetch_timeout` option gives the source a download deadline, which only
   # a keyword list fetch carries.
-  defp fetch(segments, options) do
+  defp fetch_spec(segments, options) do
     case Keyword.fetch(options, :fetch_timeout) do
       {:ok, timeout} -> [segments: segments, options: options, fetch_timeout: timeout]
       :error -> {segments, options}
