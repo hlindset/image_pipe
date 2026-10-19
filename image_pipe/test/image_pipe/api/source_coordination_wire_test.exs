@@ -1,0 +1,129 @@
+defmodule ImagePipe.API.SourceCoordinationWireTest do
+  use ExUnit.Case, async: false
+
+  import Plug.Test
+
+  alias ImagePipe.Source.Origin
+  alias ImagePipe.Test.Caches
+  alias ImagePipe.Test.ProcessingSource
+
+  @image Image.new!(64, 48, color: :red) |> Image.write!(:memory, suffix: ".jpg")
+
+  setup %{test: test} do
+    root =
+      Path.join(System.tmp_dir!(), "source-coordination-#{System.unique_integer([:positive])}")
+
+    on_exit(fn -> File.rm_rf!(root) end)
+    prefix = [__MODULE__, test]
+    handler = make_ref()
+
+    :telemetry.attach(handler, prefix ++ [:cache, :coordination], &__MODULE__.event/4, self())
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    %{root: root, prefix: prefix, tasks: start_supervised!(Task.Supervisor)}
+  end
+
+  def event(_event, _measurements, metadata, test), do: send(test, {:coordination, metadata})
+
+  test "without a cache, variants of one original download at once", context do
+    mount = start(context, [])
+    first = async(context, fn -> request(mount, 12) end)
+    assert_receive {:streaming, leader}
+    second = async(context, fn -> request(mount, 8) end)
+    assert_receive {:streaming, other}
+
+    for worker <- [leader, other], do: send(worker, :continue)
+    assert Task.await(first).status == 200
+    assert Task.await(second).status == 200
+    refute_received {:coordination, %{pool: :input}}
+  end
+
+  test "without an originals cache, new variants of a known original download at once",
+       context do
+    mount = start(context, cache: [root: Path.join(context.root, "output")])
+    warm = async(context, fn -> request(mount, 16) end)
+    assert_receive {:streaming, worker}
+    send(worker, :continue)
+    assert Task.await(warm).status == 200
+
+    first = async(context, fn -> request(mount, 12) end)
+    assert_receive {:streaming, leader}
+    second = async(context, fn -> request(mount, 8) end)
+    assert_receive {:streaming, other}
+
+    for worker <- [leader, other], do: send(worker, :continue)
+    assert Task.await(first).status == 200
+    assert Task.await(second).status == 200
+  end
+
+  test "a download the origin forbids storing releases the requests waiting for it", context do
+    origin = %Origin{
+      status: 200,
+      headers: %{"cache-control" => ["no-store"]},
+      requested_at: 1_000,
+      received_at: 1_000,
+      resource: :crypto.hash(:sha256, "origin"),
+      vary: %{}
+    }
+
+    mount =
+      start(context,
+        cache: [root: Path.join(context.root, "output")],
+        input_cache: [root: Path.join(context.root, "input")],
+        origin: origin
+      )
+
+    first = async(context, fn -> request(mount, 12, "blocked") end)
+    assert_receive {:fetch, ["blocked"], leader}
+    second = async(context, fn -> request(mount, 8, "blocked") end)
+    await_waiter()
+    send(leader, :continue)
+    assert_receive {:coordination, %{pool: :input, result: :bypass, reason: :not_stored}}
+    assert_receive {:fetch, ["blocked"], other}
+    send(other, :continue)
+    assert_receive {:streaming, ^leader}
+    assert_receive {:streaming, ^other}
+
+    for worker <- [leader, other], do: send(worker, :continue)
+    assert Task.await(first).status == 200
+    assert Task.await(second).status == 200
+  end
+
+  # Each download sends its process once its first bytes are read, and holds
+  # the rest until that process gets `:continue`.
+  defp start(context, options) do
+    {origin, caches} = Keyword.pop(options, :origin)
+    test = self()
+
+    stream =
+      Stream.map([@image], fn bytes ->
+        send(test, {:streaming, self()})
+        receive do: (:continue -> bytes)
+      end)
+
+    source = [test: test, bytes: @image, copy?: true, stream: stream, origin: origin]
+
+    [
+      telemetry_prefix: context.prefix,
+      sources: [path: [adapter: ProcessingSource, match: :path, options: source]]
+    ]
+    |> Keyword.merge(caches)
+    |> Caches.start!()
+    |> Caches.plug()
+  end
+
+  defp async(context, fun), do: Task.Supervisor.async_nolink(context.tasks, fun)
+
+  defp request(mount, width, source \\ "original"),
+    do: ImagePipe.Plug.call(conn(:get, "/w=#{width}/format=png/src/#{source}"), mount)
+
+  defp await_waiter do
+    waiting? =
+      ImagePipe.Cache.Work
+      |> :sys.get_state()
+      |> Map.fetch!(:locks)
+      |> Enum.any?(fn {_key, lock} -> lock.waiters != [] end)
+
+    unless waiting?, do: await_waiter()
+  end
+end

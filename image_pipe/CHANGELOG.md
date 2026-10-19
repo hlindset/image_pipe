@@ -11,6 +11,17 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   its size cap, and its hits and misses since start. See
   [Usage and hit rate](docs/cache.md#usage-and-hit-rate).
 
+### Changed
+
+- Concurrent requests for one original no longer wait for each other's
+  download when the download can't be shared: when no cache is configured,
+  when caching is turned off for the source, or when an earlier request
+  already downloaded the original and it can't be read from an originals
+  cache. When the original may not be stored, waiting requests start their
+  own downloads as soon as the origin responds. Each one emits
+  `[:cache, :coordination]` with `result: :bypass` and `reason: :not_stored`.
+  See [request coalescing](docs/caching-and-freshness.md#request-coalescing).
+
 ## [0.3.0] - 2026-10-18
 
 ### Added

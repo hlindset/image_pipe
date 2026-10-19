@@ -12,7 +12,9 @@ defmodule ImagePipe.Cache.Work do
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
   # `fun` gets the lease, or `false` without one, and how it got the key:
-  # `:acquired`, `:coalesced` after waiting behind another holder, or `:busy`.
+  # `:acquired`, `:coalesced` after waiting behind another holder, `:bypass`
+  # when the holder found it had nothing to share (`release_waiters/1`), or
+  # `:busy`.
   # `wait:` bounds how long to wait behind another holder of the key, after
   # which the work doesn't run and `run/3` returns `:timeout`.
   # `share:` identifies requests eligible for the owner's explicit completion.
@@ -25,6 +27,10 @@ defmodule ImagePipe.Cache.Work do
       {:shared, value} ->
         report(:coalesced, :source, opts)
         value
+
+      :bypass ->
+        report(:bypass, :source, opts, %{reason: :not_stored})
+        fun.(false, :bypass)
 
       :timeout ->
         report(:timeout, :source, opts)
@@ -70,6 +76,11 @@ defmodule ImagePipe.Cache.Work do
   # A lease handed to a writer stays locked until the writer releases it.
   def complete(ref, value), do: call({:complete, ref, value}, 5_000)
 
+  # The holder of `ref` found that its work will store nothing, so the
+  # requests waiting for it go ahead on their own, without a lease, and the
+  # key is free for later arrivals. The holder's lease is no longer current.
+  def release_waiters(ref), do: call({:release_waiters, ref}, 5_000)
+
   @doc """
   Hands the lease `ref` to `owner`, a cache writer publishing for it. The
   lease keeps its identity, so `current?/1` and `publish/3` still accept it,
@@ -90,12 +101,13 @@ defmodule ImagePipe.Cache.Work do
     result
   end
 
-  defp report(result, operation, opts) do
-    Telemetry.execute(opts, [:cache, :coordination], %{}, %{
-      pool: :input,
-      result: result,
-      operation: operation
-    })
+  defp report(result, operation, opts, metadata \\ %{}) do
+    Telemetry.execute(
+      opts,
+      [:cache, :coordination],
+      %{},
+      Map.merge(%{pool: :input, result: result, operation: operation}, metadata)
+    )
   end
 
   def current?(ref), do: call({:current, ref}, 5_000) == true
@@ -178,6 +190,31 @@ defmodule ImagePipe.Cache.Work do
 
   def handle_call({:complete, ref, value}, _from, state) do
     {:reply, :ok, complete_cohort(state, ref, value)}
+  end
+
+  def handle_call({:release_waiters, ref}, _from, state) do
+    case Map.fetch(state.refs, ref) do
+      {:ok, key} ->
+        %{owner: ^ref} = lock = Map.fetch!(state.locks, key)
+
+        released =
+          Enum.map(lock.waiters, fn {waiter, from, _context} ->
+            Process.demonitor(waiter, [:flush])
+            GenServer.reply(from, :bypass)
+            waiter
+          end)
+
+        state = %{
+          state
+          | refs: Map.drop(state.refs, released),
+            locks: Map.put(state.locks, key, %{lock | waiters: []})
+        }
+
+        {:reply, :ok, release(state, ref)}
+
+      :error ->
+        {:reply, :ok, state}
+    end
   end
 
   def handle_call({:cancel_wait, key}, {pid, _tag}, state) do

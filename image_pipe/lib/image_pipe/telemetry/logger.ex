@@ -169,6 +169,11 @@ defmodule ImagePipe.Telemetry.Logger do
   # Steady drops mean the cache's storage can't keep up with its writes.
   defp level_for([:cache, :stage], %{cache: :stage_dropped}, _base), do: :warning
 
+  # Requests for an original the origin forbids storing each download it, as
+  # they would without coordination.
+  defp level_for([:cache, :coordination], %{result: :bypass, reason: :not_stored}, base),
+    do: base
+
   defp level_for([:cache, :coordination], %{result: result}, _base)
        when result in [:busy, :bypass, :timeout], do: :warning
 
