@@ -546,13 +546,18 @@ its base level.
     (a background refresh), or `:output` (generating an image).
   - `:pool` (atom): `:input` for `:source` and `:refresh`, `:output` for
     `:output`.
-  - `:result` (atom): for `:source` and `:refresh`, one of `:acquired`,
-    `:started`, `:coalesced`, `:backoff`, or `:busy`, and for `:source`
-    also `:timeout` (it stopped waiting for another request's download) or
-    `:bypass` (it downloads the original itself).
-    For `:output`, `:acquired` (this request generates), `:waiting` (it
-    waits for another), `:ready` (it can check the cache again), `:bypass`
-    (it generates on its own), or `:busy` (coordination is at capacity).
+  - `:result` (atom), by `:operation`:
+    - `:source`: `:acquired` (this request fetches or checks the original),
+      `:coalesced` (it waited for another request's download or check),
+      `:timeout` (it stopped waiting for one), `:bypass` (the original may
+      not be stored, so it downloads it itself), or `:busy` (coordination is
+      at capacity).
+    - `:refresh`: `:started` (this request starts one), `:coalesced` (one is
+      already running), `:backoff` (a refresh of the same image finished
+      less than a second ago), or `:busy` (coordination is at capacity).
+    - `:output`: `:acquired` (this request generates), `:waiting` (it
+      waits for another), `:ready` (it can check the cache again), `:bypass`
+      (it generates on its own), or `:busy` (coordination is at capacity).
   - `:reason` (atom): `:deadline` on an `:output` `:bypass` when the image
     wasn't stored within 2 seconds of being sent (see
     [coordination limits](cache.md#coordination-limits)). `:not_stored` on

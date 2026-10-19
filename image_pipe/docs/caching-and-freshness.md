@@ -143,21 +143,26 @@ they must use the same `root`. Otherwise the configuration fails to load.
 
 When many requests for a new processed image arrive at once, the image is
 made once and sent to all of them. This needs a processed-image cache, and
-applies only to images that may be stored. Requests for different sizes of one
-original share one check with the origin when a cache is configured, and one
-download when an originals cache is configured. Without an originals cache,
-or when caching is turned off for the source, each request downloads the
-original itself.
+applies only to images that may be stored. Requests for different sizes or
+formats of one original share its download only when an originals cache is
+configured. Otherwise each request downloads the original itself. When either
+cache is configured, requests that check a previously downloaded original with
+its origin share one check. When caching is turned off for the source, nothing
+is shared.
 
-Both kinds of sharing are local to each node, so two servers can still make
-the same image. When the first request fails or its image isn't stored, each
-waiting request makes the image itself. When the original may not be stored,
-waiting requests start their own downloads as soon as the origin responds.
-When the image is too large to store or
-[detection failed](cache.md#what-is-stored), waiting requests start as soon as
-the server finds out, before the first request finishes. When too many
-requests are already waiting, new ones go ahead without waiting. The limits
-are listed under [coordination limits](cache.md#coordination-limits).
+All of this sharing is local to each node, so two servers can still make the
+same image. A waiting request stops waiting and does the work itself:
+
+- When the first request fails, or its image isn't stored.
+- When the original [may not be stored](#storage-permission), as soon as the
+  origin responds.
+- When the image is too large to store or
+  [detection failed](cache.md#what-is-stored), as soon as the server finds
+  out.
+
+When too many requests are already waiting, new ones go ahead without
+waiting. The limits are listed under
+[coordination limits](cache.md#coordination-limits).
 
 A [low-priority request](processing/request.md#priority) waits for a normal
 request that is making the same image. Otherwise it makes the image itself,
