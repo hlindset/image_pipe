@@ -28,10 +28,11 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
     * `--only` - comma-separated case ids or families (`resize`, `crop`,
       `canvas`, `orientation`, `trim`, `effects`, `watermark`, `output`, and
-      with `--compare`, `decode`, `colour`, `autoquality`, `placeholder`), or
-      `perf` for 34 reference cases that cover every family and kind of
-      source. With `--compare`, `perf` adds the 10 `ImagePipe.Test.Perf.Cases`
-      every `perf` pull request times, and `nightly` all 26 of them.
+      with `--compare`, `decode`, `colour`, `autoquality`, `placeholder`,
+      `cache`), or `perf` for 34 reference cases that cover every family and
+      kind of source. With `--compare`, `perf` adds the 13
+      `ImagePipe.Test.Perf.Cases` every `perf` pull request times, and
+      `nightly` all 29 of them.
     * `--cpus` - CPUs pinned to each server, default 4. Must leave at least
       one CPU for `oha`.
     * `--concurrency` - server worker count and the second load level,
@@ -66,6 +67,11 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   equivalent for on photo-sized sources, after the candidate image makes the
   photo variants they read.
 
+  The `cache` family runs on a second container per image, whose
+  configuration adds an output cache, an originals cache, and a `cached` HTTP
+  source that reads the bench's sources from an `nginx` container on the
+  same network. Every other case runs without a cache, as above.
+
     * `--compare` - the image to judge.
     * `--against` - `NAME=IMAGE`, an image to judge it against. Repeatable;
       each gets its own columns.
@@ -93,6 +99,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   alias ImagePipe.Test.Perf.Cases, as: PerfCases
 
   @oha "ghcr.io/hatoo/oha:1.16.0@sha256:3ec3dbf549ea197793482d47a6324797411406bbf438c2fe8b91f244ec641a2f"
+  @nginx "nginx:1.29.2-alpine@sha256:61e01287e546aac28a3f56839c136b31f590273f3b41187a36f46f6a03bbfe22"
   @sources "test/support/image_pipe/test/sources"
   @perf_sources "test/support/image_pipe/test/perf/sources"
   @perf_photo "priv/static/images/flower.jpg"
@@ -129,6 +136,20 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   # requests, between `--duration` and `@max_window` seconds.
   @window_requests 15
   @max_window 10
+  # The `cached` source's origin. `/r/<token>/` in front of a path serves the
+  # same file under a new URL, so each `random: :source` request downloads a
+  # new original.
+  @origin_conf """
+  server {
+    listen 80;
+    root /srv;
+    location ~ ^/r/[^/]+/(.+)$ {
+      alias /srv/$1;
+    }
+  }
+  """
+  # The random part of a `random` case's URL, as oha generates it.
+  @token_regex "[a-z0-9]{16}"
   @max_input_pixels 100_000_000
   @max_body_bytes 100_000_000
 
@@ -190,6 +211,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       server_env: Keyword.get_values(opts, :server_env),
       network: network,
       oha: "#{network}-oha",
+      origin: "#{network}-origin",
       servers: servers(opts),
       rounds: opts[:rounds] || 4,
       progress: nil,
@@ -198,13 +220,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       windows: %{}
     }
 
-    File.rm_rf!(settings.work)
-    sources = Path.join(settings.work, "sources")
-    File.mkdir_p!(sources)
-    File.cp_r!(@sources, sources)
-    File.cp_r!(@perf_sources, Path.join(sources, "perf"))
-    File.cp!(@perf_photo, Path.join(sources, "perf/photo12.jpg"))
-    File.write!(Path.join(settings.work, "config.toml"), server_config(settings))
+    sources = write_work!(settings)
 
     cases =
       Cases.all()
@@ -227,11 +243,31 @@ defmodule Mix.Tasks.Imgproxy.Bench do
           ["--cpuset-cpus", settings.oha_cpus, "--entrypoint", "sleep", @oha, "infinity"]
       )
 
+      start_origin(settings, cases)
       run_servers(cases, settings)
     after
+      Container.docker(["rm", "-f", settings.origin])
       Container.docker(["rm", "-f", settings.oha])
       Container.docker(["network", "rm", settings.network])
     end
+  end
+
+  # The sources, server configurations and origin configuration the
+  # containers mount. Returns the sources directory.
+  defp write_work!(settings) do
+    File.rm_rf!(settings.work)
+    sources = Path.join(settings.work, "sources")
+    File.mkdir_p!(sources)
+    File.cp_r!(@sources, sources)
+    File.cp_r!(@perf_sources, Path.join(sources, "perf"))
+    File.cp!(@perf_photo, Path.join(sources, "perf/photo12.jpg"))
+
+    for config <- [:plain, :cached] do
+      File.write!(Path.join(settings.work, config_file(config)), server_config(settings, config))
+    end
+
+    File.write!(Path.join(settings.work, "origin.conf"), @origin_conf)
+    sources
   end
 
   # ImagePipe-only cases have no imgproxy request, so only a comparison of
@@ -276,10 +312,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
     runs =
       Map.new(servers, fn server ->
-        {server.key,
-         with_server(server, settings, fn info ->
-           measure_server(server, timed, settings, info)
-         end)}
+        {server.key, measure_server(server, timed, settings)}
       end)
 
     %{
@@ -294,7 +327,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     servers =
       for {key, image} <- settings.servers, do: image_pipe_server(settings, key, image)
 
-    with_server(hd(servers), settings, &make_variants(&1, settings))
+    with_server(hd(servers), settings, :plain, &make_variants(&1, settings))
     {checks, timed, mismatched, windows} = check_servers(servers, cases, settings)
 
     settings = %{
@@ -311,8 +344,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
         stage = "round #{round}/#{settings.rounds}, "
 
         Map.new(order, fn server ->
-          {server.key,
-           with_server(server, settings, &measure_server(server, timed, settings, &1, stage))}
+          {server.key, measure_server(server, timed, settings, stage)}
         end)
       end
 
@@ -335,7 +367,16 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   defp check_servers(servers, cases, settings) do
     results =
       Map.new(servers, fn server ->
-        {server.key, with_server(server, settings, &check_all(server, cases, &1))}
+        {checks, times} =
+          server
+          |> each_config(cases, settings, fn info, _config, group ->
+            check_all(server, group, info)
+          end)
+          |> Enum.reduce(fn {checks, times}, {all_checks, all_times} ->
+            {Map.merge(all_checks, checks), Map.merge(all_times, times)}
+          end)
+
+        {server.key, {checks, times}}
       end)
 
     checks = Map.new(results, fn {key, {checked, _times}} -> {key, checked} end)
@@ -379,6 +420,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       label: "imgproxy #{Container.version()}",
       image: Container.image(),
       health: "/health",
+      configurable: false,
       path: &Container.imgproxy_path/1,
       libvips: &Container.imgproxy_libvips/1,
       args: [
@@ -410,6 +452,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       label: Enum.join(["image_pipe_server (#{image})" | settings.server_env], " "),
       image: image,
       health: "/health/live",
+      configurable: true,
       path: &Container.native_path/1,
       libvips: &Container.libvips(&1, "/usr/local/lib"),
       args:
@@ -419,16 +462,44 @@ defmodule Mix.Tasks.Imgproxy.Bench do
             "--tmpfs",
             "/tmp",
             "-v",
-            "#{Path.join(settings.work, "config.toml")}:/etc/image_pipe/config.toml:ro",
-            "-v",
             "#{Path.join(settings.work, "sources")}:/data/images:ro"
           ]
     }
   end
 
   # imgproxy's AVIF speed 8 is libvips effort 1 (`9 - speed`); both default
-  # to WebP effort 4. Neither caches, and neither checks signatures.
-  defp server_config(settings) do
+  # to WebP effort 4. Neither checks signatures, and only the `:cached`
+  # configuration caches. Its caches sit in the image's `/var/cache/image_pipe`
+  # volume, not on the `/tmp` tmpfs, whose pages would count as the server's
+  # memory. Their sizes leave a measurement window nothing to evict.
+  defp server_config(settings, config) do
+    plain_config(settings) <> cached_config(config, settings)
+  end
+
+  defp cached_config(:plain, _settings), do: ""
+
+  defp cached_config(:cached, settings) do
+    """
+
+    [sources.cached]
+    adapter = "http"
+    match = { prefix = "cached" }
+    base_url = "http://#{settings.origin}"
+    stable = "immutable"
+    cache_policy = { storage = "allow" }
+    address_policy.allow_private = true
+
+    [cache.output]
+    root = "/var/cache/image_pipe/output"
+    max_size_bytes = 50_000_000_000
+
+    [cache.input]
+    root = "/var/cache/image_pipe/input"
+    max_size_bytes = 50_000_000_000
+    """
+  end
+
+  defp plain_config(settings) do
     """
     [sources.bench]
     adapter = "file"
@@ -523,7 +594,38 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
   # -- Servers ---------------------------------------------------------------
 
-  defp with_server(server, settings, fun) do
+  defp config(c), do: Map.get(c, :config, :plain)
+
+  defp config_file(:plain), do: "config.toml"
+  defp config_file(:cached), do: "config-cached.toml"
+
+  # Only the `:cached` configuration reads from the origin.
+  defp start_origin(settings, cases) do
+    if Enum.any?(cases, &(config(&1) == :cached)), do: run_origin(settings)
+  end
+
+  defp run_origin(settings) do
+    Container.docker!(
+      ["run", "-d", "--name", settings.origin, "--network", settings.network] ++
+        ["--cpuset-cpus", settings.oha_cpus] ++
+        ["-v", "#{Path.join(settings.work, "sources")}:/srv:ro"] ++
+        ["-v", "#{Path.join(settings.work, "origin.conf")}:/etc/nginx/conf.d/default.conf:ro"] ++
+        [@nginx]
+    )
+  end
+
+  # Runs `fun` in a container for each configuration the cases need, the
+  # plain one first, with that configuration's cases.
+  defp each_config(server, cases, settings, fun) do
+    cases
+    |> Enum.group_by(&config/1)
+    |> Enum.sort_by(fn {config, _group} -> config != :plain end)
+    |> Enum.map(fn {config, group} ->
+      with_server(server, settings, config, &fun.(&1, config, group))
+    end)
+  end
+
+  defp with_server(server, settings, config, fun) do
     # oha resolves the container by name, and hostnames can't hold `_`.
     name = "#{settings.network}-#{String.replace(server.key, "_", "-")}"
 
@@ -541,7 +643,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
         settings.memory,
         "-p",
         "127.0.0.1::8080"
-      ] ++ server.args ++ [server.image]
+      ] ++ server.args ++ config_args(server, settings, config) ++ [server.image]
     )
 
     try do
@@ -549,8 +651,15 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       wait_until_ready!(name, base_url <> server.health)
       fun.(%{name: name, base_url: base_url})
     after
-      Container.docker(["rm", "-f", name])
+      Container.docker(["rm", "-f", "-v", name])
     end
+  end
+
+  defp config_args(%{configurable: false}, _settings, :plain), do: []
+
+  defp config_args(%{configurable: true}, settings, config) do
+    path = Path.join(settings.work, config_file(config))
+    ["-v", "#{path}:/etc/image_pipe/config.toml:ro"]
   end
 
   defp wait_until_ready!(name, url) do
@@ -568,8 +677,8 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
     results =
       Map.new(cases, fn c ->
-        url = info.base_url <> server.path.(c)
-        {c.id, {check(url), request_seconds(url)}}
+        url = fn -> info.base_url <> case_path(server, c) end
+        {c.id, {check(url.()), request_seconds(url)}}
       end)
 
     {Map.new(results, fn {id, {checked, _time}} -> {id, checked} end),
@@ -579,6 +688,8 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   defp request_seconds(url) do
     1..3
     |> Enum.map(fn _ ->
+      url = url.()
+
       {us, _result} =
         :timer.tc(fn ->
           Req.get(url, decode_body: false, retry: false, receive_timeout: 120_000)
@@ -637,37 +748,71 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     }
   end
 
-  defp measure_server(server, cases, settings, info, stage \\ "") do
+  # The baseline, libvips version and so on come from the first container.
+  defp measure_server(server, cases, settings, stage \\ "") do
     Mix.shell().info("Timing #{server.label}")
-    url = &"http://#{info.name}:8080#{&1}"
     levels = Enum.uniq([1, settings.concurrency])
+    indexes = cases |> Enum.with_index(1) |> Map.new(fn {c, index} -> {c.id, index} end)
 
-    baseline =
-      Map.new(
-        levels,
-        &{"#{&1}", measure(url.(server.health), &1, settings.duration, settings, info.name)}
-      )
+    [first | rest] =
+      each_config(server, cases, settings, fn info, _config, group ->
+        url = &"http://#{info.name}:8080#{&1}"
 
-    timings =
-      cases
-      |> Enum.with_index(1)
-      |> Map.new(fn {c, index} ->
-        case_url = url.(server.path.(c))
-        warm_up(case_url, settings)
-        window = Map.fetch!(settings.windows, c.id)
-        timing = Map.new(levels, &{"#{&1}", measure(case_url, &1, window, settings, info.name)})
-        report_progress(settings.progress, "#{stage}#{server.key}", index, length(cases))
-        {c.id, timing}
+        baseline =
+          Map.new(
+            levels,
+            &{"#{&1}", measure([url.(server.health)], &1, settings.duration, settings, info.name)}
+          )
+
+        timings =
+          Map.new(group, fn c ->
+            target = oha_target(server, c, url)
+            warm_up(target, settings)
+            window = Map.fetch!(settings.windows, c.id)
+            timing = Map.new(levels, &{"#{&1}", measure(target, &1, window, settings, info.name)})
+            index = Map.fetch!(indexes, c.id)
+            report_progress(settings.progress, "#{stage}#{server.key}", index, length(cases))
+            {c.id, timing}
+          end)
+
+        %{baseline: baseline, timings: timings, libvips: server.libvips.(info.name)}
       end)
 
     %{
-      baseline: baseline,
-      timings: timings,
-      libvips: server.libvips.(info.name),
+      baseline: first.baseline,
+      timings: Enum.reduce(rest, first.timings, &Map.merge(&2, &1.timings)),
+      libvips: first.libvips,
       image: server.image,
       image_id: Container.docker!(["image", "inspect", "--format", "{{.Id}}", server.image]),
       label: server.label
     }
+  end
+
+  # A case's path. A `random` case gets a new token on every call.
+  defp case_path(server, c), do: server.path.(randomize(c, token()))
+
+  defp token, do: Base.encode32(:crypto.strong_rand_bytes(10), case: :lower, padding: false)
+
+  defp randomize(%{random: :output} = c, token), do: %{c | native: "cb=#{token}/#{c.native}"}
+
+  defp randomize(%{random: :source, source: "cached/" <> path} = c, token),
+    do: %{c | source: "cached/r/#{token}/#{path}"}
+
+  defp randomize(c, _token), do: c
+
+  # oha's URL arguments for a case: a `random` case's URL is a regular
+  # expression oha draws a new URL from for every request. oha reads `.` in
+  # it literally, and the paths hold no other metacharacters.
+  defp oha_target(server, c, url) do
+    case Map.get(c, :random) do
+      nil ->
+        [url.(server.path.(c))]
+
+      _random ->
+        marker = "zztokenzz"
+        regex = c |> randomize(marker) |> server.path.() |> url.()
+        ["--rand-regex-url", String.replace(regex, marker, @token_regex)]
+    end
   end
 
   # Counts measured cases across the run, so each progress line can say how
@@ -698,17 +843,26 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   defp minutes(seconds) when seconds < 60, do: "#{seconds}s"
   defp minutes(seconds), do: "#{div(seconds, 60)} min"
 
-  defp warm_up(url, settings) do
-    oha(["-n", "#{2 * settings.concurrency}", "-c", "#{settings.concurrency}", url], settings)
+  # Every case answered 200 in its check, so another status here means oha
+  # requested something else.
+  defp warm_up(target, settings) do
+    load =
+      oha(
+        ["-n", "#{2 * settings.concurrency}", "-c", "#{settings.concurrency}"] ++ target,
+        settings
+      )
+
+    statuses = load["statusCodeDistribution"]
+    if Map.keys(statuses) != ["200"], do: Mix.raise("Warm-up got #{inspect(statuses)}")
   end
 
   # Reads the server's cgroup: CPU time over the run, and memory sampled every
   # 200 ms while oha runs.
-  defp measure(url, concurrency, window, settings, container) do
+  defp measure(target, concurrency, window, settings, container) do
     cpu_before = cpu_usec(container)
     started = System.monotonic_time(:microsecond)
     sampler = Task.async(fn -> sample_memory(container, nil) end)
-    load = oha(["-z", "#{window}s", "-c", "#{concurrency}", "-w", url], settings)
+    load = oha(["-z", "#{window}s", "-c", "#{concurrency}", "-w"] ++ target, settings)
     elapsed = System.monotonic_time(:microsecond) - started
     send(sampler.pid, :stop)
     peak = Task.await(sampler, 30_000)
