@@ -22,6 +22,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `[:cache, :coordination]` with `result: :bypass` and `reason: :not_stored`.
   See [request coalescing](docs/caching-and-freshness.md#request-coalescing).
 
+### Fixed
+
+- An image whose EXIF date fields aren't plain numbers (such as
+  `2024:01:01 02+02:00:00`) no longer fails with a 500 when metadata is
+  stripped. All of its metadata is removed, including the copyright and
+  artist that `keep_copyright` would keep.
+
 ## [0.3.0] - 2026-10-18
 
 ### Added
