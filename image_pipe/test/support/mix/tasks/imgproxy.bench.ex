@@ -29,10 +29,10 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     * `--only` - comma-separated case ids or families (`resize`, `crop`,
       `canvas`, `orientation`, `trim`, `effects`, `watermark`, `output`, and
       with `--compare`, `decode`, `colour`, `autoquality`, `placeholder`,
-      `cache`), or `perf` for 34 reference cases that cover every family and
-      kind of source. With `--compare`, `perf` adds the 13
+      `cache`, `concurrency`), or `perf` for 34 reference cases that cover
+      every family and kind of source. With `--compare`, `perf` adds the 13
       `ImagePipe.Test.Perf.Cases` every `perf` pull request times, and
-      `nightly` all 29 of them.
+      `nightly` all 29 of them and the 6 `concurrency` cases.
     * `--cpus` - CPUs pinned to each server, default 4. Must leave at least
       one CPU for `oha`.
     * `--concurrency` - server worker count and the second load level,
@@ -68,9 +68,18 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   photo variants they read.
 
   The `cache` family runs on a second container per image, whose
-  configuration adds an output cache, an originals cache, and a `cached` HTTP
+  configuration adds an output cache, an originals cache, and an `origin` HTTP
   source that reads the bench's sources from an `nginx` container on the
   same network. Every other case runs without a cache, as above.
+
+  The `concurrency` family, in the `nightly` set, isn't timed by oha. Each
+  case sends `--concurrency` requests at once for a new original, which the
+  origin sends at about 512 KiB/s, so they overlap its download. It runs
+  three such bursts per image and round, each in a container with the caches
+  the case names, and records the time to the last response, the downloads
+  the origin served, and the generations the server's stage log shows. The
+  counts don't vary between runs, so the report marks any difference in
+  them.
 
     * `--compare` - the image to judge.
     * `--against` - `NAME=IMAGE`, an image to judge it against. Repeatable;
@@ -136,9 +145,10 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   # requests, between `--duration` and `@max_window` seconds.
   @window_requests 15
   @max_window 10
-  # The `cached` source's origin. `/r/<token>/` in front of a path serves the
+  # The `origin` source's origin. `/r/<token>/` in front of a path serves the
   # same file under a new URL, so each `random: :source` request downloads a
-  # new original.
+  # new original. `/slow/r/<token>/` does too, at a rate that takes about a
+  # second for a burst's 2 MP source.
   @origin_conf """
   server {
     listen 80;
@@ -146,8 +156,18 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     location ~ ^/r/[^/]+/(.+)$ {
       alias /srv/$1;
     }
+    location ~ ^/slow/r/[^/]+/(.+)$ {
+      alias /srv/$1;
+      limit_rate 512k;
+    }
   }
   """
+  @configs [:plain, :cached] ++
+             for(caches <- [:none, :output, :input, :both], do: {:burst, caches})
+  # Bursts per image and round for each `concurrency` case.
+  @bursts 3
+  # The stage log line each generation writes.
+  @generation_line "image_pipe transform execute:"
   # The random part of a `random` case's URL, as oha generates it.
   @token_regex "[a-z0-9]{16}"
   @max_input_pixels 100_000_000
@@ -262,7 +282,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     File.cp_r!(@perf_sources, Path.join(sources, "perf"))
     File.cp!(@perf_photo, Path.join(sources, "perf/photo12.jpg"))
 
-    for config <- [:plain, :cached] do
+    for config <- @configs do
       File.write!(Path.join(settings.work, config_file(config)), server_config(settings, config))
     end
 
@@ -273,7 +293,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   # ImagePipe-only cases have no imgproxy request, so only a comparison of
   # ImagePipe images times them.
   defp perf_cases(%{servers: nil}), do: []
-  defp perf_cases(_settings), do: PerfCases.all()
+  defp perf_cases(settings), do: PerfCases.all() ++ PerfCases.bursts(settings.concurrency)
 
   # Compare mode judges one ImagePipe image against others; otherwise the
   # configured image runs against imgproxy.
@@ -327,6 +347,8 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     servers =
       for {key, image} <- settings.servers, do: image_pipe_server(settings, key, image)
 
+    {bursts, cases} = Enum.split_with(cases, &burst?/1)
+
     with_server(hd(servers), settings, :plain, &make_variants(&1, settings))
     {checks, timed, mismatched, windows} = check_servers(servers, cases, settings)
 
@@ -344,7 +366,8 @@ defmodule Mix.Tasks.Imgproxy.Bench do
         stage = "round #{round}/#{settings.rounds}, "
 
         Map.new(order, fn server ->
-          {server.key, measure_server(server, timed, settings, stage)}
+          run = measure_server(server, timed, settings, stage)
+          {server.key, Map.put(run, :bursts, run_bursts(server, bursts, settings))}
         end)
       end
 
@@ -356,6 +379,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       "against" => for({key, _image} <- tl(settings.servers), do: key),
       "environment" => environment(settings, first),
       "cases" => Enum.map(timed, &compare_result(&1, rounds, settings.windows)),
+      "bursts" => Enum.map(bursts, &burst_result(&1, rounds)),
       "baseline" =>
         Map.new(servers, fn s -> {s.key, Enum.map(rounds, &Map.fetch!(&1, s.key).baseline)} end),
       "mismatches" => Enum.map(mismatched, &mismatch(&1, checks))
@@ -369,10 +393,10 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       Map.new(servers, fn server ->
         {checks, times} =
           server
-          |> each_config(cases, settings, fn info, _config, group ->
+          |> each_config(by_config(cases), settings, fn info, _config, group ->
             check_all(server, group, info)
           end)
-          |> Enum.reduce(fn {checks, times}, {all_checks, all_times} ->
+          |> Enum.reduce({%{}, %{}}, fn {checks, times}, {all_checks, all_times} ->
             {Map.merge(all_checks, checks), Map.merge(all_times, times)}
           end)
 
@@ -469,35 +493,61 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
   # imgproxy's AVIF speed 8 is libvips effort 1 (`9 - speed`); both default
   # to WebP effort 4. Neither checks signatures, and only the `:cached`
-  # configuration caches. Its caches sit in the image's `/var/cache/image_pipe`
+  # configuration and the bursts' cache. Its caches sit in the image's `/var/cache/image_pipe`
   # volume, not on the `/tmp` tmpfs, whose pages would count as the server's
   # memory. Their sizes leave a measurement window nothing to evict.
   defp server_config(settings, config) do
-    plain_config(settings) <> cached_config(config, settings)
+    plain_config(settings) <> extra_config(config, settings)
   end
 
-  defp cached_config(:plain, _settings), do: ""
+  defp extra_config(:plain, _settings), do: ""
+  defp extra_config(:cached, settings), do: origin_config(settings) <> caches_config(:both)
 
-  defp cached_config(:cached, settings) do
+  # A burst's generations are counted from the stage log.
+  defp extra_config({:burst, caches}, settings) do
+    origin_config(settings) <>
+      caches_config(caches) <>
+      """
+
+      [telemetry]
+      log_stages = true
+      """
+  end
+
+  defp origin_config(settings) do
     """
 
-    [sources.cached]
+    [sources.origin]
     adapter = "http"
-    match = { prefix = "cached" }
+    match = { prefix = "origin" }
     base_url = "http://#{settings.origin}"
     stable = "immutable"
     cache_policy = { storage = "allow" }
     address_policy.allow_private = true
+    """
+  end
+
+  defp caches_config(:none), do: ""
+
+  defp caches_config(:output) do
+    """
 
     [cache.output]
     root = "/var/cache/image_pipe/output"
     max_size_bytes = 50_000_000_000
+    """
+  end
+
+  defp caches_config(:input) do
+    """
 
     [cache.input]
     root = "/var/cache/image_pipe/input"
     max_size_bytes = 50_000_000_000
     """
   end
+
+  defp caches_config(:both), do: caches_config(:output) <> caches_config(:input)
 
   defp plain_config(settings) do
     """
@@ -587,10 +637,15 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   defp estimate_minutes(cases, %{servers: nil} = settings),
     do: ceil(length(cases) * 2 * (2 * settings.duration + 1) / 60)
 
+  # A burst takes about two seconds, and its container about five to start.
   defp estimate_minutes(cases, settings) do
     runs = length(settings.servers) * settings.rounds
-    ceil(length(cases) * runs * (2 * settings.duration + 1) / 60)
+    {bursts, cases} = Enum.split_with(cases, &burst?/1)
+    seconds = length(cases) * (2 * settings.duration + 1) + length(bursts) * (2 * @bursts + 5)
+    ceil(runs * seconds / 60)
   end
+
+  defp burst?(c), do: Map.get(c, :kind) == :burst
 
   # -- Servers ---------------------------------------------------------------
 
@@ -598,10 +653,11 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
   defp config_file(:plain), do: "config.toml"
   defp config_file(:cached), do: "config-cached.toml"
+  defp config_file({:burst, caches}), do: "config-burst-#{caches}.toml"
 
-  # Only the `:cached` configuration reads from the origin.
+  # Only the `:plain` configuration doesn't read from the origin.
   defp start_origin(settings, cases) do
-    if Enum.any?(cases, &(config(&1) == :cached)), do: run_origin(settings)
+    if Enum.any?(cases, &(config(&1) != :plain)), do: run_origin(settings)
   end
 
   defp run_origin(settings) do
@@ -614,13 +670,17 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     )
   end
 
-  # Runs `fun` in a container for each configuration the cases need, the
-  # plain one first, with that configuration's cases.
-  defp each_config(server, cases, settings, fun) do
+  # The cases grouped by configuration, the plain one first.
+  defp by_config(cases) do
     cases
     |> Enum.group_by(&config/1)
     |> Enum.sort_by(fn {config, _group} -> config != :plain end)
-    |> Enum.map(fn {config, group} ->
+  end
+
+  # Runs `fun` in a container for each `{config, cases}` group, with that
+  # configuration's cases.
+  defp each_config(server, groups, settings, fun) do
+    Enum.map(groups, fn {config, group} ->
       with_server(server, settings, config, &fun.(&1, config, group))
     end)
   end
@@ -754,8 +814,11 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     levels = Enum.uniq([1, settings.concurrency])
     indexes = cases |> Enum.with_index(1) |> Map.new(fn {c, index} -> {c.id, index} end)
 
+    # With only bursts selected, a plain container still gives the baseline.
+    groups = if cases == [], do: [{:plain, []}], else: by_config(cases)
+
     [first | rest] =
-      each_config(server, cases, settings, fn info, _config, group ->
+      each_config(server, groups, settings, fn info, _config, group ->
         url = &"http://#{info.name}:8080#{&1}"
 
         baseline =
@@ -788,6 +851,57 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     }
   end
 
+  # Each burst case's bursts: `%{"ms", "downloads", "generations"}` for each.
+  defp run_bursts(server, bursts, settings) do
+    server
+    |> each_config(by_config(bursts), settings, fn info, _config, group ->
+      Map.new(group, fn b ->
+        {b.id, Enum.map(1..@bursts, fn _ -> burst(b, info, settings) end)}
+      end)
+    end)
+    |> Enum.reduce(%{}, &Map.merge/2)
+  end
+
+  # Sends a burst's requests at once, for a source path no request has used.
+  # Logger writes a request's stage lines around its response, so the counts
+  # wait a moment for them.
+  defp burst(b, info, settings) do
+    token = token()
+    before = log_count(info.name, @generation_line)
+    started = System.monotonic_time(:millisecond)
+
+    statuses =
+      b.natives
+      |> Task.async_stream(
+        &Req.get("#{info.base_url}/#{&1}/src/origin/slow/r/#{token}/#{b.source}",
+          decode_body: false,
+          retry: false,
+          receive_timeout: 120_000
+        ),
+        max_concurrency: length(b.natives),
+        timeout: :infinity
+      )
+      |> Enum.map(fn
+        {:ok, {:ok, %Req.Response{status: status}}} -> status
+        other -> inspect(other)
+      end)
+
+    ms = System.monotonic_time(:millisecond) - started
+    if Enum.any?(statuses, &(&1 != 200)), do: Mix.raise("#{b.id} got #{inspect(statuses)}")
+    Process.sleep(500)
+
+    %{
+      "ms" => ms,
+      "downloads" => log_count(settings.origin, "/slow/r/#{token}/"),
+      "generations" => log_count(info.name, @generation_line) - before
+    }
+  end
+
+  defp log_count(container, needle) do
+    {logs, 0} = System.cmd("docker", ["logs", container], stderr_to_stdout: true)
+    logs |> String.split("\n") |> Enum.count(&String.contains?(&1, needle))
+  end
+
   # A case's path. A `random` case gets a new token on every call.
   defp case_path(server, c), do: server.path.(randomize(c, token()))
 
@@ -795,8 +909,8 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
   defp randomize(%{random: :output} = c, token), do: %{c | native: "cb=#{token}/#{c.native}"}
 
-  defp randomize(%{random: :source, source: "cached/" <> path} = c, token),
-    do: %{c | source: "cached/r/#{token}/#{path}"}
+  defp randomize(%{random: :source, source: "origin/" <> path} = c, token),
+    do: %{c | source: "origin/r/#{token}/#{path}"}
 
   defp randomize(c, _token), do: c
 
@@ -948,6 +1062,24 @@ defmodule Mix.Tasks.Imgproxy.Bench do
         |> Enum.uniq()
         |> Map.new(fn key ->
           {key, Enum.map(rounds, &Map.fetch!(Map.fetch!(&1, key).timings, c.id))}
+        end)
+    }
+  end
+
+  defp burst_result(b, rounds) do
+    {:burst, caches} = b.config
+
+    %{
+      "id" => b.id,
+      "caches" => Atom.to_string(caches),
+      "requests" => length(b.natives),
+      "natives" => Enum.uniq(b.natives),
+      "rounds" =>
+        rounds
+        |> Enum.flat_map(&Map.keys/1)
+        |> Enum.uniq()
+        |> Map.new(fn key ->
+          {key, Enum.map(rounds, &Map.fetch!(Map.fetch!(&1, key).bursts, b.id))}
         end)
     }
   end
