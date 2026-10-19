@@ -297,11 +297,26 @@ defmodule ImagePipe.Telemetry.LoggerTest do
             result: result
           })
         end
+
+        Telemetry.execute([telemetry_prefix: prefix], [:cache, :coordination], %{}, %{
+          pool: :output,
+          operation: :output,
+          result: :bypass,
+          reason: :deadline
+        })
+
+        Telemetry.execute([telemetry_prefix: prefix], [:cache, :coordination], %{}, %{
+          pool: :download,
+          operation: :download,
+          result: :busy
+        })
       end)
 
     assert log =~ "cache coordination: waiting (output pool)"
     assert log =~ "cache coordination: ready (output pool)"
     assert log =~ "[warning] image_pipe cache coordination: bypass (output pool)"
+    assert log =~ "[warning] image_pipe cache coordination: bypass (deadline) (output pool)"
+    assert log =~ "[info] image_pipe cache coordination: busy (download pool)"
   end
 
   test "logs the cache sweep span" do
@@ -354,21 +369,33 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "[warning] image_pipe cache coordination: timeout (input pool)"
   end
 
-  test "logs a source download that releases its waiters at the base level" do
+  test "logs waits ended by an image that may not be stored at the base level" do
     prefix = [__MODULE__, :source_not_stored]
     Telemetry.attach_default_logger(prefix: prefix, level: :info, stages: true)
 
     log =
       capture_log(fn ->
-        Telemetry.execute([telemetry_prefix: prefix], [:cache, :coordination], %{}, %{
-          pool: :input,
-          operation: :source,
-          result: :bypass,
-          reason: :not_stored
-        })
+        for {pool, operation, reason} <- [
+              {:input, :source, :not_stored},
+              {:download, :download, :not_stored},
+              {:download, :download, :watermark_not_stored}
+            ] do
+          Telemetry.execute([telemetry_prefix: prefix], [:cache, :coordination], %{}, %{
+            pool: pool,
+            operation: operation,
+            result: :bypass,
+            reason: reason
+          })
+        end
       end)
 
-    assert log =~ "[info] image_pipe cache coordination: bypass (input pool)"
+    assert log =~ "[info] image_pipe cache coordination: bypass (not_stored) (input pool)"
+    assert log =~ "[info] image_pipe cache coordination: bypass (not_stored) (download pool)"
+
+    assert log =~
+             "[info] image_pipe cache coordination: bypass (watermark_not_stored) (download pool)"
+
+    refute log =~ "[warning]"
   end
 
   test "renders the encode span with its output format" do

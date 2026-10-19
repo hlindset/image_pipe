@@ -40,17 +40,19 @@ defmodule ImagePipe.Execution.SourceCache do
   def status(record, source, config),
     do: CacheState.status(Record.state(record, source.cache_semantics), now(config))
 
-  def acquire(source, key, previous, preparation, config) do
+  # `download` is the lease identical requests wait on for this download, or
+  # nil.
+  def acquire(source, key, previous, preparation, config, download \\ nil) do
     case Source.validation_mode(source, config) do
       :local ->
-        acquire_local(source, key, previous, preparation, config)
+        acquire_local(source, key, previous, preparation, config, download)
 
       :exclusive ->
-        acquire_locked(source, key, previous, preparation, config)
+        acquire_locked(source, key, previous, preparation, config, download)
 
       {:shared, adapter} ->
         cohort = validation_cohort(source, previous, adapter, config)
-        acquire_locked(source, key, previous, preparation, config, cohort)
+        acquire_locked(source, key, previous, preparation, config, download, cohort)
     end
   end
 
@@ -59,22 +61,23 @@ defmodule ImagePipe.Execution.SourceCache do
          key,
          %Record{origin: %Source.Origin{}} = previous,
          preparation,
-         config
+         config,
+         download
        ) do
     case validated_on_every_use?(previous, source) do
       true ->
         case check_unchanged(source, previous, config) do
           {:ok, _acquisition} = result -> result
-          :changed -> acquire_locked(source, key, previous, preparation, config)
+          :changed -> acquire_locked(source, key, previous, preparation, config, download)
         end
 
       false ->
-        acquire_locked(source, key, previous, preparation, config)
+        acquire_locked(source, key, previous, preparation, config, download)
     end
   end
 
-  defp acquire_local(source, key, previous, preparation, config),
-    do: acquire_locked(source, key, previous, preparation, config)
+  defp acquire_local(source, key, previous, preparation, config, download),
+    do: acquire_locked(source, key, previous, preparation, config, download)
 
   # A changed or failed stat must be observed again while holding the lease,
   # before staging new bytes or invalidating an existing record.
@@ -98,9 +101,9 @@ defmodule ImagePipe.Execution.SourceCache do
 
   # `cohort` is the validation cohort this request may share a validation
   # with, or nil.
-  defp acquire_locked(source, key, previous, preparation, config, cohort \\ nil) do
+  defp acquire_locked(source, key, previous, preparation, config, download, cohort \\ nil) do
     coordinate(
-      shared_work?(source, config),
+      shared_work?(source, previous, config),
       key,
       fn coordination, outcome ->
         lease = if coordination, do: coordination
@@ -115,7 +118,7 @@ defmodule ImagePipe.Execution.SourceCache do
         result =
           case status(record, source, config) do
             :fresh -> {:ok, %Acquisition{record: record}}
-            _validate -> fetch(source, key, record, preparation, config, lease)
+            _validate -> fetch(source, key, record, preparation, config, {lease, download})
           end
 
         complete_validation(coordination, result, source, cohort)
@@ -191,28 +194,39 @@ defmodule ImagePipe.Execution.SourceCache do
   end
 
   # A request waits for another one's work on the same source only when that
-  # work can leave something it uses: a stored original, or a source record
-  # that leads it to a stored or coalesced image.
+  # work can leave something it uses: a stored original, or a shared check of
+  # a known one. A request that gets only a new original's record still has
+  # to download the original to make its image, so without an originals cache
+  # it doesn't wait for a first download.
   defp coordinate(true, key, fun, opts), do: Work.run({:source, key.hash}, fun, opts)
   defp coordinate(false, _key, fun, _opts), do: fun.(false, :uncoordinated)
 
-  defp shared_work?(source, config),
+  defp shared_work?(%{internal_cache: :disabled}, _previous, _config), do: false
+
+  defp shared_work?(_source, previous, config),
     do:
-      source.internal_cache == :enabled and
-        (Keyword.has_key?(config, :cache) or Keyword.has_key?(config, :input_cache))
+      Keyword.has_key?(config, :input_cache) or
+        (previous != nil and Keyword.has_key?(config, :cache))
 
   # A request waiting behind another one's download gives up a second after
   # that download's own deadline, with the same timeout error.
-  defp work_opts(source, config, cohort \\ nil)
-
-  defp work_opts(%{fetch: fetch}, config, cohort) when is_list(fetch) do
-    case Keyword.get(fetch, :fetch_timeout) do
+  defp work_opts(source, config, cohort \\ nil) do
+    case wait_timeout(source) do
       nil -> coordination_opts(config, cohort)
-      timeout -> Keyword.put(coordination_opts(config, cohort), :wait, timeout + 1_000)
+      timeout -> Keyword.put(coordination_opts(config, cohort), :wait, timeout)
     end
   end
 
-  defp work_opts(_source, config, cohort), do: coordination_opts(config, cohort)
+  # How long a request waits behind another one's download of `source`, or
+  # nil when the source sets no download deadline.
+  def wait_timeout(%{fetch: fetch}) when is_list(fetch) do
+    case Keyword.get(fetch, :fetch_timeout) do
+      nil -> nil
+      timeout -> timeout + 1_000
+    end
+  end
+
+  def wait_timeout(_source), do: nil
 
   defp coordination_opts(config, cohort),
     do: Keyword.put(Telemetry.telemetry_opts(config), :share, cohort)
@@ -230,12 +244,12 @@ defmodule ImagePipe.Execution.SourceCache do
   defp open_or_fetch(source, key, record, preparation, config, ref) when is_reference(ref) do
     case Input.recheck(key, record, config) do
       {:ok, path, lease} -> checked_input(record, path, lease, config)
-      :miss -> fetch(source, key, nil, preparation, config, ref, record)
+      :miss -> fetch(source, key, nil, preparation, config, {ref, nil}, record)
     end
   end
 
   defp open_or_fetch(source, key, record, preparation, config, false),
-    do: fetch(source, key, nil, preparation, config, nil, record)
+    do: fetch(source, key, nil, preparation, config, {nil, nil}, record)
 
   defp checked_input(record, path, lease, config) do
     limit = Keyword.fetch!(config, :max_body_bytes)
@@ -260,16 +274,18 @@ defmodule ImagePipe.Execution.SourceCache do
     end
   end
 
-  # `lease` is this request's lease on the source's work, or nil. `known` is a
+  # `lease` is this request's lease on the source's work and `download` the
+  # lease identical requests wait on, either nil. `release_unstored/5` lets
+  # both sets of waiters go when the response may not be stored. `known` is a
   # current record whose bytes are needed again, for another variant. A local
   # original whose evidence still matches it isn't rehashed.
-  defp fetch(source, key, previous, preparation, config, lease, known \\ nil) do
+  defp fetch(source, key, previous, preparation, config, {lease, download}, known \\ nil) do
     Telemetry.span(Telemetry.telemetry_opts(config), [:source, :stage], %{}, fn ->
       started = System.monotonic_time(:microsecond)
       preparation = if is_nil(previous), do: preparation
 
       stage = fn response ->
-        release_unstored(lease, response, source, config)
+        release_unstored(lease, download, response, source, config)
         stage(response, source, preparation, config, known)
       end
 
@@ -282,11 +298,11 @@ defmodule ImagePipe.Execution.SourceCache do
 
   # Requests waiting for a download that won't be stored would only download
   # it again once it ends, so they start now.
-  defp release_unstored(nil, _response, _source, _config), do: :ok
-
-  defp release_unstored(lease, response, source, config) do
-    if not storable?(Record.new(source, nil, response.origin, now(config)), source),
-      do: Work.release_waiters(lease)
+  defp release_unstored(lease, download, response, source, config) do
+    if not storable?(Record.new(source, nil, response.origin, now(config)), source) do
+      if lease, do: Work.release_waiters(lease)
+      Cache.OutputWork.complete(download, {:bypass, :not_stored})
+    end
   end
 
   # Only writes take the publication lock, so a check that changes nothing,
