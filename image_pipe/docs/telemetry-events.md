@@ -537,6 +537,13 @@ with or without `stages: true`.
 
 One-shot. Emitted when concurrent requests for the same original or image
 are coordinated (see [request coalescing](caching-and-freshness.md#request-coalescing)).
+A request emits no `:source` event when its source has
+`internal_cache: :disabled`. Without an originals cache, it emits one only
+when it checks an original downloaded earlier and a processed-image cache is
+configured. A request emits no `:output` event when no processed-image cache
+is configured, when the image may not be stored, or, for a
+[low-priority request](processing/request.md#priority), when no other request
+is making the image.
 The default Logger logs `:busy`, `:bypass`, and `:timeout` results at
 `:warning`, except a `:bypass` with reason `:not_stored`, which it logs at
 its base level.
@@ -551,10 +558,11 @@ its base level.
       `:coalesced` (it waited for another request's download or check),
       `:timeout` (it stopped waiting for one), `:bypass` (the original may
       not be stored, so it downloads it itself), or `:busy` (coordination is
-      at capacity).
+      at capacity, or the coordinating process isn't running).
     - `:refresh`: `:started` (this request starts one), `:coalesced` (one is
       already running), `:backoff` (a refresh of the same image finished
-      less than a second ago), or `:busy` (coordination is at capacity).
+      less than a second ago), or `:busy` (coordination is at capacity, or
+      the coordinating process isn't running).
     - `:output`: `:acquired` (this request generates), `:waiting` (it
       waits for another), `:ready` (it can check the cache again), `:bypass`
       (it generates on its own), or `:busy` (coordination is at capacity).

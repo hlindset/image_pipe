@@ -207,8 +207,9 @@ background checks (see
   downloaded, the next waiting request takes over, and downloads it again
   if it still isn't stored.
 - Up to 16 background checks run at once. Each has a 60-second deadline.
-  After a check of an original finishes, that original isn't checked in the
-  background again for one second.
+  After a background check started by a processed image finishes, that image
+  doesn't start another for one second. Other sizes of the same original
+  still can.
 - Up to 64 processed images can be made at once while other requests wait for
   them, with up to 1,024 requests waiting. A request waits at most 60 seconds,
   and at most 2 seconds after the image was sent if it isn't stored by then.
