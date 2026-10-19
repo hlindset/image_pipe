@@ -54,6 +54,7 @@ defmodule ImagePipeServer.Config.Reference do
         "stage of each request, for debugging. `log_format` is `text`, or one JSON object " <>
         "per line: `json`, or " <>
         "`gcp`, `datadog`, or `elastic` for those log collectors' field names. " <>
+        "`log_colors` colors `text` lines by level. " <>
         "With `trust_traceparent`, a request with a W3C `traceparent` " <>
         "header joins the caller's trace when [tracing](server-deployment.md#tracing) " <>
         "is on. Any client can send that header. With `trust_request_id`, an incoming " <>

@@ -17,7 +17,7 @@ defmodule ImagePipeServer.Application do
     config = config!()
 
     Logger.configure(level: config.log_level)
-    configure_log_format(config.log_format)
+    configure_log_format(config.log_format, config.log_colors)
 
     # Each request decodes a new original, so libvips' operation cache rarely
     # hits and mostly keeps decoded images in memory.
@@ -49,20 +49,26 @@ defmodule ImagePipeServer.Application do
     elastic: LoggerJSON.Formatters.Elastic
   }
 
-  defp configure_log_format(format) do
-    case log_formatter(format) do
-      nil -> :ok
-      # A host that removed the default handler keeps its own handlers.
-      formatter -> _ = :logger.update_handler_config(:default, :formatter, formatter)
-    end
+  # A host that removed the default handler keeps its own handlers.
+  defp configure_log_format(format, colors) do
+    _ = :logger.update_handler_config(:default, :formatter, log_formatter(format, colors))
+    :ok
   end
 
   @doc false
-  # The default handler's formatter for `format`, or nil to keep the text one.
-  @spec log_formatter(atom()) :: {module(), term()} | nil
-  def log_formatter(:text), do: nil
+  # The default handler's formatter for `format`. Text lines get colors only
+  # with `colors`: Elixir colors them whenever stdout and stderr are
+  # terminals, and some hosts run containers on a terminal while collecting
+  # its output as plain text.
+  @spec log_formatter(atom(), boolean()) :: {module(), term()}
+  def log_formatter(:text, colors) do
+    :logger
+    |> Application.get_env(:default_formatter, [])
+    |> Keyword.put(:colors, enabled: colors)
+    |> Logger.Formatter.new()
+  end
 
-  def log_formatter(format) do
+  def log_formatter(format, _colors) do
     Map.fetch!(@log_formatters, format).new(metadata: [:request_id, :image_pipe])
   end
 

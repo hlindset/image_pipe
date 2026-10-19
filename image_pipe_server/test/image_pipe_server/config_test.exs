@@ -204,6 +204,7 @@ defmodule ImagePipeServer.ConfigTest do
               "log_requests" => true,
               "log_stages" => true,
               "log_format" => "gcp",
+              "log_colors" => true,
               "trust_traceparent" => true,
               "trust_request_id" => true
             }
@@ -214,6 +215,7 @@ defmodule ImagePipeServer.ConfigTest do
       assert config.image_pipe.options[:processing_pool] == config.pool[:name]
       assert config.log_level == :warning
       assert config.log_format == :gcp
+      assert config.log_colors == true
       assert config.telemetry == [level: :info, stages: true]
       assert config.trust_traceparent == true
       assert config.trust_request_id == true
@@ -228,11 +230,12 @@ defmodule ImagePipeServer.ConfigTest do
                "pool"
     end
 
-    test "defaults [telemetry] to info, a summary line per request, text, and no inbound IDs" do
+    test "defaults [telemetry] to info, a summary line per request, plain text, and no inbound IDs" do
       config = Config.build!([])
 
       assert config.log_level == :info
       assert config.log_format == :text
+      assert config.log_colors == false
       assert config.telemetry == [level: :info, stages: false]
       assert config.trust_request_id == false
 

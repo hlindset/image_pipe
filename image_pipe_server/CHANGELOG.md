@@ -5,6 +5,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- `text` log lines are no longer colored when the container runs on a
+  terminal, such as with `docker run -t`. Set `[telemetry] log_colors = true`
+  to color them by level.
+
 ## [0.3.0] - 2026-10-18
 
 ### Added

@@ -366,6 +366,9 @@ Change what's logged in `[telemetry]`:
   `"json"`, or `"gcp"`, `"datadog"`, or `"elastic"` for those collectors'
   field names. The request's fields are under an `image_pipe` key, next to
   `request_id`.
+- `log_colors = true` colors `text` lines by level. Lines are plain by
+  default, so a host that attaches a terminal to the container, such as
+  `docker run -t`, doesn't store color codes.
 
 Every response carries an `x-request-id` header, and every log line for that
 request is tagged `request_id=<id>`. The server generates the ID. Behind a

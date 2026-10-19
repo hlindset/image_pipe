@@ -26,7 +26,8 @@ defmodule ImagePipeServer.Config do
       defaults to the VM's online schedulers.
     * `[http]` - the delivery options of `ImagePipe.Plug.init/1`.
     * `[telemetry]` - `log_level` is the lowest level the server logs.
-      `log_requests` attaches the default Logger. `trust_traceparent`
+      `log_requests` attaches the default Logger. `log_colors` colors
+      `text` lines by level. `trust_traceparent`
       continues an inbound W3C `traceparent` when tracing is on, and
       `trust_request_id` keeps an inbound `x-request-id`.
 
@@ -51,6 +52,7 @@ defmodule ImagePipeServer.Config do
     :pool,
     :log_level,
     :log_format,
+    :log_colors,
     :telemetry,
     :credential_warmups
   ]
@@ -75,6 +77,7 @@ defmodule ImagePipeServer.Config do
     * `:log_level` - the lowest level the server logs.
     * `:log_format` - `:text`, or the `logger_json` format: `:json`, `:gcp`,
       `:datadog`, or `:elastic`.
+    * `:log_colors` - whether `:text` lines are colored by level.
     * `:telemetry` - default Logger options when requests are logged, or
       `nil`.
     * `:credential_warmups` - `ImagePipe.Source.S3.CredentialWarmup` options,
@@ -90,6 +93,7 @@ defmodule ImagePipeServer.Config do
           pool: keyword(),
           log_level: Logger.level(),
           log_format: :text | :json | :gcp | :datadog | :elastic,
+          log_colors: boolean(),
           telemetry: keyword() | nil,
           credential_warmups: [keyword()]
         }
@@ -113,6 +117,7 @@ defmodule ImagePipeServer.Config do
     log_requests: [type: :boolean, default: true],
     log_stages: [type: :boolean, default: false],
     log_format: [type: {:in, [:text, :json, :gcp, :datadog, :elastic]}, default: :text],
+    log_colors: [type: :boolean, default: false],
     trust_traceparent: [type: :boolean, default: false],
     trust_request_id: [type: :boolean, default: false]
   ]
@@ -304,6 +309,7 @@ defmodule ImagePipeServer.Config do
       pool: pool,
       log_level: Keyword.get(Keyword.get(sections, :telemetry, []), :log_level, :info),
       log_format: Keyword.get(Keyword.get(sections, :telemetry, []), :log_format, :text),
+      log_colors: Keyword.get(Keyword.get(sections, :telemetry, []), :log_colors, false),
       telemetry: telemetry(Keyword.get(sections, :telemetry, [])),
       credential_warmups: credential_warmups(Keyword.get(sections, :sources, []))
     }
