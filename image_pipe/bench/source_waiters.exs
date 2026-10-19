@@ -10,14 +10,23 @@
 # leader's start:
 #
 #   - downloaded: when the origin sent the last byte to the leader.
-#   - released: when each follower got the source lock.
-#   - store_wait: released minus downloaded, the wait for the stored original.
+#   - released: when each follower stopped waiting for another request's
+#     download (it got the source lock, or its download wait ended), or nil
+#     when it didn't wait.
+#   - store_wait: released minus downloaded.
 #   - behind_leader: each follower's finish minus the leader's. A follower
 #     that decoded from the download as it arrived would finish about when
 #     the leader does.
 defmodule SourceWaitersBench do
   @prefix [:source_waiters_bench]
   @widths [800, 400, 200]
+  # The events that end a follower's wait for another request's download.
+  @releases [
+    {:source, :acquired},
+    {:source, :coalesced},
+    {:download, :ready},
+    {:download, :bypass}
+  ]
 
   def run([path, rate | rest]) do
     rate = String.to_integer(rate)
@@ -31,7 +40,7 @@ defmodule SourceWaitersBench do
       __MODULE__,
       @prefix ++ [:cache, :coordination],
       fn _, _, meta, _ ->
-        :ets.insert(events, {:coordination, self(), meta.result, now()})
+        :ets.insert(events, {:coordination, self(), {meta.operation, meta.result}, now()})
       end,
       nil
     )
@@ -100,14 +109,17 @@ defmodule SourceWaitersBench do
     followers =
       for {{pid, finished}, width} <- Enum.zip(results, widths()) do
         {result, released} =
-          case for({:coordination, ^pid, result, t} <- :ets.tab2list(events), do: {result, t}) do
-            [] -> {:none, nil}
-            [{result, t} | _] -> {result, t}
-          end
+          events
+          |> :ets.tab2list()
+          |> Enum.filter(
+            &match?({:coordination, ^pid, outcome, _t} when outcome in @releases, &1)
+          )
+          |> Enum.min_by(&elem(&1, 3), fn -> {:coordination, pid, :none, nil} end)
+          |> then(fn {:coordination, _pid, outcome, t} -> {outcome, t} end)
 
         %{
           width: width,
-          coordination: result,
+          coordination: inspect(result),
           released: released && ms.(released),
           store_wait: released && Float.round((released - first_download) / 1000, 1),
           finished: ms.(finished),
