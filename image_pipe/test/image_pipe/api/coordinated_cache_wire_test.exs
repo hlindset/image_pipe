@@ -1165,7 +1165,11 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     assert_receive {:blocked, worker}
     assert_receive {:origin, _, []}
 
-    for coordinator <- [ImagePipe.Cache.Work, ImagePipe.Cache.OutputWork] do
+    for coordinator <- [
+          ImagePipe.Cache.Work,
+          ImagePipe.Cache.OutputWork,
+          ImagePipe.Cache.OutputWork.Downloads
+        ] do
       :ok = Supervisor.terminate_child(ImagePipe.Supervisor, coordinator)
       {:ok, _pid} = Supervisor.restart_child(ImagePipe.Supervisor, coordinator)
     end

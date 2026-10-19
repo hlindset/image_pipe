@@ -40,17 +40,18 @@ defmodule ImagePipe.Execution.SourceCache do
   def status(record, source, config),
     do: CacheState.status(Record.state(record, source.cache_semantics), now(config))
 
-  def acquire(source, key, previous, preparation, config) do
+  # `early` is the lease identical requests wait on for this download, or nil.
+  def acquire(source, key, previous, preparation, config, early \\ nil) do
     case Source.validation_mode(source, config) do
       :local ->
-        acquire_local(source, key, previous, preparation, config)
+        acquire_local(source, key, previous, preparation, config, early)
 
       :exclusive ->
-        acquire_locked(source, key, previous, preparation, config)
+        acquire_locked(source, key, previous, preparation, config, early)
 
       {:shared, adapter} ->
         cohort = validation_cohort(source, previous, adapter, config)
-        acquire_locked(source, key, previous, preparation, config, cohort)
+        acquire_locked(source, key, previous, preparation, config, early, cohort)
     end
   end
 
@@ -59,22 +60,23 @@ defmodule ImagePipe.Execution.SourceCache do
          key,
          %Record{origin: %Source.Origin{}} = previous,
          preparation,
-         config
+         config,
+         early
        ) do
     case validated_on_every_use?(previous, source) do
       true ->
         case check_unchanged(source, previous, config) do
           {:ok, _acquisition} = result -> result
-          :changed -> acquire_locked(source, key, previous, preparation, config)
+          :changed -> acquire_locked(source, key, previous, preparation, config, early)
         end
 
       false ->
-        acquire_locked(source, key, previous, preparation, config)
+        acquire_locked(source, key, previous, preparation, config, early)
     end
   end
 
-  defp acquire_local(source, key, previous, preparation, config),
-    do: acquire_locked(source, key, previous, preparation, config)
+  defp acquire_local(source, key, previous, preparation, config, early),
+    do: acquire_locked(source, key, previous, preparation, config, early)
 
   # A changed or failed stat must be observed again while holding the lease,
   # before staging new bytes or invalidating an existing record.
@@ -98,7 +100,7 @@ defmodule ImagePipe.Execution.SourceCache do
 
   # `cohort` is the validation cohort this request may share a validation
   # with, or nil.
-  defp acquire_locked(source, key, previous, preparation, config, cohort \\ nil) do
+  defp acquire_locked(source, key, previous, preparation, config, early, cohort \\ nil) do
     coordinate(
       shared_work?(source, previous, config),
       key,
@@ -115,7 +117,7 @@ defmodule ImagePipe.Execution.SourceCache do
         result =
           case status(record, source, config) do
             :fresh -> {:ok, %Acquisition{record: record}}
-            _validate -> fetch(source, key, record, preparation, config, lease)
+            _validate -> fetch(source, key, record, preparation, config, {lease, early})
           end
 
         complete_validation(coordination, result, source, cohort)
@@ -242,12 +244,12 @@ defmodule ImagePipe.Execution.SourceCache do
   defp open_or_fetch(source, key, record, preparation, config, ref) when is_reference(ref) do
     case Input.recheck(key, record, config) do
       {:ok, path, lease} -> checked_input(record, path, lease, config)
-      :miss -> fetch(source, key, nil, preparation, config, ref, record)
+      :miss -> fetch(source, key, nil, preparation, config, {ref, nil}, record)
     end
   end
 
   defp open_or_fetch(source, key, record, preparation, config, false),
-    do: fetch(source, key, nil, preparation, config, nil, record)
+    do: fetch(source, key, nil, preparation, config, {nil, nil}, record)
 
   defp checked_input(record, path, lease, config) do
     limit = Keyword.fetch!(config, :max_body_bytes)
@@ -272,16 +274,17 @@ defmodule ImagePipe.Execution.SourceCache do
     end
   end
 
-  # `lease` is this request's lease on the source's work, or nil. `known` is a
-  # current record whose bytes are needed again, for another variant. A local
+  # `lease` is this request's lease on the source's work, and `early` the
+  # lease identical requests wait on, each or both nil. `known` is a current
+  # record whose bytes are needed again, for another variant. A local
   # original whose evidence still matches it isn't rehashed.
-  defp fetch(source, key, previous, preparation, config, lease, known \\ nil) do
+  defp fetch(source, key, previous, preparation, config, {lease, early}, known \\ nil) do
     Telemetry.span(Telemetry.telemetry_opts(config), [:source, :stage], %{}, fn ->
       started = System.monotonic_time(:microsecond)
       preparation = if is_nil(previous), do: preparation
 
       stage = fn response ->
-        release_unstored(lease, response, source, config)
+        release_unstored(lease, early, response, source, config)
         stage(response, source, preparation, config, known)
       end
 
@@ -293,12 +296,11 @@ defmodule ImagePipe.Execution.SourceCache do
   end
 
   # Requests waiting for a download that won't be stored would only download
-  # it again once it ends, so they start now. `:on_unstored` in the config
-  # releases those waiting for this request elsewhere.
-  defp release_unstored(lease, response, source, config) do
+  # it again once it ends, so they start now.
+  defp release_unstored(lease, early, response, source, config) do
     if not storable?(Record.new(source, nil, response.origin, now(config)), source) do
       if lease, do: Work.release_waiters(lease)
-      Keyword.get(config, :on_unstored, fn -> :ok end).()
+      Cache.OutputWork.complete(early, {:bypass, :not_stored})
     end
   end
 

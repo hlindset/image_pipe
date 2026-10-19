@@ -537,26 +537,31 @@ with or without `stages: true`.
 
 One-shot. Emitted when concurrent requests for the same original or image
 are coordinated (see [request coalescing](caching-and-freshness.md#request-coalescing)).
-A request emits no `:source` event when its source has
-`internal_cache: :disabled`. Without an originals cache, it emits one only
-when it checks an original downloaded earlier and a processed-image cache is
-configured. A request emits no `:output` event when no processed-image cache
-is configured, when caching or
-[storage](caching-and-freshness.md#storage-permission) is turned off for the
-source, when it uses an original downloaded earlier whose images may not be
-stored, or, for a
-[low-priority request](processing/request.md#priority), when no other request
-is making the image.
+Which requests emit it:
+
+- `:source`: none for a source with `internal_cache: :disabled`. Without an
+  originals cache, only a request that checks an original downloaded earlier,
+  when a processed-image cache is configured.
+- `:download`: only a request for an original the cache has no record of,
+  when a processed-image cache is configured and caching and
+  [storage](caching-and-freshness.md#storage-permission) are allowed for the
+  source.
+- `:output`: none when no processed-image cache is configured, when the image
+  may not be stored, or for a
+  [low-priority request](processing/request.md#priority) when no other request
+  is making the image.
+
 The default Logger logs `:busy`, `:bypass`, and `:timeout` results at
 `:warning`, except a `:bypass` with reason `:not_stored` or
 `:watermark_not_stored`, which it logs at its base level. It shows the
-reason, when there is one, after the result.
+reason, when there is one, after the result, as in `bypass (deadline)`.
 
 - Metadata:
   - `:operation` (atom): `:source` (fetching an original), `:refresh`
-    (a background refresh), or `:output` (generating an image).
+    (a background refresh), `:download` (identical requests sharing a new
+    original's download), or `:output` (generating an image).
   - `:pool` (atom): `:input` for `:source` and `:refresh`, `:output` for
-    `:output`.
+    `:download` and `:output`.
   - `:result` (atom), by `:operation`:
     - `:source`: `:acquired` (this request fetches or checks the original),
       `:coalesced` (it waited for another request's download or check),
@@ -567,23 +572,25 @@ reason, when there is one, after the result.
       already running), `:backoff` (a refresh of the same image finished
       less than a second ago), or `:busy` (coordination is at capacity, or
       the coordinating process isn't running).
+    - `:download`: `:acquired` (this request downloads the original),
+      `:waiting` (it waits for an identical request's download), `:ready`
+      (that download finished, so the request skips its own and waits for
+      the image), `:bypass` (it stops waiting and gets the original on its
+      own, because the other request failed, the wait ran out, the
+      coordinating process isn't running, or for a `:reason` below), or
+      `:busy` (coordination is at capacity). A request that waited can then
+      emit `:output` events while it waits for the image.
     - `:output`: `:acquired` (this request generates), `:waiting` (it
       waits for another), `:ready` (it can check the cache again), `:bypass`
       (it generates on its own), or `:busy` (coordination is at capacity).
-      A request for a new original that arrives while an identical request
-      is downloading it can wait twice. It emits `:waiting` and then
-      `:ready` for the other request's download, and again for its image.
-      The first wait ends in `:bypass` instead when the original or a
-      watermark asset may not be stored.
-      The request doing the work emits `:acquired` for each.
   - `:reason` (atom), on a `:bypass`:
     - `:deadline` (`:output`): the image wasn't stored within 2 seconds of
       being sent (see [coordination limits](cache.md#coordination-limits)).
-    - `:not_stored` (`:source` or `:output`): the original may not be
+    - `:not_stored` (`:source` or `:download`): the original may not be
       stored, so the waiting request downloads it itself.
-    - `:watermark_not_stored` (`:output`): a watermark asset may not be
+    - `:watermark_not_stored` (`:download`): a watermark asset may not be
       stored, so the image may not be stored either. The waiting request
-      gets the original and makes the image itself.
+      makes the image itself.
 
 ### `[:cache, :sweep]`
 

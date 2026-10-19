@@ -147,13 +147,16 @@ needs a processed-image cache, and applies only to images that may be stored.
 Requests for different sizes or formats of one original share its download
 only when an originals cache is configured. Otherwise each of them downloads
 the original itself. When either cache is configured, requests that check a
-previously downloaded original with its origin share one check. When caching
-is turned off for the source, nothing is shared.
+previously downloaded original with its origin share one check. When
+[caching is turned off](cache.md#source-cache-settings) for the source,
+nothing is shared.
 
 All of this sharing is local to each node, so two servers can still make the
 same image. A waiting request stops waiting and does the work itself:
 
 - When the first request fails, or its image isn't stored.
+- When a watermark asset may not be stored, so neither may the image, once
+  the first request has downloaded the original.
 - When the original [may not be stored](#storage-permission), as soon as the
   origin responds.
 - When the image is too large to store or

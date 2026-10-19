@@ -65,10 +65,9 @@ mount a volume there, as shown in
 ## Add an originals cache
 
 Add an originals cache when you serve several sizes or formats of the same
-image from a remote source: new sizes, including ones requested while the
-original is still being downloaded, are then made from the stored original
-instead of downloading it again. It needs its own directory and its own
-`max_size_bytes`.
+image from a remote source: new sizes are then made from the stored original
+instead of downloading it again, even when they're requested while it's
+still downloading. It needs its own directory and its own `max_size_bytes`.
 
 <!-- tabs-open -->
 

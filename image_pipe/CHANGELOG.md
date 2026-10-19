@@ -13,24 +13,29 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- When no originals cache is configured, concurrent identical requests for
-  a new image now download its original once instead of once each. This
-  needs a processed-image cache and an image that may be stored. When the
-  original or a watermark asset turns out to be one that may not be stored,
-  the waiting requests make the image themselves and emit
-  `[:cache, :coordination]` with `operation: :output`, `result: :bypass`,
-  and `reason: :not_stored` or `reason: :watermark_not_stored`. The default
-  Logger now shows the reason on coordination lines, and logs these at its
-  base level instead of `:warning`.
-- Concurrent requests for different sizes or formats of one original no
-  longer wait for each other's download when the download can't be shared:
-  when no originals cache is configured, or when caching is turned off for
-  the source. Requests that revalidate an original downloaded earlier still
-  share one check with the origin when either cache is configured. When the
-  original may not be stored, waiting requests start their own downloads as
-  soon as the origin responds, and emit `[:cache, :coordination]` with
-  `operation: :source`, `result: :bypass`, and `reason: :not_stored`.
-  See [request coalescing](docs/caching-and-freshness.md#request-coalescing).
+- Concurrent requests for one new original share its download in more
+  setups, and no longer wait for a download they can't use. See
+  [request coalescing](docs/caching-and-freshness.md#request-coalescing).
+  - Identical requests download it once with only a processed-image cache
+    too. Before, each downloaded it after waiting for the first.
+  - Requests for different sizes or formats still share one download when an
+    originals cache is configured. Without one, they download the original
+    at the same time instead of one after another.
+  - Without a cache, or with caching turned off for the source, all of them
+    download the original at the same time instead of one after another.
+  - When the original may not be stored, waiting requests start their own
+    downloads as soon as the origin responds, instead of after the first
+    download finishes.
+- `[:cache, :coordination]` has a `:download` operation for identical
+  requests waiting for a new original's download, which reported as
+  `:source` before. `:source` events now come only from requests that share
+  work: none are emitted without a cache, for a source with
+  `internal_cache: :disabled`, or for a new original without an originals
+  cache. `:source` can report `:bypass` with `reason: :not_stored`, and
+  `:download` reports `:bypass` with `reason: :not_stored` or
+  `reason: :watermark_not_stored`. The default Logger logs those at its base
+  level, and its coordination lines show the reason after the result, as in
+  `bypass (deadline)`.
 
 ## [0.3.0] - 2026-10-18
 

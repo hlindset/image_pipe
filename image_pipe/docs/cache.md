@@ -200,18 +200,23 @@ background checks (see
 
 - Up to 64 originals can be fetched or checked at once, with up to 1,024
   requests waiting for them. Past either limit, a request fetches its
-  original itself, without waiting. A request waiting for an HTTP or S3
-  original gives up after waiting that source's `fetch_timeout` (see
-  `ImagePipe.Source.HTTP` and `ImagePipe.Source.S3`) plus one second, and
-  answers `504`. When the original isn't stored 2 seconds after it was
-  downloaded, the next waiting request takes over, and downloads it again
-  if it still isn't stored.
+  original itself, without waiting. A request for another size or format of
+  an HTTP or S3 original, waiting for another request's download of it,
+  gives up after that source's `fetch_timeout` (see `ImagePipe.Source.HTTP`
+  and `ImagePipe.Source.S3`) plus one second, and answers `504`. When the original isn't stored
+  2 seconds after it was downloaded, the next waiting request takes over,
+  and downloads it again if it still isn't stored.
+- Identical requests for a new original have their own limits of the same
+  size: up to 64 different images whose original is being downloaded, with
+  up to 1,024 requests waiting. A waiting request stops waiting after the
+  source's `fetch_timeout` plus one second, or after 60 seconds for sources
+  without one, such as files, and goes on without it.
 - Up to 16 background checks run at once. Each has a 60-second deadline.
-  After a background check started by a processed image finishes, that image
-  doesn't start another for one second. Other sizes of the same original
-  still can.
+  After a background check for a processed image finishes, no other check
+  for that image starts for one second. Checks for other sizes or formats of
+  the same original can still start.
 - Up to 64 processed images can be made at once while other requests wait for
-  them, with up to 1,024 requests waiting. A request waits at most 60 seconds,
+  them, with up to 1,024 requests waiting. Each wait lasts at most 60 seconds,
   and at most 2 seconds after the image was sent if it isn't stored by then.
   Past any of these limits, a request processes the image itself, still
   subject to the [processing pool](processing-controls.md).
