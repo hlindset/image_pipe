@@ -78,11 +78,11 @@ defmodule SourceWaitersBench do
         leader = Task.async(fn -> timed(url, 1200) end)
         Process.sleep(round(expected_ms / 4))
         followers = for width <- widths(), do: Task.async(fn -> timed(url, width) end)
-        {leader_pid, leader_end} = Task.await(leader, 300_000)
+        {_leader, leader_end} = Task.await(leader, 300_000)
         results = Enum.map(followers, &Task.await(&1, 300_000))
 
         if round > 0,
-          do: report(path, rate, body, events, started, leader_pid, leader_end, results)
+          do: report(path, rate, body, events, started, leader_end, results)
       end
     after
       Process.unlink(origin)
@@ -92,7 +92,7 @@ defmodule SourceWaitersBench do
     end
   end
 
-  defp report(path, rate, body, events, started, leader_pid, leader_end, results) do
+  defp report(path, rate, body, events, started, leader_end, results) do
     ms = &Float.round((&1 - started) / 1000, 1)
     downloads = for {:downloaded, t} <- :ets.tab2list(events), do: t
     [first_download | _] = Enum.sort(downloads)
@@ -123,8 +123,7 @@ defmodule SourceWaitersBench do
         origin_downloads: length(downloads),
         downloaded: ms.(first_download),
         leader_finished: ms.(leader_end),
-        followers: followers,
-        leader: inspect(leader_pid)
+        followers: followers
       })
     )
   end
