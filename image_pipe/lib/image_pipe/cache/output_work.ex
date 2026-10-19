@@ -20,13 +20,14 @@ defmodule ImagePipe.Cache.OutputWork do
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
-  def join(cache, key, opts, timeout \\ @wait_timeout) do
-    result = call(__MODULE__, {:join, {cache, key}, timeout, true}, :infinity)
+  # `timeout` bounds the wait, `nil` for the default.
+  def join(cache, key, opts, timeout \\ nil) do
+    result = call(__MODULE__, {:join, {cache, key}, timeout || @wait_timeout, true}, :infinity)
     joined(result, opts)
   end
 
-  def follow(cache, key, opts, timeout \\ @wait_timeout) do
-    case call(__MODULE__, {:join, {cache, key}, timeout, false}, :infinity) do
+  def follow(cache, key, opts, timeout \\ nil) do
+    case call(__MODULE__, {:join, {cache, key}, timeout || @wait_timeout, false}, :infinity) do
       :none -> :none
       result -> joined(result, opts)
     end
@@ -54,6 +55,12 @@ defmodule ImagePipe.Cache.OutputWork do
   defp joined(:busy, opts) do
     report(opts, :busy)
     :bypass
+  end
+
+  # A leader may hand its waiters what it learned along with `:ready`.
+  defp joined({:ready, _value} = result, opts) do
+    report(opts, :ready)
+    result
   end
 
   defp joined({:bypass, :deadline} = result, opts) do

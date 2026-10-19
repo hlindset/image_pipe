@@ -18,6 +18,15 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     handler = make_ref()
 
     :telemetry.attach(handler, prefix ++ [:cache, :coordination], &__MODULE__.event/4, self())
+
+    :telemetry.attach(
+      {handler, :generated},
+      prefix ++ [:transform, :execute, :stop],
+      fn _, _, _, test -> send(test, {:generated, self()}) end,
+      self()
+    )
+
+    on_exit(fn -> :telemetry.detach({handler, :generated}) end)
     on_exit(fn -> :telemetry.detach(handler) end)
 
     %{root: root, prefix: prefix, tasks: start_supervised!(Task.Supervisor)}
@@ -69,18 +78,68 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     assert Task.await(second).status == 200
   end
 
-  test "without an originals cache, identical cold requests download at once and share the image",
+  for {name, caches} <- [
+        {"with only a processed-image cache", [:cache]},
+        {"with both caches", [:cache, :input_cache]}
+      ] do
+    test "#{name}, identical cold requests share one download and one image", context do
+      mount = start(context, cache_options(context, unquote(caches)))
+      first = async(context, fn -> request(mount, 12) end)
+      assert_receive {:fetch, ["original"], _}
+      assert_receive {:streaming, leader}
+      second = async(context, fn -> request(mount, 12) end)
+      assert_receive {:coordination, %{pool: :output, result: :waiting}}
+      send(leader, :continue)
+
+      original = Task.await(first)
+      assert original.status == 200
+      assert Task.await(second).resp_body == original.resp_body
+      assert_received {:generated, _}
+      refute_received {:generated, _}
+      refute_received {:fetch, ["original"], _}
+    end
+  end
+
+  test "identical cold requests share one download of an original the origin marks no-cache",
+       context do
+    mount =
+      start(context,
+        cache: [root: Path.join(context.root, "output")],
+        origin: origin("no-cache")
+      )
+
+    first = async(context, fn -> request(mount, 12) end)
+    assert_receive {:fetch, ["original"], _}
+    assert_receive {:streaming, leader}
+    second = async(context, fn -> request(mount, 12) end)
+    assert_receive {:coordination, %{pool: :output, result: :waiting}}
+    send(leader, :continue)
+
+    original = Task.await(first)
+    assert Task.await(second).resp_body == original.resp_body
+    refute_received {:fetch, ["original"], _}
+  end
+
+  test "without an originals cache, identical requests for a known original share one image",
        context do
     mount = start(context, cache: [root: Path.join(context.root, "output")])
+    warm = async(context, fn -> request(mount, 16) end)
+    assert_receive {:streaming, worker}
+    send(worker, :continue)
+    assert Task.await(warm).status == 200
+    assert_receive {:generated, _}
+
     first = async(context, fn -> request(mount, 12) end)
     assert_receive {:streaming, leader}
     second = async(context, fn -> request(mount, 12) end)
-    assert_receive {:streaming, other}
+    assert_receive {:coordination, %{pool: :output, result: :waiting}}
+    send(leader, :continue)
 
-    for worker <- [leader, other], do: send(worker, :continue)
     original = Task.await(first)
-    assert original.status == 200
     assert Task.await(second).resp_body == original.resp_body
+    assert_received {:generated, _}
+    refute_received {:generated, _}
+    refute_received {:streaming, _}
   end
 
   test "a download the origin forbids storing releases the requests waiting for it", context do
@@ -100,6 +159,29 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     assert_receive {:fetch, ["blocked"], other}
     send(other, :continue)
     assert_receive {:streaming, ^leader}
+    assert_receive {:streaming, ^other}
+
+    for worker <- [leader, other], do: send(worker, :continue)
+    assert Task.await(first).status == 200
+    assert Task.await(second).status == 200
+  end
+
+  test "an identical request is released when the origin forbids storing the original",
+       context do
+    mount =
+      start(context,
+        cache: [root: Path.join(context.root, "output")],
+        origin: origin("no-store")
+      )
+
+    first = async(context, fn -> request(mount, 12, "blocked") end)
+    assert_receive {:fetch, ["blocked"], leader}
+    second = async(context, fn -> request(mount, 12, "blocked") end)
+    assert_receive {:coordination, %{pool: :output, result: :waiting}}
+    send(leader, :continue)
+    assert_receive {:streaming, ^leader}
+    assert_receive {:fetch, ["blocked"], other}
+    send(other, :continue)
     assert_receive {:streaming, ^other}
 
     for worker <- [leader, other], do: send(worker, :continue)
@@ -128,6 +210,11 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     |> Keyword.merge(caches)
     |> Caches.start!()
     |> Caches.plug()
+  end
+
+  defp cache_options(context, caches) do
+    for cache <- caches,
+        do: {cache, [root: Path.join(context.root, Atom.to_string(cache))]}
   end
 
   defp origin(control) do

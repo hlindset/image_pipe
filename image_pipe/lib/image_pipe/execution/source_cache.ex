@@ -207,16 +207,24 @@ defmodule ImagePipe.Execution.SourceCache do
 
   # A request waiting behind another one's download gives up a second after
   # that download's own deadline, with the same timeout error.
-  defp work_opts(source, config, cohort \\ nil)
-
-  defp work_opts(%{fetch: fetch}, config, cohort) when is_list(fetch) do
-    case Keyword.get(fetch, :fetch_timeout) do
+  defp work_opts(source, config, cohort \\ nil) do
+    case wait_timeout(source) do
       nil -> coordination_opts(config, cohort)
-      timeout -> Keyword.put(coordination_opts(config, cohort), :wait, timeout + 1_000)
+      timeout -> Keyword.put(coordination_opts(config, cohort), :wait, timeout)
     end
   end
 
-  defp work_opts(_source, config, cohort), do: coordination_opts(config, cohort)
+  @doc false
+  # How long a request waits behind another one's download of `source`, or
+  # nil when the source sets no download deadline.
+  def wait_timeout(%{fetch: fetch}) when is_list(fetch) do
+    case Keyword.get(fetch, :fetch_timeout) do
+      nil -> nil
+      timeout -> timeout + 1_000
+    end
+  end
+
+  def wait_timeout(_source), do: nil
 
   defp coordination_opts(config, cohort),
     do: Keyword.put(Telemetry.telemetry_opts(config), :share, cohort)
@@ -285,12 +293,13 @@ defmodule ImagePipe.Execution.SourceCache do
   end
 
   # Requests waiting for a download that won't be stored would only download
-  # it again once it ends, so they start now.
-  defp release_unstored(nil, _response, _source, _config), do: :ok
-
+  # it again once it ends, so they start now. `:on_unstored` in the config
+  # releases those waiting for this request elsewhere.
   defp release_unstored(lease, response, source, config) do
-    if not storable?(Record.new(source, nil, response.origin, now(config)), source),
-      do: Work.release_waiters(lease)
+    if not storable?(Record.new(source, nil, response.origin, now(config)), source) do
+      if lease, do: Work.release_waiters(lease)
+      Keyword.get(config, :on_unstored, fn -> :ok end).()
+    end
   end
 
   # Only writes take the publication lock, so a check that changes nothing,

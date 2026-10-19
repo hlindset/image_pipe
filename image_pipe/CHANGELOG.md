@@ -13,14 +13,19 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- Concurrent requests for one original no longer wait for each other's
-  download when the download can't be shared: when no originals cache is
-  configured, or when caching is turned off for the source. Requests that
-  revalidate an original downloaded earlier still share one check with the
-  origin when either cache is configured. When the original may not be
-  stored, waiting requests start their own downloads as soon as the origin
-  responds. Each one emits `[:cache, :coordination]` with `result: :bypass`
-  and `reason: :not_stored`.
+- When no originals cache is configured, concurrent identical requests for
+  a new image now download its original once instead of once each. This
+  needs a processed-image cache and an image that may be stored.
+- Concurrent requests for different sizes or formats of one original no
+  longer wait for each other's download when the download can't be shared:
+  when no originals cache is configured, or when caching is turned off for
+  the source. Requests that revalidate an original downloaded earlier still
+  share one check with the origin when either cache is configured. When the
+  original may not be stored, waiting requests start their own downloads as
+  soon as the origin responds. Requests waiting for the download emit
+  `[:cache, :coordination]` with `result: :bypass` and
+  `reason: :not_stored`, and identical requests waiting for the same image
+  emit `operation: :output` with `result: :ready`.
   See [request coalescing](docs/caching-and-freshness.md#request-coalescing).
 
 ## [0.3.0] - 2026-10-18

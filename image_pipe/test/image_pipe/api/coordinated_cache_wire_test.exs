@@ -1164,8 +1164,12 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     old = Task.Supervisor.async_nolink(supervisor, fn -> request(config, 12) end)
     assert_receive {:blocked, worker}
     assert_receive {:origin, _, []}
-    :ok = Supervisor.terminate_child(ImagePipe.Supervisor, ImagePipe.Cache.Work)
-    {:ok, _pid} = Supervisor.restart_child(ImagePipe.Supervisor, ImagePipe.Cache.Work)
+
+    for coordinator <- [ImagePipe.Cache.Work, ImagePipe.Cache.OutputWork] do
+      :ok = Supervisor.terminate_child(ImagePipe.Supervisor, coordinator)
+      {:ok, _pid} = Supervisor.restart_child(ImagePipe.Supervisor, coordinator)
+    end
+
     Agent.update(state, &%{&1 | block: false, version: 2})
     newer = request(config, 12)
     assert newer.status == 200

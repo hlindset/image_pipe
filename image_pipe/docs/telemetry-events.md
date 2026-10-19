@@ -541,7 +541,10 @@ A request emits no `:source` event when its source has
 `internal_cache: :disabled`. Without an originals cache, it emits one only
 when it checks an original downloaded earlier and a processed-image cache is
 configured. A request emits no `:output` event when no processed-image cache
-is configured, when the image may not be stored, or, for a
+is configured, when caching or
+[storage](caching-and-freshness.md#storage-permission) is turned off for the
+source, when it uses an original downloaded earlier whose images may not be
+stored, or, for a
 [low-priority request](processing/request.md#priority), when no other request
 is making the image.
 The default Logger logs `:busy`, `:bypass`, and `:timeout` results at
@@ -566,6 +569,10 @@ its base level.
     - `:output`: `:acquired` (this request generates), `:waiting` (it
       waits for another), `:ready` (it can check the cache again), `:bypass`
       (it generates on its own), or `:busy` (coordination is at capacity).
+      A request for a new original that arrives while an identical request
+      is downloading it can wait twice. It emits `:waiting` and then
+      `:ready` for the other request's download, and again for its image.
+      The request doing the work emits `:acquired` for each.
   - `:reason` (atom): `:deadline` on an `:output` `:bypass` when the image
     wasn't stored within 2 seconds of being sent (see
     [coordination limits](cache.md#coordination-limits)). `:not_stored` on

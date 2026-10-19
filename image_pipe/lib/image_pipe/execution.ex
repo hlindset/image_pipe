@@ -23,6 +23,7 @@ defmodule ImagePipe.Execution do
   alias ImagePipe.Debug.Timing
   alias ImagePipe.Delivery
   alias ImagePipe.Execution.{Acquisition, Context, Identity, Output, SourceCache, Watermarks}
+  alias ImagePipe.MaterialDigest
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Processing
   alias ImagePipe.Processing.DebugBuilder
@@ -166,18 +167,83 @@ defmodule ImagePipe.Execution do
       }
 
       context = %{context | source: source, input_key: key, material: material}
-
-      record =
-        SourceCache.immutable_record(source, context.config) ||
-          SourceCache.lookup(source, key, context.config)
-
-      case SourceCache.status(record, source, context.config) do
-        :fresh -> {:ok, current(context, %Acquisition{record: record})}
-        :stale -> {:ok, %{current(context, %Acquisition{record: record}) | stale?: true}}
-        _ -> acquire(context, record)
-      end
+      resolve_record(context, true)
     end
   end
+
+  defp resolve_record(context, early?) do
+    record =
+      SourceCache.immutable_record(context.source, context.config) ||
+        SourceCache.lookup(context.source, context.input_key, context.config)
+
+    case SourceCache.status(record, context.source, context.config) do
+      :fresh -> {:ok, current(context, %Acquisition{record: record})}
+      :stale -> {:ok, %{current(context, %Acquisition{record: record}) | stale?: true}}
+      _ when early? and is_nil(record) -> join_early(context)
+      _ -> acquire(context, record)
+    end
+  end
+
+  # An identical request for a new original waits for this one to join its
+  # image's flight, which it can't name before the original's bytes give the
+  # cache key. The leader hands it the original's record, which may not be
+  # stored yet, so it finds that flight instead of fetching the original.
+  defp join_early(context) do
+    cache = Keyword.get(context.config, :cache)
+
+    case cache != nil and source_storable?(nil, context.source) do
+      true ->
+        key = MaterialDigest.of({:early, context.input_key.hash, context.material})
+        joined_early(context, join_early_flight(context, cache, key))
+
+      false ->
+        acquire(context, nil)
+    end
+  end
+
+  # A download that may not be stored releases the identical requests waiting
+  # for this one as soon as its response arrives.
+  defp joined_early(context, {:leader, lease}) do
+    context = %{context | early_lease: lease}
+
+    released = %{
+      context
+      | config: Keyword.put(context.config, :on_unstored, fn -> finish_early(context) end)
+    }
+
+    case acquire(released, nil) do
+      {:ok, acquired} ->
+        {:ok, %{acquired | config: context.config}}
+
+      {:error, _reason} = error ->
+        finish_early(context)
+        error
+    end
+  end
+
+  # The record comes from a fetch that just finished, so it stands in for
+  # this request's own check even when the origin asks for one on every use.
+  defp joined_early(context, {:ready, record}),
+    do: {:ok, current(context, %Acquisition{record: record})}
+
+  defp joined_early(context, _waited), do: resolve_record(context, false)
+
+  # It waits as long as it would for the download itself.
+  defp join_early_flight(%{request: %{priority: :low}} = context, cache, key),
+    do: Cache.OutputWork.follow(cache, key, context.config, early_timeout(context))
+
+  defp join_early_flight(context, cache, key),
+    do: Cache.OutputWork.join(cache, key, context.config, early_timeout(context))
+
+  defp early_timeout(context), do: SourceCache.wait_timeout(context.source)
+
+  defp finish_early(%Context{early_lease: nil}), do: :ok
+
+  defp finish_early(%Context{early_lease: lease, acquisition: %{record: nil}}),
+    do: Cache.OutputWork.complete(lease, :ready)
+
+  defp finish_early(%Context{early_lease: lease, acquisition: %{record: record}}),
+    do: Cache.OutputWork.complete(lease, {:ready, record})
 
   defp acquire(context, record) do
     case SourceCache.acquire(
@@ -208,7 +274,10 @@ defmodule ImagePipe.Execution do
 
   # Prepare owns its source lease; callers close it after their conditional gate
   # and output consumption. Output owns leases acquired later by open/1.
-  def close(%Context{acquisition: acquisition}), do: SourceCache.release(acquisition.lease)
+  def close(%Context{acquisition: acquisition} = context) do
+    finish_early(context)
+    SourceCache.release(acquisition.lease)
+  end
 
   def open(%Context{stale?: true} = context) do
     case lookup(context) do
@@ -227,8 +296,12 @@ defmodule ImagePipe.Execution do
 
   defp open_current(context) do
     case lookup(context) do
-      {:hit, output} -> {:ok, output}
-      :miss -> with_watermark_inputs(context, &input/1)
+      {:hit, output} ->
+        finish_early(context)
+        {:ok, output}
+
+      :miss ->
+        with_watermark_inputs(context, &input/1)
     end
   end
 
@@ -318,7 +391,11 @@ defmodule ImagePipe.Execution do
   defp input(%Context{acquisition: %{response: %Source.Response{}}} = context),
     do: generate(context)
 
-  defp input(context) do
+  # A request without the original's bytes joins its image's flight before
+  # fetching them, so it fetches them only to make the image.
+  defp input(context), do: coalesce(context, &fetch_input/1)
+
+  defp fetch_input(context) do
     case SourceCache.input(
            context.source,
            context.input_key,
@@ -327,21 +404,12 @@ defmodule ImagePipe.Execution do
            context.config
          ) do
       {:ok, acquisition} ->
-        lease = acquisition.lease
-        context = current(context, %{acquisition | lease: context.acquisition.lease})
-        generate_leased(context, lease)
+        {:ok, current(context, %{acquisition | lease: context.acquisition.lease}),
+         acquisition.lease}
 
       {:error, _reason} = error ->
         error
     end
-  end
-
-  defp generate_leased(context, lease) do
-    attach_lease(generate(context), lease)
-  catch
-    kind, reason ->
-      SourceCache.release(lease)
-      :erlang.raise(kind, reason, __STACKTRACE__)
   end
 
   defp open_with_lease(context, lease) do
@@ -366,46 +434,59 @@ defmodule ImagePipe.Execution do
     error
   end
 
-  defp generate(context) do
+  defp generate(context), do: coalesce(context, &{:ok, &1, nil})
+
+  # `fetch` gives the context with the original's bytes, and the lease on
+  # them, or an error. It runs only when this request makes the image.
+  defp coalesce(context, fetch) do
     case {Keyword.get(context.config, :cache), storable?(context)} do
-      {nil, _} -> generate_uncoalesced(context)
-      {_, false} -> generate_uncoalesced(context)
-      {cache, true} -> coalesce(context, cache)
+      {nil, _} ->
+        made(context, fetch)
+
+      {_, false} ->
+        finish_early(context)
+        made(context, fetch)
+
+      {cache, true} ->
+        join_output(context, cache, fetch)
     end
   end
 
   # A low-priority request may wait on a flight but never leads one, so a
   # normal request for the same image never waits behind its queue turn.
-  defp coalesce(context, cache) do
-    case join_output_work(context, cache) do
-      {:leader, lease} -> generate_leader(context, lease)
-      :none -> generate_uncoalesced(context)
-      :ready -> cached_or_generate(context)
-      :bypass -> generate_uncoalesced(context)
+  defp join_output(context, cache, fetch) do
+    joined = join_flight(context, cache, context.representation.cache_key.hash)
+    finish_early(context)
+
+    case joined do
+      {:leader, lease} -> made_leading(context, fetch, lease)
+      :none -> made(context, fetch)
+      :ready -> cached_or_made(context, fetch)
+      :bypass -> made(context, fetch)
       # Another request's image wasn't stored in time, so the disk is slow:
       # this render isn't stored, so it doesn't add to the writes.
-      {:bypass, :deadline} -> generate_uncoalesced(context, nil, false)
+      {:bypass, :deadline} -> made(context, fetch, nil, false)
     end
   end
 
-  defp join_output_work(%{request: %{priority: :low}} = context, cache),
-    do: Cache.OutputWork.follow(cache, context.representation.cache_key.hash, context.config)
+  defp join_flight(%{request: %{priority: :low}} = context, cache, key),
+    do: Cache.OutputWork.follow(cache, key, context.config)
 
-  defp join_output_work(context, cache),
-    do: Cache.OutputWork.join(cache, context.representation.cache_key.hash, context.config)
+  defp join_flight(context, cache, key),
+    do: Cache.OutputWork.join(cache, key, context.config)
 
-  defp cached_or_generate(context) do
+  defp cached_or_made(context, fetch) do
     case lookup(context, &Cache.recheck_entry/2) do
       {:hit, output} -> {:ok, output}
-      :miss -> generate_uncoalesced(context)
+      :miss -> made(context, fetch)
     end
   end
 
-  defp generate_leader(context, lease) do
+  defp made_leading(context, fetch, lease) do
     result =
       case lookup(context, &Cache.recheck_entry/2) do
         {:hit, output} -> {:ok, output}
-        :miss -> generate_uncoalesced(context, lease)
+        :miss -> made(context, fetch, lease)
       end
 
     case result do
@@ -421,7 +502,19 @@ defmodule ImagePipe.Execution do
       :erlang.raise(kind, reason, __STACKTRACE__)
   end
 
-  defp generate_uncoalesced(context, lease \\ nil, store? \\ true) do
+  defp made(context, fetch, lease \\ nil, store? \\ true) do
+    with {:ok, context, input_lease} <- fetch.(context) do
+      try do
+        attach_lease(generate_uncoalesced(context, lease, store?), input_lease)
+      catch
+        kind, reason ->
+          SourceCache.release(input_lease)
+          :erlang.raise(kind, reason, __STACKTRACE__)
+      end
+    end
+  end
+
+  defp generate_uncoalesced(context, lease, store?) do
     result =
       with {:ok, watermark_inputs} <- watermark_inputs(context) do
         session = [source_record: context.acquisition.record, output_lease: lease]

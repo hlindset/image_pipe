@@ -141,14 +141,14 @@ they must use the same `root`. Otherwise the configuration fails to load.
 
 ## Request coalescing
 
-When many requests for a new processed image arrive at once, the image is
-made once and sent to all of them. This needs a processed-image cache, and
-applies only to images that may be stored. Requests for different sizes or
-formats of one original share its download only when an originals cache is
-configured. Otherwise each request downloads the original itself. When either
-cache is configured, requests that check a previously downloaded original with
-its origin share one check. When caching is turned off for the source, nothing
-is shared.
+When many requests for a new processed image arrive at once, the original is
+downloaded once, and the image is made once and sent to all of them. This
+needs a processed-image cache, and applies only to images that may be stored.
+Requests for different sizes or formats of one original share its download
+only when an originals cache is configured. Otherwise each of them downloads
+the original itself. When either cache is configured, requests that check a
+previously downloaded original with its origin share one check. When caching
+is turned off for the source, nothing is shared.
 
 All of this sharing is local to each node, so two servers can still make the
 same image. A waiting request stops waiting and does the work itself:
