@@ -23,7 +23,6 @@ defmodule ImagePipe.Plan.Builder.Values do
   end
 
   defp normalize(value, :positive) when is_number(value) and value > 0, do: float(value)
-  defp normalize(value, :nonnegative) when is_number(value) and value >= 0, do: float(value)
   defp normalize(:auto, :dimension), do: {:ok, :auto}
   defp normalize(value, kind) when kind in [:dimension, :axis] and axis?(value), do: {:ok, value}
   defp normalize(value, :scale_factor) when scale?(value), do: float(value)
@@ -125,12 +124,11 @@ defmodule ImagePipe.Plan.Builder.Values do
 
   defp normalize(:auto, :trim), do: {:ok, :auto}
 
-  defp normalize({color, tolerance}, :trim) do
-    with {:ok, color} <- normalize(color, :color),
-         {:ok, _finite} <- normalize(tolerance, :nonnegative) do
-      {:ok, {color, tolerance}}
-    end
+  defp normalize({color, tolerance}, :trim) when tolerance?(tolerance) do
+    with {:ok, color} <- normalize(color, :color), do: {:ok, {color, tolerance}}
   end
+
+  defp normalize({_color, _tolerance}, :trim), do: :error
 
   defp normalize(color, :trim) do
     with {:ok, color} <- normalize(color, :color), do: {:ok, {color, nil}}

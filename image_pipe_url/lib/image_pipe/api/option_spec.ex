@@ -1031,7 +1031,7 @@ defmodule ImagePipe.API.OptionSpec do
 
   defp parse_tolerance(string) do
     case Value.number(string) do
-      {:ok, n} when is_number(n) and n >= 0 -> {:ok, n}
+      {:ok, n} when tolerance?(n) -> {:ok, n}
       _invalid -> {:error, :invalid_tolerance}
     end
   end

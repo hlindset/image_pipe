@@ -220,7 +220,7 @@ defmodule ImagePipe.API.SerializerTest do
       IP.URL.new() |> IP.URL.group(rotate: value) |> assert_round_trip()
     end
 
-    for tolerance <- [9_007_199_254_740_992.0, 1.0e300, 1.0e308] do
+    for tolerance <- [2_147_483_646.5, 2_147_483_647.0, 0.1 + 0.2] do
       IP.URL.new() |> IP.URL.group(trim: {"red", tolerance}) |> assert_round_trip()
     end
   end

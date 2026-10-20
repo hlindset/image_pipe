@@ -13,6 +13,8 @@ defmodule ImagePipe.Plan.ValueBounds do
   defguard padding?(value)
            when is_integer(value) and value >= 0 and value <= @max_padding
 
+  defguard tolerance?(value) when is_number(value) and value >= 0 and value <= @max_axis
+
   defguard blur?(value) when is_number(value) and value >= 0 and value <= 1000
 
   defguard sharpen?(value)
