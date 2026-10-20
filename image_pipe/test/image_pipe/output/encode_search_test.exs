@@ -221,6 +221,37 @@ defmodule ImagePipe.Output.EncodeSearchTest do
     assert Enum.sort(collect_scores([])) == [50.0, 60.0, 70.0, 80.0]
   end
 
+  test "the max_bytes phase searches only between the sizes the objective phase measured" do
+    rs = %RQS.Ssimulacra2{target: 80.0, min_quality: 10, max_quality: 90, allowed_error: 0.0}
+    test = self()
+
+    enc = fn q ->
+      send(test, {:encoded, q})
+      {:ok, :binary.copy(<<0>>, q * 1000)}
+    end
+
+    assert {:ok, _bin, %{quality: 65}} =
+             EncodeSearch.search(rs, 65_000,
+               encode_fun: enc,
+               score_fun: &(byte_size(&1) / 1000),
+               max_iterations: 16
+             )
+
+    # The objective phase measured 60 (fits) and 70 (doesn't), so the
+    # max_bytes phase looks only between them.
+    encoded = collect_encoded([])
+    assert Enum.all?(encoded, &(&1 >= 50)), inspect(encoded)
+    assert encoded |> Enum.filter(&(&1 > 60 and &1 < 70)) |> Enum.sort() == [65, 66, 67]
+  end
+
+  defp collect_encoded(acc) do
+    receive do
+      {:encoded, q} -> collect_encoded([q | acc])
+    after
+      0 -> acc
+    end
+  end
+
   defp collect_scores(acc) do
     receive do
       {:scored, q} -> collect_scores([q | acc])
