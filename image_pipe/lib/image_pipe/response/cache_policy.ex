@@ -227,6 +227,25 @@ defmodule ImagePipe.Response.CachePolicy do
     end
   end
 
+  @doc """
+  Caps a host `Cache-Control` on an error response at the request's
+  `expires`, as `limit_to_expiry/6` caps an image's, so a cache doesn't keep
+  serving the error after the URL stops being valid.
+  """
+  @spec limit_error_to_expiry(Plug.Conn.t(), pos_integer() | nil, integer()) :: Plug.Conn.t()
+  def limit_error_to_expiry(conn, nil, _now), do: conn
+
+  def limit_error_to_expiry(conn, expires, now) do
+    host = get_resp_header(conn, "cache-control")
+
+    if CacheHeaders.host_cache_control?(host) do
+      capped = host |> Enum.join(", ") |> cap_control(0, max(0, expires - now))
+      Plug.Conn.put_resp_header(conn, "cache-control", capped)
+    else
+      conn
+    end
+  end
+
   # Caches subtract `Age` from `max-age`, so the freshness left is the
   # difference. `must-revalidate` forbids serving stale responses, so stale
   # windows are dropped rather than left for caches to ignore. A host value

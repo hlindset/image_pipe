@@ -136,6 +136,26 @@ defmodule ImagePipe.API.ExpiresCacheControlWireTest do
     end
   end
 
+  test "a host Cache-Control on a client error is capped at the URL's expiry", ctx do
+    config = mount(ctx, http_cache: :auto)
+
+    for {path, expected} <- [
+          {"/expires=#{@expires}/format=png/src/missing.jpg",
+           "public, max-age=3600, must-revalidate"},
+          {"/expires=#{@expires}/format=png/src/https://origin.test/beach.jpg",
+           "public, max-age=3600, must-revalidate"},
+          {"/format=png/src/missing.jpg", "public, max-age=86400"}
+        ] do
+      response =
+        conn(:get, path)
+        |> put_resp_header("cache-control", "public, max-age=86400")
+        |> ImagePipe.Plug.call(config)
+
+      assert response.status in 400..499
+      assert get_resp_header(response, "cache-control") == [expected], path
+    end
+  end
+
   describe "a mutable origin" do
     setup %{clock: clock, tmp_dir: tmp_dir} do
       origin = start_supervised!({Agent, fn -> "public, max-age=86400" end}, id: :origin)

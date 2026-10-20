@@ -257,7 +257,14 @@ ones, in every mode:
   a capped copy replaces it unless it has `no-store`. ImagePipe may still
   add its `ETag`.
 - A server error (`5xx`) gets `no-store` even when an earlier Plug set
-  `Cache-Control`. A client error (`4xx`) keeps the earlier `Cache-Control`.
+  `Cache-Control`.
+- A client error (`4xx`) keeps the earlier `Cache-Control`. On an
+  [expiring URL](#expiring-urls), a capped copy replaces it unless it has
+  `no-store`. A `404` for a missing source is capped, for example.
+- An error found while parsing the URL keeps the earlier `Cache-Control`
+  unchanged. That covers a malformed URL, an invalid signature, an expired
+  URL, and a [concealed source](urls.md#source-concealment) that can't be
+  decrypted.
 - An earlier `ETag` is kept, and ImagePipe sends no generated `ETag`. A
   request that matches the earlier `ETag` doesn't get a `304`.
 - A response with `Set-Cookie` gets no generated `Cache-Control` or `ETag`.
