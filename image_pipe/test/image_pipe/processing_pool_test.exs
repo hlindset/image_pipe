@@ -232,6 +232,26 @@ defmodule ImagePipe.ProcessingPoolTest do
     refute_received {:started, :waiting, _}
   end
 
+  describe "retry_after/1" do
+    test "answers without waiting for the pool" do
+      pool = start_supervised!({ProcessingPool, max_concurrency: 1, queue_timeout: 2_500})
+      :sys.suspend(pool)
+
+      try do
+        assert ProcessingPool.retry_after(pool) == 3
+      after
+        :sys.resume(pool)
+      end
+    end
+
+    test "has no value once the pool has stopped" do
+      pool = start_supervised!({ProcessingPool, max_concurrency: 1})
+      stop_supervised!(ProcessingPool)
+
+      assert ProcessingPool.retry_after(pool) == nil
+    end
+  end
+
   describe "low priority" do
     test "admits a waiting normal request before an earlier low one", %{tasks: tasks} do
       pool = pool(max_concurrency: 1, max_queue: 2)

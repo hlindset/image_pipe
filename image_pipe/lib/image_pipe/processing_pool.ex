@@ -218,8 +218,14 @@ defmodule ImagePipe.ProcessingPool do
 
   @doc false
   # Seconds until every request queued now has started or timed out, for a
-  # `Retry-After` header.
-  def retry_after(pool), do: call(pool, :retry_after)
+  # `Retry-After` header, or nil when the pool isn't running. Read without a
+  # call, since the pool's queue is longest exactly when this is needed.
+  def retry_after(pool) do
+    case GenServer.whereis(pool) do
+      pid when is_pid(pid) -> :persistent_term.get({__MODULE__, pid, :retry_after}, nil)
+      nil -> nil
+    end
+  end
 
   @impl true
   def init(opts) do
@@ -231,6 +237,8 @@ defmodule ImagePipe.ProcessingPool do
       |> Map.put_new_lazy(:low_priority_max_concurrency, fn ->
         max(div(opts[:max_concurrency], 2), 1)
       end)
+
+    :persistent_term.put({__MODULE__, self(), :retry_after}, ceil(limits.queue_timeout / 1000))
 
     {:ok,
      %{
@@ -252,10 +260,6 @@ defmodule ImagePipe.ProcessingPool do
       })
 
     {:reply, stats, state}
-  end
-
-  def handle_call(:retry_after, _from, state) do
-    {:reply, ceil(state.limits.queue_timeout / 1000), state}
   end
 
   def handle_call(
@@ -354,6 +358,8 @@ defmodule ImagePipe.ProcessingPool do
 
   @impl true
   def terminate(_reason, state) do
+    :persistent_term.erase({__MODULE__, self(), :retry_after})
+
     Enum.each(state.jobs, fn {_token, job} ->
       Process.exit(job.worker, {:shutdown, {:processing, :unavailable}})
       Events.stop(job.span, :unavailable)
