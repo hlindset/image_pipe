@@ -69,9 +69,10 @@ defmodule ImagePipe.Transform.Executor do
   the terminal's reduction target. A trim in the first group decodes at full
   size, since the trimmed extent isn't known yet.
 
-  With `detector?: true`, a first group whose crop detects keeps the decoded
-  extent's long edge at the detection floor, so the detector gets enough
-  pixels however small the output is.
+  With `detector?: true`, a first group that detects keeps enough pixels for
+  the detector however small the output is: a detect crop keeps the decoded
+  frame's long edge at the detection floor, and a cover resize's crop keeps
+  the decoded extent's.
   """
   @spec decode_options(Spec.t(), SourceGeometry.t(), keyword()) :: keyword()
   def decode_options(
@@ -86,7 +87,9 @@ defmodule ImagePipe.Transform.Executor do
     extent = crop_extent || crop_frame
     target = decode_target(request, group, extent, headroom)
     target = if vector?, do: target || render_target(group, extent, headroom), else: target
-    floor = if Keyword.get(opts, :detector?, false), do: detection_floor(group, extent)
+
+    floor =
+      if Keyword.get(opts, :detector?, false), do: detection_floor(group, extent, crop_frame)
 
     # A decoded axis can't fall under one pixel, which an arbitrary rotation's
     # bounding box doesn't bound, so the source's short side caps the shrink
@@ -97,10 +100,27 @@ defmodule ImagePipe.Transform.Executor do
     DecodePlanner.open_options(geometry.source_format, extent, target, floor, max_shrink)
   end
 
-  defp detection_floor(%Group{} = group, extent) do
-    if detects?(group.guide) and (group.crop != nil or cover_resize?(group, extent)),
-      do: @detection_floor
+  # The larger of the floors for the group's two detecting steps. A detect
+  # crop searches the whole frame, so its floor holds on the frame's long
+  # edge, scaled to the extent the planner sizes, and a crop box that covers
+  # the frame can't move. A cover resize's crop searches the extent.
+  defp detection_floor(%Group{} = group, extent, frame) do
+    if detects?(group.guide) do
+      [crop_floor(group, extent, frame), cover_floor(group, extent)]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.max(fn -> nil end)
+    end
   end
+
+  defp crop_floor(%Group{crop: nil}, _extent, _frame), do: nil
+  defp crop_floor(_group, extent, extent), do: nil
+
+  defp crop_floor(_group, extent, frame),
+    do: ceil(@detection_floor * long_edge(extent) / long_edge(frame))
+
+  defp cover_floor(group, extent), do: if(cover_resize?(group, extent), do: @detection_floor)
+
+  defp long_edge({width, height}), do: max(width, height)
 
   defp detects?({:detect, _spec}), do: true
   defp detects?({:smart, :face_assist}), do: true
