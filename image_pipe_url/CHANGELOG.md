@@ -42,6 +42,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   only `unset` options or names a preset the check doesn't know. Before,
   the defaults were checked with the next group, so the check could
   disagree with the server.
+- A preset in `:validate_against` with a group holding only `unset`
+  options is a pipeline preset, as on the server, so adding other options
+  to it is an error, and a first group like that clears the request
+  defaults. Before, the check dropped that group.
 - An issue that `validate/1` reports with `:validate_against` names the
   group as the builder numbers it. Before, when a group held only `unset`
   options, issues in later groups named the group before theirs.

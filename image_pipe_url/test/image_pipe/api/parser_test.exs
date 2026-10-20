@@ -1489,6 +1489,47 @@ defmodule ImagePipe.API.ParserTest do
                parse(["format=webp", "-", "crop=100,100"], "images/cat.jpg", config)
     end
 
+    test "a pipeline preset's group holding only unsets clears the request defaults" do
+      config = [request_defaults: "blur=3", presets: %{"p" => "blur=unset/-/w=100"}]
+
+      assert parse(["preset=p"], "images/cat.jpg", config) == parse(["w=100"])
+
+      config = [
+        request_defaults: "wm-src64=bG9nby5wbmc",
+        presets: %{"nowm" => "wm-src64=unset/-/blur=1"}
+      ]
+
+      assert parse(["preset=nowm"], "images/cat.jpg", config) == parse(["blur=1"])
+    end
+
+    property "a pipeline preset parses as its groups written in the URL" do
+      options = ["blur=3", "w=200", "format=webp", "wm-src64=bG9nby5wbmc", "sharpen=1"]
+      key = &(&1 |> String.split("=") |> hd())
+
+      check all defaults <- StreamData.member_of(options),
+                unsets <- StreamData.list_of(StreamData.member_of(options), min_length: 1),
+                group <- StreamData.member_of(["w=100", "h=50", "blur=1"]) do
+        groups = [Enum.map_join(Enum.uniq_by(unsets, key), "/", &"#{key.(&1)}=unset"), group]
+        config = [request_defaults: defaults, presets: %{"p" => Enum.join(groups, "/-/")}]
+        inline = groups |> Enum.intersperse("-") |> Enum.flat_map(&String.split(&1, "/"))
+
+        assert parse(["preset=p"], "images/cat.jpg", config) ==
+                 parse(inline, "images/cat.jpg", config)
+      end
+    end
+
+    test "a preset with a group holding only unsets is a pipeline preset" do
+      config = [
+        presets: %{"p" => "blur=unset/-/w=100", "last" => "w=100/-/blur=unset", "r" => "preset=p"}
+      ]
+
+      for preset <- ["p", "last", "r"] do
+        assert {:error,
+                {:invalid_request, [%Diagnostic{reason: :pipeline_preset_with_group_options}]}} =
+                 parse(["preset=#{preset}", "blur=1"], "images/cat.jpg", config)
+      end
+    end
+
     test "unset keeps inherited options whose requirement still holds" do
       config = [
         presets: %{
