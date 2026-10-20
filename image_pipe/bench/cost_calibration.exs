@@ -107,7 +107,8 @@ defmodule CostCalibration do
 
   # The photos, and every decode format made from two of them: beach.jpg, and
   # cooking.png for an alpha channel (JPEG has none). A format this libvips
-  # can't write is left out.
+  # can't write is left out. beach.jpg is a progressive JPEG, so a baseline
+  # one is decoded too.
   defp make_variants(media, quick?) do
     for name <- sources(quick?) do
       File.cp!(Path.join(@images, name), Path.join(media, name))
@@ -135,8 +136,18 @@ defmodule CostCalibration do
         end
       end
 
-    Map.merge(%{{"beach", :jpeg} => "beach.jpg", {"cooking", :png} => "cooking.png"}, converted)
+    Map.merge(
+      %{
+        {"beach", :jpeg} => "beach.jpg",
+        {"baseline", :jpeg} => baseline_jpeg(quick?),
+        {"cooking", :png} => "cooking.png"
+      },
+      converted
+    )
   end
+
+  defp baseline_jpeg(true), do: "woman.jpg"
+  defp baseline_jpeg(false), do: "spinning_baseline.jpg"
 
   defp sources(true), do: ~w(woman.jpg beach.jpg cooking.png)
   defp sources(false), do: ~w(woman.jpg beach.jpg cooking.png spinning_baseline.jpg dog.jpg)
@@ -176,9 +187,11 @@ defmodule CostCalibration do
           file != nil,
           width <- @widths do
         {class, feature} =
-          if base == "cooking",
-            do: {"decode #{format} alpha", :alpha},
-            else: {"decode #{format}", {:decode, format}}
+          case {base, format} do
+            {"cooking", _format} -> {"decode #{format} alpha", :alpha}
+            {"beach", :jpeg} -> {"decode jpeg progressive", {:decode, :jpeg_progressive}}
+            _baseline_or_other -> {"decode #{format}", {:decode, format}}
+          end
 
         new_case(class, feature, file, [[resize: [width: width]]], format: :jpeg)
       end

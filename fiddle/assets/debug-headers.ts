@@ -25,6 +25,7 @@ export function parseDebugHeaders(raw: Raw, outputBytes: number | null): DebugGr
     row("Bit depth", get("x-imagepipe-source-bit-depth")),
     boolRow("Alpha", get("x-imagepipe-source-alpha")),
     row("Orientation", get("x-imagepipe-source-orientation")),
+    boolRow("Progressive", get("x-imagepipe-source-progressive")),
     row("Shrink", get("x-imagepipe-shrink")),
   ]);
 

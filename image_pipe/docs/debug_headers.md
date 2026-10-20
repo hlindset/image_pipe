@@ -62,6 +62,7 @@ Each header carries one value. A header whose value is unknown is left out.
 | `X-ImagePipe-Source-Bit-Depth` | `8` | Bits per channel |
 | `X-ImagePipe-Source-Alpha` | `false` | Whether the original has transparency |
 | `X-ImagePipe-Source-Orientation` | `6` | EXIF orientation of the original (1 to 8), before it is applied |
+| `X-ImagePipe-Source-Progressive` | `true` | Whether the original is a progressive JPEG. Left out for other formats |
 | `X-ImagePipe-Shrink` | `w=2.0;h=2.0` | How much the original was scaled down while decoding, per axis. Large originals are decoded at a reduced size when the output is much smaller |
 
 ### Output

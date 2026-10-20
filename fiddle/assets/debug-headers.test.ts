@@ -21,6 +21,7 @@ describe("parseDebugHeaders", () => {
         "x-imagepipe-source-height": "3000",
         "x-imagepipe-source-icc": "true",
         "x-imagepipe-source-alpha": "false",
+        "x-imagepipe-source-progressive": "true",
         "x-imagepipe-output-format": "avif",
         "x-imagepipe-output-negotiated": "true",
         "x-imagepipe-output-width": "1200",
@@ -36,6 +37,7 @@ describe("parseDebugHeaders", () => {
     expect(source?.rows).toContainEqual({ label: "Dimensions", value: "4000 × 3000" });
     expect(source?.rows).toContainEqual({ label: "ICC profile", value: "yes" });
     expect(source?.rows).toContainEqual({ label: "Alpha", value: "no" });
+    expect(source?.rows).toContainEqual({ label: "Progressive", value: "yes" });
 
     const output = group(groups, "Output");
     expect(output?.rows).toContainEqual({ label: "Format", value: "avif" });
