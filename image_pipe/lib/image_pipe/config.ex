@@ -415,15 +415,18 @@ defmodule ImagePipe.Config do
                 ],
                 max_remembered_originals: [
                   type: :pos_integer,
-                  default: 10_000,
                   doc: """
                   How many originals an instance remembers in memory: a local \
                   file's hash, or the cache headers of an image from an origin. A \
                   remembered local file isn't read and hashed again while it's \
-                  unchanged. When the limit is reached, a random one is forgotten. \
-                  Each takes about 700 bytes for a local file and about 1 KB for an \
-                  image from an origin, so 10 000 take 7–10 MB. Needs an instance \
-                  (see `ImagePipe.child_spec/1`).
+                  unchanged, and the processed images of an image from an origin are \
+                  served without downloading the original again. When the limit is \
+                  reached, originals that weren't used recently are forgotten first. \
+                  Defaults to one for each 50 KB of `:cache`'s `:max_size_bytes` \
+                  (100,000 for 5 GB), at most 1,000,000, and to 10,000 when that is \
+                  less or there's no `:cache`. Each takes about 700 bytes for a local \
+                  file and about 1 KB for an image from an origin, so 100,000 take \
+                  70–100 MB. Needs an instance (see `ImagePipe.child_spec/1`).
                   """
                 ],
                 storage_inputs: [
@@ -788,7 +791,10 @@ defmodule ImagePipe.Config do
       overridden
       | instance: config.instance,
         options:
-          Keyword.merge(overridden.options, Keyword.take(config.options, [:source_records]))
+          Keyword.merge(
+            overridden.options,
+            Keyword.take(config.options, [:source_records, :max_remembered_originals])
+          )
     }
   end
 

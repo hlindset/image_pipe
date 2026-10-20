@@ -31,7 +31,16 @@ defmodule ImagePipe.Execution.SourceCache do
   def lookup(source, key, config) do
     case source.internal_cache do
       :disabled -> nil
-      :enabled -> Cache.source_record(key, config) || Input.metadata(key, config)
+      :enabled -> Cache.source_record(key, config) || recall(key, config)
+    end
+  end
+
+  # A record kept with the original's copy goes back into memory, so later
+  # requests don't read it from disk again.
+  defp recall(key, config) do
+    with %Record{} = record <- Input.metadata(key, config) do
+      Cache.recall_source(key, record, config)
+      record
     end
   end
 

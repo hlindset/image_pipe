@@ -405,6 +405,43 @@ defmodule ImagePipe.InstanceTest do
       assert ImagePipe.Config.fetch_instance!(ctx.name, nil).options[:quality] == 40
     end
 
+    test "remembers one original per 50 KB of the output cache, from 10,000 to 1,000,000",
+         ctx do
+      limit = fn options ->
+        name = Module.concat(ctx.name, "L#{System.unique_integer([:positive])}")
+        start_supervised!({ImagePipe, [name: name, sources: ctx.sources] ++ options})
+        ImagePipe.Config.fetch_instance!(name, nil).options[:max_remembered_originals]
+      end
+
+      big = [root: Path.join(ctx.cache_root, "big"), max_size_bytes: 5_000_000_000]
+
+      assert limit.(cache: big) == 100_000
+
+      assert limit.(cache: Keyword.put(ctx.bounded, :root, Path.join(ctx.cache_root, "s"))) ==
+               10_000
+
+      assert limit.([]) == 10_000
+
+      assert limit.(input_cache: Keyword.put(big, :root, Path.join(ctx.cache_root, "in"))) ==
+               10_000
+
+      huge = [root: Path.join(ctx.cache_root, "huge"), max_size_bytes: 1_000_000_000_000]
+      assert limit.(cache: huge) == 1_000_000
+
+      big = Keyword.put(big, :root, Path.join(ctx.cache_root, "set"))
+      assert limit.(cache: big, max_remembered_originals: 7) == 7
+    end
+
+    test "a per-call override keeps the instance's limit", ctx do
+      start_instance(ctx)
+      builder = ImagePipe.URL.new(ImagePipe.url_config(ctx.name))
+
+      assert {:ok, _result} =
+               ImagePipe.run(ctx.name, builder, {:source, "red.png"}, quality: 40)
+
+      assert :ets.info(Module.concat(ctx.name, ImagePipe.Cache.SourceRecords), :size) == 1
+    end
+
     test "invalid options raise when the child spec is built", ctx do
       assert_raise ArgumentError, fn ->
         ImagePipe.child_spec(name: ctx.name, sources: ctx.sources, quality: 0)

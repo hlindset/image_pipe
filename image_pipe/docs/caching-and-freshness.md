@@ -38,6 +38,23 @@ Immutable sources share them only when their settings match too.
 - Processed images can still be served after the original has been evicted
   from the originals cache.
 
+Unless the source is [immutable](#immutable-sources), an instance remembers
+each original's content hash in memory to find its processed images,
+together with the origin's cache headers or a local file's size and
+timestamps. It remembers one original for each 50 KB of the processed-image
+cache's size, at least 10,000 and at most 1,000,000, and forgets originals
+that weren't used recently first. The limit is `max_remembered_originals` in
+`ImagePipe.config/1`, or
+[`[cache] max_remembered_originals`](../../image_pipe_server/docs/server-configuration.md#cache)
+on the server.
+
+After a restart, or once an original is forgotten, its next request
+downloads it from the origin, or reads and hashes the local file, before
+its processed images can be served. When the
+[originals cache](cache.md#originals-cache) holds a copy, the instance takes
+what it needs from that copy instead. With HTTP or S3 sources, run an
+originals cache if restarts shouldn't download every original in use again.
+
 ## Cache lifetime from origin headers
 
 The originals cache reads `Cache-Control`, `Expires`, `Date`, and `Age` as a
@@ -125,14 +142,10 @@ file by a hash of its content: a changed `cat.jpg` gets new processed images,
 and an unchanged one reuses them.
 
 Each request checks the file's size and timestamps, and reads the file again
-only when they have changed. The hashes are kept in memory for up to 10 000
-originals, local files and origin images together, so a file is also hashed
-again after a restart, or when more originals than that are in use, unless
-the [originals cache](cache.md#originals-cache) holds a copy. The limit is
-`max_remembered_originals` in `ImagePipe.config/1`, or
-[`[cache] max_remembered_originals`](../../image_pipe_server/docs/server-configuration.md#cache)
-on the server. Where file times can't be trusted, the source can
-read and hash the file on every check instead. With a fallback lifetime,
+only when they have changed, after a restart, or once the file is forgotten
+(see [originals and processed images](#originals-and-processed-images)).
+Where file times can't be trusted, the source can read and hash the file on
+every check instead. With a fallback lifetime,
 requests within it skip the check.
 
 Originals are read where they are. On a network filesystem, the source can
