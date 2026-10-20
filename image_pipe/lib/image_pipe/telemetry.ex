@@ -294,35 +294,45 @@ defmodule ImagePipe.Telemetry do
   #   * a `src` URL carrying them is logged decoded, as the source parser reads
   #     it, with those values `REDACTED`
   #   * a `src64` or `wm-src64` URL carrying them, in any base64 spelling,
-  #     becomes `REDACTED` whole
+  #     percent-encoded or not, becomes `REDACTED` whole
+  #
+  # It runs on every request before the signature is checked, so its work
+  # stays linear in the path's length.
   @spec request_path(String.t(), String.t()) :: String.t()
   def request_path(path, ""), do: redact_path(path)
   def request_path(path, query), do: redact_path(path) <> "?" <> redact_params(query)
 
+  @source_markers ~w(src src64 enc)
+
   # The source is the path's tail and can hold `/`, so it's split off before
   # the option segments are checked one by one.
   defp redact_path(path) do
-    case Regex.run(~r{\A(.*?/)(src|src64|enc)/(.*)\z}s, path) do
-      [_path, options, marker, tail] ->
-        redact_segments(options) <> marker <> "/" <> redact_tail(marker, tail)
+    case split_source(String.split(path, "/"), []) do
+      {options, marker, tail} ->
+        Enum.join(redact_segment_list(options), "/") <>
+          "/" <> marker <> "/" <> redact_tail(marker, tail)
 
-      nil ->
-        redact_segments(path)
+      :none ->
+        path |> String.split("/") |> redact_segment_list() |> Enum.join("/")
     end
   end
 
-  defp redact_segments(options) do
-    options |> String.split("/") |> redact_segment_list() |> Enum.join("/")
-  end
+  # The first marker segment that follows another segment and has a tail.
+  defp split_source([segment, marker | [_ | _] = tail], options) when marker in @source_markers,
+    do: {Enum.reverse([segment | options]), marker, Enum.join(tail, "/")}
+
+  defp split_source([segment | rest], options), do: split_source(rest, [segment | options])
+  defp split_source([], _options), do: :none
 
   # Standard base64 can hold `/`, so a `wm-src64=` token is also tried joined
-  # with the segments after it.
-  defp redact_segment_list(["wm-src64=" <> token | rest] = segments) do
-    case Enum.find(
-           0..length(rest)//1,
-           &base64_presigned?(Enum.join([token | Enum.take(rest, &1)], "/"))
-         ) do
-      nil -> [hd(segments) | redact_segment_list(rest)]
+  # with the base64-looking segments after it, as many as a request can hold.
+  @max_joined_segments 64
+
+  defp redact_segment_list(["wm-src64=" <> token = segment | rest]) do
+    taken = if base64_presigned?(token), do: 0, else: joined_presigned(token, token, rest, 1)
+
+    case taken do
+      nil -> [segment | redact_segment_list(rest)]
       taken -> ["wm-src64=REDACTED" | redact_segment_list(Enum.drop(rest, taken))]
     end
   end
@@ -330,9 +340,39 @@ defmodule ImagePipe.Telemetry do
   defp redact_segment_list([segment | rest]), do: [segment | redact_segment_list(rest)]
   defp redact_segment_list([]), do: []
 
+  defp joined_presigned(joined, previous, [segment | rest], taken)
+       when taken <= @max_joined_segments do
+    if base64_open?(previous) and base64_piece?(segment) do
+      joined = joined <> "/" <> segment
+
+      if base64_presigned?(joined),
+        do: taken,
+        else: joined_presigned(joined, segment, rest, taken + 1)
+    end
+  end
+
+  defp joined_presigned(_joined, _previous, _segments, _taken), do: nil
+
+  # A segment that a later one could continue: base64 without padding or an
+  # extension. `%` allows a percent-escaped `+` or `=` beside a literal `/`.
+  defp base64_open?(segment), do: segment != "" and base64_chars?(segment, "")
+
+  # A segment that can continue a base64 token, possibly ending it.
+  defp base64_piece?(segment), do: segment != "" and base64_chars?(segment, "=.")
+
+  defp base64_chars?(<<char, rest::binary>>, extra)
+       when char in ?A..?Z or char in ?a..?z or char in ?0..?9 or char in [?+, ?%],
+       do: base64_chars?(rest, extra)
+
+  defp base64_chars?(<<char, rest::binary>>, extra) do
+    :binary.match(extra, <<char>>) != :nomatch and base64_chars?(rest, extra)
+  end
+
+  defp base64_chars?(<<>>, _extra), do: true
+
   defp redact_tail("src", tail) do
     with {:ok, url} <- percent_decode(tail),
-         [base, query] <- String.split(url, "?", parts: 2),
+         [base, query] <- String.split(String.replace_invalid(url), "?", parts: 2),
          redacted when redacted != query <- redact_params(query) do
       base <> "?" <> redacted
     else
@@ -352,15 +392,48 @@ defmodule ImagePipe.Telemetry do
   # Every spelling a base64 source might use, valid or not, since a request
   # the parser rejects is logged too.
   defp base64_presigned?(token) do
-    bare = String.replace(token, ~r/\.[A-Za-z0-9]+\z/, "")
+    Enum.any?(base64_spellings(token), fn candidate ->
+      Enum.any?(base64_decodings(candidate), &presigned_url?/1)
+    end)
+  end
 
-    for candidate <- Enum.uniq([token, bare]),
-        decode <- [&Base.url_decode64(&1, padding: false), &Base.url_decode64/1, &Base.decode64/1],
+  defp base64_spellings(token) do
+    decoded =
+      case percent_decode(token) do
+        {:ok, decoded} -> decoded
+        :error -> token
+      end
+
+    for spelling <- Enum.uniq([token, decoded]),
+        spelling <- Enum.uniq([spelling, String.trim_trailing(spelling, "/")]),
+        spelling <- Enum.uniq([spelling, strip_extension(spelling)]),
+        uniq: true,
+        do: spelling
+  end
+
+  defp base64_decodings(candidate) do
+    for decode <- [&Base.url_decode64(&1, padding: false), &Base.url_decode64/1, &Base.decode64/1],
         {:ok, url} <- [decode.(candidate)],
-        reduce: false do
-      found -> found or presigned_url?(url)
+        do: url
+  end
+
+  defp strip_extension(token) do
+    with [_ | _] = dots <- :binary.matches(token, "."),
+         {position, 1} = List.last(dots),
+         extension = binary_part(token, position + 1, byte_size(token) - position - 1),
+         true <- extension != "" and alphanumeric?(extension) do
+      binary_part(token, 0, position)
+    else
+      _no_extension -> token
     end
   end
+
+  defp alphanumeric?(<<char, rest::binary>>)
+       when char in ?A..?Z or char in ?a..?z or char in ?0..?9,
+       do: alphanumeric?(rest)
+
+  defp alphanumeric?(<<>>), do: true
+  defp alphanumeric?(_other), do: false
 
   defp presigned_url?(url) do
     case String.split(url, "?", parts: 2) do
@@ -371,25 +444,25 @@ defmodule ImagePipe.Telemetry do
 
   # Parameters are split on `&` and `;`. A name matches in any case and
   # percent-encoding, as an origin reads it.
-  defp redact_params(query) do
-    query
-    |> String.split(~r/(?<=[&;])/)
-    |> Enum.map_join(&redact_param/1)
+  defp redact_params(query), do: query |> redact_params([]) |> IO.iodata_to_binary()
+
+  defp redact_params(query, acc) do
+    case :binary.match(query, ["&", ";"]) do
+      {position, 1} ->
+        pair = binary_part(query, 0, position)
+        separator = binary_part(query, position, 1)
+        rest = binary_part(query, position + 1, byte_size(query) - position - 1)
+        redact_params(rest, [acc, redact_param(pair), separator])
+
+      :nomatch ->
+        [acc, redact_param(query)]
+    end
   end
 
   defp redact_param(pair) do
-    {pair, separator} =
-      case String.split_at(pair, -1) do
-        {rest, sep} when sep in ["&", ";"] -> {rest, sep}
-        _other -> {pair, ""}
-      end
-
     case String.split(pair, "=", parts: 2) do
-      [name, _value] ->
-        if credential_param?(name), do: name <> "=REDACTED" <> separator, else: pair <> separator
-
-      [_name] ->
-        pair <> separator
+      [name, _value] -> if credential_param?(name), do: name <> "=REDACTED", else: pair
+      [_name] -> pair
     end
   end
 

@@ -56,6 +56,14 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `2024:01:01 02+02:00:00`) no longer fails with a 500 when metadata is
   stripped. All of its metadata is removed, including the copyright and
   artist that `keep_copyright` would keep.
+- A request path with many `wm-src64=` segments no longer takes seconds of
+  CPU. Every request path is redacted for telemetry before its URL
+  signature is checked, so an unsigned request could cause this.
+- A presigned `src64` or `wm-src64` source is now redacted from the
+  `[:request]` span's `:path` when its base64 is percent-encoded or ends
+  in a `/`.
+- A `src` URL with credentials that decodes to invalid UTF-8 no longer loses
+  its request summary log line.
 
 ## [0.3.0] - 2026-10-18
 
