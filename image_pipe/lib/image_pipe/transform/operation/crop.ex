@@ -133,6 +133,15 @@ defmodule ImagePipe.Transform.Operation.Crop do
           center_bias: {:near | :far, :near | :far}
         }
 
+  @doc """
+  The rectangle a gravity or coordinate crop takes from an image of the given
+  size.
+  """
+  @spec resolve_rect(t(), {pos_integer(), pos_integer()}) ::
+          %{left: integer(), top: integer(), width: pos_integer(), height: pos_integer()}
+  def resolve_rect(%__MODULE__{} = params, {image_width, image_height}),
+    do: resolved_rect(params, image_width, image_height)
+
   defp resolved_box_dims(%__MODULE__{} = params, image_width, image_height),
     do:
       {resolve_dimension(params.width, image_width),

@@ -91,6 +91,32 @@
         orientation: 1
       }
     },
+    "crop_centered_shrunk_jpeg" => %{
+      fixture_sha256: "50156ba8ccc0a4528f78379bd185377cafa8aaeca9d25d17ff965fdf47b9b402",
+      structure: %{
+        alpha?: false,
+        bands: 3,
+        content_type: "image/png",
+        depth: 8,
+        icc: nil,
+        interpretation: :VIPS_INTERPRETATION_sRGB,
+        metadata: [],
+        orientation: 1
+      }
+    },
+    "crop_centered_shrunk_webp" => %{
+      fixture_sha256: "71aa8acec37b76aafabe061c5f0c5dfe56e5c7575830661216782ae22b7ea7c3",
+      structure: %{
+        alpha?: false,
+        bands: 3,
+        content_type: "image/png",
+        depth: 8,
+        icc: nil,
+        interpretation: :VIPS_INTERPRETATION_sRGB,
+        metadata: [],
+        orientation: 1
+      }
+    },
     "crop_ratio" => %{
       fixture_sha256: "a8da22141616406f9743c9035ff9a0db50ad26d1fc35afabb7e236e4cbcb14de",
       structure: %{
@@ -755,6 +781,7 @@
     "exif_placement_6.jpg" => "647850a6d806cc8141574273bf8b4cf7cc76548331af2f00777b838dcdbb9d9f",
     "gray.png" => "5dbbff7926a2d0a99ad8f0519e311d79f9cd81428c804c6b6a9307780ff6293d",
     "high_freq.jpg" => "54ded6c57ec02c685e275276b54947f8c9345015342fc8a2acc9d8e54e4a7d43",
+    "high_freq.webp" => "32d8e080d7e440b6329a441d2913222906d320bdeb060e956eb68a297c51df18",
     "icc_p3.png" => "80ce9bc055c01a12a9d8bf3db1693a1b46995f66bfdb796503636122de264869",
     "marker.png" => "cbb47b49a36fc7a8b37233c862e1d4b88174ec6bf81876223779b4ce3c52120d",
     "palette.png" => "a963243e4caa27df9474da13a271ebd98a1313f07c5059045eeb264fb7192735",

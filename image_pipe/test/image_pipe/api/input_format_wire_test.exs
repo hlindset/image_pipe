@@ -106,6 +106,25 @@ defmodule ImagePipe.API.InputFormatWireTest do
     end
   end
 
+  test "a centred crop of a WebP that scales on load lands where a full decode puts it" do
+    # Black up to x 1000, then white. The crop is 1001 wide from the middle,
+    # so the edge falls in the middle of the 10 output pixels.
+    halves =
+      2001
+      |> Image.new!(1000, color: :black)
+      |> Image.Draw.rect!(1000, 0, 1001, 1000, color: :white)
+
+    config =
+      config(%{
+        "halves.png" => encode(halves, ".png"),
+        "halves.webp" => encode(halves, ".webp[lossless=true]")
+      })
+
+    expected = image("/crop=1001,800/w=10/format=png/src/halves.png", config)
+    actual = image("/crop=1001,800/w=10/format=png/src/halves.webp", config)
+    assert mean_difference(actual, expected) <= 5.0
+  end
+
   test "a thin JPEG or WebP, or a sub-pixel WebP target, decodes at a reduced size" do
     thin = Image.new!(2000, 3, color: :red)
     wide = Image.new!(2003, 1501, color: :red)

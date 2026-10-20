@@ -141,6 +141,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   sent.
 - A `src` URL with credentials that decodes to invalid UTF-8 no longer loses
   its request summary log line.
+- A `crop` placed by an anchor, including the default centre, or by a focus
+  point, followed by a resize, now lands where it would on a full-size
+  decode. Before, a source decoded at a reduced size for the resize could
+  place it up to one output pixel off.
 - Downscaling a 16-bit image or watermark without transparency no longer
   darkens it slightly. Each value lost about 0.2%, so white came back as
   65455 instead of 65535.

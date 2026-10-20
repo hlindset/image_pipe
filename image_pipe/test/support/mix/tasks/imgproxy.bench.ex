@@ -138,7 +138,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   @perf_set ~w(
     rs_fill_zone rs_fill_webp_residual cover_smart_marker
     alpha_resize cmyk_import palette_fit enlarge_small
-    crop_gravity_placement crop_smart_marker dps_crop_pct_resize region_odd_origin
+    crop_gravity_placement crop_smart_marker region_odd_origin
     extend_small padding_border alpha_extend_bg
     rotate_exif exif_large_fit exif_user_rot90 exif_cover_smart rgb16_rotate_crop
     alpha_border_trim trim_resize_high_freq trim_icc_p3

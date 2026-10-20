@@ -247,6 +247,23 @@ defmodule ImagePipe.Test.Golden.Cases do
         native: "crop=50pct,50pct/anchor=top",
         tolerance: {2, 64}
       },
+      # On a decode shrunk for the resize, a centred crop lands where a
+      # full-size decode puts it. imgproxy centres in the shrunk frame, a row
+      # lower here.
+      %{
+        id: "crop_centered_shrunk_jpeg",
+        kind: :png,
+        source: "high_freq.jpg",
+        native: "crop=50pct,50pct/w=200",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "crop_centered_shrunk_webp",
+        kind: :png,
+        source: "high_freq.webp",
+        native: "crop=1001,801/w=10",
+        tolerance: {2, 64}
+      },
       # Attention scoring runs in the displayed frame.
       %{
         id: "exif_smart_crop",
