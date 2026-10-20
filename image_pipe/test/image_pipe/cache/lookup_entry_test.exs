@@ -6,6 +6,7 @@ defmodule ImagePipe.Cache.LookupEntryTest do
   alias ImagePipe.Cache
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
+  alias ImagePipe.Cache.FileSystem.Sketch
   alias ImagePipe.Cache.Key
   alias ImagePipe.Test.Caches
 
@@ -44,6 +45,34 @@ defmodule ImagePipe.Cache.LookupEntryTest do
 
   test "returns a miss with the given key", %{opts: opts} do
     assert Cache.lookup_entry(key(), opts) == {:miss, key()}
+  end
+
+  test "a miss counts as a sighting for admission, and a recheck doesn't", %{opts: opts} do
+    rechecked = %Key{hash: String.duplicate("b", 64), data: [schema_version: 2]}
+    root = opts |> Keyword.fetch!(:cache) |> Keyword.fetch!(:root)
+    [{admission, _value}] = Registry.lookup(FileSystem.registry_name(root), root)
+
+    assert Cache.lookup_entry(key(), opts) == {:miss, key()}
+    assert Cache.recheck_entry(rechecked, opts) == {:miss, rechecked}
+
+    doorkeeper = :sys.get_state(admission).doorkeeper
+    assert Talan.BloomFilter.member?(doorkeeper, key().hash)
+    refute Talan.BloomFilter.member?(doorkeeper, rechecked.hash)
+  end
+
+  test "a recheck that hits doesn't count again for admission", %{opts: opts} do
+    store(opts, "body")
+    root = opts |> Keyword.fetch!(:cache) |> Keyword.fetch!(:root)
+    [{admission, _value}] = Registry.lookup(FileSystem.registry_name(root), root)
+    estimate = fn -> Sketch.estimate(:sys.get_state(admission).sketch, key().hash) end
+
+    assert {:hit, entry} = Cache.recheck_entry(key(), opts)
+    Entry.close(entry)
+    assert estimate.() == 0
+
+    assert {:hit, entry} = Cache.lookup_entry(key(), opts)
+    Entry.close(entry)
+    assert estimate.() == 1
   end
 
   test "returns a stored entry as a hit", %{opts: opts} do

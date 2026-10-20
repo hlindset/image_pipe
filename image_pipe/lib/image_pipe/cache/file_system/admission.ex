@@ -252,10 +252,21 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   def hit(server, descriptor) when is_map(descriptor),
     do: GenServer.cast(server, {:hit, descriptor})
 
+  @doc """
+  Notify Admission that a request missed `key_hash`. Each request that
+  misses counts as a sighting, including one that then waits for another
+  request to write the entry, so demand is counted rather than writes.
+  """
+  @spec miss(pid() | GenServer.name(), binary()) :: :ok
+  def miss(server, key_hash) when is_binary(key_hash),
+    do: GenServer.cast(server, {:miss, key_hash})
+
+  @impl true
+  def handle_cast({:miss, key_hash}, state), do: {:noreply, sighting(state, key_hash)}
+
   # A hit on an untracked key, read before the startup scan reached it, is
   # counted when its entry is still stored, and evicts back under the cap if
   # that passes it. A hit read before an eviction finds it gone and is dropped.
-  @impl true
   def handle_cast({:hit, descriptor}, state) do
     state = sighting(state, descriptor.key_hash)
 
@@ -318,8 +329,10 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     descriptor = FileSystem.descriptor(prepared, body_filename)
     # The write's own pending bytes aren't another write's.
     pending = max(Writers.pending(state.root) - Map.get(prepared, :held, 0), 0)
-    # A commit is itself a sighting of its key.
-    state = sighting(state, descriptor.key_hash)
+    # The request that wrote it already counted as a sighting when it
+    # missed. A write no request missed, such as a source record, still
+    # counts once.
+    state = seen(state, descriptor.key_hash)
 
     result =
       Telemetry.span(tel_opts(state), [:cache, :admission], %{pool: state.pool}, fn ->
@@ -529,6 +542,13 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   defp frequency(state, key_hash) do
     doorkeeper = if Talan.BloomFilter.member?(state.doorkeeper, key_hash), do: 1, else: 0
     doorkeeper + Sketch.estimate(state.sketch, key_hash)
+  end
+
+  defp seen(state, key_hash) do
+    if not Talan.BloomFilter.member?(state.doorkeeper, key_hash),
+      do: :ok = Talan.BloomFilter.put(state.doorkeeper, key_hash)
+
+    state
   end
 
   defp sighting(state, key_hash) do

@@ -115,15 +115,16 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     Module.concat(ImagePipe.Cache.FileSystem.Registry, suffix)
   end
 
-  def get(%Key{} = key, opts) when is_list(opts) do
+  # `sighting?: false` reads without counting a hit for admission, for a
+  # request that already counted when it missed.
+  def get(%Key{} = key, opts, sighting? \\ true) when is_list(opts) do
     case paths(key, opts) do
       {:ok, paths} ->
         case read_entry(paths) do
           {:hit, entry, meta} ->
             # read_entry already parsed/validated the meta payload; reuse its
             # fields rather than re-reading the file.
-            maybe_cast_hit(opts, hit_descriptor(key, meta))
-
+            sight_hit(sighting?, opts, key, meta)
             {:hit, entry, meta}
 
           other ->
@@ -135,6 +136,11 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     end
   end
 
+  defp sight_hit(false, _opts, _key, _metadata), do: :ok
+
+  defp sight_hit(true, opts, key, metadata),
+    do: maybe_cast_hit(opts, hit_descriptor(key, metadata))
+
   defp hit_descriptor(key, metadata),
     do: %{
       key_hash: key.hash,
@@ -142,6 +148,14 @@ defmodule ImagePipe.Cache.FileSystem.Store do
       cost_us: metadata.cost_us,
       body_filename: metadata.body_filename
     }
+
+  # A request missed `key`, so admission counts it as a sighting.
+  def miss(%Key{} = key, opts) do
+    case lookup_admission(opts) do
+      {:ok, pid} -> Admission.miss(pid, key.hash)
+      _ -> :ok
+    end
+  end
 
   defp maybe_cast_hit(opts, descriptor) do
     case lookup_admission(opts) do

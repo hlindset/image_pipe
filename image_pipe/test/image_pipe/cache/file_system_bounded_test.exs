@@ -74,6 +74,12 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     end
   end
 
+  # A request's miss counts toward admitting its key's entry.
+  defp missed(cache_key, opts) do
+    FileSystem.missed(cache_key, opts)
+    _state = :sys.get_state(admission_pid(Keyword.fetch!(opts, :root)))
+  end
+
   defp admission_pid(root) do
     [{pid, _}] = Registry.lookup(FileSystem.registry_name(root), root)
     pid
@@ -259,6 +265,7 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
 
     assert :ok = put_entry(cache_key, entry(original), opts)
     assert :ok = put_entry(distinct_key(2), entry(String.duplicate("b", 40)), opts)
+    missed(cache_key, opts)
     assert :ok = put_entry(cache_key, entry(replacement), opts)
 
     assert total_body_bytes(root) <= 100
@@ -277,6 +284,7 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     body = String.duplicate("c", 50)
 
     assert {:ok, :rejected} = put_entry(candidate, entry(body), opts)
+    missed(candidate, opts)
     assert :ok = put_entry(candidate, entry(body), opts)
     assert total_body_bytes(root) == 90
     assert tracked_bytes(admission_pid(root)) == 90
@@ -294,6 +302,7 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     assert :ok = put_entry(popular, entry(String.duplicate("b", 40)), opts)
     assert {:hit, _} = FileSystem.get(popular, opts)
     assert {:ok, :rejected} = put_entry(candidate, entry(String.duplicate("c", 30)), opts)
+    missed(candidate, opts)
     assert :ok = put_entry(candidate, entry(String.duplicate("c", 30)), opts)
 
     assert FileSystem.get(unpopular, opts) == :miss
@@ -316,7 +325,12 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
 
     candidate = distinct_key(0)
     body = String.duplicate("l", 5_000)
-    results = for _request <- 1..3, do: put_entry(candidate, entry(body), opts)
+
+    results =
+      for _request <- 1..3 do
+        missed(candidate, opts)
+        put_entry(candidate, entry(body), opts)
+      end
 
     assert :ok in results
 

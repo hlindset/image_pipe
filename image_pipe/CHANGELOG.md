@@ -46,6 +46,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   cache. `:source` can report `:bypass` with `reason: :not_stored`, and
   `:download` reports `:bypass`, with `reason: :not_stored` or
   `reason: :watermark_not_stored` when storage is the cause.
+- When a cache with `max_size_bytes` is full, a new processed image or
+  original that many requests want is kept sooner. The cache now counts
+  each request that misses it, including requests that wait for another
+  request's copy, instead of counting how often it's written.
 - The default Logger shows a coordination event's reason after its result,
   as in `bypass (deadline)`. It logs a `:bypass` with reason `:not_stored`
   or `:watermark_not_stored`, and a `:download` `:busy`, at its base level.

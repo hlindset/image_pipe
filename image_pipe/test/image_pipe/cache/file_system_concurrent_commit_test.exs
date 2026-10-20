@@ -81,8 +81,11 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
   test "a read racing eviction does not restore deleted entry accounting", ctx do
     assert :ok = put_entry(ctx.key, String.duplicate("a", 500), ctx.opts)
     other = %Key{hash: String.duplicate("b", 64), data: []}
-    # A first sighting of the other key loses the gate, so its next write wins.
+    # A first sighting of the other key loses the gate. Once another request
+    # misses it, its next write wins.
     assert {:ok, :rejected} = put_entry(other, String.duplicate("b", 800), ctx.opts)
+    FileSystem.missed(other, ctx.opts)
+    _state = :sys.get_state(ctx.admission)
     parent = self()
     handler = make_ref()
     event = ctx.prefix ++ [:cache, :admission, :stop]

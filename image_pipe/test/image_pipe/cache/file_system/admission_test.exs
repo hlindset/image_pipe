@@ -49,6 +49,22 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert Sketch.estimate(state.sketch, descriptor.key_hash) >= 1
   end
 
+  test "miss/2 is a sighting, and the commit that follows it isn't another",
+       %{registry: registry, tmp_dir: tmp_dir} do
+    pid = start_supervised!({Admission, base_opts(registry: registry, tmp_dir: tmp_dir)})
+    Admission.await_scan(pid)
+    pool = [root: tmp_dir, max_size_bytes: 1_000_000]
+
+    Admission.miss(pid, hash("new"))
+    assert :ok = put_with_cost(pool, "new", 1_000)
+    state = :sys.get_state(pid)
+    assert Talan.BloomFilter.member?(state.doorkeeper, hash("new"))
+    assert Sketch.estimate(state.sketch, hash("new")) == 0
+
+    Admission.miss(pid, hash("new"))
+    assert Sketch.estimate(:sys.get_state(pid).sketch, hash("new")) == 1
+  end
+
   test "hit/2 on an untracked persisted key restores its accounting",
        %{registry: registry, tmp_dir: tmp_dir} do
     opts = base_opts(registry: registry, tmp_dir: tmp_dir)
@@ -190,9 +206,14 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
       # Make the random admission draw always succeed.
       :sys.replace_state(ctx.pid, &%{&1 | random_admission_one_in: 1})
 
-      for _ <- 1..5, do: assert({:ok, :rejected} = put_with_cost(ctx.pool, "cheap", 10))
+      for _ <- 1..5 do
+        Admission.miss(ctx.pid, hash("cheap"))
+        assert {:ok, :rejected} = put_with_cost(ctx.pool, "cheap", 10)
+      end
+
       refute tracked?(ctx.pid, "cheap")
 
+      Admission.miss(ctx.pid, hash("cheap"))
       assert :ok = put_with_cost(ctx.pool, "cheap", 10)
       assert tracked?(ctx.pid, "cheap")
     end
