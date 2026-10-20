@@ -493,6 +493,8 @@ defmodule ImagePipe.Output.Policy do
 
   @doc false
   @spec png_palette?(t()) :: boolean()
+  # A PNG at 16 bits has no palette.
+  def png_palette?(%__MODULE__{encoder_options: %{png: %{bitdepth: 16}}}), do: false
   def png_palette?(%__MODULE__{encoder_options: %{png: %{palette: true}}}), do: true
   def png_palette?(%__MODULE__{}), do: false
 
