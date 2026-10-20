@@ -11,35 +11,51 @@ defmodule ImagePipe.Transform.Detector.ImageVision.Model do
   # face_detection.ex) checks :persistent_term, downloads with
   # ModelCache.fetch! and loads with Ortex without a lock, so concurrent first
   # calls each download and load the model (beads image_plug-8qdy). Until an
-  # upstream fix, `fun` runs one call at a time per adapter until one returns
-  # `{:ok, _}`; later calls skip the lock. The lock is a process registered
-  # under an adapter-derived name, which exits when its owner releases it or
-  # dies.
-  @spec first_load(module(), (-> {:ok, term()} | {:error, term()})) ::
-          {:ok, term()} | {:error, term()}
-  def first_load(adapter, fun) when is_atom(adapter) do
+  # upstream fix, `probe` runs one call at a time per adapter until one returns
+  # `{:ok, _}`; later calls return `:ok` at once. The probe must not depend on
+  # a request's image, since its error goes to every call waiting on it. The
+  # lock is a process registered under an adapter-derived name, which exits
+  # when its owner releases it or dies. A release exits with a failed probe's
+  # error, so the calls waiting on it return that error instead of each
+  # trying again in turn.
+  @spec ensure_loaded(module(), (-> {:ok, term()} | {:error, term()})) :: :ok | {:error, term()}
+  def ensure_loaded(adapter, probe) when is_atom(adapter) do
     if :persistent_term.get({__MODULE__, adapter}, false),
-      do: fun.(),
-      else: locked(adapter, fun)
+      do: :ok,
+      else: locked(adapter, probe)
   end
 
-  defp locked(adapter, fun) do
+  defp locked(adapter, probe) do
     name = Module.concat(adapter, FirstLoad)
     lock = spawn_lock()
 
     if register(lock, name) do
-      try do
-        with {:ok, _} = result <- fun.() do
-          :persistent_term.put({__MODULE__, adapter}, true)
-          result
+      result =
+        try do
+          probe.()
+        catch
+          kind, reason ->
+            send(lock, {:release, nil})
+            :erlang.raise(kind, reason, __STACKTRACE__)
         end
-      after
-        send(lock, :release)
+
+      case result do
+        {:ok, _loaded} ->
+          :persistent_term.put({__MODULE__, adapter}, true)
+          send(lock, {:release, nil})
+          :ok
+
+        {:error, _reason} = error ->
+          send(lock, {:release, error})
+          error
       end
     else
-      send(lock, :release)
-      await_release(name)
-      first_load(adapter, fun)
+      send(lock, {:release, nil})
+
+      case await_release(name) do
+        {:error, _reason} = error -> error
+        nil -> ensure_loaded(adapter, probe)
+      end
     end
   end
 
@@ -50,7 +66,7 @@ defmodule ImagePipe.Transform.Detector.ImageVision.Model do
       ref = Process.monitor(owner)
 
       receive do
-        :release -> :ok
+        {:release, result} -> exit({:shutdown, {:released, result}})
         {:DOWN, ^ref, :process, _pid, _reason} -> :ok
       end
     end)
@@ -62,14 +78,19 @@ defmodule ImagePipe.Transform.Detector.ImageVision.Model do
     ArgumentError -> false
   end
 
+  # The released probe's error, or nil when the lock went without one.
   defp await_release(name) do
     case Process.whereis(name) do
       nil ->
-        :ok
+        nil
 
       pid ->
         ref = Process.monitor(pid)
-        receive do: ({:DOWN, ^ref, :process, ^pid, _reason} -> :ok)
+
+        receive do
+          {:DOWN, ^ref, :process, ^pid, {:shutdown, {:released, result}}} -> result
+          {:DOWN, ^ref, :process, ^pid, _reason} -> nil
+        end
     end
   end
 end

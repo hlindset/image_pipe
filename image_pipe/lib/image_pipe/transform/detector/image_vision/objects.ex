@@ -63,17 +63,24 @@ defmodule ImagePipe.Transform.Detector.ImageVision.Objects do
   @impl true
   def warmup(opts) do
     if available?(opts) do
-      {:ok, blank} = Image.new(64, 64, color: :black)
-      with {:ok, _regions} <- detect_objects(blank, :all), do: :ok
+      Model.ensure_loaded(__MODULE__, &probe/0)
     else
       {:error, {:detector, :unavailable}}
     end
   end
 
   # Workaround for image_vision's unlocked first model load; see
-  # Model.first_load/2.
-  defp detect_objects(image, classes),
-    do: Model.first_load(__MODULE__, fn -> run_object_detection(image, classes) end)
+  # Model.ensure_loaded/2.
+  defp detect_objects(image, classes) do
+    with :ok <- Model.ensure_loaded(__MODULE__, &probe/0),
+         do: run_object_detection(image, classes)
+  end
+
+  # Detection on a blank image loads the model, independent of any request.
+  defp probe do
+    {:ok, blank} = Image.new(64, 64, color: :black)
+    run_object_detection(blank, :all)
+  end
 
   # Image.Detection.detect/2 lives in the optional image_vision+ortex stack
   # (the IMAGE_VISION=1 test lane); absent it, Dialyzer sees an unknown function.

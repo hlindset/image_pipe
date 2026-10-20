@@ -47,16 +47,23 @@ defmodule ImagePipe.Transform.Detector.ImageVision.Face do
   @impl true
   def warmup(opts) do
     if available?(opts) do
-      {:ok, blank} = Image.new(64, 64, color: :black)
-      with {:ok, _regions} <- detect_faces(blank), do: :ok
+      Model.ensure_loaded(__MODULE__, &probe/0)
     else
       {:error, {:detector, :unavailable}}
     end
   end
 
   # Workaround for image_vision's unlocked first model load; see
-  # Model.first_load/2.
-  defp detect_faces(image), do: Model.first_load(__MODULE__, fn -> run_face_detection(image) end)
+  # Model.ensure_loaded/2.
+  defp detect_faces(image) do
+    with :ok <- Model.ensure_loaded(__MODULE__, &probe/0), do: run_face_detection(image)
+  end
+
+  # Detection on a blank image loads the model, independent of any request.
+  defp probe do
+    {:ok, blank} = Image.new(64, 64, color: :black)
+    run_face_detection(blank)
+  end
 
   # FaceDetection returns a bare list and raises on failure; rescue at this
   # dependency boundary. Boxes use absolute {x, y, width, height}; drop landmarks.
