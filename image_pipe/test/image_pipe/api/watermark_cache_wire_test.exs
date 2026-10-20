@@ -67,11 +67,15 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
       end
     end
 
-    # Paths the origin doesn't hold answer 404.
+    # Paths the origin doesn't hold answer 404, and crash.png crashes the
+    # fetch.
     plug = fn conn ->
-      case Map.has_key?(Agent.get(state, & &1.versions), Enum.join(conn.path_info, "/")) do
-        true -> serve.(conn)
-        false -> send_resp(conn, 404, "")
+      path = Enum.join(conn.path_info, "/")
+
+      cond do
+        path == "crash.png" -> raise "origin crashed"
+        Map.has_key?(Agent.get(state, & &1.versions), path) -> serve.(conn)
+        true -> send_resp(conn, 404, "")
       end
     end
 
@@ -93,7 +97,8 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
         clock: fn -> Agent.get(state, & &1.now) end,
         watermarks: %{
           logo: [source: "https://origin.test/mark.png"],
-          missing: [source: "https://origin.test/missing.png"]
+          missing: [source: "https://origin.test/missing.png"],
+          crash: [source: "https://origin.test/crash.png"]
         },
         http_cache: :auto
       )
@@ -195,6 +200,16 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
     response = get("/wm=missing/format=png/src/https://origin.test/image.png", config)
 
     assert response.status >= 400
+    assert_received {:origin, "image.png", []}
+    assert leased_paths() == []
+  end
+
+  @tag capture_log: true
+  test "a watermark that crashes releases the staged main source", %{config: config} do
+    # The request's process outlives the request, as on a kept-alive
+    # connection, so it must release what it leased.
+    catch_exit(get("/wm=crash/format=png/src/https://origin.test/image.png", config))
+
     assert_received {:origin, "image.png", []}
     assert leased_paths() == []
   end

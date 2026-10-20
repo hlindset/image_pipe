@@ -172,6 +172,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A `crop-ratio` far from the `crop` size's own ratio, such as `1:4000`
   for a square crop, no longer fails with a 500. Each side of the crop
   keeps at least one pixel.
+- A request whose watermark crashed while it was fetched no longer keeps its
+  original from being evicted from the originals cache until its connection
+  closes.
 - A thin `crop` or `region` of a JPEG or WebP image blends in far fewer
   pixels from just outside it. A crop under 16 pixels on its short side,
   such as an 8-pixel strip, decodes at full size and takes in none.
