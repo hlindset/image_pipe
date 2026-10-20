@@ -8,7 +8,8 @@
 #     test/container/smoke.sh IMAGE [vision]
 #
 # With `vision`, the configuration requires the detector, so the container
-# only becomes healthy when the image bundles it.
+# only becomes healthy when the image bundles it, and a second container
+# without a network checks that detection needs no downloads.
 set -euo pipefail
 
 image=$1
@@ -182,5 +183,45 @@ exposed=$(docker exec "$name-dist" cat /proc/net/tcp /proc/net/tcp6 2>/dev/null 
   echo "distribution: sockets listening beyond loopback: $exposed" >&2
   exit 1
 }
+
+# The vision image carries its models, so detection works without a network.
+# The container has none, so it's queried from inside. A required detector
+# whose models are missing fails `detect` requests with 503, and a
+# smart-face crop falls back to attention, which the response marks
+# `no-store`.
+if [ "$variant" = "vision" ]; then
+  docker rm -f "$name-dist" >/dev/null
+  docker run -d --name "$name-offline" --network none --read-only --tmpfs /tmp \
+    -v "$work/config.toml:/etc/image_pipe/config.toml:ro" \
+    -v "$work/images:/data/images:ro" \
+    "$image" >/dev/null
+  trap 'docker rm -f "$name-dist" "$name-offline" >/dev/null 2>&1 || true; cleanup' EXIT
+
+  status=starting
+  for _ in $(seq 1 60); do
+    status=$(docker inspect -f '{{.State.Health.Status}}' "$name-offline" 2>/dev/null || echo exited)
+    [ "$status" = "healthy" ] || [ "$status" = "exited" ] && break
+    sleep 1
+  done
+  [ "$status" = "healthy" ] || {
+    echo "offline detection: container did not become healthy ($status)" >&2
+    docker logs "$name-offline" >&2 || true
+    exit 1
+  }
+
+  for options in "detect=face" "detect=car" "anchor=smart-face"; do
+    response=$(docker exec "$name-offline" curl -sS -o /dev/null -D - \
+      -w 'response: %{http_code} %{content_type}' \
+      "http://127.0.0.1:8080/w=2/h=4/fit=cover/${options}/format=png/src/pic.png") ||
+      response="curl failed ($?)"
+    grep -qx 'response: 200 image/png' <<<"$response" &&
+      ! grep -qi '^cache-control:.*no-store' <<<"$response" || {
+      echo "offline detection: ${options} answered:" >&2
+      echo "$response" >&2
+      docker logs "$name-offline" >&2 || true
+      exit 1
+    }
+  done
+fi
 
 echo "smoke test passed ($variant)"
