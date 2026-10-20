@@ -72,18 +72,18 @@ defmodule ImagePipe.Cache.FileSystem.SketchTest do
   end
 
   describe "counter limits" do
-    test "a counter stops at 255 without changing the counters next to it" do
+    test "a counter stops at 15 without changing the counters next to it" do
       sketch =
-        Enum.reduce(1..300, Sketch.new(depth: 1, width: 8), fn _, s ->
+        Enum.reduce(1..30, Sketch.new(depth: 1, width: 16), fn _, s ->
           Sketch.increment(s, "a")
         end)
 
-      # "a" lands in the word's second byte, so a carry would show in the third.
-      assert Sketch.estimate(sketch, "a") == 255
-      assert counters(sketch) |> Enum.sort() == [0, 0, 0, 0, 0, 0, 0, 255]
+      # "a" lands in the word's second counter, so a carry would show in the third.
+      assert Sketch.estimate(sketch, "a") == 15
+      assert counters(sketch) |> Enum.sort() == List.duplicate(0, 15) ++ [15]
 
       assert sketch |> Sketch.age() |> counters() |> Enum.sort() ==
-               [0, 0, 0, 0, 0, 0, 0, 127]
+               List.duplicate(0, 15) ++ [7]
     end
   end
 
@@ -134,11 +134,11 @@ defmodule ImagePipe.Cache.FileSystem.SketchTest do
     end
   end
 
-  # Unpacks the bytes the sketch packs eight to an atomics word.
+  # Unpacks the 4-bit counters the sketch packs sixteen to an atomics word.
   defp counters(sketch) do
     for index <- 0..(sketch.depth * sketch.width - 1) do
-      word = :atomics.get(sketch.counters, div(index, 8) + 1)
-      Bitwise.band(Bitwise.bsr(word, rem(index, 8) * 8), 255)
+      word = :atomics.get(sketch.counters, div(index, 16) + 1)
+      Bitwise.band(Bitwise.bsr(word, rem(index, 16) * 4), 15)
     end
   end
 end
