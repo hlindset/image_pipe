@@ -155,8 +155,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   point, followed by a resize, now lands where it would on a full-size
   decode. Before, a source decoded at a reduced size for the resize could
   place it up to one output pixel off.
-- Downscaling a 16-bit image or watermark without transparency no longer
-  darkens it slightly. Each value lost about 0.2%, so white came back as
+- Downscaling a 16-bit image or watermark without transparency, including
+  the scale-down to fit the result limits or a format's size limit, no
+  longer darkens it slightly. Each value lost about 0.2%, so white came back as
   65455 instead of 65535.
 - When the first load of the face or object model failed, each detection
   request waiting for it tried the load again in turn, so the last one
