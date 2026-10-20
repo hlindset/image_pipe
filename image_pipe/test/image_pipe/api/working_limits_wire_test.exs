@@ -51,18 +51,33 @@ defmodule ImagePipe.API.WorkingLimitsWireTest do
     end
   end
 
-  # The 43x64 source has 2752 pixels, so a budget of 2752 * 100 allows sigma 10.
+  # The 43x64 source has 2752 pixels, and a blur costs its pixels times
+  # (sigma² + 10,000), so a budget of 2752 * 10_100 allows sigma 10.
   test "a blur over max_blur_work fails with 422" do
-    mount = mount(max_blur_work: 2752 * 100)
+    mount = mount(max_blur_work: 2752 * 10_100)
 
     for options <- ["blur=10.5", "progressive-blur=10.5", "w=86/enlarge/blur=8"] do
       result = request(mount, options)
       assert result.status == 422, options
-      assert result.resp_body == "blur exceeds the work limit"
+      assert result.resp_body == "blur and sharpen work exceeds the limit"
     end
 
-    for options <- ["blur=10", "progressive-blur=10,down,0.5", "w=21/blur=14"] do
+    for options <- ["blur=10", "progressive-blur=10,down,0.5", "w=21/blur=14", "sharpen=10"] do
       assert request(mount, options).status == 200, options
+    end
+  end
+
+  test "max_blur_work bounds the blurs and sharpens of all groups together" do
+    mount = mount(max_blur_work: 2752 * 10_100)
+
+    for options <- ["blur=7/-/blur=7", "blur=7/-/sharpen=1", "sharpen=1/-/sharpen=1"] do
+      result = request(mount, options)
+      assert result.status == 422, options
+      assert result.resp_body == "blur and sharpen work exceeds the limit"
+    end
+
+    for options <- ["blur=7/-/blur=7", "sharpen=10/-/sharpen=10/-/blur=1000"] do
+      assert request(mount(max_blur_work: :infinity), options).status == 200, options
     end
   end
 

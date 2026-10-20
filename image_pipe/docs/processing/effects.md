@@ -54,7 +54,9 @@ Gaussian blur sigma. Default: none. `blur=0` has no effect.
 Blurs the whole image. Larger values blur more. The sigma is in output pixels,
 so [`dpr`](resize.md#dpr) doesn't change it. On a large image, a large sigma can
 exceed the limit set in the server's configuration
-([`max_blur_work`](../deployment.md#limiting-blurs)) and fail with `422`.
+([`max_blur_work`](../deployment.md#limiting-blur-and-sharpen-work)) and
+fail with `422`. That limit covers all the blurs and sharpens in a request
+together.
 
 <!-- tabs-open -->
 
@@ -86,7 +88,7 @@ Default: none. The image is sharp before `start`, and the blur grows to the full
 sigma at `stop`. Swapping `start` and `stop` reverses the ramp, and equal values
 switch from sharp to fully blurred in one step. The sigma is in output pixels,
 so `dpr` doesn't change it. A progressive blur is slower than `blur`.
-[`max_blur_work`](../deployment.md#limiting-blurs) limits it like a `blur` of
+[`max_blur_work`](../deployment.md#limiting-blur-and-sharpen-work) limits it like a `blur` of
 its full sigma.
 
 The values are positional, so you can't skip one: to set `start`, also write a
@@ -115,6 +117,8 @@ Accepts a number from `0.000001` to `10`, the sharpening sigma, or `0` to
 disable the effect. Default: none.
 
 Sharpens edges. The sigma is in output pixels, so `dpr` doesn't change it.
+A sharpen counts toward the same limit as blurs
+([`max_blur_work`](../deployment.md#limiting-blur-and-sharpen-work)).
 
 <!-- tabs-open -->
 

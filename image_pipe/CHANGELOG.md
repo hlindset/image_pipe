@@ -36,6 +36,15 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   when ImagePipe starts. Set `max_effort` to allow
   higher effort. Each `autoquality` or `max-bytes` attempt encodes at the
   requested effort, so one request could take minutes of CPU.
+- **Breaking:** `:max_blur_work` limits the total work of all `blur`,
+  `progressive-blur`, and `sharpen` steps in a request, across all its
+  groups, instead of each blur on its own. Each step counts the pixels of
+  its image times (sigma² + 10,000), so a single blur may use a slightly
+  smaller sigma than before (up to 624 on a 10-megapixel image). A request
+  over the limit fails with `422` and the message "blur and sharpen work
+  exceeds the limit". Raise the limit if your requests chain large blurs, or
+  set it to `:infinity` to turn it off. See
+  [Limiting blur and sharpen work](docs/deployment.md#limiting-blur-and-sharpen-work).
 - When a cache with `max_size_bytes` is full, it keeps images made from
   progressive JPEGs longer, since they cost more to render again than
   images from baseline JPEGs of the same size. Their `:estimated_cost_us`
