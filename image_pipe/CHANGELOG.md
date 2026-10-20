@@ -95,6 +95,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A request for a cached image from a local file no longer opens the file
   while its size and timestamps are unchanged. The file is opened only when
   it's read.
+- A downloaded original is written to disk in 64 KiB batches instead of one
+  write per network read, which takes less CPU for a large original.
 - A `detect` or `anchor=smart-face` request decodes and buffers less when no
   detection will run: when the detector isn't available for any of the
   requested classes, or when the image already has the `fit=cover` target's
