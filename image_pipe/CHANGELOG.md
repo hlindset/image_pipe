@@ -22,8 +22,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Breaking:** A request that asks for more `avif-options` or
   `webp-options` effort than `:avif_options` or `:webp_options` sets (by
-  default `3` for AVIF and `4` for WebP) fails with `400`. This includes
-  an effort from a preset or `request_defaults`. Set `max_effort` to allow
+  default `3` for AVIF and `4` for WebP) fails with `400`. A preset in
+  `:presets` or `:request_defaults` above the limit raises `ArgumentError`
+  when ImagePipe starts. Set `max_effort` to allow
   higher effort. Each `autoquality` or `max-bytes` attempt encodes at the
   requested effort, so one request could take minutes of CPU.
 - A `detect` or `anchor=smart-face` crop of a large JPEG, WebP, or SVG with
@@ -128,6 +129,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A `region` whose x or y is `0pct` gets the cache key and ETag of the same
   region written with `0`. Cached copies of such requests miss once after an
   upgrade.
+- The request summary of a `HEAD` request that misses the cache no longer
+  reports body bytes (`:bytes`, and the size in its log line), since none are
+  sent.
 - A `src` URL with credentials that decodes to invalid UTF-8 no longer loses
   its request summary log line.
 - When the first load of the face or object model failed, each detection

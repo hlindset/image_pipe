@@ -342,7 +342,8 @@ defmodule ImagePipe.Config do
       `[avif: 6]`. A format left out allows up to its effort in \
       `:avif_options` or `:webp_options`, and a lower limit raises an \
       `ArgumentError`. A request above the limit fails with `400` before the \
-      source is fetched. Higher effort encodes more slowly, and `autoquality` \
+      source is fetched, and a preset or `:request_defaults` above it raises \
+      an `ArgumentError`. Higher effort encodes more slowly, and `autoquality` \
       and `max-bytes` encode once for each quality they try.
       """
     ],
@@ -525,6 +526,7 @@ defmodule ImagePipe.Config do
           |> Keyword.merge(url.options)
           |> Keyword.merge(presets)
 
+        preset_efforts!(presets, Keyword.fetch!(resolved, :max_effort))
         %__MODULE__{options: resolved, raw: options, url: url}
 
       {:error, error} ->
@@ -590,6 +592,33 @@ defmodule ImagePipe.Config do
       end
     end
   end
+
+  # A preset or request default above max_effort would fail most requests
+  # that use it with a 400.
+  defp preset_efforts!(presets, limits) do
+    for {owner, preset} <- preset_owners(presets),
+        preset != nil,
+        {key, format} <- [avif_options: :avif, webp_options: :webp],
+        effort = effort(Map.get(preset.request, key)),
+        effort != nil and effort > Keyword.fetch!(limits, format) do
+      raise ArgumentError,
+            "invalid ImagePipe configuration: #{owner} sets #{format} effort #{effort}, " <>
+              "above the #{format} effort limit #{Keyword.fetch!(limits, format)} (max_effort: #{format})"
+    end
+
+    :ok
+  end
+
+  defp preset_owners(presets) do
+    [
+      {"request_defaults", Keyword.fetch!(presets, :request_defaults)}
+      | Enum.map(presets[:presets], fn {name, preset} -> {~s(preset "#{name}"), preset} end)
+    ]
+  end
+
+  defp effort({:unset, options}), do: effort(options)
+  defp effort(%{effort: effort}), do: effort
+  defp effort(_options), do: nil
 
   defp concealed_watermark?(%{groups: groups}),
     do: Enum.any?(groups, fn {_index, group} -> Map.has_key?(group, :watermark_token) end)

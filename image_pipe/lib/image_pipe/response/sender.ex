@@ -339,6 +339,9 @@ defmodule ImagePipe.Response.Sender do
     end
   end
 
+  # Plug sends no body for HEAD, so its chunks count no bytes.
+  defp send_chunk(%Plug.Conn{method: "HEAD"} = conn, bytes), do: chunk(conn, bytes)
+
   defp send_chunk(conn, bytes) do
     case chunk(conn, bytes) do
       {:ok, _conn} = sent ->

@@ -80,6 +80,18 @@ defmodule ImagePipe.Telemetry.SummaryTest do
     refute_received {:summary, _measurements, _metadata}
   end
 
+  test "a HEAD cache miss sends and counts no body bytes", ctx do
+    options = start(ctx, cache: [root: Path.join(ctx.root, "output")])
+    config = Caches.plug(options)
+
+    head = conn(:head, "/w=40/format=png/src/beach.jpg") |> ImagePipe.Plug.call(config)
+    Caches.await_writes(options)
+    assert head.status == 200
+    assert head.resp_body == ""
+    assert_received {:summary, _measurements, %{cache: :miss} = summary}
+    assert Map.get(summary, :bytes, 0) == 0
+  end
+
   test "failures carry the error and the reason the response gives", ctx do
     options = start(ctx)
     config = Caches.plug(options)
