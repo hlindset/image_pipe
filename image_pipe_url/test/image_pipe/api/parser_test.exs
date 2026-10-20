@@ -362,6 +362,15 @@ defmodule ImagePipe.API.ParserTest do
 
       assert {:ok, %Spec{groups: [%Group{guide: {:detect, {:all, %{"face" => 3.0}}}}]}} =
                parse(["w=300", "fit=cover", "detect=all:1,face:3"])
+
+      # One weight for every class scales every region the same, so it cancels.
+      guide = fn detect ->
+        {:ok, %Spec{groups: [%Group{guide: guide}]}} = parse(["crop=600,400", detect])
+        guide
+      end
+
+      assert guide.("detect=all:3") == {:detect, {:all, %{}}}
+      assert guide.("detect=all:3,face:1") == {:detect, {:all, %{:default => 3.0, "face" => 1.0}}}
     end
 
     test "smart-face is explicit face-assisted attention" do

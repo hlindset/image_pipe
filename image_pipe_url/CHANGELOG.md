@@ -20,6 +20,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   instead of a `Protocol.UndefinedError`.
 - A `region` whose x or y is `0pct` gives the same plan as one written with
   `0`.
+- `detect=all:3`, one weight for every class, gives the same plan as
+  `detect=all`.
 - `autoquality` and `max-bytes` are reported as ignored options with
   `format=webp` and lossless `webp-options`, as with `format=png`.
 

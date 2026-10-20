@@ -314,8 +314,16 @@ defmodule ImagePipe.Plan.Spec do
         {_class, weight} -> weight == default
       end)
 
-    {selection, weights}
+    {selection, uniform_weight(selection, weights)}
   end
+
+  # Detecting every class with one weight scales every region the same, so it
+  # doesn't move the crop. A class list keeps it: a detector can return
+  # regions outside the list, which get the default weight of 1.
+  defp uniform_weight(:all, %{default: _weight} = weights) when map_size(weights) == 1,
+    do: %{}
+
+  defp uniform_weight(_selection, weights), do: weights
 
   defp assemble_trim(nil), do: nil
   defp assemble_trim(:auto), do: :auto

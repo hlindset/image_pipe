@@ -136,6 +136,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A `region` whose x or y is `0pct` gets the cache key and ETag of the same
   region written with `0`. Cached copies of such requests miss once after an
   upgrade.
+- `detect=all:3`, one weight for every class, gets the cache key and ETag of
+  `detect=all`, since a weight that every class shares doesn't move the
+  crop. Cached copies of such requests miss once after an upgrade.
 - The request summary of a `HEAD` request that misses the cache no longer
   reports body bytes (`:bytes`, and the size in its log line), since none are
   sent.
