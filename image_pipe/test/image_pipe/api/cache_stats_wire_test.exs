@@ -7,18 +7,30 @@ defmodule ImagePipe.API.CacheStatsWireTest do
   alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Test.Caches
 
-  setup do
+  setup context do
     root =
       Path.join(System.tmp_dir!(), "image-pipe-cache-stats-#{System.unique_integer([:positive])}")
 
     on_exit(fn -> File.rm_rf!(root) end)
     body = Image.new!(24, 16, color: :red) |> Image.write!(:memory, suffix: ".png")
 
+    cache_control = Map.get(context, :cache_control, "public, max-age=3600")
+    test = self()
+
     origin = fn conn ->
-      conn
-      |> Plug.Conn.put_resp_header("cache-control", "public, max-age=3600")
-      |> Plug.Conn.put_resp_content_type("image/png")
-      |> Plug.Conn.send_resp(200, body)
+      conn = Plug.Conn.put_resp_header(conn, "cache-control", cache_control)
+
+      case Plug.Conn.get_req_header(conn, "if-none-match") do
+        [~s("a")] ->
+          send(test, {:revalidated, self()})
+          Plug.Conn.send_resp(conn, 304, "")
+
+        _none ->
+          conn
+          |> Plug.Conn.put_resp_header("etag", ~s("a"))
+          |> Plug.Conn.put_resp_content_type("image/png")
+          |> Plug.Conn.send_resp(200, body)
+      end
     end
 
     opts =
@@ -61,6 +73,29 @@ defmodule ImagePipe.API.CacheStatsWireTest do
 
     assert input.entries == 1
     assert input.bytes == byte_size(body)
+  end
+
+  @tag cache_control: "public, max-age=0, stale-while-revalidate=60"
+  test "counts a miss once when the original's record is stale", %{opts: opts} do
+    assert get("/w=12/format=png/src/https://origin.test/a.png", opts) == 200
+    assert get("/w=16/format=png/src/https://origin.test/a.png", opts) == 200
+    assert_received {:revalidated, _request}
+
+    assert %{output: %{hits: 0, misses: 2}} = ImagePipe.cache_stats(Caches.instance(opts))
+  end
+
+  @tag cache_control: "public, max-age=0, stale-while-revalidate=60"
+  test "counts a hit once when the original's record is stale", %{opts: opts} do
+    assert get("/w=12/format=png/src/https://origin.test/a.png", opts) == 200
+    assert get("/w=12/format=png/src/https://origin.test/a.png", opts) == 200
+
+    # The hit refreshes the image in the background.
+    assert_receive {:revalidated, refresh}
+    ref = Process.monitor(refresh)
+    assert_receive {:DOWN, ^ref, :process, ^refresh, _reason}
+    Caches.await_writes(opts)
+
+    assert %{output: %{hits: 1, misses: 1}} = ImagePipe.cache_stats(Caches.instance(opts))
   end
 
   @tag capture_log: true
