@@ -99,6 +99,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   original, just as that download finished, no longer keeps the original
   locked. Later requests for that original waited behind the lock until
   the process that served the request exited.
+- An `enlarge` of an image with an EXIF orientation, `rotate`, or `flip`
+  now gives the same pixels as rotating or flipping first and then
+  resizing. Before, enlarged pixels could be off by a fraction of a pixel.
 - An image whose EXIF date fields aren't plain numbers (such as
   `2024:01:01 02+02:00:00`) or aren't stored as text no longer fails with
   a 500 when metadata is stripped. All of its metadata is removed,

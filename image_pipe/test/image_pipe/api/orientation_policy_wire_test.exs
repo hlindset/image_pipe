@@ -161,13 +161,13 @@ defmodule ImagePipe.API.OrientationPolicyWireTest do
       observed_request("/flip=h/w=400/enlarge/format=png/src/image", body, max_result_width: 64)
 
     assert response.status == 200
-    assert dimensions == [{400, 240}]
+    assert dimensions == [{40, 24}]
 
     expected =
       body
       |> Image.from_binary!()
-      |> Image.resize!(10.0)
       |> Image.flip!(:horizontal)
+      |> Image.resize!(10.0)
       |> Image.resize!(64 / 400)
 
     assert_pixels_equal(response, expected)
@@ -183,13 +183,13 @@ defmodule ImagePipe.API.OrientationPolicyWireTest do
       )
 
     assert response.status == 200
-    assert dimensions == [{120, 200}, {60, 36}]
+    assert dimensions == [{24, 40}, {60, 36}]
 
     expected =
       body
       |> Image.from_binary!()
-      |> Image.resize!(5.0)
       |> Image.rotate!(90)
+      |> Image.resize!(5.0)
       |> Image.resize!(0.3)
       |> Image.rotate!(90)
 

@@ -451,11 +451,8 @@ defmodule ImagePipe.Transform.Executor do
   defp run_resize(%State{} = state, resize, tail, opts) do
     case Geometry.pending_class(state) do
       :pending ->
-        {resize, tail} = compensate_resize(resize, tail, state.pending_orientation)
-
-        with {:ok, state} <- Step.run(state, resize, opts),
-             {:ok, state} <- run_pending_tail(state, tail, opts),
-             do: flush_display(state)
+        stored = compensate_resize(resize, tail, state.pending_orientation)
+        run_stored_resize(state, stored, {resize, tail}, opts)
 
       _none_or_identity ->
         with {:ok, state} <- Step.run(state, resize, opts),
@@ -524,6 +521,26 @@ defmodule ImagePipe.Transform.Executor do
   end
 
   defp resize_tail(_mode, _target, _guide, _offset), do: nil
+
+  # An enlarge samples with an affine that isn't centred, so it gives a
+  # different result in the stored frame than in the display frame.
+  defp run_stored_resize(state, {stored, stored_tail}, {resize, tail}, opts) do
+    case enlarges?(state, stored) do
+      true ->
+        with {:ok, state} <- flush_display(state),
+             do: run_resize(state, resize, tail, opts)
+
+      false ->
+        with {:ok, state} <- Step.run(state, stored, opts),
+             {:ok, state} <- run_pending_tail(state, stored_tail, opts),
+             do: flush_display(state)
+    end
+  end
+
+  defp enlarges?(state, %Resize{width: width, height: height}) do
+    {live_width, live_height} = Geometry.live_dims(state)
+    width > live_width or height > live_height
+  end
 
   defp compensate_resize(%Resize{} = resize, tail, pending) do
     resize =
