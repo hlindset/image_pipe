@@ -18,6 +18,11 @@ defmodule ImagePipe.Source.HTTP.DnsCache do
   # query. A resolver that sends its own queries, such as `inet_res` when the
   # inetrc lookup order is `dns`, answers as soon as DNS recovers. A full
   # table caches no new hosts until a sweep removes expired answers.
+  #
+  # A refresh, after none of a host's addresses connected or answered in
+  # time, looks the host up outside the server without joining other
+  # lookups. It replaces the cached answer only when the new one differs or
+  # the cached one has expired, so a slow origin keeps its answer.
 
   use GenServer
 
@@ -47,13 +52,24 @@ defmodule ImagePipe.Source.HTTP.DnsCache do
     :exit, {_reason, {GenServer, :call, _args}} -> lookup.(host)
   end
 
-  @doc "Removes `host`'s cached answer."
-  @spec invalidate(GenServer.server(), String.t()) :: :ok
-  def invalidate(cache \\ __MODULE__, host) do
-    :ets.delete(cache, host)
-    :ok
-  rescue
-    ArgumentError -> :ok
+  @doc """
+  Looks `host` up again with `lookup`, bypassing the cache, and replaces its
+  cached answer only when the new one differs. An unchanged or failed lookup
+  leaves the cached answer as it was, so a host that is reachable but slow
+  keeps its answer for other requests.
+  """
+  @spec refresh(GenServer.server(), String.t(), lookup()) ::
+          {:ok, [:inet.ip_address()]} | {:error, term()}
+  def refresh(cache \\ __MODULE__, host, lookup) do
+    result = lookup.(host)
+    refreshed(cache, host, result)
+    result
+  end
+
+  defp refreshed(cache, host, result) do
+    GenServer.call(cache, {:refreshed, host, result}, :infinity)
+  catch
+    :exit, {_reason, {GenServer, :call, _args}} -> :ok
   end
 
   defp fresh(cache, host) do
@@ -93,6 +109,20 @@ defmodule ImagePipe.Source.HTTP.DnsCache do
       :miss -> {:noreply, join_or_start(state, host, lookup, from)}
     end
   end
+
+  def handle_call({:refreshed, host, {:ok, [_ | _] = addresses} = result}, _from, state) do
+    case fresh(state.table, host) do
+      {:ok, cached} ->
+        if Enum.sort(cached) != Enum.sort(addresses), do: store(state, host, result)
+
+      :miss ->
+        store(state, host, result)
+    end
+
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:refreshed, _host, _result}, _from, state), do: {:reply, :ok, state}
 
   @impl true
   def handle_info({:resolved, pid, result}, state) do

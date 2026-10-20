@@ -185,6 +185,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   such as an 8-pixel strip, decodes at full size and takes in none.
   Otherwise the reduced-size decode shrinks by at most an eighth of the
   crop's short side.
+- When none of an HTTP source's addresses accepts a connection or answers
+  in time, the source keeps its cached DNS answer while it looks the host
+  up again, and replaces the answer only when it changed. Before, the
+  cached answer was dropped first, so other requests to that origin waited
+  for a new lookup.
 - `output=info` reports an exact `dpr` for a tall, narrow image that the
   result limits scale down. Before, a 7×4000 image scaled to 2×1000
   reported `dpr` 0.29 instead of 0.25. The `:scale` measurement of

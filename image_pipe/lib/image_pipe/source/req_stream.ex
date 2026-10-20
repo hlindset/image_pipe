@@ -191,9 +191,9 @@ defmodule ImagePipe.Source.ReqStream do
          addresses
        ) do
     url = Keyword.fetch!(req_options, :url)
-    Keyword.get(runtime_opts, :invalidate_target, fn _url -> :ok end).(url)
+    revalidate = Keyword.get(runtime_opts, :revalidate_target, validate)
 
-    with {:ok, fresh} <- check_target(validate, url, Keyword.fetch!(runtime_opts, :deadline)),
+    with {:ok, fresh} <- check_target(revalidate, url, Keyword.fetch!(runtime_opts, :deadline)),
          false <- Enum.sort(fresh) == Enum.sort(addresses) do
       request_and_route(
         req_options,

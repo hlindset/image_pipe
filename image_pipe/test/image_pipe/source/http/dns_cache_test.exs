@@ -62,15 +62,45 @@ defmodule ImagePipe.Source.HTTP.DnsCacheTest do
     assert_received {:lookup, "missing.test"}
   end
 
-  test "looks a host up again after it is invalidated", %{cache: cache} do
-    lookup = counting_lookup({:ok, [@address]})
+  test "a refresh replaces a cached answer that changed", %{cache: cache} do
+    moved = {192, 0, 2, 9}
+    DnsCache.resolve(cache, "origin.test", fn _host -> {:ok, [@address]} end)
 
-    DnsCache.resolve(cache, "origin.test", lookup)
-    DnsCache.invalidate(cache, "origin.test")
-    DnsCache.resolve(cache, "origin.test", lookup)
+    assert DnsCache.refresh(cache, "origin.test", fn _host -> {:ok, [moved]} end) ==
+             {:ok, [moved]}
 
-    assert_received {:lookup, "origin.test"}
-    assert_received {:lookup, "origin.test"}
+    assert DnsCache.resolve(cache, "origin.test", counting_lookup({:ok, [@address]})) ==
+             {:ok, [moved]}
+
+    refute_received {:lookup, _host}
+  end
+
+  test "a refresh keeps an unchanged or failed answer", %{cache: cache} do
+    DnsCache.resolve(cache, "origin.test", fn _host -> {:ok, [@address]} end)
+    [entry] = :ets.lookup(cache, "origin.test")
+
+    for result <- [{:ok, [@address]}, {:error, :nxdomain}, {:ok, []}] do
+      assert DnsCache.refresh(cache, "origin.test", fn _host -> result end) == result
+      assert :ets.lookup(cache, "origin.test") == [entry]
+    end
+  end
+
+  test "a refresh renews an expired answer", %{cache: cache} do
+    expired_at = System.monotonic_time(:millisecond) - 1
+    :ets.insert(cache, {"origin.test", [@address], expired_at})
+
+    DnsCache.refresh(cache, "origin.test", fn _host -> {:ok, [@address]} end)
+
+    assert DnsCache.resolve(cache, "origin.test", counting_lookup({:ok, []})) == {:ok, [@address]}
+    refute_received {:lookup, _host}
+  end
+
+  test "a refresh caches the answer for a host with none", %{cache: cache} do
+    assert DnsCache.refresh(cache, "origin.test", fn _host -> {:ok, [@address]} end) ==
+             {:ok, [@address]}
+
+    assert DnsCache.resolve(cache, "origin.test", counting_lookup({:ok, []})) == {:ok, [@address]}
+    refute_received {:lookup, _host}
   end
 
   @tag cache: [max_entries: 1]
@@ -188,6 +218,9 @@ defmodule ImagePipe.Source.HTTP.DnsCacheTest do
     stop_supervised!(DnsCache)
 
     assert DnsCache.resolve(cache, "origin.test", fn _ -> {:ok, [@address]} end) ==
+             {:ok, [@address]}
+
+    assert DnsCache.refresh(cache, "origin.test", fn _ -> {:ok, [@address]} end) ==
              {:ok, [@address]}
   end
 
