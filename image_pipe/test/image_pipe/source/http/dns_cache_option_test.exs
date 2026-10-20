@@ -9,7 +9,7 @@ defmodule ImagePipe.Source.HTTP.DnsCacheOptionTest do
   alias ImagePipe.Source.URL
 
   setup do
-    DnsCache.invalidate("localhost")
+    :ets.delete(DnsCache, "localhost")
 
     pid =
       start_supervised!(
@@ -41,13 +41,28 @@ defmodule ImagePipe.Source.HTTP.DnsCacheOptionTest do
   end
 
   @tag :ipv6
-  test "drops a cached answer whose addresses don't connect", %{port: port} do
+  test "replaces a cached answer whose addresses don't connect", %{port: port} do
     # The origin listens on 127.0.0.1 only, so a stale answer of ::1 is refused.
     :ets.insert(DnsCache, {"localhost", [{0, 0, 0, 0, 0, 0, 0, 1}], :infinity})
 
     fetch(port, [])
     assert [{"localhost", addresses, _expires_at}] = :ets.lookup(DnsCache, "localhost")
     assert {127, 0, 0, 1} in addresses
+  end
+
+  test "keeps the cached answer when the origin doesn't answer in time", %{port: port} do
+    fetch(port, [])
+    [entry] = :ets.lookup(DnsCache, "localhost")
+
+    # Connections queue in the backlog, so the request waits for an answer.
+    {:ok, silent} = :gen_tcp.listen(0, ip: {127, 0, 0, 1}, backlog: 16)
+    {:ok, silent_port} = :inet.port(silent)
+
+    # The fetch also tries ::1, where nothing listens, so either failure ends it.
+    assert {:error, {:source, reason}} = fetch_result(silent_port, receive_timeout: 200)
+    assert reason in [:receive_timeout, :connect_error]
+
+    assert :ets.lookup(DnsCache, "localhost") == [entry]
   end
 
   defp fetch(port, opts) do

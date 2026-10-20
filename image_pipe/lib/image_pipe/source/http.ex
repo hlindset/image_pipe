@@ -533,25 +533,27 @@ defmodule ImagePipe.Source.HTTP do
   defp target_guard(opts) do
     allowed_hosts = Keyword.fetch!(opts, :allowed_hosts)
     predicate = AddressPolicy.compile(Keyword.fetch!(opts, :address_policy))
-    {resolver, invalidate} = resolver(opts)
+    {resolver, refresher} = resolvers(opts)
 
     [
       validate_target: &TargetGuard.validate(&1, allowed_hosts, predicate, resolver),
-      invalidate_target: invalidate
+      revalidate_target: &TargetGuard.validate(&1, allowed_hosts, predicate, refresher)
     ]
   end
 
-  defp resolver(opts) do
+  # The second resolver looks the host up again after none of its addresses
+  # connected or answered in time, bypassing a cached answer.
+  defp resolvers(opts) do
     case {Keyword.fetch(opts, :address_resolver), Keyword.fetch!(opts, :dns_cache)} do
       {{:ok, resolver}, _dns_cache} ->
-        {resolver, fn _url -> :ok end}
+        {resolver, resolver}
 
       {:error, false} ->
-        {&TargetGuard.default_resolver/1, fn _url -> :ok end}
+        {&TargetGuard.default_resolver/1, &TargetGuard.default_resolver/1}
 
       {:error, true} ->
         {fn host -> DnsCache.resolve(host, &TargetGuard.default_resolver/1) end,
-         &DnsCache.invalidate(String.downcase(URI.parse(&1).host))}
+         fn host -> DnsCache.refresh(host, &TargetGuard.default_resolver/1) end}
     end
   end
 
