@@ -34,6 +34,13 @@ defmodule ImagePipe.API.MetadataWireTest do
     assert_metadata(response("format=avif/meta=strip", config), :strip)
   end
 
+  test "an EXIF date stored as a number strips all metadata instead of failing" do
+    config = mount(body: numeric_date_jpeg())
+
+    assert_metadata(response("format=jpeg/meta=copyright", config), :strip)
+    assert_metadata(response("format=webp", config), :strip)
+  end
+
   test "URL metadata policy overrides either host metadata policy" do
     host_keeps = mount(strip_metadata: false, keep_copyright: false)
     assert_metadata(response("format=jpeg", host_keeps), :keep)
@@ -306,5 +313,20 @@ defmodule ImagePipe.API.MetadataWireTest do
       end)
 
     Image.write!(with_metadata, :memory, suffix: ".jpg")
+  end
+
+  # IFD0 DateTime stored as SHORT 2024, as some cameras and editors write it.
+  defp numeric_date_jpeg do
+    tiff =
+      "II" <>
+        <<42::little-16, 8::little-32, 1::little-16, 0x0132::little-16, 3::little-16,
+          1::little-32, 2024::little-16, 0::16, 0::little-32>>
+
+    {:ok, with_exif} =
+      VipsImage.mutate(Image.new!(100, 100, color: :white), fn mutable ->
+        VipsMutableImage.set(mutable, "exif-data", :VipsBlob, "Exif\0\0" <> tiff)
+      end)
+
+    Image.write!(with_exif, :memory, suffix: ".jpg")
   end
 end

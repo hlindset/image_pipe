@@ -508,15 +508,17 @@ defmodule ImagePipe.Output.Encoder do
   end
 
   # Workaround for `image` 0.72.0: `Image.minimize_metadata/2` parses the whole
-  # EXIF block, and `Image.Exif.Decode.date_time/1` raises an ArgumentError on
-  # a date field whose parts aren't integers (such as `2024:01:01 02+02:00:00`)
-  # instead of keeping the raw string. No upstream fix yet. When it raises,
-  # remove all metadata, the kept copyright and artist too: the field values
-  # libvips reports can't be written back reliably.
+  # EXIF block, and `Image.Exif.Decode.date_time/1` raises on a date field it
+  # can't parse instead of keeping the raw value: an ArgumentError when the
+  # parts aren't integers (such as `2024:01:01 02+02:00:00`), and a
+  # FunctionClauseError when the tag is stored as a number rather than text.
+  # No upstream fix yet. When it raises, remove all metadata, the kept
+  # copyright and artist too: the field values libvips reports can't be
+  # written back reliably.
   defp minimize_metadata(image, keep) do
     Image.minimize_metadata(image, keep: keep)
   rescue
-    ArgumentError -> Image.remove_metadata(image)
+    _exception -> Image.remove_metadata(image)
   end
 
   # libvips writes xres/yres (pixels per millimetre) into JFIF, PNG pHYs, and
