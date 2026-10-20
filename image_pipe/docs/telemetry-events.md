@@ -819,7 +819,7 @@ the format allows, and is scaled down before encoding. WebP allows 16383
 pixels per side, AVIF 16384, and JPEG 65500. The default result limit of
 8192 pixels per side is usually lower.
 
-- Measurements: `:scale` (float), the scale factor applied, below `1.0`.
+- Measurements: `:scale` (float), the long side's scale factor, below `1.0`.
 - Metadata:
   - `:format` (atom): the output format.
   - `:source_dimensions` (`{width, height}`): the size before scaling.

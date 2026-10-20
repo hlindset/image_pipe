@@ -70,6 +70,13 @@ defmodule ImagePipe.Output.ClampTest do
       assert info.dimensions == {25, 100}
     end
 
+    test "reports the long side's scale for a narrow image" do
+      # The result is 10×999: the short side's ratio would be 1.0.
+      img = image(10, 1000)
+      assert {:ok, _resized, info} = Clamp.clamp(img, limits(max_pixels: 9999), [])
+      assert info.scale < 1.0
+    end
+
     test "respects asymmetric caps without over-shrinking (per-axis)" do
       # 8000x4000, caps w<=10000 (slack), h<=4000 (exactly met) -> no clamp.
       img = image(8000, 4000)

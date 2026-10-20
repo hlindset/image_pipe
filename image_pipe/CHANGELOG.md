@@ -135,6 +135,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A `crop-ratio` far from the `crop` size's own ratio, such as `1:4000`
   for a square crop, no longer fails with a 500. Each side of the crop
   keeps at least one pixel.
+- `output=info` reports an exact `dpr` for a tall, narrow image that the
+  result limits scale down. Before, a 7×4000 image scaled to 2×1000
+  reported `dpr` 0.29 instead of 0.25. The `:scale` measurement of
+  `[:output, :clamp]` now uses the long side too.
 - A URL's `anchor-offset`, `extend-at`, or `extend-offset` no longer
   replaces the crop target or canvas from a preset or the request defaults,
   and its `unset` removes only that option. Before, `anchor-offset=5,5`
