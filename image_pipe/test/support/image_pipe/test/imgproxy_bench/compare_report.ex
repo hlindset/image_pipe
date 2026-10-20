@@ -139,8 +139,14 @@ defmodule ImagePipe.Test.ImgproxyBench.CompareReport do
   defp environment(env) do
     "#{env["host"]}, #{env["docker"]}, servers on CPUs #{env["server_cpus"]} " <>
       "with #{env["concurrency"]} workers, #{env["rounds"]} round(s) of " <>
-      "#{env["duration_s"]}s measurements, longer for slow cases, #{env["date"]}."
+      "#{env["duration_s"]}s measurements, longer for slow cases#{machines(env)}, " <>
+      "#{env["date"]}."
   end
+
+  # A merged run's rounds came from several machines.
+  defp machines(%{"shards" => [_, _ | _] = shards}), do: ", on #{length(shards)} machines"
+
+  defp machines(_env), do: ""
 
   defp against_html(results, against) do
     family_rows =
