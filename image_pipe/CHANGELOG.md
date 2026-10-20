@@ -151,6 +151,14 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   aspect ratio, so the crop can't move. With an unavailable detector, the
   attention crop it falls back to runs on the smaller decode, so it can
   differ slightly.
+- Pixels of a source whose embedded RGB profile matches sRGB to within 1
+  level are used as sRGB, without converting them through the profile, for
+  the output, for placeholders, and for `bg`, `gray`, `bitonal`,
+  `monochrome`, `duotone`, `colorize`, `gradient`, `trim`, and `wm`. The
+  output still embeds the profile with `profile=preserve`. With the libvips
+  operation cache off, this saves about 7 ms on a small JPEG resize and up
+  to about 220 ms on a large `trim` request. Some pixels can differ from
+  before by 1 out of 255.
 
 ### Fixed
 

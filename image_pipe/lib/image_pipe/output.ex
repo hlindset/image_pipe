@@ -6,6 +6,7 @@ defmodule ImagePipe.Output do
     deps: [
       ImagePipe.Format,
       ImagePipe.Plan,
+      ImagePipe.SrgbProfile,
       ImagePipe.Telemetry
     ],
     exports: [

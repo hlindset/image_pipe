@@ -3,7 +3,8 @@ defmodule ImagePipe.Transform.WorkingColor do
   # image whose values may be in another space: an embedded profile the source
   # kept (Display P3, Adobe RGB, a gray profile), a gray interpretation, or
   # 16-bit samples. This module maps a color into the working image's values,
-  # and converts a whole tagged image into another image's space.
+  # and converts a whole tagged image into another image's space. An embedded
+  # profile equivalent to sRGB (`ImagePipe.SrgbProfile`) counts as untagged.
   #
   # Workaround for `image` (0.72, unchanged on main as of 2026-10): colors are
   # resolved here through libvips rather than `Image.Pixel.to_pixel/3`, which
@@ -12,6 +13,7 @@ defmodule ImagePipe.Transform.WorkingColor do
   # with the sRGB transfer curve (128). It also ignores embedded profiles.
   @moduledoc false
 
+  alias ImagePipe.SrgbProfile
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.MutableImage
@@ -74,15 +76,19 @@ defmodule ImagePipe.Transform.WorkingColor do
   @doc """
   Converts a tagged frame to sRGB like `to_srgb/1` and clears the state's
   source-profile backup, since the frame no longer holds values in the source's
-  space. Untagged frames are returned unchanged.
+  space. An sRGB-equivalent profile only clears the backup, so the output step
+  drops it. Untagged frames are returned unchanged.
   """
   @spec to_srgb_frame(State.t()) :: {:ok, State.t()} | {:error, term()}
   def to_srgb_frame(%State{image: image} = state) do
-    case profile(image) do
-      nil ->
+    case {profile(image), embedded_profile(image)} do
+      {nil, nil} ->
         {:ok, state}
 
-      _profile ->
+      {nil, _equivalent} ->
+        {:ok, %State{state | source_color_profile: nil}}
+
+      {_profile, _embedded} ->
         with {:ok, srgb} <- to_srgb(image) do
           {:ok, %State{State.set_image(state, srgb) | source_color_profile: nil}}
         end
@@ -124,11 +130,20 @@ defmodule ImagePipe.Transform.WorkingColor do
     end
   end
 
-  @doc "Whether `image` carries an embedded ICC profile."
+  @doc "Whether `image` carries an embedded ICC profile that isn't sRGB-equivalent."
   @spec tagged?(VipsImage.t()) :: boolean()
   def tagged?(image), do: profile(image) != nil
 
+  # An sRGB-equivalent profile counts as no profile: its values are sRGB. It
+  # stays in the header, since removing it would copy the image to memory.
   defp profile(image) do
+    case embedded_profile(image) do
+      nil -> nil
+      profile -> if SrgbProfile.equivalent?(profile), do: nil, else: profile
+    end
+  end
+
+  defp embedded_profile(image) do
     case VipsImage.header_value(image, "icc-profile-data") do
       {:ok, profile} when is_binary(profile) -> profile
       _absent -> nil
