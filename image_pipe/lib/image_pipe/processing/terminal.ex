@@ -139,7 +139,8 @@ defmodule ImagePipe.Processing.Terminal do
 
   # The image path scales a result down to the result limits after executing,
   # lazily, so the clamped header has the dimensions it would deliver. The
-  # scale-down lowers the DPR too, keeping width / dpr at the CSS width.
+  # scale-down lowers the DPR too, keeping the long side / dpr at its CSS
+  # length.
   defp executed_facts(state, request, config, lqip_css) do
     with {:ok, state} <- Executor.execute(state, request, config),
          :ok <- Executor.check_evaluation(state),

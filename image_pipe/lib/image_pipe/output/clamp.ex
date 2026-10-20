@@ -51,9 +51,10 @@ defmodule ImagePipe.Output.Clamp do
         rw = Image.width(resized)
         rh = Image.height(resized)
 
+        # The long side's ratio is the one rounding distorts least.
         {:ok, resized,
          %{
-           scale: rw / w,
+           scale: if(w >= h, do: rw / w, else: rh / h),
            source_dimensions: {w, h},
            dimensions: {rw, rh},
            limits: limits

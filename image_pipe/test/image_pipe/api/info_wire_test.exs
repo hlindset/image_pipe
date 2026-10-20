@@ -120,6 +120,14 @@ defmodule ImagePipe.API.InfoWireTest do
     assert %{"width" => 50, "dpr" => 1.25} = info("w=40/dpr=2/output=info", config)["result"]
   end
 
+  test "result dpr follows the long side of a narrow image the limits scale down" do
+    config = mount(gradient_jpeg(7, 4000), max_result_height: 1000)
+
+    # Rounding makes the 7px width 2px, but the height scales by exactly 1/4.
+    assert %{"width" => 2, "height" => 1000, "dpr" => 0.25} =
+             info("output=info", config)["result"]
+  end
+
   test "requested placeholders equal the standalone outputs with one source fetch" do
     # A photo, so a placeholder from a smaller decode differs from a full-size one.
     config = mount(File.read!("priv/static/images/beach.jpg"))
