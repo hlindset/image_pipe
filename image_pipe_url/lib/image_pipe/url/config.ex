@@ -71,7 +71,8 @@ defmodule ImagePipe.URL.Config do
                   that names a preset missing from `:presets`, the groups that
                   name it and the request-wide options are not checked, because
                   only the server can resolve the name. The other groups are
-                  still checked.
+                  still checked, and so are conflicts between options the plan
+                  sets itself.
                   """
                 ],
                 watermarks: [

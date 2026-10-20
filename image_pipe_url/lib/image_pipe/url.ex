@@ -423,10 +423,12 @@ defmodule ImagePipe.URL do
   Without it, `validate/1` returns only the builder's mistakes. With
   `preset_lookup: true`, only the server can resolve a preset missing from
   `:presets`, and that preset can set any option of its group and of the
-  request. For a plan that names one, the
-  check skips the groups that name it and the request-wide options, and
-  checks the other groups. In an app that serves its own URLs,
-  `ImagePipe.validate/2` runs the full check, including the lookup.
+  request. For a plan that names one, the check skips the groups that name
+  it and the request-wide options, and checks the other groups. Two options
+  the plan sets that conflict with each other still fail the check, such as
+  `quality:` with `autoquality: true`, because a preset can't remove them.
+  In an app that serves its own URLs, `ImagePipe.validate/2` runs the full
+  check, including the lookup.
   """
   @spec validate(t()) :: {:ok, [Issue.t()]} | {:error, [Issue.t()]}
   def validate(%__MODULE__{plan: plan, config: %Config{options: options}}),

@@ -45,6 +45,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - An issue that `validate/1` reports with `:validate_against` names the
   group as the builder numbers it. Before, when a group held only `unset`
   options, issues in later groups named the group before theirs.
+- With `preset_lookup: true`, `ImagePipe.URL.validate/1` reports a
+  conflict between two options the plan sets, such as `quality:` with
+  `autoquality: true`, even when the plan names a preset missing from
+  `:presets`, and `ImagePipe.URL.url/3` returns
+  `{:error, {:invalid_request, issues}}`. Before, `ImagePipe.URL.url/3`
+  built a URL the server rejects with `400`.
 
 ## [0.3.0] - 2026-10-18
 
