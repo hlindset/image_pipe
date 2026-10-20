@@ -6,6 +6,7 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.BodyOrigin
   alias ImagePipe.Test.Orientation1TwinOrigin
   alias ImagePipe.Test.OrientedFrameOrigin
   alias Vix.Vips.Operation
@@ -18,6 +19,10 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
   #   * No-geometry leg — EXIF 1..8 × API rotation/flip with no region crop or
   #     resize must EXACTLY match EXIF, then rotate, then flip (the flush uses these exact
   #     primitives, so equality is real, not tolerant).
+  #
+  #   * Enlarge and nearest-downscale legs — sampling that doesn't commute with
+  #     orientation runs after the flush, so these match the upright source
+  #     exactly on a noise image.
   #
   #   * Crop/resize leg — the SAME API request on the EXIF-oriented source and
   #     on the orientation-1 twin (same displayed pixels, no tag) must land
@@ -104,6 +109,53 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
     end
   end
 
+  # A nearest downscale samples one source pixel per output pixel at a fixed
+  # offset from the top-left edge, so it picks other pixels in a mirrored or
+  # turned stored frame. The executor flushes the orientation before it, as it
+  # does before an enlarge.
+  @nearest_downscales [
+    "w=15/kernel=nearest",
+    "h=25/kernel=nearest",
+    "w=13/h=17/fit=stretch/kernel=nearest",
+    "w=12/h=12/kernel=nearest"
+  ]
+
+  test "nearest downscale: EXIF 1..8 matches the orientation-1 twin exactly" do
+    base = noise(30, 50)
+
+    for orientation <- 1..8, geometry <- @nearest_downscales do
+      path = "/#{geometry}/format=png/src/x.jpg"
+      oriented = path |> request(oriented_opts(base, orientation)) |> decoded()
+      twin = path |> request(twin_opts(base, orientation)) |> decoded()
+
+      assert {:ok, difference, _image} = Image.compare(oriented, twin)
+      assert difference == 0.0, "EXIF-#{orientation} #{path} differs from its twin"
+    end
+  end
+
+  test "nearest downscale: rotate and flip match the pre-oriented source exactly" do
+    base = noise(30, 50)
+
+    for {orientation, orient} <- [
+          {"rotate=90", &Image.rotate!(&1, 90)},
+          {"rotate=180", &Image.rotate!(&1, 180)},
+          {"rotate=270", &Image.rotate!(&1, 270)},
+          {"flip=h", &Image.flip!(&1, :horizontal)},
+          {"flip=v", &Image.flip!(&1, :vertical)}
+        ],
+        geometry <- @nearest_downscales do
+      upright =
+        base |> Image.open!(access: :random) |> orient.() |> Image.write!(:memory, suffix: ".png")
+
+      path = "/#{geometry}/format=png/src/x.png"
+      oriented = "/#{orientation}#{path}" |> request(body_opts(base)) |> decoded()
+      twin = path |> request(body_opts(upright)) |> decoded()
+
+      assert {:ok, difference, _image} = Image.compare(oriented, twin)
+      assert difference == 0.0, "#{orientation}#{path} differs from the pre-oriented source"
+    end
+  end
+
   # ── Generators ───────────────────────────────────────────────────────────────
 
   # Regions stay inside the 120×120 box shared
@@ -174,7 +226,11 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
   defp twin_opts(base_bytes, orientation),
     do: opts(Orientation1TwinOrigin, base_bytes, orientation)
 
-  defp opts(origin, base_bytes, orientation) do
+  defp body_opts(bytes), do: opts(BodyOrigin, {bytes, "image/png"})
+
+  defp opts(origin, base_bytes, orientation), do: opts(origin, {base_bytes, orientation})
+
+  defp opts(origin, config) do
     [
       sources: [
         path: [
@@ -182,7 +238,7 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
           match: :path,
           options: [
             root_url: "http://origin.test",
-            req_options: [plug: {origin, {base_bytes, orientation}}]
+            req_options: [plug: {origin, config}]
           ]
         ]
       ]

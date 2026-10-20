@@ -505,12 +505,18 @@ defmodule ImagePipe.Transform.Executor do
   defp prepare_detection_frame(%State{} = state, _resize, _tail, _opts), do: {:ok, state}
 
   defp buffer_detection_frame(state, kernel, opts) do
-    with {:ok, state} <- shrink_to_detection_floor(state, kernel, opts),
+    with {:ok, state} <- flush_before_nearest(state, kernel),
+         {:ok, state} <- shrink_to_detection_floor(state, kernel, opts),
          {:ok, %State{} = state} <- Materializer.materialize(state),
          {:ok, display} <- flush_display(state) do
       {:ok, %State{state | detection_frame: display.image}}
     end
   end
+
+  # A nearest shrink picks other pixels in a mirrored or turned stored frame
+  # (see run_stored_resize/4), so it runs after the orientation flush.
+  defp flush_before_nearest(state, :nearest), do: flush_display(state)
+  defp flush_before_nearest(state, _kernel), do: {:ok, state}
 
   defp shrink_to_detection_floor(%State{} = state, kernel, opts) do
     {width, height} = Geometry.live_dims(state)
@@ -549,10 +555,11 @@ defmodule ImagePipe.Transform.Executor do
 
   defp resize_tail(_mode, _target, _guide, _offset), do: nil
 
-  # An enlarge samples with an affine that isn't centred, so it gives a
+  # An enlarge samples with an affine that isn't centred, and a nearest resize
+  # picks one pixel at a fixed offset from the top-left edge, so either gives a
   # different result in the stored frame than in the display frame.
   defp run_stored_resize(state, {stored, stored_tail}, {resize, tail}, opts) do
-    case enlarges?(state, stored) do
+    case stored.kernel == :nearest or enlarges?(state, stored) do
       true ->
         with {:ok, state} <- flush_display(state),
              do: run_resize(state, resize, tail, opts)
