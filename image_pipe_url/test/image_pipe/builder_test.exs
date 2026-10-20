@@ -574,7 +574,8 @@ defmodule ImagePipe.BuilderTest do
           if default == 1, do: weights, else: Map.put(weights, :default, default * 1.0)
         end)
         |> then(fn weights ->
-          if face == default, do: weights, else: Map.put(weights, "face", face * 1.0)
+          # Every class at one weight cancels out.
+          if face == default, do: %{}, else: Map.put(weights, "face", face * 1.0)
         end)
 
       for {selection, url} <- selections do

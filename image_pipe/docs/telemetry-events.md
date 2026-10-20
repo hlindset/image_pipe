@@ -727,7 +727,8 @@ first load of a model.
 
 - Start metadata:
   - `:classes` (list of strings, or `:all`): the requested classes.
-  - `:weights` (map): the requested weight per class.
+  - `:weights` (map): the weight per class, leaving out weights that don't
+    change the crop.
 - Stop metadata:
   - `:regions` (integer): the regions the detector returned.
   - `:result` (atom): `:detected` (at least one region), `:no_regions` (the
