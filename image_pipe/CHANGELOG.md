@@ -93,6 +93,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   keeps at least one pixel.
 - A `trim` tolerance with hundreds of digits no longer fails with a 500.
   Tolerances above `2147483647` now fail with a 400.
+- A processed-image cache entry whose stored details about its original are
+  incomplete is now logged and treated as a miss, like other
+  [invalid metadata](docs/cache.md#files-on-disk). Before, a request that
+  read it failed with a 500.
 
 ## [0.3.0] - 2026-10-18
 

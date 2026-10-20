@@ -32,12 +32,20 @@ defmodule ImagePipe.Source.Origin do
           vary: %{String.t() => binary()}
         }
 
+  # A record read back from a cache may lack a field, so the head matches
+  # every one rather than reading them with dot access.
   @doc false
-  def valid?(%__MODULE__{} = origin) do
-    origin.status in 200..299 and is_integer(origin.requested_at) and
-      is_integer(origin.received_at) and
-      is_binary(origin.resource) and byte_size(origin.resource) == 32 and
-      valid_headers?(origin.headers) and valid_vary?(origin.vary)
+  def valid?(%__MODULE__{
+        status: status,
+        headers: headers,
+        requested_at: requested_at,
+        received_at: received_at,
+        resource: resource,
+        vary: vary
+      }) do
+    status in 200..299 and is_integer(requested_at) and is_integer(received_at) and
+      is_binary(resource) and byte_size(resource) == 32 and
+      valid_headers?(headers) and valid_vary?(vary)
   end
 
   def valid?(_origin), do: false
