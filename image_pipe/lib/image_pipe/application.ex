@@ -11,6 +11,7 @@ defmodule ImagePipe.Application do
 
   use Application
 
+  alias ImagePipe.Cache.OutputWork
   alias ImagePipe.Output.Capabilities
 
   @impl true
@@ -28,11 +29,8 @@ defmodule ImagePipe.Application do
       ImagePipe.Cache.FileSystem.RefusedRoots,
       {Task.Supervisor, name: ImagePipe.Cache.RefreshTasks},
       ImagePipe.Cache.Work,
-      ImagePipe.Cache.OutputWork,
-      Supervisor.child_spec(
-        {ImagePipe.Cache.OutputWork, name: ImagePipe.Cache.OutputWork.Downloads},
-        id: ImagePipe.Cache.OutputWork.Downloads
-      ),
+      OutputWork,
+      OutputWork.downloads_child_spec(),
       ImagePipe.Source.S3.RefreshCache,
       ImagePipe.Cache.staged_sweep_spec()
     ]
