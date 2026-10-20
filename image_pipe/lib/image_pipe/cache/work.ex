@@ -54,17 +54,12 @@ defmodule ImagePipe.Cache.Work do
     end
   end
 
-  # The lock may have been granted after the wait ran out but before the
-  # coordinator handled the cancellation. Its reply is then already here.
-  # `receive_response/2` closes the request either way.
+  # The coordinator releases a lock it granted after the wait ran out when it
+  # handles the cancellation. `receive_response/2` closes the request and
+  # drops that grant's reply.
   defp cancel_wait(key, request) do
     _result = call({:cancel_wait, key}, 5_000)
-
-    case :gen_server.receive_response(request, 0) do
-      {:reply, {:ok, ref, _outcome}} -> call({:unlock, ref}, 5_000)
-      _no_grant -> :ok
-    end
-
+    _reply = :gen_server.receive_response(request, 0)
     :timeout
   end
 
@@ -220,14 +215,21 @@ defmodule ImagePipe.Cache.Work do
     end
   end
 
+  # A waiter cancels after its wait ran out, so it goes on without the lock.
+  # A lock handed to it from the queue meanwhile is released too: when the
+  # cancel itself timed out, the waiter never reads the grant.
   def handle_call({:cancel_wait, key}, {pid, _tag}, state) do
-    waiters =
+    refs =
       case Map.get(state.locks, key) do
-        nil -> []
-        lock -> for {ref, {^pid, _tag}, _context} <- lock.waiters, do: ref
+        nil ->
+          []
+
+        lock ->
+          waiting = for {ref, {^pid, _tag}, _context} <- lock.waiters, do: ref
+          if granted_from_queue?(lock, pid, state), do: waiting ++ [lock.owner], else: waiting
       end
 
-    {:reply, :ok, Enum.reduce(waiters, state, &release(&2, &1))}
+    {:reply, :ok, Enum.reduce(refs, state, &release(&2, &1))}
   end
 
   def handle_call({:current, ref}, _from, state),
@@ -256,13 +258,16 @@ defmodule ImagePipe.Cache.Work do
     end
   end
 
+  defp granted_from_queue?(lock, pid, state),
+    do: lock.granted_to == pid and not Map.has_key?(state.transfers, lock.owner)
+
   defp enqueue(key, {pid, _tag} = from, context, state) do
     ref = Process.monitor(pid)
     refs = Map.put(state.refs, ref, key)
 
     case Map.get(state.locks, key) do
       nil ->
-        lock = %{owner: ref, context: context, waiters: []}
+        lock = %{owner: ref, granted_to: nil, context: context, waiters: []}
 
         {:reply, {:ok, ref, :acquired},
          %{state | locks: Map.put(state.locks, key, lock), refs: refs}}
@@ -368,13 +373,10 @@ defmodule ImagePipe.Cache.Work do
       %{owner: ^ref, waiters: []} ->
         %{state | locks: Map.delete(state.locks, key)}
 
-      %{owner: ^ref, waiters: [{next, from, context} | rest]} ->
+      %{owner: ^ref, waiters: [{next, {pid, _tag} = from, context} | rest]} ->
         GenServer.reply(from, {:ok, next, :coalesced})
-
-        %{
-          state
-          | locks: Map.put(state.locks, key, %{owner: next, context: context, waiters: rest})
-        }
+        lock = %{owner: next, granted_to: pid, context: context, waiters: rest}
+        %{state | locks: Map.put(state.locks, key, lock)}
 
       lock ->
         lock = %{

@@ -109,8 +109,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   pixels wide.
 - A request that stopped waiting for another request's download of an
   original, just as that download finished, no longer keeps the original
-  locked. Later requests for that original waited behind the lock until
-  the process that served the request exited.
+  locked, even when the server takes more than 5 seconds to respond. Later
+  requests for that original waited behind the lock until the process that
+  served the request exited.
 - An `enlarge` of an image with an EXIF orientation, `rotate`, or `flip`
   now gives the same pixels as rotating or flipping first and then
   resizing. Before, enlarged pixels could be off by a fraction of a pixel.

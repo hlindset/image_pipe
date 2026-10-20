@@ -159,6 +159,47 @@ defmodule ImagePipe.Cache.WorkTest do
     send(waiter, :stop)
   end
 
+  test "a waiter's cancellation releases a lock granted to it that it never received" do
+    key = make_ref()
+    parent = self()
+
+    leader =
+      Task.async(fn ->
+        Work.run(key, fn _lease, _outcome ->
+          send(parent, :locked)
+          receive(do: (:finish -> :led))
+        end)
+      end)
+
+    assert_receive :locked
+
+    # As when the waiter's cancel call timed out and dropped the grant: the
+    # waiter queues for the lock, is granted it, then cancels without
+    # reading the grant.
+    waiter =
+      spawn_link(fn ->
+        _request = :gen_server.send_request(Work, {:lock, key, nil})
+        send(parent, :queued)
+
+        receive(
+          do: (:cancel -> send(parent, {:cancelled, GenServer.call(Work, {:cancel_wait, key})}))
+        )
+
+        receive(do: (:stop -> :ok))
+      end)
+
+    assert_receive :queued
+    _state = :sys.get_state(Work)
+    send(leader.pid, :finish)
+    assert Task.await(leader) == :led
+
+    send(waiter, :cancel)
+    assert_receive {:cancelled, :ok}
+    assert Work.run(key, fn _lease, outcome -> outcome end, wait: 50) == :acquired
+
+    send(waiter, :stop)
+  end
+
   test "owner cancellation releases the key for waiting work" do
     supervisor = start_supervised!(Task.Supervisor)
     key = make_ref()
