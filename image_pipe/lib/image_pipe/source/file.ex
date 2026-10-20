@@ -137,17 +137,23 @@ defmodule ImagePipe.Source.File do
   def fetch(%Resolved{fetch: fetch}, opts, runtime_opts) do
     with {:ok, path} <- safe_path(opts, fetch[:segments]),
          {:ok, stat} <- regular_file(path),
-         :ok <- within_limit(stat, runtime_opts),
-         :ok <- readable(path) do
+         :ok <- within_limit(stat, runtime_opts) do
       now = Keyword.get(runtime_opts, :clock, &now/0).()
       evidence = evidence(Keyword.fetch!(opts, :verify), path, stat, now)
 
       previous = Keyword.get(runtime_opts, :source_validation)
 
+      # ctime changes with the file's mode, owner, and ACLs, so a matching
+      # stat means the file's own permissions are unchanged. Only a file that
+      # will be read is opened.
       if unchanged?(previous, evidence),
         do: {:not_modified, %{previous | requested_at: now, received_at: now}},
-        else: {:ok, %Response{path: path, origin: evidence}}
+        else: changed(path, evidence)
     end
+  end
+
+  defp changed(path, evidence) do
+    with :ok <- readable(path), do: {:ok, %Response{path: path, origin: evidence}}
   end
 
   defp unchanged?(%Origin{headers: %{"etag" => same}}, %Origin{headers: %{"etag" => same}}),

@@ -59,7 +59,10 @@ defmodule ImagePipe.WorkBudgetTest do
   test "another size of an unchanged cached source doesn't read it again", %{cached: cached} do
     request(cached, "/w=100/format=jpeg/src/high_freq.jpg")
 
-    assert_budget(cached, "/w=101/format=jpeg/src/high_freq.jpg", reads: {"high_freq.jpg", 0})
+    assert_budget(cached, "/w=101/format=jpeg/src/high_freq.jpg",
+      reads: {"high_freq.jpg", 0},
+      opens: {"high_freq.jpg", 0}
+    )
   end
 
   # The frame converts to sRGB once, before the watermark is drawn. Converting
@@ -153,6 +156,9 @@ defmodule ImagePipe.WorkBudgetTest do
     |> Enum.map(&elem(&1, 1))
     |> Enum.sum()
   end
+
+  defp count(work, :opens, {file, _opens}),
+    do: {file, Map.get(work.file_opens, Path.join(@sources, file), 0)}
 
   defp count(work, :reads, {file, _passes}) do
     path = Path.join(@sources, file)

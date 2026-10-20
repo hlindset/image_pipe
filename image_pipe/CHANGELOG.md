@@ -69,6 +69,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   blur for every region it read, so a request could take many times the
   CPU that `max_blur_work` allows. A `rotate` by an angle other than a
   quarter turn is copied the same way before such a step.
+- A request for a cached image from a local file no longer opens the file
+  while its size and timestamps are unchanged. The file is opened only when
+  it's read.
 
 ### Fixed
 
