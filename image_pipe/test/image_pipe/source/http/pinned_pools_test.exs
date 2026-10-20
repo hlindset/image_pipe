@@ -21,8 +21,7 @@ defmodule ImagePipe.Source.HTTP.PinnedPoolsTest do
     now = System.monotonic_time(:millisecond)
     PinnedPools.sweep(now + @idle + 1)
     refute_received {:closed, ^first}
-    PinnedPools.sweep(now + @idle + @interval + 2)
-    assert_receive {:closed, ^first}
+    sweep_until_closed(now + @idle + @interval + 2, first)
 
     assert fetch_body(origin.port) == "image bytes"
     assert_receive {:connection, second}
@@ -47,8 +46,24 @@ defmodule ImagePipe.Source.HTTP.PinnedPoolsTest do
     send(server, :finish)
     assert Enum.join(response.stream) == "slow bytes"
 
-    PinnedPools.sweep(now + @idle + 2 * @interval + 3)
-    assert_receive {:closed, ^slow}
+    sweep_until_closed(now + @idle + 2 * @interval + 3, slow)
+  end
+
+  # A sweep stops a retired pool only once Finch reports it idle. Finch's
+  # request process checks the connection in with a message of its own, which
+  # nothing orders against the fetch's return, so the sweep runs again until
+  # the connection closes.
+  defp sweep_until_closed(at, connection, attempts \\ 100) do
+    PinnedPools.sweep(at)
+
+    receive do
+      {:closed, ^connection} -> :ok
+    after
+      50 ->
+        if attempts > 1,
+          do: sweep_until_closed(at, connection, attempts - 1),
+          else: flunk("connection #{inspect(connection)} wasn't closed")
+    end
   end
 
   test "keeps an HTTP/2 pool until the fetch streaming on it finishes" do
