@@ -445,6 +445,31 @@ defmodule ImagePipe.URLTest do
                )
     end
 
+    test "issues name the builder's own groups when an unset-only group drops out" do
+      static = IP.URL.config(validate_against: [presets: %{}])
+      lookup = IP.URL.config(validate_against: [presets: %{}, preset_lookup: true])
+
+      plan = fn config ->
+        IP.URL.new(config)
+        |> IP.URL.group(watermark: :unset)
+        |> IP.URL.group(resize: [fit: :cover])
+      end
+
+      # Under a lookup, a group naming an unknown preset takes the other check.
+      for plan <- [plan.(static), plan.(lookup), IP.URL.group(plan.(lookup), presets: ["remote"])] do
+        assert {:ok, [%{reason: :inert_option, locations: [{:group, 1, :fit}]}]} =
+                 IP.URL.validate(plan)
+      end
+
+      watermark = IP.URL.config(validate_against: [watermarks: [:logo]])
+
+      assert {:error, [%{reason: :unknown_watermark, locations: [{:group, 1, :watermark}]}]} =
+               IP.URL.new(watermark)
+               |> IP.URL.group(watermark: :unset)
+               |> IP.URL.group(watermark: :other)
+               |> IP.URL.validate()
+    end
+
     test "watermark names are checked when validate_against lists them" do
       named = IP.URL.config(validate_against: [watermarks: [:logo]])
       unnamed = IP.URL.config(validate_against: [])

@@ -28,6 +28,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   only `unset` options or names a preset the check doesn't know. Before,
   the defaults were checked with the next group, so the check could
   disagree with the server.
+- An issue that `validate/1` reports with `:validate_against` names the
+  group as the builder numbers it. Before, when a group held only `unset`
+  options, issues in later groups named the group before theirs.
 
 ## [0.3.0] - 2026-10-18
 
