@@ -91,7 +91,8 @@ defmodule ImagePipe.Source.S3Test do
                  credentials: {:static, access_key_id: "A", secret_access_key: "S"},
                  receive_timeout: 1_000,
                  connect_timeout: 2_000,
-                 pool_timeout: 3_000
+                 pool_timeout: 3_000,
+                 pool_size: 80
                ],
                buckets: %{
                  "tenant-a" => [receive_timeout: 500]
@@ -104,6 +105,7 @@ defmodule ImagePipe.Source.S3Test do
     assert Keyword.fetch!(resolved.fetch, :receive_timeout) == 500
     assert Keyword.fetch!(resolved.fetch, :connect_timeout) == 2_000
     assert Keyword.fetch!(resolved.fetch, :pool_timeout) == 3_000
+    assert Keyword.fetch!(resolved.fetch, :pool_size) == 80
 
     assert {:error, {:invalid_source_config, _reason}} =
              S3.validate_options(

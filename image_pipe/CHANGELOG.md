@@ -26,6 +26,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `max_effort` sets the highest AVIF and WebP encoder effort a request may
   ask for, such as `max_effort: [avif: 6]`. It defaults to the effort in
   `:avif_options` and `:webp_options`.
+- `ImagePipe.Source.HTTP` and `ImagePipe.Source.S3` take `pool_size`, the
+  maximum number of open connections to each origin address or S3 endpoint.
+  It defaults to `50`, the limit that applied before. Over HTTP/1.1, raise it
+  when more downloads from one origin run at once, so they don't wait for a
+  free connection and fail with `504` after `pool_timeout`.
 
 ### Changed
 

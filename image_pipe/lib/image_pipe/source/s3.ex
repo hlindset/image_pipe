@@ -24,7 +24,13 @@ defmodule ImagePipe.Source.S3 do
     :aws_sigv4
   ]
   @signed_header_names ["authorization", "host", "x-amz-content-sha256", "x-amz-security-token"]
-  @timeout_keys [:receive_timeout, :fetch_timeout, :connect_timeout, :pool_timeout]
+  @connection_keys [
+    :receive_timeout,
+    :fetch_timeout,
+    :connect_timeout,
+    :pool_timeout,
+    :pool_size
+  ]
   @config_schema NimbleOptions.new!(
                    [
                      region: [
@@ -97,6 +103,16 @@ defmodule ImagePipe.Source.S3 do
                        Milliseconds to wait for a free connection from the pool. \
                        A request that waits longer fails with `504`. The default \
                        value is `5000`.
+                       """
+                     ],
+                     pool_size: [
+                       type: :pos_integer,
+                       doc: """
+                       Maximum number of open HTTP/1.1 connections to the endpoint. Each \
+                       connection carries one download at a time, so further downloads from \
+                       the same endpoint wait for a free connection, up to `pool_timeout`. A bucket with a different `pool_size` \
+                       or `connect_timeout` connects through a pool of its own. The default \
+                       value is `50`.
                        """
                      ]
                    ] ++ CacheSettings.schema()
@@ -235,7 +251,7 @@ defmodule ImagePipe.Source.S3 do
           req_options: Keyword.fetch!(config, :req_options),
           strip_byte_headers: stable? or cache[:internal_cache] == :enabled
         ]
-        |> Keyword.merge(Keyword.take(config, @timeout_keys))
+        |> Keyword.merge(Keyword.take(config, @connection_keys))
         |> Keyword.put_new(:fetch_timeout, 30_000)
 
       {:ok, struct!(Resolved, [identity: identity, fetch: fetch] ++ cache)}
@@ -266,7 +282,7 @@ defmodule ImagePipe.Source.S3 do
 
       stream_options =
         fetch
-        |> Keyword.take(@timeout_keys)
+        |> Keyword.take(@connection_keys)
         |> Keyword.merge(runtime_opts)
         |> put_version_check(fetch[:revision])
 

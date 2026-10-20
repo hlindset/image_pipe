@@ -2,11 +2,32 @@ defmodule ImagePipe.Source.HTTP.PinnedPoolTest do
   # Counts children of VM-wide supervisors, so no other test may fetch meanwhile.
   use ExUnit.Case, async: false
 
+  alias ImagePipe.Source
+  alias ImagePipe.Source.HTTP
   alias ImagePipe.Source.ReqStream
+  alias ImagePipe.Source.URL
 
   defmodule Origin do
     def init(opts), do: opts
     def call(conn, _opts), do: Plug.Conn.send_resp(conn, 200, "body")
+  end
+
+  # Holds the connection of a request for /held, after the headers and a first
+  # chunk, until the test sends :release.
+  defmodule HoldingOrigin do
+    def init(test), do: test
+
+    def call(%{request_path: "/held"} = conn, test) do
+      conn = Plug.Conn.send_chunked(conn, 200)
+      {:ok, conn} = Plug.Conn.chunk(conn, "held")
+      send(test, {:holding, self()})
+
+      receive do
+        :release -> conn
+      end
+    end
+
+    def call(conn, _test), do: Plug.Conn.send_resp(conn, 200, "body")
   end
 
   test "pinned fetches start their connection pool once, under ImagePipe's supervisor" do
@@ -59,5 +80,75 @@ defmodule ImagePipe.Source.HTTP.PinnedPoolTest do
 
       assert results == List.duplicate("body", 32)
     end
+  end
+
+  test "pool_size caps the connections an HTTP source opens to one origin address" do
+    bandit =
+      start_supervised!(
+        {Bandit, plug: {HoldingOrigin, self()}, port: 0, ip: :loopback, startup_log: false}
+      )
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(bandit)
+
+    config =
+      Source.validate_config!(
+        sources: [
+          http: [
+            adapter: HTTP,
+            match: [scheme: "http"],
+            options: [
+              allowed_hosts: ["127.0.0.1:#{port}"],
+              address_policy: [allow_loopback: true],
+              pool_size: 2,
+              pool_timeout: 200
+            ]
+          ]
+        ]
+      )
+
+    fetch = fn path ->
+      source = %URL{scheme: :http, host: "127.0.0.1", port: port, path: [path], query: nil}
+      {:ok, resolved} = Source.resolve(source, config, [])
+      Source.fetch(resolved, config, max_body_bytes: 64)
+    end
+
+    held = for _ <- 1..2, do: fetch.("held")
+
+    holders =
+      for _ <- 1..2 do
+        assert_receive {:holding, pid}
+        pid
+      end
+
+    assert {:error, {:source, :pool_timeout}} = fetch.("image")
+
+    Enum.each(holders, &send(&1, :release))
+    Enum.each(held, fn {:ok, response} -> assert Enum.join(response.stream) == "held" end)
+
+    assert {:ok, response} = fetch.("image")
+    assert Enum.join(response.stream) == "body"
+  end
+
+  # S3 fetches connect without pinning, through a pool Req starts.
+  test "pool_size caps the connections of an unpinned fetch" do
+    bandit =
+      start_supervised!(
+        {Bandit, plug: {HoldingOrigin, self()}, port: 0, ip: :loopback, startup_log: false}
+      )
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(bandit)
+    runtime = [pool_size: 1, pool_timeout: 200]
+    open = fn path -> ReqStream.open([url: "http://localhost:#{port}/#{path}"], runtime) end
+
+    {:ok, held} = open.("held")
+    assert_receive {:holding, holder}
+
+    assert {:error, {:source, :pool_timeout}} = open.("image")
+
+    send(holder, :release)
+    assert Enum.join(held.stream) == "held"
+
+    assert {:ok, response} = open.("image")
+    assert Enum.join(response.stream) == "body"
   end
 end
