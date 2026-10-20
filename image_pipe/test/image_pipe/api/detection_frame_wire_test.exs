@@ -7,6 +7,7 @@ defmodule ImagePipe.API.DetectionFrameWireTest do
   alias ImagePipe.Test.BodyOrigin
   alias ImagePipe.Test.DetectorFixtures.SmallFaceDetector
   alias ImagePipe.Test.OrientedFrameOrigin
+  alias Vix.Vips.Operation
 
   # 2400x1600: gray, with the right 40% blue. The detector finds a face in the
   # blue part only in a frame at least 640 pixels on the long edge.
@@ -56,6 +57,23 @@ defmodule ImagePipe.API.DetectionFrameWireTest do
     assert width in 640..1280
     assert orientation in [nil, 1]
     assert_blue(image, "EXIF 6")
+  end
+
+  test "a nearest shrink to the detection floor of a flipped source matches the flipped original" do
+    # Noise, so the nearest shrink to 640 pixels picks visibly different pixels
+    # in a mirrored frame. At this size libvips doesn't reduce by an exact
+    # factor, which would pick the same pixels from either side.
+    {:ok, noise} = Operation.gaussnoise(3000, 2000, sigma: 60.0, mean: 128.0)
+    band = Image.cast!(noise, {:u, 8})
+    noisy = Image.join_bands!([band, band, band])
+    body = Image.write!(noisy, :memory, suffix: ".png")
+    flipped = noisy |> Image.flip!(:horizontal) |> Image.write!(:memory, suffix: ".png")
+    options = "w=64/h=48/fit=cover/detect=face/kernel=nearest"
+
+    image = image!("flip=h/#{options}", mount({BodyOrigin, {body, "image/png"}}))
+    twin = image!(options, mount({BodyOrigin, {flipped, "image/png"}}))
+
+    assert {:ok, +0.0, _diff} = Image.compare(image, twin)
   end
 
   # The crop is centered on the face, so the middle of the output is blue.

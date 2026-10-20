@@ -179,9 +179,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   locked, even when the server takes more than 5 seconds to respond. Later
   requests for that original waited behind the lock until the process that
   served the request exited.
-- An `enlarge` of an image with an EXIF orientation, `rotate`, or `flip`
-  now gives the same pixels as rotating or flipping first and then
-  resizing. Before, enlarged pixels could be off by a fraction of a pixel.
+- An `enlarge` or a `kernel=nearest` resize of an image with an EXIF
+  orientation, `rotate`, or `flip` now gives the same pixels as rotating or
+  flipping first and then resizing. Before, enlarged pixels could be off by
+  a fraction of a pixel, and a `kernel=nearest` downscale picked different
+  source pixels.
 - An image decoded while its original downloads no longer waits behind
   newer requests for its encode. The encode's turn in the processing pool
   goes ahead of waiting requests and keeps the deadline of its first turn.
