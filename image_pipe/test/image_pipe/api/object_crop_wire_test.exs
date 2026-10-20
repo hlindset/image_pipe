@@ -29,6 +29,41 @@ defmodule ImagePipe.API.ObjectCropWireTest do
     refute pixels(detected) == pixels(attention)
   end
 
+  test "a cover resize that crops nothing buffers no frame for detection" do
+    prefix = [:object_crop_detection_frame]
+    handler = {__MODULE__, make_ref()}
+    test = self()
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        prefix ++ [:transform, :materialize, :stop],
+        fn _event, _measurements, metadata, _config ->
+          send(test, {:materialized, metadata[:dims]})
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+    opts = mount(detector: CornerObjectDetector, telemetry_prefix: prefix)
+
+    # 60x40 has the 4000x2667 source's shape, so the cover crop can't move,
+    # and only the result is buffered.
+    assert response("w=60/h=40/fit=cover/detect=car", opts).status == 200
+    assert materialized() == [{60, 40}]
+
+    assert response("w=50/h=50/fit=cover/detect=car", opts).status == 200
+    assert Enum.any?(materialized(), fn {width, height} -> max(width, height) > 50 end)
+  end
+
+  defp materialized do
+    receive do
+      {:materialized, dims} -> [dims | materialized()]
+    after
+      0 -> []
+    end
+  end
+
   test "weights and selected classes affect both guided and cover crops" do
     opts = mount(detector: WeightedSceneDetector)
 
