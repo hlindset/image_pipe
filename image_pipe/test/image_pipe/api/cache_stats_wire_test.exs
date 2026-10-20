@@ -4,6 +4,7 @@ defmodule ImagePipe.API.CacheStatsWireTest do
   import Plug.Test
 
   alias ImagePipe.Cache.FileSystem.Admission
+  alias ImagePipe.Cache.FileSystem.Owner
   alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Test.Caches
 
@@ -137,6 +138,20 @@ defmodule ImagePipe.API.CacheStatsWireTest do
       :erlang.yield()
       await_queued(pid)
     end
+  end
+
+  test "reports a cache whose root another node owns as refused", %{opts: opts} do
+    root = Store.root_dir(opts[:input_cache])
+    Owner.refuse(root)
+    on_exit(fn -> Owner.accept(root) end)
+
+    assert %{
+             output: %{refused: false, hits: 0},
+             input: %{refused: true, max_bytes: 20_000_000} = input
+           } =
+             ImagePipe.cache_stats(Caches.instance(opts))
+
+    assert map_size(input) == 2
   end
 
   test "leaves out a cache that isn't configured" do

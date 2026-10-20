@@ -252,16 +252,28 @@ defmodule ImagePipe.Cache do
   end
 
   @doc false
-  # Usage and lookups since start of each cache in `options` that runs on
-  # this node.
+  # Usage and lookups since start of each cache in `options`. A cache another
+  # node holds has only `refused` and `max_bytes`.
   @spec stats(keyword()) :: %{optional(:output | :input) => map()}
   def stats(options) do
     for {key, name} <- [cache: :output, input_cache: :input],
         cache_opts = Keyword.get(options, key),
         cache_opts != nil,
-        {:ok, usage} <- [FileSystem.usage(cache_opts)],
+        {:ok, stats} <- [cache_stats(cache_opts)],
         into: %{},
-        do: {name, Map.merge(usage, Lookups.read(Store.root_dir(cache_opts)))}
+        do: {name, stats}
+  end
+
+  # A cache another node holds isn't used here, so it has no counts.
+  defp cache_stats(cache_opts) do
+    root = Store.root_dir(cache_opts)
+
+    if Owner.refused?(root) do
+      {:ok, %{refused: true, max_bytes: Keyword.fetch!(cache_opts, :max_size_bytes)}}
+    else
+      with {:ok, usage} <- FileSystem.usage(cache_opts),
+           do: {:ok, usage |> Map.merge(Lookups.read(root)) |> Map.put(:refused, false)}
+    end
   end
 
   # `entry` says what the lookup reads: a processed response, or the record
