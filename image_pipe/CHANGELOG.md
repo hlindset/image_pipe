@@ -158,6 +158,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   holds only `unset` options. Before, they moved to the next group, so
   `w=unset/-/blur=2` with a default `w=200` was still resized to 200
   pixels wide.
+- Identical requests for a new original share one download while up to
+  4,096 other downloads are in flight. Before, from the 64th slow download
+  on, each identical request downloaded the original itself.
 - A request that stopped waiting for another request's download of an
   original, just as that download finished, no longer keeps the original
   locked, even when the server takes more than 5 seconds to respond. Later

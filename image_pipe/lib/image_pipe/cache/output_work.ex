@@ -10,13 +10,16 @@ defmodule ImagePipe.Cache.OutputWork do
   #
   # A second instance holds the flights of identical requests waiting for one
   # original's download (`join_download/4`), so they don't take the image
-  # flights' slots, and report as the `:download` operation and pool.
+  # flights' slots, and report as the `:download` operation and pool. A
+  # download flight holds no CPU while it waits on the origin, so that
+  # instance allows many more flights.
   @moduledoc false
   use GenServer
 
   alias ImagePipe.Telemetry
 
-  @max_keys 64
+  @max_flights 64
+  @max_download_flights 4096
   @max_waiters 1024
   @wait_timeout 60_000
 
@@ -26,6 +29,12 @@ defmodule ImagePipe.Cache.OutputWork do
 
   def start_link(opts),
     do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+
+  def downloads_child_spec do
+    Supervisor.child_spec({__MODULE__, name: @downloads, max_flights: @max_download_flights},
+      id: @downloads
+    )
+  end
 
   def join(cache, key, opts, timeout \\ @wait_timeout),
     do: join_on({__MODULE__, :output}, cache, key, opts, timeout)
@@ -109,7 +118,10 @@ defmodule ImagePipe.Cache.OutputWork do
   end
 
   @impl true
-  def init(_opts), do: {:ok, %{flights: %{}, members: %{}}}
+  def init(opts) do
+    max_flights = Keyword.get(opts, :max_flights, @max_flights)
+    {:ok, %{flights: %{}, members: %{}, monitors: %{}, max_flights: max_flights}}
+  end
 
   @impl true
   def handle_call({:join, key, timeout, lead?}, from, state) do
@@ -117,7 +129,7 @@ defmodule ImagePipe.Cache.OutputWork do
       not lead? and not Map.has_key?(state.flights, key) ->
         {:reply, :none, state}
 
-      not Map.has_key?(state.flights, key) and map_size(state.flights) >= @max_keys ->
+      not Map.has_key?(state.flights, key) and map_size(state.flights) >= state.max_flights ->
         {:reply, :busy, state}
 
       map_size(state.members) - map_size(state.flights) >= @max_waiters ->
@@ -133,8 +145,10 @@ defmodule ImagePipe.Cache.OutputWork do
       {:ok, member} ->
         Process.demonitor(member.monitor, [:flush])
         if deadline, do: Process.send_after(self(), {:deadline, token}, deadline)
-        member = %{member | monitor: Process.monitor(owner), owner: owner}
-        {:reply, :ok, put_in(state.members[token], member)}
+        monitor = Process.monitor(owner)
+        monitors = state.monitors |> Map.delete(member.monitor) |> Map.put(monitor, token)
+        member = %{member | monitor: monitor, owner: owner}
+        {:reply, :ok, %{put_in(state.members[token], member) | monitors: monitors}}
 
       :error ->
         {:reply, :bypass, state}
@@ -155,12 +169,14 @@ defmodule ImagePipe.Cache.OutputWork do
 
   defp join_flight(state, key, {pid, _tag}, timeout, lead?) do
     token = make_ref()
+    monitor = Process.monitor(pid)
+    state = put_in(state.monitors[monitor], token)
 
     member = %{
       key: key,
       lead?: lead?,
       owner: pid,
-      monitor: Process.monitor(pid),
+      monitor: monitor,
       from: {pid, token},
       timer: nil,
       deadline: nil
@@ -184,8 +200,9 @@ defmodule ImagePipe.Cache.OutputWork do
 
   @impl true
   def handle_info({:DOWN, monitor, :process, _pid, _reason}, state) do
-    case Enum.find(state.members, fn {_token, member} -> member.monitor == monitor end) do
-      {token, %{key: key}} ->
+    case Map.fetch(state.monitors, monitor) do
+      {:ok, token} ->
+        %{key: key} = Map.fetch!(state.members, token)
         flight = Map.fetch!(state.flights, key)
         state = remove(state, token)
 
@@ -197,7 +214,7 @@ defmodule ImagePipe.Cache.OutputWork do
             {:noreply, put_in(state.flights[key].waiters, List.delete(flight.waiters, token))}
         end
 
-      nil ->
+      :error ->
         {:noreply, state}
     end
   end
@@ -266,7 +283,7 @@ defmodule ImagePipe.Cache.OutputWork do
     {member, members} = Map.pop!(state.members, token)
     Process.demonitor(member.monitor, [:flush])
     if member.timer, do: Process.cancel_timer(member.timer)
-    %{state | members: members}
+    %{state | members: members, monitors: Map.delete(state.monitors, member.monitor)}
   end
 
   defp delete_flight(state, key), do: %{state | flights: Map.delete(state.flights, key)}

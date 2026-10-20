@@ -208,11 +208,11 @@ background checks (see
   2 seconds after it was downloaded, the next waiting request takes over,
   and downloads it again if it still isn't stored.
 - Requests for the same processed image that wait for one new original's
-  download have separate limits with the same values: up to 64 images at
-  once, with up to 1,024 requests waiting. Past either limit, a request
-  doesn't wait. After the source's `fetch_timeout` plus one second
-  (60 seconds for sources without one, such as files), it stops waiting.
-  Without an originals cache it downloads the original itself. With one, it
+  download have separate limits: up to 4,096 downloads at once, with up to
+  1,024 requests waiting. A waiting request stops waiting after the source's
+  `fetch_timeout` plus one second (60 seconds for sources without one, such
+  as files). A request that stops waiting, or arrives past either limit,
+  downloads the original itself without an originals cache. With one, it
   waits for the download like a request for another size.
 - Up to 16 background checks run at once. Each has a 60-second deadline.
   After a background check for a processed image finishes, no other check

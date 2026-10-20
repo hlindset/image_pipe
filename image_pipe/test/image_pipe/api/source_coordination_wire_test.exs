@@ -125,6 +125,37 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     refute_received {:fetch, ["original"], _}
   end
 
+  test "identical requests share one download while 64 other downloads are in flight",
+       context do
+    mount = start(context, cache: [root: Path.join(context.root, "output")])
+
+    slow =
+      for index <- 1..64 do
+        task = async(context, fn -> request(mount, 12, "slow-#{index}") end)
+        assert_receive {:streaming, download}
+        {task, download}
+      end
+
+    first = async(context, fn -> request(mount, 12) end)
+    assert_receive {:fetch, ["original"], _}
+    assert_receive {:streaming, leader}
+    second = async(context, fn -> request(mount, 12) end)
+    assert_receive {:coordination, %{operation: :download, result: :waiting}}
+    send(leader, :continue)
+
+    original = Task.await(first)
+    assert original.status == 200
+    assert Task.await(second).resp_body == original.resp_body
+    assert_received {:generated, _}
+    refute_received {:generated, _}
+    refute_received {:fetch, ["original"], _}
+
+    for {task, download} <- slow do
+      send(download, :continue)
+      assert Task.await(task).status == 200
+    end
+  end
+
   test "without an originals cache, identical requests for a known original share one image",
        context do
     mount = start(context, cache: [root: Path.join(context.root, "output")])
