@@ -324,7 +324,7 @@ table leaves out, from `AWS_WEB_IDENTITY_TOKEN_FILE`, `AWS_ROLE_ARN`,
 
 ### `[cache]`
 
-Caches on the local filesystem: `output` for processed images, `input` for originals. Their `root` directories must be separate, neither inside the other. Each cache needs `root` and `max_size_bytes`. See [caching processed images](../../image_pipe/docs/caching-processed-images.md).
+Caches on the local filesystem: `output` for processed images, `input` for originals. Their `root` directories must be separate, neither inside the other. Each cache needs `root` and `max_size_bytes`. See [caching processed images](../../image_pipe/docs/caching-processed-images.md). `max_remembered_originals` is how many originals the server remembers in memory, with or without a cache: about 700 bytes for each local file and 1 KB for each image from an origin.
 
 | Key | Type | Default |
 | --- | --- | --- |
@@ -334,6 +334,7 @@ Caches on the local filesystem: `output` for processed images, `input` for origi
 | `input.max_size_bytes` | integer > 0 |  |
 | `input.root` | string (absolute path) |  |
 | `storage_inputs` | array of `{ header = … }` or `{ cookie = … }` (string) |  |
+| `max_remembered_originals` | integer > 0 | `10000` |
 
 ### `[processing]`
 

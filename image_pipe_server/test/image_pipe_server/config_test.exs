@@ -92,7 +92,8 @@ defmodule ImagePipeServer.ConfigTest do
           "cache" => %{
             "output" => %{"root" => "/var/cache/out", "max_size_bytes" => 1_000_000},
             "input" => %{"root" => {:env, "/var/cache/in"}, "max_size_bytes" => 2_000_000},
-            "storage_inputs" => [%{"header" => "x-tenant"}]
+            "storage_inputs" => [%{"header" => "x-tenant"}],
+            "max_remembered_originals" => 50_000
           }
         })[:cache]
 
@@ -100,6 +101,7 @@ defmodule ImagePipeServer.ConfigTest do
       assert Enum.sort(output) == [max_size_bytes: 1_000_000, root: "/var/cache/out"]
       assert Enum.sort(cache[:input_cache]) == [max_size_bytes: 2_000_000, root: "/var/cache/in"]
       assert cache[:storage_inputs] == [{:header, "x-tenant"}]
+      assert cache[:max_remembered_originals] == 50_000
     end
 
     test "converts [processing], including encoder options" do

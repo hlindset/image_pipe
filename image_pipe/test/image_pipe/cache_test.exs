@@ -77,8 +77,7 @@ defmodule ImagePipe.CacheTest do
     assert hash == key.hash
 
     assert Cache.source_record(key, opts) == nil
-    assert_received {:lookup, %{entry: :source_record, cache_key: record_hash}}
-    refute record_hash == key.hash
+    assert_received {:lookup, %{entry: :source_record}}
   end
 
   test "ImagePipe init rejects invalid cache config early", %{root: root} do

@@ -11,6 +11,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   its size cap, and its hits and misses since start, or `refused: true` for
   a cache whose root another node owns. See
   [Usage and hit rate](docs/cache.md#usage-and-hit-rate).
+- `max_remembered_originals` sets how many originals an instance remembers
+  in memory (10 000 by default): a local file's hash, or an origin image's
+  cache headers. A remembered file isn't read and hashed again while it's
+  unchanged. Each takes about 700 bytes for a local file and about 1 KB for
+  an image from an origin.
 - The `X-ImagePipe-Source-Progressive` debug header says whether a JPEG
   original is progressive. See
   [Debug response headers](docs/debug_headers.md).
@@ -91,6 +96,14 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `autoquality` already made to narrow that search, so such a request takes
   less time. `[:encode, :search, :probe]` spans of the `:cap` phase no
   longer carry `:score`.
+- The hash and timestamps kept for each local file, and the cache headers
+  kept for each origin's image, are held in memory instead of in the
+  processed-image cache, for up to `max_remembered_originals` originals
+  (10 000 by default). They no longer take
+  its space or get evicted with its images. After a restart, a local file
+  is hashed again on its first request unless the originals cache holds a
+  copy. Those already stored in a cache are no longer read, and the cache
+  evicts them in time like any image it holds.
 - A cache with `max_size_bytes` deletes a rejected write without syncing it
   to disk. Once the popular images don't fit in the cache, that saves most
   of its write I/O. A write that waits more than 5 seconds to be kept or

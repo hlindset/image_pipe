@@ -7,6 +7,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `[cache] max_remembered_originals` sets how many originals the server
+  remembers in memory (10 000 by default): a local file's hash, or an origin
+  image's cache headers. A remembered file isn't read and hashed again
+  while it's unchanged. Each takes about 700 bytes
+  for a local file and about 1 KB for an image from an origin. See
+  [`[cache]`](docs/server-configuration.md#cache).
 - `GET /stats` (JSON) and `GET /metrics` (Prometheus text) report each
   cache's size, hits, misses, and free disk space, or that another replica
   owns its root. Turn them on with

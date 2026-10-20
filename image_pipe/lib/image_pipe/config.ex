@@ -410,6 +410,19 @@ defmodule ImagePipe.Config do
                   See [originals cache](cache.md#originals-cache). Off by default.
                   """
                 ],
+                max_remembered_originals: [
+                  type: :pos_integer,
+                  default: 10_000,
+                  doc: """
+                  How many originals an instance remembers in memory: a local \
+                  file's hash, or the cache headers of an image from an origin. A \
+                  remembered local file isn't read and hashed again while it's \
+                  unchanged. When the limit is reached, a random one is forgotten. \
+                  Each takes about 700 bytes for a local file and about 1 KB for an \
+                  image from an origin, so 10 000 take 7–10 MB. Needs an instance \
+                  (see `ImagePipe.child_spec/1`).
+                  """
+                ],
                 storage_inputs: [
                   type: {:list, {:custom, __MODULE__, :validate_storage_input, []}},
                   type_doc: "list of `{:header, name}` or `{:cookie, name}`",
@@ -671,11 +684,12 @@ defmodule ImagePipe.Config do
   # configuration with one must come from an instance.
   @spec reject_caches_without_instance!(t()) :: t()
   def reject_caches_without_instance!(%__MODULE__{instance: nil} = config) do
-    if Enum.any?([:cache, :input_cache], &Keyword.get(config.options, &1)) do
+    if Enum.any?([:cache, :input_cache], &Keyword.get(config.options, &1)) or
+         Keyword.has_key?(config.raw, :max_remembered_originals) do
       raise ArgumentError,
-            "a configuration with cache or input_cache must be used through an " <>
-              "ImagePipe instance: start {ImagePipe, name: ..., ...}, then mount it " <>
-              "with ImagePipe.Plug's :instance option or pass its name to run/4"
+            "a configuration with cache, input_cache or max_remembered_originals must " <>
+              "be used through an ImagePipe instance: start {ImagePipe, name: ..., ...}, " <>
+              "then mount it with ImagePipe.Plug's :instance option or pass its name to run/4"
     end
 
     config
@@ -742,8 +756,8 @@ defmodule ImagePipe.Config do
   def override(%__MODULE__{} = config, []), do: config
 
   # URL options alone leave the caches and everything else as they are. The
-  # caches belong to the instance, so an instance's configuration can't
-  # override them.
+  # caches and the table of remembered originals belong to the instance, so
+  # an instance's configuration can't override them.
   def override(%__MODULE__{} = config, options) do
     case Keyword.keys(options) -- @url_keys do
       [] -> put_url_options(config, options)
@@ -751,19 +765,22 @@ defmodule ImagePipe.Config do
     end
   end
 
+  # Options that set up the instance's processes and tables.
+  @instance_keys [:cache, :input_cache, :max_remembered_originals]
+
   defp override_all(%__MODULE__{instance: nil} = config, options),
     do: new!(Keyword.merge(config.raw, options))
 
   defp override_all(config, options) do
-    if Enum.any?([:cache, :input_cache], &Keyword.has_key?(options, &1)) do
+    if Enum.any?(@instance_keys, &Keyword.has_key?(options, &1)) do
       raise ArgumentError,
-            "cache and input_cache belong to the instance #{inspect(config.instance)} " <>
-              "and can't be overridden per call"
+            "cache, input_cache and max_remembered_originals belong to the instance " <>
+              "#{inspect(config.instance)} and can't be overridden per call"
     end
 
     overridden = new!(Keyword.merge(config.raw, options))
 
-    # So do the source records an instance without a cache keeps in memory.
+    # So does the table of originals the instance remembers.
     %{
       overridden
       | instance: config.instance,

@@ -439,15 +439,15 @@ original is fetched. That image's source and input-cache spans nest in it.
 
 ### `[:cache, :lookup]`
 
-Span. Wraps the output-cache lookup.
+Span. Wraps a lookup in the output cache or in the instance's memory.
 
 - Start metadata: `:pool` (`:output` or `:memory`), `:cache_key` (string,
   the hash of the cache key looked up), `:entry` (atom), and `:cache`
   (`:disabled`) when no output cache is configured and the pool is
   `:output`. `:entry` is `:response` for a processed response, or
   `:source_record` for the record of the original that responses were made
-  from. `:pool` is `:memory` for a source record on an instance with no
-  cache.
+  from. `:pool` is `:memory` for a source record looked up on an instance,
+  and `:output` with `cache: :disabled` without one.
 - Stop metadata:
   - `:result` (atom): `:ok`, or `:cache_error` when the read failed.
   - `:cache` (atom): `:disabled`, `:hit`, `:miss`, or `:read_error`. A read
