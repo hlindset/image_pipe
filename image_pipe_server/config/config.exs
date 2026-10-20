@@ -1,8 +1,6 @@
 import Config
 
-config :image_pipe_server,
-  default_config_path: "/etc/image_pipe/config.toml",
-  tracing: false
+config :image_pipe_server, tracing: false
 
 # Trace export stays off unless OTEL_* variables turn it on (see
 # ImagePipeServer.Tracing); the SDK's OS variables override these.
@@ -14,9 +12,11 @@ config :opentelemetry,
 # no Jason.
 config :logger_json, encoder: JSON
 
+# Colors are off unless `log_colors` turns them on.
 config :logger, :default_formatter,
   format: "$date $time $metadata[$level] $message\n",
-  metadata: [:request_id]
+  metadata: [:request_id],
+  colors: [enabled: false]
 
 # The sibling image_pipe_svg project builds its NIF from source; the Hex
 # package downloads the precompiled one.
