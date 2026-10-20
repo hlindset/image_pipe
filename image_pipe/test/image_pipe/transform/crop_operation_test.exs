@@ -97,6 +97,32 @@ defmodule ImagePipe.Transform.CropOperationTest do
       refute png.(out) == png.(attention)
     end
 
+    test "counts a detection only when the detector ran", %{image: image} do
+      op = %Crop{
+        width: {:pixels, 100},
+        height: {:pixels, 100},
+        crop_from: :gravity,
+        gravity: {:detect, {["face"], %{}}}
+      }
+
+      for {result, count} <- [
+            {{:ok, []}, 1},
+            {{:error, :boom}, 1},
+            {{:error, {:detector, :unavailable}}, 0}
+          ] do
+        state = %State{
+          image: image,
+          telemetry_opts: telemetry_opts(),
+          detector: FakeDetector.returning(result)
+        }
+
+        assert {:ok, %State{detections: ^count}} = Crop.execute(op, state)
+
+        assert {:ok, %State{detections: ^count}} =
+                 Crop.execute(%Crop{op | gravity: {:smart, :face_assist}}, state)
+      end
+    end
+
     test "no detections falls back to attention" do
       # On a real photo, the no-detection fallback must be byte-identical to a
       # pure-attention (:smart) crop, proving detection is bypassed cleanly.
