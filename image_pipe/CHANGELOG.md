@@ -77,9 +77,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `{:source, :unresolved_host}` in logs and telemetry instead of
   `{:source, :denied_address}`. It still answers `404`.
 - `autoquality` with `max-bytes` scores only the quality it delivers, not
-  each quality it tries to fit the byte limit, so such a request takes less
-  time. `[:encode, :search, :probe]` spans of the `:cap` phase no longer
-  carry `:score`.
+  each quality it tries to fit the byte limit, and reuses the encodes
+  `autoquality` already made to narrow that search, so such a request takes
+  less time. `[:encode, :search, :probe]` spans of the `:cap` phase no
+  longer carry `:score`.
 - `[:transform, :detect, :skipped]` is also emitted when `anchor=smart-face`
   uses attention because `detector_required` is set and the face model isn't
   loaded yet (`result: :not_ready`) or the detector has no face model

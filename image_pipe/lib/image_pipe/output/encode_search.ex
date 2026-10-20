@@ -287,13 +287,29 @@ defmodule ImagePipe.Output.EncodeSearch do
   # floor, which is `:best_effort`/`:max_bytes` only when even it exceeds.
   defp cap_descend(floor, objective_q, max_bytes, ctx) do
     predicate = fn bytes, _score -> bytes <= max_bytes end
+    {lo, hi} = measured_bracket(ctx, floor, objective_q, max_bytes)
 
-    with {_best, _outcome, ctx} <- search_highest_satisfying(floor, objective_q, predicate, ctx) do
+    with {_best, _outcome, ctx} <- search_highest_satisfying(lo, hi, predicate, ctx) do
       case highest_fitting(ctx, floor, objective_q, max_bytes) do
         nil -> ship_floor(floor, max_bytes, ctx)
         q -> {:ok, q, :hit, set_factor(ctx, nil)}
       end
     end
+  end
+
+  # The objective phase already encoded some qualities in the range, so the
+  # search starts above the highest that fits and below the lowest that
+  # doesn't. This assumes size grows with quality, as
+  # `search_highest_satisfying/4` does, so the answer lies between them.
+  defp measured_bracket(ctx, floor, objective_q, max_bytes) do
+    {fits, too_big} =
+      ctx.encode_memo
+      |> Enum.filter(fn {q, _binary} -> q >= floor and q <= objective_q end)
+      |> Enum.split_with(fn {_q, binary} -> byte_size(binary) <= max_bytes end)
+
+    lo = fits |> Enum.map(fn {q, _binary} -> q + 1 end) |> Enum.max(fn -> floor end)
+    hi = too_big |> Enum.map(fn {q, _binary} -> q - 1 end) |> Enum.min(fn -> objective_q end)
+    {lo, hi}
   end
 
   defp highest_fitting(ctx, floor, objective_q, max_bytes) do
