@@ -241,6 +241,17 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
     assert {:error, :expired_value} = Entry.get(pid)
   end
 
+  test "credentials inside the refresh margin are refetched at half their remaining life" do
+    now = ~U[2026-06-26 02:00:00Z]
+    # Four minutes left, inside the default five-minute margin: the provider
+    # hasn't rotated them yet, so refetching every few seconds gains nothing.
+    expiry = DateTime.add(now, 240, :second)
+    pid = start_entry(fetch_fun: fn -> {:ok, :creds, expiry} end, now_fun: fn -> now end)
+
+    assert {:ok, :creds} = Entry.get(pid)
+    assert Process.read_timer(:sys.get_state(pid).refresh_timer) in 115_000..120_000
+  end
+
   test "get returns a tagged error instead of exiting the caller on call timeout" do
     # fetch_fun blocks past the call timeout; get must fail closed, not :exit.
     fetch_fun = fn ->

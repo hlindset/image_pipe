@@ -13,6 +13,7 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
   #     stops. An entry started with `warm: true` is exempt until its first
   #     `get/2`, or until its first fetch fails,
   #   * background refresh: a timer fires `refresh_margin_ms` before expiry,
+  #     or, for a value fetched inside that margin, at half its remaining life,
   #     with at least five seconds between successful background fetches; a
   #     refresh that fails while the value is still fresh re-arms a bounded retry,
   #   * fail-closed: an expired value is never served,
@@ -227,10 +228,18 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
     DateTime.compare(now_fun.(), expires_at) == :lt
   end
 
+  # A value fetched inside the margin is one the provider hasn't replaced
+  # yet. It's fetched again at half its remaining life, but no sooner than
+  # the retry interval. Once it expires, the next `get/2` fetches it.
   defp schedule_refresh(%{expires_at: %DateTime{} = expires_at} = state) do
     state = cancel_timer(state)
     diff_ms = DateTime.diff(expires_at, state.now_fun.(), :millisecond)
-    ms = max(@refresh_retry_ms, diff_ms - state.refresh_margin_ms)
+
+    ms =
+      if diff_ms > state.refresh_margin_ms,
+        do: diff_ms - state.refresh_margin_ms,
+        else: max(@refresh_retry_ms, div(diff_ms, 2))
+
     %{state | refresh_timer: Process.send_after(self(), :refresh, ms)}
   end
 

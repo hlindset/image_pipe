@@ -200,6 +200,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   2000×3 image at `w=100`, no longer fails with a 415. Neither does shrinking
   a WebP so far that its short side would be under one pixel, such as
   `w=1/dpr=0.5`.
+- S3 credentials that a provider returns with less than five minutes left
+  are fetched again at half their remaining time, instead of every five
+  seconds until the provider rotates them.
 - A cache's own events, `[:cache, :admission]`, `[:cache, :eviction, :stop]`,
   and `[:cache, :sweep]`, use the instance's `telemetry_prefix`. Before, they
   always used `[:image_pipe]`. Handlers attached for a custom prefix,
