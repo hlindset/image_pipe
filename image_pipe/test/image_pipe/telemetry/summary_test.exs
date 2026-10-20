@@ -106,6 +106,50 @@ defmodule ImagePipe.Telemetry.SummaryTest do
                      %{status: 404, result: :source_error, reason: "source not found"}}
   end
 
+  test "an invalid source URL is a parser error with the reason the response gives", ctx do
+    options = start(ctx)
+    config = Caches.plug(options)
+
+    assert request("/w=40/src/ftp://origin.test/beach.jpg", config, options).status == 400
+
+    assert_received {:summary, _m,
+                     %{
+                       status: 400,
+                       result: :parser_error,
+                       error: :invalid_source,
+                       reason: "invalid source"
+                     }}
+  end
+
+  test "a URL naming too many presets is a parser error", ctx do
+    lookup = {ImagePipe.Test.PresetLookup, presets: %{"a" => "w=30", "b" => "blur=1"}}
+    options = start(ctx, preset_lookup: lookup, max_preset_lookups: 1)
+    config = Caches.plug(options)
+
+    assert request("/preset=a,b/src/beach.jpg", config, options).status == 400
+
+    assert_received {:summary, _m,
+                     %{status: 400, result: :parser_error, reason: "too many presets"}}
+  end
+
+  test "client errors log at warning", ctx do
+    options = start(ctx, max_input_pixels: 100)
+    config = Caches.plug(options)
+    Telemetry.attach_default_logger(prefix: ctx.prefix)
+
+    log =
+      capture_log(fn ->
+        assert request("/w=40/src/ftp://origin.test/beach.jpg", config, options).status == 400
+        assert request("/w=40/src/notimage.jpg", config, options).status == 415
+        assert request("/w=40/src/beach.jpg", config, options).status == 413
+      end)
+
+    assert log =~ "[warning] GET /w=40/src/ftp://origin.test/beach.jpg 400"
+    assert log =~ "[warning] GET /w=40/src/notimage.jpg 415"
+    assert log =~ "[warning] GET /w=40/src/beach.jpg 413"
+    refute log =~ "[error]"
+  end
+
   test "an overloaded pool's 503 is summarized as an error line", ctx do
     options = start(ctx, pool: [max_concurrency: 1, max_queue: 0])
     config = Caches.plug(options)
@@ -594,6 +638,9 @@ defmodule ImagePipe.Telemetry.SummaryTest do
         ["beach.jpg"] ->
           conn |> put_resp_content_type("image/jpeg") |> send_resp(200, body)
 
+        ["notimage.jpg"] ->
+          conn |> put_resp_content_type("image/jpeg") |> send_resp(200, "not an image")
+
         _other ->
           send_resp(conn, 404, "")
       end
@@ -616,7 +663,8 @@ defmodule ImagePipe.Telemetry.SummaryTest do
             ]
           ] ++ extra_sources,
         max_input_pixels: 40_000_000
-      ] ++ options
+      ]
+      |> Keyword.merge(options)
     )
   end
 

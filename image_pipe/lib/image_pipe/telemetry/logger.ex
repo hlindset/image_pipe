@@ -126,8 +126,7 @@ defmodule ImagePipe.Telemetry.Logger do
 
   # --- level ---
   # The request summary follows the status: 5xx is an error, 4xx a warning. A
-  # response that failed after its headers went out is an error whatever its
-  # status says.
+  # 200 whose stream failed after its headers went out is an error.
   # Without a status (`ImagePipe.run/4`), a failure is a warning. So is a
   # degraded result, detection that fell back to attention, a quality search
   # that missed its target, or a result scaled down to the limits. A full pool
@@ -141,7 +140,7 @@ defmodule ImagePipe.Telemetry.Logger do
     status = metadata[:status] || 0
 
     cond do
-      status >= 500 or (status > 0 and metadata[:result] == :processing_error) -> :error
+      status >= 500 or (status == 200 and metadata[:result] == :processing_error) -> :error
       status >= 400 or summary_warning?(metadata) -> :warning
       true -> base
     end

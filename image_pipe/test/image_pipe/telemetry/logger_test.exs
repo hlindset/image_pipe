@@ -788,6 +788,28 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "[info] GET /w=40/src/a.jpg 200 3ms staging=memory staging_reason=dir"
   end
 
+  test "a summary line logs a 4xx at warning and a 5xx or failed stream at error" do
+    prefix = [__MODULE__, :summary_levels]
+    Telemetry.attach_default_logger(prefix: prefix, level: :info)
+    base = %{method: "GET", path: "/w=40/src/a.jpg", result: :processing_error, duration_ms: 3}
+
+    log =
+      capture_log(fn ->
+        for {status, error} <- [{415, :decode}, {422, :transform}, {500, :encode}, {200, :encode}] do
+          :telemetry.execute(
+            prefix ++ [:request, :summary],
+            %{duration: 0},
+            Map.merge(base, %{status: status, error: error})
+          )
+        end
+      end)
+
+    assert log =~ "[warning] GET /w=40/src/a.jpg 415 3ms error=decode"
+    assert log =~ "[warning] GET /w=40/src/a.jpg 422 3ms error=transform"
+    assert log =~ "[error] GET /w=40/src/a.jpg 500 3ms error=encode"
+    assert log =~ "[error] GET /w=40/src/a.jpg 200 3ms error=encode"
+  end
+
   test "renders exception events as exceptions at warning level" do
     Telemetry.attach_default_logger(level: :info, stages: true)
 

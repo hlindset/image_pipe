@@ -61,12 +61,16 @@ defmodule ImagePipe.Plug.Errors do
   end
 
   def send(%Plug.Conn{} = conn, {:invalid_source, _reason}) do
+    Summary.put(%{reason: "invalid source"})
+
     conn
     |> put_resp_content_type("text/plain")
     |> send_resp(400, "invalid source")
   end
 
   def send(%Plug.Conn{} = conn, {:invalid_output, _reason}) do
+    Summary.put(%{reason: "invalid output"})
+
     conn
     |> put_resp_content_type("text/plain")
     |> send_resp(400, "invalid output")
