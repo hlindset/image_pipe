@@ -663,6 +663,55 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     refute_received {:origin, _, _}
   end
 
+  test "after a restart, warm hits take the original's record from the originals cache", %{
+    config: config
+  } do
+    assert request(config, 12).status == 200
+    assert_receive {:origin, _, []}
+    Caches.await_writes(config)
+
+    config = restart(config, [])
+    assert remembered(config) == 0
+    assert request(config, 12).status == 200
+    assert remembered(config) == 1
+    assert request(config, 8).status == 200
+    refute_received {:origin, _, _}
+  end
+
+  test "after a restart, a no-cache original is remembered on its first revalidation", %{
+    config: config,
+    state: state
+  } do
+    Agent.update(state, &%{&1 | control: "no-cache"})
+    assert request(config, 12).status == 200
+    assert_receive {:origin, _, []}
+    Caches.await_writes(config)
+
+    config = restart(config, [])
+    assert request(config, 12).status == 200
+    assert_receive {:origin, _, [~s("v1")]}
+    assert remembered(config) == 1
+
+    for _ <- 1..2, do: assert(request(config, 12).status == 200)
+    assert_receive {:origin, _, [~s("v1")]}
+    assert_receive {:origin, _, [~s("v1")]}
+    refute_received {:origin, _, _}
+  end
+
+  test "more originals than the instance remembers are each fetched once", %{config: config} do
+    config = restart(config, max_remembered_originals: 2)
+
+    for _round <- 1..3, name <- ["a", "b", "c"] do
+      conn = conn(:get, "/w=12/format=png/src/https://origin.test/#{name}.png")
+      assert call(conn, config).status == 200
+      Caches.await_writes(config)
+    end
+
+    for _name <- ["a", "b", "c"], do: assert_receive({:origin, _, []})
+    refute_received {:origin, _, _}
+    assert remembered(config) == 2
+  end
+
   test "a revalidating warm hit reads the source record once", %{shared: shared, state: state} do
     prefix = [__MODULE__, :single_source_read]
     shared = restart(shared, telemetry_prefix: prefix)
@@ -1301,6 +1350,9 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
 
   defp run(shared, builder, input, options \\ []),
     do: IP.run(Caches.instance(shared), builder, input, options)
+
+  defp remembered(config),
+    do: :ets.info(Module.concat(Caches.instance(config), ImagePipe.Cache.SourceRecords), :size)
 
   # Replaces the running instance with one serving `config` with `overrides`.
   defp restart(config, overrides) do

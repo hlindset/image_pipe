@@ -111,10 +111,18 @@ defmodule ImagePipe.Cache do
   @doc false
   # An instance keeps the records of its originals in memory, in a table
   # named after it, so an unchanged local file is hashed once rather than on
-  # every request.
+  # every request. Unless set, the table holds one record for each 50 KB the
+  # output cache may store, so it doesn't forget originals whose processed
+  # images are still cached, up to about 1 GB of memory.
   @spec put_source_records(keyword(), atom()) :: keyword()
-  def put_source_records(options, instance),
-    do: Keyword.put(options, :source_records, Module.concat(instance, SourceRecords))
+  def put_source_records(options, instance) do
+    options
+    |> Keyword.put(:source_records, Module.concat(instance, SourceRecords))
+    |> Keyword.put_new_lazy(:max_remembered_originals, fn ->
+      max_size_bytes = get_in(options, [:cache, :max_size_bytes]) || 0
+      max_size_bytes |> div(50_000) |> max(10_000) |> min(1_000_000)
+    end)
+  end
 
   @doc false
   # Removes the caches whose root another node holds, so requests run
@@ -171,6 +179,20 @@ defmodule ImagePipe.Cache do
       {:memory, table} ->
         limit = Keyword.fetch!(opts, :max_remembered_originals)
         SourceRecords.put(table, input_key.hash, record, limit)
+    end
+  end
+
+  @doc false
+  # Puts back a record read from the originals cache, unless a publication
+  # stored a newer one since the lookup missed.
+  def recall_source(input_key, record, opts) do
+    case record_store(opts) do
+      nil ->
+        :ok
+
+      {:memory, table} ->
+        limit = Keyword.fetch!(opts, :max_remembered_originals)
+        SourceRecords.put_new(table, input_key.hash, record, limit)
     end
   end
 

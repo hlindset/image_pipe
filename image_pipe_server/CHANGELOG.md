@@ -8,9 +8,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - `[cache] max_remembered_originals` sets how many originals the server
-  remembers in memory (10 000 by default): a local file's hash, or an origin
-  image's cache headers. A remembered file isn't read and hashed again
-  while it's unchanged. Each takes about 700 bytes
+  remembers in memory: a local file's hash, or an origin image's cache
+  headers. It defaults to one for each 50 KB of `output.max_size_bytes`, at
+  least 10,000 and at most 1,000,000, and forgets originals that weren't
+  used recently first. A remembered file isn't read and hashed again while
+  it's unchanged, and the processed images of a remembered origin image are
+  served without downloading it again. Each takes about 700 bytes
   for a local file and about 1 KB for an image from an origin. See
   [`[cache]`](docs/server-configuration.md#cache).
 - `GET /stats` (JSON) and `GET /metrics` (Prometheus text) report each
@@ -21,6 +24,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The hash of each local file and the cache headers of each origin image
+  are kept in memory instead of in the `output` cache, so they no longer
+  take its space. After a restart, a local file is hashed again, and an
+  image from an origin is downloaded again, on its first request, unless
+  the `input` cache holds a copy. With HTTP or S3 sources, configure an
+  `input` cache so that restarts don't download every original in use
+  again. See [`[cache]`](docs/server-configuration.md#cache).
 - Cache hits are served faster. The Erlang VM's dirty I/O schedulers, which
   read cached files, again spin briefly before they sleep
   (`+sbwtdio very_short`), so a hit's reads rarely wait for a sleeping

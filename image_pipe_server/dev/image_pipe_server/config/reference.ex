@@ -36,7 +36,10 @@ defmodule ImagePipeServer.Config.Reference do
         "See [caching processed images](../../image_pipe/docs/caching-processed-images.md). " <>
         "`max_remembered_originals` is how many originals the server remembers in memory, " <>
         "with or without a cache: about 700 bytes for each local file and 1 KB for each " <>
-        "image from an origin.",
+        "image from an origin. It defaults to one for each 50 KB of `output.max_size_bytes`, " <>
+        "at least 10,000 and at most 1,000,000. See [originals and processed images]" <>
+        "(../../image_pipe/docs/caching-and-freshness.md#originals-and-processed-images) " <>
+        "for what happens when an original is forgotten.",
     processing:
       "Defaults and limits for every image the server processes. The limits on " <>
         "originals, intermediate images, and results are described in " <>
