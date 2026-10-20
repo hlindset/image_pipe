@@ -104,6 +104,15 @@ defmodule ImagePipe.Cache.FileSystem.SweepTest do
     assert {:hit, _entry} = FileSystem.get(readable_key, root: root, max_size_bytes: 1_000_000)
   end
 
+  test "removes an old unreadable meta that names no key without reporting it", %{dir: dir} do
+    path = write!(dir, "notes.meta", @old)
+
+    assert %{unreadable: 1, removed: removed} = Sweep.sweep_root(Path.dirname(Path.dirname(dir)))
+
+    refute File.exists?(path)
+    assert removed == []
+  end
+
   test "keeps metadata it can't read for now, such as on a permission error", %{root: root} do
     {key, paths} = entry!(root, "4")
     age!(paths, @old)

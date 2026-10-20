@@ -455,7 +455,10 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
 
   defp tracked_hashes(pid) do
     state = :sys.get_state(pid)
-    for {hash, _size, _cost, _body} <- :ets.tab2list(state.entries), into: MapSet.new(), do: hash
+
+    for {hash, _size, _cost, _body_sha256} <- :ets.tab2list(state.entries),
+        into: MapSet.new(),
+        do: Base.encode16(hash, case: :lower)
   end
 
   defp meta_hashes(root) do

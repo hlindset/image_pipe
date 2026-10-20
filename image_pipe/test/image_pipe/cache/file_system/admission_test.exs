@@ -202,6 +202,25 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
       assert stored_bytes(ctx.pid) == 10_000
     end
 
+    test "syncs only the writes it admits", ctx do
+      test = self()
+      tracer = spawn_link(fn -> forward_traces(test) end)
+      :erlang.trace_pattern({:file, :datasync, 1}, true, [])
+      :erlang.trace(self(), true, [:call, {:tracer, tracer}])
+
+      try do
+        assert {:ok, :rejected} = put_with_cost(ctx.pool, "cheap", 10)
+        assert :ok = put_with_cost(ctx.pool, "costly", 100_000)
+
+        # One sync across both writes: the admitted one's.
+        assert_receive {:trace, _, :call, {:file, :datasync, _}}
+        refute_received {:trace, _, :call, {:file, :datasync, _}}
+      after
+        :erlang.trace(self(), false, [:call])
+        :erlang.trace_pattern({:file, :datasync, 1}, false, [])
+      end
+    end
+
     test "may admit a losing entry once it has been requested six times", ctx do
       # Make the random admission draw always succeed.
       :sys.replace_state(ctx.pid, &%{&1 | random_admission_one_in: 1})
@@ -563,16 +582,31 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     end
   end
 
+  # A process can't trace itself to itself, so a tracer passes its messages on.
+  defp forward_traces(test) do
+    receive do
+      message -> send(test, message)
+    end
+
+    forward_traces(test)
+  end
+
   defp body(seed, size), do: String.pad_leading(seed, size, "x")
 
   defp key(seed), do: %Key{hash: hash(seed), data: []}
 
   defp tracked?(pid, seed), do: entry_row(pid, hash(seed)) != nil
 
+  # Admission keeps both hashes raw in its rows. This gives the row back in
+  # the hex the rest of the cache uses, with the body filename it stands for.
   defp entry_row(pid, key_hash) do
-    case :ets.lookup(:sys.get_state(pid).entries, key_hash) do
-      [row] -> row
-      [] -> nil
+    case :ets.lookup(:sys.get_state(pid).entries, Base.decode16!(key_hash, case: :lower)) do
+      [{_key, size, cost, body_sha256}] ->
+        sha = Base.encode16(body_sha256, case: :lower)
+        {key_hash, size, cost, FileSystem.Store.body_filename(key_hash, sha, size, cost)}
+
+      [] ->
+        nil
     end
   end
 

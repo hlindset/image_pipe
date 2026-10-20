@@ -48,8 +48,10 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       :sketch,
       # %Talan.BloomFilter{}
       :doorkeeper,
-      # key_hash -> {size, cost, body filename}, ordered so a random key's
-      # successor samples an entry.
+      # key hash -> {size, cost, body SHA-256}, ordered so a random key's
+      # successor samples an entry. Both hashes are raw 32-byte binaries,
+      # not the hex the rest of the cache uses, and the body filename is
+      # rebuilt from the row: a large cache tracks millions of entries.
       :entries,
       # Lifecycle events use the prefix captured at init, without request options.
       telemetry_prefix: [:image_pipe],
@@ -305,7 +307,21 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     end
   end
 
-  # A timed-out commit stays queued, and Admission still publishes it.
+  # Decides whether a write is kept, once its body is written but before it
+  # is synced, so a rejected body is deleted without ever being synced.
+  # Returns `{:admit, victims}`, the key hashes and body filenames of the
+  # entries the write was judged against, which the writer passes back with
+  # its commit. `held` is the writer's own pending bytes.
+  def decide(server, body_filename, held, timeout) do
+    GenServer.call(server, {:decide, body_filename, held}, timeout)
+  catch
+    :exit, {:timeout, _call} -> {:error, :admission_timeout}
+    :exit, _reason -> {:error, :admission_unavailable}
+  end
+
+  # A commit follows an admit from decide/4, with its victims in the
+  # prepared write's `:victims`. A timed-out commit stays queued, and
+  # Admission still publishes it.
   def commit(server, prepared, body_filename, timeout) do
     GenServer.call(server, {:commit, prepared, body_filename}, timeout)
   catch
@@ -325,10 +341,8 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   @impl true
-  def handle_call({:commit, prepared, body_filename}, _from, state) do
-    descriptor = FileSystem.descriptor(prepared, body_filename)
-    # The write's own pending bytes aren't another write's.
-    pending = max(Writers.pending(state.root) - Map.get(prepared, :held, 0), 0)
+  def handle_call({:decide, body_filename, held}, _from, state) do
+    descriptor = FileSystem.descriptor(nil, body_filename)
     # The request that wrote it already counted as a sighting when it
     # missed. A write no request missed, such as a source record, still
     # counts once.
@@ -336,10 +350,26 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
     result =
       Telemetry.span(tel_opts(state), [:cache, :admission], %{pool: state.pool}, fn ->
-        result = decide(state, descriptor, pending)
+        result = decide(state, descriptor, pending(state, held))
         {result, admission_meta(result)}
       end)
 
+    reply =
+      case result do
+        {:admit, victims} -> {:admit, Enum.map(victims, &{&1.key_hash, &1.body_filename})}
+        {:reject, _reason} -> result
+      end
+
+    {:reply, reply, state}
+  end
+
+  # The decision was made before the body was synced, so the commit evicts
+  # the victims it was judged against rather than judging again, which
+  # would keep a new key less often.
+  def handle_call({:commit, prepared, body_filename}, _from, state) do
+    descriptor = FileSystem.descriptor(prepared, body_filename)
+    pending = pending(state, Map.get(prepared, :held, 0))
+    result = room(state, descriptor, pending, Map.fetch!(prepared, :victims))
     {reply, state} = finish_commit(result, prepared, descriptor, state)
     {:reply, reply, state}
   end
@@ -402,10 +432,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   # bytes the write adds, and the startup scan's batches evict the rest, so
   # one write doesn't evict the whole excess while every request waits.
   defp decide(state, descriptor, pending) do
-    replaced = state |> entry(descriptor.key_hash) |> entry_size()
-    added = pending + descriptor.size_bytes - replaced
-
-    needed = min(state.stored_bytes + added - state.max_size_bytes, added)
+    needed = needed(state, descriptor, pending)
 
     cond do
       descriptor.size_bytes > state.max_size_bytes ->
@@ -420,6 +447,45 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
         |> gate(state, descriptor)
     end
   end
+
+  # The room an admitted write needs now. Its decided victims still stored
+  # with the same body give it first. Only when they no longer cover it,
+  # after the cache changed while the body synced, are more sampled, and the
+  # write is judged against all of them.
+  defp room(state, descriptor, pending, decided) do
+    needed = needed(state, descriptor, pending)
+
+    victims =
+      for {key_hash, body_filename} <- decided,
+          %{body_filename: ^body_filename} = victim <- [entry(state, key_hash)],
+          do: victim
+
+    covered = victims |> Enum.map(& &1.size_bytes) |> Enum.sum()
+
+    cond do
+      needed <= 0 ->
+        {:admit, []}
+
+      covered >= needed ->
+        {:admit, victims}
+
+      true ->
+        taken = MapSet.new([descriptor.key_hash | Enum.map(victims, & &1.key_hash)])
+
+        state
+        |> sample_victims(taken, needed - covered, victims)
+        |> gate(state, descriptor)
+    end
+  end
+
+  defp needed(state, descriptor, pending) do
+    replaced = state |> entry(descriptor.key_hash) |> entry_size()
+    added = pending + descriptor.size_bytes - replaced
+    min(state.stored_bytes + added - state.max_size_bytes, added)
+  end
+
+  # The write's own pending bytes aren't another write's.
+  defp pending(state, held), do: max(Writers.pending(state.root) - held, 0)
 
   defp gate(:error, _state, _descriptor), do: {:reject, :no_evictable_victims}
 
@@ -516,7 +582,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     do: Map.values(picked)
 
   defp draw(state, taken, picked, tries) do
-    random = Base.encode16(:crypto.strong_rand_bytes(32), case: :lower)
+    random = :crypto.strong_rand_bytes(32)
 
     key =
       case :ets.next(state.entries, random) do
@@ -525,9 +591,10 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       end
 
     picked =
-      if MapSet.member?(taken, key),
+      if MapSet.member?(taken, hex(key)),
         do: picked,
-        else: Map.put_new_lazy(picked, key, fn -> entry(state, key) end)
+        else:
+          Map.put_new_lazy(picked, key, fn -> to_entry(hd(:ets.lookup(state.entries, key))) end)
 
     draw(state, taken, picked, tries - 1)
   end
@@ -570,10 +637,10 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     end
   end
 
-  defp tracked?(state, key_hash), do: :ets.member(state.entries, key_hash)
+  defp tracked?(state, key_hash), do: :ets.member(state.entries, raw(key_hash))
 
   defp entry(state, key_hash) do
-    case :ets.lookup(state.entries, key_hash) do
+    case :ets.lookup(state.entries, raw(key_hash)) do
       [row] -> to_entry(row)
       [] -> nil
     end
@@ -582,17 +649,27 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   defp entry_size(nil), do: 0
   defp entry_size(entry), do: entry.size_bytes
 
-  defp to_entry({key_hash, size, cost, body_filename}),
-    do: %{key_hash: key_hash, size_bytes: size, cost_us: cost, body_filename: body_filename}
+  defp to_entry({key, size, cost, body_sha256}) do
+    key_hash = hex(key)
+
+    %{
+      key_hash: key_hash,
+      size_bytes: size,
+      cost_us: cost,
+      body_filename: FileSystem.body_filename(key_hash, hex(body_sha256), size, cost)
+    }
+  end
 
   # Every entry write goes through put/2 and forget/2, so the stored bytes
-  # stay in step with the table.
+  # stay in step with the table. A descriptor's body filename was parsed
+  # when its metadata or listing was read, so its parts rebuild it.
   defp put(state, descriptor) do
     state = forget(state, descriptor.key_hash)
+    {:ok, %{body_sha256: body_sha256}} = FileSystem.parse_body_filename(descriptor.body_filename)
 
     :ets.insert(
       state.entries,
-      {descriptor.key_hash, descriptor.size_bytes, descriptor.cost_us, descriptor.body_filename}
+      {raw(descriptor.key_hash), descriptor.size_bytes, descriptor.cost_us, raw(body_sha256)}
     )
 
     %{state | stored_bytes: state.stored_bytes + descriptor.size_bytes}
@@ -601,11 +678,14 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   defp forget(state, key_hash) do
     note_scan_change(state, key_hash)
 
-    case :ets.take(state.entries, key_hash) do
-      [{^key_hash, size, _cost, _body}] -> %{state | stored_bytes: state.stored_bytes - size}
+    case :ets.take(state.entries, raw(key_hash)) do
+      [{_key, size, _cost, _body_sha256}] -> %{state | stored_bytes: state.stored_bytes - size}
       [] -> state
     end
   end
+
+  defp raw(hex), do: Base.decode16!(hex, case: :lower)
+  defp hex(raw), do: Base.encode16(raw, case: :lower)
 
   defp victim(entry, delete_meta?),
     do: %{

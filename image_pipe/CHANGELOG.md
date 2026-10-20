@@ -77,6 +77,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   original that many requests want is kept sooner. The cache now counts
   each request that misses it, including requests that wait for another
   request's copy, instead of counting how often it's written.
+- A cache with `max_size_bytes` uses less than half the memory to track
+  its entries: about 175 bytes per stored image instead of over 400, which
+  saves at least 45 MB for a cache of 200 000 images.
 - The default Logger shows a coordination event's reason after its result,
   as in `bypass (deadline)`. It logs a `:bypass` with reason `:not_stored`
   or `:watermark_not_stored`, and a `:download` `:busy`, at its base level.
@@ -88,6 +91,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `autoquality` already made to narrow that search, so such a request takes
   less time. `[:encode, :search, :probe]` spans of the `:cap` phase no
   longer carry `:score`.
+- A cache with `max_size_bytes` deletes a rejected write without syncing it
+  to disk. Once the popular images don't fit in the cache, that saves most
+  of its write I/O. A write that waits more than 5 seconds to be kept or
+  rejected is dropped and reported as `error: :admission_timeout`.
+  `[:cache, :admission]` is now emitted before the sync, and its
+  `:victim_count` counts the entries the write was compared with.
 - `[:transform, :detect, :skipped]` is also emitted when `anchor=smart-face`
   uses attention because `detector_required` is set and the face model isn't
   loaded yet (`result: :not_ready`) or the detector has no face model

@@ -25,25 +25,34 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
     opts: opts,
     tasks: tasks,
     admission: admission,
-    key: key
+    key: key,
+    prefix: prefix
   } do
     assert :ok = put_entry(key, "original", opts)
-
     parent = self()
-    :sys.suspend(admission)
+    handler = hold_decision(prefix, parent)
 
-    {first, second} =
-      try do
-        first = queued_commit(tasks, parent, key, "replacement", opts)
-        assert_receive {:trace, _, :send, {:"$gen_call", _, _}, ^admission}, 1000
-        second = queued_commit(tasks, parent, key, "original", opts)
-        assert_receive {:trace, _, :send, {:"$gen_call", _, _}, ^admission}, 1000
-        {first, second}
-      after
-        :sys.resume(admission)
-      end
+    try do
+      # The first decision is held while the second write queues its own.
+      first = queued_commit(tasks, parent, key, "replacement", opts)
+      assert_receive {:deciding, ^admission}, 1000
+      second = queued_commit(tasks, parent, key, "original", opts)
+      second_pid = second.pid
+      assert_receive {:trace, ^second_pid, :send, {:"$gen_call", _, {:decide, _, _}}, _}, 1000
 
-    assert Task.await_many([first, second]) == [:ok, :ok]
+      # Releasing it lets the first write sync and queue its commit while
+      # the second decision is held, so the commits arrive in order.
+      send(admission, :decide)
+      assert_receive {:deciding, ^admission}, 1000
+      first_pid = first.pid
+      assert_receive {:trace, ^first_pid, :send, {:"$gen_call", _, {:commit, _, _}}, _}, 1000
+      send(admission, :decide)
+
+      assert Task.await_many([first, second]) == [:ok, :ok]
+    after
+      :telemetry.detach(handler)
+    end
+
     assert {:hit, %{body: "original"}} = FileSystem.get(key, opts)
     assert :sys.get_state(admission).stored_bytes == 8
     assert [body_path] = Path.wildcard(Path.join(root, "**/*.body"))
@@ -144,7 +153,7 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
     parent = self()
     admission = ctx.admission
     opts = Keyword.put(ctx.opts, :commit_timeout, 0)
-    :sys.suspend(admission)
+    handler = hold_decision(ctx.prefix, parent)
 
     task =
       Task.Supervisor.async_nolink(ctx.tasks, fn ->
@@ -153,6 +162,16 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
       end)
 
     try do
+      # Admission is held inside the decision. A suspend queued now runs
+      # once the decision replies, before the writer can send its commit.
+      assert_receive {:deciding, ^admission}, 1000
+      :erlang.trace(admission, true, [:receive])
+      suspender = Task.async(fn -> :sys.suspend(admission) end)
+      assert_receive {:trace, ^admission, :receive, {:system, _from, :suspend}}, 1000
+      :erlang.trace(admission, false, [:receive])
+      send(admission, :decide)
+      Task.await(suspender)
+
       assert_receive {:trace, _, :send, {:"$gen_call", _, {:commit, prepared, _}}, ^admission},
                      1000
 
@@ -160,12 +179,31 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
       assert File.exists?(prepared.temp_body_path)
       assert File.exists?(prepared.temp_meta_path)
     after
+      :telemetry.detach(handler)
       :sys.resume(admission)
     end
 
     assert :sys.get_state(admission).stored_bytes == 11
     assert {:hit, %{body: "replacement"}} = FileSystem.get(ctx.key, ctx.opts)
     assert Path.wildcard(Path.join(ctx.root, "**/*.tmp"), match_dot: true) == []
+  end
+
+  # Holds Admission inside its next decision until it receives `:decide`.
+  defp hold_decision(prefix, parent) do
+    handler = {__MODULE__, make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        prefix ++ [:cache, :admission, :stop],
+        fn _event, _measurements, _metadata, _config ->
+          send(parent, {:deciding, self()})
+          receive(do: (:decide -> :ok))
+        end,
+        nil
+      )
+
+    handler
   end
 
   @tag capture_log: true
