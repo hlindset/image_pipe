@@ -99,6 +99,10 @@ subsampling (`subsample_mode: :off`) unless `:avif_options` sets another
 [WebP options](processing/output.md#webp-options) and
 [AVIF options](processing/output.md#avif-options) for the time and size tradeoff.
 
+A request that asks for more effort than these defaults fails with `400`.
+To allow more without changing the defaults, set `:max_effort`, such as
+`max_effort: [avif: 6, webp: 6]`.
+
 ## Limits and cached images
 
 The limits, such as `max_input_pixels` and `max_result_width`, set the largest

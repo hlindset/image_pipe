@@ -54,10 +54,10 @@ defmodule ImagePipe.API.OutputTest do
   end
 
   test "encoder options select the resolved format's settings" do
-    policy = resolve!(["format=avif", "avif-options=effort:4"], [])
+    policy = resolve!(["format=avif", "avif-options=effort:2"], [])
 
     assert {:ok, resolved} = Policy.resolve(policy, :jpeg)
-    assert resolved.encoder_options == %PlanOutput.AvifOptions{effort: 4, subsample_mode: :off}
+    assert resolved.encoder_options == %PlanOutput.AvifOptions{effort: 2, subsample_mode: :off}
     assert {:ok, resolved} = Policy.resolve(resolve!(["format=avif"], []), :jpeg)
     assert resolved.encoder_options == %PlanOutput.AvifOptions{effort: 3, subsample_mode: :off}
   end
