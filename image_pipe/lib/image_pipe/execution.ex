@@ -296,15 +296,24 @@ defmodule ImagePipe.Execution do
 
       :miss ->
         with {:ok, current} <- acquire(context, context.acquisition.record) do
-          open_with_lease(current, current.acquisition.lease)
+          open_with_lease(current, current.acquisition.lease, recheck(context, current))
         end
     end
   end
 
   def open(%Context{} = context), do: open_current(context)
 
-  defp open_current(context) do
-    case lookup(context) do
+  # The stale lookup already counted this request. Its key changes only when
+  # the original did, and a lookup of the new key counts as its own.
+  defp recheck(stale, current) do
+    case stale.representation.cache_key == current.representation.cache_key do
+      true -> &Cache.recheck_entry/2
+      false -> &Cache.lookup_entry/2
+    end
+  end
+
+  defp open_current(context, lookup \\ &Cache.lookup_entry/2) do
+    case lookup(context, lookup) do
       {:hit, output} ->
         finish_download(context)
         {:ok, output}
@@ -421,8 +430,8 @@ defmodule ImagePipe.Execution do
     end
   end
 
-  defp open_with_lease(context, lease) do
-    attach_lease(open_current(context), lease)
+  defp open_with_lease(context, lease, lookup) do
+    attach_lease(open_current(context, lookup), lease)
   catch
     kind, reason ->
       SourceCache.release(lease)
@@ -758,7 +767,8 @@ defmodule ImagePipe.Execution do
   defp refresh_current(context) do
     with {:ok, current} <- acquire(%{context | stale?: false}, context.acquisition.record) do
       try do
-        with {:ok, output} <- open(current) do
+        # The request that started the refresh already counted its lookup.
+        with {:ok, output} <- open_current(current, &Cache.recheck_entry/2) do
           try do
             Output.consume(output)
           after

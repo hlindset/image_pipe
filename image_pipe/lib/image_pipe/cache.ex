@@ -212,8 +212,8 @@ defmodule ImagePipe.Cache do
   The request runner builds the key with `ImagePipe.Representation.build/3`.
   It counts the outcome for `stats/1`, and a miss toward admitting the
   entry once it's written. A request that looks again, after waiting for
-  another request to write the entry, uses `recheck_entry/2`, so each
-  request counts once.
+  another request to write the entry, uses `recheck_entry/2`, so a request
+  counts once for each key it looks up.
   """
   @spec lookup_entry(Key.t(), keyword()) :: entry_lookup_result()
   def lookup_entry(%Key{} = key, opts) when is_list(opts) do
