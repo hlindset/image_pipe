@@ -312,9 +312,8 @@ defmodule ImagePipe.Source do
 
   defp resolve_with(module, adapter_opts, name, source, runtime_opts, policy) do
     source_metadata = %{source_name: name}
-    telemetry_opts = Telemetry.telemetry_opts(runtime_opts)
 
-    Telemetry.span(telemetry_opts, [:source, :resolve], source_metadata, fn ->
+    Telemetry.span(runtime_opts, [:source, :resolve], source_metadata, fn ->
       result =
         module
         |> run_resolve(source, adapter_opts, runtime_opts)
@@ -420,9 +419,7 @@ defmodule ImagePipe.Source do
     with {:ok, module, adapter_opts} <- adapter_config(resolved, opts) do
       source_metadata = %{source_name: resolved.name}
 
-      telemetry_opts = Telemetry.telemetry_opts(runtime_opts)
-
-      Telemetry.span(telemetry_opts, [:source, :fetch], source_metadata, fn ->
+      Telemetry.span(runtime_opts, [:source, :fetch], source_metadata, fn ->
         result = run_fetch(module, resolved, adapter_opts, runtime_opts)
         {result, result_metadata(result)}
       end)

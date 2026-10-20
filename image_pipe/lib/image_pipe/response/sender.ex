@@ -67,7 +67,7 @@ defmodule ImagePipe.Response.Sender do
     merged = merge_delivery_headers(conn, delivery_headers, prepared)
 
     Telemetry.execute(
-      Telemetry.telemetry_opts(opts),
+      opts,
       [:http_cache, :cache_hit, :headers],
       %{},
       %{
@@ -171,7 +171,6 @@ defmodule ImagePipe.Response.Sender do
         %CacheHeaders{} = prepared,
         opts
       ) do
-    telemetry_opts = Telemetry.telemetry_opts(opts)
     {:ok, disposition} = Disposition.render(request, prepared_stream.content_type)
 
     prepared_stream = %{
@@ -181,7 +180,7 @@ defmodule ImagePipe.Response.Sender do
 
     prepared_stream = maybe_add_debug_headers(prepared_stream, conn, opts)
 
-    telemetry_opts
+    opts
     |> Telemetry.span(
       [:deliver],
       output_metadata(prepared_stream.resolved_output),

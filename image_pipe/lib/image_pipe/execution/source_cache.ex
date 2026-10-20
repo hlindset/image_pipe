@@ -82,7 +82,7 @@ defmodule ImagePipe.Execution.SourceCache do
   # A changed or failed stat must be observed again while holding the lease,
   # before staging new bytes or invalidating an existing record.
   defp check_unchanged(source, previous, config) do
-    Telemetry.span(Telemetry.telemetry_opts(config), [:source, :stage], %{}, fn ->
+    Telemetry.span(config, [:source, :stage], %{}, fn ->
       source
       |> fetch_response(previous, config, fn _response -> :changed end)
       |> preflight_result(previous)
@@ -282,7 +282,7 @@ defmodule ImagePipe.Execution.SourceCache do
   # current record whose bytes are needed again, for another variant. A local
   # original whose evidence still matches it isn't rehashed.
   defp fetch(source, key, previous, preparation, config, {lease, download}, known \\ nil) do
-    Telemetry.span(Telemetry.telemetry_opts(config), [:source, :stage], %{}, fn ->
+    Telemetry.span(config, [:source, :stage], %{}, fn ->
       started = System.monotonic_time(:microsecond)
       preparation = if is_nil(previous), do: preparation
 

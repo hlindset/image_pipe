@@ -199,7 +199,7 @@ defmodule ImagePipe.Cache.Publication do
   end
 
   defp dropped(hash, reason, opts) do
-    Telemetry.execute(Telemetry.telemetry_opts(opts), [:cache, :stage], %{}, %{
+    Telemetry.execute(opts, [:cache, :stage], %{}, %{
       result: :ok,
       cache: :stage_dropped,
       reason: reason,

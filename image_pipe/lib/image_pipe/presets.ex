@@ -38,7 +38,7 @@ defmodule ImagePipe.Presets do
         }
 
         Telemetry.span(
-          Telemetry.telemetry_opts(config),
+          config,
           [:preset, :lookup],
           %{names: pending},
           fn ->

@@ -24,7 +24,7 @@ defmodule ImagePipe.Plug.Runner do
     conn = CORS.maybe_register(conn, config)
 
     Telemetry.Trace.with_inbound(conn, fn ->
-      Telemetry.span(Telemetry.telemetry_opts(config), [:request], request_metadata(conn), fn ->
+      Telemetry.span(config, [:request], request_metadata(conn), fn ->
         {conn, metadata} = route(conn, config)
 
         # A committed 200 whose stream then failed: the shared Sender stamps
@@ -102,7 +102,7 @@ defmodule ImagePipe.Plug.Runner do
   end
 
   defp parse(%Plug.Conn{} = conn, config) do
-    Telemetry.span(Telemetry.telemetry_opts(config), [:parse], %{}, fn ->
+    Telemetry.span(config, [:parse], %{}, fn ->
       ParsedRequest.parse(conn, config)
     end)
   end
@@ -296,7 +296,7 @@ defmodule ImagePipe.Plug.Runner do
 
   defp report_ignored_options(conn, %Spec{} = request, config) do
     keys = Parser.ignored_keys(request)
-    Telemetry.ignored_options(Telemetry.telemetry_opts(config), keys, request.ignored)
+    Telemetry.ignored_options(config, keys, request.ignored)
 
     case delivery_config(request, config)[:debug?] do
       true -> Plug.Conn.put_resp_header(conn, "x-imagepipe-ignored-options", Enum.join(keys, ","))
@@ -315,7 +315,7 @@ defmodule ImagePipe.Plug.Runner do
   # -- terminal sends ---------------------------------------------------------
 
   defp send_with_span(%Plug.Conn{}, config, result, fun) do
-    Telemetry.span(Telemetry.telemetry_opts(config), [:send], %{result: result}, fn ->
+    Telemetry.span(config, [:send], %{result: result}, fn ->
       sent_conn = fun.()
 
       {sent_conn,

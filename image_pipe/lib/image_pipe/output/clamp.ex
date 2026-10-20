@@ -85,7 +85,7 @@ defmodule ImagePipe.Output.Clamp do
 
   defp emit_clamp_telemetry(%{} = info, format, opts) do
     Telemetry.execute(
-      Telemetry.telemetry_opts(opts),
+      opts,
       [:output, :clamp],
       %{scale: info.scale},
       %{

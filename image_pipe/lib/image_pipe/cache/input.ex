@@ -86,7 +86,7 @@ defmodule ImagePipe.Cache.Input do
   end
 
   defp traced_open(key, record, opts, counted, sighting?) do
-    Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :input], %{pool: :input}, fn ->
+    Telemetry.span(opts, [:cache, :input], %{pool: :input}, fn ->
       key |> do_open(record, opts, counted, sighting?) |> open_result()
     end)
   end
@@ -249,7 +249,7 @@ defmodule ImagePipe.Cache.Input do
       pool ->
         start_metadata = %{pool: :input, cache_key: key.hash}
 
-        Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], start_metadata, fn ->
+        Telemetry.span(opts, [:cache, :write], start_metadata, fn ->
           result = store(key, path, sha256, record, cost, pool)
           {result, Map.merge(write_metadata(result), %{cache_key: key.hash, bytes: size(path)})}
         end)
