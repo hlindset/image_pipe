@@ -17,6 +17,8 @@ defmodule ImagePipeServer.Stats do
 
   import Plug.Conn
 
+  @in_flight __MODULE__.InFlight
+
   @type options :: %{
           token_hash: binary(),
           instance: atom(),
@@ -57,23 +59,84 @@ defmodule ImagePipeServer.Stats do
     |> send_resp(200, prometheus(snapshot))
   end
 
+  @doc false
+  # The roots with a `df` running, so a mount that hangs it gets one stuck
+  # process rather than one per scrape. The application's starting process
+  # owns the table.
+  def create_table, do: :ets.new(@in_flight, [:named_table, :public, :set])
+
   defp snapshot(%{instance: instance, roots: roots}) do
-    instance
-    |> ImagePipe.cache_stats()
-    |> Map.new(fn {cache, stats} -> {cache, Map.merge(stats, disk(Map.fetch!(roots, cache)))} end)
+    stats = ImagePipe.cache_stats(instance)
+
+    stats
+    |> Map.keys()
+    |> Task.async_stream(&{&1, disk(Map.fetch!(roots, &1))},
+      max_concurrency: max(map_size(stats), 1),
+      timeout: :infinity
+    )
+    |> Map.new(fn {:ok, {cache, disk}} -> {cache, Map.merge(Map.fetch!(stats, cache), disk)} end)
   end
 
-  # `df` for the filesystem that holds `root`, through `os_mon`. Its sizes
-  # are in KiB, and all zeros when the space can't be read.
-  defp disk(root) do
-    case :disksup.get_disk_info(String.to_charlist(root)) do
-      [{_id, total, available, _capacity}] when total > 0 ->
-        %{disk_free_bytes: available * 1024, disk_total_bytes: total * 1024}
+  @df_timeout 2_000
+  @unknown %{disk_free_bytes: nil, disk_total_bytes: nil}
 
-      _unknown ->
-        %{disk_free_bytes: nil, disk_total_bytes: nil}
+  # POSIX `df` for the filesystem that holds `root`, sizes in KiB. It runs
+  # without a shell, and without `-l`, so a network or FUSE volume reports
+  # too. A scrape waits at most `@df_timeout` for it. A `df` stuck on a dead
+  # mount can't be killed from here, so no other starts for that root until
+  # it ends, and scrapes report no sizes meanwhile.
+  defp disk(root) do
+    if :ets.insert_new(@in_flight, {root}) do
+      reply = :erlang.alias()
+
+      spawn(fn ->
+        result =
+          try do
+            System.cmd("df", ["-kP", "--", root])
+          rescue
+            _missing_or_failed -> :error
+          after
+            :ets.delete(@in_flight, root)
+          end
+
+        send(reply, {reply, result})
+      end)
+
+      receive do
+        {^reply, {output, 0}} -> parse_df(output)
+        {^reply, _failed} -> @unknown
+      after
+        @df_timeout ->
+          :erlang.unalias(reply)
+          @unknown
+      end
+    else
+      @unknown
     end
   end
+
+  # The last line: filesystem, total, used, available, capacity, mount point.
+  # The filesystem name or mount point can hold spaces, so the sizes are the
+  # three fields before the capacity percentage.
+  defp parse_df(output) do
+    fields = output |> String.trim() |> String.split("\n") |> List.last() |> String.split()
+
+    with [total, _used, available, _capacity | _mount] <- from_sizes(fields),
+         {total, ""} when total > 0 <- Integer.parse(total),
+         {available, ""} <- Integer.parse(available) do
+      %{disk_free_bytes: available * 1024, disk_total_bytes: total * 1024}
+    else
+      _unreadable -> @unknown
+    end
+  end
+
+  defp from_sizes([_total, _used, _available, capacity | _rest] = fields) do
+    if String.ends_with?(capacity, "%"),
+      do: fields,
+      else: from_sizes(tl(fields))
+  end
+
+  defp from_sizes(_fields), do: nil
 
   @gauges [
     bytes: "Bytes the cache stores.",

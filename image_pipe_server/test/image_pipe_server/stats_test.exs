@@ -43,6 +43,22 @@ defmodule ImagePipeServer.StatsTest do
     %{opts: opts, stats: stats}
   end
 
+  test "/stats reports disk space for a cache root whose path has a space", %{
+    opts: opts,
+    stats: stats,
+    tmp_dir: root
+  } do
+    spaced = Path.join(root, "cache root")
+    File.mkdir_p!(spaced)
+    opts = Keyword.put(opts, :stats, %{stats | roots: %{output: spaced}})
+
+    conn = call(:get, "/stats", opts, "stats-token")
+
+    assert %{"output" => output} = JSON.decode!(conn.resp_body)
+    assert output["disk_total_bytes"] > 0
+    assert output["disk_free_bytes"] > 0
+  end
+
   test "/stats reports each cache as JSON", %{opts: opts} do
     assert %{status: 200} = call(:get, "/w=2/format=png/src/pic.png", opts)
 

@@ -21,8 +21,7 @@ defmodule ImagePipeServer.MixProject do
   def application do
     [
       mod: {ImagePipeServer.Application, []},
-      # os_mon's disksup reads the free space under the cache roots.
-      extra_applications: [:logger, :os_mon]
+      extra_applications: [:logger]
     ]
   end
 

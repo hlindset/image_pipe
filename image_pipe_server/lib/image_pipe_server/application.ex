@@ -15,6 +15,7 @@ defmodule ImagePipeServer.Application do
   @impl Application
   def start(_type, _args) do
     config = config!()
+    ImagePipeServer.Stats.create_table()
 
     Logger.configure(level: config.log_level)
     configure_log_format(config.log_format, config.log_colors)
