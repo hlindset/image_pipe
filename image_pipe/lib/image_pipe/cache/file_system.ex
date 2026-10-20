@@ -89,8 +89,12 @@ defmodule ImagePipe.Cache.FileSystem do
   end
 
   @doc false
-  def open(key, opts) do
-    case Store.get(key, opts) do
+  # Counts a request's miss of `key` toward admitting its entry.
+  def missed(key, opts), do: Store.miss(key, opts)
+
+  @doc false
+  def open(key, opts, sighting? \\ true) do
+    case Store.get(key, opts, sighting?) do
       {:hit, file, metadata} -> decode_entry(file, metadata)
       other -> other
     end

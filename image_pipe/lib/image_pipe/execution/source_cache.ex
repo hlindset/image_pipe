@@ -378,7 +378,7 @@ defmodule ImagePipe.Execution.SourceCache do
   defp store(source, key, previous, record, {response, sha256}, cost, config) do
     copy? = response.path != nil and source.cache_semantics.copy?
     remember? = not unchanged_record?(previous, record, source, config)
-    if copy?, do: Input.count_miss(config)
+    if copy?, do: Input.count_miss(key, config)
 
     cond do
       copy? and remember? ->

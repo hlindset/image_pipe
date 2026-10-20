@@ -69,20 +69,25 @@ defmodule ImagePipe.Cache.Input do
   # read. A request that looks again, after waiting for another request's
   # download, uses `recheck/3`, which counts only a hit, so each request
   # counts once.
-  def open(key, record, opts), do: traced_open(key, record, opts, [:hit, :read_error])
+  def open(key, record, opts), do: traced_open(key, record, opts, [:hit, :read_error], true)
 
-  def recheck(key, record, opts), do: traced_open(key, record, opts, [:hit])
+  def recheck(key, record, opts), do: traced_open(key, record, opts, [:hit], false)
 
-  def count_miss(opts) do
+  # The miss also counts toward admitting the original once it's stored.
+  def count_miss(key, opts) do
     case Keyword.get(opts, :input_cache) do
-      nil -> :ok
-      pool -> Lookups.count(pool, :miss)
+      nil ->
+        :ok
+
+      pool ->
+        Lookups.count(pool, :miss)
+        Store.miss(key, pool)
     end
   end
 
-  defp traced_open(key, record, opts, counted) do
+  defp traced_open(key, record, opts, counted, sighting?) do
     Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :input], %{pool: :input}, fn ->
-      key |> do_open(record, opts, counted) |> open_result()
+      key |> do_open(record, opts, counted, sighting?) |> open_result()
     end)
   end
 
@@ -92,10 +97,10 @@ defmodule ImagePipe.Cache.Input do
   defp open_result(:miss), do: {:miss, %{result: :ok, cache: :miss}}
   defp open_result({:error, _reason}), do: {:miss, %{result: :cache_error, cache: :read_error}}
 
-  defp do_open(key, record, opts, counted) do
+  defp do_open(key, record, opts, counted, sighting?) do
     case Keyword.get(opts, :input_cache) do
       nil -> :miss
-      pool -> key |> open_pool(record, pool) |> tap(&count_lookup(&1, pool, counted))
+      pool -> key |> open_pool(record, pool, sighting?) |> tap(&count_lookup(&1, pool, counted))
     end
   end
 
@@ -110,14 +115,14 @@ defmodule ImagePipe.Cache.Input do
     if outcome in counted, do: Lookups.count(pool, outcome), else: :ok
   end
 
-  defp open_pool(key, record, pool) do
-    pool_entry(key, record, pool)
+  defp open_pool(key, record, pool, sighting?) do
+    pool_entry(key, record, pool, sighting?)
   rescue
     _exception -> {:error, :cache_read_failed}
   end
 
-  defp pool_entry(key, record, pool) do
-    case Store.get(key, pool) do
+  defp pool_entry(key, record, pool, sighting?) do
+    case Store.get(key, pool, sighting?) do
       {:hit, file, %{source_record: stored}} ->
         pin_matching(file, stored, record)
 

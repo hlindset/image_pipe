@@ -62,8 +62,16 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
   end
 
   # Commits `body` through the running Admission.
+  defp miss(admission, pool, body) do
+    FileSystem.missed(key(body), pool)
+    _state = :sys.get_state(admission)
+  end
+
+  defp key(body),
+    do: %Key{hash: Base.encode16(:crypto.hash(:sha256, body), case: :lower), data: []}
+
   defp put(pool, body) do
-    key = %Key{hash: Base.encode16(:crypto.hash(:sha256, body), case: :lower), data: []}
+    key = key(body)
     {:ok, sink} = FileSystem.open_sink(key, metadata(), pool)
     {:ok, sink} = FileSystem.write_chunk(sink, body, pool)
     FileSystem.commit_sink(sink, pool)
@@ -105,14 +113,16 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
   end
 
   test "emits an eviction stop event when a write evicts", ctx do
-    start_supervised!({Admission, opts(ctx, max_size_bytes: 10_000)})
+    admission = start_supervised!({Admission, opts(ctx, max_size_bytes: 10_000)})
     attach(ctx.prefix, [[:cache, :eviction, :stop]])
     pool = cache_opts(ctx, max_size_bytes: 10_000)
 
     assert :ok = put(pool, String.duplicate("a", 5_000))
     assert :ok = put(pool, String.duplicate("b", 5_000))
     # The first write of a new key loses to an entry requested as often.
+    # Once another request misses it, its next write wins.
     assert {:ok, :rejected} = put(pool, String.duplicate("c", 5_000))
+    miss(admission, pool, String.duplicate("c", 5_000))
     assert :ok = put(pool, String.duplicate("c", 5_000))
 
     stop_event = ctx.prefix ++ [:cache, :eviction, :stop]

@@ -166,7 +166,7 @@ defmodule ImagePipe.Cache do
 
   defp read_source_record(key, cache_opts) do
     case FileSystem.source_record(key, cache_opts) do
-      :miss -> {:miss, key}
+      :miss -> tap({:miss, key}, fn _miss -> FileSystem.missed(key, cache_opts) end)
       {:error, reason} -> handle_read_error(reason, key, cache_opts)
       hit -> hit
     end
@@ -210,24 +210,34 @@ defmodule ImagePipe.Cache do
   @doc """
   Looks up `key` in the configured cache, treating read errors as misses.
   The request runner builds the key with `ImagePipe.Representation.build/3`.
-  It counts the outcome for `stats/1`. A request that looks again, after
-  waiting for another request to write the entry, uses `recheck_entry/2`,
-  so each request counts once.
+  It counts the outcome for `stats/1`, and a miss toward admitting the
+  entry once it's written. A request that looks again, after waiting for
+  another request to write the entry, uses `recheck_entry/2`, so each
+  request counts once.
   """
   @spec lookup_entry(Key.t(), keyword()) :: entry_lookup_result()
   def lookup_entry(%Key{} = key, opts) when is_list(opts) do
     traced_lookup(key, :response, Keyword.get(opts, :cache), opts, fn
-      nil -> :disabled
-      cache_opts -> key |> get_entry(cache_opts) |> tap(&count_lookup(&1, cache_opts))
+      nil ->
+        :disabled
+
+      cache_opts ->
+        key
+        |> get_entry(cache_opts)
+        |> tap(&count_lookup(&1, cache_opts))
+        |> tap(&count_miss(&1, key, cache_opts))
     end)
   end
+
+  defp count_miss({:hit, _entry}, _key, _cache_opts), do: :ok
+  defp count_miss(_miss, key, cache_opts), do: FileSystem.missed(key, cache_opts)
 
   @doc "Looks up `key` like `lookup_entry/2`, without counting the outcome."
   @spec recheck_entry(Key.t(), keyword()) :: entry_lookup_result()
   def recheck_entry(%Key{} = key, opts) when is_list(opts) do
     traced_lookup(key, :response, Keyword.get(opts, :cache), opts, fn
       nil -> :disabled
-      cache_opts -> get_entry(key, cache_opts)
+      cache_opts -> get_entry(key, cache_opts, false)
     end)
   end
 
@@ -332,8 +342,8 @@ defmodule ImagePipe.Cache do
     end
   end
 
-  defp get_entry(key, cache_opts) do
-    case FileSystem.open(key, cache_opts) do
+  defp get_entry(key, cache_opts, sighting? \\ true) do
+    case FileSystem.open(key, cache_opts, sighting?) do
       {:hit, entry} -> {:hit, entry}
       :miss -> {:miss, key}
       {:error, reason} -> handle_read_error(reason, key, cache_opts)

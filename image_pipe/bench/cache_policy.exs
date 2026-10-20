@@ -490,6 +490,7 @@ defmodule CachePolicyBench do
         {true, state}
 
       _miss ->
+        FileSystem.missed(key, state.pool)
         commit(state, key, request, size, recorded_cost(state.cost_mode, cost, size))
         {false, state}
     end
