@@ -17,6 +17,17 @@ defmodule ImagePipe.Test.Perf.Cases do
 
   A case's `tier` is `:pr` for the set every `perf` pull request runs, or
   `:nightly` for the slower or rarer cases only the scheduled runs time.
+
+  A case's `config` is `:plain` for the bench's usual server, with no cache
+  and a file source, or `:cached` for a server with an output cache and an
+  originals cache that reads through the `origin` HTTP source from an origin
+  container. A case's `random` puts a new token in every request's URL, so
+  every request misses: `:output` in a cachebuster, `:source` in the source
+  path, which also makes each request a new original.
+
+  `bursts/1` lists requests that run all at once instead: a burst of
+  concurrent requests for a new original, on an origin that sends it at a
+  paced rate, so the requests overlap its download.
   """
   use Boundary, top_level?: true, deps: []
 
@@ -25,13 +36,25 @@ defmodule ImagePipe.Test.Perf.Cases do
           kind: :lossy,
           family: String.t(),
           tier: :pr | :nightly,
+          config: :plain | :cached,
+          random: nil | :output | :source,
           source: String.t(),
           native: String.t()
         }
 
+  @type burst :: %{
+          id: String.t(),
+          kind: :burst,
+          family: String.t(),
+          tier: :nightly,
+          config: {:burst, :none | :output | :input | :both},
+          source: String.t(),
+          natives: [String.t()]
+        }
+
   @doc "The families these cases add to the reference suite's."
   @spec families() :: [String.t()]
-  def families, do: ~w(decode colour autoquality placeholder)
+  def families, do: ~w(decode colour autoquality placeholder cache concurrency)
 
   @doc """
   The files the server under test makes before the run: `{file, request}`,
@@ -114,8 +137,43 @@ defmodule ImagePipe.Test.Perf.Cases do
       # Non-image outputs from a large source.
       c("info_12mp", "placeholder", :pr, "photo12.jpg", "output=info"),
       c("blurhash_12mp", "placeholder", :nightly, "photo12.jpg", "output=blurhash"),
-      c("lqip_css_12mp", "placeholder", :pr, "photo12.jpg", "output=lqip-css")
+      c("lqip_css_12mp", "placeholder", :pr, "photo12.jpg", "output=lqip-css"),
+      # Caches: a hit, a miss whose original is in the originals cache, and a
+      # miss that downloads a new original.
+      cached("cache_hit", nil),
+      cached("cache_miss_warm_source", :output),
+      cached("cache_miss_cold", :source)
     ]
+  end
+
+  @doc """
+  Bursts of `count` concurrent requests, each with the caches it runs with:
+
+    * `burst_same`: identical requests, which should share one download and
+      one generation.
+    * `burst_sizes`: a different width each, which should share one
+      download.
+  """
+  @spec bursts(pos_integer()) :: [burst()]
+  def bursts(count) do
+    same = List.duplicate("w=400/format=jpeg", count)
+    sizes = for i <- 1..count, do: "w=#{100 + 100 * i}/format=jpeg"
+
+    for {name, natives, caches} <- [
+          {"burst_same", same, [:none, :output, :both]},
+          {"burst_sizes", sizes, [:none, :input, :both]}
+        ],
+        cache <- caches do
+      %{
+        id: "#{name}_#{cache}",
+        kind: :burst,
+        family: "concurrency",
+        tier: :nightly,
+        config: {:burst, cache},
+        source: "perf/photo2.jpg",
+        natives: natives
+      }
+    end
   end
 
   defp c(id, family, tier, source, native),
@@ -124,7 +182,17 @@ defmodule ImagePipe.Test.Perf.Cases do
       kind: :lossy,
       family: family,
       tier: tier,
+      config: :plain,
+      random: nil,
       source: "perf/" <> source,
       native: native
+    }
+
+  defp cached(id, random),
+    do: %{
+      c(id, "cache", :pr, "photo2.jpg", "w=400/format=jpeg")
+      | config: :cached,
+        random: random,
+        source: "origin/perf/photo2.jpg"
     }
 end

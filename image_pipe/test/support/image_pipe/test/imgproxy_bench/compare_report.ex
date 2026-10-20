@@ -10,6 +10,11 @@ defmodule ImagePipe.Test.ImgproxyBench.CompareReport do
   shown as the percentage change from the compared image. A value is marked
   worse when every round has it more than 10% worse, and better when every
   round has it more than 10% better.
+
+  Bursts of concurrent requests get a table of their own: each image's median
+  time to the last response, and the downloads and generations a burst took.
+  Those counts don't vary between runs, so a candidate count above or below
+  every compared image's is marked.
   """
   use Boundary, top_level?: true, deps: []
 
@@ -56,7 +61,8 @@ defmodule ImagePipe.Test.ImgproxyBench.CompareReport do
     <p>#{Enum.map_join(["candidate" | results["against"]], "<br>", &"<strong>#{if &1 == "candidate", do: "Candidate", else: "Against " <> escape(&1)}:</strong> #{escape(describe(results, &1))}")}</p>
     <p>#{escape(intro())}</p>
     <p class="muted">#{escape(environment(env))}</p>
-    #{Enum.map_join(results["against"], "\n", &against_html(results, &1))}
+    #{Enum.map_join(timed_against(results), "\n", &against_html(results, &1))}
+    #{bursts_html(results)}
     #{mismatches_html(results["mismatches"])}
     </body>
     </html>
@@ -66,7 +72,7 @@ defmodule ImagePipe.Test.ImgproxyBench.CompareReport do
   @spec summary(map()) :: String.t()
   def summary(results) do
     tables =
-      Enum.map_join(results["against"], "\n", fn against ->
+      Enum.map_join(timed_against(results), "\n", fn against ->
         rows =
           Enum.map_join(families(results, against), "\n", fn {family, count, cells} ->
             "| #{family} | #{count} | " <>
@@ -98,10 +104,14 @@ defmodule ImagePipe.Test.ImgproxyBench.CompareReport do
 
     #{intro()}
 
-    #{tables}#{mismatches}
+    #{tables}#{bursts_markdown(results)}#{mismatches}
     <sub>#{environment(results["environment"])}</sub>
     """
   end
+
+  # The images to give a family table, none when only bursts ran.
+  defp timed_against(%{"cases" => []}), do: []
+  defp timed_against(results), do: results["against"]
 
   # What each image is, one line each, as Markdown.
   defp subjects(results) do
@@ -164,6 +174,123 @@ defmodule ImagePipe.Test.ImgproxyBench.CompareReport do
     </table></div>
     </details>
     """
+  end
+
+  defp bursts_html(results) do
+    case Map.get(results, "bursts", []) do
+      [] ->
+        ""
+
+      bursts ->
+        keys = ["candidate" | results["against"]]
+
+        head =
+          Enum.map_join(keys, "", fn key ->
+            "<th>#{escape(key)} time</th><th>downloads</th><th>generations</th>"
+          end)
+
+        rows = Enum.map_join(bursts, "\n", &burst_row_html(&1, keys))
+
+        """
+        <h2>Concurrent requests</h2>
+        <p class="muted">#{escape(bursts_intro())}</p>
+        <div class="scroll"><table>
+        <tr><th>Case</th><th>Requests</th>#{head}</tr>
+        #{rows}
+        </table></div>
+        """
+    end
+  end
+
+  defp bursts_markdown(results) do
+    case Map.get(results, "bursts", []) do
+      [] ->
+        ""
+
+      bursts ->
+        keys = ["candidate" | results["against"]]
+        head = Enum.map_join(keys, " | ", &"#{&1} time | downloads | generations")
+        align = Enum.map_join(keys, " | ", fn _key -> "---: | ---: | ---:" end)
+
+        rows = Enum.map_join(bursts, "\n", &burst_row_markdown(&1, keys))
+
+        """
+
+        #### Concurrent requests
+
+        #{bursts_intro()}
+
+        | Case | Requests | #{head} |
+        | --- | ---: | #{align} |
+        #{rows}
+        """
+    end
+  end
+
+  defp burst_row_html(b, keys) do
+    cells = Enum.map_join(burst_cells(b, keys), "", &burst_cell_html/1)
+
+    "<tr><td title=\"#{escape(Enum.join(b["natives"], ", "))}\">#{escape(b["id"])}</td>" <>
+      "<td>#{b["requests"]}</td>#{cells}</tr>"
+  end
+
+  defp burst_cell_html({text, nil}), do: "<td>#{text}</td>"
+  defp burst_cell_html({text, mark}), do: "<td class=\"#{mark}\">#{text}</td>"
+
+  defp burst_row_markdown(b, keys) do
+    cells = Enum.map_join(burst_cells(b, keys), " | ", &burst_cell_markdown/1)
+    "| #{b["id"]} | #{b["requests"]} | #{cells} |"
+  end
+
+  defp burst_cell_markdown({text, :worse}), do: "🔴 #{text}"
+  defp burst_cell_markdown({text, :better}), do: "🟢 #{text}"
+  defp burst_cell_markdown({text, nil}), do: text
+
+  defp bursts_intro do
+    "Each case sends its requests at once for a new original, which the origin sends " <>
+      "slowly enough that they overlap its download. Times are the median time to the " <>
+      "last response; counts are a burst's downloads from the origin and images " <>
+      "generated, as the lowest–highest over every burst. 🔴 marks a candidate count " <>
+      "above every compared image's, 🟢 one below."
+  end
+
+  # Time, downloads and generations for each image, with the candidate's
+  # counts marked against the others'.
+  defp burst_cells(b, keys) do
+    Enum.flat_map(keys, fn key ->
+      bursts = List.flatten(b["rounds"][key])
+      time = "#{round(median(Enum.map(bursts, & &1["ms"])))} ms"
+
+      counts =
+        for name <- ["downloads", "generations"] do
+          {count_text(bursts, name), count_mark(b, keys, key, name)}
+        end
+
+      [{time, nil} | counts]
+    end)
+  end
+
+  defp count_text(bursts, name) do
+    case bursts |> Enum.map(& &1[name]) |> Enum.min_max() do
+      {same, same} -> "#{same}"
+      {low, high} -> "#{low}–#{high}"
+    end
+  end
+
+  defp count_mark(_b, _keys, key, _name) when key != "candidate", do: nil
+
+  defp count_mark(b, keys, "candidate", name) do
+    count =
+      &(b["rounds"][&1] |> List.flatten() |> Enum.map(fn burst -> burst[name] end) |> median())
+
+    candidate = count.("candidate")
+    others = keys |> tl() |> Enum.map(count)
+
+    cond do
+      Enum.all?(others, &(candidate > &1)) -> :worse
+      Enum.all?(others, &(candidate < &1)) -> :better
+      true -> nil
+    end
   end
 
   defp mismatches_html([]), do: ""
