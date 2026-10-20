@@ -161,7 +161,7 @@ defmodule ImagePipe.Cache.FileSystem do
          body_sha256: body_sha256,
          body_filename: body_filename,
          cost_us: cost_us,
-         debug: debug,
+         debug: current_debug(debug),
          representation: representation
        }}
     end
@@ -171,6 +171,11 @@ defmodule ImagePipe.Cache.FileSystem do
     do: {:error, :version_mismatch}
 
   defp validate_metadata(_metadata), do: {:error, :invalid_shape}
+
+  # Debug details stored before `Info` gained a field lack it, so rendering
+  # them would raise. Rebuilding gives the field its default.
+  defp current_debug(nil), do: nil
+  defp current_debug(%Info{} = debug), do: struct(Info, Map.from_struct(debug))
 
   defp validate_metadata_debug(debug) when is_struct(debug, Info) or is_nil(debug), do: :ok
   defp validate_metadata_debug(_debug), do: {:error, :invalid_debug}

@@ -27,6 +27,16 @@ defmodule ImagePipe.Cache.FileSystem.MetadataDecodeTest do
     assert read_in_fresh_vm(key, root) == {:error, {:invalid_metadata, :decode_failed}}
   end
 
+  test "debug details stored without a field the headers read get its default",
+       %{tmp_dir: root} do
+    # As a release stores them before `timings` exists.
+    older = Map.delete(%ImagePipe.Debug.Info{shrink: 2}, :timings)
+    key = write_entry(root, older)
+
+    assert {:hit, %Entry{debug: %ImagePipe.Debug.Info{shrink: 2, timings: %{}}}} =
+             FileSystem.get(key, root: root, max_size_bytes: 1_000_000)
+  end
+
   defp write_entry(root, debug) do
     key = %Key{hash: String.duplicate("c", 64), data: []}
 
