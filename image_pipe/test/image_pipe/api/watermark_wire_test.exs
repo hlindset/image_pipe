@@ -19,6 +19,7 @@ defmodule ImagePipe.API.WatermarkWireTest do
     files = %{
       "image.png" => png(Image.new!(60, 40, color: @blue)),
       "mark.png" => png(Image.new!(10, 10, color: @red)),
+      "white16.png" => white16_png(),
       "alpha.png" => png(Image.new!(10, 10, color: @red ++ [128])),
       "pattern.png" => png(pattern_mark()),
       "gray_mark.png" => png(gray_mark()),
@@ -303,6 +304,15 @@ defmodule ImagePipe.API.WatermarkWireTest do
       assert Enum.zip_with(marked, converted, &abs(&1 - &2)) |> Enum.max() <= 2,
              "#{inspect({x, y})}: #{inspect(marked)} vs #{inspect(converted)}"
     end
+  end
+
+  test "a 16-bit asset stays white when scaled down", %{config: config} do
+    marked =
+      Image.from_binary!(
+        response("hdr=preserve/wm=white16/wm-scale=1", config, "src/deep.png").resp_body
+      )
+
+    assert pixel(marked, 30, 20) == [65_535, 65_535, 65_535]
   end
 
   test "assets follow a preserved high-bit-depth working space", %{config: config} do
@@ -609,6 +619,7 @@ defmodule ImagePipe.API.WatermarkWireTest do
         ],
         watermarks: %{
           logo: [source: "mark.png"],
+          white16: [source: "white16.png"],
           ghost: [source: "alpha.png", opacity: 0.5],
           pattern: [source: "pattern.png"],
           gray_logo: [source: "gray_mark.png"],
@@ -639,6 +650,12 @@ defmodule ImagePipe.API.WatermarkWireTest do
   end
 
   defp png(image), do: Image.write!(image, :memory, suffix: ".png")
+
+  defp white16_png do
+    {:ok, image} = Image.new(2003, 80, color: [65_535, 65_535, 65_535], format: {:u, 16})
+    {:ok, image} = VipsOperation.copy(image, interpretation: :VIPS_INTERPRETATION_RGB16)
+    png(image)
+  end
 
   defp deep_png do
     {:ok, image} = Image.new(60, 40, color: [0, 0, 65_535], format: {:u, 16})
