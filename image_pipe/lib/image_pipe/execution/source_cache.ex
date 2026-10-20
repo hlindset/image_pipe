@@ -564,19 +564,26 @@ defmodule ImagePipe.Execution.SourceCache do
     end
   end
 
-  defp spool_file(stream, io, limit, overlap) do
-    initial = {:file, 0, :crypto.hash_init(:sha256), overlap}
+  # Network messages are often a few KiB, so they're written to the file in
+  # batches of `@spool_batch` bytes. A decode that may read the file as it
+  # grows needs every byte as it arrives, since the origin can pause between
+  # messages, so then each message is written at once.
+  @spool_batch 65_536
 
-    {body, size, hash, overlap} =
-      Source.reduce_body(stream, initial, fn bytes, {body, size, hash, overlap} ->
+  defp spool_file(stream, io, limit, overlap) do
+    initial = {:file, 0, :crypto.hash_init(:sha256), overlap, {[], 0}}
+
+    {body, size, hash, overlap, pending} =
+      Source.reduce_body(stream, initial, fn bytes, {body, size, hash, overlap, pending} ->
         next_size = size + byte_size(bytes)
         check_size!(next_size, limit)
-        body = append(body, io, bytes, size)
-
-        overlap = observe(body, overlap, io, next_size)
-        {body, next_size, :crypto.hash_update(hash, bytes), overlap}
+        hash = :crypto.hash_update(hash, bytes)
+        {body, overlap, pending} = append(body, io, bytes, next_size, overlap, pending)
+        {body, next_size, hash, overlap, pending}
       end)
 
+    body = flush(body, io, pending)
+    overlap = if match?({:buffer, _}, body), do: Overlap.cancel(overlap), else: overlap
     check_staged_size!(body, io, size)
     buffered = if body != :file, do: :write
 
@@ -595,18 +602,40 @@ defmodule ImagePipe.Execution.SourceCache do
   defp observe(:file, overlap, io, size), do: Overlap.observe(overlap, io, size)
   defp observe({:buffer, _}, overlap, _io, _size), do: Overlap.cancel(overlap)
 
-  defp append(:file, io, bytes, size) do
-    case :file.pwrite(io, size, bytes) do
-      :ok ->
-        :file
+  # `pending` holds the bytes not yet written, newest first, and how many
+  # bytes the file holds.
+  defp append(:file, io, bytes, size, overlap, {chunks, written}) do
+    chunks = [bytes | chunks]
 
-      {:error, _reason} ->
-        {:ok, prefix} = :file.pread(io, 0, size)
-        {:buffer, [bytes, prefix]}
+    if size - written >= @spool_batch or Overlap.reading?(overlap) do
+      body = flush(:file, io, {chunks, written})
+      {body, observe(body, overlap, io, size), {[], size}}
+    else
+      {:file, overlap, {chunks, written}}
     end
   end
 
-  defp append({:buffer, reversed}, _io, bytes, _size), do: {:buffer, [bytes | reversed]}
+  defp append({:buffer, reversed}, _io, bytes, _size, overlap, pending),
+    do: {{:buffer, [bytes | reversed]}, overlap, pending}
+
+  defp flush(:file, _io, {[], _written}), do: :file
+
+  defp flush(:file, io, {chunks, written}) do
+    case :file.pwrite(io, written, Enum.reverse(chunks)) do
+      :ok -> :file
+      {:error, _reason} -> {:buffer, chunks ++ [written_prefix(io, written)]}
+    end
+  end
+
+  defp flush({:buffer, _reversed} = body, _io, _pending), do: body
+
+  defp written_prefix(_io, 0), do: ""
+
+  defp written_prefix(io, written) do
+    {:ok, prefix} = :file.pread(io, 0, written)
+    prefix
+  end
+
   defp finish_body(:file), do: :file
 
   defp finish_body({:buffer, reversed}),

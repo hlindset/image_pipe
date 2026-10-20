@@ -59,6 +59,12 @@ defmodule ImagePipe.Execution.Overlap do
     nil
   end
 
+  @doc false
+  # Whether a decode may read the spool file as it grows, so every byte must
+  # reach the file as soon as it arrives.
+  def reading?(%{status: status}) when status in [:observing, :running], do: true
+  def reading?(_state), do: false
+
   def observe(nil, _io, _size), do: nil
   def observe(%{status: :skip} = state, _io, _size), do: state
   def observe(%{status: {:ready, _}} = state, _io, _size), do: state
