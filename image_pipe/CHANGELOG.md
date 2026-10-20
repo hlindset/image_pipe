@@ -125,6 +125,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - An `enlarge` of an image with an EXIF orientation, `rotate`, or `flip`
   now gives the same pixels as rotating or flipping first and then
   resizing. Before, enlarged pixels could be off by a fraction of a pixel.
+- An image decoded while its original downloads no longer waits behind
+  newer requests for its encode. The encode's turn in the processing pool
+  goes ahead of waiting requests and keeps the deadline of its first turn.
+  Before, it queued at the back and could fail with a `503` after its
+  decode had finished.
 - An image whose EXIF date fields aren't plain numbers (such as
   `2024:01:01 02+02:00:00`) or aren't stored as text no longer fails with
   a 500 when metadata is stripped. All of its metadata is removed,

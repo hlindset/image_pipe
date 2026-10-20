@@ -357,7 +357,7 @@ defmodule ImagePipe.Plug.Runner do
       seconds when is_integer(seconds) ->
         Plug.Conn.put_resp_header(conn, "retry-after", Integer.to_string(seconds))
 
-      {:error, _reason} ->
+      nil ->
         conn
     end
   end

@@ -232,6 +232,175 @@ defmodule ImagePipe.ProcessingPoolTest do
     refute_received {:started, :waiting, _}
   end
 
+  describe "retry_after/1" do
+    test "answers without waiting for the pool" do
+      pool = start_supervised!({ProcessingPool, max_concurrency: 1, queue_timeout: 2_500})
+      :sys.suspend(pool)
+
+      try do
+        assert ProcessingPool.retry_after(pool) == 3
+      after
+        :sys.resume(pool)
+      end
+    end
+
+    test "has no value once the pool has stopped" do
+      pool = start_supervised!({ProcessingPool, max_concurrency: 1})
+      stop_supervised!(ProcessingPool)
+
+      assert ProcessingPool.retry_after(pool) == nil
+    end
+  end
+
+  describe "continuations" do
+    # An overlapped request's encode, which asks again for the turn its
+    # decode held, with that turn's processing deadline.
+    defp continuation(deadline_ms), do: [processing_continuation: now() + deadline_ms]
+
+    defp now, do: System.monotonic_time(:millisecond)
+
+    test "within_turn returns the turn's processing deadline", %{tasks: _tasks} do
+      pool = pool(max_concurrency: 1, processing_timeout: 5_000)
+      before = now()
+
+      assert {:ok, :done, deadline} =
+               ProcessingPool.within_turn(pool, self(), self(), [], fn -> :done end)
+
+      assert deadline >= before + 5_000 and deadline <= now() + 5_000
+    end
+
+    test "a continuation is admitted before earlier waiters", %{tasks: tasks} do
+      pool = pool(max_concurrency: 1)
+      first = blocked(tasks, pool, :first)
+      assert_receive {:started, :first, worker1}
+      waiting = blocked(tasks, pool, :waiting)
+      await_queued(pool, 1)
+      resumed = blocked(tasks, pool, :resumed, :normal, continuation(5_000))
+      await_queued(pool, 2)
+
+      send(worker1, :continue)
+      assert Task.await(first) == :ok
+      assert_receive {:started, :resumed, worker2}
+      refute_received {:started, :waiting, _}
+      send(worker2, :continue)
+      assert Task.await(resumed) == :ok
+      assert_receive {:started, :waiting, worker3}
+      send(worker3, :continue)
+      assert Task.await(waiting) == :ok
+    end
+
+    test "a full queue neither rejects a continuation nor drops a low waiter for it", %{
+      tasks: tasks
+    } do
+      pool = pool(max_concurrency: 1, max_queue: 1)
+      first = blocked(tasks, pool, :first)
+      assert_receive {:started, :first, worker1}
+      low = blocked(tasks, pool, :low, :low)
+      await_queued(pool, 1)
+      resumed = blocked(tasks, pool, :resumed, :normal, continuation(5_000))
+      await_queued(pool, 2)
+
+      send(worker1, :continue)
+      assert Task.await(first) == :ok
+      assert_receive {:started, :resumed, worker2}
+      send(worker2, :continue)
+      assert Task.await(resumed) == :ok
+      assert_receive {:started, :low, worker3}
+      send(worker3, :continue)
+      assert Task.await(low) == :ok
+    end
+
+    test "continuations are admitted in the order they arrive", %{tasks: tasks} do
+      pool = pool(max_concurrency: 1)
+      first = blocked(tasks, pool, :first)
+      assert_receive {:started, :first, worker1}
+      earlier = blocked(tasks, pool, :earlier, :normal, continuation(5_000))
+      await_queued(pool, 1)
+      later = blocked(tasks, pool, :later, :normal, continuation(5_000))
+      await_queued(pool, 2)
+
+      send(worker1, :continue)
+      assert Task.await(first) == :ok
+      assert_receive {:started, :earlier, worker2}
+      refute_received {:started, :later, _}
+      send(worker2, :continue)
+      assert Task.await(earlier) == :ok
+      assert_receive {:started, :later, worker3}
+      send(worker3, :continue)
+      assert Task.await(later) == :ok
+    end
+
+    test "waiting continuations don't count toward max_queue", %{tasks: tasks} do
+      pool = pool(max_concurrency: 1, max_queue: 1)
+      first = blocked(tasks, pool, :first)
+      assert_receive {:started, :first, worker1}
+      resumed = blocked(tasks, pool, :resumed, :normal, continuation(5_000))
+      await_queued(pool, 1)
+      waiting = blocked(tasks, pool, :waiting)
+      await_queued(pool, 2)
+
+      send(worker1, :continue)
+      assert Task.await(first) == :ok
+      assert_receive {:started, :resumed, worker2}
+      send(worker2, :continue)
+      assert Task.await(resumed) == :ok
+      assert_receive {:started, :waiting, worker3}
+      send(worker3, :continue)
+      assert Task.await(waiting) == :ok
+    end
+
+    test "a continuation still waiting at its deadline times out", %{tasks: tasks} do
+      pool = pool(max_concurrency: 1, queue_timeout: 60_000)
+      first = blocked(tasks, pool, :first)
+      assert_receive {:started, :first, worker}
+      resumed = blocked(tasks, pool, :resumed, :normal, continuation(60_000))
+      await_queued(pool, 1)
+
+      # Fire the queued continuation's deadline instead of waiting for it.
+      [{token, %{deadline: deadline}}] =
+        for {token, %{phase: :queued} = job} <- :sys.get_state(pool).jobs, do: {token, job}
+
+      send(pool, {:deadline, token, :queued, deadline})
+      assert Task.await(resumed) == {:error, {:processing, :timeout}}
+      assert_receive {:stop, %{result: :timeout}}
+
+      send(worker, :continue)
+      assert Task.await(first) == :ok
+    end
+
+    test "an admitted continuation is cut off at its deadline", %{tasks: tasks} do
+      pool = pool(max_concurrency: 1, processing_timeout: 60_000)
+      job = blocked(tasks, pool, :resumed, :normal, continuation(60_000))
+      assert_receive {:started, :resumed, worker}
+
+      # Its deadline is the one it brought, not processing_timeout from now.
+      [{token, %{phase: :active, deadline: deadline}}] = Map.to_list(:sys.get_state(pool).jobs)
+      assert deadline <= now() + 60_000
+      send(pool, {:deadline, token, :active, deadline})
+      assert Task.await(job) == {:error, {:processing, :timeout}}
+
+      ref = Process.monitor(worker)
+      send(worker, :continue)
+      assert_receive {:DOWN, ^ref, :process, ^worker, _}
+    end
+
+    test "a continuation whose deadline has passed fails at once" do
+      pool = pool(max_concurrency: 1)
+
+      assert ProcessingPool.run(pool, fn -> flunk() end, continuation(-1)) ==
+               {:error, {:processing, :timeout}}
+    end
+
+    test "admission marks a continuation", %{tasks: tasks} do
+      pool = pool(max_concurrency: 1)
+      job = blocked(tasks, pool, :resumed, :normal, continuation(5_000))
+      assert_receive {:start, %{continuation: true}}
+      assert_receive {:started, :resumed, worker}
+      send(worker, :continue)
+      assert Task.await(job) == :ok
+    end
+  end
+
   describe "low priority" do
     test "admits a waiting normal request before an earlier low one", %{tasks: tasks} do
       pool = pool(max_concurrency: 1, max_queue: 2)
@@ -385,9 +554,11 @@ defmodule ImagePipe.ProcessingPoolTest do
 
   defp pool(opts), do: start_supervised!({ProcessingPool, opts})
 
-  defp blocked(tasks, pool, label, priority \\ :normal) do
+  defp blocked(tasks, pool, label, priority \\ :normal, extra \\ []) do
     test = self()
-    config = [telemetry_prefix: Process.get(:pool_telemetry), processing_priority: priority]
+
+    config =
+      [telemetry_prefix: Process.get(:pool_telemetry), processing_priority: priority] ++ extra
 
     Task.Supervisor.async_nolink(tasks, fn ->
       ProcessingPool.run(

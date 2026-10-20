@@ -511,6 +511,49 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
     send(holder, :release)
   end
 
+  test "an overlapped request's encode goes ahead of requests that queued after it", context do
+    pool = start_supervised!({ImagePipe.ProcessingPool, max_concurrency: 1})
+    context = restart(context, Keyword.put(context.options, :processing_pool, pool))
+    test = self()
+
+    waiter = fn label ->
+      Task.Supervisor.async_nolink(context.tasks, fn ->
+        ImagePipe.ProcessingPool.run(
+          pool,
+          fn ->
+            send(test, {:holding, label, self()})
+            receive(do: (:release -> :ok))
+          end,
+          []
+        )
+      end)
+    end
+
+    task = Task.Supervisor.async_nolink(context.tasks, fn -> request(context) end)
+    assert_receive {:origin_held, origin}, 2_000
+    await_stats(pool, %{active: 1, queued: 0})
+
+    first = waiter.(:first)
+    await_stats(pool, %{active: 1, queued: 1})
+    later = waiter.(:later)
+    await_stats(pool, %{active: 1, queued: 2})
+
+    # The decode's turn ends with the download, and the first waiter takes
+    # the slot. The encode then waits ahead of the later one.
+    send(origin, :continue)
+    assert_receive {:holding, :first, first_worker}, 5_000
+    await_stats(pool, %{active: 1, queued: 2})
+    send(first_worker, :release)
+
+    # It finishes while the later waiter is still held, so it didn't queue
+    # behind it.
+    assert Task.await(task, 10_000).status == 200
+    assert_receive {:holding, :later, later_worker}, 5_000
+    send(later_worker, :release)
+    assert Task.await(first) == :ok
+    assert Task.await(later) == :ok
+  end
+
   test "request cancellation terminates speculative processing", context do
     task = Task.Supervisor.async_nolink(context.tasks, fn -> request(context) end)
     assert_receive {:origin_held, _}, 2_000

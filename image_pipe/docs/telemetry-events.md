@@ -231,9 +231,12 @@ Span. Emitted for requests that generate an image under a
 
 - Start metadata: `:active` and `:queued` (integer), the pool's jobs before
   this request, and `:priority` (atom), `:normal` or `:low`, the request's
-  [priority](processing/request.md#priority).
+  [priority](processing/request.md#priority). `:continuation` (boolean) is
+  `true` for the second turn of a request whose original was decoded while
+  it downloaded (see [deadlines](processing-controls.md#deadlines)).
 - Stop metadata: `:result` (atom), one of `:admitted`, `:overloaded`,
-  `:queue_timeout`, `:cancelled`, `:worker_down`, or `:unavailable`.
+  `:queue_timeout`, `:cancelled`, `:worker_down`, or `:unavailable`, or
+  `:timeout` when a second turn's deadline passes while it waits.
 
 ### `[:processing, :execute]`
 
