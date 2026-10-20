@@ -219,7 +219,16 @@ defmodule ImagePipeServer.ApplicationTest do
       config = Config.build!(server: [port: 0, bind: "127.0.0.1", max_connections: 2])
       {Bandit, opts} = App.http_child(config, {Health, drain: Health.new()})
       name = :"listener_#{System.unique_integer([:positive])}"
-      opts = put_in(opts, [:thousand_island_options, :supervisor_options], name: name)
+
+      # A closed connection's handler can still hold its slot when the next
+      # request arrives; the acceptor then waits for one. The default 1s wait
+      # outlasts the receive timeout, while 5 retries of 50ms still fail
+      # within it when the cap never frees a slot.
+      opts =
+        opts
+        |> put_in([:thousand_island_options, :supervisor_options], name: name)
+        |> put_in([:thousand_island_options, :max_connections_retry_wait], 50)
+
       start_supervised!(Supervisor.child_spec({Bandit, opts}, id: :capped_listener))
       {:ok, {_ip, port}} = ThousandIsland.listener_info(name)
 
