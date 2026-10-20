@@ -206,7 +206,12 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
 
   defp recovered(state), do: state
 
+  # An atom, or the name of a credential field, never its value.
   defp loggable(reason) when is_atom(reason), do: ": #{inspect(reason)}"
+
+  defp loggable({:invalid_credential, field}) when is_atom(field),
+    do: ": invalid #{field}"
+
   defp loggable(_reason), do: ""
 
   defp reply_waiters(reply, state) do

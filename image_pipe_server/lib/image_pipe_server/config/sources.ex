@@ -54,11 +54,6 @@ defmodule ImagePipeServer.Config.Sources do
     role_session_name: "AWS_ROLE_SESSION_NAME"
   ]
   @rules {:or, [{:list, :string}, :string]}
-  @static_credentials_schema [
-    access_key_id: [type: :string],
-    secret_access_key: [type: :string],
-    token: [type: :string]
-  ]
   @address_categories [
     :allow_loopback,
     :allow_unspecified,
@@ -201,7 +196,7 @@ defmodule ImagePipeServer.Config.Sources do
   @doc false
   @spec credential_schemas() :: keyword()
   def credential_schemas do
-    [static: @static_credentials_schema] ++
+    [static: static_credentials_schema()] ++
       Enum.map(@providers, fn {name, module} ->
         {String.to_atom(name), provider_schema(module)}
       end)
@@ -254,7 +249,7 @@ defmodule ImagePipeServer.Config.Sources do
       path_pattern: [type: {:convert, &regex/2, "string (regular expression)"}],
       address_policy: [type: Convert.table(address_policy_schema())],
       request_headers: [type: {:convert, &request_headers/2, "table of string"}],
-      bearer_token: [type: {:convert, &bearer_token/2, "string"}]
+      bearer_token: [type: {:convert, &header_string/2, "string"}]
     )
   end
 
@@ -279,7 +274,9 @@ defmodule ImagePipeServer.Config.Sources do
     end
   end
 
-  defp bearer_token(value, path) do
+  # Sent in a request header, or signs one, so a line break or NUL would
+  # fail every fetch.
+  defp header_string(value, path) do
     case Convert.string(value, path) do
       {:ok, ""} ->
         {:error, path, "expected a non-empty string"}
@@ -293,6 +290,14 @@ defmodule ImagePipeServer.Config.Sources do
       error ->
         error
     end
+  end
+
+  defp static_credentials_schema do
+    [
+      access_key_id: [type: {:convert, &header_string/2, "string"}],
+      secret_access_key: [type: {:convert, &header_string/2, "string"}],
+      token: [type: {:convert, &header_string/2, "string"}]
+    ]
   end
 
   defp s3_schema do
@@ -329,7 +334,7 @@ defmodule ImagePipeServer.Config.Sources do
   defp credentials(%{"static" => static} = table, path) when map_size(table) == 1 do
     path = path ++ ["static"]
 
-    with {:ok, static} <- Convert.options(static, @static_credentials_schema, path),
+    with {:ok, static} <- Convert.options(static, static_credentials_schema(), path),
          {:ok, static} <- Convert.require_keys(static, [:access_key_id, :secret_access_key], path),
          do: {:ok, {:static, static}}
   end

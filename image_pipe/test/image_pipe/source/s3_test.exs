@@ -227,6 +227,25 @@ defmodule ImagePipe.Source.S3Test do
                ]
              )
 
+    # Each is sent in a header or signs one, so a line break or NUL would
+    # fail every fetch.
+    for bad <- [
+          [access_key_id: "A\r\n", secret_access_key: "S"],
+          [access_key_id: "A", secret_access_key: "S\n"],
+          [access_key_id: "A", secret_access_key: "S", token: "T\r\n"],
+          [access_key_id: "A", secret_access_key: "S", token: "T\0"]
+        ] do
+      assert {:error, {:invalid_source_config, _reason}} =
+               S3.validate_options(
+                 default: [
+                   region: "us-east-1",
+                   endpoint: "https://s3.amazonaws.com",
+                   credentials: {:static, bad}
+                 ]
+               ),
+             inspect(bad)
+    end
+
     assert {:error, {:invalid_source_config, _reason}} =
              S3.validate_options(
                default: [
