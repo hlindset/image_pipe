@@ -49,12 +49,12 @@ defmodule ImagePipe.API.Parser do
     {parsed, occurrences, parse_errors} = parse_options(segments)
     whole_path_span = whole_path_span(source_span)
 
-    {groups, request, preset_errors, occurrences} =
+    {groups, request, preset_errors, occurrences, origins} =
       expand_presets(parsed.groups, parsed.request, occurrences, config, whole_path_span)
 
     case {parse_errors ++ preset_errors, resolve(groups, request, occurrences, config)} do
-      {[], {:ok, request}} ->
-        {:ok, request}
+      {[], {:ok, %Spec{} = request}} ->
+        {:ok, %Spec{request | ignored: Presets.renumber(request.ignored, origins)}}
 
       {errors, {:ok, request}} ->
         {:error, {:invalid_request, errors ++ diagnostics(request.ignored, occurrences)}}
@@ -405,7 +405,7 @@ defmodule ImagePipe.API.Parser do
             Enum.map(Map.keys(options), &preset_occurrence(index, &1, span))
           end) ++ Enum.map(Map.keys(request), &preset_occurrence(0, &1, fallback_span))
 
-        {groups, request, [], explicit ++ synthetic}
+        {groups, request, [], explicit ++ synthetic, expanded.origins}
 
       {:error, issues} ->
         diagnostics = Enum.map(issues, &preset_diagnostic(&1, occurrences, fallback_span))
@@ -417,7 +417,8 @@ defmodule ImagePipe.API.Parser do
             {i, opts |> Map.delete(:presets) |> Presets.drop_unset()}
           end)
 
-        {groups, Presets.drop_unset(clean_request_map), diagnostics, occurrences}
+        # A failed expansion reports errors, so nothing renumbers.
+        {groups, Presets.drop_unset(clean_request_map), diagnostics, occurrences, %{}}
     end
   end
 

@@ -1139,6 +1139,11 @@ defmodule ImagePipe.API.ParserTest do
       refute :inert_option in reasons
     end
 
+    test "ignored options name the URL's own groups when an unset-only group drops out" do
+      assert {:ok, %Spec{ignored: [%{reason: :inert_option, locations: [{:group, 1, :fit}]}]}} =
+               parse(["w=unset", "-", "fit=cover"])
+    end
+
     test "a present-but-invalid trim suppresses symmetry inertness" do
       assert {:error, {:invalid_request, diagnostics}} =
                parse(["trim=invalid", "trim-symmetry=v"])

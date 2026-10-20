@@ -101,6 +101,24 @@ defmodule ImagePipe.Plan.Presets do
     end
   end
 
+  @doc false
+  # Numbers issues by the request's own groups, through the `origins` of
+  # `expand/4`. A pipeline preset's groups all come from one request group,
+  # so their issues can become the same issue.
+  def renumber(issues, origins) do
+    issues
+    |> Enum.map(fn issue ->
+      locations =
+        Enum.map(issue.locations, fn
+          {:group, index, key} -> {:group, Map.fetch!(origins, index), key}
+          location -> location
+        end)
+
+      %{issue | locations: locations}
+    end)
+    |> Enum.uniq()
+  end
+
   # `groups` is indexed from 0 and may carry `:presets` per group. `defaults`
   # is the compiled single-group request defaults, or nil. On success,
   # `origins` maps each result group to the request group it came from.

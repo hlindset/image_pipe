@@ -211,8 +211,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   them, and handlers attached under `[:image_pipe]` for such an instance no
   longer do.
 - An issue that `ImagePipe.validate/2` or `ImagePipe.run/4` reports, and
-  the `:locations` of `[:request, :ignored_options]` for `run/4`, name the
-  group as the URL builder numbers it. Before, when a group held only
+  the `:locations` of `[:request, :ignored_options]`, name the group as it's
+  written in the URL or in the URL builder. Before, when a group held only
   `unset` options, issues in later groups named the group before theirs.
 - `png-options=bitdepth:1` on a grayscale result now turns values below 128
   black and the rest white. Before, every gray above black came out white.
