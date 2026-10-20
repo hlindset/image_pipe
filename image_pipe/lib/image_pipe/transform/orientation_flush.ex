@@ -17,7 +17,7 @@ defmodule ImagePipe.Transform.OrientationFlush do
          | image: image,
            materialized?: true,
            pending_orientation: nil,
-           buffer_before_resize?: false
+           rebuffer?: false
        }}
     end
   end

@@ -61,7 +61,7 @@ defmodule ImagePipe.Transform.Materializer do
   defp copy_to_memory(%State{image: image} = state) do
     with :ok <- WorkLimits.check(state),
          {:ok, image} <- MemoryCopy.copy(image) do
-      {:ok, %State{state | image: image, materialized?: true, buffer_before_resize?: false}}
+      {:ok, %State{state | image: image, materialized?: true, rebuffer?: false}}
     end
   end
 end

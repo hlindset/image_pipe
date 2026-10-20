@@ -26,7 +26,7 @@ defmodule ImagePipe.Transform.Operation.Rotate do
   def execute(%__MODULE__{angle: angle}, %State{} = state) do
     case rotate(state.image, angle) do
       {:ok, image} ->
-        {:ok, %{set_image(state, image) | buffer_before_resize?: true}}
+        {:ok, %{set_image(state, image) | rebuffer?: true}}
 
       {:error, error} ->
         {:error, {__MODULE__, error}}

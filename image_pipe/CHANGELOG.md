@@ -49,6 +49,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The default Logger shows a coordination event's reason after its result,
   as in `bypass (deadline)`. It logs a `:bypass` with reason `:not_stored`
   or `:watermark_not_stored`, and a `:download` `:busy`, at its base level.
+- A `blur`, `progressive-blur`, or `sharpen` result is copied to memory
+  before a later resize or a step that rereads pixels (`rotate`, `trim`,
+  `pixelate`, `blur`, `progressive-blur`, `sharpen`, or a crop with
+  `anchor=smart` or `detect`). Before, each of those steps recomputed the
+  blur for every region it read, so a request could take many times the
+  CPU that `max_blur_work` allows. A `rotate` by an angle other than a
+  quarter turn is copied the same way before such a step.
 
 ### Fixed
 

@@ -110,10 +110,19 @@ defmodule ImagePipe.Transform.Executor.Step do
 
   defp execute_step(state, operation, execute) do
     with :ok <- work_limit(operation, state),
-         {:ok, state} <- prepare(state, operation) do
-      transform_result(execute.(operation, state))
+         {:ok, state} <- prepare(state, operation),
+         {:ok, state} <- transform_result(execute.(operation, state)) do
+      {:ok, settle(state, operation)}
     end
   end
+
+  # A convolution's result stays lazy. A later resize or random-access step
+  # reads it in overlapping regions, which would recompute it past what
+  # `max_blur_work` allows, so that step buffers it first.
+  defp settle(%State{} = state, %operation{}) when operation in [Blur, ProgressiveBlur, Sharpen],
+    do: %State{state | rebuffer?: true}
+
+  defp settle(state, _operation), do: state
 
   # Checked before materializing, so a rejected blur buffers nothing.
   defp work_limit(%Blur{sigma: sigma}, state), do: blur_limit(state, sigma)
@@ -136,7 +145,7 @@ defmodule ImagePipe.Transform.Executor.Step do
     if random_access?(operation), do: materialize(state), else: {:ok, state}
   end
 
-  defp materialize(%State{materialized?: true} = state) do
+  defp materialize(%State{materialized?: true, rebuffer?: false} = state) do
     case WorkLimits.check(state) do
       :ok -> {:ok, state}
       {:error, reason} -> {:error, {:transform, reason}}

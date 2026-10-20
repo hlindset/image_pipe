@@ -78,9 +78,10 @@ defmodule ImagePipe.Transform.Operation.Resize do
   defp vips_kernel(:mks2013), do: :VIPS_KERNEL_MKS2013
   defp vips_kernel(:mks2021), do: :VIPS_KERNEL_MKS2021
 
-  # Downscaling a lazy affine rotation repeatedly evaluates overlapping regions.
-  # Buffer here so an intervening crop can reduce the work first.
-  defp prepare_resize(%State{buffer_before_resize?: true} = state),
+  # Resampling a lazy affine rotation or convolution repeatedly evaluates
+  # overlapping regions. Buffer here so an intervening crop can reduce the
+  # work first.
+  defp prepare_resize(%State{rebuffer?: true} = state),
     do: Materializer.materialize(state)
 
   defp prepare_resize(%State{} = state), do: {:ok, state}

@@ -16,9 +16,10 @@ defmodule ImagePipe.Transform.State do
   # - `materialized?`: the graph has RAM-backed input and can be read out of row
   #   order without revisiting the sequential source. Later operations may remain
   #   lazy; this does not imply the current result is a contiguous pixel buffer.
-  # - `buffer_before_resize?`: an arbitrary rotation remains lazy in the current
-  #   graph. Resize buffers it before resampling to avoid repeated affine work;
-  #   materialization and orientation flush clear the flag.
+  # - `rebuffer?`: the current graph ends in lazy work that overlapping reads
+  #   would repeat: an arbitrary rotation, or a blur or sharpen. Resize and
+  #   random-access steps buffer it first; materialization and orientation
+  #   flush clear the flag.
   # - `source_dimensions`: exact full-resolution `{w, h}` before shrink-on-load,
   #   or `nil` for a full-resolution decode. Residual resize uses this extent to
   #   match the full-resolution target. Pending orientation maps its axes to the
@@ -63,7 +64,7 @@ defmodule ImagePipe.Transform.State do
             materialized?: false,
             max_intermediate_pixels: 100_000_000,
             max_blur_work: 4_000_000_000_000,
-            buffer_before_resize?: false,
+            rebuffer?: false,
             dpr: 1.0,
             detections: 0,
             detection_frame: nil,
@@ -84,7 +85,7 @@ defmodule ImagePipe.Transform.State do
           materialized?: boolean(),
           max_intermediate_pixels: pos_integer(),
           max_blur_work: pos_integer(),
-          buffer_before_resize?: boolean(),
+          rebuffer?: boolean(),
           dpr: float(),
           detections: non_neg_integer(),
           detection_frame: Vix.Vips.Image.t() | nil,
