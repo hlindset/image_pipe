@@ -459,7 +459,7 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   defp clamp_step(step), do: step |> round() |> max(1) |> min(@max_step)
 
-  # Encode (and, for ssim2, score) `q`, memoizing both, then evaluate the
+  # Encode (and, for ssim2 outside the cap phase, score) `q`, memoizing both, then evaluate the
   # predicate. Returns :satisfied/:unsatisfied, or :capped when the encode cap
   # would be exceeded by a NEW distinct encode (already-memoized q never caps).
   defp probe(q, predicate, ctx) do
@@ -486,7 +486,8 @@ defmodule ImagePipe.Output.EncodeSearch do
     end
   end
 
-  # Ensure q is encoded (and scored when a score_fun is present), memoized.
+  # Ensure q is encoded (and scored when a score_fun is present, outside the
+  # cap phase), memoized.
   # Returns {:ok, byte_size, score | nil, ctx} | :capped | {:error, _}. A NEW
   # distinct encode runs under an objective/cap probe span (memo hits and the cap
   # never reach it).
@@ -558,16 +559,19 @@ defmodule ImagePipe.Output.EncodeSearch do
             probe_log: Map.put(ctx.probe_log, q, %{phase: phase, index: iterations})
         }
 
-        {:ok, maybe_score(q, binary, ctx)}
+        {:ok, maybe_score(q, binary, phase, ctx)}
 
       {:error, _} = err ->
         err
     end
   end
 
-  defp maybe_score(_q, _binary, %Ctx{score_fun: nil} = ctx), do: ctx
+  # The max_bytes phase picks by size alone, so its probes go unscored.
+  # build_result/3 scores the quality it ships.
+  defp maybe_score(_q, _binary, :cap, ctx), do: ctx
+  defp maybe_score(_q, _binary, _phase, %Ctx{score_fun: nil} = ctx), do: ctx
 
-  defp maybe_score(q, binary, %Ctx{score_fun: score_fun} = ctx) do
+  defp maybe_score(q, binary, _phase, %Ctx{score_fun: score_fun} = ctx) do
     %{ctx | score_memo: Map.put(ctx.score_memo, q, score_fun.(binary))}
   end
 
@@ -596,6 +600,11 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   defp build_result(final_q, final_outcome, ctx) do
     binary = Map.fetch!(ctx.encode_memo, final_q)
+
+    ctx =
+      if Map.has_key?(ctx.score_memo, final_q),
+        do: ctx,
+        else: maybe_score(final_q, binary, :result, ctx)
 
     emit_chosen(final_q, binary, ctx)
 
@@ -694,7 +703,8 @@ defmodule ImagePipe.Output.EncodeSearch do
   # `:exception`) and the enclosing probe span before reaching the catch.
 
   # Decode the candidate once and score the whole frame against the reference,
-  # each as a cost leg nested under the active probe span.
+  # each as a cost leg nested under the active probe span, or under the search
+  # span when build_result/3 scores a quality only the cap phase encoded.
   defp full_frame_score(ref, bytes, telemetry_opts) do
     candidate = decode_leg(bytes, telemetry_opts)
 

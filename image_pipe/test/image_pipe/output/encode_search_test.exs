@@ -199,6 +199,36 @@ defmodule ImagePipe.Output.EncodeSearchTest do
              )
   end
 
+  test "the max_bytes phase scores only the quality it ships" do
+    rs = %RQS.Ssimulacra2{target: 80.0, min_quality: 10, max_quality: 90, allowed_error: 0.0}
+    test = self()
+    enc = fn q -> {:ok, :binary.copy(<<0>>, q * 1000)} end
+
+    score = fn bin ->
+      send(test, {:scored, byte_size(bin) / 1000})
+      byte_size(bin) / 1000
+    end
+
+    assert {:ok, _bin, %{quality: 60, score: 60.0}} =
+             EncodeSearch.search(rs, 60_000,
+               encode_fun: enc,
+               score_fun: score,
+               max_iterations: 16
+             )
+
+    # The objective phase scores its probes, 50 to 80. The max_bytes phase
+    # probes below 80 by size alone, then scores only the 60 it ships.
+    assert Enum.sort(collect_scores([])) == [50.0, 60.0, 70.0, 80.0]
+  end
+
+  defp collect_scores(acc) do
+    receive do
+      {:scored, q} -> collect_scores([q | acc])
+    after
+      0 -> acc
+    end
+  end
+
   test "an objective search doesn't leave max_bytes a lower quality than max_bytes alone" do
     rs = %RQS.Ssimulacra2{
       target: 80.0,

@@ -62,6 +62,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The default Logger shows a coordination event's reason after its result,
   as in `bypass (deadline)`. It logs a `:bypass` with reason `:not_stored`
   or `:watermark_not_stored`, and a `:download` `:busy`, at its base level.
+- `autoquality` with `max-bytes` scores only the quality it delivers, not
+  each quality it tries to fit the byte limit, so such a request takes less
+  time. `[:encode, :search, :probe]` spans of the `:cap` phase no longer
+  carry `:score`.
 - A `blur`, `progressive-blur`, or `sharpen` result is copied to memory
   before a later resize or a step that rereads pixels (`rotate`, `trim`,
   `pixelate`, `blur`, `progressive-blur`, `sharpen`, or a crop with

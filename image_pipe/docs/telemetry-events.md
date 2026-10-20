@@ -886,7 +886,8 @@ the search already encoded emits nothing again.
 - Stop metadata:
   - `:bytes` (integer): the encoded size.
   - `:index` (integer): which encode this is, from 1.
-  - `:score` (float): the score computed. Absent for `:none`.
+  - `:score` (float): the score computed. Absent for `:none` and in the
+    `:cap` phase.
   - `:scorer` (atom): `:full` or `:crop`.
   - `:tiles_scored` (integer): crops scored. `:crop` only.
   - `:result` (atom): `:processing_error`, on failure.
@@ -894,9 +895,11 @@ the search already encoded emits nothing again.
 
 ### Probe cost spans
 
-Spans nested in `[:encode, :search, :probe]` that split its time. They time
-real work, unlike `[:transform, :operation]`. The default Logger doesn't log
-them.
+Spans that split the time of `[:encode, :search, :probe]` and nest in it.
+When the search delivers a quality that only the `:cap` phase encoded, the
+`:ssimulacra2` spans that score it nest in `[:encode, :search]` instead.
+They time real work, unlike `[:transform, :operation]`. The default Logger
+doesn't log them.
 
 - `[:encode, :search, :probe, :encode]`: the encode, for every objective.
   Start metadata `:quality`, stop metadata `:result` and `:bytes`, or
