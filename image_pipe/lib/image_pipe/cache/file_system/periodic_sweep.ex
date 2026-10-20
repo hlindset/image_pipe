@@ -36,6 +36,8 @@ defmodule ImagePipe.Cache.FileSystem.PeriodicSweep do
   def handle_info(:sweep, %{sweep: {module, function, args}} = state) do
     if state.timer, do: Process.cancel_timer(state.timer)
     apply(module, function, args)
-    {:noreply, %{state | timer: Process.send_after(self(), :sweep, @interval_ms)}}
+    # A sweep lists every file under the root, and an idle process doesn't
+    # collect garbage, so hibernating returns that memory until the next one.
+    {:noreply, %{state | timer: Process.send_after(self(), :sweep, @interval_ms)}, :hibernate}
   end
 end
