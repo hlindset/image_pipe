@@ -169,8 +169,9 @@ one line, and the tracer doesn't use it.
   - `:priority` (`:low`): the request had
     [low priority](processing/request.md#priority).
   - `:detect` (atom): the result of
-    [`[:transform, :detect]`](#transform-detect), or `:no_detector` when no
-    detector is configured.
+    [`[:transform, :detect]`](#transform-detect), or of
+    [`[:transform, :detect, :skipped]`](#transform-detect-skipped) when
+    detection didn't run.
   - `:degraded` (`true`): the response is a fallback that isn't stored, as
     on [`[:http_cache, :fallback, :no_store]`](#http_cache-fallback-no_store).
   - `:ignored` (list of strings): the URL keys of options that had no
@@ -765,10 +766,14 @@ every model and was dropped.
 ### `[:transform, :detect, :skipped]`
 
 One-shot. Emitted instead of `[:transform, :detect]` when a request asks for
-detection but no detector is configured. The crop uses attention instead.
+detection that can't run. The crop uses attention instead.
 
-- Metadata: `:classes` (list of strings, or `:all`) and `:result`
-  (`:no_detector`).
+- Metadata: `:classes` (list of strings, or `:all`) and `:result`:
+  - `:no_detector`: no detector is configured.
+  - `:not_ready`: with `detector_required`, the face model for
+    `anchor=smart-face` isn't loaded yet. The response isn't stored.
+  - `:unavailable`: with `detector_required`, the detector has no face
+    model for `anchor=smart-face`. The response is stored.
 
 ### `[:transform, :detect, :blend]`
 

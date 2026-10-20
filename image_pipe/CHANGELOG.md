@@ -78,6 +78,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   each quality it tries to fit the byte limit, so such a request takes less
   time. `[:encode, :search, :probe]` spans of the `:cap` phase no longer
   carry `:score`.
+- `[:transform, :detect, :skipped]` is also emitted when `anchor=smart-face`
+  uses attention because `detector_required` is set and the face model isn't
+  loaded yet (`result: :not_ready`) or the detector has no face model
+  (`result: :unavailable`). The default Logger logs both at `warning`.
 - A `blur`, `progressive-blur`, or `sharpen` result is copied to memory
   before a later resize or a step that rereads pixels (`rotate`, `trim`,
   `pixelate`, `blur`, `progressive-blur`, `sharpen`, or a crop with

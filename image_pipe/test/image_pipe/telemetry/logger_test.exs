@@ -853,6 +853,27 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "transform detect: skipped (no detector configured)"
   end
 
+  test "logs a smart-face fallback's skipped one-shot at warning" do
+    Telemetry.attach_default_logger(level: :info, stages: true)
+
+    for {result, message} <- [
+          not_ready: "face model not loaded yet",
+          unavailable: "face detection unavailable"
+        ] do
+      log =
+        capture_log(fn ->
+          :telemetry.execute(
+            [:image_pipe, :transform, :detect, :skipped],
+            %{},
+            %{classes: ["face"], result: result}
+          )
+        end)
+
+      assert log =~ "[warning]"
+      assert log =~ "transform detect: skipped (#{message})"
+    end
+  end
+
   test "logs the output clamp one-shot at warning with source -> clamped dims" do
     Telemetry.attach_default_logger(level: :info, stages: true)
 
