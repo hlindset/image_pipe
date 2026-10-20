@@ -59,6 +59,17 @@ defmodule ImagePipeServer.StatsTest do
     assert output["disk_free_bytes"] > 0
   end
 
+  test "/stats answers 503 while the ImagePipe instance isn't running", %{
+    opts: opts,
+    stats: stats
+  } do
+    :ok = stop_supervised(stats.instance)
+
+    for path <- ["/stats", "/metrics"] do
+      assert call(:get, path, opts, "stats-token").status == 503
+    end
+  end
+
   test "/stats reports each cache as JSON", %{opts: opts} do
     assert %{status: 200} = call(:get, "/w=2/format=png/src/pic.png", opts)
 

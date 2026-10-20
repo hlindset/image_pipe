@@ -290,6 +290,9 @@ curl -H "Authorization: Bearer $IPS_STATS_TOKEN" http://localhost:8080/stats
 `/metrics` leaves the disk metrics out when the server can't read the
 space.
 
+Both endpoints answer `503` while the server starts up and while it shuts
+down.
+
 To collect the numbers with Prometheus, put the token alone in a file, such
 as `/etc/prometheus/image-pipe-stats-token`, and name it in the scrape
 configuration. The metrics are named `image_pipe_cache_*` and carry a

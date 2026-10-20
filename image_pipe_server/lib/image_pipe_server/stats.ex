@@ -36,7 +36,10 @@ defmodule ImagePipeServer.Stats do
   @spec respond(Plug.Conn.t(), options()) :: Plug.Conn.t()
   def respond(conn, %{token_hash: hash} = opts) do
     if ImagePipeServer.Auth.authorized?(conn, hash) do
-      render(conn, conn.path_info, snapshot(opts))
+      case snapshot(opts) do
+        {:ok, snapshot} -> render(conn, conn.path_info, snapshot)
+        :unavailable -> send_resp(conn, 503, "unavailable")
+      end
     else
       ImagePipeServer.Auth.challenge(conn)
     end
@@ -65,9 +68,19 @@ defmodule ImagePipeServer.Stats do
   # owns the table.
   def create_table, do: :ets.new(@in_flight, [:named_table, :public, :set])
 
+  # The health listener runs while the instance starts and drains, when
+  # there are no stats to read, as `/health/ready` answers then too.
   defp snapshot(%{instance: instance, roots: roots}) do
-    stats = ImagePipe.cache_stats(instance)
+    with {:ok, stats} <- cache_stats(instance), do: {:ok, read_snapshot(stats, roots)}
+  end
 
+  defp cache_stats(instance) do
+    {:ok, ImagePipe.cache_stats(instance)}
+  rescue
+    ArgumentError -> :unavailable
+  end
+
+  defp read_snapshot(stats, roots) do
     stats
     |> Map.keys()
     |> Task.async_stream(&{&1, disk(Map.fetch!(roots, &1))},
