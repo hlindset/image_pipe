@@ -34,6 +34,11 @@ defmodule ImagePipe.Cache.CostTest do
     )
   end
 
+  test "a progressive JPEG costs more to decode than a baseline one" do
+    assert Cost.render(info(source_progressive?: true), output(:jpeg)) >
+             Cost.render(info(source_progressive?: false), output(:jpeg))
+  end
+
   test "a larger source costs more to decode" do
     assert Cost.render(info(source_width: 8_000, source_height: 6_000), output(:jpeg)) >
              Cost.render(info(), output(:jpeg))

@@ -25,6 +25,7 @@ defmodule ImagePipe.Processing.DebugBuilder do
       source_bit_depth: Map.get(facts, :source_bit_depth),
       source_alpha?: Map.get(facts, :source_alpha?),
       source_orientation: Map.get(facts, :source_orientation),
+      source_progressive?: Map.get(facts, :source_progressive?),
       shrink: prepared.shrink,
       output_format: resolved_output.format,
       output_negotiated?: negotiated?(prepared.policy),

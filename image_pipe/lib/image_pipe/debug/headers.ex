@@ -47,6 +47,7 @@ defmodule ImagePipe.Debug.Headers do
       kv("x-imagepipe-source-bit-depth", info.source_bit_depth),
       kv("x-imagepipe-source-alpha", info.source_alpha?),
       kv("x-imagepipe-source-orientation", info.source_orientation),
+      kv("x-imagepipe-source-progressive", info.source_progressive?),
       shrink_header(info.shrink)
     ]
   end

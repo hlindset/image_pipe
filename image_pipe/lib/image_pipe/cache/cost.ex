@@ -31,60 +31,60 @@ defmodule ImagePipe.Cache.Cost do
   # its core count. Efforts it doesn't measure are
   # interpolated, HEIF decodes like AVIF, and JPEG 2000 and SVG keep their
   # first guesses' ratio to PNG. Detection and watermarks aren't measured, and
-  # a guided crop fitted to about nothing. A baseline JPEG decodes much faster
-  # with shrink-on-load than a progressive one, which the debug info doesn't
-  # tell apart, so a large baseline source is overestimated.
+  # a guided crop fitted to about nothing. A progressive JPEG decodes about
+  # twice as slowly as a baseline one of the same size.
   @moduledoc false
 
   alias ImagePipe.Debug.Info
   alias ImagePipe.Output.Resolved
 
   @weights %{
-    :request => 3_400,
-    :alpha => 6.8,
-    :metric => 8.9,
+    :alpha => 7.7,
     :detect => 150_000,
-    {:decode, :jpeg} => 1.3,
-    {:decode, :png} => 4,
-    {:decode, :webp} => 18,
-    {:decode, :avif} => 4.8,
-    {:decode, :heif} => 4.8,
-    {:decode, :jpeg_xl} => 9.2,
-    {:decode, :jpeg2000} => 9.3,
-    {:decode, :tiff} => 1.5,
+    :metric => 17,
+    :request => 4_000,
+    {:decode, :avif} => 5.1,
     {:decode, :gif} => 2.1,
+    {:decode, :heif} => 4.8,
+    {:decode, :jpeg} => 0.83,
+    {:decode, :jpeg2000} => 9.3,
+    {:decode, :jpeg_progressive} => 1.7,
+    {:decode, :jpeg_xl} => 11,
+    {:decode, :png} => 4.2,
     {:decode, :svg} => 8.6,
-    {:encode, :jpeg} => 5.5,
-    {:encode, :png} => 27,
-    {:encode, :png_palette} => 57,
-    {:encode, :webp, 0} => 9.5,
-    {:encode, :webp, 1} => 12,
-    {:encode, :webp, 2} => 14,
-    {:encode, :webp, 3} => 20,
-    {:encode, :webp, 4} => 28,
-    {:encode, :webp, 5} => 43,
-    {:encode, :webp, 6} => 67,
-    {:encode, :avif, 0} => 17,
+    {:decode, :tiff} => 1.6,
+    {:decode, :webp} => 18,
+    {:encode, :jpeg} => 6.9,
+    {:encode, :png} => 32,
+    {:encode, :png_palette} => 70,
+    {:op, :blur} => 18,
+    {:op, :crop_guided} => 1,
+    {:op, :pixelate} => 5,
+    {:op, :progressive_blur} => 110,
+    {:op, :rotate} => 24,
+    {:op, :sharpen} => 35,
+    {:op, :trim} => 7.1,
+    {:op, :watermark} => 5,
+    {:terminal, :blurhash} => 9_000,
+    {:terminal, :info} => 870,
+    {:terminal, :lqip_css} => 11_000,
+    {:encode, :avif, 0} => 20,
     {:encode, :avif, 1} => 33,
-    {:encode, :avif, 2} => 66,
-    {:encode, :avif, 3} => 100,
-    {:encode, :avif, 4} => 530,
-    {:encode, :avif, 5} => 760,
+    {:encode, :avif, 2} => 75,
+    {:encode, :avif, 3} => 110,
+    {:encode, :avif, 4} => 570,
+    {:encode, :avif, 5} => 790,
     {:encode, :avif, 6} => 1_500,
     {:encode, :avif, 7} => 2_000,
-    {:encode, :avif, 8} => 2_700,
+    {:encode, :avif, 8} => 2_800,
     {:encode, :avif, 9} => 3_600,
-    {:op, :rotate} => 22,
-    {:op, :trim} => 6,
-    {:op, :crop_guided} => 1,
-    {:op, :blur} => 18,
-    {:op, :progressive_blur} => 97,
-    {:op, :sharpen} => 27,
-    {:op, :pixelate} => 6.4,
-    {:op, :watermark} => 5,
-    {:terminal, :info} => 700,
-    {:terminal, :blurhash} => 7_600,
-    {:terminal, :lqip_css} => 9_400
+    {:encode, :webp, 0} => 12,
+    {:encode, :webp, 1} => 12,
+    {:encode, :webp, 2} => 17,
+    {:encode, :webp, 3} => 20,
+    {:encode, :webp, 4} => 32,
+    {:encode, :webp, 5} => 43,
+    {:encode, :webp, 6} => 78
   }
 
   @default_effort %{webp: 4, avif: 3}
@@ -109,7 +109,7 @@ defmodule ImagePipe.Cache.Cost do
     [
       {:request, 1},
       {:alpha, if(info.source_alpha?, do: decoded_kpx, else: 0)},
-      {decode_feature(info.source_format), decode_kpx(info, decoded_kpx)},
+      {source_decode_feature(info), decode_kpx(info, decoded_kpx)},
       {encoder(output.format, output.encoder_options), output_kpx * (1 + iterations)},
       {decode_feature(output.format), output_kpx * iterations},
       {:metric, scored_kpx(info.aq, output_kpx) * iterations},
@@ -159,6 +159,11 @@ defmodule ImagePipe.Cache.Cost do
       {{:op, name}, if(name in @before_resize, do: decoded_kpx, else: output_kpx)}
     end
   end
+
+  defp source_decode_feature(%Info{source_format: :jpeg, source_progressive?: true}),
+    do: {:decode, :jpeg_progressive}
+
+  defp source_decode_feature(%Info{source_format: format}), do: decode_feature(format)
 
   # A format without its own weight decodes like PNG.
   defp decode_feature(format) do

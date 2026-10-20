@@ -11,6 +11,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   its size cap, and its hits and misses since start, or `refused: true` for
   a cache whose root another node owns. See
   [Usage and hit rate](docs/cache.md#usage-and-hit-rate).
+- The `X-ImagePipe-Source-Progressive` debug header says whether a JPEG
+  original is progressive. See
+  [Debug response headers](docs/debug_headers.md).
 - `[:request, :summary]` has a `:download` field for a request that waited
   for another request's download of a new original: `:coalesced` when it
   waited until the other request had the original, `:bypass` when it stopped
@@ -28,6 +31,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   when ImagePipe starts. Set `max_effort` to allow
   higher effort. Each `autoquality` or `max-bytes` attempt encodes at the
   requested effort, so one request could take minutes of CPU.
+- When a cache with `max_size_bytes` is full, it keeps images made from
+  progressive JPEGs longer, since they cost more to render again than
+  images from baseline JPEGs of the same size. Their `:estimated_cost_us`
+  on `[:cache, :write]` is higher.
 - A `detect` or `anchor=smart-face` crop of a large JPEG, WebP, or SVG with
   a small crop box decodes at a reduced size. Detection's minimum of 640
   pixels on the long edge applies to the whole image the detector searches,

@@ -16,6 +16,7 @@ defmodule ImagePipe.Debug.HeadersTest do
       source_bit_depth: 8,
       source_alpha?: false,
       source_orientation: 6,
+      source_progressive?: true,
       shrink: %{w: 2.0, h: 2.0},
       output_format: :avif,
       output_negotiated?: true,
@@ -36,6 +37,9 @@ defmodule ImagePipe.Debug.HeadersTest do
 
     assert header(headers, "x-imagepipe-source-orientation") ==
              {"x-imagepipe-source-orientation", "6"}
+
+    assert header(headers, "x-imagepipe-source-progressive") ==
+             {"x-imagepipe-source-progressive", "true"}
 
     assert header(headers, "x-imagepipe-shrink") == {"x-imagepipe-shrink", "w=2.0;h=2.0"}
 

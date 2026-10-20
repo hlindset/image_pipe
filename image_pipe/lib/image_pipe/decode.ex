@@ -654,7 +654,8 @@ defmodule ImagePipe.Decode do
       source_icc?: source_has_icc?(header_image),
       source_bit_depth: source_bit_depth(header_image),
       source_alpha?: source_alpha?(header_image),
-      source_orientation: source_orientation(header_image)
+      source_orientation: source_orientation(header_image),
+      source_progressive?: source_progressive?(header_image)
     }
   rescue
     exception ->
@@ -699,6 +700,15 @@ defmodule ImagePipe.Decode do
       :VIPS_INTERPRETATION_RGB16 -> 16
       :VIPS_INTERPRETATION_scRGB -> 16
       _ -> 8
+    end
+  end
+
+  # Set for JPEG only. A progressive JPEG decodes about twice as slowly as a
+  # baseline one, even with shrink-on-load.
+  defp source_progressive?(image) do
+    case VipsImage.header_value(image, "jpeg-multiscan") do
+      {:ok, value} when is_integer(value) -> value == 1
+      _ -> nil
     end
   end
 
