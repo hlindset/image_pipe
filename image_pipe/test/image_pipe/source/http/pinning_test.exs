@@ -415,6 +415,27 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
   end
 
   @tag :ipv6
+  test "a fetch with under 100 ms left doesn't try the next resolved address" do
+    port = silent_origin(self())
+
+    assert {:error, {:source, :receive_timeout}} =
+             fetch(
+               "origin.test",
+               port,
+               [
+                 address_resolver: fn _ -> {:ok, [@loopback, @loopback6]} end,
+                 req_options: [],
+                 receive_timeout: 200,
+                 fetch_timeout: 250
+               ],
+               [],
+               :http
+             )
+
+    assert_receive {:accepted, @loopback}
+    refute_receive {:accepted, @loopback6}, 100
+  end
+
   test "a silent origin on every resolved address fails by fetch_timeout" do
     port = silent_origin(self())
     started = System.monotonic_time(:millisecond)

@@ -88,6 +88,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A request path with many `wm-src64=` segments no longer takes seconds of
   CPU. Every request path is redacted for telemetry before its URL
   signature is checked, so an unsigned request could cause this.
+- An HTTP source fetch that runs out of `fetch_timeout` while waiting for a
+  pooled connection reports `:receive_timeout` in logs and telemetry
+  instead of `:pool_timeout`. When the source's host resolves to several
+  addresses, a fetch no longer tries the next one with less than 100 ms of
+  `fetch_timeout` left.
 - A presigned `src64` or `wm-src64` source is now redacted from the
   `[:request]` span's `:path` when its base64 is percent-encoded or ends
   in a `/`.

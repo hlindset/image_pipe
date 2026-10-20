@@ -358,6 +358,28 @@ defmodule ImagePipe.Source.ReqStreamTest do
     Process.exit(server, :kill)
   end
 
+  test "fetches that run out of fetch_timeout waiting for a connection report a receive timeout" do
+    {url, server} = start_silent_origin(:every_connection)
+
+    fetches =
+      Enum.map(1..60, fn _ ->
+        spawn_monitor(fn ->
+          exit({:returned, ReqStream.open([url: url], fetch_timeout: 200)})
+        end)
+      end)
+
+    results =
+      Enum.map(fetches, fn {pid, ref} ->
+        assert_receive {:DOWN, ^ref, :process, ^pid, reason}, 5_000
+        reason
+      end)
+
+    assert Enum.all?(results, &(&1 == {:returned, {:error, {:source, :receive_timeout}}})),
+           inspect(Enum.uniq(results))
+
+    Process.exit(server, :kill)
+  end
+
   test "fetches that find the connection pool full return an error instead of exiting" do
     {url, server} = start_silent_origin(:every_connection)
 
