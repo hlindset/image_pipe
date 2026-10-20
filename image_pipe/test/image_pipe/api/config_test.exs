@@ -36,6 +36,20 @@ defmodule ImagePipe.Plug.ConfigTest do
     assert Config.validate!(detector: nil)[:detector] == nil
   end
 
+  test "presets that aren't a map of names raise a configuration error" do
+    for presets <- ["card", nil, [{"card", "w=400"}], %{card: "w=400"}] do
+      error = assert_raise ArgumentError, fn -> Config.validate!(presets: presets) end
+      assert error.message =~ "presets", inspect(presets)
+
+      error =
+        assert_raise ArgumentError, fn ->
+          ImagePipe.URL.config(validate_against: [presets: presets])
+        end
+
+      assert error.message =~ "presets"
+    end
+  end
+
   test "max_effort defaults to the configured effort and can't go below it" do
     assert Config.validate!([])[:max_effort] == [avif: 3, webp: 4]
     assert Config.validate!(avif_options: [effort: 6])[:max_effort] == [avif: 6, webp: 4]

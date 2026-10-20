@@ -50,7 +50,7 @@ defmodule ImagePipe.URL.Config do
               """,
               keys: [
                 presets: [
-                  type: :any,
+                  type: {:map, :string, :any},
                   default: %{},
                   type_doc: "`t:map/0`",
                   doc: """

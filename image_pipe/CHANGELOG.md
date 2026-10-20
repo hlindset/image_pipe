@@ -101,6 +101,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A request with `format=webp` while WebP is lossless no longer fails with
   `400` when it, a preset, or the request defaults set `autoquality` or
   `max-bytes`. The options are ignored, as with `format=png`.
+- A `:presets` option that isn't a map with string keys, such as a string
+  or `nil`, raises an `ArgumentError` that names `:presets` instead of a
+  `Protocol.UndefinedError`. A list of `{name, fragment}` pairs is no
+  longer accepted.
 - A `src` URL with credentials that decodes to invalid UTF-8 no longer loses
   its request summary log line.
 - When the first load of the face or object model failed, each detection
