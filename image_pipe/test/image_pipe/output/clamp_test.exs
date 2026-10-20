@@ -3,6 +3,8 @@ defmodule ImagePipe.Output.ClampTest do
   use ExUnitProperties
 
   alias ImagePipe.Output.Encoder
+  alias Vix.Vips.Image, as: VipsImage
+  alias Vix.Vips.Operation, as: VipsOperation
 
   describe "encoder_limit/1" do
     test "returns the WebP and AVIF hard dimension limits with unbounded pixels" do
@@ -59,6 +61,16 @@ defmodule ImagePipe.Output.ClampTest do
       assert info.dimensions == {100, 25}
       assert info.limits == limits(max_width: 100)
       assert_in_delta info.scale, 0.5, 1.0e-6
+    end
+
+    test "a 16-bit image without alpha stays white" do
+      {:ok, white} = Image.new(2003, 8, color: [65_535, 65_535, 65_535], format: {:u, 16})
+      {:ok, white} = VipsOperation.copy(white, interpretation: :VIPS_INTERPRETATION_RGB16)
+
+      assert {:ok, resized, _info} = Clamp.clamp(white, limits(max_width: 13), [])
+      assert VipsImage.format(resized) == :VIPS_FORMAT_USHORT
+      assert VipsImage.interpretation(resized) == :VIPS_INTERPRETATION_RGB16
+      assert {:ok, {65_535.0, _position}} = VipsOperation.min(resized)
     end
 
     test "downscales when the height cap binds" do

@@ -17,6 +17,7 @@ defmodule ImagePipe.Output.Clamp do
 
   alias ImagePipe.Telemetry
   alias Vix.Vips.Image, as: VixImage
+  alias Vix.Vips.Operation
 
   @type limit :: pos_integer() | :infinity
   @type limits :: %{max_width: limit(), max_height: limit(), max_pixels: limit()}
@@ -182,9 +183,33 @@ defmodule ImagePipe.Output.Clamp do
     hscale = max(scale, 1.0 / w)
     vscale = max(scale, 1.0 / h)
 
-    case image_module.resize(image, hscale, vertical_scale: vscale) do
-      {:ok, resized} -> {:ok, resized}
+    with {:ok, input} <- widen(image),
+         {:ok, resized} <- image_module.resize(input, hscale, vertical_scale: vscale),
+         {:ok, resized} <- narrow(resized, image) do
+      {:ok, resized}
+    else
       {:error, reason} -> {:error, encode_error(reason)}
+    end
+  end
+
+  # libvips reduces 16-bit images in fixed point that loses about 0.2% of
+  # each value, so white comes back as 65455. In float it doesn't. An image
+  # with alpha is already resized in float, premultiplied.
+  defp widen(image) do
+    case {VixImage.format(image), Image.has_alpha?(image)} do
+      {:VIPS_FORMAT_USHORT, false} -> Operation.cast(image, :VIPS_FORMAT_FLOAT)
+      _other -> {:ok, image}
+    end
+  end
+
+  defp narrow(resized, original) do
+    case {VixImage.format(resized), VixImage.format(original)} do
+      {:VIPS_FORMAT_FLOAT, :VIPS_FORMAT_USHORT} ->
+        with {:ok, rounded} <- Operation.round(resized, :VIPS_OPERATION_ROUND_RINT),
+             do: Operation.cast(rounded, :VIPS_FORMAT_USHORT)
+
+      _same ->
+        {:ok, resized}
     end
   end
 
