@@ -2,8 +2,8 @@
 # Starts an image_pipe_server container with a read-only root filesystem and
 # checks the health checks, a PNG request, a JPEG XL source (which needs the
 # libvips the image builds from source), an SVG source (which needs the
-# image_pipe_svg NIF), the cache stats (which read disk space through
-# os_mon), and draining on shutdown.
+# image_pipe_svg NIF), the cache stats (which read disk space with df), and
+# draining on shutdown.
 #
 #     test/container/smoke.sh IMAGE [vision]
 #
