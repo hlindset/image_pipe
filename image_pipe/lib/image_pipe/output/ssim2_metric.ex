@@ -36,7 +36,7 @@ defmodule ImagePipe.Output.Ssim2Metric do
   @spec score(ref(), VixImage.t()) :: {:ok, float()} | {:error, term()}
   def score({:alpha, window, references}, %VixImage{} = candidate) do
     with {:ok, visible} <- crop(candidate, window),
-         {:ok, scores} <- map_ok(references, &background_score(visible, &1)),
+         {:ok, scores} <- map_concurrent(references, &background_score(visible, &1)),
          do: {:ok, Enum.min(scores)}
   end
 
@@ -54,7 +54,7 @@ defmodule ImagePipe.Output.Ssim2Metric do
   end
 
   defp background_references(visible, format) do
-    map_ok(@backgrounds, fn background ->
+    map_concurrent(@backgrounds, fn background ->
       with {:ok, blended} <- blend(visible, format, background),
            {:ok, reference} <- Ssimulacra2.Vix.reference(blended),
            do: {:ok, {background, reference}}
@@ -66,20 +66,29 @@ defmodule ImagePipe.Output.Ssim2Metric do
          do: Ssimulacra2.Vix.compare(reference, blended)
   end
 
-  # `Enum.map/2` for a function returning `{:ok, value}`, halting at the first
-  # error.
-  defp map_ok(items, fun) do
+  # `Enum.map/2` for a function returning `{:ok, value}`, run for every item
+  # at once: each background's blend and compare is a native call on its own
+  # dirty scheduler. Returns the first error in item order. A raise in an
+  # item is raised again here, so the caller's spans see it as before.
+  defp map_concurrent(items, fun) do
     items
-    |> Enum.reduce_while({:ok, []}, fn item, {:ok, acc} ->
-      case fun.(item) do
-        {:ok, value} -> {:cont, {:ok, [value | acc]}}
-        error -> {:halt, error}
-      end
+    |> Task.async_stream(&capture(fun, &1), ordered: true, timeout: :infinity)
+    |> Enum.reduce_while({:ok, []}, fn
+      {:ok, {:raised, kind, reason, stacktrace}}, _acc -> :erlang.raise(kind, reason, stacktrace)
+      {:ok, {:ok, value}}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
+      {:ok, error}, _acc -> {:halt, error}
+      {:exit, reason}, _acc -> exit(reason)
     end)
     |> case do
       {:ok, values} -> {:ok, Enum.reverse(values)}
       error -> error
     end
+  end
+
+  defp capture(fun, item) do
+    fun.(item)
+  catch
+    kind, reason -> {:raised, kind, reason, __STACKTRACE__}
   end
 
   # Blend onto a grey `background` (0.0–1.0) in the colour space and bit depth
