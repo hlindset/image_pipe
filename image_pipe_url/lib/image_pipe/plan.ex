@@ -188,26 +188,11 @@ defmodule ImagePipe.Plan do
 
   # Expansion drops groups left with only `unset` options and renumbers the
   # rest, so issues are renumbered back to the plan's own groups.
-  # A pipeline preset's groups all come from one plan group, so their issues
-  # can become the same issue.
   defp in_plan_numbering({:ok, %Spec{} = request}, origins),
-    do: {:ok, %Spec{request | ignored: renumber(request.ignored, origins)}}
+    do: {:ok, %Spec{request | ignored: Presets.renumber(request.ignored, origins)}}
 
-  defp in_plan_numbering({:error, issues}, origins), do: {:error, renumber(issues, origins)}
-
-  defp renumber(issues, origins) do
-    issues
-    |> Enum.map(fn issue ->
-      locations =
-        Enum.map(issue.locations, fn
-          {:group, index, key} -> {:group, Map.fetch!(origins, index), key}
-          location -> location
-        end)
-
-      %{issue | locations: locations}
-    end)
-    |> Enum.uniq()
-  end
+  defp in_plan_numbering({:error, issues}, origins),
+    do: {:error, Presets.renumber(issues, origins)}
 
   # Whether the plan itself sets the option, rather than a preset or the
   # request defaults.
