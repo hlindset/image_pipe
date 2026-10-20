@@ -64,6 +64,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   in a `/`.
 - A `src` URL with credentials that decodes to invalid UTF-8 no longer loses
   its request summary log line.
+- A `crop-ratio` far from the `crop` size's own ratio, such as `1:4000`
+  for a square crop, no longer fails with a 500. Each side of the crop
+  keeps at least one pixel.
 
 ## [0.3.0] - 2026-10-18
 
