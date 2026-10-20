@@ -193,6 +193,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A request with `format=webp` while WebP is lossless no longer fails with
   `400` when it, a preset, or the request defaults set `autoquality` or
   `max-bytes`. The options are ignored, as with `format=png`.
+- A preset group holding only `unset` options is kept when the preset is
+  compiled, so a first group like that clears the request defaults, as the
+  same groups written in the URL do. Before, the defaults applied to the
+  preset's next group: `blur=unset/-/w=100` with a default `blur=3` still
+  blurred. A preset with such a group, in any position, is a pipeline
+  preset, so adding other options to it answers `400`.
 - A `:presets` option that isn't a map with string keys, such as a string
   or `nil`, raises an `ArgumentError` that names `:presets` instead of a
   `Protocol.UndefinedError`. A list of `{name, fragment}` pairs is no

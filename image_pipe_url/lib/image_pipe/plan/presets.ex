@@ -7,9 +7,10 @@ defmodule ImagePipe.Plan.Presets do
   # order, then explicit options. Presets' request options apply to the whole
   # request; across groups the later preset in reading order wins, and explicit
   # request options win over every preset. A group left without group options
-  # after expansion is dropped before request defaults apply. Nested references
-  # anchor the same way inside a fragment. Preset names disappear before
-  # request canonicalization and representation identity.
+  # after expansion is dropped once request defaults apply, so a compiled
+  # preset keeps a group of only unsets. Nested references anchor the same way
+  # inside a fragment. Preset names disappear before request canonicalization
+  # and representation identity.
   #
   # A pipeline preset (one with several groups) must supply every group option
   # in the request; request options may come from anywhere.
@@ -90,6 +91,7 @@ defmodule ImagePipe.Plan.Presets do
 
     with {:ok, compiled} <- dependencies,
          {:ok, preset} <- compose(groups, request, compiled, nil) do
+      preset = drop_groups(preset, &(&1 == %{}))
       preset = %{groups: preset.groups, request: preset.request}
       {:ok, preset, Map.put(compiled, name, preset)}
     else
@@ -132,6 +134,8 @@ defmodule ImagePipe.Plan.Presets do
 
     with [] <- unknown,
          {:ok, expanded} <- compose(groups, request, presets, defaults) do
+      expanded = drop_groups(expanded, &(drop_unset(&1) == %{}))
+
       {:ok,
        %{
          expanded
@@ -207,6 +211,25 @@ defmodule ImagePipe.Plan.Presets do
     end
   end
 
+  # Drops the groups `empty?` selects and renumbers the rest, keeping the
+  # first group when every group is empty.
+  defp drop_groups(%{groups: groups, origins: origins} = composed, empty?) do
+    kept =
+      case Enum.reject(Enum.sort(groups), fn {_i, options} -> empty?.(options) end) do
+        [] -> [Enum.min(groups)]
+        kept -> kept
+      end
+
+    %{
+      composed
+      | groups: kept |> Enum.with_index() |> Map.new(fn {{_i, options}, j} -> {j, options} end),
+        origins:
+          kept
+          |> Enum.with_index()
+          |> Map.new(fn {{i, _options}, j} -> {j, Map.fetch!(origins, i)} end)
+    }
+  end
+
   # The request defaults belong to the URL's first group that writes any
   # option, so they merge in before a group holding only unsets is dropped. A
   # group with no options at all is skipped, as the parser skips a group of
@@ -225,23 +248,19 @@ defmodule ImagePipe.Plan.Presets do
       end
 
     merged =
-      Map.new(layered, fn {index, layers} ->
+      layered
+      |> Enum.sort()
+      |> Enum.map(fn {index, layers} ->
         layers = if index == first, do: default_layer(defaults) ++ layers, else: layers
         {index, merge_layers(layers)}
       end)
 
-    groups =
-      case Enum.reject(Enum.sort(merged), fn {_index, options} -> drop_unset(options) == %{} end) do
-        [] -> [{first, Map.fetch!(merged, first)}]
-        kept -> kept
-      end
-
     %{
       groups:
-        groups |> Enum.with_index() |> Map.new(fn {{_origin, options}, i} -> {i, options} end),
+        merged |> Enum.with_index() |> Map.new(fn {{_origin, options}, i} -> {i, options} end),
       request: compose_request(request, selected, defaults),
       origins:
-        groups |> Enum.with_index() |> Map.new(fn {{origin, _options}, i} -> {i, origin} end)
+        merged |> Enum.with_index() |> Map.new(fn {{origin, _options}, i} -> {i, origin} end)
     }
   end
 

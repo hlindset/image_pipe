@@ -519,6 +519,15 @@ defmodule ImagePipe.URLTest do
                |> IP.URL.validate()
     end
 
+    test "a preset with a group holding only unsets is a pipeline preset" do
+      config = IP.URL.config(validate_against: [presets: %{"p" => "blur=unset/-/w=100"}])
+
+      assert {:error, [%{reason: :pipeline_preset_with_group_options}]} =
+               IP.URL.new(config)
+               |> IP.URL.group(presets: ["p"], blur: 1)
+               |> IP.URL.validate()
+    end
+
     test "builder values match their fragment spelling" do
       card = IP.URL.new() |> IP.URL.group(resize: [width: 30, height: 20, fit: :cover])
       as_builder = IP.URL.config(validate_against: [presets: %{"card" => card}])
