@@ -28,8 +28,18 @@ defmodule ImagePipe.WorkBudgetTest do
 
     %{
       config: ImagePipe.Plug.init(sources: sources, watermarks: %{mark: [source: "alpha.png"]}),
+      # The file source keeps no stat evidence for a file changed in the
+      # current second, and another test can change a shared source's ctime
+      # just before this one runs. A clock ahead of the filesystem keeps the
+      # evidence.
       cached:
-        Caches.plug(Caches.start!(sources: sources, cache: [root: Path.join(dir, "cache")])),
+        Caches.plug(
+          Caches.start!(
+            sources: sources,
+            cache: [root: Path.join(dir, "cache")],
+            clock: fn -> System.os_time(:second) + 2 end
+          )
+        ),
       dir: dir
     }
   end
