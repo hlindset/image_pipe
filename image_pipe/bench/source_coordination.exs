@@ -38,10 +38,8 @@ defmodule SourceCoordinationBench do
            [
              name: __MODULE__.Instance,
              sources: sources,
-             cache:
-               [
-                root: Path.join(root, "output"), max_size_bytes: 100_000_000],
-             input_cache: [root: Path.join(root, "input")],
+             cache: [root: Path.join(root, "output"), max_size_bytes: 100_000_000],
+             input_cache: [root: Path.join(root, "input"), max_size_bytes: 100_000_000],
              telemetry_prefix: @prefix,
              clock: fn -> System.os_time(:second) + 10 end
            ]}
@@ -183,7 +181,7 @@ defmodule SourceCoordinationBench do
         adapter: ImagePipe.Source.HTTP,
         match: [scheme: ["http"]],
         options: [
-          allowed_hosts: ["127.0.0.1"],
+          allowed_hosts: ["127.0.0.1:#{port}"],
           address_policy: [allow_loopback: true],
           address_resolver: fn _ -> {:ok, [{127, 0, 0, 1}]} end
         ]
