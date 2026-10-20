@@ -96,6 +96,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A `crop-ratio` far from the `crop` size's own ratio, such as `1:4000`
   for a square crop, no longer fails with a 500. Each side of the crop
   keeps at least one pixel.
+- A URL's `anchor-offset`, `extend-at`, or `extend-offset` no longer
+  replaces the crop target or canvas from a preset or the request defaults,
+  and its `unset` removes only that option. Before, `anchor-offset=5,5`
+  dropped a preset's `anchor`. See
+  [presets](docs/requesting-images.md#named-presets).
 - A `trim` tolerance with hundreds of digits no longer fails with a 500.
   Tolerances above `2147483647` now fail with a 400.
 - A processed-image cache entry whose stored details about its original are

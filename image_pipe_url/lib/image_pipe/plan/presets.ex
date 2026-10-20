@@ -15,9 +15,10 @@ defmodule ImagePipe.Plan.Presets do
   # in the request; request options may come from anywhere.
   #
   # An `:unset` value clears its option from every lower layer, together with
-  # its override family and the inherited options whose requirement the merged
-  # group no longer meets. It survives compilation, so a preset's unset also
-  # clears request defaults, and is removed when a request is expanded.
+  # its override family (a family modifier's `unset` clears only itself) and
+  # the inherited options whose requirement the merged group no longer meets.
+  # It survives compilation, so a preset's unset also clears request
+  # defaults, and is removed when a request is expanded.
   @moduledoc false
 
   alias ImagePipe.Plan.Spec.Issue
@@ -25,6 +26,10 @@ defmodule ImagePipe.Plan.Presets do
 
   @guide_family [:anchor, :anchor_offset, :focus, :detect]
   @canvas_family [:extend, :extend_ratio, :extend_at, :extend_offset]
+  # A layer that writes a family's principal, a value or `unset`, replaces
+  # the whole family. A modifier, such as `anchor_offset`, merges like any
+  # other option and its `unset` removes only itself.
+  @family_modifiers [:anchor_offset, :extend_at, :extend_offset]
   @group_override_families [
     @guide_family,
     [:crop, :region],
@@ -352,14 +357,14 @@ defmodule ImagePipe.Plan.Presets do
 
   defp prune_families(previous, next, families) do
     Enum.reduce(families, previous, fn family, acc ->
-      case Enum.any?(family, &Map.has_key?(next, &1)) do
+      case Enum.any?(family -- @family_modifiers, &Map.has_key?(next, &1)) do
         true -> Map.drop(acc, family)
         false -> acc
       end
     end)
   end
 
-  defp prune_region_dependents(previous, %{:region => _region} = next) do
+  defp prune_region_dependents(previous, %{:region => region} = next) when region != :unset do
     previous = Map.drop(previous, @crop_modifiers)
 
     if cover_resize_consumer?(Map.merge(previous, next)),
