@@ -3,8 +3,6 @@ defmodule ImagePipe.Output.EncoderTest do
 
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Resolved
-  alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
-  alias ImagePipe.Plan.Output.WebpOptions
 
   defmodule CaptureImage do
     def stream!(_image, opts) do
@@ -156,30 +154,6 @@ defmodule ImagePipe.Output.EncoderTest do
     }
 
     assert {:ok, _stream, "image/png", nil} =
-             Encoder.stream_output(image, resolved, {nil, false}, [])
-  end
-
-  test "lossless WebP skips quality and byte-cap search" do
-    {:ok, image} = Image.new(64, 64, color: [100, 150, 200])
-
-    resolved = %Resolved{
-      format: :webp,
-      quality: {:quality, 80},
-      response_headers: [],
-      strip_metadata: true,
-      keep_copyright: false,
-      color_profile: :srgb,
-      quality_search: %RQS.Ssimulacra2{
-        target: 78.0,
-        min_quality: 1,
-        max_quality: 100,
-        allowed_error: 1.0
-      },
-      max_bytes: 1,
-      encoder_options: %WebpOptions{lossless: true, effort: 0}
-    }
-
-    assert {:ok, _stream, "image/webp", nil} =
              Encoder.stream_output(image, resolved, {nil, false}, [])
   end
 

@@ -442,7 +442,7 @@ defmodule ImagePipe.Config do
                   """
                 ],
                 presets: [
-                  type: :any,
+                  type: {:map, :string, :any},
                   type_doc: "map of `t:String.t/0` to fragment or `ImagePipe.URL` builder",
                   default: %{},
                   doc: """

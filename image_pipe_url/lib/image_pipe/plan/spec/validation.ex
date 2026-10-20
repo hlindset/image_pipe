@@ -220,9 +220,10 @@ defmodule ImagePipe.Plan.Spec.Validation do
           []
       end
 
-    png =
+    # PNG and lossless WebP have no quality to search.
+    qualityless =
       for {key, enabled?} <- [autoquality: search?, max_bytes: Map.has_key?(options, :max_bytes)],
-          Map.get(options, :format) == :png and enabled?,
+          enabled? and not quality_format?(options),
           do: issue(:inert_option, :request, [key], {:requires, :quality_format})
 
     encoders =
@@ -231,8 +232,16 @@ defmodule ImagePipe.Plan.Spec.Validation do
           requested != nil and requested != format and Map.has_key?(options, key),
           do: issue(:inert_option, :request, [key], {:requires, {:format, format}})
 
-    conflict ++ png ++ encoders
+    conflict ++ qualityless ++ encoders
   end
+
+  defp quality_format?(%{format: :png}), do: false
+  defp quality_format?(%{format: :webp} = options), do: not lossless?(options[:webp_options])
+  defp quality_format?(_options), do: true
+
+  defp lossless?({:unset, options}), do: lossless?(options)
+  defp lossless?(%{lossless: lossless}), do: lossless == true
+  defp lossless?(_options), do: false
 
   defp issue(reason, scope, keys, detail) do
     locations = Enum.map(keys, &location(scope, &1))

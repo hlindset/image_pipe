@@ -103,7 +103,6 @@ defmodule ImagePipe.Output.Policy do
     output = request_policy(request, config, accept_header, quality_search)
 
     with :ok <- validate_hdr_profile(output),
-         :ok <- validate_lossless_webp_request(output, request),
          :ok <- validate_effort(output.mode, request.encoder_options, config) do
       {:ok, output}
     else
@@ -220,24 +219,6 @@ defmodule ImagePipe.Output.Policy do
     end)
     |> Map.reject(fn {_format, options} -> options.__struct__.all_nil?(options) end)
   end
-
-  defp validate_lossless_webp_request(
-         %__MODULE__{
-           mode: {:explicit, :webp},
-           encoder_options: %{webp: %Output.WebpOptions{lossless: true}}
-         },
-         %SpecOutput{autoquality: autoquality, max_bytes: max_bytes}
-       ) do
-    if enabled_url_autoquality?(autoquality) or not is_nil(max_bytes) do
-      {:error, :lossless_webp_quality_search}
-    else
-      :ok
-    end
-  end
-
-  defp validate_lossless_webp_request(%__MODULE__{}, %SpecOutput{}), do: :ok
-
-  defp enabled_url_autoquality?(autoquality), do: autoquality not in [nil, false]
 
   # A request's encoder effort can't go past the host's limit for its format.
   # An explicit format ignores the other encoders' options. Without one, the
@@ -439,6 +420,16 @@ defmodule ImagePipe.Output.Policy do
     do: resolved(policy, :jpeg)
 
   defp resolved(%__MODULE__{} = policy, format) do
+    encoder_options = Map.get(policy.encoder_options, format)
+
+    # Lossless WebP has no quality to search, so the search and the byte
+    # budget drop out, and with them from the representation's identity.
+    {quality_search, max_bytes} =
+      case {format, encoder_options} do
+        {:webp, %Output.WebpOptions{lossless: true}} -> {:none, nil}
+        _searchable -> {resolve_search(policy, format), policy.max_bytes}
+      end
+
     %Resolved{
       format: format,
       quality: effective_quality(policy, format),
@@ -447,9 +438,9 @@ defmodule ImagePipe.Output.Policy do
       keep_copyright: policy.keep_copyright,
       dpi: policy.dpi,
       color_profile: policy.color_profile,
-      quality_search: resolve_search(policy, format),
-      max_bytes: policy.max_bytes,
-      encoder_options: Map.get(policy.encoder_options, format)
+      quality_search: quality_search,
+      max_bytes: max_bytes,
+      encoder_options: encoder_options
     }
   end
 
