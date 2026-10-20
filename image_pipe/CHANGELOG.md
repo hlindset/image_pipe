@@ -194,6 +194,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and ones from a credential provider when they're fetched, which answers
   `500` and logs which field was invalid. Before, every fetch with them
   failed with `502`, or with `404` when the secret held one.
+- A `detect` or `anchor=smart-face` crop whose detector isn't available in
+  this build no longer adds a detection to the work the cache estimates for
+  the image, which the cache uses to choose what to evict and reports as
+  `:estimated_cost_us` on `[:cache, :write]`.
 
 ## [0.3.0] - 2026-10-18
 

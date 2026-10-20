@@ -41,8 +41,8 @@ defmodule ImagePipe.Transform.State do
   #   trims, since enlarging that render would only resample it.
   # - `dpr`: the effective DPR of the most recently executed group, after the
   #   enlargement clamp and its floor; 1.0 before any group runs.
-  # - `detections`: how many times a crop called the detector, for the cache's
-  #   cost estimate.
+  # - `detections`: how many detections a crop ran, for the cache's cost
+  #   estimate. A call to a detector unavailable in this build doesn't count.
   # - `detection_frame`: the in-memory display frame a resize's detection crop
   #   detects on, taken before the resize so the detector gets enough pixels, or
   #   `nil` to detect on the current image.

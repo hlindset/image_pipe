@@ -237,9 +237,10 @@ defmodule ImagePipe.Transform.Operation.Crop do
   # Face assistance is optional on every mount, so a detection error falls back
   # even when the mount requires detection.
   defp face_assist_crop(%__MODULE__{} = params, %State{} = state) do
-    state = counted_detection(state)
+    result = run_detect(state, ["face"], %{})
+    state = counted_detection(state, result)
 
-    case run_detect(state, ["face"], %{}) do
+    case result do
       {:ok, regions} -> blend_faces(params, state, regions)
       {:error, reason} -> attention_after_error(params, state, reason)
     end
@@ -304,10 +305,10 @@ defmodule ImagePipe.Transform.Operation.Crop do
          spec,
          weights
        ) do
-    state = counted_detection(state)
+    result = run_detect(state, spec, weights)
+    state = counted_detection(state, result)
 
-    with {:ok, [_ | _] = regions} <-
-           run_detect(state, spec, weights),
+    with {:ok, [_ | _] = regions} <- result,
          {:ok, focal} <- detected_focal(regions, state, weights) do
       execute(%{params | gravity: focal}, state)
     else
@@ -342,7 +343,12 @@ defmodule ImagePipe.Transform.Operation.Crop do
     smart_crop(params, %State{state | degraded?: degraded?}, :VIPS_INTERESTING_ATTENTION)
   end
 
-  defp counted_detection(%State{} = state), do: %State{state | detections: state.detections + 1}
+  # The cache weighs an image by the detections that made it. A detector
+  # unavailable in this build returns at once, so its call costs nothing.
+  defp counted_detection(%State{} = state, {:error, {:detector, :unavailable}}), do: state
+
+  defp counted_detection(%State{} = state, _result),
+    do: %State{state | detections: state.detections + 1}
 
   defp run_detect(state, classes, weights) do
     Telemetry.span(
