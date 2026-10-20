@@ -59,7 +59,7 @@ defmodule ImagePipe.Run do
 
     config = Config.drop_refused(config)
 
-    Telemetry.span(Telemetry.telemetry_opts(config), [:request], %{}, fn ->
+    Telemetry.span(config, [:request], %{}, fn ->
       result = execute(plan, input, config, accept, inputs)
       {result, request_metadata(result)}
     end)
@@ -90,7 +90,7 @@ defmodule ImagePipe.Run do
 
   defp report_ignored_options(request, config) do
     Telemetry.ignored_options(
-      Telemetry.telemetry_opts(config),
+      config,
       Parser.ignored_keys(request),
       request.ignored
     )

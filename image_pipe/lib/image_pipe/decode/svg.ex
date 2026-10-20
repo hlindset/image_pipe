@@ -80,7 +80,7 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
             {:ok, State.t(), SourceGeometry.t(), map()} | {:error, Decode.error()}
     def decode(input, %Spec{} = request, opts) do
       Telemetry.span(
-        Telemetry.telemetry_opts(opts),
+        opts,
         [:source, :svg_render],
         %{asset: :original},
         fn ->
@@ -109,7 +109,7 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
 
     defp render_watermark(document, dims, config, opts, width, height) do
       Telemetry.span(
-        Telemetry.telemetry_opts(opts),
+        opts,
         [:source, :svg_render],
         %{asset: :watermark},
         fn ->

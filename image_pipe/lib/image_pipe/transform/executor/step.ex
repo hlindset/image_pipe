@@ -94,7 +94,7 @@ defmodule ImagePipe.Transform.Executor.Step do
     {stage, execute} = step(operation)
 
     Telemetry.span(
-      Telemetry.telemetry_opts(opts),
+      opts,
       [:transform, :operation],
       %{operation: name || stage, params: operation},
       fn ->

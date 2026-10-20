@@ -21,7 +21,7 @@ defmodule ImagePipe.Processing.Terminal do
           {:ok, String.t(), binary() | map(), boolean()} | {:error, term()}
   def render(source, %Spec{} = request, config, watermark_inputs) do
     Telemetry.span(
-      Telemetry.telemetry_opts(config),
+      config,
       [:output, :terminal],
       start_metadata(request.output),
       fn ->

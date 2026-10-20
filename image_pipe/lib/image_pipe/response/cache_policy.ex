@@ -72,7 +72,7 @@ defmodule ImagePipe.Response.CachePolicy do
       end
 
     Telemetry.execute(
-      Telemetry.telemetry_opts(config),
+      config,
       [:http_cache, :prepare],
       %{},
       %{
@@ -328,7 +328,7 @@ defmodule ImagePipe.Response.CachePolicy do
   @spec conditional_matched(Plug.Conn.t(), keyword()) :: :ok
   def conditional_matched(%Plug.Conn{method: method}, config) do
     Telemetry.execute(
-      Telemetry.telemetry_opts(config),
+      config,
       [:http_cache, :conditional, :match],
       %{},
       %{method: conditional_method(method)}
@@ -469,7 +469,7 @@ defmodule ImagePipe.Response.CachePolicy do
 
   defp emit_fallback_telemetry(reason, source_facts, config) do
     Telemetry.execute(
-      Telemetry.telemetry_opts(config),
+      config,
       [:http_cache, :fallback, :no_store],
       %{},
       %{

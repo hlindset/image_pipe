@@ -765,7 +765,7 @@ defmodule ImagePipe.Execution do
       {:output, context.representation.cache_key.hash},
       fn ->
         Telemetry.span(
-          Telemetry.telemetry_opts(context.config),
+          context.config,
           [:cache, :refresh],
           %{pool: :input},
           fn ->
@@ -774,7 +774,7 @@ defmodule ImagePipe.Execution do
           end
         )
       end,
-      Telemetry.telemetry_opts(context.config)
+      context.config
     )
   end
 

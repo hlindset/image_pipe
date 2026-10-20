@@ -126,14 +126,13 @@ defmodule ImagePipe.Execution.Watermarks do
 
   defp start(phase, fun, config) do
     request_context = RequestContext.capture()
-    telemetry = Telemetry.telemetry_opts(config)
 
     Task.Supervisor.async_nolink(ImagePipe.ProcessingPool.Tasks, fn ->
       RequestContext.adopt(request_context)
       # The asset's source and decode stages aren't the request's.
       Summary.ignore()
 
-      Telemetry.span(telemetry, [:source, :watermark], %{phase: phase}, fn ->
+      Telemetry.span(config, [:source, :watermark], %{phase: phase}, fn ->
         result = fun.()
         {result, stop_metadata(result)}
       end)

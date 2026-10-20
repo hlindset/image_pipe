@@ -144,7 +144,7 @@ defmodule ImagePipe.Cache.Sink do
 
     start_metadata = %{pool: :output, cache_key: key.hash}
 
-    Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], start_metadata, fn ->
+    Telemetry.span(opts, [:cache, :write], start_metadata, fn ->
       result = store_body(key, metadata, body, cache_opts)
       {result, commit_metadata(result, key, nil, byte_size(body), nil)}
     end)
@@ -311,7 +311,7 @@ defmodule ImagePipe.Cache.Sink do
     do: emit(cache_status, reason, error, write.key, write.output_format, telemetry_opts)
 
   defp emit_stage_event(cache_status, reason, error, {%Key{} = key, output_format}, opts),
-    do: emit(cache_status, reason, error, key, output_format, Telemetry.telemetry_opts(opts))
+    do: emit(cache_status, reason, error, key, output_format, opts)
 
   defp emit(cache_status, reason, error, key, output_format, telemetry_opts) do
     Telemetry.execute(

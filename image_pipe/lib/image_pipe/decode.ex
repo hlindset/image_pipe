@@ -137,7 +137,7 @@ defmodule ImagePipe.Decode do
   def with_image(source, %Spec{} = request, opts, fun, skip \\ {[], nil})
       when is_function(fun, 2) do
     auto_rotate? = auto_rotate?(request)
-    span = Telemetry.start_span(Telemetry.telemetry_opts(opts), [:source, :fetch_decode], %{})
+    span = Telemetry.start_span(opts, [:source, :fetch_decode], %{})
     decoded = make_ref()
     {skip_formats, on_skip} = skip
 
@@ -513,7 +513,7 @@ defmodule ImagePipe.Decode do
   defp open_seekable_input(input, decode_options, opts) do
     metadata = Map.new(Keyword.take(decode_options, [:access, :page]))
 
-    Telemetry.span(Telemetry.telemetry_opts(opts), [:source, :decode_open], metadata, fn ->
+    Telemetry.span(opts, [:source, :decode_open], metadata, fn ->
       result = open_input(input, decode_options)
       {result, %{result: open_result(result)}}
     end)
@@ -659,7 +659,7 @@ defmodule ImagePipe.Decode do
   rescue
     exception ->
       Telemetry.execute(
-        Telemetry.telemetry_opts(opts),
+        opts,
         [:debug, :collect, :error],
         %{},
         %{error: Telemetry.error_tag(exception)}

@@ -342,9 +342,9 @@ defmodule ImagePipe.Output.Policy do
 
   @spec negotiate(t(), source_format(), Vix.Vips.Image.t(), keyword()) ::
           {:ok, Resolved.t()} | {:error, term()}
-  def negotiate(%__MODULE__{} = policy, source_format, image, telemetry_opts) do
+  def negotiate(%__MODULE__{} = policy, source_format, image, opts) do
     Telemetry.span(
-      Telemetry.telemetry_opts(telemetry_opts),
+      opts,
       [:output, :negotiate],
       %{output_mode: output_mode(policy)},
       fn ->

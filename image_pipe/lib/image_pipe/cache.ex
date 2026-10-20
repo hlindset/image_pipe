@@ -286,7 +286,7 @@ defmodule ImagePipe.Cache do
     identity = %{cache_key: key.hash, entry: entry}
 
     Telemetry.span(
-      Telemetry.telemetry_opts(opts),
+      opts,
       [:cache, :lookup],
       Map.merge(entry_lookup_start_metadata(store), identity),
       fn ->

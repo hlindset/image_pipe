@@ -281,7 +281,7 @@ defmodule ImagePipe.Processing do
 
   defp run_transform(state, geometry, %Spec{} = request, operations, policy, config, inputs) do
     Telemetry.span(
-      Telemetry.telemetry_opts(config),
+      config,
       [:transform, :execute],
       %{operations: operations, operation_count: length(operations)},
       fn ->
@@ -350,17 +350,12 @@ defmodule ImagePipe.Processing do
   end
 
   defp resolve_output(policy, source_format, image, config) do
-    Policy.negotiate(
-      policy,
-      source_format,
-      image,
-      Telemetry.telemetry_opts(config)
-    )
+    Policy.negotiate(policy, source_format, image, config)
   end
 
   defp encode_first_chunk(image, %ResolvedOutput{} = resolved_output, source_color, config) do
     Telemetry.span(
-      Telemetry.telemetry_opts(config),
+      config,
       [:encode],
       %{output_format: resolved_output.format},
       fn ->

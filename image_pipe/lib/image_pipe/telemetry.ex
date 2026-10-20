@@ -478,8 +478,8 @@ defmodule ImagePipe.Telemetry do
 
   @doc false
   @spec span(keyword(), [atom()], map() | keyword(), (-> term())) :: term()
-  def span(telemetry_opts, stage, start_metadata, fun) when is_function(fun, 0) do
-    do_span(telemetry_opts, stage, start_metadata, fn start_metadata ->
+  def span(opts, stage, start_metadata, fun) when is_function(fun, 0) do
+    do_span(opts, stage, start_metadata, fn start_metadata ->
       {result, stop_metadata} = fun.()
       {result, merge_metadata(start_metadata, stop_metadata)}
     end)
@@ -510,8 +510,8 @@ defmodule ImagePipe.Telemetry do
   # unconditionally without re-closing a span that already stopped.
   @doc false
   @spec start_span(keyword(), [atom()], map() | keyword()) :: span_handle()
-  def start_span(telemetry_opts, stage, start_metadata) when is_list(stage) do
-    event = event_prefix(telemetry_opts, stage)
+  def start_span(opts, stage, start_metadata) when is_list(stage) do
+    event = event_prefix(opts, stage)
 
     start_metadata =
       start_metadata
@@ -571,10 +571,10 @@ defmodule ImagePipe.Telemetry do
 
   @doc false
   @spec execute(keyword(), [atom()], map() | keyword(), map() | keyword()) :: :ok
-  def execute(telemetry_opts, stage, measurements, metadata) when is_list(stage) do
+  def execute(opts, stage, measurements, metadata) when is_list(stage) do
     metadata = clean_metadata(metadata)
 
-    telemetry_opts
+    opts
     |> event_prefix(stage)
     |> :telemetry.execute(Map.new(measurements), metadata)
 
@@ -585,22 +585,26 @@ defmodule ImagePipe.Telemetry do
   # locations. Never their values, which come from the URL.
   @doc false
   @spec ignored_options(keyword(), [String.t()], [struct()]) :: :ok
-  def ignored_options(telemetry_opts, keys, issues) do
-    execute(telemetry_opts, [:request, :ignored_options], %{}, %{
+  def ignored_options(opts, keys, issues) do
+    execute(opts, [:request, :ignored_options], %{}, %{
       options: keys,
       locations: Enum.flat_map(issues, & &1.locations)
     })
   end
 
+  # The span and event functions take a configuration or options list and
+  # read only its `:telemetry_prefix`. This narrows the list to that key,
+  # for options that are kept, sent to another process, or handed to code
+  # outside the request's configuration.
   @doc false
   @spec telemetry_opts(keyword()) :: keyword()
   def telemetry_opts(opts) when is_list(opts) do
     Keyword.take(opts, [:telemetry_prefix])
   end
 
-  defp do_span(telemetry_opts, stage, start_metadata, span_fun) when is_list(stage) do
+  defp do_span(opts, stage, start_metadata, span_fun) when is_list(stage) do
     start_metadata = clean_metadata(start_metadata)
-    prefix = Keyword.get(telemetry_opts, :telemetry_prefix, @default_prefix)
+    prefix = Keyword.get(opts, :telemetry_prefix, @default_prefix)
     if stage == [:request], do: Summary.open(prefix, start_metadata)
     started = System.monotonic_time()
 
@@ -626,8 +630,8 @@ defmodule ImagePipe.Telemetry do
     result
   end
 
-  defp event_prefix(telemetry_opts, stage) when is_list(telemetry_opts) and is_list(stage) do
-    Keyword.get(telemetry_opts, :telemetry_prefix, @default_prefix) ++ stage
+  defp event_prefix(opts, stage) when is_list(opts) and is_list(stage) do
+    Keyword.get(opts, :telemetry_prefix, @default_prefix) ++ stage
   end
 
   defp clean_metadata(metadata) do
