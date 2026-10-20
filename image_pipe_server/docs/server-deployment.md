@@ -252,7 +252,8 @@ enabled = true
 token = "a-long-random-string"
 ```
 
-Set the token with `IPS_STATS_TOKEN` instead to keep it out of the file.
+To keep the token out of the file, set `IPS_STATS__TOKEN`, or pass it as a
+secret with `IPS_STATS__TOKEN_FILE=/run/secrets/stats_token`.
 The stats token is separate from `[server] auth_token`, and each opens only
 its own endpoints. To serve the stats on the health listener as well, set
 [`health_port`](server-configuration.md#server).
@@ -260,7 +261,7 @@ its own endpoints. To serve the stats on the health listener as well, set
 Check that it works:
 
 ```bash
-curl -H "Authorization: Bearer $IPS_STATS_TOKEN" http://localhost:8080/stats
+curl -H "Authorization: Bearer a-long-random-string" http://localhost:8080/stats
 ```
 
 ```json
