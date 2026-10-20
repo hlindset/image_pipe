@@ -15,6 +15,11 @@ name: Performance
 # - By hand, like the nightly run, on the cases chosen. Given `against`, the
 #   branch run against that commit or branch alone.
 #
+# One job builds the images, four time a quarter of the rounds each on their
+# own runner (`--shard`), and one merges their results (`--merge`). Every
+# ratio is measured on one runner, so the shards don't need matching
+# machines.
+#
 # The comparison reports; it doesn't fail the job.
 on:
   pull_request:
@@ -45,21 +50,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  compare:
+  build:
     if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'perf')
     runs-on: ubuntu-26.04
-    timeout-minutes: 300
+    timeout-minutes: 60
     permissions:
       contents: read
       actions: read
-      pull-requests: write
     env:
-      # Use only the tools mise-action installs, not every tool in mise.toml.
-      MISE_EXEC_AUTO_INSTALL: "false"
-      # The bench decodes responses only to compare their dimensions, so the
-      # libvips bundled with vix is enough; the servers run their own.
-      MIX_ENV: test
       RELEASE_IMAGE: ghcr.io/hlindset/image_pipe_server:latest
+    outputs:
+      only: ${{ steps.refs.outputs.only }}
+      release: ${{ steps.refs.outputs.release }}
+      month: ${{ steps.refs.outputs.month }}
+      month_text: ${{ steps.refs.outputs.month_text }}
+      against: ${{ steps.refs.outputs.against }}
+      name: ${{ steps.refs.outputs.name }}
+      candidate_text: ${{ steps.refs.outputs.candidate_text }}
+      against_text: ${{ steps.refs.outputs.against_text }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -177,6 +185,66 @@ jobs:
         if: steps.refs.outputs.release == 'true'
         run: docker pull "$RELEASE_IMAGE"
 
+      # Every shard times these exact images.
+      - name: Save the images
+        env:
+          AGAINST: ${{ steps.refs.outputs.against }}
+          MONTH: ${{ steps.refs.outputs.month }}
+          RELEASE: ${{ steps.refs.outputs.release }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/images"
+          images=(image_pipe_server:candidate)
+          [ -n "$AGAINST" ] && images+=(image_pipe_server:against)
+          [ -n "$MONTH" ] && images+=(image_pipe_server:month)
+          [ "$RELEASE" = true ] && images+=("$RELEASE_IMAGE")
+          for image in "${images[@]}"; do
+            file=$(tr ':/' '__' <<<"$image")
+            docker save "$image" | gzip -1 > "$RUNNER_TEMP/images/$file.tar.gz"
+          done
+          ls -lh "$RUNNER_TEMP/images"
+
+      - name: Upload the images
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: performance-images
+          path: ${{ runner.temp }}/images
+          compression-level: 0
+          retention-days: 1
+
+  shard:
+    needs: build
+    runs-on: ubuntu-26.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    strategy:
+      # A shard that fails leaves the others' rounds to merge.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    env:
+      # Use only the tools mise-action installs, not every tool in mise.toml.
+      MISE_EXEC_AUTO_INSTALL: "false"
+      # The bench decodes responses only to compare their dimensions, so the
+      # libvips bundled with vix is enough; the servers run their own.
+      MIX_ENV: test
+      RELEASE_IMAGE: ghcr.io/hlindset/image_pipe_server:latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The bench pulls oha and nginx; the mirror spares Docker Hub's limit.
+      - uses: ./.github/actions/docker-buildx
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: performance-images
+          path: ${{ runner.temp }}/images
+
+      - name: Load the images
+        run: for file in "$RUNNER_TEMP"/images/*.tar.gz; do docker load -i "$file"; done
+
       - name: Runner image
         id: runner
         run: |
@@ -210,14 +278,15 @@ jobs:
       - name: Compare
         working-directory: image_pipe
         env:
-          AGAINST: ${{ steps.refs.outputs.against }}
-          NAME: ${{ steps.refs.outputs.name }}
-          CANDIDATE_TEXT: ${{ steps.refs.outputs.candidate_text }}
-          AGAINST_TEXT: ${{ steps.refs.outputs.against_text }}
-          MONTH: ${{ steps.refs.outputs.month }}
-          MONTH_TEXT: ${{ steps.refs.outputs.month_text }}
-          ONLY: ${{ steps.refs.outputs.only }}
-          RELEASE: ${{ steps.refs.outputs.release }}
+          AGAINST: ${{ needs.build.outputs.against }}
+          NAME: ${{ needs.build.outputs.name }}
+          CANDIDATE_TEXT: ${{ needs.build.outputs.candidate_text }}
+          AGAINST_TEXT: ${{ needs.build.outputs.against_text }}
+          MONTH: ${{ needs.build.outputs.month }}
+          MONTH_TEXT: ${{ needs.build.outputs.month_text }}
+          ONLY: ${{ needs.build.outputs.only }}
+          RELEASE: ${{ needs.build.outputs.release }}
+          SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
         run: |
           args=(--compare image_pipe_server:candidate --describe "candidate=$CANDIDATE_TEXT")
           if [ -n "$AGAINST" ]; then
@@ -236,7 +305,79 @@ jobs:
           fi
           # Two CPUs for the servers leave the rest of the runner for oha.
           mise exec -- mix imgproxy.bench "${args[@]}" --cpus 2 --rounds 4 --duration 1 \
-            --output tmp/performance
+            --shard "$SHARD" --output tmp/performance
+
+      - name: Upload the shard's results
+        if: ${{ !cancelled() && hashFiles('image_pipe/tmp/performance/results.json') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: performance-shard-${{ matrix.shard }}
+          path: image_pipe/tmp/performance/results.json
+          retention-days: 30
+
+  join:
+    needs: shard
+    if: ${{ !cancelled() && needs.shard.result != 'skipped' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      # Use only the tools mise-action installs, not every tool in mise.toml.
+      MISE_EXEC_AUTO_INSTALL: "false"
+      # The bench decodes responses only to compare their dimensions, so the
+      # libvips bundled with vix is enough; the servers run their own.
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: performance-shard-*
+          path: ${{ runner.temp }}/shards
+
+      - name: Runner image
+        id: runner
+        run: |
+          echo "image=$ImageOS" >> "$GITHUB_OUTPUT"
+          # Workaround: mise (2026.9.18) maps ImageOS to builds.hex.pm's Erlang
+          # builds only up to ubuntu24 and compiles from source otherwise, so
+          # name the release. Remove once mise maps ubuntu26 itself.
+          echo "MISE_ERLANG_PRECOMPILED_OS=${ImageOS/ubuntu/ubuntu-}.04" >> "$GITHUB_ENV"
+      - uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
+        with:
+          install_args: erlang elixir rust
+      - name: Install Hex and Rebar
+        run: |
+          mise exec -- mix local.hex --force
+          mise exec -- mix local.rebar --force
+      - name: Restore deps and build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            image_pipe/deps
+            image_pipe/_build
+          key: perf-mix-${{ steps.runner.outputs.image }}-${{ hashFiles('mise.toml', 'image_pipe/mix.lock') }}
+          restore-keys: |
+            perf-mix-${{ steps.runner.outputs.image }}-
+      - name: Compile the bench
+        working-directory: image_pipe
+        run: |
+          mise exec -- mix deps.get
+          mise exec -- mix compile
+
+      - name: Merge the shards
+        working-directory: image_pipe
+        run: |
+          shopt -s nullglob
+          args=()
+          for dir in "$RUNNER_TEMP"/shards/*/; do args+=(--merge "$dir"); done
+          # Without a shard, the bench would run instead of merging.
+          if [ ${#args[@]} -eq 0 ]; then echo "No shard finished" >&2; exit 1; fi
+          mise exec -- mix imgproxy.bench "${args[@]}" --output tmp/performance
           cat tmp/performance/summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the report

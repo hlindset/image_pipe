@@ -89,6 +89,13 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     * `--describe` - `NAME=TEXT`, what an image is, such as "this pull request
       at `e9f7670`", shown in the report in place of its image name. Name the
       `--compare` image `candidate`. Repeatable.
+    * `--shard` - `I/N`, to split the rounds across N machines: this run
+      does rounds I, I + N, I + 2N and so on of `--rounds`, each in the
+      image order that round has in a whole run. Every shard must get the
+      same options and images.
+    * `--merge` - a shard's output directory. Repeatable. Merges the shards'
+      `results.json` into `--output` and writes the report there, without
+      running anything.
 
   Each round runs every image in turn, in reverse order on alternate rounds,
   so drift on the machine reaches them alike. A case is timed when every image
@@ -102,6 +109,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   use Boundary, top_level?: true, check: [out: false]
 
   alias ImagePipe.Test.ImgproxyBench.CompareReport
+  alias ImagePipe.Test.ImgproxyBench.Merge
   alias ImagePipe.Test.ImgproxyBench.Report
   alias ImagePipe.Test.ImgproxyReference.Cases
   alias ImagePipe.Test.ImgproxyReference.Container
@@ -187,7 +195,9 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     compare: :string,
     against: :keep,
     rounds: :integer,
-    describe: :keep
+    describe: :keep,
+    shard: :string,
+    merge: :keep
   ]
 
   @impl Mix.Task
@@ -196,16 +206,33 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     output = opts[:output] || "tmp/imgproxy_bench"
     results_path = Path.join(output, "results.json")
 
-    if opts[:report_only] do
-      results = results_path |> File.read!() |> JSON.decode!()
-      write_report!(output, results)
-    else
-      Mix.Task.run("app.start")
-      json = opts |> bench(output) |> JSON.encode!()
-      File.mkdir_p!(output)
-      File.write!(results_path, json)
-      write_report!(output, JSON.decode!(json))
+    cond do
+      opts[:report_only] ->
+        results = results_path |> File.read!() |> JSON.decode!()
+        write_report!(output, results)
+
+      opts[:merge] ->
+        results =
+          opts
+          |> Keyword.get_values(:merge)
+          |> Enum.map(&(&1 |> Path.join("results.json") |> File.read!() |> JSON.decode!()))
+          |> Merge.merge()
+
+        File.mkdir_p!(output)
+        File.write!(results_path, JSON.encode!(results))
+        write_report!(output, results)
+
+      true ->
+        run_bench(opts, output, results_path)
     end
+  end
+
+  defp run_bench(opts, output, results_path) do
+    Mix.Task.run("app.start")
+    json = opts |> bench(output) |> JSON.encode!()
+    File.mkdir_p!(output)
+    File.write!(results_path, json)
+    write_report!(output, JSON.decode!(json))
   end
 
   # -- Setup -----------------------------------------------------------------
@@ -234,6 +261,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       origin: "#{network}-origin",
       servers: servers(opts),
       rounds: opts[:rounds] || 4,
+      shard: shard(opts[:shard]),
       progress: nil,
       descriptions: descriptions(opts),
       work: Path.expand(Path.join(output, "work")),
@@ -352,15 +380,17 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     with_server(hd(servers), settings, :plain, &make_variants(&1, settings))
     {checks, timed, mismatched, windows} = check_servers(servers, cases, settings)
 
+    round_numbers = shard_rounds(settings.rounds, settings.shard)
+
     settings = %{
       settings
-      | progress: progress(timed, length(servers) * settings.rounds),
+      | progress: progress(timed, length(servers) * length(round_numbers)),
         windows: windows
     }
 
     # Alternate rounds run the images in reverse order.
     rounds =
-      for round <- 1..settings.rounds do
+      for round <- round_numbers do
         order = if rem(round, 2) == 1, do: servers, else: Enum.reverse(servers)
         Mix.shell().info("Round #{round}/#{settings.rounds}")
         stage = "round #{round}/#{settings.rounds}, "
@@ -375,6 +405,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
     %{
       "mode" => "compare",
+      "shard" => %{"count" => elem(settings.shard, 1), "rounds" => round_numbers},
       "candidate" => "candidate",
       "against" => for({key, _image} <- tl(settings.servers), do: key),
       "environment" => environment(settings, first),
@@ -384,6 +415,28 @@ defmodule Mix.Tasks.Imgproxy.Bench do
         Map.new(servers, fn s -> {s.key, Enum.map(rounds, &Map.fetch!(&1, s.key).baseline)} end),
       "mismatches" => Enum.map(mismatched, &mismatch(&1, checks))
     }
+  end
+
+  # `--shard I/N`: this run is shard I of N.
+  defp shard(nil), do: {1, 1}
+
+  defp shard(value) do
+    with [index, count] <- String.split(value, "/"),
+         {index, ""} <- Integer.parse(index),
+         {count, ""} <- Integer.parse(count),
+         true <- index in 1..count//1 do
+      {index, count}
+    else
+      _invalid -> Mix.raise("--shard takes I/N with 1 ≤ I ≤ N, got #{inspect(value)}")
+    end
+  end
+
+  # Shard I of N runs rounds I, I + N, I + 2N, and so on.
+  defp shard_rounds(rounds, {index, count}) do
+    case Enum.filter(1..rounds, &(rem(&1 - 1, count) == index - 1)) do
+      [] -> Mix.raise("--shard #{index}/#{count} has none of the #{rounds} round(s)")
+      numbers -> numbers
+    end
   end
 
   # Also sizes each case's measurement window from the slowest server's time
@@ -639,7 +692,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
   # A burst takes about two seconds, and its container about five to start.
   defp estimate_minutes(cases, settings) do
-    runs = length(settings.servers) * settings.rounds
+    runs = length(settings.servers) * length(shard_rounds(settings.rounds, settings.shard))
     {bursts, cases} = Enum.split_with(cases, &burst?/1)
     seconds = length(cases) * (2 * settings.duration + 1) + length(bursts) * (2 * @bursts + 5)
     ceil(runs * seconds / 60)
@@ -1103,7 +1156,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       "concurrency" => settings.concurrency,
       "memory" => settings.memory,
       "duration_s" => settings.duration,
-      "rounds" => settings.rounds,
+      "rounds" => length(shard_rounds(settings.rounds, settings.shard)),
       "oha" => @oha,
       "servers" =>
         Map.new(runs, fn {key, run} ->
