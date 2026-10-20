@@ -87,14 +87,14 @@ defmodule ImagePipe.Source.HTTP.TargetGuardTest do
              {:error, :denied_address}
   end
 
-  test "fails closed on resolver error, empty, and raise" do
+  test "reports a resolver error, empty answer, or raise as an unresolved host" do
     assert TargetGuard.validate(
              "https://h/x",
              hosts(["h"]),
              default_policy(),
              resolver(%{"h" => {:error, :nxdomain}})
            ) ==
-             {:error, :denied_address}
+             {:error, :unresolved_host}
 
     assert TargetGuard.validate(
              "https://h/x",
@@ -102,12 +102,12 @@ defmodule ImagePipe.Source.HTTP.TargetGuardTest do
              default_policy(),
              resolver(%{"h" => {:ok, []}})
            ) ==
-             {:error, :denied_address}
+             {:error, :unresolved_host}
 
     raise_res = fn _ -> raise "dns boom" end
 
     assert TargetGuard.validate("https://h/x", hosts(["h"]), default_policy(), raise_res) ==
-             {:error, :denied_address}
+             {:error, :unresolved_host}
   end
 
   test "denies malformed addresses returned by a host resolver" do

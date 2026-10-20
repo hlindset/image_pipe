@@ -147,7 +147,7 @@ defmodule ImagePipe.Source.HTTP do
                         minute is tried first, because it may still have an open \
                         connection. The rest are tried in the order returned, without \
                         duplicates. An error, an empty list, or an \
-                        exception denies the fetch. When none of the addresses \
+                        exception fails the fetch with `{:source, :unresolved_host}`. When none of the addresses \
                         accepts a connection or answers in time, the resolver is \
                         called once more, and a changed answer is tried. The default \
                         resolver returns IPv4 addresses before IPv6 addresses. A \
@@ -191,7 +191,8 @@ defmodule ImagePipe.Source.HTTP do
   tries a changed answer once. Why is explained in
   [Source network policy](source-network-policy.md). A denied fetch fails
   with `{:source, :denied_scheme}`, `{:source, :denied_host}`, or
-  `{:source, :denied_address}`, which answer `404`.
+  `{:source, :denied_address}`, and a host that doesn't resolve fails with
+  `{:source, :unresolved_host}`. All of them answer `404`.
 
   ## Options
 
