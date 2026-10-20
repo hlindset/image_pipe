@@ -225,8 +225,8 @@ defmodule ImagePipe.URL do
       when the configuration has `:validate_against`, options that conflict.
       Warnings don't stop the URL. Without `:validate_against`, the server
       checks how the options combine when it serves the URL.
-    * `{:error, :invalid_source}` - the source is empty, not valid UTF-8, or
-      not a string.
+    * `{:error, :invalid_source}` - the source is empty or just `/`, isn't
+      valid UTF-8, holds a NUL byte, or isn't a string.
     * `{:error, :too_many_options}` - the plan has more than 64 option and
       `-` segments, the most the server accepts.
     * `{:error, :source_encryption_disabled}` - a valid `:iv` was given and

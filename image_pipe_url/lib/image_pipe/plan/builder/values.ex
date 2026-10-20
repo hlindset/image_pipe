@@ -3,6 +3,7 @@ defmodule ImagePipe.Plan.Builder.Values do
 
   alias ImagePipe.Plan.Builder.Options
   alias ImagePipe.Plan.Color
+  alias ImagePipe.Plan.Source
 
   import ImagePipe.Plan.ValueBounds
 
@@ -44,12 +45,7 @@ defmodule ImagePipe.Plan.Builder.Values do
     end
   end
 
-  defp normalize(value, :source) when is_binary(value) and value != "" do
-    case String.valid?(value) do
-      true -> {:ok, value}
-      false -> :error
-    end
-  end
+  defp normalize(value, :source), do: Source.check(value)
 
   defp normalize({x, y}, :gap), do: pair(x, y, :gap_length)
 
