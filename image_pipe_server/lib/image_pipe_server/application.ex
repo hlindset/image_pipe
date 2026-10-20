@@ -11,11 +11,11 @@ defmodule ImagePipeServer.Application do
   @listener __MODULE__.Listener
   @health_listener __MODULE__.HealthListener
   @instance ImagePipeServer.ImagePipe
+  @disk ImagePipeServer.Stats.Disk
 
   @impl Application
   def start(_type, _args) do
     config = config!()
-    ImagePipeServer.Stats.create_table()
 
     Logger.configure(level: config.log_level)
     configure_log_format(config.log_format, config.log_colors)
@@ -114,7 +114,8 @@ defmodule ImagePipeServer.Application do
   # Children stop in reverse order, so the listener, started last, drains
   # in-flight requests before the pool and the ImagePipe instance stop. The
   # health listener, started first, answers until the end. The warmup runs
-  # before the listener starts, and readiness turns on after it.
+  # before the listener starts, and readiness turns on after it. The disk
+  # stats start after the instance, which creates the cache roots.
   @doc false
   @spec children(Config.t(), Health.drain()) :: [Supervisor.child_spec() | {module(), term()}]
   def children(%Config{} = config, drain) do
@@ -124,6 +125,7 @@ defmodule ImagePipeServer.Application do
         {ImagePipe,
          name: @instance, config: config.image_pipe, detector_warmup: config.detector_warmup}
       ] ++
+      List.wrap(disk_child(config)) ++
       Enum.map(config.credential_warmups, &{ImagePipe.Source.S3.CredentialWarmup, &1}) ++
       [
         {Warmup, @instance},
@@ -163,7 +165,12 @@ defmodule ImagePipeServer.Application do
           into: %{},
           do: {cache, Keyword.fetch!(cache_opts, :root)}
 
-    %{token_hash: config.stats_token_hash, instance: @instance, roots: roots}
+    %{token_hash: config.stats_token_hash, instance: @instance, disk: @disk, roots: roots}
+  end
+
+  defp disk_child(config) do
+    if stats = stats_options(config),
+      do: {ImagePipeServer.Stats.Disk, name: @disk, roots: Enum.uniq(Map.values(stats.roots))}
   end
 
   # A small listener for the health checks alone, outside the image

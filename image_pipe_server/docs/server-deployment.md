@@ -270,7 +270,8 @@ curl -H "Authorization: Bearer a-long-random-string" http://localhost:8080/stats
     "bytes": 812345678, "max_bytes": 1073741824, "entries": 5120,
     "counting": false, "hits": 9120, "misses": 1310, "read_errors": 0,
     "refused": false,
-    "disk_free_bytes": 40213000000, "disk_total_bytes": 107374182400
+    "disk_free_bytes": 40213000000, "disk_total_bytes": 107374182400,
+    "disk_age_seconds": 4
   },
   "input": {"bytes": 2104000000, "...": "..."}
 }
@@ -288,7 +289,11 @@ curl -H "Authorization: Bearer a-long-random-string" http://localhost:8080/stats
   `entries` leave out the ones it hasn't reached.
 - `disk_free_bytes` and `disk_total_bytes` are for the filesystem that
   holds the cache's `root` directory, such as the volume mounted there.
-  They are `null` when the server can't read them.
+  The server reads them with `df` every 15 seconds, and both endpoints
+  answer with the last sizes it read. `disk_age_seconds` is how many
+  seconds ago that was. It grows past 15 when `df` fails or hangs, such as
+  on a network volume that stopped answering. All three are `null` until
+  the first read succeeds.
 - A cache whose `root` another replica
   [owns](../../image_pipe/docs/cache.md#cache-root-owner-file) isn't used by
   this replica. It has `"refused": true`, `max_bytes`, and the disk sizes.
@@ -296,8 +301,9 @@ curl -H "Authorization: Bearer a-long-random-string" http://localhost:8080/stats
   `image_pipe_cache_max_bytes`, and the disk metrics.
 - A cache that isn't configured isn't listed.
 
-`/metrics` leaves the disk metrics out when the server can't read the
-space.
+`/metrics` leaves the disk metrics out until the first read succeeds.
+`image_pipe_cache_disk_age_seconds` gives the age, so an alert on a value
+well above 15, such as 120, catches a `df` that stopped answering.
 
 Both endpoints answer `503` while the server starts up and while it shuts
 down.
