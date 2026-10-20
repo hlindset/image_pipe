@@ -1019,7 +1019,7 @@ defmodule ImagePipe.API.OptionSpec do
     case Value.csv(string, 1..2, [&Value.color/1, &parse_tolerance/1]) do
       {:ok, [color]} -> {:ok, {color, nil}}
       {:ok, [color, tolerance]} -> {:ok, {color, tolerance}}
-      {:error, reason} -> {:error, reason}
+      {:error, _reason} -> {:error, :invalid_trim}
     end
   end
 

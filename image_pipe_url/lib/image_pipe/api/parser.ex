@@ -577,6 +577,9 @@ defmodule ImagePipe.API.Parser do
     do:
       "invalid value: expected unique class[:weight] items, each weight above 0, at most 1000000"
 
+  defp message_for(:invalid_trim),
+    do: "invalid value: expected auto, or color[,tolerance] with tolerance from 0 to 2147483647"
+
   defp message_for(:invalid_trim_symmetry),
     do: "invalid value: expected h, v, or hv"
 

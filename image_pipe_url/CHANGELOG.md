@@ -17,8 +17,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `ImagePipe.URL.group/2`.
 - Errors from parsing a URL state the accepted range for sizes, offsets,
   `pad`, `wm-gap`, `dpr`, `zoom`, `crop-ratio`, `detect`, `blur`,
-  `progressive-blur`, `sharpen`, `pixelate`, `contrast`, and `saturation`,
-  and show which `gradient` values are optional. An invalid value given to the URL builder now appears in its
+  `progressive-blur`, `sharpen`, `pixelate`, `contrast`, `saturation`, and
+  the `trim` tolerance, and show which `gradient` values are optional. An invalid value given to the URL builder now appears in its
   error, with the accepted range for numbers, as in `invalid value for :dpr
   option: expected a number above 0, at most 2147483647, got: 0`. An invalid
   source isn't repeated in its error.
