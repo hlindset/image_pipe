@@ -142,6 +142,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   waited for every attempt. Those requests now fail with the first load's
   error at once: the crop falls back to attention, or the request fails with
   `500` when `detector_required` is set. The next request loads again.
+- `png-options=palette,bitdepth:16` multiplies 8-bit color by 257, as
+  `bitdepth:16` without `palette` does. Before, it multiplied by 256. A PNG
+  at 16 bits has no palette, so `q` doesn't apply to it.
+- `png-options=bitdepth:1`, `2`, or `4` on a 16-bit color or gray-and-alpha
+  result encodes at 8 bits, as on an 8-bit one. Before, it encoded at
+  16 bits.
 - A `crop-ratio` far from the `crop` size's own ratio, such as `1:4000`
   for a square crop, no longer fails with a 500. Each side of the crop
   keeps at least one pixel.

@@ -5,6 +5,8 @@ defmodule ImagePipe.API.PngBitdepthWireTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias Vix.Vips.Image, as: VipsImage
+  alias Vix.Vips.Operation
 
   test "a gray result at 2 or 4 bits keeps its gray levels" do
     body = 16 |> Image.new!(16, color: [150]) |> Image.write!(:memory, suffix: ".png")
@@ -32,15 +34,49 @@ defmodule ImagePipe.API.PngBitdepthWireTest do
   test "an 8-bit result at 16 bits scales each value by 257" do
     for color <- [[128], [128, 100], [128, 64, 200], [128, 64, 200, 100]] do
       body = 16 |> Image.new!(16, color: color) |> Image.write!(:memory, suffix: ".png")
-      response = response("format=png/png-options=bitdepth:16", body)
+
+      for options <- ["bitdepth:16", "palette,bitdepth:16"] do
+        response = response("format=png/png-options=#{options}", body)
+        assert response.status == 200, "#{options} #{inspect(color)}"
+
+        image = Image.from_binary!(response.resp_body)
+        assert Image.bands(image) == length(color)
+
+        assert Image.get_pixel!(image, 8, 8) == Enum.map(color, &(&1 * 257)),
+               "#{options} #{inspect(color)}"
+      end
+    end
+  end
+
+  test "a 16-bit color or gray-and-alpha result below 8 bits encodes at 8 bits" do
+    for {color, interpretation} <- [
+          {[128, 64, 200], :VIPS_INTERPRETATION_RGB16},
+          {[128, 64], :VIPS_INTERPRETATION_GREY16}
+        ] do
+      {:ok, source} = Image.new(16, 16, color: Enum.map(color, &(&1 * 257)), format: {:u, 16})
+      {:ok, source} = Operation.copy(source, interpretation: interpretation)
+      body = Image.write!(source, :memory, suffix: ".png")
+
+      response = response("hdr=preserve/format=png/png-options=bitdepth:2", body)
       assert response.status == 200, inspect(color)
 
       image = Image.from_binary!(response.resp_body)
-      assert Image.bands(image) == length(color)
-
-      assert Image.get_pixel!(image, 8, 8) == Enum.map(color, &(&1 * 257)),
-             inspect(color)
+      assert VipsImage.format(image) == :VIPS_FORMAT_UCHAR, inspect(color)
+      assert Image.get_pixel!(image, 8, 8) == color
     end
+  end
+
+  test "q doesn't change a palette PNG at 16 bits" do
+    body = 16 |> Image.new!(16, color: [128, 64, 200]) |> Image.write!(:memory, suffix: ".png")
+
+    etags =
+      for q <- [50, 60] do
+        response = response("format=png/png-options=palette,bitdepth:16/q=#{q}", body)
+        assert response.status == 200
+        get_resp_header(response, "etag")
+      end
+
+    assert [same, same] = etags
   end
 
   test "a result with more than one band encodes at 8 bits instead of failing" do

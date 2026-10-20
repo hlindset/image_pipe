@@ -73,7 +73,8 @@ turn on. A URL that sets both `q` and `autoquality` (the bare flag or a
 target) fails with `400`.
 
 PNG is lossless, so `q` applies to it only when `palette` is on in
-[`png-options`](#png-options) or the host's PNG settings. There it sets the
+[`png-options`](#png-options) or the host's PNG settings, and `bitdepth`
+isn't `16`. There it sets the
 quantization quality: a lower `q` allows less accurate colors for a smaller
 file. For lossless WebP, `q` sets compression effort rather than image
 quality.
@@ -112,7 +113,7 @@ A format with a `format-q` quality, from the URL, a preset, or the
 [request defaults](../presets.md#request-defaults), skips the
 [`autoquality`](#autoquality) search. So `autoquality/format-q=webp:70` encodes
 WebP at 70 and runs the search for every other format. Like `q`, a `png`
-entry applies only when `palette` is on.
+entry applies only when PNG has a palette.
 
 Write `unset` first, as in `format-q=unset,avif:50`, to drop the qualities
 that presets and the request defaults set.
@@ -279,7 +280,7 @@ Accepts these fields. Default: the host's PNG encoder settings.
 | Field | Values | Effect |
 | --- | --- | --- |
 | `interlace` | boolean | Interlaced PNG |
-| `palette` | boolean | Palette (indexed color) PNG. [`q`](#q) sets its quantization quality |
+| `palette` | boolean | Palette (indexed color) PNG, except at `bitdepth` `16`. [`q`](#q) sets its quantization quality |
 | `bitdepth` | `1`, `2`, `4`, `8`, `16` | Bits per channel. `1`, `2`, and `4` apply to grayscale without alpha and to a palette. Other images use `8`. A grayscale result splits its range into 2, 4, or 16 equal bands, one per level, so at `1` values below 128 turn black |
 | `filter` | `none`, `sub`, `up`, `avg`, `paeth`, `all` | Row filter |
 

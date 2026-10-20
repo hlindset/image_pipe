@@ -220,8 +220,8 @@ defmodule ImagePipe.Output.Encoder do
   end
 
   # PNG stores gray+alpha and color at 8 or 16 bits only, so a bit depth below
-  # 8 applies to a one-band result and the rest encode at 8 bits. A palette
-  # PNG takes any depth.
+  # 8 applies to a one-band result and the rest encode at 8 bits, even from a
+  # 16-bit image. A palette PNG takes 1, 2, or 4 bits.
   defp fit_png_depth(
          image,
          %Resolved{format: :png, encoder_options: %PngOptions{bitdepth: depth, palette: palette}} =
@@ -231,20 +231,20 @@ defmodule ImagePipe.Output.Encoder do
     if Image.bands(image) == 1 do
       with {:ok, image} <- keep_gray_levels(image, depth), do: {:ok, image, resolved}
     else
-      {:ok, image, put_in(resolved.encoder_options.bitdepth, nil)}
+      with {:ok, image} <- narrow_to_8_bits(image),
+           do: {:ok, image, put_in(resolved.encoder_options.bitdepth, 8)}
     end
   end
 
   # Workaround for libvips 8.18: its saver widens 8-bit color to 16 bits by
   # 256 (with 255 special-cased), so 128 becomes 32768 instead of 32896. Gray
   # widens by 257. Widening here first scales every band by 257. Tracked in
-  # image_plug-y7mu.
+  # image_plug-y7mu. A palette holds 8-bit colors, so the saver writes no
+  # palette at 16 bits and widens the same way.
   defp fit_png_depth(
          image,
-         %Resolved{format: :png, encoder_options: %PngOptions{bitdepth: 16, palette: palette}} =
-           resolved
-       )
-       when palette != true do
+         %Resolved{format: :png, encoder_options: %PngOptions{bitdepth: 16}} = resolved
+       ) do
     if VixImage.format(image) == :VIPS_FORMAT_UCHAR do
       with {:ok, image} <- widen_to_16_bits(image), do: {:ok, image, resolved}
     else
@@ -253,6 +253,30 @@ defmodule ImagePipe.Output.Encoder do
   end
 
   defp fit_png_depth(image, resolved), do: {:ok, image, resolved}
+
+  # Workaround for libvips 8.18: its saver narrows 16-bit gray and alpha by
+  # truncating, so 64 × 257 becomes 63. Narrowing here first rounds.
+  defp narrow_to_8_bits(image) do
+    case VixImage.format(image) do
+      :VIPS_FORMAT_USHORT ->
+        interpretation =
+          if Image.bands(image) < 3,
+            do: :VIPS_INTERPRETATION_B_W,
+            else: :VIPS_INTERPRETATION_sRGB
+
+        with {:ok, scaled} <- Operation.linear(image, [1 / 257], [0.0]),
+             {:ok, rounded} <- Operation.round(scaled, :VIPS_OPERATION_ROUND_RINT),
+             {:ok, narrow} <- Operation.cast(rounded, :VIPS_FORMAT_UCHAR),
+             {:ok, narrow} <- Operation.copy(narrow, interpretation: interpretation) do
+          {:ok, narrow}
+        else
+          {:error, reason} -> {:error, {:encode, encode_error(reason), []}}
+        end
+
+      _other ->
+        {:ok, image}
+    end
+  end
 
   defp widen_to_16_bits(image) do
     interpretation =
