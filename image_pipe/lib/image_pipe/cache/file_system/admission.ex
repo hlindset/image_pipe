@@ -48,8 +48,10 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       :sketch,
       # %Talan.BloomFilter{}
       :doorkeeper,
-      # key_hash -> {size, cost, body filename}, ordered so a random key's
-      # successor samples an entry.
+      # key hash -> {size, cost, body SHA-256}, ordered so a random key's
+      # successor samples an entry. Both hashes are raw 32-byte binaries,
+      # not the hex the rest of the cache uses, and the body filename is
+      # rebuilt from the row: a large cache tracks millions of entries.
       :entries,
       # Lifecycle events use the prefix captured at init, without request options.
       telemetry_prefix: [:image_pipe],
@@ -516,7 +518,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     do: Map.values(picked)
 
   defp draw(state, taken, picked, tries) do
-    random = Base.encode16(:crypto.strong_rand_bytes(32), case: :lower)
+    random = :crypto.strong_rand_bytes(32)
 
     key =
       case :ets.next(state.entries, random) do
@@ -525,9 +527,10 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       end
 
     picked =
-      if MapSet.member?(taken, key),
+      if MapSet.member?(taken, hex(key)),
         do: picked,
-        else: Map.put_new_lazy(picked, key, fn -> entry(state, key) end)
+        else:
+          Map.put_new_lazy(picked, key, fn -> to_entry(hd(:ets.lookup(state.entries, key))) end)
 
     draw(state, taken, picked, tries - 1)
   end
@@ -570,10 +573,10 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     end
   end
 
-  defp tracked?(state, key_hash), do: :ets.member(state.entries, key_hash)
+  defp tracked?(state, key_hash), do: :ets.member(state.entries, raw(key_hash))
 
   defp entry(state, key_hash) do
-    case :ets.lookup(state.entries, key_hash) do
+    case :ets.lookup(state.entries, raw(key_hash)) do
       [row] -> to_entry(row)
       [] -> nil
     end
@@ -582,17 +585,27 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   defp entry_size(nil), do: 0
   defp entry_size(entry), do: entry.size_bytes
 
-  defp to_entry({key_hash, size, cost, body_filename}),
-    do: %{key_hash: key_hash, size_bytes: size, cost_us: cost, body_filename: body_filename}
+  defp to_entry({key, size, cost, body_sha256}) do
+    key_hash = hex(key)
+
+    %{
+      key_hash: key_hash,
+      size_bytes: size,
+      cost_us: cost,
+      body_filename: FileSystem.body_filename(key_hash, hex(body_sha256), size, cost)
+    }
+  end
 
   # Every entry write goes through put/2 and forget/2, so the stored bytes
-  # stay in step with the table.
+  # stay in step with the table. A descriptor's body filename was parsed
+  # when its metadata or listing was read, so its parts rebuild it.
   defp put(state, descriptor) do
     state = forget(state, descriptor.key_hash)
+    {:ok, %{body_sha256: body_sha256}} = FileSystem.parse_body_filename(descriptor.body_filename)
 
     :ets.insert(
       state.entries,
-      {descriptor.key_hash, descriptor.size_bytes, descriptor.cost_us, descriptor.body_filename}
+      {raw(descriptor.key_hash), descriptor.size_bytes, descriptor.cost_us, raw(body_sha256)}
     )
 
     %{state | stored_bytes: state.stored_bytes + descriptor.size_bytes}
@@ -601,11 +614,14 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   defp forget(state, key_hash) do
     note_scan_change(state, key_hash)
 
-    case :ets.take(state.entries, key_hash) do
-      [{^key_hash, size, _cost, _body}] -> %{state | stored_bytes: state.stored_bytes - size}
+    case :ets.take(state.entries, raw(key_hash)) do
+      [{_key, size, _cost, _body_sha256}] -> %{state | stored_bytes: state.stored_bytes - size}
       [] -> state
     end
   end
+
+  defp raw(hex), do: Base.decode16!(hex, case: :lower)
+  defp hex(raw), do: Base.encode16(raw, case: :lower)
 
   defp victim(entry, delete_meta?),
     do: %{

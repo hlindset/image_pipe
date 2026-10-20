@@ -569,10 +569,16 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
 
   defp tracked?(pid, seed), do: entry_row(pid, hash(seed)) != nil
 
+  # Admission keeps both hashes raw in its rows. This gives the row back in
+  # the hex the rest of the cache uses, with the body filename it stands for.
   defp entry_row(pid, key_hash) do
-    case :ets.lookup(:sys.get_state(pid).entries, key_hash) do
-      [row] -> row
-      [] -> nil
+    case :ets.lookup(:sys.get_state(pid).entries, Base.decode16!(key_hash, case: :lower)) do
+      [{_key, size, cost, body_sha256}] ->
+        sha = Base.encode16(body_sha256, case: :lower)
+        {key_hash, size, cost, FileSystem.Store.body_filename(key_hash, sha, size, cost)}
+
+      [] ->
+        nil
     end
   end
 

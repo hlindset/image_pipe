@@ -77,6 +77,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   original that many requests want is kept sooner. The cache now counts
   each request that misses it, including requests that wait for another
   request's copy, instead of counting how often it's written.
+- A cache with `max_size_bytes` uses less than half the memory to track
+  its entries: about 175 bytes per stored image instead of over 400, which
+  saves at least 45 MB for a cache of 200 000 images.
 - The default Logger shows a coordination event's reason after its result,
   as in `bypass (deadline)`. It logs a `:bypass` with reason `:not_stored`
   or `:watermark_not_stored`, and a `:download` `:busy`, at its base level.

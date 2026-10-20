@@ -21,6 +21,7 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   @temp ~r/\A\.[0-9a-f]{64}\.[A-Za-z0-9_-]+\.tmp\z/
   # Bodies stored before their names carried size and cost end at the digest.
   @body ~r/\A([0-9a-f]{64})\.[0-9a-f]{64}(?:\.\d+\.\d+)?\.body\z/
+  @meta ~r/\A[0-9a-f]{64}\.meta\z/
   @staged ~r/\A\.image-pipe-[A-Za-z0-9_-]+\.tmp\z/
   @partition ~r/\A[0-9a-f]{2}\z/
 
@@ -204,8 +205,13 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
     end
   end
 
-  defp removed(counts, :unreadable, name),
-    do: Map.update!(counts, :removed, &[{Path.rootname(name), :meta} | &1])
+  # A meta file whose name isn't a key hash was never an entry, so it's
+  # removed without telling Admission about it.
+  defp removed(counts, :unreadable, name) do
+    if Regex.match?(@meta, name),
+      do: Map.update!(counts, :removed, &[{Path.rootname(name), :meta} | &1]),
+      else: counts
+  end
 
   defp removed(counts, :bodies, name),
     do: Map.update!(counts, :removed, &[{key_hash(name), name} | &1])
