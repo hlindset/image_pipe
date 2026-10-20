@@ -117,7 +117,7 @@ defmodule ImagePipe.Plug.Runner do
       serve_context(conn, context)
     end)
     |> case do
-      {:error, reason} -> send_error(conn, reason, config)
+      {:error, reason} -> send_error(limit_error_to_expiry(conn, request, config), reason, config)
       {%Plug.Conn{}, _metadata} = sent -> sent
     end
   end
@@ -151,7 +151,10 @@ defmodule ImagePipe.Plug.Runner do
             serve_output(conn, output)
 
           {:error, reason} ->
-            send_error(with_policy_headers(conn, context.policy), reason, context.config)
+            conn
+            |> with_policy_headers(context.policy)
+            |> limit_error_to_expiry(context.request, context.config)
+            |> send_error(reason, context.config)
         end
     end
   end
@@ -332,6 +335,11 @@ defmodule ImagePipe.Plug.Runner do
       end)
 
     {conn, %{result: :not_modified}}
+  end
+
+  defp limit_error_to_expiry(conn, request, config) do
+    now = Keyword.fetch!(config, :clock).()
+    CachePolicy.limit_error_to_expiry(conn, request.expires, now)
   end
 
   defp send_error(conn, reason, config) do

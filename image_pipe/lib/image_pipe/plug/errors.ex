@@ -83,7 +83,8 @@ defmodule ImagePipe.Plug.Errors do
   end
 
   # A server error is transient, so a host lifetime meant for images must not
-  # keep it in a cache. Client errors keep the host's `Cache-Control`.
+  # keep it in a cache. Client errors keep the host's `Cache-Control`, which
+  # the runner has already capped on an expiring URL.
   defp server_error_no_store(conn, status) when status >= 500,
     do: put_resp_header(conn, "cache-control", "no-store")
 

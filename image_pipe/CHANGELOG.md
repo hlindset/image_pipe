@@ -177,6 +177,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A `crop-ratio` far from the `crop` size's own ratio, such as `1:4000`
   for a square crop, no longer fails with a 500. Each side of the crop
   keeps at least one pixel.
+- A client error, such as a `404` for a missing source, on a URL with
+  `expires` caps a host's `Cache-Control` at the URL's expiry, as an image
+  response does. Before, a host's `max-age=86400` kept the error cached
+  after the URL expired. Errors found while parsing the URL keep the host's
+  `Cache-Control` unchanged.
 - A request whose watermark crashed while it was fetched no longer keeps its
   original from being evicted from the originals cache until its connection
   closes.
