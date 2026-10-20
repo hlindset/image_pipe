@@ -45,7 +45,9 @@ defmodule ImagePipe.Cache.Work do
   defp lock(key, wait, context) do
     request = :gen_server.send_request(__MODULE__, {:lock, key, context})
 
-    case :gen_server.receive_response(request, wait) do
+    # `wait_response/2`, unlike `receive_response/2`, keeps the request open
+    # when the wait runs out, so `cancel_wait/2` can still receive a grant.
+    case :gen_server.wait_response(request, wait) do
       {:reply, reply} -> reply
       :timeout -> cancel_wait(key, request)
       {:error, _reason} -> :busy
@@ -54,6 +56,7 @@ defmodule ImagePipe.Cache.Work do
 
   # The lock may have been granted after the wait ran out but before the
   # coordinator handled the cancellation. Its reply is then already here.
+  # `receive_response/2` closes the request either way.
   defp cancel_wait(key, request) do
     _result = call({:cancel_wait, key}, 5_000)
 

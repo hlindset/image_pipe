@@ -110,6 +110,55 @@ defmodule ImagePipe.Cache.WorkTest do
     assert Work.run(key, fn lease, _outcome -> is_reference(lease) end, wait: 50)
   end
 
+  test "a lock granted after its waiter stopped waiting is released" do
+    key = make_ref()
+    parent = self()
+    work = Process.whereis(Work)
+
+    leader =
+      Task.async(fn ->
+        Work.run(key, fn _lease, _outcome ->
+          send(parent, :locked)
+          receive(do: (:finish -> :led))
+        end)
+      end)
+
+    assert_receive :locked
+
+    :erlang.trace(work, true, [:receive])
+
+    on_exit(fn ->
+      :erlang.trace(work, false, [:receive])
+      :sys.resume(work)
+    end)
+
+    # The waiter stays alive afterwards, so its monitor can't free the lock.
+    waiter =
+      spawn_link(fn ->
+        send(parent, {:waited, Work.run(key, fn _lease, _outcome -> :ran end, wait: 200)})
+        receive(do: (:stop -> :ok))
+      end)
+
+    assert_receive {:trace, ^work, :receive, {:"$gen_call", {^waiter, _tag}, {:lock, ^key, _}}}
+    _state = :sys.get_state(work)
+
+    # The leader's unlock grants the lock to the waiter, but the coordinator
+    # handles it only after the waiter has stopped waiting and asked to
+    # cancel.
+    :sys.suspend(work)
+    send(leader.pid, :finish)
+    assert_receive {:trace, ^work, :receive, {:"$gen_call", _from, {:unlock, _ref}}}
+    assert_receive {:trace, ^work, :receive, {:"$gen_call", _from, {:cancel_wait, ^key}}}, 1_000
+    :erlang.trace(work, false, [:receive])
+    :sys.resume(work)
+
+    assert Task.await(leader) == :led
+    assert_receive {:waited, :timeout}
+    assert Work.run(key, fn _lease, outcome -> outcome end, wait: 50) == :acquired
+
+    send(waiter, :stop)
+  end
+
   test "owner cancellation releases the key for waiting work" do
     supervisor = start_supervised!(Task.Supervisor)
     key = make_ref()
