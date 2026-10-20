@@ -179,8 +179,34 @@ defmodule ImagePipe.Plan do
 
     with {:ok, expanded} <- Presets.expand(indexed, plan.options, presets, defaults) do
       written? = &written?(&1, indexed, expanded.origins, plan.options)
-      Spec.resolve(expanded.groups, expanded.request, MapSet.new(), watermarks, written?)
+
+      expanded.groups
+      |> Spec.resolve(expanded.request, MapSet.new(), watermarks, written?)
+      |> in_plan_numbering(expanded.origins)
     end
+  end
+
+  # Expansion drops groups left with only `unset` options and renumbers the
+  # rest, so issues are renumbered back to the plan's own groups.
+  # A pipeline preset's groups all come from one plan group, so their issues
+  # can become the same issue.
+  defp in_plan_numbering({:ok, %Spec{} = request}, origins),
+    do: {:ok, %Spec{request | ignored: renumber(request.ignored, origins)}}
+
+  defp in_plan_numbering({:error, issues}, origins), do: {:error, renumber(issues, origins)}
+
+  defp renumber(issues, origins) do
+    issues
+    |> Enum.map(fn issue ->
+      locations =
+        Enum.map(issue.locations, fn
+          {:group, index, key} -> {:group, Map.fetch!(origins, index), key}
+          location -> location
+        end)
+
+      %{issue | locations: locations}
+    end)
+    |> Enum.uniq()
   end
 
   # Whether the plan itself sets the option, rather than a preset or the

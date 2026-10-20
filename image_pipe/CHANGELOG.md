@@ -177,6 +177,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   2000×3 image at `w=100`, no longer fails with a 415. Neither does shrinking
   a WebP so far that its short side would be under one pixel, such as
   `w=1/dpr=0.5`.
+- An issue that `ImagePipe.validate/2` or `ImagePipe.run/4` reports, and
+  the `:locations` of `[:request, :ignored_options]` for `run/4`, name the
+  group as the URL builder numbers it. Before, when a group held only
+  `unset` options, issues in later groups named the group before theirs.
 - `png-options=bitdepth:1` on a grayscale result now turns values below 128
   black and the rest white. Before, every gray above black came out white.
 - With a [processing pool](docs/processing-controls.md), a request that
