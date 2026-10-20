@@ -48,7 +48,7 @@ All of these return before source resolution, fetch, or cache access.
 
 | Status | When |
 | --- | --- |
-| `404` | Nothing exists at the source path, or the source's rules refuse it: a path that doesn't match the source's allowed paths, a denied host, address, scheme, or bucket, a directory where a file was expected. Also when the origin answers `401`, `403`, `404`, or `410`. |
+| `404` | Nothing exists at the source path, or the source's rules refuse it: a path that doesn't match the source's allowed paths, a denied host, address, scheme, or bucket, a host that doesn't resolve, a directory where a file was expected. Also when the origin answers `401`, `403`, `404`, or `410`. |
 | `413` | The source body exceeds `max_body_bytes`. |
 | `500` | A local file or a cached original exists but can't be read, source credentials are unavailable, or a custom source adapter returns an invalid result. |
 | `502` | The origin is unreachable, answers any other error status, redirects badly, or sends a truncated or malformed response. |

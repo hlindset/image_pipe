@@ -41,8 +41,10 @@ defmodule ImagePipe.Response.ErrorStatus do
   @absent_statuses [401, 403, 404, 410]
 
   # Source reasons that mean "no such source" to the client: nothing at that
-  # path, or a path, host, address, or scheme the mount's policy won't serve.
-  # Denials are concealed as absence so the policy can't be probed.
+  # path, a host that doesn't resolve, or a path, host, address, or scheme
+  # the mount's policy won't serve. Denials are concealed as absence so the
+  # policy can't be probed, and a host that doesn't resolve answers the same,
+  # so a client can't tell it from one whose address the policy denies.
   @absent_reasons [
     :not_found,
     :invalid_object,
@@ -50,7 +52,8 @@ defmodule ImagePipe.Response.ErrorStatus do
     :denied_bucket,
     :denied_host,
     :denied_scheme,
-    :denied_address
+    :denied_address,
+    :unresolved_host
   ]
 
   @spec resolve_status(term()) :: {100..599, String.t()}

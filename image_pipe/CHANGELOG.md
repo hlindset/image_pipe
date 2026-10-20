@@ -62,6 +62,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The default Logger shows a coordination event's reason after its result,
   as in `bypass (deadline)`. It logs a `:bypass` with reason `:not_stored`
   or `:watermark_not_stored`, and a `:download` `:busy`, at its base level.
+- An HTTP source whose host doesn't resolve fails with
+  `{:source, :unresolved_host}` in logs and telemetry instead of
+  `{:source, :denied_address}`. It still answers `404`.
 - `autoquality` with `max-bytes` scores only the quality it delivers, not
   each quality it tries to fit the byte limit, so such a request takes less
   time. `[:encode, :search, :probe]` spans of the `:cap` phase no longer

@@ -72,7 +72,8 @@ defmodule ImagePipe.Source.HTTP.TargetGuard do
   end
 
   @spec validate(String.t(), [allowed_host()], AddressPolicy.predicate(), resolver()) ::
-          {:ok, [:inet.ip_address()]} | {:error, :denied_scheme | :denied_host | :denied_address}
+          {:ok, [:inet.ip_address()]}
+          | {:error, :denied_scheme | :denied_host | :denied_address | :unresolved_host}
   def validate(url, allowed_hosts, predicate, resolver) when is_binary(url) do
     uri = URI.parse(url)
 
@@ -106,11 +107,11 @@ defmodule ImagePipe.Source.HTTP.TargetGuard do
 
   defp resolve_via(host, resolver) do
     case resolver.(host) do
-      {:ok, addresses} when is_list(addresses) -> {:ok, addresses}
-      _ -> {:error, :denied_address}
+      {:ok, [_ | _] = addresses} -> {:ok, addresses}
+      _ -> {:error, :unresolved_host}
     end
   rescue
-    _ -> {:error, :denied_address}
+    _ -> {:error, :unresolved_host}
   end
 
   @spec default_resolver(String.t()) :: {:ok, [:inet.ip_address()]} | {:error, term()}

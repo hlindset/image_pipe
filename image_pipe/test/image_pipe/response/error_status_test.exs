@@ -29,6 +29,7 @@ defmodule ImagePipe.Response.ErrorStatusTest do
             :denied_host,
             :denied_scheme,
             :denied_address,
+            :unresolved_host,
             :invalid_object,
             {:bad_status, 401},
             {:bad_status, 403},

@@ -63,4 +63,6 @@ network, so prefer `10.0.5.0/24` for an origin over all private addresses.
 
 Denied downloads answer `404 source not found`, the same as a missing
 image. A client can't use the answer to learn which hosts or addresses
-exist behind the server (see [error responses](errors.md)).
+exist behind the server (see [error responses](errors.md)). A host that
+doesn't resolve answers the same, so a client can't tell it from a host
+whose address is denied.
