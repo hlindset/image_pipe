@@ -26,6 +26,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   an effort from a preset or `request_defaults`. Set `max_effort` to allow
   higher effort. Each `autoquality` or `max-bytes` attempt encodes at the
   requested effort, so one request could take minutes of CPU.
+- A `detect` or `anchor=smart-face` crop of a large JPEG, WebP, or SVG with
+  a small crop box decodes at a reduced size. Detection's minimum of 640
+  pixels on the long edge applies to the whole image the detector searches,
+  not to the crop box. A crop box that covers the whole image runs no
+  detection, so without a `fit=cover` resize after it, it decodes as small
+  as the output allows.
 - Concurrent requests for one new original share its download in more
   configurations, and no longer wait for a download they would repeat. See
   [request coalescing](docs/caching-and-freshness.md#request-coalescing).

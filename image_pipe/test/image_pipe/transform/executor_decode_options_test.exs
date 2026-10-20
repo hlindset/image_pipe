@@ -171,14 +171,57 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
     end
   end
 
-  test "the detection floor applies to a detect crop's extent" do
-    # The 1280x1280 crop for a 64x64 resize gives 20; the floor caps it at 2.
+  test "a detect crop's floor holds on the 2400x1600 frame it searches" do
+    # The 1280x1280 crop for a 64x64 resize gives 20; the floor on the frame
+    # caps it at 2400/640 = 3.75.
     opts =
       options("crop=1280,1280/detect=face/w=64/h=64", geometry({2400, 1600}, {2400, 1600}, :jpeg),
         detector?: true
       )
 
     assert opts[:shrink] == 2
+  end
+
+  test "the detection floor holds on the whole frame a detect crop searches" do
+    # The detector sees the 6000x4000 frame, so the floor allows 6000/640 =
+    # 9.4. The 800x600 crop for a 200 wide resize gives 4.
+    opts =
+      options("crop=800,600/detect=face/w=200", geometry({6000, 4000}, {6000, 4000}, :jpeg),
+        detector?: true
+      )
+
+    assert opts[:shrink] == 4
+  end
+
+  test "a cover resize after a crop keeps the floor on the crop box it searches" do
+    frame = geometry({6000, 4000}, {6000, 4000}, :jpeg)
+
+    # Each cover crop detects on a 1000 or 800 wide box, so it decodes at
+    # full size to keep 640 pixels.
+    for request <- [
+          "region=0,0,1000,1000/detect=face/w=64/h=64/fit=cover",
+          "crop=800,600/detect=face/w=200/h=200/fit=cover"
+        ] do
+      refute options(request, frame, detector?: true)[:shrink], request
+    end
+
+    covering =
+      options(
+        "crop=2400,1600/detect=face/w=64/h=64/fit=cover",
+        geometry({2400, 1600}, {2400, 1600}, :jpeg),
+        detector?: true
+      )
+
+    assert covering[:shrink] == 2
+  end
+
+  test "a detect crop that covers the frame can't move, so it needs no floor" do
+    opts =
+      options("crop=2400,1600/detect=face/w=64", geometry({2400, 1600}, {2400, 1600}, :jpeg),
+        detector?: true
+      )
+
+    assert opts[:shrink] == 8
   end
 
   test "the detection floor needs a detector and a detection guide" do
