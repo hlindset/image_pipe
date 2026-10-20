@@ -642,7 +642,8 @@ written and before it's synced to disk.
 
 An `:admitted` entry can still go unstored: when other writes fill the cache
 during its sync and it loses a second comparison, or when the write fails
-after the decision, including a write that timed out waiting for it.
+after the decision. A decision the write stopped waiting for isn't made, so
+it emits no event.
 Its [`[:cache, :write]`](#cache-write) event has the outcome, and
 [`[:cache, :eviction, :stop]`](#cache-eviction-stop) counts the entries
 actually evicted.

@@ -49,6 +49,22 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert Sketch.estimate(state.sketch, descriptor.key_hash) >= 1
   end
 
+  test "a decision whose writer stopped waiting is skipped",
+       %{registry: registry, tmp_dir: tmp_dir} do
+    pid = start_supervised!({Admission, base_opts(registry: registry, tmp_dir: tmp_dir)})
+    Admission.await_scan(pid)
+    key_hash = hash("late")
+    body_filename = Store.body_filename(key_hash, hash("body"), 100, 1_000)
+
+    :sys.suspend(pid)
+    assert Admission.decide(pid, body_filename, 0, 10) == {:error, :admission_timeout}
+    :sys.resume(pid)
+
+    state = :sys.get_state(pid)
+    refute Talan.BloomFilter.member?(state.doorkeeper, key_hash)
+    assert Sketch.estimate(state.sketch, key_hash) == 0
+  end
+
   test "miss/2 is a sighting, and the commit that follows it isn't another",
        %{registry: registry, tmp_dir: tmp_dir} do
     pid = start_supervised!({Admission, base_opts(registry: registry, tmp_dir: tmp_dir)})

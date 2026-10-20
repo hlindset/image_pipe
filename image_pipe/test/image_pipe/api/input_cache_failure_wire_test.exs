@@ -96,7 +96,7 @@ defmodule ImagePipe.API.InputCacheFailureWireTest do
     :erlang.trace(ctx.admission, false, [:receive])
 
     refute_received {:trace, _, :receive, {:"$gen_call", _, {:refresh_source_record, _, _, _}}}
-    refute_received {:trace, _, :receive, {:"$gen_call", _, {:decide, _, _}}}
+    refute_received {:trace, _, :receive, {:"$gen_call", _, {:decide, _, _, _}}}
   end
 
   @tag capture_log: true
