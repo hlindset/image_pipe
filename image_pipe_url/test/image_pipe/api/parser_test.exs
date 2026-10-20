@@ -1284,6 +1284,30 @@ defmodule ImagePipe.API.ParserTest do
              } = request
     end
 
+    test "a modifier merges into the preset's set instead of replacing it" do
+      config = [
+        presets: %{
+          "anchored" => "w=10/h=10/fit=cover/anchor=left/anchor-offset=1,1",
+          "extended" => "extend/extend-at=top/w=10/h=10",
+          "focused" => "w=10/h=10/fit=cover/focus=0.5,0.5"
+        }
+      ]
+
+      for {preset, url, expected} <- [
+            {"anchored", "anchor-offset=unset", "w=10/h=10/fit=cover/anchor=left"},
+            {"anchored", "anchor-offset=5,5",
+             "w=10/h=10/fit=cover/anchor=left/anchor-offset=5,5"},
+            {"extended", "extend-at=unset", "extend/w=10/h=10"},
+            {"extended", "extend-at=bottom", "extend/extend-at=bottom/w=10/h=10"},
+            {"focused", "anchor-offset=5,5",
+             "w=10/h=10/fit=cover/focus=0.5,0.5/anchor-offset=5,5"}
+          ] do
+        assert parse(["preset=#{preset}", url], "images/cat.jpg", config) ==
+                 parse(String.split(expected, "/")),
+               url
+      end
+    end
+
     test "an explicit URL option displaces every preset level for that key" do
       config = [request_defaults: "w=100", presets: %{"card" => "w=300"}]
 

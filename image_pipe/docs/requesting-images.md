@@ -284,17 +284,23 @@ win over the preset's options in the same group, so with a `card` preset of
   request. A `format` you write yourself wins over every preset.
 - Some options replace a related set rather than one value. Writing
   `anchor`, `focus`, or `detect` replaces the preset's whole crop target,
-  `region` replaces its `crop`, `q` replaces its `autoquality` and
-  `format-q`, and `wm` replaces its watermark. A `format-q` in your own URL
-  still wins over your `q` for the formats it lists.
+  `crop` and `region` replace each other, `extend` or `extend-ratio`
+  replaces its [canvas](processing/resize.md#extend-and-extend-ratio),
+  `q` and `autoquality` replace each other, `q` also replaces `format-q`,
+  and `wm` replaces its watermark. A `format-q` in your own URL still wins
+  over your `q` for the formats it lists. `anchor-offset`, `extend-at`, and
+  `extend-offset` keep the preset's crop target or canvas and change only
+  themselves.
 - `format-q` and the encoder options combine field by field. Your
   `jpeg-options=quant-table:3` keeps a preset's `progressive`, and a field
   set in both takes your value.
-- `unset` removes a preset's value as if it had never been set:
-  `/preset=brand/wm=unset` removes the watermark. Every option except
-  `preset` accepts `unset`. In `format-q` and the encoder options, `unset`
-  can come first: `jpeg-options=unset,progressive` drops the preset's JPEG
-  settings, then turns on `progressive`.
+- `unset` removes a preset's value: `/preset=brand/wm=unset` removes the
+  watermark. On an option that replaces a related set, `unset` removes the
+  whole set, so `crop=unset` also removes a preset's `region`. `q=unset`
+  keeps the preset's `format-q`. Every option except `preset` accepts
+  `unset`. In `format-q` and the encoder options, `unset` can come first:
+  `jpeg-options=unset,progressive` drops the preset's JPEG settings, then
+  turns on `progressive`.
 
 The server's configuration can also set defaults for the first group of every
 request. Presets and your own options win over them, and `unset` removes them

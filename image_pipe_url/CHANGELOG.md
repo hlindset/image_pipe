@@ -7,6 +7,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A URL's `anchor-offset`, `extend-at`, or `extend-offset` no longer
+  replaces the crop target or canvas from a preset or the request defaults,
+  and its `unset` removes only that option. Before, `anchor-offset=5,5`
+  dropped a preset's `anchor`, and `extend-at=unset` dropped its `extend`.
 - A `trim` tolerance above `2147483647` is rejected, both in a URL and by
   `ImagePipe.URL.group/2`.
 
