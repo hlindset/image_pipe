@@ -390,10 +390,13 @@ defmodule ImagePipe.API.Parser do
         # Explicit occurrences stay first, so diagnostics use the original URL
         # spans where possible. Preset contributions point to the group's
         # preset reference.
+        # Expansion drops a group with no options left. Its group options go
+        # with it, and request options keep their place.
         explicit =
-          Enum.map(occurrences, fn occurrence ->
-            %{occurrence | group_index: Map.get(new_index, occurrence.group_index, 0)}
-          end)
+          for occurrence <- occurrences,
+              index = new_group_index(occurrence, new_index),
+              index != nil,
+              do: %{occurrence | group_index: index}
 
         synthetic =
           Enum.flat_map(groups, fn {index, options} ->
@@ -442,6 +445,11 @@ defmodule ImagePipe.API.Parser do
         nil
     end
   end
+
+  defp new_group_index(%{spec: %OptionSpec{scope: :request}} = occurrence, new_index),
+    do: Map.get(new_index, occurrence.group_index, 0)
+
+  defp new_group_index(occurrence, new_index), do: Map.get(new_index, occurrence.group_index)
 
   defp resolve(groups, request, occurrences, config) do
     invalid =

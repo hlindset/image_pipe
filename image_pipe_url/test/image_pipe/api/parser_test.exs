@@ -1421,6 +1421,21 @@ defmodule ImagePipe.API.ParserTest do
                parse(["blur=2"])
     end
 
+    test "a group holding only unsets keeps the request defaults out of later groups" do
+      config = [request_defaults: "w=200"]
+
+      assert parse(["w=unset", "-", "blur=2"], "images/cat.jpg", config) == parse(["blur=2"])
+
+      assert parse(["w=unset", "format=webp", "-", "blur=2"], "images/cat.jpg", config) ==
+               parse(["blur=2", "format=webp"])
+
+      # A first group of only request options is no group of its own.
+      config = [request_defaults: "w=200", presets: %{"webp" => "format=webp"}]
+
+      assert parse(["preset=webp", "-", "crop=100,100"], "images/cat.jpg", config) ==
+               parse(["format=webp", "-", "crop=100,100"], "images/cat.jpg", config)
+    end
+
     test "unset keeps inherited options whose requirement still holds" do
       config = [
         presets: %{

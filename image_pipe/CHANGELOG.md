@@ -72,6 +72,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The request defaults apply to a URL's first group even when that group
+  holds only `unset` options. Before, they moved to the next group, so
+  `w=unset/-/blur=2` with a default `w=200` was still resized to 200
+  pixels wide.
 - A request that stopped waiting for another request's download of an
   original, just as that download finished, no longer keeps the original
   locked. Later requests for that original waited behind the lock until

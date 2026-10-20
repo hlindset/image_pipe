@@ -10,6 +10,14 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A `trim` tolerance above `2147483647` is rejected, both in a URL and by
   `ImagePipe.URL.group/2`.
 
+### Fixed
+
+- Checking a URL with `:validate_against` applies the request defaults to
+  the URL's first group, as the server does, even when that group holds
+  only `unset` options or names a preset the check doesn't know. Before,
+  the defaults were checked with the next group, so the check could
+  disagree with the server.
+
 ## [0.3.0] - 2026-10-18
 
 ### Added
