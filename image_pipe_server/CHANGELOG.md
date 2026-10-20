@@ -34,6 +34,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The lines the libraries the server uses log while it starts, such as the
   CA certificates loading, follow `[telemetry] log_level` and `log_format`.
   Before, they were always text and ignored `log_level`.
+- The log keeps every line the server can write. Before, it kept at most
+  500 lines a second and dropped the rest without a notice.
+- A log collector that reads the container's output slowly no longer delays
+  requests. Before, a request could wait several seconds. Lines the server
+  can't write are dropped, and a `notice` line says when dropping starts and
+  stops. See [Logging](docs/server-deployment.md#logging).
 
 ## [0.3.0] - 2026-10-18
 

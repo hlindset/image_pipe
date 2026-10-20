@@ -458,6 +458,20 @@ Change what's logged in `[telemetry]`:
   default, so a host that attaches a terminal to the container, such as
   `docker run -t`, doesn't store color codes.
 
+The request log can miss lines under heavy load, so count requests at the
+CDN, or count cache hits and misses with [`/metrics`](#cache-stats). The
+server writes about 1,000 lines a second, and fewer when the log collector
+reads the container's output slowly. Lines past that are dropped, so that
+requests don't wait for the log. Cache hits are the likeliest to reach that
+rate, since they are the cheapest requests. The server logs a `notice` line
+when it starts dropping lines and another when it stops, at any
+`log_level`:
+
+```text
+2026-10-15 21:42:22.104 [notice] Handler default switched from async to drop mode
+2026-10-15 21:42:22.391 [notice] Handler default switched from drop to async mode
+```
+
 Every response carries an `x-request-id` header, and every log line for that
 request is tagged `request_id=<id>`. The server generates the ID. Behind a
 proxy or CDN that sets `x-request-id`, set `[telemetry] trust_request_id = true`
