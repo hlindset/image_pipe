@@ -347,8 +347,10 @@ defmodule ImagePipe do
       #=> }
 
   The map has an `:output` entry for the `cache` option and an `:input` entry
-  for `input_cache`, and leaves out a cache that isn't configured or whose
-  `root` another node [owns](cache.md#cache-root-owner-file).
+  for `input_cache`. It leaves out a cache that isn't configured, whose
+  `root` another node [owns](cache.md#cache-root-owner-file), or whose
+  process is restarting or doesn't answer within 5 seconds. Raises
+  `ArgumentError` when no instance with the name is running.
 
     * `:bytes` and `:entries` - what the cache stores now.
     * `:max_bytes` - the cache's `max_size_bytes`.

@@ -300,8 +300,12 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   def discard_prepared(prepared), do: cleanup_sink_state(prepared)
 
   @doc false
+  # Admission can be busy or restarting, so a stats caller gets no usage for
+  # that cache rather than an exit.
   def usage(opts) do
     with {:ok, pid} <- lookup_admission(opts), do: {:ok, Admission.usage(pid)}
+  catch
+    :exit, _reason -> {:error, :admission_unavailable}
   end
 
   defp lookup_admission(opts) do
