@@ -307,7 +307,21 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     end
   end
 
-  # A timed-out commit stays queued, and Admission still publishes it.
+  # Decides whether a write is kept, once its body is written but before it
+  # is synced, so a rejected body is deleted without ever being synced.
+  # Returns `{:admit, victims}`, the key hashes and body filenames of the
+  # entries the write was judged against, which the writer passes back with
+  # its commit. `held` is the writer's own pending bytes.
+  def decide(server, body_filename, held, timeout) do
+    GenServer.call(server, {:decide, body_filename, held}, timeout)
+  catch
+    :exit, {:timeout, _call} -> {:error, :admission_timeout}
+    :exit, _reason -> {:error, :admission_unavailable}
+  end
+
+  # A commit follows an admit from decide/4, with its victims in the
+  # prepared write's `:victims`. A timed-out commit stays queued, and
+  # Admission still publishes it.
   def commit(server, prepared, body_filename, timeout) do
     GenServer.call(server, {:commit, prepared, body_filename}, timeout)
   catch
@@ -327,10 +341,8 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   @impl true
-  def handle_call({:commit, prepared, body_filename}, _from, state) do
-    descriptor = FileSystem.descriptor(prepared, body_filename)
-    # The write's own pending bytes aren't another write's.
-    pending = max(Writers.pending(state.root) - Map.get(prepared, :held, 0), 0)
+  def handle_call({:decide, body_filename, held}, _from, state) do
+    descriptor = FileSystem.descriptor(nil, body_filename)
     # The request that wrote it already counted as a sighting when it
     # missed. A write no request missed, such as a source record, still
     # counts once.
@@ -338,10 +350,26 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
     result =
       Telemetry.span(tel_opts(state), [:cache, :admission], %{pool: state.pool}, fn ->
-        result = decide(state, descriptor, pending)
+        result = decide(state, descriptor, pending(state, held))
         {result, admission_meta(result)}
       end)
 
+    reply =
+      case result do
+        {:admit, victims} -> {:admit, Enum.map(victims, &{&1.key_hash, &1.body_filename})}
+        {:reject, _reason} -> result
+      end
+
+    {:reply, reply, state}
+  end
+
+  # The decision was made before the body was synced, so the commit evicts
+  # the victims it was judged against rather than judging again, which
+  # would keep a new key less often.
+  def handle_call({:commit, prepared, body_filename}, _from, state) do
+    descriptor = FileSystem.descriptor(prepared, body_filename)
+    pending = pending(state, Map.get(prepared, :held, 0))
+    result = room(state, descriptor, pending, Map.fetch!(prepared, :victims))
     {reply, state} = finish_commit(result, prepared, descriptor, state)
     {:reply, reply, state}
   end
@@ -404,10 +432,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   # bytes the write adds, and the startup scan's batches evict the rest, so
   # one write doesn't evict the whole excess while every request waits.
   defp decide(state, descriptor, pending) do
-    replaced = state |> entry(descriptor.key_hash) |> entry_size()
-    added = pending + descriptor.size_bytes - replaced
-
-    needed = min(state.stored_bytes + added - state.max_size_bytes, added)
+    needed = needed(state, descriptor, pending)
 
     cond do
       descriptor.size_bytes > state.max_size_bytes ->
@@ -422,6 +447,45 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
         |> gate(state, descriptor)
     end
   end
+
+  # The room an admitted write needs now. Its decided victims still stored
+  # with the same body give it first. Only when they no longer cover it,
+  # after the cache changed while the body synced, are more sampled, and the
+  # write is judged against all of them.
+  defp room(state, descriptor, pending, decided) do
+    needed = needed(state, descriptor, pending)
+
+    victims =
+      for {key_hash, body_filename} <- decided,
+          %{body_filename: ^body_filename} = victim <- [entry(state, key_hash)],
+          do: victim
+
+    covered = victims |> Enum.map(& &1.size_bytes) |> Enum.sum()
+
+    cond do
+      needed <= 0 ->
+        {:admit, []}
+
+      covered >= needed ->
+        {:admit, victims}
+
+      true ->
+        taken = MapSet.new([descriptor.key_hash | Enum.map(victims, & &1.key_hash)])
+
+        state
+        |> sample_victims(taken, needed - covered, victims)
+        |> gate(state, descriptor)
+    end
+  end
+
+  defp needed(state, descriptor, pending) do
+    replaced = state |> entry(descriptor.key_hash) |> entry_size()
+    added = pending + descriptor.size_bytes - replaced
+    min(state.stored_bytes + added - state.max_size_bytes, added)
+  end
+
+  # The write's own pending bytes aren't another write's.
+  defp pending(state, held), do: max(Writers.pending(state.root) - held, 0)
 
   defp gate(:error, _state, _descriptor), do: {:reject, :no_evictable_victims}
 

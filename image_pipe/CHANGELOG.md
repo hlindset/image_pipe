@@ -91,6 +91,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `autoquality` already made to narrow that search, so such a request takes
   less time. `[:encode, :search, :probe]` spans of the `:cap` phase no
   longer carry `:score`.
+- A cache with `max_size_bytes` deletes a rejected write without syncing it
+  to disk. Once the popular images don't fit in the cache, that saves most
+  of its write I/O. A write that waits more than 5 seconds to be kept or
+  rejected is dropped and reported as `error: :admission_timeout`.
+  `[:cache, :admission]` is now emitted before the sync, and its
+  `:victim_count` counts the entries the write was compared with.
 - `[:transform, :detect, :skipped]` is also emitted when `anchor=smart-face`
   uses attention because `detector_required` is set and the face model isn't
   loaded yet (`result: :not_ready`) or the detector has no face model

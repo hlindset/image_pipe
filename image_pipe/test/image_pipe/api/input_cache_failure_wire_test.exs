@@ -71,7 +71,7 @@ defmodule ImagePipe.API.InputCacheFailureWireTest do
 
   @tag capture_log: true
   test "input publication failure still delivers the generated image", ctx do
-    result = fail_admission(ctx, :commit)
+    result = fail_admission(ctx, :decide)
     assert %Plug.Conn{status: 200} = result
     image = Image.from_binary!(result.resp_body)
     assert {Image.width(image), Image.height(image)} == {12, 8}
@@ -96,7 +96,7 @@ defmodule ImagePipe.API.InputCacheFailureWireTest do
     :erlang.trace(ctx.admission, false, [:receive])
 
     refute_received {:trace, _, :receive, {:"$gen_call", _, {:refresh_source_record, _, _, _}}}
-    refute_received {:trace, _, :receive, {:"$gen_call", _, {:commit, _, _}}}
+    refute_received {:trace, _, :receive, {:"$gen_call", _, {:decide, _, _}}}
   end
 
   @tag capture_log: true

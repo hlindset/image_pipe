@@ -256,11 +256,37 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     end
   end
 
+  # Admission decides once the body is written, before it's synced, so a
+  # rejected body is deleted without reaching the disk. Tests shorten the
+  # commit's wait with `:commit_timeout`.
   defp commit_bounded(state, pid, opts) do
-    case prepare_sink_commit(state) do
-      {:ok, prepared, body_filename} ->
-        prepared = Map.put(prepared, :held, Writers.held())
-        admit_commit(prepared, body_filename, pid, opts)
+    timeout = Keyword.get(opts, :commit_timeout, @commit_timeout)
+    body_sha256 = sink_body_sha256(state)
+
+    body_filename =
+      body_filename(state.paths.hash, body_sha256, state.size, cost_us(state.metadata))
+
+    held = Writers.held()
+
+    case Admission.decide(pid, body_filename, held, @commit_timeout) do
+      {:admit, victims} ->
+        commit_admitted(state, {body_sha256, body_filename, held, victims}, pid, timeout)
+
+      {:reject, _reason} ->
+        cleanup_sink_state(state)
+        {:ok, :rejected}
+
+      {:error, _reason} = error ->
+        cleanup_sink_state(state)
+        error
+    end
+  end
+
+  defp commit_admitted(state, {body_sha256, body_filename, held, victims}, pid, timeout) do
+    case prepare_sink_commit(state, body_sha256, body_filename) do
+      {:ok, prepared} ->
+        prepared = Map.merge(prepared, %{held: held, victims: victims})
+        admit_commit(prepared, body_filename, pid, timeout)
 
       {:error, reason, prepared} ->
         cleanup_sink_state(prepared)
@@ -270,10 +296,8 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   # Admission owns the prepared files once the commit is sent, and publishes or
   # removes them even after this call times out. They are left here only when
-  # Admission is gone. Tests shorten the wait with `:commit_timeout`.
-  defp admit_commit(prepared, body_filename, pid, opts) do
-    timeout = Keyword.get(opts, :commit_timeout, @commit_timeout)
-
+  # Admission is gone.
+  defp admit_commit(prepared, body_filename, pid, timeout) do
     case Admission.commit(pid, prepared, body_filename, timeout) do
       {:error, :admission_unavailable} = error ->
         cleanup_sink_state(prepared)
@@ -286,7 +310,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   @doc false
   # Admission's descriptor of a prepared write, before it's published, read
-  # back from the body filename prepare_sink_commit/1 built.
+  # back from the body filename commit_bounded/3 built.
   def descriptor(_prepared, body_filename) do
     {:ok, descriptor} = parse_body_filename(body_filename)
     descriptor
@@ -323,17 +347,14 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   # The body reaches the disk before its rename publishes it, so a crash can't
   # leave a published body at full length with lost blocks. Hits check only
   # the size, which wouldn't catch that.
-  defp prepare_sink_commit(state) do
+  defp prepare_sink_commit(state, body_sha256, body_filename) do
     with :ok <- refresh_body_time(state),
          :ok <- :file.datasync(state.body_io),
          :ok <- close_body_io(state),
-         body_sha256 = sink_body_sha256(state),
-         body_filename =
-           body_filename(state.paths.hash, body_sha256, state.size, cost_us(state.metadata)),
          encoded_metadata = sink_metadata(state, body_sha256, body_filename),
          {:ok, temp_meta_path} <- write_sink_metadata(state.paths, encoded_metadata) do
       prepared = state |> Map.put(:temp_meta_path, temp_meta_path) |> Map.delete(:body_io)
-      {:ok, prepared, body_filename}
+      {:ok, prepared}
     else
       {:error, reason} -> {:error, reason, state}
     end

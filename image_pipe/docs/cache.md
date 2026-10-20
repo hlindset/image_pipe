@@ -355,6 +355,11 @@ download took.
   128. The stored bodies never exceed the cap, except briefly while the
   startup scan runs: until the scan has counted the entries on disk, writes
   are measured against only the entries counted so far.
+- A rejected write's body is deleted without being synced to disk. A kept
+  write is synced, then stored, evicting the entries it was compared with.
+  If other writes filled the cache during the sync so that those entries no
+  longer make room, the kept write is compared with more entries and can
+  still be rejected.
 - An entry larger than the limit on unfinished writes is never stored (see
   [writing entries](#writing-entries)).
 - On startup the process lists the entries on disk in the background,
@@ -365,8 +370,11 @@ download took.
 
 A write that waits more than 5 seconds for the cache process is reported as
 a [cache write](telemetry-events.md#cache-write) error with
-`error: :admission_timeout`. The cache process still handles the queued write
-and stores or rejects the entry as usual.
+`error: :admission_timeout`:
+
+- A write that timed out before it was kept or rejected is dropped.
+- A kept write that timed out before it was stored is still stored or
+  rejected by the cache process.
 
 ### Eviction limitations
 

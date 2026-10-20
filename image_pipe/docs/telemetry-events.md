@@ -631,13 +631,21 @@ The default Logger logs a check that deleted nothing at `:debug`.
 
 ### `[:cache, :admission]`
 
-Span. Emitted by a cache when it decides whether to keep a new entry.
+Span. Emitted when a cache keeps or rejects a new entry, after its body is
+written and before it's synced to disk.
 
 - Start metadata: `:pool` (atom).
 - Stop metadata:
   - `:result` (atom): `:admitted` or `:rejected`.
   - `:reason` (atom): why the entry was rejected.
-  - `:victim_count` (integer): entries evicted to make room.
+  - `:victim_count` (integer): entries the new one was compared with.
+
+An `:admitted` entry can still go unstored: when other writes fill the cache
+during its sync and it loses a second comparison, or when the write fails
+after the decision, including a write that timed out waiting for it.
+Its [`[:cache, :write]`](#cache-write) event has the outcome, and
+[`[:cache, :eviction, :stop]`](#cache-eviction-stop) counts the entries
+actually evicted.
 
 ### `[:cache, :eviction, :stop]`
 

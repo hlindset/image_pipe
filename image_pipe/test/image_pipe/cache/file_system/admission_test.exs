@@ -202,6 +202,25 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
       assert stored_bytes(ctx.pid) == 10_000
     end
 
+    test "syncs only the writes it admits", ctx do
+      test = self()
+      tracer = spawn_link(fn -> forward_traces(test) end)
+      :erlang.trace_pattern({:file, :datasync, 1}, true, [])
+      :erlang.trace(self(), true, [:call, {:tracer, tracer}])
+
+      try do
+        assert {:ok, :rejected} = put_with_cost(ctx.pool, "cheap", 10)
+        assert :ok = put_with_cost(ctx.pool, "costly", 100_000)
+
+        # One sync across both writes: the admitted one's.
+        assert_receive {:trace, _, :call, {:file, :datasync, _}}
+        refute_received {:trace, _, :call, {:file, :datasync, _}}
+      after
+        :erlang.trace(self(), false, [:call])
+        :erlang.trace_pattern({:file, :datasync, 1}, false, [])
+      end
+    end
+
     test "may admit a losing entry once it has been requested six times", ctx do
       # Make the random admission draw always succeed.
       :sys.replace_state(ctx.pid, &%{&1 | random_admission_one_in: 1})
@@ -561,6 +580,15 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
          {:ok, sink} <- FileSystem.write_chunk(sink, body, pool) do
       FileSystem.commit_sink(sink, pool)
     end
+  end
+
+  # A process can't trace itself to itself, so a tracer passes its messages on.
+  defp forward_traces(test) do
+    receive do
+      message -> send(test, message)
+    end
+
+    forward_traces(test)
   end
 
   defp body(seed, size), do: String.pad_leading(seed, size, "x")
