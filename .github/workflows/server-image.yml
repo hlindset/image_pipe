@@ -16,20 +16,39 @@ on:
       - "image_pipe_svg/mix.exs"
       - "image_pipe_svg/mix.lock"
       - "image_pipe_server/**"
+      - "!image_pipe_server/docs/**"
+      - "!image_pipe_server/**/*.md"
+      - "!image_pipe_server/test/image_pipe_server/**"
       - ".github/workflows/server-image.yml"
       - ".github/actions/docker-buildx/**"
   pull_request:
     branches: ["main"]
     paths: *image_paths
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 permissions:
   contents: read
+
+# A push to a pull request, or adding or removing its skip-tests label, cancels
+# the run in progress. Other label events and pushes to main get a group of
+# their own.
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{ github.event_name == 'pull_request'
+    && (!contains(fromJSON('["labeled", "unlabeled"]'), github.event.action) || github.event.label.name == 'skip-tests')
+    && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   # Each architecture builds on its own native runner, like the release. The
   # cache scopes match the ones the release reads for the sibling projects.
   image:
     name: Docker image (${{ matrix.variant }}, ${{ matrix.platform.arch }})
+    # Skipped on a pull request labeled skip-tests and on events for other labels.
+    if: >-
+      github.event_name != 'pull_request'
+      || !contains(github.event.pull_request.labels.*.name, 'skip-tests')
+      && (!contains(fromJSON('["labeled", "unlabeled"]'), github.event.action) || github.event.label.name == 'skip-tests')
     runs-on: ${{ matrix.platform.runner }}
     strategy:
       fail-fast: false

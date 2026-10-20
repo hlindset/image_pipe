@@ -5,7 +5,6 @@ on:
     branches: ["main"]
     paths: &elixir_paths
       - "image_pipe_url/lib/**"
-      - "image_pipe_url/test/**"
       - "image_pipe_url/mix.exs"
       - "image_pipe_url/mix.lock"
       - "image_pipe/lib/**"
@@ -23,82 +22,41 @@ on:
   pull_request:
     branches: ["main"]
     paths: *elixir_paths
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 permissions:
   contents: read
 
-jobs:
-  url:
-    name: image_pipe_url / Elixir ${{ matrix.toolchain.elixir }} / OTP ${{ matrix.toolchain.erlang }}
-    runs-on: ubuntu-26.04
-    strategy:
-      fail-fast: false
-      matrix:
-        toolchain:
-          - { elixir: 1.18.5-otp-27, erlang: "27" }
-          - { elixir: 1.19.6-otp-28, erlang: "28" }
-          - { elixir: 1.20.4-otp-29, erlang: "29.1.1" }
-    env:
-      # Use only the tools mise-action installs, not every tool in mise.toml.
-      MISE_EXEC_AUTO_INSTALL: "false"
-      MISE_ERLANG_VERSION: ${{ matrix.toolchain.erlang }}
-      MISE_ELIXIR_VERSION: ${{ matrix.toolchain.elixir }}
-      MIX_ENV: test
-    defaults:
-      run:
-        working-directory: image_pipe_url
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      # Caches holding compiled code are keyed by runner image (e.g. ubuntu26):
-      # runner.os is just "Linux", so a runner upgrade would restore binaries
-      # built against the previous release's libraries.
-      - name: Runner image
-        id: runner
-        run: |
-          echo "image=$ImageOS" >> "$GITHUB_OUTPUT"
-          # Workaround: mise (2026.9.18) maps ImageOS to builds.hex.pm's Erlang
-          # builds only up to ubuntu24 and compiles from source otherwise, so
-          # name the release. Remove once mise maps ubuntu26 itself
-          # (linux_precompiled_os_version in src/plugins/core/erlang.rs).
-          echo "MISE_ERLANG_PRECOMPILED_OS=${ImageOS/ubuntu/ubuntu-}.04" >> "$GITHUB_ENV"
-      - uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
-        with:
-          install_args: erlang elixir
-      - name: Install Hex
-        run: mise exec -- mix local.hex --force
-      - name: Install Rebar
-        run: mise exec -- mix local.rebar --force
-      - name: Cache deps and build
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            image_pipe_url/deps
-            image_pipe_url/_build
-          key: url-mix-${{ steps.runner.outputs.image }}-${{ matrix.toolchain.elixir }}-${{ matrix.toolchain.erlang }}-${{ hashFiles('image_pipe_url/mix.lock') }}
-          restore-keys: |
-            url-mix-${{ steps.runner.outputs.image }}-${{ matrix.toolchain.elixir }}-${{ matrix.toolchain.erlang }}-
-      - name: Install dependencies
-        run: mise exec -- mix deps.get
-      - name: Compile
-        run: mise exec -- mix compile --warnings-as-errors
-      - name: Run tests
-        run: mise exec -- mix test --no-compile
+# A push to a pull request, or adding or removing its skip-tests or full-ci
+# label, cancels the run in progress. Other label events and pushes to main
+# get a group of their own.
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{ github.event_name == 'pull_request'
+    && (!contains(fromJSON('["labeled", "unlabeled"]'), github.event.action) || contains(fromJSON('["skip-tests", "full-ci"]'), github.event.label.name))
+    && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: true
 
+jobs:
   build:
     name: Elixir ${{ matrix.toolchain.elixir }} / OTP ${{ matrix.toolchain.erlang }} (${{ matrix.partition }}/3)
+    # Skipped on a pull request labeled skip-tests and on events for other labels.
+    if: >-
+      github.event_name != 'pull_request'
+      || !contains(github.event.pull_request.labels.*.name, 'skip-tests')
+      && (!contains(fromJSON('["labeled", "unlabeled"]'), github.event.action) || contains(fromJSON('["skip-tests", "full-ci"]'), github.event.label.name))
     runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
-        toolchain:
-          - { elixir: 1.18.5-otp-27, erlang: "27" }
-          - { elixir: 1.19.6-otp-28, erlang: "28" }
-          # `reference` runs the whole-image suites (imgproxy references and
-          # goldens) once, in partition 1; their pixels depend on libvips, not on
-          # the toolchain.
-          - { elixir: 1.20.4-otp-29, erlang: "29.1.1", reference: true }
+        # Pull requests test the newest toolchain; pushes to main and pull
+        # requests labeled full-ci test all three. `reference` runs the
+        # whole-image suites (imgproxy references and goldens) once, in
+        # partition 1; their pixels depend on libvips, not on the toolchain.
+        toolchain: >-
+          ${{ fromJSON((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci'))
+          && '[{"elixir": "1.18.5-otp-27", "erlang": "27"}, {"elixir": "1.19.6-otp-28", "erlang": "28"}, {"elixir": "1.20.4-otp-29", "erlang": "29.1.1", "reference": true}]'
+          || '[{"elixir": "1.20.4-otp-29", "erlang": "29.1.1", "reference": true}]') }}
         partition: [1, 2, 3]
 
     # Build current libvips for clamp/maxpair, PNG palette quantization, and
