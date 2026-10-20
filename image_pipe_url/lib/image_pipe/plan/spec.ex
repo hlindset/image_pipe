@@ -150,7 +150,7 @@ defmodule ImagePipe.Plan.Spec do
       dpr: Map.get(group_map, :dpr, 1.0),
       trim: assemble_trim(Map.get(group_map, :trim)),
       trim_symmetry: Map.get(group_map, :trim_symmetry),
-      region: assemble_lengths(Map.get(group_map, :region)),
+      region: assemble_region(Map.get(group_map, :region)),
       crop: assemble_lengths(Map.get(group_map, :crop)),
       crop_ratio: Map.get(group_map, :crop_ratio),
       crop_ratio_enlarge: Map.get(group_map, :crop_ratio_enlarge, false),
@@ -359,6 +359,18 @@ defmodule ImagePipe.Plan.Spec do
   defp assemble_bg(nil), do: nil
   defp assemble_bg({{r, g, b}, nil}), do: {r, g, b, 1.0}
   defp assemble_bg({{r, g, b}, alpha}), do: {r, g, b, fraction(alpha)}
+
+  # A zero origin is the same in any unit, so it takes one spelling and one
+  # cache key, as an offset does.
+  defp assemble_region(nil), do: nil
+
+  defp assemble_region(region) do
+    {x, y, width, height} = assemble_lengths(region)
+    {normalize_zero_origin(x), normalize_zero_origin(y), width, height}
+  end
+
+  defp normalize_zero_origin({_unit, 0}), do: {:px, 0}
+  defp normalize_zero_origin(length), do: length
 
   defp assemble_lengths(nil), do: nil
 

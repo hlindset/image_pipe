@@ -105,6 +105,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   or `nil`, raises an `ArgumentError` that names `:presets` instead of a
   `Protocol.UndefinedError`. A list of `{name, fragment}` pairs is no
   longer accepted.
+- A `region` whose x or y is `0pct` gets the cache key and ETag of the same
+  region written with `0`. Cached copies of such requests miss once after an
+  upgrade.
 - A `src` URL with credentials that decodes to invalid UTF-8 no longer loses
   its request summary log line.
 - When the first load of the face or object model failed, each detection

@@ -137,6 +137,11 @@ defmodule ImagePipe.API.ParserTest do
              }
     end
 
+    test "a zero region origin in pct is the same as in px" do
+      assert parse(["region=0pct,0pct,10,10"]) == parse(["region=0,0,10,10"])
+      assert parse(["region=0pct,5,10,10"]) == parse(["region=0,5,10,10"])
+    end
+
     test "trim=color defaults its tolerance to 10, canonically equal to explicit ,10" do
       assert {:ok, defaulted} = parse(["trim=fff"])
       assert {:ok, explicit} = parse(["trim=fff,10"])

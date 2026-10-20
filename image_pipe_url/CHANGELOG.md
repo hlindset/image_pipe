@@ -16,6 +16,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `ImagePipe.URL.config/1` raises an `ArgumentError` that names `:presets`
   when the `:presets` in `:validate_against` isn't a map with string keys,
   instead of a `Protocol.UndefinedError`.
+- A `region` whose x or y is `0pct` gives the same plan as one written with
+  `0`.
 - `autoquality` and `max-bytes` are reported as ignored options with
   `format=webp` and lossless `webp-options`, as with `format=png`.
 
