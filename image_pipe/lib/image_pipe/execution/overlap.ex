@@ -39,6 +39,7 @@ defmodule ImagePipe.Execution.Overlap do
           download: download,
           task: task,
           notification: notification,
+          wait: wait(config),
           expected: expected,
           first: nil,
           status: :observing
@@ -114,7 +115,16 @@ defmodule ImagePipe.Execution.Overlap do
   end
 
   def finish(%{status: :running} = state),
-    do: state |> completed(await(state.task, 60_000)) |> finish()
+    do: state |> completed(await(state.task, state.wait)) |> finish()
+
+  # A pool's queue and processing deadlines bound the wait, as they bound an
+  # unoverlapped request's.
+  defp wait(config) do
+    case Keyword.get(config, :processing_pool) do
+      nil -> 60_000
+      _pool -> :infinity
+    end
+  end
 
   def cancel(state), do: close(state)
 
@@ -178,8 +188,10 @@ defmodule ImagePipe.Execution.Overlap do
     end
   end
 
-  defp completed(state, {:ok, {:error, {:processing, reason}}})
-       when reason in [:overloaded, :queue_timeout], do: %{state | status: :skip}
+  # A full queue turns the request away before it waited, so it may still
+  # queue for the full source. A queue timeout already waited its turn.
+  defp completed(state, {:ok, {:error, {:processing, :overloaded}}}),
+    do: %{state | status: :skip}
 
   defp completed(state, :timeout),
     do: %{state | status: {:ready, {:error, {:processing, :timeout}}}}

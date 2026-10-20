@@ -471,6 +471,46 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
     assert Task.await(sibling, 10_000).status == 200
   end
 
+  test "overlapped processing that times out in the queue answers 503 without queueing again",
+       context do
+    pool =
+      start_supervised!({ImagePipe.ProcessingPool, max_concurrency: 1, queue_timeout: 60_000})
+
+    context = restart(context, Keyword.put(context.options, :processing_pool, pool))
+    test = self()
+
+    _holder =
+      Task.Supervisor.async_nolink(context.tasks, fn ->
+        ImagePipe.ProcessingPool.run(
+          pool,
+          fn ->
+            send(test, {:holding, self()})
+            receive(do: (:release -> :ok))
+          end,
+          []
+        )
+      end)
+
+    assert_receive {:holding, holder}, 2_000
+    task = Task.Supervisor.async_nolink(context.tasks, fn -> request(context) end)
+    assert_receive {:origin_held, origin}, 2_000
+    await_stats(pool, %{active: 1, queued: 1})
+
+    # Fire the queued overlap's deadline instead of waiting for it.
+    [{token, %{phase: :queued, deadline: deadline}}] =
+      for {token, %{phase: :queued} = job} <- :sys.get_state(pool).jobs, do: {token, job}
+
+    send(pool, {:deadline, token, :queued, deadline})
+    _ = :sys.get_state(pool)
+    send(origin, :continue)
+
+    response = Task.await(task, 10_000)
+    assert response.status == 503
+    assert Plug.Conn.get_resp_header(response, "retry-after") == ["60"]
+    await_stats(pool, %{active: 1, queued: 0})
+    send(holder, :release)
+  end
+
   test "request cancellation terminates speculative processing", context do
     task = Task.Supervisor.async_nolink(context.tasks, fn -> request(context) end)
     assert_receive {:origin_held, _}, 2_000
