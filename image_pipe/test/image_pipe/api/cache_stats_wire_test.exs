@@ -76,6 +76,34 @@ defmodule ImagePipe.API.CacheStatsWireTest do
              ImagePipe.cache_stats(Caches.instance(opts))
   end
 
+  test "leaves out a cache whose process exits while it's asked", %{opts: opts} do
+    admission = admission(opts[:input_cache])
+    :sys.suspend(admission)
+    stats = Task.async(fn -> ImagePipe.cache_stats(Caches.instance(opts)) end)
+    await_queued(admission)
+    Process.exit(admission, :kill)
+
+    assert %{output: _output} = result = Task.await(stats)
+    refute Map.has_key?(result, :input)
+  end
+
+  defp admission(cache_opts) do
+    root = Keyword.fetch!(cache_opts, :root)
+    [{pid, _value}] = Registry.lookup(Store.registry_name(root), root)
+    pid
+  end
+
+  # Until the stats call itself is queued: other messages, such as the
+  # startup scan's, can arrive first.
+  defp await_queued(pid) do
+    {:messages, messages} = Process.info(pid, :messages)
+
+    unless Enum.any?(messages, &match?({:"$gen_call", _from, :usage}, &1)) do
+      :erlang.yield()
+      await_queued(pid)
+    end
+  end
+
   test "leaves out a cache that isn't configured" do
     name = Module.concat(__MODULE__, NoCaches)
     start_supervised!({ImagePipe, name: name})
