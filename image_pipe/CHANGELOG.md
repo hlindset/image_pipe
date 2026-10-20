@@ -134,6 +134,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   sent.
 - A `src` URL with credentials that decodes to invalid UTF-8 no longer loses
   its request summary log line.
+- Downscaling a 16-bit image or watermark without transparency no longer
+  darkens it slightly. Each value lost about 0.2%, so white came back as
+  65455 instead of 65535.
 - When the first load of the face or object model failed, each detection
   request waiting for it tried the load again in turn, so the last one
   waited for every attempt. Those requests now fail with the first load's

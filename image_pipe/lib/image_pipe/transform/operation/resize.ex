@@ -7,8 +7,9 @@ defmodule ImagePipe.Transform.Operation.Resize do
   import ImagePipe.Transform.Geometry, only: [image_height: 1, image_width: 1]
   import ImagePipe.Transform.State, only: [set_image: 2]
 
-  alias ImagePipe.Transform.{Materializer, State, WorkLimits}
+  alias ImagePipe.Transform.{Materializer, Rounding, State, WorkLimits}
   alias ImagePipe.Transform.Operation.AlphaPremultiply
+  alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
 
   @enforce_keys [:width, :height]
@@ -52,7 +53,7 @@ defmodule ImagePipe.Transform.Operation.Resize do
       false ->
         with {:ok, state} <- prepare_resize(state),
              {:ok, image} <-
-               resize(state.image, width / source_width, height / source_height, kernel) do
+               resample(state.image, width / source_width, height / source_height, kernel) do
           {:ok, set_image(state, image)}
         end
     end
@@ -62,11 +63,31 @@ defmodule ImagePipe.Transform.Operation.Resize do
   # float result back to the band format, which truncates, so a semi-transparent
   # [200, 120, 37, 100] comes back as [200, 119, 37, 100]. The premultiply
   # helper rounds instead. No upstream fix yet (image_plug-qeqt).
-  defp resize(image, scale, vscale, kernel) do
+  @doc false
+  @spec resample(VipsImage.t(), float(), float(), ImagePipe.Plan.Spec.Group.kernel()) ::
+          {:ok, VipsImage.t()} | {:error, term()}
+  def resample(image, scale, vscale, kernel) do
     AlphaPremultiply.with_alpha_premultiplied(
       image,
-      &Operation.resize(&1, scale, vscale: vscale, kernel: vips_kernel(kernel))
+      &resample_bands(&1, scale, vscale, kernel)
     )
+  end
+
+  # libvips reduces 16-bit images in fixed point that loses about 0.2% of each
+  # value, so white comes back as 65455. In float it doesn't. Enlarging is
+  # exact, and a premultiplied image is already float.
+  defp resample_bands(image, scale, vscale, kernel) do
+    options = [vscale: vscale, kernel: vips_kernel(kernel)]
+
+    case VipsImage.format(image) do
+      :VIPS_FORMAT_USHORT when scale < 1 or vscale < 1 ->
+        with {:ok, float} <- Rounding.to_float(image),
+             {:ok, resized} <- Operation.resize(float, scale, options),
+             do: Rounding.cast(resized, :VIPS_FORMAT_USHORT)
+
+      _other ->
+        Operation.resize(image, scale, options)
+    end
   end
 
   defp vips_kernel(:nearest), do: :VIPS_KERNEL_NEAREST

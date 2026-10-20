@@ -28,7 +28,7 @@ defmodule ImagePipe.Transform.Operation.Watermark do
   import ImagePipe.Transform.Geometry, only: [center_origin: 2]
 
   alias ImagePipe.Transform.Materializer
-  alias ImagePipe.Transform.Operation.AlphaPremultiply
+  alias ImagePipe.Transform.Operation.Resize
   alias ImagePipe.Transform.Rounding
   alias ImagePipe.Transform.State
   alias ImagePipe.Transform.WorkLimits
@@ -127,9 +127,7 @@ defmodule ImagePipe.Transform.Operation.Watermark do
         {:ok, image}
 
       {current_width, current_height} ->
-        AlphaPremultiply.with_alpha_premultiplied(image, fn premultiplied ->
-          Operation.resize(premultiplied, width / current_width, vscale: height / current_height)
-        end)
+        Resize.resample(image, width / current_width, height / current_height, :lanczos3)
     end
   end
 

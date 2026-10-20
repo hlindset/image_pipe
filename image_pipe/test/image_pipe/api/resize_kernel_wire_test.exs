@@ -40,6 +40,16 @@ defmodule ImagePipe.API.ResizeKernelWireTest do
     resized
   end
 
+  test "a 16-bit white image stays white when downscaled" do
+    {:ok, white} = Image.new(2003, 8, color: [65_535, 65_535, 65_535], format: {:u, 16})
+    {:ok, white} = Operation.copy(white, interpretation: :VIPS_INTERPRETATION_RGB16)
+    png = Image.write!(white, :memory, suffix: ".png")
+
+    output = request("hdr=preserve/w=13", png, "image/png") |> decode()
+    assert VipsImage.format(output) == :VIPS_FORMAT_USHORT
+    assert {:ok, {65_535.0, _position}} = Operation.min(output)
+  end
+
   test "a nearest upscale of a checkerboard keeps hard edges" do
     {:ok, checkerboard} =
       VipsImage.new_from_binary(<<0, 255, 255, 0>>, 2, 2, 1, :VIPS_FORMAT_UCHAR)
