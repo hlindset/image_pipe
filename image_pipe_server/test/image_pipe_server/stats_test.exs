@@ -70,6 +70,26 @@ defmodule ImagePipeServer.StatsTest do
     end
   end
 
+  test "a cache whose root another node owns is reported as refused", %{
+    opts: opts,
+    stats: stats
+  } do
+    root = stats.roots.output
+    ImagePipe.Cache.FileSystem.Owner.refuse(root)
+    on_exit(fn -> ImagePipe.Cache.FileSystem.Owner.accept(root) end)
+
+    conn = call(:get, "/stats", opts, "stats-token")
+
+    assert %{"output" => %{"refused" => true, "max_bytes" => 10_000_000} = output} =
+             JSON.decode!(conn.resp_body)
+
+    refute Map.has_key?(output, "hits")
+
+    metrics = call(:get, "/metrics", opts, "stats-token").resp_body
+    assert metrics =~ ~s(image_pipe_cache_refused{cache="output"} 1)
+    refute metrics =~ ~s(image_pipe_cache_lookups_total{cache="output")
+  end
+
   test "/stats reports each cache as JSON", %{opts: opts} do
     assert %{status: 200} = call(:get, "/w=2/format=png/src/pic.png", opts)
 
@@ -98,6 +118,7 @@ defmodule ImagePipeServer.StatsTest do
     assert conn.resp_body =~ ~s(# TYPE image_pipe_cache_lookups_total counter\n)
     assert conn.resp_body =~ ~s(image_pipe_cache_lookups_total{cache="output",result="hit"} 0\n)
     assert conn.resp_body =~ ~s(image_pipe_cache_max_bytes{cache="output"} 10000000\n)
+    assert conn.resp_body =~ ~s(image_pipe_cache_refused{cache="output"} 0\n)
     assert conn.resp_body =~ ~r/image_pipe_cache_disk_free_bytes\{cache="output"\} \d+\n/
   end
 

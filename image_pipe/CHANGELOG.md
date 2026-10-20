@@ -8,7 +8,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - `ImagePipe.cache_stats/1` reports each cache's stored bytes and entries,
-  its size cap, and its hits and misses since start. See
+  its size cap, and its hits and misses since start, or `refused: true` for
+  a cache whose root another node owns. See
   [Usage and hit rate](docs/cache.md#usage-and-hit-rate).
 - `[:request, :summary]` has a `:download` field for a request that waited
   for another request's download of a new original: `:coalesced` when it

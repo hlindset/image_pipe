@@ -705,6 +705,12 @@ defmodule ImagePipe.Config do
   end
 
   @doc false
+  # The configuration the instance published, with every cache it configures,
+  # including ones another node holds.
+  @spec fetch_configured!(atom()) :: t()
+  def fetch_configured!(name), do: published!(name, nil)
+
+  @doc false
   # Requests run without the caches whose root another node holds. A root
   # can be refused after a configuration is built, so each request through an
   # instance drops them.

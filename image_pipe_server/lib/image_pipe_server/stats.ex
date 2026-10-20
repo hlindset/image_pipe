@@ -48,7 +48,10 @@ defmodule ImagePipeServer.Stats do
   defp render(conn, ["stats"], snapshot) do
     body =
       Map.new(snapshot, fn {cache, stats} ->
-        {cache, stats |> Map.delete(:counting?) |> Map.put(:counting, stats.counting?)}
+        case Map.pop(stats, :counting?) do
+          {nil, stats} -> {cache, stats}
+          {counting, stats} -> {cache, Map.put(stats, :counting, counting)}
+        end
       end)
 
     conn
@@ -156,6 +159,7 @@ defmodule ImagePipeServer.Stats do
     max_bytes: "The cache's size cap in bytes.",
     entries: "Entries the cache stores.",
     counting?: "1 until the cache has counted the entries on disk at startup.",
+    refused: "1 when another node owns the cache's root, so this node doesn't use it.",
     disk_free_bytes: "Free bytes on the filesystem that holds the cache root.",
     disk_total_bytes: "Total bytes of the filesystem that holds the cache root."
   ]
@@ -164,6 +168,8 @@ defmodule ImagePipeServer.Stats do
 
   defp prometheus(snapshot) do
     caches = Enum.sort(snapshot)
+    # A refused cache has no counts.
+    counted = Enum.reject(caches, fn {_cache, stats} -> stats.refused end)
 
     gauges =
       for {field, help} <- @gauges do
@@ -184,7 +190,7 @@ defmodule ImagePipeServer.Stats do
         "Stored entries the cache couldn't read since start, also counted as misses.",
         "counter"
       ),
-      for {cache, stats} <- caches do
+      for {cache, stats} <- counted do
         [
           ~s(image_pipe_cache_read_errors_total{cache="),
           Atom.to_string(cache),
@@ -201,7 +207,7 @@ defmodule ImagePipeServer.Stats do
         "Cache lookups since start, by result.",
         "counter"
       ),
-      for {cache, stats} <- caches, {result, field} <- @lookups do
+      for {cache, stats} <- counted, {result, field} <- @lookups do
         [
           ~s(image_pipe_cache_lookups_total{cache="),
           Atom.to_string(cache),

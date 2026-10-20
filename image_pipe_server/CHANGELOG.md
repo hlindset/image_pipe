@@ -8,7 +8,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - `GET /stats` (JSON) and `GET /metrics` (Prometheus text) report each
-  cache's size, hits, misses, and free disk space. Turn them on with
+  cache's size, hits, misses, and free disk space, or that another replica
+  owns its root. Turn them on with
   `[stats] enabled = true` and a `[stats] token` that requests send as a
   bearer token. See [cache stats](docs/server-deployment.md#cache-stats).
 

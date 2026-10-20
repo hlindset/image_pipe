@@ -269,6 +269,7 @@ curl -H "Authorization: Bearer a-long-random-string" http://localhost:8080/stats
   "output": {
     "bytes": 812345678, "max_bytes": 1073741824, "entries": 5120,
     "counting": false, "hits": 9120, "misses": 1310, "read_errors": 0,
+    "refused": false,
     "disk_free_bytes": 40213000000, "disk_total_bytes": 107374182400
   },
   "input": {"bytes": 2104000000, "...": "..."}
@@ -280,12 +281,19 @@ curl -H "Authorization: Bearer a-long-random-string" http://localhost:8080/stats
   original a request needs: a hit when it's read from the cache, a miss
   when it's downloaded. `read_errors` are stored entries the cache couldn't
   read, also counted as misses.
+- `output`'s `entries` also counts one small entry for each original that
+  processed images were made from, and `bytes` includes them.
 - `counting` is `true` for a short time after startup, while the cache
   counts the entries an earlier run left on disk. Until then, `bytes` and
   `entries` leave out the ones it hasn't reached.
 - `disk_free_bytes` and `disk_total_bytes` are for the filesystem that
   holds the cache's `root` directory, such as the volume mounted there.
   They are `null` when the server can't read them.
+- A cache whose `root` another replica
+  [owns](../../image_pipe/docs/cache.md#cache-root-owner-file) isn't used by
+  this replica. It has `"refused": true`, `max_bytes`, and the disk sizes.
+  In `/metrics` it has only `image_pipe_cache_refused`,
+  `image_pipe_cache_max_bytes`, and the disk metrics.
 - A cache that isn't configured isn't listed.
 
 `/metrics` leaves the disk metrics out when the server can't read the

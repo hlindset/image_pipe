@@ -403,7 +403,11 @@ started:
   [startup scan](#eviction-and-startup-scan) has counted the entries on
   disk. Until then, `:bytes` and `:entries` leave out the ones it hasn't
   reached.
+- `:output`'s `:entries` also counts one small entry for each original that
+  processed images were made from, and `:bytes` includes them.
 
 The hit rate is `hits / (hits + misses)`. Each node counts only its own
-requests. A cache that isn't configured, or whose `root` another node
-[owns](#cache-root-owner-file), isn't listed.
+requests. A cache that isn't configured isn't listed. A cache whose `root`
+another node [owns](#cache-root-owner-file) isn't used by this node, so its
+entry has only `refused: true` and `:max_bytes`. Every other entry has
+`refused: false`.

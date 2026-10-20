@@ -342,17 +342,23 @@ defmodule ImagePipe do
       ImagePipe.cache_stats(MyApp.ImagePipe)
       #=> %{
       #=>   output: %{bytes: 812_345_678, entries: 5120, max_bytes: 1_073_741_824,
-      #=>             counting?: false, hits: 9120, misses: 1310, read_errors: 0},
+      #=>             counting?: false, hits: 9120, misses: 1310, read_errors: 0,
+      #=>             refused: false},
       #=>   input: %{...}
       #=> }
 
   The map has an `:output` entry for the `cache` option and an `:input` entry
-  for `input_cache`. It leaves out a cache that isn't configured, whose
-  `root` another node [owns](cache.md#cache-root-owner-file), or whose
+  for `input_cache`. It leaves out a cache that isn't configured, or whose
   process is restarting or doesn't answer within 5 seconds. Raises
   `ArgumentError` when no instance with the name is running.
 
-    * `:bytes` and `:entries` - what the cache stores now.
+  A cache whose `root` another node [owns](cache.md#cache-root-owner-file)
+  isn't used by this node. Its entry has only `refused: true` and
+  `:max_bytes`. Every other entry has `refused: false` and these:
+
+    * `:bytes` and `:entries` - what the cache stores now. The output cache's
+      `:entries` also counts one small entry for each original that processed
+      images were made from, and `:bytes` includes them.
     * `:max_bytes` - the cache's `max_size_bytes`.
     * `:counting?` - `true` until the cache has counted the entries an
       earlier run left on disk. Until then, `:bytes` and `:entries` leave
@@ -368,7 +374,7 @@ defmodule ImagePipe do
   """
   @spec cache_stats(atom()) :: %{optional(:output | :input) => map()}
   def cache_stats(name) when is_atom(name),
-    do: ImagePipe.Cache.stats(Config.fetch_instance!(name, nil).options)
+    do: ImagePipe.Cache.stats(Config.fetch_configured!(name).options)
 
   # An instance name stands for the configuration the running instance
   # published. It raises when the instance isn't running.
