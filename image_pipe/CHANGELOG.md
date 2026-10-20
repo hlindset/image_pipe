@@ -101,6 +101,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   2000×3 image at `w=100`, no longer fails with a 415. Neither does shrinking
   a WebP so far that its short side would be under one pixel, such as
   `w=1/dpr=0.5`.
+- `png-options=bitdepth:1` on a grayscale result now turns values below 128
+  black and the rest white. Before, every gray above black came out white.
 
 ## [0.3.0] - 2026-10-18
 
