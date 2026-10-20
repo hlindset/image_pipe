@@ -13,6 +13,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   dropped a preset's `anchor`, and `extend-at=unset` dropped its `extend`.
 - A `trim` tolerance above `2147483647` is rejected, both in a URL and by
   `ImagePipe.URL.group/2`.
+- `autoquality` and `max-bytes` are reported as ignored options with
+  `format=webp` and lossless `webp-options`, as with `format=png`.
 
 ### Fixed
 

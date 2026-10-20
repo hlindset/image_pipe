@@ -166,12 +166,10 @@ The request fails with `400` when:
 
 - It also sets `q`.
 - The target is not a number above `0` and up to `100`.
-- It sets `format=webp` while WebP is lossless (through `webp-options` or
-  the server's defaults). Lossless WebP has no quality to search.
 
-With `format=png`, `autoquality` is
-[ignored](../requesting-images.md#ignored-options), since PNG has no quality
-to search. Without `format`, the search applies only when the chosen format
+With `format=png`, or `format=webp` while WebP is lossless, `autoquality` is
+[ignored](../requesting-images.md#ignored-options), since those formats have
+no quality to search. Without `format`, the search applies only when the chosen format
 has a quality setting.
 
 <!-- tabs-open -->
@@ -207,9 +205,7 @@ The budget counts the whole file, including a color profile embedded with
 with `profile=preserve` can carry a profile of several hundred kilobytes,
 which no quality can bring under a small budget.
 
-`max-bytes` follows the same format rules as `autoquality`. With
-`format=webp` while WebP is lossless, it fails with `400`. With `format=png`,
-it is ignored.
+`max-bytes` is ignored in the same cases as `autoquality`.
 
 <!-- tabs-open -->
 

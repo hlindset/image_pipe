@@ -129,13 +129,29 @@ defmodule ImagePipe.API.QualityWireTest do
     refute default.resp_body == subsampled.resp_body
   end
 
-  test "lossless WebP rejects explicit search requests before source or cache access" do
+  test "a lossless WebP default shares one cached copy whatever the search options" do
     config = observed_mount(webp_options: [lossless: true])
+    plain = response("w=64/format=webp", config)
+    assert plain.status == 200
 
-    for option <- ["autoquality", "autoquality=75", "max-bytes=1000"] do
-      assert response("format=webp/#{option}", config).status == 400
-      refute_received :origin_fetch
-      refute_received {:cache_lookup, _, _key}
+    for option <- ["autoquality", "max-bytes=1000"] do
+      searched = response("w=64/format=webp/#{option}", config)
+      assert searched.status == 200, option
+      assert searched.resp_body == plain.resp_body, option
+      assert etag(searched) == etag(plain), option
+    end
+  end
+
+  test "lossless WebP ignores a quality search, as PNG does" do
+    for config <- [mount(webp_options: [lossless: true]), mount(request_defaults: "autoquality")] do
+      plain = response("w=64/format=webp/webp-options=lossless", config)
+      assert plain.status == 200
+
+      for option <- ["autoquality", "autoquality=75", "max-bytes=1000"] do
+        searched = response("w=64/format=webp/webp-options=lossless/#{option}", config)
+        assert searched.status == 200, option
+        assert searched.resp_body == plain.resp_body, option
+      end
     end
   end
 

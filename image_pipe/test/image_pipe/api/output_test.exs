@@ -197,7 +197,7 @@ defmodule ImagePipe.API.OutputTest do
     assert resolve!(["profile=srgb", "hdr=tonemap"], preserve_hdr: true).hdr == :tone_map
   end
 
-  test "rejects URL quality search for an explicit lossless WebP output" do
+  test "accepts quality search for an explicit lossless WebP output, which ignores it" do
     for {segments, host_opts} <- [
           {[
              "format=webp",
@@ -210,8 +210,7 @@ defmodule ImagePipe.API.OutputTest do
       config = Config.validate!(host_opts)
       assert {:ok, request} = Parser.parse(lexed(segments), config)
 
-      assert {:error, {:invalid_output, :lossless_webp_quality_search}} =
-               Policy.from_request(request.output, config, "")
+      assert {:ok, %Policy{}} = Policy.from_request(request.output, config, "")
     end
   end
 
@@ -279,7 +278,7 @@ defmodule ImagePipe.API.OutputTest do
   end
 
   test "renders resolved-output failures as a safe 400 plan error" do
-    reason = {:invalid_output, :lossless_webp_quality_search}
+    reason = {:invalid_output, :hdr_profile_conversion}
     conn = Errors.send(Plug.Test.conn(:get, "/private/source"), reason)
 
     assert conn.status == 400

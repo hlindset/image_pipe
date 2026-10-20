@@ -98,6 +98,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A presigned `src64` or `wm-src64` source is now redacted from the
   `[:request]` span's `:path` when its base64 is percent-encoded or ends
   in a `/`.
+- A request with `format=webp` while WebP is lossless no longer fails with
+  `400` when it, a preset, or the request defaults set `autoquality` or
+  `max-bytes`. The options are ignored, as with `format=png`.
 - A `src` URL with credentials that decodes to invalid UTF-8 no longer loses
   its request summary log line.
 - When the first load of the face or object model failed, each detection

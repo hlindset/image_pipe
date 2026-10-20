@@ -1056,6 +1056,14 @@ defmodule ImagePipe.API.ParserTest do
                parse(["format=png", "autoquality=false"])
     end
 
+    test "lossless WebP ignores URL quality searches, as PNG does" do
+      for option <- ["autoquality=75", "autoquality", "max-bytes=10000"] do
+        assert ignores_option?(parse(["format=webp", "webp-options=lossless", option]))
+      end
+
+      refute ignores_option?(parse(["format=webp", "autoquality"]))
+    end
+
     test "q conflicts with enabled URL autoquality" do
       assert {:error, {:invalid_request, diagnostics}} =
                parse(["q=80", "autoquality=78"])
