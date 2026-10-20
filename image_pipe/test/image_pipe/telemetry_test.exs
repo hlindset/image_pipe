@@ -804,6 +804,14 @@ defmodule ImagePipe.TelemetryTest do
                :source_error
     end
 
+    test "maps an invalid source and too many presets to a parser error" do
+      assert ImagePipe.Telemetry.request_result({:error, {:invalid_source, :nul_byte}}) ==
+               :parser_error
+
+      assert ImagePipe.Telemetry.request_result({:error, {:preset, :too_many_presets}}) ==
+               :parser_error
+    end
+
     test "everything else falls back to processing_error" do
       assert ImagePipe.Telemetry.request_result({:error, {:transform, :boom}}) ==
                :processing_error

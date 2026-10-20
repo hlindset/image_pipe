@@ -318,6 +318,14 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   this build no longer adds a detection to the work the cache estimates for
   the image, which the cache uses to choose what to evict and reports as
   `:estimated_cost_us` on `[:cache, :write]`.
+- The default Logger logs every `4xx` request line at `:warning`. Before, a
+  `4xx` for a failed decode, an input limit, a transform, an invalid
+  source, or too many presets logged at `:error`.
+- A request with an invalid source or too many presets has the result
+  `:parser_error`, not `:processing_error`. Like other parser errors, its
+  `[:request]` stop from `ImagePipe.run/4` has no `:error`.
+- The request line for an invalid source or invalid output gives the
+  reason: `reason="invalid source"` or `reason="invalid output"`.
 
 ## [0.3.0] - 2026-10-18
 

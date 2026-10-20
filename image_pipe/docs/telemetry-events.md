@@ -68,7 +68,8 @@ and `[:cache, :refresh]`:
 - `:options`: an `OPTIONS` request answered with `204`.
 - `:not_modified`: a conditional request answered with `304`.
 - `:method_not_allowed`: a method other than `GET`, `HEAD`, or `OPTIONS`.
-- `:parser_error`: the URL, signature, or encrypted source was invalid.
+- `:parser_error`: the URL, signature, source, or encrypted source was
+  invalid, or the URL named too many presets.
 - `:plan_error`: the options can't be served, such as an unavailable detector.
 - `:source_error`: the original couldn't be fetched.
 - `:processing_error`: decoding, processing, encoding, or streaming failed.
