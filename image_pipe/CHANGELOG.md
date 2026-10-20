@@ -14,9 +14,18 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   for another request's download of a new original: `:coalesced` when it
   waited until the other request had the original, `:bypass` when it stopped
   waiting for any other reason.
+- `max_effort` sets the highest AVIF and WebP encoder effort a request may
+  ask for, such as `max_effort: [avif: 6]`. It defaults to the effort in
+  `:avif_options` and `:webp_options`.
 
 ### Changed
 
+- **Breaking:** A request that asks for more `avif-options` or
+  `webp-options` effort than `:avif_options` or `:webp_options` sets (by
+  default `3` for AVIF and `4` for WebP) fails with `400`. This includes
+  an effort from a preset or `request_defaults`. Set `max_effort` to allow
+  higher effort. Each `autoquality` or `max-bytes` attempt encodes at the
+  requested effort, so one request could take minutes of CPU.
 - Concurrent requests for one new original share its download in more
   configurations, and no longer wait for a download they would repeat. See
   [request coalescing](docs/caching-and-freshness.md#request-coalescing).

@@ -126,7 +126,9 @@ defmodule ImagePipeFiddle.Application do
         mark: [source: "watermarks/mark.png"],
         badge: [source: "watermarks/badge.png"]
       },
-      request_watermarks: true
+      request_watermarks: true,
+      # The demo's encoder controls cover every effort.
+      max_effort: [avif: 9, webp: 6]
     ]
     |> maybe_put_cache(Application.get_env(:image_pipe_fiddle, :cache))
   end

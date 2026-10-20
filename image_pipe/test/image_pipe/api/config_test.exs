@@ -36,6 +36,19 @@ defmodule ImagePipe.Plug.ConfigTest do
     assert Config.validate!(detector: nil)[:detector] == nil
   end
 
+  test "max_effort defaults to the configured effort and can't go below it" do
+    assert Config.validate!([])[:max_effort] == [avif: 3, webp: 4]
+    assert Config.validate!(avif_options: [effort: 6])[:max_effort] == [avif: 6, webp: 4]
+    assert Config.validate!(max_effort: [webp: 6])[:max_effort] == [avif: 3, webp: 6]
+
+    error =
+      assert_raise ArgumentError, fn ->
+        Config.validate!(avif_options: [effort: 6], max_effort: [avif: 5])
+      end
+
+    assert error.message =~ "max_effort: avif"
+  end
+
   test "a detector module must implement the detector behaviour" do
     for detector <- [ImagePipe.ConfigTest.Missing, String] do
       error = assert_raise ArgumentError, fn -> Config.validate!(detector: detector) end

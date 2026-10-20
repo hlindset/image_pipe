@@ -233,7 +233,7 @@ ImagePipe.URL.new()
 
 Each encoder option takes a list of fields. A field is either a boolean
 written by its name, such as `progressive`, or a `name:value` pair, such as
-`effort:6`. Write `progressive:false` to turn off a boolean that the server's
+`effort:2`. Write `progressive:false` to turn off a boolean that the server's
 configuration or a [preset](../requesting-images.md#named-presets) turned
 on. Each field may appear once. Fields you leave out keep their value from a
 preset or the server's configuration. A field set in both takes your value.
@@ -242,7 +242,9 @@ fields that presets and the request defaults set.
 
 With an explicit `format`, options for any other encoder are ignored.
 Without `format`, each encoder's options apply only when the response uses
-that format, so one URL can carry options for several encoders.
+that format, so one URL can carry options for several encoders. An
+`effort` above what the server allows fails with `400` either way, unless
+an explicit `format` names another encoder.
 
 ### jpeg-options
 
@@ -312,7 +314,7 @@ Accepts these fields. Default: the host's WebP encoder settings.
 | `near-lossless` | boolean | Near-lossless WebP |
 | `smart-subsample` | boolean | Sharper chroma subsampling |
 | `preset` | `default`, `photo`, `picture`, `drawing`, `icon`, `text` | Encoder tuning for the image type |
-| `effort` | `0` to `6` | Higher is slower and smaller. Default `4`, unless the server's configuration changes it |
+| `effort` | `0` to `6` | Higher is slower and smaller. Default `4`, unless the server's configuration changes it. A higher effort than the default fails with `400` unless the server's configuration allows it |
 
 At the same visual quality, WebP at effort `2` takes half the time of `4` and
 makes files about 6% larger than at `4`.
@@ -322,14 +324,14 @@ makes files about 6% larger than at `4`.
 ### URL
 
 ```text
-/format=webp/webp-options=near-lossless,effort:6/src/photos/beach.jpg
+/format=webp/webp-options=near-lossless,effort:2/src/photos/beach.jpg
 ```
 
 ### Elixir
 
 ```elixir
 ImagePipe.URL.new()
-|> ImagePipe.URL.output(format: :webp, webp_options: [near_lossless: true, effort: 6])
+|> ImagePipe.URL.output(format: :webp, webp_options: [near_lossless: true, effort: 2])
 ```
 
 <!-- tabs-close -->
@@ -341,7 +343,7 @@ Accepts these fields. Default: the host's AVIF encoder settings.
 | Field | Values | Effect |
 | --- | --- | --- |
 | `subsample` | `auto`, `on`, `off` | Chroma subsampling. `on` stores color at lower resolution, `auto` only below `q` 90. Default `off`, unless the server's configuration changes it |
-| `effort` | `0` to `9` | Higher is slower and smaller. Default `3`, unless the server's configuration changes it |
+| `effort` | `0` to `9` | Higher is slower and smaller. Default `3`, unless the server's configuration changes it. A higher effort than the default fails with `400` unless the server's configuration allows it |
 
 At the same visual quality, AVIF at effort `4` takes three to five times as
 long as at `3` and makes files about 5% smaller. Effort `1` takes less than
@@ -358,14 +360,14 @@ smaller for photos and 6 to 10% smaller for screenshots than with
 ### URL
 
 ```text
-/format=avif/avif-options=subsample:auto,effort:6/src/photos/beach.jpg
+/format=avif/avif-options=subsample:auto,effort:1/src/photos/beach.jpg
 ```
 
 ### Elixir
 
 ```elixir
 ImagePipe.URL.new()
-|> ImagePipe.URL.output(format: :avif, avif_options: [subsample_mode: :auto, effort: 6])
+|> ImagePipe.URL.output(format: :avif, avif_options: [subsample_mode: :auto, effort: 1])
 ```
 
 <!-- tabs-close -->
