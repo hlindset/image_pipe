@@ -1,8 +1,8 @@
 defmodule ImagePipe.Test.WorkCount do
   @moduledoc """
   Counts the work a function does across every process: the libvips
-  operations ImagePipe calls through Vix, its memory copies, and the bytes it
-  reads from files through Erlang.
+  operations ImagePipe calls through Vix, its memory copies, and the files it
+  opens and the bytes it reads from them through Erlang.
 
       {conn, work} = WorkCount.measure(fn -> ImagePipe.Plug.call(conn, config) end)
       work.loads #=> 1
@@ -19,7 +19,8 @@ defmodule ImagePipe.Test.WorkCount do
           loads: non_neg_integer(),
           copies: non_neg_integer(),
           icc: non_neg_integer(),
-          file_bytes: %{String.t() => non_neg_integer()}
+          file_bytes: %{String.t() => non_neg_integer()},
+          file_opens: %{String.t() => pos_integer()}
         }
 
   @traced [
@@ -71,7 +72,11 @@ defmodule ImagePipe.Test.WorkCount do
       loads: Enum.count(operations, &String.starts_with?(&1, "VipsForeignLoad")),
       copies: Enum.count(calls, &match?({_pid, {Vix.Nif, :nif_image_copy_memory, _}}, &1)),
       icc: Enum.count(operations, &String.starts_with?(&1, "icc_")),
-      file_bytes: file_bytes(calls)
+      file_bytes: file_bytes(calls),
+      file_opens:
+        Enum.frequencies(
+          for {_pid, {:file, :open, [path | _]}} <- calls, do: IO.chardata_to_string(path)
+        )
     }
   end
 
