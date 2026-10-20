@@ -184,27 +184,33 @@ defmodule ImagePipe.Plan.Presets do
     end
   end
 
+  # The request defaults belong to the URL's first group that writes any
+  # option, so they merge in before a group holding only unsets is dropped. A
+  # group with no options at all is skipped, as the parser skips a group of
+  # only request options.
   defp compose_groups(explicit, request, selected, defaults) do
-    merged =
+    layered =
       Map.new(explicit, fn {index, options} ->
-        layers = for {^index, _name, preset} <- selected, do: Map.fetch!(preset.groups, 0)
-        {index, merge_layers(layers ++ [options])}
+        {index,
+         for({^index, _name, preset} <- selected, do: Map.fetch!(preset.groups, 0)) ++ [options]}
       end)
 
-    kept =
-      case Enum.reject(Enum.sort(merged), fn {_index, options} -> drop_unset(options) == %{} end) do
-        [] -> [Enum.min_by(merged, &elem(&1, 0))]
-        kept -> kept
+    first =
+      case Enum.find(Enum.sort(layered), fn {_index, layers} -> merge_layers(layers) != %{} end) do
+        {index, _layers} -> index
+        nil -> layered |> Map.keys() |> Enum.min()
       end
 
-    groups =
-      case {kept, defaults} do
-        {[{first, _options} | rest], %{groups: %{0 => default}}} ->
-          layers = for {^first, _name, preset} <- selected, do: Map.fetch!(preset.groups, 0)
-          [{first, merge_layers([default | layers] ++ [Map.fetch!(explicit, first)])} | rest]
+    merged =
+      Map.new(layered, fn {index, layers} ->
+        layers = if index == first, do: default_layer(defaults) ++ layers, else: layers
+        {index, merge_layers(layers)}
+      end)
 
-        {kept, nil} ->
-          kept
+    groups =
+      case Enum.reject(Enum.sort(merged), fn {_index, options} -> drop_unset(options) == %{} end) do
+        [] -> [{first, Map.fetch!(merged, first)}]
+        kept -> kept
       end
 
     %{
@@ -215,6 +221,9 @@ defmodule ImagePipe.Plan.Presets do
         groups |> Enum.with_index() |> Map.new(fn {{origin, _options}, i} -> {i, origin} end)
     }
   end
+
+  defp default_layer(%{groups: %{0 => default}}), do: [default]
+  defp default_layer(nil), do: []
 
   defp compose_pipeline({index, name, pipeline}, explicit, request, selected, defaults) do
     explicit_options? = Enum.any?(explicit, fn {_index, options} -> options != %{} end)
