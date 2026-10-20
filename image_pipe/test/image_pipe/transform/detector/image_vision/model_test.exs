@@ -3,21 +3,22 @@ defmodule ImagePipe.Transform.Detector.ImageVision.ModelTest do
 
   alias ImagePipe.Transform.Detector.ImageVision.Model
 
-  # Runs `Model.first_load/2` in a new process whose fun reports when it starts
-  # and then waits for `:release` before returning `result`.
+  # Runs `Model.ensure_loaded/2` in a new process whose probe reports when it
+  # starts and then waits for `:release` before returning `result`.
   defp start_call(key, result) do
     test = self()
 
     spawn_link(fn ->
-      Model.first_load(key, fn ->
-        send(test, {:running, self()})
+      returned =
+        Model.ensure_loaded(key, fn ->
+          send(test, {:running, self()})
 
-        receive do
-          :release -> result
-        end
-      end)
+          receive do
+            :release -> result
+          end
+        end)
 
-      send(test, {:returned, self()})
+      send(test, {:returned, self(), returned})
     end)
   end
 
@@ -25,62 +26,70 @@ defmodule ImagePipe.Transform.Detector.ImageVision.ModelTest do
 
   defp release(pid) do
     send(pid, :release)
-    assert_receive {:returned, ^pid}
+    assert_receive {:returned, ^pid, _returned}
   end
 
-  test "callers wait while the first load runs" do
+  # Waits until `pid` monitors the lock, so it is waiting on the running probe.
+  defp await_waiting(key, pid) do
+    lock = Process.whereis(Module.concat(key, FirstLoad))
+    {:monitored_by, monitors} = Process.info(lock, :monitored_by)
+
+    unless pid in monitors do
+      :erlang.yield()
+      await_waiting(key, pid)
+    end
+  end
+
+  test "callers wait while the first probe runs, then return without probing" do
     key = :"adapter_#{System.unique_integer([:positive])}"
     first = start_call(key, {:ok, []})
     assert_running(first)
 
     second = start_call(key, {:ok, []})
-    refute_receive {:running, ^second}, 200
+    await_waiting(key, second)
 
     release(first)
-    assert_running(second)
-    release(second)
+    assert_receive {:returned, ^second, :ok}
+    refute_received {:running, ^second}
   end
 
-  test "a failed load lets the next caller load" do
+  test "callers waiting on a failed probe get its error, and a later caller probes" do
     key = :"adapter_#{System.unique_integer([:positive])}"
     first = start_call(key, {:error, :boom})
     assert_running(first)
 
     second = start_call(key, {:ok, []})
+    await_waiting(key, second)
     release(first)
-    assert_running(second)
+    assert_receive {:returned, ^second, {:error, :boom}}
+    refute_received {:running, ^second}
 
     third = start_call(key, {:ok, []})
-    refute_receive {:running, ^third}, 200
-
-    release(second)
     assert_running(third)
     release(third)
   end
 
-  test "a caller that dies mid-load lets the next caller load" do
+  test "a caller that dies mid-probe lets the next caller probe" do
     key = :"adapter_#{System.unique_integer([:positive])}"
     Process.flag(:trap_exit, true)
     first = start_call(key, {:ok, []})
     assert_running(first)
 
     second = start_call(key, {:ok, []})
+    await_waiting(key, second)
     Process.exit(first, :kill)
     assert_running(second)
     release(second)
   end
 
-  test "calls after a successful load run concurrently" do
+  test "calls after a successful probe don't probe again" do
     key = :"adapter_#{System.unique_integer([:positive])}"
     first = start_call(key, {:ok, []})
     assert_running(first)
     release(first)
 
     second = start_call(key, {:ok, []})
-    third = start_call(key, {:ok, []})
-    assert_running(second)
-    assert_running(third)
-    release(second)
-    release(third)
+    assert_receive {:returned, ^second, :ok}
+    refute_received {:running, ^second}
   end
 end
