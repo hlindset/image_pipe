@@ -1,14 +1,12 @@
 defmodule ImagePipe.Cache.SourceRecords do
-  # Keeps the records of originals in memory for an instance with no cache, so
-  # an unchanged local file isn't read and hashed again on every request. The
+  # Keeps the records of an instance's originals in memory, so an unchanged
+  # local file isn't read and hashed again on every request. The
   # process owns the table; requests read and write it directly.
   #
   # A full table evicts a random record. A miss costs only one more hash, so
   # nothing tracks which records are used.
   @moduledoc false
   use GenServer
-
-  @max_records 10_000
 
   def child_spec(table),
     do: %{id: {__MODULE__, table}, start: {__MODULE__, :start_link, [table]}}
@@ -41,16 +39,18 @@ defmodule ImagePipe.Cache.SourceRecords do
     ArgumentError -> nil
   end
 
-  @spec put(atom(), String.t(), ImagePipe.Source.Record.t() | nil) :: :ok
-  def put(table, key, nil) do
+  # Keeps at most `limit` records: inserting a new key into a full table
+  # evicts a random record first.
+  @spec put(atom(), String.t(), ImagePipe.Source.Record.t() | nil, pos_integer()) :: :ok
+  def put(table, key, nil, _limit) do
     :ets.delete(table, key)
     :ok
   rescue
     ArgumentError -> :ok
   end
 
-  def put(table, key, record) do
-    if :ets.info(table, :size) >= @max_records and not :ets.member(table, key),
+  def put(table, key, record, limit) do
+    if :ets.info(table, :size) >= limit and not :ets.member(table, key),
       do: evict(table)
 
     :ets.insert(table, {key, record})

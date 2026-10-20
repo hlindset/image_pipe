@@ -125,7 +125,13 @@ file by a hash of its content: a changed `cat.jpg` gets new processed images,
 and an unchanged one reuses them.
 
 Each request checks the file's size and timestamps, and reads the file again
-only when they have changed. Where file times can't be trusted, the source can
+only when they have changed. The hashes are kept in memory for up to 10 000
+originals, local files and origin images together, so a file is also hashed
+again after a restart, or when more originals than that are in use, unless
+the [originals cache](cache.md#originals-cache) holds a copy. The limit is
+`max_remembered_originals` in `ImagePipe.config/1`, or
+[`[cache] max_remembered_originals`](../../image_pipe_server/docs/server-configuration.md#cache)
+on the server. Where file times can't be trusted, the source can
 read and hash the file on every check instead. With a fallback lifetime,
 requests within it skip the check.
 

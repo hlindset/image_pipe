@@ -44,8 +44,6 @@ defmodule ImagePipe.Cache do
   alias ImagePipe.Output.Skipped
   alias ImagePipe.Telemetry
 
-  @source_type "application/vnd.imagepipe.source"
-
   @shared_cache_option_keys [:max_body_bytes]
   @shared_cache_option_schema NimbleOptions.new!(
                                 max_body_bytes: [
@@ -90,8 +88,8 @@ defmodule ImagePipe.Cache do
 
   @doc false
   # The processes an instance runs for its caches: the claim on each root,
-  # Admission, and periodic cleanup, or the in-memory source records of an
-  # instance without a cache. Takes resolved configuration options.
+  # Admission, and periodic cleanup, and the instance's in-memory source
+  # records. Takes resolved configuration options.
   @spec child_specs(keyword()) :: [Supervisor.child_spec()]
   def child_specs(options) do
     # The cache's own events, such as admission and eviction, use the
@@ -111,15 +109,12 @@ defmodule ImagePipe.Cache do
   end
 
   @doc false
-  # An instance without a cache keeps the records of its originals in memory
-  # instead, in a table named after it, so an unchanged local file is hashed
-  # once rather than on every request.
+  # An instance keeps the records of its originals in memory, in a table
+  # named after it, so an unchanged local file is hashed once rather than on
+  # every request.
   @spec put_source_records(keyword(), atom()) :: keyword()
-  def put_source_records(options, instance) do
-    if Enum.any?([:cache, :input_cache], &Keyword.get(options, &1)),
-      do: options,
-      else: Keyword.put(options, :source_records, Module.concat(instance, SourceRecords))
-  end
+  def put_source_records(options, instance),
+    do: Keyword.put(options, :source_records, Module.concat(instance, SourceRecords))
 
   @doc false
   # Removes the caches whose root another node holds, so requests run
@@ -137,15 +132,12 @@ defmodule ImagePipe.Cache do
 
   @doc false
   def source_record(input_key, opts) do
-    key = source_index_key(input_key)
-
     lookup = fn
       nil -> :disabled
-      {:memory, table} -> memory_source_record(key, table)
-      cache_opts -> read_source_record(key, cache_opts)
+      {:memory, table} -> memory_source_record(input_key, table)
     end
 
-    case traced_lookup(key, :source_record, record_store(opts), opts, lookup) do
+    case traced_lookup(input_key, :source_record, record_store(opts), opts, lookup) do
       {:hit, record} -> record
       _miss -> nil
     end
@@ -158,59 +150,28 @@ defmodule ImagePipe.Cache do
     end
   end
 
-  # Where source records live: the output cache, or memory for an instance
-  # without one.
+  # Source records live in the instance's in-memory table, apart from the
+  # caches, so they never compete with processed images for space.
   defp record_store(opts) do
-    case {Keyword.get(opts, :cache), Keyword.get(opts, :source_records)} do
-      {nil, nil} -> nil
-      {nil, table} -> {:memory, table}
-      {cache_opts, _table} -> cache_opts
-    end
-  end
-
-  defp read_source_record(key, cache_opts) do
-    case FileSystem.source_record(key, cache_opts) do
-      :miss -> tap({:miss, key}, fn _miss -> FileSystem.missed(key, cache_opts) end)
-      {:error, reason} -> handle_read_error(reason, key, cache_opts)
-      hit -> hit
+    case Keyword.get(opts, :source_records) do
+      nil -> nil
+      table -> {:memory, table}
     end
   end
 
   @doc false
   # Stores the record from the calling process, a publication that already
   # runs off the request, so the record is in place when it releases the
-  # source's lease. A record the cache rejects or fails to store drops the
-  # older one, which lookups would otherwise prefer to the originals cache's
-  # newer record. A commit that timed out is still queued, and Admission may
-  # yet store or reject it, so the record is dropped either way: the delete
-  # queues behind the commit and removes whichever record it leaves.
+  # source's lease.
   def remember_source(input_key, record, opts) do
     case record_store(opts) do
       nil ->
         :ok
 
       {:memory, table} ->
-        SourceRecords.put(table, source_index_key(input_key).hash, record)
-
-      cache_opts ->
-        key = source_index_key(input_key)
-        body = :erlang.term_to_binary(record, [:deterministic])
-
-        case Sink.store(key, @source_type, body, cache_opts, [source_record: record], opts) do
-          :ok -> :ok
-          _rejected_or_failed -> forget_source(key, cache_opts)
-        end
+        limit = Keyword.fetch!(opts, :max_remembered_originals)
+        SourceRecords.put(table, input_key.hash, record, limit)
     end
-  end
-
-  defp forget_source(key, cache_opts) do
-    _result = FileSystem.delete(key, cache_opts)
-    :ok
-  end
-
-  defp source_index_key(%Key{hash: hash}) do
-    digest = :crypto.hash(:sha256, "source-record:" <> hash) |> Base.encode16(case: :lower)
-    %Key{hash: digest, data: []}
   end
 
   @doc """

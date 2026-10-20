@@ -237,7 +237,8 @@ defmodule ImagePipeServer.Config do
     [
       output: [type: {:convert, &file_system(&1, output_schema(), &2), output_schema()}],
       input: [type: {:convert, &file_system(&1, store_schema(), &2), store_schema()}],
-      storage_inputs: [type: {:list, {:tuple, [{:in, [:header, :cookie]}, :string]}}]
+      storage_inputs: [type: {:list, {:tuple, [{:in, [:header, :cookie]}, :string]}}],
+      max_remembered_originals: [type: :pos_integer, default: 10_000]
     ]
   end
 

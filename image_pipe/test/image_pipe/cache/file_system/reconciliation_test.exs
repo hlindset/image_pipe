@@ -58,7 +58,7 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
           put_entry(kept, String.duplicate("y", 100), opts)
         end)
 
-      assert_receive {:trace, _, :send, {:"$gen_call", _, {:decide, _, _}}, ^pid}, 1000
+      assert_receive {:trace, _, :send, {:"$gen_call", _, {:decide, _, _, _}}, ^pid}, 1000
       send(pid, :release_batch)
 
       # The replacement adds no bytes, so it evicts nothing, and the next

@@ -38,7 +38,7 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
       assert_receive {:deciding, ^admission}, 1000
       second = queued_commit(tasks, parent, key, "original", opts)
       second_pid = second.pid
-      assert_receive {:trace, ^second_pid, :send, {:"$gen_call", _, {:decide, _, _}}, _}, 1000
+      assert_receive {:trace, ^second_pid, :send, {:"$gen_call", _, {:decide, _, _, _}}, _}, 1000
 
       # Releasing it lets the first write sync and queue its commit while
       # the second decision is held, so the commits arrive in order.

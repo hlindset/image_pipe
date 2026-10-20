@@ -45,7 +45,7 @@ defmodule ImagePipe.InstanceTest do
 
   defp flush_lookups do
     receive do
-      {:lookup, _cache} -> flush_lookups()
+      {:lookup, _pool, _cache} -> flush_lookups()
     after
       0 -> :ok
     end
@@ -85,6 +85,15 @@ defmodule ImagePipe.InstanceTest do
         assert_raise ArgumentError, ~r/belong to the instance/, fn ->
           ImagePipe.run(ctx.name, builder, {:source, "red.png"}, cache: cache)
         end
+      end
+    end
+
+    test "rejects a per-call max_remembered_originals", ctx do
+      start_instance(ctx)
+      builder = ImagePipe.URL.new(ImagePipe.url_config(ctx.name))
+
+      assert_raise ArgumentError, ~r/belong to the instance/, fn ->
+        ImagePipe.run(ctx.name, builder, {:source, "red.png"}, max_remembered_originals: 5)
       end
     end
 
@@ -259,7 +268,9 @@ defmodule ImagePipe.InstanceTest do
       :telemetry.attach(
         ctx.name,
         prefix ++ [:cache, :lookup, :stop],
-        fn _event, _measurements, meta, _config -> send(test, {:lookup, meta.cache}) end,
+        fn _event, _measurements, meta, _config ->
+          send(test, {:lookup, meta.pool, meta.cache})
+        end,
         nil
       )
 
@@ -277,7 +288,49 @@ defmodule ImagePipe.InstanceTest do
                  max_input_pixels: 50_000_000
                )
 
-      refute_received {:lookup, :hit}
+      refute_received {:lookup, :output, :hit}
+    end
+
+    test "remembers at most max_remembered_originals originals", ctx do
+      images = ctx.cache_root |> Path.dirname() |> Path.join("images")
+      Image.new!(24, 16, color: :blue) |> Image.write!(Path.join(images, "blue.png"))
+
+      start_supervised!(
+        {ImagePipe, name: ctx.name, sources: ctx.sources, max_remembered_originals: 1}
+      )
+
+      builder = ImagePipe.URL.new(ImagePipe.url_config(ctx.name))
+
+      for file <- ["red.png", "blue.png"],
+          do: assert({:ok, _result} = ImagePipe.run(ctx.name, builder, {:source, file}))
+
+      assert :ets.info(Module.concat(ctx.name, ImagePipe.Cache.SourceRecords), :size) == 1
+    end
+
+    test "keeps the records of originals in memory, out of the disk cache", ctx do
+      prefix = [:"instance_#{System.unique_integer([:positive])}"]
+      start_instance(ctx, telemetry_prefix: prefix)
+      test = self()
+
+      :telemetry.attach(
+        ctx.name,
+        prefix ++ [:cache, :lookup, :stop],
+        fn _event, _measurements, meta, _config ->
+          send(test, {:lookup, meta.entry, meta.pool, meta.cache})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(ctx.name) end)
+      builder = ImagePipe.URL.new(ImagePipe.url_config(ctx.name))
+      assert {:ok, _result} = ImagePipe.run(ctx.name, builder, {:source, "red.png"})
+
+      # One stored body: the processed image, not a record of red.png.
+      assert [_body] = stored_bodies(ctx.cache_root)
+
+      sized = ImagePipe.URL.group(builder, resize: [width: 4])
+      assert {:ok, _result} = ImagePipe.run(ctx.name, sized, {:source, "red.png"})
+      assert_received {:lookup, :source_record, :memory, :hit}
     end
 
     test "serves an instance without a cache", ctx do
@@ -528,6 +581,15 @@ defmodule ImagePipe.InstanceTest do
   describe "inline configuration" do
     test "ImagePipe.run/4 rejects a config with a cache", ctx do
       config = ImagePipe.config(sources: ctx.sources, cache: ctx.bounded)
+      builder = ImagePipe.URL.new(ImagePipe.url_config(config))
+
+      assert_raise ArgumentError, ~r/ImagePipe instance/, fn ->
+        ImagePipe.run(config, builder, {:source, "red.png"})
+      end
+    end
+
+    test "ImagePipe.run/4 rejects max_remembered_originals", ctx do
+      config = ImagePipe.config(sources: ctx.sources, max_remembered_originals: 5)
       builder = ImagePipe.URL.new(ImagePipe.url_config(config))
 
       assert_raise ArgumentError, ~r/ImagePipe instance/, fn ->

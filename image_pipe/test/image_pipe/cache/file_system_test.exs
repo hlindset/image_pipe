@@ -9,7 +9,6 @@ defmodule ImagePipe.Cache.FileSystemTest do
   alias ImagePipe.Cache.Key
   alias ImagePipe.Source.Origin
   alias ImagePipe.Source.Record
-  alias ImagePipe.Test.Caches
 
   @max_size_bytes 1_000_000_000
 
@@ -599,7 +598,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
     File.write!(paths.meta_path, :erlang.term_to_binary(%{meta | source_record: record}))
 
     assert {:error, {:invalid_metadata, :invalid_source_record}} =
-             FileSystem.source_record(cache_key, opts)
+             FileSystem.get(cache_key, opts)
   end
 
   describe "cost_us metadata" do
@@ -725,47 +724,5 @@ defmodule ImagePipe.Cache.FileSystemTest do
     assert results == [:ok, :ok]
     assert {:hit, cached_entry} = FileSystem.get(cache_key, opts(root))
     assert cached_entry.body in ["body-one", "body-two"]
-  end
-
-  test "a source record is read from metadata, without the body", %{root: root} do
-    opts = ImagePipe.Cache.validate_config!(cache: opts(root))
-    input_key = key(String.duplicate("b", 64))
-    {:ok, source, _config} = ImagePipe.Source.from_input({:binary, "bytes"}, sources: %{})
-    record = ImagePipe.Source.Record.new(source, :crypto.hash(:sha256, "bytes"), nil, 0)
-
-    :ok = ImagePipe.Cache.remember_source(input_key, record, opts)
-    Caches.await_writes(opts)
-    assert ImagePipe.Cache.source_record(input_key, opts) == record
-
-    for body <- Path.wildcard(Path.join(root, "**/*.body")), do: File.rm!(body)
-    assert ImagePipe.Cache.source_record(input_key, opts) == record
-  end
-
-  @tag cache: false
-  test "a source record the cache rejects drops the older one", %{root: root} do
-    cache = [root: root, max_size_bytes: 4_000]
-    start_cache!(cache)
-    opts = ImagePipe.Cache.validate_config!(cache: cache)
-    input_key = key(String.duplicate("b", 64))
-    {:ok, source, _config} = ImagePipe.Source.from_input({:binary, "bytes"}, sources: %{})
-    record = &ImagePipe.Source.Record.new(source, :crypto.hash(:sha256, &1), nil, 0)
-
-    :ok = ImagePipe.Cache.remember_source(input_key, record.("old"), opts)
-    [index] = Path.wildcard(Path.join(root, "**/*.body"))
-
-    # An expensive entry fills the cache, and another write holds pending
-    # bytes, so the new record must evict, and loses to that entry.
-    filler = String.duplicate("f", 4_000 - File.stat!(index).size)
-    metadata = entry_metadata(cost_us: 1_000_000)
-    {:ok, sink} = FileSystem.open_sink(key(String.duplicate("c", 64)), metadata, cache)
-    {:ok, sink} = FileSystem.write_chunk(sink, filler, cache)
-    :ok = FileSystem.commit_sink(sink, cache)
-
-    pending = ImagePipe.Cache.open_sink(key(), {:complete_body, "text/plain"}, [], opts)
-    :sys.suspend(pending.writer)
-    assert ImagePipe.Cache.write_chunk(pending, "pending", opts)
-
-    :ok = ImagePipe.Cache.remember_source(input_key, record.("new"), opts)
-    assert ImagePipe.Cache.source_record(input_key, opts) == nil
   end
 end

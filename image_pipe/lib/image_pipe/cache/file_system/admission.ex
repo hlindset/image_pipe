@@ -313,7 +313,8 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   # entries the write was judged against, which the writer passes back with
   # its commit. `held` is the writer's own pending bytes.
   def decide(server, body_filename, held, timeout) do
-    GenServer.call(server, {:decide, body_filename, held}, timeout)
+    deadline = System.monotonic_time(:millisecond) + timeout
+    GenServer.call(server, {:decide, body_filename, held, deadline}, timeout)
   catch
     :exit, {:timeout, _call} -> {:error, :admission_timeout}
     :exit, _reason -> {:error, :admission_unavailable}
@@ -341,26 +342,12 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   @impl true
-  def handle_call({:decide, body_filename, held}, _from, state) do
-    descriptor = FileSystem.descriptor(nil, body_filename)
-    # The request that wrote it already counted as a sighting when it
-    # missed. A write no request missed, such as a source record, still
-    # counts once.
-    state = seen(state, descriptor.key_hash)
-
-    result =
-      Telemetry.span(tel_opts(state), [:cache, :admission], %{pool: state.pool}, fn ->
-        result = decide(state, descriptor, pending(state, held))
-        {result, admission_meta(result)}
-      end)
-
-    reply =
-      case result do
-        {:admit, victims} -> {:admit, Enum.map(victims, &{&1.key_hash, &1.body_filename})}
-        {:reject, _reason} -> result
-      end
-
-    {:reply, reply, state}
+  # A decision reached after the writer stopped waiting is skipped: the
+  # writer dropped the write, so it's neither a sighting nor an admission.
+  def handle_call({:decide, body_filename, held, deadline}, _from, state) do
+    if System.monotonic_time(:millisecond) >= deadline,
+      do: {:reply, {:error, :admission_timeout}, state},
+      else: decide_write(body_filename, held, state)
   end
 
   # The decision was made before the body was synced, so the commit evicts
@@ -419,6 +406,27 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   def handle_call(:reconcile_to_cap, from, state) do
     state = %{state | reconcile_waiters: [from | state.reconcile_waiters]}
     {:noreply, start_reconciliation(state)}
+  end
+
+  defp decide_write(body_filename, held, state) do
+    descriptor = FileSystem.descriptor(nil, body_filename)
+    # The request that wrote it already counted as a sighting when it
+    # missed. A write no request missed still counts once.
+    state = seen(state, descriptor.key_hash)
+
+    result =
+      Telemetry.span(tel_opts(state), [:cache, :admission], %{pool: state.pool}, fn ->
+        result = decide(state, descriptor, pending(state, held))
+        {result, admission_meta(result)}
+      end)
+
+    reply =
+      case result do
+        {:admit, victims} -> {:admit, Enum.map(victims, &{&1.key_hash, &1.body_filename})}
+        {:reject, _reason} -> result
+      end
+
+    {:reply, reply, state}
   end
 
   defp complete_scan(state) do
