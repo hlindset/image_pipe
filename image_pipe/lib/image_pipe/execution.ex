@@ -576,6 +576,13 @@ defmodule ImagePipe.Execution do
     result
   end
 
+  # The encode of an overlapped decode continues that turn's deadline, at the
+  # front of the pool's queue.
+  defp continuation(config, %{processing_deadline: deadline}) when is_integer(deadline),
+    do: Keyword.put(config, :processing_continuation, deadline)
+
+  defp continuation(config, _acquisition), do: config
+
   # An overlapped preparation that failed answers with its error, without
   # waiting for another processing slot.
   defp generate(%Context{acquisition: %{processing: {:error, _reason} = error}}, _, _, _),
@@ -602,7 +609,7 @@ defmodule ImagePipe.Execution do
       end
 
     with {:ok, stream} <-
-           Delivery.stream(build, key, config, session) do
+           Delivery.stream(build, key, continuation(config, context.acquisition), session) do
       stream = %{stream | next: fn -> next(stream, context) end}
       output = output(context, {:stream, stream}, :miss, nil)
       {:ok, %Output{output | degraded?: degraded?(stream.resolved_output)}}

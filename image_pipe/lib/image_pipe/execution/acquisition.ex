@@ -3,5 +3,16 @@ defmodule ImagePipe.Execution.Acquisition do
   @enforce_keys [:record]
   # `buffered` says why the original is held in memory instead of a staged
   # file: `:dir`, `:open`, or `:write`.
-  defstruct [:record, :response, :lease, :source_bytes, :source_sha256, :processing, :buffered]
+  # `processing_deadline` is the deadline of the pool turn an overlapped
+  # decode ran in, which its encode continues with.
+  defstruct [
+    :record,
+    :response,
+    :lease,
+    :source_bytes,
+    :source_sha256,
+    :processing,
+    :processing_deadline,
+    :buffered
+  ]
 end

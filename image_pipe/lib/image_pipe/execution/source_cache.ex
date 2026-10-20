@@ -236,8 +236,10 @@ defmodule ImagePipe.Execution.SourceCache do
 
   # Processing that overlapped the download is awaited after the source's work
   # is released, so requests waiting for the same source don't wait for it too.
-  defp finish_overlap({:ok, %Acquisition{processing: overlap} = acquisition}),
-    do: {:ok, %{acquisition | processing: Overlap.finish(overlap)}}
+  defp finish_overlap({:ok, %Acquisition{processing: overlap} = acquisition}) do
+    {processing, deadline} = Overlap.finish(overlap)
+    {:ok, %{acquisition | processing: processing, processing_deadline: deadline}}
+  end
 
   defp finish_overlap(result), do: result
 

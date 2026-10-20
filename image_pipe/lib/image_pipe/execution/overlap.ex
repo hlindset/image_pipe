@@ -42,7 +42,8 @@ defmodule ImagePipe.Execution.Overlap do
           wait: wait(config),
           expected: expected,
           first: nil,
-          status: :observing
+          status: :observing,
+          deadline: nil
         }
 
       :skip ->
@@ -112,12 +113,18 @@ defmodule ImagePipe.Execution.Overlap do
 
   def complete(%{status: {:ready, _result}} = state), do: state
 
-  def finish(nil), do: nil
-  def finish(%{status: :skip} = state), do: close(state)
+  # Returns the processing result and the processing deadline of the turn it
+  # ran in, which the encode continues with, or nil for either.
+  def finish(nil), do: {nil, nil}
+
+  def finish(%{status: :skip} = state) do
+    close(state)
+    {nil, nil}
+  end
 
   def finish(%{status: {:ready, result}} = state) do
     close(state)
-    result
+    {result, state.deadline}
   end
 
   def finish(%{status: :running} = state),
@@ -202,6 +209,9 @@ defmodule ImagePipe.Execution.Overlap do
   defp completed(state, :timeout),
     do: %{state | status: {:ready, {:error, {:processing, :timeout}}}}
 
+  defp completed(state, {:ok, {:ok, result, deadline}}),
+    do: %{state | status: {:ready, result}, deadline: deadline}
+
   defp completed(state, {:ok, result}), do: %{state | status: {:ready, result}}
 
   defp completed(state, {:exit, _reason}),
@@ -213,7 +223,7 @@ defmodule ImagePipe.Execution.Overlap do
   defp prepare(download, notification, prefix, request, policy, config) do
     pool = Keyword.get(config, :processing_pool)
 
-    ProcessingPool.within(pool, download, notification, config, fn ->
+    ProcessingPool.within_turn(pool, download, notification, config, fn ->
       Processing.prepare_download(request, {:download, download, prefix}, policy, config)
     end)
   catch

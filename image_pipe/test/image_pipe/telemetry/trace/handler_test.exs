@@ -126,6 +126,20 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
     end
   end
 
+  test "a continuation's admission span is marked" do
+    prefix = [__MODULE__, :continuation]
+    :ok = TestExporter.attach(self(), prefix: prefix)
+    pool = start_supervised!({ImagePipe.ProcessingPool, max_concurrency: 1})
+    deadline = System.monotonic_time(:millisecond) + 5_000
+    config = [telemetry_prefix: prefix, processing_continuation: deadline]
+
+    assert ImagePipe.ProcessingPool.run(pool, fn -> :ok end, config) == :ok
+
+    assert_receive {:span, %Span{name: "image_pipe.processing.admission", attributes: attributes}}
+
+    assert attributes.continuation == true
+  end
+
   test "processing pool spans retain request parentage and close after timed-out work finishes" do
     prefix = [__MODULE__, :processing]
     :ok = TestExporter.attach(self(), prefix: prefix)

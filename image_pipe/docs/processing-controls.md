@@ -50,7 +50,8 @@ max_queue = 16
   same machine.
 - `max_queue` is how many requests may wait for a turn, 64 by default. A
   request that finds the queue full gets a `503`. With `0`, every request
-  beyond `max_concurrency` gets a `503` straight away.
+  beyond `max_concurrency` gets a `503` straight away. The second turn of a
+  request (see [deadlines](#deadlines)) doesn't count toward it.
 - `queue_timeout`, 10 seconds by default, is how long a request waits for a
   turn before it gets a `503`.
 - `processing_timeout`, 30 seconds by default, is the request deadline once
@@ -141,6 +142,11 @@ When the deadline passes before the response starts, the request gets a
 described in [failures during streaming](streaming-failures.md). It also cuts
 the response short when producing its next chunk takes longer than 60 seconds,
 whatever the deadline.
+
+A large original fetched from an HTTP or S3 source can be decoded while it
+downloads, so its encode takes a second turn. That turn keeps the first
+turn's deadline, waits ahead of other requests, and isn't turned away when
+the queue is full.
 
 After a timeout or client disconnect, the worker keeps its processing slot
 until its current operation and resource cleanup finish. A libvips operation
