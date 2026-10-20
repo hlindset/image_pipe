@@ -69,10 +69,10 @@ defmodule ImagePipe.Transform.Executor do
   the terminal's reduction target. A trim in the first group decodes at full
   size, since the trimmed extent isn't known yet.
 
-  With `detector?: true`, a first group that detects keeps enough pixels for
-  the detector however small the output is: a detect crop keeps the decoded
-  frame's long edge at the detection floor, and a cover resize's crop keeps
-  the decoded extent's.
+  With a `:detector` available for the classes a first group detects, that
+  group keeps enough pixels for the detector however small the output is: a
+  detect crop keeps the decoded frame's long edge at the detection floor, and
+  a cover resize's crop that can move keeps the decoded extent's.
   """
   @spec decode_options(Spec.t(), SourceGeometry.t(), keyword()) :: keyword()
   def decode_options(
@@ -89,7 +89,8 @@ defmodule ImagePipe.Transform.Executor do
     target = if vector?, do: target || render_target(group, extent, headroom), else: target
 
     floor =
-      if Keyword.get(opts, :detector?, false), do: detection_floor(group, extent, crop_frame)
+      if detection_runs?(Keyword.get(opts, :detector), group.guide),
+        do: detection_floor(group, extent, crop_frame)
 
     # A decoded axis can't fall under one pixel, which an arbitrary rotation's
     # bounding box doesn't bound, so the source's short side caps the shrink
@@ -114,12 +115,25 @@ defmodule ImagePipe.Transform.Executor do
   # edge, scaled to the extent the planner sizes, and a crop box that covers
   # the frame can't move. A cover resize's crop searches the extent.
   defp detection_floor(%Group{} = group, extent, frame) do
-    if detects?(group.guide) do
-      [crop_floor(group, extent, frame), cover_floor(group, extent)]
-      |> Enum.reject(&is_nil/1)
-      |> Enum.max(fn -> nil end)
+    [crop_floor(group, extent, frame), cover_floor(group, extent)]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.max(fn -> nil end)
+  end
+
+  # Detection runs when the detector can find any class the guide asks for.
+  defp detection_runs?(nil, _guide), do: false
+
+  defp detection_runs?(detector, guide) do
+    case guide_classes(guide, detector) do
+      nil -> false
+      classes -> Enum.any?(classes, &detector.available?(classes: [&1]))
     end
   end
+
+  defp guide_classes({:detect, {:all, _weights}}, detector), do: detector.supported_classes([])
+  defp guide_classes({:detect, {classes, _weights}}, _detector), do: classes
+  defp guide_classes({:smart, :face_assist}, _detector), do: ["face"]
+  defp guide_classes(_guide, _detector), do: nil
 
   defp crop_floor(%Group{crop: nil}, _extent, _frame), do: nil
   defp crop_floor(_group, extent, extent), do: nil
@@ -131,14 +145,15 @@ defmodule ImagePipe.Transform.Executor do
 
   defp long_edge({width, height}), do: max(width, height)
 
-  defp detects?({:detect, _spec}), do: true
-  defp detects?({:smart, :face_assist}), do: true
-  defp detects?(_guide), do: false
-
   defp cover_resize?(%Group{resize: nil}, _extent), do: false
 
-  defp cover_resize?(%Group{resize: resize, dpr: dpr}, extent),
-    do: elem(Geometry.resize_target(resize, dpr, extent), 0) in [:cover, :auto_cover]
+  # A cover whose resize already has the target's shape crops nothing.
+  defp cover_resize?(%Group{resize: resize, dpr: dpr}, extent) do
+    {mode, target} = Geometry.resize_target(resize, dpr, extent)
+
+    mode in [:cover, :auto_cover] and
+      Geometry.resize_dimensions(mode, target, extent) != {target.width, target.height}
+  end
 
   # A vector source renders at its first group's resize even where a raster
   # decode couldn't shrink, as for a one-axis stretch or a minimum alone, so
@@ -473,26 +488,29 @@ defmodule ImagePipe.Transform.Executor do
   # only a few pixels. It detects on the frame before the resize instead, at
   # most twice the floor on the long edge. Detection and the resize both read
   # that frame, so it's buffered; a display-frame copy is cheap at that size.
-  defp prepare_detection_frame(%State{detector: nil} = state, _resize, _tail, _opts),
-    do: {:ok, state}
-
+  # A crop that covers the resized frame can't move, and runs no detection.
   defp prepare_detection_frame(
          %State{} = state,
          %Resize{width: width, height: height, kernel: kernel},
-         %Crop{gravity: gravity},
+         %Crop{gravity: gravity, width: {:pixels, crop_width}, height: {:pixels, crop_height}},
          opts
        )
        when max(width, height) < @detection_floor and
-              (gravity == {:smart, :face_assist} or
-                 (is_tuple(gravity) and elem(gravity, 0) == :detect)) do
+              {crop_width, crop_height} != {width, height} do
+    if detection_runs?(state.detector, gravity),
+      do: buffer_detection_frame(state, kernel, opts),
+      else: {:ok, state}
+  end
+
+  defp prepare_detection_frame(%State{} = state, _resize, _tail, _opts), do: {:ok, state}
+
+  defp buffer_detection_frame(state, kernel, opts) do
     with {:ok, state} <- shrink_to_detection_floor(state, kernel, opts),
          {:ok, %State{} = state} <- Materializer.materialize(state),
          {:ok, display} <- flush_display(state) do
       {:ok, %State{state | detection_frame: display.image}}
     end
   end
-
-  defp prepare_detection_frame(%State{} = state, _resize, _tail, _opts), do: {:ok, state}
 
   defp shrink_to_detection_floor(%State{} = state, kernel, opts) do
     {width, height} = Geometry.live_dims(state)

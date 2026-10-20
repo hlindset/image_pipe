@@ -3,6 +3,8 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
 
   alias ImagePipe.API.Parser
   alias ImagePipe.API.Path
+  alias ImagePipe.Test.DetectorFixtures.CornerObjectDetector
+  alias ImagePipe.Test.DetectorFixtures.ObjectOnlyDetector
   alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceGeometry
@@ -174,7 +176,7 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
     for guide <- ["detect=face", "anchor=smart-face"] do
       plan =
         &options("w=64/h=64/fit=cover/#{guide}", geometry({2400, 1600}, {2400, 1600}, &1),
-          detector?: true
+          detector: CornerObjectDetector
         )
 
       assert plan.(:jpeg)[:shrink] == 2
@@ -188,7 +190,7 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
     # caps it at 2400/640 = 3.75.
     opts =
       options("crop=1280,1280/detect=face/w=64/h=64", geometry({2400, 1600}, {2400, 1600}, :jpeg),
-        detector?: true
+        detector: CornerObjectDetector
       )
 
     assert opts[:shrink] == 2
@@ -199,7 +201,7 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
     # 9.4. The 800x600 crop for a 200 wide resize gives 4.
     opts =
       options("crop=800,600/detect=face/w=200", geometry({6000, 4000}, {6000, 4000}, :jpeg),
-        detector?: true
+        detector: CornerObjectDetector
       )
 
     assert opts[:shrink] == 4
@@ -211,17 +213,17 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
     # Each cover crop detects on a 1000 or 800 wide box, so it decodes at
     # full size to keep 640 pixels.
     for request <- [
-          "region=0,0,1000,1000/detect=face/w=64/h=64/fit=cover",
+          "region=0,0,1000,1000/detect=face/w=64/h=48/fit=cover",
           "crop=800,600/detect=face/w=200/h=200/fit=cover"
         ] do
-      refute options(request, frame, detector?: true)[:shrink], request
+      refute options(request, frame, detector: CornerObjectDetector)[:shrink], request
     end
 
     covering =
       options(
         "crop=2400,1600/detect=face/w=64/h=64/fit=cover",
         geometry({2400, 1600}, {2400, 1600}, :jpeg),
-        detector?: true
+        detector: CornerObjectDetector
       )
 
     assert covering[:shrink] == 2
@@ -230,7 +232,7 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
   test "a detect crop that covers the frame can't move, so it needs no floor" do
     opts =
       options("crop=2400,1600/detect=face/w=64", geometry({2400, 1600}, {2400, 1600}, :jpeg),
-        detector?: true
+        detector: CornerObjectDetector
       )
 
     assert opts[:shrink] == 8
@@ -240,12 +242,34 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
     frame = geometry({2400, 1600}, {2400, 1600}, :jpeg)
 
     assert options("w=64/h=64/fit=cover/detect=face", frame)[:shrink] == 8
-    assert options("w=64/h=64/fit=cover/anchor=smart", frame, detector?: true)[:shrink] == 8
+
+    assert options("w=64/h=64/fit=cover/anchor=smart", frame, detector: CornerObjectDetector)[
+             :shrink
+           ] == 8
+  end
+
+  test "the detection floor needs a detector that can find the guide's classes" do
+    frame = geometry({2400, 1600}, {2400, 1600}, :jpeg)
+
+    assert options("w=64/h=64/fit=cover/detect=face", frame, detector: ObjectOnlyDetector)[
+             :shrink
+           ] == 8
+
+    assert options("w=64/h=64/fit=cover/detect=car,face", frame, detector: ObjectOnlyDetector)[
+             :shrink
+           ] == 2
+  end
+
+  test "a cover resize whose target has the frame's shape crops nothing, so it needs no floor" do
+    frame = geometry({2400, 1600}, {2400, 1600}, :jpeg)
+    opts = options("w=96/h=64/fit=cover/detect=face", frame, detector: CornerObjectDetector)
+
+    assert opts[:shrink] == 8
   end
 
   test "the detection floor never shrinks a decode more than its target does" do
     frame = geometry({2400, 1600}, {2400, 1600}, :jpeg)
-    opts = options("w=1200/h=800/fit=cover/detect=face", frame, detector?: true)
+    opts = options("w=1200/h=600/fit=cover/detect=face", frame, detector: CornerObjectDetector)
 
     assert opts[:shrink] == 2
   end
@@ -253,7 +277,11 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
   test "the detection floor doesn't enlarge an SVG past its intrinsic size" do
     svg = geometry({100, 100}, {100, 100}, :svg)
 
-    assert options("w=64/h=64/fit=cover/detect=face", svg, detector?: true)[:scale] == 1.0
-    assert options("w=320/h=320/fit=cover/detect=face", svg, detector?: true)[:scale] == 3.2
+    assert options("w=64/h=48/fit=cover/detect=face", svg, detector: CornerObjectDetector)[:scale] ==
+             1.0
+
+    assert options("w=320/h=240/fit=cover/detect=face", svg, detector: CornerObjectDetector)[
+             :scale
+           ] == 3.2
   end
 end
