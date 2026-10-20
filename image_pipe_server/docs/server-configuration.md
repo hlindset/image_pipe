@@ -213,6 +213,7 @@ One table per source. The table name is the source's name. Besides
 | `fetch_timeout` | integer > 0 | `30000` |
 | `connect_timeout` | integer ≥ 0 | `5000` |
 | `pool_timeout` | integer ≥ 0 | `5000` |
+| `pool_size` | integer > 0 | `50` |
 | `max_redirects` | integer ≥ 0 | `0` |
 | `dns_cache` | boolean | `true` |
 | `stable` | `"auto"` or `"immutable"` | `"auto"` |
@@ -247,6 +248,7 @@ Elixir only: `req_options`, `address_resolver`.
 | `fetch_timeout` | integer > 0 | `30000` |
 | `connect_timeout` | integer ≥ 0 | `5000` |
 | `pool_timeout` | integer ≥ 0 | `5000` |
+| `pool_size` | integer > 0 | `50` |
 | `stable` | `"auto"` or `"immutable"` | `"auto"` |
 | `internal_cache` | `"enabled"` or `"disabled"` | `"enabled"` |
 | `http_cache` | `"inherit"` or `"validators"` or `"auto"` or `"public"` or `"private"` | `"inherit"` |

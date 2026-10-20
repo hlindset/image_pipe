@@ -88,6 +88,20 @@ defmodule ImagePipeServer.Config.SourcesTest do
       assert mount[:options][:dns_cache] == false
     end
 
+    test "set the connection pool size" do
+      [web: mount] =
+        convert(%{
+          "web" => %{
+            "adapter" => "http",
+            "match" => %{"scheme" => "https"},
+            "allowed_hosts" => ["images.example.com"],
+            "pool_size" => 200
+          }
+        })
+
+      assert mount[:options][:pool_size] == 200
+    end
+
     test "compile path_pattern" do
       [tmdb: mount] =
         convert(%{

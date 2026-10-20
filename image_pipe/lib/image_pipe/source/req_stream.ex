@@ -12,6 +12,7 @@ defmodule ImagePipe.Source.ReqStream do
   @default_receive_timeout 5_000
   @default_pool_timeout 5_000
   @default_connect_timeout 5_000
+  @default_pool_size 50
 
   @spec open(keyword(), keyword()) ::
           {:ok, Response.t()} | {:not_modified, Origin.t()} | {:error, ImagePipe.Source.error()}
@@ -535,6 +536,7 @@ defmodule ImagePipe.Source.ReqStream do
     |> Map.put(:connect_options, connect_options(req_options, runtime_opts))
     |> Map.put(:inet6, inet6)
     |> Req.Finch.pool_options()
+    |> Keyword.put(:size, option(req_options, runtime_opts, :pool_size, @default_pool_size))
     |> Keyword.put(
       :pool_timeout,
       req_options

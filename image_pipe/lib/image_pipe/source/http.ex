@@ -116,6 +116,15 @@ defmodule ImagePipe.Source.HTTP do
                         value is `5000`.
                         """
                       ],
+                      pool_size: [
+                        type: :pos_integer,
+                        doc: """
+                        Maximum number of open HTTP/1.1 connections to each address the \
+                        origin's host resolves to. Each connection carries one download at a \
+                        time, so further downloads from the same address wait for a free \
+                        connection, up to `pool_timeout`. The default value is `50`.
+                        """
+                      ],
                       max_redirects: [
                         type: :non_neg_integer,
                         default: 0,
@@ -515,7 +524,7 @@ defmodule ImagePipe.Source.HTTP do
       |> Keyword.merge(url: fetch[:url], method: :get)
 
     stream_options =
-      Keyword.take(opts, [:receive_timeout, :pool_timeout, :connect_timeout])
+      Keyword.take(opts, [:receive_timeout, :pool_timeout, :pool_size, :connect_timeout])
       |> Keyword.put(:fetch_timeout, fetch[:fetch_timeout])
       |> Keyword.merge(runtime_opts)
       |> Keyword.merge(target_guard(opts))

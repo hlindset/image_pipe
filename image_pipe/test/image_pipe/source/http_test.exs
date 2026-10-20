@@ -109,6 +109,14 @@ defmodule ImagePipe.Source.HTTPTest do
     assert HTTP.resolve(%URL{source | port: nil}, opts, []) == {:error, {:source, :denied_host}}
   end
 
+  test "validate_options requires a positive pool_size" do
+    assert {:ok, opts} = HTTP.validate_options(allowed_hosts: ["example.com"], pool_size: 200)
+    assert opts[:pool_size] == 200
+
+    assert {:error, {:invalid_source_config, _reason}} =
+             HTTP.validate_options(allowed_hosts: ["example.com"], pool_size: 0)
+  end
+
   test "validate_options rejects a malformed allowed_hosts entry" do
     assert {:error, {:invalid_source_config, message}} =
              HTTP.validate_options(allowed_hosts: ["assets.example.com:https"])
