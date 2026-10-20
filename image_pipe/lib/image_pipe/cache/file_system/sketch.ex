@@ -1,7 +1,17 @@
 defmodule ImagePipe.Cache.FileSystem.Sketch do
+  # The counters are bytes packed eight to an `:atomics` word, updated in
+  # place, so the admission process that owns the sketch neither copies them
+  # on each update nor on each garbage collection. Only that process updates
+  # them. A counter stops at 255, so an increment never carries into the
+  # next byte.
   @moduledoc false
 
   import Bitwise
+
+  @per_word 8
+  # Each byte's low seven bits, so a word shifted right by one halves every
+  # counter without the next byte's low bit moving into it.
+  @halve_mask 0x7F7F7F7F7F7F7F7F
 
   @enforce_keys [:depth, :width, :sample_size, :counters, :increments_since_reset]
   defstruct @enforce_keys
@@ -10,7 +20,7 @@ defmodule ImagePipe.Cache.FileSystem.Sketch do
           depth: pos_integer(),
           width: pos_integer(),
           sample_size: pos_integer(),
-          counters: :array.array(non_neg_integer()),
+          counters: :atomics.atomics_ref(),
           increments_since_reset: non_neg_integer()
         }
 
@@ -35,48 +45,40 @@ defmodule ImagePipe.Cache.FileSystem.Sketch do
       depth: depth,
       width: width,
       sample_size: sample_size,
-      counters: :array.new(depth * width, default: 0, fixed: true),
+      counters: :atomics.new(div(depth * width + @per_word - 1, @per_word), signed: false),
       increments_since_reset: 0
     }
   end
 
   @spec increment(t(), binary()) :: t()
-  def increment(%__MODULE__{} = sketch, key) when is_binary(key) do
+  def increment(%__MODULE__{counters: counters} = sketch, key) when is_binary(key) do
     positions = positions_for(sketch, key)
-    current_values = Enum.map(positions, &:array.get(&1, sketch.counters))
+    current_values = Enum.map(positions, &get(counters, &1))
     min_value = Enum.min(current_values)
 
-    new_counters =
-      positions
-      |> Enum.zip(current_values)
-      |> Enum.reduce(sketch.counters, fn {pos, value}, counters ->
-        if value == min_value and value < 255 do
-          :array.set(pos, value + 1, counters)
-        else
-          counters
-        end
-      end)
+    if min_value < 255 do
+      for {pos, ^min_value} <- Enum.zip(positions, current_values),
+          do: :atomics.add(counters, word(pos), bsl(1, shift(pos)))
+    end
 
-    %{sketch | counters: new_counters, increments_since_reset: sketch.increments_since_reset + 1}
+    %{sketch | increments_since_reset: sketch.increments_since_reset + 1}
   end
 
   @spec estimate(t(), binary()) :: non_neg_integer()
-  def estimate(%__MODULE__{} = sketch, key) when is_binary(key) do
+  def estimate(%__MODULE__{counters: counters} = sketch, key) when is_binary(key) do
     sketch
     |> positions_for(key)
-    |> Enum.map(&:array.get(&1, sketch.counters))
+    |> Enum.map(&get(counters, &1))
     |> Enum.min()
   end
 
   @spec age(t()) :: t()
-  def age(%__MODULE__{} = sketch) do
-    new_counters = :array.map(fn _idx, value -> bsr(value, 1) end, sketch.counters)
+  def age(%__MODULE__{counters: counters} = sketch) do
+    Enum.each(1..:atomics.info(counters).size, fn index ->
+      :atomics.put(counters, index, bsr(:atomics.get(counters, index), 1) &&& @halve_mask)
+    end)
 
-    %{
-      sketch
-      | counters: new_counters,
-        increments_since_reset: 0
-    }
+    %{sketch | increments_since_reset: 0}
   end
 
   @spec should_age?(t()) :: boolean()
@@ -88,4 +90,9 @@ defmodule ImagePipe.Cache.FileSystem.Sketch do
       row * width + hash
     end
   end
+
+  defp get(counters, pos), do: bsr(:atomics.get(counters, word(pos)), shift(pos)) &&& 255
+
+  defp word(pos), do: div(pos, @per_word) + 1
+  defp shift(pos), do: rem(pos, @per_word) * 8
 end
