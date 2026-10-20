@@ -9,12 +9,32 @@ defmodule ImagePipe.Plan.Builder.Values do
 
   @directions %{down: 0.0, left: 90.0, up: 180.0, right: 270.0}
 
+  # The option's name leads the message. A source isn't repeated in it, so
+  # issues and warnings don't carry it.
   def cast(value, kind) do
-    case normalize(value, kind) do
-      {:ok, _value} = ok -> ok
-      _invalid -> {:error, "invalid #{kind} value"}
+    case {normalize(value, kind), expected(kind)} do
+      {{:ok, _value} = ok, _expected} -> ok
+      {_invalid, _expected} when kind == :source -> {:error, "not a source the server accepts"}
+      {_invalid, nil} -> {:error, "got: #{shown(value)}"}
+      {_invalid, expected} -> {:error, "expected #{expected}, got: #{shown(value)}"}
     end
   end
+
+  defp shown(value), do: inspect(value, limit: 50, printable_limit: 256)
+
+  defp expected(:axis), do: "an integer from 1 to 2147483647"
+  defp expected(:dimension), do: "an integer from 1 to 2147483647, or :auto"
+  defp expected(:positive), do: "a number above 0"
+  defp expected(:scale_factor), do: "a number above 0, at most 2147483647"
+  defp expected(:zoom), do: "a number above 0, at most 2147483647, or an {x, y} pair of them"
+  defp expected(:blur), do: "a number from 0 to 1000"
+  defp expected(:sharpen), do: "0 or a number from 0.000001 to 10"
+  defp expected(:fraction), do: "a number from 0 to 1"
+  defp expected(:scale), do: "a number above 0, at most 1"
+  defp expected(:focus), do: "an {x, y} pair of numbers from 0 to 1"
+  defp expected(:rotate), do: "a number"
+  defp expected(:watermark_name), do: "an atom of lowercase letters, digits, _ and -"
+  defp expected(_kind), do: nil
 
   defp normalize(value, :preset_name) when is_binary(value) do
     case chars?(value, :token) do

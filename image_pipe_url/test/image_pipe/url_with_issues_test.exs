@@ -37,6 +37,17 @@ defmodule ImagePipe.URLWithIssuesTest do
     end
   end
 
+  test "an invalid value's issue states what's accepted, but doesn't repeat a source" do
+    builder =
+      ImagePipe.URL.group(ImagePipe.URL.new(), dpr: 0, watermark_source: "private/a\0b.png")
+
+    {_url, issues} = ImagePipe.URL.url_with_issues(builder, "cat.jpg")
+    details = Enum.map(issues, & &1.detail)
+
+    assert "invalid value for :dpr option: expected a number above 0, at most 2147483647, got: 0" in details
+    refute Enum.any?(details, &(&1 =~ "private"))
+  end
+
   test "an unknown option is written under its own name" do
     builder = ImagePipe.URL.new() |> ImagePipe.URL.group(blur: 1, shape_mode: :round)
 
