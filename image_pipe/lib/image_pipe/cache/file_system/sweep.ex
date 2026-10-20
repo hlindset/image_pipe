@@ -134,20 +134,16 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   end
 
   defp sweep_partition(dir, names, cutoff, counts) do
-    metas = for name <- names, String.ends_with?(name, ".meta"), into: MapSet.new(), do: name
-
-    Enum.reduce(names, counts, fn name, counts ->
-      sweep_file(dir, name, metas, cutoff, counts)
-    end)
+    Enum.reduce(names, counts, fn name, counts -> sweep_file(dir, name, cutoff, counts) end)
   end
 
-  defp sweep_file(dir, name, metas, cutoff, counts) do
+  defp sweep_file(dir, name, cutoff, counts) do
     path = Path.join(dir, name)
 
     case classify(name) do
       {:pins, created} when created < cutoff -> remove(path, :pins, counts)
       :temps -> if older?(path, cutoff), do: remove(path, :temps, counts), else: counts
-      {:bodies, meta} -> sweep_body(path, Path.join(dir, meta), metas, cutoff, counts)
+      {:bodies, meta} -> sweep_body(path, Path.join(dir, meta), cutoff, counts)
       _live_or_unrelated -> counts
     end
   end
@@ -172,19 +168,16 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   # another body, as after two commits for one key race. A meta this node
   # can't read keeps its body until the meta is old enough to remove. A commit
   # can rename a fresh body over an old one and name it in a new meta at any
-  # moment, so the checks run again just before the unlink.
-  defp sweep_body(path, meta_path, metas, cutoff, counts) do
-    listed? = MapSet.member?(metas, Path.basename(meta_path))
-
-    if older?(path, cutoff) and unnamed?(path, meta_path, listed?) and
-         unnamed?(path, meta_path, true) and older?(path, cutoff),
-       do: remove(path, :bodies, counts),
-       else: counts
+  # moment, so the meta is read after the listing rather than taken from it,
+  # and the body's age is checked again just before the unlink: a commit
+  # renames its body before its meta, so a body it replaces is fresh by then.
+  defp sweep_body(path, meta_path, cutoff, counts) do
+    if older?(path, cutoff) and unnamed?(path, meta_path) and older?(path, cutoff),
+      do: remove(path, :bodies, counts),
+      else: counts
   end
 
-  defp unnamed?(_path, _meta_path, false = _listed?), do: true
-
-  defp unnamed?(path, meta_path, true = _listed?) do
+  defp unnamed?(path, meta_path) do
     case Store.read_descriptor(meta_path) do
       {:ok, %{body_filename: named}, _mtime} -> Path.basename(path) != named
       {:error, :enoent} -> true
