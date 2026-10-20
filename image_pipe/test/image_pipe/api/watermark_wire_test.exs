@@ -27,6 +27,8 @@ defmodule ImagePipe.API.WatermarkWireTest do
       "p3_red.png" => png(p3_red()),
       "p3_red_as_srgb.png" => png(as_srgb(p3_red())),
       "veil.png" => png(Image.new!(10, 10, color: @blue ++ [128])),
+      "faint.png" => png(Image.new!(10, 10, color: @red ++ [1])),
+      "gray.png" => png(Image.new!(60, 40, color: [96, 96, 96])),
       "rotated.jpg" => rotated_jpeg(),
       "corrupt.png" => "not an image",
       "deep.png" => deep_png()
@@ -321,6 +323,14 @@ defmodule ImagePipe.API.WatermarkWireTest do
     assert pixel(marked, 30, 20) == [257, 128 * 257, 200 * 257]
   end
 
+  test "a faded asset's alpha is rounded only once", %{config: config} do
+    # Alpha 1/255 at 60% opacity draws at alpha 0.6/255: 96.37 levels of red.
+    # Rounding that alpha to 1/255 first would give 96.62, so 97.
+    response = response("wm=faint/wm-opacity=0.6", config, "src/gray.png")
+    marked = Image.from_binary!(response.resp_body)
+    assert pixel(marked, 30, 20) == [96, 96, 96]
+  end
+
   test "EXIF orientation applies to the asset", %{config: config} do
     marked = image("wm=turned/wm-at=top-left", config)
     assert dominant(pixel(marked, 3, 5)) == :red
@@ -613,6 +623,7 @@ defmodule ImagePipe.API.WatermarkWireTest do
           pattern: [source: "pattern.png"],
           gray_logo: [source: "gray_mark.png"],
           veil: [source: "veil.png"],
+          faint: [source: "faint.png"],
           mid_logo: [source: "mid_mark.png"],
           turned: [source: "rotated.jpg"],
           corrupt: [source: "corrupt.png"]

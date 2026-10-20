@@ -101,6 +101,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a 500 when metadata is stripped. All of its metadata is removed,
   including the copyright and
   artist that `keep_copyright` would keep.
+- A watermark with an opacity below `1` blends with the image at its exact
+  faded alpha. Before, the faded alpha was rounded to a whole level first,
+  so a watermark's edges or faint areas could be off by one level.
 - A request path with many `wm-src64=` segments no longer takes seconds of
   CPU. Every request path is redacted for telemetry before its URL
   signature is checked, so an unsigned request could cause this.
