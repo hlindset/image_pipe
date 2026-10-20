@@ -97,6 +97,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   incomplete is now logged and treated as a miss, like other
   [invalid metadata](docs/cache.md#files-on-disk). Before, a request that
   read it failed with a 500.
+- Resizing a JPEG or WebP image only a few pixels high or wide, such as a
+  2000×3 image at `w=100`, no longer fails with a 415. Neither does shrinking
+  a WebP so far that its short side would be under one pixel, such as
+  `w=1/dpr=0.5`.
 
 ## [0.3.0] - 2026-10-18
 

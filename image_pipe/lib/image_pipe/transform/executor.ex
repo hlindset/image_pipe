@@ -88,7 +88,13 @@ defmodule ImagePipe.Transform.Executor do
     target = if vector?, do: target || render_target(group, extent, headroom), else: target
     floor = if Keyword.get(opts, :detector?, false), do: detection_floor(group, extent)
 
-    DecodePlanner.open_options(geometry.source_format, extent, target, floor)
+    # A decoded axis can't fall under one pixel, which an arbitrary rotation's
+    # bounding box doesn't bound, so the source's short side caps the shrink
+    # as well as the extent's.
+    {width, height} = geometry.display_dimensions
+    max_shrink = Enum.min([width, height | Tuple.to_list(extent)])
+
+    DecodePlanner.open_options(geometry.source_format, extent, target, floor, max_shrink)
   end
 
   defp detection_floor(%Group{} = group, extent) do

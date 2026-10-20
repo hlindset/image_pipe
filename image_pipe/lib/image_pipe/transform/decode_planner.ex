@@ -30,18 +30,22 @@ defmodule ImagePipe.Transform.DecodePlanner do
   `min_long_edge` keeps the decoded extent's long edge at least that many
   pixels, or at the extent's own size when that is smaller. `nil` sets no
   minimum.
+
+  `max_shrink` caps the shrink, so the decoded image keeps at least one pixel
+  on each axis. It defaults to the extent's short side.
   """
   @spec open_options(
           source_format(),
           {pos_integer(), pos_integer()},
           target() | nil,
+          pos_integer() | nil,
           pos_integer() | nil
         ) :: keyword()
-  def open_options(source_format, extent, target, min_long_edge \\ nil)
+  def open_options(source_format, extent, target, min_long_edge \\ nil, max_shrink \\ nil)
 
   # An SVG renders at any scale, so it renders straight at the target, larger
   # or smaller than its intrinsic size, and never needs resampling to reach it.
-  def open_options(:svg, {width, height}, target, min_long_edge)
+  def open_options(:svg, {width, height}, target, min_long_edge, _max_shrink)
       when is_integer(width) and width > 0 and is_integer(height) and height > 0 do
     case target do
       nil ->
@@ -54,14 +58,16 @@ defmodule ImagePipe.Transform.DecodePlanner do
 
   # The guards state the domain: a zero or negative extent would otherwise give a
   # ratio at or below 1 and silently decode at full size.
-  def open_options(source_format, {width, height}, target, min_long_edge)
+  def open_options(source_format, {width, height}, target, min_long_edge, max_shrink)
       when is_atom(source_format) and is_integer(width) and width > 0 and
              is_integer(height) and height > 0 do
+    # libvips fails on a decoded axis under one pixel.
     load_shrink =
       case target do
         nil -> 1.0
         {target_w, target_h} -> ratio(width, height, target_w, target_h, min_long_edge)
       end
+      |> min(max_shrink || min(width, height))
 
     append_load_option([access: :sequential, fail_on: :error], source_format, load_shrink)
   end
