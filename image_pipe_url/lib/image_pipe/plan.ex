@@ -204,7 +204,8 @@ defmodule ImagePipe.Plan do
   # Validates a plan whose presets a request-time lookup may resolve. When the
   # plan names a preset missing from `presets`, only the groups that name no
   # such preset are checked: a missing preset can supply any option of its
-  # group and of the request.
+  # group and of the request. Conflicts between options the plan sets itself
+  # are checked everywhere, since a preset can't remove them.
   @doc false
   @spec validate_known(t(), map(), map() | nil, Spec.Validation.watermarks()) ::
           {:ok, [Issue.t()]} | {:error, [Issue.t()]}
@@ -242,7 +243,7 @@ defmodule ImagePipe.Plan do
       # locations are numbered as the plan numbers its groups.
       checked = fn issues ->
         issues
-        |> Enum.flat_map(&in_plan_groups(&1, expanded.origins, tainted))
+        |> Enum.flat_map(&in_plan_groups(&1, indexed, expanded.origins, request, tainted))
         |> Enum.flat_map(&written_in_plan(&1, indexed))
       end
 
@@ -263,17 +264,28 @@ defmodule ImagePipe.Plan do
     end
   end
 
-  # Keeps an issue only when every location is in a group without an unknown
-  # preset, numbered as the plan numbers its groups.
-  defp in_plan_groups(issue, origins, tainted) do
+  # Keeps an issue when every location is in a group without an unknown
+  # preset, and a conflict between options the plan sets itself, since a
+  # preset can't remove them. Locations are numbered as the plan numbers its
+  # groups.
+  defp in_plan_groups(issue, indexed, origins, request, tainted) do
     locations =
       Enum.map(issue.locations, fn
         {:group, index, key} -> {:group, Map.fetch!(origins, index), key}
-        {:request, _key} -> nil
+        {:request, _key} = location -> location
       end)
 
-    case Enum.all?(locations, &match?({:group, _, _}, &1)) and
-           not Enum.any?(locations, fn {:group, origin, _key} -> origin in tainted end) do
+    checked? =
+      Enum.all?(locations, fn
+        {:group, origin, _key} -> origin not in tainted
+        {:request, _key} -> false
+      end)
+
+    plan_conflict? =
+      issue.reason == :mutually_exclusive_options and
+        Enum.all?(issue.locations, &written?(&1, indexed, origins, request))
+
+    case checked? or plan_conflict? do
       true -> [%{issue | locations: locations}]
       false -> []
     end

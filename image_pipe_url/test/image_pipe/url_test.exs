@@ -452,6 +452,36 @@ defmodule ImagePipe.URLTest do
                )
     end
 
+    test "under a lookup, conflicts between options the plan sets are still checked" do
+      lookup =
+        IP.URL.config(validate_against: [presets: %{"a" => "blur=1"}, preset_lookup: true])
+
+      assert {:error, [%{reason: :mutually_exclusive_options} = request]} =
+               IP.URL.new(lookup)
+               |> IP.URL.group(presets: ["unknown"])
+               |> IP.URL.output(quality: 80, autoquality: true)
+               |> IP.URL.validate()
+
+      assert Enum.sort(request.locations) == [{:request, :autoquality}, {:request, :quality}]
+
+      assert {:error, [%{reason: :mutually_exclusive_options}]} =
+               IP.URL.new(lookup)
+               |> IP.URL.group(presets: ["a"])
+               |> IP.URL.output(quality: 80, autoquality: true)
+               |> IP.URL.validate()
+
+      group =
+        IP.URL.new(lookup)
+        |> IP.URL.group(resize: [width: 10])
+        |> IP.URL.group(presets: ["unknown"], anchor: :top, detect: ["face"], crop: {10, 10})
+
+      assert {:error, [%{reason: :mutually_exclusive_options} = conflict]} =
+               IP.URL.validate(group)
+
+      assert Enum.sort(conflict.locations) == [{:group, 1, :anchor}, {:group, 1, :detect}]
+      assert {:error, {:invalid_request, _issues}} = IP.URL.url(group, "photo.jpg")
+    end
+
     test "issues name the builder's own groups when an unset-only group drops out" do
       static = IP.URL.config(validate_against: [presets: %{}])
       lookup = IP.URL.config(validate_against: [presets: %{}, preset_lookup: true])
