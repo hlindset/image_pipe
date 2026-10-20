@@ -3,6 +3,8 @@ defmodule ImagePipe.Source.HTTP.PinnedTarget do
 
   alias ImagePipe.Source.HTTP.PinnedPools
 
+  @minimum_attempt_ms 100
+
   # Pin at the transport boundary, after signing and other request steps. Logical
   # URLs stay intact for redirects, origin validators and request authentication.
   #
@@ -40,7 +42,9 @@ defmodule ImagePipe.Source.HTTP.PinnedTarget do
       {{:error, %Req.TransportError{}}, %Req.Response{status: nil}, _, _} = result ->
         PinnedPools.connected(key, false)
 
-        if rest == [] or remaining(deadline) == 0,
+        # An attempt with less than this left would likely time out, and its
+        # error would replace the one that used up the time.
+        if rest == [] or remaining(deadline) < @minimum_attempt_ms,
           do: result,
           else: connect(req, rest, deadline, acc, fun, state, next)
 

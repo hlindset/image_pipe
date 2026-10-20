@@ -210,6 +210,7 @@ defmodule ImagePipe.Source.ReqStream do
   end
 
   defp request_error(:pool_timeout), do: :pool_timeout
+  defp request_error(:deadline_exceeded), do: :receive_timeout
   defp request_error(%Req.HTTPError{}), do: :invalid_body
 
   # An origin that accepts the connection but sends no headers in time.
@@ -233,9 +234,18 @@ defmodule ImagePipe.Source.ReqStream do
         request(req_options, runtime_opts, previous, addresses, attempts - 1)
 
       result ->
-        result
+        deadline_spent(result, Keyword.fetch!(runtime_opts, :deadline))
     end
   end
+
+  # Every wait for a pooled connection is capped to the time left, so a pool
+  # timeout once the deadline has passed means the fetch ran out of time, not
+  # that the pool was full.
+  defp deadline_spent({:error, :pool_timeout} = result, deadline) when deadline != :infinity do
+    if remaining(deadline) == 0, do: {:error, :deadline_exceeded}, else: result
+  end
+
+  defp deadline_spent(result, _deadline), do: result
 
   defp build_request(req_options, runtime_opts, previous, addresses) do
     req_options
