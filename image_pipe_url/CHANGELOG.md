@@ -7,6 +7,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A `watermark_source:` loses an optional leading `/`, as the main source
+  does, so its `wm-src64` value and its deterministic `wm-enc` token change.
 - A URL's `anchor-offset`, `extend-at`, or `extend-offset` no longer
   replaces the crop target or canvas from a preset or the request defaults,
   and its `unset` removes only that option. Before, `anchor-offset=5,5`
@@ -23,6 +25,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `ImagePipe.URL.url/3` returns `{:error, :invalid_source}` for a source
+  that is just `/` or holds a NUL byte, which the server refuses.
+  `ImagePipe.URL.group/2` rejects such a `watermark_source:`.
 - Checking a URL with `:validate_against` applies the request defaults to
   the URL's first group, as the server does, even when that group holds
   only `unset` options or names a preset the check doesn't know. Before,

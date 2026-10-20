@@ -21,6 +21,22 @@ defmodule ImagePipe.Plan.Source do
 
   def normalize(source), do: source
 
+  # Normalizes a source and checks that the server can serve it: not empty
+  # after normalizing, valid UTF-8, and without a NUL byte, which no path or
+  # object key can hold.
+  @doc false
+  @spec check(term()) :: {:ok, String.t()} | :error
+  def check(source) when is_binary(source) do
+    source = normalize(source)
+
+    case source != "" and String.valid?(source) and not String.contains?(source, <<0>>) do
+      true -> {:ok, source}
+      false -> :error
+    end
+  end
+
+  def check(_source), do: :error
+
   # `[a-zA-Z][a-zA-Z0-9+.-]*://` at the start, scanned because OTP 28 and
   # later rebuild a regex at every use.
   defp scheme_prefix?(<<first, rest::binary>>) when first in ?a..?z or first in ?A..?Z,

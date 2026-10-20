@@ -88,16 +88,12 @@ defmodule ImagePipe.API.URL do
 
   defp issue(reason), do: %Issue{reason: reason, locations: [], detail: nil}
 
-  defp source(source) when is_binary(source) and source != "" do
-    source = PlanSource.normalize(source)
-
-    case source != "" and String.valid?(source) do
-      true -> {:ok, source}
-      false -> {:error, :invalid_source}
+  defp source(source) do
+    case PlanSource.check(source) do
+      {:ok, source} -> {:ok, source}
+      :error -> {:error, :invalid_source}
     end
   end
-
-  defp source(_source), do: {:error, :invalid_source}
 
   defp source_segments(source, config, options, true) do
     with {:ok, token} <- Security.encrypt_source(source, config, options) do

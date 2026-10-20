@@ -188,8 +188,15 @@ defmodule ImagePipe.URLTest do
     end
   end
 
+  test "a watermark source loses its optional leading slash, as the main source does" do
+    url = &IP.URL.url!(IP.URL.group(IP.URL.new(), watermark_source: &1), "photo.jpg")
+
+    assert url.("/logos/a.png") == url.("logos/a.png")
+    refute url.("//host/a.png") == url.("host/a.png")
+  end
+
   test "invalid sources and semantic failures return tagged errors without their content" do
-    for source <- ["", <<255>>, {:binary, "private-bytes"}, {:file, "private-path"}] do
+    for source <- ["", "/", "a\0b", <<255>>, {:binary, "private-bytes"}, {:file, "private-path"}] do
       assert IP.URL.url(IP.URL.new(), source) == {:error, :invalid_source}
     end
 

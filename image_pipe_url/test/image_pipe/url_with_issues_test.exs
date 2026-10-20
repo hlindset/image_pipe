@@ -75,6 +75,8 @@ defmodule ImagePipe.URLWithIssuesTest do
           [presets: ["bad/name"]],
           [watermark: "logo"],
           [watermark_source: ""],
+          [watermark_source: "/"],
+          [watermark_source: "logos/a\0b.png"],
           [mystery: 1]
         ] do
       builder = ImagePipe.URL.group(ImagePipe.URL.new(), options)
