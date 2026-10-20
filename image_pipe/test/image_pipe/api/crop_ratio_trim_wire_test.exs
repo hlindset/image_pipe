@@ -61,6 +61,21 @@ defmodule ImagePipe.API.CropRatioTrimWireTest do
     end
   end
 
+  test "an extreme crop ratio keeps at least one pixel on each axis" do
+    for {options, size} <- [
+          {"crop=120,100/crop-ratio=1:4000", {1, 100}},
+          {"crop=30,4/crop-ratio=1:100", {1, 4}},
+          {"crop=120,100/crop-ratio=4000:1", {120, 1}}
+        ] do
+      output = image(options, source())
+      assert {Image.width(output), Image.height(output)} == size, options
+    end
+
+    info = response("crop=120,100/crop-ratio=1:4000/output=info", source())
+    assert info.status == 200
+    assert %{"width" => 1, "height" => 100} = JSON.decode!(info.resp_body)["result"]
+  end
+
   test "crop ratios use displayed axes after rotation" do
     source = source()
     rotated = image("rotate=90", source) |> Image.write!(:memory, suffix: ".png")
@@ -124,6 +139,12 @@ defmodule ImagePipe.API.CropRatioTrimWireTest do
   end
 
   defp image(options, body) do
+    response = response("#{options}/format=png", body)
+    assert response.status == 200
+    Image.from_binary!(response.resp_body)
+  end
+
+  defp response(options, body) do
     origin = fn conn -> conn |> put_resp_content_type("image/png") |> send_resp(200, body) end
 
     config =
@@ -137,9 +158,7 @@ defmodule ImagePipe.API.CropRatioTrimWireTest do
         ]
       )
 
-    response = conn(:get, "/#{options}/format=png/src/image.png") |> ImagePipe.Plug.call(config)
-    assert response.status == 200
-    Image.from_binary!(response.resp_body)
+    conn(:get, "/#{options}/src/image.png") |> ImagePipe.Plug.call(config)
   end
 
   defp assert_same_pixels(actual, expected) do

@@ -81,9 +81,13 @@ defmodule ImagePipe.Transform.Executor.Geometry do
     scale_into(box, image)
   end
 
+  # An extreme ratio can round an axis to zero, so each keeps at least a pixel.
   defp scale_into({width, height}, {image_width, image_height}) do
+    {width, height} = {max(1, width), max(1, height)}
     scale = min(1.0, min(image_width / width, image_height / height))
-    {round_half_away_from_zero(width * scale), round_half_away_from_zero(height * scale)}
+
+    {max(1, round_half_away_from_zero(width * scale)),
+     max(1, round_half_away_from_zero(height * scale))}
   end
 
   defp fit_axis(length, image_length), do: max(1, min(image_length, length))

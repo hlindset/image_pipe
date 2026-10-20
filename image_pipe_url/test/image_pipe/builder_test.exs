@@ -25,7 +25,9 @@ defmodule ImagePipe.BuilderTest do
           [sharpen: 10.1],
           [dpr: 2_147_483_648],
           [resize: [width: 10, zoom: 2_147_483_648]],
-          [crop: {{:pct, huge}, 10}]
+          [crop: {{:pct, huge}, 10}],
+          [trim: {"white", 2_147_483_648}],
+          [trim: {"white", huge}]
         ] do
       assert [_ | _] = errors(IP.URL.group(IP.URL.new(), options))
     end

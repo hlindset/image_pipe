@@ -509,6 +509,44 @@ defmodule ImagePipe.Telemetry.SummaryTest do
     end
   end
 
+  test "base64 credentials are redacted when the token is percent-encoded or ends in a slash" do
+    # Its standard base64 spelling holds `+`, `/`, and `=`.
+    token = Base.encode64("https://b.example/a>~b.jpg?X-Goog-Credential=s")
+    escaped = URI.encode_www_form(token)
+
+    for tail <- [escaped, escaped <> ".jpg", token <> "/", escaped <> "/"] do
+      assert Telemetry.request_path("/w=40/src64/" <> tail, "") == "/w=40/src64/REDACTED", tail
+    end
+
+    assert Telemetry.request_path("/wm-src64=#{escaped}/w=40/src/a.jpg", "") ==
+             "/wm-src64=REDACTED/w=40/src/a.jpg"
+
+    # Escaped as Python's `quote` does: `+` and `=` escaped, `/` kept.
+    token = Base.encode64("https://b.example/a~100?X-Amz-Signature=s&q=~?100")
+
+    for tail <- [String.replace(token, "+", "%2B"), String.replace(token, "=", "%3D")] do
+      assert Telemetry.request_path("/wm-src64=#{tail}/w=40/src/a.jpg", "") ==
+               "/wm-src64=REDACTED/w=40/src/a.jpg",
+             tail
+    end
+  end
+
+  test "a src URL that decodes to invalid UTF-8 is still logged as valid UTF-8" do
+    path = Telemetry.request_path("/w=40/src/https://b/%FF.jpg%3FX-Amz-Signature%3Ds", "")
+
+    assert String.valid?(path)
+    assert path =~ "X-Amz-Signature=REDACTED"
+  end
+
+  test "redacting a path of many wm-src64 segments takes linear time" do
+    path = String.duplicate("/wm-src64=A", 2_000) <> "/src/a.jpg"
+
+    {micros, redacted} = :timer.tc(fn -> Telemetry.request_path(path, "") end)
+
+    assert redacted == path
+    assert micros < 500_000
+  end
+
   test "sources without credentials, and ImagePipe's own signature, are logged as sent" do
     plain = Base.url_encode64("https://b.example/a.jpg?keep=1", padding: false)
 

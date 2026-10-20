@@ -5,6 +5,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- A `trim` tolerance above `2147483647` is rejected, both in a URL and by
+  `ImagePipe.URL.group/2`.
+
 ## [0.3.0] - 2026-10-18
 
 ### Added

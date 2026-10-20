@@ -95,8 +95,8 @@ of that image, so [`dpr`](resize.md#dpr) doesn't change them.
 ### trim
 
 Accepts `auto`, or a [color](../requesting-images.md#colors) followed by an
-optional tolerance, a number of 0 or more. Default: none. The tolerance
-defaults to `10`.
+optional tolerance, a [number](../requesting-images.md#numbers) from `0` to
+`2147483647`. Default: none. The tolerance defaults to `10`.
 
 Removes a border of one color from every edge. `auto` uses the color of the
 top-left pixel. The tolerance sets how far a pixel's color may differ from the
