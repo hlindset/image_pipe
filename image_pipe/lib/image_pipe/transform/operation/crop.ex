@@ -192,7 +192,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
   def execute(%__MODULE__{gravity: {:smart, :face_assist}} = params, %State{} = state) do
     cond do
       is_nil(state.detector) ->
-        emit_detect_skipped(["face"], state.telemetry_opts)
+        emit_detect_skipped(["face"], :no_detector, state.telemetry_opts)
         smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
 
       state.detector_required and not Detector.ready?(state.detector, classes: ["face"]) ->
@@ -291,7 +291,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
 
   defp detect_crop(%__MODULE__{} = params, %State{} = state, spec, weights) do
     if is_nil(state.detector) do
-      emit_detect_skipped(spec, state.telemetry_opts)
+      emit_detect_skipped(spec, :no_detector, state.telemetry_opts)
       smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
     else
       detect_crop_with_module(params, state, spec, weights)
@@ -335,7 +335,10 @@ defmodule ImagePipe.Transform.Operation.Crop do
   # model is ready, use attention, and don't store the result unless face
   # detection is unavailable in this build.
   defp attention_until_ready(params, %State{} = state) do
-    degraded? = state.degraded? or state.detector.available?(classes: ["face"])
+    available? = state.detector.available?(classes: ["face"])
+    result = if available?, do: :not_ready, else: :unavailable
+    emit_detect_skipped(["face"], result, state.telemetry_opts)
+    degraded? = state.degraded? or available?
     smart_crop(params, %State{state | degraded?: degraded?}, :VIPS_INTERESTING_ATTENTION)
   end
 
@@ -380,12 +383,12 @@ defmodule ImagePipe.Transform.Operation.Crop do
     end
   end
 
-  # No detector means attention fallback. Emit a skipped marker rather than
-  # timing work that did not run.
-  defp emit_detect_skipped(classes, telemetry_opts) do
+  # Detection that can't run means attention fallback. Emit a skipped marker
+  # rather than timing work that did not run.
+  defp emit_detect_skipped(classes, result, telemetry_opts) do
     Telemetry.execute(telemetry_opts, [:transform, :detect, :skipped], %{}, %{
       classes: classes,
-      result: :no_detector
+      result: result
     })
   end
 

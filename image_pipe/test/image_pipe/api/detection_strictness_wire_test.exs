@@ -10,6 +10,7 @@ defmodule ImagePipe.API.DetectionStrictnessWireTest do
   alias ImagePipe.Test.Caches
   alias ImagePipe.Test.DetectorFixtures.CornerObjectDetector
   alias ImagePipe.Test.DetectorFixtures.FlakyDetector
+  alias ImagePipe.Test.DetectorFixtures.ObjectOnlyDetector
   alias ImagePipe.Test.DetectorFixtures.PartialFailureDetector
   alias ImagePipe.Test.DetectorFixtures.UnavailableDetector
   alias ImagePipe.Test.FakeDetector
@@ -68,15 +69,33 @@ defmodule ImagePipe.API.DetectionStrictnessWireTest do
     end
 
     test "use attention for face-assisted crops without calling a detector that isn't ready" do
+      prefix = [:detection_strictness_not_ready]
+      attach(prefix ++ [:transform, :detect, :skipped])
       FlakyDetector.set(:ready?, false)
-      opts = observed(detector: FlakyDetector, detector_required: true)
+
+      opts =
+        observed(detector: FlakyDetector, detector_required: true, telemetry_prefix: prefix)
 
       assisted = response("w=700/h=1400/fit=cover/anchor=smart-face", opts)
       assert get_resp_header(assisted, "cache-control") == ["no-store"]
       assert flush_cache_puts() == 0
+      assert_received {:telemetry, %{classes: ["face"], result: :not_ready}}
 
       attention = response("w=700/h=1400/fit=cover/anchor=smart", opts)
       assert pixels(image(assisted)) == pixels(image(attention))
+    end
+
+    test "use attention for face-assisted crops when the detector has no face model" do
+      prefix = [:detection_strictness_unavailable]
+      attach(prefix ++ [:transform, :detect, :skipped])
+
+      opts =
+        observed(detector: ObjectOnlyDetector, detector_required: true, telemetry_prefix: prefix)
+
+      assisted = response("w=700/h=1400/fit=cover/anchor=smart-face", opts)
+      refute get_resp_header(assisted, "cache-control") == ["no-store"]
+      assert flush_cache_puts() == 1
+      assert_received {:telemetry, %{classes: ["face"], result: :unavailable}}
     end
 
     test "still fall back for face-assisted attention" do

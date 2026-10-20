@@ -210,7 +210,7 @@ defmodule ImagePipe.Telemetry.Logger do
       metadata[:degraded] == true or
       metadata[:cache] == :read_error or
       metadata[:input_cache] == :read_error or
-      metadata[:detect] in [:unavailable, :error, :no_detector] or
+      metadata[:detect] in [:unavailable, :error, :no_detector, :not_ready] or
       metadata[:quality_search] == :best_effort or
       Map.has_key?(metadata, :clamped)
   end
@@ -256,11 +256,12 @@ defmodule ImagePipe.Telemetry.Logger do
 
   # A face-aware crop that could not be fulfilled and degraded to attention
   # saliency: a configured detector that produced no usable detection
-  # (`:unavailable`, `:error`) or a request with no detector configured at all
-  # (`:no_detector`, the `[:transform, :detect, :skipped]` one-shot). `:no_regions`
-  # (no face in frame) is a normal result, not a warning.
+  # (`:unavailable`, `:error`), or a `[:transform, :detect, :skipped]` one-shot
+  # for a request with no detector configured (`:no_detector`) or a required
+  # detector whose model isn't loaded yet (`:not_ready`). `:no_regions` (no
+  # face in frame) is a normal result, not a warning.
   defp detect_fallback_warning?([:transform, :detect | _], meta),
-    do: meta[:result] in [:unavailable, :error, :no_detector]
+    do: meta[:result] in [:unavailable, :error, :no_detector, :not_ready]
 
   defp detect_fallback_warning?(_suffix, _meta), do: false
 
@@ -306,8 +307,8 @@ defmodule ImagePipe.Telemetry.Logger do
     "image_pipe transform input_color_management: #{outcome(meta)}#{imported} (#{meta[:working_space]})"
   end
 
-  defp message([:transform, :detect, :skipped | _], _m, _meta),
-    do: "image_pipe transform detect: skipped (no detector configured)"
+  defp message([:transform, :detect, :skipped | _], _m, meta),
+    do: "image_pipe transform detect: skipped (#{skip_reason(meta[:result])})"
 
   defp message([:transform, :detect, :blend | _], _m, meta) do
     "image_pipe transform detect blend: attention #{point(meta[:attention])} -> " <>
@@ -574,6 +575,10 @@ defmodule ImagePipe.Telemetry.Logger do
 
   defp summary_value(value) when is_atom(value) or is_number(value), do: to_string(value)
   defp summary_value(value), do: inspect(value)
+
+  defp skip_reason(:no_detector), do: "no detector configured"
+  defp skip_reason(:not_ready), do: "face model not loaded yet"
+  defp skip_reason(:unavailable), do: "face detection unavailable"
 
   defp point({x, y}), do: "(#{round2(x)},#{round2(y)})"
   defp point(_other), do: "(?,?)"
