@@ -34,8 +34,9 @@ expect() {
   fi
 }
 
-expect .github/workflows/elixir.yml "elixir: $elixir, erlang: \"$erlang\"" 2
-expect .github/workflows/svg.yml "elixir: $elixir, erlang: \"$erlang\"" 1
+expect .github/workflows/url.yml "elixir: $elixir, erlang: \"$erlang\"" 1
+expect .github/workflows/elixir.yml "{\"elixir\": \"$elixir\", \"erlang\": \"$erlang\"" 2
+expect .github/workflows/svg.yml "{\"elixir\": \"$elixir\", \"erlang\": \"$erlang\"" 2
 expect .github/workflows/lint.yml "erlang = \"$erlang\"" 1
 expect .github/workflows/lint.yml "elixir = \"$elixir\"" 1
 expect .github/workflows/lint.yml "erlang$erlang-elixir${elixir/-otp-/-otp}-" 5

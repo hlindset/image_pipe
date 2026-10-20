@@ -21,13 +21,29 @@ on:
   pull_request:
     branches: ["main"]
     paths: *server_paths
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 permissions:
   contents: read
 
+# A push to a pull request, or adding or removing its skip-tests label, cancels
+# the run in progress. Other label events and pushes to main get a group of
+# their own.
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{ github.event_name == 'pull_request'
+    && (!contains(fromJSON('["labeled", "unlabeled"]'), github.event.action) || github.event.label.name == 'skip-tests')
+    && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: image_pipe_server tests
+    # Skipped on a pull request labeled skip-tests and on events for other labels.
+    if: >-
+      github.event_name != 'pull_request'
+      || !contains(github.event.pull_request.labels.*.name, 'skip-tests')
+      && (!contains(fromJSON('["labeled", "unlabeled"]'), github.event.action) || github.event.label.name == 'skip-tests')
     runs-on: ubuntu-26.04
     env:
       # Use only the tools mise-action installs, not every tool in mise.toml.

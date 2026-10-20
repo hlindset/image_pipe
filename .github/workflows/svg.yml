@@ -11,21 +11,39 @@ on:
   pull_request:
     branches: ["main"]
     paths: *svg_paths
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 permissions:
   contents: read
 
+# A push to a pull request, or adding or removing its skip-tests or full-ci
+# label, cancels the run in progress. Other label events and pushes to main
+# get a group of their own.
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{ github.event_name == 'pull_request'
+    && (!contains(fromJSON('["labeled", "unlabeled"]'), github.event.action) || contains(fromJSON('["skip-tests", "full-ci"]'), github.event.label.name))
+    && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: image_pipe_svg / Elixir ${{ matrix.toolchain.elixir }} / OTP ${{ matrix.toolchain.erlang }}
+    # Skipped on a pull request labeled skip-tests and on events for other labels.
+    if: >-
+      github.event_name != 'pull_request'
+      || !contains(github.event.pull_request.labels.*.name, 'skip-tests')
+      && (!contains(fromJSON('["labeled", "unlabeled"]'), github.event.action) || contains(fromJSON('["skip-tests", "full-ci"]'), github.event.label.name))
     runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
-        toolchain:
-          - { elixir: 1.18.5-otp-27, erlang: "27" }
-          - { elixir: 1.19.6-otp-28, erlang: "28" }
-          - { elixir: 1.20.4-otp-29, erlang: "29.1.1", lint: true }
+        # Pull requests test the newest toolchain; pushes to main and pull
+        # requests labeled full-ci test all three.
+        toolchain: >-
+          ${{ fromJSON((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci'))
+          && '[{"elixir": "1.18.5-otp-27", "erlang": "27"}, {"elixir": "1.19.6-otp-28", "erlang": "28"}, {"elixir": "1.20.4-otp-29", "erlang": "29.1.1", "lint": true}]'
+          || '[{"elixir": "1.20.4-otp-29", "erlang": "29.1.1", "lint": true}]') }}
     env:
       MISE_ERLANG_VERSION: ${{ matrix.toolchain.erlang }}
       MISE_ELIXIR_VERSION: ${{ matrix.toolchain.elixir }}

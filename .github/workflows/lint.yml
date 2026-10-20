@@ -23,6 +23,7 @@ on:
       - "mise.toml"
       - ".github/workflows/lint.yml"
       - ".github/workflows/elixir.yml"
+      - ".github/workflows/url.yml"
       - ".github/workflows/svg.yml"
       - "image_pipe_server/Dockerfile"
       - "scripts/check-toolchain.sh"

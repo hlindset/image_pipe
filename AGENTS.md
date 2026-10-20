@@ -48,6 +48,16 @@
 - **Distinguish discretionary operations from input conditioning.** A concern that is (a) not a user-requested transform and (b) whose behavior is sourced entirely from runtime image inspection — the decoded image's own headers/interpretation/bytes, which _no operation struct can see_ — is **not** a transform operation. Model it as fixed pipeline preamble or self-managing `State`, the way decode access mode, shrink-on-load planning, EXIF auto-orient (`pending_orientation`), and input color-management (working-space import) already are. Its materialization need is governed by the same sequential-safety gate as any operation — prove it, don't assert it. The declarative knob a request _does_ control (e.g. the output color-profile policy) belongs on `Plan.Spec.Output` and resolves into `Output.Policy`, not as a synthetic operation. EXIF auto-orient and input color management are the two worked examples.
 - Keep the demo UI in sync with transform changes. When you add, remove, or change the parameters of a transform or a URL option, update the `fiddle/assets/` Svelte app (controls and URL state) in the same change so the demo can exercise the new behavior end-to-end.
 
+## CI guidelines
+
+- Each test workflow runs only when its paths change, and a new push to a pull request cancels its running tests. Pull requests test the newest Elixir/OTP toolchain; pushes to `main` test every toolchain. The pull request labels below change this. Each takes effect when the pull request opens or the label is added or removed, so add one right after `but pr` with `gh pr edit <n> --add-label <label>`.
+- Label a pull request `skip-tests` when no change in it can alter a test result. Lint still runs, and `main` runs every test after the merge. It fits a pull request that changes only:
+  - `#` comments in Elixir, Rust, shell, or YAML files.
+  - Markdown that no test reads. Run `grep -rn '<file name>' */test` to check; `docs/server-configuration.md` and `docs/telemetry-events.md` are read by tests.
+  - Agent and editor files (`.agents/`, `.claude/`, `AGENTS.md`), other than the hooks and scripts they run.
+- Never use `skip-tests` for `@doc`, `@moduledoc`, or other module attributes (doctests and compilation read them), code, test fixtures, config, `mix.exs`, lockfiles, `mise.toml`, workflows, or the Dockerfile, or for a pull request that mixes such a change with the ones above.
+- Label a pull request `full-ci` to test every toolchain when its change may behave differently across Elixir or OTP versions: toolchain or dependency updates, version-specific language or stdlib features, compile-time code (macros, `use`, compile-time config), or changes to the CI workflows.
+
 ## Performance guidelines
 
 - Label a pull request `perf` when it changes the work on the request path (decode, transforms, encode, source fetching or staging, caching, delivery) or the server image (system libraries, the release, `rel/env.sh`, VM flags), or when it claims a speed or memory gain. The `Performance` workflow then compares the server image built from it with one built from its base and posts the result as a comment. Docs-, test- and tooling-only changes don't need the label.
