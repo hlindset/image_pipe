@@ -5,4 +5,7 @@
 ## takes CPU from libvips threads and, in a container, from its CPU quota.
 +sbwt none
 +sbwtdcpu none
-+sbwtdio none
+## Dirty I/O schedulers still spin briefly: a cache hit makes about ten file
+## calls, and waking a sleeping scheduler for each cut hit throughput by 17 to
+## 30%.
++sbwtdio very_short

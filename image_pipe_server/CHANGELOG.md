@@ -14,6 +14,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Cache hits are served faster. The Erlang VM's dirty I/O schedulers, which
+  read cached files, again spin briefly before they sleep
+  (`+sbwtdio very_short`), so a hit's reads rarely wait for a sleeping
+  scheduler to wake. The other schedulers still don't spin.
 - `text` log lines are no longer colored when the container runs on a
   terminal, such as with `docker run -t`. Set `[telemetry] log_colors = true`
   to color them by level.
