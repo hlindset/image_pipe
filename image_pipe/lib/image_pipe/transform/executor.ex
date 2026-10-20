@@ -389,7 +389,7 @@ defmodule ImagePipe.Transform.Executor do
 
   defp execute_crop(%State{} = state, %Group{} = group, opts) do
     display = Geometry.display_effective_dims(state)
-    crop = guided_crop(group, display)
+    crop = group |> guided_crop(display) |> place_before_shrink(state, display)
     extent = crop_extent(crop, display)
 
     case {Geometry.pending_class(state), Step.random_access?(crop)} do
@@ -921,6 +921,27 @@ defmodule ImagePipe.Transform.Executor do
 
   # A region under half a pixel still keeps one pixel.
   defp region_extent(length, dimension), do: max(round(resolve_length(length, dimension)), 1)
+
+  # On a shrunk decode, an anchored or focus-point crop placed in the decoded
+  # frame would round its box and then centre it there, which can move it by
+  # a whole decoded pixel, about one output pixel. It's placed at full
+  # resolution instead and kept there as an offset from the top left, which
+  # the rescale rounds once.
+  defp place_before_shrink(%Crop{} = crop, %State{decode_shrink: nil}, _display), do: crop
+
+  defp place_before_shrink(%Crop{gravity: gravity} = crop, %State{}, display)
+       when is_tuple(gravity) and elem(gravity, 0) in [:anchor, :fp] do
+    %{left: left, top: top} = Crop.resolve_rect(crop, display)
+
+    %Crop{
+      crop
+      | gravity: {:anchor, :left, :top},
+        x_offset: {:pixels, left},
+        y_offset: {:pixels, top}
+    }
+  end
+
+  defp place_before_shrink(%Crop{} = crop, %State{}, _display), do: crop
 
   defp guided_crop(%Group{} = group, display_dims) do
     {crop_width, crop_height} = guided_box(group, display_dims)

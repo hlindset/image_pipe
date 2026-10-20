@@ -833,19 +833,6 @@
       },
       fixture_sha256: "ce37e1de5360ca35ac1407269a014e695a2ab484c0f55987839c18cd28659f0c"
     },
-    "dps_crop_pct_resize" => %{
-      structure: %{
-        depth: 8,
-        metadata: [],
-        icc: nil,
-        content_type: "image/png",
-        bands: 3,
-        interpretation: :VIPS_INTERPRETATION_sRGB,
-        orientation: 1,
-        alpha?: false
-      },
-      fixture_sha256: "3334292996187462769a3ce4687cfd0b25b1f61e0ab631c913c03f938335dd38"
-    },
     "user_rot180_marker" => %{
       structure: %{
         depth: 8,

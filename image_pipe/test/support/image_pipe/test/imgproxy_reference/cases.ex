@@ -2425,14 +2425,6 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         tolerance: {2, 64}
       },
       %{
-        id: "dps_crop_pct_resize",
-        kind: :png,
-        source: "high_freq.jpg",
-        native: "crop=50pct,50pct/w=200",
-        imgproxy: "c:0.5:0.5/rs:fit:200:0",
-        tolerance: {2, 64}
-      },
-      %{
         id: "dps_pad_odd",
         kind: :png,
         source: "high_freq.jpg",

@@ -66,7 +66,7 @@ cases that don't depend on their source on your own images.
 With `--compare IMAGE --against NAME=IMAGE`, the bench times two or more
 `image_pipe_server` images against each other instead of against imgproxy,
 alternating between them over several rounds, and writes `summary.md` with
-the ratios per family. The `Performance` workflow runs it on the 44 cases
+the ratios per family. The `Performance` workflow runs it on the 43 cases
 `--only perf` selects: on pull requests labelled `perf`, against their base,
 and nightly on `main`, against the previous night's `main`, `main` from 30
 days earlier, and the latest release. A weekly run times every case, `main`
