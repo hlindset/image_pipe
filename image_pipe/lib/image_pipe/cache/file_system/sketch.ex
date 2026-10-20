@@ -1,17 +1,19 @@
 defmodule ImagePipe.Cache.FileSystem.Sketch do
-  # The counters are bytes packed eight to an `:atomics` word, updated in
-  # place, so the admission process that owns the sketch neither copies them
-  # on each update nor on each garbage collection. Only that process updates
-  # them. A counter stops at 255, so an increment never carries into the
-  # next byte.
+  # The counters are 4 bits, packed sixteen to an `:atomics` word and updated
+  # in place, so the admission process that owns the sketch neither copies
+  # them on each update nor on each garbage collection. Only that process
+  # updates them. A counter stops at 15, so an increment never carries into
+  # the next one. As in TinyLFU, the doorkeeper takes first sightings and
+  # aging halves the counts, so 15 is enough to separate frequent keys from
+  # the rest.
   @moduledoc false
 
   import Bitwise
 
-  @per_word 8
-  # Each byte's low seven bits, so a word shifted right by one halves every
-  # counter without the next byte's low bit moving into it.
-  @halve_mask 0x7F7F7F7F7F7F7F7F
+  @per_word 16
+  # Each counter's low three bits, so a word shifted right by one halves
+  # every counter without the next one's low bit moving into it.
+  @halve_mask 0x7777777777777777
 
   @enforce_keys [:depth, :width, :sample_size, :counters, :increments_since_reset]
   defstruct @enforce_keys
@@ -56,7 +58,7 @@ defmodule ImagePipe.Cache.FileSystem.Sketch do
     current_values = Enum.map(positions, &get(counters, &1))
     min_value = Enum.min(current_values)
 
-    if min_value < 255 do
+    if min_value < 15 do
       for {pos, ^min_value} <- Enum.zip(positions, current_values),
           do: :atomics.add(counters, word(pos), bsl(1, shift(pos)))
     end
@@ -91,8 +93,8 @@ defmodule ImagePipe.Cache.FileSystem.Sketch do
     end
   end
 
-  defp get(counters, pos), do: bsr(:atomics.get(counters, word(pos)), shift(pos)) &&& 255
+  defp get(counters, pos), do: bsr(:atomics.get(counters, word(pos)), shift(pos)) &&& 15
 
   defp word(pos), do: div(pos, @per_word) + 1
-  defp shift(pos), do: rem(pos, @per_word) * 8
+  defp shift(pos), do: rem(pos, @per_word) * 4
 end

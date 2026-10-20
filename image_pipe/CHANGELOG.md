@@ -111,6 +111,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A request for a cached image from a local file no longer opens the file
   while its size and timestamps are unchanged. The file is opened only when
   it's read.
+- A cache with `max_size_bytes` keeps its counts of the requests that miss
+  each image in 4 MB per 50 GB of `max_size_bytes`, allocated when it
+  starts. Before, a busy 50 GB cache's counts grew to about 70 MB and slowed
+  its garbage collection.
 - A downloaded original is written to disk in 64 KiB batches instead of one
   write per network read, which takes less CPU for a large original.
 - A `detect` or `anchor=smart-face` request decodes and buffers less when no
