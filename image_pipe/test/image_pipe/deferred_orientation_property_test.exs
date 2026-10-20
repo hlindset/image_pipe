@@ -8,6 +8,7 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.Orientation1TwinOrigin
   alias ImagePipe.Test.OrientedFrameOrigin
+  alias Vix.Vips.Operation
 
   # Deferred orientation: API logically applies EXIF, rotate, and flip before
   # crop/resize. The executor may defer the physical flush while compensating
@@ -87,6 +88,22 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
     end
   end
 
+  # An enlarge samples with an affine that isn't centred, so it runs after the
+  # orientation flush: the oriented source then matches its twin exactly.
+  test "enlarge: EXIF 1..8 matches the orientation-1 twin exactly" do
+    base = noise(30, 50)
+
+    for orientation <- 1..8,
+        geometry <- ["w=97", "w=97/h=71/fit=stretch", "w=97/kernel=nearest", "w=90/h=70"] do
+      path = "/#{geometry}/enlarge/format=png/src/x.jpg"
+      oriented = path |> request(oriented_opts(base, orientation)) |> decoded()
+      twin = path |> request(twin_opts(base, orientation)) |> decoded()
+
+      assert {:ok, difference, _image} = Image.compare(oriented, twin)
+      assert difference == 0.0, "EXIF-#{orientation} #{path} differs from its twin"
+    end
+  end
+
   # ── Generators ───────────────────────────────────────────────────────────────
 
   # Regions stay inside the 120×120 box shared
@@ -132,6 +149,16 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
     flipped
     |> Image.write!(:memory, suffix: ".png")
     |> Image.open!(access: :random)
+  end
+
+  # Flat regions would hide the sampling offset, so every pixel differs.
+  defp noise(w, h) do
+    {:ok, noise} = Operation.gaussnoise(w, h, sigma: 60.0, mean: 128.0)
+    band = Image.cast!(noise, {:u, 8})
+
+    [band, band, band]
+    |> Image.join_bands!()
+    |> Image.write!(:memory, suffix: ".png")
   end
 
   defp sharp_quadrants(w, h) do
