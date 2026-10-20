@@ -196,6 +196,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   2000×3 image at `w=100`, no longer fails with a 415. Neither does shrinking
   a WebP so far that its short side would be under one pixel, such as
   `w=1/dpr=0.5`.
+- A cache's own events, `[:cache, :admission]`, `[:cache, :eviction, :stop]`,
+  and `[:cache, :sweep]`, use the instance's `telemetry_prefix`. Before, they
+  always used `[:image_pipe]`. Handlers attached for a custom prefix,
+  including `attach_default_logger(prefix: ...)` and `attach_tracer`, now get
+  them, and handlers attached under `[:image_pipe]` for such an instance no
+  longer do.
 - An issue that `ImagePipe.validate/2` or `ImagePipe.run/4` reports, and
   the `:locations` of `[:request, :ignored_options]` for `run/4`, name the
   group as the URL builder numbers it. Before, when a group held only

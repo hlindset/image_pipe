@@ -94,11 +94,15 @@ defmodule ImagePipe.Cache do
   # instance without a cache. Takes resolved configuration options.
   @spec child_specs(keyword()) :: [Supervisor.child_spec()]
   def child_specs(options) do
+    # The cache's own events, such as admission and eviction, use the
+    # instance's prefix.
+    telemetry = Keyword.take(options, [:telemetry_prefix])
+
     caches =
       for key <- [:cache, :input_cache],
           cache_opts = Keyword.get(options, key),
           cache_opts != nil,
-          do: FileSystem.child_spec(cache_opts)
+          do: FileSystem.child_spec(Keyword.merge(cache_opts, telemetry))
 
     case Keyword.get(options, :source_records) do
       nil -> caches
