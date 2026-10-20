@@ -334,8 +334,13 @@ defmodule ImagePipe.API.OptionSpecTest do
       assert OptionSpec.parse_trim("fff") == {:ok, {{255, 255, 255}, nil}}
       assert OptionSpec.parse_trim("fff,10") == {:ok, {{255, 255, 255}, 10}}
       assert OptionSpec.parse_trim("fff,2147483647") == {:ok, {{255, 255, 255}, 2_147_483_647}}
-      assert {:error, _reason} = OptionSpec.parse_trim("fff,2147483648")
-      assert {:error, _reason} = OptionSpec.parse_trim("fff," <> String.duplicate("9", 400))
+      assert OptionSpec.parse_trim("fff,2147483648") == {:error, :invalid_trim}
+
+      assert OptionSpec.parse_trim("fff," <> String.duplicate("9", 400)) ==
+               {:error, :invalid_trim}
+
+      assert OptionSpec.parse_trim("fff,1,2") == {:error, :invalid_trim}
+      assert OptionSpec.parse_trim("auto,5") == {:error, :invalid_trim}
     end
 
     test "parse_trim_symmetry accepts horizontal, vertical, or both axes" do

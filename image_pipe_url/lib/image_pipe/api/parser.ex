@@ -554,15 +554,31 @@ defmodule ImagePipe.API.Parser do
   defp message_for(:missing_value), do: "missing value"
   defp message_for(:duplicate_option), do: "duplicate option"
   defp message_for(:empty_segment), do: "empty option segment"
-  defp message_for(:invalid_dimension), do: "invalid value: expected px or `auto`"
-  defp message_for(:invalid_min_dimension), do: "invalid value: expected positive integer px"
-  defp message_for(:invalid_dpr), do: "invalid value: expected a positive finite decimal"
-  defp message_for(:invalid_zoom), do: "invalid value: expected a positive scalar or x,y pair"
-  defp message_for(:invalid_crop_ratio), do: "invalid value: expected a positive a:b or decimal"
-  defp message_for(:invalid_offset), do: "invalid value: expected a signed x,y px or pct pair"
+
+  defp message_for(:invalid_dimension),
+    do: "invalid value: expected px from 1 to 2147483647, or `auto`"
+
+  defp message_for(:invalid_min_dimension),
+    do: "invalid value: expected px from 1 to 2147483647"
+
+  defp message_for(:invalid_dpr),
+    do: "invalid value: expected a decimal above 0, at most 2147483647"
+
+  defp message_for(:invalid_zoom),
+    do: "invalid value: expected a decimal or x,y pair, each above 0, at most 2147483647"
+
+  defp message_for(:invalid_crop_ratio),
+    do: "invalid value: expected a:b with whole numbers above 0, or a decimal above 0"
+
+  defp message_for(:invalid_offset),
+    do: "invalid value: expected an x,y pair of px or pct, each from -2147483647 to 2147483647"
 
   defp message_for(:invalid_detect),
-    do: "invalid value: expected unique class[:positive-weight] items"
+    do:
+      "invalid value: expected unique class[:weight] items, each weight above 0, at most 1000000"
+
+  defp message_for(:invalid_trim),
+    do: "invalid value: expected auto, or color[,tolerance] with tolerance from 0 to 2147483647"
 
   defp message_for(:invalid_trim_symmetry),
     do: "invalid value: expected h, v, or hv"
@@ -579,14 +595,17 @@ defmodule ImagePipe.API.Parser do
 
   defp message_for(:invalid_element), do: "invalid value: one or more elements are invalid"
   defp message_for(:invalid_anchor), do: "invalid value: expected a named anchor position"
-  defp message_for(:invalid_blur), do: "invalid value: expected a non-negative number"
+  defp message_for(:invalid_blur), do: "invalid value: expected a number from 0 to 1000"
 
   defp message_for(:invalid_progressive_blur),
     do:
-      "invalid value: expected sigma[,direction[,start[,stop]]] with non-negative sigma and stops from 0 to 1"
+      "invalid value: expected sigma[,direction[,start[,stop]]] with sigma from 0 to 1000 and stops from 0 to 1"
 
-  defp message_for(:invalid_sharpen), do: "invalid value: expected a non-negative finite number"
-  defp message_for(:invalid_pixelate), do: "invalid value: expected a positive integer"
+  defp message_for(:invalid_sharpen),
+    do: "invalid value: expected 0 or a number from 0.000001 to 10"
+
+  defp message_for(:invalid_pixelate),
+    do: "invalid value: expected an integer from 1 to 2147483647"
 
   defp message_for(:invalid_monochrome),
     do: "invalid value: expected intensity[,color]"
@@ -595,14 +614,14 @@ defmodule ImagePipe.API.Parser do
     do: "invalid value: expected intensity[,shadow[,highlight]]"
 
   defp message_for(:invalid_brightness), do: "invalid value: expected an integer from -255 to 255"
-  defp message_for(:invalid_contrast), do: "invalid value: expected a positive finite factor"
-  defp message_for(:invalid_saturation), do: "invalid value: expected a positive finite factor"
+  defp message_for(:invalid_contrast), do: "invalid value: expected a number above 0"
+  defp message_for(:invalid_saturation), do: "invalid value: expected a number above 0"
 
   defp message_for(:invalid_colorize),
     do: "invalid value: expected opacity,color[,keep-alpha]"
 
   defp message_for(:invalid_gradient),
-    do: "invalid value: expected opacity,color[,direction,start,stop]"
+    do: "invalid value: expected opacity,color[,direction[,start[,stop]]]"
 
   defp message_for(:invalid_watermark), do: "invalid value: expected a name matching [a-z0-9_-]+"
 
@@ -618,7 +637,7 @@ defmodule ImagePipe.API.Parser do
     do: "invalid value: expected a decimal greater than 0 and at most 1"
 
   defp message_for(:invalid_watermark_gap),
-    do: "invalid value: expected a non-negative x,y px or pct pair"
+    do: "invalid value: expected an x,y pair of px or pct, each from 0 to 2147483647"
 
   defp message_for(:unknown_watermark), do: "unknown watermark"
 
@@ -629,7 +648,7 @@ defmodule ImagePipe.API.Parser do
   defp message_for(:invalid_flip), do: "invalid value: expected h, v, or hv"
 
   defp message_for(:invalid_pad_shorthand),
-    do: "invalid value: expected 1-4 comma-separated px values"
+    do: "invalid value: expected 1 to 4 comma-separated px values, each from 0 to 1000000000"
 
   defp message_for(:invalid_output),
     do:

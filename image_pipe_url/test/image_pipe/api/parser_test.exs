@@ -1144,8 +1144,10 @@ defmodule ImagePipe.API.ParserTest do
                parse(["trim=invalid", "trim-symmetry=v"])
 
       reasons = Enum.map(diagnostics, & &1.reason)
-      assert :invalid_element in reasons
+      assert :invalid_trim in reasons
       refute :inert_option in reasons
+
+      assert Enum.any?(diagnostics, &(&1.message =~ "tolerance from 0 to 2147483647"))
     end
 
     test "invalid canvas dimensions suppress enabled-canvas inertness" do
