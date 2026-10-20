@@ -77,8 +77,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   locked. Later requests for that original waited behind the lock until
   the process that served the request exited.
 - An image whose EXIF date fields aren't plain numbers (such as
-  `2024:01:01 02+02:00:00`) no longer fails with a 500 when metadata is
-  stripped. All of its metadata is removed, including the copyright and
+  `2024:01:01 02+02:00:00`) or aren't stored as text no longer fails with
+  a 500 when metadata is stripped. All of its metadata is removed,
+  including the copyright and
   artist that `keep_copyright` would keep.
 - A request path with many `wm-src64=` segments no longer takes seconds of
   CPU. Every request path is redacted for telemetry before its URL
