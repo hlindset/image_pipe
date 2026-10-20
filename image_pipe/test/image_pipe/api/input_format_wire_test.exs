@@ -125,6 +125,33 @@ defmodule ImagePipe.API.InputFormatWireTest do
     assert dims(image("/w=1/dpr=0.5/format=png/src/wide.webp", config)) == {1, 1}
   end
 
+  test "a thin region off the shrink grid takes in no rows from outside it" do
+    # White rows 803-810 above red rows 811-818. Shrinking on load by n
+    # averages rows in blocks of n starting at row 0, so a region whose
+    # edges miss the blocks would take in rows from outside it.
+    striped =
+      2000
+      |> Image.new!(1600, color: :blue)
+      |> Image.Draw.rect!(0, 803, 2000, 8, color: :white)
+      |> Image.Draw.rect!(0, 811, 2000, 8, color: :red)
+
+    config =
+      config(%{
+        "striped.png" => encode(striped, ".png"),
+        "striped.jpg" => encode(striped, ".jpg[Q=100,subsample-mode=off]"),
+        "striped.webp" => encode(striped, ".webp[lossless=true]")
+      })
+
+    for request <- ["region=0,804,2000,8/w=50", "region=0,809,2000,4/w=100"] do
+      expected = image("/#{request}/format=png/src/striped.png", config)
+
+      for file <- ["striped.jpg", "striped.webp"] do
+        actual = image("/#{request}/format=png/src/#{file}", config)
+        assert mean_difference(actual, expected) <= 2.0, "#{file} #{request}"
+      end
+    end
+  end
+
   defp file_config do
     ImagePipe.Plug.init(
       sources: [

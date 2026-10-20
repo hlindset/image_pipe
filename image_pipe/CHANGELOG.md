@@ -158,6 +158,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A `crop-ratio` far from the `crop` size's own ratio, such as `1:4000`
   for a square crop, no longer fails with a 500. Each side of the crop
   keeps at least one pixel.
+- A thin `crop` or `region` of a JPEG or WebP image blends in far fewer
+  pixels from just outside it. A crop under 16 pixels on its short side,
+  such as an 8-pixel strip, decodes at full size and takes in none.
+  Otherwise the reduced-size decode shrinks by at most an eighth of the
+  crop's short side.
 - `output=info` reports an exact `dpr` for a tall, narrow image that the
   result limits scale down. Before, a 7×4000 image scaled to 2×1000
   reported `dpr` 0.29 instead of 0.25. The `:scale` measurement of

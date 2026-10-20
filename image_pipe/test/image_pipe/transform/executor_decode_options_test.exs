@@ -44,6 +44,18 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
     refute_shrink(plan.(:png))
   end
 
+  test "a crop shrinks on load by at most an eighth of its short side" do
+    jpeg = geometry({2000, 1600}, {2000, 1600}, :jpeg)
+    webp = geometry({2000, 1600}, {2000, 1600}, :webp)
+
+    refute_shrink(options("region=0,804,2000,8/w=50", jpeg))
+    refute_shrink(options("crop=2000,8/w=50", jpeg))
+    # 40 / 8 = 5, so JPEG takes its largest shrink under 5.
+    assert options("region=0,800,2000,40/w=50", jpeg)[:shrink] == 4
+    assert options("region=0,800,2000,40/w=50", webp)[:scale] == 0.2
+    assert options("region=0,800,2000,100/w=50", jpeg)[:shrink] == 8
+  end
+
   test "an SVG renders past its intrinsic size without enlarge" do
     svg = geometry({24, 24}, {24, 24}, :svg)
 

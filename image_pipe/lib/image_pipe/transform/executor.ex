@@ -96,9 +96,18 @@ defmodule ImagePipe.Transform.Executor do
     # as well as the extent's.
     {width, height} = geometry.display_dimensions
     max_shrink = Enum.min([width, height | Tuple.to_list(extent)])
+    max_shrink = min(max_shrink, crop_shrink_limit(crop_extent))
 
     DecodePlanner.open_options(geometry.source_format, extent, target, floor, max_shrink)
   end
+
+  # A load shrink by n averages pixels in blocks of n from the source's edge,
+  # so a crop whose edges miss the blocks takes in up to n - 1 pixels from
+  # outside it on each side. Capping n at an eighth of the crop's short side
+  # keeps that under an eighth of the crop, and a crop a few pixels thick
+  # decodes at full size.
+  defp crop_shrink_limit(nil), do: :infinity
+  defp crop_shrink_limit({width, height}), do: max(div(min(width, height), 8), 1)
 
   # The larger of the floors for the group's two detecting steps. A detect
   # crop searches the whole frame, so its floor holds on the frame's long
