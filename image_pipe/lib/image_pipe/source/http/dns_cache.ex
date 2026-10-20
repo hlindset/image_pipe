@@ -13,8 +13,11 @@ defmodule ImagePipe.Source.HTTP.DnsCache do
   # one lookup, which runs outside the server so other hosts don't wait on it.
   # A lookup that has run longer than a healthy one would, such as one stuck
   # in the resolver's retries during an outage, isn't joined: the next miss
-  # starts its own, so requests recover as soon as DNS does. A full table
-  # caches no new hosts until a sweep removes expired answers.
+  # starts its own. OTP's native resolver, the default, merges that lookup
+  # into the pending query for the same name, so it still waits for that
+  # query. A resolver that sends its own queries, such as `inet_res` when the
+  # inetrc lookup order is `dns`, answers as soon as DNS recovers. A full
+  # table caches no new hosts until a sweep removes expired answers.
 
   use GenServer
 
