@@ -139,6 +139,30 @@ done
 echo "draining: container unhealthy $((SECONDS - stop_sent)) s after docker stop"
 wait "$stopping"
 
+# With a JSON log format, every line is JSON, including the ones dependencies
+# log while they start.
+docker run -d --name "$name-json" --read-only --tmpfs /tmp \
+  -e IPS_TELEMETRY__LOG_FORMAT=json \
+  -v "$work/config.toml:/etc/image_pipe/config.toml:ro" \
+  -v "$work/images:/data/images:ro" \
+  "$image" >/dev/null
+trap 'docker rm -f "$name-json" >/dev/null 2>&1 || true; cleanup' EXIT
+
+status=starting
+for _ in $(seq 1 60); do
+  status=$(docker inspect -f '{{.State.Health.Status}}' "$name-json" 2>/dev/null || echo exited)
+  [ "$status" = "healthy" ] || [ "$status" = "exited" ] && break
+  sleep 1
+done
+json_logs=$(docker logs "$name-json" 2>&1)
+docker rm -f "$name-json" >/dev/null
+[ "$status" = "healthy" ] && grep -q 'CA(s)' <<<"$json_logs" &&
+  ! grep -qv '^{' <<<"$json_logs" || {
+  echo "log format: the json server logged a line that isn't JSON (status $status):" >&2
+  echo "$json_logs" >&2
+  exit 1
+}
+
 # An invalid configuration stops the server with one line naming the setting.
 printf '[sources.photos]\nadapter = "file"\nroot = "/data/images"\n' > "$work/invalid.toml"
 set +e

@@ -88,13 +88,19 @@ defmodule ImagePipeServer.Application do
   defp config! do
     Config.load!(
       System.get_env(),
-      Application.fetch_env!(:image_pipe_server, :default_config_path)
+      default_config_path()
     )
   rescue
     error in ConfigError ->
       IO.puts(:stderr, Exception.message(error))
       System.halt(1)
   end
+
+  @doc false
+  # The default when the environment doesn't set one; tests set their own.
+  def default_config_path,
+    do:
+      Application.get_env(:image_pipe_server, :default_config_path, "/etc/image_pipe/config.toml")
 
   @doc false
   def listener, do: @listener

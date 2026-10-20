@@ -148,6 +148,31 @@ defmodule ImagePipeServer.Config do
     |> build!()
   end
 
+  @doc false
+  # The `[telemetry]` settings alone, read before any application starts so
+  # the lines dependencies log at boot follow `log_level` and `log_format`.
+  # A configuration that doesn't load gives nil: starting reports its error.
+  @spec log_settings(%{String.t() => String.t()}, Path.t()) ::
+          %{log_level: Logger.level(), log_format: atom(), log_colors: boolean()} | nil
+  def log_settings(env, default_path) do
+    env
+    |> Tree.read!(default_path)
+    |> Map.take(["telemetry"])
+    |> Convert.options!([telemetry: [type: Convert.table(@telemetry_schema)]], [])
+    |> Keyword.get(:telemetry, [])
+    |> logging()
+  rescue
+    ConfigError -> nil
+  end
+
+  defp logging(telemetry) do
+    %{
+      log_level: Keyword.get(telemetry, :log_level, :info),
+      log_format: Keyword.get(telemetry, :log_format, :text),
+      log_colors: Keyword.get(telemetry, :log_colors, false)
+    }
+  end
+
   @doc "Converts the configuration tree to per-section options."
   @spec options!(Tree.t()) :: keyword()
   def options!(tree) do
@@ -310,6 +335,9 @@ defmodule ImagePipeServer.Config do
     image_pipe = image_pipe!(Keyword.put(sections, :processing, processing), pool)
     instance!(image_pipe, detector_warmup)
 
+    %{log_level: log_level, log_format: log_format, log_colors: log_colors} =
+      logging(Keyword.get(sections, :telemetry, []))
+
     %__MODULE__{
       server: server!(Keyword.get(sections, :server, [])),
       trust_traceparent: trust_traceparent(Keyword.get(sections, :telemetry, [])),
@@ -319,9 +347,9 @@ defmodule ImagePipeServer.Config do
       detector_warmup: detector_warmup,
       http: http!(Keyword.get(sections, :http, [])),
       pool: pool,
-      log_level: Keyword.get(Keyword.get(sections, :telemetry, []), :log_level, :info),
-      log_format: Keyword.get(Keyword.get(sections, :telemetry, []), :log_format, :text),
-      log_colors: Keyword.get(Keyword.get(sections, :telemetry, []), :log_colors, false),
+      log_level: log_level,
+      log_format: log_format,
+      log_colors: log_colors,
       telemetry: telemetry(Keyword.get(sections, :telemetry, [])),
       stats_token_hash: stats_token_hash!(Keyword.get(sections, :stats, [])),
       credential_warmups: credential_warmups(Keyword.get(sections, :sources, []))

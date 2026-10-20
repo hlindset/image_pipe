@@ -22,6 +22,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   terminal, such as with `docker run -t`. Set `[telemetry] log_colors = true`
   to color them by level.
 
+### Fixed
+
+- The lines the libraries the server uses log while it starts, such as the
+  CA certificates loading, follow `[telemetry] log_level` and `log_format`.
+  Before, they were always text and ignored `log_level`.
+
 ## [0.3.0] - 2026-10-18
 
 ### Added

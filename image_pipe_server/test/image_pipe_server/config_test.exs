@@ -9,6 +9,31 @@ defmodule ImagePipeServer.ConfigTest do
 
   defp error(fun), do: assert_raise(ConfigError, fun).message
 
+  describe "log_settings/2" do
+    test "reads the [telemetry] settings alone, from the file and the environment" do
+      env = %{
+        "IPS_CONFIG_TOML" =>
+          "[telemetry]\nlog_format = \"json\"\n[sources.x]\nadapter = \"file\"",
+        "IPS_TELEMETRY__LOG_LEVEL" => "warning"
+      }
+
+      settings = Config.log_settings(env, "/nonexistent.toml")
+      assert settings[:log_format] == :json
+      assert settings[:log_level] == :warning
+      assert settings[:log_colors] == false
+    end
+
+    test "gives defaults without [telemetry] and nil for a configuration that doesn't load" do
+      assert Config.log_settings(%{}, "/nonexistent.toml")[:log_format] == :text
+      assert Config.log_settings(%{"IPS_CONFIG_TOML" => "[telemetry"}, "/x.toml") == nil
+
+      assert Config.log_settings(
+               %{"IPS_CONFIG_TOML" => "[telemetry]\nlog_format = \"xml\""},
+               "/x.toml"
+             ) == nil
+    end
+  end
+
   describe "options!/1" do
     test "rejects unknown sections" do
       assert error(fn -> Config.options!(%{"servr" => %{}}) end) =~ "servr: unknown setting"
