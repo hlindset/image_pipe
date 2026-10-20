@@ -276,11 +276,9 @@ defmodule ImagePipe.Output.Encoder do
   end
 
   # Workaround for libvips 8.18: its libpng saver packs the low bits of each
-  # gray value at 2 and 4 bits, so 150 at 4 bits reads back as 102. Its spng
-  # saver shifts by 8 - bitdepth first, which this does. 1 bit thresholds
-  # correctly. Tracked in image_plug-i14h.
-  defp keep_gray_levels(image, 1), do: {:ok, image}
-
+  # gray value at 2 and 4 bits, so 150 at 4 bits reads back as 102, and at 1
+  # bit writes every value but 0 as white. Its spng saver shifts by
+  # 8 - bitdepth first, which this does. Tracked in image_plug-i14h.
   defp keep_gray_levels(image, depth) do
     shift = if VixImage.format(image) == :VIPS_FORMAT_USHORT, do: 16 - depth, else: 8 - depth
 

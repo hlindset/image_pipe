@@ -7,6 +7,8 @@ defmodule ImagePipe.Cache.FileSystemTest do
   alias ImagePipe.Cache.FileSystem.PeriodicSweep
   alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Source.Origin
+  alias ImagePipe.Source.Record
   alias ImagePipe.Test.Caches
 
   @max_size_bytes 1_000_000_000
@@ -566,6 +568,38 @@ defmodule ImagePipe.Cache.FileSystemTest do
     assert {:error, _reason} = put_entry(cache_key, entry("new body"), opts(root))
     assert File.exists?(new_body_path)
     refute File.ls!(paths.dir) |> Enum.any?(&String.ends_with?(&1, ".tmp"))
+  end
+
+  test "a stored source record whose origin lacks a field is invalid, not a crash", %{
+    root: root
+  } do
+    cache_key = key()
+    opts = opts(root)
+    {:ok, state} = FileSystem.open_sink(cache_key, entry_metadata(), opts)
+    {:ok, state} = FileSystem.write_chunk(state, "record", opts)
+    :ok = FileSystem.commit_sink(state, opts)
+
+    origin = %Origin{
+      status: 200,
+      headers: %{},
+      requested_at: 1,
+      received_at: 1,
+      resource: :crypto.hash(:sha256, "origin"),
+      vary: %{}
+    }
+
+    record = %Record{
+      byte_identity: {:strong, "digest"},
+      origin: Map.delete(origin, :vary),
+      received_at: 1
+    }
+
+    {:ok, paths} = FileSystem.paths(cache_key, opts)
+    meta = paths.meta_path |> File.read!() |> :erlang.binary_to_term()
+    File.write!(paths.meta_path, :erlang.term_to_binary(%{meta | source_record: record}))
+
+    assert {:error, {:invalid_metadata, :invalid_source_record}} =
+             FileSystem.source_record(cache_key, opts)
   end
 
   describe "cost_us metadata" do

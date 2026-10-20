@@ -128,7 +128,6 @@ defmodule ImagePipe.Processing do
   end
 
   def resume_fun({:ok, prepared}, bytes, config), do: build_prepared(prepared, bytes, config)
-  def resume_fun({:error, _} = error, _bytes, _config), do: fn _pump -> error end
 
   def prepare_download(request, source, policy, config) do
     started = System.monotonic_time(:microsecond)

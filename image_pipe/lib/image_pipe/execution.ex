@@ -550,6 +550,11 @@ defmodule ImagePipe.Execution do
     result
   end
 
+  # An overlapped preparation that failed answers with its error, without
+  # waiting for another processing slot.
+  defp generate(%Context{acquisition: %{processing: {:error, _reason} = error}}, _, _, _),
+    do: error
+
   defp generate(%Context{request: %{output: %{terminal: :image}}} = context, inputs, session, key) do
     config = context.config
 

@@ -18,6 +18,17 @@ defmodule ImagePipe.API.PngBitdepthWireTest do
     end
   end
 
+  test "a gray result at 1 bit splits at mid-gray" do
+    for {gray, expected} <- [{100, 0}, {127, 0}, {128, 255}, {150, 255}] do
+      body = 16 |> Image.new!(16, color: [gray]) |> Image.write!(:memory, suffix: ".png")
+      response = response("format=png/png-options=bitdepth:1", body)
+      assert response.status == 200, "gray #{gray}"
+
+      image = Image.from_binary!(response.resp_body)
+      assert [^expected] = Image.get_pixel!(image, 8, 8), "gray #{gray}"
+    end
+  end
+
   test "an 8-bit result at 16 bits scales each value by 257" do
     for color <- [[128], [128, 100], [128, 64, 200], [128, 64, 200, 100]] do
       body = 16 |> Image.new!(16, color: color) |> Image.write!(:memory, suffix: ".png")

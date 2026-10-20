@@ -93,6 +93,26 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   keeps at least one pixel.
 - A `trim` tolerance with hundreds of digits no longer fails with a 500.
   Tolerances above `2147483647` now fail with a 400.
+- A processed-image cache entry whose stored details about its original are
+  incomplete is now logged and treated as a miss, like other
+  [invalid metadata](docs/cache.md#files-on-disk). Before, a request that
+  read it failed with a 500.
+- Resizing a JPEG or WebP image only a few pixels high or wide, such as a
+  2000×3 image at `w=100`, no longer fails with a 415. Neither does shrinking
+  a WebP so far that its short side would be under one pixel, such as
+  `w=1/dpr=0.5`.
+- `png-options=bitdepth:1` on a grayscale result now turns values below 128
+  black and the rest white. Before, every gray above black came out white.
+- With a [processing pool](docs/processing-controls.md), a request that
+  waits for its turn while its original is still downloading:
+  - Answers `503` once it has waited `queue_timeout`. Before, it waited
+    for a second turn after the download finished.
+  - Answers an error from processing, such as a `415` for an image that
+    can't be decoded, without waiting for a second turn. Before, it could
+    answer `503` instead when that wait timed out.
+  - No longer fails with `503` 60 seconds after its original finished
+    downloading when `queue_timeout` plus `processing_timeout` allows
+    longer.
 
 ## [0.3.0] - 2026-10-18
 

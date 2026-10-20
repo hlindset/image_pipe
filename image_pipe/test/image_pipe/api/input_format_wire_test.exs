@@ -106,6 +106,25 @@ defmodule ImagePipe.API.InputFormatWireTest do
     end
   end
 
+  test "a thin JPEG or WebP, or a sub-pixel WebP target, decodes at a reduced size" do
+    thin = Image.new!(2000, 3, color: :red)
+    wide = Image.new!(2003, 1501, color: :red)
+
+    config =
+      config(%{
+        "thin.jpg" => encode(thin, ".jpg"),
+        "thin.webp" => encode(thin, ".webp"),
+        "wide.webp" => encode(wide, ".webp")
+      })
+
+    for file <- ["thin.jpg", "thin.webp"] do
+      assert dims(image("/w=100/format=png/src/#{file}", config)) == {100, 1}, file
+      assert {_w, _h} = dims(image("/rotate=45/w=100/format=png/src/#{file}", config))
+    end
+
+    assert dims(image("/w=1/dpr=0.5/format=png/src/wide.webp", config)) == {1, 1}
+  end
+
   defp file_config do
     ImagePipe.Plug.init(
       sources: [
