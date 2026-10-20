@@ -74,8 +74,8 @@ defmodule ImagePipe.Transform.Operation.Watermark do
 
   defp apply_watermark(operation, state) do
     with {:ok, mark} <- resize(operation.image, operation.width, operation.height),
-         {:ok, mark} <- fade(mark, operation.opacity),
          {:ok, mark} <- buffer_tiled_mark(mark, operation, state),
+         {:ok, mark} <- fade(mark, operation.opacity),
          {:ok, image} <- place(state.image, mark, operation) do
       {:ok, set_image(state, image)}
     else
@@ -135,17 +135,17 @@ defmodule ImagePipe.Transform.Operation.Watermark do
 
   defp fade(image, opacity) when opacity == 1.0, do: {:ok, image}
 
+  # The faded mark stays in float, so its alpha is rounded only with the
+  # composite's result. It fades after the tiled mark is buffered, so the
+  # buffer keeps the mark's own format.
   defp fade(image, opacity) do
     color_bands = Image.bands(image) - 1
 
-    with {:ok, faded} <-
-           Operation.linear(
-             image,
-             List.duplicate(1.0, color_bands) ++ [opacity],
-             List.duplicate(0.0, color_bands + 1)
-           ) do
-      Rounding.cast(faded, VipsImage.format(image))
-    end
+    Operation.linear(
+      image,
+      List.duplicate(1.0, color_bands) ++ [opacity],
+      List.duplicate(0.0, color_bands + 1)
+    )
   end
 
   defp place(base, mark, operation) do
