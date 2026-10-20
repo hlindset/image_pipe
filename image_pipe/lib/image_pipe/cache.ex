@@ -177,7 +177,9 @@ defmodule ImagePipe.Cache do
   # runs off the request, so the record is in place when it releases the
   # source's lease. A record the cache rejects or fails to store drops the
   # older one, which lookups would otherwise prefer to the originals cache's
-  # newer record.
+  # newer record. A commit that timed out is still queued, and Admission may
+  # yet store or reject it, so the record is dropped either way: the delete
+  # queues behind the commit and removes whichever record it leaves.
   def remember_source(input_key, record, opts) do
     case record_store(opts) do
       nil ->
