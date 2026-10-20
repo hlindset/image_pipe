@@ -75,13 +75,7 @@ defmodule ImagePipe.Execution do
       representation: nil
     }
 
-    prepared =
-      case SourceCache.staged?(source) do
-        true -> prepare_remote(context)
-        false -> {:ok, represent(context)}
-      end
-
-    with {:ok, context} <- prepared,
+    with {:ok, context} <- prepare_source(context, tasks),
          {:ok, watermarks} <- watermarks(tasks, context) do
       {:ok, with_watermarks(context, watermarks)}
     else
@@ -91,10 +85,33 @@ defmodule ImagePipe.Execution do
     end
   end
 
+  # A failure that exits this process, which can outlive the request, as on a
+  # kept-alive connection, first stops the asset tasks.
+  defp prepare_source(context, tasks) do
+    case SourceCache.staged?(context.source) do
+      true -> prepare_remote(context)
+      false -> {:ok, represent(context)}
+    end
+  catch
+    kind, reason ->
+      Watermarks.cancel(tasks)
+      :erlang.raise(kind, reason, __STACKTRACE__)
+  end
+
   # Callers close a prepared context only after a successful prepare, so a
-  # failed watermark releases the source lease here.
+  # failed or crashed watermark releases the source lease here.
   defp watermarks(tasks, context) do
-    with {:error, _reason} = error <- Watermarks.await(tasks) do
+    result =
+      try do
+        Watermarks.await(tasks)
+      catch
+        :exit, reason ->
+          Watermarks.cancel(tasks)
+          close(context)
+          exit(reason)
+      end
+
+    with {:error, _reason} = error <- result do
       close(context)
       error
     end
