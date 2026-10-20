@@ -228,6 +228,23 @@ defmodule ImagePipeServer.Config.SourcesTest do
                "invalid configuration: sources.s.credentials.static.access_key_id: required"
     end
 
+    test "reject static S3 credentials with a line break or NUL without quoting them" do
+      for key <- ["access_key_id", "secret_access_key", "token"],
+          value <- ["sekrit\r\n", "sekrit" <> <<0>>] do
+        static = Map.put(%{"access_key_id" => "A", "secret_access_key" => "S"}, key, value)
+
+        message =
+          error(%{
+            "s" => %{"adapter" => "s3", "match" => "path", "credentials" => %{"static" => static}}
+          })
+
+        assert message =~
+                 "sources.s.credentials.static.#{key}: must not contain a line break or NUL"
+
+        refute message =~ "sekrit"
+      end
+    end
+
     test "put shared settings under default and keep buckets by name" do
       [media: mount] =
         convert(%{

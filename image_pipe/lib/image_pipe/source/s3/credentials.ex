@@ -92,20 +92,28 @@ defmodule ImagePipe.Source.S3.Credentials do
 
   defp normalize(_opts), do: {:error, :invalid_credentials}
 
+  # Each value is sent in a request header or signs one, so a line break or
+  # NUL would fail every fetch. The error names the setting, not the value.
   defp fetch_binary(opts, key) do
     case Keyword.fetch(opts, key) do
-      {:ok, value} when is_binary(value) and value != "" -> {:ok, value}
+      {:ok, value} when is_binary(value) and value != "" -> header_safe(value, key)
       _missing_or_invalid -> {:error, {:invalid_credential, key}}
     end
   end
 
   defp optional_binary(opts, key) do
     case Keyword.fetch(opts, key) do
-      {:ok, value} when is_binary(value) and value != "" -> {:ok, value}
+      {:ok, value} when is_binary(value) and value != "" -> header_safe(value, key)
       {:ok, nil} -> {:ok, nil}
       {:ok, _value} -> {:error, {:invalid_credential, key}}
       :error -> {:ok, nil}
     end
+  end
+
+  defp header_safe(value, key) do
+    if String.contains?(value, ["\r", "\n", <<0>>]),
+      do: {:error, {:invalid_credential, key}},
+      else: {:ok, value}
   end
 
   defp maybe_put_token(credentials, nil), do: credentials

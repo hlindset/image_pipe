@@ -135,6 +135,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - No longer fails with `503` 60 seconds after its original finished
     downloading when `queue_timeout` plus `processing_timeout` allows
     longer.
+- S3 credentials whose access key, secret, or session token holds a line
+  break or NUL are rejected: static ones when the configuration is checked,
+  and ones from a credential provider when they're fetched, which answers
+  `500` and logs which field was invalid. Before, every fetch with them
+  failed with `502`, or with `404` when the secret held one.
 
 ## [0.3.0] - 2026-10-18
 
