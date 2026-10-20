@@ -113,7 +113,8 @@ defmodule ImagePipeServer.ConfigTest do
             "format_order" => ["webp", "avif"],
             "skip_processing_formats" => ["gif", "jpeg_xl"],
             "jpeg_options" => %{"interlace" => true, "quant_table" => 3},
-            "source_cache_policy" => %{"freshness" => "origin"}
+            "source_cache_policy" => %{"freshness" => "origin"},
+            "max_blur_work" => "infinity"
           }
         })[:processing]
 
@@ -123,6 +124,7 @@ defmodule ImagePipeServer.ConfigTest do
       assert processing[:skip_processing_formats] == [:gif, :jpeg_xl]
       assert processing[:jpeg_options] == [interlace: true, quant_table: 3]
       assert processing[:source_cache_policy] == [freshness: :origin]
+      assert processing[:max_blur_work] == :infinity
     end
 
     test "converts [processing.svg]" do

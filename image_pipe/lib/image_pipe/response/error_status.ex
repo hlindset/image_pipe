@@ -140,7 +140,7 @@ defmodule ImagePipe.Response.ErrorStatus do
     do: "intermediate image exceeds the pixel limit"
 
   def message_for({:transform, {:blur_work_limit, _work, _limit}}),
-    do: "blur exceeds the work limit"
+    do: "blur and sharpen work exceeds the limit"
 
   def message_for({:transform, {:bad_request, _}}), do: "bad request"
   def message_for({:transform, {:server_error, {:detector, _}}}), do: "object detection failed"

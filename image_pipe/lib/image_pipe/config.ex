@@ -173,13 +173,16 @@ defmodule ImagePipe.Config do
       """
     ],
     max_blur_work: [
-      type: :pos_integer,
+      type: {:or, [:pos_integer, {:in, [:infinity]}]},
+      type_doc: "`t:pos_integer/0` or `:infinity`",
       default: 4_000_000_000_000,
       doc: """
-      Limit for `blur` and `progressive-blur`: the pixels of the image being \
-      blurred, times the square of the sigma. A blur over it fails with `422`. \
-      The default allows any sigma on a 2,000,000-pixel image, and a sigma \
-      up to 632 on a 10,000,000-pixel image.
+      Limit on the work of all `blur`, `progressive-blur`, and `sharpen` steps \
+      in a request, across all its groups. Each step counts the pixels of the \
+      image it runs on, times (sigma² + 10,000). A request \
+      over the limit fails with `422`. The default allows any one blur on a \
+      2,000,000-pixel image, and a blur with a sigma up to 624 on a \
+      10,000,000-pixel image. `:infinity` turns the limit off.
       """
     ],
     max_result_height: [

@@ -21,15 +21,26 @@ defmodule ImagePipe.Transform.WorkLimits do
   end
 
   # A Gaussian blur's cost grows with the pixels and, measured, with about the
-  # 1.7th power of the sigma. The square bounds it from above.
-  def blur(%State{image: image, max_blur_work: limit}, sigma) do
-    work = Image.width(image) * Image.height(image) * sigma * sigma
+  # 1.7th power of the sigma. The square bounds it from above for large sigmas.
+  # The constant term is the cost per pixel of a small blur, measured as about
+  # a blur of sigma 80, and of a sharpen, about sigma 115, rounded to one
+  # figure for both. The work of every blur and sharpen in the request counts
+  # against one limit, so repeating them in more groups doesn't multiply it.
+  @convolution_base 10_000
 
-    case work <= limit do
-      true -> :ok
+  def convolution(%State{image: image, max_blur_work: limit, blur_work: spent} = state, sigma) do
+    work =
+      spent +
+        round(Image.width(image) * Image.height(image) * (sigma * sigma + @convolution_base))
+
+    case within?(work, limit) do
+      true -> {:ok, %State{state | blur_work: work}}
       false -> {:error, {:blur_work_limit, work, limit}}
     end
   end
+
+  defp within?(_work, :infinity), do: true
+  defp within?(work, limit), do: work <= limit
 
   def resize(%State{image: image} = state, width, height) do
     with :ok <- resize_axes(image, width, height) do

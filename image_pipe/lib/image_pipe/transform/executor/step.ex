@@ -109,7 +109,7 @@ defmodule ImagePipe.Transform.Executor.Step do
   end
 
   defp execute_step(state, operation, execute) do
-    with :ok <- work_limit(operation, state),
+    with {:ok, state} <- work_limit(operation, state),
          {:ok, state} <- prepare(state, operation),
          {:ok, state} <- transform_result(execute.(operation, state)) do
       {:ok, settle(state, operation)}
@@ -124,14 +124,15 @@ defmodule ImagePipe.Transform.Executor.Step do
 
   defp settle(state, _operation), do: state
 
-  # Checked before materializing, so a rejected blur buffers nothing.
-  defp work_limit(%Blur{sigma: sigma}, state), do: blur_limit(state, sigma)
-  defp work_limit(%ProgressiveBlur{sigma: sigma}, state), do: blur_limit(state, sigma)
-  defp work_limit(_operation, _state), do: :ok
+  # Checked before materializing, so a rejected convolution buffers nothing.
+  defp work_limit(%Blur{sigma: sigma}, state), do: convolution_limit(state, sigma)
+  defp work_limit(%ProgressiveBlur{sigma: sigma}, state), do: convolution_limit(state, sigma)
+  defp work_limit(%Sharpen{sigma: sigma}, state), do: convolution_limit(state, sigma)
+  defp work_limit(_operation, state), do: {:ok, state}
 
-  defp blur_limit(state, sigma) do
-    case WorkLimits.blur(state, sigma) do
-      :ok -> :ok
+  defp convolution_limit(state, sigma) do
+    case WorkLimits.convolution(state, sigma) do
+      {:ok, state} -> {:ok, state}
       {:error, reason} -> {:error, {:transform, reason}}
     end
   end

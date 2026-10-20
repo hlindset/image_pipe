@@ -20,6 +20,8 @@ defmodule ImagePipe.Transform.State do
   #   would repeat: an arbitrary rotation, or a blur or sharpen. Resize and
   #   random-access steps buffer it first; materialization and orientation
   #   flush clear the flag.
+  # - `blur_work`: the work of the blurs and sharpens run so far in this
+  #   request, which together can't exceed `max_blur_work`.
   # - `source_dimensions`: exact full-resolution `{w, h}` before shrink-on-load,
   #   or `nil` for a full-resolution decode. Residual resize uses this extent to
   #   match the full-resolution target. Pending orientation maps its axes to the
@@ -64,6 +66,7 @@ defmodule ImagePipe.Transform.State do
             materialized?: false,
             max_intermediate_pixels: 100_000_000,
             max_blur_work: 4_000_000_000_000,
+            blur_work: 0,
             rebuffer?: false,
             dpr: 1.0,
             detections: 0,
@@ -84,7 +87,8 @@ defmodule ImagePipe.Transform.State do
           pending_orientation: ImagePipe.Transform.PendingOrientation.t() | nil,
           materialized?: boolean(),
           max_intermediate_pixels: pos_integer(),
-          max_blur_work: pos_integer(),
+          max_blur_work: pos_integer() | :infinity,
+          blur_work: non_neg_integer(),
           rebuffer?: boolean(),
           dpr: float(),
           detections: non_neg_integer(),

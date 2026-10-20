@@ -78,18 +78,22 @@ only a small part of it. The crop keeps the coordinates of the requested
 image. A later downsampling step reads across that larger image and is
 subject to the limit.
 
-## Limiting blurs
+## Limiting blur and sharpen work
 
 A large blur on a large image can take many seconds: `blur=1000` on a
-10-megapixel photo takes about 7 seconds. `max_blur_work`
-limits [`blur`](processing/effects.md#blur) and
-[`progressive-blur`](processing/effects.md#progressive-blur): the pixels of
-the image being blurred, times the square of the sigma, can't exceed it. A
-blur over the limit fails with `422`.
+10-megapixel photo takes about 7 seconds. `max_blur_work` limits the total
+work of the [`blur`](processing/effects.md#blur),
+[`progressive-blur`](processing/effects.md#progressive-blur), and
+[`sharpen`](processing/effects.md#sharpen) steps in a request, across all its
+[processing groups](requesting-images.md#processing-groups). Each step counts
+the pixels of the image it runs on, times (sigma² + 10,000). A request over
+the limit fails with `422`.
 
-The default, 4,000,000,000,000, allows any sigma on a 2-megapixel image, a
-sigma up to 632 on a 10-megapixel image, and up to 200 on a 100-megapixel
-image. Lower it to allow less:
+The default, 4,000,000,000,000, allows any one blur on a 2-megapixel image, a
+blur with a sigma up to 624 on a 10-megapixel image, and up to 173 on a
+100-megapixel image. A blur of 100 and a sharpen together on a 40-megapixel
+image use less than a third of it. Lower the limit to allow less, or set it to
+`:infinity` (`"infinity"` in the server's configuration) to turn it off:
 
 <!-- tabs-open -->
 
