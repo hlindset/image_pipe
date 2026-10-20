@@ -416,6 +416,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_deps(output, [
       ImagePipe.Format,
       ImagePipe.Plan,
+      ImagePipe.SrgbProfile,
       ImagePipe.Telemetry
     ])
 
@@ -512,7 +513,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   test "transform boundary declaration depends on plan and not higher layers" do
     transform = boundary_declaration(ImagePipe.Transform)
 
-    assert_boundary_deps(transform, [ImagePipe.Plan, ImagePipe.Telemetry])
+    assert_boundary_deps(transform, [ImagePipe.Plan, ImagePipe.SrgbProfile, ImagePipe.Telemetry])
 
     refute_boundary_deps(transform, [
       ImagePipe.Source,

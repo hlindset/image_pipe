@@ -28,7 +28,7 @@ defmodule ImagePipe.Transform.GrayFrame do
       not gray?(image) ->
         {:ok, image}
 
-      match?({:ok, _profile}, VipsImage.header_value(image, "icc-profile-data")) ->
+      WorkingColor.tagged?(image) ->
         WorkingColor.to_srgb(image)
 
       true ->

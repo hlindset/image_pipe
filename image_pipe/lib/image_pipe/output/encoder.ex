@@ -8,6 +8,7 @@ defmodule ImagePipe.Output.Encoder do
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
   alias ImagePipe.Output.Ssim2Metric.CropScore
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
+  alias ImagePipe.SrgbProfile
   alias Vix.Vips.Image, as: VixImage
   alias Vix.Vips.MutableImage, as: VixMutableImage
   alias Vix.Vips.Operation
@@ -353,9 +354,13 @@ defmodule ImagePipe.Output.Encoder do
     end
   end
 
+  # A tagged frame without a source-profile backup has nothing to keep: a step
+  # that converted it to sRGB cleared the backup and left an sRGB-equivalent
+  # profile in the header.
   defp color_result(image, %Resolved{} = resolved, {profile, imported?}) do
     keep? =
       resolved.color_profile == :preserve_source and
+        (is_binary(profile) or is_nil(header_value(image, "icc-profile-data"))) and
         Format.supports_color_profile?(resolved.format) and
         holds_profile_space?(resolved.format, profile)
 
@@ -392,23 +397,24 @@ defmodule ImagePipe.Output.Encoder do
   # standard): nothing to do.
   defp apply_color_result(image, _keep?, _imported), do: {:ok, image}
 
-  # Convert tagged images to sRGB or sGrey. Untagged images keep their pixels.
+  # Convert tagged images to sRGB or sGrey. Untagged images, and images whose
+  # profile is sRGB-equivalent, keep their pixels.
   defp to_standard(image) do
-    case header_value(image, "icc-profile-data") do
-      nil ->
-        {:ok, image}
+    embedded = header_value(image, "icc-profile-data")
 
-      _profile ->
-        profile = standard_profile(VixImage.interpretation(image))
+    if is_nil(embedded) or SrgbProfile.equivalent?(embedded) do
+      {:ok, image}
+    else
+      profile = standard_profile(VixImage.interpretation(image))
 
-        case Operation.icc_transform(image, profile,
-               embedded: true,
-               pcs: pcs(header_value(image, "icc-profile-data")),
-               depth: icc_depth(image)
-             ) do
-          {:ok, image} -> {:ok, image}
-          {:error, reason} -> {:error, {:decode, reason}}
-        end
+      case Operation.icc_transform(image, profile,
+             embedded: true,
+             pcs: pcs(embedded),
+             depth: icc_depth(image)
+           ) do
+        {:ok, image} -> {:ok, image}
+        {:error, reason} -> {:error, {:decode, reason}}
+      end
     end
   end
 

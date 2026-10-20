@@ -4,6 +4,7 @@ defmodule ImagePipe.Output.Terminal.PixelSpace do
   # profile, so placeholder encoders don't convert the sRGB pixels again.
   @moduledoc false
 
+  alias ImagePipe.SrgbProfile
   alias Vix.Vips.Image, as: Vimage
 
   @spec normalize(Vimage.t()) :: {:ok, Vimage.t()} | {:error, term()}
@@ -15,6 +16,7 @@ defmodule ImagePipe.Output.Terminal.PixelSpace do
     end
   end
 
+  # An sRGB-equivalent profile converts like no profile.
   defp to_srgb(image) do
     if embedded_icc_profile?(image) do
       Image.to_colorspace(image, :srgb, [])
@@ -25,7 +27,7 @@ defmodule ImagePipe.Output.Terminal.PixelSpace do
 
   defp embedded_icc_profile?(image) do
     case Vimage.header_value(image, "icc-profile-data") do
-      {:ok, profile} when is_binary(profile) -> true
+      {:ok, profile} when is_binary(profile) -> not SrgbProfile.equivalent?(profile)
       _not_present -> false
     end
   end
