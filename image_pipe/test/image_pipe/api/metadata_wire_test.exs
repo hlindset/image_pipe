@@ -41,6 +41,27 @@ defmodule ImagePipe.API.MetadataWireTest do
     assert_metadata(response("format=webp", config), :strip)
   end
 
+  test "an sRGB result without a profile has EXIF ColorSpace sRGB" do
+    config = mount(body: wide_gamut_jpeg())
+
+    for options <- ["format=jpeg/meta=keep", "w=50/format=webp/meta=keep"] do
+      image = response(options, config) |> decoded()
+      assert header(image, "icc-profile-data") == nil, options
+      assert header(image, "exif-ifd0-WhitePoint") == nil, options
+      assert header(image, "exif-ifd0-PrimaryChromaticities") == nil, options
+      assert "1 (sRGB" <> _ = header(image, "exif-ifd2-ColorSpace"), options
+    end
+
+    untagged = mount(body: metadata_jpeg(%{"exif-ifd2-ColorSpace" => "1"}))
+    image = response("format=jpeg/meta=keep", untagged) |> decoded()
+    assert "1 (sRGB" <> _ = header(image, "exif-ifd2-ColorSpace")
+
+    kept = response("format=jpeg/meta=keep/profile=preserve", config) |> decoded()
+    assert is_binary(header(kept, "icc-profile-data"))
+    assert "65535 (Uncalibrated" <> _ = header(kept, "exif-ifd2-ColorSpace")
+    assert "313/1000" <> _ = header(kept, "exif-ifd0-WhitePoint")
+  end
+
   test "URL metadata policy overrides either host metadata policy" do
     host_keeps = mount(strip_metadata: false, keep_copyright: false)
     assert_metadata(response("format=jpeg", host_keeps), :keep)
@@ -248,6 +269,18 @@ defmodule ImagePipe.API.MetadataWireTest do
     end
   end
 
+  defp decoded(response) do
+    assert response.status == 200
+    Image.from_binary!(response.resp_body)
+  end
+
+  defp header(image, field) do
+    case VipsImage.header_value(image, field) do
+      {:ok, value} -> value
+      {:error, _} -> nil
+    end
+  end
+
   defp etag(response) do
     assert [etag] = get_resp_header(response, "etag")
     etag
@@ -313,6 +346,28 @@ defmodule ImagePipe.API.MetadataWireTest do
       end)
 
     Image.write!(with_metadata, :memory, suffix: ".jpg")
+  end
+
+  # A wide-gamut camera JPEG: a Display P3 profile, with EXIF that marks the
+  # colours as uncalibrated and records the P3 chromaticities.
+  defp wide_gamut_jpeg do
+    image = Image.open!("test/support/image_pipe/test/sources/icc_p3.png", access: :random)
+
+    {:ok, tagged} =
+      VipsImage.mutate(image, fn mutable ->
+        VipsMutableImage.set(mutable, "exif-ifd0-WhitePoint", :gchararray, "313/1000 329/1000")
+
+        VipsMutableImage.set(
+          mutable,
+          "exif-ifd0-PrimaryChromaticities",
+          :gchararray,
+          "680/1000 320/1000 265/1000 690/1000 150/1000 60/1000"
+        )
+
+        VipsMutableImage.set(mutable, "exif-ifd2-ColorSpace", :gchararray, "65535")
+      end)
+
+    Image.write!(tagged, :memory, suffix: ".jpg", strip_metadata: false)
   end
 
   # IFD0 DateTime stored as SHORT 2024, as some cameras and editors write it.
