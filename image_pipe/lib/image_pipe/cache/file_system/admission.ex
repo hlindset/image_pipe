@@ -17,6 +17,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   use GenServer
 
   alias ImagePipe.Cache.FileSystem.Doorkeeper
+  alias ImagePipe.Cache.FileSystem.Memo
   alias ImagePipe.Cache.FileSystem.Policy
   alias ImagePipe.Cache.FileSystem.Sketch
   alias ImagePipe.Cache.FileSystem.Store, as: FileSystem
@@ -95,6 +96,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     doorkeeper_cardinality = Keyword.fetch!(opts, :doorkeeper_cardinality)
     doorkeeper_fpr = Keyword.fetch!(opts, :doorkeeper_fpr)
     :ok = Lookups.ensure(Keyword.fetch!(opts, :root))
+    :ok = Memo.start(Keyword.fetch!(opts, :root), Keyword.fetch!(opts, :max_size_bytes))
 
     state = %State{
       registry: Keyword.fetch!(opts, :registry),
@@ -281,6 +283,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   # entry whose metadata went, or whose counted body went. The sweep reports
   # once it has finished, so a key committed again since keeps its entry.
   def handle_cast({:swept, removed}, state) do
+    Memo.forget(state.root, Enum.map(removed, &elem(&1, 0)))
     {:noreply, Enum.reduce(removed, state, &forget_swept/2)}
   end
 
@@ -362,11 +365,16 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   def handle_call({:refresh_source_record, paths, previous, record}, _from, state) do
-    {:reply, FileSystem.refresh_entry(paths, previous, record), state}
+    result = FileSystem.refresh_entry(paths, previous, record)
+    Memo.forget(state.root, [paths.hash])
+    {:reply, result, state}
   end
 
   def handle_call({:delete, paths}, _from, state) do
-    case FileSystem.delete_entry(paths) do
+    result = FileSystem.delete_entry(paths)
+    Memo.forget(state.root, [paths.hash])
+
+    case result do
       {:ok, result} -> {:reply, result, forget(state, paths.hash)}
       :miss -> {:reply, :miss, forget(state, paths.hash)}
       {:error, _reason} = error -> {:reply, error, state}
@@ -521,6 +529,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
     case FileSystem.publish_prepared(prepared, descriptor.body_filename) do
       :ok ->
+        Memo.forget(state.root, [descriptor.key_hash])
         delete_replaced_body(state, replaced, descriptor)
         {:ok, put(state, descriptor)}
 
@@ -749,6 +758,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   defp evict(state, victims, trigger) do
     FileSystem.delete_victims(Enum.map(victims, &victim(&1, true)), root: state.root)
+    Memo.forget(state.root, Enum.map(victims, & &1.key_hash))
     bytes = Enum.reduce(victims, 0, &(&1.size_bytes + &2))
 
     Telemetry.execute(

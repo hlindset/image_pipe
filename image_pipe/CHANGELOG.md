@@ -223,6 +223,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `url.path` trace attribute that come from it, include the path that
   `ImagePipe.Plug` is mounted at, such as `/images` for
   `forward "/images", ImagePipe.Plug`. Before, the mount path was left out.
+- A `FileSystem` cache keeps the metadata of recently served entries in
+  memory, so a repeated hit reads only the body file from disk. It takes
+  about 30 MB for a 1 GB cache, and at most about 300 MB. See
+  [Cache process and restarts](docs/cache.md#cache-process-and-restarts).
 
 ### Fixed
 
