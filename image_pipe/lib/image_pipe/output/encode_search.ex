@@ -8,8 +8,8 @@ defmodule ImagePipe.Output.EncodeSearch do
   # Two public entry points:
   #
   #   * `search/3` — the core, with injected `:encode_fun` and `:score_fun`
-  #     closures. It owns memoization, the iteration cap, and objective and
-  #     `max_bytes` phases.
+  #     closures. It owns memoization, the iteration cap, the pixel limit, and
+  #     objective and `max_bytes` phases.
   #   * `run/3` — the production wrapper. It extracts the objective and budget from
   #     a `%ImagePipe.Output.Resolved{}`, builds the real encode/score closures
   #     from `ImagePipe.Output.Encoder` and `ImagePipe.Output.Ssim2Metric`, and
@@ -62,9 +62,10 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   # Why a `:best_effort` result fell short of the objective/budget. `nil` on a
   # `:hit`. `:ceiling` — the objective never cleared its band and pinned to the
-  # bracket ceiling; `:max_bytes` — the hard budget could not be met even at the
-  # floor.
-  @type limiting_factor :: :ceiling | :max_bytes
+  # bracket ceiling; `:search_pixels` — the pixel limit stopped the objective
+  # before any probe cleared its band; `:max_bytes` — the hard budget could not
+  # be met even at the floor.
+  @type limiting_factor :: :ceiling | :search_pixels | :max_bytes
 
   @type meta :: %{
           quality: 0..100,
@@ -74,7 +75,8 @@ defmodule ImagePipe.Output.EncodeSearch do
           score: float() | nil,
           scorer: :full | :crop,
           tiles_scored: pos_integer() | nil,
-          limiting_factor: limiting_factor() | nil
+          limiting_factor: limiting_factor() | nil,
+          pixel_limited: boolean()
         }
 
   # Search context threaded through the loop.
@@ -91,6 +93,10 @@ defmodule ImagePipe.Output.EncodeSearch do
               iterations: 0,
               max_iterations: 0,
               cap_iterations: 0,
+              frame_pixels: 0,
+              pixels: 0,
+              max_pixels: :infinity,
+              pixel_limited: false,
               phase: nil,
               limiting_factor: nil,
               telemetry_opts: []
@@ -98,6 +104,11 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   @doc """
   Searches with injected encoding/scoring callbacks and a bounded iteration count.
+
+  Every encode counts `:frame_pixels` against `:max_search_pixels`. A probe
+  that would pass the limit stops the search like the iteration cap. The
+  encodes that bound the `max_bytes` phase and the delivered quality still
+  run, so a search can pass the limit by up to two encodes.
   """
   @spec search(
           :none | RQS.Ssimulacra2.t(),
@@ -115,6 +126,8 @@ defmodule ImagePipe.Output.EncodeSearch do
       scorer_tiles: Keyword.get(opts, :scorer_tiles),
       max_iterations: Keyword.get(opts, :max_iterations, @default_max_iterations),
       cap_iterations: Keyword.get(opts, :cap_iterations, @default_cap_iterations),
+      frame_pixels: Keyword.get(opts, :frame_pixels, 0),
+      max_pixels: Keyword.get(opts, :max_search_pixels, :infinity),
       telemetry_opts: telemetry_opts
     }
 
@@ -176,7 +189,8 @@ defmodule ImagePipe.Output.EncodeSearch do
       final_score: meta.score,
       scorer: meta.scorer,
       tiles_scored: meta.tiles_scored,
-      limiting_factor: meta.limiting_factor
+      limiting_factor: meta.limiting_factor,
+      pixel_limited: meta.pixel_limited
     }
   end
 
@@ -213,6 +227,8 @@ defmodule ImagePipe.Output.EncodeSearch do
             encode_fun: encode_fun,
             base_quality: base_quality,
             scorer: scorer,
+            frame_pixels: Image.width(finalized_image) * Image.height(finalized_image),
+            max_search_pixels: resolved.max_search_pixels,
             telemetry_opts: telemetry_opts
           ] ++ search_opts
         )
@@ -427,10 +443,13 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   defp ship_target(seen, rqs, ctx) do
     case passing(seen, rqs.target - rqs.allowed_error) do
-      nil -> {rqs.max_quality, :best_effort, :ceiling, ctx}
+      nil -> {rqs.max_quality, :best_effort, ceiling_factor(ctx), ctx}
       {pass_q, _} -> {pass_q, :hit, nil, ctx}
     end
   end
+
+  defp ceiling_factor(%Ctx{pixel_limited: true}), do: :search_pixels
+  defp ceiling_factor(_ctx), do: :ceiling
 
   defp next_quality({fail_q, fail_s} = fail, {pass_q, pass_s} = pass, seen, rqs) do
     q =
@@ -483,7 +502,7 @@ defmodule ImagePipe.Output.EncodeSearch do
       {:error, _} = err ->
         err
 
-      :capped ->
+      {:capped, ctx} ->
         {:capped, ctx}
 
       {:ok, bytes, score, ctx} ->
@@ -497,16 +516,16 @@ defmodule ImagePipe.Output.EncodeSearch do
   defp probe_score(q, ctx) do
     case materialize(q, ctx) do
       {:error, _} = err -> err
-      :capped -> {:capped, ctx}
+      {:capped, ctx} -> {:capped, ctx}
       {:ok, _bytes, score, ctx} -> {:ok, score, ctx}
     end
   end
 
   # Ensure q is encoded (and scored when a score_fun is present, outside the
   # cap phase), memoized.
-  # Returns {:ok, byte_size, score | nil, ctx} | :capped | {:error, _}. A NEW
-  # distinct encode runs under an objective/cap probe span (memo hits and the cap
-  # never reach it).
+  # Returns {:ok, byte_size, score | nil, ctx} | {:capped, ctx} | {:error, _}. A
+  # NEW distinct encode runs under an objective/cap probe span (memo hits and the
+  # caps never reach it).
   defp materialize(q, ctx) do
     cond do
       Map.has_key?(ctx.encode_memo, q) ->
@@ -514,7 +533,10 @@ defmodule ImagePipe.Output.EncodeSearch do
         {:ok, bytes, Map.get(ctx.score_memo, q), ctx}
 
       ctx.iterations >= ctx.max_iterations ->
-        :capped
+        {:capped, ctx}
+
+      not within_pixels?(ctx.pixels + ctx.frame_pixels, ctx.max_pixels) ->
+        {:capped, %{ctx | pixel_limited: true}}
 
       true ->
         case encode_probe(q, ctx) do
@@ -526,6 +548,9 @@ defmodule ImagePipe.Output.EncodeSearch do
         end
     end
   end
+
+  defp within_pixels?(_pixels, :infinity), do: true
+  defp within_pixels?(pixels, limit), do: pixels <= limit
 
   # Encode a specific quality (e.g. the chosen boundary) without requiring the
   # predicate, so its buffer/score is in the memo for the final result. Respects
@@ -572,6 +597,7 @@ defmodule ImagePipe.Output.EncodeSearch do
           ctx
           | encode_memo: Map.put(ctx.encode_memo, q, binary),
             iterations: iterations,
+            pixels: ctx.pixels + ctx.frame_pixels,
             probe_log: Map.put(ctx.probe_log, q, %{phase: phase, index: iterations})
         }
 
@@ -632,7 +658,8 @@ defmodule ImagePipe.Output.EncodeSearch do
       score: Map.get(ctx.score_memo, final_q),
       scorer: ctx.scorer,
       tiles_scored: ctx.scorer_tiles,
-      limiting_factor: limiting_factor_for(final_outcome, ctx)
+      limiting_factor: limiting_factor_for(final_outcome, ctx),
+      pixel_limited: ctx.pixel_limited
     }
 
     {:ok, binary, meta}

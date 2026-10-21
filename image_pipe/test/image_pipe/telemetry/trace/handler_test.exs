@@ -702,7 +702,8 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
            chosen_bytes: 12_345,
            final_score: 90.42,
            scorer: :crop,
-           outcome: :hit
+           outcome: :hit,
+           pixel_limited: true
          }}
       end
     )
@@ -717,6 +718,7 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
     assert span.attributes[:final_score] == 90.42
     assert span.attributes[:scorer] == "crop"
     assert span.attributes[:outcome] == "hit"
+    assert span.attributes[:pixel_limited] == true
   end
 
   test "captures HTTP status and the classified error tag from stop metadata" do

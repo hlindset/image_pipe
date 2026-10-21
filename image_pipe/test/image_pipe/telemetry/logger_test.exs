@@ -602,6 +602,31 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "encode search: ok (best_effort q10 99999b)"
   end
 
+  test "escalates an encode-search the pixel limit cut short to warning" do
+    Telemetry.attach_default_logger(level: :info, stages: true)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :encode, :search, :stop],
+          %{duration: 1000},
+          %{
+            result: :ok,
+            objective: :ssimulacra2,
+            chosen_quality: 70,
+            chosen_bytes: 12_345,
+            iterations: 3,
+            outcome: :hit,
+            scorer: :full,
+            pixel_limited: true
+          }
+        )
+      end)
+
+    assert log =~ "[warning]"
+    assert log =~ "encode search: ok (full hit q70 12345b pixel-limited)"
+  end
+
   test "renders an encode-search probe span stop with its phase, quality, bytes, score" do
     Telemetry.attach_default_logger(level: :info, stages: true)
 

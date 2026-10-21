@@ -212,6 +212,35 @@ defmodule ImagePipe.Output.PolicyIdentityTest do
     end
   end
 
+  describe "identity_material/1 and the search pixel limit" do
+    test "enters identity only when the request searches" do
+      for mode <- [{:explicit, :avif}, :source] do
+        plain = %{base_policy() | mode: mode, max_search_pixels: 1_000}
+
+        refute Keyword.has_key?(Policy.identity_material(plain), :max_search_pixels)
+
+        for searching <- [
+              %{plain | quality_search: %QualitySearch{target: 78.0}},
+              %{plain | max_bytes: 1_000}
+            ] do
+          assert Keyword.fetch!(Policy.identity_material(searching), :max_search_pixels) == 1_000
+        end
+      end
+    end
+
+    test "drops out with lossless WebP, which has no quality to search" do
+      policy = %{
+        base_policy()
+        | mode: {:explicit, :webp},
+          encoder_options: %{webp: %ImagePipe.Plan.Output.WebpOptions{lossless: true}},
+          max_bytes: 1_000,
+          max_search_pixels: 1_000
+      }
+
+      refute Keyword.has_key?(Policy.identity_material(policy), :max_search_pixels)
+    end
+  end
+
   describe "identity_material/1 for a format chosen after the fetch" do
     defp source_negotiated_policy, do: %{base_policy() | mode: :source}
 

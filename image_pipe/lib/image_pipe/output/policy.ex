@@ -50,6 +50,7 @@ defmodule ImagePipe.Output.Policy do
                 quality_search: :none,
                 fixed_quality_formats: [],
                 max_bytes: nil,
+                max_search_pixels: :infinity,
                 dpi: nil,
                 encoder_options: %{},
                 hdr: :tone_map,
@@ -83,6 +84,7 @@ defmodule ImagePipe.Output.Policy do
             | Output.QualitySearch.t(),
           fixed_quality_formats: [format()],
           max_bytes: nil | pos_integer(),
+          max_search_pixels: pos_integer() | :infinity,
           dpi: nil | 1..65_535,
           encoder_options: %{optional(format()) => struct()},
           hdr: Output.hdr(),
@@ -146,7 +148,8 @@ defmodule ImagePipe.Output.Policy do
         merge_encoder_options(encoder_options_from_config(config), request.encoder_options),
       quality_search: quality_search,
       fixed_quality_formats: request.format_qualities |> Map.keys() |> Enum.sort(),
-      max_bytes: request.max_bytes
+      max_bytes: request.max_bytes,
+      max_search_pixels: Keyword.fetch!(config, :max_search_pixels)
     }
   end
 
@@ -283,8 +286,15 @@ defmodule ImagePipe.Output.Policy do
       hdr: policy.hdr,
       encoder_options: resolved.encoder_options && Map.from_struct(resolved.encoder_options),
       skip_formats: policy.skip_formats
-    ]
+    ] ++ search_pixels_material(resolved.quality_search, resolved.max_bytes, policy)
   end
+
+  # The limit changes the bytes only of a request that searches, so other
+  # requests keep their identity.
+  defp search_pixels_material(:none, nil, _policy), do: []
+
+  defp search_pixels_material(_quality_search, _max_bytes, policy),
+    do: [max_search_pixels: policy.max_search_pixels]
 
   defp resolved_search_identity(:none), do: :none
   defp resolved_search_identity(search), do: Map.from_struct(search)
@@ -304,7 +314,7 @@ defmodule ImagePipe.Output.Policy do
       hdr: policy.hdr,
       encoder_options: encoder_options_identity(policy.encoder_options),
       skip_formats: policy.skip_formats
-    ]
+    ] ++ search_pixels_material(policy.quality_search, policy.max_bytes, policy)
   end
 
   @doc """
@@ -440,6 +450,7 @@ defmodule ImagePipe.Output.Policy do
       color_profile: policy.color_profile,
       quality_search: quality_search,
       max_bytes: max_bytes,
+      max_search_pixels: policy.max_search_pixels,
       encoder_options: encoder_options
     }
   end

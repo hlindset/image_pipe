@@ -355,6 +355,7 @@ Defaults and limits for every image the server processes. The limits on original
 | `max_result_width` | integer > 0 | `8192` |
 | `max_intermediate_pixels` | integer > 0 | `100000000` |
 | `max_blur_work` | integer > 0 or `"infinity"` | `4000000000000` |
+| `max_search_pixels` | integer > 0 or `"infinity"` | `100000000` |
 | `max_result_height` | integer > 0 | `8192` |
 | `max_result_pixels` | integer > 0 | `40000000` |
 | `auto_avif` | boolean | `true` |

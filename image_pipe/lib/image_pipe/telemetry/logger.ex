@@ -149,12 +149,14 @@ defmodule ImagePipe.Telemetry.Logger do
   defp level_for([:output, :clamp | _], _metadata, _base), do: :warning
 
   # A best-effort encode-quality search (the objective/budget could not be met
-  # within the bracket) degrades the result; surface it, and any search
-  # exception, as a warning. A :hit logs at the base level.
+  # within the bracket) degrades the result, as does a search the pixel limit
+  # cut short; surface them, and any search exception, as a warning. A :hit
+  # logs at the base level.
   defp level_for([:encode, :search | _] = suffix, metadata, base) do
     cond do
       List.last(suffix) == :exception -> :warning
       metadata[:outcome] == :best_effort -> :warning
+      metadata[:pixel_limited] == true -> :warning
       true -> base
     end
   end
@@ -375,8 +377,10 @@ defmodule ImagePipe.Telemetry.Logger do
     score = if meta[:final_score], do: " score #{round2(meta[:final_score])}", else: ""
     scorer = if meta[:scorer], do: "#{meta[:scorer]} ", else: ""
 
+    limited = if meta[:pixel_limited], do: " pixel-limited", else: ""
+
     "image_pipe encode search: #{outcome(meta)} (#{scorer}#{meta[:outcome]} " <>
-      "q#{meta[:chosen_quality]} #{meta[:chosen_bytes]}b#{score})"
+      "q#{meta[:chosen_quality]} #{meta[:chosen_bytes]}b#{score}#{limited})"
   end
 
   defp message([:encode | _], _m, meta) do

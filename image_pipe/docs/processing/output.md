@@ -161,7 +161,10 @@ the search off.
 The search tries qualities from 25 to 95, or 20 to 90 for AVIF. An image that
 can't reach the target within that range is delivered at the highest quality.
 Each quality tried is encoded and scored, so a request that searches takes
-several times as long as a single encode. Cached responses don't search again.
+several times as long as a single encode. The server can limit this work,
+so large images may try fewer qualities. See
+[Limiting quality search work](../deployment.md#limiting-quality-search-work).
+Cached responses don't search again.
 
 The request fails with `400` when:
 
@@ -205,6 +208,10 @@ The budget counts the whole file, including a color profile embedded with
 [`profile`](#profile) and metadata kept with [`meta`](#meta). A CMYK JPEG
 with `profile=preserve` can carry a profile of several hundred kilobytes,
 which no quality can bring under a small budget.
+
+The server can limit how many qualities the search tries, so a large image
+may get a lower quality than the highest that fits. See
+[Limiting quality search work](../deployment.md#limiting-quality-search-work).
 
 `max-bytes` is ignored in the same cases as `autoquality`.
 

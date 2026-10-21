@@ -185,6 +185,18 @@ defmodule ImagePipe.Config do
       10,000,000-pixel image. `:infinity` turns the limit off.
       """
     ],
+    max_search_pixels: [
+      type: {:or, [:pos_integer, {:in, [:infinity]}]},
+      type_doc: "`t:pos_integer/0` or `:infinity`",
+      default: 100_000_000,
+      doc: """
+      Limit on the pixels that `autoquality` and `max-bytes` encode in one \
+      request, counting the whole image once for each quality they try. \
+      When the next quality would pass the limit, the search stops early. \
+      See [Limiting quality search work](deployment.md#limiting-quality-search-work). \
+      `:infinity` turns the limit off.
+      """
+    ],
     max_result_height: [
       type: :pos_integer,
       default: 8_192,

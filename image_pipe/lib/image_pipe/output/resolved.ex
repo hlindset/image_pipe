@@ -16,6 +16,7 @@ defmodule ImagePipe.Output.Resolved do
               [
                 quality_search: :none,
                 max_bytes: nil,
+                max_search_pixels: :infinity,
                 dpi: nil,
                 encoder_options: nil,
                 degraded?: false
@@ -34,6 +35,7 @@ defmodule ImagePipe.Output.Resolved do
             :none
             | ImagePipe.Output.ResolvedQualitySearch.Ssimulacra2.t(),
           max_bytes: nil | pos_integer(),
+          max_search_pixels: pos_integer() | :infinity,
           dpi: nil | 1..65_535,
           encoder_options:
             nil
