@@ -318,9 +318,16 @@ defmodule ImagePipe.Telemetry do
   @doc false
   # A parsed source for telemetry: credential values in its query, and any
   # userinfo, become `REDACTED`. The query runs from the first `?` to a `#`,
-  # as the origin reads it.
+  # as the origin reads it. A source is decoded from the request without a
+  # UTF-8 check, so invalid bytes are replaced and control characters
+  # percent-encoded, keeping log lines whole and valid.
   @spec source_url(String.t()) :: String.t()
   def source_url(source) do
+    source =
+      source
+      |> String.replace_invalid()
+      |> then(&Regex.replace(~r/[\x00-\x1F\x7F]/, &1, fn char -> "%" <> Base.encode16(char) end))
+
     {resource, fragment} = split_once(source, "#")
     {base, query} = split_once(resource, "?")
     base = Regex.replace(~r{\A((?:[A-Za-z][A-Za-z0-9+.-]*:)?//)[^/]*@}, base, "\\1REDACTED@")

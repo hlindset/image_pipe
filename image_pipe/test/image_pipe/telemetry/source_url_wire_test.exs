@@ -79,6 +79,19 @@ defmodule ImagePipe.Telemetry.SourceURLWireTest do
     assert log =~ "watermark_source_url=#{inspect(hd(marks))}"
   end
 
+  test "a source with invalid UTF-8 or a line break gives one valid log line", ctx do
+    for {tail, source_url} <- [
+          {"%FF.jpg", "\uFFFD.jpg"},
+          {"a.jpg%0A[error]GET/admin", "a.jpg%0A[error]GET/admin"}
+        ] do
+      {_response, events, log} = request(signed("/w=40/src/" <> tail, ctx), ctx)
+
+      assert {_m, %{source_url: ^source_url}} = stop(events, [:request]), tail
+      assert String.valid?(log)
+      refute log =~ "\n[error]GET/admin"
+    end
+  end
+
   test "a request that fails before parsing has only the cut path", ctx do
     src64 = Base.url_encode64(@presigned, padding: false)
 

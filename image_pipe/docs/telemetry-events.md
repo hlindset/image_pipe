@@ -208,7 +208,9 @@ preset lookup, and URL parsing. Why a request was rejected is on the
     `photos/cat.jpg`. The values of credential parameters in its query
     string (listed under [`[:request]`](#request)) are replaced with
     `REDACTED`, and so is a user name and password, as in
-    `https://REDACTED@origin.example/cat.jpg`.
+    `https://REDACTED@origin.example/cat.jpg`. Bytes that aren't valid
+    UTF-8 become `U+FFFD`, and control characters, such as a line break,
+    are percent-encoded (`%0A`).
   - `:watermark_source_urls` (list of strings): the watermark source of each
     group that has one, set with `wm-src64=` or `wm-enc=` or by a preset, in
     group order, with credentials replaced the same way. Absent when no

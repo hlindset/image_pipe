@@ -36,6 +36,13 @@ defmodule ImagePipe.Telemetry.SourceURLTest do
       assert Telemetry.source_url("photos/a@2x.jpg") == "photos/a@2x.jpg"
     end
 
+    test "gives valid UTF-8 with control characters percent-encoded" do
+      assert Telemetry.source_url(<<"a", 0xFF, ".jpg">>) == "a\uFFFD.jpg"
+
+      assert Telemetry.source_url("a.jpg\n[error] GET /x\r\t\x7F") ==
+               "a.jpg%0A[error] GET /x%0D%09%7F"
+    end
+
     test "keeps sources without credentials as they are" do
       for source <- ["photos/cat.jpg", "https://o.test/a.jpg?w=1&h=2", "s3://bucket/key.png"] do
         assert Telemetry.source_url(source) == source
