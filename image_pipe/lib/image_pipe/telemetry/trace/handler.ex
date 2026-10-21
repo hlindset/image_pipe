@@ -108,6 +108,7 @@ defmodule ImagePipe.Telemetry.Trace.Handler do
     :outcome,
     :iterations,
     :tiles_scored,
+    :pixel_limited,
     # per-probe span attributes: phase and the search-level limiting factor (both
     # product-neutral atoms)
     :phase,

@@ -885,8 +885,12 @@ encodes.
     (it wasn't, and the highest quality in range was used, or the lowest
     for `max_bytes`).
   - `:limiting_factor` (atom): with `:best_effort`, why. `:ceiling` (the
-    target needed a higher quality than the range allows), or `:max_bytes`
-    (the limit couldn't be met even at the lowest quality).
+    target needed a higher quality than the range allows), `:search_pixels`
+    (`max_search_pixels` stopped the search before a quality met the target),
+    or `:max_bytes` (the limit couldn't be met even at the lowest quality).
+  - `:pixel_limited` (boolean): whether `max_search_pixels` stopped the search
+    before it would have finished. The Logger logs such a search at
+    `:warning`.
   - `:final_score` (float): the delivered quality's SSIMULACRA2 score, for
     `:ssimulacra2`.
   - `:scorer` (atom): `:full` when the whole image was scored, or `:crop`

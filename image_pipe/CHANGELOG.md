@@ -35,9 +35,20 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   It defaults to `50`, the limit that applied before. Over HTTP/1.1, raise it
   when more downloads from one origin run at once, so they don't wait for a
   free connection and fail with `504` after `pool_timeout`.
+- `max_search_pixels` limits the pixels that `autoquality` and `max-bytes`
+  encode in one request, 100,000,000 by default. A search stops early when
+  the next quality would pass it. On a 40-megapixel AVIF or WebP result it
+  tries two qualities, plus up to two encodes to deliver one, where a search
+  with both options could encode 11 times or more and take 45 seconds.
+  `:infinity` turns the limit off. See
+  [Limiting quality search work](docs/deployment.md#limiting-quality-search-work).
+  The `[:encode, :search]` stop event carries `:pixel_limited`, and its
+  `:limiting_factor` can be `:search_pixels`.
 
 ### Changed
 
+- Requests that use `autoquality` or `max-bytes` have new cache keys and
+  ETags, so their cached copies miss once after upgrading.
 - **Breaking:** A request that asks for more `avif-options` or
   `webp-options` effort than `:avif_options` or `:webp_options` sets (by
   default `3` for AVIF and `4` for WebP) fails with `400`. A preset in

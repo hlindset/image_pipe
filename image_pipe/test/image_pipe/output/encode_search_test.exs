@@ -415,4 +415,70 @@ defmodule ImagePipe.Output.EncodeSearchTest do
                )
     end
   end
+
+  describe "max_search_pixels" do
+    defp target_search,
+      do: %RQS.Ssimulacra2{target: 90.0, min_quality: 10, max_quality: 80, allowed_error: 0.0}
+
+    # score = q + 20 reaches the target at q70, three probes from the q45 start.
+    defp enc, do: fn q -> {:ok, :binary.copy(<<0>>, q * 100)} end
+    defp score, do: fn bin -> byte_size(bin) / 100 + 20.0 end
+
+    test "stops probing at the limit and ships what the search has" do
+      assert {:ok, _bin,
+              %{
+                quality: 80,
+                iterations: 3,
+                outcome: :best_effort,
+                limiting_factor: :search_pixels,
+                pixel_limited: true
+              }} =
+               EncodeSearch.search(target_search(), nil,
+                 encode_fun: enc(),
+                 score_fun: score(),
+                 frame_pixels: 100,
+                 max_search_pixels: 250
+               )
+    end
+
+    test "a limit below one frame still delivers one encode" do
+      assert {:ok, _bin,
+              %{
+                quality: 80,
+                iterations: 1,
+                outcome: :best_effort,
+                limiting_factor: :search_pixels
+              }} =
+               EncodeSearch.search(target_search(), nil,
+                 encode_fun: enc(),
+                 score_fun: score(),
+                 frame_pixels: 100,
+                 max_search_pixels: 50
+               )
+    end
+
+    test "a max-bytes search at the limit still tries the floor" do
+      enc = fn q -> {:ok, :binary.copy(<<0>>, q * 1000)} end
+
+      assert {:ok, _bin, %{quality: 10, iterations: 2, outcome: :hit, pixel_limited: true}} =
+               EncodeSearch.search(:none, 40_000,
+                 encode_fun: enc,
+                 base_quality: 90,
+                 frame_pixels: 100,
+                 max_search_pixels: 150
+               )
+    end
+
+    test "a limit the search stays within changes nothing" do
+      for limit <- [:infinity, 1_000] do
+        assert {:ok, _bin, %{quality: 70, outcome: :hit, iterations: 3, pixel_limited: false}} =
+                 EncodeSearch.search(target_search(), nil,
+                   encode_fun: enc(),
+                   score_fun: score(),
+                   frame_pixels: 100,
+                   max_search_pixels: limit
+                 )
+      end
+    end
+  end
 end

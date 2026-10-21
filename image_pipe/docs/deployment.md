@@ -115,6 +115,52 @@ max_blur_work = 1000000000000
 
 <!-- tabs-close -->
 
+## Limiting quality search work
+
+[`autoquality`](processing/output.md#autoquality) and
+[`max-bytes`](processing/output.md#max-bytes) encode the whole image once for
+each quality they try: up to 6 times each, and up to 11 times when a request
+uses both. AVIF and WebP take about 40 to 100 milliseconds per megapixel to
+encode, so a search on a 40-megapixel result can take 10 to 45 seconds.
+`max_search_pixels` limits the pixels a search encodes in one request. When
+the next quality would pass the limit, the search stops early:
+
+- `autoquality` delivers the lowest quality it tried that met the target, or
+  the top of its quality range when none did.
+- `max-bytes` delivers the highest quality it tried that fit, or the bottom of
+  its quality range when none did.
+
+The search still encodes the quality it delivers, so a request can encode the
+image up to two more times than the limit allows.
+
+The default, 100,000,000, lets a search finish on images up to 16 megapixels,
+or 9 megapixels when a request uses both. On a 40-megapixel image the search
+tries two qualities. Lower the limit to allow less, or set it to `:infinity`
+(`"infinity"` in the server's configuration) to turn it off:
+
+<!-- tabs-open -->
+
+### Plug
+
+```elixir
+{ImagePipe,
+ name: MyApp.Images,
+ max_search_pixels: 50_000_000,
+ sources: [...]}
+```
+
+### image_pipe_server
+
+```toml
+[processing]
+max_search_pixels = 50000000
+```
+
+<!-- tabs-close -->
+
+The limit is part of the cache key of a request that searches, so changing
+it replaces the cached copies of those requests only.
+
 ## Timeouts for origins
 
 HTTP and S3 sources wait at most 5 seconds for a connection

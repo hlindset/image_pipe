@@ -266,6 +266,31 @@ defmodule ImagePipe.API.QualityWireTest do
     assert get_resp_header(host_quality, "x-imagepipe-aq-target") == ["75.0"]
   end
 
+  test "max_search_pixels stops the search after the encodes it allows" do
+    frame = 400 * 267
+    options = "w=400/format=jpeg/autoquality=95/max-bytes=8000/debug"
+    unlimited = response(options, mount(allow_debug_headers: true))
+    limited = response(options, mount(allow_debug_headers: true, max_search_pixels: 2 * frame))
+
+    assert [full] = get_resp_header(unlimited, "x-imagepipe-aq-iterations")
+    assert String.to_integer(full) > 3
+    assert_image(limited, "image/jpeg", {400, 267})
+    assert get_resp_header(limited, "x-imagepipe-aq-iterations") == ["3"]
+    assert byte_size(limited.resp_body) <= 8000
+  end
+
+  test "max_search_pixels changes the identity of searching requests only" do
+    small = observed_mount(max_search_pixels: 1_000_000)
+    large = observed_mount(max_search_pixels: :infinity)
+
+    for {options, changes?} <- [
+          {"w=128/format=jpeg/autoquality", true},
+          {"w=128/format=jpeg", false}
+        ] do
+      assert etag(response(options, small)) != etag(response(options, large)) == changes?
+    end
+  end
+
   test "the auto-quality target changes both cache and ETag identity" do
     config = observed_mount([])
     first = response("w=128/format=jpeg/autoquality=70", config)
