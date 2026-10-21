@@ -1,0 +1,14 @@
+[server]
+port = 18441
+bind = "127.0.0.1"
+auth_token = "AUTHTOKENMARKER123456"
+
+[url]
+keys = ["5ec7e75ec7e75ec7e75ec7e75ec7e75ec7e75ec7e75ec7e75ec7e75ec7e7abcd"]
+
+[sources.s]
+adapter = "s3"
+match = { scheme = "s3" }
+region = "us-east-1"
+endpoint = "https://s3.example.com"
+credentials = { static = { access_key_id = "AKIDMARKER", secret_access_key = "S3SECRETMARKER999" } }

@@ -1,0 +1,12 @@
+[server]
+port = 18431
+health_port = 18432
+bind = "127.0.0.1"
+read_timeout = 2000
+max_connections = 3
+
+[sources.local]
+adapter = "file"
+match = "path"
+root = "/tmp/claude-0/-home-user-image-pipe/149002c4-0ecf-54c3-b523-c73b50c63b54/scratchpad/srv/img"
+root_id = "local"
