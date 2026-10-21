@@ -44,6 +44,24 @@ defmodule ImagePipe.API.GeometryCompositionWireTest do
     assert Image.get_pixel!(opaque, 0, 0) == [255, 0, 0]
   end
 
+  test "padding and an extended canvas in a JPEG are white, as with a white background" do
+    for origin <- [png_origin(marked(20, 20)), png_origin(gray(:uchar, 20))],
+        options <- [
+          "pad=16,17,18,19",
+          "w=80/h=40/fit=contain/extend",
+          "w=80/h=40/fit=contain/extend/pad=16"
+        ] do
+      plain = request("/#{options}/format=jpeg/src/image.png", origin)
+      white = request("/#{options}/bg=fff/format=jpeg/src/image.png", origin)
+      assert plain.status == 200
+      assert plain.resp_body == white.resp_body, options
+
+      # A JPEG block that holds only padding.
+      image = Image.from_binary!(plain.resp_body)
+      assert Image.get_pixel!(image, 0, 0) |> Enum.uniq() == [255], options
+    end
+  end
+
   test "an opaque background on a grayscale image uses the color's gray value" do
     gray = image("/pad=1,0,0,1/bg=808080/format=png/src/image.png", png_origin(gray(:uchar)))
     assert Image.get_pixel!(gray, 0, 0) == [128]

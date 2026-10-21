@@ -167,6 +167,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   its garbage collection.
 - A downloaded original is written to disk in 64 KiB batches instead of one
   write per network read, which takes less CPU for a large original.
+- With `format=jpeg`, `pad` and `extend` fill with white directly, instead
+  of adding transparency that the encoder then flattens onto white. This
+  takes less time to encode and gives the same image, unless
+  `:max_result_width`, `:max_result_height`, or `:max_result_pixels` then
+  scale it down. Then pixels next to the padding can differ.
 - A `detect` or `anchor=smart-face` request decodes and buffers less when no
   detection will run:
   - The detector isn't available for any of the requested classes.

@@ -1,5 +1,8 @@
 defmodule ImagePipe.Transform.Operation.ExtendCanvas do
   # Embeds the image into a same-size-or-larger transparent canvas without resampling.
+  # With `fill: :white`, an image without alpha gets an opaque white canvas
+  # instead: the white the encoder flattens transparency onto for an output
+  # format without alpha.
   #
   # The executor resolves the canvas size for letterboxing, padding, or
   # aspect-ratio extension, at least the current image size on each axis.
@@ -30,14 +33,16 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
             height: nil,
             gravity: {:anchor, :center, :center},
             x_offset: 0.0,
-            y_offset: 0.0
+            y_offset: 0.0,
+            fill: :transparent
 
   @type t :: %__MODULE__{
           width: pos_integer(),
           height: pos_integer(),
           gravity: {:anchor, :left | :center | :right, :top | :center | :bottom},
           x_offset: number(),
-          y_offset: number()
+          y_offset: number(),
+          fill: :transparent | :white
         }
 
   # Dialyzer narrows `embed_image`'s return (via the Vix `embed` typing below) and
@@ -76,8 +81,23 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
     {x, y} =
       resolved_embed_offset(operation, image_width(state), image_height(state), width, height)
 
-    with {:ok, image} <- Alpha.ensure(state.image) do
-      Image.embed(image, width, height, x: x, y: y, background: [0, 0, 0, 0])
+    if operation.fill == :white and not Image.has_alpha?(state.image) do
+      embed_white(state.image, width, height, x, y)
+    else
+      with {:ok, image} <- Alpha.ensure(state.image) do
+        Image.embed(image, width, height, x: x, y: y, background: [0, 0, 0, 0])
+      end
+    end
+  end
+
+  # The same white as the encoder's flatten, in the image's own bands.
+  defp embed_white(image, width, height, x, y) do
+    with {:ok, white} <- Image.Pixel.to_pixel(image, [255, 255, 255]) do
+      Image.embed(image, width, height,
+        x: x,
+        y: y,
+        background: Enum.take(white, Image.bands(image))
+      )
     end
   end
 
