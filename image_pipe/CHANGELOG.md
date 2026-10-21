@@ -183,6 +183,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   holds only `unset` options. Before, they moved to the next group, so
   `w=unset/-/blur=2` with a default `w=200` was still resized to 200
   pixels wide.
+- A cached image whose delivery failed after its headers were sent logs its
+  request line at `error`, with status `200`. Before, the line had no status
+  and logged at `warning`.
 - Identical requests for a new original share one download while up to
   4,096 other downloads are in flight. Before, from the 64th slow download
   on, each identical request downloaded the original itself.

@@ -150,7 +150,8 @@ defmodule ImagePipe.Response.Sender do
 
         transport_error?(exception) ->
           Logger.error("cached_body_read_error: #{Exception.message(exception)}")
-          mark_send_processing_error(conn)
+          # The conn is the one from before send_file, so it has no status.
+          mark_send_processing_error(%{conn | state: :file, status: 200})
 
         true ->
           send_open_file(conn, file)
