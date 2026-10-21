@@ -21,7 +21,10 @@ defmodule ImagePipe.Plug do
   instance instead.
 
   The URLs a mount serves are described in
-  [Requesting images](requesting-images.md).
+  [Requesting images](requesting-images.md). A mount checks their signatures
+  with the configuration's `:keys`. Without `:keys`, it raises `ArgumentError`
+  on every request unless the configuration sets `allow_unsigned: true`. See
+  [Signing URLs](signing-urls.md).
 
   ## Mounting an instance
 

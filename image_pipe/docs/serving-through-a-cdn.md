@@ -19,15 +19,7 @@ immutable sources. Set `http_cache` to `auto` so responses carry a
 
 ```elixir
 # lib/my_app_web/router.ex
-forward "/images", ImagePipe.Plug,
-  http_cache: :auto,
-  sources: [
-    media: [
-      adapter: ImagePipe.Source.File,
-      match: :path,
-      options: [root: "/srv/images", root_id: "media"]
-    ]
-  ]
+forward "/images", ImagePipe.Plug, http_cache: :auto, sources: [...]
 ```
 
 ### image_pipe_server

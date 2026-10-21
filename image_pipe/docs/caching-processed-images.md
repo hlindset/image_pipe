@@ -26,6 +26,7 @@ to your application's supervision tree, before the endpoint:
 children = [
   {ImagePipe,
    name: MyApp.Images,
+   allow_unsigned: true,
    sources: [
      media: [
        adapter: ImagePipe.Source.File,

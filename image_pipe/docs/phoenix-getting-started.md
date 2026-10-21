@@ -61,6 +61,7 @@ children = [
   # ...
   {ImagePipe,
    name: Gallery.Images,
+   allow_unsigned: true,
    sources: [
      originals: [
        adapter: ImagePipe.Source.File,
@@ -80,6 +81,10 @@ named `originals`. A source is a place ImagePipe reads originals from:
 - `match: :path` sends every image path in a URL to this source.
 - `root` is that directory, `priv/originals` in our app.
 - `root_id` is a stable name for this directory.
+
+`allow_unsigned: true` lets the instance serve image URLs that our app hasn't
+signed, which is fine while it runs on our own machine. The end of this guide
+says what to change before deploying.
 
 ## Mounting the Plug
 
@@ -242,6 +247,6 @@ the template. From here:
 - `ImagePipe.URL.Helpers`: what `image_url` checks, and failing the build or
   tests on a mistake.
 
-Before deploying, set up [URL signing](signing-urls.md) so only your app can
-create image URLs, and [caching](caching-processed-images.md) so each copy is
-processed once.
+Before deploying, set up [URL signing](signing-urls.md) and remove
+`allow_unsigned`, so only your app can create image URLs. Set up
+[caching](caching-processed-images.md) so each copy is processed once.

@@ -74,8 +74,10 @@ defmodule ImagePipe do
   which belong to a mount, a source, or a request.
 
   `keys` and `source_encryption_keys` set which URLs an `ImagePipe.Plug`
-  mount accepts. `base_url`, `encrypt_source`, and `iv_mode` only affect URLs
-  built from the configuration with `url_config/1`.
+  mount accepts. Without `keys`, a mount raises `ArgumentError` on every
+  request unless `allow_unsigned` is `true`. `base_url`, `encrypt_source`,
+  and `iv_mode` only affect URLs built from the configuration with
+  `url_config/1`.
 
   ## Options
 

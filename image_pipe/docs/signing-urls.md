@@ -84,7 +84,9 @@ ImagePipe.URL.url!(thumbnail, "photos/beach.jpg")
 ```
 
 Generate URLs in server code, such as a controller or template, and send the
-browser only the finished URL. Assign `thumbnail` to the template, then:
+browser only the finished URL. ImagePipe accepts any signed URL, so check a
+value your app takes from a visitor, such as a width from a query string,
+before you put it in a URL. Assign `thumbnail` to the template, then:
 
 ```heex
 <img src={ImagePipe.URL.url!(@thumbnail, @photo.source)} />
@@ -157,6 +159,39 @@ signed with the old key was requested. With one shared `[new, old]` list,
 the old key is `sig_key=1`. In your app, a custom handler reads the same
 number as `:sig_key` from the
 [`[:request, :summary]`](telemetry-events.md#request-summary) event.
+
+## Allow unsigned URLs
+
+> #### Unsigned URLs belong on a private network {: .warning}
+>
+> Anyone who can reach a server that accepts unsigned URLs chooses every
+> option of every request, and each request costs the server CPU and memory.
+> Serve public traffic, including traffic through a CDN, with signed URLs.
+
+Without signing keys, `image_pipe_server` doesn't start, and `ImagePipe.Plug`
+raises `ArgumentError` on every request. For a server that only your own
+services can reach, allow unsigned URLs:
+
+<!-- tabs-open -->
+
+### image_pipe_server
+
+```toml
+[url]
+allow_unsigned = true
+```
+
+### Plug
+
+```elixir
+# lib/my_app/application.ex
+{ImagePipe, name: MyApp.Images, allow_unsigned: true, sources: [...]}
+```
+
+<!-- tabs-close -->
+
+`image_pipe_server` and an `ImagePipe` instance then log a warning when they
+start.
 
 ## Next steps
 
