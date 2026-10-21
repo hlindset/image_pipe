@@ -66,6 +66,32 @@ defmodule ImagePipe.API.PngBitdepthWireTest do
     end
   end
 
+  test "a 16-bit source narrows to 8 bits by rounding" do
+    for {color, interpretation} <- [
+          {[65_400, 129, 65_400], :VIPS_INTERPRETATION_RGB16},
+          {[65_400], :VIPS_INTERPRETATION_GREY16},
+          {[129], :VIPS_INTERPRETATION_GREY16},
+          {[65_400, 129], :VIPS_INTERPRETATION_GREY16}
+        ],
+        options <- [
+          "format=png",
+          "format=webp/webp-options=lossless",
+          "format=png/hdr=preserve/png-options=bitdepth:8"
+        ] do
+      {:ok, source} = Image.new(16, 16, color: color, format: {:u, 16})
+      {:ok, source} = Operation.copy(source, interpretation: interpretation)
+      body = Image.write!(source, :memory, suffix: ".png")
+
+      response = response(options, body)
+      assert response.status == 200, "#{options} #{inspect(color)}"
+
+      image = Image.from_binary!(response.resp_body)
+      expected = color |> Enum.map(&round(&1 / 257)) |> as_bands(Image.bands(image))
+
+      assert Image.get_pixel!(image, 8, 8) == expected, "#{options} #{inspect(color)}"
+    end
+  end
+
   test "q doesn't change a palette PNG at 16 bits" do
     body = 16 |> Image.new!(16, color: [128, 64, 200]) |> Image.write!(:memory, suffix: ".png")
 
@@ -91,6 +117,11 @@ defmodule ImagePipe.API.PngBitdepthWireTest do
       assert {:ok, _image} = Image.from_binary(response.resp_body)
     end
   end
+
+  # WebP stores gray as color.
+  defp as_bands([gray], 3), do: [gray, gray, gray]
+  defp as_bands([gray, alpha], 4), do: [gray, gray, gray, alpha]
+  defp as_bands(pixel, _bands), do: pixel
 
   defp response(options, body) do
     origin = fn conn -> conn |> put_resp_content_type("image/png") |> send_resp(200, body) end
